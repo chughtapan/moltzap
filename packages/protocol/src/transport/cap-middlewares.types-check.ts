@@ -20,11 +20,14 @@ import {
   PrincipalGateMw,
   ConversationInTaskMw,
   ConversationSendAccessMw,
+  type MiddlewareRequirementKey,
 } from "./cap-middlewares.js";
 import {
   ConversationInTask,
   ConversationSendAccess,
 } from "../task/capabilities/index.js";
+import { ConversationCreateAuthorization } from "../task/capabilities/conversation-create-authorization.js";
+import type { CapabilityRequirement, Requirement } from "./requirements.js";
 import type { ParamsOf } from "./method.js";
 import type { MessagesSend, MessagesList } from "../task/messages.js";
 import type {
@@ -44,6 +47,32 @@ type Equal<A, B> =
     ? true
     : false;
 type Extends<A, B> = [A] extends [B] ? true : false;
+
+// ── requirement registry totality — the boot-guard replacement ────────────────
+//
+// The engine binding's `requirementMiddleware[cap.key]` lookup
+// (`server-engine-group.ts → buildEngineMember`) is total with NO cast because
+// every `CapabilityRequirement`'s `.key` is a `MiddlewareRequirementKey`. These
+// canaries pin that correspondence at the type level, so a descriptor naming a
+// cap requirement with no registered middleware fails to COMPILE — the guarantee
+// the deleted boot-time gating walk (`findEngineGatingMismatch`) used to enforce
+// at runtime.
+
+// Every registered `CapabilityRequirement`'s key is a `MiddlewareRequirementKey`,
+// so the total-map lookup is exhaustive without a cast.
+type _CapKeysAreMwKeys = Expect<
+  Extends<CapabilityRequirement["key"], MiddlewareRequirementKey>
+>;
+// A `CapabilityRequirement` is a `Requirement`, so it is admissible in `requires`.
+type _CapIsRequirement = Expect<Extends<CapabilityRequirement, Requirement>>;
+// A capability tag with NO registered middleware (`ConversationCreateAuthorization`
+// has no `requirementMiddleware` entry) is NOT a `Requirement` — listing it in a
+// descriptor's `requires` is a compile error at the `defineRpc` call.
+type _UnregisteredCapNotRequirement = Expect<
+  Extends<typeof ConversationCreateAuthorization, Requirement> extends true
+    ? false
+    : true
+>;
 
 // ── mw.provides — a cap middleware provides its capability Tag ────────────
 
@@ -146,6 +175,9 @@ type _CparReach = Expect<
 >;
 
 export type {
+  _CapKeysAreMwKeys,
+  _CapIsRequirement,
+  _UnregisteredCapNotRequirement,
   _CitProvides,
   _CsaProvides,
   _GateNoProvides,

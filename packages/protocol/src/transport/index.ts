@@ -33,7 +33,6 @@ export type {
   ResultOf,
   NotificationParamsOf,
   RpcErrorClass,
-  Requirement,
   CallErrorsOf,
   DomainErrorsOf,
   RequirementErrorsOf,
@@ -158,9 +157,10 @@ export {
   principalRequirementOf,
   requiresClaimed,
   capRequirementsOf,
-  requirementKindOf,
 } from "./requirements.js";
 export type {
+  Requirement,
+  CapabilityRequirement,
   PrincipalRequirement,
   PrincipalRequirementOf,
 } from "./requirements.js";

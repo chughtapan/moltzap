@@ -8,7 +8,7 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`AgentCallableGroup`](./client-callable-groups.ts#L131)
+### [`AgentCallableGroup`](./client-callable-groups.ts#L129)
 
 _Variable_
 
@@ -23,7 +23,7 @@ The outbound group a first-party AGENT client may originate: every
 empty-`requires` methods. A first-party `agentClient.taskClose(...)`
 (app-only) does not typecheck.
 
-### [`AgentClaimed`](./requirements.ts#L59)
+### [`AgentClaimed`](./requirements.ts#L71)
 
 _Class_
 
@@ -31,7 +31,6 @@ _Class_
 export class AgentClaimed extends Context.Tag(
   "@moltzap/protocol/requirement/AgentClaimed",
 )<AgentClaimed, Principal>() {
-  static readonly requirementKind = "agent-claimed" as const;
   static get errors() {
     return [ForbiddenError] as const;
   }
@@ -43,7 +42,7 @@ Type-paired with AgentPrincipal — it reads `connection.auth.agentStatus`
 and is meaningless without a preceding agent principal. Fails `Forbidden` on a
 not-yet-claimed agent.
 
-### [`AgentPrincipal`](./requirements.ts#L30)
+### [`AgentPrincipal`](./requirements.ts#L44)
 
 _Class_
 
@@ -51,7 +50,6 @@ _Class_
 export class AgentPrincipal extends Context.Tag(
   "@moltzap/protocol/requirement/AgentPrincipal",
 )<AgentPrincipal, Principal>() {
-  static readonly requirementKind = "agent-principal" as const;
   static get errors() {
     return principalGateErrorClasses;
   }
@@ -79,7 +77,7 @@ export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
 A principal (agent or app) already holds an active connection. The
 `principal` discriminator names which arm the conflict is on.
 
-### [`AppCallableGroup`](./client-callable-groups.ts#L141)
+### [`AppCallableGroup`](./client-callable-groups.ts#L139)
 
 _Variable_
 
@@ -126,7 +124,7 @@ explicitly. `TaskCreate` is the server-initiated callback fired
 after `task/request` lands the task in `waiting`; the app's typed
 verdict drives the lifecycle transition.
 
-### [`AppPrincipal`](./requirements.ts#L44)
+### [`AppPrincipal`](./requirements.ts#L57)
 
 _Class_
 
@@ -134,7 +132,6 @@ _Class_
 export class AppPrincipal extends Context.Tag(
   "@moltzap/protocol/requirement/AppPrincipal",
 )<AppPrincipal, Principal>() {
-  static readonly requirementKind = "app-principal" as const;
   static get errors() {
     return principalGateErrorClasses;
   }
@@ -172,7 +169,7 @@ guarantees an agent caller; an app arm here is a wiring defect, not a
 caller-actionable error. Effect.die (not a caller-visible error)
 because the principal gate already rejected non-agent callers.
 
-### [`CallErrorsOf`](./method.ts#L212)
+### [`CallErrorsOf`](./method.ts#L179)
 
 _TypeAlias_
 
@@ -192,18 +189,65 @@ transport errors. This is exactly what the typed client surfaces on
 `client["method/name"](payload)`'s Effect — the same union the wire
 `errorSchema` decodes, plus transport.
 
-### [`capRequirementsOf`](./requirements.ts#L126)
+### [`CapabilityRequirement`](./requirements.ts#L89)
+
+_TypeAlias_
+
+```ts
+export type CapabilityRequirement =
+  | typeof ConversationInTask
+  | typeof ConversationSendAccess
+  | typeof TaskReadAccess
+  | typeof ContactPolicyAllowsReach;
+
+/**
+ * One entry in a method's `requires` list: a principal requirement, the
+ * agent-only `AgentClaimed` refinement, or a capability requirement. The genuine
+ * closed union of the actual requirement tag classes — every classifier below
+ * narrows it by tag-class IDENTITY, and every consumer reads `.errors` / `.key`
+ * off it directly (no structural cast, no variance-erased `Context.Tag` escape
+ * hatch).
+ */
+export type Requirement =
+  | PrincipalRequirement
+  | typeof AgentClaimed
+  | CapabilityRequirement;
+
+/**
+ * The principal requirement that heads a `requires` list, or `undefined` when
+ * `requires` is empty (only `network/connect`, dispatched pre-auth). A READ of
+ * `requires`, not a separate field — the client groups partition on this head
+ * tag and the server gate narrows to it. Matches the head by tag-class identity.
+ */
+export const principalRequirementOf = (
+  requires: ReadonlyArray<Requirement>,
+): PrincipalRequirement | undefined => {
+  const head = requires[0];
+  return head === AgentPrincipal || head === AppPrincipal ? head : undefined;
+};
+```
+
+A capability requirement: one of the capability tags the server gates with a
+cap middleware. Its `.key` is a `MiddlewareRequirementKey` by construction, so
+the engine binding's `requirementMiddleware[cap.key]` lookup is total with no
+cast — and a descriptor listing a cap with no registered middleware is a
+COMPILE error (the cap is not in this union).
+
+### [`capRequirementsOf`](./requirements.ts#L146)
 
 _Function_
 
 ```ts
 export const capRequirementsOf = (
-  requires: ReadonlyArray<RequirementTag>,
-): ReadonlyArray<RequirementTag>
+  requires: ReadonlyArray<Requirement>,
+): ReadonlyArray<CapabilityRequirement>
 ```
 
-The capability tags in a `requires` list — every entry that is NOT a principal
-requirement or the `AgentClaimed` refinement, in declared order.
+The capability requirements in a `requires` list — every entry that is NOT a
+principal requirement or the `AgentClaimed` refinement, in declared order. The
+type guard narrows `Requirement` → CapabilityRequirement by identity,
+so each result's `.key` is a `MiddlewareRequirementKey` (the total-map lookup
+needs no cast).
 
 ### [`ChannelProtocol`](./mux.ts#L284)
 
@@ -262,7 +306,7 @@ export class ConflictError extends Schema.TaggedError<ConflictError>()(
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
 
-### [`ContactPolicyAllowsReachMw`](./cap-middlewares.ts#L74)
+### [`ContactPolicyAllowsReachMw`](./cap-middlewares.ts#L73)
 
 _Class_
 
@@ -276,7 +320,7 @@ export class ContactPolicyAllowsReachMw extends RpcMiddleware.Tag<ContactPolicyA
 ) {}
 ```
 
-### [`ConversationInTaskMw`](./cap-middlewares.ts#L56)
+### [`ConversationInTaskMw`](./cap-middlewares.ts#L55)
 
 _Class_
 
@@ -287,7 +331,7 @@ export class ConversationInTaskMw extends RpcMiddleware.Tag<ConversationInTaskMw
 ) {}
 ```
 
-### [`ConversationSendAccessMw`](./cap-middlewares.ts#L61)
+### [`ConversationSendAccessMw`](./cap-middlewares.ts#L60)
 
 _Class_
 
@@ -431,7 +475,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L446)
+### [`decodeRpcResult`](./method.ts#L409)
 
 _Function_
 
@@ -446,7 +490,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L416)
+### [`defineNotification`](./method.ts#L379)
 
 _Function_
 
@@ -461,7 +505,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema and response encoder —
 notifications are fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L310)
+### [`defineRpc`](./method.ts#L273)
 
 _Function_
 
@@ -548,7 +592,7 @@ error. Leaf call sites pass a literal tag and recover the precise types; a
 caller generic over `K` keeps the correlation because the map is keyed on the
 literal tag, not on a widened def union.
 
-### [`DomainErrorsOf`](./method.ts#L188)
+### [`DomainErrorsOf`](./method.ts#L155)
 
 _TypeAlias_
 
@@ -564,7 +608,7 @@ export type DomainErrorsOf<
 
 The handler-domain error instance union a descriptor declares.
 
-### [`effectiveErrorClasses`](./method.ts#L236)
+### [`effectiveErrorClasses`](./method.ts#L203)
 
 _Function_
 
@@ -689,7 +733,7 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
 ): notification is DecodedNotification<D>
 ```
 
-### [`isUnauthenticatedMethod`](./server-engine-group.ts#L55)
+### [`isUnauthenticatedMethod`](./server-engine-group.ts#L54)
 
 _Function_
 
@@ -870,7 +914,7 @@ Inbound frame failed to parse as JSON or did not match the expected shape.
 Transport-internal — not a wire `error` union member (never crosses the wire
 as a method failure).
 
-### [`MiddlewareRequirementKey`](./cap-middlewares.ts#L90)
+### [`MiddlewareRequirementKey`](./cap-middlewares.ts#L89)
 
 _TypeAlias_
 
@@ -961,7 +1005,7 @@ The envelope's decoded form. `ch` is narrowed to MuxChannel;
 `f` is the per-endpoint encoded wire string awaiting that endpoint's
 Parser.
 
-### [`MwForRequirement`](./cap-middlewares.ts#L126)
+### [`MwForRequirement`](./cap-middlewares.ts#L125)
 
 _TypeAlias_
 
@@ -977,7 +1021,7 @@ from the Layer's residual requirement — the proof-exclusion guarantee). Both
 principal requirements map to `PrincipalGateMw`; the `AgentClaimed` refinement
 carries no middleware (maps to `never`).
 
-### [`MwStackFor`](./cap-middlewares.ts#L147)
+### [`MwStackFor`](./cap-middlewares.ts#L146)
 
 _TypeAlias_
 
@@ -1053,7 +1097,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](./method.ts#L393)
+### [`NotificationDefinition`](./method.ts#L356)
 
 _Interface_
 
@@ -1122,7 +1166,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L404)
+### [`NotificationParamsOf`](./method.ts#L367)
 
 _TypeAlias_
 
@@ -1150,7 +1194,7 @@ channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
 machinery as the moderator callbacks folded into ReverseRpcGroup.
 
-### [`ParamsOf`](./method.ts#L144)
+### [`ParamsOf`](./method.ts#L111)
 
 _TypeAlias_
 
@@ -1214,7 +1258,7 @@ export const principalGateErrorClasses = [
 
 The principal-gate error classes every authenticated method's gate can fail with.
 
-### [`PrincipalGateMw`](./cap-middlewares.ts#L51)
+### [`PrincipalGateMw`](./cap-middlewares.ts#L50)
 
 _Class_
 
@@ -1229,49 +1273,83 @@ The principal gate: narrows the live connection to the method's principal arm
 and fails `Unauthorized` / `Forbidden`. No `provides` — the handler reads the
 narrowed arm off `ConnectionTag`. Stacked first on every authenticated method.
 
-### [`PrincipalRequirement`](./requirements.ts#L77)
+### [`PrincipalRequirement`](./requirements.ts#L80)
 
 _TypeAlias_
 
 ```ts
 export type PrincipalRequirement = typeof AgentPrincipal | typeof AppPrincipal;
 
-/** A requirement tag's static `requirementKind` marker, or undefined (a cap). */
-export const requirementKindOf = (
-  requirement: RequirementTag,
-): string | undefined =>
+/**
+ * A capability requirement: one of the capability tags the server gates with a
+ * cap middleware. Its `.key` is a `MiddlewareRequirementKey` by construction, so
+ * the engine binding's `requirementMiddleware[cap.key]` lookup is total with no
+ * cast — and a descriptor listing a cap with no registered middleware is a
+ * COMPILE error (the cap is not in this union).
+ */
+export type CapabilityRequirement =
+  | typeof ConversationInTask
+  | typeof ConversationSendAccess
+  | typeof TaskReadAccess
+  | typeof ContactPolicyAllowsReach;
+
+/**
+ * One entry in a method's `requires` list: a principal requirement, the
+ * agent-only `AgentClaimed` refinement, or a capability requirement. The genuine
+ * closed union of the actual requirement tag classes — every classifier below
+ * narrows it by tag-class IDENTITY, and every consumer reads `.errors` / `.key`
+ * off it directly (no structural cast, no variance-erased `Context.Tag` escape
+ * hatch).
+ */
+export type Requirement =
+  | PrincipalRequirement
+  | typeof AgentClaimed
+  | CapabilityRequirement;
+
+/**
+ * The principal requirement that heads a `requires` list, or `undefined` when
+ * `requires` is empty (only `network/connect`, dispatched pre-auth). A READ of
+ * `requires`, not a separate field — the client groups partition on this head
+ * tag and the server gate narrows to it. Matches the head by tag-class identity.
+ */
+export const principalRequirementOf = (
+  requires: ReadonlyArray<Requirement>,
+): PrincipalRequirement | undefined => {
+  const head = requires[0];
+  return head === AgentPrincipal || head === AppPrincipal ? head : undefined;
+};
 ```
 
 The two principal-requirement tags — the only valid `requires` heads.
 
-### [`principalRequirementOf`](./requirements.ts#L91)
+### [`principalRequirementOf`](./requirements.ts#L114)
 
 _Function_
 
 ```ts
 export const principalRequirementOf = (
-  requires: ReadonlyArray<RequirementTag>,
+  requires: ReadonlyArray<Requirement>,
 ): PrincipalRequirement | undefined
 ```
 
 The principal requirement that heads a `requires` list, or `undefined` when
 `requires` is empty (only `network/connect`, dispatched pre-auth). A READ of
 `requires`, not a separate field — the client groups partition on this head
-tag and the server gate narrows to it.
+tag and the server gate narrows to it. Matches the head by tag-class identity.
 
-### [`PrincipalRequirementOf`](./requirements.ts#L107)
+### [`PrincipalRequirementOf`](./requirements.ts#L126)
 
 _TypeAlias_
 
 ```ts
 export type PrincipalRequirementOf<
-  Requires extends ReadonlyArray<Context.Tag<any, any>>,
+  Requires extends ReadonlyArray<Requirement>,
 > = Requires extends readonly [infer Head, ...ReadonlyArray<unknown>]
 ```
 
 The type-level principal requirement that heads a `requires` tuple, or
-`undefined` when empty. The type mirror of principalRequirementOf,
-discriminated on the head requirement's static `requirementKind` literal.
+`undefined` when empty or non-principal-headed. The type mirror of
+principalRequirementOf, discriminated on the head tag's identity.
 
 ### [`requestFrame`](./wire.ts#L206)
 
@@ -1305,35 +1383,38 @@ _Function_
 export function requestFrameSchema(): typeof RequestFrameSchema
 ```
 
-### [`Requirement`](./method.ts#L48)
+### [`Requirement`](./requirements.ts#L103)
 
 _TypeAlias_
 
 ```ts
-export type Requirement = Context.Tag<any, any>;
+export type Requirement =
+  | PrincipalRequirement
+  | typeof AgentClaimed
+  | CapabilityRequirement;
+
+/**
+ * The principal requirement that heads a `requires` list, or `undefined` when
+ * `requires` is empty (only `network/connect`, dispatched pre-auth). A READ of
+ * `requires`, not a separate field — the client groups partition on this head
+ * tag and the server gate narrows to it. Matches the head by tag-class identity.
+ */
+export const principalRequirementOf = (
+  requires: ReadonlyArray<Requirement>,
+): PrincipalRequirement | undefined => {
+  const head = requires[0];
+  return head === AgentPrincipal || head === AppPrincipal ? head : undefined;
+};
 ```
 
-A single entry in a method's `requires` list: an authority the caller must
-satisfy before the handler runs. Each requirement is a `Context.Tag` carrying
-its `static errors` tuple — the tagged-error classes its proof can fail with.
-The principal requirements (`AgentPrincipal` / `AppPrincipal`), the agent-only
-`AgentClaimed` refinement, and every capability tag are all `Requirement`s.
-The first element of a non-empty `requires` is exactly one principal
-requirement; the rest are the agent-claimed refinement and the capability
-tags, in run order.
+One entry in a method's `requires` list: a principal requirement, the
+agent-only `AgentClaimed` refinement, or a capability requirement. The genuine
+closed union of the actual requirement tag classes — every classifier below
+narrows it by tag-class IDENTITY, and every consumer reads `.errors` / `.key`
+off it directly (no structural cast, no variance-erased `Context.Tag` escape
+hatch).
 
-The descriptor folds every requirement's `errors` into the method's effective
-wire error union (RequirementErrorsOf), so a method inherits each
-requirement's failure modes with no re-declaration. The server stacks each
-requirement's `RpcMiddleware` (`requirementMiddlewareByKey`).
-
-The type is the plain `Context.Tag<any, any>` (not intersected with an
-`errors` member): a concrete tag class does not match an intersection whose
-other arm is the variance-laden Tag, so the `errors` static is read
-structurally by RequirementErrorClassesOf rather than constrained
-here.
-
-### [`RequirementErrorsOf`](./method.ts#L182)
+### [`RequirementErrorsOf`](./method.ts#L149)
 
 _TypeAlias_
 
@@ -1343,22 +1424,10 @@ export type RequirementErrorsOf<Requires extends ReadonlyArray<Requirement>> =
 
 The union of every requirement's error instances for a `requires` tuple: each
 requirement (principal, agent-claimed refinement, capability) declares its own
-`static errors`, read structurally. The lone empty `requires`
-(`network/connect`) yields `never`.
+`static errors`, read directly off the genuine Requirement union (no
+structural cast). The lone empty `requires` (`network/connect`) yields `never`.
 
-### [`requirementKindOf`](./requirements.ts#L80)
-
-_Function_
-
-```ts
-export const requirementKindOf = (
-  requirement: RequirementTag,
-): string | undefined
-```
-
-A requirement tag's static `requirementKind` marker, or undefined (a cap).
-
-### [`requirementMiddleware`](./cap-middlewares.ts#L108)
+### [`requirementMiddleware`](./cap-middlewares.ts#L107)
 
 _Variable_
 
@@ -1375,19 +1444,19 @@ map is TOTAL over MiddlewareRequirementKey (enforced by `satisfies`),
 so the lookup never returns `undefined` and the descriptor↔binding
 correspondence is compile-checked — no boot-time gating walk needed.
 
-### [`requiresClaimed`](./requirements.ts#L118)
+### [`requiresClaimed`](./requirements.ts#L135)
 
 _Function_
 
 ```ts
 export const requiresClaimed = (
-  requires: ReadonlyArray<RequirementTag>,
+  requires: ReadonlyArray<Requirement>,
 ): boolean
 ```
 
 Whether a `requires` list carries the agent-only `AgentClaimed` refinement.
 
-### [`ResponseErrorsOf`](./method.ts#L174)
+### [`ResponseErrorsOf`](./method.ts#L141)
 
 _TypeAlias_
 
@@ -1397,8 +1466,8 @@ export type ResponseErrorsOf = NotConnectedError | RpcTimeoutError;
 /**
  * The union of every requirement's error instances for a `requires` tuple: each
  * requirement (principal, agent-claimed refinement, capability) declares its own
- * `static errors`, read structurally. The lone empty `requires`
- * (`network/connect`) yields `never`.
+ * `static errors`, read directly off the genuine {@link Requirement} union (no
+ * structural cast). The lone empty `requires` (`network/connect`) yields `never`.
  */
 export type RequirementErrorsOf<Requires extends ReadonlyArray<Requirement>> =
 ```
@@ -1445,7 +1514,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](./method.ts#L156)
+### [`ResultOf`](./method.ts#L123)
 
 _TypeAlias_
 
@@ -1515,7 +1584,7 @@ export function routeInbound(
 ): Effect.Effect<void>
 ```
 
-### [`RpcDefinition`](./method.ts#L79)
+### [`RpcDefinition`](./method.ts#L46)
 
 _Interface_
 
@@ -1602,7 +1671,7 @@ guards wrap a `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
 requirement, and the descriptor folds each requirement's `errors` into the
 effective wire error union.
 
-### [`RpcErrorClass`](./method.ts#L24)
+### [`RpcErrorClass`](./method.ts#L25)
 
 _TypeAlias_
 
@@ -1660,7 +1729,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L435)
+### [`RpcResultDecodeError`](./method.ts#L398)
 
 _Class_
 
@@ -1732,7 +1801,7 @@ makeServerProtocolLayer, the handler bodies via
 runtime via its per-socket server-supplied `Layer`
 (`auth-middleware-layers.ts`).
 
-### [`ServerEngineRpcGroup`](./server-engine-group.ts#L167)
+### [`ServerEngineRpcGroup`](./server-engine-group.ts#L168)
 
 _Variable_
 
@@ -1765,7 +1834,7 @@ export type SuccessForTag<
 
 The success type one tag returns.
 
-### [`TaskReadAccessMw`](./cap-middlewares.ts#L69)
+### [`TaskReadAccessMw`](./cap-middlewares.ts#L68)
 
 _Class_
 
@@ -1793,7 +1862,7 @@ keyed by every member tag, each value the method's typed call
 `(payload) => Effect&lt;success, methodErrors | E>`. `E` is the engine's
 transport error (`RpcClientError`) the caller folds into its own channel.
 
-### [`UNAUTHENTICATED_METHODS`](./server-engine-group.ts#L43)
+### [`UNAUTHENTICATED_METHODS`](./server-engine-group.ts#L42)
 
 _Variable_
 
@@ -1809,7 +1878,7 @@ reviewed security decision — the partition canary
 (`server-engine-group.types-check.ts`) FAILS the build if a method is in
 neither partition or both.
 
-### [`UnauthenticatedMethod`](./server-engine-group.ts#L46)
+### [`UnauthenticatedMethod`](./server-engine-group.ts#L45)
 
 _TypeAlias_
 
@@ -1872,7 +1941,7 @@ The raw-write surface the mux drives. Mirrors the effect returned by
 `Socket.Socket["writer"]`: one call writes one chunk to the wire and
 fails with a Socket.SocketError if the socket is gone.
 
-### [`WsServerEngineRpcGroup`](./server-engine-group.ts#L189)
+### [`WsServerEngineRpcGroup`](./server-engine-group.ts#L190)
 
 _Variable_
 

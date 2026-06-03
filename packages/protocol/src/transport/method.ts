@@ -1,7 +1,8 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Data, Effect, Schema, type Context } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { closedStructGuard } from "../schema-primitives.js";
 import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
+import type { Requirement } from "./requirements.js";
 import {
   jsonRpcMethod,
   notificationFrame,
@@ -23,40 +24,6 @@ import {
  */
 export type RpcErrorClass = Schema.Schema.AnyNoContext &
   (new (...args: never[]) => { readonly _tag: string });
-
-/**
- * A single entry in a method's `requires` list: an authority the caller must
- * satisfy before the handler runs. Each requirement is a `Context.Tag` carrying
- * its `static errors` tuple — the tagged-error classes its proof can fail with.
- * The principal requirements (`AgentPrincipal` / `AppPrincipal`), the agent-only
- * `AgentClaimed` refinement, and every capability tag are all `Requirement`s.
- * The first element of a non-empty `requires` is exactly one principal
- * requirement; the rest are the agent-claimed refinement and the capability
- * tags, in run order.
- *
- * The descriptor folds every requirement's `errors` into the method's effective
- * wire error union ({@link RequirementErrorsOf}), so a method inherits each
- * requirement's failure modes with no re-declaration. The server stacks each
- * requirement's `RpcMiddleware` (`requirementMiddlewareByKey`).
- *
- * The type is the plain `Context.Tag<any, any>` (not intersected with an
- * `errors` member): a concrete tag class does not match an intersection whose
- * other arm is the variance-laden Tag, so the `errors` static is read
- * structurally by {@link RequirementErrorClassesOf} rather than constrained
- * here.
- */
-export type Requirement = Context.Tag<any, any>;
-
-/**
- * The error class tuple a requirement tag declares as its static `errors`, or
- * `[]` when it declares none. Read structurally off the tag class so
- * `Requirement` can stay the plain Tag type.
- */
-type RequirementErrorClassesOf<C> = C extends {
-  readonly errors: infer E extends ReadonlyArray<RpcErrorClass>;
-}
-  ? E
-  : readonly [];
 
 /**
  * Typed manifest for one RPC method: wire name + Effect `Schema` shapes +
@@ -176,11 +143,11 @@ export type ResponseErrorsOf = NotConnectedError | RpcTimeoutError;
 /**
  * The union of every requirement's error instances for a `requires` tuple: each
  * requirement (principal, agent-claimed refinement, capability) declares its own
- * `static errors`, read structurally. The lone empty `requires`
- * (`network/connect`) yields `never`.
+ * `static errors`, read directly off the genuine {@link Requirement} union (no
+ * structural cast). The lone empty `requires` (`network/connect`) yields `never`.
  */
 export type RequirementErrorsOf<Requires extends ReadonlyArray<Requirement>> =
-  InstanceType<RequirementErrorClassesOf<Requires[number]>[number]>;
+  InstanceType<Requires[number]["errors"][number]>;
 
 /**
  * The handler-domain error instance union a descriptor declares.
@@ -242,18 +209,14 @@ export function effectiveErrorClasses(
 }
 
 /**
- * Read a requirement tag's declared static `errors`, or `[]` when it declares
- * none. The `errors` static is not part of the `Requirement` type (a concrete
- * tag class will not match an intersection with the variance-laden Tag), so it
- * is read structurally here — the runtime mirror of
- * {@link RequirementErrorClassesOf}.
+ * Read a requirement tag's declared static `errors` — read directly off the
+ * genuine {@link Requirement} union (every requirement tag has `static errors`),
+ * the runtime mirror of {@link RequirementErrorsOf}.
  */
 function requirementErrorClasses(
   req: Requirement,
 ): ReadonlyArray<RpcErrorClass> {
-  const errors = (req as { readonly errors?: ReadonlyArray<RpcErrorClass> })
-    .errors;
-  return errors ?? [];
+  return req.errors;
 }
 
 /**
