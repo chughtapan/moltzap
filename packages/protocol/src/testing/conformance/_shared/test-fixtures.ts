@@ -15,16 +15,16 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import { Data, Effect, Schema } from "effect";
-import { UserId, AgentId, ContactId } from "../../../identity/methods.js";
-import type { ConnectionId } from "../../../network/actor-model.js";
-import { AppId } from "../../../task/ids.js";
-import type { AppManifest } from "../../../app/methods.js";
+import { UserId, AgentId, ContactId } from "../../../identity/index.js";
+import type { ConnectionId } from "../../../network/index.js";
+import { AppId } from "../../../task/index.js";
+import type { AppManifest } from "../../../app/index.js";
 import {
   ConversationId,
   LeaseId,
   MessageId,
   TaskId,
-} from "../../../task/methods.js";
+} from "../../../task/index.js";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;

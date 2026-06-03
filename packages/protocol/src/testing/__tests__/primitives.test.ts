@@ -38,8 +38,8 @@ import {
   arbitraryAnyCall,
 } from "../arbitraries/index.js";
 
-import { Connect } from "../../network/methods.js";
-import { TaskList } from "../../task/methods.js";
+import { Connect } from "../../network/index.js";
+import { TaskList } from "../../task/index.js";
 import {
   jsonRpcMethod,
   requestFrame,

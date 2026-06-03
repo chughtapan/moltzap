@@ -22,7 +22,7 @@ Re-exporting keeps external consumers on the public testing entrypoint.
 
 ## Public surface
 
-### [`CloseableTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L284)
+### [`CloseableTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L283)
 
 _Interface_
 
@@ -36,7 +36,7 @@ Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`makeCloseableTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L1358)
+### [`makeCloseableTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L1357)
 
 _Function_
 
@@ -49,7 +49,7 @@ export function makeCloseableTestClient(
 >
 ```
 
-### [`makeTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L1345)
+### [`makeTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L1344)
 
 _Function_
 
@@ -98,7 +98,7 @@ Construct an empty registry. Called once from
 finalizer — consumers see `emit.fail(TransportClosedError)` before
 the transport tears down.
 
-### [`ServerRequestWaitError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L256)
+### [`ServerRequestWaitError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L255)
 
 _Class_
 
@@ -112,7 +112,7 @@ export class ServerRequestWaitError extends Data.TaggedError(
 }> {}
 ```
 
-### [`ServerRpcContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L279)
+### [`ServerRpcContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L278)
 
 _Interface_
 
@@ -123,7 +123,7 @@ export interface ServerRpcContext {
 }
 ```
 
-### [`ServerRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L267)
+### [`ServerRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L266)
 
 _TypeAlias_
 
@@ -138,7 +138,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 Descriptor constraint for app-callback RPC test surface.
 
-### [`ServerRpcParams`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L272)
+### [`ServerRpcParams`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L271)
 
 _TypeAlias_
 
@@ -148,7 +148,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 Inbound params type for an app-callback method.
 
-### [`ServerRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L277)
+### [`ServerRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L276)
 
 _TypeAlias_
 
@@ -210,7 +210,7 @@ notification regardless of definition. Used by conformance helpers
 that need to filter on params-shaped predicates not expressible at
 the definition level (e.g. presence/changed by agentId+status).
 
-### [`TestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L141)
+### [`TestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L140)
 
 _Interface_
 
@@ -335,7 +335,7 @@ Handle surface. Scoped: acquiring the handle opens the WS; releasing the
 scope closes it. All methods return Effects so property code can compose
 them inside `Effect.forEach` / `fc.asyncProperty`.
 
-### [`TestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L141)
+### [`TestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L140)
 
 _Variable_
 
@@ -345,7 +345,7 @@ export interface TestClient
 
 Context tag so property code can `Effect.serviceWith(TestClient, …)`.
 
-### [`TestClientConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L100)
+### [`TestClientConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L99)
 
 _Interface_
 

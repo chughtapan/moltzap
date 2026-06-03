@@ -22,7 +22,7 @@ by name AND aggregates them into `NETWORK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L73)
+### [`acquireClient`](./_helpers.ts#L71)
 
 _Function_
 
@@ -38,7 +38,7 @@ export function acquireClient(
 >
 ```
 
-### [`acquireCloseableClient`](./_helpers.ts#L102)
+### [`acquireCloseableClient`](./_helpers.ts#L100)
 
 _Function_
 
@@ -51,7 +51,7 @@ export function acquireCloseableClient(
 ): Effect.Effect<CloseableTestClient, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`countPresenceChangedFor`](./_helpers.ts#L255)
+### [`countPresenceChangedFor`](./_helpers.ts#L253)
 
 _Function_
 
@@ -81,7 +81,7 @@ export const NETWORK_PROPERTIES: ReadonlyArray<
 
 All network-layer property registrars, in suite walk order.
 
-### [`PRESENCE_CATEGORY`](./_helpers.ts#L31)
+### [`PRESENCE_CATEGORY`](./_helpers.ts#L29)
 
 _Variable_
 
@@ -89,7 +89,7 @@ _Variable_
 export const PRESENCE_CATEGORY = "presence" as const
 ```
 
-### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L33)
+### [`PRESENCE_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L31)
 
 _Variable_
 
@@ -97,7 +97,7 @@ _Variable_
 export const PRESENCE_DEFAULT_CAPTURE_CAPACITY = 256
 ```
 
-### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L32)
+### [`PRESENCE_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L30)
 
 _Variable_
 
@@ -105,7 +105,7 @@ _Variable_
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`PresenceChangedPayload`](./_helpers.ts#L39)
+### [`PresenceChangedPayload`](./_helpers.ts#L37)
 
 _Interface_
 
@@ -116,7 +116,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`PresenceStatus`](./_helpers.ts#L37)
+### [`PresenceStatus`](./_helpers.ts#L35)
 
 _TypeAlias_
 
@@ -129,7 +129,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`presenceStatusesFor`](./_helpers.ts#L201)
+### [`presenceStatusesFor`](./_helpers.ts#L199)
 
 _Function_
 
@@ -140,7 +140,7 @@ export function presenceStatusesFor(
 ): Effect.Effect<ReadonlyArray<PresenceStatus>>
 ```
 
-### [`presenceViolation`](./_helpers.ts#L44)
+### [`presenceViolation`](./_helpers.ts#L42)
 
 _Function_
 
@@ -151,7 +151,7 @@ export function presenceViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`registerAgent`](./_helpers.ts#L55)
+### [`registerAgent`](./_helpers.ts#L53)
 
 _Function_
 
@@ -217,7 +217,7 @@ export function registerSubscribeAfterConnect(
 ): void
 ```
 
-### [`subscribePresence`](./_helpers.ts#L133)
+### [`subscribePresence`](./_helpers.ts#L131)
 
 _Function_
 
@@ -229,7 +229,7 @@ export function subscribePresence(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForPresenceWithStatus`](./_helpers.ts#L157)
+### [`waitForPresenceWithStatus`](./_helpers.ts#L155)
 
 _Function_
 

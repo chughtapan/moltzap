@@ -8,7 +8,7 @@ import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { inboundNotificationMethod } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import type { TestClient } from "../_shared/driver/test-client.js";
-import { ConversationId, MessagesSend, TaskId } from "../../../task/methods.js";
+import { ConversationId, MessagesSend, TaskId } from "../../../task/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,

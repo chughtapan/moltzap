@@ -1,6 +1,6 @@
 import { Effect, Ref } from "effect";
-import type { ResponseFrame } from "../../../transport/wire.js";
-import { responseFrame } from "../../../transport/wire.js";
+import type { ResponseFrame } from "../../../transport/index.js";
+import { responseFrame } from "../../index.js";
 import { encodeFrame } from "../_shared/frame-mutator.js";
 import type {
   LeaseRecord,

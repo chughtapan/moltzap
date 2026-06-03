@@ -1,6 +1,6 @@
 import { Deferred, Duration, Effect, Either, Fiber, Ref } from "effect";
-import type { RequestFrame, ResponseFrame } from "../../../transport/wire.js";
-import { Connect } from "../../../network/methods.js";
+import type { RequestFrame, ResponseFrame } from "../../../transport/index.js";
+import { Connect } from "../../../network/index.js";
 import {
   decodeFrame,
   isRequestFrame,

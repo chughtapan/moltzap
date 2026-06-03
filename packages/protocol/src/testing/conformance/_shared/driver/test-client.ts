@@ -34,28 +34,27 @@ import type {
   AnyServerRpcDefinition,
 } from "../../../../rpc-registry.js";
 import { appCallbackMethods } from "../../../../rpc-registry.js";
-import {
-  decodeRpcResult,
-  type NotificationParamsOf,
-  type ParamsOf,
-  type ResultOf,
-} from "../../../../transport/method.js";
-import {
-  decodeNotification,
-  decodeRpcRequest,
-  type DecodedNotification,
-  type DecodedRpcRequest,
-} from "../../../../transport/rpc-groups.js";
 import type {
+  NotificationParamsOf,
+  ParamsOf,
+  ResultOf,
+  DecodedNotification,
+  DecodedRpcRequest,
   NotificationFrame,
   RequestFrame,
   ResponseFrame,
-} from "../../../../transport/wire.js";
-import { requestFrame, responseFrame } from "../../../../transport/wire.js";
-import type { JsonRpcId } from "../../../../transport/wire.js";
+  JsonRpcId,
+} from "../../../../transport/index.js";
+import {
+  requestFrame,
+  responseFrame,
+  decodeRpcResult,
+  decodeNotification,
+  decodeRpcRequest,
+} from "../../../index.js";
 import type { AnyNotificationDefinition } from "../../../../rpc-registry.js";
 import { notificationDefinitions } from "../../../../rpc-registry.js";
-import { AgentId } from "../../../../identity/methods.js";
+import { AgentId } from "../../../../identity/index.js";
 import { PROTOCOL_VERSION } from "../../../../version.js";
 import {
   makeCaptureBuffer,
@@ -90,7 +89,7 @@ import {
   type TestSubscriberRegistry,
 } from "./test-subscribers.js";
 
-import { Connect } from "../../../../network/methods.js";
+import { Connect } from "../../../../network/index.js";
 
 /**
  * Options for connecting a TestClient. `serverUrl` is the `ws://…` URL of

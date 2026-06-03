@@ -12,7 +12,7 @@
  * scheduling noise).
  */
 import { Effect, Either } from "effect";
-import { DispatchAuthorize } from "../../../app/methods.js";
+import { DispatchAuthorize } from "../../../app/index.js";
 import {
   makeTestClient,
   type TestClient,

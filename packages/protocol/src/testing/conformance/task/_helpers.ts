@@ -15,8 +15,8 @@ import {
   Schema,
 } from "effect";
 import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
-import type { NotificationParamsOf } from "../../../transport/method.js";
-import type { DecodedNotification } from "../../../transport/rpc-groups.js";
+import type { NotificationParamsOf } from "../../../transport/index.js";
+import type { DecodedNotification } from "../../../transport/index.js";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
@@ -28,18 +28,18 @@ import {
   TaskConversationUnarchivedNotificationDefinition,
   TaskRequest,
   TaskId,
-} from "../../../task/methods.js";
+} from "../../../task/index.js";
 import {
   DispatchAuthorize,
   MessagesAuthorize,
   TaskCreate,
-} from "../../../app/methods.js";
+} from "../../../app/index.js";
 import {
   TaskConversationParticipantsAddedNotificationDefinition,
   TaskConversationParticipantsRemovedNotificationDefinition,
-} from "../../../task/methods.js";
-import { AppId as AppIdSchema } from "../../../task/ids.js";
-import { AgentId } from "../../../identity/methods.js";
+} from "../../../task/index.js";
+import { AppId as AppIdSchema } from "../../../task/index.js";
+import { AgentId } from "../../../identity/index.js";
 import {
   conversationId as makeConversationId,
   taskId as makeTaskId,

@@ -8,8 +8,8 @@
  * for ordinary client RPCs.
  */
 import { Duration, Effect, Either } from "effect";
-import { AgentsList } from "../../../identity/methods.js";
-import { responseFrame } from "../../../transport/wire.js";
+import { AgentsList } from "../../../identity/index.js";
+import { responseFrame } from "../../index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import { makeTestClient } from "../_shared/driver/test-client.js";

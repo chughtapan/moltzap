@@ -9,8 +9,8 @@ import {
 } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
-import type { RequestFrame, ResponseFrame } from "../../../transport/wire.js";
-import { responseFrame } from "../../../transport/wire.js";
+import type { RequestFrame, ResponseFrame } from "../../../transport/index.js";
+import { responseFrame } from "../../index.js";
 import {
   TaskConversationArchive,
   TaskConversationCreate,
@@ -19,7 +19,7 @@ import {
   TaskAddParticipant,
   TaskClose,
   TaskRequest,
-} from "../../../task/methods.js";
+} from "../../../task/index.js";
 import {
   decodeFrame,
   encodeFrame,
@@ -60,11 +60,11 @@ import {
   runExpectingFailure,
 } from "./executable-proof-helpers.js";
 
-import { AgentsList } from "../../../identity/methods.js";
-import { Connect } from "../../../network/methods.js";
-import { ContactsList } from "../../../identity/methods.js";
-import { TaskList } from "../../../task/methods.js";
-import { PresenceSubscribe } from "../../../network/methods.js";
+import { AgentsList } from "../../../identity/index.js";
+import { Connect } from "../../../network/index.js";
+import { ContactsList } from "../../../identity/index.js";
+import { TaskList } from "../../../task/index.js";
+import { PresenceSubscribe } from "../../../network/index.js";
 
 type BadServerBehavior =
   | "allow-unauthenticated"

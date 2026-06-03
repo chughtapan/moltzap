@@ -12,7 +12,7 @@
  * re-open with the same apiKey/agentId via `Effect.scoped`.
  */
 import { Effect } from "effect";
-import { MessagesSend } from "../../../task/methods.js";
+import { MessagesSend } from "../../../task/index.js";
 import { inboundNotificationMethod } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";

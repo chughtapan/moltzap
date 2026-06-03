@@ -16,12 +16,12 @@
  * `≤ N`. Duplicates and drops fail symmetrically.
  */
 import { Effect, type Scope } from "effect";
-import { notificationFrame } from "../../../transport/wire.js";
+import { notificationFrame } from "../../index.js";
 import {
   MessageReceivedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,
-} from "../../../task/methods.js";
+} from "../../../task/index.js";
 import {
   agentId,
   conversationId as toConversationId,

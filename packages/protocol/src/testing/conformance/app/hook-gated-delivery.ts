@@ -8,7 +8,7 @@
  * the registry category derives from the call-site, not the file path.
  */
 import { Effect } from "effect";
-import { TaskRequest } from "../../../task/methods.js";
+import { TaskRequest } from "../../../task/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyDeferred, registerProperty } from "../_shared/registry.js";
 

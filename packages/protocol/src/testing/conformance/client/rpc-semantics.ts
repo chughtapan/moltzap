@@ -12,7 +12,8 @@
  * request-id-uniqueness asserts set equality — no typed-error involvement.
  */
 import { Effect, type Scope } from "effect";
-import { responseFrame, type JsonRpcId } from "../../../transport/wire.js";
+import type { JsonRpcId } from "../../../transport/index.js";
+import { responseFrame } from "../../index.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import type { PropertyFailure } from "../_shared/registry.js";
@@ -20,7 +21,7 @@ import { acquireFixture, invariant, type ClientFixture } from "./_fixtures.js";
 import { isRequestFrame } from "../_shared/frame-mutator.js";
 import type { CapturedFrame } from "../_shared/captures.js";
 
-import { AgentsList } from "../../../identity/methods.js";
+import { AgentsList } from "../../../identity/index.js";
 
 const CATEGORY = "rpc-semantics" as const;
 const CALL_BUDGET_MS = 5_000;

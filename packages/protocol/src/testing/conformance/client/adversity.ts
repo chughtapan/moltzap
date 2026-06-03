@@ -23,8 +23,8 @@
  * server-side adversity module's degradation contract.
  */
 import { Clock, Effect, type Exit, type Scope } from "effect";
-import { notificationFrame } from "../../../transport/wire.js";
-import { MessageReceivedNotificationDefinition } from "../../../task/methods.js";
+import { notificationFrame } from "../../index.js";
+import { MessageReceivedNotificationDefinition } from "../../../task/index.js";
 import {
   agentId,
   conversationId as toConversationId,
@@ -43,7 +43,7 @@ import {
 } from "./_fixtures.js";
 import type { PropertyFailure } from "../_shared/registry.js";
 
-import { AgentsList } from "../../../identity/methods.js";
+import { AgentsList } from "../../../identity/index.js";
 
 const CATEGORY = "adversity" as const;
 const PROPERTY_BUDGET_MS = 10_000;

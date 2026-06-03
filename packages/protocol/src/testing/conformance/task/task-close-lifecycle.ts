@@ -11,8 +11,8 @@ import {
   TaskClose,
   TaskConversationCreate,
   TaskRequest,
-} from "../../../task/methods.js";
-import type { TaskId } from "../../../task/methods.js";
+} from "../../../task/index.js";
+import type { TaskId } from "../../../task/index.js";
 import type { ModeratedHandle } from "./_helpers.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";

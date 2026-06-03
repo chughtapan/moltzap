@@ -15,10 +15,8 @@
  * throws. Errors are mapped into `PropertyFailure` tags before surfacing.
  */
 import { Effect, Scope } from "effect";
-import {
-  validateNotificationFrame,
-  type NotificationFrame,
-} from "../../../transport/wire.js";
+import type { NotificationFrame } from "../../../transport/index.js";
+import { validateNotificationFrame } from "../../index.js";
 import type { TestServerConnection } from "../_shared/driver/test-server.js";
 import {
   awaitConnection,

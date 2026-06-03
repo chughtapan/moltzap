@@ -23,7 +23,7 @@
  * ID stays `boundary/app-disconnect-fail-policy`.
  */
 import { Effect, type Scope } from "effect";
-import { TaskRequest } from "../../../task/methods.js";
+import { TaskRequest } from "../../../task/index.js";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import { registerTestApp, type TestApp } from "../_shared/test-app.js";

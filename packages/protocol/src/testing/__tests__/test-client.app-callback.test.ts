@@ -39,7 +39,7 @@ import type { RequestFrame, ResponseFrame } from "../../transport/wire.js";
 import { requestFrame, validateResponseFrame } from "../../transport/wire.js";
 import type { ParamsOf, RpcDefinition } from "../../transport/method.js";
 
-import { DispatchAuthorize } from "../../app/methods.js";
+import { DispatchAuthorize } from "../../app/index.js";
 import {
   agentId,
   conversationId,
