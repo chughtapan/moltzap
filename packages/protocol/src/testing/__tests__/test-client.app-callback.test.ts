@@ -35,9 +35,13 @@ import {
   type TestClient,
 } from "../conformance/_shared/driver/test-client.js";
 import { RpcResponseError } from "../conformance/_shared/errors.js";
-import type { RequestFrame, ResponseFrame } from "../../transport/wire.js";
-import { requestFrame, validateResponseFrame } from "../../transport/wire.js";
-import type { ParamsOf, RpcDefinition } from "../../transport/method.js";
+import type {
+  RequestFrame,
+  ResponseFrame,
+  ParamsOf,
+  RpcDefinition,
+} from "../../transport/index.js";
+import { requestFrame, validateResponseFrame } from "../index.js";
 
 import { DispatchAuthorize } from "../../app/index.js";
 import {

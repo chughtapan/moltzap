@@ -11,7 +11,7 @@
  * `serverRpcMethods` grows without the model being updated.
  */
 import { serverRpcMethods } from "../../rpc-registry.js";
-import type { NotificationFrame } from "../../transport/wire.js";
+import type { NotificationFrame } from "../../transport/index.js";
 import type { ArbitraryRpcCall } from "../arbitraries/rpc.js";
 import { mkTick, type ReferenceState } from "./state.js";
 

@@ -7,14 +7,16 @@
  */
 import * as fc from "fast-check";
 import {
-  JSON_RPC_VERSION,
-  requestFrameSchema,
-  responseFrameSchema,
   jsonRpcMethod,
   type RequestFrame,
   type ResponseFrame,
   type NotificationFrame,
-} from "../../transport/wire.js";
+} from "../../transport/index.js";
+import {
+  JSON_RPC_VERSION,
+  requestFrameSchema,
+  responseFrameSchema,
+} from "../index.js";
 import { notificationDefinitions } from "../../rpc-registry.js";
 import type {
   MalformedFrameKind,

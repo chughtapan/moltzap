@@ -85,7 +85,7 @@ re-exported `FastCheck.Arbitrary` — the SAME `fast-check` module the rest of
 the suite samples with (both pinned to fast-check v3, the version Effect's
 `Arbitrary.make` binds to), so no cross-module cast is needed.
 
-### [`arbitraryMalformedFrame`](./frames.ts#L77)
+### [`arbitraryMalformedFrame`](./frames.ts#L79)
 
 _Function_
 
@@ -93,7 +93,7 @@ _Function_
 export function arbitraryMalformedFrame(): fc.Arbitrary<ArbitraryMalformedFrame>
 ```
 
-### [`ArbitraryMalformedFrame`](./frames.ts#L71)
+### [`ArbitraryMalformedFrame`](./frames.ts#L73)
 
 _Interface_
 
@@ -108,7 +108,7 @@ export interface ArbitraryMalformedFrame {
 Arbitrary of a `(baseFrame, MalformedFrameKind, seed)` tuple so Tier A /
 D can replay a specific mutation on shrink.
 
-### [`arbitraryNotificationFrame`](./frames.ts#L48)
+### [`arbitraryNotificationFrame`](./frames.ts#L50)
 
 _Function_
 
@@ -116,7 +116,7 @@ _Function_
 export function arbitraryNotificationFrame(): fc.Arbitrary<NotificationFrame>
 ```
 
-### [`arbitraryRequestFrame`](./frames.ts#L38)
+### [`arbitraryRequestFrame`](./frames.ts#L40)
 
 _Function_
 
@@ -124,7 +124,7 @@ _Function_
 export function arbitraryRequestFrame(): fc.Arbitrary<RequestFrame>
 ```
 
-### [`arbitraryResponseFrame`](./frames.ts#L42)
+### [`arbitraryResponseFrame`](./frames.ts#L44)
 
 _Function_
 
