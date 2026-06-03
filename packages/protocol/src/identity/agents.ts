@@ -8,6 +8,7 @@ import {
 } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc } from "../transport/method.js";
+import { AgentPrincipal, AgentClaimed } from "../transport/requirements.js";
 import {
   ConflictError,
   UnauthorizedError,
@@ -96,6 +97,9 @@ export const Register = defineRpc({
     claimUrl: formatString("uri"),
     claimToken: Schema.String,
   }),
+  // HTTP-only: served over `http-routes.ts`, never WS-dispatched, so it carries
+  // no principal requirement. The `paramsSchema` here is the HTTP body schema.
+  requires: [],
   errors: [ConflictError],
 });
 
@@ -139,6 +143,8 @@ export const Claim = defineRpc({
     agentId: AgentId,
     ownerUserId: formatString("uuid"),
   }),
+  // HTTP-only (see `agents/register`): no principal requirement.
+  requires: [],
   errors: [UnauthorizedError, ForbiddenError],
 });
 
@@ -154,7 +160,7 @@ export const AgentsLookup = defineRpc({
     ),
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
-  callablePrincipal: "agent",
+  requires: [AgentPrincipal],
   errors: [],
 });
 
@@ -169,7 +175,7 @@ export const AgentsLookupByName = defineRpc({
     ).pipe(Schema.minItems(1), Schema.maxItems(100)),
   }),
   result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
-  callablePrincipal: "agent",
+  requires: [AgentPrincipal],
   errors: [],
 });
 
@@ -186,7 +192,6 @@ export const AgentsList = defineRpc({
     agents: Schema.Array(AgentCardSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
-  callablePrincipal: "agent",
-  requiresActive: true,
+  requires: [AgentPrincipal, AgentClaimed],
   errors: [],
 });

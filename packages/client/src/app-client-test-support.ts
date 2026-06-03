@@ -145,9 +145,9 @@ const TEST_CONVERSATION_ID = conversationId(
 );
 const TEST_TASK_ID = taskId("44444444-4444-4444-8444-444444444444");
 // A `task/close` result for the transport-resilience probes. They drive an
-// app-callable method through the typed app client (`TaskClose`,
-// `callablePrincipal: "app"`); the response shape only matters for the two
-// tests that decode the result — the rest assert on socket lifecycle.
+// app-callable method through the typed app client (`TaskClose`, its `requires`
+// head is `AppPrincipal`); the response shape only matters for the two tests
+// that decode the result — the rest assert on socket lifecycle.
 const TEST_TASK_RESULT = {
   task: {
     id: TEST_TASK_ID,

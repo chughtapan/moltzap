@@ -33,13 +33,11 @@ export type {
   ResultOf,
   NotificationParamsOf,
   RpcErrorClass,
-  RpcCapTag,
-  CallablePrincipal,
+  Requirement,
   CallErrorsOf,
   DomainErrorsOf,
-  CapErrorsOf,
+  RequirementErrorsOf,
   ResponseErrorsOf,
-  PrincipalErrorClassesOf,
 } from "./method.js";
 export { effectiveErrorClasses } from "./method.js";
 
@@ -145,30 +143,45 @@ export { makeServerProtocolLayer, ServerEngineLayer } from "./server-engine.js";
 export {
   ServerEngineRpcGroup,
   WsServerEngineRpcGroup,
-  WS_ENGINE_MEMBER_COUNT,
-  assertWsEngineSize,
   UNAUTHENTICATED_METHODS,
   isUnauthenticatedMethod,
-  findEngineGatingMismatch,
 } from "./server-engine-group.js";
 export type { UnauthenticatedMethod } from "./server-engine-group.js";
 
+// The principal + refinement requirements — the head of a method's `requires`
+// list. `AgentPrincipal`/`AppPrincipal` narrow the connection to that arm;
+// `AgentClaimed` (agent-only) refines to a claimed agent.
+export {
+  AgentPrincipal,
+  AppPrincipal,
+  AgentClaimed,
+  principalRequirementOf,
+  requiresClaimed,
+  capRequirementsOf,
+  requirementKindOf,
+} from "./requirements.js";
+export type {
+  PrincipalRequirement,
+  PrincipalRequirementOf,
+} from "./requirements.js";
+
 // §F — the two first-party client-callable group projections of the
-// `serverRpcMethods` catalog, partitioned by each descriptor's
-// `callablePrincipal`. An agent client types against `AgentCallableGroup`, an
-// app client against `AppCallableGroup`, so a cross-principal call is a compile
-// error (the runtime gate stays the untrusted-peer backstop).
+// `serverRpcMethods` catalog, partitioned by each descriptor's principal
+// requirement (its `requires` head). An agent client types against
+// `AgentCallableGroup`, an app client against `AppCallableGroup`, so a
+// cross-principal call is a compile error (the runtime gate stays the
+// untrusted-peer backstop).
 export {
   AgentCallableGroup,
   AppCallableGroup,
 } from "./client-callable-groups.js";
 
-// Per-capability `@effect/rpc` middlewares. Each capability is its own
-// `RpcMiddleware.Tag`; the engine stacks the principal gate plus a method's
-// declared cap middlewares (`server-engine-group.ts → buildEngineMember`). Each
-// cap mw `provides` its capability `Context.Tag` and carries its own `failure`
-// (the cap's error union), which the engine unions into the method's wire error.
-// The server supplies each mw's impl as a per-socket Layer
+// Per-requirement `@effect/rpc` middlewares. Each requirement is its own
+// `RpcMiddleware.Tag`; the engine stacks one per `requires` entry
+// (`server-engine-group.ts → buildEngineMember`). Each cap mw `provides` its
+// capability `Context.Tag` and carries its own `failure` (the cap's error
+// union), which the engine unions into the method's wire error. The server
+// supplies each mw's impl as a per-socket Layer
 // (`server-core auth-middleware-layers.ts`).
 export {
   PrincipalGateMw,
@@ -176,7 +189,8 @@ export {
   ConversationSendAccessMw,
   TaskReadAccessMw,
   ContactPolicyAllowsReachMw,
-  capMiddlewareByCapKey,
-  type CapMwFor,
+  requirementMiddleware,
+  type MiddlewareRequirementKey,
+  type MwForRequirement,
   type MwStackFor,
 } from "./cap-middlewares.js";

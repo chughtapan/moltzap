@@ -2,7 +2,6 @@
 import { Data, Effect, Schema, type Context } from "effect";
 import { closedStructGuard } from "../schema-primitives.js";
 import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
-import { principalGateErrorClasses } from "./wire-errors.js";
 import {
   jsonRpcMethod,
   notificationFrame,
@@ -16,15 +15,6 @@ import {
 } from "./wire.js";
 
 /**
- * The calling-principal axis of one RPC: which principal arm may originate it.
- * `"agent"`/`"app"` gate the method to that arm; `"any"` is the lone
- * unauthenticated method (`network/connect`, dispatched while the arm is still
- * unauthenticated). This is the single descriptor-level source the client
- * groups partition on and the server's principal gate reads.
- */
-export type CallablePrincipal = "agent" | "app" | "any";
-
-/**
  * A wire-discriminable tagged-error CLASS: a `Schema.TaggedError`-derived class
  * usable both as the runtime constructor and as a `Schema` for the wire `error`
  * union. The `_tag` literal is the union discriminant the engine decodes against;
@@ -35,27 +25,34 @@ export type RpcErrorClass = Schema.Schema.AnyNoContext &
   (new (...args: never[]) => { readonly _tag: string });
 
 /**
- * A capability tag a method requires: a `Context.Tag` (the proof the per-method
- * middleware provides). A capability IS a middleware — it resolves a proof into
- * context and declares its own `errors` (the tagged-error classes its
- * derive/obtain can fail with) as a static tuple on the tag class. The
- * descriptor unions every cap's `errors` into the method's effective error
- * channel ({@link CapErrorsOf}), so a method that requires a cap inherits that
- * cap's failure modes with no re-declaration.
+ * A single entry in a method's `requires` list: an authority the caller must
+ * satisfy before the handler runs. Each requirement is a `Context.Tag` carrying
+ * its `static errors` tuple — the tagged-error classes its proof can fail with.
+ * The principal requirements (`AgentPrincipal` / `AppPrincipal`), the agent-only
+ * `AgentClaimed` refinement, and every capability tag are all `Requirement`s.
+ * The first element of a non-empty `requires` is exactly one principal
+ * requirement; the rest are the agent-claimed refinement and the capability
+ * tags, in run order.
+ *
+ * The descriptor folds every requirement's `errors` into the method's effective
+ * wire error union ({@link RequirementErrorsOf}), so a method inherits each
+ * requirement's failure modes with no re-declaration. The server stacks each
+ * requirement's `RpcMiddleware` (`requirementMiddlewareByKey`).
  *
  * The type is the plain `Context.Tag<any, any>` (not intersected with an
  * `errors` member): a concrete tag class does not match an intersection whose
  * other arm is the variance-laden Tag, so the `errors` static is read
- * structurally by {@link CapErrorClassesOf} rather than constrained here.
+ * structurally by {@link RequirementErrorClassesOf} rather than constrained
+ * here.
  */
-export type RpcCapTag = Context.Tag<any, any>;
+export type Requirement = Context.Tag<any, any>;
 
 /**
- * The error class tuple a cap tag declares as its static `errors`, or `[]` when
- * the cap declares none. Read structurally off the tag class so `RpcCapTag` can
- * stay the plain Tag type.
+ * The error class tuple a requirement tag declares as its static `errors`, or
+ * `[]` when it declares none. Read structurally off the tag class so
+ * `Requirement` can stay the plain Tag type.
  */
-type CapErrorClassesOf<C> = C extends {
+type RequirementErrorClassesOf<C> = C extends {
   readonly errors: infer E extends ReadonlyArray<RpcErrorClass>;
 }
   ? E
@@ -63,9 +60,9 @@ type CapErrorClassesOf<C> = C extends {
 
 /**
  * Typed manifest for one RPC method: wire name + Effect `Schema` shapes +
- * decode-time validators. Type-only payload accessors are exposed via
- * `ParamsOf&lt;D>`/`ResultOf&lt;D>` — there is no runtime `Params`/`Result`
- * property.
+ * decode-time validators + the `requires` authority list. Type-only payload
+ * accessors are exposed via `ParamsOf&lt;D>`/`ResultOf&lt;D>` — there is no
+ * runtime `Params`/`Result` property.
  *
  * The `paramsSchema`/`resultSchema` are Effect `Schema` values (`P`/`R extends
  * Schema.Schema.AnyNoContext` — the wire schemas have no decode context).
@@ -74,17 +71,16 @@ type CapErrorClassesOf<C> = C extends {
  * guards wrap a `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
  * "error" })` to reject excess properties at the trust boundary.
  *
- * A method's per-frame capabilities are NOT descriptor metadata: the
- * descriptor carries only the wire shape. The server's per-method `*AuthMw`
- * impl Layer runs each declared cap's derive/obtain
- * (`server-core auth-middleware-layers.ts`).
+ * `requires` is the ONE authority axis: the client groups partition on its head
+ * (the principal requirement), the server stacks one `RpcMiddleware` per
+ * requirement, and the descriptor folds each requirement's `errors` into the
+ * effective wire error union.
  */
 export interface RpcDefinition<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
-  K extends CallablePrincipal = CallablePrincipal,
-  Caps extends ReadonlyArray<RpcCapTag> = ReadonlyArray<RpcCapTag>,
+  Requires extends ReadonlyArray<Requirement> = ReadonlyArray<Requirement>,
   Errs extends ReadonlyArray<RpcErrorClass> = ReadonlyArray<RpcErrorClass>,
 > {
   readonly name: JsonRpcMethod<Name>;
@@ -92,33 +88,20 @@ export interface RpcDefinition<
   readonly resultSchema: R;
 
   /**
-   * The calling-principal axis (the single descriptor-level source). The client
-   * groups partition on it; the server principal gate reads it. Defaults to
-   * `"any"` for descriptors that do not declare it (only `network/connect`
-   * stays `"any"` at the gate, but an undeclared descriptor is never
-   * engine-gated).
+   * The ordered authority list. The FIRST element is exactly one principal
+   * requirement (`AgentPrincipal` | `AppPrincipal`); an optional `AgentClaimed`
+   * refinement (agent-only) follows; the rest are capability tags, in run
+   * order. Empty for the lone unauthenticated method (`network/connect`). The
+   * client groups partition on the head; the server stacks one `RpcMiddleware`
+   * per element; each element's `errors` fold into the wire error union.
    */
-  readonly callablePrincipal: K;
-
-  /**
-   * Whether the agent arm must be claimed/active to call this method
-   * (agent-arm only). Read by the server gate; ignored for `"app"`/`"any"`.
-   */
-  readonly requiresActive: boolean;
-
-  /**
-   * The capability tags this method requires, in run order. Each cap IS a
-   * middleware: it provides a proof into the handler's Context and declares its
-   * own `errors`. The per-method middleware runs each cap's derive/obtain after
-   * resolving the principal. Empty for a method with no caps.
-   */
-  readonly caps: Caps;
+  readonly requires: Requires;
 
   /**
    * The handler-domain tagged-error classes this method can fail with — only
-   * the errors the HANDLER raises, not the principal-gate or cap errors (those
-   * come from {@link principalErrorClasses} and each cap's own `errors`). The
-   * method's effective wire error union is the dedup'd union of all three; see
+   * the errors the HANDLER raises, not the requirement (principal/cap) errors
+   * (those come from each requirement's own `errors`). The method's effective
+   * wire error union is the dedup'd union of both; see
    * {@link effectiveErrorClasses} / {@link errorSchema}.
    */
   readonly errors: Errs;
@@ -191,26 +174,13 @@ export type ResultOf<
 export type ResponseErrorsOf = NotConnectedError | RpcTimeoutError;
 
 /**
- * The principal-gate tagged-error classes a method's `callablePrincipal` admits.
- * Every authenticated method's principal middleware can fail
- * `Unauthorized`/`Forbidden`; the lone `"any"` method (`network/connect`) has no
- * principal gate, so it admits none. Sourced as a value at
- * {@link principalErrorClasses}; this is its type-level mirror.
+ * The union of every requirement's error instances for a `requires` tuple: each
+ * requirement (principal, agent-claimed refinement, capability) declares its own
+ * `static errors`, read structurally. The lone empty `requires`
+ * (`network/connect`) yields `never`.
  */
-export type PrincipalErrorClassesOf<K extends CallablePrincipal> =
-  K extends "any" ? readonly [] : typeof principalGateErrorClasses;
-
-/**
- * The union of error instance types a single cap tag declares (its static
- * `errors` tuple's instance union), read structurally.
- */
-type CapErrorInstances<C> = InstanceType<CapErrorClassesOf<C>[number]>;
-
-/**
- * The union of every declared cap's error instances for a `caps` tuple.
- */
-export type CapErrorsOf<Caps extends ReadonlyArray<RpcCapTag>> =
-  CapErrorInstances<Caps[number]>;
+export type RequirementErrorsOf<Requires extends ReadonlyArray<Requirement>> =
+  InstanceType<RequirementErrorClassesOf<Requires[number]>[number]>;
 
 /**
  * The handler-domain error instance union a descriptor declares.
@@ -226,8 +196,7 @@ export type DomainErrorsOf<
     string,
     Schema.Schema.AnyNoContext,
     Schema.Schema.AnyNoContext,
-    CallablePrincipal,
-    ReadonlyArray<RpcCapTag>,
+    ReadonlyArray<Requirement>,
     infer Errs
   >
     ? InstanceType<Errs[number]>
@@ -235,10 +204,10 @@ export type DomainErrorsOf<
 
 /**
  * The full typed error channel of a per-method call: the method's handler-domain
- * errors, its caps' declared errors, its principal-gate errors, plus the
- * always-possible transport errors. This is exactly what the typed client
- * surfaces on `client["method/name"](payload)`'s Effect — the same union the
- * wire `errorSchema` decodes, plus transport.
+ * errors, every requirement's declared errors, plus the always-possible
+ * transport errors. This is exactly what the typed client surfaces on
+ * `client["method/name"](payload)`'s Effect — the same union the wire
+ * `errorSchema` decodes, plus transport.
  */
 export type CallErrorsOf<
   D extends RpcDefinition<
@@ -251,47 +220,38 @@ export type CallErrorsOf<
     string,
     Schema.Schema.AnyNoContext,
     Schema.Schema.AnyNoContext,
-    infer K,
-    infer Caps,
+    infer Requires,
     ReadonlyArray<RpcErrorClass>
   >
-    ?
-        | DomainErrorsOf<D>
-        | CapErrorsOf<Caps>
-        | InstanceType<PrincipalErrorClassesOf<K>[number]>
-        | ResponseErrorsOf
+    ? DomainErrorsOf<D> | RequirementErrorsOf<Requires> | ResponseErrorsOf
     : never;
 
 /**
- * The effective wire-error class list for a method: principal-gate errors (none
- * for the unauthenticated `"any"` method), each cap's declared errors in cap
- * order, then the handler-domain errors, deduped by identity (a class shared
- * across a cap and the handler list appears once). This is the single source the
- * wire `errorSchema`, the server gate, and the typed client all read.
+ * The effective wire-error class list for a method: every requirement's declared
+ * errors (in `requires` order) then the handler-domain errors, deduped by
+ * identity (a class shared across a requirement and the handler list appears
+ * once). This is the single source the wire `errorSchema`, the server gate, and
+ * the typed client all read.
  */
 export function effectiveErrorClasses(
-  callablePrincipal: CallablePrincipal,
-  caps: ReadonlyArray<RpcCapTag>,
+  requires: ReadonlyArray<Requirement>,
   handlerErrors: ReadonlyArray<RpcErrorClass>,
 ): ReadonlyArray<RpcErrorClass> {
-  const principal: ReadonlyArray<RpcErrorClass> =
-    callablePrincipal === "any" ? [] : principalGateErrorClasses;
-  const all = [
-    ...principal,
-    ...caps.flatMap(capErrorClasses),
-    ...handlerErrors,
-  ];
+  const all = [...requires.flatMap(requirementErrorClasses), ...handlerErrors];
   return [...new Set(all)];
 }
 
 /**
- * Read a cap tag's declared static `errors`, or `[]` when it declares none.
- * The `errors` static is not part of the `RpcCapTag` type (a concrete tag
- * class will not match an intersection with the variance-laden Tag), so it is
- * read structurally here — the runtime mirror of {@link CapErrorClassesOf}.
+ * Read a requirement tag's declared static `errors`, or `[]` when it declares
+ * none. The `errors` static is not part of the `Requirement` type (a concrete
+ * tag class will not match an intersection with the variance-laden Tag), so it
+ * is read structurally here — the runtime mirror of
+ * {@link RequirementErrorClassesOf}.
  */
-function capErrorClasses(cap: RpcCapTag): ReadonlyArray<RpcErrorClass> {
-  const errors = (cap as { readonly errors?: ReadonlyArray<RpcErrorClass> })
+function requirementErrorClasses(
+  req: Requirement,
+): ReadonlyArray<RpcErrorClass> {
+  const errors = (req as { readonly errors?: ReadonlyArray<RpcErrorClass> })
     .errors;
   return errors ?? [];
 }
@@ -351,16 +311,22 @@ export function defineRpc<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
-  const K extends CallablePrincipal = "any",
-  const Caps extends ReadonlyArray<RpcCapTag> = readonly [],
+  const Requires extends ReadonlyArray<Requirement> = readonly [],
   const Errs extends ReadonlyArray<RpcErrorClass> = readonly [],
 >(def: {
   name: Name;
   params: P;
   result: R;
-  callablePrincipal?: K;
-  requiresActive?: boolean;
-  caps?: Caps;
+
+  /**
+   * REQUIRED. The ordered authority list. The FIRST element is exactly one
+   * principal requirement (`AgentPrincipal` | `AppPrincipal`); an optional
+   * `AgentClaimed` refinement (agent-only) follows; the rest are capability
+   * tags, in run order. The public `network/connect` is the lone method with
+   * `requires: []`. Each requirement folds its declared `errors` into the
+   * method's effective wire error union.
+   */
+  requires: Requires;
 
   /**
    * REQUIRED. The handler-domain tagged-error classes this method can fail
@@ -370,33 +336,21 @@ export function defineRpc<
    * declares `[]`.
    */
   errors: Errs;
-}): RpcDefinition<Name, P, R, K, Caps, Errs> {
-  const callablePrincipal = def.callablePrincipal ?? ("any" as K);
-  // When `def.caps` is omitted, `Caps` infers to its default `readonly []`,
-  // for which the empty tuple is the sound value; the no-arg branch only
-  // reaches the default when `Caps` is exactly that, so the assertion is the
-  // generic-default laundering TS cannot express on the union of the two arms.
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- generic-default laundering: the `?? []` branch is reached only when `def.caps` is omitted, where `Caps` infers to `readonly []` and `[]` is its sound value.
-  const caps = def.caps ?? ([] as unknown as Caps); // #ignore-sloppy-code[as-unknown-as]: generic-default laundering, the empty tuple is the sound value of the inferred `readonly []` default.
-  const d: RpcDefinition<Name, P, R, K, Caps, Errs> = {
+}): RpcDefinition<Name, P, R, Requires, Errs> {
+  const d: RpcDefinition<Name, P, R, Requires, Errs> = {
     name: jsonRpcMethod(def.name),
     paramsSchema: def.params,
     resultSchema: def.result,
-    // The single descriptor-level auth source: the client groups partition on
-    // it, the server principal gate reads it. `"any"` is the lone
-    // unauthenticated method (`network/connect`).
-    callablePrincipal,
-    requiresActive: def.requiresActive ?? false,
-    caps,
+    requires: def.requires,
     errors: def.errors,
-    // The per-method wire error union the engine encodes/decodes against:
-    // principal-gate errors (authenticated methods) ∪ each cap's declared
-    // errors ∪ the handler's declared errors, deduped, discriminated by `_tag`.
+    // The per-method wire error union the engine encodes/decodes against: every
+    // requirement's declared errors ∪ the handler's declared errors, deduped,
+    // discriminated by `_tag`.
     errorSchema: makeErrorSchema(
-      effectiveErrorClasses(callablePrincipal, caps, def.errors),
+      effectiveErrorClasses(def.requires, def.errors),
     ),
-    // Handler-domain errors ALONE: the engine member's `error`. Principal-gate +
-    // cap errors come from the stacked middlewares' `failure`.
+    // Handler-domain errors ALONE: the engine member's `error`. The requirement
+    // (principal/cap) errors come from the stacked middlewares' `failure`.
     handlerErrorSchema: makeErrorSchema(def.errors),
     validateParams: closedStructGuard(def.params),
     validateResult: closedStructGuard(def.result),

@@ -35,7 +35,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so
 `userId` is required here.
 
-### [`Connect`](./methods.ts#L84)
+### [`Connect`](./methods.ts#L85)
 
 _Variable_
 
@@ -48,9 +48,11 @@ export const Connect = defineRpc({
     maxProtocol: Schema.String,
   }),
   result: HelloOkSchema,
-  // The unauthenticated handshake declares its failures directly (no principal
-  // gate runs before it): malformed params, bad credential, version mismatch,
-  // or a principal that already holds a live connection.
+  // The unauthenticated handshake: no principal exists pre-auth, so `requires`
+  // is empty (no gate runs before it). It declares its failures directly:
+  // malformed params, bad credential, version mismatch, or a principal that
+  // already holds a live connection.
+  requires: [],
   errors: [
     InvalidParamsError,
     UnauthorizedError,
@@ -111,7 +113,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L103)
+### [`HelloOk`](./methods.ts#L106)
 
 _TypeAlias_
 
@@ -119,7 +121,7 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L162)
+### [`networkNotifications`](./methods.ts#L164)
 
 _Variable_
 
@@ -129,7 +131,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L110)
+### [`NetworkPing`](./methods.ts#L113)
 
 _Variable_
 
@@ -138,14 +140,14 @@ export const NetworkPing = defineRpc({
   name: "network/ping",
   params: Schema.Struct({}),
   result: Schema.Struct({ ts: DateTimeString }),
-  callablePrincipal: "agent",
+  requires: [AgentPrincipal],
   errors: [],
 })
 ```
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L156)
+### [`networkRpcMethods`](./methods.ts#L158)
 
 _Variable_
 
@@ -157,7 +159,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L151)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L153)
 
 _Variable_
 
@@ -172,7 +174,7 @@ Pushed when a subscribed participant's presence status changes.
 Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
 connect/disconnect; there is no client-driven `presence/update`.
 
-### [`PresenceSubscribe`](./methods.ts#L131)
+### [`PresenceSubscribe`](./methods.ts#L134)
 
 _Variable_
 
@@ -181,8 +183,7 @@ export const PresenceSubscribe = defineRpc({
   name: "presence/subscribe",
   params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
   result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
-  callablePrincipal: "agent",
-  requiresActive: true,
+  requires: [AgentPrincipal, AgentClaimed],
   // The handler rejects an agentId outside the caller's contact-visible set.
   errors: [NotInContactsError],
 })
@@ -191,7 +192,7 @@ export const PresenceSubscribe = defineRpc({
 Replace-semantics: replaces the connection's subscriber set with
 `agentIds`. Empty array unsubscribes from all. Idempotent.
 
-### [`ProtocolMismatchError`](./methods.ts#L57)
+### [`ProtocolMismatchError`](./methods.ts#L58)
 
 _Class_
 
@@ -222,7 +223,7 @@ so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](./methods.ts#L45)
+### [`ProtocolMismatchReason`](./methods.ts#L46)
 
 _TypeAlias_
 

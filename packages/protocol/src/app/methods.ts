@@ -8,6 +8,11 @@ import {
   stringEnum,
 } from "../schema-primitives.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
+import {
+  AgentPrincipal,
+  AppPrincipal,
+  AgentClaimed,
+} from "../transport/requirements.js";
 import { ConflictError, ForbiddenError } from "../transport/wire-errors.js";
 
 /** Optional supplemental wire fields every domain tagged-error carries. */
@@ -188,7 +193,7 @@ export const AppsRegister = defineRpc({
   name: "apps/register",
   params: Schema.Struct({ manifest: AppManifestSchema }),
   result: Schema.Struct({ appId: Schema.String }),
-  callablePrincipal: "app",
+  requires: [AppPrincipal],
   errors: [ConflictError],
 });
 
@@ -286,10 +291,9 @@ export const DispatchRequest = defineRpc({
   }),
   result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
   // Agent-originated even though the recipient handler runs in the app layer:
-  // an agent posts a dispatch to a conversation it sends into; the gate
-  // narrows the agent arm and `requiresActive` enforces a claimed agent.
-  callablePrincipal: "agent",
-  requiresActive: true,
+  // an agent posts a dispatch to a conversation it sends into; `AgentPrincipal`
+  // narrows the agent arm and `AgentClaimed` enforces a claimed agent.
+  requires: [AgentPrincipal, AgentClaimed],
   errors: [],
 });
 
@@ -304,6 +308,9 @@ export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
   result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
+  // A server→client reverse callback: it carries no principal requirement (the
+  // client serves it, the server does not gate it), so `requires` is empty.
+  requires: [],
   // A moderator handler may reject outright with `ForbiddenError`; declaring it
   // lets the reverse engine serialize the flat tagged error rather than a
   // `Die` defect. The server collapses any callback failure to a fail-closed
@@ -420,7 +427,7 @@ export const DispatchesGet = defineRpc({
   name: "dispatches/get",
   params: Schema.Struct({ dispatchId: DispatchId }),
   result: Schema.Struct({ lease: LeaseRecordSchema }),
-  callablePrincipal: "app",
+  requires: [AppPrincipal],
   errors: [DispatchNotFoundError],
 });
 
@@ -480,6 +487,8 @@ export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",
   params: MessagesAuthorizeContextSchema,
   result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
+  // Server→client reverse callback — no principal requirement.
+  requires: [],
   // Mirrors `DispatchAuthorize`: a moderator handler may reject with
   // `ForbiddenError`, serialized as the flat tagged error and collapsed to a
   // fail-closed Block by the server.
@@ -560,6 +569,8 @@ export const TaskCreate = defineRpc({
   name: "task/create",
   params: TaskCreateContextSchema,
   result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
+  // Server→client reverse callback — no principal requirement.
+  requires: [],
   // Mirrors `DispatchAuthorize`: a TM handler may reject with `ForbiddenError`,
   // serialized as the flat tagged error and collapsed to a fail-closed reject
   // by the server.

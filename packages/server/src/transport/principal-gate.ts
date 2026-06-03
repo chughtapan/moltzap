@@ -3,21 +3,22 @@
  * impl Layers (`auth-middleware-layers.ts`).
  *
  * The gate narrows the live 3-arm `Connection` to the 2-arm `Principal` a
- * method's policy demands, failing with a `ForbiddenError` INSTANCE. The
- * `@effect/rpc` engine encodes that tagged error against the method's per-method
- * error union (the middleware `failure` schema), so there is no coded-envelope
- * projection step. The narrowing and the descriptor's `callablePrincipal` are
- * the SAME arm by construction: an `"agent"` policy yields the agent arm,
- * `"app"` the app arm.
+ * method's `requires` head demands, failing with a `ForbiddenError` INSTANCE.
+ * The `@effect/rpc` engine encodes that tagged error against the method's
+ * per-method error union (the middleware `failure` schema), so there is no
+ * coded-envelope projection step. The narrowing and the `requires` head are the
+ * SAME arm by construction: an `AgentPrincipal` head yields the agent arm, an
+ * `AppPrincipal` head the app arm.
  */
-import { absurd, Effect, Option } from "effect";
-import { ForbiddenError } from "@moltzap/protocol";
-import type { Principal } from "@moltzap/protocol";
+import { Effect, Option } from "effect";
+import {
+  AgentPrincipal,
+  AppPrincipal,
+  ForbiddenError,
+} from "@moltzap/protocol";
+import type { Principal, PrincipalRequirement } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/network";
 import type { ConnectionManager, Connection } from "./connection.js";
-
-/** The principal axis a gated method's policy demands (descriptor `callablePrincipal`). */
-type CallablePrincipal = "agent" | "app" | "any";
 
 const FORBIDDEN_AGENT_ONLY =
   "This method is callable only by an agent principal";
@@ -53,16 +54,16 @@ export const peekLiveArm = (
 
 /**
  * Narrow the live arm to the agent principal. Rejects a non-agent arm and
- * (when `requiresActive`) a not-yet-claimed agent.
+ * (when `requireClaimed`) a not-yet-claimed agent.
  */
 const narrowAgentArm = (
   connection: Connection,
-  requiresActive: boolean,
+  requireClaimed: boolean,
 ): Effect.Effect<Principal, ForbiddenError> => {
   if (connection._tag !== "AgentConnection") {
     return Effect.fail(forbidden(FORBIDDEN_AGENT_ONLY));
   }
-  if (requiresActive && connection.auth.agentStatus !== "active") {
+  if (requireClaimed && connection.auth.agentStatus !== "active") {
     return Effect.fail(forbidden(FORBIDDEN_INACTIVE));
   }
   return Effect.succeed(connection.auth);
@@ -77,28 +78,23 @@ const narrowAppArm = (
     : Effect.fail(forbidden(FORBIDDEN_APP_ONLY));
 
 /**
- * Narrow the live arm to the principal a gated method's policy demands. Gated
- * policies are never `"any"` (`projectPrincipalKinds` rejects an authenticated
- * binding carrying `"any"`, and the per-method Layers pass a literal
- * `"agent"`/`"app"`); the `"any"` Connect path carries no policy and never
- * reaches this gate. An `"any"` here is therefore a wiring defect, not a
- * caller-actionable error.
+ * Narrow the live arm to the principal a gated method's `requires` head demands.
+ * A gated method always has a principal head: the empty-`requires` Connect path
+ * carries no policy and never reaches this gate, so an `undefined` head here is a
+ * wiring defect, not a caller-actionable error.
  */
 export const narrowByPolicy = (
-  callablePrincipal: CallablePrincipal,
-  requiresActive: boolean,
+  principal: PrincipalRequirement | undefined,
+  requireClaimed: boolean,
   connection: Connection,
 ): Effect.Effect<Principal, ForbiddenError> => {
-  switch (callablePrincipal) {
-    case "agent":
-      return narrowAgentArm(connection, requiresActive);
-    case "app":
-      return narrowAppArm(connection);
-    case "any":
-      return Effect.dieMessage(
-        "principal gate: a gated method carried callablePrincipal 'any'",
-      );
-    default:
-      return absurd(callablePrincipal);
+  if (principal === AgentPrincipal) {
+    return narrowAgentArm(connection, requireClaimed);
   }
+  if (principal === AppPrincipal) {
+    return narrowAppArm(connection);
+  }
+  return Effect.dieMessage(
+    "principal gate: a gated method carried no principal requirement",
+  );
 };

@@ -20,12 +20,14 @@
  */
 import { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
-import type { CallablePrincipal, RpcDefinition } from "./method.js";
+import type { Requirement, RpcDefinition } from "./method.js";
 import { serverRpcMethods } from "../rpc-registry.js";
+import { capRequirementsOf, principalRequirementOf } from "./requirements.js";
 import type { JsonRpcMethod } from "./wire.js";
 import {
   PrincipalGateMw,
-  capMiddlewareByCapKey,
+  requirementMiddleware,
+  type MiddlewareRequirementKey,
   type MwStackFor,
 } from "./cap-middlewares.js";
 
@@ -72,13 +74,7 @@ type AnyRpcDefinition = RpcDefinition<
  * registry entry is unmatched there and the partition canary fails.
  */
 type EngineRpcFromDef<D> =
-  D extends RpcDefinition<
-    infer Name,
-    infer P,
-    infer R,
-    CallablePrincipal,
-    infer Caps
-  >
+  D extends RpcDefinition<infer Name, infer P, infer R, infer Requires>
     ? Name extends UnauthenticatedMethod
       ? Rpc.Rpc<JsonRpcMethod<Name>, P, R, Schema.Schema.AnyNoContext>
       : Rpc.Rpc<
@@ -86,7 +82,7 @@ type EngineRpcFromDef<D> =
           P,
           R,
           Schema.Schema.AnyNoContext,
-          MwStackFor<Caps>
+          MwStackFor<Requires>
         >
     : never;
 
@@ -101,12 +97,12 @@ type EngineMembers<Defs extends readonly AnyRpcDefinition[]> = {
 };
 
 /**
- * Build one engine member from a descriptor: an `Rpc.make` gated with that
- * method's OWN `*AuthMw` (looked up by tag in {@link authMiddlewareByMethod})
- * unless its tag is unauthenticated. The runtime branch matches the type-level
- * conditional in {@link EngineRpcFromDef} by the same `UNAUTHENTICATED_METHODS`
- * predicate plus the same registry lookup; an authenticated tag absent from the
- * registry yields an ungated member, which the partition canary rejects.
+ * Build one engine member from a descriptor: an `Rpc.make` stacked with one
+ * `RpcMiddleware` per `requires` entry. The empty `requires` (`network/connect`)
+ * carries no middleware. The correspondence is by construction — each
+ * requirement's middleware comes from the TOTAL {@link requirementMiddleware}
+ * map, so a requirement can never be left ungated (a missing entry is a compile
+ * error at the map's `satisfies`), and no boot-time gating walk is needed.
  */
 const buildEngineMember = (definition: AnyRpcDefinition) => {
   // The engine member's wire `error` is the HANDLER-DOMAIN union only. Each
@@ -119,28 +115,25 @@ const buildEngineMember = (definition: AnyRpcDefinition) => {
     success: definition.resultSchema,
     error: definition.handlerErrorSchema,
   });
-  if (isUnauthenticatedMethod(definition.name)) {
+  const requires = definition.requires as ReadonlyArray<Requirement>;
+  // No principal head (only `network/connect`, empty `requires`) → no gate, no
+  // cap middleware: the member is dispatched unauthenticated.
+  if (principalRequirementOf(requires) === undefined) {
     return member;
   }
-  // Authenticated WS method: stack one middleware per declared cap, THEN the
-  // principal gate last. `@effect/rpc` folds the middleware set in insertion
-  // order, wrapping the handler each step, so the LAST-attached middleware runs
-  // FIRST at request time. The gate (a no-`provides` middleware) folds as
-  // `Effect.zipRight(gate, inner)` — it runs before whatever it wraps; attaching
-  // it last therefore puts it ahead of every cap obtain, so an unauthenticated
-  // or wrong-arm caller is rejected BEFORE any cap does its DB work.
-  // A declared cap with no registered middleware is left UNGATED here, which the
-  // boot guard `findEngineGatingMismatch` detects: `expectedCapMwKeysByTag`
-  // records the cap's own `key` as expected (a placeholder, since no mw key
-  // exists), so the built member's middleware set is missing it and the guard
-  // fails the boot.
+  // Stack one middleware per capability, THEN the principal gate last.
+  // `@effect/rpc` folds the middleware set in insertion order, wrapping the
+  // handler each step, so the LAST-attached middleware runs FIRST at request
+  // time. The gate (a no-`provides` middleware) folds as
+  // `Effect.zipRight(gate, inner)` — attaching it last puts it ahead of every
+  // cap obtain, so a wrong-arm caller is rejected BEFORE any cap does its DB
+  // work. The `AgentClaimed` refinement carries no middleware (the gate's impl
+  // Layer reads it off `requires`), so it does not appear among the caps.
   let gated: ReturnType<typeof member.middleware> | typeof member = member;
-  for (const cap of definition.caps) {
-    const capMw = capMiddlewareByCapKey[cap.key];
-    if (capMw === undefined) {
-      continue;
-    }
-    gated = gated.middleware(capMw);
+  for (const cap of capRequirementsOf(requires)) {
+    gated = gated.middleware(
+      requirementMiddleware[cap.key as MiddlewareRequirementKey],
+    );
   }
   return gated.middleware(PrincipalGateMw);
 };
@@ -184,115 +177,14 @@ export const ServerEngineRpcGroup: RpcGroup.RpcGroup<
 type WsEngineMember = EngineMembers<typeof serverRpcMethods>[number];
 
 /**
- * The group the live server engine binds: every catalog member, each carrying
- * its own `*AuthMw`. Its members map one-to-one onto `serverHandlers`, so
- * `WsServerEngineRpcGroup.toLayer` satisfies `HandlersFrom`.
+ * The group the live server engine binds: every catalog member, each stacked
+ * with its `requires` middlewares. Its members map one-to-one onto
+ * `serverHandlers`, so `WsServerEngineRpcGroup.toLayer` satisfies `HandlersFrom`.
+ * The descriptor↔binding correspondence is compile-checked:
  * `server-engine-group.types-check.ts` pins
- * `RpcGroup.Rpcs&lt;typeof WsServerEngineRpcGroup&gt; ≡ EngineRpcs`, and
- * {@link assertWsEngineSize} pins the count at boot.
+ * `RpcGroup.Rpcs&lt;typeof WsServerEngineRpcGroup&gt; ≡ EngineRpcs`, and the TOTAL
+ * {@link requirementMiddleware} map makes a requirement with no middleware
+ * unrepresentable — so no boot-time gating walk is needed.
  */
 export const WsServerEngineRpcGroup: RpcGroup.RpcGroup<WsEngineMember> =
   RpcGroup.make(...engineMembers);
-
-/**
- * The number of WS-dispatched engine members — the full catalog
- * (`serverRpcMethods`). The live server's handler map (`serverHandlers`) has
- * exactly this many entries; the boot guard {@link assertWsEngineSize} pins the
- * built group to it.
- */
-export const WS_ENGINE_MEMBER_COUNT = serverRpcMethods.length;
-
-/**
- * Boot-time backstop pinning {@link WsServerEngineRpcGroup}'s member count to
- * {@link WS_ENGINE_MEMBER_COUNT}. The type-level canary pins the member SET; this
- * inspects the ACTUAL built `.requests` map, so a filter regression that drops or
- * duplicates a member is caught at boot rather than shipping a misbound engine.
- * Returns the violation string, or `undefined` when the count matches.
- */
-export const assertWsEngineSize = (): string | undefined => {
-  const size = WsServerEngineRpcGroup.requests.size;
-  return size === WS_ENGINE_MEMBER_COUNT
-    ? undefined
-    : `WsServerEngineRpcGroup has ${size} members, expected ${WS_ENGINE_MEMBER_COUNT}`;
-};
-
-/**
- * Walk the BUILT {@link ServerEngineRpcGroup} members and return the first whose
- * runtime middleware stack violates the partition: an authenticated tag that does
- * not carry the principal gate plus exactly its declared caps' middlewares, or an
- * unauthenticated tag that carries any middleware. `undefined` when every member
- * matches. The boot-time backstop for the gate the `buildEngineMember` stacking
- * cannot prove at the type level — so a regression that drops the gate on a
- * protected method, or stacks the wrong cap mw, is caught at boot rather than
- * shipping a runtime-misgated method.
- */
-const ungatedMethods = new Set<string>(UNAUTHENTICATED_METHODS);
-
-/**
- * The cap-mw keys a descriptor's `caps` map to — the EXPECTED middleware set for
- * the method (principal gate + each cap's mw key). A declared cap with NO
- * middleware in {@link capMiddlewareByCapKey} records the cap's OWN `key` as a
- * placeholder expected key; `buildEngineMember` cannot stack a non-existent mw,
- * so the built member is missing that key and {@link findEngineGatingMismatch}
- * fails the boot — catching an under-gated method rather than shipping it.
- */
-const expectedCapMwKeysByTag = new Map<string, ReadonlySet<string>>(
-  serverRpcMethods.map((definition) => {
-    const tag = definition.name as string;
-    if (ungatedMethods.has(tag)) {
-      return [tag, new Set<string>()] as const;
-    }
-    const keys = new Set<string>([PrincipalGateMw.key]);
-    for (const cap of definition.caps) {
-      const capMw = capMiddlewareByCapKey[cap.key];
-      keys.add(capMw === undefined ? cap.key : capMw.key);
-    }
-    return [tag, keys] as const;
-  }),
-);
-
-/** The partition violation for one built member, or `undefined` when it matches. */
-const memberGatingMismatch = (
-  tag: string,
-  middlewareKeys: ReadonlySet<string>,
-): string | undefined => {
-  if (ungatedMethods.has(tag)) {
-    return middlewareKeys.size > 0
-      ? `${tag}: unauthenticated method carries middleware ${[...middlewareKeys].join(", ")}`
-      : undefined;
-  }
-  const expected = expectedCapMwKeysByTag.get(tag);
-  if (expected === undefined) {
-    return `${tag}: WS-dispatched method absent from the descriptor catalog`;
-  }
-  const missing = [...expected].filter((k) => !middlewareKeys.has(k));
-  const extra = [...middlewareKeys].filter((k) => !expected.has(k));
-  if (missing.length > 0 || extra.length > 0) {
-    return `${tag}: middleware stack mismatch (missing ${missing.join(", ") || "none"}; extra ${extra.join(", ") || "none"})`;
-  }
-  return undefined;
-};
-
-/**
- * One built middleware's string `key` (its `Context.Tag` identifier). The
- * group-member union erases `middlewares`'s element type to `never` at the type
- * level, so this reflects over the runtime set: each entry is a real Tag with a
- * string `key`.
- */
-const middlewareKey = (m: unknown): string =>
-  (m as { readonly key: string }).key;
-
-export const findEngineGatingMismatch = (): string | undefined => {
-  for (const [tag, rpc] of ServerEngineRpcGroup.requests) {
-    // Compare by each middleware Tag's `key`, not identity: the group member
-    // union narrows `middlewares` to `Set<never>` at the type level, so the
-    // runtime Tag's `key` is not type-visible. This walks the BUILT runtime set
-    // (each entry is a real `RpcMiddleware` Tag with a string `key`).
-    const keys = new Set([...rpc.middlewares].map(middlewareKey));
-    const mismatch = memberGatingMismatch(tag, keys);
-    if (mismatch !== undefined) {
-      return mismatch;
-    }
-  }
-  return undefined;
-};
