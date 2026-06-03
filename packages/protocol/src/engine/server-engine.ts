@@ -32,7 +32,7 @@ import {
   makeServerChannelProtocol,
   type ChannelSink,
   type WireWrite,
-} from "./mux.js";
+} from "../transport/mux.js";
 import { WsServerEngineRpcGroup } from "./server-engine-group.js";
 
 /**

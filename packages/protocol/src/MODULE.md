@@ -7,15 +7,18 @@ _`packages/protocol/src`_
 Public barrel — protocol layer DAG.
 
 The protocol package is the leaf in the workspace dependency
-graph, and internally it is split into five layers with their own
+graph, and internally it is split into layers with their own
 one-way dependency order. Re-exports below are arranged in DAG
 order so the file itself is the manifest.
 
 ```mermaid
 flowchart TD
-  app[app/] --> task[task/]
+  engine[engine/] --> app[app/]
+  engine --> task[task/]
+  engine --> transport[transport/]
+  app --> task
   app --> identity[identity/]
-  app --> transport[transport/]
+  app --> transport
   task --> identity
   task --> transport
   network[network/] --> identity
@@ -24,11 +27,14 @@ flowchart TD
   transport --> schema[schema-primitives]
 ```
 
-A `task/*` method may reference `identity/*` types (e.g.
-`AgentId`); the reverse import is forbidden. The server's
-Tag-allowlist hierarchy in `@moltzap/server-core` mirrors this
-DAG: a handler may pull services only from layers at-or-below its
-own home layer.
+`transport/` is the wire bottom (frames, the descriptor factory, the
+mux, the low principal tags). `engine/` is the TOP: the genuine
+`Requirement` union + capability middlewares + the server/client engine
+groups, which couple to the full catalog (`rpc-registry`) and the
+task-layer capability tags. A `task/*` method may reference `identity/*`
+types (e.g. `AgentId`); the reverse import is forbidden. The server's
+Tag-allowlist hierarchy in `@moltzap/server-core` mirrors this DAG: a
+handler may pull services only from layers at-or-below its own home layer.
 
 ## Public surface
 

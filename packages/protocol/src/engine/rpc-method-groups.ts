@@ -1,7 +1,10 @@
 import { Rpc, RpcGroup } from "@effect/rpc";
 import { Schema } from "effect";
-import type { NotificationDefinition, RpcDefinition } from "./method.js";
-import type { JsonRpcMethod } from "./wire.js";
+import type {
+  NotificationDefinition,
+  RpcDefinition,
+} from "../transport/method.js";
+import type { JsonRpcMethod } from "../transport/wire.js";
 import {
   appCallbackMethods,
   notificationDefinitions,

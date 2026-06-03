@@ -20,10 +20,14 @@
  */
 import { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
-import type { RpcDefinition } from "./method.js";
+import type { RpcDefinition } from "../transport/method.js";
 import { serverRpcMethods } from "../rpc-registry.js";
-import { capRequirementsOf, principalRequirementOf } from "./requirements.js";
-import type { JsonRpcMethod } from "./wire.js";
+import {
+  capRequirementsOf,
+  principalRequirementOf,
+  type Requirement,
+} from "./requirements.js";
+import type { JsonRpcMethod } from "../transport/wire.js";
 import {
   PrincipalGateMw,
   requirementMiddleware,
@@ -54,10 +58,16 @@ export type UnauthenticatedMethod = (typeof UNAUTHENTICATED_METHODS)[number];
 export const isUnauthenticatedMethod = (tag: string): boolean =>
   (UNAUTHENTICATED_METHODS as readonly string[]).includes(tag);
 
+// The engine binds the live catalog descriptors, whose `requires` are built
+// from the concrete requirement tags. The wire-layer `RpcDefinition` erases
+// `requires` to the structural `RequirementShape`; the engine re-pins the 4th
+// type arg to the genuine `Requirement` union so the classifiers
+// (`capRequirementsOf` / `principalRequirementOf`) read the concrete tags.
 type AnyRpcDefinition = RpcDefinition<
   string,
   Schema.Schema.AnyNoContext,
-  Schema.Schema.AnyNoContext
+  Schema.Schema.AnyNoContext,
+  ReadonlyArray<Requirement>
 >;
 
 /**

@@ -13,7 +13,7 @@ import type { Context, Effect, Schema } from "effect";
 
 import type { AnyAppCallbackRpcDefinition } from "../rpc-registry.js";
 
-import type { ParamsOf, ResultOf, RpcDefinition } from "./method.js";
+import type { ParamsOf, ResultOf, RpcDefinition } from "../transport/method.js";
 
 /**
  * Per-definition handler slot (app-callback authoring shape). `Ctx` is the

@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { AgentId } from "../identity/methods.js";
 import { dateTimeStringSchema, stringEnum } from "../schema-primitives.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
-import { AgentPrincipal, AgentClaimed } from "../transport/requirements.js";
+import { AgentPrincipal, AgentClaimed } from "../transport/principal.js";
 import {
   UnauthorizedError,
   AlreadyConnected,

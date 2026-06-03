@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { brandedId, listCursorSchema } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
-import { AgentPrincipal } from "../transport/requirements.js";
+import { AgentPrincipal } from "../transport/principal.js";
 import { UserId } from "./agents.js";
 
 // ═══════════════════════════════════════════════════════════════════

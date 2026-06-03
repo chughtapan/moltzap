@@ -13,7 +13,7 @@ import {
   AgentPrincipal,
   AppPrincipal,
   AgentClaimed,
-} from "../transport/requirements.js";
+} from "../transport/principal.js";
 import { ForbiddenError } from "../transport/wire-errors.js";
 
 // ═══════════════════════════════════════════════════════════════════
