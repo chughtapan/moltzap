@@ -16,7 +16,7 @@ import type {
   ConversationId,
   Message,
 } from "../../task/index.js";
-import type { NotificationFrame } from "../../transport/wire.js";
+import type { NotificationFrame } from "../../transport/index.js";
 
 /** Monotonic logical clock — the model does not read wall time. */
 export type LogicalTick = number & Brand.Brand<"LogicalTick">;

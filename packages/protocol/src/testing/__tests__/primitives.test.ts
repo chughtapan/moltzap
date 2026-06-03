@@ -42,9 +42,9 @@ import { Connect } from "../../network/index.js";
 import { TaskList } from "../../task/index.js";
 import {
   jsonRpcMethod,
-  requestFrame,
   type NotificationFrame,
-} from "../../transport/wire.js";
+} from "../../transport/index.js";
+import { requestFrame } from "../index.js";
 
 const MALFORM_SEED = 42;
 const EXPECTED_MERGED_CAPTURE_COUNT = 2;
