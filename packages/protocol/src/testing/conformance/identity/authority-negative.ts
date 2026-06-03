@@ -5,7 +5,6 @@
  * with a typed error (not a success, not a crash).
  */
 import { Effect, Either } from "effect";
-import {} from "../../../transport/wire-errors.js";
 import { TaskList } from "../../../task/index.js";
 import { authorizationOutcome } from "../../models/dispatch.js";
 import { initialReferenceState } from "../../models/state.js";
