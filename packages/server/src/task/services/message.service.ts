@@ -10,24 +10,15 @@ import type {
 import { validateDispatchDecision } from "@moltzap/protocol/task";
 import type { AppHost } from "../../app/app-host.js";
 import {
-  ConversationArchivedError,
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
   HookBlockedError,
   MAX_PAGE_LIMIT,
+  MessageNotFoundError,
   MessageReceivedNotificationDefinition,
-  NotFoundError,
-  TaskClosedError,
 } from "@moltzap/protocol";
 import { Cause, Duration, Effect, Fiber, Option, Schedule } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
-
-export type MessageServiceError =
-  | ConversationArchivedError
-  | ForbiddenError
-  | HookBlockedError
-  | NotFoundError
-  | TaskClosedError;
 import { nextSnowflakeId } from "../../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { NetworkSendService } from "../../network/network-send.js";
@@ -228,18 +219,13 @@ export class MessageService {
     );
   }
 
-  sendInsert(
-    input: SendInsertInput,
-  ): Effect.Effect<SendInsertResult, MessageServiceError> {
+  sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult, never> {
     return catchSqlErrorAsDefect(this.sendInsertEffect(input));
   }
 
   private sendInsertEffect(
     input: SendInsertInput,
-  ): Effect.Effect<
-    SendInsertResult,
-    MessageServiceError | SqlError | Cause.NoSuchElementException
-  > {
+  ): Effect.Effect<SendInsertResult, SqlError | Cause.NoSuchElementException> {
     return Effect.gen(this, function* () {
       // The send-permission cap middlewares (`ConversationSendAccess`,
       // `ActiveTaskPermission`, `OpenConversationPermission`,
@@ -298,7 +284,7 @@ export class MessageService {
   assertReplyTarget(
     conversationId: ConversationId,
     replyToId: MessageId,
-  ): Effect.Effect<void, NotFoundError | SqlError> {
+  ): Effect.Effect<void, MessageNotFoundError | SqlError> {
     return Effect.gen(this, function* () {
       const replyExistsOpt = yield* takeFirstOption(
         this.db
@@ -309,7 +295,7 @@ export class MessageService {
       );
       if (Option.isNone(replyExistsOpt)) {
         return yield* Effect.fail(
-          new NotFoundError({ message: "Reply target not found" }),
+          new MessageNotFoundError({ message: "Reply target not found" }),
         );
       }
     });
@@ -370,7 +356,7 @@ export class MessageService {
     carrier: SendInsertResult,
     conversationId: ConversationId,
     senderAgentId: AgentId,
-  ): Effect.Effect<Message, MessageServiceError> {
+  ): Effect.Effect<Message, HookBlockedError> {
     return catchSqlErrorAsDefect(
       this.sendCommitEffect({ carrier, conversationId, senderAgentId }),
     );
@@ -378,7 +364,7 @@ export class MessageService {
 
   private sendCommitEffect(
     input: SendCommitInput,
-  ): Effect.Effect<Message, MessageServiceError | SqlError> {
+  ): Effect.Effect<Message, HookBlockedError | SqlError> {
     return Effect.gen(this, function* () {
       this.updatePreview(input);
 
@@ -640,7 +626,7 @@ export class MessageService {
     );
   }
 
-  send(input: SendMessageInput): Effect.Effect<Message, MessageServiceError> {
+  send(input: SendMessageInput): Effect.Effect<Message, HookBlockedError> {
     return Effect.gen(this, function* () {
       const carrier = yield* this.sendInsert(input);
       return yield* this.sendCommit(

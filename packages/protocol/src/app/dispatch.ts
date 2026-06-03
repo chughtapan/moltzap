@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
 import { messagePartsSchema } from "../task/methods.js";
-import { LeaseId } from "../task/messages.js";
+import { LeaseId, DispatchNotFoundError } from "../task/messages.js";
 import {
   dateTimeStringSchema,
   brandedId,
@@ -15,6 +15,8 @@ import {
   AgentClaimed,
 } from "../transport/principal.js";
 import { ForbiddenError } from "../transport/wire-errors.js";
+
+export { DispatchNotFoundError } from "../task/messages.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — dispatch value types + the dispatch error.
@@ -30,17 +32,6 @@ import { ForbiddenError } from "../transport/wire-errors.js";
 const DateTimeString = dateTimeStringSchema();
 const AgentOwnershipSchema = agentOwnershipSchema();
 const MessagePartsSchema = messagePartsSchema();
-
-/** The referenced dispatch lease does not exist (or the caller is not its moderator). */
-export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
-  "DispatchNotFound",
-  {
-    message: Schema.optional(Schema.String),
-    data: Schema.optional(Schema.Unknown),
-  },
-) {
-  static readonly message = "Dispatch lease not found";
-}
 
 /**
  * Branded dispatch identifier minted alongside the lease. Distinct from
@@ -273,12 +264,13 @@ const LeaseRecordSchema = Schema.Struct({
  * non-moderator callers fail with `ForbiddenError`.
  *
  * - **Principal:** `AppPrincipal` head.
- * @error DispatchNotFoundError when the lease does not exist or the caller is not its moderator
+ * @error DispatchNotFoundError when the lease does not exist
+ * @error ForbiddenError when the caller is not the lease's moderator
  */
 export const DispatchesGet = defineRpc({
   name: "dispatches/get",
   params: Schema.Struct({ dispatchId: DispatchId }),
   result: Schema.Struct({ lease: LeaseRecordSchema }),
   requires: [AppPrincipal],
-  errors: [DispatchNotFoundError],
+  errors: [DispatchNotFoundError, ForbiddenError],
 });

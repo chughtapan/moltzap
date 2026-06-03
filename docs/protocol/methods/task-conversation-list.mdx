@@ -30,3 +30,10 @@ all tasks). No filter params; archived rows are included; callers filter
 <ResponseField name="nextCursor" type="string">
   The nextCursor field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `InvalidParamsError` | the `cursor` does not decode |
+| `ConversationNotFoundError` | a listed conversation's row vanished mid-projection |

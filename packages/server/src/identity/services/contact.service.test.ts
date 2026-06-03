@@ -83,7 +83,7 @@ function rejectsUnknownContactAccept() {
     const exit = yield* Effect.exit(
       svc.accept(BOB, "00000000-0000-4000-8000-000000000404" as never),
     );
-    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.NotFound);
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.ContactNotFound);
   });
 }
 
@@ -147,7 +147,7 @@ function byIdDoesNotLeakOtherOwnersRows() {
     const svc = new ContactsService(db);
     const created = yield* svc.add(ALICE, { contactUserId: BOB });
     const exit = yield* Effect.exit(svc.byId(CAROL, created.id));
-    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.NotFound);
+    expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.ContactNotFound);
   });
 }
 

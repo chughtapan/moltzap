@@ -13,6 +13,7 @@ import {
   ConflictError,
   UnauthorizedError,
   ForbiddenError,
+  InvalidParamsError,
 } from "../transport/wire-errors.js";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -25,6 +26,25 @@ import {
 // ═══════════════════════════════════════════════════════════════════
 
 const DateTimeString = dateTimeStringSchema();
+
+/** Optional supplemental wire fields every domain tagged-error carries. */
+const errorPayloadFields = {
+  message: Schema.optional(Schema.String),
+  data: Schema.optional(Schema.Unknown),
+} as const;
+
+/**
+ * A referenced agent id does not resolve to an agent row. Raised wire-side when
+ * a `participants` / `invitedAgentIds` target names an agent that does not
+ * exist. Distinct from the client SDK's `AgentNotFoundError` (a name→agent
+ * lookup miss that never crosses the wire).
+ */
+export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()(
+  "AgentNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Agent not found";
+}
 
 export const UserId = brandedId("UserId");
 export type UserId = Schema.Schema.Type<typeof UserId>;
@@ -221,6 +241,7 @@ export const AgentsLookupByName = defineRpc({
  * caller. Unclaimed callers see only themselves.
  *
  * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+ * @error InvalidParamsError when the `cursor` does not decode
  */
 export const AgentsList = defineRpc({
   name: "agents/list",
@@ -233,5 +254,5 @@ export const AgentsList = defineRpc({
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   requires: [AgentPrincipal, AgentClaimed],
-  errors: [],
+  errors: [InvalidParamsError],
 });

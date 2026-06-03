@@ -28,3 +28,9 @@ List the caller's own tasks, cursor-paginated.
 <ResponseField name="nextCursor" type="string">
   Opaque pagination cursor. Omit for the first page; pass the prior response's nextCursor to fetch the next page. Treat as opaque — do not parse, compare, or construct it.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `InvalidParamsError` | the `cursor` does not decode |

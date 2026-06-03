@@ -5,8 +5,11 @@ import {
   listCursorSchema,
 } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
-import { AgentId } from "../identity/agents.js";
-import { ForbiddenError } from "../transport/wire-errors.js";
+import { AgentId, AgentNotFoundError } from "../identity/agents.js";
+import {
+  ForbiddenError,
+  InvalidParamsError,
+} from "../transport/wire-errors.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
   AgentPrincipal,
@@ -17,8 +20,9 @@ import {
   ConversationId,
   conversationSchema,
   ConversationFullError,
+  ConversationNotFoundError,
 } from "./conversations.js";
-import { AppId, TaskId } from "./ids.js";
+import { AppId, TaskId, TaskNotFoundError } from "./ids.js";
 import {
   ConversationInTask,
   ContactPolicyAllowsReach,
@@ -26,7 +30,7 @@ import {
 
 // `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
 // re-exported here so import paths can reach them through this module.
-export { AppId, DEFAULT_APP_ID, TaskId } from "./ids.js";
+export { AppId, DEFAULT_APP_ID, TaskId, TaskNotFoundError } from "./ids.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — task value types + errors used by 2+ blocks in this file.
@@ -87,14 +91,6 @@ const errorPayloadFields = {
   message: Schema.optional(Schema.String),
   data: Schema.optional(Schema.Unknown),
 } as const;
-
-/** The referenced task does not exist (or the caller cannot see it). */
-export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
-  "TaskNotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Task not found";
-}
 
 export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
   "TaskClosed",
@@ -179,6 +175,7 @@ export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
  * List the caller's own tasks, cursor-paginated.
  *
  * - **Principal:** `AgentPrincipal` head (no claimed refinement).
+ * @error InvalidParamsError when the `cursor` does not decode
  */
 export const TaskList = defineRpc({
   name: "task/list",
@@ -191,7 +188,7 @@ export const TaskList = defineRpc({
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   requires: [AgentPrincipal],
-  errors: [],
+  errors: [InvalidParamsError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -228,6 +225,8 @@ export type InitialConversationInput = Schema.Schema.Type<
  * - **Caps (run order):** `ContactPolicyAllowsReach` proves the caller may
  *   reach every `invitedAgentIds` target under the recipient's contact policy.
  * @error TaskRejectedError when the bound TM rejects the task
+ * @error AgentNotFoundError when an `initialConversation` participant agent is missing
+ * @error ConversationFullError when the `initialConversation` exceeds capacity
  */
 export const TaskRequest = defineRpc({
   name: "task/request",
@@ -241,7 +240,7 @@ export const TaskRequest = defineRpc({
     conversation: Schema.Union(ConversationSchema, Schema.Null),
   }),
   requires: [AgentPrincipal, AgentClaimed, ContactPolicyAllowsReach],
-  errors: [TaskRejectedError],
+  errors: [TaskRejectedError, AgentNotFoundError, ConversationFullError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -353,6 +352,7 @@ export const TaskRemoveParticipant = defineRpc({
  *   `requireAgentsAreInTaskParticipants`).
  * @error ForbiddenError when the caller does not own the task
  * @error TaskNotFoundError when the task does not exist
+ * @error AgentNotFoundError when a listed participant agent does not exist
  * @error ParticipantNotAdmittedError when a participant is not admitted to the task
  * @error ConversationFullError when the conversation is at capacity
  */
@@ -370,6 +370,7 @@ export const TaskConversationCreate = defineRpc({
   errors: [
     ForbiddenError,
     TaskNotFoundError,
+    AgentNotFoundError,
     ParticipantNotAdmittedError,
     ConversationFullError,
   ],
@@ -395,6 +396,8 @@ export type TaskConversationListItem = Schema.Schema.Type<
  * `archivedAt` locally.
  *
  * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+ * @error InvalidParamsError when the `cursor` does not decode
+ * @error ConversationNotFoundError when a listed conversation's row vanished mid-projection
  */
 export const TaskConversationList = defineRpc({
   name: "task/conversation/list",
@@ -407,7 +410,7 @@ export const TaskConversationList = defineRpc({
     nextCursor: Schema.optional(Schema.String),
   }),
   requires: [AgentPrincipal, AgentClaimed],
-  errors: [],
+  errors: [InvalidParamsError, ConversationNotFoundError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -425,13 +428,15 @@ export const TaskConversationList = defineRpc({
  * - **Principal:** `AppPrincipal` head + `ConversationInTask` +
  *   `assertCallerAppOwnsTask` (see `task/close`).
  * @error ForbiddenError when the caller does not own the task
+ * @error TaskNotFoundError when the task does not exist or is not open
+ * @error ConversationNotFoundError when the conversation does not exist under the task
  */
 export const TaskConversationArchive = defineRpc({
   name: "task/conversation/archive",
   params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError],
+  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -444,13 +449,15 @@ export const TaskConversationArchive = defineRpc({
  * - **Principal:** `AppPrincipal` head + `ConversationInTask` +
  *   `assertCallerAppOwnsTask` (see `task/close`).
  * @error ForbiddenError when the caller does not own the task
+ * @error TaskNotFoundError when the task does not exist or is not open
+ * @error ConversationNotFoundError when the conversation does not exist under the task
  */
 export const TaskConversationUnarchive = defineRpc({
   name: "task/conversation/unarchive",
   params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError],
+  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -466,6 +473,7 @@ export const TaskConversationUnarchive = defineRpc({
  *   `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
  *   not the participant-admitted state probe).
  * @error ForbiddenError when the caller does not own the task
+ * @error TaskNotFoundError when the task does not exist or is not open
  * @error ParticipantNotAdmittedError when the agent is not admitted to the task
  */
 export const TaskConversationAddParticipant = defineRpc({
@@ -477,7 +485,7 @@ export const TaskConversationAddParticipant = defineRpc({
   }),
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, ParticipantNotAdmittedError],
+  errors: [ForbiddenError, TaskNotFoundError, ParticipantNotAdmittedError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -492,7 +500,7 @@ export const TaskConversationAddParticipant = defineRpc({
  * - **Principal:** `AppPrincipal` head + `ConversationInTask` +
  *   `assertCallerAppOwnsTask` (see `task/close`).
  * @error ForbiddenError when the caller does not own the task
- * @error ParticipantNotAdmittedError when the agent is not in the conversation
+ * @error TaskNotFoundError when the task does not exist or is not open
  */
 export const TaskConversationRemoveParticipant = defineRpc({
   name: "task/conversation/participants/remove",
@@ -503,7 +511,7 @@ export const TaskConversationRemoveParticipant = defineRpc({
   }),
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, ParticipantNotAdmittedError],
+  errors: [ForbiddenError, TaskNotFoundError],
 });
 
 // ═══════════════════════════════════════════════════════════════════

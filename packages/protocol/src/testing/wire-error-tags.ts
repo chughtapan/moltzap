@@ -22,6 +22,8 @@ export const WIRE_ERROR_TAG = {
   ConversationArchived: "ConversationArchived",
   ConversationFull: "ConversationFull",
   ConversationNotFound: "ConversationNotFound",
+  MessageNotFound: "MessageNotFound",
+  AgentNotFound: "AgentNotFound",
   NotAParticipant: "NotAParticipant",
   NotInContacts: "NotInContacts",
   ContactNotFound: "ContactNotFound",

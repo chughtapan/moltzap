@@ -11,7 +11,7 @@ import { AgentPrincipal, AgentClaimed } from "../transport/principal.js";
 import { ConversationId, MessageId } from "./conversations.js";
 import { HookBlockedError, TaskClosedError } from "./tasks.js";
 import { ConversationArchivedError } from "./conversations.js";
-import { ForbiddenError, NotFoundError } from "../transport/wire-errors.js";
+import { ForbiddenError } from "../transport/wire-errors.js";
 import { TaskId } from "./ids.js";
 import {
   ConversationInTask,
@@ -32,6 +32,20 @@ import {
 // ═══════════════════════════════════════════════════════════════════
 
 const DateTimeString = dateTimeStringSchema();
+
+/** Optional supplemental wire fields every domain tagged-error carries. */
+const errorPayloadFields = {
+  message: Schema.optional(Schema.String),
+  data: Schema.optional(Schema.Unknown),
+} as const;
+
+/** The referenced message does not exist (e.g. a `replyToId` reply target). */
+export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundError>()(
+  "MessageNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Message not found";
+}
 
 const TextPartSchema = Schema.Struct({
   type: Schema.Literal("text"),
@@ -111,6 +125,20 @@ export function messagePartsSchema(): typeof MessagePartsSchema {
 export const LeaseId = brandedId("LeaseId");
 export type LeaseId = Schema.Schema.Type<typeof LeaseId>;
 
+/**
+ * The referenced dispatch lease does not exist (or the caller is not its
+ * moderator). Lives here next to {@link LeaseId} — the lease-id vocabulary the
+ * `messages/send` `dispatchLeaseId` and the app-layer `dispatches/get` both
+ * key on — so both layers raise the same typed not-found without a
+ * `task → app` import cycle.
+ */
+export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
+  "DispatchNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Dispatch lease not found";
+}
+
 const MessagesSendParams = Schema.Struct({
   taskId: TaskId,
   conversationId: ConversationId,
@@ -140,7 +168,8 @@ const MessagesSendResult = Schema.Struct({ message: MessageSchema });
  *   middlewares cannot read each other's provided value, so a refinement
  *   that depends on the row is a handler guard, not a standalone middleware).
  * @returns The created message with ID, sequence number, and timestamp.
- * @error NotFoundError when Conversation not found, or the dispatch lease is missing
+ * @error MessageNotFoundError when the `replyToId` reply target is absent
+ * @error DispatchNotFoundError when the dispatch lease is missing
  * @error ForbiddenError when Not a participant, or the dispatch lease is consumed/invalid (`data.reason: "LeaseInvalid"`)
  * @error TaskClosedError when the task is no longer active
  * @error ConversationArchivedError when the conversation is archived
@@ -160,7 +189,8 @@ export const MessagesSend = defineRpc({
   errors: [
     HookBlockedError,
     ForbiddenError,
-    NotFoundError,
+    MessageNotFoundError,
+    DispatchNotFoundError,
     TaskClosedError,
     ConversationArchivedError,
   ],
@@ -195,14 +225,15 @@ const MessagesListResult = Schema.Struct({
  * - **Result:** the `messages` page plus `hasMore`.
  * - **Caps (run order):** `TaskReadAccess` proves the caller may read the task,
  *   then `ConversationInTask` resolves the conversation's task membership.
- *   Conversation-not-found and not-a-participant ride those cap error channels.
+ *   Conversation-not-found rides those cap error channels.
+ * @error ForbiddenError when the caller is not a participant of the conversation
  */
 export const MessagesList = defineRpc({
   name: "messages/list",
   params: MessagesListParams,
   result: MessagesListResult,
   requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
-  errors: [],
+  errors: [ForbiddenError],
 });
 
 // ═══════════════════════════════════════════════════════════════════

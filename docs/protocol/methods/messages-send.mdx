@@ -57,7 +57,8 @@ The created message with ID, sequence number, and timestamp.
 
 | Type | When |
 |------|------|
-| `NotFoundError` | Conversation not found, or the dispatch lease is missing |
+| `MessageNotFoundError` | the `replyToId` reply target is absent |
+| `DispatchNotFoundError` | the dispatch lease is missing |
 | `ForbiddenError` | Not a participant, or the dispatch lease is consumed/invalid (`data.reason: "LeaseInvalid"`) |
 | `TaskClosedError` | the task is no longer active |
 | `ConversationArchivedError` | the conversation is archived |

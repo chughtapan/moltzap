@@ -4,7 +4,7 @@ import {
   TaskClosedError,
   ConversationArchivedError,
   ForbiddenError,
-  type NotFoundError,
+  type MessageNotFoundError,
   type ConversationId,
   type MessageId,
   type TaskId,
@@ -107,13 +107,13 @@ export const guardConversationNotArchived = (
 
 /**
  * Refine the reply target: when the send names a `replyToId`, verify the
- * referenced message exists in the conversation (fails `NotFound` if absent);
- * a send with no reply target passes with no DB read.
+ * referenced message exists in the conversation (fails `MessageNotFound` if
+ * absent); a send with no reply target passes with no DB read.
  */
 export const guardReplyTarget = (input: {
   readonly conversationId: ConversationId;
   readonly replyToId?: MessageId;
-}): Effect.Effect<void, NotFoundError, MessageServiceTag> => {
+}): Effect.Effect<void, MessageNotFoundError, MessageServiceTag> => {
   if (input.replyToId === undefined) {
     return Effect.void;
   }
