@@ -36,29 +36,13 @@ id (for tracing / logging). The reverse `RpcServer` engine assigns request
 ids internally; the authored handlers that read `requestId` receive a
 placeholder, the payload is the load-bearing input.
 
-### [`AppClientOptions`](./app-client.ts#L157)
+### [`AppClientOptions`](./app-client.ts#L173)
 
-_Interface_
+_TypeAlias_
 
 ```ts
-export interface AppClientOptions {
+export type AppClientOptions = AppClientCredential & {
   serverUrl: string;
-  agentKey: string;
-
-  /**
-   * App-principal credential. When set, the `network/connect`
-   * handshake uses the `appKey` arm (`{ appKey, minProtocol, maxProtocol }`)
-   * instead of the `agentKey` arm, so the server mints an `AppConnection`
-   * and the HelloOk carries no `agentId`. Used by wire app clients (a
-   * moderator app authenticating as an app principal); wire agent clients
-   * leave it unset and authenticate via `agentKey`. The two are mutually
-   * exclusive at the wire — the Connect params union is disjoint — so a
-   * configured `appKey` wins the handshake-credential selection in
-   * `awaitConnectAuth`. (The boot-installed default app is NOT a client: it
-   * registers a hookless manifest server-side and is served by AppHost's
-   * manifest-default fast-path.)
-   */
-  appKey?: string;
 
   /**
    * Called once per disconnect (not reconnect). `close` is the typed close
@@ -79,7 +63,7 @@ export interface AppClientOptions {
    * Vacuous-deny moderators write the explicit ForbiddenError handler.
    */
   handlers: AppCallbackHandlers<AppCallbackContext>;
-}
+};
 ```
 
 ### [`ChannelCoreOptions`](./channel-core.ts#L209)
@@ -601,7 +585,7 @@ export class MoltZapAppClient {
    *   caller->>client: connect()
    *   Note over client: connectEffect — Scope.make, Socket.makeWebSocket open<br>startAppCallbackDispatcher — bounded Queue 8192 + drain<br>readerFiber = runFork(readerEffect)
    *   client->>server: TCP open + WS upgrade
-   *   client->>server: network/connect {appKey | agentKey, minProtocol, maxProtocol} — appKey wins when set
+   *   client->>server: network/connect {credential, minProtocol, maxProtocol} — credential is the configured appKey or agentKey
    *   server-->>client: HelloOk
    *   Note over client: stateRef = Some(connState), _helloOk = value
    *   client-->>caller: HelloOk

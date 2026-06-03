@@ -797,7 +797,7 @@ function makeClient(
   } = overrides;
   const client = new MoltZapAppClient({
     serverUrl: url,
-    agentKey: "test-key",
+    appKey: "test-key",
     onDisconnect,
     onReconnect,
     handlers: handlers ?? denyEverythingHandlers(),
