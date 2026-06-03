@@ -26,7 +26,6 @@ export {
 } from "./runner.js";
 export {
   type ClientConformanceSuiteOptions,
-  type JointConformanceSuiteOptions,
   registerAllClientProperties,
   runClientConformanceSuite,
 } from "./suite.js";

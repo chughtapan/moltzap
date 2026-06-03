@@ -24,7 +24,6 @@ import { requestFrame } from "../../index.js";
 import { serverRpcMethods } from "../../../rpc-registry.js";
 import type { AnyServerRpcDefinition } from "../../../rpc-registry.js";
 import { jsonRpcMethod } from "../../../transport/index.js";
-import type { ConformanceArtifact } from "../_shared/runner.js";
 import {
   collectProperties,
   type PropertyFailure,
@@ -240,7 +239,6 @@ interface BadClientRuntime {
   readonly connectionRef: Ref.Ref<TestServerConnection | null>;
   readonly pendingRef: Ref.Ref<BadClientPendingMap>;
   readonly bufferedResponseRef: Ref.Ref<ResponseFrame | null>;
-  readonly artifacts: Ref.Ref<ReadonlyArray<ConformanceArtifact>>;
   readonly inbound: CaptureBuffer;
   readonly requestCounterRef: Ref.Ref<number>;
   readonly tagCounterRef: Ref.Ref<number>;
@@ -287,7 +285,6 @@ function makeBadClientRuntime(
       connectionRef: yield* Ref.make<TestServerConnection | null>(null),
       pendingRef: yield* Ref.make<BadClientPendingMap>(new Map()),
       bufferedResponseRef: yield* Ref.make<ResponseFrame | null>(null),
-      artifacts: yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]),
       inbound: yield* makeCaptureBuffer({ capacity: 256 }),
       requestCounterRef: yield* Ref.make(0),
       tagCounterRef: yield* Ref.make(0),
@@ -623,7 +620,6 @@ function makeBadClientRunContext(
       realClient: () => Effect.succeed(parts.handle),
     },
     seed: 42,
-    artifacts: parts.runtime.artifacts,
   };
 }
 

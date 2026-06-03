@@ -151,7 +151,6 @@ SOURCE_PATH_IGNORES=(
   # Protocol testing trees that stay relative (everything EXCEPT the per-
   # layer conformance subdirs, which Phase 3 already migrated).
   '^packages/protocol/src/testing/arbitraries/'
-  '^packages/protocol/src/testing/models/'
   '^packages/protocol/src/testing/toxics/'
   '^packages/protocol/src/testing/__tests__/'
   '^packages/protocol/src/testing/index\.ts:'

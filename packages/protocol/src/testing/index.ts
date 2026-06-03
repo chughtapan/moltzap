@@ -131,7 +131,6 @@ export * as toxics from "./toxics/index.js";
 // `import { runConformanceSuite } from "@moltzap/protocol/testing";`
 // without having to reach into a namespace.
 export {
-  type ConformanceArtifact,
   type ConformanceRunContext,
   type ConformanceRunOptions,
   type ConformanceSuiteOptions,
@@ -145,13 +144,11 @@ export {
   PropertyDeferred,
   PropertyInvariantViolation,
   PropertyUnavailable,
-  acquireRunContext,
   assertProperty,
   collectProperties,
   registerAllProperties,
   registerProperty,
   runAllProperties,
-  runConformance,
   runConformanceSuite,
 } from "./conformance/index.js";
 
@@ -184,7 +181,4 @@ export {
   RealClientLifecycleError,
   RealClientRpcError,
 } from "./conformance/client/runner.js";
-export type {
-  ClientConformanceSuiteOptions,
-  JointConformanceSuiteOptions,
-} from "./conformance/client/suite.js";
+export type { ClientConformanceSuiteOptions } from "./conformance/client/suite.js";

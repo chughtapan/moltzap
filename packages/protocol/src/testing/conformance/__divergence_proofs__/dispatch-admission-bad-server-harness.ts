@@ -9,7 +9,6 @@ import * as Socket from "@effect/platform/Socket";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import type {
-  ConformanceArtifact,
   ConformanceRunContext,
   RealServerHandle,
 } from "../_shared/runner.js";
@@ -74,7 +73,6 @@ function makeBadDispatchServerContext(
     const refs = yield* makeBadDispatchRefs();
     const httpHandle = yield* makeRegistrationHttpServer(refs.appRegistry);
     const wsHandle = yield* makeBadDispatchWebSocketServer(behavior, refs);
-    const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
     const realServer: RealServerHandle = {
       baseUrl: httpHandle.baseUrl,
       wsUrl: wsHandle.wsUrl,
@@ -89,7 +87,6 @@ function makeBadDispatchServerContext(
         numRuns: 1,
       },
       seed: 42,
-      artifacts,
     } satisfies ConformanceRunContext;
   });
 }

@@ -33,53 +33,6 @@ _Variable_
 export const defaultToxicProfile:
 ```
 
-### [`deliveryInvariantFor`](./profile.ts#L75)
-
-_Function_
-
-```ts
-export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName
-```
-
-Selects the delivery invariant for a toxic profile.
-
-### [`DeliveryInvariantName`](./profile.ts#L68)
-
-_TypeAlias_
-
-```ts
-export type DeliveryInvariantName =
-  | "fan-out-cardinality"
-  | "store-and-replay"
-  | "payload-opacity"
-  | "task-boundary-isolation";
-
-/** Selects the delivery invariant for a toxic profile. */
-export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName {
-  switch (toxic) {
-    case "latency":
-    case "bandwidth":
-    case "timeout":
-      return "fan-out-cardinality";
-    case "reset_peer":
-      return "store-and-replay";
-    case "slicer":
-      return "payload-opacity";
-    case "slow_close":
-      return "task-boundary-isolation";
-    default: {
-      const _exhaustive: never = toxic;
-      return absurdToxicTag(_exhaustive);
-    }
-  }
-}
-```
-
-Every delivery-layer property one toxic is expected to re-exercise.
-Keyed by the property's semantic name (matches the register-function
-names in `conformance/task/{fan-out-cardinality,store-and-replay,
-payload-opacity,task-boundary-isolation}.ts`).
-
 ### [`makeToxiproxyClient`](./client.ts#L231)
 
 _Function_
