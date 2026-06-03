@@ -64,6 +64,9 @@ import {
   messageId,
   taskId,
   JSON_RPC_VERSION,
+  requestFrame,
+  responseFrame,
+  notificationFrame,
   validateRequestFrame,
   validateResponseFrame,
   waitForValue,
@@ -184,7 +187,7 @@ const TEST_MESSAGE = {
   createdAt: "2026-05-03T00:00:00.000Z",
 };
 const messageReceivedFrame = () =>
-  MessageReceivedNotificationDefinition.encode({
+  notificationFrame(MessageReceivedNotificationDefinition, {
     taskId: TEST_TASK_ID,
     message: TEST_MESSAGE,
   });
@@ -589,7 +592,7 @@ const startHandshakingServer = (
       const frame = parsed;
       if (frame.method === Connect.name) {
         yield* conn.send(
-          JSON.stringify(Connect.encodeResponse(frame.id, helloOk())),
+          JSON.stringify(responseFrame(frame.id, { result: helloOk() })),
         );
         return;
       }
@@ -611,10 +614,20 @@ function sendDispatchAuthorizeAfterConnect(
     const frame = parsed;
     if (frame.method === Connect.name) {
       yield* conn.send(
-        JSON.stringify(Connect.encodeResponse(frame.id, helloOk())),
+        JSON.stringify(responseFrame(frame.id, { result: helloOk() })),
       );
       yield* conn.send(
-        JSON.stringify(DispatchAuthorize.encodeRequest(requestId, params)),
+        // Test fixture uses plain-string ids; the frame builder is strict over
+        // the descriptor's branded params. This is test scaffolding assembling a
+        // server→client request frame, not a wire decode.
+        JSON.stringify(
+          requestFrame(
+            requestId,
+            DispatchAuthorize,
+            // eslint-disable-next-line agent-code-guard/as-unknown-as -- test fixture plain-string ids → branded descriptor params; scaffolding, not a wire decode.
+            params as unknown as ParamsOf<typeof DispatchAuthorize>, // #ignore-sloppy-code[as-unknown-as]: test fixture plain-string ids → branded descriptor params; scaffolding, not a wire decode.
+          ),
+        ),
       );
     }
   });
@@ -649,7 +662,7 @@ function startReconnectServer(
         authResponses.current += 1;
         yield* conn.send(
           JSON.stringify(
-            Connect.encodeResponse(frame.id, helloOk(RECONNECT_AGENT_ID)),
+            responseFrame(frame.id, { result: helloOk(RECONNECT_AGENT_ID) }),
           ),
         );
       }
@@ -670,7 +683,7 @@ function sendMalformedFramesAndResponse(
       JSON.stringify({ jsonrpc: JSON_RPC_VERSION, id: frame.id }),
     );
     yield* conn.send(
-      JSON.stringify(TaskClose.encodeResponse(frame.id, TEST_TASK_RESULT)),
+      JSON.stringify(responseFrame(frame.id, { result: TEST_TASK_RESULT })),
     );
   });
 }
@@ -684,7 +697,7 @@ function sendPaddedNotificationAndResponse(
   return conn.send(
     JSON.stringify(messageReceivedFrame()) +
       "\u0000" +
-      JSON.stringify(TaskClose.encodeResponse(frame.id, TEST_TASK_RESULT)),
+      JSON.stringify(responseFrame(frame.id, { result: TEST_TASK_RESULT })),
   );
 }
 
@@ -705,7 +718,7 @@ function startTaskCloseServer(
     Effect.gen(function* () {
       captured.current = frame;
       yield* conn.send(
-        JSON.stringify(TaskClose.encodeResponse(frame.id, TEST_TASK_RESULT)),
+        JSON.stringify(responseFrame(frame.id, { result: TEST_TASK_RESULT })),
       );
     }),
   );

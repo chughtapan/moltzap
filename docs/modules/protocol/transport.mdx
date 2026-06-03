@@ -85,7 +85,7 @@ Principal requirement: narrow the live connection to the app arm. The first
 element of an app-callable method's `requires`. Fails `Unauthorized` /
 `Forbidden` on a non-app arm.
 
-### [`CallErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L199)
+### [`CallErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L181)
 
 _TypeAlias_
 
@@ -274,7 +274,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L429)
+### [`decodeRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L395)
 
 _Function_
 
@@ -289,7 +289,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L399)
+### [`defineNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L370)
 
 _Function_
 
@@ -301,10 +301,10 @@ export function defineNotification<
 ```
 
 Sibling of defineRpc for server-to-client notifications.
-Same pipeline minus the result schema and response encoder —
-notifications are fire-and-forget, no `id` field, no `result`.
+Same pipeline minus the result schema — notifications are
+fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L293)
+### [`defineRpc`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L275)
 
 _Function_
 
@@ -391,7 +391,7 @@ error. Leaf call sites pass a literal tag and recover the precise types; a
 caller generic over `K` keeps the correlation because the map is keyed on the
 literal tag, not on a widened def union.
 
-### [`DomainErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L175)
+### [`DomainErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L157)
 
 _TypeAlias_
 
@@ -407,7 +407,7 @@ export type DomainErrorsOf<
 
 The handler-domain error instance union a descriptor declares.
 
-### [`effectiveErrorClasses`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L223)
+### [`effectiveErrorClasses`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L205)
 
 _Function_
 
@@ -452,7 +452,7 @@ export type ErrorForTag<
 
 The method's own tagged-error union for one tag (from its `errorSchema`).
 
-### [`errors`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L43)
+### [`errors`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L33)
 
 _Property_
 
@@ -550,7 +550,7 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`key`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L42)
+### [`key`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L32)
 
 _Property_
 
@@ -761,7 +761,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L376)
+### [`NotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L348)
 
 _Interface_
 
@@ -773,7 +773,6 @@ export interface NotificationDefinition<
   readonly name: JsonRpcMethod<Name>;
   readonly paramsSchema: P;
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
-  readonly encode: (params: unknown) => NotificationFrame;
 }
 ```
 
@@ -830,7 +829,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L387)
+### [`NotificationParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L358)
 
 _TypeAlias_
 
@@ -842,7 +841,7 @@ export type NotificationParamsOf<
 
 Type-only accessor for a notification's params payload.
 
-### [`ParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L130)
+### [`ParamsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L112)
 
 _TypeAlias_
 
@@ -943,7 +942,7 @@ _Function_
 export function requestFrameSchema(): typeof RequestFrameSchema
 ```
 
-### [`RequirementErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L168)
+### [`RequirementErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L150)
 
 _TypeAlias_
 
@@ -958,7 +957,7 @@ requirement (principal, agent-claimed refinement, capability) declares its own
 `static errors`, read directly off each entry's RequirementShape (no
 structural cast). The lone empty `requires` (`network/connect`) yields `never`.
 
-### [`RequirementShape`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L41)
+### [`RequirementShape`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L31)
 
 _TypeAlias_
 
@@ -982,7 +981,7 @@ compile, at the engine-member binding. Keeping the wire-layer constraint
 structural is what lets the domains call `defineRpc` without the wire layer
 importing the capability tags upward.
 
-### [`ResponseErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L160)
+### [`ResponseErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L142)
 
 _TypeAlias_
 
@@ -1042,7 +1041,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L142)
+### [`ResultOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L124)
 
 _TypeAlias_
 
@@ -1070,7 +1069,7 @@ export function routeInbound(
 ): Effect.Effect<void>
 ```
 
-### [`RpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L64)
+### [`RpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L54)
 
 _Interface_
 
@@ -1130,14 +1129,6 @@ export interface RpcDefinition<
 
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
-  // `unknown` for variance compatibility with the
-  // `<string, AnyNoContext, AnyNoContext>` supertype; concrete call sites
-  // pass typed values.
-  readonly encodeRequest: (id: string, params: unknown) => RequestFrame;
-  readonly encodeResponse: (
-    id: JsonRpcId | null,
-    result: unknown,
-  ) => ResponseFrame;
 }
 ```
 
@@ -1158,7 +1149,7 @@ guards wrap a `Schema.decodeUnknownEither(schema)(value, &#123; onExcessProperty
 requirement, and the descriptor folds each requirement's `errors` into the
 effective wire error union.
 
-### [`RpcErrorClass`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L24)
+### [`RpcErrorClass`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L14)
 
 _TypeAlias_
 
@@ -1216,7 +1207,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L418)
+### [`RpcResultDecodeError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L384)
 
 _Class_
 

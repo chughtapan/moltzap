@@ -80,7 +80,7 @@ Principal requirement: narrow the live connection to the app arm. The first
 element of an app-callable method's `requires`. Fails `Unauthorized` /
 `Forbidden` on a non-app arm.
 
-### [`CallErrorsOf`](./method.ts#L199)
+### [`CallErrorsOf`](./method.ts#L181)
 
 _TypeAlias_
 
@@ -269,7 +269,7 @@ export function decodeRpcRequest<
 >
 ```
 
-### [`decodeRpcResult`](./method.ts#L429)
+### [`decodeRpcResult`](./method.ts#L395)
 
 _Function_
 
@@ -284,7 +284,7 @@ export function decodeRpcResult<
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L399)
+### [`defineNotification`](./method.ts#L370)
 
 _Function_
 
@@ -296,10 +296,10 @@ export function defineNotification<
 ```
 
 Sibling of defineRpc for server-to-client notifications.
-Same pipeline minus the result schema and response encoder —
-notifications are fire-and-forget, no `id` field, no `result`.
+Same pipeline minus the result schema — notifications are
+fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L293)
+### [`defineRpc`](./method.ts#L275)
 
 _Function_
 
@@ -386,7 +386,7 @@ error. Leaf call sites pass a literal tag and recover the precise types; a
 caller generic over `K` keeps the correlation because the map is keyed on the
 literal tag, not on a widened def union.
 
-### [`DomainErrorsOf`](./method.ts#L175)
+### [`DomainErrorsOf`](./method.ts#L157)
 
 _TypeAlias_
 
@@ -402,7 +402,7 @@ export type DomainErrorsOf<
 
 The handler-domain error instance union a descriptor declares.
 
-### [`effectiveErrorClasses`](./method.ts#L223)
+### [`effectiveErrorClasses`](./method.ts#L205)
 
 _Function_
 
@@ -447,7 +447,7 @@ export type ErrorForTag<
 
 The method's own tagged-error union for one tag (from its `errorSchema`).
 
-### [`errors`](./method.ts#L43)
+### [`errors`](./method.ts#L33)
 
 _Property_
 
@@ -545,7 +545,7 @@ _TypeAlias_
 export type JsonRpcMethod<Name extends string = string> = Name &
 ```
 
-### [`key`](./method.ts#L42)
+### [`key`](./method.ts#L32)
 
 _Property_
 
@@ -756,7 +756,7 @@ export function decodeRpcRequest<
 }
 ```
 
-### [`NotificationDefinition`](./method.ts#L376)
+### [`NotificationDefinition`](./method.ts#L348)
 
 _Interface_
 
@@ -768,7 +768,6 @@ export interface NotificationDefinition<
   readonly name: JsonRpcMethod<Name>;
   readonly paramsSchema: P;
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
-  readonly encode: (params: unknown) => NotificationFrame;
 }
 ```
 
@@ -825,7 +824,7 @@ _Function_
 export function notificationFrameSchema(): typeof NotificationFrameSchema
 ```
 
-### [`NotificationParamsOf`](./method.ts#L387)
+### [`NotificationParamsOf`](./method.ts#L358)
 
 _TypeAlias_
 
@@ -837,7 +836,7 @@ export type NotificationParamsOf<
 
 Type-only accessor for a notification's params payload.
 
-### [`ParamsOf`](./method.ts#L130)
+### [`ParamsOf`](./method.ts#L112)
 
 _TypeAlias_
 
@@ -938,7 +937,7 @@ _Function_
 export function requestFrameSchema(): typeof RequestFrameSchema
 ```
 
-### [`RequirementErrorsOf`](./method.ts#L168)
+### [`RequirementErrorsOf`](./method.ts#L150)
 
 _TypeAlias_
 
@@ -953,7 +952,7 @@ requirement (principal, agent-claimed refinement, capability) declares its own
 `static errors`, read directly off each entry's RequirementShape (no
 structural cast). The lone empty `requires` (`network/connect`) yields `never`.
 
-### [`RequirementShape`](./method.ts#L41)
+### [`RequirementShape`](./method.ts#L31)
 
 _TypeAlias_
 
@@ -977,7 +976,7 @@ compile, at the engine-member binding. Keeping the wire-layer constraint
 structural is what lets the domains call `defineRpc` without the wire layer
 importing the capability tags upward.
 
-### [`ResponseErrorsOf`](./method.ts#L160)
+### [`ResponseErrorsOf`](./method.ts#L142)
 
 _TypeAlias_
 
@@ -1037,7 +1036,7 @@ _Function_
 export function responseFrameSchema(): typeof ResponseFrameSchema
 ```
 
-### [`ResultOf`](./method.ts#L142)
+### [`ResultOf`](./method.ts#L124)
 
 _TypeAlias_
 
@@ -1065,7 +1064,7 @@ export function routeInbound(
 ): Effect.Effect<void>
 ```
 
-### [`RpcDefinition`](./method.ts#L64)
+### [`RpcDefinition`](./method.ts#L54)
 
 _Interface_
 
@@ -1125,14 +1124,6 @@ export interface RpcDefinition<
 
   readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
-  // `unknown` for variance compatibility with the
-  // `<string, AnyNoContext, AnyNoContext>` supertype; concrete call sites
-  // pass typed values.
-  readonly encodeRequest: (id: string, params: unknown) => RequestFrame;
-  readonly encodeResponse: (
-    id: JsonRpcId | null,
-    result: unknown,
-  ) => ResponseFrame;
 }
 ```
 
@@ -1153,7 +1144,7 @@ guards wrap a `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
 requirement, and the descriptor folds each requirement's `errors` into the
 effective wire error union.
 
-### [`RpcErrorClass`](./method.ts#L24)
+### [`RpcErrorClass`](./method.ts#L14)
 
 _TypeAlias_
 
@@ -1211,7 +1202,7 @@ class UnknownNotificationMethodError extends Data.TaggedError(
 }> {}
 ```
 
-### [`RpcResultDecodeError`](./method.ts#L418)
+### [`RpcResultDecodeError`](./method.ts#L384)
 
 _Class_
 

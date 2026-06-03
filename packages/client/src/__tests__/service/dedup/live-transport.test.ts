@@ -31,6 +31,8 @@ import {
   conversationId,
   messageId,
   taskId,
+  responseFrame,
+  notificationFrame,
   validateRequestFrame,
   waitUntil,
 } from "@moltzap/protocol/testing";
@@ -66,7 +68,7 @@ const helloOk = () => ({
 });
 
 const messageReceivedFrame = () =>
-  MessageReceivedNotificationDefinition.encode({
+  notificationFrame(MessageReceivedNotificationDefinition, {
     taskId: TEST_TASK_ID,
     message: {
       id: TEST_MSG_ID,
@@ -149,7 +151,7 @@ function handleServerData(
     if (parsed.method !== Connect.name) return;
     yield* write(
       muxWrapServerFrame(
-        JSON.stringify(Connect.encodeResponse(parsed.id, helloOk())),
+        JSON.stringify(responseFrame(parsed.id, { result: helloOk() })),
       ),
     ).pipe(Effect.ignore);
   });
@@ -223,7 +225,7 @@ function messageIds(messages: readonly Message[]) {
 
 function freshMessageFrame(): string {
   return JSON.stringify(
-    MessageReceivedNotificationDefinition.encode({
+    notificationFrame(MessageReceivedNotificationDefinition, {
       taskId: TEST_TASK_ID,
       message: {
         id: messageId("55555555-5555-4555-8555-555555555555"),
