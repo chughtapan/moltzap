@@ -23,7 +23,6 @@ import {
   appId as protocolAppId,
   makeCloseableTestClient,
   registerTestAgent,
-  TransportClosedError,
   type CloseableTestClient,
   type TestAgent,
 } from "@moltzap/protocol/testing";
@@ -35,11 +34,9 @@ import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
 import type { AppId, ConversationId, TaskId } from "@moltzap/protocol/task";
 
 /**
- * Spec B (#596) + #645: the legacy `waitForNotification(def, timeoutMs?)`,
- * `drainNotifications(): ReadonlyArray<...>`, and `notifications` Stream
- * wrappers were deleted. Consumers reach typed-payload Streams via
- * `client.subscribeTo(def)` (a one-line passthrough to
- * `TestClient.subscribe(def)`) or the broad-union `client.subscribeAll()`.
+ * Test-side wrapper over a `CloseableTestClient`. Consumers reach
+ * typed-payload Streams via `subscribeTo(def)` (a one-line passthrough to
+ * `TestClient.subscribe(def)`) or the broad-union `subscribeAll()`.
  * Ergonomic one-shot test sites use the top-level `awaitOneNotification`
  * helper below.
  */
@@ -47,13 +44,10 @@ export interface ServerTestClient extends Omit<CloseableTestClient, "close"> {
   close(): Effect.Effect<void, never>;
   subscribeTo<D extends AnyNotificationDefinition>(
     definition: D,
-  ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
+  ): Stream.Stream<DecodedNotification<D>, AwaitNotificationClosedError>;
 }
 
-/**
- * Default ceiling for `awaitOneNotification`; matches the legacy
- * `TestClient.waitForNotification` default.
- */
+/** Default ceiling for `awaitOneNotification`. */
 const DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS = 5_000;
 
 class AwaitNotificationTimeoutError extends Data.TaggedError(
@@ -75,19 +69,16 @@ export type AwaitNotificationError =
 
 /**
  * Stream-based one-shot waiter. Consumes `client.subscribeTo(def)` via
- * `Stream.runHead`, failing with a tagged error on timeout or stream
- * exhaustion. Replaces the deleted `client.waitForNotification(def)` shape
- * at integration-test call sites; preserves the `yield* …` ergonomic but
- * runs entirely on the new `Stream.async`-backed subscription API.
+ * `Stream.runHead`, failing with `AwaitNotificationTimeoutError` on timeout
+ * and `AwaitNotificationClosedError` when the transport closed before a
+ * matching frame arrived. Distinguishing close from timeout keeps a dead
+ * connection from masquerading as a missing notification.
  */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
   client: Pick<ServerTestClient, "subscribeTo">,
   definition: D,
   timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
-): Effect.Effect<
-  DecodedNotification<D>,
-  AwaitNotificationError | TransportClosedError
-> {
+): Effect.Effect<DecodedNotification<D>, AwaitNotificationError> {
   return client.subscribeTo(definition).pipe(
     Stream.runHead,
     Effect.timeoutFail({
@@ -198,20 +189,19 @@ export function registerAgent(
 }
 
 /**
- * Per-client broad-union pump (#645): integration tests follow the
- * `send → awaitOneNotification` pattern that the deleted polling
- * `drainNotifications` shape implicitly supported via a historical
- * notification queue. The new `Stream.async`-backed `subscribe` only
- * emits frames that arrive AFTER materialisation, so a sequential
- * `send → subscribe → runHead` races the response frame.
+ * Per-client broad-union pump: integration tests follow the
+ * `send → awaitOneNotification` pattern, which needs frames that arrive
+ * BETWEEN the triggering RPC and the wait. `TestClient.subscribe` is
+ * `Stream.async`-backed and only emits frames arriving AFTER
+ * materialisation, so a sequential `send → subscribe → runHead` races
+ * the response frame.
  *
- * Solution: install a long-lived broad-union pump at handle creation
- * that appends every inbound notification to a `Ref<Array<...>>`
- * snapshot. `subscribeTo<D>(def)` (and consumers like
- * `awaitOneNotification`) build a Stream that polls the snapshot,
- * emits the first matching frame, and removes it from the snapshot —
- * mirroring the legacy semantic without resurrecting the
- * per-definition dedup ring inside the protocol-side `TestClient`.
+ * A long-lived broad-union pump installed at handle creation appends
+ * every inbound notification to a `Ref<Array<...>>` snapshot.
+ * `subscribeTo<D>(def)` (and consumers like `awaitOneNotification`)
+ * build a Stream that polls the snapshot, emits the first matching
+ * frame, and removes it — preserving the historical-buffer semantic the
+ * test pattern needs.
  */
 const PUMP_POLL_INTERVAL_MS = 5;
 
@@ -219,6 +209,12 @@ interface NotificationBuffer {
   readonly snapshot: Ref.Ref<
     ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
   >;
+  // Flipped to true when the `subscribeAll()` pump terminates (transport
+  // close or normal exhaustion). `bufferedSubscribeStream` reads it so a
+  // waiter on a dead connection fails with `AwaitNotificationClosedError`
+  // rather than a generic timeout. Buffered frames that arrived before the
+  // close stay available for one final drain.
+  readonly closed: Ref.Ref<boolean>;
   readonly pumpFiber: Fiber.RuntimeFiber<void, never>;
 }
 
@@ -229,14 +225,16 @@ function makeNotificationBuffer(
     const snapshot = yield* Ref.make<
       ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
     >([]);
+    const closed = yield* Ref.make<boolean>(false);
     const pumpEffect = client.subscribeAll().pipe(
       Stream.runForEach((frame) =>
         Ref.update(snapshot, (xs) => [...xs, frame]),
       ),
+      Effect.ensuring(Ref.set(closed, true)),
       Effect.catchAll(() => Effect.void),
     );
     const pumpFiber = yield* Effect.fork(pumpEffect);
-    return { snapshot, pumpFiber };
+    return { snapshot, closed, pumpFiber };
   });
 }
 
@@ -256,20 +254,32 @@ function pullMatchingFromBuffer<D extends AnyNotificationDefinition>(
 function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
-): Stream.Stream<DecodedNotification<D>, TransportClosedError> {
+): Stream.Stream<DecodedNotification<D>, AwaitNotificationClosedError> {
   // Poll the broad-union buffer; emit each matching frame as a
   // singleton chunk so `Stream.runHead`/`Stream.take(N)` callers never
   // silently drop sibling chunk elements. Empty chunks on cache miss
-  // back off the poll without terminating the stream.
+  // back off the poll without terminating the stream. If the pump has
+  // closed AND no matching frame remains, fail with
+  // `AwaitNotificationClosedError` so the upstream waiter surfaces a
+  // transport-close diagnostic rather than a generic timeout.
   return Stream.repeatEffectChunk(
     pullMatchingFromBuffer(buffer, definition).pipe(
-      Effect.flatMap((maybe) =>
-        maybe === null
-          ? Effect.sleep(Duration.millis(PUMP_POLL_INTERVAL_MS)).pipe(
-              Effect.as(Chunk.empty<DecodedNotification<D>>()),
-            )
-          : Effect.succeed(Chunk.of(maybe)),
-      ),
+      Effect.flatMap((maybe) => {
+        if (maybe !== null) return Effect.succeed(Chunk.of(maybe));
+        return Ref.get(buffer.closed).pipe(
+          Effect.flatMap((isClosed) =>
+            isClosed
+              ? Effect.fail(
+                  new AwaitNotificationClosedError({
+                    definition: definition.name,
+                  }),
+                )
+              : Effect.sleep(Duration.millis(PUMP_POLL_INTERVAL_MS)).pipe(
+                  Effect.as(Chunk.empty<DecodedNotification<D>>()),
+                ),
+          ),
+        );
+      }),
     ),
   );
 }
@@ -298,12 +308,10 @@ export function connectTestClient(opts: {
       sendRpc: client.sendRpc.bind(client),
       sendMalformed: client.sendMalformed.bind(client),
       sendResponseFrame: client.sendResponseFrame.bind(client),
-      // #645: `subscribeTo<D>(def)` reads from the per-client
-      // broad-union buffer maintained by the pump above so existing
-      // `send → awaitOneNotification` test sites observe frames that
-      // arrived between the RPC return and the subscription pull —
-      // mirroring the legacy polling semantic without resurrecting the
-      // deleted per-definition dedup ring.
+      // `subscribeTo<D>(def)` reads from the per-client broad-union
+      // buffer maintained by the pump above so `send →
+      // awaitOneNotification` test sites observe frames that arrived
+      // between the RPC return and the subscription pull.
       subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
         bufferedSubscribeStream(buffer, definition),
       subscribe: client.subscribe.bind(client),

@@ -134,10 +134,10 @@ function dmEchoReplyArrives(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("a2a-alice-dm");
     const binding = yield* createDm(aliceClient, containerAAgentId);
-    // Fork the response-listener BEFORE the trigger send (Spec B P2-5
-    // r1 fix). Stream-based subscribe has no historical buffer; the echo
-    // reply can arrive in the gap between `sendText` returning and the
-    // listener registering, so the listener must be in place first.
+    // Fork the response-listener BEFORE the trigger send. Stream-based
+    // subscribe has no historical buffer; the echo reply can arrive in
+    // the gap between `sendText` returning and the listener registering,
+    // so the listener must be in place first.
     const replyFiber = yield* Effect.fork(waitForReceivedMessage(aliceClient));
     yield* sendText(aliceClient, binding, DM_HELLO_TEXT);
     const reply = yield* Fiber.join(replyFiber);
@@ -155,8 +155,8 @@ function groupMessageDispatches(containerAAgentId: AgentId) {
       eve.agentId,
     ]);
     yield* Effect.sleep(`${CONVERSATION_EVENT_SETTLE_MS} millis`);
-    // Fork-before-trigger (Spec B P2-5 r1): listener must be in place
-    // before sendText, since Stream subscribe has no historical buffer.
+    // Fork-before-trigger: listener must be in place before sendText,
+    // since Stream subscribe has no historical buffer.
     const replyFiber = yield* Effect.fork(waitForReceivedMessage(aliceClient));
     yield* sendText(aliceClient, binding, GROUP_HELLO_TEXT);
     const reply = yield* Fiber.join(replyFiber);
@@ -171,9 +171,9 @@ function rapidMessagesGetReplies(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const aliceClient = yield* connectedClaimedClient("a2a-alice-rapid");
     const binding = yield* createDm(aliceClient, containerAAgentId);
-    // Fork-before-trigger (Spec B P2-5 r1): subscribe for N replies before
-    // emitting any sends, so no echo can arrive in the gap between the
-    // final send and the listener registering.
+    // Fork-before-trigger: subscribe for N replies before emitting any
+    // sends, so no echo can arrive in the gap between the final send and
+    // the listener registering.
     const repliesFiber = yield* Effect.fork(
       waitForReceivedMessages(aliceClient, RAPID_MESSAGE_COUNT),
     );
@@ -197,8 +197,8 @@ function twoAgentsReplyFromOwnContainers(harness: GatewayHarness) {
     const aliceClient = yield* connectedClaimedClient("2a-alice");
     const bindingA = yield* createDm(aliceClient, harness.containerAAgentId);
     const bindingB = yield* createDm(aliceClient, harness.containerBAgentId);
-    // Fork-before-trigger (Spec B P2-5 r1): wait for the 2 echo replies
-    // is registered before any send.
+    // Fork-before-trigger: the wait for the 2 echo replies is registered
+    // before any send.
     const eventsFiber = yield* Effect.fork(
       waitForReceivedMessages(aliceClient, TWO_CONTAINER_COUNT),
     );
@@ -231,7 +231,7 @@ function proactiveMessageArrives(containerAAgentId: AgentId) {
       senderClient,
       yield* lookupAgentId(senderClient, PROACTIVE_RECEIVER_NAME),
     );
-    // Fork-before-trigger (Spec B P2-5 r1).
+    // Fork-before-trigger.
     const receivedFiber = yield* Effect.fork(
       waitForReceivedMessage(receiverClient),
     );
@@ -257,7 +257,7 @@ function duplicateTargetReusesConversation() {
       DUPLICATE_RECEIVER_NAME,
     );
     const binding = yield* createDm(senderClient, receiverId);
-    // Fork-before-trigger per message (Spec B P2-5 r1).
+    // Fork-before-trigger per message.
     const msg1Fiber = yield* Effect.fork(
       waitForReceivedMessage(receiverClient),
     );
@@ -291,7 +291,7 @@ function largeMessageDelivered(containerAAgentId: AgentId) {
     const aliceClient = yield* connectedClaimedClient("lg-alice");
     const binding = yield* createDm(aliceClient, containerAAgentId);
     const largeText = LARGE_MESSAGE_CHARACTER.repeat(LARGE_MESSAGE_CHARS);
-    // Fork-before-trigger (Spec B P2-5 r1).
+    // Fork-before-trigger.
     const replyFiber = yield* Effect.fork(waitForReceivedMessage(aliceClient));
     yield* sendText(aliceClient, binding, largeText);
     const reply = yield* Fiber.join(replyFiber);
@@ -310,7 +310,7 @@ function reconnectDuringDispatchRecovers(containerAAgentId: AgentId) {
     const aliceClient = connectedClient(alice.apiKey);
     yield* aliceClient.connect();
     const binding = yield* createDm(aliceClient, containerAAgentId);
-    // Fork-before-trigger for each leg (Spec B P2-5 r1).
+    // Fork-before-trigger for each leg.
     const replyFiber1 = yield* Effect.fork(waitForReceivedMessage(aliceClient));
     yield* sendText(aliceClient, binding, BEFORE_DROP_TEXT);
     expect(extractText(yield* Fiber.join(replyFiber1))).toContain(ECHO_PREFIX);
@@ -393,10 +393,9 @@ function sendText(
 }
 
 /**
- * Spec B (#596): `client.waitForNotification(name)` is deleted; the
- * Stream-based replacement is `subscribe(def).pipe(Stream.runHead,
- * Effect.timeoutFail)`. `extractMessage` continues to read the same
- * notification shape.
+ * Wait for one `messages/received` notification: consume the typed
+ * `subscribe(def)` Stream with `Stream.runHead` under a timeout, then
+ * project the frame with `extractMessage`.
  */
 function waitForReceivedMessage(client: MoltZapAgentClient) {
   return client.subscribe(MessageReceivedNotificationDefinition).pipe(

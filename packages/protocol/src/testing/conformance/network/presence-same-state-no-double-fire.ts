@@ -49,7 +49,7 @@ const sameStateNoDoubleFire = (ctx: ConformanceRunContext, name: string) =>
         "p4-a-client",
       );
       yield* waitForPresenceWithStatus(
-        sub.client,
+        sub,
         { agentId: a.agentId, status: "online" },
         name,
       );

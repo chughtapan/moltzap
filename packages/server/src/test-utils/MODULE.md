@@ -24,7 +24,7 @@ task-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L72)
+### [`AwaitNotificationError`](./helpers.ts#L66)
 
 _TypeAlias_
 
@@ -35,19 +35,16 @@ export type AwaitNotificationError =
 
 /**
  * Stream-based one-shot waiter. Consumes `client.subscribeTo(def)` via
- * `Stream.runHead`, failing with a tagged error on timeout or stream
- * exhaustion. Replaces the deleted `client.waitForNotification(def)` shape
- * at integration-test call sites; preserves the `yield* …` ergonomic but
- * runs entirely on the new `Stream.async`-backed subscription API.
+ * `Stream.runHead`, failing with `AwaitNotificationTimeoutError` on timeout
+ * and `AwaitNotificationClosedError` when the transport closed before a
+ * matching frame arrived. Distinguishing close from timeout keeps a dead
+ * connection from masquerading as a missing notification.
  */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
   client: Pick<ServerTestClient, "subscribeTo">,
   definition: D,
   timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
-): Effect.Effect<
-  DecodedNotification<D>,
-  AwaitNotificationError | TransportClosedError
-> {
+): Effect.Effect<DecodedNotification<D>, AwaitNotificationError> {
   return client.subscribeTo(definition).pipe(
     Stream.runHead,
     Effect.timeoutFail({
@@ -73,7 +70,7 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
 }
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L83)
+### [`awaitOneNotification`](./helpers.ts#L77)
 
 _Function_
 
@@ -82,19 +79,16 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
   client: Pick<ServerTestClient, "subscribeTo">,
   definition: D,
   timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
-): Effect.Effect<
-  DecodedNotification<D>,
-  AwaitNotificationError | TransportClosedError
->
+): Effect.Effect<DecodedNotification<D>, AwaitNotificationError>
 ```
 
 Stream-based one-shot waiter. Consumes `client.subscribeTo(def)` via
-`Stream.runHead`, failing with a tagged error on timeout or stream
-exhaustion. Replaces the deleted `client.waitForNotification(def)` shape
-at integration-test call sites; preserves the `yield* …` ergonomic but
-runs entirely on the new `Stream.async`-backed subscription API.
+`Stream.runHead`, failing with `AwaitNotificationTimeoutError` on timeout
+and `AwaitNotificationClosedError` when the transport closed before a
+matching frame arrived. Distinguishing close from timeout keeps a dead
+connection from masquerading as a missing notification.
 
-### [`closeAllClients`](./helpers.ts#L179)
+### [`closeAllClients`](./helpers.ts#L170)
 
 _Function_
 
@@ -102,7 +96,7 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`connectAppClient`](./helpers.ts#L391)
+### [`connectAppClient`](./helpers.ts#L399)
 
 _Function_
 
@@ -118,7 +112,7 @@ registers the live connection as the app's moderator endpoint, so the
 returned client receives server→client `dispatch/authorize` /
 `messages/authorize` / `task/create` callbacks. Tracked for cleanup.
 
-### [`ConnectedAgent`](./helpers.ts#L115)
+### [`ConnectedAgent`](./helpers.ts#L106)
 
 _Interface_
 
@@ -131,7 +125,7 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L277)
+### [`connectTestClient`](./helpers.ts#L287)
 
 _Function_
 
@@ -369,7 +363,7 @@ function sqlPreview(sql: string): string {
 }
 ```
 
-### [`postJson`](./helpers.ts#L449)
+### [`postJson`](./helpers.ts#L457)
 
 _Function_
 
@@ -387,7 +381,7 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 same wire envelope, so each integration test importing this helper
 can drop the repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L186)
+### [`registerAgent`](./helpers.ts#L177)
 
 _Function_
 
@@ -399,7 +393,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L431)
+### [`registerAndConnect`](./helpers.ts#L439)
 
 _Function_
 
@@ -411,7 +405,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L356)
+### [`registerApp`](./helpers.ts#L364)
 
 _Function_
 
@@ -435,7 +429,7 @@ RPC.
 (the HTTP route gates app registration behind the same secret as agent
 registration); omit it for the default open-registration server.
 
-### [`RegisteredApp`](./helpers.ts#L322)
+### [`RegisteredApp`](./helpers.ts#L330)
 
 _Interface_
 
@@ -447,7 +441,7 @@ export interface RegisteredApp {
 }
 ```
 
-### [`registerOnly`](./helpers.ts#L533)
+### [`registerOnly`](./helpers.ts#L541)
 
 _Function_
 
@@ -473,7 +467,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`ServerTestClient`](./helpers.ts#L46)
+### [`ServerTestClient`](./helpers.ts#L43)
 
 _Interface_
 
@@ -482,19 +476,17 @@ export interface ServerTestClient extends Omit<CloseableTestClient, "close"> {
   close(): Effect.Effect<void, never>;
   subscribeTo<D extends AnyNotificationDefinition>(
     definition: D,
-  ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
+  ): Stream.Stream<DecodedNotification<D>, AwaitNotificationClosedError>;
 }
 ```
 
-Spec B (#596) + #645: the legacy `waitForNotification(def, timeoutMs?)`,
-`drainNotifications(): ReadonlyArray<...>`, and `notifications` Stream
-wrappers were deleted. Consumers reach typed-payload Streams via
-`client.subscribeTo(def)` (a one-line passthrough to
-`TestClient.subscribe(def)`) or the broad-union `client.subscribeAll()`.
+Test-side wrapper over a `CloseableTestClient`. Consumers reach
+typed-payload Streams via `subscribeTo(def)` (a one-line passthrough to
+`TestClient.subscribe(def)`) or the broad-union `subscribeAll()`.
 Ergonomic one-shot test sites use the top-level `awaitOneNotification`
 helper below.
 
-### [`setupAgentGroup`](./helpers.ts#L572)
+### [`setupAgentGroup`](./helpers.ts#L580)
 
 _Function_
 
@@ -514,7 +506,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L560)
+### [`setupAgentPair`](./helpers.ts#L568)
 
 _Function_
 
@@ -543,7 +535,7 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L175)
+### [`trackClient`](./helpers.ts#L166)
 
 _Function_
 
