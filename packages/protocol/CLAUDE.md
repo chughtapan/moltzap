@@ -51,7 +51,7 @@ Aggregates and entry points:
   `appCallableRpcMethods`, `serverRpcMethods`); exposes
   `decodeServerInbound` / `decodeClientInbound`.
 - `src/schema-primitives.ts` — `stringEnum`, `brandedId`,
-  `brandedString`, `brandedNumber`, `DateTimeString`.
+  `brandedString`, `DateTimeString`.
 - `src/version.ts` — `PROTOCOL_VERSION` constant.
 - `src/transport/wire-errors.ts` — cross-cutting tagged errors
   (`UnauthorizedError`, `ForbiddenError`, `NotFoundError`,
@@ -230,7 +230,7 @@ Schema authoring:
   shape, simpler schema.
 - Use `brandedId("FooId")` for UUID string fields; `formatString`
   for non-branded `uuid`/`uri`/`date-time` fields. Use
-  `brandedString` / `brandedNumber` for non-UUID branded primitives.
+  `brandedString` for non-UUID branded string primitives.
 - Bounded integers: `Schema.Number.pipe(Schema.int(),
   Schema.greaterThanOrEqualTo(n))` — the INLINE form. `Schema.Int`
   hoists a `$defs`/`$ref` in `JSONSchema.make` that the docs walker
