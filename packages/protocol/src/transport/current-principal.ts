@@ -16,9 +16,9 @@
  * imports the server).
  *
  * `CurrentPrincipal` is provided only for the middleware-gated methods. The
- * unauth Connect path (`network/connect`, `callablePrincipal: "any"`)
- * declares zero middlewares, so nothing `yield*`s `CurrentPrincipal`
- * there and it is never provided on the unauthenticated arm.
+ * unauth Connect path (`network/connect`, empty `requires`) declares zero
+ * middlewares, so nothing `yield*`s `CurrentPrincipal` there and it is never
+ * provided on the unauthenticated arm.
  */
 import { Context, Effect } from "effect";
 import type { AgentId } from "../identity/agents.js";
@@ -58,10 +58,10 @@ export class CurrentPrincipal extends Context.Tag(
 /**
  * Impossible-state defect: a capability `derivePayload` read the principal
  * and found a NON-agent arm. Every live descriptor cap is agent-originated
- * (its binding's `callablePrincipal` is `"agent"`), so the binding
+ * (its method's `requires` head is `AgentPrincipal`), so the binding
  * guarantees an agent caller; an app arm here is a wiring defect, not a
  * caller-actionable error. {@link Effect.die} (not a caller-visible error)
- * because the principal-kind gate already rejected non-agent callers.
+ * because the principal gate already rejected non-agent callers.
  */
 export const callerAgentId: Effect.Effect<AgentId, never, CurrentPrincipal> =
   Effect.gen(function* () {

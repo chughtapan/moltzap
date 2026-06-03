@@ -24,6 +24,7 @@ import { Schema } from "effect";
 import { RpcMiddleware } from "@effect/rpc";
 import { principalGateErrorClasses } from "./wire-errors.js";
 import type { RpcErrorClass } from "./method.js";
+import { AgentPrincipal, AppPrincipal } from "./requirements.js";
 import {
   ConversationInTask,
   ConversationSendAccess,
@@ -79,45 +80,69 @@ export class ContactPolicyAllowsReachMw extends RpcMiddleware.Tag<ContactPolicyA
 ) {}
 
 /**
- * Cap `Context.Tag` key → its `RpcMiddleware.Tag`. The engine binding
- * (`server-engine-group.ts → buildEngineMember`) reads a method's `caps` tuple
- * and stacks each cap's middleware in declared order. A cap that a method can
- * require MUST appear here, or the binding leaves it ungated — the boot guard
- * (`assertCapMiddlewareCoverage`) fails the build if a declared cap has no
- * middleware.
+ * Every requirement key that carries a middleware: both principal requirements
+ * plus each capability tag. The `AgentClaimed` refinement is EXCLUDED — it
+ * carries no middleware (an active-arm check the principal gate's per-method
+ * impl Layer reads off `requires`). This union makes {@link requirementMiddleware}
+ * a TOTAL map: a requirement key added without a middleware entry fails the
+ * `satisfies` below, so the engine binding can never leave a requirement ungated.
  */
-export const capMiddlewareByCapKey: Readonly<
-  Record<string, RpcMiddleware.TagClassAny>
-> = {
+export type MiddlewareRequirementKey =
+  | typeof AgentPrincipal.key
+  | typeof AppPrincipal.key
+  | typeof ConversationInTask.key
+  | typeof ConversationSendAccess.key
+  | typeof TaskReadAccess.key
+  | typeof ContactPolicyAllowsReach.key;
+
+/**
+ * Requirement key → its `RpcMiddleware.Tag`. The engine binding
+ * (`server-engine-group.ts → buildEngineMember`) reads a method's `requires`
+ * list and stacks each requirement's middleware in declared order. Both
+ * principal requirements (`AgentPrincipal` / `AppPrincipal`) map to the single
+ * {@link PrincipalGateMw}; each capability maps to its own cap middleware. The
+ * map is TOTAL over {@link MiddlewareRequirementKey} (enforced by `satisfies`),
+ * so the lookup never returns `undefined` and the descriptor↔binding
+ * correspondence is compile-checked — no boot-time gating walk needed.
+ */
+export const requirementMiddleware = {
+  [AgentPrincipal.key]: PrincipalGateMw,
+  [AppPrincipal.key]: PrincipalGateMw,
   [ConversationInTask.key]: ConversationInTaskMw,
   [ConversationSendAccess.key]: ConversationSendAccessMw,
   [TaskReadAccess.key]: TaskReadAccessMw,
   [ContactPolicyAllowsReach.key]: ContactPolicyAllowsReachMw,
-};
+} satisfies Record<MiddlewareRequirementKey, RpcMiddleware.TagClassAny>;
 
 /**
- * Type-level cap `Context.Tag` → its `RpcMiddleware.Tag` (the runtime mirror is
- * {@link capMiddlewareByCapKey}). Matches by tag IDENTITY so the engine member's
- * middleware param carries the EXACT cap mws, keeping the per-cap `provides`
- * type-visible (a handler that `yield*`s a cap Tag has it stripped from the
- * Layer's residual requirement — the proof-exclusion guarantee).
+ * Type-level requirement `Context.Tag` → its `RpcMiddleware.Tag` (the runtime
+ * mirror is {@link requirementMiddlewareByKey}). Matches by tag IDENTITY so the
+ * engine member's middleware param carries the EXACT mws, keeping each cap's
+ * `provides` type-visible (a handler that `yield*`s a cap Tag has it stripped
+ * from the Layer's residual requirement — the proof-exclusion guarantee). Both
+ * principal requirements map to `PrincipalGateMw`; the `AgentClaimed` refinement
+ * carries no middleware (maps to `never`).
  */
-export type CapMwFor<Cap> = Cap extends typeof ConversationInTask
-  ? typeof ConversationInTaskMw
-  : Cap extends typeof ConversationSendAccess
-    ? typeof ConversationSendAccessMw
-    : Cap extends typeof TaskReadAccess
-      ? typeof TaskReadAccessMw
-      : Cap extends typeof ContactPolicyAllowsReach
-        ? typeof ContactPolicyAllowsReachMw
-        : never;
+export type MwForRequirement<Req> = Req extends typeof AgentPrincipal
+  ? typeof PrincipalGateMw
+  : Req extends typeof AppPrincipal
+    ? typeof PrincipalGateMw
+    : Req extends typeof ConversationInTask
+      ? typeof ConversationInTaskMw
+      : Req extends typeof ConversationSendAccess
+        ? typeof ConversationSendAccessMw
+        : Req extends typeof TaskReadAccess
+          ? typeof TaskReadAccessMw
+          : Req extends typeof ContactPolicyAllowsReach
+            ? typeof ContactPolicyAllowsReachMw
+            : never;
 
 /**
- * The middleware stack an authenticated method's `caps` tuple maps to: the
- * `PrincipalGateMw` (every authenticated method) ∪ each declared cap's
- * middleware Tag. The engine member's `Middleware` param is this union, so each
- * cap's `provides` is type-visible at the binding.
+ * The middleware stack a method's `requires` list maps to: each requirement's
+ * `RpcMiddleware.Tag` (principal → `PrincipalGateMw`, cap → its cap mw,
+ * `AgentClaimed` → `never`). The engine member's `Middleware` param is this
+ * union, so each cap's `provides` is type-visible at the binding. The empty
+ * `requires` (`network/connect`) maps to `never` — no middleware.
  */
-export type MwStackFor<Caps extends ReadonlyArray<unknown>> =
-  | typeof PrincipalGateMw
-  | CapMwFor<Caps[number]>;
+export type MwStackFor<Requires extends ReadonlyArray<unknown>> =
+  MwForRequirement<Requires[number]>;

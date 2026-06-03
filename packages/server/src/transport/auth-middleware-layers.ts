@@ -12,9 +12,10 @@
  *
  * The principal gate is ONE impl over `PrincipalGateMw`, stacked on every
  * authenticated method: it reads the running `rpc._tag`, looks up that method's
- * policy (`callablePrincipal` + `requiresActive`) in {@link policyByTag}, narrows
- * the live arm, and fails `Unauthorized` / `Forbidden`. It provides nothing —
- * the handler reads the narrowed arm off `ConnectionTag` (`agentArm`/`appArm`).
+ * policy (the `requires` head + whether it requires a claimed agent) in
+ * {@link policyByTag}, narrows the live arm, and fails `Unauthorized` /
+ * `Forbidden`. It provides nothing — the handler reads the narrowed arm off
+ * `ConnectionTag` (`agentArm`/`appArm`).
  *
  * Each cap mw impl peeks the live arm for the caller's agent id, derives its
  * input from the decoded `payload`, and runs the cap's `obtain` — providing the
@@ -33,7 +34,9 @@ import {
   TaskReadAccessMw,
   ContactPolicyAllowsReachMw,
   serverRpcMethods,
-  type CallablePrincipal,
+  principalRequirementOf,
+  requiresClaimed,
+  type PrincipalRequirement,
   type ConversationId,
   type TaskId,
 } from "@moltzap/protocol";
@@ -53,24 +56,25 @@ import {
 import { obtainConversationSendAccess } from "../task/services/send-permissions.js";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
-/** The principal policy a method's gate enforces. */
+/** The principal policy a method's gate enforces — read off its `requires`. */
 interface PrincipalPolicy {
-  readonly callablePrincipal: CallablePrincipal;
-  readonly requiresActive: boolean;
+  /** The `requires` head; `undefined` only for the empty-`requires` method. */
+  readonly principal: PrincipalRequirement | undefined;
+  readonly requiresClaimed: boolean;
 }
 
 /**
  * Method wire tag → its principal policy. Built once from the descriptor catalog
- * so the single `PrincipalGateMw` impl narrows per the running method's
- * `callablePrincipal` + `requiresActive` (read off `rpc._tag`), with no parallel
+ * so the single `PrincipalGateMw` impl narrows per the running method's `requires`
+ * head + the `AgentClaimed` refinement (read off `rpc._tag`), with no parallel
  * literal table.
  */
 const policyByTag: ReadonlyMap<string, PrincipalPolicy> = new Map(
   serverRpcMethods.map((d) => [
     d.name as string,
     {
-      callablePrincipal: d.callablePrincipal,
-      requiresActive: d.requiresActive,
+      principal: principalRequirementOf(d.requires),
+      requiresClaimed: requiresClaimed(d.requires),
     },
   ]),
 );
@@ -114,8 +118,8 @@ const makePrincipalGateLayer = (connId: ConnectionId) =>
           }
           const connection = yield* peekLiveArm(manager, connId);
           yield* narrowByPolicy(
-            policy.callablePrincipal,
-            policy.requiresActive,
+            policy.principal,
+            policy.requiresClaimed,
             connection,
           );
         }).pipe(Effect.withSpan("AuthMiddleware.principalGate"));

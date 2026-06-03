@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { brandedId, listCursorSchema } from "../schema-primitives.js";
 import { ListLimitSchema } from "../pagination.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
+import { AgentPrincipal } from "../transport/requirements.js";
 import { UserId } from "./agents.js";
 
 /** Optional supplemental wire fields every domain tagged-error carries. */
@@ -60,7 +61,7 @@ export const ContactsList = defineRpc({
     contacts: Schema.Array(ContactSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
-  callablePrincipal: "agent",
+  requires: [AgentPrincipal],
   errors: [],
 });
 
@@ -74,7 +75,7 @@ export const ContactsAdd = defineRpc({
     relationship: Schema.optional(Schema.String),
   }),
   result: Schema.Struct({ contact: ContactSchema }),
-  callablePrincipal: "agent",
+  requires: [AgentPrincipal],
   errors: [],
 });
 
@@ -85,7 +86,7 @@ export const ContactsAccept = defineRpc({
   name: "contacts/accept",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
-  callablePrincipal: "agent",
+  requires: [AgentPrincipal],
   errors: [ContactNotFoundError],
 });
 
@@ -96,7 +97,7 @@ export const ContactsById = defineRpc({
   name: "contacts/byId",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
-  callablePrincipal: "agent",
+  requires: [AgentPrincipal],
   errors: [ContactNotFoundError],
 });
 

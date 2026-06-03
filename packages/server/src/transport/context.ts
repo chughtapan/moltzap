@@ -5,8 +5,8 @@ import type { AgentId, UserId } from "../app/types.js";
 /**
  * Closed agent lifecycle states. Mirrors
  * `core-schema.sql → CREATE TYPE agent_status AS ENUM (...)`. The closed
- * union makes `requiresActive` checks exhaustive — adding a state forces
- * every consumer switch to handle it.
+ * union makes the `AgentClaimed` active-agent check exhaustive — adding a state
+ * forces every consumer switch to handle it.
  */
 export type AgentStatus = "active" | "pending_claim" | "suspended";
 
@@ -18,7 +18,7 @@ export type AgentStatus = "active" | "pending_claim" | "suspended";
  * `AgentContext | AppContext` is the principal type, minted directly on the
  * Connect path. Handlers receive their NARROWED arm
  * ({@link AgentContext} for agent-callable RPCs, {@link AppContext} for
- * app-callable), keyed by each binding's `PrincipalKind`.
+ * app-callable), keyed by each method's `requires` head.
  */
 export class AgentContext extends Data.TaggedClass("AgentContext")<{
   readonly agentId: AgentId;

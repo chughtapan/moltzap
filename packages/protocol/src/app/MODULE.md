@@ -8,7 +8,7 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 
 ## Public surface
 
-### [`appCallbackMethods`](./methods.ts#L577)
+### [`appCallbackMethods`](./methods.ts#L588)
 
 _Variable_
 
@@ -20,7 +20,7 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppManifest`](./methods.ts#L145)
+### [`AppManifest`](./methods.ts#L150)
 
 _TypeAlias_
 
@@ -28,7 +28,7 @@ _TypeAlias_
 export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
 ```
 
-### [`AppManifestValidationResult`](./methods.ts#L154)
+### [`AppManifestValidationResult`](./methods.ts#L159)
 
 _TypeAlias_
 
@@ -39,7 +39,7 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`appNotifications`](./methods.ts#L583)
+### [`appNotifications`](./methods.ts#L594)
 
 _Variable_
 
@@ -51,7 +51,7 @@ export const appNotifications = [
 ] as const
 ```
 
-### [`appRpcMethods`](./methods.ts#L571)
+### [`appRpcMethods`](./methods.ts#L582)
 
 _Variable_
 
@@ -63,7 +63,7 @@ export const appRpcMethods = [
 ] as const
 ```
 
-### [`AppsRegister`](./methods.ts#L187)
+### [`AppsRegister`](./methods.ts#L192)
 
 _Variable_
 
@@ -72,14 +72,14 @@ export const AppsRegister = defineRpc({
   name: "apps/register",
   params: Schema.Struct({ manifest: AppManifestSchema }),
   result: Schema.Struct({ appId: Schema.String }),
-  callablePrincipal: "app",
+  requires: [AppPrincipal],
   errors: [ConflictError],
 })
 ```
 
 Register an app manifest for the current connection.
 
-### [`DispatchAuthorize`](./methods.ts#L303)
+### [`DispatchAuthorize`](./methods.ts#L307)
 
 _Variable_
 
@@ -88,6 +88,9 @@ export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
   result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
+  // A server→client reverse callback: it carries no principal requirement (the
+  // client serves it, the server does not gate it), so `requires` is empty.
+  requires: [],
   // A moderator handler may reject outright with `ForbiddenError`; declaring it
   // lets the reverse engine serialize the flat tagged error rather than a
   // `Die` defect. The server collapses any callback failure to a fail-closed
@@ -102,7 +105,7 @@ round-trip synthesizes a fail-closed `deny` verdict at
 `LeaseRegistry.resolve`. The server emits this RPC only for a manifest
 whose `dispatch_authorize` policy is `{ kind: "hook" }`.
 
-### [`DispatchesConsumed`](./methods.ts#L345)
+### [`DispatchesConsumed`](./methods.ts#L352)
 
 _Variable_
 
@@ -125,7 +128,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./methods.ts#L362)
+### [`DispatchesExpired`](./methods.ts#L369)
 
 _Variable_
 
@@ -146,7 +149,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./methods.ts#L419)
+### [`DispatchesGet`](./methods.ts#L426)
 
 _Variable_
 
@@ -155,7 +158,7 @@ export const DispatchesGet = defineRpc({
   name: "dispatches/get",
   params: Schema.Struct({ dispatchId: DispatchId }),
   result: Schema.Struct({ lease: LeaseRecordSchema }),
-  callablePrincipal: "app",
+  requires: [AppPrincipal],
   errors: [DispatchNotFoundError],
 })
 ```
@@ -165,7 +168,7 @@ the handler: the calling connection must match the lease's
 `moderatorConnectionId` (the binding tuple recorded at mint time);
 non-moderator callers fail with `ForbiddenError`.
 
-### [`DispatchId`](./methods.ts#L261)
+### [`DispatchId`](./methods.ts#L266)
 
 _TypeAlias_
 
@@ -179,7 +182,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchId`](./methods.ts#L261)
+### [`DispatchId`](./methods.ts#L266)
 
 _Variable_
 
@@ -193,7 +196,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchNotFoundError`](./methods.ts#L20)
+### [`DispatchNotFoundError`](./methods.ts#L25)
 
 _Class_
 
@@ -208,7 +211,7 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
 
 The referenced dispatch lease does not exist (or the caller is not its moderator).
 
-### [`DispatchRelease`](./methods.ts#L324)
+### [`DispatchRelease`](./methods.ts#L331)
 
 _Variable_
 
@@ -235,7 +238,7 @@ HOLD inherits the same TTL by ageing out via the standard EXPIRED path; no
 `leaseTimeoutMs` field needed on the hold arm because the grant TTL has not
 started yet (lease never reached GRANTED).
 
-### [`DispatchRequest`](./methods.ts#L273)
+### [`DispatchRequest`](./methods.ts#L278)
 
 _Variable_
 
@@ -256,10 +259,9 @@ export const DispatchRequest = defineRpc({
   }),
   result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
   // Agent-originated even though the recipient handler runs in the app layer:
-  // an agent posts a dispatch to a conversation it sends into; the gate
-  // narrows the agent arm and `requiresActive` enforces a claimed agent.
-  callablePrincipal: "agent",
-  requiresActive: true,
+  // an agent posts a dispatch to a conversation it sends into; `AgentPrincipal`
+  // narrows the agent arm and `AgentClaimed` enforces a claimed agent.
+  requires: [AgentPrincipal, AgentClaimed],
   errors: [],
 })
 ```
@@ -282,7 +284,7 @@ export const manifestPolicyCanaries =
 
 Aggregate so each binding is referenced (no unused-variable lint).
 
-### [`MessagesAuthorize`](./methods.ts#L479)
+### [`MessagesAuthorize`](./methods.ts#L486)
 
 _Variable_
 
@@ -291,6 +293,8 @@ export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",
   params: MessagesAuthorizeContextSchema,
   result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
+  // Server→client reverse callback — no principal requirement.
+  requires: [],
   // Mirrors `DispatchAuthorize`: a moderator handler may reject with
   // `ForbiddenError`, serialized as the flat tagged error and collapsed to a
   // fail-closed Block by the server.
@@ -312,7 +316,7 @@ participants; the server does not re-fan to non-participants.
 `Forward { recipients: [] }` is legal — message lands in the
 sender's transcript but is delivered to no one else.
 
-### [`TaskCreate`](./methods.ts#L559)
+### [`TaskCreate`](./methods.ts#L568)
 
 _Variable_
 
@@ -321,6 +325,8 @@ export const TaskCreate = defineRpc({
   name: "task/create",
   params: TaskCreateContextSchema,
   result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
+  // Server→client reverse callback — no principal requirement.
+  requires: [],
   // Mirrors `DispatchAuthorize`: a TM handler may reject with `ForbiddenError`,
   // serialized as the flat tagged error and collapsed to a fail-closed reject
   // by the server.
@@ -356,7 +362,7 @@ waiting tasks are invisible to delivery (no conversation, no
 participants observe them) and would be reaped by a stale-waiting-task
 sweep.
 
-### [`validateAppManifest`](./methods.ts#L166)
+### [`validateAppManifest`](./methods.ts#L171)
 
 _Function_
 

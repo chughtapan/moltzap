@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { AgentId } from "../identity/methods.js";
 import { dateTimeStringSchema, stringEnum } from "../schema-primitives.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
+import { AgentPrincipal, AgentClaimed } from "../transport/requirements.js";
 import {
   UnauthorizedError,
   AlreadyConnected,
@@ -89,9 +90,11 @@ export const Connect = defineRpc({
     maxProtocol: Schema.String,
   }),
   result: HelloOkSchema,
-  // The unauthenticated handshake declares its failures directly (no principal
-  // gate runs before it): malformed params, bad credential, version mismatch,
-  // or a principal that already holds a live connection.
+  // The unauthenticated handshake: no principal exists pre-auth, so `requires`
+  // is empty (no gate runs before it). It declares its failures directly:
+  // malformed params, bad credential, version mismatch, or a principal that
+  // already holds a live connection.
+  requires: [],
   errors: [
     InvalidParamsError,
     UnauthorizedError,
@@ -111,7 +114,7 @@ export const NetworkPing = defineRpc({
   name: "network/ping",
   params: Schema.Struct({}),
   result: Schema.Struct({ ts: DateTimeString }),
-  callablePrincipal: "agent",
+  requires: [AgentPrincipal],
   errors: [],
 });
 
@@ -132,8 +135,7 @@ export const PresenceSubscribe = defineRpc({
   name: "presence/subscribe",
   params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
   result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
-  callablePrincipal: "agent",
-  requiresActive: true,
+  requires: [AgentPrincipal, AgentClaimed],
   // The handler rejects an agentId outside the caller's contact-visible set.
   errors: [NotInContactsError],
 });

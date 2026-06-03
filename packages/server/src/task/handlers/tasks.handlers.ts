@@ -43,8 +43,8 @@ import { agentArm, appArm } from "../../app/server-handlers-runtime.js";
  * it (e.g. the `task.initiatorAgentId` creator-of-record on
  * `task/conversation/create`).
  *
- * The caller is guaranteed to be an `AppConnection`: every binding here
- * is `callablePrincipal: "app"`, so the dispatcher's principal gate
+ * The caller is guaranteed to be an `AppConnection`: every method here
+ * heads its `requires` with `AppPrincipal`, so the dispatcher's principal gate
  * rejects a non-app arm with `ForbiddenError` before the body runs. The
  * `appId` flows from the narrowed {@link AppContext} `ctx.appId`.
  */

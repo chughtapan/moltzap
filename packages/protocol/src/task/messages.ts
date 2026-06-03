@@ -7,6 +7,7 @@ import {
 import { ListLimitSchema } from "../pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
+import { AgentPrincipal, AgentClaimed } from "../transport/requirements.js";
 import { ConversationId, MessageId } from "./conversations.js";
 import { HookBlockedError, TaskClosedError } from "./tasks.js";
 import { ConversationArchivedError } from "./conversations.js";
@@ -177,18 +178,21 @@ export const MessagesSend = defineRpc({
     dispatchLeaseId: Schema.optional(LeaseId),
   }),
   result: Schema.Struct({ message: MessageSchema }),
-  callablePrincipal: "agent",
-  requiresActive: true,
-  // Two stacked cap middlewares form the send authorization spine:
-  // `ConversationInTask` resolves the conversation's task membership;
-  // `ConversationSendAccess` proves participation and does the ONE joined
-  // (`conversations ⋈ tasks`) read, providing the row to the handler. The
-  // remaining send preconditions — task-active, conversation-not-archived,
-  // reply-target — are handler-body guards that refine that provided row (they
-  // share the one read; `@effect/rpc` middlewares cannot read each other's
-  // provided value, so a refinement that depends on the row is a handler guard,
-  // not a standalone middleware).
-  caps: [ConversationInTask, ConversationSendAccess],
+  // `[AgentPrincipal, AgentClaimed]` heads the list, then two stacked cap
+  // requirements form the send authorization spine: `ConversationInTask`
+  // resolves the conversation's task membership; `ConversationSendAccess` proves
+  // participation and does the ONE joined (`conversations ⋈ tasks`) read,
+  // providing the row to the handler. The remaining send preconditions —
+  // task-active, conversation-not-archived, reply-target — are handler-body
+  // guards that refine that provided row (they share the one read; `@effect/rpc`
+  // middlewares cannot read each other's provided value, so a refinement that
+  // depends on the row is a handler guard, not a standalone middleware).
+  requires: [
+    AgentPrincipal,
+    AgentClaimed,
+    ConversationInTask,
+    ConversationSendAccess,
+  ],
   // Handler-domain errors, including the send-guard failures (`TaskClosed`,
   // `ConversationArchived`, reply-target `NotFound`) that the handler raises
   // while refining the `ConversationSendAccess` row. `ForbiddenError`/
@@ -226,11 +230,10 @@ export const MessagesList = defineRpc({
     messages: Schema.Array(MessageSchema),
     hasMore: Schema.Boolean,
   }),
-  callablePrincipal: "agent",
-  requiresActive: true,
-  // Run order: `TaskReadAccess` proves the caller may read the task before
-  // `ConversationInTask` resolves the conversation's task membership.
-  caps: [TaskReadAccess, ConversationInTask],
+  // Run order: the principal head, then `TaskReadAccess` proves the caller may
+  // read the task before `ConversationInTask` resolves the conversation's task
+  // membership.
+  requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
   errors: [],
 });
 

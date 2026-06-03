@@ -9,6 +9,11 @@ import { AgentId } from "../identity/agents.js";
 import { ForbiddenError } from "../transport/wire-errors.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
+  AgentPrincipal,
+  AppPrincipal,
+  AgentClaimed,
+} from "../transport/requirements.js";
+import {
   ConversationId,
   conversationSchema,
   ConversationFullError,
@@ -152,7 +157,7 @@ export const TaskList = defineRpc({
     tasks: Schema.Array(TaskSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
-  callablePrincipal: "agent",
+  requires: [AgentPrincipal],
   errors: [],
 });
 
@@ -160,7 +165,7 @@ export const TaskClose = defineRpc({
   name: "task/close",
   params: Schema.Struct({ taskId: TaskId }),
   result: Schema.Struct({ task: TaskSchema }),
-  callablePrincipal: "app",
+  requires: [AppPrincipal],
   // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
   // before the body, rejecting a caller that does not own the task.
   errors: [ForbiddenError, TaskNotFoundError],
@@ -173,7 +178,7 @@ export const TaskAddParticipant = defineRpc({
     agentId: AgentId,
   }),
   result: Schema.Struct({ participant: TaskParticipantSchema }),
-  callablePrincipal: "app",
+  requires: [AppPrincipal],
   // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
   // before the body, rejecting a caller that does not own the task.
   errors: [ForbiddenError, TaskNotFoundError],
@@ -186,7 +191,7 @@ export const TaskRemoveParticipant = defineRpc({
     agentId: AgentId,
   }),
   result: Schema.Struct({}),
-  callablePrincipal: "app",
+  requires: [AppPrincipal],
   // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
   // before the body, rejecting a caller that does not own the task.
   errors: [ForbiddenError, TaskNotFoundError],
@@ -346,9 +351,7 @@ export const TaskRequest = defineRpc({
     task: TaskSchema,
     conversation: Schema.Union(ConversationSchema, Schema.Null),
   }),
-  callablePrincipal: "agent",
-  requiresActive: true,
-  caps: [ContactPolicyAllowsReach],
+  requires: [AgentPrincipal, AgentClaimed, ContactPolicyAllowsReach],
   errors: [TaskRejectedError],
 });
 
@@ -369,8 +372,7 @@ export const TaskLeave = defineRpc({
   name: "task/leave",
   params: Schema.Struct({ taskId: TaskId }),
   result: Schema.Struct({}),
-  callablePrincipal: "agent",
-  requiresActive: true,
+  requires: [AgentPrincipal, AgentClaimed],
   errors: [TaskNotFoundError],
 });
 
@@ -389,7 +391,7 @@ export const TaskConversationCreate = defineRpc({
     participants: Schema.Array(AgentId).pipe(Schema.minItems(1)),
   }),
   result: Schema.Struct({ conversation: ConversationSchema }),
-  callablePrincipal: "app",
+  requires: [AppPrincipal],
   // No caps. App-ownership is gated by the app-arm handler's
   // `assertCallerAppOwnsTask` (raising `ForbiddenError` for a non-owner before
   // the body); `ConversationCreateAuthorization` is provided inline by the
@@ -420,8 +422,7 @@ export const TaskConversationList = defineRpc({
     items: Schema.Array(TaskConversationListItemSchema),
     nextCursor: Schema.optional(Schema.String),
   }),
-  callablePrincipal: "agent",
-  requiresActive: true,
+  requires: [AgentPrincipal, AgentClaimed],
   errors: [],
 });
 
@@ -436,8 +437,7 @@ export const TaskConversationArchive = defineRpc({
   name: "task/conversation/archive",
   params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
   result: Schema.Struct({}),
-  callablePrincipal: "app",
-  caps: [ConversationInTask],
+  requires: [AppPrincipal, ConversationInTask],
   // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
   // before the body, rejecting a caller that does not own the task.
   errors: [ForbiddenError],
@@ -448,8 +448,7 @@ export const TaskConversationUnarchive = defineRpc({
   name: "task/conversation/unarchive",
   params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
   result: Schema.Struct({}),
-  callablePrincipal: "app",
-  caps: [ConversationInTask],
+  requires: [AppPrincipal, ConversationInTask],
   // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
   // before the body, rejecting a caller that does not own the task.
   errors: [ForbiddenError],
@@ -468,11 +467,10 @@ export const TaskConversationAddParticipant = defineRpc({
     agentId: AgentId,
   }),
   result: Schema.Struct({}),
-  callablePrincipal: "app",
   // App-ownership is gated by the app-arm handler's `assertCallerAppOwnsTask`
   // BEFORE `requireAgentsAreInTaskParticipants` (so a non-owner sees
   // `ForbiddenError`, not the participant-admitted state probe).
-  caps: [ConversationInTask],
+  requires: [AppPrincipal, ConversationInTask],
   errors: [ForbiddenError, ParticipantNotAdmittedError],
 });
 
@@ -489,8 +487,7 @@ export const TaskConversationRemoveParticipant = defineRpc({
     agentId: AgentId,
   }),
   result: Schema.Struct({}),
-  callablePrincipal: "app",
-  caps: [ConversationInTask],
+  requires: [AppPrincipal, ConversationInTask],
   // `ForbiddenError`: the app-arm handler runs `assertCallerAppOwnsTask`
   // before the body, rejecting a caller that does not own the task.
   errors: [ForbiddenError, ParticipantNotAdmittedError],

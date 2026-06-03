@@ -46,9 +46,9 @@ function appsRegisterBody(params: ParamsOf<typeof AppsRegister>) {
 
 // `dispatch/request` — returns ack immediately, forks the moderator round-trip,
 // recipient observes the verdict via `dispatch/release` notification.
-// Agent-called yet `defineAppMethod`-bound: `callablePrincipal: "agent"` for the
-// ctx, `defineAppMethod` for the `AppHostTag` R-channel bound. Reads
-// `ctx.agentId` as `recipientAgentId`; `requiresActive` is load-bearing.
+// Agent-called: its `requires` head is `AgentPrincipal`, so the body receives a
+// narrowed `AgentContext` and reads `ctx.agentId` as `recipientAgentId`. The
+// `AgentClaimed` requirement is load-bearing — only a claimed agent may dispatch.
 function dispatchRequestBody(
   params: ParamsOf<typeof DispatchRequest>,
   ctx: AgentContext,
