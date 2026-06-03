@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { AgentId } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
-import { messagePartsSchema, logicalClockSchema } from "../task/methods.js";
+import { messagePartsSchema } from "../task/methods.js";
 import { dateTimeStringSchema } from "../schema-primitives.js";
 import { defineRpc } from "../transport/method.js";
 import { ForbiddenError } from "../transport/wire-errors.js";
@@ -18,7 +18,6 @@ import { ForbiddenError } from "../transport/wire-errors.js";
 
 const DateTimeString = dateTimeStringSchema();
 const MessagePartsSchema = messagePartsSchema();
-const LogicalClockSchema = logicalClockSchema();
 
 // ═══════════════════════════════════════════════════════════════════
 // messages/authorize (send-side fan-out gate)
@@ -41,7 +40,6 @@ const MessagesAuthorizeContextSchema = Schema.Struct({
     parts: Schema.optional(MessagePartsSchema),
   }),
   receivedAt: Schema.optional(DateTimeString),
-  clock: Schema.optional(LogicalClockSchema),
 });
 
 const MessagesAuthorizeVerdictSchema = Schema.Union(

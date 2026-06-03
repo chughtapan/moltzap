@@ -140,25 +140,6 @@ export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantN
   static readonly message = "Agent is not admitted to the task";
 }
 
-/**
- * Logical time frontier per delivery domain (usually a conversation):
- * monotonic `epoch` + per-participant observed counts in `vector`.
- */
-const LogicalClockSchema = Schema.Struct({
-  domainId: Schema.String.pipe(Schema.minLength(1)),
-  epoch: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
-  vector: Schema.Record({
-    key: Schema.String,
-    value: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
-  }),
-});
-
-export type LogicalClock = Schema.Schema.Type<typeof LogicalClockSchema>;
-
-export function logicalClockSchema(): typeof LogicalClockSchema {
-  return LogicalClockSchema;
-}
-
 // Mirrors the `task_status` DB enum.
 const TaskStatusEnum = stringEnum(["waiting", "active", "failed", "closed"]);
 

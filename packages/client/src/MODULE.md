@@ -66,7 +66,7 @@ export type AppClientOptions = AppClientCredential & {
 };
 ```
 
-### [`ChannelCoreOptions`](./channel-core.ts#L209)
+### [`ChannelCoreOptions`](./channel-core.ts#L206)
 
 _Interface_
 
@@ -77,7 +77,7 @@ export interface ChannelCoreOptions {
 }
 ```
 
-### [`ChannelService`](./channel-core.ts#L138)
+### [`ChannelService`](./channel-core.ts#L136)
 
 _Interface_
 
@@ -145,7 +145,6 @@ export interface ChannelService {
     readonly parts?: ReadonlyArray<unknown>;
     readonly receivedAt?: string;
     readonly pending?: ReadonlyArray<unknown>;
-    readonly clock?: LogicalClock;
     readonly attempt?: number;
   }): Effect.Effect<
     { readonly leaseId: LeaseId; readonly dispatchId: string },
@@ -228,7 +227,7 @@ export interface CrossConvMessage {
 
 Full message from another conversation, used by peekFullMessages().
 
-### [`DispatchAdmissionDecision`](./channel-core.ts#L92)
+### [`DispatchAdmissionDecision`](./channel-core.ts#L90)
 
 _TypeAlias_
 
@@ -242,7 +241,7 @@ export type DispatchAdmissionDecision =
     }
 ```
 
-### [`DispatchAdmissionRequest`](./channel-core.ts#L82)
+### [`DispatchAdmissionRequest`](./channel-core.ts#L81)
 
 _Interface_
 
@@ -253,12 +252,11 @@ export interface DispatchAdmissionRequest {
   senderAgentId: string;
   attempt: number;
   receivedAt: string;
-  clock: LogicalClock;
   pending: ReadonlyArray<PendingDispatchMessage>;
 }
 ```
 
-### [`DispatchReleaseFrame`](./channel-core.ts#L122)
+### [`DispatchReleaseFrame`](./channel-core.ts#L120)
 
 _Interface_
 
@@ -379,7 +377,7 @@ Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
 that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
 share this formatter so sanitization and line shape stay in one place.
 
-### [`InboundHandler`](./channel-core.ts#L220)
+### [`InboundHandler`](./channel-core.ts#L217)
 
 _TypeAlias_
 
@@ -696,7 +694,7 @@ escape hatch. Both return `Stream.Stream` of `DecodedNotification` with
 a `NotConnectedError` error channel. Consume via `Stream.runForEach`
 (long-lived) or `Stream.runHead` + `Effect.timeoutFail` (one-shot).
 
-### [`MoltZapChannelCore`](./channel-core.ts#L324)
+### [`MoltZapChannelCore`](./channel-core.ts#L320)
 
 _Class_
 
@@ -738,10 +736,6 @@ export class MoltZapChannelCore {
     PendingReleaseEntry
   >();
   private readonly closedConversationIds = new Set<string>();
-  private readonly logicalClocks = new Map<
-    string,
-    { epoch: number; vector: Record<string, number> }
-  >();
   private readonly parkedByConversation = new Map<
     string,
     InboundDispatchWork[]
@@ -788,7 +782,6 @@ export class MoltZapChannelCore {
         message,
         attempt: 0,
         receivedAtMs: Date.now(),
-        clock: this.observeMessage(message),
       });
     });
   }
@@ -821,6 +814,10 @@ export class MoltZapChannelCore {
   }
 
   private registerConnectionListeners(): void {
+    this.service.on("disconnect", () => {
+      this.connected = false;
+      this.fanout(this.disconnectHandlers, "disconnect");
+    });
 ```
 
 Wraps a `MoltZapService` with message enrichment, dispatch-chain ordering,
@@ -1034,7 +1031,6 @@ export interface PendingDispatchMessage {
   senderAgentId: string;
   createdAt: string;
   receivedAt: string;
-  clock?: LogicalClock;
   parts?: Message["parts"];
 }
 ```

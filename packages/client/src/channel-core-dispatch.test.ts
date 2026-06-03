@@ -10,7 +10,6 @@ import {
   SECOND_TEXT,
   STUCK_MESSAGE_LEASE_TIMEOUT_MS,
   TIME_TO_VOTE_TEXT,
-  agent,
   buildMessage,
   conversation,
   createChannelCoreFixture,
@@ -322,55 +321,6 @@ function asksOptionalDispatchAdmissionBeforeDeliveringInboundWork() {
 effectTest(
   "asks optional dispatch admission before delivering inbound work",
   asksOptionalDispatchAdmissionBeforeDeliveringInboundWork,
-);
-
-function reportsAPerConversationObservedLogicalClockToAdmission() {
-  return Effect.gen(function* () {
-    const { fake } = customSetup();
-    const clocks: unknown[] = [];
-    installAdmission(fake, (request) =>
-      Effect.sync(() => {
-        clocks.push(request.clock);
-        expect(request.pending[0]?.clock).toEqual(request.clock);
-        return { _tag: "grant" as const };
-      }),
-    );
-
-    fake.emit.message(
-      buildMessage({
-        id: "msg-1",
-        senderId: "agent-alice",
-        conversationId: "conv-1",
-      }),
-    );
-    yield* flushDispatchChainEffect;
-    fake.emit.message(
-      buildMessage({
-        id: "msg-2",
-        senderId: "agent-bob",
-        conversationId: "conv-1",
-      }),
-    );
-    yield* flushDispatchChainEffect;
-
-    expect(clocks).toEqual([
-      {
-        domainId: conversation("conv-1"),
-        epoch: 1,
-        vector: { [agent("agent-alice")]: 1 },
-      },
-      {
-        domainId: conversation("conv-1"),
-        epoch: 2,
-        vector: { [agent("agent-alice")]: 1, [agent("agent-bob")]: 1 },
-      },
-    ]);
-  });
-}
-
-effectTest(
-  "reports a per-conversation observed logical clock to admission",
-  reportsAPerConversationObservedLogicalClockToAdmission,
 );
 
 function attachesTheActiveDispatchLeaseToRepliesMadeDuringHandlerExecution() {

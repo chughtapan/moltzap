@@ -108,8 +108,10 @@ function classifySocketFailure(failure: unknown): CloseKind | null {
       reason: failure.closeReason ?? "",
     });
   }
-  if (!Socket.isSocketError(failure)) return null;
-  return classifyGenericSocketError(failure as Socket.SocketGenericError);
+  if (failure instanceof Socket.SocketGenericError) {
+    return classifyGenericSocketError(failure);
+  }
+  return null;
 }
 
 function classifyGenericSocketError(

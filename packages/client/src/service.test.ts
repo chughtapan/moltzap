@@ -456,11 +456,6 @@ function requestDispatchReturnsAck() {
       senderAgentId: AGENT_GM_ID,
       attempt: 0,
       receivedAt: DISPATCH_RECEIVED_AT,
-      clock: {
-        domainId: CONVERSATION_ALICE_ID,
-        epoch: 1,
-        vector: { [AGENT_GM_ID]: 1 },
-      },
       pending: [],
       parts: [{ type: "text", text: "Time to vote!" }],
     });

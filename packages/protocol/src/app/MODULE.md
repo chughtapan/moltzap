@@ -81,7 +81,7 @@ Register an app manifest for the current connection.
 
 - **Principal:** `AppPrincipal` head.
 
-### [`DispatchAuthorize`](./dispatch.ts#L156)
+### [`DispatchAuthorize`](./dispatch.ts#L152)
 
 _Variable_
 
@@ -104,7 +104,7 @@ whose `dispatch_authorize` policy is `{ kind: "hook" }`.
 - **Principal:** none — a server→client reverse callback. The client serves
   it, the server does not gate it, so `requires` is empty.
 
-### [`DispatchesConsumed`](./dispatch.ts#L201)
+### [`DispatchesConsumed`](./dispatch.ts#L197)
 
 _Variable_
 
@@ -127,7 +127,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./dispatch.ts#L218)
+### [`DispatchesExpired`](./dispatch.ts#L214)
 
 _Variable_
 
@@ -148,7 +148,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./dispatch.ts#L282)
+### [`DispatchesGet`](./dispatch.ts#L278)
 
 _Variable_
 
@@ -169,7 +169,7 @@ non-moderator callers fail with `ForbiddenError`.
 
 - **Principal:** `AppPrincipal` head.
 
-### [`DispatchId`](./dispatch.ts#L53)
+### [`DispatchId`](./dispatch.ts#L52)
 
 _TypeAlias_
 
@@ -183,7 +183,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchId`](./dispatch.ts#L53)
+### [`DispatchId`](./dispatch.ts#L52)
 
 _Variable_
 
@@ -197,7 +197,7 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`DispatchNotFoundError`](./dispatch.ts#L36)
+### [`DispatchNotFoundError`](./dispatch.ts#L35)
 
 _Class_
 
@@ -215,7 +215,7 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
 
 The referenced dispatch lease does not exist (or the caller is not its moderator).
 
-### [`DispatchRelease`](./dispatch.ts#L178)
+### [`DispatchRelease`](./dispatch.ts#L174)
 
 _Variable_
 
@@ -242,7 +242,7 @@ HOLD inherits the same TTL by ageing out via the standard EXPIRED path; no
 `leaseTimeoutMs` field needed on the hold arm because the grant TTL has not
 started yet (lease never reached GRANTED).
 
-### [`DispatchRequest`](./dispatch.ts#L106)
+### [`DispatchRequest`](./dispatch.ts#L104)
 
 _Variable_
 
@@ -256,7 +256,6 @@ export const DispatchRequest = defineRpc({
     parts: Schema.optional(MessagePartsSchema),
     receivedAt: Schema.optional(DateTimeString),
     pending: Schema.optional(PendingMessageArraySchema),
-    clock: Schema.optional(LogicalClockSchema),
     attempt: Schema.optional(
       Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
     ),
@@ -289,7 +288,7 @@ export const manifestPolicyCanaries =
 
 Aggregate so each binding is referenced (no unused-variable lint).
 
-### [`MessagesAuthorize`](./app-callbacks.ts#L76)
+### [`MessagesAuthorize`](./app-callbacks.ts#L74)
 
 _Variable_
 
@@ -319,7 +318,7 @@ sender's transcript but is delivered to no one else.
 
 - **Principal:** none — a server→client reverse callback.
 
-### [`TaskCreate`](./app-callbacks.ts#L158)
+### [`TaskCreate`](./app-callbacks.ts#L156)
 
 _Variable_
 

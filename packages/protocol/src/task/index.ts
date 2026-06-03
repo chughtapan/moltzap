@@ -49,7 +49,6 @@ export {
 } from "./methods.js";
 
 export type {
-  LogicalClock,
   Part,
   Message,
   Conversation,

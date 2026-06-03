@@ -115,28 +115,22 @@ export function catchLeaseInvalid<A, E2, R>(ctx?: {
 }): (
   eff: Effect.Effect<A, ForbiddenError | E2, R>,
 ) => Effect.Effect<A, LeaseInvalidProjectionError<E2>, R> {
-  // `Effect.catchAll` over the union (rather than `catchTag("ForbiddenError",
-  // ...)`) keeps the typechecker happy when `E2` is unconstrained — without
-  // narrowing on the runtime instance, TS conservatively infers that `E2`
-  // could itself carry `_tag: "ForbiddenError"`. The `instanceof` branch
-  // partitions cleanly.
-  return (eff) =>
-    Effect.catchAll(
-      eff,
-      (err): Effect.Effect<A, LeaseInvalidProjectionError<E2>, R> => {
-        if (err instanceof ForbiddenError) {
-          return Effect.flatMap(Clock.currentTimeMillis, (consumedAt) =>
-            Effect.fail(
-              projectLeaseInvalid(err, {
-                ...(ctx?.leaseId !== undefined ? { leaseId: ctx.leaseId } : {}),
-                consumedAt,
-              }),
-            ),
-          );
-        }
-        // Non-ForbiddenError residual (E2). Re-raise unchanged so downstream
-        // `mapError`s see it without coupling to channel-base.
-        return Effect.fail(err as E2);
-      },
-    );
+  // `Effect.catchIf` with an `instanceof` refinement handles only the
+  // `ForbiddenError` arm; the `E2` residual flows through untouched as
+  // `Exclude<ForbiddenError | E2, ForbiddenError>`, so there is no cast on the
+  // residual error channel. `catchTag("ForbiddenError", ...)` cannot be used:
+  // when `E2` is unconstrained, TS conservatively assumes it could carry
+  // `_tag: "ForbiddenError"`, which would widen the matched arm.
+  return Effect.catchIf(
+    (err): err is ForbiddenError => err instanceof ForbiddenError,
+    (err) =>
+      Effect.flatMap(Clock.currentTimeMillis, (consumedAt) =>
+        Effect.fail(
+          projectLeaseInvalid(err, {
+            ...(ctx?.leaseId !== undefined ? { leaseId: ctx.leaseId } : {}),
+            consumedAt,
+          }),
+        ),
+      ),
+  );
 }

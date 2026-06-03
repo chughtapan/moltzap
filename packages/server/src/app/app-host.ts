@@ -8,7 +8,6 @@ import type {
   AppManifest,
   DispatchId,
   LeaseId,
-  LogicalClock,
   ParamsOf,
   Part,
   ResultOf,
@@ -103,7 +102,6 @@ type PendingDispatchMessage = Readonly<{
   senderAgentId: AgentId;
   createdAt: string;
   receivedAt: string;
-  clock?: LogicalClock;
   // Wire `pending[].parts` decodes to `readonly Part[]`.
   parts?: ReadonlyArray<Part>;
 }>;
@@ -119,7 +117,6 @@ interface EnqueueDispatchRequestArgs {
   readonly parts?: ReadonlyArray<Part>;
   readonly attempt?: number;
   readonly receivedAt?: string;
-  readonly clock?: LogicalClock;
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;
 }
 
@@ -137,7 +134,6 @@ interface DispatchRoundTripParams {
   readonly parts?: ReadonlyArray<Part>;
   readonly attempt?: number;
   readonly receivedAt?: string;
-  readonly clock?: LogicalClock;
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;
   readonly moderatorConnectionId: ConnectionId;
 }
@@ -414,7 +410,6 @@ export class AppHost {
           parts: args.parts,
           attempt: args.attempt,
           receivedAt: args.receivedAt,
-          clock: args.clock,
           pending: args.pending,
           moderatorConnectionId: binding.moderatorConnectionId,
         },
@@ -539,7 +534,6 @@ export class AppHost {
         appId: lookup.appId,
         attempt: params.attempt ?? 0,
         receivedAt: params.receivedAt,
-        clock: params.clock,
         // `DispatchAuthorizeContext` derives from the wire schema, whose
         // `pending` array is mutable; the round-trip params carry it as
         // `ReadonlyArray`. Copy into a fresh mutable array so the derived
@@ -915,7 +909,6 @@ export class AppHost {
           : {}),
       },
       ...(ctx.receivedAt !== undefined ? { receivedAt: ctx.receivedAt } : {}),
-      ...(ctx.clock !== undefined ? { clock: ctx.clock } : {}),
     };
   }
 
@@ -953,7 +946,6 @@ export class AppHost {
       },
       attempt: ctx.attempt,
       ...(ctx.receivedAt !== undefined ? { receivedAt: ctx.receivedAt } : {}),
-      ...(ctx.clock !== undefined ? { clock: ctx.clock } : {}),
       ...(ctx.pending !== undefined
         ? {
             pending: ctx.pending.map((pending) => ({
@@ -962,7 +954,6 @@ export class AppHost {
               senderAgentId: pending.senderAgentId,
               createdAt: pending.createdAt,
               receivedAt: pending.receivedAt,
-              ...(pending.clock !== undefined ? { clock: pending.clock } : {}),
               ...(pending.parts !== undefined ? { parts: pending.parts } : {}),
             })),
           }

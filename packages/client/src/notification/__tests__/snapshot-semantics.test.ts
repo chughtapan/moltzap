@@ -1,50 +1,43 @@
-/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests -- vitest + Effect.gen + Stream.runForEach nest by construction; AD1 properties are scenario-shaped (snapshot semantics + lifecycle); generative coverage lives in filter-equivalence.test.ts */
+/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests -- vitest + Effect.gen + Stream.runForEach nest by construction; these properties are scenario-shaped (snapshot semantics + lifecycle); generative coverage lives in filter-equivalence.test.ts */
 
 /**
- * Snapshot-semantics property test (validates AD1 via spec #222 §5.3 OQ-3
- * acceptance criterion). Spec B (#596).
+ * Snapshot-semantics property test for `subscribe` Stream cancellation.
  *
- * Four architect-named properties (see `snapshot-semantics.types-check.ts`
- * for the compile-time AD1 canaries):
+ * `SubscriberRegistry.dispatch` iterates a snapshot of the subscriber list,
+ * so registrations and unregistrations that happen during a dispatch do not
+ * change which subscribers receive that frame. These tests exercise the
+ * registry through the public `notification/stream.ts` factories (not the
+ * registry alone); the compile-time signature canaries live in
+ * `subscribe-signatures.types-check.ts`.
  *
- *   1. "No notification with arrival time > T_cancel is delivered through s."
- *      — verified via two subscriptions (`s_observer` + `s_target`) racing
- *      against a series of dispatched frames. After `s_target` cancels at
- *      frame index K, only `s_observer` keeps receiving frames K+1…N.
- *   2. "Unregister between frames doesn't affect prior dispatches." —
- *      verified by registering three subscribers, running `dispatch(frameN)`
- *      once; *after* the dispatch returns, interrupt `s2`, then
- *      `dispatch(frameN+1)` — assert s2 received frameN but not frameN+1.
- *      (Renamed in r1 cleanup per P2-3: this test does NOT exercise true
- *      mid-dispatch interleaving; the standalone "mid-dispatch" test below
- *      does.)
- *   3. "In-flight dispatch of frame N is NOT interrupted by an unregister
- *      that commits during frame N." — verified by forking a dispatch whose
- *      first invoked subscriber suspends on a `Deferred`. While the
- *      dispatch fiber is parked mid-handler, interrupt a SIBLING
- *      subscriber's consumer fiber (which calls `handle.unregister`
- *      via the Stream finalizer); release the dispatch fiber and assert
- *      the interrupted sibling STILL received the frame — proving the
- *      dispatch is iterating a snapshot, not the live list.
- *   4. "Closed client terminates all in-flight Streams with `NotConnectedError`."
- *      — verified by forking a `Stream.runForEach` consumer, calling
- *      `closeAll`, then asserting the fiber's exit is a typed
- *      `NotConnectedError` failure.
+ *   1. No notification with arrival index > T_cancel is delivered through a
+ *      cancelled subscription. Two subscriptions (`observer` + `target`)
+ *      race a series of dispatched frames; after `target` cancels at frame
+ *      index K, only `observer` keeps receiving frames K+1…N.
+ *   2. Unregister between frames does not affect prior dispatches. Three
+ *      subscribers run `dispatch(frameN)`; *after* it returns, `s2` is
+ *      interrupted, then `dispatch(frameN+1)` runs — s2 received frameN but
+ *      not frameN+1. (This case does not exercise mid-dispatch interleaving;
+ *      the standalone mid-dispatch test below does.)
+ *   3. An in-flight dispatch of frame N is NOT interrupted by an unregister
+ *      that commits during frame N. A dispatch whose first subscriber
+ *      suspends on a `Deferred` is forked; while it is parked mid-handler, a
+ *      SIBLING subscriber's consumer fiber is interrupted (its Stream
+ *      finalizer calls `handle.unregister`); after the dispatch fiber is
+ *      released the interrupted sibling STILL received the frame — proof the
+ *      dispatch iterates a snapshot, not the live list.
+ *   4. A closed client terminates all in-flight Streams with
+ *      `NotConnectedError`. A `Stream.runForEach` consumer is forked,
+ *      `closeAll` runs, and the fiber's exit is a typed `NotConnectedError`.
  *
- * The tests intentionally exercise `SubscriberRegistry` + the
- * `notification/stream.ts` Stream factories together (the public API
- * surface), not the registry alone — Canary #3's "internal Scope, no
- * leakage" contract is what we are validating end-to-end.
+ * Each `expect` asserts a value computed by the system under test, never the
+ * test's own input — no tautological "X === X" checks.
  *
- * Per P3 #612 fix (architect revision): each `expect` here asserts a
- * value computed by the system under test rather than the test's own
- * input — no tautological "X === X" patterns.
- *
- * Determinism (r1 cleanup, P2-2): readiness between forked consumers and
- * the dispatch path uses `Effect.yieldNow()` (deterministic single-tick
- * scheduling) rather than `Effect.sleep(...)` (wall-clock dependent).
- * Mid-dispatch suspension uses `Deferred` so the dispatch fiber is parked
- * at a known point inside the handler, independent of any timer.
+ * Determinism: readiness between forked consumers and the dispatch path uses
+ * `Effect.yieldNow()` (deterministic single-tick scheduling), not
+ * `Effect.sleep(...)` (wall-clock dependent). Mid-dispatch suspension uses a
+ * `Deferred` so the dispatch fiber parks at a known point in the handler,
+ * independent of any timer.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -92,9 +85,9 @@ function decodedMessageReceived(): DecodedNotification<
 > {
   // Minimal test fixture: raw-string ids + a partial `message` (no `taskId`
   // etc.), whereas the decoded `params` is deeply `readonly` with branded ids
-  // post-#723 (Effect Schema). Pure test data fed into the subscriber stream,
-  // not a wire trust boundary — the snapshot test only inspects the stream
-  // delivery order, not the params' field shape.
+  // (Effect Schema). Pure test data fed into the subscriber stream, not a
+  // wire trust boundary — the snapshot test only inspects the stream delivery
+  // order, not the params' field shape.
   const fixture = {
     _tag: "Notification" as const,
     jsonrpc: "2.0",
@@ -116,7 +109,7 @@ function decodedMessageReceived(): DecodedNotification<
   return fixture as unknown as Decoded; // #ignore-sloppy-code[as-unknown-as]: minimal test fixture re-asserting the branded readonly decoded notification shape; pure test data, not a wire decode
 }
 
-describe("AD1 snapshot semantics — Stream cancellation", () => {
+describe("subscribe snapshot semantics — Stream cancellation", () => {
   it("no notification with index > T_cancel is delivered through s_target", () =>
     Effect.runPromise(
       Effect.gen(function* () {
@@ -164,9 +157,7 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         // Yield once so each forked consumer's Stream.async register
         // callback commits its subscription into `subsRef` before the
         // dispatch loop reads the snapshot. `Effect.yieldNow()` is
-        // deterministic (single-tick scheduling) — replaces the prior
-        // `Effect.sleep("10 millis")` which was wall-clock dependent
-        // (P2-2 r1 cleanup).
+        // deterministic (single-tick scheduling), not wall-clock dependent.
         yield* Effect.yieldNow();
 
         for (let i = 0; i < PROP_TEST_FRAME_COUNT; i++) {
@@ -245,7 +236,7 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
 
         // Single-tick yield so every forked consumer's Stream.async
         // register callback commits before the first dispatch reads
-        // the snapshot. Deterministic — see file header (P2-2 r1).
+        // the snapshot. Deterministic — see file header.
         yield* Effect.yieldNow();
         yield* registry.dispatch(decodedPresence(0));
         // Drain s2's onFrame Effect into receivedByS2 deterministically.
@@ -366,7 +357,7 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         // Deterministic single-tick yield so the Stream materialises its
         // subscription (Stream.async register callback runs synchronously
         // inside Stream.runDrain's setup on the forked fiber's first turn)
-        // before we call closeAll. P2-2 r1 cleanup.
+        // before we call closeAll.
         yield* Effect.yieldNow();
 
         yield* registry.closeAll;
@@ -403,8 +394,7 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         );
 
         // Single-tick yield ensures the forked subscribeAll consumer's
-        // register callback commits before dispatch reads the snapshot
-        // (P2-2 r1).
+        // register callback commits before dispatch reads the snapshot.
         yield* Effect.yieldNow();
         yield* registry.dispatch(decodedPresence(0));
         yield* registry.dispatch(
