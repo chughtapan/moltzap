@@ -5,8 +5,12 @@ description: "Replace-semantics: replaces the connection's subscriber set with `
 
 # presence/subscribe
 
-Replace-semantics: replaces the connection's subscriber set with
-`agentIds`. Empty array unsubscribes from all. Idempotent.
+Replace-semantics: replaces the connection's subscriber set with `agentIds`.
+Empty array unsubscribes from all. Idempotent.
+
+- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+- **Params:** `agentIds` to subscribe to.
+- **Result:** the current `statuses` of the subscribed agents.
 
 ## Parameters
 
@@ -19,3 +23,9 @@ Replace-semantics: replaces the connection's subscriber set with
 <ResponseField name="statuses" type="array">
   The statuses field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `NotInContactsError` | an agentId is outside the caller's contact-visible set |

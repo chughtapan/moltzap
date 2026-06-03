@@ -19,14 +19,17 @@ import {
   TaskReadAccess,
 } from "./capabilities/index.js";
 
-export const LeaseId = brandedId("LeaseId");
-export type LeaseId = Schema.Schema.Type<typeof LeaseId>;
-
-// `messages/send` + `messages/list` are agent-originated; their per-frame
-// capabilities (`ConversationInTask`, `MessageSendPermission`, `TaskReadAccess`)
-// are run by the server's per-method `*AuthMw` (server-core
-// `auth-middleware-layers.ts`); the wire descriptor here carries only the
-// params/result shape.
+// ═══════════════════════════════════════════════════════════════════
+// SHARED — message value types used by 2+ blocks in this file.
+//
+// `MessageSchema` is the canonical message-row shape returned by BOTH
+// `messages/send` (single) and `messages/list` (array), pushed by the
+// `messages/received` notification, and extended by the app-caller
+// `dispatch_decision` shape below. Its part schemas are the wire shape
+// `messages/send` accepts on the way in, so they live here, not in the
+// send block. Everything else is method-local and lives in its own
+// contiguous block below.
+// ═══════════════════════════════════════════════════════════════════
 
 const DateTimeString = dateTimeStringSchema();
 
@@ -101,24 +104,148 @@ export function messagePartsSchema(): typeof MessagePartsSchema {
   return MessagePartsSchema;
 }
 
-// ── dispatch_decision ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// messages/send
+// ═══════════════════════════════════════════════════════════════════
+
+export const LeaseId = brandedId("LeaseId");
+export type LeaseId = Schema.Schema.Type<typeof LeaseId>;
+
+const MessagesSendParams = Schema.Struct({
+  taskId: TaskId,
+  conversationId: ConversationId,
+  parts: MessagePartsSchema,
+  replyToId: Schema.optional(MessageId),
+  dispatchLeaseId: Schema.optional(LeaseId),
+});
+
+const MessagesSendResult = Schema.Struct({ message: MessageSchema });
+
+/**
+ * Send a message to a conversation under a task. Both `taskId` and
+ * `conversationId` are required; the conversation must already exist
+ * (created via `task/conversation/create`) and the sender must be a
+ * participant.
+ *
+ * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+ * - **Params:** `taskId`, `conversationId`, `parts` (1–10 text/image/file
+ *   parts), optional `replyToId`, optional `dispatchLeaseId`.
+ * - **Result:** the created `message` (ID, parts, sender, timestamp).
+ * - **Caps (run order):** `ConversationInTask` resolves the conversation's
+ *   task membership; `ConversationSendAccess` proves participation and does
+ *   the ONE joined (`conversations ⋈ tasks`) read, handing the send row to
+ *   the handler. The remaining send preconditions — task-active,
+ *   conversation-not-archived, reply-target — are handler-body guards that
+ *   refine that provided row (they share the one read; `@effect/rpc`
+ *   middlewares cannot read each other's provided value, so a refinement
+ *   that depends on the row is a handler guard, not a standalone middleware).
+ * @returns The created message with ID, sequence number, and timestamp.
+ * @error NotFoundError when Conversation not found, or the dispatch lease is missing
+ * @error ForbiddenError when Not a participant, or the dispatch lease is consumed/invalid (`data.reason: "LeaseInvalid"`)
+ * @error TaskClosedError when the task is no longer active
+ * @error ConversationArchivedError when the conversation is archived
+ * @error HookBlockedError when an app-side send hook blocks the message
+ * @relatedNotification messages/received
+ */
+export const MessagesSend = defineRpc({
+  name: "messages/send",
+  params: MessagesSendParams,
+  result: MessagesSendResult,
+  requires: [
+    AgentPrincipal,
+    AgentClaimed,
+    ConversationInTask,
+    ConversationSendAccess,
+  ],
+  errors: [
+    HookBlockedError,
+    ForbiddenError,
+    NotFoundError,
+    TaskClosedError,
+    ConversationArchivedError,
+  ],
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// messages/list
+// ═══════════════════════════════════════════════════════════════════
+
+const MessagesListParams = Schema.Struct({
+  taskId: TaskId,
+  conversationId: ConversationId,
+  sinceSeq: Schema.optional(
+    Schema.String.annotations({
+      description: "Snowflake seq cursor (string-encoded BIGINT)",
+    }),
+  ),
+  limit: ListLimitSchema,
+});
+
+const MessagesListResult = Schema.Struct({
+  messages: Schema.Array(MessageSchema),
+  hasMore: Schema.Boolean,
+});
+
+/**
+ * List messages in a conversation with cursor-based pagination using sequence
+ * numbers.
+ *
+ * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+ * - **Params:** `taskId`, `conversationId`, optional `sinceSeq` cursor, `limit`.
+ * - **Result:** the `messages` page plus `hasMore`.
+ * - **Caps (run order):** `TaskReadAccess` proves the caller may read the task,
+ *   then `ConversationInTask` resolves the conversation's task membership.
+ *   Conversation-not-found and not-a-participant ride those cap error channels.
+ */
+export const MessagesList = defineRpc({
+  name: "messages/list",
+  params: MessagesListParams,
+  result: MessagesListResult,
+  requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
+  errors: [],
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// messages/received (notification)
+// ═══════════════════════════════════════════════════════════════════
+
+const MessageReceivedNotificationSchema = Schema.Struct({
+  taskId: TaskId,
+  message: MessageSchema,
+});
+
+export type MessageReceivedNotification = Schema.Schema.Type<
+  typeof MessageReceivedNotificationSchema
+>;
+
+/**
+ * Pushed when a new message is delivered to your WebSocket connection.
+ * @triggeredBy messages/send
+ */
+export const MessageReceivedNotificationDefinition = defineNotification({
+  name: "messages/received",
+  params: MessageReceivedNotificationSchema,
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// SHARED (app-caller) — dispatch_decision
 //
 // Per-message dispatch-authorization verdict resolved by the
 // `messages/authorize` round-trip. Lives on the `messages.dispatch_decision`
 // jsonb column server-side. Wire exposure is app-caller-only:
 //
-// - `MessageSchema` (above) stays the canonical shape for non-app
+// - `MessageSchema` (SHARED, above) stays the canonical shape for non-app
 //   callers — sender, recipient, any other agent. It does NOT carry
 //   `dispatch_decision`. Recipients see only `forward` rows where they
-//   appear in `recipients` (filter applied server-side); they have
-//   no need to inspect the verdict.
-// - `MessageWithDispatchDecisionSchema` (below) extends `MessageSchema`
-//   with the verdict. The app caller for a task sees this shape.
+//   appear in `recipients` (filter applied server-side); they have no need
+//   to inspect the verdict.
+// - `MessageWithDispatchDecisionSchema` (below) extends `MessageSchema` with
+//   the verdict. The app caller for a task sees this shape.
 //
-// Two-schema (this file) is chosen over runtime-strip (single optional
-// field) to keep TS strict at non-app read sites: non-app consumers
-// literally cannot reference `dispatchDecision` because the field is
-// not in their type.
+// Two schemas (not a single optional field stripped at runtime) keep TS
+// strict at non-app read sites: non-app consumers literally cannot reference
+// `dispatchDecision` because the field is not in their type.
+// ═══════════════════════════════════════════════════════════════════
 
 const DispatchDecisionSchema = Schema.Union(
   Schema.Struct({ tag: Schema.Literal("pending") }),
@@ -156,101 +283,3 @@ export function dispatchDecisionSchema(): typeof DispatchDecisionSchema {
 export function messageWithDispatchDecisionSchema(): typeof MessageWithDispatchDecisionSchema {
   return MessageWithDispatchDecisionSchema;
 }
-
-/**
- * Send a message to a conversation under a task. Both `taskId` and
- * `conversationId` are required; the conversation must already exist
- * (created via `task/conversation/create`) and the sender must be a
- * participant.
- * @returns The created message with ID, sequence number, and timestamp.
- * @error NotFoundError when Conversation not found
- * @error ForbiddenError when Not a participant in the conversation
- * @error RateLimitedError when Message rate limit exceeded
- * @relatedNotification messages/received
- */
-export const MessagesSend = defineRpc({
-  name: "messages/send",
-  params: Schema.Struct({
-    taskId: TaskId,
-    conversationId: ConversationId,
-    parts: MessagePartsSchema,
-    replyToId: Schema.optional(MessageId),
-    dispatchLeaseId: Schema.optional(LeaseId),
-  }),
-  result: Schema.Struct({ message: MessageSchema }),
-  // `[AgentPrincipal, AgentClaimed]` heads the list, then two stacked cap
-  // requirements form the send authorization spine: `ConversationInTask`
-  // resolves the conversation's task membership; `ConversationSendAccess` proves
-  // participation and does the ONE joined (`conversations ⋈ tasks`) read,
-  // providing the row to the handler. The remaining send preconditions —
-  // task-active, conversation-not-archived, reply-target — are handler-body
-  // guards that refine that provided row (they share the one read; `@effect/rpc`
-  // middlewares cannot read each other's provided value, so a refinement that
-  // depends on the row is a handler guard, not a standalone middleware).
-  requires: [
-    AgentPrincipal,
-    AgentClaimed,
-    ConversationInTask,
-    ConversationSendAccess,
-  ],
-  // Handler-domain errors, including the send-guard failures (`TaskClosed`,
-  // `ConversationArchived`, reply-target `NotFound`) that the handler raises
-  // while refining the `ConversationSendAccess` row. `ForbiddenError`/
-  // `NotFoundError` also ride the dispatch-lease claim path: a consumed/invalid
-  // lease maps to `ForbiddenError(data.reason: "LeaseInvalid")`, a missing lease
-  // to `NotFoundError`. The principal-gate + cap-middleware errors come from
-  // their middlewares.
-  errors: [
-    HookBlockedError,
-    ForbiddenError,
-    NotFoundError,
-    TaskClosedError,
-    ConversationArchivedError,
-  ],
-});
-
-/**
- * List messages in a conversation with cursor-based pagination using sequence numbers.
- * Conversation-not-found and not-a-participant ride the `TaskReadAccess` /
- * `ConversationInTask` cap error channels.
- */
-export const MessagesList = defineRpc({
-  name: "messages/list",
-  params: Schema.Struct({
-    taskId: TaskId,
-    conversationId: ConversationId,
-    sinceSeq: Schema.optional(
-      Schema.String.annotations({
-        description: "Snowflake seq cursor (string-encoded BIGINT)",
-      }),
-    ),
-    limit: ListLimitSchema,
-  }),
-  result: Schema.Struct({
-    messages: Schema.Array(MessageSchema),
-    hasMore: Schema.Boolean,
-  }),
-  // Run order: the principal head, then `TaskReadAccess` proves the caller may
-  // read the task before `ConversationInTask` resolves the conversation's task
-  // membership.
-  requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
-  errors: [],
-});
-
-const MessageReceivedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  message: MessageSchema,
-});
-
-export type MessageReceivedNotification = Schema.Schema.Type<
-  typeof MessageReceivedNotificationSchema
->;
-
-/**
- * Pushed when a new message is delivered to your WebSocket connection.
- * @triggeredBy messages/send
- */
-export const MessageReceivedNotificationDefinition = defineNotification({
-  name: "messages/received",
-  params: MessageReceivedNotificationSchema,
-});

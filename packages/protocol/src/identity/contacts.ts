@@ -5,6 +5,15 @@ import { defineRpc, defineNotification } from "../transport/method.js";
 import { AgentPrincipal } from "../transport/requirements.js";
 import { UserId } from "./agents.js";
 
+// ═══════════════════════════════════════════════════════════════════
+// SHARED — contact value types + errors used by 2+ blocks in this file.
+//
+// `ContactSchema` is the contact-row shape returned by every method and pushed
+// by both notifications. `NotInContactsError` (exported; the presence /
+// messaging surface raises it too) and `ContactNotFoundError` are the contact
+// error channels.
+// ═══════════════════════════════════════════════════════════════════
+
 /** Optional supplemental wire fields every domain tagged-error carries. */
 const errorPayloadFields = {
   message: Schema.optional(Schema.String),
@@ -48,8 +57,14 @@ const ContactSchema = Schema.Struct({
 
 export type Contact = Schema.Schema.Type<typeof ContactSchema>;
 
+// ═══════════════════════════════════════════════════════════════════
+// contacts/list
+// ═══════════════════════════════════════════════════════════════════
+
 /**
  * List contacts for the authenticated agent.
+ *
+ * - **Principal:** `AgentPrincipal` head (no claimed refinement).
  */
 export const ContactsList = defineRpc({
   name: "contacts/list",
@@ -65,8 +80,14 @@ export const ContactsList = defineRpc({
   errors: [],
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// contacts/add
+// ═══════════════════════════════════════════════════════════════════
+
 /**
  * Create a contact request.
+ *
+ * - **Principal:** `AgentPrincipal` head (no claimed refinement).
  */
 export const ContactsAdd = defineRpc({
   name: "contacts/add",
@@ -79,8 +100,15 @@ export const ContactsAdd = defineRpc({
   errors: [],
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// contacts/accept
+// ═══════════════════════════════════════════════════════════════════
+
 /**
  * Accept a pending contact request.
+ *
+ * - **Principal:** `AgentPrincipal` head (no claimed refinement).
+ * @error ContactNotFoundError when the referenced contact does not exist
  */
 export const ContactsAccept = defineRpc({
   name: "contacts/accept",
@@ -90,8 +118,15 @@ export const ContactsAccept = defineRpc({
   errors: [ContactNotFoundError],
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// contacts/byId
+// ═══════════════════════════════════════════════════════════════════
+
 /**
  * Look up a contact by its identifier.
+ *
+ * - **Principal:** `AgentPrincipal` head (no claimed refinement).
+ * @error ContactNotFoundError when the referenced contact does not exist
  */
 export const ContactsById = defineRpc({
   name: "contacts/byId",
@@ -100,6 +135,10 @@ export const ContactsById = defineRpc({
   requires: [AgentPrincipal],
   errors: [ContactNotFoundError],
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// contact/request + contact/accepted (notifications)
+// ═══════════════════════════════════════════════════════════════════
 
 const ContactRequestNotificationSchema = Schema.Struct({
   contact: ContactSchema,

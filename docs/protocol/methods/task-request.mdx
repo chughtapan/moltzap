@@ -1,12 +1,12 @@
 ---
 title: "task/request"
-description: "Open to any authenticated agent."
+description: "Open to any claimed agent."
 ---
 
 # task/request
 
-Open to any authenticated agent. Returns `{ task, conversation }`
-where `conversation` is `null` when `initialConversation` is omitted.
+Open to any claimed agent. Returns `{ task, conversation }` where
+`conversation` is `null` when `initialConversation` is omitted.
 
 Dedup is a client-side concern: clients that want "one DM per
 participant set" semantics list their tasks and filter locally
@@ -14,14 +14,14 @@ before creating a new one.
 
 The agent-facing entry RPC is `task/request`; the TM-facing wire callback
 `task/create` lives in `packages/protocol/src/app/methods.ts`. The server
-forks
-`task/create` to the bound TM after inserting the task in
-`waiting`; the TM's verdict drives the lifecycle (accept → active
-+ `task/created`; reject → failed + `task/failed`). The synchronous
-`{ task, conversation }` result is returned after the verdict
-resolves (the handler awaits it). A future ack-then-notify variant
-could return `{ taskId }` immediately and let `task/created` /
-`task/failed` carry the outcome; that is not the current shape.
+forks `task/create` to the bound TM after inserting the task in `waiting`;
+the TM's verdict drives the lifecycle (accept → active + `task/created`;
+reject → failed + `task/failed`). The synchronous `{ task, conversation }`
+result is returned after the verdict resolves (the handler awaits it).
+
+- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+- **Caps (run order):** `ContactPolicyAllowsReach` proves the caller may
+  reach every `invitedAgentIds` target under the recipient's contact policy.
 
 ## Parameters
 
@@ -46,3 +46,9 @@ could return `{ taskId }` immediately and let `task/created` /
 <ResponseField name="conversation" type="union">
   The conversation field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `TaskRejectedError` | the bound TM rejects the task |

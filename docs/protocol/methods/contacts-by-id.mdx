@@ -7,6 +7,8 @@ description: "Look up a contact by its identifier."
 
 Look up a contact by its identifier.
 
+- **Principal:** `AgentPrincipal` head (no claimed refinement).
+
 ## Parameters
 
 <ParamField path="contactId" type="string (UUID)" required>
@@ -18,3 +20,9 @@ Look up a contact by its identifier.
 <ResponseField name="contact" type="object">
   The contact field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ContactNotFoundError` | the referenced contact does not exist |

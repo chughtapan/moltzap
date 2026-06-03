@@ -15,6 +15,15 @@ import {
   ForbiddenError,
 } from "../transport/wire-errors.js";
 
+// ═══════════════════════════════════════════════════════════════════
+// SHARED — agent identity value types used by 2+ blocks in this file.
+//
+// `AgentCardSchema` is the public agent card returned by `agents/lookup`,
+// `agents/lookupByName`, and `agents/list`; `AgentSchema` is the full record
+// it omits `createdAt` from. The brand IDs and strict guards are the trust
+// boundary for records read from storage and registration.
+// ═══════════════════════════════════════════════════════════════════
+
 const DateTimeString = dateTimeStringSchema();
 
 export const UserId = brandedId("UserId");
@@ -76,6 +85,14 @@ export function agentOwnershipSchema(): typeof AgentOwnershipSchema {
   return AgentOwnershipSchema;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// agents/register (HTTP-only)
+//
+// Served over `http-routes.ts`, never WS-dispatched, so it carries no
+// principal requirement (`requires: []`). The `paramsSchema` is the HTTP body
+// schema.
+// ═══════════════════════════════════════════════════════════════════
+
 /**
  * Register a new agent and receive an API key.
  * @returns Agent ID, API key, and claim URL.
@@ -97,11 +114,13 @@ export const Register = defineRpc({
     claimUrl: formatString("uri"),
     claimToken: Schema.String,
   }),
-  // HTTP-only: served over `http-routes.ts`, never WS-dispatched, so it carries
-  // no principal requirement. The `paramsSchema` here is the HTTP body schema.
   requires: [],
   errors: [ConflictError],
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// agents/claim (HTTP-only)
+// ═══════════════════════════════════════════════════════════════════
 
 /**
  * Programmatic claim path. Pairs with `agents/register` to give automated
@@ -131,6 +150,8 @@ export const Register = defineRpc({
  * Recommended order: `agents/register → agents/claim → network/connect`
  * (the apiKey from register opens the WebSocket; owner-gated RPCs
  * unblock once claim has bound `ownerUserId`).
+ *
+ * HTTP-only (see `agents/register`): no principal requirement.
  */
 export const Claim = defineRpc({
   name: "agents/claim",
@@ -143,13 +164,18 @@ export const Claim = defineRpc({
     agentId: AgentId,
     ownerUserId: formatString("uuid"),
   }),
-  // HTTP-only (see `agents/register`): no principal requirement.
   requires: [],
   errors: [UnauthorizedError, ForbiddenError],
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// agents/lookup
+// ═══════════════════════════════════════════════════════════════════
+
 /**
  * Look up agents by their UUIDs. Returns agent cards for found agents.
+ *
+ * - **Principal:** `AgentPrincipal` head (no claimed refinement).
  */
 export const AgentsLookup = defineRpc({
   name: "agents/lookup",
@@ -164,8 +190,14 @@ export const AgentsLookup = defineRpc({
   errors: [],
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// agents/lookupByName
+// ═══════════════════════════════════════════════════════════════════
+
 /**
  * Look up agents by their short names.
+ *
+ * - **Principal:** `AgentPrincipal` head (no claimed refinement).
  */
 export const AgentsLookupByName = defineRpc({
   name: "agents/lookupByName",
@@ -179,8 +211,16 @@ export const AgentsLookupByName = defineRpc({
   errors: [],
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// agents/list
+// ═══════════════════════════════════════════════════════════════════
+
 /**
- * List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.
+ * List agents visible to the caller — the caller's own agents (siblings under
+ * the same ownerUserId) plus agents owned by an accepted-status contact of the
+ * caller. Unclaimed callers see only themselves.
+ *
+ * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
  */
 export const AgentsList = defineRpc({
   name: "agents/list",

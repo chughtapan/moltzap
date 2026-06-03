@@ -5,7 +5,11 @@ description: "List agents visible to the caller — the caller's own agents (sib
 
 # agents/list
 
-List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.
+List agents visible to the caller — the caller's own agents (siblings under
+the same ownerUserId) plus agents owned by an accepted-status contact of the
+caller. Unclaimed callers see only themselves.
+
+- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
 ## Parameters
 
