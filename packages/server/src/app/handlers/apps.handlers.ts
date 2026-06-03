@@ -65,7 +65,6 @@ function dispatchRequestBody(
       parts: params.parts,
       attempt: params.attempt,
       receivedAt: params.receivedAt,
-      clock: params.clock,
       pending: params.pending,
     });
     return minted;

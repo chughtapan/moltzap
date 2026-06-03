@@ -1,22 +1,22 @@
 /* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/as-unknown-as, agent-code-guard/async-keyword, jsdoc/text-escaping -- fast-check + Effect.gen + Stream.runForEach nest by construction; the cross-shape brand erasure in `oracle`/`fakeOtherFrame` is the typed→erased boundary the property test deliberately probes; fc.asyncProperty requires an async function */
 
 /**
- * Filter-equivalence oracle (spec #596 §Acceptance criteria).
+ * Property test: `subscribe`'s Stream output equals a pure-JS filter oracle.
  *
- * For any property-generated sequence of inbound notifications (length up
- * to 32, value pool size up to 8) and any property-generated typed
- * predicate `p`, the Stream-based subscribe API output equals the pure-JS
- * reference `frames.filter(frame => def===frame.definition && p(frame.params))`.
+ * For any property-generated sequence of inbound notifications and any
+ * property-generated typed predicate `p`, the Stream-based `subscribe`
+ * output equals the pure-JS reference
+ * `frames.filter(frame => def === frame.definition && p(frame.params))`.
+ * The oracle is the embedded `oracle` function below; both consume the
+ * same generated predicate so each run probes a different filter point.
  *
- * The oracle is a pure-JS reference implementation embedded in this file
- * (NOT a reference to the deleted three-storage shape).
+ * Generators are bounded so the property terminates: array length up to
+ * `MAX_SEQUENCE_LENGTH`, agent-id pool up to `VALUE_POOL_SIZE`.
  *
- * Bounded generators per spec: max array length 32, value pool size 8.
- *
- * The type-guard overload narrows the Stream's payload to
- * `DecodedNotification<D, R>`; the second property-test below pins the
- * runtime narrowing matches the compile-time canary in
- * `snapshot-semantics.types-check.ts → Canary #1`.
+ * The second test pins the runtime side of the type-guard overload: when
+ * `subscribe` is called with a `params is R` guard, only matching params
+ * reach the consumer. The compile-time counterpart lives in
+ * `subscribe-signatures.types-check.ts`.
  */
 import { describe, expect, it } from "vitest";
 import * as fc from "fast-check";
@@ -119,7 +119,7 @@ function fakeOtherFrame(generated: GeneratedFrame): PresenceFrame {
   return raw as unknown as PresenceFrame; // #ignore-sloppy-code[as-unknown-as]: fake-frame for the non-matching arm; the test is precisely about the boundary's behaviour on misshapen frames
 }
 
-describe("Spec B filter-equivalence oracle", () => {
+describe("subscribe filter-equivalence oracle", () => {
   it("Stream output equals pure-JS filter oracle for arbitrary inputs", () =>
     fc.assert(
       fc.asyncProperty(arbSequence, arbPredicate, async (frames, predicate) => {

@@ -86,16 +86,11 @@ describe("DispatchAuthorize params acceptance", () => {
     );
   });
 
-  it("accepts the optional pending+clock+receivedAt envelope", () => {
+  it("accepts the optional pending+receivedAt envelope", () => {
     expect(
       validateDispatchAuthorizeParams({
         ...DISPATCH_AUTHORIZE_PARAMS,
         receivedAt: "2026-04-29T22:00:00.000Z",
-        clock: {
-          domainId: CONVERSATION_ID,
-          epoch: 1,
-          vector: { [AGENT_ID]: 1 },
-        },
         pending: [
           {
             messageId: MESSAGE_ID,
@@ -159,16 +154,11 @@ describe("MessagesAuthorize params acceptance", () => {
     );
   });
 
-  it("accepts optional receivedAt and clock", () => {
+  it("accepts optional receivedAt", () => {
     expect(
       validateMessagesAuthorizeParams({
         ...MESSAGES_AUTHORIZE_PARAMS,
         receivedAt: "2026-05-12T00:00:00.000Z",
-        clock: {
-          domainId: CONVERSATION_ID,
-          epoch: 1,
-          vector: { [AGENT_ID]: 1 },
-        },
       }),
     ).toBe(true);
   });

@@ -82,7 +82,6 @@ const legacyAdmissionRequest = (
   senderAgentId: params.senderAgentId,
   attempt: params.attempt ?? 0,
   receivedAt: params.receivedAt ?? FALLBACK_RECEIVED_AT,
-  clock: params.clock as LegacyAdmissionRequest["clock"],
   pending: (params.pending ?? []) as LegacyAdmissionRequest["pending"],
 });
 

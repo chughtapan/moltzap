@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
-import { messagePartsSchema, logicalClockSchema } from "../task/methods.js";
+import { messagePartsSchema } from "../task/methods.js";
 import { LeaseId } from "../task/messages.js";
 import {
   dateTimeStringSchema,
@@ -30,7 +30,6 @@ import { ForbiddenError } from "../transport/wire-errors.js";
 const DateTimeString = dateTimeStringSchema();
 const AgentOwnershipSchema = agentOwnershipSchema();
 const MessagePartsSchema = messagePartsSchema();
-const LogicalClockSchema = logicalClockSchema();
 
 /** The referenced dispatch lease does not exist (or the caller is not its moderator). */
 export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
@@ -78,7 +77,6 @@ const PendingMessageSchema = Schema.Struct({
   senderAgentId: AgentId,
   createdAt: DateTimeString,
   receivedAt: DateTimeString,
-  clock: Schema.optional(LogicalClockSchema),
   parts: Schema.optional(MessagePartsSchema),
 });
 
@@ -112,7 +110,6 @@ export const DispatchRequest = defineRpc({
     parts: Schema.optional(MessagePartsSchema),
     receivedAt: Schema.optional(DateTimeString),
     pending: Schema.optional(PendingMessageArraySchema),
-    clock: Schema.optional(LogicalClockSchema),
     attempt: Schema.optional(
       Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
     ),
@@ -138,7 +135,6 @@ const DispatchAuthorizeContextSchema = Schema.Struct({
   }),
   attempt: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
   receivedAt: Schema.optional(DateTimeString),
-  clock: Schema.optional(LogicalClockSchema),
   pending: Schema.optional(PendingMessageArraySchema),
 });
 

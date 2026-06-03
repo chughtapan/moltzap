@@ -10,9 +10,9 @@
  *   - `docs/cli/reference.mdx` — per-command reference page.
  *   - `docs/snippets/cli-commands-table.mdx` — table for `cli/overview.mdx`.
  *   - `docs/snippets/cli-global-flags.mdx` — root-command global flags block.
- *   - `docs/snippets/server-hello-policy.mdx` — HelloOk policy JSON
- *     extracted from `buildHelloOk` in
- *     `packages/server/src/identity/handlers/connect.handlers.ts`.
+ *   - `docs/snippets/ws-connect-example.mdx` — `network/connect` request +
+ *     HelloOk response, baked from the live `PROTOCOL_VERSION` and
+ *     `API_KEY_PREFIX` constants.
  *
  * Hook into `pnpm docs:generate`; `pnpm docs:check:drift` then catches
  * any drift between the CLI source and these files.
@@ -458,7 +458,9 @@ const renderGlobalFlagsSnippet = (rootHelp: CommandHelp): string =>
 /**
  * Read `PROTOCOL_VERSION` from `packages/protocol/src/version.ts` so
  * the generated WS-connect example never drifts from the protocol
- * package. Same AST-first pattern as `readHelloPolicy`.
+ * package. Resolves the constant from source via `readTopLevelStringConst`
+ * (AST read, not a runtime import) so the script stays decoupled from the
+ * protocol package's build output.
  */
 const readProtocolVersion = (): ReadResult<string> => {
   const sourcePath = resolve(workspaceRoot, "packages/protocol/src/version.ts");

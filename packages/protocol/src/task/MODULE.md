@@ -187,7 +187,7 @@ export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
 }
 ```
 
-### [`InitialConversationInput`](./tasks.ts#L227)
+### [`InitialConversationInput`](./tasks.ts#L208)
 
 _TypeAlias_
 
@@ -211,22 +211,6 @@ _Variable_
 
 ```ts
 export const LeaseId = brandedId("LeaseId")
-```
-
-### [`LogicalClock`](./tasks.ts#L156)
-
-_TypeAlias_
-
-```ts
-export type LogicalClock = Schema.Schema.Type<typeof LogicalClockSchema>;
-```
-
-### [`logicalClockSchema`](./tasks.ts#L158)
-
-_Function_
-
-```ts
-export function logicalClockSchema(): typeof LogicalClockSchema
 ```
 
 ### [`Message`](./messages.ts#L83)
@@ -413,7 +397,7 @@ tag lets clients distinguish "wrong agentId shape" (InvalidParams)
 from "agent exists but is not admitted to this task" (this tag)
 without parsing message strings.
 
-### [`Task`](./tasks.ts#L177)
+### [`Task`](./tasks.ts#L158)
 
 _TypeAlias_
 
@@ -421,7 +405,7 @@ _TypeAlias_
 export type Task = Schema.Schema.Type<typeof TaskSchema>;
 ```
 
-### [`TaskAddParticipant`](./tasks.ts#L324)
+### [`TaskAddParticipant`](./tasks.ts#L305)
 
 _Variable_
 
@@ -443,7 +427,7 @@ TM-only: admit an agent to a task the calling app owns.
 - **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
   `task/close`).
 
-### [`TaskClose`](./tasks.ts#L304)
+### [`TaskClose`](./tasks.ts#L285)
 
 _Variable_
 
@@ -476,7 +460,7 @@ export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
 }
 ```
 
-### [`TaskClosedNotificationDefinition`](./tasks.ts#L571)
+### [`TaskClosedNotificationDefinition`](./tasks.ts#L552)
 
 _Variable_
 
@@ -489,7 +473,7 @@ export const TaskClosedNotificationDefinition = defineNotification({
 
 Pushed when a task closes.
 
-### [`TaskConversationAddParticipant`](./tasks.ts#L490)
+### [`TaskConversationAddParticipant`](./tasks.ts#L471)
 
 _Variable_
 
@@ -515,7 +499,7 @@ TM-only: add an agent to one conversation. The agent MUST already appear in
   `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
   not the participant-admitted state probe).
 
-### [`TaskConversationArchive`](./tasks.ts#L448)
+### [`TaskConversationArchive`](./tasks.ts#L429)
 
 _Variable_
 
@@ -534,7 +518,7 @@ TM-only: archive one conversation. Task stays open.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationArchivedNotification`](./tasks.ts#L621)
+### [`TaskConversationArchivedNotification`](./tasks.ts#L602)
 
 _TypeAlias_
 
@@ -544,7 +528,7 @@ export type TaskConversationArchivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L642)
+### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L623)
 
 _Variable_
 
@@ -556,7 +540,7 @@ export const TaskConversationArchivedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationCreate`](./tasks.ts#L378)
+### [`TaskConversationCreate`](./tasks.ts#L359)
 
 _Variable_
 
@@ -592,7 +576,7 @@ for `taskId`; violations return `ParticipantNotAdmittedError`.
   behalf has no agent contact-edges; targets are gated by
   `requireAgentsAreInTaskParticipants`).
 
-### [`TaskConversationCreatedNotification`](./tasks.ts#L618)
+### [`TaskConversationCreatedNotification`](./tasks.ts#L599)
 
 _TypeAlias_
 
@@ -602,7 +586,7 @@ export type TaskConversationCreatedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L635)
+### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L616)
 
 _Variable_
 
@@ -615,7 +599,7 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 )
 ```
 
-### [`TaskConversationList`](./tasks.ts#L418)
+### [`TaskConversationList`](./tasks.ts#L399)
 
 _Variable_
 
@@ -641,7 +625,7 @@ all tasks). No filter params; archived rows are included; callers filter
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`TaskConversationListItem`](./tasks.ts#L407)
+### [`TaskConversationListItem`](./tasks.ts#L388)
 
 _TypeAlias_
 
@@ -651,7 +635,7 @@ export type TaskConversationListItem = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L627)
+### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L608)
 
 _TypeAlias_
 
@@ -661,7 +645,7 @@ export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L654)
+### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L635)
 
 _Variable_
 
@@ -673,7 +657,7 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L630)
+### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L611)
 
 _TypeAlias_
 
@@ -684,7 +668,7 @@ export type TaskConversationParticipantsRemovedNotification =
   >;
 ```
 
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L660)
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L641)
 
 _Variable_
 
@@ -696,7 +680,7 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
   })
 ```
 
-### [`TaskConversationRemoveParticipant`](./tasks.ts#L516)
+### [`TaskConversationRemoveParticipant`](./tasks.ts#L497)
 
 _Variable_
 
@@ -721,7 +705,7 @@ conversations within the task).
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchive`](./tasks.ts#L467)
+### [`TaskConversationUnarchive`](./tasks.ts#L448)
 
 _Variable_
 
@@ -740,7 +724,7 @@ TM-only: reverse of `task/conversation/archive`.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchivedNotification`](./tasks.ts#L624)
+### [`TaskConversationUnarchivedNotification`](./tasks.ts#L605)
 
 _TypeAlias_
 
@@ -750,7 +734,7 @@ export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
 >;
 ```
 
-### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L648)
+### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L629)
 
 _Variable_
 
@@ -762,7 +746,7 @@ export const TaskConversationUnarchivedNotificationDefinition =
   })
 ```
 
-### [`TaskCreatedNotificationDefinition`](./tasks.ts#L562)
+### [`TaskCreatedNotificationDefinition`](./tasks.ts#L543)
 
 _Variable_
 
@@ -778,7 +762,7 @@ the `task/create` wire callback and the task transitions from `waiting` to
 `active`. Carries the full Task row (matching `task/closed`'s shape) so
 subscribers don't need a second read to discover the post-transition state.
 
-### [`TaskFailedNotificationDefinition`](./tasks.ts#L551)
+### [`TaskFailedNotificationDefinition`](./tasks.ts#L532)
 
 _Variable_
 
@@ -807,7 +791,7 @@ _Variable_
 export const TaskId = brandedId("TaskId")
 ```
 
-### [`TaskLeave`](./tasks.ts#L283)
+### [`TaskLeave`](./tasks.ts#L264)
 
 _Variable_
 
@@ -832,7 +816,7 @@ fires alongside in the same transaction.
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`TaskList`](./tasks.ts#L202)
+### [`TaskList`](./tasks.ts#L183)
 
 _Variable_
 
@@ -889,7 +873,7 @@ export const taskNotifications = [
 ] as const
 ```
 
-### [`TaskParticipant`](./tasks.ts#L191)
+### [`TaskParticipant`](./tasks.ts#L172)
 
 _TypeAlias_
 
@@ -918,7 +902,7 @@ rejected by the moderator" — an expected, actionable outcome —
 from an opaque internal error. The TM's reason rides in the
 `data` arm when present.
 
-### [`TaskRemoveParticipant`](./tasks.ts#L347)
+### [`TaskRemoveParticipant`](./tasks.ts#L328)
 
 _Variable_
 
@@ -940,7 +924,7 @@ TM-only: remove an agent from a task the calling app owns.
 - **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
   `task/close`).
 
-### [`TaskRequest`](./tasks.ts#L251)
+### [`TaskRequest`](./tasks.ts#L232)
 
 _Variable_
 
@@ -1002,7 +986,7 @@ export const taskRpcMethods = [
 ] as const
 ```
 
-### [`TaskStatus`](./tasks.ts#L165)
+### [`TaskStatus`](./tasks.ts#L146)
 
 _TypeAlias_
 

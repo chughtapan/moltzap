@@ -5,7 +5,7 @@
  */
 
 import { Cause, Chunk, Deferred, Duration, Effect, Fiber, Queue } from "effect";
-import type { LogicalClock, Message } from "@moltzap/protocol";
+import type { Message } from "@moltzap/protocol";
 import type {
   ConversationId,
   LeaseId,
@@ -75,7 +75,6 @@ export interface PendingDispatchMessage {
   senderAgentId: string;
   createdAt: string;
   receivedAt: string;
-  clock?: LogicalClock;
   parts?: Message["parts"];
 }
 
@@ -85,7 +84,6 @@ export interface DispatchAdmissionRequest {
   senderAgentId: string;
   attempt: number;
   receivedAt: string;
-  clock: LogicalClock;
   pending: ReadonlyArray<PendingDispatchMessage>;
 }
 
@@ -198,7 +196,6 @@ export interface ChannelService {
     readonly parts?: ReadonlyArray<unknown>;
     readonly receivedAt?: string;
     readonly pending?: ReadonlyArray<unknown>;
-    readonly clock?: LogicalClock;
     readonly attempt?: number;
   }): Effect.Effect<
     { readonly leaseId: LeaseId; readonly dispatchId: string },
@@ -275,7 +272,6 @@ interface InboundDispatchWork {
   message: Message;
   attempt: number;
   receivedAtMs: number;
-  clock: LogicalClock;
 }
 
 /**
@@ -358,10 +354,6 @@ export class MoltZapChannelCore {
     PendingReleaseEntry
   >();
   private readonly closedConversationIds = new Set<string>();
-  private readonly logicalClocks = new Map<
-    string,
-    { epoch: number; vector: Record<string, number> }
-  >();
   private readonly parkedByConversation = new Map<
     string,
     InboundDispatchWork[]
@@ -408,7 +400,6 @@ export class MoltZapChannelCore {
         message,
         attempt: 0,
         receivedAtMs: Date.now(),
-        clock: this.observeMessage(message),
       });
     });
   }
@@ -635,24 +626,6 @@ export class MoltZapChannelCore {
     );
   }
 
-  private observeMessage(message: Message): LogicalClock {
-    const current = this.logicalClocks.get(message.conversationId) ?? {
-      epoch: 0,
-      vector: {},
-    };
-    const vector = {
-      ...current.vector,
-      [message.senderId]: (current.vector[message.senderId] ?? 0) + 1,
-    };
-    const next = { epoch: current.epoch + 1, vector };
-    this.logicalClocks.set(message.conversationId, next);
-    return {
-      domainId: message.conversationId,
-      epoch: next.epoch,
-      vector,
-    };
-  }
-
   private takeDispatchCandidate(
     incoming: InboundDispatchWork,
   ): InboundDispatchWork {
@@ -742,7 +715,6 @@ export class MoltZapChannelCore {
         parts: work.message.parts,
         attempt: work.attempt,
         receivedAt: new Date(work.receivedAtMs).toISOString(),
-        clock: work.clock,
         pending: this.pendingDispatchSnapshot(work),
       }),
     ).pipe(
@@ -1146,7 +1118,6 @@ export class MoltZapChannelCore {
       senderAgentId: work.message.senderId,
       createdAt: work.message.createdAt,
       receivedAt: new Date(work.receivedAtMs).toISOString(),
-      clock: work.clock,
       parts: work.message.parts,
     }));
   }
