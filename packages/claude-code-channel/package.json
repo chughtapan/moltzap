@@ -18,11 +18,7 @@
     "moltzap-claude-code-channel": "./dist/cli.js"
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./test-support": {
-      "import": "./dist/test-support.js",
-      "types": "./dist/test-support.d.ts"
-    }
+    ".": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc -b",
