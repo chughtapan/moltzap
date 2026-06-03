@@ -241,10 +241,10 @@ function makeErrorSchema(
 
 /**
  * Create one wire method's frozen descriptor: name, Effect `Schema` shapes,
- * strict decode-time validators, and per-descriptor request/response
- * encoders. Every wire boundary in moltzap is born from a single `defineRpc`
- * call at module-load time so the strict decoders are built eagerly and the
- * runtime never re-derives them.
+ * the effective wire error union, and strict decode-time validators. Every wire
+ * boundary in moltzap is born from a single `defineRpc` call at module-load
+ * time so the strict decoders are built eagerly and the runtime never
+ * re-derives them.
  *
  * ```mermaid
  * flowchart TD
@@ -270,7 +270,7 @@ function makeErrorSchema(
  * `wire.ts → JsonRpcMethod` for the brand.
  *
  * Sibling: {@link defineNotification} — same pipeline minus the
- * result schema and response encoder.
+ * result schema and the error union.
  */
 export function defineRpc<
   Name extends string,
@@ -334,15 +334,15 @@ export function defineRpc<
  *   participant Server
  *   participant Wire as WebSocket
  *   participant Client
- *   Server->>Server: NotificationDefinition.encode(params)
+ *   Server->>Server: frame notification from descriptor + params
  *   Server->>Wire: {jsonrpc, method, params}
  *   Wire->>Client: frame arrives
  *   Client->>Client: decodeServerInbound<br>→ tag Notification, definition, params
  *   Client->>Client: subscriber dispatcher routes to handler
  * ```
  *
- * Descriptor role at the transport layer: encode + decode + schema
- * validation. Routing semantics live in consumers (e.g.
+ * Descriptor role at the transport layer: the wire `name` + params schema +
+ * strict decode-time validator. Routing semantics live in consumers (e.g.
  * `@moltzap/client/runtime/subscribers.ts`).
  */
 export interface NotificationDefinition<

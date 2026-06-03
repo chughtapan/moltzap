@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the reverse `@effect/rpc` `RpcGroup` construction
- * (`transport/rpc-method-groups.ts`).
+ * (`engine/rpc-method-groups.ts`).
  *
  * These canaries are the groups' live type consumer (so the unused-export pass
  * does not flag the exports dead) AND the documented invariants the build

@@ -360,7 +360,7 @@ export type MwForRequirement<Req> = Req extends typeof AgentPrincipal
 ```
 
 Type-level requirement `Context.Tag` → its `RpcMiddleware.Tag` (the runtime
-mirror is requirementMiddlewareByKey). Matches by tag IDENTITY so the
+mirror is requirementMiddleware). Matches by tag IDENTITY so the
 engine member's middleware param carries the EXACT mws, keeping each cap's
 `provides` type-visible (a handler that `yield*`s a cap Tag has it stripped
 from the Layer's residual requirement — the proof-exclusion guarantee). Both

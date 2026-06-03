@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the client-callable group projections
- * (`transport/client-callable-groups.ts`).
+ * (`engine/client-callable-groups.ts`).
  *
  * The groups are the first-party compile-time principal bound: an agent client
  * types against {@link AgentCallableGroup}, an app client against

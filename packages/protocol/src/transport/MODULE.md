@@ -166,7 +166,7 @@ export type DecodedFrame =
   | { readonly _tag: "Request"; readonly frame: RequestFrame }
 ```
 
-### [`DecodedNotification`](./rpc-groups.ts#L53)
+### [`DecodedNotification`](./rpc-groups.ts#L54)
 
 _TypeAlias_
 
@@ -179,8 +179,9 @@ export type DecodedNotification<
 
 A decoded notification carries the discriminator + descriptor + typed
 params + the original wire `jsonrpc`. It does NOT extend `NotificationFrame`
-— re-encoding goes through `definition.encode(params)`, not by re-serializing
-this struct, so the strict-additionalProperties wire schema stays unstuck.
+— re-encoding builds a fresh frame from the descriptor + params, not by
+re-serializing this struct, so the strict-additionalProperties wire schema
+stays unstuck.
 
 The optional second parameter `R` narrows the `params` field to the refined
 type — used by `MoltZapAgentClient.subscribe`'s user-defined-type-guard
@@ -237,7 +238,7 @@ flowchart TD
   D -- Left --> X["FrameDecodeError (id salvaged if string)"]
 ```
 
-### [`decodeNotification`](./rpc-groups.ts#L123)
+### [`decodeNotification`](./rpc-groups.ts#L124)
 
 _Function_
 
@@ -253,7 +254,7 @@ export function decodeNotification<
 >
 ```
 
-### [`decodeRpcRequest`](./rpc-groups.ts#L98)
+### [`decodeRpcRequest`](./rpc-groups.ts#L99)
 
 _Function_
 
@@ -337,10 +338,10 @@ export function defineRpc<
 ```
 
 Create one wire method's frozen descriptor: name, Effect `Schema` shapes,
-strict decode-time validators, and per-descriptor request/response
-encoders. Every wire boundary in moltzap is born from a single `defineRpc`
-call at module-load time so the strict decoders are built eagerly and the
-runtime never re-derives them.
+the effective wire error union, and strict decode-time validators. Every wire
+boundary in moltzap is born from a single `defineRpc` call at module-load
+time so the strict decoders are built eagerly and the runtime never
+re-derives them.
 
 ```mermaid
 flowchart TD
@@ -366,7 +367,7 @@ string can never accidentally type-fit a method position. See
 `wire.ts → JsonRpcMethod` for the brand.
 
 Sibling: defineNotification — same pipeline minus the
-result schema and response encoder.
+result schema and the error union.
 
 ### [`dispatchCall`](./typed-dispatch.ts#L62)
 
@@ -419,7 +420,7 @@ identity (a class shared across a requirement and the handler list appears
 once). This is the single source the wire `errorSchema`, the server gate, and
 the typed client all read.
 
-### [`encodeErrorResponse`](./wire.ts#L267)
+### [`encodeErrorResponse`](./wire.ts#L268)
 
 _Function_
 
@@ -432,7 +433,8 @@ export function encodeErrorResponse(
 
 Public wire-error response encoder. Constructs a JSON-RPC error
 response for any wire id (no method binding). Method-tied success
-responses go through `RpcDefinition.encodeResponse`.
+responses are framed by the server engine via the per-method result
+schema; this helper is the method-agnostic error path.
 
 ### [`ErrorForTag`](./typed-dispatch.ts#L38)
 
@@ -496,7 +498,7 @@ export class InvalidParamsError extends Schema.TaggedError<InvalidParamsError>()
 
 Boundary validation error — params failed schema validation.
 
-### [`isDecodedNotification`](./rpc-groups.ts#L153)
+### [`isDecodedNotification`](./rpc-groups.ts#L155)
 
 _Function_
 
@@ -721,7 +723,7 @@ export class NotFoundError extends Schema.TaggedError<NotFoundError>()(
 
 Resource not found (cross-cutting; domain-specific NotFound errors live with their domain).
 
-### [`NotificationDecodeError`](./rpc-groups.ts#L94)
+### [`NotificationDecodeError`](./rpc-groups.ts#L95)
 
 _TypeAlias_
 
@@ -781,18 +783,18 @@ sequenceDiagram
   participant Server
   participant Wire as WebSocket
   participant Client
-  Server->>Server: NotificationDefinition.encode(params)
+  Server->>Server: frame notification from descriptor + params
   Server->>Wire: {jsonrpc, method, params}
   Wire->>Client: frame arrives
   Client->>Client: decodeServerInbound<br>→ tag Notification, definition, params
   Client->>Client: subscriber dispatcher routes to handler
 ```
 
-Descriptor role at the transport layer: encode + decode + schema
-validation. Routing semantics live in consumers (e.g.
+Descriptor role at the transport layer: the wire `name` + params schema +
+strict decode-time validator. Routing semantics live in consumers (e.g.
 `@moltzap/client/runtime/subscribers.ts`).
 
-### [`notificationFrame`](./wire.ts#L275)
+### [`notificationFrame`](./wire.ts#L276)
 
 _Function_
 
@@ -1186,7 +1188,7 @@ export type RpcForTag<
 
 The `Rpc` member of `Rpcs` whose tag is `K`.
 
-### [`RpcRequestDecodeError`](./rpc-groups.ts#L77)
+### [`RpcRequestDecodeError`](./rpc-groups.ts#L78)
 
 _TypeAlias_
 
