@@ -94,12 +94,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/protocol/src/index.ts"),
   },
   {
-    find: /^@moltzap\/openclaw-channel\/test-utils$/,
-    replacement: fromRoot(
-      "packages/openclaw-channel/src/test-utils/container-core.ts",
-    ),
-  },
-  {
     find: /^@moltzap\/openclaw-channel$/,
     replacement: fromRoot("packages/openclaw-channel/src/openclaw-entry.ts"),
   },

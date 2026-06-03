@@ -310,9 +310,6 @@ line is the factory import.
 import { describe, it, expect } from "vitest";
 import { Effect, Exit } from "effect";
 import { clientConformance } from "@moltzap/protocol/testing";
-// In-repo consumers: @moltzap/client/test-utils
-// or @moltzap/openclaw-channel/test-support
-// or @moltzap/nanoclaw-channel/test-support
 import { createMoltZapRealClientFactory } from "@moltzap/client/test-utils";
 
 describe("my-package client-side conformance", () => {

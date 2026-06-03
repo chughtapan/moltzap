@@ -21,15 +21,13 @@ const DEFAULT_PORT_RANGE_START = 19000;
 const DEFAULT_PORT_RANGE_END = 19999;
 const JSON_INDENT_SPACES = 2;
 const MS_PER_SECOND = 1000;
-const DEFAULT_GATEWAY_TIMEOUT_MS = 30_000;
-const DEFAULT_CHANNEL_TIMEOUT_MS = 180_000;
 const DEFAULT_READY_TIMEOUT_MS = 180_000;
 const GATEWAY_READY_PATTERN = "[gateway]";
 const CHANNEL_READY_PATTERNS = ["[moltzap]", "connected as"] as const;
 const DOCKER_BIN = "/usr/bin/docker";
 
-export const IMAGE_NAME = "moltzap-eval-agent:local";
-export const OPENCLAW_STATE_DIR = "/home/node/.openclaw";
+const IMAGE_NAME = "moltzap-eval-agent:local";
+const OPENCLAW_STATE_DIR = "/home/node/.openclaw";
 
 class OpenClawContainerError extends Error {
   override readonly name = "OpenClawContainerError";
@@ -347,7 +345,7 @@ export function getLogs(containerId: string): string {
 }
 
 /** Stream `docker logs -f` and resolve when all patterns appear. */
-export function waitForLogMatch(
+function waitForLogMatch(
   containerId: string,
   patterns: string | string[],
   timeoutMs: number,
@@ -508,22 +506,6 @@ function logMatchStateSummary(state: LogWaitState): string {
     `Missing: [${missingPatterns(state).join(", ")}]\n` +
     `Logs:\n${getLogs(state.containerId)}`
   );
-}
-
-/** Wait for the OpenClaw gateway process to start. */
-export function waitForGateway(
-  containerId: string,
-  timeoutMs = DEFAULT_GATEWAY_TIMEOUT_MS,
-) {
-  return waitForLogMatch(containerId, GATEWAY_READY_PATTERN, timeoutMs);
-}
-
-/** Wait for the MoltZap channel to connect within the container. */
-export function waitForChannel(
-  containerId: string,
-  timeoutMs = DEFAULT_CHANNEL_TIMEOUT_MS,
-) {
-  return waitForLogMatch(containerId, [...CHANNEL_READY_PATTERNS], timeoutMs);
 }
 
 /** Wait for both gateway and channel to be ready (single log stream). */

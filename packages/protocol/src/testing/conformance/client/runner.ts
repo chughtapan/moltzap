@@ -11,9 +11,10 @@
  * The factory returns an `Effect` that owns the real client's lifetime via
  * `Scope`. Consumers that already ship an Effect-native construction path
  * (`packages/client/MoltZapAgentClient` via its internal `ManagedRuntime`)
- * wrap it in `Effect.acquireRelease`. Channel packages (`openclaw-channel`,
- * `nanoclaw-channel`) add a narrow test-support subpath export that returns
- * the same factory shape.
+ * wrap it in `Effect.acquireRelease`. Channel packages whose client is
+ * embedded behind a private surface reuse the shared
+ * `@moltzap/client/test-utils` factory rather than reshaping their public
+ * contract.
  */
 import {
   Config,
@@ -73,8 +74,8 @@ function randomTagSuffix(): string {
  *
  * Every field below is a **public** observable surface on the real
  * client — no private reads, no monkey-patching, no log scraping. When a
- * channel package's client is private, the consumer exposes it via a
- * test-support subpath export.
+ * channel package's client is private, the consumer drives it through the
+ * shared `@moltzap/client/test-utils` factory.
  */
 export interface RealClientHandle {
   /**

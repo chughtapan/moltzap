@@ -1,16 +1,13 @@
 /**
- * `@moltzap/claude-code-channel` client-side conformance wrapper (issue #254).
+ * `@moltzap/claude-code-channel` client-side conformance wrapper.
  *
- * Invokes `clientConformance.runClientConformanceSuite` with the
- * MoltZap WS client factory re-exported by the channel package's
- * `test-support` subpath. Mirrors `packages/{client,openclaw-channel,
- * nanoclaw-channel}/src/__tests__/conformance/suite.test.ts` exactly —
- * cc-channel is the 4th client-side wrapper alongside the existing three.
+ * Invokes `clientConformance.runClientConformanceSuite` with the shared
+ * MoltZap WS client factory from `@moltzap/client/test-utils`.
  */
 import { describe, expect, it } from "vitest";
 import { Config, Effect, Exit, Option } from "effect";
 import { clientConformance } from "@moltzap/protocol/testing";
-import { createMoltZapRealClientFactory } from "../../test-support.js";
+import { createMoltZapRealClientFactory } from "@moltzap/client/test-utils";
 
 const CLIENT_CONFORMANCE_TIMEOUT_MS = 600_000;
 const TEST_AGENT_KEY = "claude-code-test-agent-key";

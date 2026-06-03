@@ -8,11 +8,10 @@
  * predicate; the adapter plumbs it directly onto the Stream-based
  * `MoltZapAgentClient.subscribeAll` surface.
  *
- * Consumed by:
- *   - `packages/client/src/__tests__/conformance/suite.test.ts` directly
- *   - `packages/openclaw-channel/src/test-support.ts` (re-exported via
- *     `@moltzap/openclaw-channel/test-support`)
- *   - `packages/nanoclaw-channel/src/test-support.ts` (same)
+ * Each client-side conformance wrapper imports
+ * `createMoltZapRealClientFactory` from `@moltzap/client/test-utils`
+ * directly — the client, openclaw-channel, nanoclaw-channel, and
+ * claude-code-channel suites all share this one adapter.
  */
 import { Data, Effect, Either, Ref, Scope, Stream } from "effect";
 import {

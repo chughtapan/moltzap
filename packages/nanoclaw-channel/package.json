@@ -15,11 +15,7 @@
   "main": "./dist/channels/moltzap.js",
   "types": "./dist/channels/moltzap.d.ts",
   "exports": {
-    ".": "./dist/channels/moltzap.js",
-    "./test-support": {
-      "import": "./dist/test-support.js",
-      "types": "./dist/test-support.d.ts"
-    }
+    ".": "./dist/channels/moltzap.js"
   },
   "scripts": {
     "build": "tsc -b",

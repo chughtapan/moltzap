@@ -16,15 +16,7 @@
   "main": "./dist/openclaw-entry.js",
   "types": "./dist/openclaw-entry.d.ts",
   "exports": {
-    ".": "./dist/openclaw-entry.js",
-    "./test-utils": {
-      "import": "./dist/test-utils/container-core.js",
-      "types": "./dist/test-utils/container-core.d.ts"
-    },
-    "./test-support": {
-      "import": "./dist/test-support.js",
-      "types": "./dist/test-support.d.ts"
-    }
+    ".": "./dist/openclaw-entry.js"
   },
   "scripts": {
     "build": "tsc -b",
