@@ -1,23 +1,11 @@
 ---
 title: "messages/authorize"
-description: "Server → TM round-trip asking for the per-message fan-out verdict."
+description: "Call `messages/authorize`."
 ---
 
 # messages/authorize
 
-Server → TM round-trip asking for the per-message fan-out verdict.
-Triggered from `MessageService.sendCommit` after the durable insert
-lands and before the broadcast. The server emits this RPC only for a
-manifest whose `message_authorize` policy is `{ kind: "hook" }`.
-Failure / timeout in the round-trip synthesizes a fail-closed
-`Block { reason: "app_unreachable" }` verdict at the AppHost envelope
-(mirrors the `dispatch/authorize` `wrapHookEffectWithEnvelope`
-posture).
-
-`Forward { recipients }` MUST be a subset of the conversation's
-participants; the server does not re-fan to non-participants.
-`Forward { recipients: [] }` is legal — message lands in the
-sender's transcript but is delivered to no one else.
+Call `messages/authorize`.
 
 ## Parameters
 

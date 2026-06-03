@@ -1,14 +1,11 @@
 ---
 title: "dispatches/get"
-description: "Moderator-only query for a specific lease record."
+description: "Call `dispatches/get`."
 ---
 
 # dispatches/get
 
-Moderator-only query for a specific lease record. Scope-enforced at
-the handler: the calling connection must match the lease's
-`moderatorConnectionId` (the binding tuple recorded at mint time);
-non-moderator callers fail with `ForbiddenError`.
+Call `dispatches/get`.
 
 ## Parameters
 

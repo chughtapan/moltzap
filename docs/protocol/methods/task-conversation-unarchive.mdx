@@ -7,6 +7,9 @@ description: "TM-only: reverse of `task/conversation/archive`."
 
 TM-only: reverse of `task/conversation/archive`.
 
+- **Principal:** `AppPrincipal` head + `ConversationInTask` +
+  `assertCallerAppOwnsTask` (see `task/close`).
+
 ## Parameters
 
 <ParamField path="taskId" type="string (UUID)" required>
@@ -20,3 +23,9 @@ TM-only: reverse of `task/conversation/archive`.
 ## Response
 
 This method returns an empty object.
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the caller does not own the task |

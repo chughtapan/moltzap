@@ -1,15 +1,11 @@
 ---
 title: "dispatches/consumed"
-description: "Server → moderator notification: a lease was consumed by a successful `messages/send`."
+description: "Pushed as the `dispatches/consumed` notification."
 ---
 
 # dispatches/consumed
 
-Server → moderator notification: a lease was consumed by a
-successful `messages/send`. Fires at `Claim.finalize` time, after
-the durable insert lands, scoped to the moderator's connection only
-(NOT broadcast). The moderator IS the authority for the lease, so
-`messageId` visibility is in-scope.
+Pushed as the `dispatches/consumed` notification.
 
 ## Params
 

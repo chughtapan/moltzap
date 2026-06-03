@@ -9,6 +9,13 @@ TM-only: mint a new conversation under an existing task. Every
 entry in `participants` MUST already appear in `task_participants`
 for `taskId`; violations return `ParticipantNotAdmittedError`.
 
+- **Principal:** `AppPrincipal` head. App-ownership is gated by the app-arm
+  handler's `assertCallerAppOwnsTask` (raising `ForbiddenError` for a
+  non-owner before the body); `ConversationCreateAuthorization` is provided
+  inline by the handler as a capacity-only proof (a TM minting on the task's
+  behalf has no agent contact-edges; targets are gated by
+  `requireAgentsAreInTaskParticipants`).
+
 ## Parameters
 
 <ParamField path="taskId" type="string (UUID)" required>
@@ -28,3 +35,12 @@ for `taskId`; violations return `ParticipantNotAdmittedError`.
 <ResponseField name="conversation" type="object">
   The conversation field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the caller does not own the task |
+| `TaskNotFoundError` | the task does not exist |
+| `ParticipantNotAdmittedError` | a participant is not admitted to the task |
+| `ConversationFullError` | the conversation is at capacity |

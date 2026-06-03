@@ -1,11 +1,14 @@
 ---
 title: "task/addParticipant"
-description: "Call `task/addParticipant`."
+description: "TM-only: admit an agent to a task the calling app owns."
 ---
 
 # task/addParticipant
 
-Call `task/addParticipant`.
+TM-only: admit an agent to a task the calling app owns.
+
+- **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
+  `task/close`).
 
 ## Parameters
 
@@ -22,3 +25,10 @@ Call `task/addParticipant`.
 <ResponseField name="participant" type="object">
   The participant field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the caller does not own the task |
+| `TaskNotFoundError` | the task does not exist |

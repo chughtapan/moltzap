@@ -6,16 +6,15 @@ description: "Self-only: caller removes themselves from `task_participants` AND 
 # task/leave
 
 Self-only: caller removes themselves from `task_participants` AND
-every `conversation_participants` row under the task. See spec
-body Goal 2 for the atomicity, idempotency, and
-last-participant-task-closure contract.
+every `conversation_participants` row under the task.
 
 Notification emission for each conversation the caller leaves uses
 `TaskConversationParticipantsRemovedNotificationDefinition` with
-`reason: "task_leave"`. If removal empties `task_participants`
-the task transitions to `status = 'closed'` and
-`TaskClosedNotificationDefinition` fires alongside in the same
-transaction.
+`reason: "task_leave"`. If removal empties `task_participants` the task
+transitions to `status = 'closed'` and `TaskClosedNotificationDefinition`
+fires alongside in the same transaction.
+
+- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
 ## Parameters
 
@@ -26,3 +25,9 @@ transaction.
 ## Response
 
 This method returns an empty object.
+
+## Errors
+
+| Type | When |
+|------|------|
+| `TaskNotFoundError` | the task does not exist or the caller is not in it |

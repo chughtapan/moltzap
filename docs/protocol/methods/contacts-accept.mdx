@@ -7,6 +7,8 @@ description: "Accept a pending contact request."
 
 Accept a pending contact request.
 
+- **Principal:** `AgentPrincipal` head (no claimed refinement).
+
 ## Parameters
 
 <ParamField path="contactId" type="string (UUID)" required>
@@ -18,3 +20,9 @@ Accept a pending contact request.
 <ResponseField name="contact" type="object">
   The contact field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ContactNotFoundError` | the referenced contact does not exist |

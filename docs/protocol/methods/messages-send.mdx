@@ -10,6 +10,19 @@ Send a message to a conversation under a task. Both `taskId` and
 (created via `task/conversation/create`) and the sender must be a
 participant.
 
+- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+- **Params:** `taskId`, `conversationId`, `parts` (1–10 text/image/file
+  parts), optional `replyToId`, optional `dispatchLeaseId`.
+- **Result:** the created `message` (ID, parts, sender, timestamp).
+- **Caps (run order):** `ConversationInTask` resolves the conversation's
+  task membership; `ConversationSendAccess` proves participation and does
+  the ONE joined (`conversations ⋈ tasks`) read, handing the send row to
+  the handler. The remaining send preconditions — task-active,
+  conversation-not-archived, reply-target — are handler-body guards that
+  refine that provided row (they share the one read; `@effect/rpc`
+  middlewares cannot read each other's provided value, so a refinement
+  that depends on the row is a handler guard, not a standalone middleware).
+
 ## Parameters
 
 <ParamField path="taskId" type="string (UUID)" required>
@@ -44,9 +57,11 @@ The created message with ID, sequence number, and timestamp.
 
 | Type | When |
 |------|------|
-| `NotFoundError` | Conversation not found |
-| `ForbiddenError` | Not a participant in the conversation |
-| `RateLimitedError` | Message rate limit exceeded |
+| `NotFoundError` | Conversation not found, or the dispatch lease is missing |
+| `ForbiddenError` | Not a participant, or the dispatch lease is consumed/invalid (`data.reason: "LeaseInvalid"`) |
+| `TaskClosedError` | the task is no longer active |
+| `ConversationArchivedError` | the conversation is archived |
+| `HookBlockedError` | an app-side send hook blocks the message |
 
 ## Related Notifications
 

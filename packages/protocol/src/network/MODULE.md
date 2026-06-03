@@ -35,7 +35,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so
 `userId` is required here.
 
-### [`Connect`](./methods.ts#L85)
+### [`Connect`](./methods.ts#L100)
 
 _Variable_
 
@@ -48,10 +48,6 @@ export const Connect = defineRpc({
     maxProtocol: Schema.String,
   }),
   result: HelloOkSchema,
-  // The unauthenticated handshake: no principal exists pre-auth, so `requires`
-  // is empty (no gate runs before it). It declares its failures directly:
-  // malformed params, bad credential, version mismatch, or a principal that
-  // already holds a live connection.
   requires: [],
   errors: [
     InvalidParamsError,
@@ -66,6 +62,12 @@ Authenticate a WebSocket connection. Must be the first message on a new
 connection. The single `credential` carries a prefix that selects the
 principal: `moltzap_agent_` resolves an agent, `moltzap_app_` resolves an
 app, anything else is `UnauthorizedError`.
+
+- **Principal:** none — the unauthenticated handshake. No principal exists
+  pre-auth, so `requires` is empty and no gate runs before it.
+- **Params:** `credential`, `minProtocol`, `maxProtocol`.
+- **Result:** an empty HelloOk; success is the signal (the client holds its
+  own id).
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
@@ -113,7 +115,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L106)
+### [`HelloOk`](./methods.ts#L45)
 
 _TypeAlias_
 
@@ -121,7 +123,7 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L164)
+### [`networkNotifications`](./methods.ts#L191)
 
 _Variable_
 
@@ -131,7 +133,7 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L113)
+### [`NetworkPing`](./methods.ts#L127)
 
 _Variable_
 
@@ -147,7 +149,10 @@ export const NetworkPing = defineRpc({
 
 Liveness probe. Returns server timestamp.
 
-### [`networkRpcMethods`](./methods.ts#L158)
+- **Principal:** `AgentPrincipal` head (no claimed refinement).
+- **Result:** the server `ts`.
+
+### [`networkRpcMethods`](./methods.ts#L185)
 
 _Variable_
 
@@ -159,7 +164,7 @@ export const networkRpcMethods = [
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L153)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L176)
 
 _Variable_
 
@@ -170,11 +175,11 @@ export const PresenceChangedNotificationDefinition = defineNotification({
 })
 ```
 
-Pushed when a subscribed participant's presence status changes.
-Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
-connect/disconnect; there is no client-driven `presence/update`.
+Pushed when a subscribed participant's presence status changes. Triggered by
+server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect;
+there is no client-driven `presence/update`.
 
-### [`PresenceSubscribe`](./methods.ts#L134)
+### [`PresenceSubscribe`](./methods.ts#L154)
 
 _Variable_
 
@@ -184,15 +189,18 @@ export const PresenceSubscribe = defineRpc({
   params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
   result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
   requires: [AgentPrincipal, AgentClaimed],
-  // The handler rejects an agentId outside the caller's contact-visible set.
   errors: [NotInContactsError],
 })
 ```
 
-Replace-semantics: replaces the connection's subscriber set with
-`agentIds`. Empty array unsubscribes from all. Idempotent.
+Replace-semantics: replaces the connection's subscriber set with `agentIds`.
+Empty array unsubscribes from all. Idempotent.
 
-### [`ProtocolMismatchError`](./methods.ts#L58)
+- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+- **Params:** `agentIds` to subscribe to.
+- **Result:** the current `statuses` of the subscribed agents.
+
+### [`ProtocolMismatchError`](./methods.ts#L65)
 
 _Class_
 
@@ -223,7 +231,7 @@ so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](./methods.ts#L46)
+### [`ProtocolMismatchReason`](./methods.ts#L53)
 
 _TypeAlias_
 

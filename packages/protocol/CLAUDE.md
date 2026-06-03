@@ -5,10 +5,10 @@ definitions, and decode-time validators for the MoltZap JSON-RPC
 protocol. Source of truth for all wire message types. Leaf of the
 workspace dependency DAG.
 
-The wire DIALECT is unchanged JSON-RPC-2.0 (`{jsonrpc:"2.0", id,
-method, params}` / `-32xxx` error codes). #723 migrated the validation
-ENGINE off TypeBox + AJV onto Effect `Schema` (`Schema.Struct` /
-`Schema.Union` / `Schema.brand`, decoded via `Schema.decodeUnknownEither`)
+The wire DIALECT is JSON-RPC-2.0 (`{jsonrpc:"2.0", id, method, params}` /
+`-32xxx` error codes). The validation ENGINE is Effect `Schema`
+(`Schema.Struct` / `Schema.Union` / `Schema.brand`, decoded via
+`Schema.decodeUnknownEither`)
 — same bytes on the socket, one decode engine shared with the rest of
 the runtime.
 
@@ -89,51 +89,127 @@ the package or repository root. Root CI runs `pnpm docs:check:drift`.
 
 ## Adding a new RPC method
 
+The descriptor files are organized **by method**: a small SHARED section
+at the top (only the value types 2+ methods reuse), then one contiguous
+`// ═══ method/name ═══` block per RPC carrying its inlined unique
+params/result, its `defineRpc` descriptor, and the contract JSDoc above
+it. Keep a new method self-contained in its own block; promote a schema
+to SHARED only when a second method needs it.
+
 The recipe; every new RPC follows it:
 
 1. **Pick the layer.** Per the DAG: `transport` < `identity` <
    `network` < `task` < `app`. A method may reference types from
    layers at-or-below; never above. Put it in the lowest layer that
    covers it.
-2. **Declare schemas** in the layer's `methods.ts` (or
-   `tasks.ts` / `messages.ts` for task subfamilies). Use Effect
-   `Schema`: `Schema.Struct({ ... })`. Branded ids via
-   `brandedId("FooId")`; enums via `stringEnum(["a", "b"])`; bounded
-   integers via `Schema.Number.pipe(Schema.int(),
-   Schema.greaterThanOrEqualTo(n))` (the inline form — NOT
-   `Schema.Int`, which hoists a `$defs`/`$ref` the docs walker can't
-   read). `Schema.Struct` STRIPS excess keys by default; AJV-strict
-   parity (reject excess) is enforced at the DECODE boundary, where
-   every wire decode passes `{ onExcessProperty: "error" }` (the
-   `STRICT_DECODE` const) — see `transport/dispatch.ts` and the
-   `closedStructGuard` validators, NOT the `Schema.Struct` shape
-   alone.
-3. **Define the descriptor** with `defineRpc({ name, params, result,
-   capabilities? })`. Add it to the layer's
-   `<layer>RpcMethods` array (e.g., `taskRpcMethods` in
-   `task/methods.ts`). The root `rpc-registry.ts` re-aggregates.
-4. **Add JSDoc above the `defineRpc` call** describing the method
-   semantics, parameters, and failure modes. Use `@error
-   ClassName when ...` for documented failure types — the Mintlify
-   generator reads these. The JSDoc IS the source of truth for the
-   protocol reference page.
-5. **Declare tagged errors** the handler will raise. Each error
-   class extends `Data.TaggedError`, carries
-   `static readonly code` and `static readonly message`, and
-   self-registers via `registerErrorClass` at module load. Wire
-   codes outside `JSON_RPC_RESERVED_CODES` (-32700..-32603) come
-   from the per-layer ranges documented near the registry call
-   sites.
-6. **Run `pnpm docs:generate`** from the package root. The
-   generator produces `docs/protocol/methods/<name>.mdx` from the
-   descriptor + JSDoc. CI runs `pnpm docs:check:drift` to verify
-   no hand edits to generated files.
-7. **Implement the handler** in `@moltzap/server-core`. The
-   server's binding wrappers enforce the layer-tag allowlist; any
-   per-frame capability is declared at the binding site as a
-   `CapabilityMiddleware` (#705 HALF-2 — capabilities are no longer
-   descriptor metadata) and woven by the binding's `weaveCaps` (see
-   `packages/server/src/app/capability-middlewares.ts`).
+
+2. **Declare schemas in the method's block.** Use Effect `Schema`:
+   `Schema.Struct({ ... })`. Branded ids via `brandedId("FooId")`;
+   enums via `stringEnum(["a", "b"])`; bounded integers via
+   `Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(n))`
+   (the inline form — NOT `Schema.Int`, which hoists a `$defs`/`$ref`
+   the docs walker can't read). `Schema.Struct` STRIPS excess keys by
+   default; strict rejection happens at the DECODE boundary, where every
+   wire decode passes `{ onExcessProperty: "error" }` (the
+   `STRICT_DECODE` const) and `closedStructGuard` wraps it — see the
+   `closedStruct` / `STRICT_DECODE` glossary entry. Inline a schema the
+   method alone uses; extract to the file's SHARED section only when 2+
+   methods share it.
+
+3. **Declare the handler-domain error classes** the handler raises.
+   Each extends `Schema.TaggedError<Foo>()("Foo", errorPayloadFields)`
+   — the class is BOTH the runtime constructor AND its own wire
+   `Schema`; its `_tag` literal is the union discriminant the engine
+   decodes against. There is no numeric code and no central registry.
+   Cross-cutting errors (`ForbiddenError`, `NotFoundError`,
+   `ConflictError`, …) live in `transport/wire-errors.ts`; a
+   domain-specific error lives in its owning layer file (e.g.
+   `TaskClosedError` in `task/tasks.ts`). Declare ONLY the errors the
+   handler itself raises — the principal-gate errors
+   (`Unauthorized`/`Forbidden`) and each requirement's declared errors
+   are added automatically (see step 8).
+
+4. **Define the descriptor** with `defineRpc({ name, params, result,
+   requires, errors })`:
+   - `requires`: REQUIRED — the ordered authority list. The FIRST
+     element is exactly one principal requirement (`AgentPrincipal` |
+     `AppPrincipal`); an optional `AgentClaimed` refinement (agent-only,
+     claimed/active arm) follows; the rest are capability tags **in run
+     order**. The lone unauthenticated method (`network/connect`) is
+     `requires: []`. A server→client reverse callback (the app serves
+     it, the server does not gate it) is also `requires: []`. Omitting
+     this key fails TS2741. `requires` is the ONE authority axis — the
+     client groups partition on its head, the server stacks one
+     `RpcMiddleware` per element, and each element folds its `errors`
+     into the wire error union. There is no `callablePrincipal` /
+     `requiresActive` / `caps` field.
+   - `errors`: REQUIRED — the handler-domain error classes from step
+     3. `[]` if the handler raises none. Omitting fails TS2741.
+
+5. **Add the contract JSDoc above the `defineRpc` call** for a cold
+   reader: what it does, the principal (`AgentPrincipal` /
+   `AppPrincipal` head, plus `AgentClaimed` when present), params,
+   result, the caps it runs (and their order), and the errors it raises.
+   Use `@error ClassName when ...` lines — the Mintlify generator reads
+   these, and the JSDoc IS the source of truth for the reference page.
+
+6. **Add the descriptor to the layer's `<layer>RpcMethods` catalog**
+   (e.g. `taskRpcMethods` in `task/methods.ts`), and to the
+   agent/app-callable partition if the layer splits its outbound
+   catalog. The root `rpc-registry.ts` re-aggregates into `rpcMethods`
+   automatically — the wire error union, client-group typing, and
+   encode/decode all derive from the descriptor with no further wiring.
+
+7. **If the method needs a NEW capability requirement**, add its
+   runtime:
+   - Declare the cap `Context.Tag` (its value type + a
+     `static get errors()` tuple of the wire errors its proof can fail
+     with). Task caps live in `task/capabilities/`.
+   - Add its `RpcMiddleware.Tag` and register it in BOTH
+     `requirementMiddleware` (the runtime map) and
+     `MiddlewareRequirementKey` (the key union) in
+     `transport/cap-middlewares.ts`, then add `typeof YourCap` to the
+     `CapabilityRequirement` union in `transport/requirements.ts`. The
+     map is TOTAL over `MiddlewareRequirementKey`, so a cap registered
+     without a middleware fails the `satisfies` — and a cap listed in a
+     descriptor's `requires` but absent from `CapabilityRequirement`
+     fails to COMPILE at the `defineRpc` call (it is not a
+     `Requirement`). The `cap-middlewares.types-check.ts` canaries pin
+     this; there is no boot-time gating walk.
+   - Implement the cap's `obtain`/derive in `@moltzap/server-core`
+     (`app/capability-middlewares.ts`) — the per-socket Layer that
+     resolves the proof. The protocol declares WHICH proof + WHICH
+     errors; the server provides the runtime (one-way protocol→server
+     edge).
+
+   Reusing an existing cap (most methods do) skips this entire step —
+   just list the tag in `requires`.
+
+8. **Implement the handler** in `@moltzap/server-core` and add it to
+   the exhaustive handler map (`app/native-handlers.ts`,
+   `serverNativeHandlers`). Omitting the key fails TS2741 — the
+   `native-handlers.types-check.ts` canary pins that the map's keys
+   exactly equal the engine group's WS-handled member tags. The handler
+   reads each declared cap's proof off Context (`yield* TagName`); the
+   per-method middleware provides it, so the proof never leaks as a
+   residual requirement on the bound Layer.
+
+9. **Run `pnpm docs:generate`** from the package root. The generator
+   produces `docs/protocol/methods/<name>.mdx` from the descriptor +
+   JSDoc; CI runs `pnpm docs:check:drift` to verify no hand edits to
+   generated files.
+
+10. **Add a canary** only if the method pins a type-level invariant the
+    runtime never re-checks (a new wire-name brand, an exhaustive union
+    arm, a callable-partition membership). Membership/cardinality
+    invariants go in a runtime `*.test.ts` instead — `expect` cannot be
+    vacuous (see the type-tests convention below).
+
+**Derives automatically — you do NOT wire these by hand:** the wire
+`error` union (principal-gate ∪ each requirement's errors ∪ handler
+errors, deduped, `_tag`-discriminated), the client-group typing
+(agent/app/server partition off the `requires` head), the
+encode/decode/validators, and the `rpcMethods` aggregate.
 
 ## Notification methods
 
@@ -266,7 +342,7 @@ Arena (v2 per spec amendment #200 N8) copies this template directly.
 ## Glossary
 
 - **Effect `Schema`** — the runtime schema library (`effect`'s
-  `Schema` module) the protocol uses post-#723. Schemas are values —
+  `Schema` module) the protocol uses. Schemas are values —
   `Schema.Struct({...})` builds a schema you decode via
   `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
   "error" })` and read the static type off of via
@@ -287,17 +363,25 @@ Arena (v2 per spec amendment #200 N8) copies this template directly.
   validators: `validateAgent`, `validateMessage`, …).
 - **Descriptor** — A frozen `RpcDefinition` or
   `NotificationDefinition` produced by `defineRpc` /
-  `defineNotification`. Carries the Effect `Schema`,
-  decode-time validators, and encoders for one wire method (#705
-  HALF-2 — capabilities are NO LONGER on the descriptor; they are
-  declared at the server binding site). Every RPC
-  slot is required; the dispatcher fails closed when no handler is bound.
+  `defineNotification`. Carries the Effect `Schema`, decode-time
+  validators, encoders, and the `requires` authority list for one wire
+  method. Every RPC slot is required; the dispatcher fails closed when
+  no handler is bound.
+- **Requirement** — One entry in a descriptor's `requires` list: a
+  principal requirement (`AgentPrincipal` | `AppPrincipal`), the
+  agent-only `AgentClaimed` refinement, or a capability tag. Each is a
+  `Context.Tag` carrying a `static get errors()` tuple. `Requirement` is
+  the genuine closed union of these tag classes (`transport/requirements.ts`),
+  so the engine binding stacks one middleware per entry via the TOTAL
+  `requirementMiddleware` map and a descriptor naming an unregistered
+  requirement fails to COMPILE.
 - **Capability tag** — A `Context.Tag` whose value carries a runtime
-  authority proof. The server declares each as a `CapabilityMiddleware`
-  at the binding site and weaves it per-frame, so handler bodies just
-  `yield* TagName` instead of hand-piping `Effect.provideServiceEffect`.
-  Pattern documented in
-  `@moltzap/server-core/src/app/capability-middlewares.ts`.
+  authority proof, listed in a method's `requires` after the principal.
+  The server declares each as an `RpcMiddleware.Tag` (its impl Layer in
+  `@moltzap/server-core/src/app/capability-middlewares.ts` runs the
+  `obtain`/derive), so handler bodies just `yield* TagName` instead of
+  hand-piping `Effect.provideServiceEffect`. The middleware `provides`
+  the proof, so it never leaks as a residual requirement on the Layer.
 - **Originator** — The outbound half of a `Connection`. Owns the
   per-connection pending-request map and the request-id counter for
   outbound `call(...)` invocations. Used in both directions — for

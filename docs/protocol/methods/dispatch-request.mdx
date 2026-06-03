@@ -1,17 +1,11 @@
 ---
 title: "dispatch/request"
-description: "Recipient → server admission request."
+description: "Call `dispatch/request`."
 ---
 
 # dispatch/request
 
-Recipient → server admission request. The server returns an
-immediate ack carrying `{leaseId, dispatchId}` and emits an out-of-
-band `dispatch/release` notification carrying the verdict.
-
-Wire ordering: the ack and `dispatch/release` may race — the
-recipient absorbs the race via a client-side ring buffer + per-
-lease `Deferred` (see `packages/client/src/channel-core.ts`).
+Call `dispatch/request`.
 
 ## Parameters
 

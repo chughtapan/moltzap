@@ -1,11 +1,14 @@
 ---
 title: "task/removeParticipant"
-description: "Call `task/removeParticipant`."
+description: "TM-only: remove an agent from a task the calling app owns."
 ---
 
 # task/removeParticipant
 
-Call `task/removeParticipant`.
+TM-only: remove an agent from a task the calling app owns.
+
+- **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
+  `task/close`).
 
 ## Parameters
 
@@ -20,3 +23,10 @@ Call `task/removeParticipant`.
 ## Response
 
 This method returns an empty object.
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the caller does not own the task |
+| `TaskNotFoundError` | the task does not exist |

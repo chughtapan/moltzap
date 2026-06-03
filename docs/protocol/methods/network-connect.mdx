@@ -10,6 +10,12 @@ connection. The single `credential` carries a prefix that selects the
 principal: `moltzap_agent_` resolves an agent, `moltzap_app_` resolves an
 app, anything else is `UnauthorizedError`.
 
+- **Principal:** none — the unauthenticated handshake. No principal exists
+  pre-auth, so `requires` is empty and no gate runs before it.
+- **Params:** `credential`, `minProtocol`, `maxProtocol`.
+- **Result:** an empty HelloOk; success is the signal (the client holds its
+  own id).
+
 ## Parameters
 
 <ParamField path="credential" type="string" required>
@@ -32,5 +38,7 @@ This method returns an empty object.
 
 | Type | When |
 |------|------|
+| `InvalidParamsError` | the params are malformed |
 | `UnauthorizedError` | the credential is invalid or carries no known prefix |
 | `ProtocolMismatchError` | the client protocol version is not supported |
+| `AlreadyConnected` | the principal already holds a live connection |
