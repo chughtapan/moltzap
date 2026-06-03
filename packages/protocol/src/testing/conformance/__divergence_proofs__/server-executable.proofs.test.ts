@@ -48,7 +48,6 @@ import {
 import { registerAuthorityPositive } from "../identity/authority-positive.js";
 import { registerAuthorityNegative } from "../identity/authority-negative.js";
 import { registerIdempotence } from "../app/idempotence.js";
-import { registerModelEquivalence } from "../task/model-equivalence.js";
 import { registerRequestIdUniqueness } from "../transport/request-id-uniqueness.js";
 import { registerRequestWellFormedness } from "../transport/request-well-formedness.js";
 import { registerRpcMapCoverage } from "../transport/rpc-map-coverage.js";
@@ -69,7 +68,6 @@ type BadServerBehavior =
   | "duplicate-response-id"
   | "drop-contacts-list"
   | "drop-sampled-response"
-  | "reject-confident-model-call"
   | "reject-authorized"
   | "drift-idempotent-result"
   | "conversation-missing-created-event"
@@ -102,14 +100,6 @@ const SERVER_PROOF_CASES: ReadonlyArray<ServerProofCase> = [
     behavior: "allow-unauthenticated",
     propertyName: "authority-negative",
     expectation: "invariant",
-  },
-  {
-    title:
-      "registerModelEquivalence fails when a confident model-ok call errors",
-    register: registerModelEquivalence,
-    behavior: "reject-confident-model-call",
-    propertyName: "model-equivalence",
-    expectation: "assertion",
   },
   {
     title: "registerAuthorityPositive fails when an authorized RPC is denied",
@@ -249,7 +239,7 @@ describe("server-side conformance executable divergence proofs", () => {
         hasUniquePropertyName,
       ),
     );
-    expect(SERVER_PROOF_CASES).toHaveLength(17);
+    expect(SERVER_PROOF_CASES).toHaveLength(16);
   });
 
   for (const proof of SERVER_PROOF_CASES) {
@@ -511,9 +501,7 @@ const shouldRejectBadResponse = (
   request: RequestFrame,
   behavior: BadServerBehavior,
 ): boolean =>
-  (behavior === "reject-confident-model-call" &&
-    request.method === AgentsList.name) ||
-  (behavior === "reject-authorized" && request.method === TaskList.name);
+  behavior === "reject-authorized" && request.method === TaskList.name;
 
 function makeBadResult(
   request: RequestFrame,

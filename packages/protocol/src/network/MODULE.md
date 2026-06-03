@@ -35,7 +35,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so
 `userId` is required here.
 
-### [`Connect`](./methods.ts#L100)
+### [`Connect`](./methods.ts#L98)
 
 _Variable_
 
@@ -115,7 +115,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](./methods.ts#L45)
+### [`HelloOk`](./methods.ts#L43)
 
 _TypeAlias_
 
@@ -123,7 +123,7 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L191)
+### [`networkNotifications`](./methods.ts#L167)
 
 _Variable_
 
@@ -133,38 +133,15 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L127)
+### [`networkRpcMethods`](./methods.ts#L165)
 
 _Variable_
 
 ```ts
-export const NetworkPing = defineRpc({
-  name: "network/ping",
-  params: Schema.Struct({}),
-  result: Schema.Struct({ ts: DateTimeString }),
-  requires: [AgentPrincipal],
-  errors: [],
-})
+export const networkRpcMethods = [Connect, PresenceSubscribe] as const
 ```
 
-Liveness probe. Returns server timestamp.
-
-- **Principal:** `AgentPrincipal` head (no claimed refinement).
-- **Result:** the server `ts`.
-
-### [`networkRpcMethods`](./methods.ts#L185)
-
-_Variable_
-
-```ts
-export const networkRpcMethods = [
-  Connect,
-  NetworkPing,
-  PresenceSubscribe,
-] as const
-```
-
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L176)
+### [`PresenceChangedNotificationDefinition`](./methods.ts#L156)
 
 _Variable_
 
@@ -179,7 +156,7 @@ Pushed when a subscribed participant's presence status changes. Triggered by
 server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect;
 there is no client-driven `presence/update`.
 
-### [`PresenceSubscribe`](./methods.ts#L154)
+### [`PresenceSubscribe`](./methods.ts#L134)
 
 _Variable_
 
@@ -200,7 +177,7 @@ Empty array unsubscribes from all. Idempotent.
 - **Params:** `agentIds` to subscribe to.
 - **Result:** the current `statuses` of the subscribed agents.
 
-### [`ProtocolMismatchError`](./methods.ts#L65)
+### [`ProtocolMismatchError`](./methods.ts#L63)
 
 _Class_
 
@@ -231,7 +208,7 @@ so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](./methods.ts#L53)
+### [`ProtocolMismatchReason`](./methods.ts#L51)
 
 _TypeAlias_
 

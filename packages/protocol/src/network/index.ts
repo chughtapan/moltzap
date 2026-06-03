@@ -3,7 +3,6 @@
  */
 export {
   Connect,
-  NetworkPing,
   // Presence is server-derived from LeaseRegistry; clients cannot
   // manually set status, so there is no client-driven presence-update
   // descriptor.

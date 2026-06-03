@@ -40,7 +40,7 @@ accommodate the un-claimed `pending_claim` storage state; the actor-model
 layer only sees identities that have already passed authentication, so
 `userId` is required here.
 
-### [`Connect`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L100)
+### [`Connect`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L98)
 
 _Variable_
 
@@ -120,7 +120,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`HelloOk`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L45)
+### [`HelloOk`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L43)
 
 _TypeAlias_
 
@@ -128,7 +128,7 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L191)
+### [`networkNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L167)
 
 _Variable_
 
@@ -138,38 +138,15 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`NetworkPing`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L127)
+### [`networkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L165)
 
 _Variable_
 
 ```ts
-export const NetworkPing = defineRpc({
-  name: "network/ping",
-  params: Schema.Struct({}),
-  result: Schema.Struct({ ts: DateTimeString }),
-  requires: [AgentPrincipal],
-  errors: [],
-})
+export const networkRpcMethods = [Connect, PresenceSubscribe] as const
 ```
 
-Liveness probe. Returns server timestamp.
-
-- **Principal:** `AgentPrincipal` head (no claimed refinement).
-- **Result:** the server `ts`.
-
-### [`networkRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L185)
-
-_Variable_
-
-```ts
-export const networkRpcMethods = [
-  Connect,
-  NetworkPing,
-  PresenceSubscribe,
-] as const
-```
-
-### [`PresenceChangedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L176)
+### [`PresenceChangedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L156)
 
 _Variable_
 
@@ -184,7 +161,7 @@ Pushed when a subscribed participant's presence status changes. Triggered by
 server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect;
 there is no client-driven `presence/update`.
 
-### [`PresenceSubscribe`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L154)
+### [`PresenceSubscribe`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L134)
 
 _Variable_
 
@@ -205,7 +182,7 @@ Empty array unsubscribes from all. Idempotent.
 - **Params:** `agentIds` to subscribe to.
 - **Result:** the current `statuses` of the subscribed agents.
 
-### [`ProtocolMismatchError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L65)
+### [`ProtocolMismatchError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L63)
 
 _Class_
 
@@ -236,7 +213,7 @@ so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L53)
+### [`ProtocolMismatchReason`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/network/methods.ts#L51)
 
 _TypeAlias_
 

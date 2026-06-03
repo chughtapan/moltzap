@@ -8,7 +8,7 @@ Public barrel for schema-derived protocol arbitraries used by tests.
 
 ## Public surface
 
-### [`allRpcMethods`](./rpc.ts#L41)
+### [`allRpcMethods`](./rpc.ts#L38)
 
 _Variable_
 
@@ -22,7 +22,7 @@ Ordered list of every wire method name. Exposed so properties can
 assert "every method exercised at least once" without going through
 `RpcMap` directly.
 
-### [`arbitraryAnyCall`](./rpc.ts#L74)
+### [`arbitraryAnyCall`](./rpc.ts#L71)
 
 _Function_
 
@@ -30,10 +30,10 @@ _Function_
 export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall>
 ```
 
-Arbitrary that draws any method name + matching params. Used by Tier A
-A5 and by Tier E E2's cross-RPC fuzz.
+Arbitrary that draws any method name + matching params. Used by the
+RpcMap-coverage property and the cross-RPC fuzz property.
 
-### [`arbitraryCallFor`](./rpc.ts#L51)
+### [`arbitraryCallFor`](./rpc.ts#L48)
 
 _Function_
 
@@ -44,29 +44,6 @@ export function arbitraryCallFor(
 ```
 
 Arbitrary of a valid params tree for a single, fixed RPC.
-
-### [`arbitraryConfidentCall`](./rpc.ts#L132)
-
-_Function_
-
-```ts
-export function arbitraryConfidentCall(): fc.Arbitrary<ArbitraryRpcCall>
-```
-
-Draw a call from the model's confident-oracle set. Per architect
-#197 §2.2 literal shape: `fc.constantFrom(...kept).chain(
-arbitraryCallFor)`. Probe at module load uses the same
-`arbitraryCallFor(m)` generator as execution — so confidence is
-checked on the same distribution the property exercises.
-
-If a kept method turns out to be param-sensitive under a later
-draw (model predicts ok for the one probe sample but rejects a
-subsequent arbitrary-drawn params), the safety-net guard in
-`registerModelEquivalence` raises `PropertyInvariantViolation`
-pointing at this file — the fix is to widen the derivation (probe
-K > 1 samples and keep only methods where every probe predicts ok)
-per the architect's contract. Single-probe is sufficient when
-`applyCall` is method-only (today).
 
 ### [`arbitraryFromSchema`](./schema-arbitrary.ts#L23)
 
@@ -132,7 +109,7 @@ _Function_
 export function arbitraryResponseFrame(): fc.Arbitrary<ResponseFrame>
 ```
 
-### [`ArbitraryRpcCall`](./rpc.ts#L30)
+### [`ArbitraryRpcCall`](./rpc.ts#L27)
 
 _Interface_
 
@@ -144,44 +121,8 @@ export interface ArbitraryRpcCall {
 }
 ```
 
-A single drawn RPC invocation: the method name carries through to the
-reference model so it can pick the matching reducer.
-
-### [`confidentOracleMethods`](./rpc.ts#L102)
-
-_Variable_
-
-```ts
-export const confidentOracleMethods: ReadonlyArray<MethodName> = (() => {
-  // `models/dispatch.ts` imports `ArbitraryRpcCall` as a type-only
-  // reference, so the values imported above (`applyCall`,
-  // `initialReferenceState`) are safe to call at module load.
-  const kept: MethodName[] = [];
-  for (const method of allRpcMethods) {
-    const [sample] = fc.sample(arbitraryCallFor(method), 1);
-    if (sample === undefined) continue;
-    const outcome = applyCall(initialReferenceState, sample).outcome;
-    if (outcome._tag === "ok") kept.push(method);
-  }
-  return kept;
-})()
-```
-
-The set of method names the reference model predicts `_tag: "ok"`
-for on `initialReferenceState` — derived mechanically at module load
-by probing `applyCall` with a single drawn params value per method.
-
-Per architect #197 §2.2: this is NOT a hand-curated list. Methods
-move in/out of the confident set automatically when `applyCall`'s
-`allowNoEvents` / `uncertainError` split moves, so the sampling
-distribution tracks the model.
-
-**Param-invariance contract:** every kept method is treated as
-oracle-confident for every params value. If a future `applyCall`
-amendment branches on `call.params`, the safety-net guard in
-`registerModelEquivalence` (rpc-semantics.ts) fires loudly on the
-first non-confident draw and the derivation must widen from the
-single-probe form to an `fc.sample`-based invariant check.
+A single drawn RPC invocation: the method name selects the wire
+definition and the params tree is drawn from that definition's schema.
 
 ## Files
 

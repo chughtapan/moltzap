@@ -2,12 +2,8 @@
  * @file Public barrel for protocol testing utilities.
  *
  * `@moltzap/protocol/testing` — TestClient + TestServer primitives,
- * reference model, arbitrary derivation, Toxiproxy adversity layer, and
- * the five-tier conformance runner.
- *
- * Subpath export wiring lives in `packages/protocol/package.json` and is
- * added by the implement-staff modality (architect charter forbids
- * `package.json` edits in the stub PR).
+ * arbitrary derivation, Toxiproxy adversity layer, and the conformance
+ * runner.
  */
 
 // Brand-decoders for test fixtures. Production code does not validate IDs
@@ -127,9 +123,8 @@ export {
   registerTestApp,
 } from "./conformance/_shared/test-app.js";
 
-// Arbitraries, models, toxics — namespaced to keep names scoped.
+// Arbitraries, toxics — namespaced to keep names scoped.
 export * as arbitraries from "./arbitraries/index.js";
-export * as models from "./models/index.js";
 export * as toxics from "./toxics/index.js";
 
 // Conformance suite — top-level so consumers can write

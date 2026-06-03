@@ -79,8 +79,7 @@
           {
             "group": "Network",
             "pages": [
-              "protocol/methods/network-connect",
-              "protocol/methods/network-ping"
+              "protocol/methods/network-connect"
             ]
           },
           {

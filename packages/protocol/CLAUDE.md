@@ -64,8 +64,6 @@ Testing and tooling:
   (consumed by server, client, and external repos like
   moltzap-arena).
 - `src/testing/arbitraries/` — fast-check generators for fuzzing.
-- `src/testing/models/` — reference state machines used by
-  conformance properties.
 - `src/testing/toxics/` — Toxiproxy fault-injection adapters for
   adversity-tier conformance properties.
 - `scripts/generate-docs.ts` + `scripts/docs/` — Mintlify generator
@@ -397,9 +395,6 @@ Arena (v2 per spec amendment #200 N8) copies this template directly.
   produces a stream of random values for property tests. Lives in
   `src/testing/arbitraries/`. Generators here cover frames, params,
   IDs, and structured protocol shapes.
-- **Model** — A reference state machine in `src/testing/models/`.
-  Conformance properties compare the implementation's observable
-  behavior against the model's prediction.
 - **Toxics** — Toxiproxy fault-injection adapters in
   `src/testing/toxics/`. Drive adversity-tier conformance
   properties (latency, slow-close, reset-peer, slicer-framing) by

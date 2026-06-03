@@ -17,7 +17,6 @@ Presence, ping, agent-endpoint resolution, outbound
   finalizer.
 - `network-send.ts` — `NetworkSendService` (the sole outbound
   routing surface; consumes the resolver + connection manager).
-- `handlers/ping.handlers.ts` — `network/ping` RPC handler.
 - `handlers/presence.handlers.ts` — `presence/subscribe` RPC
   handler. Presence is server-derived from `LeaseRegistry` lifecycle +
   WS connect/disconnect; there is no client-driven `presence/update`.

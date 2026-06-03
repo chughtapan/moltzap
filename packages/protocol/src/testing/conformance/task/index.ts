@@ -5,8 +5,7 @@
  *
  * Task / conversation / message invariants — fan-out cardinality,
  * store-and-replay, payload opacity, task-boundary isolation,
- * conversation lifecycle, archive lifecycle, model equivalence,
- * task-close lifecycle.
+ * conversation lifecycle, archive lifecycle, task-close lifecycle.
  *
  * Each `register*` lives in its own file. This barrel re-exports them
  * by name AND aggregates them into `TASK_PROPERTIES` for the
@@ -21,7 +20,6 @@ import { registerTaskBoundaryIsolation } from "./task-boundary-isolation.js";
 import { registerConversationLifecycle } from "./conversation-lifecycle.js";
 import { registerTaskCloseLifecycle } from "./task-close-lifecycle.js";
 import { registerArchiveLifecycle } from "./archive-lifecycle.js";
-import { registerModelEquivalence } from "./model-equivalence.js";
 // `task/*` + `task/conversation/*` family per-method properties. Each
 // `register*` exercises one wire method end-to-end on the family.
 import {
@@ -44,7 +42,6 @@ export {
   registerConversationLifecycle,
   registerTaskCloseLifecycle,
   registerArchiveLifecycle,
-  registerModelEquivalence,
   registerTaskConversationAddParticipant,
   registerTaskConversationArchiveDenied,
   registerTaskConversationCreateAndList,
@@ -57,8 +54,7 @@ export {
 
 /**
  * All task-layer property registrars: delivery subset first, then the
- * `task/conversation/*` family, then `model-equivalence` from
- * rpc-semantics.
+ * `task/conversation/*` family.
  */
 export const TASK_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
@@ -71,5 +67,4 @@ export const TASK_PROPERTIES: ReadonlyArray<
   registerTaskCloseLifecycle,
   registerArchiveLifecycle,
   ...TASK_CONVERSATION_FAMILY_PROPERTIES,
-  registerModelEquivalence,
 ];

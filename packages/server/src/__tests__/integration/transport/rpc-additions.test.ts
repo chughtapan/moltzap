@@ -1,4 +1,4 @@
-import * as fc from "fast-check";
+/* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case names a specific live-server contract (HTTP apps/register manifest validation, messages/send replyToId threading + orphan rejection). These are scenario-shaped integration checks against the running server, not an input domain to generate over. */
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect, Exit } from "effect";
 import {
@@ -6,7 +6,6 @@ import {
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
-  registerAndConnect,
   setupAgentPair,
   registerApp,
   connectAppClient,
@@ -18,54 +17,22 @@ import {
 import {
   DEFAULT_APP_ID,
   MessagesSend,
-  NetworkPing,
   TaskRequest,
   type AppManifest,
 } from "@moltzap/protocol";
 import { messageId } from "@moltzap/protocol/testing";
 
-const NETWORK_PING_MAX_CLOCK_SKEW_MS = 60_000;
-const PROPERTY_RUNS = 25;
 const APP_ID = "00000000-0000-4000-8000-000000010008";
 const QUESTION_TEXT = "question";
 const ANSWER_TEXT = "answer";
 const ORPHAN_REPLY_TEXT = "orphan";
 const UNKNOWN_MESSAGE_ID = messageId("00000000-0000-0000-0000-000000000000");
-const ISO8601_UTC_MILLISECONDS_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
-
-it("property: recent timestamp predicate is bounded by configured skew", () =>
-  Effect.sync(() => {
-    expect.hasAssertions();
-    fc.assert(
-      fc.property(
-        fc.integer({ min: 0, max: NETWORK_PING_MAX_CLOCK_SKEW_MS * 2 }),
-        (ageMs) => {
-          expect(isWithinPingSkew(ageMs)).toBe(
-            ageMs < NETWORK_PING_MAX_CLOCK_SKEW_MS,
-          );
-        },
-      ),
-      { numRuns: PROPERTY_RUNS },
-    );
-  }));
-
-it(`${NetworkPing.name}: returns an ISO8601 timestamp`, () =>
-  Effect.gen(function* () {
-    const agent = yield* registerAndConnect("alice");
-
-    const result = yield* agent.client.sendRpc(NetworkPing, {});
-
-    expect(result.ts).toEqual(expect.any(String));
-    expect(result.ts).toMatch(ISO8601_UTC_MILLISECONDS_PATTERN);
-    expect(isWithinPingSkew(Date.now() - Date.parse(result.ts))).toBe(true);
-  }));
 
 // D #705 CP9 — app registration is the HTTP `/api/v1/apps/register`
 // endpoint (server-minted `appId` + `appKey`); the app then `appKey`-
@@ -168,10 +135,6 @@ it("messages/send rejects replyToId that points to an unknown message", () =>
     );
     expectExitFailure(exit);
   }));
-
-function isWithinPingSkew(ageMs: number): boolean {
-  return ageMs < NETWORK_PING_MAX_CLOCK_SKEW_MS;
-}
 
 function expectExitFailure<A, E>(exit: Exit.Exit<A, E>): void {
   expect(exit).toSatisfy(Exit.isFailure);
