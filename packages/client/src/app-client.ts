@@ -154,24 +154,24 @@ function makeAppCallbackHandlers(
   };
 }
 
-export interface AppClientOptions {
-  serverUrl: string;
-  agentKey: string;
+/**
+ * The handshake credential — EXACTLY ONE of `agentKey` or `appKey`. The
+ * disjoint union mirrors the wire: the `network/connect` params carry a
+ * single `credential` whose prefix selects the principal (`moltzap_agent_`
+ * resolves an agent, `moltzap_app_` resolves an app). A wire agent client
+ * supplies `agentKey`; a moderator app authenticating as an app principal
+ * supplies `appKey` (minted by `/api/v1/apps/register`). The type rejects
+ * both neither and both, so no caller passes an unused dummy key. (The
+ * boot-installed default app is NOT a client: it registers a hookless
+ * manifest server-side and is served by AppHost's manifest-default
+ * fast-path.)
+ */
+type AppClientCredential =
+  | { readonly agentKey: string }
+  | { readonly appKey: string };
 
-  /**
-   * App-principal credential. When set, the `network/connect`
-   * handshake uses the `appKey` arm (`{ appKey, minProtocol, maxProtocol }`)
-   * instead of the `agentKey` arm, so the server mints an `AppConnection`
-   * and the HelloOk carries no `agentId`. Used by wire app clients (a
-   * moderator app authenticating as an app principal); wire agent clients
-   * leave it unset and authenticate via `agentKey`. The two are mutually
-   * exclusive at the wire — the Connect params union is disjoint — so a
-   * configured `appKey` wins the handshake-credential selection in
-   * `awaitConnectAuth`. (The boot-installed default app is NOT a client: it
-   * registers a hookless manifest server-side and is served by AppHost's
-   * manifest-default fast-path.)
-   */
-  appKey?: string;
+export type AppClientOptions = AppClientCredential & {
+  serverUrl: string;
 
   /**
    * Called once per disconnect (not reconnect). `close` is the typed close
@@ -192,7 +192,7 @@ export interface AppClientOptions {
    * Vacuous-deny moderators write the explicit ForbiddenError handler.
    */
   handlers: AppCallbackHandlers<AppCallbackContext>;
-}
+};
 
 /**
  * WebSocket lifecycle: open → network/connect → active. On disconnect,
@@ -294,7 +294,7 @@ export class MoltZapAppClient {
    *   caller->>client: connect()
    *   Note over client: connectEffect — Scope.make, Socket.makeWebSocket open<br>startAppCallbackDispatcher — bounded Queue 8192 + drain<br>readerFiber = runFork(readerEffect)
    *   client->>server: TCP open + WS upgrade
-   *   client->>server: network/connect {appKey | agentKey, minProtocol, maxProtocol} — appKey wins when set
+   *   client->>server: network/connect {credential, minProtocol, maxProtocol} — credential is the configured appKey or agentKey
    *   server-->>client: HelloOk
    *   Note over client: stateRef = Some(connState), _helloOk = value
    *   client-->>caller: HelloOk
@@ -581,11 +581,12 @@ export class MoltZapAppClient {
     handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
   ): Effect.Effect<ConnectResult, ConnectError> {
     // The single `credential` carries the principal prefix the server
-    // resolves: a configured `appKey` (`moltzap_app_`) mints an
-    // `AppConnection`, otherwise the `agentKey` (`moltzap_agent_`) runs the
-    // agent arm.
+    // resolves: an `appKey` (`moltzap_app_`) mints an `AppConnection`, an
+    // `agentKey` (`moltzap_agent_`) runs the agent arm. The options union
+    // carries exactly one, so the arm is selected by which key is present.
     const handshakeParams: ParamsOf<typeof Connect> = {
-      credential: this.options.appKey ?? this.options.agentKey,
+      credential:
+        "appKey" in this.options ? this.options.appKey : this.options.agentKey,
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
     };
