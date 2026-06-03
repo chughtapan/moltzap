@@ -105,8 +105,8 @@ let appHookState: VerdictState = {
  * it registers via the `/api/v1/apps/register` HTTP endpoint and Connects
  * with its minted `appKey`, yielding an `AppConnection`. The
  * `messages/authorize` + `task/create` callbacks and the TM-admin
- * `task/conversation/create` RPCs run on THIS connection (all
- * `callablePrincipal: "app"`), disjoint from the requesting agent
+ * `task/conversation/create` RPCs run on THIS connection (all head their
+ * `requires` with `AppPrincipal`), disjoint from the requesting agent
  * (`alice`) who drives the agent-only `task/request` + `messages/send`.
  * Lazily minted by `createAppManagedTask`; the `beforeEach` reset closes
  * all clients via `resetTestDbEffect`, so the stale handle is dropped
@@ -144,8 +144,8 @@ beforeEach(() =>
 
 /**
  * Wire the server→client `messages/authorize` + `task/create` callbacks
- * on the moderator app principal `client`. Both are `callablePrincipal:
- * "app"` server-initiated round-trips; they MUST be live before the app
+ * on the moderator app principal `client`. Both are server-initiated
+ * round-trips served on the app connection; they MUST be live before the app
  * registers a routing endpoint so the verdict source is ready when the
  * first `messages/send` fires. `task/create` auto-accepts (these scenarios
  * exercise `messages/authorize`, not task admission).
