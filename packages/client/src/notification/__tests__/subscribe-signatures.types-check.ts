@@ -14,8 +14,9 @@ import { Stream } from "effect";
 import type { Effect } from "effect";
 import type {
   AnyNotificationDefinition,
-  DecodedNotification,
   NotConnectedError,
+  NotificationDelivery,
+  NotificationSubscriberRegistry,
   NotificationParamsOf,
 } from "@moltzap/protocol";
 import { subscribe, subscribeAll } from "../stream.js";
@@ -33,12 +34,10 @@ function assertCanary<_T extends true>(): void {
   // intentionally empty: type-level pin
 }
 
-// Canary #1 — `subscribe(def)` returns a value-typed Stream with R=never.
-// The single-argument overload yields the broad element type
-// `DecodedNotification<D>`; the type-guard overload (Canary #1b) narrows it.
+// Canary #1 — `subscribe(def)` returns decoded params with R=never.
 type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
   ReturnType<typeof subscribe<D>>,
-  Stream.Stream<DecodedNotification<D>, NotConnectedError, never>
+  Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never>
 >;
 
 // Canary #1b — the user-defined-type-guard overload exists and resolves at
@@ -46,9 +45,8 @@ type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
 // type-guard)` call: if the type-guard overload is deleted from `stream.ts`,
 // the third-argument `params is R` shape no longer matches and tsc reports
 // a type error here.
-import type { SubscriberRegistry } from "../../runtime/subscribers.js";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
-declare const _canary1bRegistry: SubscriberRegistry;
+declare const _canary1bRegistry: NotificationSubscriberRegistry<NotConnectedError>;
 type _Canary1bPresenceParams = NotificationParamsOf<
   typeof PresenceChangedNotificationDefinition
 >;
@@ -61,12 +59,10 @@ const _canary1bStream = subscribe(
   PresenceChangedNotificationDefinition,
   _canary1bIsOnline,
 );
-// The stream MUST stay assignable to the broad-Stream form. This is the
-// compile-time invariant only; the runtime narrowing is the job of the
-// property test in `filter-equivalence.test.ts`.
+// The stream MUST carry the narrowed params shape.
 type Canary1b_SubscribeOverloadResolves =
   typeof _canary1bStream extends Stream.Stream<
-    DecodedNotification<typeof PresenceChangedNotificationDefinition, any>,
+    _Canary1bOnlinePresence,
     NotConnectedError,
     never
   >
@@ -75,25 +71,18 @@ type Canary1b_SubscribeOverloadResolves =
 
 // Canary #1b element pin — Canary #1b above uses `any`, which accepts any
 // refined `R` and so pins nothing about the materialised element. This
-// canary holds an EXACT `Equal<>` against the resolved Stream element so the
-// `any` escape hatch cannot mask element drift. tsc carries the type-guard's
-// `R` as the unknown-sentinel default through `DecodedNotification`'s
-// distributive conditional, so the element resolves to the broad one-arg
-// shape `DecodedNotification<D>` — `params.status` stays the full
-// `"online" | "working" | "offline"` enum, NOT the value-level-narrowed
-// `"online"` literal. The runtime narrowing is verified by the property test
-// in `filter-equivalence.test.ts`.
+// canary holds an EXACT `Equal<>` against the resolved Stream element.
 type _Canary1bElement = Stream.Stream.Success<typeof _canary1bStream>;
-type Canary1b_ElementIsExactDecodedNotification = Equal<
+type Canary1b_ElementIsExactParams = Equal<
   _Canary1bElement,
-  DecodedNotification<typeof PresenceChangedNotificationDefinition>
+  _Canary1bOnlinePresence
 >;
 
 // Canary #2 — `subscribeAll()` returns the broad-union Stream with R=never.
 type Canary2_SubscribeAllStreamShape = Equal<
   ReturnType<typeof subscribeAll>,
   Stream.Stream<
-    DecodedNotification<AnyNotificationDefinition>,
+    NotificationDelivery<AnyNotificationDefinition>,
     NotConnectedError,
     never
   >
@@ -113,7 +102,7 @@ declare const _subStreamForCanary: ReturnType<
   typeof subscribe<AnyNotificationDefinition>
 >;
 declare const _handlerForCanary: (
-  n: DecodedNotification<AnyNotificationDefinition>,
+  n: NotificationParamsOf<AnyNotificationDefinition>,
 ) => Effect.Effect<void, never, never>;
 const _ad1Canary3Helper = () =>
   Stream.runForEach(_subStreamForCanary, _handlerForCanary);
@@ -138,7 +127,7 @@ type Canary4_TypedErrorChannel = Equal<
 function _ad1Canaries<D extends AnyNotificationDefinition>(): void {
   assertCanary<Canary1_SubscribeStreamShape<D>>();
   assertCanary<Canary1b_SubscribeOverloadResolves>();
-  assertCanary<Canary1b_ElementIsExactDecodedNotification>();
+  assertCanary<Canary1b_ElementIsExactParams>();
   assertCanary<Canary2_SubscribeAllStreamShape>();
   assertCanary<Canary3_RunForEachHasNoLeakedRequirements>();
   assertCanary<Canary4_TypedErrorChannel>();

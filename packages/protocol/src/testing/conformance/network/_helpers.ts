@@ -13,8 +13,8 @@ import {
 } from "effect";
 
 import { PresenceChangedNotificationDefinition } from "../../../network/index.js";
-import { notificationDefinitions } from "../../../rpc-registry.js";
-import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
+import { notificationDefinitions } from "../../../engine/rpc-method-groups.js";
+import type { AnyNotificationDefinition } from "../../../engine/rpc-method-groups.js";
 import { isDecodedNotification } from "../../../transport/index.js";
 import type { DecodedNotification } from "../../../transport/index.js";
 import { decodeNotification } from "../../index.js";

@@ -1,5 +1,3 @@
-/* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `Stream.async<DecodedNotification<D>>` use the natural angle-bracket form (TS source style) inside backtick-fenced code spans; the lint rule's pre-render check fires false positives on these multi-line spans. Matches the precedent in filter-equivalence.test.ts. */
-
 /**
  * Stream-returning constructors for `MoltZapAgentClient.subscribe` and
  * `MoltZapAgentClient.subscribeAll`.
@@ -9,11 +7,11 @@
  * start, so the snapshot semantic holds by Ref atomicity without a
  * per-sub cancelled-flag check.
  *
- * Stream construction uses `Stream.async<DecodedNotification<D>, NotConnectedError>`
- * with the registry storing typed callback references — NOT `Queue` of
- * `Take` items combined with `Stream.fromQueue`/`Stream.flattenTake`,
- * which is racy under `Queue.offer(Take.fail); Queue.shutdown` and does
- * not reliably propagate the typed failure to the consumer.
+ * Stream construction uses `Stream.async<NotificationParamsOf<D>,
+ * NotConnectedError>` with the registry storing typed callback references — NOT
+ * `Queue` of `Take` items combined with `Stream.fromQueue`/`Stream.flattenTake`,
+ * which is racy under `Queue.offer(Take.fail); Queue.shutdown` and does not
+ * reliably propagate the typed failure to the consumer.
  *
  * Stream lifecycle:
  *   1. `subscribe(def)` returns a Stream value. Pure; no I/O, no scope.
@@ -36,72 +34,49 @@
  *      `Stream.async`-backed consumer fails with `NotConnectedError`
  *      via `emit.fail` deterministically (no Queue/shutdown race).
  */
-import { Effect, Stream } from "effect";
+import { Stream } from "effect";
 import {
   type AnyNotificationDefinition,
-  type DecodedNotification,
   type NotConnectedError,
+  type NotificationDelivery,
+  notificationSubscribe,
+  notificationSubscribeAll,
+  type NotificationSubscriberRegistry,
   type NotificationParamsOf,
 } from "@moltzap/protocol";
 
-import type { SubscriberRegistry } from "../runtime/subscribers.js";
+type ClientNotificationDelivery =
+  NotificationDelivery<AnyNotificationDefinition>;
 
 /**
- * Typed-payload subscribe. Returns a Stream of `DecodedNotification<D>`
+ * Typed-payload subscribe. Returns a Stream of `NotificationParamsOf<D>`
  * whose error channel is `NotConnectedError` and whose requirement set is
  * `never` (the registry handle is bound at materialization time inside
  * `Stream.async`'s register callback, so neither Scope nor any other
  * requirement leaks to the consumer).
  *
  * `refinement` is a typed predicate over the definition's params. When the
- * type-guard overload form is used, the Stream's payload narrows to
- * `DecodedNotification<D, R>` via the optional `R` parameter on
- * `DecodedNotification<D>`.
+ * type-guard overload form is used, the Stream's payload narrows to `R`.
  */
-export function subscribe<D extends AnyNotificationDefinition>(
-  registry: SubscriberRegistry,
-  definition: D,
-  refinement?: (params: NotificationParamsOf<D>) => boolean,
-): Stream.Stream<DecodedNotification<D>, NotConnectedError, never>;
 export function subscribe<
   D extends AnyNotificationDefinition,
   R extends NotificationParamsOf<D>,
 >(
-  registry: SubscriberRegistry,
+  registry: NotificationSubscriberRegistry<NotConnectedError>,
   definition: D,
   refinement: (params: NotificationParamsOf<D>) => params is R,
-): Stream.Stream<DecodedNotification<D, R>, NotConnectedError, never>;
+): Stream.Stream<R, NotConnectedError, never>;
 export function subscribe<D extends AnyNotificationDefinition>(
-  registry: SubscriberRegistry,
+  registry: NotificationSubscriberRegistry<NotConnectedError>,
   definition: D,
   refinement?: (params: NotificationParamsOf<D>) => boolean,
-): Stream.Stream<DecodedNotification<D>, NotConnectedError, never> {
-  return Stream.async<DecodedNotification<D>, NotConnectedError>((emit) => {
-    // Synchronous registration — the registry stores the typed callbacks
-    // and returns an `unregister` Effect that the Stream's runtime will
-    // invoke as the cancellation finalizer. #ignore-sloppy-code[async-keyword]: comment references `Stream.async`, not a function modifier
-    //
-    // `register` is `Effect<SubscriptionHandle, never>`; `runSync` is safe
-    // because the registry mutates an in-memory `Ref` and never yields.
-    const handle = Effect.runSync(
-      registry.register(definition, refinement, {
-        onFrame: (frame) =>
-          Effect.sync(() => {
-            emit.single(frame);
-          }),
-        onClose: (cause) =>
-          Effect.sync(() => {
-            emit.fail(cause);
-          }),
-      }),
-    );
-    // `Effect.suspend` defers running `unregister` to whenever the
-    // Stream's runtime invokes the finalizer Effect, so `unregister` can
-    // grow yielded effects (e.g. flushing a queue) without changing this
-    // call site. `Effect.sync(() => Effect.runSync(handle.unregister))`
-    // would force-eager-evaluate as sync.
-    return Effect.suspend(() => handle.unregister);
-  });
+): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never>;
+export function subscribe<D extends AnyNotificationDefinition>(
+  registry: NotificationSubscriberRegistry<NotConnectedError>,
+  definition: D,
+  refinement?: (params: NotificationParamsOf<D>) => boolean,
+): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never> {
+  return notificationSubscribe(registry, definition, refinement);
 }
 
 /**
@@ -118,31 +93,19 @@ export function subscribe<D extends AnyNotificationDefinition>(
  * `register(def, …)`, no definition match.
  */
 export function subscribeAll(
-  registry: SubscriberRegistry,
+  registry: NotificationSubscriberRegistry<NotConnectedError>,
   refinement?: (
-    notification: DecodedNotification<AnyNotificationDefinition>,
+    definition: AnyNotificationDefinition,
+    params: NotificationParamsOf<AnyNotificationDefinition>,
   ) => boolean,
-): Stream.Stream<
-  DecodedNotification<AnyNotificationDefinition>,
-  NotConnectedError,
-  never
-> {
-  return Stream.async<
-    DecodedNotification<AnyNotificationDefinition>,
-    NotConnectedError
-  >((emit) => {
-    const handle = Effect.runSync(
-      registry.registerAll(refinement, {
-        onFrame: (frame) =>
-          Effect.sync(() => {
-            emit.single(frame);
-          }),
-        onClose: (cause) =>
-          Effect.sync(() => {
-            emit.fail(cause);
-          }),
-      }),
-    );
-    return Effect.suspend(() => handle.unregister);
-  });
+): Stream.Stream<ClientNotificationDelivery, NotConnectedError, never> {
+  return notificationSubscribeAll(
+    registry,
+    refinement === undefined
+      ? undefined
+      : (delivery) => {
+          const typed = delivery as ClientNotificationDelivery;
+          return refinement(typed.definition, typed.params);
+        },
+  ) as Stream.Stream<ClientNotificationDelivery, NotConnectedError, never>;
 }

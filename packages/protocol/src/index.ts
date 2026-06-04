@@ -25,7 +25,7 @@
  * `transport/` is the wire bottom (frames, the descriptor factory, the
  * mux, the low principal tags). `engine/` is the TOP: the genuine
  * `Requirement` union + capability middlewares + the server/client engine
- * groups, which couple to the full catalog (`rpc-registry`) and the
+ * groups, which couple to the full descriptor catalog and the
  * task-layer capability tags. A `task/*` method may reference `identity/*`
  * types (e.g. `AgentId`); the reverse import is forbidden. The server's
  * Tag-allowlist hierarchy in `@moltzap/server-core` mirrors this DAG: a
@@ -60,16 +60,3 @@ export * from "./network/index.js";
 export * from "./task/index.js";
 export * from "./app/index.js";
 export * from "./engine/index.js";
-
-export {
-  serverRpcMethods,
-  agentClientRpcMethods,
-  appCallableRpcMethods,
-  notificationDefinitions,
-} from "./rpc-registry.js";
-export type {
-  AnyServerRpcDefinition,
-  AnyAgentClientRpcDefinition,
-  AnyAppCallbackRpcDefinition,
-  AnyNotificationDefinition,
-} from "./rpc-registry.js";

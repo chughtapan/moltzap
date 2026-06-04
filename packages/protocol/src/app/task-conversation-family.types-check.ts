@@ -10,7 +10,7 @@
  * `tsc --build` failure.
  */
 import type { Schema } from "effect";
-import type { JsonRpcMethod } from "../transport/wire.js";
+import type { JsonRpcMethod } from "../transport/method.js";
 import type { AgentId } from "../identity/agents.js";
 import {
   AppId,
@@ -49,7 +49,7 @@ type Equal<A, B> =
 //
 // Locks the singular `task/` namespace (vs a plural `tasks/conversation/...`).
 // All RPC + notification `name` fields are branded `JsonRpcMethod<Name>`
-// (nominal brand from `transport/wire.ts`); the canary compares against the same
+// (nominal brand from `transport/method.ts`); the canary compares against the same
 // branded shape.
 type _N1 = Expect<
   Equal<typeof TaskRequest.name, JsonRpcMethod<"task/request">>

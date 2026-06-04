@@ -48,7 +48,6 @@ import { registerAuthorityPositive } from "../identity/authority-positive.js";
 import { registerAuthorityNegative } from "../identity/authority-negative.js";
 import { registerIdempotence } from "../app/idempotence.js";
 import { registerRequestIdUniqueness } from "../transport/request-id-uniqueness.js";
-import { registerRequestWellFormedness } from "../transport/request-well-formedness.js";
 import { registerRpcMapCoverage } from "../transport/rpc-map-coverage.js";
 import {
   expectAssertionFailure,
@@ -66,7 +65,6 @@ type BadServerBehavior =
   | "allow-unauthenticated"
   | "duplicate-response-id"
   | "drop-contacts-list"
-  | "drop-sampled-response"
   | "reject-authorized"
   | "drift-idempotent-result"
   | "conversation-missing-created-event"
@@ -88,7 +86,6 @@ interface ServerProofCase {
   readonly timeoutMs?: number;
 }
 
-const REQUEST_WELL_FORMEDNESS_PROOF_TIMEOUT_MS = 12_000;
 const SERVER_PROOF_TIMEOUT_MS = 10_000;
 
 const SERVER_PROOF_CASES: ReadonlyArray<ServerProofCase> = [
@@ -121,15 +118,6 @@ const SERVER_PROOF_CASES: ReadonlyArray<ServerProofCase> = [
     behavior: "drift-idempotent-result",
     propertyName: "idempotence",
     expectation: "invariant",
-  },
-  {
-    title:
-      "registerRequestWellFormedness fails when sampled calls receive no reply",
-    register: registerRequestWellFormedness,
-    behavior: "drop-sampled-response",
-    propertyName: "request-well-formedness",
-    expectation: "assertion",
-    timeoutMs: REQUEST_WELL_FORMEDNESS_PROOF_TIMEOUT_MS,
   },
   {
     title: "registerRpcMapCoverage fails when a sampled method never responds",
@@ -491,8 +479,7 @@ const shouldDropBadResponse = (
   request: RequestFrame,
   behavior: BadServerBehavior,
 ): boolean =>
-  (behavior === "drop-contacts-list" && request.method === ContactsList.name) ||
-  behavior === "drop-sampled-response";
+  behavior === "drop-contacts-list" && request.method === ContactsList.name;
 
 const shouldRejectBadResponse = (
   request: RequestFrame,

@@ -10,7 +10,7 @@
  * task-layer cap tags); the per-requirement `@effect/rpc` middlewares + the
  * TOTAL `requirementMiddleware` registry (`cap-middlewares.ts`); the server
  * engine group + the WS engine + the client-callable group projections (all
- * consuming the aggregated `rpc-registry`); and `CurrentPrincipal` (the request
+ * consuming the aggregated descriptor catalog); and `CurrentPrincipal` (the request
  * principal as a service, referencing the identity/task brands).
  *
  * Surfaced through the package's main barrel (`@moltzap/protocol`), not a
@@ -18,7 +18,7 @@
  */
 
 // Typed dispatcher slots + the inbound app-callback definition type. These
-// consume the aggregated `rpc-registry` catalog, so they sit at the engine
+// consume the aggregated descriptor catalog, so they sit at the engine
 // layer (above the domains).
 export type {
   HandlerSlot,
@@ -32,7 +32,21 @@ export type {
 // `defineNotification` as a fire-and-forget `void`-result RPC. The server holds
 // the `RpcClient`; the client stands the `RpcServer` (the notification handlers
 // route into the `SubscriberRegistry`).
-export { NotificationRpcGroup, ReverseRpcGroup } from "./rpc-method-groups.js";
+export {
+  NotificationRpcGroup,
+  ReverseRpcGroup,
+  serverRpcMethods,
+  agentClientRpcMethods,
+  appCallableRpcMethods,
+  notificationDefinitions,
+  appCallbackMethods,
+} from "./rpc-method-groups.js";
+export type {
+  AnyServerRpcDefinition,
+  AnyAgentClientRpcDefinition,
+  AnyAppCallbackRpcDefinition,
+  AnyNotificationDefinition,
+} from "./rpc-method-groups.js";
 
 // Principal-as-service: the protocol-owned `CurrentPrincipal` Tag a cap
 // middleware reads (`yield* CurrentPrincipal`) when deriving its payload.

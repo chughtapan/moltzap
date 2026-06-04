@@ -11,7 +11,7 @@
  */
 import type { Context, Effect, Schema } from "effect";
 
-import type { AnyAppCallbackRpcDefinition } from "../rpc-registry.js";
+import type { AnyAppCallbackRpcDefinition } from "./rpc-method-groups.js";
 
 import type { ParamsOf, ResultOf, RpcDefinition } from "../transport/method.js";
 

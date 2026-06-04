@@ -1,45 +1,36 @@
 /**
  * @file Public barrel for JSON-RPC transport descriptors and runtime helpers.
  */
-// Wire vocabulary: the branded JSON-RPC id + method types, the protocol
-// version literal, and the frame-shape types the group decoders
-// (`decodeRpcRequest` / `decodeNotification`) are typed against. `jsonRpcMethod`
-// brands a wire-method name at descriptor construction.
-export { jsonRpcMethod, JSON_RPC_VERSION } from "./wire.js";
+// RPC + notification descriptor types. Effect RPC owns frame decoding; these
+// descriptors own per-method payload/result schemas and the client subscription
+// notification envelope produced after native decode.
 export type {
   JsonRpcId,
   JsonRpcMethod,
-  RequestFrame,
-  ResponseFrame,
-  NotificationFrame,
-} from "./wire.js";
-
-// Wire frame schemas — exported so testing/conformance can validate frames
-// against the canonical shape via @moltzap/protocol/transport rather than
-// reaching into wire.js by relative path.
-export {
-  responseFrameSchema,
-  responseFrameSchema as ResponseFrameSchema,
-  notificationFrameSchema,
-  notificationFrameSchema as NotificationFrameSchema,
-} from "./wire.js";
-
-// RPC + notification descriptor types. Decoders are protocol-internal;
-// consumers go through the group-level `decodeRpcRequest` / `decodeNotification`
-// or per-def `validateParams`.
-export type {
   RpcDefinition,
   NotificationDefinition,
   ParamsOf,
   ResultOf,
   NotificationParamsOf,
+  NotificationDelivery,
   RpcErrorClass,
   CallErrorsOf,
   DomainErrorsOf,
   RequirementErrorsOf,
   ResponseErrorsOf,
 } from "./method.js";
-export { effectiveErrorClasses } from "./method.js";
+export { effectiveErrorClasses, jsonRpcMethod } from "./method.js";
+
+export {
+  makeNotificationSubscriberRegistry,
+  notificationSubscribe,
+  notificationSubscribeAll,
+} from "./notification-subscribers.js";
+export type {
+  NotificationSubscriberRegistry,
+  NotificationSubscriberRegistryOptions,
+  NotificationSubscriptionHandle,
+} from "./notification-subscribers.js";
 
 // The cast-free per-method dispatch over a non-flat `RpcClient`: the typed map
 // shape `RpcClient.make(group)` conforms to, plus `dispatchCall` for tag-keyed
@@ -74,16 +65,6 @@ export {
   principalGateErrorClasses,
 } from "./wire-errors.js";
 export type { RpcErrorPayload } from "./wire-errors.js";
-
-// Decoded RPC + notification types. The group-level decode helpers
-// (`decodeRpcRequest`, `decodeNotification`) discriminate a frame against a
-// descriptor catalog by `method` and validate params against the descriptor;
-// callers discriminate on `definition` identity. `isDecodedNotification` is the
-// typed-guard companion the Stream-based `client.notifications`/`subscribeTo`
-// callers use to narrow filtered frames to `DecodedNotification<D>`; it is part
-// of the public surface.
-export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
-export { isDecodedNotification } from "./rpc-groups.js";
 
 // The principal + refinement requirement tags — the low head of a method's
 // `requires` list, depended on DOWNWARD by every domain descriptor.

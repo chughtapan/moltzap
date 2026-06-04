@@ -13,7 +13,7 @@
 import { describe, it, expect } from "vitest";
 import type { Schema } from "effect";
 import { DispatchAuthorize, MessagesAuthorize, TaskCreate } from "./methods.js";
-import { appCallbackMethods } from "../rpc-registry.js";
+import { appCallbackMethods } from "../engine/rpc-method-groups.js";
 import { decodesStrictly } from "../schema-primitives.js";
 
 // Strict, excess-rejecting decode check — the parity oracle for the former

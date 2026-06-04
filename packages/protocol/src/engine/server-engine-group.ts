@@ -21,13 +21,13 @@
 import { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
 import type { RpcDefinition } from "../transport/method.js";
-import { serverRpcMethods } from "../rpc-registry.js";
+import { serverRpcMethods } from "./rpc-method-groups.js";
 import {
   capRequirementsOf,
   principalRequirementOf,
   type Requirement,
 } from "./requirements.js";
-import type { JsonRpcMethod } from "../transport/wire.js";
+import type { JsonRpcMethod } from "../transport/method.js";
 import {
   PrincipalGateMw,
   requirementMiddleware,

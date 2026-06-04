@@ -23,8 +23,10 @@ import {
   RpcTimeoutError,
   runMuxReader,
   type AnyNotificationDefinition,
-  type DecodedNotification,
   type JsonRpcId,
+  type NotificationDelivery,
+  makeNotificationSubscriberRegistry,
+  type NotificationSubscriberRegistry,
   type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
@@ -39,10 +41,6 @@ import {
   type ErrorForTag,
 } from "./runtime/typed-dispatch.js";
 import { buildReverseServer } from "./runtime/reverse-rpc-server.js";
-import {
-  makeSubscriberRegistry,
-  type SubscriberRegistry,
-} from "./runtime/subscribers.js";
 import {
   subscribe as subscribeStream,
   subscribeAll as subscribeAllStream,
@@ -234,9 +232,9 @@ export type AppClientOptions = AppClientCredential & {
  * so callers' `connect()` / `sendRpc()` Effects have no extra requirement.
  *
  * Notification consumption: use `subscribe(def, refinement?)` for typed
- * payload Streams; `subscribeAll(refinement?)` for the broad-union
- * escape hatch. Both return `Stream.Stream` of `DecodedNotification` with
- * a `NotConnectedError` error channel. Consume via `Stream.runForEach`
+ * payload Streams; `subscribeAll(refinement?)` for descriptor-delivery
+ * fanout. Both return `Stream.Stream` values with a `NotConnectedError`
+ * error channel. Consume via `Stream.runForEach`
  * (long-lived) or `Stream.runHead` + `Effect.timeoutFail` (one-shot).
  */
 export class MoltZapAppClient {
@@ -251,7 +249,7 @@ export class MoltZapAppClient {
    * `Stream.async` consumers via `notification/stream.ts`; the s2c reverse
    * server's notification handlers dispatch into it.
    */
-  private readonly subscribers: SubscriberRegistry;
+  private readonly subscribers: NotificationSubscriberRegistry<NotConnectedError>;
 
   /**
    * Immutable app-callback handler table. Captured from
@@ -269,7 +267,14 @@ export class MoltZapAppClient {
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
-    this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
+    this.subscribers = this.runtime.runSync(
+      makeNotificationSubscriberRegistry({
+        closeCause: () =>
+          new NotConnectedError({ message: "WebSocket not connected" }),
+        logPrefix: "subscriber",
+        spanName: "makeSubscriberRegistry",
+      }),
+    );
     this.handlers = options.handlers;
   }
 
@@ -349,12 +354,11 @@ export class MoltZapAppClient {
   }
 
   /**
-   * Typed-payload subscribe. Returns a Stream of `DecodedNotification<D>` whose
+   * Typed-payload subscribe. Returns a Stream of `NotificationParamsOf<D>` whose
    * error channel is `NotConnectedError` and whose requirement set is `never`.
    *
    * `refinement` is a typed predicate over the definition's params shape.
-   * The user-defined-type-guard overload (signature below) narrows the
-   * Stream's payload to `DecodedNotification<D, R>`.
+   * The user-defined-type-guard overload narrows the Stream's payload to `R`.
    *
    * Lifecycle:
    *   - Subscription construction is pure (no I/O, no scope). Legal
@@ -366,22 +370,22 @@ export class MoltZapAppClient {
    *   - Terminal close (`client.close()`) terminates every in-flight Stream
    *     with `NotConnectedError`.
    */
-  subscribe<D extends AnyNotificationDefinition>(
-    definition: D,
-    refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<DecodedNotification<D>, NotConnectedError, never>;
   subscribe<
     D extends AnyNotificationDefinition,
     R extends NotificationParamsOf<D>,
   >(
     definition: D,
     refinement: (params: NotificationParamsOf<D>) => params is R,
-  ): Stream.Stream<DecodedNotification<D, R>, NotConnectedError, never>;
+  ): Stream.Stream<R, NotConnectedError, never>;
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never>;
   subscribe<D extends AnyNotificationDefinition>(
     definition: D,
     // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
     refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<DecodedNotification<D>, NotConnectedError, never> {
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never> {
     return subscribeStream(this.subscribers, definition, refinement);
   }
 
@@ -396,10 +400,11 @@ export class MoltZapAppClient {
   subscribeAll(
     // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
     refinement?: (
-      notification: DecodedNotification<AnyNotificationDefinition>,
+      definition: AnyNotificationDefinition,
+      params: NotificationParamsOf<AnyNotificationDefinition>,
     ) => boolean,
   ): Stream.Stream<
-    DecodedNotification<AnyNotificationDefinition>,
+    NotificationDelivery<AnyNotificationDefinition>,
     NotConnectedError,
     never
   > {

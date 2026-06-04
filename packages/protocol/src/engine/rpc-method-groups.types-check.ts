@@ -24,7 +24,7 @@
 import type { Rpc, RpcGroup } from "@effect/rpc";
 import type { Schema } from "effect";
 import { NotificationRpcGroup, ReverseRpcGroup } from "./rpc-method-groups.js";
-import type { JsonRpcMethod } from "../transport/wire.js";
+import type { JsonRpcMethod } from "../transport/method.js";
 
 // Compile-time equality helper.
 type Expect<T extends true> = T;

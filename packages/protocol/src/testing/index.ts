@@ -1,9 +1,8 @@
 /**
  * @file Public barrel for protocol testing utilities.
  *
- * `@moltzap/protocol/testing` — TestClient + TestServer primitives,
- * arbitrary derivation, Toxiproxy adversity layer, and the conformance
- * runner.
+ * `@moltzap/protocol/testing` — test fixtures, arbitrary derivation,
+ * Toxiproxy adversity layer, and the conformance runner.
  */
 
 // Brand-decoders for test fixtures. Production code does not validate IDs
@@ -20,35 +19,10 @@ export {
   taskId,
 } from "./conformance/_shared/test-fixtures.js";
 
-// Wire-frame schemas + validators + the protocol literal, and the group-level
-// decoders — exposed ONLY for test use. The `@effect/rpc` engines own the
-// production encode/decode path; the conformance harness + test scaffolds use
-// these to assemble frames (valid and adversarial) and exercise the
-// codec/decoder boundary properties. This `/testing` barrel is the single
-// sanctioned re-export of these wire internals — test code imports them from
-// here, never by reaching `wire.js` / `rpc-groups.js` / `method.js`. The frame
-// BUILDERS live in the testing layer (`frame-mutator.js`).
-export {
-  requestFrameSchema,
-  responseFrameSchema,
-  notificationFrameSchema,
-  validateRequestFrame,
-  validateResponseFrame,
-  validateNotificationFrame,
-  JSON_RPC_VERSION,
-} from "../transport/wire.js";
-export {
-  requestFrame,
-  responseFrame,
-  notificationFrame,
-  rawNotificationFrame,
-} from "./conformance/_shared/frame-mutator.js";
-export {
-  decodeRpcRequest,
-  decodeNotification,
-} from "../transport/rpc-groups.js";
+// Effect RPC owns frame encoding/decoding. The testing surface exposes
+// descriptor-level helpers only.
 export { decodeRpcResult } from "../transport/method.js";
-export type { JsonRpcMethod } from "../transport/wire.js";
+export type { JsonRpcMethod } from "../transport/method.js";
 export { TaskFailedNotificationDefinition } from "../task/index.js";
 export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
 
@@ -76,7 +50,7 @@ export {
 // the parallel-flake fix (no wall-clock poll deadline) lives in one place.
 export { waitForValue, waitUntil } from "./wait.js";
 
-// Capture + codec primitives.
+// Capture primitives.
 export {
   type CaptureBuffer,
   type CapturedFrame,
@@ -86,13 +60,6 @@ export {
   recordFrame,
   recordMalformed,
 } from "./conformance/_shared/captures.js";
-export {
-  type AnyFrame,
-  type MalformedFrameKind,
-  encodeFrame,
-  decodeFrame,
-  malformFrame,
-} from "./conformance/_shared/frame-mutator.js";
 
 // Errors.
 export {
@@ -103,7 +70,6 @@ export {
   RpcResponseError,
   RealServerAcquireError,
 } from "./conformance/_shared/errors.js";
-export { FrameSchemaError } from "./conformance/_shared/frame-mutator.js";
 export { ToxicControlError } from "./toxics/errors.js";
 
 // Test-agent registration helper.

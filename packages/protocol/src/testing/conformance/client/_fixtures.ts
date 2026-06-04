@@ -15,8 +15,10 @@
  * throws. Errors are mapped into `PropertyFailure` tags before surfacing.
  */
 import { Effect, Scope } from "effect";
-import type { NotificationFrame } from "../../../transport/index.js";
-import { validateNotificationFrame } from "../../index.js";
+import {
+  JSON_RPC_VERSION,
+  type NotificationFrame,
+} from "../../../transport/index.js";
 import type { TestServerConnection } from "../_shared/driver/test-server.js";
 import {
   awaitConnection,
@@ -124,6 +126,18 @@ export function notificationParamsRecord(
   return Object.fromEntries(Object.entries(params));
 }
 
+function notificationFrameOrNull(value: unknown): NotificationFrame | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const frame = value as Readonly<Record<string, unknown>>;
+  return frame["jsonrpc"] === JSON_RPC_VERSION &&
+    typeof frame["method"] === "string" &&
+    !("id" in frame)
+    ? (value as NotificationFrame)
+    : null;
+}
+
 function filterTagged(
   snap: ReadonlyArray<{
     readonly decoded: unknown;
@@ -134,8 +148,9 @@ function filterTagged(
 ): ReadonlyArray<TaggedObservation> {
   const out: TaggedObservation[] = [];
   for (const o of snap) {
-    if (!validateNotificationFrame(o.decoded)) continue;
-    const params = notificationParamsRecord(o.decoded.params);
+    const decoded = notificationFrameOrNull(o.decoded);
+    if (decoded === null) continue;
+    const params = notificationParamsRecord(decoded.params);
     // Real adapters set `emissionTag: null` and we look up the tag by
     // wire-bytes match against the runner's emit registry. Divergence-
     // proof fakes preset `emissionTag` directly on the synthesized
@@ -149,9 +164,9 @@ function filterTagged(
       out.push({
         tag,
         raw: o.rawBytes,
-        decoded: o.decoded,
+        decoded,
         params,
-        notificationName: o.decoded.method,
+        notificationName: decoded.method,
       });
     }
   }

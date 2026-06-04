@@ -1,8 +1,23 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Data, Effect, Schema } from "effect";
+import { Brand, Data, Effect, Schema } from "effect";
 import { closedStructGuard } from "../schema-primitives.js";
 import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
-import { jsonRpcMethod, type JsonRpcMethod } from "./wire.js";
+
+export type JsonRpcMethod<Name extends string = string> = Name &
+  Brand.Brand<"JsonRpcMethod">;
+
+export type JsonRpcId = string & Brand.Brand<"JsonRpcId">;
+
+const JsonRpcMethodBrand = Brand.nominal<JsonRpcMethod>();
+
+/**
+ * Internal factory for descriptor construction (`defineRpc`,
+ * `defineNotification`). Callers pass plain strings to descriptors, which brand
+ * them here so method positions cannot accidentally accept arbitrary strings.
+ */
+export const jsonRpcMethod = <const Name extends string>(
+  method: Name,
+): JsonRpcMethod<Name> => JsonRpcMethodBrand(method) as JsonRpcMethod<Name>;
 
 /**
  * A wire-discriminable tagged-error CLASS: a `Schema.TaggedError`-derived class
@@ -266,8 +281,7 @@ function makeErrorSchema(
  *   struct to catch a caller that sends a field the descriptor never declared.
  *
  * Method names are branded `JsonRpcMethod&lt;"the.name">` so a runtime
- * string can never accidentally type-fit a method position. See
- * `wire.ts → JsonRpcMethod` for the brand.
+ * string can never accidentally type-fit a method position.
  *
  * Sibling: {@link defineNotification} — same pipeline minus the
  * result schema and the error union.
@@ -361,6 +375,22 @@ export type NotificationParamsOf<
   D extends NotificationDefinition<string, infer P>
     ? Schema.Schema.Type<P>
     : never;
+
+/**
+ * Descriptor-tagged notification delivery after native Effect RPC/Schema
+ * decode. This is the broad-subscription shape; typed subscriptions consume
+ * `NotificationParamsOf<D>` directly.
+ */
+export interface NotificationDelivery<
+  D extends NotificationDefinition<
+    string,
+    Schema.Schema.AnyNoContext
+  > = NotificationDefinition<string, Schema.Schema.AnyNoContext>,
+> {
+  readonly definition: D;
+  readonly method: D["name"];
+  readonly params: NotificationParamsOf<D>;
+}
 
 /**
  * Sibling of {@link defineRpc} for server-to-client notifications.

@@ -7,10 +7,10 @@
  * notification. The server fires these as reverse RPCs (request-family frames);
  * this engine serves them:
  *
- * - A NOTIFICATION handler builds a `DecodedNotification` from the wire payload
- *   and routes it into the `SubscriberRegistry` (so `client.subscribe(def)`
- *   Streams fire), then returns `void` — the notification is fire-and-forget on
- *   the server side, the void ack just settles the reverse RPC.
+ * - A NOTIFICATION handler routes Schema-decoded params into the
+ *   `SubscriberRegistry` (so `client.subscribe(def)` Streams fire), then
+ *   returns `void` — the notification is fire-and-forget on the server side,
+ *   the void ack just settles the reverse RPC.
  * - A CALLBACK handler runs the moderator logic (app clients only). An agent
  *   client is never a moderator, so its callback handlers reject — but they
  *   must still be present so the handler map covers every group member.
@@ -29,33 +29,34 @@ import {
   makeServerProtocolLayer,
   type ChannelSink,
   type AnyNotificationDefinition,
-  type DecodedNotification,
+  type NotConnectedError,
+  type NotificationDelivery,
+  type NotificationSubscriberRegistry,
+  type NotificationParamsOf,
   type WireWrite,
 } from "@moltzap/protocol";
 import { Mailbox } from "effect";
-import type { SubscriberRegistry } from "./subscribers.js";
+
+type SubscriberRegistry = NotificationSubscriberRegistry<NotConnectedError>;
 
 /**
- * One notification handler: build the `DecodedNotification` envelope the
- * `SubscriberRegistry` dispatches, route it, return void. Closes over the
- * definition so `dispatch`'s `definition ===` match fires for `subscribe(def)`.
+ * One notification handler: route the Schema-decoded params into the
+ * `SubscriberRegistry`, return void. Closes over the definition so dispatch's
+ * `definition ===` match fires for `subscribe(def)`.
  */
 const notificationHandler =
   (registry: SubscriberRegistry, definition: AnyNotificationDefinition) =>
   (params: unknown) => {
     // The `definition`/`params` correlation holds by construction: this handler
-    // is bound to exactly this notification's wire member, so the engine
-    // decoded `params` against `definition.paramsSchema`. The `dispatch`
-    // signature wants the distributed `DecodedNotification` union; the envelope
-    // shape is structurally that for this member.
-    const decoded = {
-      _tag: "Notification",
-      jsonrpc: "2.0",
-      definition,
-      method: definition.name,
-      params,
-    } as DecodedNotification<AnyNotificationDefinition>;
-    return registry.dispatch(decoded);
+    // is bound to exactly this notification's reverse-RPC member, so the engine
+    // decoded `params` against `definition.paramsSchema`.
+    return registry.dispatch(
+      {
+        definition,
+        method: definition.name,
+        params: params as NotificationParamsOf<AnyNotificationDefinition>,
+      } as NotificationDelivery,
+    );
   };
 
 /** One erased reverse-handler slot: any payload, any failure, `void`-ish result. */
