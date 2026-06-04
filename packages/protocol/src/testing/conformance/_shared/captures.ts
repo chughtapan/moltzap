@@ -10,23 +10,22 @@
  * Toxiproxy (Tier D).
  */
 import { Effect, Ref, Stream, PubSub } from "effect";
-import type { AnyFrame, MalformedFrameKind } from "./frame-mutator.js";
 
 const CAPTURE_FANOUT_CONCURRENCY = 8;
 
 export type CaptureKind = "inbound" | "outbound";
 
 /**
- * One recorded event. `frame` is `null` when the capture is a raw-bytes
- * record that failed to decode — Tier A's A4 property asserts on both the
- * raw bytes and the typed `FrameSchemaError` that fired.
+ * One recorded event. `frame` is `null` when the capture is a raw-bytes record
+ * that failed to decode; otherwise it is the parsed engine payload as observed
+ * by the test harness.
  */
 export interface CapturedFrame {
   readonly at: number; // monotonic ms since primitive start
   readonly kind: CaptureKind;
   readonly raw: string;
-  readonly frame: AnyFrame | null;
-  readonly malformed: MalformedFrameKind | null;
+  readonly frame: unknown | null;
+  readonly malformed: string | null;
 }
 
 /** Opaque handle to a running buffer; held by TestClient / TestServer. */
@@ -144,7 +143,7 @@ export function mergeCaptures(
 export function recordMalformed(
   buffer: CaptureBuffer,
   raw: string,
-  kind: MalformedFrameKind,
+  kind: string,
 ): Effect.Effect<void> {
   return buffer._publish({
     at: Date.now() - startTime,
@@ -160,7 +159,7 @@ export function recordFrame(
   buffer: CaptureBuffer,
   kind: CaptureKind,
   raw: string,
-  frame: AnyFrame,
+  frame: unknown,
 ): Effect.Effect<void> {
   return buffer._publish({
     at: Date.now() - startTime,

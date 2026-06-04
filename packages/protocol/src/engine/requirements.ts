@@ -8,7 +8,7 @@
  * tags, which live in `task/capabilities/`) and the genuine {@link Requirement}
  * union. Because the cap tags are task-layer, this model genuinely sits ABOVE
  * the domains — and so do its only consumers (the engine groups + cap
- * middlewares, which also consume the full `rpc-registry` catalog).
+ * middlewares, which also consume the full descriptor catalog).
  *
  * {@link Requirement} is the genuine closed union of the actual tag classes
  * (principal | agent-claimed | capability), so the classifiers narrow it by tag

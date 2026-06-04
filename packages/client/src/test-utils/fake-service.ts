@@ -14,15 +14,14 @@
  */
 
 import type {
-  DecodedNotification,
   AnyNotificationDefinition,
-  NotificationFrame,
+  NotificationDelivery,
+  NotificationParamsOf,
   Message,
   ResultOf,
   RpcDefinition,
 } from "@moltzap/protocol";
-import { notificationDefinitions, NotFoundError } from "@moltzap/protocol";
-import { decodeNotification } from "@moltzap/protocol/testing";
+import { NotFoundError } from "@moltzap/protocol";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import type { RpcCallOptions } from "@moltzap/client";
@@ -117,16 +116,20 @@ export class FakeMoltZapService extends MoltZapService {
     );
   }
 
-  /** Deliver a protocol notification through the real service handler. */
-  emitEvent(event: NotificationFrame): void {
-    const decoded = Effect.runSync(
-      decodeNotification(notificationDefinitions, event),
-    );
-    this.emitNotification(decoded);
+  /** Deliver already Schema-decoded notification params through the service. */
+  emitEvent<D extends AnyNotificationDefinition>(
+    definition: D,
+    params: NotificationParamsOf<D>,
+  ): void {
+    this.emitNotification({
+      definition,
+      method: definition.name,
+      params,
+    });
   }
 
   emitNotification(
-    notification: DecodedNotification<AnyNotificationDefinition>,
+    notification: NotificationDelivery<AnyNotificationDefinition>,
   ): void {
     this.handleNotification(notification);
   }

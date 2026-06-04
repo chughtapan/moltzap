@@ -4,11 +4,65 @@ import type {
   NotificationDefinition,
   RpcDefinition,
 } from "../transport/method.js";
-import type { JsonRpcMethod } from "../transport/wire.js";
+import type { JsonRpcMethod } from "../transport/method.js";
 import {
+  identityRpcMethods,
+  identityNotifications,
+} from "../identity/methods.js";
+import { networkRpcMethods, networkNotifications } from "../network/methods.js";
+import {
+  taskRpcMethods,
+  taskNotifications,
+  agentCallableTaskRpcMethods,
+  appCallableTaskRpcMethods,
+} from "../task/methods.js";
+import {
+  appRpcMethods,
   appCallbackMethods,
-  notificationDefinitions,
-} from "../rpc-registry.js";
+  appNotifications,
+} from "../app/methods.js";
+
+export { appCallbackMethods };
+
+// Per-kind outbound catalogs.
+//   `agentClientRpcMethods` - callable from `MoltZapAgentClient`.
+//   `appCallableRpcMethods`  - superset; adds app-only operations.
+//   `serverRpcMethods`      - server inbound; full union.
+export const agentClientRpcMethods = [
+  ...identityRpcMethods,
+  ...networkRpcMethods,
+  ...agentCallableTaskRpcMethods,
+  ...appRpcMethods,
+] as const;
+
+export const appCallableRpcMethods = [
+  ...agentClientRpcMethods,
+  ...appCallableTaskRpcMethods,
+] as const;
+
+export const serverRpcMethods = [
+  ...identityRpcMethods,
+  ...networkRpcMethods,
+  ...taskRpcMethods,
+  ...appRpcMethods,
+] as const;
+
+export const notificationDefinitions = [
+  ...networkNotifications,
+  ...identityNotifications,
+  ...taskNotifications,
+  ...appNotifications,
+] as const;
+
+export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
+  RpcDefinition<string, any, any>;
+export type AnyAgentClientRpcDefinition =
+  (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
+
+export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
+
+export type AnyNotificationDefinition =
+  (typeof notificationDefinitions)[number];
 
 type AnyRpcDefinition = RpcDefinition<
   string,
@@ -42,7 +96,7 @@ type GroupMembers<Defs extends readonly AnyRpcDefinition[]> = {
   readonly [K in keyof Defs]: RpcFromDef<Defs[K]>;
 };
 
-type AnyNotificationDefinition = NotificationDefinition<
+type AnyNotificationDescriptor = NotificationDefinition<
   string,
   Schema.Schema.AnyNoContext
 >;
@@ -60,7 +114,7 @@ type NotificationRpcFromDef<D> =
     : never;
 
 type NotificationGroupMembers<
-  Defs extends readonly AnyNotificationDefinition[],
+  Defs extends readonly AnyNotificationDescriptor[],
 > = {
   readonly [K in keyof Defs]: NotificationRpcFromDef<Defs[K]>;
 };
@@ -76,7 +130,7 @@ type NotificationGroupMembers<
  * `client.subscribe(def) → Stream` surface unchanged.
  */
 const groupFromNotifications = <
-  const Defs extends readonly AnyNotificationDefinition[],
+  const Defs extends readonly AnyNotificationDescriptor[],
 >(
   defs: Defs,
 ): RpcGroup.RpcGroup<NotificationGroupMembers<Defs>[number]> =>

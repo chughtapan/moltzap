@@ -7,7 +7,6 @@ import {
   type HelloOk,
   type AnyNotificationDefinition,
   type AnyServerRpcDefinition,
-  type DecodedNotification,
   DispatchRequest,
   DispatchRelease,
   DispatchesConsumed,
@@ -31,6 +30,7 @@ import {
   AgentCallableGroup,
   RpcTimeoutError,
   serverRpcMethods,
+  type NotificationDelivery,
   type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
@@ -259,23 +259,22 @@ export interface ServiceOptions {
 }
 
 type NotificationHandler<T> = (data: T) => void;
+type ClientNotificationDelivery =
+  NotificationDelivery<AnyNotificationDefinition>;
 type NotificationDispatcher = (
-  notification: DecodedNotification<AnyNotificationDefinition>,
+  params: NotificationParamsOf<AnyNotificationDefinition>,
 ) => void;
 
 interface ServiceHandlerPayloads {
   readonly message: { readonly taskId: TaskId; readonly message: Message };
 
   /**
-   * The "raw notification" surface receives the wire decoder's
-   * `DecodedNotification&lt;AnyNotificationDefinition>` union — known methods carry the
-   * descriptor and a raw `params: unknown` payload (validation hasn't
-   * happened yet); unknown methods carry no descriptor at all.
-   * Subscribers that want validated payloads register specific typed
-   * `on(...)` handlers (e.g. `conversationArchived`) which run behind
-   * the typed-bridge lift in `handleNotification`.
+   * The "raw notification" surface receives the descriptor-tagged delivery
+   * emitted after the native reverse RPC handler has Schema-decoded params.
+   * Subscribers that want specific payloads register typed `on(...)` handlers
+   * such as `conversationArchived`.
    */
-  readonly rawNotification: DecodedNotification<AnyNotificationDefinition>;
+  readonly rawNotification: ClientNotificationDelivery;
   readonly disconnect: void;
   readonly reconnect: HelloOk;
   readonly conversationArchived: TaskConversationArchivedNotification;
@@ -420,56 +419,54 @@ export class MoltZapService {
   >([
     [
       MessageReceivedNotificationDefinition,
-      (notification) =>
+      (params) =>
         this.handleMessageReceivedNotification(
-          notification.params as MessageReceivedNotification,
+          params as MessageReceivedNotification,
         ),
     ],
     [
       TaskConversationCreatedNotificationDefinition,
-      (notification) =>
+      (params) =>
         this.handleConversationCreatedNotification(
-          notification.params as TaskConversationCreatedNotification,
+          params as TaskConversationCreatedNotification,
         ),
     ],
     [
       TaskConversationArchivedNotificationDefinition,
-      (notification) =>
+      (params) =>
         this.handleConversationArchivedNotification(
-          notification.params as TaskConversationArchivedNotification,
+          params as TaskConversationArchivedNotification,
         ),
     ],
     [
       TaskConversationUnarchivedNotificationDefinition,
-      (notification) =>
+      (params) =>
         this.handleConversationUnarchivedNotification(
-          notification.params as TaskConversationUnarchivedNotification,
+          params as TaskConversationUnarchivedNotification,
         ),
     ],
     [
       DispatchRelease,
-      (notification) =>
+      (params) =>
         fanout(
           this.handlers.dispatchRelease,
-          notification.params as NotificationParamsOf<typeof DispatchRelease>,
+          params as NotificationParamsOf<typeof DispatchRelease>,
         ),
     ],
     [
       DispatchesConsumed,
-      (notification) =>
+      (params) =>
         fanout(
           this.handlers.dispatchesConsumed,
-          notification.params as NotificationParamsOf<
-            typeof DispatchesConsumed
-          >,
+          params as NotificationParamsOf<typeof DispatchesConsumed>,
         ),
     ],
     [
       DispatchesExpired,
-      (notification) =>
+      (params) =>
         fanout(
           this.handlers.dispatchesExpired,
-          notification.params as NotificationParamsOf<typeof DispatchesExpired>,
+          params as NotificationParamsOf<typeof DispatchesExpired>,
         ),
     ],
   ]);
@@ -1242,7 +1239,7 @@ export class MoltZapService {
   // --- Internals ---
 
   protected handleNotification(
-    notification: DecodedNotification<AnyNotificationDefinition>,
+    notification: ClientNotificationDelivery,
   ): void {
     this.recordNotificationTrace(notification);
     fanout(this.handlers.rawNotification, notification);
@@ -1250,7 +1247,7 @@ export class MoltZapService {
   }
 
   private recordNotificationTrace(
-    notification: DecodedNotification<AnyNotificationDefinition>,
+    notification: ClientNotificationDelivery,
   ): void {
     Effect.runFork(
       appendClientEventTrace(
@@ -1260,13 +1257,13 @@ export class MoltZapService {
   }
 
   private dispatchTypedNotification(
-    notification: DecodedNotification<AnyNotificationDefinition>,
+    notification: ClientNotificationDelivery,
   ): void {
     const dispatch = this.notificationDispatchers.get(notification.definition);
     if (dispatch === undefined) {
       return;
     }
-    dispatch(notification);
+    dispatch(notification.params);
   }
 
   /**

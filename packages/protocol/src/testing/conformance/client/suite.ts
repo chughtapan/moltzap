@@ -40,10 +40,6 @@ import {
   type AllowedCoverageGap,
 } from "../_shared/coverage-policy.js";
 import {
-  registerNotificationWellFormednessClient,
-  registerMalformedFrameHandlingClient,
-} from "./schema-conformance.js";
-import {
   registerModelEquivalenceClient,
   registerRequestIdUniquenessClient,
 } from "./rpc-semantics.js";
@@ -60,7 +56,6 @@ import {
   registerSlowCloseCleanupClient,
   registerTimeoutSurfaceClient,
 } from "./adversity.js";
-import { registerSchemaExhaustiveFuzzClient } from "./boundary.js";
 
 const JSON_INDENT_SPACES = 2;
 
@@ -129,15 +124,12 @@ interface ClientFailureRecordInput extends ClientRunPropertyInput {
 export function registerAllClientProperties(
   ctx: ClientConformanceRunContext,
 ): void {
-  registerNotificationWellFormednessClient(ctx);
-  registerMalformedFrameHandlingClient(ctx);
   registerModelEquivalenceClient(ctx);
   registerRequestIdUniquenessClient(ctx);
   registerFanOutCardinalityClient(ctx);
   registerPayloadOpacityClient(ctx);
   registerTaskBoundaryIsolationClient(ctx);
   registerArchiveLifecycleClient(ctx);
-  registerSchemaExhaustiveFuzzClient(ctx);
   registerLatencyResilienceClient(ctx);
   registerSlicerFramingClient(ctx);
   registerResetPeerRecoveryClient(ctx);

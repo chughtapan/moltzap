@@ -17,10 +17,9 @@ import { Data, Effect, Either, Ref, Scope, Stream } from "effect";
 import {
   AgentCallableGroup,
   serverRpcMethods,
-  type AnyServerRpcDefinition,
   type AnyNotificationDefinition,
-  type DecodedNotification,
-  type NotificationFrame,
+  type AnyServerRpcDefinition,
+  type NotificationDelivery,
   type ResponseFrame,
 } from "@moltzap/protocol";
 import type { RpcGroup, Rpc } from "@effect/rpc";
@@ -140,22 +139,16 @@ function recordCloseEvent(
 }
 
 function observedNotificationFromDecoded(
-  notification: DecodedNotification<AnyNotificationDefinition>,
+  notification: NotificationDelivery<AnyNotificationDefinition>,
 ): ObservedNotification {
-  // The protocol-side ObservedNotification contract carries a wire-shaped
-  // `NotificationFrame` in `decoded`. Reconstruct it from the decoded view.
-  const wireFrame: NotificationFrame = {
-    jsonrpc: notification.jsonrpc,
+  const decoded = {
     method: notification.method,
-    ...(notification.params !== undefined
-      ? // eslint-disable-next-line agent-code-guard/record-cast -- wire-shape rebuild for the protocol ObservedNotification contract; params provenance is the decoded notification itself
-        { params: notification.params as Record<string, unknown> }
-      : {}),
+    params: notification.params,
   };
-  const encoded = new TextEncoder().encode(JSON.stringify(wireFrame));
+  const encoded = new TextEncoder().encode(JSON.stringify(decoded));
   return {
     emissionTag: null,
-    decoded: wireFrame,
+    decoded,
     rawBytes: encoded,
     observedAtMs: Date.now(),
   };
@@ -163,7 +156,7 @@ function observedNotificationFromDecoded(
 
 function recordObservedNotification(
   notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
-  notification: DecodedNotification<AnyNotificationDefinition>,
+  notification: NotificationDelivery<AnyNotificationDefinition>,
 ): Effect.Effect<void> {
   const obs = observedNotificationFromDecoded(notification);
   return Ref.update(notificationsRef, (xs) => [...xs, obs]);

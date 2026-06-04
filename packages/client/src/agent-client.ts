@@ -21,7 +21,9 @@ import {
   NotConnectedError,
   RpcTimeoutError,
   type AnyNotificationDefinition,
-  type DecodedNotification,
+  type NotificationDelivery,
+  makeNotificationSubscriberRegistry,
+  type NotificationSubscriberRegistry,
   type NotificationParamsOf,
   type ResultOf,
 } from "@moltzap/protocol";
@@ -35,10 +37,6 @@ import {
 } from "./runtime/typed-dispatch.js";
 import { buildReverseServer } from "./runtime/reverse-rpc-server.js";
 import { runMuxReader } from "@moltzap/protocol";
-import {
-  makeSubscriberRegistry,
-  type SubscriberRegistry,
-} from "./runtime/subscribers.js";
 import {
   subscribe as subscribeStream,
   subscribeAll as subscribeAllStream,
@@ -122,7 +120,7 @@ export class MoltZapAgentClient {
     Socket.WebSocketConstructor,
     never
   >;
-  private readonly subscribers: SubscriberRegistry;
+  private readonly subscribers: NotificationSubscriberRegistry<NotConnectedError>;
   private closed = false;
   private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
   private _helloOk: ConnectResult | null = null;
@@ -132,7 +130,14 @@ export class MoltZapAgentClient {
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
-    this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
+    this.subscribers = this.runtime.runSync(
+      makeNotificationSubscriberRegistry({
+        closeCause: () =>
+          new NotConnectedError({ message: "WebSocket not connected" }),
+        logPrefix: "subscriber",
+        spanName: "makeSubscriberRegistry",
+      }),
+    );
   }
 
   get helloOk(): ConnectResult | null {
@@ -171,32 +176,33 @@ export class MoltZapAgentClient {
     return this.callEffect(tag, payload, timeoutMs);
   }
 
-  subscribe<D extends AnyNotificationDefinition>(
-    definition: D,
-    refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<DecodedNotification<D>, NotConnectedError, never>;
   subscribe<
     D extends AnyNotificationDefinition,
     R extends NotificationParamsOf<D>,
   >(
     definition: D,
     refinement: (params: NotificationParamsOf<D>) => params is R,
-  ): Stream.Stream<DecodedNotification<D, R>, NotConnectedError, never>;
+  ): Stream.Stream<R, NotConnectedError, never>;
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never>;
   subscribe<D extends AnyNotificationDefinition>(
     definition: D,
     // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
     refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<DecodedNotification<D>, NotConnectedError, never> {
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never> {
     return subscribeStream(this.subscribers, definition, refinement);
   }
 
   subscribeAll(
     // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
     refinement?: (
-      notification: DecodedNotification<AnyNotificationDefinition>,
+      definition: AnyNotificationDefinition,
+      params: NotificationParamsOf<AnyNotificationDefinition>,
     ) => boolean,
   ): Stream.Stream<
-    DecodedNotification<AnyNotificationDefinition>,
+    NotificationDelivery<AnyNotificationDefinition>,
     NotConnectedError,
     never
   > {

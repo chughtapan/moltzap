@@ -28,8 +28,8 @@ import {
   type PrincipalRequirementOf,
   principalRequirementOf,
 } from "./requirements.js";
-import type { JsonRpcMethod } from "../transport/wire.js";
-import { serverRpcMethods } from "../rpc-registry.js";
+import type { JsonRpcMethod } from "../transport/method.js";
+import { serverRpcMethods } from "./rpc-method-groups.js";
 
 // The engine partitions the live catalog descriptors, whose `requires` are
 // built from the concrete requirement tags. The wire-layer `RpcDefinition`

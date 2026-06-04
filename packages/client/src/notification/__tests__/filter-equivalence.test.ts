@@ -22,11 +22,13 @@ import { describe, expect, it } from "vitest";
 import * as fc from "fast-check";
 import { Effect, Fiber, Ref, Stream } from "effect";
 import {
+  makeNotificationSubscriberRegistry,
+  NotConnectedError,
   PresenceChangedNotificationDefinition,
-  type DecodedNotification,
+  MessageReceivedNotificationDefinition,
+  type NotificationDelivery,
   type NotificationParamsOf,
 } from "@moltzap/protocol";
-import { makeSubscriberRegistry } from "../../runtime/subscribers.js";
 import { subscribe } from "../stream.js";
 
 const MAX_SEQUENCE_LENGTH = 32;
@@ -36,6 +38,12 @@ const PROPERTY_RUN_COUNT = 25;
 type PresenceParams = NotificationParamsOf<
   typeof PresenceChangedNotificationDefinition
 >;
+
+const makeSubscriberRegistry = () =>
+  makeNotificationSubscriberRegistry({
+    closeCause: () =>
+      new NotConnectedError({ message: "WebSocket not connected" }),
+  });
 
 interface GeneratedFrame {
   readonly definitionTag: "presence" | "other";
@@ -88,35 +96,27 @@ function oracle(
 
 function decodedPresence(
   generated: GeneratedFrame,
-): DecodedNotification<typeof PresenceChangedNotificationDefinition> {
+): NotificationDelivery<typeof PresenceChangedNotificationDefinition> {
   return {
-    _tag: "Notification" as const,
-    jsonrpc: "2.0",
     definition: PresenceChangedNotificationDefinition,
     method: PresenceChangedNotificationDefinition.name,
     params: {
       agentId: generated.agentId as PresenceParams["agentId"],
       status: generated.status,
     },
-  } as DecodedNotification<typeof PresenceChangedNotificationDefinition>;
+  } as NotificationDelivery<typeof PresenceChangedNotificationDefinition>;
 }
 
-type PresenceFrame = DecodedNotification<
-  typeof PresenceChangedNotificationDefinition
->;
-
-function fakeOtherFrame(generated: GeneratedFrame): PresenceFrame {
+function fakeOtherFrame(generated: GeneratedFrame): NotificationDelivery {
   // A frame whose `.definition` reference does NOT match
   // `PresenceChangedNotificationDefinition` — used to verify the registry's
   // definition-identity filter drops it before the predicate runs.
   const raw = {
-    _tag: "Notification" as const,
-    jsonrpc: "2.0",
-    definition: { name: "other/method" } as unknown,
-    method: "other/method",
+    definition: MessageReceivedNotificationDefinition,
+    method: MessageReceivedNotificationDefinition.name,
     params: { agentId: generated.agentId, status: generated.status },
   };
-  return raw as unknown as PresenceFrame; // #ignore-sloppy-code[as-unknown-as]: fake-frame for the non-matching arm; the test is precisely about the boundary's behaviour on misshapen frames
+  return raw as unknown as NotificationDelivery; // #ignore-sloppy-code[as-unknown-as]: fake delivery for the non-matching arm; the test is precisely about the boundary's behaviour on mismatched params
 }
 
 describe("subscribe filter-equivalence oracle", () => {
@@ -138,8 +138,8 @@ describe("subscribe filter-equivalence oracle", () => {
                 PresenceChangedNotificationDefinition,
                 predicate,
               ).pipe(
-                Stream.runForEach((frame) =>
-                  Ref.update(seen, (xs) => [...xs, frame.params]),
+                Stream.runForEach((params) =>
+                  Ref.update(seen, (xs) => [...xs, params]),
                 ),
                 Effect.catchAll(() => Effect.void),
               ),
@@ -177,10 +177,9 @@ describe("subscribe filter-equivalence oracle", () => {
         const registry = yield* makeSubscriberRegistry();
         const seen = yield* Ref.make<ReadonlyArray<PresenceParams>>([]);
 
-        // Type guard form. The Stream's payload is now
-        // `DecodedNotification<PresenceChangedNotificationDefinition, OnlinePresence>`
-        // at compile-time; the runtime expectation is that no `offline`
-        // params arrive.
+        // Type guard form. The Stream's payload is now `OnlinePresence` at
+        // compile-time; the runtime expectation is that no `offline` params
+        // arrive.
         type OnlinePresence = PresenceParams & { status: "online" };
         const isOnline = (params: PresenceParams): params is OnlinePresence =>
           params.status === "online";
@@ -191,8 +190,8 @@ describe("subscribe filter-equivalence oracle", () => {
             PresenceChangedNotificationDefinition,
             isOnline,
           ).pipe(
-            Stream.runForEach((frame) =>
-              Ref.update(seen, (xs) => [...xs, frame.params]),
+            Stream.runForEach((params) =>
+              Ref.update(seen, (xs) => [...xs, params]),
             ),
             Effect.catchAll(() => Effect.void),
           ),

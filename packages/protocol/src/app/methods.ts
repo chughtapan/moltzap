@@ -9,7 +9,7 @@
  *   `task/create`).
  *
  * The three `appRpcMethods` / `appCallbackMethods` / `appNotifications`
- * catalogs are assembled here so `rpc-registry.ts` reads one list per kind.
+ * catalogs are assembled in the engine group module, which is their consumer.
  */
 export { AppsRegister, validateAppManifest } from "./manifest.js";
 export type { AppManifest } from "./manifest.js";

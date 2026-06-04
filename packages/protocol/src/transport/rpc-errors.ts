@@ -9,7 +9,7 @@
  * numeric code, no global registry.
  */
 import { Data } from "effect";
-import type { JsonRpcMethod } from "./wire.js";
+import type { JsonRpcMethod } from "./method.js";
 
 /** The socket is not in the OPEN state when an RPC was attempted. */
 export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{

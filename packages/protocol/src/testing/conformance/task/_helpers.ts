@@ -14,7 +14,7 @@ import {
   Scope,
   Schema,
 } from "effect";
-import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
+import type { AnyNotificationDefinition } from "../../../engine/rpc-method-groups.js";
 import type { NotificationParamsOf } from "../../../transport/index.js";
 import type { DecodedNotification } from "../../../transport/index.js";
 import {

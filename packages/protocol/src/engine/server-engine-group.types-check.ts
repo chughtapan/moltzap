@@ -34,7 +34,7 @@ import {
   UNAUTHENTICATED_METHODS,
   type UnauthenticatedMethod,
 } from "./server-engine-group.js";
-import { jsonRpcMethod, type JsonRpcMethod } from "../transport/wire.js";
+import { jsonRpcMethod, type JsonRpcMethod } from "../transport/method.js";
 
 // Compile-time equality helper.
 type Expect<T extends true> = T;

@@ -32,13 +32,19 @@ import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type {
   AnyAppCallbackRpcDefinition,
   AnyServerRpcDefinition,
-} from "../../../../rpc-registry.js";
-import { appCallbackMethods } from "../../../../rpc-registry.js";
+} from "../../../../engine/rpc-method-groups.js";
+import { appCallbackMethods } from "../../../../engine/rpc-method-groups.js";
+import {
+  makeNotificationSubscriberRegistry,
+  notificationSubscribe,
+  notificationSubscribeAll,
+} from "../../../../transport/index.js";
 import type {
   NotificationParamsOf,
+  NotificationDelivery,
+  NotificationSubscriberRegistry,
   ParamsOf,
   ResultOf,
-  DecodedNotification,
   DecodedRpcRequest,
   NotificationFrame,
   RequestFrame,
@@ -49,11 +55,10 @@ import {
   requestFrame,
   responseFrame,
   decodeRpcResult,
-  decodeNotification,
   decodeRpcRequest,
 } from "../../../index.js";
-import type { AnyNotificationDefinition } from "../../../../rpc-registry.js";
-import { notificationDefinitions } from "../../../../rpc-registry.js";
+import type { AnyNotificationDefinition } from "../../../../engine/rpc-method-groups.js";
+import { notificationDefinitions } from "../../../../engine/rpc-method-groups.js";
 import { AgentId } from "../../../../identity/index.js";
 import { PROTOCOL_VERSION } from "../../../../version.js";
 import {
@@ -82,12 +87,6 @@ import {
   TransportClosedError,
   TransportIoError,
 } from "../errors.js";
-import {
-  makeTestSubscriberRegistry,
-  subscribe as registrySubscribe,
-  subscribeAll as registrySubscribeAll,
-  type TestSubscriberRegistry,
-} from "./test-subscribers.js";
 
 import { Connect } from "../../../../network/index.js";
 
@@ -162,11 +161,10 @@ export interface TestClient {
   readonly snapshot: Effect.Effect<ReadonlyArray<CapturedFrame>>;
 
   /**
-   * Typed-payload subscribe (Spec B parity — #645). Returns a Stream of
-   * `DecodedNotification<D>` whose error channel is `TransportClosedError`
-   * and requirement set is `never`. Optional `refinement` is a typed
-   * predicate over the definition's params; the type-guard overload
-   * narrows the Stream's payload to `DecodedNotification<D, R>`.
+   * Typed-payload subscribe. Returns a Stream of decoded params whose error
+   * channel is `TransportClosedError` and requirement set is `never`. Optional
+   * `refinement` is a typed predicate over the definition's params; the
+   * type-guard overload narrows the Stream's payload to `R`.
    *
    * Lifecycle: construction is pure (no I/O, no scope); first pull
    * suspends inside `Stream.async` until dispatch fires `emit.single`;
@@ -174,31 +172,23 @@ export interface TestClient {
    * via the registry's `closeAll`.
    */
   readonly subscribe: {
-    <D extends AnyNotificationDefinition>(
-      definition: D,
-      refinement?: (params: NotificationParamsOf<D>) => boolean,
-    ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
     <D extends AnyNotificationDefinition, R extends NotificationParamsOf<D>>(
       definition: D,
       refinement: (params: NotificationParamsOf<D>) => params is R,
-    ): Stream.Stream<DecodedNotification<D, R>, TransportClosedError>;
+    ): Stream.Stream<R, TransportClosedError>;
+    <D extends AnyNotificationDefinition>(
+      definition: D,
+      refinement?: (params: NotificationParamsOf<D>) => boolean,
+    ): Stream.Stream<NotificationParamsOf<D>, TransportClosedError>;
   };
 
   /**
    * Broad-union subscribe (Spec B parity — #645). Returns a Stream of
-   * every inbound notification regardless of definition. Used by
-   * conformance helpers that need to filter on params-shaped predicates
-   * (e.g. presence/changed by agentId+status). Payload narrowing is
-   * intentionally lost; callers wanting typed payloads use `subscribe`.
+   * every inbound descriptor delivery regardless of definition.
    */
   readonly subscribeAll: (
-    refinement?: (
-      notification: DecodedNotification<AnyNotificationDefinition>,
-    ) => boolean,
-  ) => Stream.Stream<
-    DecodedNotification<AnyNotificationDefinition>,
-    TransportClosedError
-  >;
+    refinement?: (notification: NotificationDelivery) => boolean,
+  ) => Stream.Stream<NotificationDelivery, TransportClosedError>;
 
   /**
    * Register a handler for an app-callback RPC (test-driver-local;
@@ -326,7 +316,7 @@ interface TestClientRuntime {
   readonly captures: CaptureBuffer;
   readonly pending: PendingMap;
   readonly closeRef: Ref.Ref<CloseState>;
-  readonly subscribers: TestSubscriberRegistry;
+  readonly subscribers: NotificationSubscriberRegistry<TransportClosedError>;
   readonly onAppCallbackHandlersRef: Ref.Ref<
     HashMap.HashMap<ServerRpcDefinition, AppCallbackHandler>
   >;
@@ -490,35 +480,36 @@ class RuntimeTestClient implements TestClient {
     return writeOutboundFrame(this.runtime, frame);
   }
 
-  subscribe<D extends AnyNotificationDefinition>(
-    definition: D,
-    refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<DecodedNotification<D>, TransportClosedError>;
   subscribe<
     D extends AnyNotificationDefinition,
     R extends NotificationParamsOf<D>,
   >(
     definition: D,
     refinement: (params: NotificationParamsOf<D>) => params is R,
-  ): Stream.Stream<DecodedNotification<D, R>, TransportClosedError>;
+  ): Stream.Stream<R, TransportClosedError>;
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<NotificationParamsOf<D>, TransportClosedError>;
   subscribe<D extends AnyNotificationDefinition>(
     definition: D,
     // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
     refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<DecodedNotification<D>, TransportClosedError> {
-    return registrySubscribe(this.runtime.subscribers, definition, refinement);
+  ): Stream.Stream<NotificationParamsOf<D>, TransportClosedError> {
+    return notificationSubscribe(
+      this.runtime.subscribers,
+      definition,
+      refinement,
+    );
   }
 
   subscribeAll(
     // eslint-disable-next-line agent-code-guard/no-conditional-chaining -- optional refinement is a value-level passthrough to the Stream factory; not a refinement-of-discriminant decision
     refinement?: (
-      notification: DecodedNotification<AnyNotificationDefinition>,
+      notification: NotificationDelivery,
     ) => boolean,
-  ): Stream.Stream<
-    DecodedNotification<AnyNotificationDefinition>,
-    TransportClosedError
-  > {
-    return registrySubscribeAll(this.runtime.subscribers, refinement);
+  ): Stream.Stream<NotificationDelivery, TransportClosedError> {
+    return notificationSubscribeAll(this.runtime.subscribers, refinement);
   }
 
   onAppCallback<D extends ServerRpcDefinition>(
@@ -573,7 +564,16 @@ function acquireTestClientRuntime(
       captures,
       pending: new Map(),
       closeRef,
-      subscribers: yield* makeTestSubscriberRegistry(),
+      subscribers: yield* makeNotificationSubscriberRegistry({
+        closeCause: () =>
+          new TransportClosedError({
+            direction: "inbound",
+            code: 1006,
+            reason: "test client closed",
+          }),
+        logPrefix: "test subscriber",
+        spanName: "makeTestSubscriberRegistry",
+      }),
       onAppCallbackHandlersRef: yield* Ref.make(
         HashMap.empty<ServerRpcDefinition, AppCallbackHandler>(),
       ),
@@ -746,14 +746,13 @@ function handleNotificationRequestFrame(
   runtime: TestClientRuntime,
   frame: RequestFrame,
 ): Effect.Effect<void> {
-  return decodeNotification(notificationDefinitions, asNotificationFrame(frame))
+  return Effect.sync(() => notificationDeliveryOrNull(asNotificationFrame(frame)))
     .pipe(
-      Effect.matchEffect({
-        onFailure: () => Effect.void,
-        onSuccess: (notification) => runtime.subscribers.dispatch(notification),
-      }),
-    )
-    .pipe(
+      Effect.flatMap((delivery) =>
+        delivery === null
+          ? Effect.void
+          : runtime.subscribers.dispatch(delivery),
+      ),
       Effect.zipRight(
         writeReply(runtime, responseFrame(frame.id, { result: {} })),
       ),
@@ -796,12 +795,24 @@ function handleNotificationFrame(
   runtime: TestClientRuntime,
   frame: NotificationFrame,
 ): Effect.Effect<void> {
-  return decodeNotification(notificationDefinitions, frame).pipe(
-    Effect.matchEffect({
-      onFailure: () => Effect.void,
-      onSuccess: (notification) => runtime.subscribers.dispatch(notification),
-    }),
+  const delivery = notificationDeliveryOrNull(frame);
+  return delivery === null ? Effect.void : runtime.subscribers.dispatch(delivery);
+}
+
+function notificationDeliveryOrNull(
+  frame: Pick<NotificationFrame, "method" | "params">,
+): NotificationDelivery | null {
+  const definition = notificationDefinitions.find(
+    (d): d is AnyNotificationDefinition => d.name === frame.method,
   );
+  if (definition === undefined) return null;
+  const params = frame.params ?? {};
+  if (!definition.validateParams(params)) return null;
+  return {
+    definition,
+    method: definition.name,
+    params: params as NotificationParamsOf<AnyNotificationDefinition>,
+  } as NotificationDelivery;
 }
 
 function dispatchHandler(

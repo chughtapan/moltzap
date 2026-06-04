@@ -30,7 +30,7 @@ import type {
   ResponseFrame,
 } from "../../../transport/index.js";
 import { responseFrame } from "../../index.js";
-import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
+import type { AnyNotificationDefinition } from "../../../engine/rpc-method-groups.js";
 import type { DecodedNotification } from "../../../transport/index.js";
 import { isRequestFrame } from "../_shared/frame-mutator.js";
 import {

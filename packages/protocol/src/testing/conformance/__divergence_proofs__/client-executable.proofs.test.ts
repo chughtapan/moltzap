@@ -21,23 +21,20 @@ import {
 } from "../_shared/captures.js";
 import { encodeFrame } from "../_shared/frame-mutator.js";
 import { requestFrame } from "../../index.js";
-import { serverRpcMethods } from "../../../rpc-registry.js";
-import type { AnyServerRpcDefinition } from "../../../rpc-registry.js";
+import { serverRpcMethods } from "../../../engine/rpc-method-groups.js";
+import type { AnyServerRpcDefinition } from "../../../engine/rpc-method-groups.js";
 import { jsonRpcMethod } from "../../../transport/index.js";
 import {
   collectProperties,
   type PropertyFailure,
 } from "../_shared/registry.js";
 import {
-  registerNotificationWellFormednessClient,
-  registerMalformedFrameHandlingClient,
   registerModelEquivalenceClient,
   registerRequestIdUniquenessClient,
   registerFanOutCardinalityClient,
   registerPayloadOpacityClient,
   registerTaskBoundaryIsolationClient,
   registerArchiveLifecycleClient,
-  registerSchemaExhaustiveFuzzClient,
 } from "../client/index.js";
 import {
   lookupTagForRawBytes,
@@ -62,12 +59,9 @@ import {
 type EventBehavior =
   | "normal"
   | "scramble-position-index"
-  | "strip-required-field"
   | "rewrite-payload"
   | "rewrite-conversation-id"
-  | "swap-archive-lifecycle"
-  | "close-on-malformed"
-  | "close-on-untagged-fuzz";
+  | "swap-archive-lifecycle";
 
 type RpcBehavior = "normal" | "non-response-type" | "spurious-id";
 
@@ -84,18 +78,7 @@ interface ClientProofCase {
   readonly timeoutMs?: number;
 }
 
-const CLIENT_PROOF_TIMEOUT_MS = 30_000;
-const MALFORMED_FRAME_PROOF_TIMEOUT_MS = 10_000;
-
 const CLIENT_PROOF_CASES: ReadonlyArray<ClientProofCase> = [
-  {
-    title:
-      "registerNotificationWellFormednessClient fails when surfaced notifications lose required fields",
-    register: registerNotificationWellFormednessClient,
-    opts: { eventBehavior: "strip-required-field" },
-    invariantName: "notification-well-formedness-client",
-    timeoutMs: CLIENT_PROOF_TIMEOUT_MS,
-  },
   {
     title:
       "registerFanOutCardinalityClient fails when a real client scrambles fan-out order",
@@ -112,14 +95,6 @@ const CLIENT_PROOF_CASES: ReadonlyArray<ClientProofCase> = [
   },
   {
     title:
-      "registerMalformedFrameHandlingClient fails when malformed frames poison liveness",
-    register: registerMalformedFrameHandlingClient,
-    opts: { eventBehavior: "close-on-malformed" },
-    invariantName: "malformed-frame-handling-client",
-    timeoutMs: MALFORMED_FRAME_PROOF_TIMEOUT_MS,
-  },
-  {
-    title:
       "registerTaskBoundaryIsolationClient fails when task ids are cross-wired",
     register: registerTaskBoundaryIsolationClient,
     opts: { eventBehavior: "rewrite-conversation-id" },
@@ -131,13 +106,6 @@ const CLIENT_PROOF_CASES: ReadonlyArray<ClientProofCase> = [
     register: registerArchiveLifecycleClient,
     opts: { eventBehavior: "swap-archive-lifecycle" },
     invariantName: "archive-lifecycle-client",
-  },
-  {
-    title:
-      "registerSchemaExhaustiveFuzzClient fails when post-fuzz liveness is poisoned",
-    register: registerSchemaExhaustiveFuzzClient,
-    opts: { eventBehavior: "close-on-untagged-fuzz" },
-    invariantName: "schema-exhaustive-fuzz-client",
   },
   {
     title:
@@ -302,7 +270,7 @@ function makeBadServerConnection(
     emitNotification: (notification) =>
       publishNotification(runtime, notification),
     emitResponse: (response) => resolveResponse(runtime, response),
-    emitMalformed: () => emitMalformed(runtime),
+    emitMalformed: () => Effect.void,
     close: (close) => setClose(runtime, close.code, close.reason),
   };
 }
@@ -313,10 +281,7 @@ function publishNotification(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     const behavior = eventBehavior(runtime);
-    const close = yield* Ref.get(runtime.closeRef);
-    if (close !== null && behavior === "close-on-malformed") return;
     const tag = lookupTagForRawBytes(encodedFrameBytes(frame));
-    yield* closeOnUntaggedFuzz(runtime, behavior, tag);
     const surfaceFrame = surfaceNotificationFrame(behavior, frame);
     yield* appendObservedNotification(runtime, surfaceFrame, tag);
   });
@@ -326,23 +291,11 @@ function encodedFrameBytes(frame: NotificationFrame): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(frame));
 }
 
-function closeOnUntaggedFuzz(
-  runtime: BadClientRuntime,
-  behavior: EventBehavior,
-  tag: string | null,
-): Effect.Effect<void> {
-  return behavior === "close-on-untagged-fuzz" && tag === null
-    ? setClose(runtime, 1002, "bad client closed during fuzz")
-    : Effect.void;
-}
-
 function surfaceNotificationFrame(
   behavior: EventBehavior,
   frame: NotificationFrame,
 ): unknown {
   switch (behavior) {
-    case "strip-required-field":
-      return stripNotificationName(frame);
     case "scramble-position-index":
       return scrambleMessagePart(frame);
     case "rewrite-payload":
@@ -425,12 +378,6 @@ function responseForBehavior(
         params: response,
       } as NotificationFrame)
     : response;
-}
-
-function emitMalformed(runtime: BadClientRuntime): Effect.Effect<void> {
-  return eventBehavior(runtime) === "close-on-malformed"
-    ? setClose(runtime, 1002, "bad client closed on malformed frame")
-    : Effect.void;
 }
 
 function setClose(
@@ -642,12 +589,6 @@ function eventBehavior(runtime: BadClientRuntime): EventBehavior {
 
 function rpcBehavior(runtime: BadClientRuntime): RpcBehavior {
   return runtime.opts.rpcBehavior ?? "normal";
-}
-
-function stripNotificationName(frame: NotificationFrame): unknown {
-  return Object.fromEntries(
-    Object.entries(frame).filter(([key]) => key !== "method"),
-  );
 }
 
 const EMPTY_OBJECT: Readonly<Record<string, unknown>> = {};

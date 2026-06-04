@@ -9,7 +9,7 @@ import { Data } from "effect";
 import {
   serverRpcMethods,
   type AnyServerRpcDefinition,
-} from "../../rpc-registry.js";
+} from "../../engine/rpc-method-groups.js";
 import { arbitraryFromSchema } from "./schema-arbitrary.js";
 
 type MethodName = (typeof serverRpcMethods)[number]["name"];

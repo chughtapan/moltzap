@@ -8,10 +8,3 @@ export {
   allRpcMethods,
   type ArbitraryRpcCall,
 } from "./rpc.js";
-export {
-  arbitraryRequestFrame,
-  arbitraryResponseFrame,
-  arbitraryNotificationFrame,
-  arbitraryMalformedFrame,
-  type ArbitraryMalformedFrame,
-} from "./frames.js";

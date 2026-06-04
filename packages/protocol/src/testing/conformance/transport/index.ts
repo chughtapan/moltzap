@@ -3,8 +3,8 @@
  *
  * Transport-layer conformance properties.
  *
- * Wire-level invariants — frame schemas, RPC dispatch primitives,
- * adversity (latency / framing / connection-reset / timeout / close).
+ * Wire-level invariants — RPC dispatch primitives and adversity
+ * (latency / framing / connection-reset / timeout / close).
  *
  * Each `register*` lives in its own file. This barrel re-exports them
  * by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
@@ -12,10 +12,6 @@
  */
 import type { ConformanceRunContext } from "../_shared/runner.js";
 
-import { registerRequestWellFormedness } from "./request-well-formedness.js";
-import { registerNotificationWellFormedness } from "./notification-well-formedness.js";
-import { registerRoundTripIdentity } from "./round-trip-identity.js";
-import { registerMalformedFrameHandling } from "./malformed-frame-handling.js";
 import { registerRpcMapCoverage } from "./rpc-map-coverage.js";
 import { registerRequestIdUniqueness } from "./request-id-uniqueness.js";
 import { registerCallerControlledAppCallbackTimeout } from "./caller-controlled-app-callback-timeout.js";
@@ -27,10 +23,6 @@ import { registerSlowCloseCleanup } from "./adversity-slow-close-cleanup.js";
 import { registerSchemaExhaustiveFuzz } from "./schema-exhaustive-fuzz.js";
 
 export {
-  registerRequestWellFormedness,
-  registerNotificationWellFormedness,
-  registerRoundTripIdentity,
-  registerMalformedFrameHandling,
   registerRpcMapCoverage,
   registerRequestIdUniqueness,
   registerCallerControlledAppCallbackTimeout,
@@ -44,16 +36,12 @@ export {
 
 /**
  * All transport-layer property registrars, in the order
- * `_shared/suite.ts` invokes them: schema-conformance subset (5) →
+ * `_shared/suite.ts` invokes them: schema-conformance subset (1) →
  * rpc-semantics subset (2) → adversity (5) → boundary subset (1).
  */
 export const TRANSPORT_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
 > = [
-  registerRequestWellFormedness,
-  registerNotificationWellFormedness,
-  registerRoundTripIdentity,
-  registerMalformedFrameHandling,
   registerRpcMapCoverage,
   registerRequestIdUniqueness,
   registerCallerControlledAppCallbackTimeout,

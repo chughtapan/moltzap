@@ -1,6 +1,6 @@
 import {
   type AnyNotificationDefinition,
-  type DecodedNotification,
+  type NotificationDelivery,
   type Message,
   type Part,
 } from "@moltzap/protocol";
@@ -154,7 +154,7 @@ const traceConversationId = (
   conversation === undefined ? fallback : (conversation["id"] ?? fallback);
 
 export function notificationTraceRecord(
-  notification: DecodedNotification<AnyNotificationDefinition>,
+  notification: NotificationDelivery<AnyNotificationDefinition>,
   agentId: string | undefined,
 ): Record<string, unknown> {
   const params = recordOrEmpty(notification.params);

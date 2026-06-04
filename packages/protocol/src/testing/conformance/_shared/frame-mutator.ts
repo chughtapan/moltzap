@@ -22,7 +22,7 @@ import {
   type JsonRpcId,
   type JsonRpcMethod,
 } from "../../../transport/index.js";
-import { notificationDefinitions } from "../../../rpc-registry.js";
+import { notificationDefinitions } from "../../../engine/rpc-method-groups.js";
 import type {
   RpcDefinition,
   NotificationDefinition,

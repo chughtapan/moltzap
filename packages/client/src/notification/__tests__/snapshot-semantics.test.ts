@@ -51,36 +51,40 @@ import {
   Stream,
 } from "effect";
 import {
+  makeNotificationSubscriberRegistry,
   NotConnectedError,
   type AnyNotificationDefinition,
-  type DecodedNotification,
+  type NotificationDelivery,
 } from "@moltzap/protocol";
 import {
   PresenceChangedNotificationDefinition,
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
-import { makeSubscriberRegistry } from "../../runtime/subscribers.js";
 import { subscribe, subscribeAll } from "../stream.js";
 
 const PROP_TEST_FRAME_COUNT = 6;
 const PROP_TEST_CANCEL_AT = 3;
 
-function decodedPresence(
+const makeSubscriberRegistry = () =>
+  makeNotificationSubscriberRegistry({
+    closeCause: () =>
+      new NotConnectedError({ message: "WebSocket not connected" }),
+  });
+
+function presenceDelivery(
   seq: number,
-): DecodedNotification<typeof PresenceChangedNotificationDefinition> {
+): NotificationDelivery<typeof PresenceChangedNotificationDefinition> {
   return {
-    _tag: "Notification" as const,
-    jsonrpc: "2.0",
     definition: PresenceChangedNotificationDefinition,
     method: PresenceChangedNotificationDefinition.name,
     params: {
       agentId: `agent-${seq}`,
       status: seq % 2 === 0 ? "online" : "offline",
     },
-  } as DecodedNotification<typeof PresenceChangedNotificationDefinition>;
+  } as NotificationDelivery<typeof PresenceChangedNotificationDefinition>;
 }
 
-function decodedMessageReceived(): DecodedNotification<
+function messageReceivedDelivery(): NotificationDelivery<
   typeof MessageReceivedNotificationDefinition
 > {
   // Minimal test fixture: raw-string ids + a partial `message` (no `taskId`
@@ -89,8 +93,6 @@ function decodedMessageReceived(): DecodedNotification<
   // wire trust boundary — the snapshot test only inspects the stream delivery
   // order, not the params' field shape.
   const fixture = {
-    _tag: "Notification" as const,
-    jsonrpc: "2.0",
     definition: MessageReceivedNotificationDefinition,
     method: MessageReceivedNotificationDefinition.name,
     params: {
@@ -102,11 +104,11 @@ function decodedMessageReceived(): DecodedNotification<
       },
     },
   };
-  type Decoded = DecodedNotification<
+  type Delivery = NotificationDelivery<
     typeof MessageReceivedNotificationDefinition
   >;
   // eslint-disable-next-line agent-code-guard/as-unknown-as -- minimal test fixture, pure test data not a wire decode
-  return fixture as unknown as Decoded; // #ignore-sloppy-code[as-unknown-as]: minimal test fixture re-asserting the branded readonly decoded notification shape; pure test data, not a wire decode
+  return fixture as unknown as Delivery; // #ignore-sloppy-code[as-unknown-as]: minimal test fixture re-asserting branded readonly notification params; pure test data, not a wire decode
 }
 
 describe("subscribe snapshot semantics — Stream cancellation", () => {
@@ -119,13 +121,11 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         const observerFiber = yield* Effect.fork(
           subscribe(registry, PresenceChangedNotificationDefinition).pipe(
-            Stream.runForEach((frame) =>
+            Stream.runForEach((params) =>
               Ref.update(observerSeen, (xs) => [
                 ...xs,
                 Number(
-                  (frame.params as { agentId: string }).agentId.slice(
-                    "agent-".length,
-                  ),
+                  (params as { agentId: string }).agentId.slice("agent-".length),
                 ),
               ]),
             ),
@@ -140,13 +140,11 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const targetFiber = yield* Effect.fork(
           targetStream.pipe(
             Stream.take(PROP_TEST_CANCEL_AT),
-            Stream.runForEach((frame) =>
+            Stream.runForEach((params) =>
               Ref.update(targetSeen, (xs) => [
                 ...xs,
                 Number(
-                  (frame.params as { agentId: string }).agentId.slice(
-                    "agent-".length,
-                  ),
+                  (params as { agentId: string }).agentId.slice("agent-".length),
                 ),
               ]),
             ),
@@ -161,7 +159,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         yield* Effect.yieldNow();
 
         for (let i = 0; i < PROP_TEST_FRAME_COUNT; i++) {
-          yield* registry.dispatch(decodedPresence(i));
+          yield* registry.dispatch(presenceDelivery(i));
         }
         yield* Effect.yieldNow();
 
@@ -220,13 +218,11 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         );
         const s2Fiber = yield* Effect.fork(
           s2Stream.pipe(
-            Stream.runForEach((frame) =>
+            Stream.runForEach((params) =>
               Ref.update(receivedByS2, (xs) => [
                 ...xs,
                 Number(
-                  (frame.params as { agentId: string }).agentId.slice(
-                    "agent-".length,
-                  ),
+                  (params as { agentId: string }).agentId.slice("agent-".length),
                 ),
               ]),
             ),
@@ -238,7 +234,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // register callback commits before the first dispatch reads
         // the snapshot. Deterministic — see file header.
         yield* Effect.yieldNow();
-        yield* registry.dispatch(decodedPresence(0));
+        yield* registry.dispatch(presenceDelivery(0));
         // Drain s2's onFrame Effect into receivedByS2 deterministically.
         yield* Effect.yieldNow();
 
@@ -246,7 +242,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // synchronously. Subsequent dispatch's snapshot must exclude s2.
         yield* Fiber.interrupt(s2Fiber);
 
-        yield* registry.dispatch(decodedPresence(1));
+        yield* registry.dispatch(presenceDelivery(1));
         yield* Effect.yieldNow();
 
         const seen = yield* Ref.get(receivedByS2);
@@ -299,13 +295,11 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
           PresenceChangedNotificationDefinition,
           undefined,
           {
-            onFrame: (frame) =>
+            onFrame: (params) =>
               Ref.update(s2Received, (xs) => [
                 ...xs,
                 Number(
-                  (frame.params as { agentId: string }).agentId.slice(
-                    "agent-".length,
-                  ),
+                  (params as { agentId: string }).agentId.slice("agent-".length),
                 ),
               ]),
             onClose: () => Effect.void,
@@ -314,7 +308,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         // Fork dispatch. Snapshot at fork time has both s1 and s2.
         const dispatchFiber = yield* Effect.fork(
-          registry.dispatch(decodedPresence(0)),
+          registry.dispatch(presenceDelivery(0)),
         );
 
         // Wait until s1's handler enters (dispatch is parked mid-flight).
@@ -335,7 +329,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         // Sanity: confirm s2's unregister DID commit to subsRef — a
         // subsequent dispatch must NOT deliver to s2.
-        yield* registry.dispatch(decodedPresence(1));
+        yield* registry.dispatch(presenceDelivery(1));
         expect(yield* Ref.get(s2Received)).toEqual([0]);
 
         yield* registry.closeAll;
@@ -396,10 +390,8 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // Single-tick yield ensures the forked subscribeAll consumer's
         // register callback commits before dispatch reads the snapshot.
         yield* Effect.yieldNow();
-        yield* registry.dispatch(decodedPresence(0));
-        yield* registry.dispatch(
-          decodedMessageReceived() as DecodedNotification<AnyNotificationDefinition>,
-        );
+        yield* registry.dispatch(presenceDelivery(0));
+        yield* registry.dispatch(messageReceivedDelivery() as NotificationDelivery);
 
         // Drain the consumer's onFrame Effect into `observed` before
         // closing — deterministic single-tick.

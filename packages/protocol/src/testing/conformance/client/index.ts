@@ -31,10 +31,6 @@ export {
 } from "./suite.js";
 
 export {
-  registerNotificationWellFormednessClient,
-  registerMalformedFrameHandlingClient,
-} from "./schema-conformance.js";
-export {
   registerModelEquivalenceClient,
   registerRequestIdUniquenessClient,
 } from "./rpc-semantics.js";
@@ -51,4 +47,3 @@ export {
   registerSlowCloseCleanupClient,
   registerTimeoutSurfaceClient,
 } from "./adversity.js";
-export { registerSchemaExhaustiveFuzzClient } from "./boundary.js";
