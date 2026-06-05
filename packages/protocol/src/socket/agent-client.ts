@@ -1,11 +1,11 @@
 import type { RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
-import type { AgentKey } from "./credentials.js";
-import { AgentConnect, PROTOCOL_VERSION } from "./network/connect.js";
-import { AgentCallableGroup } from "./rpc-method-groups.js";
+import type { AgentKey } from "../credentials.js";
+import { AgentConnect, PROTOCOL_VERSION } from "../network/connect.js";
+import { AgentCallableGroup } from "../rpc-method-groups.js";
 import { type CloseInfo } from "./close-info.js";
-import { NotConnectedError, RpcTimeoutError } from "./transport/rpc-errors.js";
+import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
 import {
   openProtocolAgentClientSocket,
   RPC_TIMEOUT_MS,
@@ -13,13 +13,13 @@ import {
   type RpcCallOptions,
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
-} from "./client-lifecycle.js";
+} from "./lifecycle.js";
 import {
   type ErrorForTag,
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,
-} from "./transport/typed-dispatch.js";
+} from "../transport/typed-dispatch.js";
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
 type AgentCallableTag = AgentCallableRpcs["_tag"];

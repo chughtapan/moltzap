@@ -5,12 +5,12 @@ import type {
   AppCallbackHandlers,
   AppCallbackRpcDefinition,
   HandlerSlot,
-} from "./app/methods.js";
-import type { AppKey } from "./credentials.js";
-import { AppConnect, PROTOCOL_VERSION } from "./network/connect.js";
-import { AppCallableGroup } from "./rpc-method-groups.js";
+} from "../app/methods.js";
+import type { AppKey } from "../credentials.js";
+import { AppConnect, PROTOCOL_VERSION } from "../network/connect.js";
+import { AppCallableGroup } from "../rpc-method-groups.js";
 import { type CloseInfo } from "./close-info.js";
-import { NotConnectedError, RpcTimeoutError } from "./transport/rpc-errors.js";
+import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
 import {
   openProtocolAppClientSocket,
   RPC_TIMEOUT_MS,
@@ -18,13 +18,13 @@ import {
   type RpcCallOptions,
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
-} from "./client-lifecycle.js";
+} from "./lifecycle.js";
 import {
   type ErrorForTag,
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,
-} from "./transport/typed-dispatch.js";
+} from "../transport/typed-dispatch.js";
 
 type AppCallableRpcs = RpcGroup.Rpcs<typeof AppCallableGroup>;
 type AppCallableTag = AppCallableRpcs["_tag"];

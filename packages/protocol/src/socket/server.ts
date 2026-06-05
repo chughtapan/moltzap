@@ -2,46 +2,46 @@ import * as Socket from "@effect/platform/Socket";
 import { RpcClient, RpcGroup, RpcServer, type Rpc } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Cause, Deferred, Effect, Exit, Layer, Mailbox, Scope } from "effect";
-import { ConnectionId, newConnectionId } from "./runtime/connection.js";
+import { ConnectionId, newConnectionId } from "./connection.js";
 import {
   ReverseRpcGroup,
   serverInboundMethods,
   type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
-} from "./rpc-method-groups.js";
+} from "../rpc-method-groups.js";
 import {
   DispatchAuthorize,
   MessagesAuthorize,
   TaskCreate,
-} from "./app/methods.js";
+} from "../app/methods.js";
 import {
   makeClientChannelProtocol,
   makeServerChannelProtocol,
   runMuxReader,
   type ChannelSink,
   type WireWrite,
-} from "./transport/mux.js";
+} from "../transport/mux.js";
 import {
   makeTypedTransportCall,
   type ErrorForTag,
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,
-} from "./transport/typed-dispatch.js";
-import { NotConnectedError, RpcTimeoutError } from "./transport/rpc-errors.js";
+} from "../transport/typed-dispatch.js";
+import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
 import type {
   AgentPrincipal,
   AgentClaimed,
   AppPrincipal,
   AuthenticatedPrincipal,
-} from "./transport/principal.js";
-import type { NotificationPayloadOf } from "./transport/method.js";
+} from "../transport/principal.js";
+import type { NotificationPayloadOf } from "../transport/method.js";
 import type {
   ContactPolicyAllowsReach,
   ConversationInTask,
   ConversationSendAccess,
   TaskReadAccess,
-} from "./task/capabilities/index.js";
+} from "../task/capabilities/index.js";
 
 export type ServerSocketWrite = (
   raw: string,

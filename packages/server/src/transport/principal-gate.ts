@@ -21,7 +21,7 @@ import type {
   Principal,
   PrincipalRequirement,
 } from "@moltzap/protocol/requirements";
-import type { ConnectionId } from "@moltzap/protocol/runtime";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConnectionManager, Connection } from "./connection.js";
 
 const FORBIDDEN_AGENT_ONLY =

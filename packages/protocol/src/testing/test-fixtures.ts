@@ -22,7 +22,7 @@ import {
   ServerEncryptionMasterSecret,
 } from "../credentials.js";
 import { UserId, AgentId, ContactId } from "../identity/index.js";
-import type { ConnectionId } from "../runtime/connection.js";
+import type { ConnectionId } from "../socket/connection.js";
 import { AppId } from "../task/index.js";
 import type { AppManifest } from "../app/index.js";
 import { ConversationId, LeaseId, MessageId, TaskId } from "../task/index.js";
