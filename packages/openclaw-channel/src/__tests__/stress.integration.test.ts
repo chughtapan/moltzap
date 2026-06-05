@@ -15,20 +15,14 @@ import {
   extractText,
   type TaskBinding,
 } from "./test-helpers.js";
-import type {
-  AgentId,
-  AgentKey,
-  ConversationId,
-  Message,
-} from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { Message } from "@moltzap/protocol/message";
 import { agentId, waitForValue } from "@moltzap/protocol/testing";
 
-import {
-  DEFAULT_APP_ID,
-  MessagesList,
-  MessagesSend,
-  TaskRequest,
-} from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 
 interface StressAgent {
   readonly apiKey: AgentKey;

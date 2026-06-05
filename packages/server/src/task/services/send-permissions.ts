@@ -1,14 +1,13 @@
 import { Cause, Effect } from "effect";
-import {
-  type ConversationSendAccessValue,
-  TaskClosedError,
-  ConversationArchivedError,
-  ForbiddenError,
-  type MessageNotFoundError,
-  type ConversationId,
-  type MessageId,
-  type TaskId,
-} from "@moltzap/protocol";
+import type {
+  ConversationSendAccessValue,
+  TaskId,
+} from "@moltzap/protocol/task";
+import { TaskClosedError } from "@moltzap/protocol/task";
+import { ConversationArchivedError } from "@moltzap/protocol/conversation";
+import { ForbiddenError } from "@moltzap/protocol/transport";
+import type { MessageNotFoundError } from "@moltzap/protocol/message";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConversationServiceTag, MessageServiceTag } from "../../app/layers.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";

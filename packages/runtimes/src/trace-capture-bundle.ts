@@ -1,5 +1,5 @@
 import type { HarnessPayload } from "./trace-capture-payload.js";
-import type { AgentId } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
 
 interface MessagePart {
   readonly type: string;

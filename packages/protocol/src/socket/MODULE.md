@@ -192,7 +192,7 @@ export type CloseKind = Data.TaggedEnum<{
 }>;
 ```
 
-### [`connectionId`](./connection.ts#L22)
+### [`connectionId`](./connection.ts#L24)
 
 _Variable_
 
@@ -200,12 +200,12 @@ _Variable_
 export const connectionId = Schema.decodeSync(ConnectionId)
 ```
 
-### [`ConnectionId`](./connection.ts#L19)
+### [`ConnectionId`](./connection.ts#L17)
 
 _TypeAlias_
 
 ```ts
-export const ConnectionId = brandedString("ConnectionId");
+export type ConnectionId = string & Brand.Brand<"ConnectionId">;
 ```
 
 Server-internal WebSocket connection identifier. Minted at WS accept
@@ -217,32 +217,17 @@ only acceptable construction in production code; downstream is brand-
 typed end-to-end. Test fixtures use the `connectionId(raw)` constructor
 exported from `@moltzap/protocol/testing`.
 
-Schema-level format: `brandedString` (no UUID predicate). The mint
-site happens to use UUIDs, but conformance-test fixtures sometimes
-pass synthetic strings; the brand boundary is the type system, not
-a format check.
+Schema-level format: branded string (no UUID predicate). The mint site
+happens to use UUIDs, but conformance-test fixtures sometimes pass synthetic
+strings; the brand boundary is the type system, not a format check.
 
-### [`ConnectionId`](./connection.ts#L19)
+### [`ConnectionId`](./connection.ts#L17)
 
 _Variable_
 
 ```ts
-export const ConnectionId = brandedString("ConnectionId")
+export type ConnectionId = string & Brand.Brand<"ConnectionId">
 ```
-
-Server-internal WebSocket connection identifier. Minted at WS accept
-(`crypto.randomUUID()`); not on the wire. Branded so it cannot be
-confused with `AgentId`, `AppId`, or other ids in service signatures.
-
-Boundary: a single `as ConnectionId` cast at the WS-accept site is the
-only acceptable construction in production code; downstream is brand-
-typed end-to-end. Test fixtures use the `connectionId(raw)` constructor
-exported from `@moltzap/protocol/testing`.
-
-Schema-level format: `brandedString` (no UUID predicate). The mint
-site happens to use UUIDs, but conformance-test fixtures sometimes
-pass synthetic strings; the brand boundary is the type system, not
-a format check.
 
 ### [`ConnectResult`](./lifecycle.ts#L108)
 
@@ -295,7 +280,7 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
 Per-definition app-callback handler slot. `Ctx` is the per-frame context the
 client hands every handler.
 
-### [`makeServerProtocolLayer`](./server.ts#L107)
+### [`makeServerProtocolLayer`](./server.ts#L110)
 
 _Function_
 
@@ -387,7 +372,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapServer`](./server.ts#L353)
+### [`MoltZapServer`](./server.ts#L356)
 
 _Class_
 
@@ -502,7 +487,7 @@ export class MoltZapServer<
 }
 ```
 
-### [`MoltZapServerOptions`](./server.ts#L62)
+### [`MoltZapServerOptions`](./server.ts#L63)
 
 _Interface_
 
@@ -530,7 +515,7 @@ export interface MoltZapServerOptions<
 }
 ```
 
-### [`MoltZapServerSession`](./server.ts#L48)
+### [`MoltZapServerSession`](./server.ts#L49)
 
 _Interface_
 
@@ -544,7 +529,7 @@ export interface MoltZapServerSession {
 }
 ```
 
-### [`newConnectionId`](./connection.ts#L24)
+### [`newConnectionId`](./connection.ts#L26)
 
 _Function_
 
@@ -707,7 +692,7 @@ export class ProtocolClientLifecycle<
     });
 ```
 
-### [`ReverseCallbackError`](./server.ts#L183)
+### [`ReverseCallbackError`](./server.ts#L186)
 
 _TypeAlias_
 
@@ -728,7 +713,7 @@ export type ReverseCallbackHandlers = {
 };
 ```
 
-### [`ReverseCallbackPayload`](./server.ts#L179)
+### [`ReverseCallbackPayload`](./server.ts#L182)
 
 _TypeAlias_
 
@@ -736,7 +721,7 @@ _TypeAlias_
 export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackRequest`](./server.ts#L185)
+### [`ReverseCallbackRequest`](./server.ts#L188)
 
 _TypeAlias_
 
@@ -748,7 +733,7 @@ export type ReverseCallbackRequest =
     }
 ```
 
-### [`ReverseCallbackSuccess`](./server.ts#L181)
+### [`ReverseCallbackSuccess`](./server.ts#L184)
 
 _TypeAlias_
 
@@ -756,7 +741,7 @@ _TypeAlias_
 export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackTag`](./server.ts#L175)
+### [`ReverseCallbackTag`](./server.ts#L178)
 
 _TypeAlias_
 
@@ -767,7 +752,7 @@ export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
 >;
 ```
 
-### [`ReverseCallError`](./server.ts#L171)
+### [`ReverseCallError`](./server.ts#L174)
 
 _TypeAlias_
 
@@ -777,7 +762,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 type ReverseRpcs = RpcGroup.Rpcs<typeof ReverseRpcGroup>;
 ```
 
-### [`ReverseClient`](./server.ts#L257)
+### [`ReverseClient`](./server.ts#L260)
 
 _Interface_
 
@@ -822,7 +807,25 @@ export interface RpcCallOptions {
 }
 ```
 
-### [`ServerSocketWrite`](./server.ts#L44)
+### [`ServerHandler`](./server.ts#L97)
+
+_TypeAlias_
+
+```ts
+export type ServerHandler<D extends AnyServerRpcDefinition> =
+```
+
+### [`ServerHandlers`](./server.ts#L94)
+
+_TypeAlias_
+
+```ts
+export type ServerHandlers = RpcGroup.HandlersFrom<
+  RpcGroup.Rpcs<typeof serverRpcGroup>
+>;
+```
+
+### [`ServerSocketWrite`](./server.ts#L45)
 
 _TypeAlias_
 

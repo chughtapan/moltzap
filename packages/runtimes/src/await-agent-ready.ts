@@ -8,7 +8,7 @@
  * sketch.
  */
 import { Effect, pipe } from "effect";
-import type { AgentId } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
 import type { ReadyOutcome } from "./runtime.js";
 
 interface ConnectionState {

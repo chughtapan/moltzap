@@ -2,9 +2,8 @@
  * @file Message identifiers, wire shapes, RPC descriptors, and notifications.
  */
 
-import { Either, Schema } from "effect";
+import { Either, Schema, type Brand } from "effect";
 import {
-  brandedId,
   dateTimeStringSchema,
   formatString,
 } from "../transport/wire-string.js";
@@ -141,10 +140,15 @@ export function messagePartsSchema(): typeof MessagePartsSchema {
 // ═══════════════════════════════════════════════════════════════════
 
 /** Branded dispatch lease identifier. */
-export const LeaseId = brandedId("LeaseId");
+export type LeaseId = string & Brand.Brand<"LeaseId">;
 
-/** Branded dispatch lease identifier value. */
-export type LeaseId = Schema.Schema.Type<typeof LeaseId>;
+/** Dispatch lease identifier schema. */
+export const LeaseId: Schema.Schema<LeaseId, string> = formatString(
+  "uuid",
+).pipe(
+  Schema.brand("LeaseId"),
+  Schema.annotations({ description: "Branded LeaseId" }),
+);
 
 /**
  * The referenced dispatch lease does not exist (or the caller is not its

@@ -4,9 +4,9 @@ import { ConversationServiceTag } from "../../app/layers.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type {
   AgentNotFoundError,
-  ConversationFullError,
   NotInContactsError,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/identity";
+import type { ConversationFullError } from "@moltzap/protocol/conversation";
 
 interface AuthorizeConversationCreateInput {
   readonly agentIds: ReadonlyArray<AgentId>;

@@ -1,14 +1,17 @@
 import { Effect } from "effect";
 import {
+  AgentsList,
   AgentsLookup,
   AgentsLookupByName,
-  AgentsList,
+} from "@moltzap/protocol/identity";
+import {
   DEFAULT_PAGE_LIMIT,
   InvalidParamsError,
-  type AgentCard,
-  type ParamsOf,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/transport";
+import type { AgentCard } from "@moltzap/protocol/identity";
+import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { AgentContext } from "../../transport/context.js";
 import { agentArm } from "../../app/server-handlers-runtime.js";
 import { DbTag } from "../../app/layers.js";
@@ -198,19 +201,19 @@ function agentsListBody(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const agentsLookup = (params: ParamsOf<typeof AgentsLookup>) =>
+export const agentsLookup: ServerHandler<typeof AgentsLookup> = (params) =>
   Effect.gen(function* () {
     return yield* agentsLookupBody(params);
   }).pipe(Effect.withSpan("agentsLookup"));
 
-export const agentsLookupByName = (
-  params: ParamsOf<typeof AgentsLookupByName>,
+export const agentsLookupByName: ServerHandler<typeof AgentsLookupByName> = (
+  params,
 ) =>
   Effect.gen(function* () {
     return yield* agentsLookupByNameBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("agentsLookupByName"));
 
-export const agentsList = (params: ParamsOf<typeof AgentsList>) =>
+export const agentsList: ServerHandler<typeof AgentsList> = (params) =>
   Effect.gen(function* () {
     return yield* agentsListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("agentsList"));

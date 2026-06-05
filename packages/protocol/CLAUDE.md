@@ -56,8 +56,9 @@ source. Update the descriptor, schema, or JSDoc, then run
    the domain language.
 
 2. Declare params/result schemas in the method block with Effect `Schema`.
-   Use `brandedId` / `brandedString` from `transport/wire-string.ts`, shared
-   pagination from `transport/pagination.ts`, and strict guards from
+   Domain branded strings are declared where the domain type lives with
+   `Brand.Brand<...>` and `Schema.brand(...)`. Use shared pagination from
+   `transport/pagination.ts`, and strict guards from
    `transport/strict-decode.ts`.
 
 3. Declare handler-domain error classes with `Schema.TaggedError`. The class is
@@ -115,8 +116,9 @@ Schemas:
 - Excess-key rejection happens at decode with
   `{ onExcessProperty: "error" }`; `closedStructGuard` wraps that as a boolean
   type guard.
-- Use `stringEnum`, `brandedId`, `brandedString`, `formatString`, and
-  `dateTimeStringSchema` from `transport/wire-string.ts`.
+- Use `Schema.brand(...)` in the owning domain file for branded value types.
+  Use `stringEnum`, `formatString`, and `dateTimeStringSchema` from
+  `transport/wire-string.ts` only for their unbranded wire-format helpers.
 - Keep unique params/result schemas in the method block. Extract only when a
   second method needs the same shape.
 

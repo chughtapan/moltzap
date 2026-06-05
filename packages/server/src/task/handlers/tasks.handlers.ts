@@ -1,6 +1,13 @@
 import { Effect } from "effect";
 import {
+  TaskAddParticipant,
+  TaskClose,
   TaskClosedNotificationDefinition,
+  TaskLeave,
+  TaskList,
+  TaskRemoveParticipant,
+} from "@moltzap/protocol/task";
+import {
   TaskConversationAddParticipant,
   TaskConversationArchive,
   TaskConversationArchivedNotificationDefinition,
@@ -12,16 +19,14 @@ import {
   TaskConversationRemoveParticipant,
   TaskConversationUnarchive,
   TaskConversationUnarchivedNotificationDefinition,
-  TaskLeave,
-  TaskAddParticipant,
-  TaskClose,
-  TaskList,
-  TaskRemoveParticipant,
-  InvalidParamsError,
-  type Conversation,
-  type ParamsOf,
-  type TaskConversationListItem,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/conversation";
+import { InvalidParamsError } from "@moltzap/protocol/transport";
+import type {
+  Conversation,
+  TaskConversationListItem,
+} from "@moltzap/protocol/conversation";
+import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ServerHandler } from "@moltzap/protocol/socket";
 import {
   assertAppOwnsTask,
   type AppId,
@@ -463,73 +468,73 @@ function taskConversationRemoveParticipantBody(
 // The four `task/conversation/*` admin methods provide their `ConversationInTask`
 // proof off the `*Auth` proof as a service before running the shared body.
 
-export const taskList = (params: ParamsOf<typeof TaskList>) =>
+export const taskList: ServerHandler<typeof TaskList> = (params) =>
   Effect.gen(function* () {
     return yield* taskListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("taskList"));
 
-export const taskLeave = (params: ParamsOf<typeof TaskLeave>) =>
+export const taskLeave: ServerHandler<typeof TaskLeave> = (params) =>
   Effect.gen(function* () {
     return yield* taskLeaveBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("taskLeave"));
 
-export const taskConversationList = (
-  params: ParamsOf<typeof TaskConversationList>,
-) =>
+export const taskConversationList: ServerHandler<
+  typeof TaskConversationList
+> = (params) =>
   Effect.gen(function* () {
     return yield* taskConversationListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("taskConversationList"));
 
-export const taskClose = (params: ParamsOf<typeof TaskClose>) =>
+export const taskClose: ServerHandler<typeof TaskClose> = (params) =>
   Effect.gen(function* () {
     return yield* taskCloseBody(params, yield* appArm);
   }).pipe(Effect.withSpan("taskClose"));
 
-export const taskAddParticipant = (
-  params: ParamsOf<typeof TaskAddParticipant>,
+export const taskAddParticipant: ServerHandler<typeof TaskAddParticipant> = (
+  params,
 ) =>
   Effect.gen(function* () {
     return yield* taskAddParticipantBody(params, yield* appArm);
   }).pipe(Effect.withSpan("taskAddParticipant"));
 
-export const taskRemoveParticipant = (
-  params: ParamsOf<typeof TaskRemoveParticipant>,
-) =>
+export const taskRemoveParticipant: ServerHandler<
+  typeof TaskRemoveParticipant
+> = (params) =>
   Effect.gen(function* () {
     return yield* taskRemoveParticipantBody(params, yield* appArm);
   }).pipe(Effect.withSpan("taskRemoveParticipant"));
 
-export const taskConversationCreate = (
-  params: ParamsOf<typeof TaskConversationCreate>,
-) =>
+export const taskConversationCreate: ServerHandler<
+  typeof TaskConversationCreate
+> = (params) =>
   Effect.gen(function* () {
     return yield* taskConversationCreateBody((yield* appArm).appId, params);
   }).pipe(Effect.withSpan("taskConversationCreate"));
 
-export const taskConversationArchive = (
-  params: ParamsOf<typeof TaskConversationArchive>,
-) =>
+export const taskConversationArchive: ServerHandler<
+  typeof TaskConversationArchive
+> = (params) =>
   Effect.gen(function* () {
     return yield* taskConversationArchiveBody(params, yield* appArm);
   }).pipe(Effect.withSpan("taskConversationArchive"));
 
-export const taskConversationUnarchive = (
-  params: ParamsOf<typeof TaskConversationUnarchive>,
-) =>
+export const taskConversationUnarchive: ServerHandler<
+  typeof TaskConversationUnarchive
+> = (params) =>
   Effect.gen(function* () {
     return yield* taskConversationUnarchiveBody(params, yield* appArm);
   }).pipe(Effect.withSpan("taskConversationUnarchive"));
 
-export const taskConversationAddParticipant = (
-  params: ParamsOf<typeof TaskConversationAddParticipant>,
-) =>
+export const taskConversationAddParticipant: ServerHandler<
+  typeof TaskConversationAddParticipant
+> = (params) =>
   Effect.gen(function* () {
     return yield* taskConversationAddParticipantBody(params, yield* appArm);
   }).pipe(Effect.withSpan("taskConversationAddParticipant"));
 
-export const taskConversationRemoveParticipant = (
-  params: ParamsOf<typeof TaskConversationRemoveParticipant>,
-) =>
+export const taskConversationRemoveParticipant: ServerHandler<
+  typeof TaskConversationRemoveParticipant
+> = (params) =>
   Effect.gen(function* () {
     return yield* taskConversationRemoveParticipantBody(params, yield* appArm);
   }).pipe(Effect.withSpan("taskConversationRemoveParticipant"));

@@ -16,11 +16,9 @@
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import {
-  DispatchesGet,
-  type AppManifest,
-  type DispatchId,
-} from "@moltzap/protocol";
+import { DispatchesGet } from "@moltzap/protocol/dispatch";
+import type { AppManifest } from "@moltzap/protocol/app";
+import type { DispatchId } from "@moltzap/protocol/dispatch";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {

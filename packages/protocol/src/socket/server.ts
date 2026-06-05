@@ -8,6 +8,7 @@ import {
   serverInboundMethods,
   type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
+  type AnyServerRpcDefinition,
 } from "../rpc-method-groups.js";
 import { MessagesAuthorize } from "../message/index.js";
 import { TaskCreate } from "../task/methods.js";
@@ -90,9 +91,11 @@ const makeServerRpcGroup = <const Defs extends readonly ServerRpcDescriptor[]>(
 
 const serverRpcGroup = makeServerRpcGroup(serverInboundMethods);
 
-type ServerHandlers = RpcGroup.HandlersFrom<
+export type ServerHandlers = RpcGroup.HandlersFrom<
   RpcGroup.Rpcs<typeof serverRpcGroup>
 >;
+export type ServerHandler<D extends AnyServerRpcDefinition> =
+  ServerHandlers[Extract<D["name"], keyof ServerHandlers>];
 
 type ServerRequirementMiddleware =
   | AgentPrincipal

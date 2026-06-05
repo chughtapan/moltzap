@@ -2,20 +2,19 @@ import {
   DispatchAuthorize,
   DispatchRelease,
   DispatchRequest,
-  MessagesAuthorize,
-  MessagesSend,
-  TaskConversationParticipantsRemovedNotificationDefinition,
-  TaskCreate,
-  TaskRequest,
-  type AppCallbackContext,
-  type AppCallbackHandlers,
-  type AppId,
-  type AppManifest,
-  type ConversationId,
-  type DispatchId,
-  type LeaseId,
-  type TaskId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/dispatch";
+import { MessagesAuthorize, MessagesSend } from "@moltzap/protocol/message";
+import { TaskConversationParticipantsRemovedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
+import type { AppManifest } from "@moltzap/protocol/app";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { DispatchId } from "@moltzap/protocol/dispatch";
+import type { LeaseId } from "@moltzap/protocol/message";
 import {
   agentId as protocolAgentId,
   messageId,

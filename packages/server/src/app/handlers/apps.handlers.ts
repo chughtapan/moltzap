@@ -1,10 +1,8 @@
 import type { AgentContext } from "../../transport/context.js";
-import {
-  DispatchRequest,
-  DispatchesGet,
-  ForbiddenError,
-  type ParamsOf,
-} from "@moltzap/protocol";
+import { DispatchRequest, DispatchesGet } from "@moltzap/protocol/dispatch";
+import { ForbiddenError } from "@moltzap/protocol/transport";
+import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ServerHandler } from "@moltzap/protocol/socket";
 import { Effect } from "effect";
 import { AppHostTag, ConnectionTag } from "../layers.js";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
@@ -74,12 +72,14 @@ function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const dispatchRequest = (params: ParamsOf<typeof DispatchRequest>) =>
+export const dispatchRequest: ServerHandler<typeof DispatchRequest> = (
+  params,
+) =>
   Effect.gen(function* () {
     return yield* dispatchRequestBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("dispatchRequest"));
 
-export const dispatchesGet = (params: ParamsOf<typeof DispatchesGet>) =>
+export const dispatchesGet: ServerHandler<typeof DispatchesGet> = (params) =>
   Effect.gen(function* () {
     return yield* dispatchesGetBody(params);
   }).pipe(Effect.withSpan("dispatchesGet"));

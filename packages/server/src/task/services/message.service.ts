@@ -15,11 +15,13 @@ import type { AppHost } from "../../app/app-host.js";
 import {
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
-  HookBlockedError,
   MAX_PAGE_LIMIT,
+} from "@moltzap/protocol/transport";
+import { HookBlockedError } from "@moltzap/protocol/task";
+import {
   MessageNotFoundError,
   MessageReceivedNotificationDefinition,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
 import { Cause, Effect, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import { nextSnowflakeId } from "../../db/snowflake.js";

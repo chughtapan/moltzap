@@ -16,15 +16,16 @@ import {
 
 import {
   DEFAULT_APP_ID,
-  DispatchAuthorize,
-  MessagesAuthorize,
-  MessagesSend,
   TaskCreate,
   TaskRequest,
-  type AppCallbackContext,
-  type AppCallbackHandlers,
-  type AppManifest,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/task";
+import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { MessagesAuthorize, MessagesSend } from "@moltzap/protocol/message";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
+import type { AppManifest } from "@moltzap/protocol/app";
 import { messageId } from "@moltzap/protocol/testing";
 
 const APP_ID = "00000000-0000-4000-8000-000000010008";

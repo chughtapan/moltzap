@@ -124,9 +124,9 @@ export const agentKeyString = (seed: number): string => {
   });
   return value ?? FALLBACK_AGENT_KEY_STRING;
 };
-// `ConnectionId` is a `brandedString` (no UUID format predicate); skip
-// `Value.Decode` and brand the raw string directly. Test fixtures use
-// synthetic non-UUID values like "owner-conn-1".
+// `ConnectionId` is only nominally branded (no UUID format predicate); skip
+// decode and brand the raw string directly. Test fixtures use synthetic
+// non-UUID values like "owner-conn-1".
 export const connectionId = (value: string): ConnectionId =>
   value as ConnectionId;
 

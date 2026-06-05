@@ -10,11 +10,8 @@ import {
 } from "../helpers.js";
 import type { ConnectedAgent } from "../helpers.js";
 
-import {
-  DEFAULT_APP_ID,
-  TaskConversationCreatedNotificationDefinition,
-  TaskRequest,
-} from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { TaskConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
 
 const GROUP_NAME = "Eval Group";
 

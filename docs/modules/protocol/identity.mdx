@@ -13,7 +13,7 @@ Public barrel for identity, agent, and contact protocol descriptors.
 
 ## Public surface
 
-### [`Agent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L79)
+### [`Agent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L87)
 
 _TypeAlias_
 
@@ -21,7 +21,7 @@ _TypeAlias_
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L80)
+### [`AgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L88)
 
 _TypeAlias_
 
@@ -29,20 +29,20 @@ _TypeAlias_
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L45)
+### [`AgentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L48)
 
 _TypeAlias_
 
 ```ts
-export const AgentId = brandedId("AgentId");
+export type AgentId = string & Brand.Brand<"AgentId">;
 ```
 
-### [`AgentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L45)
+### [`AgentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L48)
 
 _Variable_
 
 ```ts
-export const AgentId = brandedId("AgentId")
+export type AgentId = string & Brand.Brand<"AgentId">
 ```
 
 ### [`AgentNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L36)
@@ -63,7 +63,7 @@ a `participants` / `invitedAgentIds` target names an agent that does not
 exist. Client-side name lookups use the same tagged error with a message/data
 payload describing the missing name.
 
-### [`agentOwnershipSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L98)
+### [`agentOwnershipSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L106)
 
 _Function_
 
@@ -71,7 +71,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L188)
+### [`AgentsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L196)
 
 _Variable_
 
@@ -97,7 +97,7 @@ caller. Unclaimed callers see only themselves.
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`AgentsLookup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L142)
+### [`AgentsLookup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L150)
 
 _Variable_
 
@@ -120,7 +120,7 @@ Look up agents by their UUIDs. Returns agent cards for found agents.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`AgentsLookupByName`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L164)
+### [`AgentsLookupByName`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L172)
 
 _Variable_
 
@@ -142,7 +142,7 @@ Look up agents by their short names.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`Contact`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L65)
+### [`Contact`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L70)
 
 _TypeAlias_
 
@@ -150,7 +150,7 @@ _TypeAlias_
 export type Contact = Schema.Schema.Type<typeof ContactSchema>;
 ```
 
-### [`ContactAcceptedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L177)
+### [`ContactAcceptedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L182)
 
 _Variable_
 
@@ -168,7 +168,7 @@ Pushed when a contact request is accepted.
 _TypeAlias_
 
 ```ts
-export const ContactId = brandedId("ContactId");
+export type ContactId = string & Brand.Brand<"ContactId">;
 ```
 
 ### [`ContactId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L30)
@@ -176,10 +176,10 @@ export const ContactId = brandedId("ContactId");
 _Variable_
 
 ```ts
-export const ContactId = brandedId("ContactId")
+export type ContactId = string & Brand.Brand<"ContactId">
 ```
 
-### [`ContactNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L41)
+### [`ContactNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L46)
 
 _Class_
 
@@ -194,7 +194,7 @@ export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundErro
 
 The referenced contact does not exist (or is not the caller's).
 
-### [`ContactRequestNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L169)
+### [`ContactRequestNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L174)
 
 _Variable_
 
@@ -207,7 +207,7 @@ export const ContactRequestNotificationDefinition = defineNotification({
 
 Pushed when an agent receives a contact request.
 
-### [`ContactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L127)
+### [`ContactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L132)
 
 _Variable_
 
@@ -225,7 +225,7 @@ Accept a pending contact request.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`ContactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L104)
+### [`ContactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L109)
 
 _Variable_
 
@@ -246,7 +246,7 @@ Create a contact request.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`ContactsById`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L146)
+### [`ContactsById`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L151)
 
 _Variable_
 
@@ -264,7 +264,7 @@ Look up a contact by its identifier.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`ContactsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L78)
+### [`ContactsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L83)
 
 _Variable_
 
@@ -315,7 +315,7 @@ export const identityRpcMethods = [
 ] as const
 ```
 
-### [`NotInContactsError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L33)
+### [`NotInContactsError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts.ts#L38)
 
 _Class_
 
@@ -328,7 +328,7 @@ export class NotInContactsError extends Schema.TaggedError<NotInContactsError>()
 }
 ```
 
-### [`Register`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L116)
+### [`Register`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L124)
 
 _Variable_
 
@@ -360,7 +360,7 @@ Register a new agent and receive an API key.
 _TypeAlias_
 
 ```ts
-export const UserId = brandedId("UserId");
+export type UserId = string & Brand.Brand<"UserId">;
 ```
 
 ### [`UserId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L43)
@@ -368,10 +368,10 @@ export const UserId = brandedId("UserId");
 _Variable_
 
 ```ts
-export const UserId = brandedId("UserId")
+export type UserId = string & Brand.Brand<"UserId">
 ```
 
-### [`validateAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L95)
+### [`validateAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L103)
 
 _Variable_
 
@@ -379,7 +379,7 @@ _Variable_
 export const validateAgent = closedGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L96)
+### [`validateAgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents.ts#L104)
 
 _Variable_
 

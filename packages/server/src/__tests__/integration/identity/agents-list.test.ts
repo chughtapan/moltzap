@@ -12,7 +12,7 @@ import {
   createTestUser,
   registerClaimedAgent,
 } from "../helpers.js";
-import type { AgentCard } from "@moltzap/protocol";
+import type { AgentCard } from "@moltzap/protocol/identity";
 import { agentId, userId } from "@moltzap/protocol/testing";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 
@@ -20,9 +20,9 @@ import {
   AgentsList,
   AgentsLookup,
   AgentsLookupByName,
-  ContactsAdd,
   ContactsAccept,
-} from "@moltzap/protocol";
+  ContactsAdd,
+} from "@moltzap/protocol/identity";
 
 const it = effectIt.live;
 

@@ -22,17 +22,16 @@
  */
 import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { it as effectIt } from "@effect/vitest";
-import {
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-  TaskConversationCreate,
-  TaskRequest,
-  type AppCallbackContext,
-  type AppCallbackHandlers,
-  type AppId,
-  type AppManifest,
-} from "@moltzap/protocol";
+import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
+import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
+import { TaskConversationCreate } from "@moltzap/protocol/conversation";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
+import type { AppId } from "@moltzap/protocol/task";
+import type { AppManifest } from "@moltzap/protocol/app";
 import { Cause, Effect, Exit } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {

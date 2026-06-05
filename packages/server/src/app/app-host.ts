@@ -3,21 +3,17 @@ import type { Db } from "../db/client.js";
 import type { ContactService } from "../identity/services/contact-policy.js";
 import { sendRpcToClient } from "../transport/connection.js";
 import type { ConnectionManager } from "../transport/connection.js";
+import type { AppManifest } from "@moltzap/protocol/app";
+import type { DispatchId } from "@moltzap/protocol/dispatch";
+import type { LeaseId, Part } from "@moltzap/protocol/message";
+import type { ParamsOf, ResultOf } from "@moltzap/protocol/transport";
 import type {
-  AppManifest,
-  DispatchId,
-  LeaseId,
-  ParamsOf,
-  Part,
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
-  ResultOf,
-} from "@moltzap/protocol";
-import {
-  DispatchAuthorize,
-  TaskCreate,
-  type ConnectionId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/socket";
+import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { TaskCreate } from "@moltzap/protocol/task";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AppId } from "@moltzap/protocol/task";
@@ -32,7 +28,7 @@ import {
   type AppEndpoint,
   type AppRegistration,
 } from "./app-registration.js";
-import { MessagesAuthorize } from "@moltzap/protocol";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Data, Effect, Option } from "effect";
 import {

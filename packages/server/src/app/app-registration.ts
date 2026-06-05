@@ -1,5 +1,5 @@
-import type { AppManifest } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol";
+import type { AppManifest } from "@moltzap/protocol/app";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import { AppId } from "@moltzap/protocol/task";
 import type { Originator } from "../transport/connection.js";
 

@@ -2,7 +2,7 @@
  * @file Dispatch admission RPC descriptors and notifications.
  */
 
-import { Schema } from "effect";
+import { Schema, type Brand } from "effect";
 import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
 import { ConversationId, MessageId } from "../conversation/index.js";
 import { TaskId } from "../task/ids.js";
@@ -10,7 +10,7 @@ import { messagePartsSchema } from "../message/index.js";
 import { LeaseId, DispatchNotFoundError } from "../message/index.js";
 import {
   dateTimeStringSchema,
-  brandedId,
+  formatString,
   stringEnum,
 } from "../transport/wire-string.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
@@ -45,10 +45,15 @@ const MessagePartsSchema = messagePartsSchema();
  * admission attempt by a stable handle whose lease may have been
  * rolled back-and-re-granted within the same dispatch.
  */
-export const DispatchId = brandedId("DispatchId");
+export type DispatchId = string & Brand.Brand<"DispatchId">;
 
-/** Branded dispatch identifier value. */
-export type DispatchId = Schema.Schema.Type<typeof DispatchId>;
+/** Dispatch identifier schema. */
+export const DispatchId: Schema.Schema<DispatchId, string> = formatString(
+  "uuid",
+).pipe(
+  Schema.brand("DispatchId"),
+  Schema.annotations({ description: "Branded DispatchId" }),
+);
 
 const DispatchAdmissionDecisionSchema = Schema.Union(
   Schema.Struct({

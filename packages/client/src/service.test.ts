@@ -1,16 +1,19 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Exit } from "effect";
-import type { Message, ResultOf } from "@moltzap/protocol";
+import type { Message } from "@moltzap/protocol/message";
+import type { ResultOf } from "@moltzap/protocol/transport";
 import {
-  TaskConversationList,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationCreatedNotificationDefinition,
+  TaskConversationList,
   TaskConversationUnarchivedNotificationDefinition,
-  DispatchRequest,
+} from "@moltzap/protocol/conversation";
+import { DispatchRequest } from "@moltzap/protocol/dispatch";
+import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
 import {
@@ -21,7 +24,7 @@ import {
   testTaskId,
 } from "./test-utils/index.js";
 
-import { AgentsLookupByName } from "@moltzap/protocol";
+import { AgentsLookupByName } from "@moltzap/protocol/identity";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 
 const effectTest = effectIt.effect;

@@ -13,7 +13,7 @@ Public exports for runtime adapter orchestration.
 
 ## Public surface
 
-### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L7)
+### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L8)
 
 _TypeAlias_
 
@@ -21,7 +21,7 @@ _TypeAlias_
 export type AgentName = string & Brand.Brand<"AgentName">;
 ```
 
-### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L7)
+### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L8)
 
 _Variable_
 
@@ -277,7 +277,7 @@ Non-workspace usage: pass explicit `openclawBin` /
 `channelDistDir` to OpenClawAdapter's constructor
 directly. This factory is a convenience for monorepo callers.
 
-### [`launchRuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L336)
+### [`launchRuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L337)
 
 _Function_
 
@@ -302,7 +302,7 @@ Sibling: launchRuntimeFleetWithProcessSignals adds SIGINT
 / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
 `RuntimeFleetStartupInterrupted`.
 
-### [`launchRuntimeFleetWithProcessSignals`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L437)
+### [`launchRuntimeFleetWithProcessSignals`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L438)
 
 _Function_
 
@@ -335,7 +335,7 @@ flowchart TD
 
 - `RuntimeFleetStartupInterrupted` — a signal arrives during fleet startup
 
-### [`LogSlice`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L49)
+### [`LogSlice`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L50)
 
 _Interface_
 
@@ -651,7 +651,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`ReadyOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L56)
+### [`ReadyOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L57)
 
 _TypeAlias_
 
@@ -660,7 +660,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L75)
+### [`Runtime`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L76)
 
 _Interface_
 
@@ -696,7 +696,7 @@ getLogs returns accumulated output from a byte offset.
 getInboundMarker returns a substring that proves an inbound message
 was received by the runtime's channel plugin.
 
-### [`RuntimeAgentSpec`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L35)
+### [`RuntimeAgentSpec`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L36)
 
 _Interface_
 
@@ -733,7 +733,7 @@ Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
 `exitCode` is `null` only if the process exited via signal.
 Caller action: inspect `stderr`; check binary auth config.
 
-### [`RuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L75)
+### [`RuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L76)
 
 _Interface_
 
@@ -745,7 +745,7 @@ export interface RuntimeFleet {
 }
 ```
 
-### [`RuntimeFleetAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L70)
+### [`RuntimeFleetAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L71)
 
 _Interface_
 
@@ -756,7 +756,7 @@ export interface RuntimeFleetAgent {
 }
 ```
 
-### [`RuntimeFleetLaunchOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L54)
+### [`RuntimeFleetLaunchOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L55)
 
 _Interface_
 
@@ -773,7 +773,7 @@ export interface RuntimeFleetLaunchOptions {
 }
 ```
 
-### [`RuntimeFleetProcessSignalOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L65)
+### [`RuntimeFleetProcessSignalOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L66)
 
 _Interface_
 
@@ -784,7 +784,7 @@ export interface RuntimeFleetProcessSignalOptions
 }
 ```
 
-### [`RuntimeFleetStartupInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L81)
+### [`RuntimeFleetStartupInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L82)
 
 _Class_
 
@@ -797,7 +797,7 @@ export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
 }> {}
 ```
 
-### [`RuntimeKind`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L31)
+### [`RuntimeKind`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L32)
 
 _TypeAlias_
 
@@ -856,7 +856,7 @@ within `timeoutMs`.
 Caller action: increase `readyTimeoutMs`, or inspect
 `runtime.getLogs(0)` to see what the subprocess is doing.
 
-### [`RuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L20)
+### [`RuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L21)
 
 _Interface_
 
@@ -882,7 +882,7 @@ export interface RuntimeServerHandle {
 }
 ```
 
-### [`RuntimeStartOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L44)
+### [`RuntimeStartOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L45)
 
 _Interface_
 
@@ -898,7 +898,7 @@ export interface RuntimeStartOptions {
 }
 ```
 
-### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L8)
+### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L9)
 
 _TypeAlias_
 
@@ -906,7 +906,7 @@ _TypeAlias_
 export type ServerUrl = string & Brand.Brand<"ServerUrl">;
 ```
 
-### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L8)
+### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L9)
 
 _Variable_
 
@@ -933,7 +933,7 @@ failure, state-dir creation failure.
 `cause` carries the underlying Error.
 Caller action: surface to user. No retry — binary or config is wrong.
 
-### [`SpawnInput`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L40)
+### [`SpawnInput`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L41)
 
 _Interface_
 
@@ -948,7 +948,7 @@ export interface SpawnInput {
 }
 ```
 
-### [`startRuntimeAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L308)
+### [`startRuntimeAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L309)
 
 _Function_
 
@@ -995,7 +995,7 @@ export interface WorkspaceClaudeCodeAdapterInput {
 }
 ```
 
-### [`WorkspaceFile`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L15)
+### [`WorkspaceFile`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L16)
 
 _Interface_
 

@@ -4,12 +4,12 @@ import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type { ContactRow } from "../../db/database.js";
 import {
   ConflictError,
-  ContactNotFoundError,
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
-  type Contact,
-  type ListCursor,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/transport";
+import { ContactNotFoundError } from "@moltzap/protocol/identity";
+import type { Contact } from "@moltzap/protocol/identity";
+import type { ListCursor } from "@moltzap/protocol/transport";
 import type { ContactId, UserId } from "@moltzap/protocol/identity";
 import {
   decodeListCursor,

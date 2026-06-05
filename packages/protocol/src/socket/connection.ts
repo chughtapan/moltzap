@@ -1,5 +1,4 @@
-import { Schema } from "effect";
-import { brandedString, type BrandedString } from "../transport/wire-string.js";
+import { Schema, type Brand } from "effect";
 
 /**
  * Server-internal WebSocket connection identifier. Minted at WS accept
@@ -11,13 +10,16 @@ import { brandedString, type BrandedString } from "../transport/wire-string.js";
  * typed end-to-end. Test fixtures use the `connectionId(raw)` constructor
  * exported from `@moltzap/protocol/testing`.
  *
- * Schema-level format: `brandedString` (no UUID predicate). The mint
- * site happens to use UUIDs, but conformance-test fixtures sometimes
- * pass synthetic strings; the brand boundary is the type system, not
- * a format check.
+ * Schema-level format: branded string (no UUID predicate). The mint site
+ * happens to use UUIDs, but conformance-test fixtures sometimes pass synthetic
+ * strings; the brand boundary is the type system, not a format check.
  */
-export const ConnectionId = brandedString("ConnectionId");
-export type ConnectionId = BrandedString<"ConnectionId">;
+export type ConnectionId = string & Brand.Brand<"ConnectionId">;
+export const ConnectionId: Schema.Schema<ConnectionId, string> =
+  Schema.String.pipe(
+    Schema.brand("ConnectionId"),
+    Schema.annotations({ description: "Branded ConnectionId" }),
+  );
 
 export const connectionId = Schema.decodeSync(ConnectionId);
 

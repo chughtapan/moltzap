@@ -5,8 +5,11 @@ import { Effect, pipe, Schema } from "effect";
 import {
   RegistrationSecret,
   ServerEncryptionMasterSecret,
-  type AgentId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/credentials";
+import type {
+  AgentId,
+  UserId as UserIdValue,
+} from "@moltzap/protocol/identity";
 import { UserId } from "@moltzap/protocol/identity";
 import {
   InMemorySpanExporter,
@@ -40,9 +43,9 @@ class CoreTestServerError extends Error {
 
 const ENCRYPTION_MASTER_SECRET_BYTES = 32;
 const PGLITE_BOOT_DELAY_MS = 200;
-export const DEFAULT_TEST_ADMIN_USER_ID = Schema.decodeUnknownSync(UserId)(
-  "00000000-0000-4000-8000-00000000ad00",
-);
+export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
+  UserId,
+)("00000000-0000-4000-8000-00000000ad00");
 
 // Minimal duplicate of `@moltzap/runtimes`'s `awaitAgentReadyByPolling` and
 // `RuntimeServerHandle`/`ReadyOutcome` shapes. We can't import from

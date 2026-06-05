@@ -27,12 +27,9 @@ import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Data, Effect, Schema } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
-import {
-  AgentKey,
-  MessagesList,
-  MessagesSend,
-  type Message,
-} from "@moltzap/protocol";
+import { AgentKey } from "@moltzap/protocol/credentials";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import type { Message } from "@moltzap/protocol/message";
 import {
   TaskRequest,
   DEFAULT_APP_ID,

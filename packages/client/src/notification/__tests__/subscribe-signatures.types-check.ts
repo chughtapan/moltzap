@@ -12,13 +12,13 @@
  */
 import { Stream } from "effect";
 import type { Effect } from "effect";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
 import type {
-  AnyNotificationDefinition,
   NotConnectedError,
   NotificationDelivery,
-  NotificationSubscriberRegistry,
   NotificationParamsOf,
-} from "@moltzap/protocol";
+  NotificationSubscriberRegistry,
+} from "@moltzap/protocol/transport";
 import { subscribe, subscribeAll } from "../stream.js";
 
 // Standard TypeScript exact-equality helper.
@@ -45,7 +45,7 @@ type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
 // type-guard)` call: if the type-guard overload is deleted from `stream.ts`,
 // the third-argument `params is R` shape no longer matches and tsc reports
 // a type error here.
-import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 declare const _canary1bRegistry: NotificationSubscriberRegistry<
   NotConnectedError,
   AnyNotificationDefinition

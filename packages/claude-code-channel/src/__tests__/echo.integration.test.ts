@@ -12,12 +12,13 @@ import { Data, Effect, Schema } from "effect";
 import { MoltZapService } from "@moltzap/client";
 import type { ServiceRpcError } from "@moltzap/client";
 import { withTestServiceConfig } from "@moltzap/client/test-utils";
-import { AgentKey, type Message } from "@moltzap/protocol";
+import { AgentKey } from "@moltzap/protocol/credentials";
+import type { Message } from "@moltzap/protocol/message";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";

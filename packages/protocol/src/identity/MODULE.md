@@ -8,7 +8,7 @@ Public barrel for identity, agent, and contact protocol descriptors.
 
 ## Public surface
 
-### [`Agent`](./agents.ts#L79)
+### [`Agent`](./agents.ts#L87)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](./agents.ts#L80)
+### [`AgentCard`](./agents.ts#L88)
 
 _TypeAlias_
 
@@ -24,20 +24,20 @@ _TypeAlias_
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentId`](./agents.ts#L45)
+### [`AgentId`](./agents.ts#L48)
 
 _TypeAlias_
 
 ```ts
-export const AgentId = brandedId("AgentId");
+export type AgentId = string & Brand.Brand<"AgentId">;
 ```
 
-### [`AgentId`](./agents.ts#L45)
+### [`AgentId`](./agents.ts#L48)
 
 _Variable_
 
 ```ts
-export const AgentId = brandedId("AgentId")
+export type AgentId = string & Brand.Brand<"AgentId">
 ```
 
 ### [`AgentNotFoundError`](./agents.ts#L36)
@@ -58,7 +58,7 @@ a `participants` / `invitedAgentIds` target names an agent that does not
 exist. Client-side name lookups use the same tagged error with a message/data
 payload describing the missing name.
 
-### [`agentOwnershipSchema`](./agents.ts#L98)
+### [`agentOwnershipSchema`](./agents.ts#L106)
 
 _Function_
 
@@ -66,7 +66,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L188)
+### [`AgentsList`](./agents.ts#L196)
 
 _Variable_
 
@@ -92,7 +92,7 @@ caller. Unclaimed callers see only themselves.
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`AgentsLookup`](./agents.ts#L142)
+### [`AgentsLookup`](./agents.ts#L150)
 
 _Variable_
 
@@ -115,7 +115,7 @@ Look up agents by their UUIDs. Returns agent cards for found agents.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`AgentsLookupByName`](./agents.ts#L164)
+### [`AgentsLookupByName`](./agents.ts#L172)
 
 _Variable_
 
@@ -137,7 +137,7 @@ Look up agents by their short names.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`Contact`](./contacts.ts#L65)
+### [`Contact`](./contacts.ts#L70)
 
 _TypeAlias_
 
@@ -145,7 +145,7 @@ _TypeAlias_
 export type Contact = Schema.Schema.Type<typeof ContactSchema>;
 ```
 
-### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L177)
+### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L182)
 
 _Variable_
 
@@ -163,7 +163,7 @@ Pushed when a contact request is accepted.
 _TypeAlias_
 
 ```ts
-export const ContactId = brandedId("ContactId");
+export type ContactId = string & Brand.Brand<"ContactId">;
 ```
 
 ### [`ContactId`](./contacts.ts#L30)
@@ -171,10 +171,10 @@ export const ContactId = brandedId("ContactId");
 _Variable_
 
 ```ts
-export const ContactId = brandedId("ContactId")
+export type ContactId = string & Brand.Brand<"ContactId">
 ```
 
-### [`ContactNotFoundError`](./contacts.ts#L41)
+### [`ContactNotFoundError`](./contacts.ts#L46)
 
 _Class_
 
@@ -189,7 +189,7 @@ export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundErro
 
 The referenced contact does not exist (or is not the caller's).
 
-### [`ContactRequestNotificationDefinition`](./contacts.ts#L169)
+### [`ContactRequestNotificationDefinition`](./contacts.ts#L174)
 
 _Variable_
 
@@ -202,7 +202,7 @@ export const ContactRequestNotificationDefinition = defineNotification({
 
 Pushed when an agent receives a contact request.
 
-### [`ContactsAccept`](./contacts.ts#L127)
+### [`ContactsAccept`](./contacts.ts#L132)
 
 _Variable_
 
@@ -220,7 +220,7 @@ Accept a pending contact request.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`ContactsAdd`](./contacts.ts#L104)
+### [`ContactsAdd`](./contacts.ts#L109)
 
 _Variable_
 
@@ -241,7 +241,7 @@ Create a contact request.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`ContactsById`](./contacts.ts#L146)
+### [`ContactsById`](./contacts.ts#L151)
 
 _Variable_
 
@@ -259,7 +259,7 @@ Look up a contact by its identifier.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`ContactsList`](./contacts.ts#L78)
+### [`ContactsList`](./contacts.ts#L83)
 
 _Variable_
 
@@ -310,7 +310,7 @@ export const identityRpcMethods = [
 ] as const
 ```
 
-### [`NotInContactsError`](./contacts.ts#L33)
+### [`NotInContactsError`](./contacts.ts#L38)
 
 _Class_
 
@@ -323,7 +323,7 @@ export class NotInContactsError extends Schema.TaggedError<NotInContactsError>()
 }
 ```
 
-### [`Register`](./agents.ts#L116)
+### [`Register`](./agents.ts#L124)
 
 _Variable_
 
@@ -355,7 +355,7 @@ Register a new agent and receive an API key.
 _TypeAlias_
 
 ```ts
-export const UserId = brandedId("UserId");
+export type UserId = string & Brand.Brand<"UserId">;
 ```
 
 ### [`UserId`](./agents.ts#L43)
@@ -363,10 +363,10 @@ export const UserId = brandedId("UserId");
 _Variable_
 
 ```ts
-export const UserId = brandedId("UserId")
+export type UserId = string & Brand.Brand<"UserId">
 ```
 
-### [`validateAgent`](./agents.ts#L95)
+### [`validateAgent`](./agents.ts#L103)
 
 _Variable_
 
@@ -374,7 +374,7 @@ _Variable_
 export const validateAgent = closedGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](./agents.ts#L96)
+### [`validateAgentCard`](./agents.ts#L104)
 
 _Variable_
 

@@ -11,7 +11,7 @@ import {
 import { getCoreDb } from "../../../test-utils/index.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
-import { TaskConversationList } from "@moltzap/protocol";
+import { TaskConversationList } from "@moltzap/protocol/conversation";
 
 let baseUrl: string;
 let wsUrl: string;

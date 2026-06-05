@@ -11,7 +11,7 @@ export {
   type CrossConversationEntry,
   type ServiceRpcError,
 } from "./service.js";
-export { AgentNotFoundError } from "@moltzap/protocol";
+export { AgentNotFoundError } from "@moltzap/protocol/identity";
 export { MoltZapAgentClient, type AgentClientOptions } from "./agent-client.js";
 export {
   MoltZapAppClient,
@@ -19,7 +19,7 @@ export {
   type AppCallbackContext,
   type RpcCallOptions,
 } from "./app-client.js";
-export type { AppCallbackHandlers } from "@moltzap/protocol";
+export type { AppCallbackHandlers } from "@moltzap/protocol/socket";
 // Tagged errors for the typed-Stream subscribe surface.
 // `NotificationConsumerError` is a type union (see notification/errors.ts
 // header for rationale).

@@ -11,7 +11,7 @@ import {
   connectTestClient,
 } from "../helpers.js";
 
-import { TaskConversationList } from "@moltzap/protocol";
+import { TaskConversationList } from "@moltzap/protocol/conversation";
 
 const SUSPENDED_STATUS = "suspended";
 const AUTHENTICATION_FAILED_MESSAGE = "Authentication failed";

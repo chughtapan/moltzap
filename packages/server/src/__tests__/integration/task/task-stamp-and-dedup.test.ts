@@ -9,7 +9,8 @@ import {
   getKyselyDb,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, MessagesSend, TaskRequest } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { MessagesSend } from "@moltzap/protocol/message";
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
 

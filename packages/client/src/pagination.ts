@@ -15,7 +15,7 @@ import type {
   ClientDefinitionPayload,
   ClientDefinitionSuccess,
   ClientRpcDefinition,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/socket";
 import { Data, Effect } from "effect";
 
 /**

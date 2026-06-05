@@ -6,12 +6,12 @@ import {
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
 import type { ChannelService } from "@moltzap/client/channel-base";
-import {
-  AgentsList,
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
-} from "@moltzap/protocol";
+import { AgentsList } from "@moltzap/protocol/identity";
+import type {
+  ParamsOf,
+  ResultOf,
+  RpcDefinition,
+} from "@moltzap/protocol/transport";
 import { Data, Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";

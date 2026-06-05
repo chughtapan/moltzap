@@ -1,10 +1,8 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import type { Message } from "@moltzap/protocol";
-import {
-  TaskConversationArchivedNotificationDefinition,
-  MessageReceivedNotificationDefinition,
-} from "@moltzap/protocol";
+import type { Message } from "@moltzap/protocol/message";
+import { TaskConversationArchivedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import { FakeMoltZapService } from "../../../test-utils/fake-service.js";
 import {
   buildMessage,

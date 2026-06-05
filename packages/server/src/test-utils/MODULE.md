@@ -8,7 +8,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AppEndpointHandlers`](./app-endpoint.ts#L56)
+### [`AppEndpointHandlers`](./app-endpoint.ts#L54)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ task-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L53)
+### [`AwaitNotificationError`](./helpers.ts#L49)
 
 _TypeAlias_
 
@@ -80,7 +80,7 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
 }
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L64)
+### [`awaitOneNotification`](./helpers.ts#L60)
 
 _Function_
 
@@ -98,7 +98,7 @@ and `AwaitNotificationClosedError` when the transport closed before a
 matching frame arrived. Distinguishing close from timeout keeps a dead
 connection from masquerading as a missing notification.
 
-### [`closeAllClients`](./helpers.ts#L167)
+### [`closeAllClients`](./helpers.ts#L163)
 
 _Function_
 
@@ -106,7 +106,7 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`connectAppClient`](./helpers.ts#L294)
+### [`connectAppClient`](./helpers.ts#L290)
 
 _Function_
 
@@ -124,7 +124,7 @@ registers the live connection as the app's moderator endpoint, so the
 returned client receives server→client `dispatch/authorize` /
 `messages/authorize` / `task/create` callbacks. Tracked for cleanup.
 
-### [`ConnectedAgent`](./helpers.ts#L103)
+### [`ConnectedAgent`](./helpers.ts#L99)
 
 _Interface_
 
@@ -137,7 +137,7 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L216)
+### [`connectTestClient`](./helpers.ts#L212)
 
 _Function_
 
@@ -161,7 +161,7 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](./server.ts#L63)
+### [`CoreTestRuntimeServerHandle`](./server.ts#L66)
 
 _Interface_
 
@@ -174,7 +174,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L119)
+### [`CoreTestServer`](./server.ts#L122)
 
 _Interface_
 
@@ -204,7 +204,7 @@ export interface CoreTestServer {
 }
 ```
 
-### [`createTestAgent`](./helpers.ts#L193)
+### [`createTestAgent`](./helpers.ts#L189)
 
 _Function_
 
@@ -215,14 +215,14 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent, never>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L43)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L46)
 
 _Variable_
 
 ```ts
-export const DEFAULT_TEST_ADMIN_USER_ID = Schema.decodeUnknownSync(UserId)(
-  "00000000-0000-4000-8000-00000000ad00",
-)
+export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
+  UserId,
+)("00000000-0000-4000-8000-00000000ad00")
 ```
 
 ### [`expectRpcFailure`](./rpc-error.ts#L21)
@@ -240,7 +240,7 @@ Asserts the RPC effect fails with a wire `error` carrying `expectedTag` and
 returns the narrowed error for follow-up assertions. `catchTags` routes by
 tag name declaratively so callers never reach for `err._tag`.
 
-### [`getBaseUrl`](./server.ts#L398)
+### [`getBaseUrl`](./server.ts#L401)
 
 _Function_
 
@@ -248,7 +248,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](./server.ts#L390)
+### [`getCoreApp`](./server.ts#L393)
 
 _Function_
 
@@ -256,7 +256,7 @@ _Function_
 export function getCoreApp(): CoreApp
 ```
 
-### [`getCoreDb`](./server.ts#L375)
+### [`getCoreDb`](./server.ts#L378)
 
 _Function_
 
@@ -264,7 +264,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L383)
+### [`getCoreEncryptionEnvelope`](./server.ts#L386)
 
 _Function_
 
@@ -272,7 +272,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L403)
+### [`getWsUrl`](./server.ts#L406)
 
 _Function_
 
@@ -311,7 +311,7 @@ the compile-time contract-drift insurance. Adding a field to the real
 interface does NOT fail compilation (tests are a Partial), but changing an
 existing field's signature does.
 
-### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L125)
+### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L123)
 
 _Function_
 
@@ -396,7 +396,7 @@ function sqlPreview(sql: string): string {
 }
 ```
 
-### [`postJson`](./helpers.ts#L327)
+### [`postJson`](./helpers.ts#L323)
 
 _Function_
 
@@ -412,7 +412,7 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 `{status, json}`. HTTP integration tests import this helper to avoid
 repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L174)
+### [`registerAgent`](./helpers.ts#L170)
 
 _Function_
 
@@ -424,7 +424,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L311)
+### [`registerAndConnect`](./helpers.ts#L307)
 
 _Function_
 
@@ -436,7 +436,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L262)
+### [`registerApp`](./helpers.ts#L258)
 
 _Function_
 
@@ -462,7 +462,7 @@ app's moderator endpoint.
 (the HTTP route gates app registration behind the same secret as agent
 registration); omit it for the default open-registration server.
 
-### [`resetCoreTestDb`](./server.ts#L349)
+### [`resetCoreTestDb`](./server.ts#L352)
 
 _Function_
 
@@ -470,7 +470,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`setupAgentGroup`](./helpers.ts#L427)
+### [`setupAgentGroup`](./helpers.ts#L423)
 
 _Function_
 
@@ -490,7 +490,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L415)
+### [`setupAgentPair`](./helpers.ts#L411)
 
 _Function_
 
@@ -503,7 +503,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L310)
+### [`startCoreTestServer`](./server.ts#L313)
 
 _Function_
 
@@ -511,7 +511,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L323)
+### [`stopCoreTestServer`](./server.ts#L326)
 
 _Function_
 
@@ -519,7 +519,7 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L163)
+### [`trackClient`](./helpers.ts#L159)
 
 _Function_
 

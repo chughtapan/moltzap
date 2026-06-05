@@ -1,9 +1,8 @@
 import type { AgentContext, AppContext } from "../../transport/context.js";
-import {
-  PresenceSubscribe,
-  NotInContactsError,
-  type ParamsOf,
-} from "@moltzap/protocol";
+import { PresenceSubscribe } from "@moltzap/protocol/network";
+import { NotInContactsError } from "@moltzap/protocol/identity";
+import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
 import {
@@ -87,7 +86,9 @@ const authenticatedArm: Effect.Effect<
   );
 }).pipe(Effect.withSpan("serverHandlers.authenticatedArm"));
 
-export const presenceSubscribe = (params: ParamsOf<typeof PresenceSubscribe>) =>
+export const presenceSubscribe: ServerHandler<typeof PresenceSubscribe> = (
+  params,
+) =>
   Effect.gen(function* () {
     return yield* presenceSubscribeBody(params, yield* authenticatedArm);
   }).pipe(Effect.withSpan("presenceSubscribe"));

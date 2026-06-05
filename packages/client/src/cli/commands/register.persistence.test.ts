@@ -2,7 +2,9 @@ import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Option, Redacted, Schema } from "effect";
-import { AgentId, AgentKey, Register, type ResultOf } from "@moltzap/protocol";
+import { AgentId, Register } from "@moltzap/protocol/identity";
+import { AgentKey } from "@moltzap/protocol/credentials";
+import type { ResultOf } from "@moltzap/protocol/transport";
 import {
   agentId,
   agentKeyString,

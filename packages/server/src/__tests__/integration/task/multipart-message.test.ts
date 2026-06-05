@@ -10,13 +10,12 @@ import {
   textOfPart,
 } from "../helpers.js";
 
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
+  MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  MessageReceivedNotificationDefinition,
-  TaskRequest,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
 
 const PART_ONE_TEXT = "Part 1: Introduction";
 const PART_TWO_TEXT = "Part 2: Main content";

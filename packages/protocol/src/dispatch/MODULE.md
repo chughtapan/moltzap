@@ -8,7 +8,7 @@ Dispatch admission RPC descriptors and notifications.
 
 ## Public surface
 
-### [`agentCallableDispatchRpcMethods`](./index.ts#L283)
+### [`agentCallableDispatchRpcMethods`](./index.ts#L288)
 
 _Variable_
 
@@ -18,7 +18,7 @@ export const agentCallableDispatchRpcMethods = [DispatchRequest] as const
 
 Agent-callable dispatch RPC catalog.
 
-### [`appCallableDispatchRpcMethods`](./index.ts#L286)
+### [`appCallableDispatchRpcMethods`](./index.ts#L291)
 
 _Variable_
 
@@ -28,7 +28,7 @@ export const appCallableDispatchRpcMethods = [DispatchesGet] as const
 
 App-callable dispatch RPC catalog.
 
-### [`DispatchAuthorize`](./index.ts#L147)
+### [`DispatchAuthorize`](./index.ts#L152)
 
 _Variable_
 
@@ -50,7 +50,7 @@ whose `dispatch_authorize` policy is `{ kind: "hook" }`.
 
 - **Principal:** none — a server→client reverse callback. The client serves it, the server does not gate it, so `requires` is empty.
 
-### [`dispatchCallbackMethods`](./index.ts#L289)
+### [`dispatchCallbackMethods`](./index.ts#L294)
 
 _Variable_
 
@@ -60,7 +60,7 @@ export const dispatchCallbackMethods = [DispatchAuthorize] as const
 
 App callback dispatch RPC catalog.
 
-### [`DispatchesConsumed`](./index.ts#L192)
+### [`DispatchesConsumed`](./index.ts#L197)
 
 _Variable_
 
@@ -83,7 +83,7 @@ the durable insert lands, scoped to the moderator's connection only
 (NOT broadcast). The moderator IS the authority for the lease, so
 `messageId` visibility is in-scope.
 
-### [`DispatchesExpired`](./index.ts#L209)
+### [`DispatchesExpired`](./index.ts#L214)
 
 _Variable_
 
@@ -104,7 +104,7 @@ grant TTL without being consumed. Scoped to the moderator's
 connection only. Distinct from DENIED (verdict-deny) and ABANDONED
 (recipient disconnect) — EXPIRED is the inactivity outcome.
 
-### [`DispatchesGet`](./index.ts#L274)
+### [`DispatchesGet`](./index.ts#L279)
 
 _Variable_
 
@@ -130,17 +130,7 @@ non-moderator callers fail with `ForbiddenError`.
 _TypeAlias_
 
 ```ts
-export const DispatchId = brandedId("DispatchId");
-```
-
-Branded dispatch identifier value.
-
-### [`DispatchId`](./index.ts#L48)
-
-_Variable_
-
-```ts
-export const DispatchId = brandedId("DispatchId")
+export type DispatchId = string & Brand.Brand<"DispatchId">;
 ```
 
 Branded dispatch identifier minted alongside the lease. Distinct from
@@ -149,7 +139,17 @@ the lease id so observability surfaces (`dispatches/get`,
 admission attempt by a stable handle whose lease may have been
 rolled back-and-re-granted within the same dispatch.
 
-### [`dispatchNotifications`](./index.ts#L292)
+### [`DispatchId`](./index.ts#L48)
+
+_Variable_
+
+```ts
+export type DispatchId = string & Brand.Brand<"DispatchId">
+```
+
+Dispatch identifier schema.
+
+### [`dispatchNotifications`](./index.ts#L297)
 
 _Variable_
 
@@ -163,7 +163,7 @@ export const dispatchNotifications = [
 
 Dispatch notification catalog.
 
-### [`DispatchRelease`](./index.ts#L169)
+### [`DispatchRelease`](./index.ts#L174)
 
 _Variable_
 
@@ -190,7 +190,7 @@ HOLD inherits the same TTL by ageing out via the standard EXPIRED path; no
 `leaseTimeoutMs` field needed on the hold arm because the grant TTL has not
 started yet (lease never reached GRANTED).
 
-### [`DispatchRequest`](./index.ts#L100)
+### [`DispatchRequest`](./index.ts#L105)
 
 _Variable_
 

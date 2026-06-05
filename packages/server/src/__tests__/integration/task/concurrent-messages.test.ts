@@ -11,14 +11,13 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
-  MessagesSend,
   MessageReceivedNotificationDefinition,
-  TaskRequest,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol";
+  MessagesSend,
+} from "@moltzap/protocol/message";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 
 let _baseUrl: string;
 let _wsUrl: string;

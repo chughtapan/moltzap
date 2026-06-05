@@ -6,10 +6,10 @@
  */
 
 import { inject } from "vitest";
-import {
-  type Message,
-  type MessageReceivedNotification,
-} from "@moltzap/protocol";
+import type {
+  Message,
+  MessageReceivedNotification,
+} from "@moltzap/protocol/message";
 import { registerAgent } from "@moltzap/client";
 import { Effect } from "effect";
 
@@ -27,7 +27,8 @@ export function registerTestAgent(name: string) {
   );
 }
 
-import type { ConversationId, TaskId } from "@moltzap/protocol";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 
 export function extractMessage(event: MessageReceivedNotification): Message {
   return event.message;

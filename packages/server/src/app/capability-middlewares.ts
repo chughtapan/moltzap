@@ -12,7 +12,12 @@
 import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
+import type {
+  ContactPolicyAllowsReachValue,
+  ConversationInTaskValue,
+  TaskId,
+  TaskReadAccessValue,
+} from "@moltzap/protocol/task";
 import { ConversationServiceTag, TaskServiceTag } from "./layers.js";
 import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
 
@@ -35,7 +40,9 @@ export interface CreatorAndTargets {
 }
 
 /** `TaskReadAccess`: load the task gated on the caller's read access. */
-export const obtainTaskReadAccess = (input: TaskAndAgent) =>
+export const obtainTaskReadAccess = (
+  input: TaskAndAgent,
+): Effect.Effect<TaskReadAccessValue, unknown, TaskServiceTag> =>
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const task = yield* taskService.loadTaskWithReadAccess(
@@ -46,7 +53,9 @@ export const obtainTaskReadAccess = (input: TaskAndAgent) =>
   }).pipe(Effect.withSpan("obtainTaskReadAccess"));
 
 /** `ConversationInTask`: prove `conversation.task_id === taskId`. */
-export const obtainConversationInTask = (input: TaskAndConversation) =>
+export const obtainConversationInTask = (
+  input: TaskAndConversation,
+): Effect.Effect<ConversationInTaskValue, unknown, TaskServiceTag> =>
   Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     yield* taskService.assertConversationInTask(
@@ -57,7 +66,13 @@ export const obtainConversationInTask = (input: TaskAndConversation) =>
   }).pipe(Effect.withSpan("obtainConversationInTask"));
 
 /** `ContactPolicyAllowsReach`: the creator may reach every target. */
-export const obtainContactPolicyAllowsReach = (input: CreatorAndTargets) =>
+export const obtainContactPolicyAllowsReach = (
+  input: CreatorAndTargets,
+): Effect.Effect<
+  ContactPolicyAllowsReachValue,
+  unknown,
+  ConversationServiceTag
+> =>
   catchSqlErrorAsDefect(
     Effect.gen(function* () {
       const conversations = yield* ConversationServiceTag;
