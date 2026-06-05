@@ -62,6 +62,84 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/client/src/index.ts"),
   },
   {
+    find: /^#transport$/,
+    replacement: fromRoot("packages/protocol/src/transport/index.ts"),
+  },
+  {
+    find: /^#identity$/,
+    replacement: fromRoot("packages/protocol/src/identity/index.ts"),
+  },
+  {
+    find: /^#identity\/principals$/,
+    replacement: fromRoot("packages/protocol/src/identity/principals/index.ts"),
+  },
+  {
+    find: /^#identity\/requirements$/,
+    replacement: fromRoot(
+      "packages/protocol/src/identity/requirements/index.ts",
+    ),
+  },
+  {
+    find: /^#identity\/agents$/,
+    replacement: fromRoot("packages/protocol/src/identity/agents.ts"),
+  },
+  {
+    find: /^#identity\/apps$/,
+    replacement: fromRoot("packages/protocol/src/identity/apps/index.ts"),
+  },
+  {
+    find: /^#identity\/users$/,
+    replacement: fromRoot("packages/protocol/src/identity/users/index.ts"),
+  },
+  {
+    find: /^#identity\/contacts$/,
+    replacement: fromRoot("packages/protocol/src/identity/contacts.ts"),
+  },
+  {
+    find: /^#identity\/contacts\/requirements$/,
+    replacement: fromRoot(
+      "packages/protocol/src/identity/contacts/requirements/index.ts",
+    ),
+  },
+  {
+    find: /^#network$/,
+    replacement: fromRoot("packages/protocol/src/network/index.ts"),
+  },
+  {
+    find: /^#task$/,
+    replacement: fromRoot("packages/protocol/src/task/index.ts"),
+  },
+  {
+    find: /^#task\/requirements$/,
+    replacement: fromRoot("packages/protocol/src/task/capabilities/index.ts"),
+  },
+  {
+    find: /^#conversation$/,
+    replacement: fromRoot("packages/protocol/src/conversation/index.ts"),
+  },
+  {
+    find: /^#conversation\/requirements$/,
+    replacement: fromRoot(
+      "packages/protocol/src/conversation/requirements/index.ts",
+    ),
+  },
+  {
+    find: /^#message$/,
+    replacement: fromRoot("packages/protocol/src/message/index.ts"),
+  },
+  {
+    find: /^#dispatch$/,
+    replacement: fromRoot("packages/protocol/src/dispatch/index.ts"),
+  },
+  {
+    find: /^#socket$/,
+    replacement: fromRoot("packages/protocol/src/socket/index.ts"),
+  },
+  {
+    find: /^#testing$/,
+    replacement: fromRoot("packages/protocol/src/testing/index.ts"),
+  },
+  {
     find: /^@moltzap\/protocol\/schemas$/,
     replacement: fromRoot("packages/protocol/src/schema/index.ts"),
   },

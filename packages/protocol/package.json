@@ -63,8 +63,18 @@
       "import": "./dist/testing/index.js"
     }
   },
+  "imports": {
+    "#transport": "./src/transport/index.ts",
+    "#identity": "./src/identity/index.ts",
+    "#identity/agents": "./src/identity/agents.ts",
+    "#identity/contacts": "./src/identity/contacts.ts",
+    "#network": "./src/network/index.ts",
+    "#task": "./src/task/index.ts",
+    "#task/requirements": "./src/task/capabilities/index.ts",
+    "#testing": "./src/testing/index.ts"
+  },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && tsc-alias -p tsconfig.json",
     "lint": "eslint src scripts *.ts --cache --max-warnings=0",
     "docs:generate": "tsx scripts/generate-docs.ts && (cd ../.. && pnpm exec typedoc) && tsx scripts/generate-modules.ts",
     "test": "vitest run",
@@ -81,6 +91,7 @@
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^3.23.1",
+    "tsc-alias": "^1.8.17",
     "tsx": "^4.19.0",
     "typedoc": "^0.28.0",
     "typescript": "^5.7.0",

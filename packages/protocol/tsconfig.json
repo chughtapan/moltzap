@@ -3,6 +3,63 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
+    "baseUrl": "./src",
+    "paths": {
+      "#transport": [
+        "transport/index.ts"
+      ],
+      "#identity": [
+        "identity/index.ts"
+      ],
+      "#identity/principals": [
+        "identity/principals/index.ts"
+      ],
+      "#identity/requirements": [
+        "identity/requirements/index.ts"
+      ],
+      "#identity/agents": [
+        "identity/agents.ts"
+      ],
+      "#identity/apps": [
+        "identity/apps/index.ts"
+      ],
+      "#identity/users": [
+        "identity/users/index.ts"
+      ],
+      "#identity/contacts": [
+        "identity/contacts.ts"
+      ],
+      "#identity/contacts/requirements": [
+        "identity/contacts/requirements/index.ts"
+      ],
+      "#network": [
+        "network/index.ts"
+      ],
+      "#task": [
+        "task/index.ts"
+      ],
+      "#task/requirements": [
+        "task/capabilities/index.ts"
+      ],
+      "#conversation": [
+        "conversation/index.ts"
+      ],
+      "#conversation/requirements": [
+        "conversation/requirements/index.ts"
+      ],
+      "#message": [
+        "message/index.ts"
+      ],
+      "#dispatch": [
+        "dispatch/index.ts"
+      ],
+      "#socket": [
+        "socket/index.ts"
+      ],
+      "#testing": [
+        "testing/index.ts"
+      ]
+    },
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
