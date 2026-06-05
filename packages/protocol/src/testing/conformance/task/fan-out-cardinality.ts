@@ -9,7 +9,7 @@ import { Effect, type Scope } from "effect";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
-} from "../../../task/index.js";
+} from "../../../message/index.js";
 import type { NotificationDelivery } from "../../../transport/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";

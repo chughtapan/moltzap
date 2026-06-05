@@ -12,13 +12,9 @@ import {
   UserId,
 } from "@moltzap/protocol/identity";
 import { agentCallableMethods } from "@moltzap/protocol/rpc-method-groups";
-import {
-  AppId,
-  ConversationId,
-  MessageId,
-  MessagesList,
-  TaskId,
-} from "@moltzap/protocol/task";
+import { AppId, TaskId } from "@moltzap/protocol/task";
+import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { MessagesList } from "@moltzap/protocol/message";
 import {
   NotConnectedError,
   RpcTimeoutError,

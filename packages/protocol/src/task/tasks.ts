@@ -17,7 +17,7 @@ import {
   conversationSchema,
   ConversationFullError,
   ConversationNotFoundError,
-} from "./conversations.js";
+} from "../conversation/index.js";
 import { AppId, TaskId, TaskNotFoundError } from "./ids.js";
 import {
   ConversationInTask,

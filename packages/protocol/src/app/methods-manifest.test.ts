@@ -1,11 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Either, type Schema } from "effect";
 import * as fc from "fast-check";
-import {
-  validateAppManifest,
-  DispatchAuthorize,
-  DispatchRequest,
-} from "./methods.js";
+import { validateAppManifest } from "./methods.js";
+import { DispatchAuthorize, DispatchRequest } from "../dispatch/index.js";
 import { decodesStrictly } from "../transport/strict-decode.js";
 
 // Strict, excess-rejecting decode check — the parity oracle for the former

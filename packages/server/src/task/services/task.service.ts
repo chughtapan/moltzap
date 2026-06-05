@@ -9,7 +9,8 @@ import type {
   TaskStatus,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { TaskId, ConversationId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import type { Db } from "../../db/client.js";
 import type { Database } from "../../db/database.js";
 import {

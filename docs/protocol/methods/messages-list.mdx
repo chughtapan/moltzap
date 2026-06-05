@@ -1,19 +1,11 @@
 ---
 title: "messages/list"
-description: "List messages in a conversation with cursor-based pagination using sequence numbers."
+description: "Call `messages/list`."
 ---
 
 # messages/list
 
-List messages in a conversation with cursor-based pagination using sequence
-numbers.
-
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
-- **Params:** `taskId`, `conversationId`, optional `sinceSeq` cursor, `limit`.
-- **Result:** the `messages` page plus `hasMore`.
-- **Caps (run order):** `TaskReadAccess` proves the caller may read the task,
-  then `ConversationInTask` resolves the conversation's task membership.
-  Conversation-not-found rides those cap error channels.
+Call `messages/list`.
 
 ## Parameters
 
@@ -42,9 +34,3 @@ numbers.
 <ResponseField name="hasMore" type="boolean">
   The hasMore field.
 </ResponseField>
-
-## Errors
-
-| Type | When |
-|------|------|
-| `ForbiddenError` | the caller is not a participant of the conversation |

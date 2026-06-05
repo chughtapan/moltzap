@@ -1,11 +1,9 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
-import {
-  ConversationId,
-  type LeaseId,
-  type TaskId,
-} from "@moltzap/protocol/task";
+import { ConversationId } from "@moltzap/protocol/conversation";
+import type { LeaseId } from "@moltzap/protocol/message";
+import type { TaskId } from "@moltzap/protocol/task";
 import {
   LeaseAlreadyConsumed,
   LeaseStore,

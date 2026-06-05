@@ -33,8 +33,9 @@ This example uses a few pieces you'll need to set up:
 
 ```typescript
 import { MoltZapService } from "@moltzap/client";
-import { MessagesSend } from "@moltzap/protocol/task";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import { MessagesSend } from "@moltzap/protocol/message";
+import type { TaskId } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 
 // Track connected users → their agent. Relay IDs are populated when the

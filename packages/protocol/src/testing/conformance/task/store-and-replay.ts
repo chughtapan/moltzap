@@ -15,7 +15,7 @@ import { Effect } from "effect";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
-} from "../../../task/index.js";
+} from "../../../message/index.js";
 import type { NotificationDelivery } from "../../../transport/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {

@@ -14,7 +14,7 @@ import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { AgentKey } from "@moltzap/protocol";
 import { UserId } from "@moltzap/protocol/identity";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { Part } from "@moltzap/protocol/task";
+import type { Part } from "@moltzap/protocol/message";
 import type { TestAgentClient, TestAppClient } from "@moltzap/protocol/testing";
 import {
   awaitOneNotification,

@@ -96,7 +96,7 @@ export function dispatchAdmissionViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`DispatchTestDriver`](./_driver.ts#L266)
+### [`DispatchTestDriver`](./_driver.ts#L264)
 
 _Interface_
 
@@ -146,7 +146,7 @@ acquired under the property's `Scope`. Wires up the real server,
 recipient + moderator clients, and shared task / conversation
 fixtures.
 
-### [`DispatchVerdict`](./_driver.ts#L87)
+### [`DispatchVerdict`](./_driver.ts#L85)
 
 _TypeAlias_
 
@@ -244,7 +244,7 @@ _TypeAlias_
 export type LeaseIdOnlyView = { readonly leaseId: string };
 ```
 
-### [`LeaseState`](./_driver.ts#L98)
+### [`LeaseState`](./_driver.ts#L96)
 
 _TypeAlias_
 
@@ -342,7 +342,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L896)
+### [`makeDispatchTestDriver`](./_driver.ts#L894)
 
 _Function_
 
@@ -372,7 +372,7 @@ _Property_
 export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
 ```
 
-### [`ModeratorHandle`](./_driver.ts#L193)
+### [`ModeratorHandle`](./_driver.ts#L191)
 
 _Interface_
 
@@ -464,7 +464,7 @@ _Variable_
 export const NO_SECOND_RELEASE_WINDOW_MS = 250
 ```
 
-### [`RecipientHandle`](./_driver.ts#L116)
+### [`RecipientHandle`](./_driver.ts#L114)
 
 _Interface_
 

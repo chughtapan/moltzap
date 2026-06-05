@@ -13,7 +13,7 @@ import {
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-} from "@moltzap/protocol/app";
+} from "@moltzap/protocol/dispatch";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type {
   AnyAgentCallableRpcDefinition,
@@ -24,22 +24,29 @@ import type {
   ClientDefinitionSuccess,
 } from "@moltzap/protocol";
 import {
-  type Message,
-  type MessageReceivedNotification,
   type TaskConversationCreatedNotification,
   type TaskConversationArchivedNotification,
   type TaskConversationUnarchivedNotification,
-  MessageReceivedNotificationDefinition,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,
-  ConversationArchivedError,
   DEFAULT_APP_ID,
-  MessagesList,
-  MessagesSend,
   TaskRequest,
   TaskConversationList,
 } from "@moltzap/protocol/task";
+import {
+  ConversationArchivedError,
+  type ConversationId,
+  type MessageId,
+} from "@moltzap/protocol/conversation";
+import {
+  type LeaseId,
+  type Message,
+  type MessageReceivedNotification,
+  MessageReceivedNotificationDefinition,
+  MessagesList,
+  MessagesSend,
+} from "@moltzap/protocol/message";
 import {
   NotConnectedError,
   RpcTimeoutError,
@@ -53,12 +60,7 @@ import {
 } from "@moltzap/protocol/transport";
 import { AgentCallableGroup } from "@moltzap/protocol/rpc-method-groups";
 import type { RpcGroup, Rpc } from "@effect/rpc";
-import type {
-  ConversationId,
-  LeaseId,
-  MessageId,
-  TaskId,
-} from "@moltzap/protocol/task";
+import type { TaskId } from "@moltzap/protocol/task";
 import {
   Config,
   ConfigProvider,

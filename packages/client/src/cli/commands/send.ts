@@ -3,7 +3,7 @@ import { Effect, Option } from "effect";
 import { LocalDaemonCommands, SendTarget } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 
-import { MessageId } from "@moltzap/protocol/task";
+import { MessageId } from "@moltzap/protocol/conversation";
 
 const targetArg = Args.text({ name: "target" }).pipe(
   Args.withSchema(SendTarget),

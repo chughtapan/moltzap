@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { ForbiddenError } from "../../transport/wire-errors.js";
 import type { TaskId, Task } from "../tasks.js";
 import type { AppId } from "../ids.js";
-import type { ConversationId } from "../conversations.js";
+import type { ConversationId } from "../../conversation/index.js";
 import type { ConversationInTaskValue } from "./conversation-in-task.js";
 import type { TaskReadAccessValue } from "./task-read-access.js";
 

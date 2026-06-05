@@ -1,0 +1,163 @@
+# protocol/conversation
+
+_`packages/protocol/src/conversation`_
+
+## Purpose
+
+Conversation identifiers, wire shapes, and domain errors.
+
+## Public surface
+
+### [`Conversation`](./index.ts#L119)
+
+_TypeAlias_
+
+```ts
+export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
+```
+
+Conversation row visible on task conversation surfaces.
+
+### [`ConversationArchivedError`](./index.ts#L56)
+
+_Class_
+
+```ts
+export class ConversationArchivedError extends Schema.TaggedError<ConversationArchivedError>()(
+  "ConversationArchived",
+  errorPayloadFields,
+) {
+  static readonly message = "Conversation is archived";
+}
+```
+
+The conversation is archived and cannot accept the requested mutation.
+
+### [`ConversationFullError`](./index.ts#L64)
+
+_Class_
+
+```ts
+export class ConversationFullError extends Schema.TaggedError<ConversationFullError>()(
+  "ConversationFull",
+  errorPayloadFields,
+) {
+  static readonly message = "Conversation is full";
+}
+```
+
+The conversation has reached its participant capacity.
+
+### [`ConversationId`](./index.ts#L22)
+
+_TypeAlias_
+
+```ts
+export const ConversationId = brandedId("ConversationId");
+```
+
+Branded conversation identifier value.
+
+### [`ConversationId`](./index.ts#L22)
+
+_Variable_
+
+```ts
+export const ConversationId = brandedId("ConversationId")
+```
+
+Branded conversation identifier.
+
+### [`ConversationNotFoundError`](./index.ts#L40)
+
+_Class_
+
+```ts
+export class ConversationNotFoundError extends Schema.TaggedError<ConversationNotFoundError>()(
+  "ConversationNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Conversation not found";
+}
+```
+
+The referenced conversation does not exist under the task (or is not visible).
+
+### [`ConversationParticipant`](./index.ts#L122)
+
+_TypeAlias_
+
+```ts
+export type ConversationParticipant = Schema.Schema.Type<
+  typeof ConversationParticipantSchema
+>;
+```
+
+Participant row for a conversation.
+
+### [`conversationSchema`](./index.ts#L135)
+
+_Function_
+
+```ts
+export function conversationSchema(): typeof ConversationSchema
+```
+
+Return the canonical conversation schema.
+
+**Returns:** The canonical conversation schema.
+
+### [`ConversationSummary`](./index.ts#L127)
+
+_TypeAlias_
+
+```ts
+export type ConversationSummary = Schema.Schema.Type<
+  typeof ConversationSummarySchema
+>;
+```
+
+Conversation summary row used by list surfaces.
+
+### [`MessageId`](./index.ts#L34)
+
+_TypeAlias_
+
+```ts
+export const MessageId = brandedId("MessageId");
+```
+
+Branded message identifier value.
+
+### [`MessageId`](./index.ts#L34)
+
+_Variable_
+
+```ts
+export const MessageId = brandedId("MessageId")
+```
+
+Branded message identifier.
+
+This lives in the conversation module to keep the message module downstream:
+conversation participant state references the last-read message, and message
+rows reference their conversation.
+
+### [`NotAParticipantError`](./index.ts#L48)
+
+_Class_
+
+```ts
+export class NotAParticipantError extends Schema.TaggedError<NotAParticipantError>()(
+  "NotAParticipant",
+  errorPayloadFields,
+) {
+  static readonly message = "Not a participant in the conversation";
+}
+```
+
+The caller is not a participant in the conversation it is acting on.
+
+## Files
+
+- `index.ts`

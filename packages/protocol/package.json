@@ -26,6 +26,18 @@
       "types": "./dist/task/index.d.ts",
       "import": "./dist/task/index.js"
     },
+    "./conversation": {
+      "types": "./dist/conversation/index.d.ts",
+      "import": "./dist/conversation/index.js"
+    },
+    "./message": {
+      "types": "./dist/message/index.d.ts",
+      "import": "./dist/message/index.js"
+    },
+    "./dispatch": {
+      "types": "./dist/dispatch/index.d.ts",
+      "import": "./dist/dispatch/index.js"
+    },
     "./app": {
       "types": "./dist/app/index.d.ts",
       "import": "./dist/app/index.js"

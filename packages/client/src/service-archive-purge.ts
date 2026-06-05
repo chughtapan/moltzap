@@ -1,5 +1,6 @@
 import { HashMap } from "effect";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 
 /**
  * Helpers extracted from `service.ts → markConversationArchived` to keep

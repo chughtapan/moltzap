@@ -1,7 +1,8 @@
 import type { Db } from "../../db/client.js";
 import type { Conversation, ConversationSummary } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect, Option } from "effect";
 import { InvalidParamsError } from "@moltzap/protocol";

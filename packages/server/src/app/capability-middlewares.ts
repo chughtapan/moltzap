@@ -11,7 +11,8 @@
  */
 import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import { ConversationServiceTag, TaskServiceTag } from "./layers.js";
 import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
 

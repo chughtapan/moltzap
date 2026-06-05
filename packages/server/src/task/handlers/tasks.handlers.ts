@@ -25,9 +25,9 @@ import {
 import {
   assertAppOwnsTask,
   type AppId,
-  type ConversationId,
   type TaskId,
 } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentContext, AppContext } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";

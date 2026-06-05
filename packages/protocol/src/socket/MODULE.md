@@ -255,7 +255,7 @@ export function extractCloseInfo(
 ): CloseInfo
 ```
 
-### [`makeServerProtocolLayer`](./server.ts#L109)
+### [`makeServerProtocolLayer`](./server.ts#L106)
 
 _Function_
 
@@ -347,7 +347,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapServer`](./server.ts#L355)
+### [`MoltZapServer`](./server.ts#L352)
 
 _Class_
 
@@ -462,7 +462,7 @@ export class MoltZapServer<
 }
 ```
 
-### [`MoltZapServerOptions`](./server.ts#L64)
+### [`MoltZapServerOptions`](./server.ts#L61)
 
 _Interface_
 
@@ -490,7 +490,7 @@ export interface MoltZapServerOptions<
 }
 ```
 
-### [`MoltZapServerSession`](./server.ts#L50)
+### [`MoltZapServerSession`](./server.ts#L47)
 
 _Interface_
 
@@ -667,7 +667,7 @@ export class ProtocolClientLifecycle<
     });
 ```
 
-### [`ReverseCallbackError`](./server.ts#L185)
+### [`ReverseCallbackError`](./server.ts#L182)
 
 _TypeAlias_
 
@@ -688,7 +688,7 @@ export type ReverseCallbackHandlers = {
 };
 ```
 
-### [`ReverseCallbackPayload`](./server.ts#L181)
+### [`ReverseCallbackPayload`](./server.ts#L178)
 
 _TypeAlias_
 
@@ -696,7 +696,7 @@ _TypeAlias_
 export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackRequest`](./server.ts#L187)
+### [`ReverseCallbackRequest`](./server.ts#L184)
 
 _TypeAlias_
 
@@ -708,7 +708,7 @@ export type ReverseCallbackRequest =
     }
 ```
 
-### [`ReverseCallbackSuccess`](./server.ts#L183)
+### [`ReverseCallbackSuccess`](./server.ts#L180)
 
 _TypeAlias_
 
@@ -716,7 +716,7 @@ _TypeAlias_
 export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackTag`](./server.ts#L177)
+### [`ReverseCallbackTag`](./server.ts#L174)
 
 _TypeAlias_
 
@@ -727,7 +727,7 @@ export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
 >;
 ```
 
-### [`ReverseCallError`](./server.ts#L173)
+### [`ReverseCallError`](./server.ts#L170)
 
 _TypeAlias_
 
@@ -737,7 +737,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 type ReverseRpcs = RpcGroup.Rpcs<typeof ReverseRpcGroup>;
 ```
 
-### [`ReverseClient`](./server.ts#L259)
+### [`ReverseClient`](./server.ts#L256)
 
 _Interface_
 
@@ -782,7 +782,7 @@ export interface RpcCallOptions {
 }
 ```
 
-### [`ServerSocketWrite`](./server.ts#L46)
+### [`ServerSocketWrite`](./server.ts#L43)
 
 _TypeAlias_
 

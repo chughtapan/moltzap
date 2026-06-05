@@ -1,7 +1,7 @@
 /**
- * @file Public barrel for task, conversation, message, and task-manager protocol descriptors.
+ * @file Public barrel for task protocol descriptors.
  */
-export { ConversationId, LeaseId, MessageId, TaskId } from "./methods.js";
+export { TaskId } from "./methods.js";
 
 export {
   TaskReadAccess,
@@ -23,15 +23,8 @@ export {
   TaskClosedError,
   TaskNotFoundError,
   TaskRejectedError,
-  ConversationArchivedError,
-  ConversationFullError,
-  ConversationNotFoundError,
-  MessageNotFoundError,
-  NotAParticipantError,
   HookBlockedError,
   ParticipantNotAdmittedError,
-  MessagesSend,
-  MessagesList,
   TaskList,
   TaskClose,
   TaskAddParticipant,
@@ -46,7 +39,6 @@ export {
   TaskConversationUnarchive,
   TaskConversationAddParticipant,
   TaskConversationRemoveParticipant,
-  MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
@@ -55,27 +47,15 @@ export {
   TaskConversationUnarchivedNotificationDefinition,
   TaskConversationParticipantsAddedNotificationDefinition,
   TaskConversationParticipantsRemovedNotificationDefinition,
-  validateDispatchDecision,
-  dispatchDecisionSchema,
-  messageWithDispatchDecisionSchema,
-  messagePartsSchema,
   // Per-kind catalog subsets.
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
 } from "./methods.js";
 
 export type {
-  Part,
-  Message,
-  Conversation,
-  ConversationParticipant,
-  ConversationSummary,
   TaskStatus,
   Task,
   TaskParticipant,
-  MessageReceivedNotification,
-  DispatchDecision,
-  MessageWithDispatchDecision,
   InitialConversationInput,
   TaskConversationListItem,
   TaskConversationCreatedNotification,

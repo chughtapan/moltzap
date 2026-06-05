@@ -18,7 +18,7 @@ import {
 } from "../_shared/registry.js";
 import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { TaskId } from "@moltzap/protocol/task";
-import type { ConversationId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import { conversationId, taskId } from "../_shared/test-fixtures.js";
 
 export const ADVERSITY_CATEGORY = "adversity" as const;

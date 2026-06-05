@@ -3,7 +3,8 @@ import { it as effectIt } from "@effect/vitest";
 import { describe, expect } from "vitest";
 import { sendCommand } from "./send.js";
 
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 import { Transport } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";

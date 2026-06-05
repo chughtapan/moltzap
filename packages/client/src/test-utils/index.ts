@@ -17,7 +17,7 @@ export {
 export { FakeMoltZapService, type RecordedCall } from "./fake-service.js";
 export { withTestServiceConfig } from "../config.test-utils.js";
 
-import type { Message } from "@moltzap/protocol/task";
+import type { Message } from "@moltzap/protocol/message";
 import { Data, Effect } from "effect";
 import { testAgentId, testConversationId, testMessageId } from "./ids.js";
 

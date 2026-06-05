@@ -31,7 +31,8 @@ import {
 } from "@moltzap/protocol";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/app";
-import type { AppId, ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
 
 /** Default ceiling for `awaitOneNotification`. */
 const DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS = 5_000;

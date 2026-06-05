@@ -17,43 +17,15 @@ import type {
 export { validateAppManifest } from "./manifest.js";
 export type { AppManifest } from "./manifest.js";
 
-export {
-  DispatchNotFoundError,
-  DispatchId,
-  DispatchRequest,
-  DispatchAuthorize,
-  DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
-  DispatchesGet,
-} from "./dispatch.js";
-
 export { MessagesAuthorize, TaskCreate } from "./app-callbacks.js";
 
-import {
-  DispatchRequest,
-  DispatchAuthorize,
-  DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
-  DispatchesGet,
-} from "./dispatch.js";
+import { DispatchAuthorize } from "../dispatch/index.js";
 import { MessagesAuthorize, TaskCreate } from "./app-callbacks.js";
-
-export const agentCallableAppRpcMethods = [DispatchRequest] as const;
-
-export const appCallableAppRpcMethods = [DispatchesGet] as const;
 
 export const appCallbackMethods = [
   DispatchAuthorize,
   MessagesAuthorize,
   TaskCreate,
-] as const;
-
-export const appNotifications = [
-  DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
 ] as const;
 
 type AppCallbackDescriptor = RpcDefinitionAny;

@@ -150,9 +150,6 @@ export {
 } from "./socket/connection.js";
 
 export {
-  ConversationId,
-  LeaseId,
-  MessageId,
   TaskId,
   TaskReadAccess,
   ConversationInTask,
@@ -164,15 +161,8 @@ export {
   TaskClosedError,
   TaskNotFoundError,
   TaskRejectedError,
-  ConversationArchivedError,
-  ConversationFullError,
-  ConversationNotFoundError,
-  MessageNotFoundError,
-  NotAParticipantError,
   HookBlockedError,
   ParticipantNotAdmittedError,
-  MessagesSend,
-  MessagesList,
   TaskList,
   TaskClose,
   TaskAddParticipant,
@@ -187,7 +177,6 @@ export {
   TaskConversationUnarchive,
   TaskConversationAddParticipant,
   TaskConversationRemoveParticipant,
-  MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
@@ -196,9 +185,6 @@ export {
   TaskConversationUnarchivedNotificationDefinition,
   TaskConversationParticipantsAddedNotificationDefinition,
   TaskConversationParticipantsRemovedNotificationDefinition,
-  validateDispatchDecision,
-  dispatchDecisionSchema,
-  messageWithDispatchDecisionSchema,
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
 } from "./task/index.js";
@@ -207,17 +193,9 @@ export type {
   ConversationInTaskValue,
   ConversationSendAccessValue,
   ContactPolicyAllowsReachValue,
-  Part,
-  Message,
-  Conversation,
-  ConversationParticipant,
-  ConversationSummary,
   TaskStatus,
   Task,
   TaskParticipant,
-  MessageReceivedNotification,
-  DispatchDecision,
-  MessageWithDispatchDecision,
   InitialConversationInput,
   TaskConversationListItem,
   TaskConversationCreatedNotification,
@@ -228,6 +206,40 @@ export type {
 } from "./task/index.js";
 
 export {
+  ConversationArchivedError,
+  ConversationFullError,
+  ConversationId,
+  ConversationNotFoundError,
+  MessageId,
+  NotAParticipantError,
+} from "./conversation/index.js";
+export type {
+  Conversation,
+  ConversationParticipant,
+  ConversationSummary,
+} from "./conversation/index.js";
+
+export {
+  DispatchNotFoundError,
+  LeaseId,
+  MessageNotFoundError,
+  MessageReceivedNotificationDefinition,
+  MessagesList,
+  MessagesSend,
+  dispatchDecisionSchema,
+  messagePartsSchema,
+  messageWithDispatchDecisionSchema,
+  validateDispatchDecision,
+} from "./message/index.js";
+export type {
+  DispatchDecision,
+  Message,
+  MessageReceivedNotification,
+  MessageWithDispatchDecision,
+  Part,
+} from "./message/index.js";
+
+export {
   DispatchId,
   DispatchRequest,
   DispatchAuthorize,
@@ -235,10 +247,12 @@ export {
   DispatchesConsumed,
   DispatchesExpired,
   DispatchesGet,
+} from "./dispatch/index.js";
+
+export {
   MessagesAuthorize,
   TaskCreate,
   validateAppManifest,
-  DispatchNotFoundError,
 } from "./app/index.js";
 export type {
   AppCallbackHandlers,

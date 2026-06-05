@@ -1,16 +1,16 @@
 import type { Db } from "../../db/client.js";
-import type { Message, Part } from "@moltzap/protocol";
+import type { Message, Part } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type {
-  ConversationId,
-  MessageId,
-  DispatchDecision,
-} from "@moltzap/protocol/task";
 import {
   MessageId as MessageIdSchema,
+  type ConversationId,
+  type MessageId,
+} from "@moltzap/protocol/conversation";
+import type { DispatchDecision } from "@moltzap/protocol/message";
+import {
   messagePartsSchema,
   validateDispatchDecision,
-} from "@moltzap/protocol/task";
+} from "@moltzap/protocol/message";
 import type { AppHost } from "../../app/app-host.js";
 import {
   DEFAULT_PAGE_LIMIT,

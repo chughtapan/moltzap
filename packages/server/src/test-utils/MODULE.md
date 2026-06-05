@@ -24,7 +24,7 @@ task-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L52)
+### [`AwaitNotificationError`](./helpers.ts#L53)
 
 _TypeAlias_
 
@@ -80,7 +80,7 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
 }
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L63)
+### [`awaitOneNotification`](./helpers.ts#L64)
 
 _Function_
 
@@ -98,7 +98,7 @@ and `AwaitNotificationClosedError` when the transport closed before a
 matching frame arrived. Distinguishing close from timeout keeps a dead
 connection from masquerading as a missing notification.
 
-### [`closeAllClients`](./helpers.ts#L166)
+### [`closeAllClients`](./helpers.ts#L167)
 
 _Function_
 
@@ -106,7 +106,7 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`connectAppClient`](./helpers.ts#L293)
+### [`connectAppClient`](./helpers.ts#L294)
 
 _Function_
 
@@ -124,7 +124,7 @@ registers the live connection as the app's moderator endpoint, so the
 returned client receives server→client `dispatch/authorize` /
 `messages/authorize` / `task/create` callbacks. Tracked for cleanup.
 
-### [`ConnectedAgent`](./helpers.ts#L102)
+### [`ConnectedAgent`](./helpers.ts#L103)
 
 _Interface_
 
@@ -137,7 +137,7 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L215)
+### [`connectTestClient`](./helpers.ts#L216)
 
 _Function_
 
@@ -204,7 +204,7 @@ export interface CoreTestServer {
 }
 ```
 
-### [`createTestAgent`](./helpers.ts#L192)
+### [`createTestAgent`](./helpers.ts#L193)
 
 _Function_
 
@@ -396,7 +396,7 @@ function sqlPreview(sql: string): string {
 }
 ```
 
-### [`postJson`](./helpers.ts#L326)
+### [`postJson`](./helpers.ts#L327)
 
 _Function_
 
@@ -412,7 +412,7 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 `{status, json}`. HTTP integration tests import this helper to avoid
 repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L173)
+### [`registerAgent`](./helpers.ts#L174)
 
 _Function_
 
@@ -424,7 +424,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L310)
+### [`registerAndConnect`](./helpers.ts#L311)
 
 _Function_
 
@@ -436,7 +436,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L261)
+### [`registerApp`](./helpers.ts#L262)
 
 _Function_
 
@@ -470,7 +470,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`setupAgentGroup`](./helpers.ts#L426)
+### [`setupAgentGroup`](./helpers.ts#L427)
 
 _Function_
 
@@ -490,7 +490,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L414)
+### [`setupAgentPair`](./helpers.ts#L415)
 
 _Function_
 
@@ -519,7 +519,7 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L162)
+### [`trackClient`](./helpers.ts#L163)
 
 _Function_
 

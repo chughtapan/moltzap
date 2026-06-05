@@ -44,13 +44,9 @@ import {
   type AnyAgentCallableRpcDefinition,
   type ResultOf,
 } from "@moltzap/protocol";
-import {
-  ConversationId,
-  MessageId,
-  TaskClosedError,
-  TaskId,
-  type LeaseId,
-} from "@moltzap/protocol/task";
+import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { TaskClosedError, TaskId } from "@moltzap/protocol/task";
+import type { LeaseId } from "@moltzap/protocol/message";
 
 const CHANNEL_ID = "moltzap" as const;
 const TARGET_PREFIX_AGENT = "agent:";

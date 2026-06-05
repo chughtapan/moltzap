@@ -11,14 +11,12 @@ import {
 import { AgentCallableGroup } from "@moltzap/protocol/rpc-method-groups";
 import {
   DEFAULT_APP_ID,
-  MessagesList,
-  MessagesSend,
   TaskConversationList,
   TaskRequest,
-  type ConversationId,
-  type MessageId,
   type TaskId,
 } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 import type {
   PayloadForTag,
   ResultOf,
