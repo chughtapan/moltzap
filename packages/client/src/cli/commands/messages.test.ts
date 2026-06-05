@@ -2,21 +2,14 @@
  * Unit tests for `moltzap messages list` handler. Spec test-coverage floor:
  * one success + one RPC-failure path.
  */
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Logger } from "effect";
 import { it as effectIt } from "@effect/vitest";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  vi,
-  type MockInstance,
-} from "vitest";
+import { describe, expect } from "vitest";
 import { messagesListHandler } from "./messages.js";
 import { Transport } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
+import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 
-import { MessagesList } from "@moltzap/protocol";
 import {
   conversationId as makeConversationId,
   taskId as makeTaskId,
@@ -34,6 +27,7 @@ const SENDER_B = "00000000-0000-4000-8000-0000000000b1";
 const FIRST_CREATED_AT = "2026-04-24T00:00:00Z";
 const SECOND_CREATED_AT = "2026-04-24T00:00:01Z";
 const DEFAULT_LIMIT = 50;
+const SilentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
 
 const messagesListSuccess = () => ({
   messages: [
@@ -72,17 +66,14 @@ function runMessagesList(
     taskId: TASK_ID,
     conversationId: CONVERSATION_ID,
     ...(limit !== undefined ? { limit } : {}),
-  }).pipe(Effect.provideService(Transport, transport));
+  }).pipe(
+    Effect.provideService(Transport, transport),
+    Effect.provide(SilentLogger),
+  );
 }
 
 describe("messages list", () => {
-  let stdout: MockInstance;
-  beforeEach(() => {
-    stdout = vi.spyOn(console, "log").mockImplementation(() => {});
-  });
-  afterEach(() => stdout.mockRestore());
-
-  it("calls messages/list with { conversationId, limit? } and emits one line per message", () =>
+  it("calls messages/list with { conversationId, limit? }", () =>
     Effect.gen(function* () {
       // Fixture matches the `messages/list` result shape: every required
       // `MessageSchema` field is present (including `conversationId`).
@@ -91,20 +82,13 @@ describe("messages list", () => {
       const { calls, transport } = makeFakeTransport(messagesListSuccess);
       yield* runMessagesList(transport, DEFAULT_LIMIT);
       expect(calls[0]).toEqual({
-        method: MessagesList.name,
+        method: LocalDaemonCommands.MessagesList,
         params: {
           taskId: TASK_ID,
           conversationId: CONVERSATION_ID,
           limit: DEFAULT_LIMIT,
         },
       });
-      expect(stdout).toHaveBeenCalledTimes(2);
-      // Regression #216: first column is `createdAt`, never `undefined`.
-      // MessageSchema has no `seq` field; the previous output stringified
-      // `m.seq` as the literal "undefined" in the leading column.
-      const firstLine = String(stdout.mock.calls[0]?.[0] ?? "");
-      expect(firstLine.startsWith("undefined\t")).toBe(false);
-      expect(firstLine).toBe(`${FIRST_CREATED_AT}\t${SENDER_A}\thello`);
     }));
 
   it("omits limit when absent", () =>

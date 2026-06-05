@@ -193,7 +193,7 @@ describe("mux routeInbound", () => {
         const server = recordingSink();
         const client = recordingSink();
         const encoded = server.sink.parser.encode(
-          requestFrame(REQUEST_ID, "network/connect"),
+          requestFrame(REQUEST_ID, "agent/connect"),
         ) as string;
         yield* routeInbound(encoded, {
           server: server.sink,
@@ -218,7 +218,7 @@ describe("mux routeInbound", () => {
       Effect.gen(function* () {
         const client = recordingSink();
         const encoded = client.sink.parser.encode(
-          requestFrame("1", "network/connect"),
+          requestFrame("1", "agent/connect"),
         ) as string;
         // A request-family frame with only a `client` sink registered has no
         // `server` sink to route to.

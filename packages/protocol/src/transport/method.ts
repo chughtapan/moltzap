@@ -1,23 +1,16 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Brand, Data, Effect, Schema } from "effect";
-import { closedStructGuard } from "../schema-primitives.js";
+import { Data, Effect, Schema } from "effect";
+import { Rpc, type RpcMiddleware } from "@effect/rpc";
+import { closedStructGuard } from "./strict-decode.js";
 import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
-
-export type JsonRpcMethod<Name extends string = string> = Name &
-  Brand.Brand<"JsonRpcMethod">;
-
-export type JsonRpcId = string & Brand.Brand<"JsonRpcId">;
-
-const JsonRpcMethodBrand = Brand.nominal<JsonRpcMethod>();
 
 /**
  * Internal factory for descriptor construction (`defineRpc`,
- * `defineNotification`). Callers pass plain strings to descriptors, which brand
- * them here so method positions cannot accidentally accept arbitrary strings.
+ * `defineNotification`). Callers pass plain strings to descriptors, and the
+ * literal type is preserved in every method/key position.
  */
-export const jsonRpcMethod = <const Name extends string>(
-  method: Name,
-): JsonRpcMethod<Name> => JsonRpcMethodBrand(method) as JsonRpcMethod<Name>;
+export const jsonRpcMethod = <const Name extends string>(method: Name): Name =>
+  method;
 
 /**
  * A wire-discriminable tagged-error CLASS: a `Schema.TaggedError`-derived class
@@ -30,23 +23,17 @@ export type RpcErrorClass = Schema.Schema.AnyNoContext &
   (new (...args: never[]) => { readonly _tag: string });
 
 /**
- * The STRUCTURAL shape of one `requires` entry at the wire layer: a requirement
- * tag carries a `key` (its `Context.Tag` identifier) and a `static errors` tuple
- * the descriptor folds into the wire error union. The descriptor factory needs
- * only this shape — it reads `.errors` and treats the tag as an opaque marker.
- *
- * The GENUINE closed union of the actual requirement tags (principal | claimed |
- * capability) and the compile-error-on-unregistered-cap guarantee live in the
- * engine layer (`engine/requirements.ts` → `Requirement` / `capRequirementsOf`),
- * above the domains: that is where a cap with no registered middleware fails to
- * compile, at the engine-member binding. Keeping the wire-layer constraint
- * structural is what lets the domains call `defineRpc` without the wire layer
- * importing the capability tags upward.
+ * The structural shape of one `requires` entry: the requirement IS the
+ * `@effect/rpc` middleware tag. The descriptor factory reads its `failure`
+ * schema for wire-error aggregation and treats the tag itself as the authority
+ * marker the engine stacks.
  */
-export type RequirementShape = {
-  readonly key: string;
-  readonly errors: ReadonlyArray<RpcErrorClass>;
+export type RequirementShape = RpcMiddleware.TagClassAny & {
+  readonly failure: Schema.Schema.AnyNoContext;
 };
+
+type RpcMemberPayload<P extends Schema.Schema.AnyNoContext> =
+  P extends Schema.Struct.Fields ? Schema.Struct<P> : P;
 
 /**
  * Typed manifest for one RPC method: wire name + Effect `Schema` shapes +
@@ -61,10 +48,10 @@ export type RequirementShape = {
  * guards wrap a `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
  * "error" })` to reject excess properties at the trust boundary.
  *
- * `requires` is the ONE authority axis: the client groups partition on its head
- * (the principal requirement), the server stacks one `RpcMiddleware` per
- * requirement, and the descriptor folds each requirement's `errors` into the
- * effective wire error union.
+ * `requires` is the one authority axis: the client groups partition on its head
+ * (the principal requirement), the server stacks each requirement middleware,
+ * and the descriptor folds each requirement's `failure` into the effective wire
+ * error union.
  */
 export interface RpcDefinition<
   Name extends string,
@@ -74,25 +61,39 @@ export interface RpcDefinition<
     ReadonlyArray<RequirementShape> = ReadonlyArray<RequirementShape>,
   Errs extends ReadonlyArray<RpcErrorClass> = ReadonlyArray<RpcErrorClass>,
 > {
-  readonly name: JsonRpcMethod<Name>;
+  readonly name: Name;
   readonly paramsSchema: P;
   readonly resultSchema: R;
+  readonly clientRpc: Rpc.Rpc<
+    Name,
+    RpcMemberPayload<P>,
+    R,
+    Schema.Schema.AnyNoContext
+  >;
+  readonly serverRpc: Rpc.Rpc<
+    Name,
+    RpcMemberPayload<P>,
+    R,
+    Schema.Schema.AnyNoContext,
+    Requires[number]
+  >;
 
   /**
    * The ordered authority list. The FIRST element is exactly one principal
-   * requirement (`AgentPrincipal` | `AppPrincipal`); an optional `AgentClaimed`
-   * refinement (agent-only) follows; the rest are capability tags, in run
-   * order. Empty for the lone unauthenticated method (`network/connect`). The
-   * client groups partition on the head; the server stacks one `RpcMiddleware`
-   * per element; each element's `errors` fold into the wire error union.
+   * requirement (`AgentPrincipal` | `AppPrincipal` |
+   * `AuthenticatedPrincipal`); an optional `AgentClaimed` refinement
+   * (agent-only) follows; the rest are capability tags, in run order. Empty for
+   * the unauthenticated connect methods (`agent/connect`, `app/connect`). The
+   * server stacks each requirement middleware; each element's `failure` folds
+   * into the wire error union.
    */
   readonly requires: Requires;
 
   /**
    * The handler-domain tagged-error classes this method can fail with — only
    * the errors the HANDLER raises, not the requirement (principal/cap) errors
-   * (those come from each requirement's own `errors`). The method's effective
-   * wire error union is the dedup'd union of both; see
+   * (those come from each requirement's own `failure`). The method's effective
+   * wire error union is the union of both; see
    * {@link effectiveErrorClasses} / {@link errorSchema}.
    */
   readonly errors: Errs;
@@ -102,9 +103,9 @@ export interface RpcDefinition<
    * method's failures against: `Schema.Union(...effectiveErrorClasses)`. The
    * union discriminates on each error's `_tag`, so the per-method decode picks
    * the exact tagged-error class with no code lookup and no global registry.
-   * `Schema.Never` when the method has no effective errors (only the lone
-   * unauthenticated `network/connect`, which still inherits transport errors at
-   * the client surface via {@link ResponseErrorsOf}).
+   * `Schema.Never` when the method has no effective errors. Connect methods
+   * still inherit transport errors at the client surface via
+   * {@link ResponseErrorsOf}.
    */
   readonly errorSchema: Schema.Schema.AnyNoContext;
 
@@ -123,29 +124,17 @@ export interface RpcDefinition<
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
 }
 
+export type RpcDefinitionAny = RpcDefinition<any, any, any, any, any>;
+
 /** Type-only accessor for a definition's params payload. */
-export type ParamsOf<
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >,
-> =
-  D extends RpcDefinition<string, infer P, Schema.Schema.AnyNoContext>
-    ? Schema.Schema.Type<P>
-    : never;
+export type ParamsOf<D extends RpcDefinitionAny> = Schema.Schema.Type<
+  D["paramsSchema"]
+>;
 
 /** Type-only accessor for a definition's result payload. */
-export type ResultOf<
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >,
-> =
-  D extends RpcDefinition<string, Schema.Schema.AnyNoContext, infer R>
-    ? Schema.Schema.Type<R>
-    : never;
+export type ResultOf<D extends RpcDefinitionAny> = Schema.Schema.Type<
+  D["resultSchema"]
+>;
 
 /**
  * The transport-level errors any descriptor-driven call can surface regardless
@@ -157,32 +146,21 @@ export type ResultOf<
 export type ResponseErrorsOf = NotConnectedError | RpcTimeoutError;
 
 /**
- * The union of every requirement's error instances for a `requires` tuple: each
- * requirement (principal, agent-claimed refinement, capability) declares its own
- * `static errors`, read directly off each entry's {@link RequirementShape} (no
- * structural cast). The lone empty `requires` (`network/connect`) yields `never`.
+ * The union of every requirement middleware's failure type for a `requires`
+ * tuple. Empty `requires` yields `never`.
  */
 export type RequirementErrorsOf<
   Requires extends ReadonlyArray<RequirementShape>,
-> = InstanceType<Requires[number]["errors"][number]>;
+> =
+  Requires[number] extends RpcMiddleware.TagClass<any, string, infer Options>
+    ? RpcMiddleware.TagClass.Failure<Options>
+    : never;
 
 /**
  * The handler-domain error instance union a descriptor declares.
  */
-export type DomainErrorsOf<
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >,
-> =
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext,
-    ReadonlyArray<RequirementShape>,
-    infer Errs
-  >
+export type DomainErrorsOf<D extends RpcDefinitionAny> =
+  D extends RpcDefinition<any, any, any, any, infer Errs>
     ? InstanceType<Errs[number]>
     : never;
 
@@ -193,61 +171,38 @@ export type DomainErrorsOf<
  * `client["method/name"](payload)`'s Effect — the same union the wire
  * `errorSchema` decodes, plus transport.
  */
-export type CallErrorsOf<
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >,
-> =
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext,
-    infer Requires,
-    ReadonlyArray<RpcErrorClass>
-  >
+export type CallErrorsOf<D extends RpcDefinitionAny> =
+  D extends RpcDefinition<any, any, any, infer Requires, any>
     ? DomainErrorsOf<D> | RequirementErrorsOf<Requires> | ResponseErrorsOf
     : never;
 
 /**
- * The effective wire-error class list for a method: every requirement's declared
- * errors (in `requires` order) then the handler-domain errors, deduped by
- * identity (a class shared across a requirement and the handler list appears
- * once). This is the single source the wire `errorSchema`, the server gate, and
- * the typed client all read.
+ * The effective wire-error schema list for a method: every requirement
+ * middleware's failure schema (in `requires` order) then the handler-domain
+ * errors. This is the single source the wire `errorSchema`, the server gate,
+ * and the typed client all read.
  */
 export function effectiveErrorClasses(
   requires: ReadonlyArray<RequirementShape>,
   handlerErrors: ReadonlyArray<RpcErrorClass>,
-): ReadonlyArray<RpcErrorClass> {
-  const all = [...requires.flatMap(requirementErrorClasses), ...handlerErrors];
-  return [...new Set(all)];
-}
-
-/**
- * Read a requirement tag's declared static `errors` — read directly off its
- * {@link RequirementShape} (every requirement tag has `static errors`), the
- * runtime mirror of {@link RequirementErrorsOf}.
- */
-function requirementErrorClasses(
-  req: RequirementShape,
-): ReadonlyArray<RpcErrorClass> {
-  return req.errors;
+): ReadonlyArray<Schema.Schema.AnyNoContext> {
+  return [
+    ...requires.map((requirement) => requirement.failure),
+    ...handlerErrors,
+  ];
 }
 
 /**
  * The wire `error` Schema for a method's effective error classes: a `_tag`-
  * discriminated `Schema.Union` the engine decodes against. `Schema.Never` when
- * the list is empty (the unauthenticated `network/connect` raises no typed wire
- * error; transport failures are added at the client surface).
+ * the list is empty; transport failures are added at the client surface.
  */
 function makeErrorSchema(
-  classes: ReadonlyArray<RpcErrorClass>,
+  classes: ReadonlyArray<Schema.Schema.AnyNoContext>,
 ): Schema.Schema.AnyNoContext {
   // `Schema.Union` over the effective error classes — discriminated by `_tag`.
   // The zero-arg union is the empty (never) error arm for a method that raises
-  // no typed wire error (the unauthenticated `network/connect`); the one-arg
+  // no typed wire error; the one-arg
   // union is that single error. One construction path keeps the variance
   // uniform (`Schema.Never`'s narrow `annotations` signature is not assignable
   // to the descriptor's `Schema<any, any, never>` slot).
@@ -280,8 +235,8 @@ function makeErrorSchema(
  *   bare `Schema.is` accepts unknown keys, so per-method validation closes the
  *   struct to catch a caller that sends a field the descriptor never declared.
  *
- * Method names are branded `JsonRpcMethod&lt;"the.name">` so a runtime
- * string can never accidentally type-fit a method position.
+ * Method names stay as literal strings so Effect RPC's generated client remains
+ * a normal string-keyed dispatch map.
  *
  * Sibling: {@link defineNotification} — same pipeline minus the
  * result schema and the error union.
@@ -290,22 +245,86 @@ export function defineRpc<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
-  const Requires extends ReadonlyArray<RequirementShape> = readonly [],
   const Errs extends ReadonlyArray<RpcErrorClass> = readonly [],
 >(def: {
   name: Name;
   params: P;
   result: R;
+  requires: readonly [];
+  errors: Errs;
+}): RpcDefinition<Name, P, R, readonly [], Errs>;
+export function defineRpc<
+  Name extends string,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
+  const A extends RequirementShape,
+  const Errs extends ReadonlyArray<RpcErrorClass> = readonly [],
+>(def: {
+  name: Name;
+  params: P;
+  result: R;
+  requires: readonly [A];
+  errors: Errs;
+}): RpcDefinition<Name, P, R, readonly [A], Errs>;
+export function defineRpc<
+  Name extends string,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
+  const A extends RequirementShape,
+  const B extends RequirementShape,
+  const Errs extends ReadonlyArray<RpcErrorClass> = readonly [],
+>(def: {
+  name: Name;
+  params: P;
+  result: R;
+  requires: readonly [A, B];
+  errors: Errs;
+}): RpcDefinition<Name, P, R, readonly [A, B], Errs>;
+export function defineRpc<
+  Name extends string,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
+  const A extends RequirementShape,
+  const B extends RequirementShape,
+  const C extends RequirementShape,
+  const Errs extends ReadonlyArray<RpcErrorClass> = readonly [],
+>(def: {
+  name: Name;
+  params: P;
+  result: R;
+  requires: readonly [A, B, C];
+  errors: Errs;
+}): RpcDefinition<Name, P, R, readonly [A, B, C], Errs>;
+export function defineRpc<
+  Name extends string,
+  P extends Schema.Schema.AnyNoContext,
+  R extends Schema.Schema.AnyNoContext,
+  const A extends RequirementShape,
+  const B extends RequirementShape,
+  const C extends RequirementShape,
+  const D extends RequirementShape,
+  const Errs extends ReadonlyArray<RpcErrorClass> = readonly [],
+>(def: {
+  name: Name;
+  params: P;
+  result: R;
+  requires: readonly [A, B, C, D];
+  errors: Errs;
+}): RpcDefinition<Name, P, R, readonly [A, B, C, D], Errs>;
+export function defineRpc(def: {
+  name: string;
+  params: Schema.Schema.AnyNoContext;
+  result: Schema.Schema.AnyNoContext;
 
   /**
    * REQUIRED. The ordered authority list. The FIRST element is exactly one
-   * principal requirement (`AgentPrincipal` | `AppPrincipal`); an optional
-   * `AgentClaimed` refinement (agent-only) follows; the rest are capability
-   * tags, in run order. The public `network/connect` is the lone method with
-   * `requires: []`. Each requirement folds its declared `errors` into the
-   * method's effective wire error union.
+   * principal requirement (`AgentPrincipal` | `AppPrincipal` |
+   * `AuthenticatedPrincipal`); an optional `AgentClaimed` refinement
+   * (agent-only) follows; the rest are capability tags, in run order. The
+   * unauthenticated connect methods use `requires: []`. Each requirement folds
+   * its declared `errors` into the method's effective wire error union.
    */
-  requires: Requires;
+  requires: ReadonlyArray<RequirementShape>;
 
   /**
    * REQUIRED. The handler-domain tagged-error classes this method can fail
@@ -314,27 +333,69 @@ export function defineRpc<
    * `errors` are added automatically. A method with no handler-domain error
    * declares `[]`.
    */
-  errors: Errs;
-}): RpcDefinition<Name, P, R, Requires, Errs> {
-  const d: RpcDefinition<Name, P, R, Requires, Errs> = {
-    name: jsonRpcMethod(def.name),
+  errors: ReadonlyArray<RpcErrorClass>;
+}) {
+  const name = jsonRpcMethod(def.name);
+  const errorSchema = makeErrorSchema(
+    effectiveErrorClasses(def.requires, def.errors),
+  );
+  const handlerErrorSchema = makeErrorSchema(def.errors);
+  return {
+    name,
     paramsSchema: def.params,
     resultSchema: def.result,
+    clientRpc: Rpc.make(name, {
+      payload: def.params,
+      success: def.result,
+      error: errorSchema,
+    }),
+    serverRpc: applyRequirementMiddlewares(
+      Rpc.make(name, {
+        payload: def.params,
+        success: def.result,
+        error: handlerErrorSchema,
+      }),
+      def.requires,
+    ),
     requires: def.requires,
     errors: def.errors,
     // The per-method wire error union the engine encodes/decodes against: every
     // requirement's declared errors ∪ the handler's declared errors, deduped,
     // discriminated by `_tag`.
-    errorSchema: makeErrorSchema(
-      effectiveErrorClasses(def.requires, def.errors),
-    ),
+    errorSchema,
     // Handler-domain errors ALONE: the engine member's `error`. The requirement
     // (principal/cap) errors come from the stacked middlewares' `failure`.
-    handlerErrorSchema: makeErrorSchema(def.errors),
+    handlerErrorSchema,
     validateParams: closedStructGuard(def.params),
     validateResult: closedStructGuard(def.result),
   };
-  return d;
+}
+
+function applyRequirementMiddlewares(
+  member: Rpc.Rpc<
+    string,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext,
+    Schema.Schema.AnyNoContext
+  >,
+  requirements: ReadonlyArray<RequirementShape>,
+) {
+  let gated:
+    | typeof member
+    | Rpc.Rpc<
+        string,
+        Schema.Schema.AnyNoContext,
+        Schema.Schema.AnyNoContext,
+        Schema.Schema.AnyNoContext,
+        RequirementShape
+      > = member;
+  for (let index = requirements.length - 1; index >= 0; index -= 1) {
+    const requirement = requirements[index];
+    if (requirement !== undefined) {
+      gated = gated.middleware(requirement);
+    }
+  }
+  return gated;
 }
 
 /**
@@ -362,19 +423,32 @@ export function defineRpc<
 export interface NotificationDefinition<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
+  Params = Schema.Schema.Type<P>,
 > {
-  readonly name: JsonRpcMethod<Name>;
+  readonly name: Name;
   readonly paramsSchema: P;
-  readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
+  readonly notificationRpc: Rpc.Rpc<
+    Name,
+    RpcMemberPayload<P>,
+    typeof Schema.Void,
+    typeof Schema.Never
+  >;
+  readonly validateParams: (data: unknown) => data is Params;
 }
 
-/** Type-only accessor for a notification's params payload. */
-export type NotificationParamsOf<
-  D extends NotificationDefinition<string, Schema.Schema.AnyNoContext>,
-> =
-  D extends NotificationDefinition<string, infer P>
-    ? Schema.Schema.Type<P>
-    : never;
+export type NotificationDefinitionAny = NotificationDefinition<
+  any,
+  any,
+  unknown
+>;
+
+/** Type-only accessor for a notification's outbound call payload. */
+export type NotificationPayloadOf<D extends NotificationDefinitionAny> =
+  Rpc.PayloadConstructor<D["notificationRpc"]>;
+
+/** Type-only accessor for a decoded notification delivery payload. */
+export type NotificationParamsOf<D extends NotificationDefinitionAny> =
+  Rpc.Payload<D["notificationRpc"]>;
 
 /**
  * Descriptor-tagged notification delivery after native Effect RPC/Schema
@@ -382,14 +456,21 @@ export type NotificationParamsOf<
  * `NotificationParamsOf<D>` directly.
  */
 export interface NotificationDelivery<
-  D extends NotificationDefinition<
-    string,
-    Schema.Schema.AnyNoContext
-  > = NotificationDefinition<string, Schema.Schema.AnyNoContext>,
+  D extends NotificationDefinitionAny = NotificationDefinitionAny,
 > {
   readonly definition: D;
   readonly method: D["name"];
   readonly params: NotificationParamsOf<D>;
+}
+
+export function isNotificationDeliveryFor<D extends NotificationDefinitionAny>(
+  delivery: NotificationDelivery,
+  definition: D,
+): delivery is NotificationDelivery<D> {
+  return (
+    delivery.definition === definition &&
+    definition.validateParams(delivery.params)
+  );
 }
 
 /**
@@ -400,10 +481,19 @@ export interface NotificationDelivery<
 export function defineNotification<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
->(def: { name: Name; params: P }): NotificationDefinition<Name, P> {
+>(def: {
+  name: Name;
+  params: P;
+}): NotificationDefinition<Name, P, Schema.Schema.Type<P>> {
+  const name = jsonRpcMethod(def.name);
   return {
-    name: jsonRpcMethod(def.name),
+    name,
     paramsSchema: def.params,
+    notificationRpc: Rpc.make(name, {
+      payload: def.params,
+      success: Schema.Void,
+      error: Schema.Never,
+    }),
     validateParams: closedStructGuard(def.params),
   };
 }
@@ -411,14 +501,8 @@ export function defineNotification<
 // ── Per-handler result decoder (Effect-shape; consumed by the conformance
 // test-client to verify a response decodes against the descriptor schema) ───
 
-export class RpcResultDecodeError extends Data.TaggedError(
-  "RpcResultDecodeError",
-)<{
-  readonly definition: RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >;
+class RpcResultDecodeError extends Data.TaggedError("RpcResultDecodeError")<{
+  readonly definition: RpcDefinitionAny;
   readonly data: unknown;
 }> {}
 
@@ -426,8 +510,10 @@ export function decodeRpcResult<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
+  Requires extends ReadonlyArray<RequirementShape>,
+  Errs extends ReadonlyArray<RpcErrorClass>,
 >(
-  definition: RpcDefinition<Name, P, R>,
+  definition: RpcDefinition<Name, P, R, Requires, Errs>,
   data: unknown,
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError> {
   return definition.validateResult(data)

@@ -23,7 +23,6 @@ import {
 
 import { AgentsLookupByName } from "@moltzap/protocol";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { notificationFrame } from "@moltzap/protocol/testing";
 
 const effectTest = effectIt.effect;
 
@@ -69,7 +68,7 @@ const HELLO_BOB_TEXT = "hello bob";
 const ALICE_AGAIN_TEXT = "alice again";
 const BOB_AGAIN_TEXT = "bob again";
 const PLACEHOLDER_TEXT = "placeholder";
-const AGENT_NOT_FOUND_TAG = "AgentNotFoundError";
+const AGENT_NOT_FOUND_TAG = "AgentNotFound";
 const NOBODY_AGENT_NAME = "nobody";
 const LOOKUP_MISSING_RESPONSE_MESSAGE =
   /no canned response for agents\/lookupByName/;
@@ -1043,14 +1042,12 @@ function seedArchivedConversation(service: FakeMoltZapService): void {
       createdAt: ARCHIVED_TIMESTAMP,
     }),
   });
-  service.emitEvent(
-    notificationFrame(TaskConversationCreatedNotificationDefinition, {
-      taskId: TASK_ARCHIVED_ID,
-      conversationId: CONVERSATION_ARCHIVED_ID,
-      name: ARCHIVED_DISPLAY_NAME,
-      participants: [],
-    }),
-  );
+  service.emitEvent(TaskConversationCreatedNotificationDefinition, {
+    taskId: TASK_ARCHIVED_ID,
+    conversationId: CONVERSATION_ARCHIVED_ID,
+    name: ARCHIVED_DISPLAY_NAME,
+    participants: [],
+  });
   service.addMessage(
     CONVERSATION_ARCHIVED_ID,
     buildMessage({
@@ -1087,20 +1084,20 @@ function archiveLifecyclePurgesAndRejectsSends() {
     service.on("conversationArchived", (data) => archivedEvents.push(data));
     service.on("conversationUnarchived", (data) => unarchivedEvents.push(data));
 
-    const archivedEvent = notificationFrame(
+    const archivedParams = {
+      taskId: TASK_ARCHIVED_ID,
+      conversationId: CONVERSATION_ARCHIVED_ID,
+      archivedAt: ARCHIVED_AT,
+    };
+    service.emitEvent(
       TaskConversationArchivedNotificationDefinition,
-      {
-        taskId: TASK_ARCHIVED_ID,
-        conversationId: CONVERSATION_ARCHIVED_ID,
-        archivedAt: ARCHIVED_AT,
-      },
+      archivedParams,
     );
-    service.emitEvent(archivedEvent);
 
     expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(true);
     expect(service.getConversation(CONVERSATION_ARCHIVED_ID)).toBeUndefined();
     expect(service.getHistory(CONVERSATION_ARCHIVED_ID)).toEqual([]);
-    expect(archivedEvents).toEqual([archivedEvent.params]);
+    expect(archivedEvents).toEqual([archivedParams]);
 
     const lateSend = yield* Effect.either(
       service.send(
@@ -1114,19 +1111,19 @@ function archiveLifecyclePurgesAndRejectsSends() {
       service.calls.filter((call) => call.method === MessagesSend.name),
     ).toEqual([]);
 
-    const unarchivedEvent = notificationFrame(
+    const unarchivedParams = {
+      taskId: TASK_ARCHIVED_ID,
+      conversationId: CONVERSATION_ARCHIVED_ID,
+    };
+    service.emitEvent(
       TaskConversationUnarchivedNotificationDefinition,
-      {
-        taskId: TASK_ARCHIVED_ID,
-        conversationId: CONVERSATION_ARCHIVED_ID,
-      },
+      unarchivedParams,
     );
-    service.emitEvent(unarchivedEvent);
 
     expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(
       false,
     );
-    expect(unarchivedEvents).toEqual([unarchivedEvent.params]);
+    expect(unarchivedEvents).toEqual([unarchivedParams]);
   });
 }
 
@@ -1156,12 +1153,12 @@ describe("MoltZapService.fanout — message handlers", () => {
       parts: [{ type: "text", text: "hi" }],
       createdAt: "2026-04-16T00:00:00.000Z",
     });
-    const event = notificationFrame(MessageReceivedNotificationDefinition, {
+    const event = {
       taskId: TASK_ALICE_ID,
       message: msg,
-    });
+    };
 
-    service.emitEvent(event);
+    service.emitEvent(MessageReceivedNotificationDefinition, event);
 
     // Second handler still fired despite first handler throwing.
     expect(seen).toEqual([msg]);

@@ -87,8 +87,9 @@ Outbound messages go through OpenClaw's target resolution before reaching `outbo
 - **OpenClaw** — The external runtime this plugin targets. Imposes a
   Promise-based plugin contract.
 - **Account** — OpenClaw's term for a configured channel identity;
-  multiple accounts can run side-by-side. Each maps to one MoltZap
-  agent (apiKey + agentName + serverUrl).
+  multiple accounts can run side-by-side. The account `id` is the
+  MoltZap profile name loaded from `~/.moltzap/config.json`; OpenClaw
+  does not store MoltZap API keys.
 - **Target** — An outbound send destination, either `agent:<id>` or
   `conv:<id>`. `isMoltZapTarget` is the type guard.
 - **Context log** — Per-message JSONL dump of the full enriched

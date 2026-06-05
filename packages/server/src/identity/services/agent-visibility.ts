@@ -14,7 +14,7 @@ import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 export interface VisibleAgentIdsRequest {
   readonly db: Db;
   readonly callerAgentId: AgentId;
-  readonly callerOwnerUserId: UserId | null;
+  readonly callerOwnerUserId: UserId;
   /** When set, intersect the visible set with these IDs. */
   readonly restrictTo?: ReadonlyArray<AgentId>;
 }
@@ -28,23 +28,13 @@ export function visibleAgentIds(
     return Effect.succeed([]);
   }
 
-  // Unclaimed callers can only see themselves.
-  if (callerOwnerUserId === null) {
-    if (restrictTo === undefined) {
-      return Effect.succeed([callerAgentId]);
-    }
-    return Effect.succeed(
-      restrictTo.includes(callerAgentId) ? [callerAgentId] : [],
-    );
-  }
-
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
       const baseSelect = db.selectFrom("agents").select("id");
       const filtered =
         restrictTo === undefined
           ? baseSelect
-          : baseSelect.where("id", "in", restrictTo as AgentId[]);
+          : baseSelect.where("id", "in", restrictTo);
       const rows = yield* filtered.where((eb) =>
         eb.or([
           eb("id", "=", callerAgentId),

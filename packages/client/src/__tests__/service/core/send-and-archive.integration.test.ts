@@ -48,7 +48,7 @@ it("send() delivers message to other agent", () =>
       eventOpt,
       () => new Error("notification stream closed before delivery"),
     );
-    const part = event.params.message.parts[0]!;
+    const part = event.message.parts[0]!;
     if (part.type !== "text") {
       throw new Error(`expected text part, got ${part.type}`);
     }

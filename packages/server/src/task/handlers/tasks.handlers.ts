@@ -23,7 +23,6 @@ import {
   type TaskConversationListItem,
 } from "@moltzap/protocol";
 import {
-  ConversationCreateAuthorization,
   assertAppOwnsTask,
   type AppId,
   type ConversationId,
@@ -32,7 +31,7 @@ import {
 import type { AgentContext, AppContext } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
-import { obtainConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";
+import { authorizeConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 import { agentArm, appArm } from "../../app/server-handlers-runtime.js";
 
@@ -86,20 +85,14 @@ function taskConversationCreateBody(
     // initiator is NOT injected). Authorization is capacity-only — a TM
     // minting on the task's behalf has no agent contact-edges; the
     // targets are gated by `requireAgentsAreInTaskParticipants` above.
-    const conversation = yield* conversationService
-      .create({
-        name: params.name,
-        agentIds: [...params.participants],
-        creatorAgentId: task.initiatorAgentId,
-        seedCreatorAsParticipant: false,
-        mintTask: Effect.succeed({ id: params.taskId }),
-      })
-      .pipe(
-        Effect.provideServiceEffect(
-          ConversationCreateAuthorization,
-          obtainConversationCreateCapacityOnly([...params.participants]),
-        ),
-      );
+    yield* authorizeConversationCreateCapacityOnly([...params.participants]);
+    const conversation = yield* conversationService.create({
+      name: params.name,
+      agentIds: [...params.participants],
+      creatorAgentId: task.initiatorAgentId,
+      seedCreatorAsParticipant: false,
+      mintTask: Effect.succeed({ id: params.taskId }),
+    });
     yield* fanoutTaskConversationCreate({
       taskId: params.taskId,
       conversation,

@@ -1,12 +1,13 @@
 import type { Message, Part, TaskStatus } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import type { ConnectionId } from "@moltzap/protocol";
 import type {
   AppId,
   ConversationId,
   MessageId,
   TaskId,
 } from "@moltzap/protocol/task";
+import type { Dek } from "../../db/crypto/envelope.js";
 
 export interface SendInsertResult {
   readonly message: Message;
@@ -44,16 +45,8 @@ export interface SendConversationRow {
   readonly archived_at: Date | null;
   readonly task_id: TaskId;
 
-  /**
-   * Parent task's `app_id`. Consumed by `MessageService.sendCommit` to
-   * route the per-message `messages/authorize` verdict request to the
-   * right app.
-   *
-   * Typed as `string` because Kysely's row inference returns the raw
-   * SQL column shape; consumers brand at the boundary
-   * (`row.app_id as AppId`) at each read site.
-   */
-  readonly app_id: string;
+  /** Parent task's authorizing app id. */
+  readonly app_id: AppId;
   readonly task_status: TaskStatus;
 }
 
@@ -66,7 +59,7 @@ export interface EncryptedParts {
 }
 
 export interface ConversationDek {
-  readonly dek: Buffer;
+  readonly dek: Dek;
   readonly dekVersion: number;
   readonly kekVersion: number;
 }

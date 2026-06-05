@@ -1,47 +1,40 @@
 /**
- * @file The per-capability `@effect/rpc` middleware impl Layers — one
- * server-supplied per-socket `Layer` over each protocol-owned cap middleware
- * (`@moltzap/protocol` `cap-middlewares.ts`).
+ * @file The per-requirement `@effect/rpc` middleware impl Layers — one
+ * server-supplied per-socket `Layer` over each protocol-owned middleware
+ * (`@moltzap/protocol` `requirements.ts`).
  *
- * Each capability is its own `RpcMiddleware.Tag`; the engine stacks the
- * principal gate plus the method's declared cap middlewares
- * (`server-engine-group.ts → buildEngineMember`). The descriptor (the cap
- * `Context.Tag` + the middleware Tag + its `failure`) is protocol-owned; the
- * impl that resolves a connection to its narrowed arm (the gate) or runs a cap's
- * derive/obtain (a cap mw) is a server concern, supplied here.
+ * Each requirement is its own `RpcMiddleware.Tag`; the engine stacks the
+ * method's declared requirements (`server-lifecycle.ts -> buildEngineMember`).
+ * The descriptor tag + its `failure` schema are protocol-owned; the impl that
+ * resolves a connection to its narrowed arm or runs a cap obtain is a server
+ * concern, supplied here.
  *
- * The principal gate is ONE impl over `PrincipalGateMw`, stacked on every
- * authenticated method: it reads the running `rpc._tag`, looks up that method's
- * policy (the `requires` head + whether it requires a claimed agent) in
- * {@link policyByTag}, narrows the live arm, and fails `Unauthorized` /
- * `Forbidden`. It provides nothing — the handler reads the narrowed arm off
- * `ConnectionTag` (`agentArm`/`appArm`).
+ * Principal requirements are gate-only middleware: they narrow the live arm and
+ * fail `Unauthorized` / `Forbidden`. They provide nothing; handlers read the
+ * narrowed arm off `ConnectionTag` (`agentArm`/`appArm`).
  *
- * Each cap mw impl peeks the live arm for the caller's agent id, derives its
- * input from the decoded `payload`, and runs the cap's `obtain` — providing the
- * cap's `Context.Tag` value to the handler. `@effect/rpc` runs each middleware
- * impl in isolation (no `R`), so a cap mw cannot read another mw's provided
- * value; a precondition that refines a fetched row (the send guards on
- * `ConversationSendAccess`) is a handler-body guard, not a middleware. A
- * cap-obtain failure encodes against that cap mw's own `failure` schema.
+ * Each cap requirement impl peeks the live arm when it needs the caller's agent
+ * id, derives input from the decoded `payload`, and runs the cap's `obtain`.
+ * A cap-obtain failure encodes against that requirement's own `failure` schema.
  */
 import { Context, Effect, Layer } from "effect";
 import type { RpcMiddleware } from "@effect/rpc";
 import {
-  PrincipalGateMw,
-  ConversationInTaskMw,
-  ConversationSendAccessMw,
-  TaskReadAccessMw,
-  ContactPolicyAllowsReachMw,
-  serverRpcMethods,
-  principalRequirementOf,
-  requiresClaimed,
-  type PrincipalRequirement,
+  AgentPrincipal,
+  AppPrincipal,
+  AuthenticatedPrincipal,
+  AgentClaimed,
+} from "@moltzap/protocol/transport";
+import {
+  ConversationInTask,
+  ConversationSendAccess,
+  TaskReadAccess,
+  ContactPolicyAllowsReach,
   type ConversationId,
   type TaskId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import type { ConnectionId } from "@moltzap/protocol/runtime";
 import {
   ConnectionManagerTag,
   ConversationServiceTag,
@@ -55,29 +48,6 @@ import {
 } from "../app/capability-middlewares.js";
 import { obtainConversationSendAccess } from "../task/services/send-permissions.js";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
-
-/** The principal policy a method's gate enforces — read off its `requires`. */
-interface PrincipalPolicy {
-  /** The `requires` head; `undefined` only for the empty-`requires` method. */
-  readonly principal: PrincipalRequirement | undefined;
-  readonly requiresClaimed: boolean;
-}
-
-/**
- * Method wire tag → its principal policy. Built once from the descriptor catalog
- * so the single `PrincipalGateMw` impl narrows per the running method's `requires`
- * head + the `AgentClaimed` refinement (read off `rpc._tag`), with no parallel
- * literal table.
- */
-const policyByTag: ReadonlyMap<string, PrincipalPolicy> = new Map(
-  serverRpcMethods.map((d) => [
-    d.name as string,
-    {
-      principal: principalRequirementOf(d.requires),
-      requiresClaimed: requiresClaimed(d.requires),
-    },
-  ]),
-);
 
 /** Read the caller's agent id off the live arm (cap mws derive from it). */
 const callerAgentIdFor = (
@@ -96,34 +66,60 @@ const callerAgentIdFor = (
 
 type ConnectionManagerService = Parameters<typeof peekLiveArm>[0];
 
-// ── Principal gate ───────────────────────────────────────────────────────────
+// ── Principal requirements ───────────────────────────────────────────────────
 
-/**
- * The `PrincipalGateMw` impl Layer for one socket: reads the running method's
- * policy, narrows the live arm, fails `Unauthorized`/`Forbidden`. Returns void —
- * a pure gate. Stacked on every authenticated method by `buildEngineMember`.
- */
-const makePrincipalGateLayer = (connId: ConnectionId) =>
+const principalLayer = <Mw extends RpcMiddleware.TagClassAny>(
+  mw: Mw,
+  connId: ConnectionId,
+  check: (manager: ConnectionManagerService) => Effect.Effect<void, unknown>,
+): Layer.Layer<Context.Tag.Identifier<Mw>, never, ConnectionManagerTag> =>
   Layer.effect(
-    PrincipalGateMw,
+    mw,
     Effect.gen(function* () {
       const manager = yield* ConnectionManagerTag;
-      return ({ rpc }: MwOptions) =>
-        Effect.gen(function* () {
-          const policy = policyByTag.get(rpc._tag);
-          if (policy === undefined) {
-            return yield* Effect.dieMessage(
-              `principal gate: no policy for method ${rpc._tag}`,
-            );
-          }
-          const connection = yield* peekLiveArm(manager, connId);
-          yield* narrowByPolicy(
-            policy.principal,
-            policy.requiresClaimed,
-            connection,
-          );
-        }).pipe(Effect.withSpan("AuthMiddleware.principalGate"));
+      return () =>
+        check(manager).pipe(Effect.withSpan(`requirement.${mw.key}`));
     }),
+  );
+
+const makeAgentPrincipalLayer = (connId: ConnectionId) =>
+  principalLayer(AgentPrincipal, connId, (manager) =>
+    peekLiveArm(manager, connId).pipe(
+      Effect.flatMap((connection) =>
+        narrowByPolicy(AgentPrincipal, false, connection),
+      ),
+      Effect.asVoid,
+    ),
+  );
+
+const makeAppPrincipalLayer = (connId: ConnectionId) =>
+  principalLayer(AppPrincipal, connId, (manager) =>
+    peekLiveArm(manager, connId).pipe(
+      Effect.flatMap((connection) =>
+        narrowByPolicy(AppPrincipal, false, connection),
+      ),
+      Effect.asVoid,
+    ),
+  );
+
+const makeAuthenticatedPrincipalLayer = (connId: ConnectionId) =>
+  principalLayer(AuthenticatedPrincipal, connId, (manager) =>
+    peekLiveArm(manager, connId).pipe(
+      Effect.flatMap((connection) =>
+        narrowByPolicy(AuthenticatedPrincipal, false, connection),
+      ),
+      Effect.asVoid,
+    ),
+  );
+
+const makeAgentClaimedLayer = (connId: ConnectionId) =>
+  principalLayer(AgentClaimed, connId, (manager) =>
+    peekLiveArm(manager, connId).pipe(
+      Effect.flatMap((connection) =>
+        narrowByPolicy(AgentPrincipal, true, connection),
+      ),
+      Effect.asVoid,
+    ),
   );
 
 // ── Cap middlewares ───────────────────────────────────────────────────────────
@@ -149,10 +145,44 @@ type TaskAndConvParams = {
 type TaskAndAgentParams = { readonly taskId: TaskId };
 type TaskRequestParams = { readonly invitedAgentIds: readonly AgentId[] };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isTaskAndConvParams = (payload: unknown): payload is TaskAndConvParams =>
+  isRecord(payload) &&
+  typeof payload["taskId"] === "string" &&
+  typeof payload["conversationId"] === "string";
+
+const isSendParams = (payload: unknown): payload is SendParams =>
+  isRecord(payload) &&
+  (payload["taskId"] === undefined || typeof payload["taskId"] === "string") &&
+  typeof payload["conversationId"] === "string";
+
+const isTaskAndAgentParams = (
+  payload: unknown,
+): payload is TaskAndAgentParams =>
+  isRecord(payload) && typeof payload["taskId"] === "string";
+
+const isTaskRequestParams = (payload: unknown): payload is TaskRequestParams =>
+  isRecord(payload) &&
+  Array.isArray(payload["invitedAgentIds"]) &&
+  payload["invitedAgentIds"].every((id) => typeof id === "string");
+
+function requirePayload<A>(
+  payload: unknown,
+  guard: (payload: unknown) => payload is A,
+  requirement: string,
+): Effect.Effect<A> {
+  if (guard(payload)) return Effect.succeed(payload);
+  return Effect.dieMessage(
+    `cap middleware ${requirement}: incompatible RPC payload`,
+  );
+}
+
 /**
  * The cap obtains' service env as a `Context` snapshot, read once at Layer build
  * (per socket). Each cap mw impl `Effect.provide`s it so the impl's Effect has
- * no service `R` — the `RpcMiddleware` contract is `Effect&lt;Provides, E>` with
+ * no service `R` — the `RpcMiddleware` contract is `Effect&lt;void, E>` with
  * no context channel.
  */
 const mwEnv = Effect.gen(function* () {
@@ -186,7 +216,7 @@ type CapMwLayerR =
  */
 const capMwLayer = <Mw extends RpcMiddleware.TagClassAny, Value, Err, In>(
   mw: Mw,
-  derive: (payload: unknown) => In,
+  derive: (payload: unknown) => Effect.Effect<In>,
   obtain: (input: In) => Effect.Effect<Value, Err, MwEnv>,
 ): Layer.Layer<Context.Tag.Identifier<Mw>, never, CapMwLayerR> =>
   Layer.effect(
@@ -195,7 +225,11 @@ const capMwLayer = <Mw extends RpcMiddleware.TagClassAny, Value, Err, In>(
       mwEnv,
       (env) =>
         ({ payload }: MwOptions) =>
-          obtain(derive(payload)).pipe(Effect.provide(env)),
+          derive(payload).pipe(
+            Effect.flatMap(obtain),
+            Effect.asVoid,
+            Effect.provide(env),
+          ),
     ),
   );
 
@@ -214,7 +248,7 @@ const capMwLayerWithCaller = <
 >(
   mw: Mw,
   connId: ConnectionId,
-  derive: (payload: unknown, callerAgentId: AgentId) => In,
+  derive: (payload: unknown, callerAgentId: AgentId) => Effect.Effect<In>,
   obtain: (input: In) => Effect.Effect<Value, Err, MwEnv>,
 ): Layer.Layer<Context.Tag.Identifier<Mw>, never, CapMwLayerR> =>
   Layer.effect(
@@ -228,58 +262,86 @@ const capMwLayerWithCaller = <
               Context.get(env, ConnectionManagerTag),
               connId,
             );
-            return yield* obtain(derive(payload, callerAgentId));
-          }).pipe(Effect.provide(env)),
+            const input = yield* derive(payload, callerAgentId);
+            return yield* obtain(input);
+          }).pipe(Effect.asVoid, Effect.provide(env)),
     ),
   );
 
-/**
- * Every per-socket cap-middleware impl Layer, merged. The engine stacks each cap
- * mw on the methods that declare it; this provides ONE impl per cap mw Tag for
- * the socket (the impl ignores methods that do not stack it). `ConversationInTask`
- * reads no caller (pure params — it gates app-principal methods too); the rest
- * peek the caller's agent id.
- */
-export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
-  Layer.mergeAll(
-    makePrincipalGateLayer(connId),
-    capMwLayer(
-      ConversationInTaskMw,
-      (payload) => {
-        const p = payload as TaskAndConvParams;
-        return { taskId: p.taskId, conversationId: p.conversationId };
-      },
-      obtainConversationInTask,
-    ),
-    capMwLayerWithCaller(
-      ConversationSendAccessMw,
-      connId,
-      (payload, senderAgentId) => {
-        const p = payload as SendParams;
-        return {
+const makeConversationInTaskLayer = () =>
+  capMwLayer(
+    ConversationInTask,
+    (payload) =>
+      requirePayload(payload, isTaskAndConvParams, ConversationInTask.key).pipe(
+        Effect.map((p) => ({
+          taskId: p.taskId,
+          conversationId: p.conversationId,
+        })),
+      ),
+    obtainConversationInTask,
+  );
+
+const makeConversationSendAccessLayer = (connId: ConnectionId) =>
+  capMwLayerWithCaller(
+    ConversationSendAccess,
+    connId,
+    (payload, senderAgentId) =>
+      requirePayload(payload, isSendParams, ConversationSendAccess.key).pipe(
+        Effect.map((p) => ({
           conversationId: p.conversationId,
           senderAgentId,
           taskId: p.taskId,
-        };
-      },
-      obtainConversationSendAccess,
-    ),
-    capMwLayerWithCaller(
-      TaskReadAccessMw,
-      connId,
-      (payload, callerAgentId) => ({
-        taskId: (payload as TaskAndAgentParams).taskId,
-        callerAgentId,
-      }),
-      obtainTaskReadAccess,
-    ),
-    capMwLayerWithCaller(
-      ContactPolicyAllowsReachMw,
-      connId,
-      (payload, creatorAgentId) => ({
-        creatorAgentId,
-        targetAgentIds: [...(payload as TaskRequestParams).invitedAgentIds],
-      }),
-      obtainContactPolicyAllowsReach,
-    ),
+        })),
+      ),
+    obtainConversationSendAccess,
+  );
+
+const makeTaskReadAccessLayer = (connId: ConnectionId) =>
+  capMwLayerWithCaller(
+    TaskReadAccess,
+    connId,
+    (payload, callerAgentId) =>
+      requirePayload(payload, isTaskAndAgentParams, TaskReadAccess.key).pipe(
+        Effect.map((p) => ({
+          taskId: p.taskId,
+          callerAgentId,
+        })),
+      ),
+    obtainTaskReadAccess,
+  );
+
+const makeContactPolicyAllowsReachLayer = (connId: ConnectionId) =>
+  capMwLayerWithCaller(
+    ContactPolicyAllowsReach,
+    connId,
+    (payload, creatorAgentId) =>
+      requirePayload(
+        payload,
+        isTaskRequestParams,
+        ContactPolicyAllowsReach.key,
+      ).pipe(
+        Effect.map((p) => ({
+          creatorAgentId,
+          targetAgentIds: [...p.invitedAgentIds],
+        })),
+      ),
+    obtainContactPolicyAllowsReach,
+  );
+
+/**
+ * Every per-socket requirement impl Layer, merged. The engine stacks each
+ * requirement on the methods that declare it. `ConversationInTask` reads no
+ * caller (pure params — it gates app-principal methods too); the rest peek the
+ * caller's agent id.
+ */
+export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
+  Layer.mergeAll(
+    makeAgentPrincipalLayer(connId),
+    makeAppPrincipalLayer(connId),
+    makeAuthenticatedPrincipalLayer(connId),
+    makeAgentClaimedLayer(connId),
+    makeConversationInTaskLayer(),
+    makeConversationSendAccessLayer(connId),
+    makeTaskReadAccessLayer(connId),
+    makeContactPolicyAllowsReachLayer(connId),
   );

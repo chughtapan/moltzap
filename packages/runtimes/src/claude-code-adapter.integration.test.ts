@@ -22,15 +22,17 @@ import { NodeContext } from "@effect/platform-node";
 import { Effect, Either } from "effect";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { agentId } from "@moltzap/protocol/testing";
 import {
   startCoreTestServer,
   stopCoreTestServer,
   type CoreTestServer,
 } from "@moltzap/server-core/test-utils";
-import { registerAgent, stripWsPath } from "@moltzap/client/test";
+import { registerAgent } from "@moltzap/client";
+import { stripWsPath } from "@moltzap/client/test-utils";
 
 import { createWorkspaceClaudeCodeAdapter } from "./claude-code-adapter.js";
-import { AgentName, ApiKey, ServerUrl } from "./runtime.js";
+import { AgentName, ServerUrl } from "./runtime.js";
 
 const SOURCE_DIR = fileURLToPath(new URL(".", import.meta.url));
 const CORE_SERVER_HOOK_TIMEOUT_MS = 60_000;
@@ -115,8 +117,8 @@ function claudeCodeSpawnReadyTeardown() {
       const spawnResult = yield* Effect.either(
         adapter.spawn({
           agentName: AgentName(CLAUDE_AGENT_NAME),
-          apiKey: ApiKey(reg.apiKey),
-          agentId: reg.agentId,
+          apiKey: reg.apiKey,
+          agentId: agentId(reg.agentId),
           serverUrl: ServerUrl(stripWsPath(runningServer.wsUrl)),
         }),
       );

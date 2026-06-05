@@ -1,10 +1,6 @@
 import { Schema } from "effect";
-import {
-  stringEnum,
-  dateTimeStringSchema,
-  listCursorSchema,
-} from "../schema-primitives.js";
-import { ListLimitSchema } from "../pagination.js";
+import { stringEnum, dateTimeStringSchema } from "../transport/wire-string.js";
+import { ListLimitSchema, listCursorSchema } from "../transport/pagination.js";
 import { AgentId, AgentNotFoundError } from "../identity/agents.js";
 import {
   ForbiddenError,
@@ -346,10 +342,10 @@ export const TaskRemoveParticipant = defineRpc({
  *
  * - **Principal:** `AppPrincipal` head. App-ownership is gated by the app-arm
  *   handler's `assertCallerAppOwnsTask` (raising `ForbiddenError` for a
- *   non-owner before the body); `ConversationCreateAuthorization` is provided
- *   inline by the handler as a capacity-only proof (a TM minting on the task's
- *   behalf has no agent contact-edges; targets are gated by
- *   `requireAgentsAreInTaskParticipants`).
+ *   non-owner before the body); the server handler performs capacity-only
+ *   authorization inline because an app minting on the task's behalf has no
+ *   agent contact-edges; targets are gated by
+ *   `requireAgentsAreInTaskParticipants`.
  * @error ForbiddenError when the caller does not own the task
  * @error TaskNotFoundError when the task does not exist
  * @error AgentNotFoundError when a listed participant agent does not exist

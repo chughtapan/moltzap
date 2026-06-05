@@ -8,12 +8,8 @@
  * in a promise.
  */
 
-import {
-  MoltZapChannelCore,
-  MoltZapService,
-  type EnrichedInboundMessage,
-} from "@moltzap/client";
-import { Effect, Either } from "effect";
+import { MoltZapService } from "@moltzap/client";
+import { Effect } from "effect";
 import { toClaudeChannelNotification } from "./event.js";
 import { createRoutingState, type RoutingTarget } from "./routing.js";
 import {
@@ -23,14 +19,17 @@ import {
 } from "./server.js";
 import type { BootOptions, Handle } from "./types.js";
 import {
-  AgentKeyInvalid,
   LeaseAlreadyConsumed,
   McpTransportFailed,
   SendFailed,
   type BootError,
   type ReplyError,
 } from "./errors.js";
-import { catchLeaseInvalid } from "@moltzap/client/channel-base";
+import {
+  MoltZapChannelCore,
+  catchLeaseInvalid,
+  type EnrichedInboundMessage,
+} from "@moltzap/client/channel-base";
 import { stringifyCause } from "./utils.js";
 
 export type BootResult =
@@ -44,23 +43,6 @@ const DEFAULT_INSTRUCTIONS =
 
 function bootErrorResult(error: BootError): BootResult {
   return { _tag: "Err", error };
-}
-
-function validateBootOptions(opts: BootOptions): BootError | null {
-  if (typeof opts.agentKey !== "string" || opts.agentKey.trim().length === 0) {
-    return new AgentKeyInvalid({
-      cause: "agentKey must be a non-empty string",
-    });
-  }
-  if (
-    typeof opts.serverUrl !== "string" ||
-    opts.serverUrl.trim().length === 0
-  ) {
-    return new AgentKeyInvalid({
-      cause: "serverUrl must be a non-empty string",
-    });
-  }
-  return null;
 }
 
 function makeSendReply(core: MoltZapChannelCore) {
@@ -285,8 +267,7 @@ function makeHandle(
  *   participant server as server.ts
  *   participant client as moltzap-client
  *   Caller->>entry: bootClaudeCodeChannel(opts)
- *   note over entry: [1] validateBootOptions (agentKey, serverUrl)
- *   entry->>client: [2] new MoltZapService
+ *   entry->>client: [1] MoltZapService.make(profileName)
  *   entry->>client: [3] new MoltZapChannelCore
  *   note over entry: [4] createRoutingState
  *   note over entry: [5] makeSendReply(core)
@@ -306,7 +287,7 @@ function makeHandle(
  * channels — MCP stdio (outbound to Claude) and MoltZap WS (inbound
  * from server). They meet inside the inbound handler and the reply
  * tool.
- * @failure AgentKeyInvalid when opts.agentKey or opts.serverUrl is blank
+ * @failure client config error when MoltZap config is missing or invalid
  * @failure McpTransportFailed when MCP server init or stdio connect rejects (step 6)
  * @failure ServiceRpcError when WS connect / auth rejects (step 8)
  */
@@ -318,44 +299,23 @@ function bootClaudeCodeChannelEffect(
   opts: BootOptions,
 ): Effect.Effect<BootResult, never, never> {
   return Effect.gen(function* () {
-    const validationError = validateBootOptions(opts);
-    if (validationError !== null) return bootErrorResult(validationError);
-
-    const service = new MoltZapService({
-      serverUrl: opts.serverUrl,
-      agentKey: opts.agentKey,
-    });
-
-    const core = new MoltZapChannelCore({
-      service,
-    });
+    const service = yield* MoltZapService.make(opts.profileName);
+    const core = new MoltZapChannelCore({ service });
     const routing = createRoutingState();
     const sendReply = makeSendReply(core);
-    const serverBoot = yield* bootMcpServerHandle(
-      opts,
-      sendReply,
-      routing,
-    ).pipe(
-      Effect.match({
-        onFailure: bootErrorResult,
-        onSuccess: (value) => ({ _tag: "Ok" as const, value }),
-      }),
-    );
-    if (serverBoot._tag === "Err") return serverBoot;
-    const serverHandle = serverBoot.value;
+    const serverHandle = yield* bootMcpServerHandle(opts, sendReply, routing);
 
     // Inbound: gate → translate → record → push. Failures log and drop.
     core.onInbound((enriched: EnrichedInboundMessage) =>
       handleInboundMessage(opts, routing, serverHandle, enriched),
     );
 
-    const connectResult = yield* Effect.either(connectCore(core, serverHandle));
-    const connectFailure = Either.match(connectResult, {
-      onLeft: bootErrorResult,
-      onRight: () => null,
-    });
-    if (connectFailure !== null) return connectFailure;
-
-    return { _tag: "Ok", value: makeHandle(core, serverHandle) };
-  });
+    yield* connectCore(core, serverHandle);
+    return makeHandle(core, serverHandle);
+  }).pipe(
+    Effect.match({
+      onFailure: bootErrorResult,
+      onSuccess: (value): BootResult => ({ _tag: "Ok", value }),
+    }),
+  );
 }

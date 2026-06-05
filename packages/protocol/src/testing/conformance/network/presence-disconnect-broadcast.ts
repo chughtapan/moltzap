@@ -1,5 +1,5 @@
 /**
- * Presence — `ws-close after network/connect` ⇒ subscriber receives
+ * Presence — `ws-close after agent/connect` ⇒ subscriber receives
  * `presence/changed { offline }` strictly after `{ online }`.
  */
 import { Effect } from "effect";
@@ -20,7 +20,7 @@ export function registerDisconnectBroadcast(ctx: ConformanceRunContext): void {
     ctx,
     PRESENCE_CATEGORY,
     NAME,
-    "ws-close after network/connect ⇒ subscriber receives presence/changed { offline } strictly after { online }",
+    "ws-close after agent/connect ⇒ subscriber receives presence/changed { offline } strictly after { online }",
     Effect.scoped(
       Effect.gen(function* () {
         const sub = yield* acquireClient(ctx, NAME, "p2-sub");

@@ -4,7 +4,7 @@ import type {
   MessagesAuthorize,
 } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import type { ConnectionId } from "@moltzap/protocol";
 import type { LeaseId, MessageId } from "@moltzap/protocol/task";
 import type { ContactService } from "../identity/services/contact-policy.js";
 import type { ConnectionManager } from "../transport/connection.js";
@@ -14,16 +14,16 @@ import type { LeaseRegistry } from "../task/leases/lease-registry.js";
 export type { UserId, AgentId };
 
 export type ConnectionHook = (params: {
-  agentId: string;
+  agentId: AgentId;
   agentName: string;
-  /** Owner user ID resolved at network/connect time. Null for unclaimed agents. */
-  ownerUserId: string | null;
+  /** Owner user ID resolved at agent/connect time. */
+  ownerUserId: UserId;
   connId: ConnectionId;
 }) => PromiseLike<void> | void;
 
 export type DisconnectionHook = (params: {
-  agentId: string;
-  ownerUserId: string | null;
+  agentId: AgentId;
+  ownerUserId: UserId;
   connId: ConnectionId;
 }) => PromiseLike<void> | void;
 

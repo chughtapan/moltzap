@@ -1,62 +1,277 @@
 /**
- * @file Public barrel — protocol layer DAG.
+ * @file Protocol package root.
  *
- * The protocol package is the leaf in the workspace dependency
- * graph, and internally it is split into layers with their own
- * one-way dependency order. Re-exports below are arranged in DAG
- * order so the file itself is the manifest.
- *
- * ```mermaid
- * flowchart TD
- *   engine[engine/] --> app[app/]
- *   engine --> task[task/]
- *   engine --> transport[transport/]
- *   app --> task
- *   app --> identity[identity/]
- *   app --> transport
- *   task --> identity
- *   task --> transport
- *   network[network/] --> identity
- *   network --> transport
- *   identity --> transport
- *   transport --> schema[schema-primitives]
- * ```
- *
- * `transport/` is the wire bottom (frames, the descriptor factory, the
- * mux, the low principal tags). `engine/` is the TOP: the genuine
- * `Requirement` union + capability middlewares + the server/client engine
- * groups, which couple to the full descriptor catalog and the
- * task-layer capability tags. A `task/*` method may reference `identity/*`
- * types (e.g. `AgentId`); the reverse import is forbidden. The server's
- * Tag-allowlist hierarchy in `@moltzap/server-core` mirrors this DAG: a
- * handler may pull services only from layers at-or-below its own home layer.
+ * Transitional compatibility surface while the protocol package is rebalanced.
+ * The final root target is the runtime lifecycle surface; descriptor and schema
+ * exports are already available on focused subpaths.
  */
+
+export { MoltZapAgentClient } from "./agent-client.js";
+export { MoltZapAppClient } from "./app-client.js";
+export { MoltZapServer } from "./server-lifecycle.js";
+
+export type { AgentClientOptions } from "./agent-client.js";
+export type { AppCallbackContext, AppClientOptions } from "./app-client.js";
+export type {
+  MoltZapServerOptions,
+  MoltZapServerSession,
+  ReverseCallError,
+  ReverseCallbackError,
+  ReverseCallbackPayload,
+  ReverseCallbackSuccess,
+  ReverseCallbackTag,
+  ReverseCallbackRequest,
+  ReverseClient,
+  ServerSocketWrite,
+} from "./server-lifecycle.js";
+
+export { RPC_TIMEOUT_MS } from "./client-lifecycle.js";
+export type {
+  ClientDefinitionError,
+  ClientDefinitionPayload,
+  ClientDefinitionSuccess,
+  ClientRpcDefinition,
+  RpcCallOptions,
+} from "./client-lifecycle.js";
+
 export {
-  PROTOCOL_VERSION,
-  compareProtocolVersion,
-  checkProtocolRange,
-  InvalidProtocolVersionError,
-} from "./version.js";
+  classifyCloseCause,
+  DEFAULT_ABNORMAL_CLOSE,
+  DEFAULT_GRACEFUL_CLOSE,
+  extractCloseInfo,
+} from "./close-info.js";
+export type { CloseInfo, CloseKind } from "./close-info.js";
 
-// Opaque pagination token for the cursor-paginated list RPCs.
-export { listCursorSchema } from "./schema-primitives.js";
-export type { ListCursor } from "./schema-primitives.js";
-
-// Brand aliases the wire id types resolve to. Re-exported so downstream
-// `.d.ts` emit can name them via the package entry (not the deep
-// `dist/schema-primitives.js` path) — TS2742 portability.
-export type { BrandedString } from "./schema-primitives.js";
-
-// Shared pagination limits for the cursor-paginated list RPCs.
 export {
+  AgentKey,
+  AppKey,
+  InviteCode,
+  RegistrationSecret,
+  ServerEncryptionMasterSecret,
+} from "./credentials.js";
+
+export {
+  effectiveErrorClasses,
+  jsonRpcMethod,
+  isNotificationDeliveryFor,
+  makeNotificationSubscriberRegistry,
+  notificationSubscribe,
+  notificationSubscribeAll,
+  dispatchCall,
+  makeTypedTransportCall,
+  NotConnectedError,
+  RpcTimeoutError,
+  UnauthorizedError,
+  ForbiddenError,
+  NotFoundError,
+  ConflictError,
+  InvalidParamsError,
+  AlreadyConnected,
+  principalGateErrorClasses,
+  AgentPrincipal,
+  AppPrincipal,
+  AuthenticatedPrincipal,
+  AgentClaimed,
   DEFAULT_PAGE_LIMIT,
   MAX_PAGE_LIMIT,
   ListLimitSchema,
-} from "./pagination.js";
+  listCursorSchema,
+} from "./transport/index.js";
+export type { BrandedString } from "./transport/wire-string.js";
+export type {
+  RpcDefinition,
+  NotificationDefinition,
+  ParamsOf,
+  ResultOf,
+  NotificationParamsOf,
+  NotificationDelivery,
+  RpcErrorClass,
+  CallErrorsOf,
+  DomainErrorsOf,
+  RequirementErrorsOf,
+  ResponseErrorsOf,
+  NotificationSubscriberRegistry,
+  NotificationSubscriberRegistryOptions,
+  NotificationSubscriptionHandle,
+  TypedDispatchMap,
+  RpcForTag,
+  PayloadForTag,
+  SuccessForTag,
+  ErrorForTag,
+  RpcErrorPayload,
+  PrincipalRequirement,
+  ListCursor,
+} from "./transport/index.js";
 
-export * from "./transport/index.js";
-export * from "./identity/index.js";
-export * from "./network/index.js";
-export * from "./task/index.js";
-export * from "./app/index.js";
-export * from "./engine/index.js";
+export {
+  AgentId,
+  ContactId,
+  UserId,
+  Register,
+  AgentsLookup,
+  AgentsLookupByName,
+  AgentsList,
+  ContactsList,
+  ContactsAdd,
+  ContactsAccept,
+  ContactsById,
+  ContactRequestNotificationDefinition,
+  ContactAcceptedNotificationDefinition,
+  NotInContactsError,
+  ContactNotFoundError,
+  AgentNotFoundError,
+} from "./identity/index.js";
+export type { Agent, AgentCard, Contact } from "./identity/index.js";
+
+export {
+  AgentConnect,
+  AppConnect,
+  PROTOCOL_VERSION,
+  compareProtocolVersion,
+  checkProtocolRange,
+  PresenceSubscribe,
+  PresenceChangedNotificationDefinition,
+  ProtocolMismatchError,
+  InvalidProtocolVersionError,
+  agentCallableNetworkRpcMethods,
+  appCallableNetworkRpcMethods,
+  sharedNetworkRpcMethods,
+  networkRpcMethods,
+} from "./network/index.js";
+export type { HelloOk, ProtocolMismatchReason } from "./network/index.js";
+
+export {
+  ConnectionId,
+  connectionId,
+  newConnectionId,
+} from "./runtime/connection.js";
+
+export {
+  ConversationId,
+  LeaseId,
+  MessageId,
+  TaskId,
+  TaskReadAccess,
+  ConversationInTask,
+  ConversationSendAccess,
+  ContactPolicyAllowsReach,
+  assertAppOwnsTask,
+  assertConversationInTaskMatches,
+  assertTaskReadAccessMatchesTask,
+  TaskClosedError,
+  TaskNotFoundError,
+  TaskRejectedError,
+  ConversationArchivedError,
+  ConversationFullError,
+  ConversationNotFoundError,
+  MessageNotFoundError,
+  NotAParticipantError,
+  HookBlockedError,
+  ParticipantNotAdmittedError,
+  MessagesSend,
+  MessagesList,
+  TaskList,
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
+  AppId,
+  DEFAULT_APP_ID,
+  TaskRequest,
+  TaskLeave,
+  TaskConversationCreate,
+  TaskConversationList,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
+  MessageReceivedNotificationDefinition,
+  TaskClosedNotificationDefinition,
+  TaskCreatedNotificationDefinition,
+  TaskFailedNotificationDefinition,
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
+  TaskConversationParticipantsAddedNotificationDefinition,
+  TaskConversationParticipantsRemovedNotificationDefinition,
+  validateDispatchDecision,
+  dispatchDecisionSchema,
+  messageWithDispatchDecisionSchema,
+  agentCallableTaskRpcMethods,
+  appCallableTaskRpcMethods,
+} from "./task/index.js";
+export type {
+  TaskReadAccessValue,
+  ConversationInTaskValue,
+  ConversationSendAccessValue,
+  ContactPolicyAllowsReachValue,
+  Part,
+  Message,
+  Conversation,
+  ConversationParticipant,
+  ConversationSummary,
+  TaskStatus,
+  Task,
+  TaskParticipant,
+  MessageReceivedNotification,
+  DispatchDecision,
+  MessageWithDispatchDecision,
+  InitialConversationInput,
+  TaskConversationListItem,
+  TaskConversationCreatedNotification,
+  TaskConversationArchivedNotification,
+  TaskConversationUnarchivedNotification,
+  TaskConversationParticipantsAddedNotification,
+  TaskConversationParticipantsRemovedNotification,
+} from "./task/index.js";
+
+export {
+  DispatchId,
+  DispatchRequest,
+  DispatchAuthorize,
+  DispatchRelease,
+  DispatchesConsumed,
+  DispatchesExpired,
+  DispatchesGet,
+  MessagesAuthorize,
+  TaskCreate,
+  validateAppManifest,
+  DispatchNotFoundError,
+} from "./app/index.js";
+export type {
+  AppCallbackHandlers,
+  AppCallbackRpcDefinition,
+  AppManifest,
+  HandlerSlot,
+} from "./app/index.js";
+
+export {
+  NotificationRpcGroup,
+  ReverseRpcGroup,
+  AgentCallableGroup,
+  AppCallableGroup,
+  agentCallableMethods,
+  appCallableMethods,
+  serverInboundMethods,
+  notificationDefinitions,
+  appCallbackMethods,
+} from "./rpc-method-groups.js";
+export type {
+  AnyServerRpcDefinition,
+  AnyAgentCallableRpcDefinition,
+  AnyAppCallableRpcDefinition,
+  AnyAppCallbackRpcDefinition,
+  AnyNotificationDefinition,
+} from "./rpc-method-groups.js";
+
+export {
+  principalRequirementOf,
+  requiresClaimed,
+  middlewaresForRequirements,
+} from "./requirements.js";
+export type {
+  Principal,
+  Requirement,
+  CapabilityRequirement,
+  PrincipalRequirementOf,
+  MwStackFor,
+} from "./requirements.js";

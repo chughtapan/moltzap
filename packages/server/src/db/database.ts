@@ -37,7 +37,7 @@ type GeneratedBranded<T extends string> = ColumnType<
 
 interface Agents extends Omit<RawAgents, "id" | "owner_user_id"> {
   id: GeneratedBranded<AgentId>;
-  owner_user_id: BrandedNullable<UserId>;
+  owner_user_id: Branded<UserId>;
 }
 
 interface Apps extends Omit<RawApps, "app_id"> {
@@ -89,7 +89,8 @@ interface TaskParticipants
   task_id: Branded<TaskId>;
 }
 
-interface Tasks extends Omit<RawTasks, "id" | "initiator_agent_id"> {
+interface Tasks extends Omit<RawTasks, "app_id" | "id" | "initiator_agent_id"> {
+  app_id: Branded<AppId>;
   id: GeneratedBranded<TaskId>;
   initiator_agent_id: Branded<AgentId>;
 }

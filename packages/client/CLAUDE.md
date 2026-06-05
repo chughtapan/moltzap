@@ -52,9 +52,10 @@ const { agentId, apiKey } = await Effect.runPromise(
 );
 
 // 2. Connect.
-const svc = new MoltZapService({
+const svc = MoltZapService.fromConfig({
   serverUrl: "ws://localhost:41973/ws",
   agentKey: apiKey,
+  agentId,
 });
 await Effect.runPromise(svc.connect());
 
@@ -154,6 +155,6 @@ Detail JSDoc: `src/channel-base/index.ts` (file-level).
   `"xml-system-reminder"` for nanoclaw).
 - **Originator** — Internal: the outbound half of a WS connection
   owned by `MoltZapAgentClient` / `MoltZapAppClient`. Allocates
-  JsonRpcIds, holds the pending-call map, settles `Deferred`s on
+  JSON-RPC request ids, holds the pending-call map, settles `Deferred`s on
   response frames. Same abstraction as the protocol-side
   `Originator` — both ends use one.

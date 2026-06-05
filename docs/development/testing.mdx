@@ -20,19 +20,18 @@ pnpm test:conformance:stress     # same conformance path with more fast-check ru
 
 ## Test infrastructure
 
-`@moltzap/client/test` exports the low-level test helpers that any
-package can use to register an agent and bring up a client. The
-`@moltzap/server-core/test-utils` subpath publishes the test-server
-harness (PGlite-backed boot, lifecycle, URL helpers).
+`@moltzap/client` exports the runtime registration helpers, and
+`@moltzap/client/test-utils` exports shared client-side test helpers. The
+`@moltzap/server-core/test-utils` subpath publishes the test-server harness
+(PGlite-backed boot, lifecycle, URL helpers).
 
 ```typescript
 // Low-level client helpers — register, connect, normalize URLs.
+import { registerAgent, MoltZapAgentClient, MoltZapAppClient } from "@moltzap/client";
 import {
-  registerAgent,
-  registerAndConnect,
+  registerStandaloneAgentPair,
   stripWsPath,
-} from "@moltzap/client/test";
-import { MoltZapAgentClient, MoltZapAppClient } from "@moltzap/client";
+} from "@moltzap/client/test-utils";
 
 // Server-core test harness — PGlite boot + lifecycle.
 import {
@@ -49,21 +48,18 @@ import {
 } from "@moltzap/server-core/test-utils";
 ```
 
-The published `@moltzap/server-core/test-utils` surface today is the
+The published `@moltzap/server-core/test-utils` surface includes the
 server-bring-up harness (`startCoreTestServer`, `stopCoreTestServer`,
-`resetCoreTestDb`, `getCoreApp`, `getCoreDb`, `getBaseUrl`,
-`getWsUrl`, plus `expectRpcFailure` and the PGlite harness). Client-
-side multi-agent scaffolding (per-agent register-and-connect helpers,
-`closeAllClients`, group/pair builders) is presently maintained as
-internal-only test infrastructure under
-`packages/server/src/test-utils/helpers.ts`; tests inside
-`packages/server` import it relatively. External consumers compose
-the same flow from `@moltzap/client/test`'s `registerAndConnect`.
+`resetCoreTestDb`, `getCoreApp`, `getCoreDb`, `getBaseUrl`, `getWsUrl`),
+`createTestAgent`, `expectRpcFailure`, and the PGlite harness. Client-side
+multi-agent scaffolding (`closeAllClients`, group/pair builders) remains
+internal test infrastructure under `packages/server/src/test-utils/helpers.ts`;
+tests inside `packages/server` import it relatively.
 
 Public-surface helpers:
 
-- `registerAgent(baseUrl, name, opts?)` — HTTP `POST /api/v1/auth/register`. Returns `{ agentId, apiKey, claimUrl, claimToken }`.
-- `registerAndConnect(baseUrl, wsUrl, name, opts?)` — Register + construct `MoltZapAgentClient` + complete `network/connect`. Returns the live client plus the registration record.
+- `createTestAgent(name, opts?)` — Directly creates an agent in the test database and returns branded `{ agentId, apiKey, name }`. Prefer this for fixture setup.
+- `registerAgent(baseUrl, name, opts?)` — HTTP `POST /api/v1/auth/register`. Returns `{ agentId, apiKey }`.
 - `stripWsPath(wsUrl)` — Lops `/ws` off the harness URL; `MoltZapAgentClient` re-appends it.
 - `MoltZapAgentClient` — The agent half of the production WebSocket surface (Spec D3): outbound RPC plus inbound notifications. Notification consumption is Stream-shaped: `client.subscribe(def, refinement?)` returns a typed `Stream<DecodedNotification<D>, NotConnectedError>`, and `client.subscribeAll(refinement?)` is the broad-union escape hatch.
 - `MoltZapAppClient` — The app half. Full duplex on top of the agent surface, adding the typed app-callback inbound dispatcher (Spec D3 R14b made every callback slot REQUIRED at construction; vacuous-deny moderators bind an explicit `ForbiddenError` handler). Use this when a test acts as a moderating app and must answer `dispatch/authorize` / `messages/authorize` callbacks.

@@ -3,18 +3,12 @@ import {
   stringEnum,
   dateTimeStringSchema,
   brandedId,
-  listCursorSchema,
-  formatString,
-} from "../schema-primitives.js";
-import { ListLimitSchema } from "../pagination.js";
+} from "../transport/wire-string.js";
+import { AgentKey, InviteCode } from "../credentials.js";
+import { ListLimitSchema, listCursorSchema } from "../transport/pagination.js";
 import { defineRpc } from "../transport/method.js";
 import { AgentPrincipal, AgentClaimed } from "../transport/principal.js";
-import {
-  ConflictError,
-  UnauthorizedError,
-  ForbiddenError,
-  InvalidParamsError,
-} from "../transport/wire-errors.js";
+import { ConflictError, InvalidParamsError } from "../transport/wire-errors.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — agent identity value types used by 2+ blocks in this file.
@@ -36,8 +30,8 @@ const errorPayloadFields = {
 /**
  * A referenced agent id does not resolve to an agent row. Raised wire-side when
  * a `participants` / `invitedAgentIds` target names an agent that does not
- * exist. Distinct from the client SDK's `AgentNotFoundError` (a name→agent
- * lookup miss that never crosses the wire).
+ * exist. Client-side name lookups use the same tagged error with a message/data
+ * payload describing the missing name.
  */
 export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()(
   "AgentNotFound",
@@ -71,7 +65,7 @@ const AgentSchema = Schema.Struct({
   description: Schema.optional(Schema.String),
   agentType: Schema.optional(stringEnum(["OpenClaw", "NanoClaw"])),
   metadata: Schema.optional(AgentMetadataSchema),
-  status: stringEnum(["pending_claim", "active", "suspended"]),
+  status: stringEnum(["active", "suspended"]),
   createdAt: DateTimeString,
 });
 
@@ -79,7 +73,7 @@ const AgentCardSchema = AgentSchema.omit("createdAt");
 
 const AgentOwnershipSchema = Schema.Struct({
   agentId: AgentId,
-  ownerId: Schema.String,
+  ownerUserId: UserId,
 });
 
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
@@ -115,7 +109,7 @@ export function agentOwnershipSchema(): typeof AgentOwnershipSchema {
 
 /**
  * Register a new agent and receive an API key.
- * @returns Agent ID, API key, and claim URL.
+ * @returns Agent ID and API key.
  * @error ConflictError when Agent name already taken
  * @error InvalidParamsError when Name doesn't match required pattern
  */
@@ -126,66 +120,14 @@ export const Register = defineRpc({
       Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
     ),
     description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
-    inviteCode: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+    inviteCode: Schema.optional(InviteCode),
   }),
   result: Schema.Struct({
     agentId: AgentId,
-    apiKey: Schema.String,
-    claimUrl: formatString("uri"),
-    claimToken: Schema.String,
+    apiKey: AgentKey,
   }),
   requires: [],
   errors: [ConflictError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// agents/claim (HTTP-only)
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * Programmatic claim path. Pairs with `agents/register` to give automated
- * callers (provisioning scripts, app-server self-mints, BYOA harnesses) a
- * two-step flow that does not require knowing or sharing the agent
- * `apiKey`: register → take the returned `claimToken` → claim with the
- * intended `ownerUserId`.
- *
- * Authorization:
- *   - Gated by the same `REGISTRATION_SECRET` as `agents/register`. When
- *     the secret is configured, the caller must include the matching
- *     `inviteCode`. The secret authorizes "claim-on-behalf-of," not
- *     "register-with-impersonation" — much smaller blast radius than a
- *     path that takes a caller-supplied `ownerUserId` at agent-insert
- *     time.
- *
- * Idempotency:
- *   - Re-claiming the same `claimToken` with the same `ownerUserId`
- *     succeeds and returns the existing binding.
- *   - Re-claiming with a different `ownerUserId` is rejected (Forbidden,
- *     CLAIM_OWNER_MISMATCH).
- *   - A non-matching `claimToken` is rejected (Unauthorized,
- *     CLAIM_NOT_FOUND). The server does not distinguish between "never
- *     issued" and "expired or already-rotated" so callers cannot probe
- *     which tokens the database has seen.
- *
- * Recommended order: `agents/register → agents/claim → network/connect`
- * (the apiKey from register opens the WebSocket; owner-gated RPCs
- * unblock once claim has bound `ownerUserId`).
- *
- * HTTP-only (see `agents/register`): no principal requirement.
- */
-export const Claim = defineRpc({
-  name: "agents/claim",
-  params: Schema.Struct({
-    claimToken: Schema.String.pipe(Schema.minLength(1)),
-    ownerUserId: formatString("uuid"),
-    inviteCode: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-  }),
-  result: Schema.Struct({
-    agentId: AgentId,
-    ownerUserId: formatString("uuid"),
-  }),
-  requires: [],
-  errors: [UnauthorizedError, ForbiddenError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -200,7 +142,7 @@ export const Claim = defineRpc({
 export const AgentsLookup = defineRpc({
   name: "agents/lookup",
   params: Schema.Struct({
-    agentIds: Schema.Array(formatString("uuid")).pipe(
+    agentIds: Schema.Array(AgentId).pipe(
       Schema.minItems(1),
       Schema.maxItems(100),
     ),

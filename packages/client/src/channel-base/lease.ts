@@ -13,7 +13,7 @@
  */
 
 import { Clock, Data, Effect } from "effect";
-import { ForbiddenError } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol/transport";
 
 /**
  * The dispatch lease was already consumed (the server mapped a second

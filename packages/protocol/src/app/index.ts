@@ -2,7 +2,6 @@
  * @file Public barrel for app RPC descriptors and app-hook protocol types.
  */
 export {
-  AppsRegister,
   DispatchId,
   DispatchRequest,
   DispatchAuthorize,
@@ -17,3 +16,8 @@ export {
 } from "./methods.js";
 
 export type { AppManifest } from "./methods.js";
+export type {
+  AppCallbackHandlers,
+  AppCallbackRpcDefinition,
+  HandlerSlot,
+} from "./methods.js";

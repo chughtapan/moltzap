@@ -55,15 +55,6 @@ export class PropertyUnavailable extends Data.TaggedError(
   readonly reason: string;
 }> {}
 
-/** Property is a tombstone for deferred work (e.g. C2 offline-replay). */
-export class PropertyDeferred extends Data.TaggedError(
-  "ConformancePropertyDeferred",
-)<{
-  readonly category: PropertyCategory;
-  readonly name: string;
-  readonly followUp: string;
-}> {}
-
 /** Property's own invariant (oracle, coverage) failed. */
 export class PropertyInvariantViolation extends Data.TaggedError(
   "ConformancePropertyInvariantViolation",
@@ -77,7 +68,6 @@ export class PropertyInvariantViolation extends Data.TaggedError(
 export type PropertyFailure =
   | PropertyAssertionFailure
   | PropertyUnavailable
-  | PropertyDeferred
   | PropertyInvariantViolation;
 
 /** Each property's body — an Effect that succeeds on pass, fails typed on failure. */

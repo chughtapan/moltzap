@@ -1,80 +1,36 @@
 /**
  * Shared test helpers for openclaw-channel integration tests.
  *
- * Agent-only: schema dropped users + contacts (commit de304fa). Helpers now
- * register agents via HTTP only and operate exclusively on agent identifiers
- * exposed by `/api/v1/auth/register`.
+ * Agent-only: helpers operate exclusively on agent identifiers exposed by
+ * the shared client registration helper.
  */
 
 import { inject } from "vitest";
-import { AgentId, type Message } from "@moltzap/protocol";
-import { Data, Effect, Schema } from "effect";
-import { postJsonRequest } from "./node-boundary.js";
+import {
+  type Message,
+  type MessageReceivedNotification,
+} from "@moltzap/protocol";
+import { registerAgent } from "@moltzap/client";
+import { Effect } from "effect";
 
 const WAIT_FOR_POLL_INTERVAL_MS = 50;
-
-const RegisteredAgentClaim = Schema.Struct({
-  apiKey: Schema.String,
-  agentId: AgentId,
-  claimToken: Schema.String,
-  claimUrl: Schema.String,
-});
-
-class RegisterAndClaimError extends Data.TaggedError("RegisterAndClaimError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
 
 class WaitForTimeoutError extends Error {
   override readonly name = "WaitForTimeoutError";
 }
 
-export function registerAndClaim(name: string) {
+export function registerTestAgent(name: string) {
   const baseUrl = inject("baseUrl");
 
   return Effect.runPromise(
-    Effect.gen(function* () {
-      const res = yield* Effect.tryPromise({
-        try: (signal) =>
-          postJsonRequest(`${baseUrl}/api/v1/auth/register`, { name }, signal),
-        catch: (cause) =>
-          new RegisterAndClaimError({
-            message: `Register ${name} request failed`,
-            cause,
-          }),
-      });
-      if (!res.ok) {
-        const text = yield* Effect.tryPromise({
-          try: () => res.text(),
-          catch: (cause) =>
-            new RegisterAndClaimError({
-              message: `Register ${name} error body read failed`,
-              cause,
-            }),
-        });
-        return yield* Effect.fail(
-          new RegisterAndClaimError({
-            message: `Register ${name} failed: ${res.status} ${text}`,
-          }),
-        );
-      }
-      const json = yield* Effect.tryPromise({
-        try: () => res.json(),
-        catch: (cause) =>
-          new RegisterAndClaimError({
-            message: `Register ${name} response read failed`,
-            cause,
-          }),
-      });
-      return yield* Schema.decodeUnknown(RegisteredAgentClaim)(json);
-    }).pipe(Effect.withSpan("registerAndClaim")),
+    registerAgent(baseUrl, name).pipe(Effect.withSpan("registerTestAgent")),
   );
 }
 
 import type { ConversationId, TaskId } from "@moltzap/protocol";
 
-export function extractMessage(event: { params?: unknown }): Message {
-  return (event.params as { message: Message }).message;
+export function extractMessage(event: MessageReceivedNotification): Message {
+  return event.message;
 }
 
 export function extractConvId(result: unknown): string {

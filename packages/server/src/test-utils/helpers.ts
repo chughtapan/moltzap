@@ -1,51 +1,37 @@
-/* eslint-disable jsdoc/text-escaping -- JSDoc references to generic types like `ReadonlyArray<...>` use natural angle-bracket form inside backtick spans; matches filter-equivalence.test.ts precedent. */
 import {
   FetchHttpClient,
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
-import {
-  Chunk,
-  Data,
-  Duration,
-  Effect,
-  Fiber,
-  Option,
-  Ref,
-  Stream,
-} from "effect";
+import { Data, Duration, Effect, Either, Option, Stream } from "effect";
 import type {
   AnyNotificationDefinition,
-  DecodedNotification,
+  NotificationDelivery,
 } from "@moltzap/protocol";
 import {
-  agentId,
-  appId as protocolAppId,
-  makeCloseableTestClient,
+  makeTestAgentClient,
+  makeTestAppClient,
+  mintTestAppCredential,
   registerTestAgent,
-  type CloseableTestClient,
   type TestAgent,
+  type TestAgentClient,
+  type TestAppClient,
 } from "@moltzap/protocol/testing";
-import { getBaseUrl, getWsUrl } from "./index.js";
+import { DEFAULT_TEST_ADMIN_USER_ID, getCoreDb, getWsUrl } from "./server.js";
+import { AuthService } from "../identity/services/auth.service.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import {
+  DEFAULT_APP_ID,
+  TaskRequest,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
+  type AgentKey,
+  type AgentId,
+  type AppKey,
+} from "@moltzap/protocol";
+import type { UserId } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/app";
-import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
 import type { AppId, ConversationId, TaskId } from "@moltzap/protocol/task";
-
-/**
- * Test-side wrapper over a `CloseableTestClient`. Consumers reach
- * typed-payload Streams via `subscribeTo(def)` (a one-line passthrough to
- * `TestClient.subscribe(def)`) or the broad-union `subscribeAll()`.
- * Ergonomic one-shot test sites use the top-level `awaitOneNotification`
- * helper below.
- */
-export interface ServerTestClient extends Omit<CloseableTestClient, "close"> {
-  close(): Effect.Effect<void, never>;
-  subscribeTo<D extends AnyNotificationDefinition>(
-    definition: D,
-  ): Stream.Stream<DecodedNotification<D>, AwaitNotificationClosedError>;
-}
 
 /** Default ceiling for `awaitOneNotification`. */
 const DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS = 5_000;
@@ -68,19 +54,40 @@ export type AwaitNotificationError =
   | AwaitNotificationClosedError;
 
 /**
- * Stream-based one-shot waiter. Consumes `client.subscribeTo(def)` via
+ * Stream-based one-shot waiter. Consumes `client.subscribe(def)` via
  * `Stream.runHead`, failing with `AwaitNotificationTimeoutError` on timeout
  * and `AwaitNotificationClosedError` when the transport closed before a
  * matching frame arrived. Distinguishing close from timeout keeps a dead
  * connection from masquerading as a missing notification.
  */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
-  client: Pick<ServerTestClient, "subscribeTo">,
+  client: Pick<TestAgentClient, "subscribe">,
   definition: D,
   timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
-): Effect.Effect<DecodedNotification<D>, AwaitNotificationError> {
-  return client.subscribeTo(definition).pipe(
+): Effect.Effect<NotificationDelivery<D>, AwaitNotificationError> {
+  const closed = () =>
+    new AwaitNotificationClosedError({
+      definition: definition.name,
+    });
+  return client.subscribe(definition).pipe(
+    Stream.map(
+      (params): NotificationDelivery<D> => ({
+        definition,
+        method: definition.name,
+        params,
+      }),
+    ),
     Stream.runHead,
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: () => Effect.fail(closed()),
+        onRight: Option.match({
+          onNone: () => Effect.fail(closed()),
+          onSome: (notification) => Effect.succeed(notification),
+        }),
+      }),
+    ),
     Effect.timeoutFail({
       duration: Duration.millis(timeoutMs),
       onTimeout: () =>
@@ -89,28 +96,17 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
           durationMs: timeoutMs,
         }),
     }),
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          Effect.fail(
-            new AwaitNotificationClosedError({
-              definition: definition.name,
-            }),
-          ),
-        onSome: (notification) => Effect.succeed(notification),
-      }),
-    ),
   );
 }
 
 export interface ConnectedAgent {
-  client: ServerTestClient;
-  agentId: ProtocolAgentId;
-  apiKey: string;
+  client: TestAgentClient;
+  agentId: AgentId;
+  apiKey: AgentKey;
   name: string;
 }
 
-const openClients: ServerTestClient[] = [];
+const openClients: Array<{ close(): Effect.Effect<void, never> }> = [];
 const MIN_AGENT_GROUP_SIZE = 2;
 const POST_METHOD = "POST";
 
@@ -163,7 +159,7 @@ type HttpResponse = Effect.Effect.Success<
   ReturnType<HttpClient.HttpClient["execute"]>
 >;
 
-export function trackClient(client: ServerTestClient): void {
+export function trackClient(client: TestAgentClient | TestAppClient): void {
   openClients.push(client);
 }
 
@@ -188,149 +184,49 @@ export function registerAgent(
   });
 }
 
-/**
- * Per-client broad-union pump: integration tests follow the
- * `send → awaitOneNotification` pattern, which needs frames that arrive
- * BETWEEN the triggering RPC and the wait. `TestClient.subscribe` is
- * `Stream.async`-backed and only emits frames arriving AFTER
- * materialisation, so a sequential `send → subscribe → runHead` races
- * the response frame.
- *
- * A long-lived broad-union pump installed at handle creation appends
- * every inbound notification to a `Ref<Array<...>>` snapshot.
- * `subscribeTo<D>(def)` (and consumers like `awaitOneNotification`)
- * build a Stream that polls the snapshot, emits the first matching
- * frame, and removes it — preserving the historical-buffer semantic the
- * test pattern needs.
- */
-const PUMP_POLL_INTERVAL_MS = 5;
-
-interface NotificationBuffer {
-  readonly snapshot: Ref.Ref<
-    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
-  >;
-  // Flipped to true when the `subscribeAll()` pump terminates (transport
-  // close or normal exhaustion). `bufferedSubscribeStream` reads it so a
-  // waiter on a dead connection fails with `AwaitNotificationClosedError`
-  // rather than a generic timeout. Buffered frames that arrived before the
-  // close stay available for one final drain.
-  readonly closed: Ref.Ref<boolean>;
-  readonly pumpFiber: Fiber.RuntimeFiber<void, never>;
+interface CreateTestAgentOptions {
+  readonly description?: string;
+  readonly ownerUserId?: UserId;
 }
 
-function makeNotificationBuffer(
-  client: CloseableTestClient,
-): Effect.Effect<NotificationBuffer> {
+export function createTestAgent(
+  name: string,
+  opts?: CreateTestAgentOptions,
+): Effect.Effect<TestAgent, never> {
   return Effect.gen(function* () {
-    const snapshot = yield* Ref.make<
-      ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
-    >([]);
-    const closed = yield* Ref.make<boolean>(false);
-    const pumpEffect = client.subscribeAll().pipe(
-      Stream.runForEach((frame) =>
-        Ref.update(snapshot, (xs) => [...xs, frame]),
-      ),
-      Effect.ensuring(Ref.set(closed, true)),
-      Effect.catchAll(() => Effect.void),
+    const authService = new AuthService(getCoreDb());
+    const params =
+      opts?.description === undefined
+        ? { name }
+        : { name, description: opts.description };
+    const registered = yield* authService.registerAgent(
+      params,
+      opts?.ownerUserId ?? DEFAULT_TEST_ADMIN_USER_ID,
     );
-    const pumpFiber = yield* Effect.fork(pumpEffect);
-    return { snapshot, closed, pumpFiber };
-  });
-}
 
-function pullMatchingFromBuffer<D extends AnyNotificationDefinition>(
-  buffer: NotificationBuffer,
-  definition: D,
-): Effect.Effect<DecodedNotification<D> | null> {
-  return Ref.modify(buffer.snapshot, (frames) => {
-    const idx = frames.findIndex((frame) => frame.definition === definition);
-    if (idx < 0) return [null, frames];
-    const matched = frames[idx] as DecodedNotification<D>;
-    const rest = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
-    return [matched, rest];
-  });
-}
-
-function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
-  buffer: NotificationBuffer,
-  definition: D,
-): Stream.Stream<DecodedNotification<D>, AwaitNotificationClosedError> {
-  // Poll the broad-union buffer; emit each matching frame as a
-  // singleton chunk so `Stream.runHead`/`Stream.take(N)` callers never
-  // silently drop sibling chunk elements. Empty chunks on cache miss
-  // back off the poll without terminating the stream. If the pump has
-  // closed AND no matching frame remains, fail with
-  // `AwaitNotificationClosedError` so the upstream waiter surfaces a
-  // transport-close diagnostic rather than a generic timeout.
-  return Stream.repeatEffectChunk(
-    pullMatchingFromBuffer(buffer, definition).pipe(
-      Effect.flatMap((maybe) => {
-        if (maybe !== null) return Effect.succeed(Chunk.of(maybe));
-        return Ref.get(buffer.closed).pipe(
-          Effect.flatMap((isClosed) =>
-            isClosed
-              ? Effect.fail(
-                  new AwaitNotificationClosedError({
-                    definition: definition.name,
-                  }),
-                )
-              : Effect.sleep(Duration.millis(PUMP_POLL_INTERVAL_MS)).pipe(
-                  Effect.as(Chunk.empty<DecodedNotification<D>>()),
-                ),
-          ),
-        );
-      }),
-    ),
-  );
+    return {
+      agentId: registered.agentId,
+      apiKey: registered.apiKey,
+      name,
+    };
+  }).pipe(Effect.withSpan("createTestAgent"));
 }
 
 export function connectTestClient(opts: {
-  agentId: string;
-  apiKey: string;
+  agentId: AgentId;
+  apiKey: AgentKey;
   wsUrl?: string;
-  autoConnect?: boolean;
-}): Effect.Effect<ServerTestClient, Error> {
+}): Effect.Effect<TestAgentClient, Error> {
   return Effect.gen(function* () {
-    const client = yield* makeCloseableTestClient({
-      serverUrl: opts.wsUrl ?? getWsUrl(),
-      agentId: agentId(opts.agentId),
+    return yield* makeTestAgentClient(opts.agentId, {
+      serverUrl: testClientServerUrl(opts.wsUrl ?? getWsUrl()),
       agentKey: opts.apiKey,
-      defaultTimeoutMs: 5000,
-      captureCapacity: 1024,
-      autoConnect: opts.autoConnect,
-    });
-    const buffer = yield* makeNotificationBuffer(client);
-    const close: Effect.Effect<void, never> = Effect.gen(function* () {
-      yield* Fiber.interrupt(buffer.pumpFiber);
-      yield* client.close;
-    });
-    return {
-      sendRpc: client.sendRpc.bind(client),
-      sendMalformed: client.sendMalformed.bind(client),
-      sendResponseFrame: client.sendResponseFrame.bind(client),
-      // `subscribeTo<D>(def)` reads from the per-client broad-union
-      // buffer maintained by the pump above so `send →
-      // awaitOneNotification` test sites observe frames that arrived
-      // between the RPC return and the subscription pull.
-      subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
-        bufferedSubscribeStream(buffer, definition),
-      subscribe: client.subscribe.bind(client),
-      subscribeAll: client.subscribeAll.bind(client),
-      onAppCallback: client.onAppCallback.bind(client),
-      awaitServerRequest: client.awaitServerRequest.bind(client),
-      captures: client.captures,
-      snapshot: client.snapshot,
-      close: () => close,
-    };
+    }).pipe(Effect.mapError(toError));
   }).pipe(Effect.withSpan("connectTestClient"));
 }
 
-const HTTP_CREATED = 201;
-
-export interface RegisteredApp {
-  readonly appId: AppId;
-  readonly appKey: string;
-  readonly manifest: AppManifest;
+function testClientServerUrl(wsUrl: string): string {
+  return wsUrl.replace(/\/ws$/, "").replace(/^ws:/, "http:");
 }
 
 class AppRegistrationError extends Data.TaggedError("AppRegistrationError")<{
@@ -339,13 +235,15 @@ class AppRegistrationError extends Data.TaggedError("AppRegistrationError")<{
   readonly json: unknown;
 }> {}
 
-function isAppRegisterResponse(
-  json: unknown,
-): json is { readonly appId: string; readonly appKey: string } {
-  if (typeof json !== "object" || json === null) return false;
-  if (!("appId" in json) || typeof json.appId !== "string") return false;
-  if (!("appKey" in json) || typeof json.appKey !== "string") return false;
-  return true;
+function appRegistrationError(error: {
+  readonly status: number;
+  readonly body: string;
+}) {
+  return new AppRegistrationError({
+    message: `app registration failed: ${error.status}`,
+    status: error.status,
+    json: error.body,
+  });
 }
 
 /**
@@ -354,8 +252,7 @@ function isAppRegisterResponse(
  * server-minted `{ appId, appKey }` (the `appId` is `gen_random_uuid()`, NOT
  * `manifest.appId`). The `appKey` is then handed to {@link connectAppClient}
  * to open an `AppConnection`, whose implicit registration binds it as the
- * app's moderator endpoint. Replaces the cross-principal WS `apps/register`
- * RPC.
+ * app's moderator endpoint.
  *
  * `inviteCode` is required when the server boots with a `registrationSecret`
  * (the HTTP route gates app registration behind the same secret as agent
@@ -365,26 +262,23 @@ export function registerApp(
   baseUrl: string,
   manifest: AppManifest,
   inviteCode?: string,
-): Effect.Effect<RegisteredApp, PostJsonError | AppRegistrationError> {
-  const body =
-    inviteCode === undefined ? { manifest } : { manifest, inviteCode };
-  return postJson(baseUrl, "/api/v1/apps/register", body).pipe(
-    Effect.flatMap(({ status, json }) => {
-      if (status !== HTTP_CREATED || !isAppRegisterResponse(json)) {
-        return Effect.fail(
-          new AppRegistrationError({
-            message: `apps/register failed: ${status}`,
-            status,
-            json,
-          }),
-        );
-      }
-      return Effect.succeed({
-        appId: protocolAppId(json.appId),
-        appKey: json.appKey,
-        manifest,
-      } satisfies RegisteredApp);
-    }),
+): Effect.Effect<
+  { readonly appId: AppId; readonly appKey: AppKey },
+  AppRegistrationError
+> {
+  const credential = mintTestAppCredential(
+    inviteCode === undefined
+      ? { baseUrl, manifest }
+      : { baseUrl, manifest, inviteCode },
+  );
+  return credential.pipe(
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: (error) => Effect.fail(appRegistrationError(error)),
+        onRight: Effect.succeed,
+      }),
+    ),
     Effect.withSpan("registerApp"),
   );
 }
@@ -397,41 +291,18 @@ export function registerApp(
  * `messages/authorize` / `task/create` callbacks. Tracked for cleanup.
  */
 export function connectAppClient(
-  appKey: string,
-): Effect.Effect<ServerTestClient, Error> {
+  appId: AppId,
+  appKey: AppKey,
+  handlers: AppCallbackHandlers<AppCallbackContext>,
+): Effect.Effect<TestAppClient, Error> {
   return Effect.gen(function* () {
-    const client = yield* makeCloseableTestClient({
-      serverUrl: getWsUrl(),
-      // The agent-arm fields are unused on the appKey arm but the config
-      // shape requires `agentId` + `agentKey`; the autoConnect dispatcher
-      // selects the appKey arm when `appKey` is present.
-      agentId: agentId(crypto.randomUUID()),
-      agentKey: "unused-app-arm",
+    const client = yield* makeTestAppClient(appId, {
+      serverUrl: testClientServerUrl(getWsUrl()),
       appKey,
-      defaultTimeoutMs: 5000,
-      captureCapacity: 1024,
-    });
-    const buffer = yield* makeNotificationBuffer(client);
-    const close: Effect.Effect<void, never> = Effect.gen(function* () {
-      yield* Fiber.interrupt(buffer.pumpFiber);
-      yield* client.close;
-    });
-    const wrapped: ServerTestClient = {
-      sendRpc: client.sendRpc.bind(client),
-      sendMalformed: client.sendMalformed.bind(client),
-      sendResponseFrame: client.sendResponseFrame.bind(client),
-      subscribeTo: <D extends AnyNotificationDefinition>(definition: D) =>
-        bufferedSubscribeStream(buffer, definition),
-      subscribe: client.subscribe.bind(client),
-      subscribeAll: client.subscribeAll.bind(client),
-      onAppCallback: client.onAppCallback.bind(client),
-      awaitServerRequest: client.awaitServerRequest.bind(client),
-      captures: client.captures,
-      snapshot: client.snapshot,
-      close: () => close,
-    };
-    openClients.push(wrapped);
-    return wrapped;
+      handlers,
+    }).pipe(Effect.mapError(toError));
+    openClients.push(client);
+    return client;
   }).pipe(Effect.withSpan("connectAppClient"));
 }
 
@@ -440,7 +311,7 @@ export function registerAndConnect(
   name: string,
 ): Effect.Effect<ConnectedAgent, Error> {
   return Effect.gen(function* () {
-    const { agentId, apiKey } = yield* registerAgent(getBaseUrl(), name);
+    const { agentId, apiKey } = yield* createTestAgent(name);
     const client = yield* connectTestClient({ agentId, apiKey });
     openClients.push(client);
     return { client, agentId, apiKey, name };
@@ -449,10 +320,8 @@ export function registerAndConnect(
 
 /**
  * POST `body` as JSON to `${baseUrl}${path}` and resolve with
- * `{status, json}`. The endpoints under test (`/api/v1/auth/register`,
- * `/api/v1/auth/claim`, `/api/v1/admin/register-agent`) all use this
- * same wire envelope, so each integration test importing this helper
- * can drop the repeated request/JSON boilerplate.
+ * `{status, json}`. HTTP integration tests import this helper to avoid
+ * repeated request/JSON boilerplate.
  */
 export function postJson(
   baseUrl: string,
@@ -470,6 +339,10 @@ export function postJson(
     );
     return yield* decodePostJsonResponse(response, path, url);
   }).pipe(Effect.provide(FetchHttpClient.layer), Effect.withSpan("postJson"));
+}
+
+function toError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause));
 }
 
 function postJsonRequest(url: string, body: Record<string, unknown>) {
@@ -535,33 +408,6 @@ function decodePostJsonResponse(
       ),
     ),
   );
-}
-
-/** Register an agent without connecting (for tests that need the raw client). */
-export function registerOnly(name: string): Effect.Effect<
-  {
-    client: ServerTestClient;
-    agentId: string;
-    apiKey: string;
-    claimToken: string | undefined;
-  },
-  Error
-> {
-  return Effect.gen(function* () {
-    const reg = yield* registerAgent(getBaseUrl(), name);
-    const client = yield* connectTestClient({
-      agentId: reg.agentId,
-      apiKey: reg.apiKey,
-      autoConnect: false,
-    });
-    openClients.push(client);
-    return {
-      client,
-      agentId: reg.agentId,
-      apiKey: reg.apiKey,
-      claimToken: reg.claimToken,
-    };
-  }).pipe(Effect.withSpan("registerOnly"));
 }
 
 /** Create two agents, both connected. No contacts needed (core has open access). */

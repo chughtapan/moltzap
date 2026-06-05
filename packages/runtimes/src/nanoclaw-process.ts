@@ -16,6 +16,7 @@ import {
 import type { Process, Signal } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
+import type { AgentId } from "@moltzap/protocol";
 import {
   Config,
   ConfigProvider,
@@ -24,9 +25,11 @@ import {
   Effect,
   Exit,
   Fiber,
+  Redacted,
   Scope,
   Stream,
 } from "effect";
+import type { AgentKey } from "@moltzap/protocol";
 
 // OneCLI gateway — nanoclaw's container-runner calls this for per-container
 // credential injection. Running locally from ~/.onecli/docker-compose.yml,
@@ -76,7 +79,9 @@ export interface NanoclawRuntimeHandle {
 }
 
 interface StartNanoclawRuntimeOptions {
-  apiKey: string;
+  agentName: string;
+  agentId: AgentId;
+  apiKey: AgentKey;
   serverUrl: string;
   workspaceFiles?: ReadonlyArray<{
     relativePath: string;
@@ -794,13 +799,56 @@ function makeNanoclawCommand(
   return Command.make("node", "dist/index.js").pipe(
     Command.workingDirectory(NANOCLAW_RUNTIME_CACHE),
     Command.env({
-      MOLTZAP_API_KEY: opts.apiKey,
+      MOLTZAP_PROFILE: opts.agentName,
+      MOLTZAP_CONFIG_HOME: pathSync((path) => path.join(dataDir, ".moltzap")),
       MOLTZAP_SERVER_URL: normalizeNanoclawServerUrl(opts.serverUrl),
       MOLTZAP_EVAL_MODE: "1",
       DATA_DIR: dataDir,
       CONTAINER_RUNTIME: "docker",
       ONECLI_URL: ONECLI_URL,
       LOG_LEVEL: "info",
+    }),
+  );
+}
+
+function writeNanoclawMoltZapProfileConfig(
+  opts: StartNanoclawRuntimeOptions,
+  dataDir: string,
+) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) => {
+      const configDir = pathSync((path) => path.join(dataDir, ".moltzap"));
+      const configPath = pathSync((path) =>
+        path.join(configDir, "config.json"),
+      );
+      return Effect.all(
+        [
+          fsEffect(
+            `create moltzap profile config directory ${configDir}`,
+            fileSystem.makeDirectory(configDir, { recursive: true }),
+          ),
+          fsEffect(
+            `write moltzap profile config ${configPath}`,
+            fileSystem.writeFileString(
+              configPath,
+              JSON.stringify(
+                {
+                  profiles: {
+                    [opts.agentName]: {
+                      agentId: opts.agentId,
+                      apiKey: Redacted.value(opts.apiKey),
+                      agentName: opts.agentName,
+                    },
+                  },
+                },
+                null,
+                2,
+              ),
+            ),
+          ),
+        ],
+        { concurrency: 1, discard: true },
+      );
     }),
   );
 }
@@ -891,6 +939,7 @@ export function startNanoclawRuntimeEffect(
     const dataDir = yield* createNanoclawDataDir();
     yield* ensureOnecliRunning();
     yield* writeRuntimeWorkspaceFiles(opts.workspaceFiles);
+    yield* writeNanoclawMoltZapProfileConfig(opts, dataDir);
 
     const capturedLogs: string[] = [];
     const started = yield* startNanoclawProcess(opts, dataDir, capturedLogs);

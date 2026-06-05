@@ -7,7 +7,7 @@ import {
   dateTimeStringSchema,
   brandedId,
   stringEnum,
-} from "../schema-primitives.js";
+} from "../transport/wire-string.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
 import {
   AgentPrincipal,
@@ -24,9 +24,9 @@ export { DispatchNotFoundError } from "../task/messages.js";
 // The admission surface decouples the recipient's `dispatch/request` from
 // moderator latency: the server mints a lease, acks immediately, forks the
 // moderator round-trip, and emits `dispatch/release` as a notification when the
-// verdict is in (or synthesized for default-grant / moderator-unavailable
-// paths). `DispatchAdmissionDecisionSchema` is the verdict carried by the ack,
-// the `dispatch/release` notification, and the `dispatches/get` lease record.
+// verdict is in (or synthesized for moderator-unavailable paths).
+// `DispatchAdmissionDecisionSchema` is the verdict carried by the ack, the
+// `dispatch/release` notification, and the `dispatches/get` lease record.
 // ═══════════════════════════════════════════════════════════════════
 
 const DateTimeString = dateTimeStringSchema();
@@ -154,8 +154,8 @@ export const DispatchAuthorize = defineRpc({
 
 /**
  * Server → recipient verdict notification. Fire-and-forget on the wire. Always
- * emitted, including default-grant and synthesized infra-hold. The recipient
- * parks client-side on `leaseId` and unparks on this notification.
+ * emitted, including synthesized infra-hold. The recipient parks client-side
+ * on `leaseId` and unparks on this notification.
  *
  * `leaseTimeoutMs` is set on the `grant` arm only and is the post-grant TTL.
  * HOLD inherits the same TTL by ageing out via the standard EXPIRED path; no

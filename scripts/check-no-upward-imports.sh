@@ -7,7 +7,7 @@
 # network, task, app). Same-folder siblings (`./foo.js`), within-folder upward
 # (`../foo.js` where the parent is the same logical group, e.g.
 # `packages/X/src/cli/commands/x.ts -> ../config.js` while still inside
-# `cli/`), and **same-package kernel imports** (`../db/X.js`, `../crypto/X.js`,
+# `cli/`), and **same-package kernel imports** (`../db/X.js`,
 # etc.) are out of scope per parent epic #538 §Phase 3, #544 plan v2 §5, and
 # #542 plan-approved §3 ("Kernels do not get subpath exports; they're imported
 # relatively.").

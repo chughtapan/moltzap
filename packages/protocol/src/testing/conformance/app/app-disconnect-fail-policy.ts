@@ -24,7 +24,7 @@
  */
 import { Effect, type Scope } from "effect";
 import { TaskRequest } from "../../../task/index.js";
-import { makeTestClient } from "../_shared/driver/test-client.js";
+import { makeAgentTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import { registerTestApp, type TestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -33,7 +33,6 @@ import { PropertyUnavailable, registerProperty } from "../_shared/registry.js";
 const CATEGORY = "boundary" as const;
 const PROPERTY = "app-disconnect-fail-policy";
 const DEFAULT_TIMEOUT_MS = 3000;
-const DEFAULT_CAPTURE_CAPACITY = 32;
 
 const unavailable = (reason: string): PropertyUnavailable =>
   new PropertyUnavailable({
@@ -81,12 +80,10 @@ function registerAgent(
 }
 
 function makeAgentClient(ctx: ConformanceRunContext, agent: TestAgent) {
-  return makeTestClient({
+  return makeAgentTestClient({
     serverUrl: ctx.realServer.wsUrl,
     agentKey: agent.apiKey,
-    agentId: agent.agentId,
     defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-    captureCapacity: DEFAULT_CAPTURE_CAPACITY,
   });
 }
 

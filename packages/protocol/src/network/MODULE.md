@@ -4,46 +4,32 @@ _`packages/protocol/src/network`_
 
 ## Purpose
 
-Public barrel for network and presence protocol descriptors.
+Public barrel for connect and presence protocol descriptors.
 
 ## Public surface
 
-### [`agentId`](./actor-model.ts#L40)
-
-_Property_
-
-```ts
-  readonly agentId: AgentId;
-```
-
-### [`AuthenticatedIdentity`](./actor-model.ts#L39)
-
-_TypeAlias_
-
-```ts
-export type AuthenticatedIdentity = {
-  readonly agentId: AgentId;
-  readonly userId: UserId;
-};
-```
-
-The principal behind a connected agent — the post-`network/connect` view.
-
-Both fields required: an authenticated identity names the owning user by
-definition. The wire-layer `AgentSchema.ownerUserId` is `Optional` to
-accommodate the un-claimed `pending_claim` storage state; the actor-model
-layer only sees identities that have already passed authentication, so
-`userId` is required here.
-
-### [`Connect`](./methods.ts#L98)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L30)
 
 _Variable_
 
 ```ts
-export const Connect = defineRpc({
-  name: "network/connect",
+export const agentCallableNetworkRpcMethods = [
+  AgentConnect,
+  PresenceSubscribe,
+] as const
+```
+
+Network RPCs callable by agent clients.
+
+### [`AgentConnect`](./connect.ts#L170)
+
+_Variable_
+
+```ts
+export const AgentConnect = defineRpc({
+  name: "agent/connect",
   params: Schema.Struct({
-    credential: Schema.String,
+    agentKey: AgentKey,
     minProtocol: Schema.String,
     maxProtocol: Schema.String,
   }),
@@ -58,64 +44,84 @@ export const Connect = defineRpc({
 })
 ```
 
-Authenticate a WebSocket connection. Must be the first message on a new
-connection. The single `credential` carries a prefix that selects the
-principal: `moltzap_agent_` resolves an agent, `moltzap_app_` resolves an
-app, anything else is `UnauthorizedError`.
+Authenticate an agent WebSocket connection. Must be the first message on a
+new agent client connection.
 
 - **Principal:** none — the unauthenticated handshake. No principal exists
   pre-auth, so `requires` is empty and no gate runs before it.
-- **Params:** `credential`, `minProtocol`, `maxProtocol`.
+- **Params:** `agentKey`, `minProtocol`, `maxProtocol`.
 - **Result:** an empty HelloOk; success is the signal (the client holds its
   own id).
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
-### [`ConnectionId`](./actor-model.ts#L27)
-
-_TypeAlias_
-
-```ts
-export const ConnectionId = brandedString("ConnectionId");
-```
-
-Server-internal WebSocket connection identifier. Minted at WS accept
-(`crypto.randomUUID()`); not on the wire. Branded so it cannot be
-confused with `AgentId`, `AppId`, or other ids in service signatures.
-
-Boundary: a single `as ConnectionId` cast at the WS-accept site is the
-only acceptable construction in production code; downstream is brand-
-typed end-to-end. Test fixtures use the `connectionId(raw)` constructor
-exported from `@moltzap/protocol/testing`.
-
-Schema-level format: `brandedString` (no UUID predicate). The mint
-site happens to use UUIDs, but conformance-test fixtures sometimes
-pass synthetic strings; the brand boundary is the type system, not
-a format check.
-
-### [`ConnectionId`](./actor-model.ts#L27)
+### [`appCallableNetworkRpcMethods`](./index.ts#L36)
 
 _Variable_
 
 ```ts
-export const ConnectionId = brandedString("ConnectionId")
+export const appCallableNetworkRpcMethods = [
+  AppConnect,
+  PresenceSubscribe,
+] as const
 ```
 
-Server-internal WebSocket connection identifier. Minted at WS accept
-(`crypto.randomUUID()`); not on the wire. Branded so it cannot be
-confused with `AgentId`, `AppId`, or other ids in service signatures.
+Network RPCs callable by app clients.
 
-Boundary: a single `as ConnectionId` cast at the WS-accept site is the
-only acceptable construction in production code; downstream is brand-
-typed end-to-end. Test fixtures use the `connectionId(raw)` constructor
-exported from `@moltzap/protocol/testing`.
+### [`AppConnect`](./connect.ts#L202)
 
-Schema-level format: `brandedString` (no UUID predicate). The mint
-site happens to use UUIDs, but conformance-test fixtures sometimes
-pass synthetic strings; the brand boundary is the type system, not
-a format check.
+_Variable_
 
-### [`HelloOk`](./methods.ts#L43)
+```ts
+export const AppConnect = defineRpc({
+  name: "app/connect",
+  params: Schema.Struct({
+    appKey: AppKey,
+    minProtocol: Schema.String,
+    maxProtocol: Schema.String,
+  }),
+  result: HelloOkSchema,
+  requires: [],
+  errors: [
+    InvalidParamsError,
+    UnauthorizedError,
+    ProtocolMismatchError,
+    AlreadyConnected,
+  ],
+})
+```
+
+Authenticate an app WebSocket connection. Must be the first message on a new
+app client connection.
+
+- **Principal:** none — the unauthenticated handshake. No principal exists
+  pre-auth, so `requires` is empty and no gate runs before it.
+- **Params:** `appKey`, `minProtocol`, `maxProtocol`.
+- **Result:** an empty HelloOk; success is the signal (the client holds its
+  own id).
+
+**Returns:** An empty HelloOk; success is the signal (the client holds its own id).
+
+### [`checkProtocolRange`](./connect.ts#L98)
+
+_Function_
+
+```ts
+export function checkProtocolRange(
+  params: { readonly minProtocol: string; readonly maxProtocol: string },
+  serverVersion: string,
+): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError>
+```
+
+### [`compareProtocolVersion`](./connect.ts#L85)
+
+_Function_
+
+```ts
+export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1
+```
+
+### [`HelloOk`](./connect.ts#L25)
 
 _TypeAlias_
 
@@ -123,7 +129,21 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`networkNotifications`](./methods.ts#L167)
+### [`InvalidProtocolVersionError`](./connect.ts#L63)
+
+_Class_
+
+```ts
+export class InvalidProtocolVersionError extends Data.TaggedError(
+  "InvalidProtocolVersionError",
+)<{ readonly version: string; readonly segment: string }> {
+  override get message(): string {
+    return `compareProtocolVersion: invalid segment ${JSON.stringify(this.segment)} in ${JSON.stringify(this.version)}`;
+  }
+}
+```
+
+### [`networkNotifications`](./index.ts#L49)
 
 _Variable_
 
@@ -133,15 +153,23 @@ export const networkNotifications = [
 ] as const
 ```
 
-### [`networkRpcMethods`](./methods.ts#L165)
+Network notifications emitted by the server.
+
+### [`networkRpcMethods`](./index.ts#L42)
 
 _Variable_
 
 ```ts
-export const networkRpcMethods = [Connect, PresenceSubscribe] as const
+export const networkRpcMethods = [
+  AgentConnect,
+  AppConnect,
+  PresenceSubscribe,
+] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L156)
+Network RPCs accepted by the server.
+
+### [`PresenceChangedNotificationDefinition`](./presence.ts#L44)
 
 _Variable_
 
@@ -153,10 +181,9 @@ export const PresenceChangedNotificationDefinition = defineNotification({
 ```
 
 Pushed when a subscribed participant's presence status changes. Triggered by
-server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect;
-there is no client-driven `presence/update`.
+server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect.
 
-### [`PresenceSubscribe`](./methods.ts#L134)
+### [`PresenceSubscribe`](./presence.ts#L27)
 
 _Variable_
 
@@ -165,7 +192,7 @@ export const PresenceSubscribe = defineRpc({
   name: "presence/subscribe",
   params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
   result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
-  requires: [AgentPrincipal, AgentClaimed],
+  requires: [AuthenticatedPrincipal],
   errors: [NotInContactsError],
 })
 ```
@@ -173,11 +200,19 @@ export const PresenceSubscribe = defineRpc({
 Replace-semantics: replaces the connection's subscriber set with `agentIds`.
 Empty array unsubscribes from all. Idempotent.
 
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+- **Principal:** any authenticated principal (agent or app).
 - **Params:** `agentIds` to subscribe to.
 - **Result:** the current `statuses` of the subscribed agents.
 
-### [`ProtocolMismatchError`](./methods.ts#L63)
+### [`PROTOCOL_VERSION`](./connect.ts#L11)
+
+_Variable_
+
+```ts
+export const PROTOCOL_VERSION = "2026.529.0"
+```
+
+### [`ProtocolMismatchError`](./connect.ts#L45)
 
 _Class_
 
@@ -201,14 +236,14 @@ export class ProtocolMismatchError extends Schema.TaggedError<ProtocolMismatchEr
 }
 ```
 
-Raised by `network/connect` when the client's `[minProtocol, maxProtocol]`
-range does not bracket the server's `PROTOCOL_VERSION`. The server's
-`connect.handlers.ts → checkProtocolRange` raises it BEFORE auth resolution
+Raised by connect methods when the client's `[minProtocol, maxProtocol]`
+range does not bracket the server's `PROTOCOL_VERSION`. The server's connect
+handlers raise it BEFORE auth resolution
 so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](./methods.ts#L51)
+### [`ProtocolMismatchReason`](./connect.ts#L33)
 
 _TypeAlias_
 
@@ -218,9 +253,9 @@ export type ProtocolMismatchReason =
   | "server-below-client-min";
 
 /**
- * Raised by `network/connect` when the client's `[minProtocol, maxProtocol]`
- * range does not bracket the server's `PROTOCOL_VERSION`. The server's
- * `connect.handlers.ts → checkProtocolRange` raises it BEFORE auth resolution
+ * Raised by connect methods when the client's `[minProtocol, maxProtocol]`
+ * range does not bracket the server's `PROTOCOL_VERSION`. The server's connect
+ * handlers raise it BEFORE auth resolution
  * so old clients are rejected at the version gate. `data` carries the
  * diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
  * concretely typed so `error.data.reason` narrows at every reader.
@@ -249,15 +284,18 @@ Reason discriminant carried in `ProtocolMismatchError.data.reason`:
 `maxProtocol`; the client must update. `server-below-client-min` — the
 client is newer than the server supports.
 
-### [`userId`](./actor-model.ts#L41)
+### [`sharedNetworkRpcMethods`](./index.ts#L27)
 
-_Property_
+_Variable_
 
 ```ts
-  readonly userId: UserId;
+export const sharedNetworkRpcMethods = [PresenceSubscribe] as const
 ```
+
+Network RPCs shared by all authenticated principals after connect.
 
 ## Files
 
-- `actor-model.ts`
-- `methods.ts`
+- `connect.ts`
+- `index.ts`
+- `presence.ts`

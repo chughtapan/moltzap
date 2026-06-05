@@ -12,7 +12,7 @@
  *   EnrichedInboundMessage.createdAt (ISO)  → meta.ts
  */
 
-import type { EnrichedInboundMessage } from "@moltzap/client";
+import type { EnrichedInboundMessage } from "@moltzap/client/channel-base";
 import { Either } from "effect";
 import type {
   ClaudeChannelNotification,

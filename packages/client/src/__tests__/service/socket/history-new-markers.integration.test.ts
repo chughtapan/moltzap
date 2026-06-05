@@ -14,13 +14,13 @@ it("history via socket returns messages with isOwn labels", () =>
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(TaskRequest.name, {
+      const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
       });
 
-      yield* H.socketRpcRequest(H.MessagesSend.name, {
+      yield* service.call(H.MessagesSend.name, {
         taskId: conv.task.id,
         conversationId: conv.conversation!.id,
         parts: [{ type: "text", text: "Hello from A" }],

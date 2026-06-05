@@ -17,7 +17,6 @@ import {
   MODERATED_HOOKS,
   attachDispatchAuthorizeHook,
   createTaskConversationOnApp,
-  createUnmoderatedDm,
   moderatorAppClient,
   readLeaseByLeaseId,
   requestDispatch,
@@ -100,26 +99,6 @@ function requestGrantedModeratedDispatch(
   }).pipe(Effect.withSpan("requestGrantedModeratedDispatch"));
 }
 
-function requestGrantedUnmoderatedDispatch(
-  alice: ConnectedAgent,
-  bob: ConnectedAgent,
-  text: string,
-) {
-  return Effect.gen(function* () {
-    const binding = yield* createUnmoderatedDm(alice, bob);
-    // Fork-before-trigger (Spec B #596 r2 fix).
-    const releaseFiber = yield* waitForDispatchRelease(bob);
-    const ack = yield* requestDispatch(
-      bob,
-      binding.conversationId,
-      alice,
-      text,
-    );
-    yield* Fiber.join(releaseFiber);
-    return { ack, binding };
-  }).pipe(Effect.withSpan("requestGrantedUnmoderatedDispatch"));
-}
-
 function sendWithLeaseRejected(
   bob: ConnectedAgent,
   binding: ConversationBinding,
@@ -146,7 +125,7 @@ function pendingLeaseRejectsSend() {
 function grantedLeaseIsSingleUse() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, binding } = yield* requestGrantedUnmoderatedDispatch(
+    const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "first",
@@ -202,7 +181,7 @@ function insertFailureRollsBackLease() {
 function postInsertDurabilityHappyPath() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, binding } = yield* requestGrantedUnmoderatedDispatch(
+    const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "first",

@@ -3,8 +3,8 @@
  *
  * A TestApp is a registered app manifest plus scripted handlers for
  * server-initiated app callbacks. It deliberately stays above
- * `TestClient` and below app-domain scenario drivers: it knows how to
- * register `apps/register` and how to answer `dispatch/authorize` /
+ * `AppTestClient` and below app-domain scenario drivers: it knows how to
+ * HTTP-register the app manifest and answer `dispatch/authorize` /
  * `messages/authorize`, but it does not know about tasks, leases, or
  * conversations beyond manifest defaults.
  */
@@ -16,8 +16,7 @@ import {
   type AppManifest,
 } from "../../../app/index.js";
 import { AppId } from "../../../task/index.js";
-import { AgentId } from "../../../identity/index.js";
-import { makeTestClient, type TestClient } from "./driver/test-client.js";
+import { makeAppTestClient, type AppTestClient } from "./driver/test-client.js";
 import type {
   ServerRpcDefinition,
   ServerRpcParams,
@@ -25,7 +24,7 @@ import type {
 } from "./driver/test-client.js";
 import type { RpcResponseError } from "./errors.js";
 import {
-  registerTestAppHttp,
+  mintTestAppCredential,
   type TestAppHttpRegistrationError,
 } from "./test-fixtures.js";
 import type {
@@ -33,10 +32,8 @@ import type {
   TransportClosedError,
   TransportIoError,
 } from "./errors.js";
-import type { FrameSchemaError } from "./frame-mutator.js";
 
 const APP_CLIENT_DEFAULT_TIMEOUT_MS = 5_000;
-const APP_CLIENT_DEFAULT_CAPTURE_CAPACITY = 256;
 
 const UNIQUE_SUFFIX_START = 2;
 const UNIQUE_SUFFIX_END = 8;
@@ -50,8 +47,7 @@ export type TestAppRegistrationFailure =
   | RpcResponseError
   | RpcTimeoutError
   | TransportClosedError
-  | TransportIoError
-  | FrameSchemaError;
+  | TransportIoError;
 
 export interface TestAppManifestOptions {
   readonly appId?: string;
@@ -66,7 +62,7 @@ export interface TestAppManifestOptions {
 /**
  * `registerTestApp` mints a SEPARATE app principal: it HTTP-registers
  * the manifest (`/api/v1/apps/register` → server-minted
- * `{ appId, appKey }`) and opens an `appKey`-Connect `TestClient` whose
+ * `{ appId, appKey }`) and opens an `appKey`-Connect `AppTestClient` whose
  * implicit registration binds it as the app's moderator endpoint. The
  * callers supply the real server's `baseUrl` (HTTP register) + `wsUrl`
  * (Connect), NOT a pre-built agent client.
@@ -95,7 +91,7 @@ export interface TestApp {
   readonly appId: Schema.Schema.Type<typeof AppId>;
   readonly manifest: AppManifest;
   /** The app-principal `AppConnection` hosting the moderator callbacks. */
-  readonly client: TestClient;
+  readonly client: AppTestClient;
   readonly dispatchAuthorize: TestAppCallbackScript<typeof DispatchAuthorize>;
   readonly messagesAuthorize: TestAppCallbackScript<typeof MessagesAuthorize>;
 }
@@ -127,25 +123,18 @@ export function registerTestApp(
   const manifest = options.manifest ?? makeTestAppManifest(options);
   return Effect.gen(function* () {
     // HTTP register → server-minted `{ appId, appKey }`; the `appKey`
-    // Connect arm binds the live `AppConnection` as the moderator endpoint
-    // (no WS `apps/register`).
-    const registered = yield* registerTestAppHttp({
+    // Connect arm binds the live `AppConnection` as the moderator endpoint.
+    const credential = yield* mintTestAppCredential({
       baseUrl: options.baseUrl,
       manifest,
       ...(options.inviteCode !== undefined
         ? { inviteCode: options.inviteCode }
         : {}),
     });
-    const client = yield* makeTestClient({
+    const client = yield* makeAppTestClient({
       serverUrl: options.wsUrl,
-      appKey: registered.appKey,
-      // The agent-arm fields are unused on the appKey arm but the config
-      // shape requires them; the autoConnect dispatcher selects the appKey
-      // arm because `appKey` is present.
-      agentKey: "unused-app-arm",
-      agentId: Schema.decodeUnknownSync(AgentId)(crypto.randomUUID()),
+      appKey: credential.appKey,
       defaultTimeoutMs: APP_CLIENT_DEFAULT_TIMEOUT_MS,
-      captureCapacity: APP_CLIENT_DEFAULT_CAPTURE_CAPACITY,
     });
     const dispatchAuthorize = yield* makeCallbackScript(
       client,
@@ -163,7 +152,7 @@ export function registerTestApp(
       Effect.succeed({ verdict: { decision: "accept" as const } }),
     );
     return {
-      appId: registered.appId,
+      appId: credential.appId,
       manifest,
       client,
       dispatchAuthorize,
@@ -200,7 +189,7 @@ function makeManifestHooks(
 }
 
 function makeCallbackScript<D extends ServerRpcDefinition>(
-  client: TestClient,
+  client: AppTestClient,
   definition: D,
 ): Effect.Effect<TestAppCallbackScript<D>> {
   return Effect.gen(function* () {

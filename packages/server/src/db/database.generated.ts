@@ -5,7 +5,7 @@
 
 import type { ColumnType } from "kysely";
 
-type AgentStatus = "active" | "pending_claim" | "suspended";
+type AgentStatus = "active" | "suspended";
 
 type ContactStatus = "accepted" | "pending";
 
@@ -37,13 +37,12 @@ type Timestamp = ColumnType<Date, Date | string, Date | string>;
 export interface Agents {
   api_key_id: string;
   api_key_secret_hash: string;
-  claim_token: string;
   created_at: Generated<Timestamp>;
   description: string | null;
   display_name: string | null;
   id: Generated<string>;
   name: string;
-  owner_user_id: string | null;
+  owner_user_id: string;
   status: Generated<AgentStatus>;
   updated_at: Generated<Timestamp>;
 }

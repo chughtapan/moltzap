@@ -25,9 +25,14 @@
 
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
-import { MessagesList, MessagesSend, type Message } from "@moltzap/protocol";
+import {
+  AgentKey,
+  MessagesList,
+  MessagesSend,
+  type Message,
+} from "@moltzap/protocol";
 import {
   TaskRequest,
   DEFAULT_APP_ID,
@@ -46,8 +51,8 @@ class ReconnectionIntegrationError extends Data.TaggedError(
 
 interface InjectedConfig {
   readonly wsUrl: string;
-  readonly channelApiKey: string;
-  readonly peerApiKey: string;
+  readonly channelApiKey: AgentKey;
+  readonly peerApiKey: AgentKey;
   readonly channelAgentId: AgentId;
 }
 
@@ -68,14 +73,14 @@ function injectString(key: string): string {
 beforeAll(() => {
   config = {
     wsUrl: injectString("moltzapWsUrl"),
-    channelApiKey: injectString("agentAApiKey"),
-    peerApiKey: injectString("agentBApiKey"),
+    channelApiKey: decodeInjectedAgentKey("agentAApiKey"),
+    peerApiKey: decodeInjectedAgentKey("agentBApiKey"),
     channelAgentId: makeAgentId(injectString("agentAAgentId")),
   };
 });
 
 function createClient(
-  agentKey: string,
+  agentKey: AgentKey,
   hooks: { onDisconnect?: () => void; onReconnect?: () => void },
 ): MoltZapAgentClient {
   return new MoltZapAgentClient({
@@ -83,6 +88,10 @@ function createClient(
     agentKey,
     ...hooks,
   });
+}
+
+function decodeInjectedAgentKey(key: string): AgentKey {
+  return Schema.decodeUnknownSync(AgentKey)(injectString(key));
 }
 
 function waitFor(

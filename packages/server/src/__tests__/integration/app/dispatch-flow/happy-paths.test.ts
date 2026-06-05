@@ -25,7 +25,6 @@ import {
   EXPECTED_TYPE_STRING,
   attachDispatchAuthorizeHook,
   createTaskConversationOnApp,
-  createUnmoderatedDm,
   createDispatchFlowFixture,
   MODERATED_HOOKS,
   requestDispatch,
@@ -39,7 +38,6 @@ const it = effectIt.live;
 
 const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const EXPECTED_MODERATED_HOOK_CALLS = 1;
-const EXPECTED_UNMODERATED_HOOK_CALLS = 0;
 
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
@@ -94,48 +92,10 @@ function moderatedDispatchReleasesGrant() {
   });
 }
 
-function unmoderatedDispatchDefaultGrants() {
-  return Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
-    const releaseFiber = yield* waitForDispatchRelease(
-      bob,
-      DISPATCH_RELEASE_TIMEOUT_MS,
-    );
-    const ack = yield* requestDispatch(bob, conversationId, alice);
-    const release = yield* Fiber.join(releaseFiber);
-
-    expectGrantRelease(release, ack.leaseId);
-    expect(fixture.hookCalls()).toBe(EXPECTED_UNMODERATED_HOOK_CALLS);
-  });
-}
-
-function dispatchRequestDescriptorIsRegistered() {
-  return Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
-    const ack = yield* requestDispatch(bob, conversationId, alice, "canary");
-
-    expectAckShape(ack);
-  });
-}
-
 describe("dispatch/* — happy paths (#529 reshape additive)", () => {
   it(
     "happy path moderated: dispatch/request then moderator grant releases grant",
     moderatedDispatchReleasesGrant,
-    20_000,
-  );
-
-  it(
-    "happy path default-grant: unmoderated task releases grant immediately",
-    unmoderatedDispatchDefaultGrants,
-    20_000,
-  );
-
-  it(
-    "wire surface canary: dispatch/request descriptor is registered",
-    dispatchRequestDescriptorIsRegistered,
     20_000,
   );
 });

@@ -1,5 +1,5 @@
 import type { AppManifest } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import type { ConnectionId } from "@moltzap/protocol";
 import { AppId } from "@moltzap/protocol/task";
 import type { Originator } from "../transport/connection.js";
 
@@ -7,7 +7,7 @@ import type { Originator } from "../transport/connection.js";
  * The minimal server→app dispatch surface a registration needs: the
  * connection id (for close-time cleanup via `unregisterByConnection`) and
  * the outbound {@link Originator} (the `sendRpcToClient` channel). Minted from
- * the live `AppConnection` arm's `{ connId, originator }` at `apps/register`.
+ * the live `AppConnection` arm's `{ connId, originator }` at `app/connect`.
  * The boot-installed default app carries an INERT endpoint
  * (`default-app.ts → makeDefaultAppEndpoint`) whose originator defects — its
  * manifest declares only static policies, which AppHost resolves in-process,
@@ -21,8 +21,8 @@ export interface AppEndpoint {
 /**
  * A registered app. There is NO `InProcess` vs `Remote` distinction —
  * every app, including the boot-installed default, carries an
- * {@link AppEndpoint}. Wire-registered apps hold the `{ connId, originator }`
- * minted from the `AppConnection` arm their `apps/register` call arrived on;
+ * {@link AppEndpoint}. Connected apps hold the `{ connId, originator }`
+ * minted from the `AppConnection` arm their `app/connect` call arrived on;
  * the default app holds an inert endpoint (see
  * `default-app.ts → makeDefaultAppEndpoint`) and declares only static
  * policies, which AppHost resolves in-process rather than over the
@@ -37,12 +37,12 @@ export interface AppRegistration {
 
 /**
  * Single source of truth for app registrations. The registry has no
- * notion of "boot" vs "wire" — both go through {@link register}.
+ * notion of "boot" vs "connected" — both go through {@link register}.
  * The registry itself enforces the no-overwrite invariant: any
  * attempt to register on top of an existing entry returns false.
- * Callers (the `apps/register` handler, `installDefaultApp`) map a
+ * Callers (`app/connect`, `installDefaultApp`) map a
  * `false` return to whatever surfacing they need — typed
- * `ForbiddenError` for the wire path, an exception for boot.
+ * `ForbiddenError` for the connect path, an exception for boot.
  */
 export class AppRegistry {
   private entries = new Map<AppId, AppRegistration>();

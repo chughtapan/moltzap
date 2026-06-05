@@ -11,14 +11,12 @@
  * own `AppEndpoint` originator inside `AppHost`, not through here.
  */
 import { Brand, Data, Effect, Either, HashSet, Option } from "effect";
-import type {
-  NotificationDefinition,
-  NotificationParamsOf,
-} from "@moltzap/protocol";
+import type { NotificationParamsOf } from "@moltzap/protocol";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import type { ConnectionId } from "@moltzap/protocol";
 import type { ConversationId, MessageId } from "@moltzap/protocol/task";
-import type * as Socket from "@effect/platform/Socket";
+import type { SocketError } from "@effect/platform/Socket";
 import { ConnectionManager } from "../transport/connection.js";
 import type { AgentConnection } from "../transport/connection.js";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
@@ -27,15 +25,9 @@ import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
  * Branded raw-string payload. The send primitive writes the exact
  * bytes to the recipient socket — no parse, no transform, no validate.
  * The nominal brand prevents an unwitting caller from passing an
- * arbitrary `string` where a wire-ready frame is expected; construct
- * via {@link opaquePayload}.
+ * arbitrary `string` where a wire-ready frame is expected.
  */
 export type OpaquePayload = string & Brand.Brand<"OpaquePayload">;
-const OpaquePayloadBrand = Brand.nominal<OpaquePayload>();
-
-/** Brand a raw string as an {@link OpaquePayload}. */
-export const opaquePayload = (raw: string): OpaquePayload =>
-  OpaquePayloadBrand(raw);
 
 // ---------------------------------------------------------------------------
 // Result + error channel
@@ -54,20 +46,18 @@ export class DeliveryAck extends Data.TaggedClass("DeliveryAck")<{
  * Recipient agent has no live connection. Caller-recoverable —
  * usually drop or queue rather than retry.
  */
-export class RecipientNotResolved extends Data.TaggedError(
-  "RecipientNotResolved",
-)<{
+class RecipientNotResolved extends Data.TaggedError("RecipientNotResolved")<{
   readonly to: AgentId;
 }> {}
 
 /**
- * Socket write failed. The inner {@link Socket.SocketError} cause is
+ * Socket write failed. The inner `SocketError` cause is
  * preserved so the caller distinguishes a write failure from a
  * resolution failure without re-running the lookup.
  */
-export class WriteFailed extends Data.TaggedError("WriteFailed")<{
+class WriteFailed extends Data.TaggedError("WriteFailed")<{
   readonly to: AgentId;
-  readonly cause: Socket.SocketError;
+  readonly cause: SocketError;
 }> {}
 
 export type DeliveryError = RecipientNotResolved | WriteFailed;
@@ -147,9 +137,8 @@ export class NetworkSendService {
    *   back as a notification.
    *
    * `delivered` lists agents whose at-least-one connection was
-   * scheduled to receive a write — drives the offline-recipient set
-   * for `MessageService.send`'s delivery-webhook + trace-capture
-   * branches.
+   * scheduled to receive a write — drives trace-capture's
+   * offline-recipient accounting.
    */
   broadcast(
     agentIds: readonly AgentId[],
@@ -255,7 +244,7 @@ export class NetworkSendService {
    * Applies the same per-connection gate as {@link broadcast}
    * (`connectionCanReceive`): conversation membership + `excludeConnectionId`.
    */
-  broadcastNotification<D extends NotificationDefinition<string, any>>(
+  broadcastNotification<D extends AnyNotificationDefinition>(
     agentIds: readonly AgentId[],
     definition: D,
     params: NotificationParamsOf<D>,
@@ -278,7 +267,7 @@ export class NetworkSendService {
     });
   }
 
-  private forkNotificationFire<D extends NotificationDefinition<string, any>>(
+  private forkNotificationFire<D extends AnyNotificationDefinition>(
     conn: AgentConnection,
     cid: ConnectionId,
     definition: D,

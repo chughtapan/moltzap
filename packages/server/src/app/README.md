@@ -34,8 +34,8 @@ dispatch lease registry lives in `task/leases/`.)
   capability pattern and the recipe for new capabilities.
 - `http-routes.ts` — `makeCoreHttpApp`; `/health`, `/ws`, auth
   register / claim, optional admin route.
-- `socket-handler.ts` — `makeSocketHandler` + `handleFrame`; the
-  per-frame wrapper that runs the typed dispatcher.
+- `server.ts` — `createCoreApp`; wires protocol `MoltZapServer` to
+  server-core handlers, middleware, and cleanup hooks.
 - `conversation-app-lookup.ts` — derives a conversation's
   app-binding (the `app_id IS NULL` discriminator) for
   `messages/authorize` routing.

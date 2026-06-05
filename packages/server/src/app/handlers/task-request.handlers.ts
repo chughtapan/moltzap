@@ -32,18 +32,14 @@ import {
   type ParamsOf,
   type Task,
 } from "@moltzap/protocol";
-import {
-  ContactPolicyAllowsReach,
-  ConversationCreateAuthorization,
-  type TaskId,
-} from "@moltzap/protocol/task";
+import type { TaskId } from "@moltzap/protocol/task";
 import type { AgentId } from "../types.js";
 import {
   AppHostTag,
   ConversationServiceTag,
   TaskServiceTag,
 } from "../layers.js";
-import { obtainConversationCreateAuthorization } from "../../task/services/conversation-create-authorization.js";
+import { authorizeConversationCreate } from "../../task/services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "../../task/handlers/notification-broadcast.js";
 import { agentArm } from "../server-handlers-runtime.js";
 
@@ -73,22 +69,16 @@ function mintInitialConversation(input: MintInitialInput) {
     const conversationService = yield* ConversationServiceTag;
     const participantAgentIds: ReadonlyArray<AgentId> =
       input.initial.participants ?? input.invitedAgentIds;
-    const conversation = yield* conversationService
-      .create({
-        name: input.initial.name,
-        agentIds: [...participantAgentIds],
-        creatorAgentId: input.callerAgentId,
-        mintTask: Effect.succeed({ id: input.task.id }),
-      })
-      .pipe(
-        Effect.provideServiceEffect(
-          ConversationCreateAuthorization,
-          obtainConversationCreateAuthorization({
-            agentIds: [...participantAgentIds],
-            creatorAgentId: input.callerAgentId,
-          }),
-        ),
-      );
+    yield* authorizeConversationCreate({
+      agentIds: [...participantAgentIds],
+      creatorAgentId: input.callerAgentId,
+    });
+    const conversation = yield* conversationService.create({
+      name: input.initial.name,
+      agentIds: [...participantAgentIds],
+      creatorAgentId: input.callerAgentId,
+      mintTask: Effect.succeed({ id: input.task.id }),
+    });
     const recipientAgentIds: AgentId[] = [
       input.callerAgentId,
       ...participantAgentIds,
@@ -178,14 +168,8 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const appHost = yield* AppHostTag;
-    // Contact-policy gate. The per-method `TaskRequestAuthMw` provides
-    // `ContactPolicyAllowsReach` (via `contactPolicyAllowsReachMiddleware`)
-    // before this body runs; draining the tag here makes the gate a
-    // precondition of `taskService.create`. Empty `invitedAgentIds`
-    // provisions a no-op proof: the service-layer guards short-circuit on
-    // zero targets (`loadAgentOwners([])` does no DB work;
-    // `assertContactPolicyForCreate(_, [], _)` returns `Effect.void`).
-    yield* ContactPolicyAllowsReach;
+    // Contact-policy reachability is enforced by the method's requirement
+    // middleware before this body runs.
     const waitingTask = yield* taskService.create(ctx.agentId, {
       appId: params.appId,
       invitedAgentIds: params.invitedAgentIds,
@@ -209,9 +193,8 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
 
 // ── @effect/rpc handler body ─────────────────────────────────────────
 //
-// The `ContactPolicyAllowsReach` cap middleware gates the frame and provides the
-// proof into context; the body drains the tag as a precondition of
-// `taskService.create`. `agentArm` reads the narrowed principal.
+// The `ContactPolicyAllowsReach` requirement gates the frame before this body
+// runs. `agentArm` reads the narrowed principal.
 export const taskRequest = (params: ParamsOf<typeof TaskRequest>) =>
   Effect.gen(function* () {
     const ctx = yield* agentArm;

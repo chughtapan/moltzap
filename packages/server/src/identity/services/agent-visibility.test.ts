@@ -35,7 +35,7 @@ function setupHarness() {
   );
 }
 
-function insertAgent(name: string, ownerUserId: UserId | null) {
+function insertAgent(name: string, ownerUserId: UserId) {
   return takeFirstOrFail(
     harness.db
       .insertInto("agents")
@@ -43,7 +43,6 @@ function insertAgent(name: string, ownerUserId: UserId | null) {
         name,
         api_key_id: `${name}-keyid`,
         api_key_secret_hash: `${name}-hash`,
-        claim_token: `${name}-claim`,
         status: "active",
         owner_user_id: ownerUserId,
       })
@@ -81,7 +80,7 @@ function insertAcceptedContact(ownerA: UserId, ownerB: UserId) {
   );
 }
 
-function visibleFor(callerAgentId: AgentId, callerOwnerUserId: UserId | null) {
+function visibleFor(callerAgentId: AgentId, callerOwnerUserId: UserId) {
   return visibleAgentIds({
     db: harness.db,
     callerAgentId,
@@ -91,7 +90,7 @@ function visibleFor(callerAgentId: AgentId, callerOwnerUserId: UserId | null) {
 
 function visibleRestrictedTo(
   callerAgentId: AgentId,
-  callerOwnerUserId: UserId | null,
+  callerOwnerUserId: UserId,
   restrictTo: AgentId[],
 ) {
   return visibleAgentIds({
@@ -174,34 +173,6 @@ function emptyRestrictToReturnsEmpty() {
   });
 }
 
-function unclaimedCallerSeesOnlySelf() {
-  return Effect.gen(function* () {
-    const unclaimed = yield* insertAgent("unclaimed", null);
-    yield* insertAgent("alice", ALICE_OWNER);
-
-    const ids = yield* visibleFor(unclaimed.id, null);
-    expect(ids).toEqual([unclaimed.id]);
-  });
-}
-
-function unclaimedRestrictToKeepsOnlySelf() {
-  return Effect.gen(function* () {
-    const unclaimed = yield* insertAgent("unclaimed", null);
-    const alice = yield* insertAgent("alice", ALICE_OWNER);
-
-    const idsKeepSelf = yield* visibleRestrictedTo(unclaimed.id, null, [
-      unclaimed.id,
-      alice.id,
-    ]);
-    expect(idsKeepSelf).toEqual([unclaimed.id]);
-
-    const idsDropAll = yield* visibleRestrictedTo(unclaimed.id, null, [
-      alice.id,
-    ]);
-    expect(idsDropAll).toEqual([]);
-  });
-}
-
 describe("visibleAgentIds owner/contact graph", () => {
   beforeEach(() => Effect.runPromise(setupHarness()), PGLITE_HOOK_TIMEOUT_MS);
   afterEach(() => Effect.runPromise(harness.close), PGLITE_HOOK_TIMEOUT_MS);
@@ -223,15 +194,4 @@ describe("visibleAgentIds restrictTo", () => {
 
   it("intersects with restrictTo when provided", intersectsWithRestrictTo);
   it("returns empty when restrictTo is empty", emptyRestrictToReturnsEmpty);
-});
-
-describe("visibleAgentIds unclaimed callers", () => {
-  beforeEach(() => Effect.runPromise(setupHarness()), PGLITE_HOOK_TIMEOUT_MS);
-  afterEach(() => Effect.runPromise(harness.close), PGLITE_HOOK_TIMEOUT_MS);
-
-  it("sees only their own agentId", unclaimedCallerSeesOnlySelf);
-  it(
-    "with restrictTo, only keeps their own agentId",
-    unclaimedRestrictToKeepsOnlySelf,
-  );
 });

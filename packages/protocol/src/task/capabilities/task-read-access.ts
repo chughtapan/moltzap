@@ -1,4 +1,5 @@
-import { Context } from "effect";
+import { Schema } from "effect";
+import { RpcMiddleware } from "@effect/rpc";
 import type { Task } from "../tasks.js";
 import { TaskNotFoundError } from "../ids.js";
 import type { AgentId } from "../../identity/index.js";
@@ -19,12 +20,9 @@ export interface TaskReadAccessValue {
   readonly callerAgentId: AgentId;
 }
 
-export class TaskReadAccess extends Context.Tag(
+export class TaskReadAccess extends RpcMiddleware.Tag<TaskReadAccess>()(
   "@moltzap/protocol/TaskReadAccess",
-)<TaskReadAccess, TaskReadAccessValue>() {
-  // Fails closed as not-found (rather than a distinct forbidden) so the obtain
-  // does not leak task existence to a caller without read access.
-  static get errors() {
-    return [TaskNotFoundError] as const;
-  }
-}
+  // Fails closed as not-found so the obtain does not leak task existence to a
+  // caller without read access.
+  { failure: Schema.Union(TaskNotFoundError) },
+) {}

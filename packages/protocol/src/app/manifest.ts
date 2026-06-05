@@ -1,8 +1,5 @@
 import { Either, ParseResult, Schema } from "effect";
-import { stringEnum } from "../schema-primitives.js";
-import { defineRpc } from "../transport/method.js";
-import { AppPrincipal } from "../transport/principal.js";
-import { ForbiddenError } from "../transport/wire-errors.js";
+import { stringEnum } from "../transport/wire-string.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — manifest value types.
@@ -161,21 +158,3 @@ export function validateAppManifest(
     },
   );
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// apps/register
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * Register an app manifest for the current connection.
- *
- * - **Principal:** `AppPrincipal` head.
- * @error ForbiddenError when an app is already registered for the connection
- */
-export const AppsRegister = defineRpc({
-  name: "apps/register",
-  params: Schema.Struct({ manifest: AppManifestSchema }),
-  result: Schema.Struct({ appId: Schema.String }),
-  requires: [AppPrincipal],
-  errors: [ForbiddenError],
-});

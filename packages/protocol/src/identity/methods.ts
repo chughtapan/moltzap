@@ -1,5 +1,29 @@
-export * from "./agents.js";
-export * from "./contacts.js";
+export {
+  AgentNotFoundError,
+  UserId,
+  AgentId,
+  validateAgent,
+  validateAgentCard,
+  agentOwnershipSchema,
+  Register,
+  AgentsLookup,
+  AgentsLookupByName,
+  AgentsList,
+} from "./agents.js";
+export type { Agent, AgentCard } from "./agents.js";
+
+export {
+  ContactId,
+  NotInContactsError,
+  ContactNotFoundError,
+  ContactsList,
+  ContactsAdd,
+  ContactsAccept,
+  ContactsById,
+  ContactRequestNotificationDefinition,
+  ContactAcceptedNotificationDefinition,
+} from "./contacts.js";
+export type { Contact } from "./contacts.js";
 
 import { AgentsLookup, AgentsLookupByName, AgentsList } from "./agents.js";
 import {
@@ -11,10 +35,9 @@ import {
   ContactAcceptedNotificationDefinition,
 } from "./contacts.js";
 
-// `agents/register` + `agents/claim` (`Register`/`Claim` in `agents.ts`) are
-// HTTP-only: served over `http-routes.ts`, never dispatched on the WS engine, so
-// they are NOT catalog members. Their `paramsSchema` is still the HTTP body
-// schema (`http-routes.ts → httpBodyGuard(Register.paramsSchema)`).
+// `agents/register` (`Register` in `agents.ts`) is HTTP-only: served over
+// `http-routes.ts`, never dispatched on the WS engine, so it is NOT a catalog
+// member. Its `paramsSchema` is still the HTTP body schema.
 export const identityRpcMethods = [
   AgentsLookup,
   AgentsLookupByName,

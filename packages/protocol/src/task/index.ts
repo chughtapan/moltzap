@@ -3,7 +3,21 @@
  */
 export { ConversationId, LeaseId, MessageId, TaskId } from "./methods.js";
 
-export * from "./capabilities/index.js";
+export {
+  TaskReadAccess,
+  ConversationInTask,
+  ConversationSendAccess,
+  ContactPolicyAllowsReach,
+  assertAppOwnsTask,
+  assertConversationInTaskMatches,
+  assertTaskReadAccessMatchesTask,
+} from "./capabilities/index.js";
+export type {
+  TaskReadAccessValue,
+  ConversationInTaskValue,
+  ConversationSendAccessValue,
+  ContactPolicyAllowsReachValue,
+} from "./capabilities/index.js";
 
 export {
   TaskClosedError,
@@ -44,6 +58,7 @@ export {
   validateDispatchDecision,
   dispatchDecisionSchema,
   messageWithDispatchDecisionSchema,
+  messagePartsSchema,
   // Per-kind catalog subsets.
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,

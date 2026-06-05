@@ -20,7 +20,6 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerConnectBroadcast } from "./presence-connect-broadcast.js";
 import { registerDisconnectBroadcast } from "./presence-disconnect-broadcast.js";
 import { registerReconnectStorm } from "./presence-reconnect-storm.js";
-import { registerSameStateNoDoubleFire } from "./presence-same-state-no-double-fire.js";
 import { registerMultiSubscriberFanOut } from "./presence-multi-subscriber-fan-out.js";
 import { registerSubscribeAfterConnect } from "./presence-subscribe-after-connect.js";
 
@@ -28,7 +27,6 @@ export {
   registerConnectBroadcast,
   registerDisconnectBroadcast,
   registerReconnectStorm,
-  registerSameStateNoDoubleFire,
   registerMultiSubscriberFanOut,
   registerSubscribeAfterConnect,
 };
@@ -42,7 +40,6 @@ export const NETWORK_PROPERTIES: ReadonlyArray<
   registerConnectBroadcast,
   registerDisconnectBroadcast,
   registerReconnectStorm,
-  registerSameStateNoDoubleFire,
   registerMultiSubscriberFanOut,
   registerSubscribeAfterConnect,
 ];

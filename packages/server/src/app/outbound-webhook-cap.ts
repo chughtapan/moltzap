@@ -2,19 +2,14 @@
  * @file Shared outbound-webhook concurrency cap.
  *
  * The deleted bespoke `WebhookClient` owned a single `Effect.Semaphore(10)`
- * that bounded ALL outbound webhook traffic — delivery webhook fan-out from
- * `MessageService` AND the YAML-wired session/contact validators in
- * `standalone.ts`. One process, one cap. Splitting that into per-path
- * semaphores would let the validators stampede an operator's collector
- * during a burst.
+ * that bounded outbound webhook traffic. The remaining in-repo webhook
+ * consumer is the YAML-wired contact-policy service in `standalone.ts`.
  *
  * This module rebuilds that contract on top of `@effect/platform/HttpClient`:
  *
  * - {@link OUTBOUND_WEBHOOK_PERMITS} is a module-level `Effect.Semaphore(10)`
  *   constructed once at import time (matching the old class-constructor
- *   shape). Both the CoreApp's `HttpClientLive` and the standalone validator
- *   wiring import this same instance, so every outbound webhook in the
- *   process pulls from one permit pool.
+ *   shape). Every standalone outbound webhook pulls from one permit pool.
  *
  * - {@link applyOutboundWebhookCap} wraps an arbitrary `HttpClient.HttpClient`
  *   with the shared semaphore via `HttpClient.transform`. The transform is
@@ -49,9 +44,8 @@ const OUTBOUND_WEBHOOK_PERMITS: Effect.Semaphore = Effect.runSync(
 
 /**
  * Wrap an `HttpClient.HttpClient` with {@link OUTBOUND_WEBHOOK_PERMITS}.
- * Used by both the CoreApp's `HttpClientLive` (delivery webhook) and the
- * standalone validator wiring (session/contact webhooks) so the same
- * 10-permit pool covers every outbound webhook in the process.
+ * Used by the standalone contact-policy wiring so the same 10-permit pool
+ * covers outbound webhook traffic in the process.
  */
 export function applyOutboundWebhookCap(
   client: HttpClientNs.HttpClient,

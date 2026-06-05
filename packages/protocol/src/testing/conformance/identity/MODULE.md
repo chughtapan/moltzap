@@ -17,28 +17,20 @@ by name AND aggregates them into `IDENTITY_PROPERTIES` for the
 
 ## Public surface
 
-### [`IDENTITY_PROPERTIES`](./index.ts#L24)
+### [`IDENTITY_PROPERTIES`](./index.ts#L23)
 
 _Variable_
 
 ```ts
 export const IDENTITY_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
-> = [registerAuthorityPositive, registerAuthorityNegative]
+> = [registerAuthorityPositive]
 ```
 
 All identity-layer property registrars, in suite walk order
 (authority-positive → authority-negative).
 
-### [`registerAuthorityNegative`](./authority-negative.ts#L33)
-
-_Function_
-
-```ts
-export function registerAuthorityNegative(ctx: ConformanceRunContext): void
-```
-
-### [`registerAuthorityPositive`](./authority-positive.ts#L30)
+### [`registerAuthorityPositive`](./authority-positive.ts#L29)
 
 _Function_
 
@@ -48,6 +40,5 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void
 
 ## Files
 
-- `authority-negative.ts`
 - `authority-positive.ts`
 - `index.ts`

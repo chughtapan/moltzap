@@ -11,7 +11,7 @@
  */
 
 import type { Brand, Effect } from "effect";
-import type { EnrichedInboundMessage } from "@moltzap/client";
+import type { EnrichedInboundMessage } from "@moltzap/client/channel-base";
 import {
   agentId,
   conversationId,
@@ -121,8 +121,7 @@ export type GateInbound = (
  * logger layers at process boundaries.
  */
 export interface BootOptions {
-  readonly serverUrl: string;
-  readonly agentKey: string;
+  readonly profileName: string;
   readonly gateInbound?: GateInbound;
 
   /**

@@ -61,10 +61,26 @@ const parseSource = (filePath: string): ts.SourceFile => {
   return ts.createSourceFile(filePath, text, ts.ScriptTarget.Latest, true);
 };
 
+const literalFromInitializer = (
+  init: ts.Expression,
+): string | number | null => {
+  const inner = ts.isAsExpression(init) ? init.expression : init;
+  if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) {
+    return inner.text;
+  }
+  if (ts.isNumericLiteral(inner)) return Number(inner.text);
+  if (ts.isCallExpression(inner) && inner.arguments.length === 1) {
+    const arg = inner.arguments[0];
+    if (arg !== undefined) return literalFromInitializer(arg);
+  }
+  return null;
+};
+
 /**
- * Find a top-level `const NAME = <Literal>` declaration whose initializer
- * is a string or numeric literal (optionally with a trailing
- * `as <TypeReference>`).
+ * Find a top-level `const NAME = <Literal>` declaration whose initializer is a
+ * string or numeric literal (optionally with a trailing `as <TypeReference>`),
+ * or a one-argument constructor wrapping that literal, e.g.
+ * `Schema.decodeSync(AppId)("...")`.
  */
 const readTopLevelLiteral = (
   filePath: string,
@@ -79,16 +95,7 @@ const readTopLevelLiteral = (
         continue;
       const init = decl.initializer;
       if (init === undefined) continue;
-      // Unwrap `<literal> as <TypeRef>`.
-      const inner = ts.isAsExpression(init) ? init.expression : init;
-      if (
-        ts.isStringLiteral(inner) ||
-        ts.isNoSubstitutionTemplateLiteral(inner)
-      ) {
-        found = inner.text;
-      } else if (ts.isNumericLiteral(inner)) {
-        found = Number(inner.text);
-      }
+      found = literalFromInitializer(init);
     }
   }
   return found === null
@@ -137,7 +144,7 @@ type Constant = StringConstant | NumberConstant;
 
 const collect = (): readonly Constant[] => {
   const protocolVersion = readTopLevelLiteral(
-    resolve(workspaceRoot, "packages/protocol/src/version.ts"),
+    resolve(workspaceRoot, "packages/protocol/src/network/connect.ts"),
     "PROTOCOL_VERSION",
   );
   const defaultAppId = readTopLevelLiteral(
@@ -200,7 +207,7 @@ const collect = (): readonly Constant[] => {
   const constants: ReadonlyArray<Constant | null> = [
     requireString(
       "PROTOCOL_VERSION",
-      "packages/protocol/src/version.ts",
+      "packages/protocol/src/network/connect.ts",
       protocolVersion,
       "Current wire-protocol version emitted in HelloOk + accepted in `network/connect`.",
     ),

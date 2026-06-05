@@ -1,4 +1,5 @@
 import type { HarnessPayload } from "./trace-capture-payload.js";
+import type { AgentId } from "@moltzap/protocol";
 
 interface MessagePart {
   readonly type: string;
@@ -10,24 +11,24 @@ export interface TraceCaptureEvent {
   readonly channelKey: string;
   readonly senderDisplayName: string;
   readonly message: {
-    readonly senderId: string;
+    readonly senderId: AgentId;
     readonly conversationId: string;
     readonly id: string;
     readonly createdAt: string;
     readonly parts: ReadonlyArray<MessagePart>;
   };
-  readonly recipientAgentIds: ReadonlyArray<string>;
+  readonly recipientAgentIds: ReadonlyArray<AgentId>;
 }
 
 export interface ConversationParticipant {
-  readonly id: string;
+  readonly id: AgentId;
   readonly name: string;
   readonly role: string;
 }
 
 export interface ConversationResponse {
   readonly conversationId: string;
-  readonly senderId: string;
+  readonly senderId: AgentId;
   readonly text: string;
   readonly messageId: string;
 }
@@ -48,7 +49,7 @@ export function buildTraceBundle(input: {
   };
   readonly runId: string;
   readonly targetAgent: {
-    readonly agentId: string;
+    readonly agentId: AgentId;
     readonly agentName: string;
   };
   readonly runtimeStartedAt: string;
@@ -77,7 +78,7 @@ export function buildTraceBundle(input: {
 
 function participantNames(input: {
   readonly targetAgent: {
-    readonly agentId: string;
+    readonly agentId: AgentId;
     readonly agentName: string;
   };
   readonly conversationRun: ConversationRun;
@@ -105,7 +106,7 @@ function planMetadata(plan: {
 }
 
 function bundleAgents(
-  targetAgent: { readonly agentId: string; readonly agentName: string },
+  targetAgent: { readonly agentId: AgentId; readonly agentName: string },
   conversationRun: ConversationRun,
 ) {
   return [
@@ -131,7 +132,7 @@ function bundleContext(
 
 function bundleOutcomes(
   input: {
-    readonly targetAgent: { readonly agentId: string };
+    readonly targetAgent: { readonly agentId: AgentId };
     readonly runtimeStartedAt: string;
     readonly conversationRun: ConversationRun;
   },
@@ -149,7 +150,11 @@ function bundleOutcomes(
   ];
 }
 
-function completedOutcome(agentId: string, startedAt: string, endedAt: string) {
+function completedOutcome(
+  agentId: AgentId,
+  startedAt: string,
+  endedAt: string,
+) {
   return {
     agentId,
     status: "completed",
@@ -159,7 +164,7 @@ function completedOutcome(agentId: string, startedAt: string, endedAt: string) {
 }
 
 function participantNameEntry(participant: {
-  readonly id: string;
+  readonly id: AgentId;
   readonly name: string;
 }): readonly [string, string] {
   return [participant.id, participant.name];

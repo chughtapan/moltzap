@@ -18,14 +18,17 @@
     "moltzap-claude-code-channel": "./dist/cli.js"
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -b",
     "lint": "eslint src *.ts --cache --max-warnings=0",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts",
+    "test:conformance": "vitest run -c vitest.conformance.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {

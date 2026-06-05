@@ -1,17 +1,20 @@
 /**
- * @file App-domain RPC descriptors, split by concern across three modules and
- * re-exported here as the app catalog's single import surface:
+ * @file App-domain RPC descriptors and the app-callback handler table.
  *
- * - `manifest.ts` — the app manifest + hook policy schemas + `apps/register`.
- * - `dispatch.ts` — the recipient admission surface (`dispatch/*`,
- *   `dispatches/*`) + the dispatch lease record.
- * - `app-callbacks.ts` — the server→TM reverse callbacks (`messages/authorize`,
- *   `task/create`).
- *
- * The three `appRpcMethods` / `appCallbackMethods` / `appNotifications`
- * catalogs are assembled in the engine group module, which is their consumer.
+ * The app domain authors the app-callable c2s methods, the agent-callable
+ * app-mediated methods, the server→app callback catalog, and the notification
+ * descriptors. The engine consumes these catalogs to build concrete RPC groups.
  */
-export { AppsRegister, validateAppManifest } from "./manifest.js";
+import type { Effect } from "effect";
+
+import type {
+  ParamsOf,
+  ResultOf,
+  RpcDefinition,
+  RpcDefinitionAny,
+} from "../transport/method.js";
+
+export { validateAppManifest } from "./manifest.js";
 export type { AppManifest } from "./manifest.js";
 
 export {
@@ -27,7 +30,6 @@ export {
 
 export { MessagesAuthorize, TaskCreate } from "./app-callbacks.js";
 
-import { AppsRegister } from "./manifest.js";
 import {
   DispatchRequest,
   DispatchAuthorize,
@@ -38,11 +40,9 @@ import {
 } from "./dispatch.js";
 import { MessagesAuthorize, TaskCreate } from "./app-callbacks.js";
 
-export const appRpcMethods = [
-  AppsRegister,
-  DispatchRequest,
-  DispatchesGet,
-] as const;
+export const agentCallableAppRpcMethods = [DispatchRequest] as const;
+
+export const appCallableAppRpcMethods = [DispatchesGet] as const;
 
 export const appCallbackMethods = [
   DispatchAuthorize,
@@ -55,3 +55,40 @@ export const appNotifications = [
   DispatchesConsumed,
   DispatchesExpired,
 ] as const;
+
+type AppCallbackDescriptor = RpcDefinitionAny;
+
+/**
+ * Per-definition app-callback handler slot. `Ctx` is the per-frame context the
+ * client hands every handler.
+ */
+export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
+  readonly definition: D;
+  readonly handle: (
+    params: ParamsOf<D>,
+    ctx: Ctx,
+  ) => Effect.Effect<ResultOf<D>, unknown>;
+}
+
+type NameOf<D> =
+  D extends RpcDefinition<infer N, any, any, any, any> ? N : never;
+
+type SlotValue<D, Ctx> = D extends AppCallbackDescriptor
+  ? HandlerSlot<D, Ctx>
+  : never;
+
+type HandlerTable<Defs extends AppCallbackDescriptor, Ctx> = {
+  readonly [D in Defs as NameOf<D>]: SlotValue<D, Ctx>;
+};
+
+export type AppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
+
+/**
+ * Closed handler table for an app moderating one or more tasks. Every
+ * `appCallbackMethods` member is required; vacuous-deny moderators still write
+ * the handler explicitly.
+ */
+export type AppCallbackHandlers<Ctx> = HandlerTable<
+  AppCallbackRpcDefinition,
+  Ctx
+>;

@@ -1,5 +1,10 @@
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { Deferred, Effect, Either, Exit, Fiber } from "effect";
+import {
+  agentId,
+  agentKeyString,
+  redactedAgentKey,
+} from "@moltzap/protocol/testing";
 
 import {
   launchRuntimeFleet,
@@ -20,13 +25,13 @@ const TIMEOUT_TAG = "Timeout";
 const OPENCLAW_KIND = "openclaw";
 const INBOUND_MARKER = "inbound from agent:";
 const TEST_AGENT_NAME = "test-agent";
-const TEST_API_KEY = "test-api-key";
-const TEST_AGENT_ID = "agent-001";
+const TEST_API_KEY = redactedAgentKey(agentKeyString(80));
+const TEST_AGENT_ID = agentId("11111111-1111-4111-8111-111111111111");
 const TEST_SERVER_URL = "ws://localhost:9999/ws";
 const ALPHA_AGENT_NAME = "alpha";
-const ALPHA_AGENT_ID = "agent-alpha";
+const ALPHA_AGENT_ID = agentId("22222222-2222-4222-8222-222222222222");
 const BETA_AGENT_NAME = "beta";
-const BETA_AGENT_ID = "agent-beta";
+const BETA_AGENT_ID = agentId("33333333-3333-4333-8333-333333333333");
 const STARTUP_SIGNAL = "SIGUSR2";
 const READY_TIMEOUT_MS = 1_000;
 const LONG_READY_TIMEOUT_MS = 60_000;
@@ -260,7 +265,7 @@ function runTest<A>(effect: Effect.Effect<A, never, never>) {
 
 function stubServer(): RuntimeServerHandle {
   return {
-    awaitAgentReady: (_agentId: string, _timeoutMs: number) => Effect.never,
+    awaitAgentReady: (_agentId, _timeoutMs: number) => Effect.never,
   };
 }
 

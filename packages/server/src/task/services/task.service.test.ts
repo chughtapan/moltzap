@@ -5,9 +5,9 @@ import {
   agentId,
   appId as makeAppId,
   taskId as makeTaskId,
+  userId,
   WIRE_ERROR_TAG,
 } from "@moltzap/protocol/testing";
-import type { TaskId } from "@moltzap/protocol/task";
 import { TaskService } from "./task.service.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { MessageService } from "./message.service.js";
@@ -16,10 +16,6 @@ import {
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
 } from "../../test-utils/index.js";
-import { TaskReadAccess } from "@moltzap/protocol/task";
-import { obtainTaskReadAccess } from "../../app/capability-middlewares.js";
-import { TaskServiceTag } from "../../app/layers.js";
-import type { AgentId } from "@moltzap/protocol/identity";
 
 // Lifecycle + authority methods never invoke these deps; the conversation
 // + message paths are covered by integration tests.
@@ -29,32 +25,35 @@ const STUB_MSG = {} as MessageService;
 const ALICE = agentId("00000000-0000-4000-8000-00000000a11c");
 const BOB = agentId("00000000-0000-4000-8000-00000000b0b0");
 const CAROL = agentId("00000000-0000-4000-8000-00000000ca20");
+const ALICE_OWNER = userId("00000000-0000-4000-8000-00000001a11c");
+const BOB_OWNER = userId("00000000-0000-4000-8000-00000001b0b0");
+const CAROL_OWNER = userId("00000000-0000-4000-8000-00000001ca20");
 const AGENTS = [
   {
     id: ALICE,
     name: "alice",
+    owner_user_id: ALICE_OWNER,
     api_key_id: "0123456789abcdef",
     api_key_secret_hash:
       "0000000000000000000000000000000000000000000000000000000000000000",
-    claim_token: "claim-alice",
     status: "active",
   },
   {
     id: BOB,
     name: "bob",
+    owner_user_id: BOB_OWNER,
     api_key_id: "fedcba9876543210",
     api_key_secret_hash:
       "1111111111111111111111111111111111111111111111111111111111111111",
-    claim_token: "claim-bob",
     status: "active",
   },
   {
     id: CAROL,
     name: "carol",
+    owner_user_id: CAROL_OWNER,
     api_key_id: "aaaaaaaaaaaaaaaa",
     api_key_secret_hash:
       "2222222222222222222222222222222222222222222222222222222222222222",
-    claim_token: "claim-carol",
     status: "active",
   },
 ] as const;
@@ -98,30 +97,13 @@ function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
   return typeof tag === "string" ? tag : null;
 }
 
-// D #705 R7 — the `TmAuthority` capability is dissolved; the
-// task-admin SERVICE methods (`close`, `addParticipant`,
-// `removeParticipant`, `archiveTaskConversation`, …) no longer gate on
-// caller authority. App-ownership now lives in the app-arm HANDLER
-// (`assertCallerAppOwnsTask`), exercised by the integration suite
-// (e.g. `conversations-archive.test.ts` asserting the 403). These unit
-// tests cover the unguarded service mechanics + the open-status gate
+// D #705 R7 — the `TmAuthority` capability is dissolved; the task-admin
+// SERVICE methods (`close`, `addParticipant`, `removeParticipant`,
+// `archiveTaskConversation`, …) no longer gate on caller authority.
+// App-ownership now lives in the app-arm HANDLER (`assertCallerAppOwnsTask`),
+// exercised by the app-principal integration and conformance suites. These
+// unit tests cover the service mechanics + the open-status gate
 // (`loadOpenTask`).
-
-function withReadAccess(taskId: TaskId, caller: AgentId, svc: TaskService) {
-  return <A, E, R>(eff: Effect.Effect<A, E, R | TaskReadAccess>) =>
-    eff.pipe(
-      Effect.provideServiceEffect(
-        TaskReadAccess,
-        // Exercise the live `TaskReadAccess` obtain (provided into context by its
-        // cap middleware in production); same input shape.
-        obtainTaskReadAccess({
-          taskId,
-          callerAgentId: caller,
-        }),
-      ),
-      Effect.provideService(TaskServiceTag, svc),
-    ) as Effect.Effect<A, E, Exclude<R, TaskReadAccess>>;
-}
 
 function createsWaitingTask() {
   return Effect.gen(function* () {
@@ -131,9 +113,7 @@ function createsWaitingTask() {
     expect(task.initiatorAgentId).toBe(ALICE);
     expect(task.appId).toBe(ALICE_APP_ID);
 
-    const view = yield* svc
-      .get(task.id, ALICE)
-      .pipe(withReadAccess(task.id, ALICE, svc));
+    const view = yield* svc.get(task.id, ALICE);
     expect(view.task.id).toBe(task.id);
     expect(view.participants).toHaveLength(1);
     expect(view.participants[0]?.agentId).toBe(ALICE);
@@ -148,9 +128,7 @@ function admitsInitiatorAndInvitedParticipants() {
       appId: ALICE_APP_ID,
       invitedAgentIds: [BOB],
     });
-    const view = yield* svc
-      .get(task.id, ALICE)
-      .pipe(withReadAccess(task.id, ALICE, svc));
+    const view = yield* svc.get(task.id, ALICE);
     const bobRow = view.participants.find((p) => p.agentId === BOB);
     expect(bobRow).toBeDefined();
     // Auto-admit on TaskRequest (#677); the `admitted_at` column + read
@@ -240,9 +218,7 @@ function rejectsGetForNonParticipant() {
   return Effect.gen(function* () {
     const svc = makeService();
     const task = yield* svc.create(ALICE, { appId: ALICE_APP_ID });
-    const exit = yield* Effect.exit(
-      svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
-    );
+    const exit = yield* Effect.exit(svc.get(task.id, BOB));
     expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
@@ -250,11 +226,7 @@ function rejectsGetForNonParticipant() {
 function rejectsUnknownTaskGet() {
   return Effect.gen(function* () {
     const svc = makeService();
-    const exit = yield* Effect.exit(
-      svc
-        .get(UNKNOWN_TASK_ID, ALICE)
-        .pipe(withReadAccess(UNKNOWN_TASK_ID, ALICE, svc)),
-    );
+    const exit = yield* Effect.exit(svc.get(UNKNOWN_TASK_ID, ALICE));
     expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.TaskNotFound);
   });
 }
@@ -287,9 +259,7 @@ function removesParticipant() {
       invitedAgentIds: [BOB],
     });
     yield* svc.removeParticipant(task.id, BOB);
-    const view = yield* svc
-      .get(task.id, ALICE)
-      .pipe(withReadAccess(task.id, ALICE, svc));
+    const view = yield* svc.get(task.id, ALICE);
     expect(view.participants.find((p) => p.agentId === BOB)).toBeUndefined();
   });
 }
@@ -323,9 +293,7 @@ function deniesReadAccessToPendingInvitee() {
       .set({ admitted_at: null })
       .where("task_id", "=", task.id)
       .where("agent_id", "=", BOB);
-    const exit = yield* Effect.exit(
-      svc.get(task.id, BOB).pipe(withReadAccess(task.id, BOB, svc)),
-    );
+    const exit = yield* Effect.exit(svc.get(task.id, BOB));
     expect(rpcFailureTag(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }

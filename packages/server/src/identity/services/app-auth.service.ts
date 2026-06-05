@@ -1,5 +1,6 @@
 import { Effect, Either } from "effect";
-import { UnauthorizedError } from "@moltzap/protocol";
+import { AppKey } from "@moltzap/protocol/credentials";
+import { UnauthorizedError } from "@moltzap/protocol/transport";
 import { validateAppManifest } from "@moltzap/protocol/app";
 import type { AppManifest } from "@moltzap/protocol/app";
 import type { AppId } from "@moltzap/protocol/task";
@@ -46,7 +47,7 @@ export class AppAuthService {
    */
   registerApp(params: {
     readonly manifest: AppManifest;
-  }): Effect.Effect<{ appId: AppId; appKey: string }, never> {
+  }): Effect.Effect<{ appId: AppId; appKey: AppKey }, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const { appKey, keyId, secretHash } = generateAppKey();
@@ -85,7 +86,7 @@ export class AppAuthService {
    * `reason: "manifest_corrupted"` rather than a 500 defect.
    */
   authenticateApp(
-    apiKey: string,
+    apiKey: AppKey,
   ): Effect.Effect<
     { auth: AppContext; manifest: AppManifest } | null,
     UnauthorizedError
@@ -172,7 +173,7 @@ export class AppAuthService {
   installDefaultApp(
     appId: AppId,
     manifest: AppManifest,
-    appKey: string,
+    appKey: AppKey,
   ): Effect.Effect<void, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {

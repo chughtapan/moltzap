@@ -1,48 +1,14 @@
 import type { AgentContext } from "../../transport/context.js";
 import {
-  AppsRegister,
   DispatchRequest,
   DispatchesGet,
   ForbiddenError,
   type ParamsOf,
 } from "@moltzap/protocol";
-import { AppId } from "@moltzap/protocol/task";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { AppHostTag, ConnectionTag } from "../layers.js";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
 import { agentArm } from "../server-handlers-runtime.js";
-
-// A client-originated `apps/register` stores the calling WS connection as the
-// moderator endpoint for `manifest.appId`. `dispatch/authorize` and
-// `messages/authorize` route to this socket via `sendRpcToClient`. The registry
-// rejects overwrites unconditionally (default app's inert endpoint OR a
-// still-alive wire connection blocks re-registration); reconnects work only
-// after the old connection's WS-close finalizer (`unregisterAppsForConnection`
-// via `socket-handler.ts → closeSession`) clears the entry.
-function appsRegisterBody(params: ParamsOf<typeof AppsRegister>) {
-  return Effect.gen(function* () {
-    const appHost = yield* AppHostTag;
-    const connection = yield* ConnectionTag;
-    // Mint the `AppEndpoint` straight off the live `Connection` arm
-    // (`{ connId, originator }` are `ConnectionBase` fields on every arm) — the
-    // arm IS the dispatch surface `AppHost` registers. This WS RPC keys by
-    // `manifest.appId`; the HTTP `/api/v1/apps/register` route + `appKey`
-    // Connect arm key by the server-minted `appId` instead.
-    const ok = appHost.registerApp(
-      Schema.decodeUnknownSync(AppId)(params.manifest.appId),
-      params.manifest,
-      { connId: connection.connId, originator: connection.originator },
-    );
-    if (!ok) {
-      return yield* Effect.fail(
-        new ForbiddenError({
-          message: `App ${params.manifest.appId} is already registered`,
-        }),
-      );
-    }
-    return { appId: params.manifest.appId };
-  }).pipe(Effect.withSpan("apps.register"));
-}
 
 // `dispatch/request` — returns ack immediately, forks the moderator round-trip,
 // recipient observes the verdict via `dispatch/release` notification.
@@ -71,9 +37,9 @@ function dispatchRequestBody(
   }).pipe(Effect.withSpan("dispatch.request"));
 }
 
-// `dispatches/get` — moderator-only read. Scope-enforced: the calling connection
-// MUST be the lease's `moderatorConnectionId` (binding tuple recorded at
-// `mint`). Otherwise typed `ForbiddenError`.
+// `dispatches/get` — moderator-only read. Scope-enforced: the lease must be
+// moderator-bound and the calling connection MUST match that binding. Otherwise
+// typed `ForbiddenError`.
 function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
   return Effect.gen(function* () {
     const appHost = yield* AppHostTag;
@@ -107,11 +73,6 @@ function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
 }
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
-
-export const appsRegister = (params: ParamsOf<typeof AppsRegister>) =>
-  Effect.gen(function* () {
-    return yield* appsRegisterBody(params);
-  }).pipe(Effect.withSpan("appsRegister"));
 
 export const dispatchRequest = (params: ParamsOf<typeof DispatchRequest>) =>
   Effect.gen(function* () {

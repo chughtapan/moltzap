@@ -1,16 +1,21 @@
 /**
- * @file Public barrel for the capability/permission tag classes.
+ * @file Public barrel for capability requirement middleware tags.
  *
- * Each tag is a permission the server's `*AuthMw` proves before a handler runs:
- * the tag class + its value type + the wire errors its proof can fail with
- * (`static get errors()`). The `obtain*` impls that resolve a permission against
- * server-side services live in `@moltzap/server-core`, paired with their
- * `CapabilityMiddleware` in `app/capability-middlewares.ts`.
+ * Each tag is both the descriptor requirement and the `@effect/rpc` middleware
+ * tag the server implements. The `obtain*` impls that resolve a permission
+ * against server-side services live in `@moltzap/server-core`.
  */
 
-export * from "./task-read-access.js";
-export * from "./conversation-in-task.js";
-export * from "./conversation-send-access.js";
-export * from "./contact-policy-allows-reach.js";
-export * from "./conversation-create-authorization.js";
-export * from "./assert-capability-matches-task.js";
+export { TaskReadAccess } from "./task-read-access.js";
+export type { TaskReadAccessValue } from "./task-read-access.js";
+export { ConversationInTask } from "./conversation-in-task.js";
+export type { ConversationInTaskValue } from "./conversation-in-task.js";
+export { ConversationSendAccess } from "./conversation-send-access.js";
+export type { ConversationSendAccessValue } from "./conversation-send-access.js";
+export { ContactPolicyAllowsReach } from "./contact-policy-allows-reach.js";
+export type { ContactPolicyAllowsReachValue } from "./contact-policy-allows-reach.js";
+export {
+  assertAppOwnsTask,
+  assertConversationInTaskMatches,
+  assertTaskReadAccessMatchesTask,
+} from "./assert-capability-matches-task.js";

@@ -1,19 +1,6 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import {
-  Config,
-  ConfigProvider,
-  Data,
-  Effect,
-  Option,
-  Redacted,
-  Schema,
-} from "effect";
-import {
-  MoltZapChannelCore,
-  MoltZapService,
-  type EnrichedInboundMessage,
-  type ServiceRpcError,
-} from "@moltzap/client";
+import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
+import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import {
   ConversationId,
   type LeaseId,
@@ -22,10 +9,13 @@ import {
 import {
   LeaseAlreadyConsumed,
   LeaseStore,
+  MoltZapChannelCore,
   catchLeaseInvalid,
   formatCrossConv,
   formatGroupBlock,
   getGroupFields,
+  type ChannelService,
+  type EnrichedInboundMessage,
 } from "@moltzap/client/channel-base";
 
 // `MoltZapChannelError` covers nanoclaw's host-shape failures that are NOT
@@ -45,13 +35,12 @@ import type { Channel, NewMessage } from "../types.js";
 import { registerChannel, type ChannelOpts } from "./registry.js";
 
 const MOLTZAP_JID_PREFIX = "mz:";
-const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
+const MoltZapEvalModeEnv = Config.string("MOLTZAP_EVAL_MODE").pipe(
+  Config.withDefault("0"),
+);
 const MoltZapChannelEnv = Config.all({
-  apiKey: Config.option(Config.redacted("MOLTZAP_API_KEY")),
-  serverUrl: Config.string("MOLTZAP_SERVER_URL").pipe(
-    Config.withDefault(DEFAULT_SERVER_URL),
-  ),
-  evalMode: Config.string("MOLTZAP_EVAL_MODE").pipe(Config.withDefault("0")),
+  profileName: Config.string("MOLTZAP_PROFILE"),
+  evalMode: MoltZapEvalModeEnv,
 });
 
 /**
@@ -80,21 +69,26 @@ function conversationIdFromJid(jid: string): ConversationId {
 }
 
 function loadMoltZapChannelEnv(): {
-  readonly apiKey: string | undefined;
-  readonly serverUrl: string;
+  readonly profileName: string;
   readonly evalMode: boolean;
 } {
   const env = Effect.runSync(
     MoltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
   );
   return {
-    apiKey: Option.match(env.apiKey, {
-      onNone: () => undefined,
-      onSome: Redacted.value,
-    }),
-    serverUrl: env.serverUrl,
+    profileName: env.profileName,
     evalMode: env.evalMode === "1",
   };
+}
+
+function loadMoltZapEvalMode(): boolean {
+  return (
+    Effect.runSync(
+      MoltZapEvalModeEnv.pipe(
+        Effect.withConfigProvider(ConfigProvider.fromEnv()),
+      ),
+    ) === "1"
+  );
 }
 
 /**
@@ -141,14 +135,35 @@ export class MoltZapChannel implements Channel {
   // Per-JID memory of the task that owns the most recent conversation seen
   // inbound. `messages/send` requires the taskId.
   private readonly taskIdsByJid = new Map<string, TaskId>();
+  private readonly ownAgentId: string;
 
-  constructor(
+  private constructor(
     private readonly opts: ChannelOpts,
     private readonly core: MoltZapChannelCore,
-    private readonly ownAgentId: string,
+    service: ChannelService,
     private readonly evalMode: boolean = false,
   ) {
-    core.onInbound((msg) => Effect.sync(() => this.handleInbound(msg)));
+    this.ownAgentId = service.ownAgentId ?? "";
+    this.attachCore(core);
+  }
+
+  static fromService(
+    opts: ChannelOpts,
+    service: ChannelService,
+    evalMode = false,
+  ): MoltZapChannel {
+    return new MoltZapChannel(
+      opts,
+      new MoltZapChannelCore({ service }),
+      service,
+      evalMode,
+    );
+  }
+
+  private attachCore(core: MoltZapChannelCore): void {
+    core.onInbound((msg: EnrichedInboundMessage) =>
+      Effect.sync(() => this.handleInbound(msg)),
+    );
     core.onDisconnect(() => {
       Effect.runFork(
         Effect.logWarning("MoltZap disconnected").pipe(
@@ -169,15 +184,14 @@ export class MoltZapChannel implements Channel {
     // `core.connect()` is already an Effect — just run it at the nanoclaw
     // Channel boundary, which imposes a Promise contract.
     return Effect.runPromise(
-      this.core
-        .connect()
-        .pipe(
-          Effect.tap(() =>
-            Effect.logInfo("MoltZap connected").pipe(
-              Effect.annotateLogs({ channel: "moltzap" }),
-            ),
+      this.core.connect().pipe(
+        Effect.tap(() =>
+          Effect.logInfo("MoltZap connected").pipe(
+            Effect.annotateLogs({ channel: "moltzap" }),
           ),
         ),
+        Effect.asVoid,
+      ),
     );
   }
 
@@ -206,8 +220,7 @@ export class MoltZapChannel implements Channel {
   }
 
   disconnect() {
-    // `core.disconnect()` is an Effect that never fails.
-    return Effect.runPromise(this.core.disconnect());
+    return Effect.runPromise(this.core.disconnect().pipe(Effect.asVoid));
   }
 
   private sendMessageEffect(
@@ -344,17 +357,19 @@ export class MoltZapChannel implements Channel {
   }
 }
 
-registerChannel("moltzap", (opts: ChannelOpts): Channel | null => {
-  const { apiKey, serverUrl, evalMode } = loadMoltZapChannelEnv();
+export function makeMoltZapChannel(
+  opts: ChannelOpts,
+  evalMode = loadMoltZapEvalMode(),
+): Effect.Effect<MoltZapChannel, unknown> {
+  return Effect.gen(function* () {
+    const service = yield* MoltZapService.make(
+      opts.profileName ?? loadMoltZapChannelEnv().profileName,
+    );
+    return MoltZapChannel.fromService(opts, service, evalMode);
+  }).pipe(Effect.withSpan("makeMoltZapChannel"));
+}
 
-  if (!apiKey) return null;
-
-  const service = new MoltZapService({
-    serverUrl,
-    agentKey: apiKey,
-  });
-
-  const core = new MoltZapChannelCore({ service });
-
-  return new MoltZapChannel(opts, core, service.ownAgentId ?? "", evalMode);
+registerChannel("moltzap", (opts: ChannelOpts) => {
+  const { evalMode, profileName } = loadMoltZapChannelEnv();
+  return makeMoltZapChannel({ ...opts, profileName }, evalMode);
 });

@@ -5,7 +5,7 @@
 import { Clock, Effect, Either } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { RpcTimeoutError } from "../_shared/errors.js";
-import type { TestClient } from "../_shared/driver/test-client.js";
+import type { AgentTestClient } from "../_shared/driver/test-client.js";
 import { TaskList } from "../../../task/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
@@ -61,7 +61,7 @@ type TimeoutResult = {
 };
 
 function measureTimeoutOutcome(
-  client: TestClient,
+  client: AgentTestClient,
   attachToxic: ToxicBodyParams["attachToxic"],
 ) {
   return Effect.scoped(

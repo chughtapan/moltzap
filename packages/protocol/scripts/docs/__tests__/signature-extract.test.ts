@@ -62,7 +62,7 @@ describe("extractSignatureText", () => {
     const source = [
       "export interface AgentExistsValue {",
       "  readonly agentId: AgentId;",
-      "  readonly ownerUserId: string | null;",
+      "  readonly ownerUserId: UserId;",
       "}",
       "",
     ].join("\n");
@@ -71,7 +71,7 @@ describe("extractSignatureText", () => {
       [
         "export interface AgentExistsValue {",
         "  readonly agentId: AgentId;",
-        "  readonly ownerUserId: string | null;",
+        "  readonly ownerUserId: UserId;",
         "}",
       ].join("\n"),
     );

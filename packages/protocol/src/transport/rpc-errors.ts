@@ -8,16 +8,19 @@
  * decoded per-method against that method's `errorSchema` union by `_tag` — no
  * numeric code, no global registry.
  */
-import { Data } from "effect";
-import type { JsonRpcMethod } from "./method.js";
+import { Schema } from "effect";
 
 /** The socket is not in the OPEN state when an RPC was attempted. */
-export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
-  readonly message: string;
-}> {}
+export class NotConnectedError extends Schema.TaggedError<NotConnectedError>()(
+  "NotConnectedError",
+  { message: Schema.String },
+) {}
 
 /** The RPC exceeded the per-call timeout without a response frame. */
-export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
-  readonly method: JsonRpcMethod;
-  readonly timeoutMs: number;
-}> {}
+export class RpcTimeoutError extends Schema.TaggedError<RpcTimeoutError>()(
+  "RpcTimeoutError",
+  {
+    method: Schema.String,
+    timeoutMs: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  },
+) {}

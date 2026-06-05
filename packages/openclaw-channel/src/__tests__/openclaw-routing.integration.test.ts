@@ -10,11 +10,11 @@ import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
 import { Data, Duration, Effect, Fiber, Option, Stream } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
-import { stripWsPath } from "@moltzap/client/test";
+import { stripWsPath } from "@moltzap/client/test-utils";
 import { getLogs } from "../test-utils/container-core.js";
-import { agentId } from "@moltzap/protocol/testing";
+import { agentId, redactedAgentKey } from "@moltzap/protocol/testing";
 import {
-  registerAndClaim,
+  registerTestAgent,
   extractMessage,
   extractTaskBinding,
   extractText,
@@ -28,6 +28,7 @@ import {
   MessagesSend,
   TaskRequest,
   type AgentId,
+  type AgentKey,
   type Message,
 } from "@moltzap/protocol";
 
@@ -132,7 +133,7 @@ function gatewayStarts(containerAId: string) {
 
 function dmEchoReplyArrives(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
-    const aliceClient = yield* connectedClaimedClient("a2a-alice-dm");
+    const aliceClient = yield* connectedRegisteredClient("a2a-alice-dm");
     const binding = yield* createDm(aliceClient, containerAAgentId);
     // Fork the response-listener BEFORE the trigger send. Stream-based
     // subscribe has no historical buffer; the echo reply can arrive in
@@ -148,7 +149,7 @@ function dmEchoReplyArrives(containerAAgentId: AgentId) {
 
 function groupMessageDispatches(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
-    const aliceClient = yield* connectedClaimedClient("a2a-alice-grp");
+    const aliceClient = yield* connectedRegisteredClient("a2a-alice-grp");
     const eve = yield* registerAgent("a2a-eve-grp");
     const binding = yield* createGroup(aliceClient, INTEGRATION_GROUP_NAME, [
       containerAAgentId,
@@ -169,7 +170,7 @@ function groupMessageDispatches(containerAAgentId: AgentId) {
 
 function rapidMessagesGetReplies(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
-    const aliceClient = yield* connectedClaimedClient("a2a-alice-rapid");
+    const aliceClient = yield* connectedRegisteredClient("a2a-alice-rapid");
     const binding = yield* createDm(aliceClient, containerAAgentId);
     // Fork-before-trigger: subscribe for N replies before emitting any
     // sends, so no echo can arrive in the gap between the final send and
@@ -194,7 +195,7 @@ function rapidMessagesGetReplies(containerAAgentId: AgentId) {
 
 function twoAgentsReplyFromOwnContainers(harness: GatewayHarness) {
   return Effect.gen(function* () {
-    const aliceClient = yield* connectedClaimedClient("2a-alice");
+    const aliceClient = yield* connectedRegisteredClient("2a-alice");
     const bindingA = yield* createDm(aliceClient, harness.containerAAgentId);
     const bindingB = yield* createDm(aliceClient, harness.containerBAgentId);
     // Fork-before-trigger: the wait for the 2 echo replies is registered
@@ -225,7 +226,9 @@ function proactiveMessageArrives(containerAAgentId: AgentId) {
     const receiver = yield* registerAgent(PROACTIVE_RECEIVER_NAME);
     const receiverClient = connectedClient(receiver.apiKey);
     yield* receiverClient.connect();
-    const senderClient = connectedClient(inject("containerAApiKey"));
+    const senderClient = connectedClient(
+      redactedAgentKey(inject("containerAApiKey")),
+    );
     yield* senderClient.connect();
     const binding = yield* createDm(
       senderClient,
@@ -250,7 +253,9 @@ function duplicateTargetReusesConversation() {
     const receiver = yield* registerAgent(DUPLICATE_RECEIVER_NAME);
     const receiverClient = connectedClient(receiver.apiKey);
     yield* receiverClient.connect();
-    const senderClient = connectedClient(inject("containerAApiKey"));
+    const senderClient = connectedClient(
+      redactedAgentKey(inject("containerAApiKey")),
+    );
     yield* senderClient.connect();
     const receiverId = yield* lookupAgentId(
       senderClient,
@@ -277,7 +282,7 @@ function duplicateTargetReusesConversation() {
 
 function missingAgentLookupFails() {
   return Effect.gen(function* () {
-    const agentClient = yield* connectedClaimedClient("err-sender");
+    const agentClient = yield* connectedRegisteredClient("err-sender");
     const result = yield* agentClient.call(AgentsLookupByName.name, {
       names: [MISSING_AGENT_NAME],
     });
@@ -288,7 +293,7 @@ function missingAgentLookupFails() {
 
 function largeMessageDelivered(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
-    const aliceClient = yield* connectedClaimedClient("lg-alice");
+    const aliceClient = yield* connectedRegisteredClient("lg-alice");
     const binding = yield* createDm(aliceClient, containerAAgentId);
     const largeText = LARGE_MESSAGE_CHARACTER.repeat(LARGE_MESSAGE_CHARS);
     // Fork-before-trigger.
@@ -331,13 +336,13 @@ function reconnectDuringDispatchRecovers(containerAAgentId: AgentId) {
 
 function registerAgent(name: string) {
   return Effect.tryPromise({
-    try: () => registerAndClaim(name),
+    try: () => registerTestAgent(name),
     catch: (cause) =>
       new RoutingIntegrationError({ message: `register ${name}`, cause }),
   });
 }
 
-function connectedClaimedClient(name: string) {
+function connectedRegisteredClient(name: string) {
   return Effect.gen(function* () {
     const agent = yield* registerAgent(name);
     const client = connectedClient(agent.apiKey);
@@ -346,7 +351,7 @@ function connectedClaimedClient(name: string) {
   });
 }
 
-function connectedClient(agentKey: string) {
+function connectedClient(agentKey: AgentKey) {
   return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,
@@ -395,7 +400,7 @@ function sendText(
 /**
  * Wait for one `messages/received` notification: consume the typed
  * `subscribe(def)` Stream with `Stream.runHead` under a timeout, then
- * project the frame with `extractMessage`.
+ * project the decoded payload with `extractMessage`.
  */
 function waitForReceivedMessage(client: MoltZapAgentClient) {
   return client.subscribe(MessageReceivedNotificationDefinition).pipe(

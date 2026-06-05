@@ -1,9 +1,5 @@
 import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type {
-  ConversationCreateAuthorizationValue,
-  ObtainConversationCreateAuthorizationInput,
-} from "@moltzap/protocol/task";
 import { ConversationServiceTag } from "../../app/layers.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type {
@@ -12,10 +8,15 @@ import type {
   NotInContactsError,
 } from "@moltzap/protocol";
 
-export const obtainConversationCreateAuthorization = (
-  input: ObtainConversationCreateAuthorizationInput,
+interface AuthorizeConversationCreateInput {
+  readonly agentIds: ReadonlyArray<AgentId>;
+  readonly creatorAgentId: AgentId;
+}
+
+export const authorizeConversationCreate = (
+  input: AuthorizeConversationCreateInput,
 ): Effect.Effect<
-  ConversationCreateAuthorizationValue,
+  void,
   AgentNotFoundError | NotInContactsError | ConversationFullError,
   ConversationServiceTag
 > =>
@@ -31,9 +32,8 @@ export const obtainConversationCreateAuthorization = (
         ownerByAgentId,
       );
       yield* conversations.assertGroupCapacityForCreate(input.agentIds);
-      return { ownerByAgentId };
     }),
-  ).pipe(Effect.withSpan("obtainConversationCreateAuthorization"));
+  ).pipe(Effect.withSpan("authorizeConversationCreate"));
 
 /**
  * Capacity-only authorization for the app-originated
@@ -41,21 +41,20 @@ export const obtainConversationCreateAuthorization = (
  * behalf has no agent contact-edges of its own; the targets
  * are already gated by `requireAgentsAreInTaskParticipants` in the
  * handler, so the creator contact-policy basis does NOT apply. Only the
- * group-capacity check runs. `ownerByAgentId` is still loaded (it
- * validates every target exists and rides in the capability value).
+ * group-capacity check runs. Loading owners still validates every target
+ * exists.
  */
-export const obtainConversationCreateCapacityOnly = (
+export const authorizeConversationCreateCapacityOnly = (
   agentIds: ReadonlyArray<AgentId>,
 ): Effect.Effect<
-  ConversationCreateAuthorizationValue,
+  void,
   AgentNotFoundError | ConversationFullError,
   ConversationServiceTag
 > =>
   catchSqlErrorAsDefect(
     Effect.gen(function* () {
       const conversations = yield* ConversationServiceTag;
-      const ownerByAgentId = yield* conversations.loadAgentOwners(agentIds);
+      yield* conversations.loadAgentOwners(agentIds);
       yield* conversations.assertGroupCapacityForCreate(agentIds);
-      return { ownerByAgentId };
     }),
-  ).pipe(Effect.withSpan("obtainConversationCreateCapacityOnly"));
+  ).pipe(Effect.withSpan("authorizeConversationCreateCapacityOnly"));

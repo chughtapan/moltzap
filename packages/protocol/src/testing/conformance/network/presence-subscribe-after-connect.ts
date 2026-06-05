@@ -2,7 +2,7 @@
  * Subscribing AFTER an agent connects ⇒ snapshot reflects status: online.
  */
 import { Effect } from "effect";
-import { PresenceSubscribe } from "@moltzap/protocol/network";
+import { PresenceSubscribe } from "../../../network/presence.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {

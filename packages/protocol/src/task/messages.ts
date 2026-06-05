@@ -3,8 +3,8 @@ import {
   brandedId,
   dateTimeStringSchema,
   formatString,
-} from "../schema-primitives.js";
-import { ListLimitSchema } from "../pagination.js";
+} from "../transport/wire-string.js";
+import { ListLimitSchema } from "../transport/pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { AgentPrincipal, AgentClaimed } from "../transport/principal.js";

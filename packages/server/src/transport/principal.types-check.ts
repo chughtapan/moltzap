@@ -21,7 +21,7 @@ import type {
 } from "./connection.js";
 import type { AgentContext, AppContext } from "./context.js";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { ServerBootFailedError } from "../app/server.js";
+import { ServerBootFailedError } from "../core-server.js";
 
 declare const agentConn: AgentConnection;
 declare const appConn: AppConnection;

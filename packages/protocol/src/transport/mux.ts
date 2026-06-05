@@ -126,6 +126,38 @@ const RoutingProbeSchema = Schema.Struct(
 );
 const decodeRoutingProbe = Schema.decodeUnknownOption(RoutingProbeSchema);
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const frameTag = (frame: unknown): unknown =>
+  isRecord(frame) ? frame["_tag"] : undefined;
+
+const isFromClientEncoded = (frame: unknown): frame is FromClientEncoded => {
+  switch (frameTag(frame)) {
+    case "Request":
+    case "Ack":
+    case "Interrupt":
+    case "Ping":
+    case "Eof":
+      return true;
+    default:
+      return false;
+  }
+};
+
+const isFromServerEncoded = (frame: unknown): frame is FromServerEncoded => {
+  switch (frameTag(frame)) {
+    case "Chunk":
+    case "Exit":
+    case "Defect":
+    case "Pong":
+    case "ClientProtocolError":
+      return true;
+    default:
+      return false;
+  }
+};
+
 /**
  * Route one raw socket chunk to the engine sink named by its frame family. A
  * chunk that does not decode into a routable protocol frame — non-JSON, a
@@ -144,7 +176,7 @@ export function routeInbound(
   const onMalformed = replyMalformed(reply ?? dropWrite);
   return Effect.gen(function* () {
     const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
-    const parsed = yield* Effect.try(() => JSON.parse(text) as unknown).pipe(
+    const parsed = yield* Effect.try((): unknown => JSON.parse(text)).pipe(
       Effect.option,
     );
     if (Option.isNone(parsed)) {
@@ -278,7 +310,10 @@ export function makeServerChannelProtocol(options: {
       },
       sink: {
         parser,
-        inject: (frame) => write(MUX_CLIENT_ID, frame as FromClientEncoded),
+        inject: (frame) =>
+          isFromClientEncoded(frame)
+            ? write(MUX_CLIENT_ID, frame)
+            : Effect.dieMessage("mux: server sink received non-client frame"),
       },
     });
 }
@@ -318,7 +353,10 @@ export function makeClientChannelProtocol(options: {
       },
       sink: {
         parser,
-        inject: (frame) => write(frame as FromServerEncoded),
+        inject: (frame) =>
+          isFromServerEncoded(frame)
+            ? write(frame)
+            : Effect.dieMessage("mux: client sink received non-server frame"),
       },
     });
 }
@@ -366,5 +404,4 @@ export function runMuxReader(
     );
 }
 
-export { MUX_CLIENT_ID };
 export type { ChannelSink };

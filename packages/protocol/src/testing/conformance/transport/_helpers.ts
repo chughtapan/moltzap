@@ -1,13 +1,13 @@
 /**
- * Transport-layer helpers shared by adversity properties (latency,
- * slicer, reset-peer, timeout, slow-close).
+ * Transport-layer helpers shared by lifecycle adversity properties
+ * (latency, reset-peer, timeout, slow-close).
  */
 import { Effect, type Scope } from "effect";
 import type { ToxiproxyProxy } from "../../toxics/client.js";
 import type { ToxicProfile } from "../../toxics/profile.js";
 import {
-  makeTestClient,
-  type TestClient,
+  makeAgentTestClient,
+  type AgentTestClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -22,7 +22,6 @@ import type { ConversationId } from "@moltzap/protocol/task";
 import { conversationId, taskId } from "../_shared/test-fixtures.js";
 
 export const ADVERSITY_CATEGORY = "adversity" as const;
-export const DEFAULT_CAPTURE_CAPACITY = 128;
 const RANDOM_SUFFIX_LENGTH = 6;
 const PROPERTY_BUDGET_MS = 15_000;
 
@@ -54,7 +53,7 @@ function hostPortFromWebSocketUrl(wsUrl: string): string {
   return new URL(wsUrl).host;
 }
 
-/** Acquire a TestClient that routes through the Toxiproxy proxy. */
+/** Acquire an agent client that routes through the Toxiproxy proxy. */
 export function acquireProxiedClient(opts: {
   readonly ctx: ConformanceRunContext;
   readonly proxy: ToxiproxyProxy;
@@ -62,7 +61,7 @@ export function acquireProxiedClient(opts: {
   readonly defaultTimeoutMs: number;
   readonly unavailable: (reason: string) => PropertyUnavailable;
 }): Effect.Effect<
-  { agent: TestAgent; client: TestClient },
+  { agent: TestAgent; client: AgentTestClient },
   PropertyUnavailable,
   Scope.Scope
 > {
@@ -77,14 +76,12 @@ export function acquireProxiedClient(opts: {
       baseUrl: ctx.realServer.baseUrl,
       name,
     }).pipe(Effect.mapError((e) => unavailable(`register: ${e.body}`)));
-    const client = yield* makeTestClient({
+    const client = yield* makeAgentTestClient({
       serverUrl: proxiedUrl,
       agentKey: agent.apiKey,
-      agentId: agent.agentId,
       defaultTimeoutMs,
-      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
     }).pipe(
-      Effect.mapError((e) => unavailable(`makeTestClient: ${String(e)}`)),
+      Effect.mapError((e) => unavailable(`makeAgentTestClient: ${String(e)}`)),
     );
     return { agent, client };
   }).pipe(Effect.withSpan("acquireProxiedClient"));
@@ -104,7 +101,7 @@ export function acquireProxiedClient(opts: {
  * }))                                                // client close OK
  * ```
  *
- * so the toxic is removed BEFORE TestClient's socket close. Under
+ * so the toxic is removed BEFORE the agent client's socket close. Under
  * disruptive toxics (timeout, reset_peer), this lets the WS close
  * handshake flow cleanly instead of hanging on a black-holed channel.
  */
@@ -217,8 +214,8 @@ function runWithToxiproxy(opts: {
 }
 
 export function createOneOnOneConversation(
-  owner: { agent: TestAgent; client: TestClient },
-  participant: { agent: TestAgent; client: TestClient },
+  owner: { agent: TestAgent; client: AgentTestClient },
+  participant: { agent: TestAgent; client: AgentTestClient },
   propertyName: string,
 ): Effect.Effect<
   { taskId: TaskId; conversationId: ConversationId },

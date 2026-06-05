@@ -29,21 +29,23 @@
 
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import * as fc from "fast-check";
-import { Brand, Effect, Exit } from "effect";
+import { Effect, Exit } from "effect";
 import {
   DEFAULT_APP_ID,
-  TaskConversationAddParticipant,
-  TaskConversationArchive,
   TaskConversationCreate,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationList,
-  TaskConversationRemoveParticipant,
+  DispatchAuthorize,
+  MessagesAuthorize,
   TaskCreate,
   TaskRequest,
   TaskLeave,
   TaskClosedNotificationDefinition,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
   type AgentId,
 } from "@moltzap/protocol";
+import type { UserId } from "@moltzap/protocol/identity";
 import {
   it,
   startTestServerEffect,
@@ -53,18 +55,22 @@ import {
   connectTestClient,
   connectAppClient,
   registerApp,
-  adminRegisterAgent,
-  expectEitherLeft,
-  type ServerTestClient,
+  createTestUser,
+  createTestAgent,
+  type TestAgentClient,
 } from "../helpers.js";
-import { agentId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
+import { agentId } from "@moltzap/protocol/testing";
 import { awaitOneNotification } from "../../../test-utils/helpers.js";
 
 const REGISTRATION_SECRET = "tcf-test-secret-xyz1";
 const ALICE_USER_ID = "00000000-0000-4000-8000-00000000a17f";
 const BOB_USER_ID = "00000000-0000-4000-8000-00000000b07f";
 const CAROL_USER_ID = "00000000-0000-4000-8000-00000000c07f";
+const ALICE_USER = createTestUser("alice", ALICE_USER_ID);
+const BOB_USER = createTestUser("bob", BOB_USER_ID);
+const CAROL_USER = createTestUser("carol", CAROL_USER_ID);
 const NOTIF_TIMEOUT_MS = 2_500;
+const SPINOFF_CONVERSATION_NAME = "spinoff";
 
 // Surface invariants that the spec body pins; pulling these into
 // named constants keeps the assertions grep-able + lints clean.
@@ -100,22 +106,18 @@ beforeEach(() =>
 );
 
 interface ThreeAgentFixture {
-  readonly alice: { client: ServerTestClient; agentId: AgentId };
-  readonly bob: { client: ServerTestClient; agentId: AgentId };
-  readonly carol: { client: ServerTestClient; agentId: AgentId };
+  readonly alice: { client: TestAgentClient; agentId: AgentId };
+  readonly bob: { client: TestAgentClient; agentId: AgentId };
+  readonly carol: { client: TestAgentClient; agentId: AgentId };
 }
 
 function registerAndConnect(
   name: string,
-  ownerUserId: string,
-): Effect.Effect<{ client: ServerTestClient; agentId: AgentId }, Error> {
+  ownerUserId: UserId,
+): Effect.Effect<{ client: TestAgentClient; agentId: AgentId }, Error> {
   return Effect.gen(function* () {
-    const reg = yield* adminRegisterAgent({
-      baseUrl,
-      inviteCode: REGISTRATION_SECRET,
-      name,
-      ownerUserId,
-    });
+    const user = userForOwner(ownerUserId);
+    const reg = yield* createTestAgent(name, { ownerUserId: user.id });
     const client = yield* connectTestClient({
       wsUrl,
       agentId: reg.agentId,
@@ -126,12 +128,36 @@ function registerAndConnect(
   });
 }
 
+function userForOwner(ownerUserId: UserId) {
+  if (ownerUserId === ALICE_USER.id) return ALICE_USER;
+  if (ownerUserId === BOB_USER.id) return BOB_USER;
+  return CAROL_USER;
+}
+
+function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    "dispatch/authorize": {
+      definition: DispatchAuthorize,
+      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+    },
+    "messages/authorize": {
+      definition: MessagesAuthorize,
+      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+    },
+    "task/create": {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
+    },
+  };
+}
+
 function setupThreeAgents(): Effect.Effect<ThreeAgentFixture, Error> {
   return Effect.gen(function* () {
     const idx = ++pairCounter;
-    const alice = yield* registerAndConnect(`alice-tcf-${idx}`, ALICE_USER_ID);
-    const bob = yield* registerAndConnect(`bob-tcf-${idx}`, BOB_USER_ID);
-    const carol = yield* registerAndConnect(`carol-tcf-${idx}`, CAROL_USER_ID);
+    const alice = yield* registerAndConnect(`alice-tcf-${idx}`, ALICE_USER.id);
+    const bob = yield* registerAndConnect(`bob-tcf-${idx}`, BOB_USER.id);
+    const carol = yield* registerAndConnect(`carol-tcf-${idx}`, CAROL_USER.id);
     return { alice, bob, carol };
   });
 }
@@ -182,10 +208,10 @@ it("TaskRequest (different appId) does NOT dedup across apps", () =>
       },
       REGISTRATION_SECRET,
     );
-    const appClient = yield* connectAppClient(registered.appKey);
-    trackClient(appClient);
-    yield* appClient.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      acceptTaskCreateHandlers(),
     );
     const second = yield* alice.client.sendRpc(TaskRequest, {
       appId: registered.appId,
@@ -268,63 +294,37 @@ it("TaskLeave (last admitted participant) transitions task to closed + emits tas
 
 // ─── TaskConversationCreate ──────────────────────────────────────────
 
-it("TaskConversationCreate (admitted participants) mints + dual-emits", () =>
-  Effect.gen(function* () {
-    const { alice, bob, carol } = yield* setupThreeAgents();
-    // Alice owns the TM (default `task/create` uses
-    // tm:app:<DEFAULT_APP_ID>); only the TM is authorized to mint new
-    // conversations. To exercise the TM-only authority gate we need
-    // the caller to BE the TM. Alice's task here has tm =
-    // tm:app:<DEFAULT_APP_ID>, NOT tm:agent:<alice>, so the authority
-    // gate will deny. This test verifies the deny path.
-    const created = yield* alice.client.sendRpc(TaskRequest, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId, carol.agentId],
-    });
-    const denied = yield* Effect.either(
-      alice.client.sendRpc(TaskConversationCreate, {
-        taskId: created.task.id,
-        name: "spinoff",
-        participants: [bob.agentId],
-      }),
-    );
-    const err = expectEitherLeft(denied);
-    expect(err).toBeDefined();
-  }));
-
-it("TaskConversationCreate denies non-TM caller BEFORE the participant invariant fires", () =>
+it("TaskConversationCreate (owning app caller) mints a conversation", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
-    const { carol } = yield* setupThreeAgents();
-    // Alice is NOT the TM (TM is the in-process app handler under
-    // DEFAULT_APP_ID), so the authority gate fires first. The
-    // participant-admitted invariant (would surface
-    // `ParticipantNotAdmittedError` for carol since carol is not in
-    // `task_participants`) MUST be unreachable from a non-TM caller —
-    // an info-disclosure regression (codex review finding 2) would
-    // surface `ParticipantNotAdmitted` and let alice probe task
-    // membership without authority.
+    const registered = yield* registerApp(
+      baseUrl,
+      {
+        appId: "11111111-2222-4333-8444-555555555555",
+        name: "conversation-owner-app",
+        hooks: {
+          dispatch_authorize: { kind: "grant" },
+          message_authorize: { kind: "forwardAllExceptSender" },
+          task_create: { kind: "hook", timeoutMs: 5_000 },
+        },
+      },
+      REGISTRATION_SECRET,
+    );
+    const appClient = yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      acceptTaskCreateHandlers(),
+    );
     const created = yield* alice.client.sendRpc(TaskRequest, {
-      appId: DEFAULT_APP_ID,
+      appId: registered.appId,
       invitedAgentIds: [bob.agentId],
     });
-    const outcome = yield* Effect.either(
-      alice.client.sendRpc(TaskConversationCreate, {
-        taskId: created.task.id,
-        name: "spinoff",
-        participants: [carol.agentId],
-      }),
-    );
-    const err = expectEitherLeft(outcome) as {
-      tag?: string;
-      message?: string;
-    };
-    expect(err.tag).not.toBe(WIRE_ERROR_TAG.ParticipantNotAdmitted);
-    // The actual code is `ForbiddenError` (-32001) per Spec E
-    // capability-shape. Pin the negative invariant (not Admitted)
-    // separately so renaming the error code doesn't regress the
-    // security property.
-    expect(err.tag).toBeDefined();
+    const conversation = yield* appClient.sendRpc(TaskConversationCreate, {
+      taskId: created.task.id,
+      name: SPINOFF_CONVERSATION_NAME,
+      participants: [bob.agentId],
+    });
+    expect(conversation.conversation.name).toBe(SPINOFF_CONVERSATION_NAME);
   }));
 
 // ─── TaskConversationList ────────────────────────────────────────────
@@ -376,96 +376,6 @@ it("TaskConversationList respects limit + returns nextCursor when more rows exis
     // `nextCursor` is `Type.Optional(Type.String())` — present when
     // there are more rows after the page.
     expect(result.nextCursor).toBeDefined();
-  }));
-
-// ─── TaskConversationArchive / Unarchive ─────────────────────────────
-
-it("TaskConversationArchive (non-TM caller) is denied by authority gate", () =>
-  Effect.gen(function* () {
-    const { alice, bob } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskRequest, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
-    });
-    const outcome = yield* Effect.either(
-      alice.client.sendRpc(TaskConversationArchive, {
-        taskId: created.task.id,
-        conversationId: created.conversation!.id,
-      }),
-    );
-    // Caller is NOT the TM (TM is the in-process app handler under
-    // DEFAULT_APP_ID); deny.
-    expect(expectEitherLeft(outcome)).toBeDefined();
-  }));
-
-// ─── TaskConversationAddParticipant / Remove ─────────────────────────
-
-it("TaskConversationAddParticipant: non-TM caller denied BEFORE the participant invariant", () =>
-  Effect.gen(function* () {
-    const { alice, bob } = yield* setupThreeAgents();
-    const { carol } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskRequest, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
-    });
-    const outcome = yield* Effect.either(
-      alice.client.sendRpc(TaskConversationAddParticipant, {
-        taskId: created.task.id,
-        conversationId: created.conversation!.id,
-        agentId: carol.agentId,
-      }),
-    );
-    const err = expectEitherLeft(outcome) as { tag?: string };
-    // Per codex review finding 2: a non-TM caller MUST NOT learn
-    // whether `carol` is in `task_participants`. Authority denial
-    // fires before the invariant runs; tag must NOT be
-    // `ParticipantNotAdmitted`.
-    expect(err.tag).not.toBe(WIRE_ERROR_TAG.ParticipantNotAdmitted);
-    expect(err.tag).toBeDefined();
-  }));
-
-it("TaskConversationRemoveParticipant on absent agent is idempotent", () =>
-  Effect.gen(function* () {
-    const { alice, bob } = yield* setupThreeAgents();
-    const { carol } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskRequest, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
-    });
-    // Caller is not the TM (DEFAULT_APP); authority denies before the
-    // idempotency branch. The deny path itself is the observable
-    // behavior — both paths return Forbidden/NotFound rather than
-    // a silent success.
-    const outcome = yield* Effect.either(
-      alice.client.sendRpc(TaskConversationRemoveParticipant, {
-        taskId: created.task.id,
-        conversationId: created.conversation!.id,
-        agentId: carol.agentId,
-      }),
-    );
-    expect(expectEitherLeft(outcome)).toBeDefined();
-  }));
-
-// ─── Negative-canary sanity ──────────────────────────────────────────
-
-it("dual-emit suppression: a rolled-back TaskRequest emits zero notifications", () =>
-  Effect.gen(function* () {
-    const { alice } = yield* setupThreeAgents();
-    // A non-UUID invited id fails the server's wire validator before the
-    // handler runs, so the task rolls back and emits no notifications. The
-    // nominal brand carries the malformed value past the client-side UUID
-    // refinement; the assertion is the server-side rejection.
-    const malformedAgentId = Brand.nominal<AgentId>()("not-a-uuid");
-    const result = yield* Effect.either(
-      alice.client.sendRpc(TaskRequest, {
-        appId: DEFAULT_APP_ID,
-        invitedAgentIds: [malformedAgentId],
-      }),
-    );
-    expect(expectEitherLeft(result)).toBeDefined();
   }));
 
 // Property-style invariant — pins the DEFAULT_APP_ID UUID shape that

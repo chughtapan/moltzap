@@ -114,13 +114,22 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
       receivers.map((receiver) => forkExtraCollector(receiver)),
       { concurrency: receivers.length },
     );
+    const eventFibers = yield* Effect.all(
+      receivers.map((receiver) =>
+        Effect.fork(
+          awaitOneNotification(
+            receiver.client,
+            MessageReceivedNotificationDefinition,
+          ),
+        ),
+      ),
+      { concurrency: receivers.length },
+    );
 
     yield* sendToAll(sender, conversations);
 
     const events = yield* Effect.all(
-      receivers.map((r) =>
-        awaitOneNotification(r.client, MessageReceivedNotificationDefinition),
-      ),
+      eventFibers.map((fiber) => Fiber.join(fiber)),
       { concurrency: receivers.length },
     );
 

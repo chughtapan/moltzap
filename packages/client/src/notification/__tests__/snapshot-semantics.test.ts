@@ -52,21 +52,45 @@ import {
 } from "effect";
 import {
   makeNotificationSubscriberRegistry,
+  MessageReceivedNotificationDefinition,
   NotConnectedError,
+  PresenceChangedNotificationDefinition,
   type AnyNotificationDefinition,
   type NotificationDelivery,
+  type NotificationParamsOf,
 } from "@moltzap/protocol";
 import {
-  PresenceChangedNotificationDefinition,
-  MessageReceivedNotificationDefinition,
-} from "@moltzap/protocol";
+  buildMessage,
+  testAgentId,
+  testTaskId,
+} from "../../test-utils/index.js";
 import { subscribe, subscribeAll } from "../stream.js";
 
 const PROP_TEST_FRAME_COUNT = 6;
 const PROP_TEST_CANCEL_AT = 3;
 
+type PresenceParams = NotificationParamsOf<
+  typeof PresenceChangedNotificationDefinition
+>;
+
+const presenceAgentIds = Array.from(
+  { length: PROP_TEST_FRAME_COUNT },
+  (_, seq) => testAgentId(`agent-${seq}`),
+);
+
+const presenceAgentIndex = new Map(
+  presenceAgentIds.map((agentId, seq) => [agentId, seq] as const),
+);
+
+function sequenceForPresence(params: PresenceParams): number {
+  return presenceAgentIndex.get(params.agentId) ?? Number.NaN;
+}
+
 const makeSubscriberRegistry = () =>
-  makeNotificationSubscriberRegistry({
+  makeNotificationSubscriberRegistry<
+    NotConnectedError,
+    AnyNotificationDefinition
+  >({
     closeCause: () =>
       new NotConnectedError({ message: "WebSocket not connected" }),
   });
@@ -78,37 +102,26 @@ function presenceDelivery(
     definition: PresenceChangedNotificationDefinition,
     method: PresenceChangedNotificationDefinition.name,
     params: {
-      agentId: `agent-${seq}`,
+      agentId: presenceAgentIds[seq] ?? testAgentId(`agent-${seq}`),
       status: seq % 2 === 0 ? "online" : "offline",
     },
-  } as NotificationDelivery<typeof PresenceChangedNotificationDefinition>;
+  };
 }
 
 function messageReceivedDelivery(): NotificationDelivery<
   typeof MessageReceivedNotificationDefinition
 > {
-  // Minimal test fixture: raw-string ids + a partial `message` (no `taskId`
-  // etc.), whereas the decoded `params` is deeply `readonly` with branded ids
-  // (Effect Schema). Pure test data fed into the subscriber stream, not a
-  // wire trust boundary — the snapshot test only inspects the stream delivery
-  // order, not the params' field shape.
-  const fixture = {
+  return {
     definition: MessageReceivedNotificationDefinition,
     method: MessageReceivedNotificationDefinition.name,
     params: {
-      message: {
+      taskId: testTaskId("task-1"),
+      message: buildMessage({
         id: "m1",
-        conversationId: "c1",
-        senderId: "agent-0",
         parts: [{ type: "text", text: "hi" }],
-      },
+      }),
     },
   };
-  type Delivery = NotificationDelivery<
-    typeof MessageReceivedNotificationDefinition
-  >;
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- minimal test fixture, pure test data not a wire decode
-  return fixture as unknown as Delivery; // #ignore-sloppy-code[as-unknown-as]: minimal test fixture re-asserting branded readonly notification params; pure test data, not a wire decode
 }
 
 describe("subscribe snapshot semantics — Stream cancellation", () => {
@@ -124,9 +137,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
             Stream.runForEach((params) =>
               Ref.update(observerSeen, (xs) => [
                 ...xs,
-                Number(
-                  (params as { agentId: string }).agentId.slice("agent-".length),
-                ),
+                sequenceForPresence(params),
               ]),
             ),
             Effect.catchAll(() => Effect.void),
@@ -143,9 +154,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
             Stream.runForEach((params) =>
               Ref.update(targetSeen, (xs) => [
                 ...xs,
-                Number(
-                  (params as { agentId: string }).agentId.slice("agent-".length),
-                ),
+                sequenceForPresence(params),
               ]),
             ),
             Effect.catchAll(() => Effect.void),
@@ -221,9 +230,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
             Stream.runForEach((params) =>
               Ref.update(receivedByS2, (xs) => [
                 ...xs,
-                Number(
-                  (params as { agentId: string }).agentId.slice("agent-".length),
-                ),
+                sequenceForPresence(params),
               ]),
             ),
             Effect.catchAll(() => Effect.void),
@@ -298,9 +305,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
             onFrame: (params) =>
               Ref.update(s2Received, (xs) => [
                 ...xs,
-                Number(
-                  (params as { agentId: string }).agentId.slice("agent-".length),
-                ),
+                sequenceForPresence(params),
               ]),
             onClose: () => Effect.void,
           },
@@ -391,7 +396,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // register callback commits before dispatch reads the snapshot.
         yield* Effect.yieldNow();
         yield* registry.dispatch(presenceDelivery(0));
-        yield* registry.dispatch(messageReceivedDelivery() as NotificationDelivery);
+        yield* registry.dispatch(messageReceivedDelivery());
 
         // Drain the consumer's onFrame Effect into `observed` before
         // closing — deterministic single-tick.

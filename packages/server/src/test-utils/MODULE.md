@@ -8,7 +8,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AppEndpointHandlers`](./app-endpoint.ts#L49)
+### [`AppEndpointHandlers`](./app-endpoint.ts#L56)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ task-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L66)
+### [`AwaitNotificationError`](./helpers.ts#L52)
 
 _TypeAlias_
 
@@ -34,19 +34,40 @@ export type AwaitNotificationError =
   | AwaitNotificationClosedError;
 
 /**
- * Stream-based one-shot waiter. Consumes `client.subscribeTo(def)` via
+ * Stream-based one-shot waiter. Consumes `client.subscribe(def)` via
  * `Stream.runHead`, failing with `AwaitNotificationTimeoutError` on timeout
  * and `AwaitNotificationClosedError` when the transport closed before a
  * matching frame arrived. Distinguishing close from timeout keeps a dead
  * connection from masquerading as a missing notification.
  */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
-  client: Pick<ServerTestClient, "subscribeTo">,
+  client: Pick<TestAgentClient, "subscribe">,
   definition: D,
   timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
-): Effect.Effect<DecodedNotification<D>, AwaitNotificationError> {
-  return client.subscribeTo(definition).pipe(
+): Effect.Effect<NotificationDelivery<D>, AwaitNotificationError> {
+  const closed = () =>
+    new AwaitNotificationClosedError({
+      definition: definition.name,
+    });
+  return client.subscribe(definition).pipe(
+    Stream.map(
+      (params): NotificationDelivery<D> => ({
+        definition,
+        method: definition.name,
+        params,
+      }),
+    ),
     Stream.runHead,
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: () => Effect.fail(closed()),
+        onRight: Option.match({
+          onNone: () => Effect.fail(closed()),
+          onSome: (notification) => Effect.succeed(notification),
+        }),
+      }),
+    ),
     Effect.timeoutFail({
       duration: Duration.millis(timeoutMs),
       onTimeout: () =>
@@ -55,40 +76,29 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
           durationMs: timeoutMs,
         }),
     }),
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          Effect.fail(
-            new AwaitNotificationClosedError({
-              definition: definition.name,
-            }),
-          ),
-        onSome: (notification) => Effect.succeed(notification),
-      }),
-    ),
   );
 }
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L77)
+### [`awaitOneNotification`](./helpers.ts#L63)
 
 _Function_
 
 ```ts
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
-  client: Pick<ServerTestClient, "subscribeTo">,
+  client: Pick<TestAgentClient, "subscribe">,
   definition: D,
   timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
-): Effect.Effect<DecodedNotification<D>, AwaitNotificationError>
+): Effect.Effect<NotificationDelivery<D>, AwaitNotificationError>
 ```
 
-Stream-based one-shot waiter. Consumes `client.subscribeTo(def)` via
+Stream-based one-shot waiter. Consumes `client.subscribe(def)` via
 `Stream.runHead`, failing with `AwaitNotificationTimeoutError` on timeout
 and `AwaitNotificationClosedError` when the transport closed before a
 matching frame arrived. Distinguishing close from timeout keeps a dead
 connection from masquerading as a missing notification.
 
-### [`closeAllClients`](./helpers.ts#L170)
+### [`closeAllClients`](./helpers.ts#L166)
 
 _Function_
 
@@ -96,14 +106,16 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`connectAppClient`](./helpers.ts#L399)
+### [`connectAppClient`](./helpers.ts#L293)
 
 _Function_
 
 ```ts
 export function connectAppClient(
-  appKey: string,
-): Effect.Effect<ServerTestClient, Error>
+  appId: AppId,
+  appKey: AppKey,
+  handlers: AppCallbackHandlers<AppCallbackContext>,
+): Effect.Effect<TestAppClient, Error>
 ```
 
 D #705 CP9 — open an `AppConnection` from a minted `appKey`. The Connect
@@ -112,30 +124,29 @@ registers the live connection as the app's moderator endpoint, so the
 returned client receives server→client `dispatch/authorize` /
 `messages/authorize` / `task/create` callbacks. Tracked for cleanup.
 
-### [`ConnectedAgent`](./helpers.ts#L106)
+### [`ConnectedAgent`](./helpers.ts#L102)
 
 _Interface_
 
 ```ts
 export interface ConnectedAgent {
-  client: ServerTestClient;
-  agentId: ProtocolAgentId;
-  apiKey: string;
+  client: TestAgentClient;
+  agentId: AgentId;
+  apiKey: AgentKey;
   name: string;
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L287)
+### [`connectTestClient`](./helpers.ts#L215)
 
 _Function_
 
 ```ts
 export function connectTestClient(opts: {
-  agentId: string;
-  apiKey: string;
+  agentId: AgentId;
+  apiKey: AgentKey;
   wsUrl?: string;
-  autoConnect?: boolean;
-}): Effect.Effect<ServerTestClient, Error>
+}): Effect.Effect<TestAgentClient, Error>
 ```
 
 ### [`CoreSchemaSqlLoadError`](./core-schema-sql.ts#L24)
@@ -150,20 +161,20 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](./server.ts#L54)
+### [`CoreTestRuntimeServerHandle`](./server.ts#L63)
 
 _Interface_
 
 ```ts
 export interface CoreTestRuntimeServerHandle {
   awaitAgentReady(
-    agentId: string,
+    agentId: AgentId,
     timeoutMs: number,
   ): Effect.Effect<CoreTestReadyOutcome, never, never>;
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L110)
+### [`CoreTestServer`](./server.ts#L119)
 
 _Interface_
 
@@ -193,7 +204,28 @@ export interface CoreTestServer {
 }
 ```
 
-### [`expectRpcFailure`](./rpc-error.ts#L23)
+### [`createTestAgent`](./helpers.ts#L192)
+
+_Function_
+
+```ts
+export function createTestAgent(
+  name: string,
+  opts?: CreateTestAgentOptions,
+): Effect.Effect<TestAgent, never>
+```
+
+### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L43)
+
+_Variable_
+
+```ts
+export const DEFAULT_TEST_ADMIN_USER_ID = Schema.decodeUnknownSync(UserId)(
+  "00000000-0000-4000-8000-00000000ad00",
+)
+```
+
+### [`expectRpcFailure`](./rpc-error.ts#L21)
 
 _Function_
 
@@ -208,7 +240,7 @@ Asserts the RPC effect fails with a wire `error` carrying `expectedTag` and
 returns the narrowed error for follow-up assertions. `catchTags` routes by
 tag name declaratively so callers never reach for `err._tag`.
 
-### [`getBaseUrl`](./server.ts#L376)
+### [`getBaseUrl`](./server.ts#L398)
 
 _Function_
 
@@ -216,7 +248,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](./server.ts#L368)
+### [`getCoreApp`](./server.ts#L390)
 
 _Function_
 
@@ -224,7 +256,7 @@ _Function_
 export function getCoreApp(): CoreApp
 ```
 
-### [`getCoreDb`](./server.ts#L353)
+### [`getCoreDb`](./server.ts#L375)
 
 _Function_
 
@@ -232,7 +264,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L361)
+### [`getCoreEncryptionEnvelope`](./server.ts#L383)
 
 _Function_
 
@@ -240,7 +272,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L381)
+### [`getWsUrl`](./server.ts#L403)
 
 _Function_
 
@@ -279,7 +311,7 @@ the compile-time contract-drift insurance. Adding a field to the real
 interface does NOT fail compilation (tests are a Partial), but changing an
 existing field's signature does.
 
-### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L74)
+### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L125)
 
 _Function_
 
@@ -292,10 +324,11 @@ export function makeHandlerAppEndpoint(args: {
 
 Build an AppEndpoint whose outbound `originator.call` dispatches to
 in-process handlers instead of going over a WebSocket. The endpoint
-satisfies the same `{ connId, originator }` shape a wire-registered app's
+satisfies the same `{ connId, originator }` shape a connected app's
 arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
 
-  - `originator.call(D, params)` indexes `handlers` by `D.name`. The
+  - `originator.callback({ definition, params })` indexes `handlers` by
+    `definition.name`. The
     mapped type guarantees every member of `AnyAppCallbackRpcDefinition`
     has a handler — no runtime "method not found" branch exists.
   - `originator.notify` / `failAllPending` are no-ops.
@@ -363,7 +396,7 @@ function sqlPreview(sql: string): string {
 }
 ```
 
-### [`postJson`](./helpers.ts#L457)
+### [`postJson`](./helpers.ts#L326)
 
 _Function_
 
@@ -376,12 +409,10 @@ export function postJson(
 ```
 
 POST `body` as JSON to `${baseUrl}${path}` and resolve with
-`{status, json}`. The endpoints under test (`/api/v1/auth/register`,
-`/api/v1/auth/claim`, `/api/v1/admin/register-agent`) all use this
-same wire envelope, so each integration test importing this helper
-can drop the repeated request/JSON boilerplate.
+`{status, json}`. HTTP integration tests import this helper to avoid
+repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L177)
+### [`registerAgent`](./helpers.ts#L173)
 
 _Function_
 
@@ -393,7 +424,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L439)
+### [`registerAndConnect`](./helpers.ts#L310)
 
 _Function_
 
@@ -405,7 +436,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L364)
+### [`registerApp`](./helpers.ts#L261)
 
 _Function_
 
@@ -414,7 +445,10 @@ export function registerApp(
   baseUrl: string,
   manifest: AppManifest,
   inviteCode?: string,
-): Effect.Effect<RegisteredApp, PostJsonError | AppRegistrationError>
+): Effect.Effect<
+  { readonly appId: AppId; readonly appKey: AppKey },
+  AppRegistrationError
+>
 ```
 
 D #705 CP9 — mint an app credential via the `/api/v1/apps/register` HTTP
@@ -422,44 +456,13 @@ endpoint. The App-principal sibling of registerAgent: returns the
 server-minted `{ appId, appKey }` (the `appId` is `gen_random_uuid()`, NOT
 `manifest.appId`). The `appKey` is then handed to connectAppClient
 to open an `AppConnection`, whose implicit registration binds it as the
-app's moderator endpoint. Replaces the cross-principal WS `apps/register`
-RPC.
+app's moderator endpoint.
 
 `inviteCode` is required when the server boots with a `registrationSecret`
 (the HTTP route gates app registration behind the same secret as agent
 registration); omit it for the default open-registration server.
 
-### [`RegisteredApp`](./helpers.ts#L330)
-
-_Interface_
-
-```ts
-export interface RegisteredApp {
-  readonly appId: AppId;
-  readonly appKey: string;
-  readonly manifest: AppManifest;
-}
-```
-
-### [`registerOnly`](./helpers.ts#L541)
-
-_Function_
-
-```ts
-export function registerOnly(name: string): Effect.Effect<
-  {
-    client: ServerTestClient;
-    agentId: string;
-    apiKey: string;
-    claimToken: string | undefined;
-  },
-  Error
->
-```
-
-Register an agent without connecting (for tests that need the raw client).
-
-### [`resetCoreTestDb`](./server.ts#L327)
+### [`resetCoreTestDb`](./server.ts#L349)
 
 _Function_
 
@@ -467,26 +470,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`ServerTestClient`](./helpers.ts#L43)
-
-_Interface_
-
-```ts
-export interface ServerTestClient extends Omit<CloseableTestClient, "close"> {
-  close(): Effect.Effect<void, never>;
-  subscribeTo<D extends AnyNotificationDefinition>(
-    definition: D,
-  ): Stream.Stream<DecodedNotification<D>, AwaitNotificationClosedError>;
-}
-```
-
-Test-side wrapper over a `CloseableTestClient`. Consumers reach
-typed-payload Streams via `subscribeTo(def)` (a one-line passthrough to
-`TestClient.subscribe(def)`) or the broad-union `subscribeAll()`.
-Ergonomic one-shot test sites use the top-level `awaitOneNotification`
-helper below.
-
-### [`setupAgentGroup`](./helpers.ts#L580)
+### [`setupAgentGroup`](./helpers.ts#L426)
 
 _Function_
 
@@ -506,7 +490,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L568)
+### [`setupAgentPair`](./helpers.ts#L414)
 
 _Function_
 
@@ -519,7 +503,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L288)
+### [`startCoreTestServer`](./server.ts#L310)
 
 _Function_
 
@@ -527,7 +511,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L301)
+### [`stopCoreTestServer`](./server.ts#L323)
 
 _Function_
 
@@ -535,12 +519,12 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L166)
+### [`trackClient`](./helpers.ts#L162)
 
 _Function_
 
 ```ts
-export function trackClient(client: ServerTestClient): void
+export function trackClient(client: TestAgentClient | TestAppClient): void
 ```
 
 ## Files

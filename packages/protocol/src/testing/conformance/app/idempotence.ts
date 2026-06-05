@@ -14,12 +14,11 @@ import { AgentsList } from "../../../identity/index.js";
 import { TaskList } from "../../../task/index.js";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
 import {
-  makeTestClient,
-  type TestClient,
+  makeAgentTestClient,
+  type AgentTestClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type {
-  FrameSchemaError,
   RpcResponseError,
   RpcTimeoutError,
   TransportClosedError,
@@ -36,7 +35,6 @@ import { eitherTag } from "../_shared/_helpers.js";
 const CATEGORY = "rpc-semantics" as const;
 const PROPERTY = "idempotence";
 const DEFAULT_TIMEOUT_MS = 3000;
-const DEFAULT_CAPTURE_CAPACITY = 64;
 const EMPTY_PARAM_IDEMPOTENTS = [AgentsList, TaskList] as const;
 
 type EmptyParamIdempotentDefinition = (typeof EMPTY_PARAM_IDEMPOTENTS)[number];
@@ -44,8 +42,7 @@ type ReplayError =
   | RpcResponseError
   | RpcTimeoutError
   | TransportClosedError
-  | TransportIoError
-  | FrameSchemaError;
+  | TransportIoError;
 type ReplayPair = {
   readonly a: Either.Either<unknown, ReplayError>;
   readonly b: Either.Either<unknown, ReplayError>;
@@ -77,6 +74,8 @@ function assertIdempotence(ctx: ConformanceRunContext) {
         Effect.fail(unavailable(`transport io: ${String(e.cause)}`)),
       TestingTransportClosedError: (e) =>
         Effect.fail(unavailable(`transport closed: ${e.reason}`)),
+      TestingRpcTimeoutError: (e) =>
+        Effect.fail(unavailable(`rpc timeout: ${e.method}`)),
       TestingRpcResponseError: (e) =>
         Effect.fail(unavailable(`rpc response error: ${e.message}`)),
     }),
@@ -84,7 +83,7 @@ function assertIdempotence(ctx: ConformanceRunContext) {
 }
 
 function assertDefinitionIdempotent(
-  client: TestClient,
+  client: AgentTestClient,
   definition: EmptyParamIdempotentDefinition,
 ) {
   return Effect.gen(function* () {
@@ -101,18 +100,16 @@ function acquireReplayClient(ctx: ConformanceRunContext) {
       baseUrl: ctx.realServer.baseUrl,
       name: "id",
     });
-    return yield* makeTestClient({
+    return yield* makeAgentTestClient({
       serverUrl: ctx.realServer.wsUrl,
       agentKey: agent.apiKey,
-      agentId: agent.agentId,
       defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
     });
   });
 }
 
 function sendReplayPair(
-  client: TestClient,
+  client: AgentTestClient,
   definition: EmptyParamIdempotentDefinition,
 ) {
   return Effect.gen(function* () {

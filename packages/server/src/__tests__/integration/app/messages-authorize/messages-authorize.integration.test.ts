@@ -8,6 +8,7 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
 import {
+  DispatchAuthorize,
   TaskCreate,
   MessagesAuthorize,
   MessagesList,
@@ -16,6 +17,8 @@ import {
   TaskConversationCreate,
   TaskRequest,
   type AgentId,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
   type AppId,
   type AppManifest,
   type ConversationId,
@@ -32,7 +35,7 @@ import {
   getKyselyDb,
   getBaseUrl,
   type ConnectedAgent,
-  type ServerTestClient,
+  type TestAppClient,
 } from "../../helpers.js";
 import {
   conversationId as toConversationId,
@@ -118,7 +121,7 @@ let appHookState: VerdictState = {
  * `ForbiddenError` BEFORE the `messages/authorize` round-trip fires.
  */
 interface ModeratorApp {
-  readonly client: ServerTestClient;
+  readonly client: TestAppClient;
   readonly sender: ConnectedAgent;
 }
 
@@ -143,29 +146,33 @@ beforeEach(() =>
 );
 
 /**
- * Wire the server→client `messages/authorize` + `task/create` callbacks
- * on the moderator app principal `client`. Both are server-initiated
- * round-trips served on the app connection; they MUST be live before the app
- * registers a routing endpoint so the verdict source is ready when the
- * first `messages/send` fires. `task/create` auto-accepts (these scenarios
- * exercise `messages/authorize`, not task admission).
+ * Server→client callbacks served by the moderator app principal.
+ * `task/create` auto-accepts; the scenarios exercise `messages/authorize`.
  */
-function wireModeratorCallbacks(client: ServerTestClient) {
-  return Effect.gen(function* () {
-    yield* client.onAppCallback(MessagesAuthorize, () =>
-      Effect.gen(function* () {
-        appHookState.calls += 1;
-        const verdict = appHookState.next;
-        if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
-          return yield* Effect.never;
-        }
-        return { verdict: verdict as MessageAuthorizeVerdict };
-      }),
-    );
-    yield* client.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
-    );
-  });
+function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    "dispatch/authorize": {
+      definition: DispatchAuthorize,
+      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+    },
+    "messages/authorize": {
+      definition: MessagesAuthorize,
+      handle: () =>
+        Effect.gen(function* () {
+          appHookState.calls += 1;
+          const verdict = appHookState.next;
+          if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
+            return yield* Effect.never;
+          }
+          return { verdict: verdict as MessageAuthorizeVerdict };
+        }),
+    },
+    "task/create": {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
+    },
+  };
 }
 
 function currentModeratorApp(): ModeratorApp {
@@ -279,8 +286,8 @@ function expectHookBlocked(
 ): void {
   Either.match(outcome, {
     onLeft: (error) => {
-      const wire = error as { tag?: string; message?: string };
-      expect(wire.tag).toBe(WIRE_ERROR_TAG.HookBlocked);
+      const wire = error as { _tag?: string; message?: string };
+      expect(wire._tag).toBe(WIRE_ERROR_TAG.HookBlocked);
       if (messagePattern !== undefined) {
         expect(String(wire.message)).toMatch(messagePattern);
       }
@@ -321,9 +328,12 @@ function createAppManagedTask(
 ) {
   return Effect.gen(function* () {
     const registered = yield* registerApp(getBaseUrl(), TEST_APP_MANIFEST);
-    const client = yield* connectAppClient(registered.appKey);
+    const client = yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      moderatorHandlers(),
+    );
     moderatorApp = { client, sender: agent };
-    yield* wireModeratorCallbacks(client);
     return yield* agent.client.sendRpc(TaskRequest, {
       appId: registered.appId,
       invitedAgentIds: invited.map((a) => a.agentId),
@@ -644,8 +654,8 @@ describe("messages/authorize — block verdict paths", () => {
     TEST_TIMEOUT_MS,
   );
 
-  // DEFAULT_APP_ID is boot-installed in-process; a wire-app
-  // AppsRegister against it is rejected. The messages/authorize
+  // DEFAULT_APP_ID is boot-installed in-process; no connected app can
+  // register over it. The messages/authorize
   // verdict for DEFAULT_APP_ID tasks is fixed to the default Forward
   // policy and cannot be overridden.
 });

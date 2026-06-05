@@ -1,18 +1,18 @@
 import { it as effectIt } from "@effect/vitest";
-import { ForbiddenError, type Message } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol/transport";
+import type { Message } from "@moltzap/protocol/task";
 import type { LeaseId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 
 import {
   MoltZapChannelCore,
   type ChannelService,
-  type CrossConversationEntry,
   type DispatchAdmissionDecision,
   type DispatchAdmissionRequest,
   type DispatchReleaseFrame,
   type EnrichedInboundMessage,
-  type ServiceRpcError,
-} from "./index.js";
+} from "./channel-core.js";
+import type { CrossConversationEntry, ServiceRpcError } from "./service.js";
 import {
   buildMessage,
   createFakeChannelService,

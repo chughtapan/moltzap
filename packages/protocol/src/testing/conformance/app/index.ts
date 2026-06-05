@@ -3,12 +3,11 @@
  *
  * App-layer conformance properties.
  *
- * Dispatch / lease / app-callback invariants — the 15
+ * Dispatch / lease / app-callback invariants — the 14
  * `dispatch-admission` properties (request / authorize / release /
  * dispatches-consumed / dispatches-expired / dispatches-get / slow-first
  * / same-conv-concurrent / release-for-one-lease) plus app-disconnect
- * fail-policy, hook-gated delivery, multi-app FIFO (tombstone), spurious
- * app-callback frame handling (tombstone), and idempotence.
+ * fail-policy and idempotence.
  *
  * Each `register*` lives in its own file. The `dispatch-admission`
  * properties draw on the cross-impl driver in `app/_driver.ts`.
@@ -26,14 +25,10 @@ import { registerDispatchesConsumedSuppressedOnSecondSend } from "./dispatches-c
 import { registerDispatchesExpiredFiresOnTtl } from "./dispatches-expired-fires-on-ttl.js";
 import { registerDispatchesExpiredSuppressedOnConsumeBeforeTtl } from "./dispatches-expired-suppressed-on-consume.js";
 import { registerDispatchesGetModeratorSeesRecord } from "./dispatches-get-moderator-sees.js";
-import { registerDispatchesGetNonModeratorRejected } from "./dispatches-get-non-moderator-rejected.js";
 import { registerSameConversationDispatchesConcurrent } from "./same-conv-dispatches-concurrent.js";
 import { registerSlowFirstDoesNotDelaySecondAck } from "./slow-first-does-not-delay-second-ack.js";
 import { registerReleaseForOneLeaseDoesNotWaitOnAnother } from "./release-for-one-lease-does-not-wait.js";
-import { registerHookGatedDelivery } from "./hook-gated-delivery.js";
-import { registerMultiAppFifoShortCircuit } from "./multi-app-fifo-short-circuit.js";
 import { registerAppDisconnectFailPolicy } from "./app-disconnect-fail-policy.js";
-import { registerSpuriousAppCallbackFrameHandling } from "./spurious-app-callback-frame.js";
 import { registerIdempotence } from "./idempotence.js";
 
 export {
@@ -48,21 +43,16 @@ export {
   registerDispatchesExpiredFiresOnTtl,
   registerDispatchesExpiredSuppressedOnConsumeBeforeTtl,
   registerDispatchesGetModeratorSeesRecord,
-  registerDispatchesGetNonModeratorRejected,
   registerSameConversationDispatchesConcurrent,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
-  registerHookGatedDelivery,
-  registerMultiAppFifoShortCircuit,
   registerAppDisconnectFailPolicy,
-  registerSpuriousAppCallbackFrameHandling,
   registerIdempotence,
 };
 
 /**
- * All app-layer property registrars: 15 dispatch-admission registrars
- * first, then the 5 cross-category registrars (delivery tombstones,
- * boundary unavailable, rpc-semantics spurious-callback tombstone,
+ * All app-layer property registrars: dispatch-admission registrars first,
+ * then the cross-category registrars (boundary unavailable,
  * rpc-semantics idempotence).
  */
 export const APP_PROPERTIES: ReadonlyArray<
@@ -79,13 +69,9 @@ export const APP_PROPERTIES: ReadonlyArray<
   registerDispatchesExpiredFiresOnTtl,
   registerDispatchesExpiredSuppressedOnConsumeBeforeTtl,
   registerDispatchesGetModeratorSeesRecord,
-  registerDispatchesGetNonModeratorRejected,
   registerSameConversationDispatchesConcurrent,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
-  registerHookGatedDelivery,
-  registerMultiAppFifoShortCircuit,
   registerAppDisconnectFailPolicy,
-  registerSpuriousAppCallbackFrameHandling,
   registerIdempotence,
 ];

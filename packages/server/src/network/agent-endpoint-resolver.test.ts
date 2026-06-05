@@ -29,7 +29,7 @@ const ALICE = agentId("00000000-0000-4000-8000-00000000a11c");
 const BOB = agentId("00000000-0000-4000-8000-00000000b0b0");
 
 // Test connection ids. Phase 9b: the resolver does not enforce a UUID
-// shape on connection ids (the brand is nominal), but `app/server.ts`
+// shape on connection ids (the brand is nominal), but `transport/server-socket.ts`
 // always mints them via `crypto.randomUUID()` so the suite reflects
 // production shape.
 const CONN_A = connectionId("00000000-0000-4000-8000-00000000c001");
@@ -201,15 +201,12 @@ describe("AgentEndpointResolver — Phase 8 codex deferrals", () => {
     expect(HashSet.size(aliceFan)).toBe(0);
   });
 
-  it("add+remove sequence is symmetric (resolver invariant exercised by auth-handler transactional flow; full auth-handler test in Phase 9b's 40-task-manager-routing.integration.test.ts)", () => {
+  it("add+remove sequence is symmetric", () => {
     // Resolver-contract guard: pins the disconnect-side guarantee the
     // auth handler's transactional flow relies on. Even if `add`
     // succeeded and the handler then failed, the WS scope's onExit
     // finalizer calls `remove`, which is idempotent and leaves the
-    // resolver in a consistent state. This test verifies the resolver
-    // invariant; the full auth-handler-level integration test (real
-    // WS, real DB, observed failure injection) lives in Phase 9b's
-    // 40-task-manager-routing.integration.test.ts.
+    // resolver in a consistent state.
     const resolver = makeResolver();
 
     // Simulate the worst-case ordering: `add` succeeded, the auth
@@ -222,15 +219,12 @@ describe("AgentEndpointResolver — Phase 8 codex deferrals", () => {
     expect(HashSet.size(Effect.runSync(resolver.resolveAll(ALICE)))).toBe(0);
   });
 
-  it("idempotent remove on never-added pairs (defensive precondition for close-during-auth in auth handler; full race test in Phase 9b's 40-task-manager-routing.integration.test.ts)", () => {
+  it("idempotent remove on never-added pairs", () => {
     // Resolver-contract guard: the auth handler's transactional flow
     // skips `add` when `connections.get(connId)` returns undefined at
     // re-check time (close-during-auth). The WS scope's onExit
     // finalizer cannot tell whether `add` fired, and it does not need
     // to — `remove` on a never-added pair is documented idempotent.
-    // This test verifies that resolver precondition; the full auth-
-    // handler race test (real WS close timing) lives in Phase 9b's
-    // packages/server/src/__tests__/integration/40-task-manager-routing.integration.test.ts.
     const resolver = makeResolver();
 
     // The handler set conn.auth but the connection closed before the

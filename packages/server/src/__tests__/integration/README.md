@@ -7,7 +7,7 @@ decomposition (parent epic #538, Phase 2A layer naming defined in #542).
 
 ```
 __tests__/integration/
-├── transport/   # WS frame handling, heartbeat, RPC plumbing
+├── transport/   # WS lifecycle, heartbeat, RPC plumbing
 ├── identity/    # registration, claim, agents-list, contacts, auth
 ├── network/     # presence + agent endpoint resolver
 ├── task/        # conversations, messages, tasks, mute, archive, trace

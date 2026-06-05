@@ -6,12 +6,11 @@
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
-import { MessagesSend } from "../../../task/index.js";
 import {
-  inboundNotificationMethod,
-  type AnyFrame,
-} from "../_shared/frame-mutator.js";
-import type { CapturedFrame } from "../_shared/captures.js";
+  MessageReceivedNotificationDefinition,
+  MessagesSend,
+} from "../../../task/index.js";
+import type { NotificationDelivery } from "../../../transport/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
 import type { PropertyAssertionFailure } from "../_shared/registry.js";
@@ -25,19 +24,8 @@ import {
   fixtureN,
 } from "./_helpers.js";
 
-function isInboundMessageNotification(snapshotEntry: {
-  readonly kind: string;
-  readonly frame: unknown;
-}): boolean {
-  const frame = snapshotEntry.frame;
-  if (snapshotEntry.kind !== "inbound" || !isFrameCandidate(frame))
-    return false;
-  const method = inboundNotificationMethod(frame);
-  return method !== null && method.includes("message");
-}
-
-function isFrameCandidate(frame: unknown): frame is AnyFrame {
-  return typeof frame === "object" && frame !== null;
+function isMessageNotification(frame: NotificationDelivery): boolean {
+  return frame.definition === MessageReceivedNotificationDefinition;
 }
 
 export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
@@ -115,26 +103,26 @@ function sendFanOutMessage(fixture: ConversationFixture) {
 
 function participantSnapshots(
   fixture: ConversationFixture,
-): Effect.Effect<ReadonlyArray<ReadonlyArray<CapturedFrame>>> {
+): Effect.Effect<ReadonlyArray<ReadonlyArray<NotificationDelivery>>> {
   return Effect.forEach(
     fixture.participants,
-    (participant) => participant.client.snapshot,
+    (participant) => participant.notifications.snapshot,
     { concurrency: 1 },
   );
 }
 
 function messageNotificationCounts(
-  snapshots: ReadonlyArray<ReadonlyArray<CapturedFrame>>,
+  snapshots: ReadonlyArray<ReadonlyArray<NotificationDelivery>>,
 ): ReadonlyArray<number> {
   return snapshots.map(countInboundMessageNotifications);
 }
 
 function countInboundMessageNotifications(
-  snapshot: ReadonlyArray<CapturedFrame>,
+  snapshot: ReadonlyArray<NotificationDelivery>,
 ): number {
   let count = 0;
   for (const entry of snapshot) {
-    if (isInboundMessageNotification(entry)) count += 1;
+    if (isMessageNotification(entry)) count += 1;
   }
   return count;
 }

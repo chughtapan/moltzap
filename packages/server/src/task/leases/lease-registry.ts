@@ -1,31 +1,32 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Data, Effect, Fiber, Option, Ref } from "effect";
+import { Data, Effect, Fiber, Option, Ref, Schema } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import type { ConnectionId } from "@moltzap/protocol";
 import type {
   AppId,
   ConversationId,
   MessageId,
   TaskId,
 } from "@moltzap/protocol/task";
-import type {
-  DispatchId,
-  DispatchesGet,
-  LeaseId,
-  ResultOf,
-} from "@moltzap/protocol";
+import type { DispatchesGet, ResultOf } from "@moltzap/protocol";
 import {
+  DispatchId as DispatchIdSchema,
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-  type NotificationDefinition,
+  LeaseId as LeaseIdSchema,
+  type DispatchId,
+  type LeaseId,
   type NotificationParamsOf,
 } from "@moltzap/protocol";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
 import type { ConnectionManager } from "../../transport/connection.js";
 import type { LeaseTransitionObserver } from "../../network/services/presence-types.js";
 
 /** Wire-side LeaseRecord shape (flat). */
 type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
+const decodeDispatchId = Schema.decodeUnknownSync(DispatchIdSchema);
+const decodeLeaseId = Schema.decodeUnknownSync(LeaseIdSchema);
 
 /**
  * Lease registry — server-local admission state. An off-wire state
@@ -89,16 +90,17 @@ type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
  */
 
 /**
- * Audit binding tuple recorded at `mint` time. Used by `dispatches/get`
- * scope-enforcement and connection-close cleanup. Once recorded, the
- * tuple is immutable for the lease's lifetime.
+ * Audit binding recorded at `mint` time. Used by `dispatches/get`
+ * scope-enforcement, moderator observability, and connection-close cleanup.
+ * Once recorded, the binding is immutable for the lease's lifetime.
  */
-interface LeaseBindingTuple {
+export interface ModeratorBoundLeaseBinding {
+  readonly _tag: "ModeratorBound";
   readonly recipientAgentId: AgentId;
   readonly recipientConnectionId: ConnectionId;
+  readonly conversationId: ConversationId;
   readonly moderatorConnectionId: ConnectionId;
   readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
   readonly appId: AppId;
 }
 
@@ -131,7 +133,7 @@ export type LeaseVerdict =
 export interface LeaseRecord {
   readonly dispatchId: DispatchId;
   readonly leaseId: LeaseId;
-  readonly binding: LeaseBindingTuple;
+  readonly binding: ModeratorBoundLeaseBinding;
   readonly state: LeaseState;
   readonly verdict: LeaseVerdict | null;
   readonly mintedAt: string;
@@ -140,20 +142,6 @@ export interface LeaseRecord {
   readonly consumedMessageId: MessageId | null;
   readonly expiredAt: string | null;
   readonly leaseTimeoutMs: number | null;
-}
-
-/**
- * Inputs to `mint`. Captured into the binding tuple plus mint
- * timestamp; the registry generates `leaseId` and `dispatchId`
- * internally via `crypto.randomUUID()` (≥122 bits entropy per spec).
- */
-interface LeaseMintContext {
-  readonly recipientAgentId: AgentId;
-  readonly recipientConnectionId: ConnectionId;
-  readonly moderatorConnectionId: ConnectionId;
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-  readonly appId: AppId;
 }
 
 /**
@@ -264,7 +252,7 @@ interface Claim {
  *   participant MS as MessageService
  *
  *   Recv->>AH: dispatch/request (C→S)
- *   AH->>LR: mint(ctx) — PENDING
+ *   AH->>LR: mint(binding) — PENDING
  *   LR-->>AH: {leaseId, dispatchId}
  *   AH-->>Recv: ack returned immediately
  *   AH->>Mod: Effect.fork — dispatchAuthorizeHook
@@ -295,22 +283,23 @@ interface Claim {
 export interface LeaseRegistry {
   /**
    * Mint a new PENDING lease. Synchronous (`Effect&lt;..., never>`) — the
-   * registry is in-process. Records the binding tuple for audit,
+   * registry is in-process. Records the moderator-bound binding for audit,
    * `dispatches/get`, and connection-close cleanup.
    *
    * Both ids are minted via `crypto.randomUUID()`; the brand on
    * `LeaseId` / `DispatchId` keeps them disjoint at every call site.
    */
-  mint(ctx: LeaseMintContext): Effect.Effect<LeaseMintResult, never, never>;
+  mint(
+    binding: ModeratorBoundLeaseBinding,
+  ): Effect.Effect<LeaseMintResult, never, never>;
 
   /**
    * Settle a PENDING lease into a terminal-or-near-terminal state via
-   * the moderator's verdict (or a synthesized verdict for default-
-   * grant / moderator-unavailable / moderator-timeout). First writer
-   * wins via `Ref.modify`; second `resolve` against the same lease
-   * fails with `LeaseInvalidError`. Internally calls the module-local
-   * `emitDispatchRelease` helper so `dispatch/release` fires on every
-   * resolution path uniformly.
+   * the moderator's verdict (or a synthesized verdict for app-unavailable /
+   * moderator-timeout). First writer wins via `Ref.modify`; second `resolve`
+   * against the same lease fails with `LeaseInvalidError`. Internally calls the
+   * module-local `emitDispatchRelease` helper so `dispatch/release` fires on
+   * every resolution path uniformly.
    */
   resolve(
     leaseId: LeaseId,
@@ -398,11 +387,11 @@ export interface LeaseRegistry {
 
   /**
    * Deterministic shutdown drain — invoked by `CoreApp.close`
-   * (`app/server.ts → closeCoreAppEffect`) BEFORE `Scope.close(appScope)`.
+   * (`core-server.ts → closeCoreAppEffect`) BEFORE `Scope.close(appScope)`.
    *
    * Closing the app scope interrupts every per-connection WebSocket fiber.
    * Each interrupted fiber runs its disconnect cleanup
-   * (`socket-handler.ts → closeSocketSession`) in an UNINTERRUPTIBLE
+   * (`MoltZapServer`/`transport/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
    * `onExit` region, and that cleanup calls {@link abandon}. For a recipient
    * connection holding a GRANTED lease, `abandon` emits a `dispatches/expired`
    * frame to the MODERATOR connection via {@link fireNotification}. When the
@@ -495,12 +484,8 @@ function leaseTimeoutForVerdict(verdict: LeaseVerdict): number | null {
 }
 
 /**
- * Translation point between the in-process nested `LeaseRecord`
- * (binding field carries the full audit tuple) and the wire
- * `LeaseRecordSchema` shape (flat fields). Centralizing this keeps the
- * in-process representation as the single source of truth for the
- * authoritative tuple while the wire schema stays flat for simple
- * ergonomics on the moderator client side.
+ * Translation point between the in-process nested `LeaseRecord` and the wire
+ * `LeaseRecordSchema` shape.
  */
 export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire {
   return {
@@ -585,7 +570,7 @@ function invalidLeaseState(
   return new LeaseInvalidError({ leaseId, state, expected, operation });
 }
 
-function fireNotification<D extends NotificationDefinition<string, any>>(
+function fireNotification<D extends AnyNotificationDefinition>(
   state: LeaseRegistryState,
   connId: ConnectionId,
   definition: D,
@@ -603,9 +588,7 @@ function fireNotification<D extends NotificationDefinition<string, any>>(
   );
 }
 
-function fireNotificationToConnection<
-  D extends NotificationDefinition<string, any>,
->(
+function fireNotificationToConnection<D extends AnyNotificationDefinition>(
   state: LeaseRegistryState,
   connId: ConnectionId,
   definition: D,
@@ -902,7 +885,7 @@ function makeClaim(state: LeaseRegistryState, leaseId: LeaseId): Claim {
 }
 
 function makeMintedLeaseRecord(
-  ctx: LeaseMintContext,
+  binding: ModeratorBoundLeaseBinding,
   leaseId: LeaseId,
   dispatchId: DispatchId,
   mintedAt: string,
@@ -910,14 +893,7 @@ function makeMintedLeaseRecord(
   return {
     dispatchId,
     leaseId,
-    binding: {
-      recipientAgentId: ctx.recipientAgentId,
-      recipientConnectionId: ctx.recipientConnectionId,
-      moderatorConnectionId: ctx.moderatorConnectionId,
-      taskId: ctx.taskId,
-      conversationId: ctx.conversationId,
-      appId: ctx.appId,
-    },
+    binding,
     state: "PENDING",
     verdict: null,
     mintedAt,
@@ -931,13 +907,13 @@ function makeMintedLeaseRecord(
 
 function mintLease(
   state: LeaseRegistryState,
-  ctx: LeaseMintContext,
+  binding: ModeratorBoundLeaseBinding,
 ): Effect.Effect<LeaseMintResult, never, never> {
   return Effect.gen(function* () {
-    const leaseId = crypto.randomUUID() as LeaseId;
-    const dispatchId = crypto.randomUUID() as DispatchId;
+    const leaseId = decodeLeaseId(crypto.randomUUID());
+    const dispatchId = decodeDispatchId(crypto.randomUUID());
     const record = makeMintedLeaseRecord(
-      ctx,
+      binding,
       leaseId,
       dispatchId,
       new Date().toISOString(),

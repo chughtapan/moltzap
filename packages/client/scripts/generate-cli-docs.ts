@@ -419,14 +419,13 @@ const renderReferencePage = (
     "",
     "These flags are accepted on every subcommand:",
     "",
-    "- `--as <apiKey>` — Dial the server as the agent owning this API key, bypassing the local daemon.",
-    "- `--profile <name>` — Load an existing named profile from `~/.moltzap/config.json` for this invocation.",
+    "- `--profile <name>` — Load an existing named profile from `~/.moltzap/config.json` and send commands through that profile agent's local daemon socket.",
     "- `--log-level <level>` — Set the minimum log level (`all | trace | debug | info | warning | error | fatal | none`).",
     "- `--completions <shell>` — Generate a completion script (`sh | bash | fish | zsh`).",
     "- `-h, --help` — Show help for a command.",
     "- `--version` — Show the CLI version.",
     "",
-    "Precedence: `--as` wins over `--profile`; `--profile` wins over the top-level default profile.",
+    "Without `--profile`, commands use the default local daemon socket. `register` is the one exception: it consumes `--profile` locally to write a new profile instead of routing through the transport.",
     "",
     "## Commands",
     "",
@@ -456,14 +455,17 @@ const renderGlobalFlagsSnippet = (rootHelp: CommandHelp): string =>
 // ─── network/connect example snippet ─────────────────────────────────────
 
 /**
- * Read `PROTOCOL_VERSION` from `packages/protocol/src/version.ts` so
+ * Read `PROTOCOL_VERSION` from `packages/protocol/src/network/connect.ts` so
  * the generated WS-connect example never drifts from the protocol
  * package. Resolves the constant from source via `readTopLevelStringConst`
  * (AST read, not a runtime import) so the script stays decoupled from the
  * protocol package's build output.
  */
 const readProtocolVersion = (): ReadResult<string> => {
-  const sourcePath = resolve(workspaceRoot, "packages/protocol/src/version.ts");
+  const sourcePath = resolve(
+    workspaceRoot,
+    "packages/protocol/src/network/connect.ts",
+  );
   const result = readTopLevelStringConst(
     readFileSync(sourcePath, "utf8"),
     "PROTOCOL_VERSION",

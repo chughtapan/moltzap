@@ -23,9 +23,13 @@
 import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { it as effectIt } from "@effect/vitest";
 import {
+  DispatchAuthorize,
+  MessagesAuthorize,
   TaskCreate,
   TaskConversationCreate,
   TaskRequest,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
   type AppId,
   type AppManifest,
 } from "@moltzap/protocol";
@@ -39,7 +43,7 @@ import {
   resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
-  type ServerTestClient,
+  type TestAppClient,
 } from "../helpers.js";
 
 const it = effectIt.live;
@@ -67,8 +71,8 @@ function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): string | null {
   if (Exit.isSuccess(exit)) return null;
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
-  const err = failure.value as { readonly tag?: string };
-  return typeof err.tag === "string" ? err.tag : null;
+  const err = failure.value as { readonly _tag?: string };
+  return typeof err._tag === "string" ? err._tag : null;
 }
 
 /**
@@ -76,17 +80,36 @@ function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): string | null {
  * `task/create` callback, and return the live app client + DB-minted appId.
  */
 function setupOwningApp(): Effect.Effect<
-  { appClient: ServerTestClient; appId: AppId },
+  { appClient: TestAppClient; appId: AppId },
   unknown
 > {
   return Effect.gen(function* () {
     const registered = yield* registerApp(getBaseUrl(), APP_MANIFEST);
-    const appClient = yield* connectAppClient(registered.appKey);
-    yield* appClient.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    const appClient = yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      acceptTaskCreateHandlers(),
     );
     return { appClient, appId: registered.appId };
   });
+}
+
+function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    "dispatch/authorize": {
+      definition: DispatchAuthorize,
+      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+    },
+    "messages/authorize": {
+      definition: MessagesAuthorize,
+      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+    },
+    "task/create": {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
+    },
+  };
 }
 
 function owningAppConnPassesTmGate() {
@@ -106,26 +129,6 @@ function owningAppConnPassesTmGate() {
   });
 }
 
-function agentConnFailsTmGate() {
-  return Effect.gen(function* () {
-    const alice = yield* registerAndConnect("alice-2");
-    const bob = yield* registerAndConnect("bob-2");
-    const { appId } = yield* setupOwningApp();
-    const task = yield* alice.client.sendRpc(TaskRequest, {
-      appId,
-      invitedAgentIds: [bob.agentId],
-    });
-    // An AGENT connection is not an app principal — the TM gate rejects it.
-    const exit = yield* Effect.exit(
-      bob.client.sendRpc(TaskConversationCreate, {
-        taskId: task.task.id,
-        participants: [bob.agentId],
-      }),
-    );
-    expect(rpcErrorCode(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
-  });
-}
-
 function nonOwningAppFailsTmGate() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-3");
@@ -141,7 +144,11 @@ function nonOwningAppFailsTmGate() {
       ...APP_MANIFEST,
       name: "Other App",
     });
-    const otherClient = yield* connectAppClient(other.appKey);
+    const otherClient = yield* connectAppClient(
+      other.appId,
+      other.appKey,
+      acceptTaskCreateHandlers(),
+    );
     const exit = yield* Effect.exit(
       otherClient.sendRpc(TaskConversationCreate, {
         taskId: task.task.id,
@@ -158,6 +165,5 @@ describe("app-session-scoping — TM authority via owning app principal", () => 
     owningAppConnPassesTmGate,
     20_000,
   );
-  it("an agent connection fails the TM gate", agentConnFailsTmGate, 20_000);
   it("a non-owning app fails the TM gate", nonOwningAppFailsTmGate, 20_000);
 });

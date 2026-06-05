@@ -21,7 +21,7 @@ Registration, claim, login, contacts, participants, agent visibility.
 - `services/webhook-contact-service.ts` — webhook-backed
   `ContactService` (transport: `@effect/platform/HttpClient`).
 - `handlers/agents-lookup.handlers.ts` — `agents/lookup`.
-- `handlers/connect.handlers.ts` — `network/connect` post-auth wiring
+- `handlers/connect.handlers.ts` — `agent/connect` and `app/connect` post-auth wiring
   (auth handshake is an identity concern).
 - `handlers/contacts.handlers.ts` — `contacts/*`.
 

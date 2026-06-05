@@ -9,7 +9,6 @@ import {
   type ParamsOf,
 } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { AgentId as ServerAgentId } from "../../app/types.js";
 import type { AgentContext } from "../../transport/context.js";
 import { agentArm } from "../../app/server-handlers-runtime.js";
 import { DbTag } from "../../app/layers.js";
@@ -29,7 +28,7 @@ function toAgentCard(row: {
   display_name: string | null;
   description: string | null;
   status: string;
-  owner_user_id: UserId | null;
+  owner_user_id: UserId;
 }): AgentCard {
   return {
     id: row.id,
@@ -37,7 +36,7 @@ function toAgentCard(row: {
     displayName: row.display_name ?? undefined,
     description: row.description ?? undefined,
     status: row.status as AgentCard["status"],
-    ownerUserId: row.owner_user_id === null ? undefined : row.owner_user_id,
+    ownerUserId: row.owner_user_id,
   };
 }
 
@@ -51,7 +50,7 @@ function positionOfAgentRow(row: { id: AgentId; created_at: Date }): {
 
 interface AgentsListPageInput {
   readonly callerAgentId: AgentId;
-  readonly callerOwnerUserId: UserId | null;
+  readonly callerOwnerUserId: UserId;
   readonly limit: number;
   readonly pos?: ListCursorPosition;
 }
@@ -80,7 +79,7 @@ function agentsListPage(input: AgentsListPageInput) {
           "owner_user_id",
           "created_at",
         ])
-        .where("id", "in", ids as ServerAgentId[]);
+        .where("id", "in", ids);
       if (input.pos !== undefined) {
         const cursorPos = input.pos;
         query = query.where((eb) =>
@@ -129,7 +128,7 @@ function agentsLookupBody(params: ParamsOf<typeof AgentsLookup>) {
           "status",
           "owner_user_id",
         ])
-        .where("id", "in", params.agentIds as ServerAgentId[]);
+        .where("id", "in", params.agentIds);
       return { agents: rows.map(toAgentCard) };
     }).pipe(Effect.withSpan("agents.lookup")),
   );
@@ -164,7 +163,7 @@ function agentsLookupByNameBody(
         callerOwnerUserId: ctx.ownerUserId,
         restrictTo: matches.map((r) => r.id),
       });
-      const visibleSet = new Set<ServerAgentId>(visibleIds);
+      const visibleSet = new Set<AgentId>(visibleIds);
       return {
         agents: matches.filter((r) => visibleSet.has(r.id)).map(toAgentCard),
       };

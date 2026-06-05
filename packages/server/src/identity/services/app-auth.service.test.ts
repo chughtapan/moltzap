@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect } from "vitest";
 import { Cause, Effect, Exit } from "effect";
 import * as fc from "fast-check";
 import type { AppManifest } from "@moltzap/protocol/app";
-import { appId as makeAppId } from "@moltzap/protocol/testing";
+import { appId as makeAppId, redactedAppKey } from "@moltzap/protocol/testing";
 import { UnauthorizedError } from "@moltzap/protocol";
 import {
   makePgliteHarness,
@@ -90,7 +90,7 @@ function issuesDistinctIdsForIdenticalManifests() {
   });
 }
 
-function roundTripsRegisteredApp() {
+function roundTripsAppCredential() {
   return Effect.gen(function* () {
     const svc = new AppAuthService(harness.db);
     const { appId, appKey } = yield* svc.registerApp({ manifest: MANIFEST });
@@ -132,9 +132,8 @@ function registerAuthenticateRoundtripProperty() {
 }
 
 function returnsNullForUnparseableKey() {
-  return Effect.gen(function* () {
-    const svc = new AppAuthService(harness.db);
-    expect(yield* svc.authenticateApp("not_a_real_key")).toBeNull();
+  return Effect.sync(() => {
+    expect(() => redactedAppKey("not_a_real_key")).toThrow();
   });
 }
 
@@ -144,7 +143,9 @@ function returnsNullOnHashMiss() {
     const { appKey } = yield* svc.registerApp({ manifest: MANIFEST });
     const parsed = parseAppKey(appKey);
     if (parsed === null) throw new Error("unreachable");
-    const forged = `moltzap_app_${parsed.keyId}_${"0".repeat(48)}`;
+    const forged = redactedAppKey(
+      `moltzap_app_${parsed.keyId}_${"0".repeat(48)}`,
+    );
     expect(yield* svc.authenticateApp(forged)).toBeNull();
   });
 }
@@ -152,7 +153,9 @@ function returnsNullOnHashMiss() {
 function returnsNullForUnknownKeyId() {
   return Effect.gen(function* () {
     const svc = new AppAuthService(harness.db);
-    const orphan = `moltzap_app_${"a".repeat(16)}_${"b".repeat(48)}`;
+    const orphan = redactedAppKey(
+      `moltzap_app_${"a".repeat(16)}_${"b".repeat(48)}`,
+    );
     expect(yield* svc.authenticateApp(orphan)).toBeNull();
   });
 }
@@ -172,7 +175,7 @@ function failsUnauthorizedOnCorruptManifest() {
 
     // A domain failure on the typed error channel, NOT a defect.
     const error = yield* svc
-      .authenticateApp(`moltzap_app_${keyId}_${secret}`)
+      .authenticateApp(redactedAppKey(`moltzap_app_${keyId}_${secret}`))
       .pipe(Effect.flip);
     expect(error).toBeInstanceOf(UnauthorizedError);
     expect(error.data).toEqual({ reason: "manifest_corrupted" });
@@ -182,7 +185,9 @@ function failsUnauthorizedOnCorruptManifest() {
 function installInsertsThenAuthenticates() {
   return Effect.gen(function* () {
     const svc = new AppAuthService(harness.db);
-    const appKey = `moltzap_app_${"e".repeat(16)}_${"f".repeat(48)}`;
+    const appKey = redactedAppKey(
+      `moltzap_app_${"e".repeat(16)}_${"f".repeat(48)}`,
+    );
     yield* svc.installDefaultApp(DEFAULT_APP_ID, MANIFEST, appKey);
 
     const result = yield* svc.authenticateApp(appKey);
@@ -194,8 +199,12 @@ function installInsertsThenAuthenticates() {
 function installUpsertsAndRotatesKey() {
   return Effect.gen(function* () {
     const svc = new AppAuthService(harness.db);
-    const firstKey = `moltzap_app_${"1".repeat(16)}_${"2".repeat(48)}`;
-    const secondKey = `moltzap_app_${"3".repeat(16)}_${"4".repeat(48)}`;
+    const firstKey = redactedAppKey(
+      `moltzap_app_${"1".repeat(16)}_${"2".repeat(48)}`,
+    );
+    const secondKey = redactedAppKey(
+      `moltzap_app_${"3".repeat(16)}_${"4".repeat(48)}`,
+    );
 
     yield* svc.installDefaultApp(DEFAULT_APP_ID, MANIFEST, firstKey);
     yield* svc.installDefaultApp(DEFAULT_APP_ID, MANIFEST, secondKey);
@@ -256,8 +265,8 @@ describe("AppAuthService.authenticateApp", () => {
     registerAuthenticateRoundtripProperty,
   );
   it(
-    "round-trips a registered app to its AppContext + manifest",
-    roundTripsRegisteredApp,
+    "round-trips an app credential to its AppContext + manifest",
+    roundTripsAppCredential,
   );
   it(
     "returns null for an unparseable (non-app-prefix) key",

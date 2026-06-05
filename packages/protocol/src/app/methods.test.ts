@@ -13,8 +13,8 @@
 import { describe, it, expect } from "vitest";
 import type { Schema } from "effect";
 import { DispatchAuthorize, MessagesAuthorize, TaskCreate } from "./methods.js";
-import { appCallbackMethods } from "../engine/rpc-method-groups.js";
-import { decodesStrictly } from "../schema-primitives.js";
+import { appCallbackMethods } from "../rpc-method-groups.js";
+import { decodesStrictly } from "../transport/strict-decode.js";
 
 // Strict, excess-rejecting decode check — the parity oracle for the former
 // `ajv.compile(resultSchema)` strict validators.
@@ -27,8 +27,9 @@ const CONVERSATION_ID = "550e8400-e29b-41d4-a716-446655440001";
 const AGENT_ID = "550e8400-e29b-41d4-a716-446655440002";
 const MESSAGE_ID = "550e8400-e29b-41d4-a716-446655440003";
 const RECIPIENT_ID = "550e8400-e29b-41d4-a716-446655440004";
+const OWNER_USER_ID = "550e8400-e29b-41d4-a716-446655440005";
 
-const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
+const HOOK_AGENT = { agentId: AGENT_ID, ownerUserId: OWNER_USER_ID };
 
 const validateDispatchAuthorizeParams = DispatchAuthorize.validateParams;
 const validateDispatchAuthorizeResult = (value: unknown): boolean =>

@@ -8,6 +8,7 @@
  * sketch.
  */
 import { Effect, pipe } from "effect";
+import type { AgentId } from "@moltzap/protocol";
 import type { ReadyOutcome } from "./runtime.js";
 
 interface ConnectionState {
@@ -26,7 +27,7 @@ interface ConnectionState {
  * `awaitAgentReadyByPolling`.
  */
 interface PollingConnections {
-  getByAgent(agentId: string): ReadonlyArray<ConnectionState>;
+  getByAgent(agentId: AgentId): ReadonlyArray<ConnectionState>;
 }
 
 /**
@@ -56,7 +57,7 @@ interface PollingConnections {
  * // structural shape below is the minimum the example uses.
  * interface WSClientLike {
  *   subscribePresence(
- *     agentId: string,
+ *     agentId: AgentId,
  *     onNotification: (event: {
  *       kind: "auth-success" | "auth-failure" | "process-exited";
  *     }) => void,
@@ -65,7 +66,7 @@ interface PollingConnections {
  *
  * function awaitAgentReadyOverPresenceWS(
  *   wsClient: WSClientLike,
- *   agentId: string,
+ *   agentId: AgentId,
  *   timeoutMs: number,
  * ): Effect.Effect<ReadyOutcome, never, never> {
  *   return Effect.async<ReadyOutcome, never, never>((resume) => {
@@ -104,7 +105,7 @@ const DEFAULT_POLL_INTERVAL_MS = 500;
 
 export function awaitAgentReadyByPolling(
   connections: PollingConnections,
-  agentId: string,
+  agentId: AgentId,
   timeoutMs: number,
   pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS,
 ): Effect.Effect<ReadyOutcome, never, never> {

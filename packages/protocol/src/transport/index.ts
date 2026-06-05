@@ -5,12 +5,11 @@
 // descriptors own per-method payload/result schemas and the client subscription
 // notification envelope produced after native decode.
 export type {
-  JsonRpcId,
-  JsonRpcMethod,
   RpcDefinition,
   NotificationDefinition,
   ParamsOf,
   ResultOf,
+  NotificationPayloadOf,
   NotificationParamsOf,
   NotificationDelivery,
   RpcErrorClass,
@@ -20,6 +19,7 @@ export type {
   ResponseErrorsOf,
 } from "./method.js";
 export { effectiveErrorClasses, jsonRpcMethod } from "./method.js";
+export { isNotificationDeliveryFor } from "./method.js";
 
 export {
   makeNotificationSubscriberRegistry,
@@ -44,6 +44,14 @@ export type {
   ErrorForTag,
 } from "./typed-dispatch.js";
 
+export {
+  DEFAULT_PAGE_LIMIT,
+  MAX_PAGE_LIMIT,
+  ListLimitSchema,
+  listCursorSchema,
+} from "./pagination.js";
+export type { ListCursor } from "./pagination.js";
+
 // Transport-layer call errors — the failures that originate at the CLIENT
 // transport, not at a method handler. Domain failures ride their own
 // `Schema.TaggedError` class, decoded per-method against the method's
@@ -54,7 +62,6 @@ export { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
 // the runtime failure constructor AND a wire `Schema` whose `_tag` is the
 // per-method error-union discriminant the engine decodes against.
 export {
-  MalformedFrameError,
   UnauthorizedError,
   ForbiddenError,
   NotFoundError,
@@ -69,27 +76,14 @@ export type { RpcErrorPayload } from "./wire-errors.js";
 // The principal + refinement requirement tags — the low head of a method's
 // `requires` list, depended on DOWNWARD by every domain descriptor.
 // `AgentPrincipal`/`AppPrincipal` narrow the connection to that arm;
-// `AgentClaimed` (agent-only) refines to a claimed agent. The capability half of
-// the requirement model + `CurrentPrincipal` live in the engine layer (above
-// the domains), surfaced through the package's main barrel.
-export { AgentPrincipal, AppPrincipal, AgentClaimed } from "./principal.js";
-export type { PrincipalRequirement } from "./principal.js";
-
-// Two-engine `@effect/rpc` transport. One physical WebSocket carries a local
-// `RpcServer` and a local `RpcClient`; inbound frames route to one or the other
-// by frame family (a `method` marks the request family). Both engines bind
-// through the low-level `RpcServer.Protocol.make` / `RpcClient.Protocol.make`
-// extension points. The live connection composes these builders.
+// `AuthenticatedPrincipal` admits either authenticated arm; `AgentClaimed`
+// (agent-only) refines to a claimed agent. The closed requirement model and
+// middleware registry live in the engine layer, surfaced through the package's
+// main barrel.
 export {
-  makeServerChannelProtocol,
-  makeClientChannelProtocol,
-  runMuxReader,
-  routeInbound,
-  MUX_CLIENT_ID,
-} from "./mux.js";
-export type {
-  SocketSinks,
-  WireWrite,
-  ChannelProtocol,
-  ChannelSink,
-} from "./mux.js";
+  AgentPrincipal,
+  AppPrincipal,
+  AuthenticatedPrincipal,
+  AgentClaimed,
+} from "./principal.js";
+export type { PrincipalRequirement } from "./principal.js";

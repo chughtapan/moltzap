@@ -1,6 +1,6 @@
 import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect, Either } from "effect";
+import { Effect, Either, Fiber } from "effect";
 import type { InMemorySpanExporter } from "@opentelemetry/sdk-trace-base";
 
 import {
@@ -13,16 +13,18 @@ import {
   registerApp,
   connectAppClient,
   getBaseUrl,
-  type ServerTestClient,
 } from "../helpers.js";
 import {
   DEFAULT_APP_ID,
+  DispatchAuthorize,
   MessagesAuthorize,
   MessagesSend,
   MessageReceivedNotificationDefinition,
   TaskConversationCreate,
   TaskCreate,
   TaskRequest,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
   type AppId,
   type AppManifest,
 } from "@moltzap/protocol";
@@ -93,21 +95,36 @@ function expectNoPlaintext(
   expect(serialized).not.toContain(plaintext);
 }
 
-function attachBlockingMessageAuthorize(appClient: ServerTestClient) {
-  return appClient.onAppCallback(MessagesAuthorize, () =>
-    Effect.succeed({
-      verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
-    }),
-  );
-}
-
 function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
   Either.match(outcome, {
     onLeft: (error) => {
-      expect((error as { tag?: string }).tag).toBe(WIRE_ERROR_TAG.HookBlocked);
+      expect((error as { _tag?: string })._tag).toBe(
+        WIRE_ERROR_TAG.HookBlocked,
+      );
     },
     onRight: () => expect.fail("expected HookBlockedError"),
   });
+}
+
+function blockingMessageHandlers(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    "dispatch/authorize": {
+      definition: DispatchAuthorize,
+      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+    },
+    "messages/authorize": {
+      definition: MessagesAuthorize,
+      handle: () =>
+        Effect.succeed({
+          verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
+        }),
+    },
+    "task/create": {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
+    },
+  };
 }
 
 function emitDeliveredMessageSpan() {
@@ -123,15 +140,15 @@ function emitDeliveredMessageSpan() {
     const conversationId = conv.conversation!.id;
 
     const messageText = "hello from trace span test";
+    const bobEventFiber = yield* Effect.fork(
+      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+    );
     yield* alice.client.sendRpc(MessagesSend, {
       taskId: conv.task.id,
       conversationId,
       parts: [{ type: "text", text: messageText }],
     });
-    yield* awaitOneNotification(
-      bob.client,
-      MessageReceivedNotificationDefinition,
-    );
+    yield* Fiber.join(bobEventFiber);
 
     const attributes = findSpanAttributes("moltzap.message.delivered");
     expect(attributes).toBeDefined();
@@ -173,10 +190,10 @@ function emitBlockedHookSpan() {
     // `messages/send`. Callbacks wired BEFORE any send so the server's
     // forked round-trip lands on a live handler.
     const registered = yield* registerApp(getBaseUrl(), TRACE_APP_MANIFEST);
-    const appClient = yield* connectAppClient(registered.appKey);
-    yield* attachBlockingMessageAuthorize(appClient);
-    yield* appClient.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    const appClient = yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      blockingMessageHandlers(),
     );
 
     const task = yield* alice.client.sendRpc(TaskRequest, {

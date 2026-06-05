@@ -21,6 +21,7 @@ import {
   DropViewBuilder,
   InsertQueryBuilder,
   Kysely,
+  sql,
   UpdateQueryBuilder,
   WheneableMergeQueryBuilder,
   type KyselyConfig,
@@ -115,7 +116,9 @@ export function makeEffectKysely<DB>(config: KyselyConfig): EffectKysely<DB> {
   if (!selectPatched) {
     // SelectQueryBuilder isn't exported from kysely; patch its prototype
     // from an instance produced by this specific Kysely.
-    const selectProto = Object.getPrototypeOf(db.selectFrom("" as never));
+    const selectProto = Object.getPrototypeOf(
+      db.selectFrom(sql<{ readonly one: number }>`(select 1 as one)`.as("q")),
+    );
     patchPrototype(selectProto);
     selectPatched = true;
   }

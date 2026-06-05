@@ -46,7 +46,10 @@ type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
 // the third-argument `params is R` shape no longer matches and tsc reports
 // a type error here.
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
-declare const _canary1bRegistry: NotificationSubscriberRegistry<NotConnectedError>;
+declare const _canary1bRegistry: NotificationSubscriberRegistry<
+  NotConnectedError,
+  AnyNotificationDefinition
+>;
 type _Canary1bPresenceParams = NotificationParamsOf<
   typeof PresenceChangedNotificationDefinition
 >;

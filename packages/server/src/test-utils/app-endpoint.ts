@@ -11,24 +11,28 @@
  * originator to dispatch into.
  *
  * Two shapes:
- *   - {@link makeHandlerAppEndpoint} — `originator.call` dispatches to
+ *   - {@link makeHandlerAppEndpoint} — `originator.callback` dispatches to
  *     in-process handlers keyed by RPC name. Use when the test asserts a
  *     verdict round-trips through a registered hook.
- *   - {@link makeInertAppEndpoint} — every dispatch method defects (or an
- *     optional `originatorCall` override mocks the channel, e.g. to simulate
- *     a stale `NotConnectedError`). Use for registration-surface tests that
- *     never drive a hook round-trip.
  */
 import { Effect } from "effect";
 import type {
   AnyAppCallbackRpcDefinition,
-  ParamsOf,
-  ResultOf,
+  ReverseCallbackError,
+  ReverseCallbackPayload,
+  ReverseCallbackRequest,
+  ReverseCallbackSuccess,
 } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import {
+  DispatchAuthorize,
+  MessagesAuthorize,
+  TaskCreate,
+  type ConnectionId,
+} from "@moltzap/protocol";
+import type { RpcSerialization } from "@effect/rpc";
 import type { AppEndpoint } from "../app/app-registration.js";
 import type { Originator } from "../transport/connection.js";
-import type { ReverseCallError } from "../transport/reverse-rpc-client.js";
+import type { ReverseCallError } from "@moltzap/protocol";
 
 /**
  * In-process handler for one task-callback RPC. The handler returns
@@ -36,8 +40,11 @@ import type { ReverseCallError } from "../transport/reverse-rpc-client.js";
  * loop since both sides live in-process.
  */
 type AppEndpointHandler<D extends AnyAppCallbackRpcDefinition> = (
-  params: ParamsOf<D>,
-) => Effect.Effect<ResultOf<D>, ReverseCallError>;
+  params: ReverseCallbackPayload<D>,
+) => Effect.Effect<
+  ReverseCallbackSuccess<D>,
+  ReverseCallbackError<D> | ReverseCallError
+>;
 
 /**
  * Mapped over the closed `AnyAppCallbackRpcDefinition` union, keyed
@@ -50,6 +57,33 @@ export type AppEndpointHandlers = {
   readonly [D in AnyAppCallbackRpcDefinition as D["name"]]: AppEndpointHandler<D>;
 };
 
+type DispatchAuthorizeRequest = Extract<
+  ReverseCallbackRequest,
+  { readonly definition: typeof DispatchAuthorize }
+>;
+type MessagesAuthorizeRequest = Extract<
+  ReverseCallbackRequest,
+  { readonly definition: typeof MessagesAuthorize }
+>;
+type TaskCreateRequest = Extract<
+  ReverseCallbackRequest,
+  { readonly definition: typeof TaskCreate }
+>;
+
+const isDispatchAuthorizeRequest = (
+  request: ReverseCallbackRequest,
+): request is DispatchAuthorizeRequest =>
+  request.definition === DispatchAuthorize;
+
+const isMessagesAuthorizeRequest = (
+  request: ReverseCallbackRequest,
+): request is MessagesAuthorizeRequest =>
+  request.definition === MessagesAuthorize;
+
+const isTaskCreateRequest = (
+  request: ReverseCallbackRequest,
+): request is TaskCreateRequest => request.definition === TaskCreate;
+
 function defectingOp(id: ConnectionId, label: string, op: string) {
   return Effect.die(
     new Error(
@@ -58,13 +92,30 @@ function defectingOp(id: ConnectionId, label: string, op: string) {
   );
 }
 
+function makeInertParser(
+  id: ConnectionId,
+  label: string,
+): RpcSerialization.Parser {
+  const fail = () =>
+    Effect.runSync(
+      Effect.dieMessage(
+        `${label} connection ${id}: parser is not implemented (no inbound dispatch)`,
+      ),
+    );
+  return {
+    decode: fail,
+    encode: fail,
+  };
+}
+
 /**
  * Build an {@link AppEndpoint} whose outbound `originator.call` dispatches to
  * in-process handlers instead of going over a WebSocket. The endpoint
- * satisfies the same `{ connId, originator }` shape a wire-registered app's
+ * satisfies the same `{ connId, originator }` shape a connected app's
  * arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
  *
- *   - `originator.call(D, params)` indexes `handlers` by `D.name`. The
+ *   - `originator.callback({ definition, params })` indexes `handlers` by
+ *     `definition.name`. The
  *     mapped type guarantees every member of `AnyAppCallbackRpcDefinition`
  *     has a handler — no runtime "method not found" branch exists.
  *   - `originator.notify` / `failAllPending` are no-ops.
@@ -75,49 +126,33 @@ export function makeHandlerAppEndpoint(args: {
   readonly id: ConnectionId;
   readonly handlers: AppEndpointHandlers;
 }): AppEndpoint {
-  // Mirrors the live `ReverseClient.call(tag, payload)` contract
-  // (`sendRpcToClient` passes the wire NAME, not the definition): index the
-  // in-process handler map by that tag. The mapped `AppEndpointHandlers` key
-  // is each member's `name`; a union index does not preserve the per-member
-  // payload/result correlation, so the lookup reads through a name→handler
-  // view and the per-tag types are pinned at the registration sites.
-  const handlersByName = new Map<
-    string,
-    AppEndpointHandler<AnyAppCallbackRpcDefinition>
-  >(
-    Object.entries(args.handlers) as ReadonlyArray<
-      readonly [string, AppEndpointHandler<AnyAppCallbackRpcDefinition>]
-    >,
-  );
-  const call = (
-    tag: AnyAppCallbackRpcDefinition["name"],
-    params: ParamsOf<AnyAppCallbackRpcDefinition>,
-  ): Effect.Effect<ResultOf<AnyAppCallbackRpcDefinition>, ReverseCallError> => {
-    const handler = handlersByName.get(tag);
-    if (handler === undefined) {
-      return defectingOp(
-        args.id,
-        "handler-endpoint",
-        `originator.call(${tag})`,
-      ) as Effect.Effect<
-        ResultOf<AnyAppCallbackRpcDefinition>,
-        ReverseCallError
-      >;
+  const callback = (
+    request: ReverseCallbackRequest,
+  ): ReturnType<Originator["callback"]> => {
+    if (isDispatchAuthorizeRequest(request)) {
+      return args.handlers[DispatchAuthorize.name](request.params);
     }
-    return handler(params);
+    if (isMessagesAuthorizeRequest(request)) {
+      return args.handlers[MessagesAuthorize.name](request.params);
+    }
+    if (isTaskCreateRequest(request)) {
+      return args.handlers[TaskCreate.name](request.params);
+    }
+    return defectingOp(args.id, "handler-endpoint", "originator.callback");
+  };
+  const originator: Originator = {
+    call: () => defectingOp(args.id, "handler-endpoint", "originator.call"),
+    callback,
+    notify: () => defectingOp(args.id, "handler-endpoint", "originator.notify"),
+    sink: {
+      parser: makeInertParser(args.id, "handler-endpoint"),
+      inject: () =>
+        defectingOp(args.id, "handler-endpoint", "originator.sink.inject"),
+    },
   };
 
   return {
     connId: args.id,
-    originator: {
-      call,
-      notify: () =>
-        defectingOp(args.id, "handler-endpoint", "originator.notify"),
-      sink: {
-        parser: undefined as never,
-        inject: () =>
-          defectingOp(args.id, "handler-endpoint", "originator.sink.inject"),
-      },
-    } as Originator,
+    originator,
   };
 }

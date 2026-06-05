@@ -1,5 +1,5 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import {
   awaitOneNotification,
   it,
@@ -46,7 +46,9 @@ it("message with multiple text parts preserves all parts in order", () =>
       { type: "text" as const, text: PART_THREE_TEXT },
     ];
 
-    // Set up Bob's event waiter BEFORE send
+    const bobEventFiber = yield* Effect.fork(
+      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+    );
 
     const sendResult = yield* alice.client.sendRpc(MessagesSend, {
       taskId,
@@ -57,10 +59,7 @@ it("message with multiple text parts preserves all parts in order", () =>
     expect(sendResult.message.parts).toHaveLength(3);
     expect(sendResult.message.parts).toEqual(parts);
 
-    const bobEvent = yield* awaitOneNotification(
-      bob.client,
-      MessageReceivedNotificationDefinition,
-    );
+    const bobEvent = yield* Fiber.join(bobEventFiber);
     const received = bobEvent.params.message;
 
     expect(received.parts).toHaveLength(3);

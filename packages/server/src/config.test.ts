@@ -3,7 +3,7 @@ import { describe, expect } from "vitest";
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
-import { Cause, Effect, Exit, Option, type Scope } from "effect";
+import { Cause, Effect, Exit, Option, Redacted, type Scope } from "effect";
 import { ConfigLoadError, loadStandaloneConfig } from "./config.js";
 
 const it = effectIt.scoped;
@@ -16,10 +16,11 @@ const PG_URL = "postgres://localhost:5432/moltzap";
 const SUPABASE_URL = "postgres://u:p@x.supabase.co:5432/postgres";
 const APP_ORIGIN = "https://app.example.com";
 const WWW_ORIGIN = "https://www.example.com";
-const SECRET = "secret-key";
+const SECRET = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const INTERPOLATED = "interpolated-value";
 const DEFAULT_PORT = 3000;
 const OVERRIDE_PORT = 8080;
+const ADMIN_USER_ID = "00000000-0000-4000-8000-00000000ad01";
 const VALIDATION_ERROR_KIND: ConfigLoadError["kind"] = "validation";
 
 const APPS_YAML = `apps:
@@ -77,7 +78,13 @@ const CONTACT_WITH_CALLBACK_YAML = `services:
 `;
 
 function envOnly(env: Record<string, string | undefined>) {
-  return loadStandaloneConfig({ processEnv: env });
+  return loadStandaloneConfig({
+    processEnv: { MOLTZAP_ADMIN_USER_ID: ADMIN_USER_ID, ...env },
+  });
+}
+
+function testEnv(env: Record<string, string | undefined> = {}) {
+  return { MOLTZAP_ADMIN_USER_ID: ADMIN_USER_ID, ...env };
 }
 
 function expectFailureValue(exit: Exit.Exit<unknown, unknown>): unknown {
@@ -120,7 +127,8 @@ function encryptionSurfaces() {
       MOLTZAP_DEV_MODE: "true",
       ENCRYPTION_MASTER_SECRET: SECRET,
     });
-    expect(result.encryptionMasterSecret).toBe(SECRET);
+    expect(result.encryptionMasterSecret).not.toBeUndefined();
+    expect(Redacted.value(result.encryptionMasterSecret!)).toBe(SECRET);
   });
 }
 
@@ -178,7 +186,7 @@ function rejectsInvalidPort() {
       const exit = yield* Effect.exit(
         loadStandaloneConfig({
           configPath,
-          processEnv: { CORS_ORIGINS: APP_ORIGIN },
+          processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
         }),
       );
       const err = expectFailureValue(exit);
@@ -197,9 +205,13 @@ function envInterpolation() {
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({
         configPath,
-        processEnv: { MY_SECRET: INTERPOLATED, CORS_ORIGINS: APP_ORIGIN },
+        processEnv: testEnv({
+          MY_SECRET: INTERPOLATED,
+          CORS_ORIGINS: APP_ORIGIN,
+        }),
       });
-      expect(result.registrationSecret).toBe(INTERPOLATED);
+      expect(result.registrationSecret).not.toBeUndefined();
+      expect(Redacted.value(result.registrationSecret!)).toBe(INTERPOLATED);
     }),
   );
 }
@@ -209,7 +221,7 @@ function appsPassthrough() {
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({
         configPath,
-        processEnv: { CORS_ORIGINS: APP_ORIGIN },
+        processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
       });
       expect(result.apps).toEqual([
         { manifest: "./app1.json" },
@@ -228,10 +240,12 @@ function doesNotMutateReusedEnv() {
       const processEnv: Record<string, string | undefined> = {
         [REUSED_ENV_KEY]: REUSED_ENV_VALUE,
         MOLTZAP_DEV_MODE: "true",
+        MOLTZAP_ADMIN_USER_ID: ADMIN_USER_ID,
       };
       const beforeKeys = Object.keys(processEnv).length;
       const result = yield* loadStandaloneConfig({ configPath, processEnv });
-      expect(result.registrationSecret).toBe(REUSED_ENV_VALUE);
+      expect(result.registrationSecret).not.toBeUndefined();
+      expect(Redacted.value(result.registrationSecret!)).toBe(REUSED_ENV_VALUE);
       expect(processEnv[REUSED_ENV_KEY]).toBe(REUSED_ENV_VALUE);
       expect(Object.keys(processEnv).length).toBe(beforeKeys);
     }),
@@ -245,7 +259,7 @@ function expectValidationRejection(body: string) {
       const exit = yield* Effect.exit(
         loadStandaloneConfig({
           configPath,
-          processEnv: { CORS_ORIGINS: APP_ORIGIN },
+          processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
         }),
       );
       const err = expectFailureValue(exit);
@@ -260,7 +274,7 @@ function contactsBinding() {
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({
         configPath,
-        processEnv: { CORS_ORIGINS: APP_ORIGIN },
+        processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
       });
       expect(result.contactWebhook).toEqual({
         url: CONTACT_URL,
@@ -275,7 +289,7 @@ function contactCallbackTokenBothPresent() {
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({
         configPath,
-        processEnv: { CORS_ORIGINS: APP_ORIGIN },
+        processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
       });
       // The shared webhook parser accepts both timeout_ms and
       // callback_token; both present must survive the YAML service decode

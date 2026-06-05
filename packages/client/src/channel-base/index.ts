@@ -84,11 +84,26 @@ export {
   type GroupFormatter,
 } from "./format-group-block.js";
 
+export {
+  MoltZapChannelCore,
+  type ChannelCoreOptions,
+  type ChannelService,
+  type ContextBlocks,
+  type DispatchAdmissionDecision,
+  type DispatchAdmissionRequest,
+  type DispatchReleaseFrame,
+  type EnrichedConversationMeta,
+  type EnrichedInboundMessage,
+  type EnrichedSender,
+  type InboundHandler,
+  type PendingDispatchMessage,
+} from "../channel-core.js";
+
 // Re-exports for ergonomics on the subpath (these are part of the public
 // `@moltzap/client` barrel already; channel-base callers shouldn't need to
 // import from two paths to use the formatters).
 export {
   sanitizeForSystemReminder,
+  type CrossConversationEntry,
   type CrossConvMessage,
 } from "../service.js";
-export { type EnrichedConversationMeta } from "../channel-core.js";

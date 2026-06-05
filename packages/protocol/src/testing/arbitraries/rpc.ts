@@ -7,12 +7,12 @@
 import * as fc from "fast-check";
 import { Data } from "effect";
 import {
-  serverRpcMethods,
+  serverInboundMethods,
   type AnyServerRpcDefinition,
-} from "../../engine/rpc-method-groups.js";
+} from "../../rpc-method-groups.js";
 import { arbitraryFromSchema } from "./schema-arbitrary.js";
 
-type MethodName = (typeof serverRpcMethods)[number]["name"];
+type MethodName = (typeof serverInboundMethods)[number]["name"];
 
 class RpcArbitraryInvariantError extends Data.TaggedError(
   "RpcArbitraryInvariantError",
@@ -35,13 +35,12 @@ export interface ArbitraryRpcCall {
  * assert "every method exercised at least once" without going through
  * `RpcMap` directly.
  */
-export const allRpcMethods: ReadonlyArray<MethodName> = serverRpcMethods.map(
-  (m) => m.name,
-);
+export const allRpcMethods: ReadonlyArray<MethodName> =
+  serverInboundMethods.map((m) => m.name);
 
 // Precomputed lookup from wire name → manifest, so `arbitraryCallFor` is O(1).
 const methodByName = new Map<MethodName, AnyServerRpcDefinition>(
-  serverRpcMethods.map((m) => [m.name, m as AnyServerRpcDefinition]),
+  serverInboundMethods.map((m) => [m.name, m as AnyServerRpcDefinition]),
 );
 
 /** Arbitrary of a valid params tree for a single, fixed RPC. */

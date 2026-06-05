@@ -1,68 +1,62 @@
 /**
- * @file Principal + refinement requirement tags — the low, domain-free head of
- * a descriptor's `requires` list.
+ * @file Principal + refinement middleware requirement tags — the low,
+ * domain-free head of a descriptor's `requires` list.
  *
  * A method's `requires` tuple is the ordered list of authority a caller must
  * satisfy before the handler runs. The FIRST element is exactly one principal
- * requirement ({@link AgentPrincipal} | {@link AppPrincipal}) — the server's
- * principal gate narrows the live connection to that arm. An optional
- * {@link AgentClaimed} refinement (agent-only) follows when the agent must be
- * claimed/active. The rest are capability requirements, defined ABOVE the
- * domains in the engine layer ({@link CapabilityRequirement}).
+ * requirement ({@link AgentPrincipal} | {@link AppPrincipal} |
+ * {@link AuthenticatedPrincipal}) — the server's principal gate narrows or
+ * admits the live connection. An optional {@link AgentClaimed} refinement
+ * (agent-only) follows when the agent must be claimed/active. The rest are
+ * capability requirements, defined ABOVE the domains in the engine layer
+ * ({@link CapabilityRequirement}).
  *
- * These three tags live at the wire layer (the DAG bottom) because the domain
+ * These tags live at the wire layer (the DAG bottom) because the domain
  * descriptors list them in `requires` and must depend on them DOWNWARD. They
- * carry NO domain type: their `Context.Tag` service type is a vestigial marker
- * ({@link PrincipalMarker}) — nothing provides or reads a value through them
- * (the gate provides nothing; the request principal rides the separate
- * `CurrentPrincipal` tag in the engine layer). Decoupling the service type from
- * the domain `Principal` is what keeps the wire layer free of `../identity` /
- * `../task` edges.
+ * are `RpcMiddleware.Tag`s, not domain principal services. Decoupling the
+ * middleware tag from the domain `Principal` keeps the wire layer free of
+ * `../identity` / `../task` edges.
  *
- * Each tag carries its `static errors` tuple — the tagged-error classes its
- * proof can fail with. The descriptor folds these into the method's effective
- * wire error union, and the server stacks each tag's `RpcMiddleware`.
+ * Each tag carries its failure schema. The descriptor folds those failures into
+ * the method's effective wire error union, and the server supplies each tag's
+ * middleware implementation.
  */
-import { Context } from "effect";
+import { Schema } from "effect";
+import { RpcMiddleware } from "@effect/rpc";
 import { ForbiddenError, principalGateErrorClasses } from "./wire-errors.js";
 
-/**
- * Vestigial service type for the principal requirement tags. The tags are pure
- * markers in a `requires` list — nothing provides or reads a value through their
- * `Context.Tag` slot (the principal gate has no `provides`; the request
- * principal rides `CurrentPrincipal`). A dedicated empty marker keeps the wire
- * layer free of the domain `Principal` type without weakening the tag identity
- * the classifiers discriminate on.
- */
-export interface PrincipalMarker {
-  readonly _principalMarker: never;
-}
+const principalGateFailure = Schema.Union(...principalGateErrorClasses);
+const agentClaimedFailure = Schema.Union(ForbiddenError);
 
 /**
  * Principal requirement: narrow the live connection to the agent arm. The first
  * element of an agent-callable method's `requires`. Fails `Unauthorized` /
  * `Forbidden` (the principal-gate errors) on a non-agent arm.
  */
-export class AgentPrincipal extends Context.Tag(
+export class AgentPrincipal extends RpcMiddleware.Tag<AgentPrincipal>()(
   "@moltzap/protocol/requirement/AgentPrincipal",
-)<AgentPrincipal, PrincipalMarker>() {
-  static get errors() {
-    return principalGateErrorClasses;
-  }
-}
+  { failure: principalGateFailure },
+) {}
 
 /**
  * Principal requirement: narrow the live connection to the app arm. The first
  * element of an app-callable method's `requires`. Fails `Unauthorized` /
  * `Forbidden` on a non-app arm.
  */
-export class AppPrincipal extends Context.Tag(
+export class AppPrincipal extends RpcMiddleware.Tag<AppPrincipal>()(
   "@moltzap/protocol/requirement/AppPrincipal",
-)<AppPrincipal, PrincipalMarker>() {
-  static get errors() {
-    return principalGateErrorClasses;
-  }
-}
+  { failure: principalGateFailure },
+) {}
+
+/**
+ * Principal requirement: require any authenticated arm. Used by methods that
+ * are shared by first-party agent and app clients but still must reject the
+ * unauthenticated pre-connect arm.
+ */
+export class AuthenticatedPrincipal extends RpcMiddleware.Tag<AuthenticatedPrincipal>()(
+  "@moltzap/protocol/requirement/AuthenticatedPrincipal",
+  { failure: principalGateFailure },
+) {}
 
 /**
  * Refinement requirement (agent-only): the agent arm must be claimed/active.
@@ -70,13 +64,13 @@ export class AppPrincipal extends Context.Tag(
  * `connection.auth.agentStatus`; it is meaningless without a preceding agent
  * principal. Fails `Forbidden` on a not-yet-claimed agent.
  */
-export class AgentClaimed extends Context.Tag(
+export class AgentClaimed extends RpcMiddleware.Tag<AgentClaimed>()(
   "@moltzap/protocol/requirement/AgentClaimed",
-)<AgentClaimed, PrincipalMarker>() {
-  static get errors() {
-    return [ForbiddenError] as const;
-  }
-}
+  { failure: agentClaimedFailure },
+) {}
 
-/** The two principal-requirement tags — the only valid `requires` heads. */
-export type PrincipalRequirement = typeof AgentPrincipal | typeof AppPrincipal;
+/** The principal-requirement tags — the only valid `requires` heads. */
+export type PrincipalRequirement =
+  | typeof AgentPrincipal
+  | typeof AppPrincipal
+  | typeof AuthenticatedPrincipal;

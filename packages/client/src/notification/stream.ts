@@ -7,7 +7,7 @@
  * start, so the snapshot semantic holds by Ref atomicity without a
  * per-sub cancelled-flag check.
  *
- * Stream construction uses `Stream.async<NotificationParamsOf<D>,
+ * Stream construction uses `Stream.async&lt;NotificationParamsOf&lt;D>,
  * NotConnectedError>` with the registry storing typed callback references — NOT
  * `Queue` of `Take` items combined with `Stream.fromQueue`/`Stream.flattenTake`,
  * which is racy under `Queue.offer(Take.fail); Queue.shutdown` and does not
@@ -36,20 +36,20 @@
  */
 import { Stream } from "effect";
 import {
-  type AnyNotificationDefinition,
   type NotConnectedError,
   type NotificationDelivery,
   notificationSubscribe,
   notificationSubscribeAll,
   type NotificationSubscriberRegistry,
   type NotificationParamsOf,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/transport";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
 
 type ClientNotificationDelivery =
   NotificationDelivery<AnyNotificationDefinition>;
 
 /**
- * Typed-payload subscribe. Returns a Stream of `NotificationParamsOf<D>`
+ * Typed-payload subscribe. Returns a Stream of `NotificationParamsOf&lt;D>`
  * whose error channel is `NotConnectedError` and whose requirement set is
  * `never` (the registry handle is bound at materialization time inside
  * `Stream.async`'s register callback, so neither Scope nor any other
@@ -62,20 +62,31 @@ export function subscribe<
   D extends AnyNotificationDefinition,
   R extends NotificationParamsOf<D>,
 >(
-  registry: NotificationSubscriberRegistry<NotConnectedError>,
+  registry: NotificationSubscriberRegistry<
+    NotConnectedError,
+    AnyNotificationDefinition
+  >,
   definition: D,
   refinement: (params: NotificationParamsOf<D>) => params is R,
 ): Stream.Stream<R, NotConnectedError, never>;
 export function subscribe<D extends AnyNotificationDefinition>(
-  registry: NotificationSubscriberRegistry<NotConnectedError>,
+  registry: NotificationSubscriberRegistry<
+    NotConnectedError,
+    AnyNotificationDefinition
+  >,
   definition: D,
   refinement?: (params: NotificationParamsOf<D>) => boolean,
 ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never>;
 export function subscribe<D extends AnyNotificationDefinition>(
-  registry: NotificationSubscriberRegistry<NotConnectedError>,
+  registry: NotificationSubscriberRegistry<
+    NotConnectedError,
+    AnyNotificationDefinition
+  >,
   definition: D,
   refinement?: (params: NotificationParamsOf<D>) => boolean,
 ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never> {
+  if (refinement === undefined)
+    return notificationSubscribe(registry, definition);
   return notificationSubscribe(registry, definition, refinement);
 }
 
@@ -86,26 +97,26 @@ export function subscribe<D extends AnyNotificationDefinition>(
  * narrowing is intentionally lost; callers wanting typed payloads use
  * `subscribe(def, refinement?)`.
  *
- * The registry has no "match all" subscription shape (`subscribe<D>` is
+ * The registry has no "match all" subscription shape (`subscribe&lt;D>` is
  * per-definition). `subscribeAll` instead registers via
  * `SubscriberRegistry.registerAll`, whose callbacks the dispatcher hits
  * for every inbound frame regardless of definition. Same lifecycle as
  * `register(def, …)`, no definition match.
  */
 export function subscribeAll(
-  registry: NotificationSubscriberRegistry<NotConnectedError>,
+  registry: NotificationSubscriberRegistry<
+    NotConnectedError,
+    AnyNotificationDefinition
+  >,
   refinement?: (
     definition: AnyNotificationDefinition,
     params: NotificationParamsOf<AnyNotificationDefinition>,
   ) => boolean,
 ): Stream.Stream<ClientNotificationDelivery, NotConnectedError, never> {
-  return notificationSubscribeAll(
-    registry,
-    refinement === undefined
-      ? undefined
-      : (delivery) => {
-          const typed = delivery as ClientNotificationDelivery;
-          return refinement(typed.definition, typed.params);
-        },
-  ) as Stream.Stream<ClientNotificationDelivery, NotConnectedError, never>;
+  if (refinement === undefined) {
+    return notificationSubscribeAll(registry);
+  }
+  return notificationSubscribeAll(registry, (delivery) => {
+    return refinement(delivery.definition, delivery.params);
+  });
 }

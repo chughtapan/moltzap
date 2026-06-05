@@ -7,12 +7,11 @@ import {
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
   InvalidParamsError,
-  UnauthorizedError,
-  type NotificationDefinition,
   type NotificationParamsOf,
   type ParamsOf,
 } from "@moltzap/protocol";
 import type { UserId } from "@moltzap/protocol/identity";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
 import type { AuthService } from "../../identity/services/auth.service.js";
 import type { AgentContext } from "../../transport/context.js";
 import {
@@ -22,16 +21,7 @@ import {
 } from "../../app/layers.js";
 import { agentArm } from "../../app/server-handlers-runtime.js";
 
-const ERR_NEED_OWNER = "Contacts require a claimed agent owner";
-
-const loadOwnerOrFail = (
-  ctx: AgentContext,
-): Effect.Effect<UserId, UnauthorizedError> =>
-  ctx.ownerUserId === null
-    ? Effect.fail(new UnauthorizedError({ message: ERR_NEED_OWNER }))
-    : Effect.succeed(ctx.ownerUserId);
-
-const fanOut = <D extends NotificationDefinition<string, any>>(
+const fanOut = <D extends AnyNotificationDefinition>(
   target: UserId,
   definition: D,
   params: NotificationParamsOf<D>,
@@ -54,7 +44,7 @@ function contactsListBody(
 ) {
   return Effect.gen(function* () {
     const contactService = yield* ContactsServiceTag;
-    const owner = yield* loadOwnerOrFail(ctx);
+    const owner = ctx.ownerUserId;
     const { contacts, nextCursor } = yield* contactService
       .list(owner, { limit: params.limit, cursor: params.cursor })
       .pipe(
@@ -76,7 +66,7 @@ function contactsAddBody(
 ) {
   return Effect.gen(function* () {
     const contactService = yield* ContactsServiceTag;
-    const owner = yield* loadOwnerOrFail(ctx);
+    const owner = ctx.ownerUserId;
     const contact = yield* contactService.add(owner, params);
     yield* fanOut(params.contactUserId, ContactRequestNotificationDefinition, {
       contact,
@@ -91,7 +81,7 @@ function contactsAcceptBody(
 ) {
   return Effect.gen(function* () {
     const contactService = yield* ContactsServiceTag;
-    const owner = yield* loadOwnerOrFail(ctx);
+    const owner = ctx.ownerUserId;
     const result = yield* contactService.accept(owner, params.contactId);
     if (result.transitioned) {
       yield* fanOut(
@@ -110,7 +100,7 @@ function contactsByIdBody(
 ) {
   return Effect.gen(function* () {
     const contactService = yield* ContactsServiceTag;
-    const owner = yield* loadOwnerOrFail(ctx);
+    const owner = ctx.ownerUserId;
     const contact = yield* contactService.byId(owner, params.contactId);
     return { contact };
   }).pipe(Effect.withSpan("contacts.byId"));

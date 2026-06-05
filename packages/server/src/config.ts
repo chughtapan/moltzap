@@ -29,7 +29,12 @@ import {
   Schema,
 } from "effect";
 import { TreeFormatter } from "effect/ParseResult";
+import {
+  RegistrationSecret,
+  ServerEncryptionMasterSecret,
+} from "@moltzap/protocol/credentials";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { UserId } from "@moltzap/protocol/identity";
 import type { Db } from "./db/client.js";
 
 // ─────────────────────────────────────────────────────────────────────
@@ -39,19 +44,18 @@ import type { Db } from "./db/client.js";
 export interface CoreConfig {
   db: Db;
   dbCleanup?: () => PromiseLike<void>;
-  encryptionMasterSecret?: string;
+  encryptionMasterSecret?: ServerEncryptionMasterSecret;
   port: number;
   corsOrigins: string[];
-  registrationSecret?: string;
+  registrationSecret?: RegistrationSecret;
   devMode?: boolean;
 
   /**
-   * When set, agents registered via the default `/api/v1/auth/register`
-   * route are given this user id as their `owner_user_id`, skipping the
-   * claim step. Intended for local dev / quickstart. Production MUST
-   * leave this unset and perform claim through an external auth provider.
+   * Boot-time admin owner id. Agents registered through the default
+   * `/api/v1/auth/register` route are owned by this user until the
+   * full app-specific registration/contact flow is installed.
    */
-  devModeUserId?: string;
+  adminUserId: UserId;
 
   /**
    * When true, core does not mount its default `/api/v1/auth/register`
@@ -59,18 +63,6 @@ export interface CoreConfig {
    * flow set this and mount their own handler.
    */
   skipDefaultRegisterRoute?: boolean;
-
-  /**
-   * Fire-and-forget HTTP webhook after message delivery with the list of
-   * offline recipient agent IDs. Body is signed with HMAC-SHA256 in the
-   * `X-MoltZap-Signature: sha256=&lt;hex>` header using `secret`.
-   *
-   * Shape: `{ conversationId, messageId, offlineRecipientAgentIds: string[] }`.
-   *
-   * Dispatched on a detached daemon fiber with a 3-attempt exponential backoff
-   * (1s base, jittered). Failures log and drop — never block `messages/send`.
-   */
-  deliveryWebhook?: { url: string; secret: string };
 
   /**
    * Optional OpenTelemetry span processor. Tests typically pass
@@ -99,17 +91,15 @@ export interface StandaloneBootPlan {
   /** YAML `database.data_dir` for PGlite (ignored when `databaseUrl` is set). */
   readonly pgliteDataDir: string | undefined;
 
-  readonly encryptionMasterSecret: string | undefined;
+  readonly encryptionMasterSecret: ServerEncryptionMasterSecret | undefined;
   readonly port: number;
   readonly corsOrigins: string[];
 
   readonly devMode: boolean;
-  /** True when YAML `dev_mode.enabled: true` — drives `devModeUserId` minting. */
-  readonly devModeEnabled: boolean;
-  /** YAML `dev_mode.user_id`. When `devModeEnabled` and this is undefined, callers mint a random UUID. */
-  readonly devModeUserId: string | undefined;
+  /** Boot-time admin owner id from `MOLTZAP_ADMIN_USER_ID` or YAML `admin_user_id`. */
+  readonly adminUserId: UserId;
 
-  readonly registrationSecret: string | undefined;
+  readonly registrationSecret: RegistrationSecret | undefined;
 
   /** YAML `services.contacts: { type: "webhook" }` — drives `WebhookContactService` wiring. */
   readonly contactWebhook: WebhookServiceBinding | undefined;
@@ -163,15 +153,13 @@ const PortNumber = Schema.Number.pipe(
   Schema.lessThanOrEqualTo(MAX_PORT_NUMBER),
 );
 
-const NonEmpty = Schema.String.pipe(Schema.minLength(1));
-
 const WebhookServiceShape = Schema.Struct({
   type: Schema.Literal("webhook"),
   webhook_url: UriString,
   timeout_ms: Schema.optional(
     Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(100)),
   ),
-  callback_token: Schema.optional(NonEmpty),
+  callback_token: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 
 const InProcessServiceShape = Schema.Struct({
@@ -180,9 +168,12 @@ const InProcessServiceShape = Schema.Struct({
 
 const ServiceShape = Schema.Union(WebhookServiceShape, InProcessServiceShape);
 
-const AppRefShape = Schema.Struct({ manifest: NonEmpty });
+const AppRefShape = Schema.Struct({
+  manifest: Schema.String.pipe(Schema.minLength(1)),
+});
 
 const MoltZapConfigShape = Schema.Struct({
+  admin_user_id: Schema.optional(UserId),
   server: Schema.optional(
     Schema.Struct({
       port: Schema.optional(PortNumber),
@@ -191,21 +182,22 @@ const MoltZapConfigShape = Schema.Struct({
   ),
   database: Schema.optional(
     Schema.Struct({
-      url: Schema.optional(NonEmpty),
+      url: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
       data_dir: Schema.optional(Schema.String),
     }),
   ),
-  encryption: Schema.optional(Schema.Struct({ master_secret: NonEmpty })),
+  encryption: Schema.optional(
+    Schema.Struct({ master_secret: ServerEncryptionMasterSecret }),
+  ),
   services: Schema.optional(
     Schema.Struct({ contacts: Schema.optional(ServiceShape) }),
   ),
   registration: Schema.optional(
-    Schema.Struct({ secret: Schema.optional(NonEmpty) }),
+    Schema.Struct({ secret: Schema.optional(RegistrationSecret) }),
   ),
   dev_mode: Schema.optional(
     Schema.Struct({
       enabled: Schema.Boolean,
-      user_id: Schema.optional(NonEmpty),
     }),
   ),
   apps: Schema.optional(Schema.Array(AppRefShape)),
@@ -464,6 +456,7 @@ function loadProcessEnvSnapshot(): Effect.Effect<ProcessEnvSnapshot, never> {
     ).pipe(
       Config.map((r) => (r === undefined ? undefined : Redacted.value(r))),
     ),
+    MOLTZAP_ADMIN_USER_ID: opt(Config.string("MOLTZAP_ADMIN_USER_ID")),
     MOLTZAP_CONFIG: opt(Config.string("MOLTZAP_CONFIG")),
     MOLTZAP_DEV_MODE: opt(Config.string("MOLTZAP_DEV_MODE")),
     PORT: opt(Config.string("PORT")),
@@ -496,6 +489,25 @@ interface BootPlanInputs {
   readonly configDirectory: string;
   readonly processEnv: ProcessEnvSnapshot;
   readonly configPath: string;
+}
+
+function decodeEnvSecret<A, I>(
+  schema: Schema.Schema<A, I>,
+  value: string | undefined,
+  envKey: string,
+  configPath: string,
+): Effect.Effect<A | undefined, ConfigLoadError> {
+  if (value === undefined || value.length === 0) {
+    return Effect.succeed(undefined);
+  }
+  return Schema.decodeUnknown(schema)(value).pipe(
+    Effect.mapError((cause) =>
+      makeInvalidEnvError(
+        configPath,
+        `${envKey} is invalid: ${TreeFormatter.formatErrorSync(cause)}`,
+      ),
+    ),
+  );
 }
 
 function resolveDevMode(
@@ -574,35 +586,54 @@ function resolveDatabaseUrl(
   return Effect.succeed(url);
 }
 
+function resolveAdminUserId(
+  processEnv: ProcessEnvSnapshot,
+  yaml: YamlConfig,
+  configPath: string,
+): Effect.Effect<UserId, ConfigLoadError> {
+  const raw = processEnv["MOLTZAP_ADMIN_USER_ID"];
+  if (raw !== undefined && raw.length > 0) {
+    return Either.match(Schema.decodeUnknownEither(UserId)(raw), {
+      onLeft: (cause) =>
+        Effect.fail(
+          makeInvalidEnvError(
+            configPath,
+            `MOLTZAP_ADMIN_USER_ID must be a UUID (${cause.message})`,
+          ),
+        ),
+      onRight: Effect.succeed,
+    });
+  }
+  if (yaml.admin_user_id !== undefined)
+    return Effect.succeed(yaml.admin_user_id);
+  return Effect.fail(
+    makeInvalidEnvError(
+      configPath,
+      "admin_user_id is required. Set YAML admin_user_id or MOLTZAP_ADMIN_USER_ID.",
+    ),
+  );
+}
+
 interface ResolvedFields {
   readonly devMode: boolean;
   readonly port: number;
   readonly corsOrigins: string[];
   readonly databaseUrl: string;
+  readonly adminUserId: UserId;
 }
 
 interface YamlDerived {
   readonly pgliteDataDir: string | undefined;
-  readonly encryptionFromYaml: string | undefined;
-  readonly devMode: { enabled: boolean; userId: string | undefined };
-  readonly registrationSecret: string | undefined;
+  readonly encryptionFromYaml: ServerEncryptionMasterSecret | undefined;
+  readonly registrationSecret: RegistrationSecret | undefined;
   readonly contactWebhook: WebhookServiceBinding | undefined;
   readonly apps: ReadonlyArray<{ readonly manifest: string }>;
-}
-
-function projectYamlDevMode(yaml: YamlConfig): {
-  enabled: boolean;
-  userId: string | undefined;
-} {
-  const dev = yaml.dev_mode;
-  return { enabled: dev?.enabled ?? false, userId: dev?.user_id };
 }
 
 function projectYaml(yaml: YamlConfig): YamlDerived {
   return {
     pgliteDataDir: yaml.database?.data_dir,
     encryptionFromYaml: yaml.encryption?.master_secret,
-    devMode: projectYamlDevMode(yaml),
     registrationSecret: yaml.registration?.secret,
     contactWebhook: webhookBinding(yaml.services?.contacts),
     apps: yaml.apps ?? [],
@@ -612,19 +643,17 @@ function projectYaml(yaml: YamlConfig): YamlDerived {
 function assembleBootPlan(
   inputs: BootPlanInputs,
   fields: ResolvedFields,
+  encryptionFromEnv: ServerEncryptionMasterSecret | undefined,
 ): StandaloneBootPlan {
   const ymlDerived = projectYaml(inputs.yaml);
   return {
     databaseUrl: fields.databaseUrl,
     pgliteDataDir: ymlDerived.pgliteDataDir,
-    encryptionMasterSecret:
-      inputs.processEnv["ENCRYPTION_MASTER_SECRET"] ??
-      ymlDerived.encryptionFromYaml,
+    encryptionMasterSecret: encryptionFromEnv ?? ymlDerived.encryptionFromYaml,
     port: fields.port,
     corsOrigins: fields.corsOrigins,
     devMode: fields.devMode,
-    devModeEnabled: ymlDerived.devMode.enabled,
-    devModeUserId: ymlDerived.devMode.userId,
+    adminUserId: fields.adminUserId,
     registrationSecret: ymlDerived.registrationSecret,
     contactWebhook: ymlDerived.contactWebhook,
     apps: ymlDerived.apps,
@@ -651,12 +680,24 @@ function buildBootPlan(
       devMode,
       configPath,
     );
-    return assembleBootPlan(inputs, {
-      devMode,
-      port,
-      corsOrigins,
-      databaseUrl,
-    });
+    const adminUserId = yield* resolveAdminUserId(processEnv, yaml, configPath);
+    const encryptionFromEnv = yield* decodeEnvSecret(
+      ServerEncryptionMasterSecret,
+      processEnv["ENCRYPTION_MASTER_SECRET"],
+      "ENCRYPTION_MASTER_SECRET",
+      configPath,
+    );
+    return assembleBootPlan(
+      inputs,
+      {
+        devMode,
+        port,
+        corsOrigins,
+        databaseUrl,
+        adminUserId,
+      },
+      encryptionFromEnv,
+    );
   });
 }
 

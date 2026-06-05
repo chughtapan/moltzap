@@ -1,41 +1,21 @@
-import { Data, Effect, HashMap, Match, Option, Ref, type Scope } from "effect";
-import type * as Socket from "@effect/platform/Socket";
-import {
-  type AnyAppCallbackRpcDefinition,
-  type ParamsOf,
-  type ResultOf,
+import { Data, Effect, HashMap, Match, Option, Ref } from "effect";
+import type { SocketError } from "@effect/platform/Socket";
+import type {
+  ReverseCallbackError,
+  ReverseCallbackRequest,
+  ReverseCallbackSuccess,
+  ReverseClient,
+  ReverseCallError,
 } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol/network";
-import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import {
+  DispatchAuthorize,
+  MessagesAuthorize,
+  TaskCreate,
+} from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/runtime";
+import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { AgentContext, AppContext } from "../transport/context.js";
-import {
-  buildReverseClient,
-  type ReverseClient,
-  type ReverseCallError,
-} from "./reverse-rpc-client.js";
-
-/**
- * Allocate a per-connection reverse `RpcClient&lt;ReverseRpcGroup>` over the
- * socket's `write`. The server fires moderator callbacks (awaited) and
- * notifications (fork-and-forget) at the connected client through it; the
- * client serves them via its reverse `RpcServer`. The returned client's sink is
- * registered as the socket's `client` sink with `runMuxReader` (the caller
- * threads it in). Scope-bound: the client + its engine reader tear down with the
- * connection scope.
- */
-export function acquireConnectionRpcClient(
-  connectionId: ConnectionId,
-  write: (raw: string) => Effect.Effect<void, Socket.SocketError>,
-): Effect.Effect<ReverseClient, never, Scope.Scope> {
-  return Effect.gen(function* () {
-    const scope = yield* Effect.scope;
-    return yield* buildReverseClient({
-      write: (chunk) => write(chunk),
-      scope,
-    });
-  }).pipe(Effect.withSpan("acquireConnectionRpcClient"));
-}
 
 /**
  * Send an awaitable RPC from server → client over the connection's reverse
@@ -45,22 +25,48 @@ export function acquireConnectionRpcClient(
  * app's `AppEndpoint`, minted from the live `AppConnection` arm. Caller controls
  * timeout via `Effect.timeout` at the call site.
  */
-export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
+export function sendRpcToClient(
   originator: Originator,
-  definition: D,
-  params: ParamsOf<D>,
-): Effect.Effect<ResultOf<D>, ReverseCallError, never> {
-  // Each app-callback method's wire `name` is a reverse-channel tag; the
-  // reverse client's typed `call` recovers the result + transport error per
-  // tag. This def-driven wrapper is the one generic site over the callback
-  // union: inside it the per-tag payload/result correlation is not statically
-  // recoverable, so the descriptor (validated by `AnyAppCallbackRpcDefinition`)
-  // pins the types and the dispatch launders the generic tag.
-
-  return originator.call(
-    definition.name as never,
-    params as never,
-  ) as Effect.Effect<ResultOf<D>, ReverseCallError, never>;
+  request: Extract<
+    ReverseCallbackRequest,
+    { readonly definition: typeof DispatchAuthorize }
+  >,
+): Effect.Effect<
+  ReverseCallbackSuccess<typeof DispatchAuthorize>,
+  ReverseCallbackError<typeof DispatchAuthorize> | ReverseCallError,
+  never
+>;
+export function sendRpcToClient(
+  originator: Originator,
+  request: Extract<
+    ReverseCallbackRequest,
+    { readonly definition: typeof MessagesAuthorize }
+  >,
+): Effect.Effect<
+  ReverseCallbackSuccess<typeof MessagesAuthorize>,
+  ReverseCallbackError<typeof MessagesAuthorize> | ReverseCallError,
+  never
+>;
+export function sendRpcToClient(
+  originator: Originator,
+  request: Extract<
+    ReverseCallbackRequest,
+    { readonly definition: typeof TaskCreate }
+  >,
+): Effect.Effect<
+  ReverseCallbackSuccess<typeof TaskCreate>,
+  ReverseCallbackError<typeof TaskCreate> | ReverseCallError,
+  never
+>;
+export function sendRpcToClient(
+  originator: Originator,
+  request: ReverseCallbackRequest,
+): ReturnType<Originator["callback"]>;
+export function sendRpcToClient(
+  originator: Originator,
+  request: ReverseCallbackRequest,
+): ReturnType<Originator["callback"]> {
+  return originator.callback(request);
 }
 
 // ===========================================================================
@@ -73,8 +79,8 @@ export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
 
 /**
  * The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires
- * callbacks/notifications through. Publicly constructible (via
- * `acquireConnectionRpcClient` above); passed to
+ * callbacks/notifications through. Constructed by protocol `MoltZapServer`
+ * during socket accept and passed to
  * `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
  */
 export type Originator = ReverseClient;
@@ -89,7 +95,7 @@ export interface WebSocketRef {
    * Write a raw frame to this connection. Fails with SocketError on send
    * failure or if the socket is already closed.
    */
-  readonly write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
+  readonly write: (raw: string) => Effect.Effect<void, SocketError>;
   /** Close this connection's scope, tearing down the underlying socket. */
   readonly shutdown: Effect.Effect<void>;
 }
@@ -119,7 +125,7 @@ interface ConnectionBase {
 class UnauthenticatedConnection extends Data.TaggedClass(
   "UnauthenticatedConnection",
 )<ConnectionBase> {
-  private readonly __brand: never = undefined as never;
+  private readonly __brand!: never;
 }
 
 // eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
@@ -142,14 +148,14 @@ class AgentConnection extends Data.TaggedClass("AgentConnection")<
     readonly conversationIds: Set<ConversationId>;
   }
 > {
-  private readonly __brand: never = undefined as never;
+  private readonly __brand!: never;
 }
 
 // eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class AppConnection extends Data.TaggedClass("AppConnection")<
   ConnectionBase & { readonly auth: AppContext }
 > {
-  private readonly __brand: never = undefined as never;
+  private readonly __brand!: never;
 }
 
 export type { UnauthenticatedConnection, AgentConnection, AppConnection };
@@ -409,43 +415,6 @@ export class ConnectionManager {
         return out;
       }),
     );
-  }
-
-  /**
-   * Rebind `ownerUserId` on every connected agent arm of `agentId` after a
-   * successful claim. The `AgentContext` arm field is immutable, so each
-   * matching `AgentConnection` is rebuilt with a fresh `AgentContext` carrying
-   * the new owner (its `conversationIds` Set + socket/originator are carried
-   * forward by reference). `http-routes.ts → refreshClaimedConnections` calls
-   * this.
-   */
-  setOwnerUserIdForAgent(
-    agentId: AgentId,
-    ownerUserId: UserId,
-  ): Effect.Effect<void> {
-    return Ref.update(this.connectionsRef, (map) => {
-      let next = map;
-      for (const conn of HashMap.values(map)) {
-        if (conn._tag === "AgentConnection" && conn.auth.agentId === agentId) {
-          next = HashMap.set(
-            next,
-            conn.connId,
-            new AgentConnection({
-              connId: conn.connId,
-              socket: conn.socket,
-              originator: conn.originator,
-              conversationIds: conn.conversationIds,
-              auth: new AgentContext({
-                agentId: conn.auth.agentId,
-                agentStatus: conn.auth.agentStatus,
-                ownerUserId,
-              }),
-            }),
-          );
-        }
-      }
-      return next;
-    });
   }
 
   /**

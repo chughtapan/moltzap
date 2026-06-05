@@ -17,7 +17,7 @@
  *
  * Auth-lifecycle:
  * - Socket connect: NOT yet added to the resolver (no `agentId` known).
- * - `network/connect` success: {@link add} writes the entry atomically.
+ * - `agent/connect` success: {@link add} writes the entry atomically.
  * - Disconnect: {@link remove} removes the entry whether the connection
  *   was authed or not (idempotent on never-authed connections).
  *
@@ -26,17 +26,17 @@
  */
 import { Effect, HashMap, HashSet, Option, Ref } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import {
+  connectionId as protocolConnectionId,
+  type ConnectionId,
+} from "@moltzap/protocol";
 
 /**
- * Brand a raw connection-id string. Used by call sites that mint a fresh
- * id (`socket-handler.ts` at WS accept) or in tests that name connections
- * with synthetic strings. `ConnectionId` itself lives at
- * `@moltzap/protocol/network`; the boundary cast here is the only
- * acceptable production construction since `crypto.randomUUID()` returns
- * `string` and `ConnectionId` is a `brandedString` (no UUID predicate).
+ * Decode a raw connection-id string through the protocol brand constructor.
+ * Used by tests that name connections with synthetic strings; production
+ * socket accept uses `newConnectionId` from protocol.
  */
-export const connectionId = (raw: string): ConnectionId => raw as ConnectionId;
+export const connectionId = protocolConnectionId;
 
 /**
  * Snapshot of the resolver's combined state. Held in a single {@link Ref}
@@ -59,7 +59,7 @@ const emptyState: ResolverState = {
  *
  * All mutators run inside a single {@link Ref.update} so the forward and
  * reverse views never disagree, even under concurrent {@link add} /
- * {@link remove} calls from independent `network/connect` and disconnect
+ * {@link remove} calls from independent `agent/connect` and disconnect
  * fibers.
  */
 export class AgentEndpointResolver {
