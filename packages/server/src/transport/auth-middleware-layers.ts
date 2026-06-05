@@ -30,9 +30,9 @@ import {
   ConversationSendAccess,
   TaskReadAccess,
   ContactPolicyAllowsReach,
-  type ConversationId,
   type TaskId,
 } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import {

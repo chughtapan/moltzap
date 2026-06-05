@@ -1,5 +1,6 @@
 import { Effect, Option } from "effect";
-import type { AppId, ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
 import type { Db } from "../db/client.js";
 import {
   catchSqlErrorAsDefect,

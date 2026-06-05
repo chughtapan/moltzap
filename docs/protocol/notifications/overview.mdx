@@ -14,7 +14,6 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 | [`presence/changed`](/protocol/notifications/presence-changed) | Pushed when a subscribed participant's presence status changes. |
 | [`contact/request`](/protocol/notifications/contact-request) | Pushed when an agent receives a contact request. |
 | [`contact/accepted`](/protocol/notifications/contact-accepted) | Pushed when a contact request is accepted. |
-| [`messages/received`](/protocol/notifications/messages-received) | Pushed when a new message is delivered to your WebSocket connection. |
 | [`task/closed`](/protocol/notifications/task-closed) | Pushed when a task closes. |
 | [`task/created`](/protocol/notifications/task-created) | Pushed to the task initiator + invited participants after the TM accepts via the `task/create` wire callback and the task transitions from `waiting` to `active`. |
 | [`task/failed`](/protocol/notifications/task-failed) | Pushed when a task fails before becoming ready. |
@@ -23,6 +22,7 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 | [`task/conversation/unarchived`](/protocol/notifications/task-conversation-unarchived) | Pushed as the `task/conversation/unarchived` notification. |
 | [`task/conversation/participants/added`](/protocol/notifications/task-conversation-participants-added) | Pushed as the `task/conversation/participants/added` notification. |
 | [`task/conversation/participants/removed`](/protocol/notifications/task-conversation-participants-removed) | Pushed as the `task/conversation/participants/removed` notification. |
+| [`messages/received`](/protocol/notifications/messages-received) | Pushed as the `messages/received` notification. |
 | [`dispatch/release`](/protocol/notifications/dispatch-release) | Pushed as the `dispatch/release` notification. |
 | [`dispatches/consumed`](/protocol/notifications/dispatches-consumed) | Pushed as the `dispatches/consumed` notification. |
 | [`dispatches/expired`](/protocol/notifications/dispatches-expired) | Pushed as the `dispatches/expired` notification. |

@@ -12,7 +12,7 @@ exports are already available on focused subpaths.
 
 ## Public surface
 
-### [`AgentCallableGroup`](./rpc-method-groups.ts#L83)
+### [`AgentCallableGroup`](./rpc-method-groups.ts#L90)
 
 _Variable_
 
@@ -20,7 +20,7 @@ _Variable_
 export const AgentCallableGroup = makeClientRpcGroup(agentCallableMethods)
 ```
 
-### [`agentCallableMethods`](./rpc-method-groups.ts#L39)
+### [`agentCallableMethods`](./rpc-method-groups.ts#L43)
 
 _Variable_
 
@@ -29,7 +29,8 @@ export const agentCallableMethods = [
   ...identityRpcMethods,
   ...agentCallableNetworkRpcMethods,
   ...agentCallableTaskRpcMethods,
-  ...agentCallableAppRpcMethods,
+  ...agentCallableMessageRpcMethods,
+  ...agentCallableDispatchRpcMethods,
 ] as const
 ```
 
@@ -49,7 +50,7 @@ _Variable_
 export const AgentKey = Schema.Redacted(AgentKeyValue)
 ```
 
-### [`AnyAgentCallableRpcDefinition`](./rpc-method-groups.ts#L67)
+### [`AnyAgentCallableRpcDefinition`](./rpc-method-groups.ts#L74)
 
 _TypeAlias_
 
@@ -58,7 +59,7 @@ export type AnyAgentCallableRpcDefinition =
   (typeof agentCallableMethods)[number];
 ```
 
-### [`AnyAppCallableRpcDefinition`](./rpc-method-groups.ts#L69)
+### [`AnyAppCallableRpcDefinition`](./rpc-method-groups.ts#L76)
 
 _TypeAlias_
 
@@ -66,7 +67,7 @@ _TypeAlias_
 export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
 ```
 
-### [`AnyAppCallbackRpcDefinition`](./rpc-method-groups.ts#L71)
+### [`AnyAppCallbackRpcDefinition`](./rpc-method-groups.ts#L78)
 
 _TypeAlias_
 
@@ -74,7 +75,7 @@ _TypeAlias_
 export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 ```
 
-### [`AnyNotificationDefinition`](./rpc-method-groups.ts#L73)
+### [`AnyNotificationDefinition`](./rpc-method-groups.ts#L80)
 
 _TypeAlias_
 
@@ -83,7 +84,7 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](./rpc-method-groups.ts#L66)
+### [`AnyServerRpcDefinition`](./rpc-method-groups.ts#L73)
 
 _TypeAlias_
 
@@ -91,7 +92,7 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 ```
 
-### [`AppCallableGroup`](./rpc-method-groups.ts#L85)
+### [`AppCallableGroup`](./rpc-method-groups.ts#L92)
 
 _Variable_
 
@@ -99,7 +100,7 @@ _Variable_
 export const AppCallableGroup = makeClientRpcGroup(appCallableMethods)
 ```
 
-### [`appCallableMethods`](./rpc-method-groups.ts#L46)
+### [`appCallableMethods`](./rpc-method-groups.ts#L51)
 
 _Variable_
 
@@ -108,6 +109,14 @@ export const appCallableMethods = [
   ...appCallableNetworkRpcMethods,
   ...appOnlyCallableMethods,
 ] as const
+```
+
+### [`appCallbackMethods`](./rpc-method-groups.ts#L28)
+
+_Variable_
+
+```ts
+export const appCallbackMethods = appDomainCallbackMethods
 ```
 
 ### [`AppKey`](./credentials.ts#L29)
@@ -203,7 +212,7 @@ export type MwStackFor<Requires extends ReadonlyArray<unknown>> = Extract<
 >;
 ```
 
-### [`notificationDefinitions`](./rpc-method-groups.ts#L59)
+### [`notificationDefinitions`](./rpc-method-groups.ts#L65)
 
 _Variable_
 
@@ -212,11 +221,12 @@ export const notificationDefinitions = [
   ...networkNotifications,
   ...identityNotifications,
   ...taskNotifications,
-  ...appNotifications,
+  ...messageNotifications,
+  ...dispatchNotifications,
 ] as const
 ```
 
-### [`NotificationRpcGroup`](./rpc-method-groups.ts#L128)
+### [`NotificationRpcGroup`](./rpc-method-groups.ts#L135)
 
 _Variable_
 
@@ -321,7 +331,7 @@ export const requiresClaimed = (
 ): boolean
 ```
 
-### [`ReverseRpcGroup`](./rpc-method-groups.ts#L143)
+### [`ReverseRpcGroup`](./rpc-method-groups.ts#L150)
 
 _Variable_
 
@@ -362,7 +372,7 @@ export const ServerEncryptionMasterSecret = Schema.Redacted(
 )
 ```
 
-### [`serverInboundMethods`](./rpc-method-groups.ts#L51)
+### [`serverInboundMethods`](./rpc-method-groups.ts#L56)
 
 _Variable_
 
@@ -371,8 +381,9 @@ export const serverInboundMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
   ...agentCallableTaskRpcMethods,
+  ...agentCallableMessageRpcMethods,
   ...appOnlyCallableMethods,
-  ...agentCallableAppRpcMethods,
+  ...agentCallableDispatchRpcMethods,
 ] as const
 ```
 

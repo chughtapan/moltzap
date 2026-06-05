@@ -39,15 +39,14 @@ import {
 } from "../_shared/registry.js";
 import type { AgentId } from "../../../identity/index.js";
 import {
-  type ConversationId,
-  type MessageId,
   AppId,
   TaskAddParticipant,
   TaskConversationAddParticipant,
   TaskConversationCreate,
   TaskRequest,
-  MessagesSend,
 } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { MessagesSend, LeaseId } from "@moltzap/protocol/message";
 import type { TaskId } from "../../../task/index.js";
 import {
   DispatchAuthorize,
@@ -57,8 +56,7 @@ import {
   DispatchesExpired,
   DispatchesGet,
   type DispatchId,
-} from "../../../app/index.js";
-import { LeaseId } from "../../../task/index.js";
+} from "../../../dispatch/index.js";
 import type { NotificationDelivery } from "../../../transport/index.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
@@ -1205,4 +1203,4 @@ export type {
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-} from "../../../app/index.js";
+} from "../../../dispatch/index.js";

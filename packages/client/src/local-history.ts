@@ -1,10 +1,7 @@
 import { AgentId } from "@moltzap/protocol/identity";
-import {
-  ConversationId,
-  MessageId,
-  TaskId,
-  type Message,
-} from "@moltzap/protocol/task";
+import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { TaskId } from "@moltzap/protocol/task";
+import type { Message } from "@moltzap/protocol/message";
 import { HashMap, Option, Schema } from "effect";
 import { renderPart } from "./message-rendering.js";
 

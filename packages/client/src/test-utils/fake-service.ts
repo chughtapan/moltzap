@@ -26,7 +26,7 @@ import type {
   PayloadForTag,
   SuccessForTag,
 } from "@moltzap/protocol/transport";
-import type { Message } from "@moltzap/protocol/task";
+import type { Message } from "@moltzap/protocol/message";
 import type { RpcGroup } from "@effect/rpc";
 import { NotFoundError } from "@moltzap/protocol/transport";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";

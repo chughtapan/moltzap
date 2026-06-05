@@ -1,5 +1,6 @@
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import type { Effect } from "effect";
 
 type ContactPolicyCheck = (

@@ -1,39 +1,4 @@
 export {
-  ConversationId,
-  MessageId,
-  ConversationNotFoundError,
-  NotAParticipantError,
-  ConversationArchivedError,
-  ConversationFullError,
-} from "./conversations.js";
-export type {
-  Conversation,
-  ConversationParticipant,
-  ConversationSummary,
-} from "./conversations.js";
-
-export {
-  MessageNotFoundError,
-  validateTextPart,
-  validateMessage,
-  messagePartsSchema,
-  LeaseId,
-  MessagesSend,
-  MessagesList,
-  MessageReceivedNotificationDefinition,
-  validateDispatchDecision,
-  dispatchDecisionSchema,
-  messageWithDispatchDecisionSchema,
-} from "./messages.js";
-export type {
-  Part,
-  Message,
-  MessageReceivedNotification,
-  DispatchDecision,
-  MessageWithDispatchDecision,
-} from "./messages.js";
-
-export {
   AppId,
   DEFAULT_APP_ID,
   TaskId,
@@ -76,8 +41,6 @@ export type {
   TaskConversationParticipantsRemovedNotification,
 } from "./tasks.js";
 
-import { MessagesSend, MessagesList } from "./messages.js";
-import { MessageReceivedNotificationDefinition } from "./messages.js";
 import {
   TaskList,
   TaskClose,
@@ -109,8 +72,6 @@ export const agentCallableTaskRpcMethods = [
   TaskList,
   TaskLeave,
   TaskConversationList,
-  MessagesSend,
-  MessagesList,
 ] as const;
 
 export const appCallableTaskRpcMethods = [
@@ -125,7 +86,6 @@ export const appCallableTaskRpcMethods = [
 ] as const;
 
 export const taskNotifications = [
-  MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,

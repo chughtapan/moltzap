@@ -5,7 +5,8 @@ import type {
 } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol";
-import type { LeaseId, MessageId } from "@moltzap/protocol/task";
+import type { MessageId } from "@moltzap/protocol/conversation";
+import type { LeaseId } from "@moltzap/protocol/message";
 import type { ContactService } from "../identity/services/contact-policy.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";

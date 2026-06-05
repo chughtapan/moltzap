@@ -24,11 +24,11 @@ import type {
   AnyNotificationDefinition,
 } from "../../../../rpc-method-groups.js";
 import {
-  DispatchAuthorize,
   MessagesAuthorize,
   TaskCreate,
   type AppCallbackHandlers,
 } from "../../../../app/index.js";
+import { DispatchAuthorize } from "../../../../dispatch/index.js";
 import { MoltZapAgentClient } from "../../../../socket/agent-client.js";
 import {
   MoltZapAppClient,

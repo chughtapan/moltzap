@@ -36,9 +36,9 @@ import {
 import {
   TaskRequest,
   DEFAULT_APP_ID,
-  type ConversationId,
   type TaskId,
 } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 

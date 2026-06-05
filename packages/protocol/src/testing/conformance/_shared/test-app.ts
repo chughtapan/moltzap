@@ -10,11 +10,11 @@
  */
 import { Duration, Effect, Ref, type Scope, Schema } from "effect";
 import {
-  DispatchAuthorize,
   MessagesAuthorize,
   TaskCreate,
   type AppManifest,
 } from "../../../app/index.js";
+import { DispatchAuthorize } from "../../../dispatch/index.js";
 import { AppId } from "../../../task/index.js";
 import { makeAppTestClient, type AppTestClient } from "./driver/test-client.js";
 import type {

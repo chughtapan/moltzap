@@ -19,7 +19,8 @@ import {
   type ConnectionId,
 } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { AppId, ConversationId, MessageId } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { AppId } from "@moltzap/protocol/task";
 import {
   type DispatchAdmissionResult,
   type MessageAuthorizeContext,

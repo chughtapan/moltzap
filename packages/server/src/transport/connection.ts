@@ -14,7 +14,7 @@ import {
 } from "@moltzap/protocol";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import { AgentContext, AppContext } from "../transport/context.js";
 
 /**

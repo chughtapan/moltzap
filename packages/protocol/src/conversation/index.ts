@@ -1,3 +1,7 @@
+/**
+ * @file Conversation identifiers, wire shapes, and domain errors.
+ */
+
 import { Schema } from "effect";
 import {
   dateTimeStringSchema,
@@ -14,14 +18,22 @@ const errorPayloadFields = {
   data: Schema.optional(Schema.Unknown),
 } as const;
 
+/** Branded conversation identifier. */
 export const ConversationId = brandedId("ConversationId");
+
+/** Branded conversation identifier value. */
 export type ConversationId = Schema.Schema.Type<typeof ConversationId>;
-// MessageId brand lives here (rather than in messages.ts) to break the
-// otherwise-circular `conversations <-> messages` import: the participant
-// schema below references MessageId, and messages.ts already references
-// ConversationId. Owning the brand at the upstream end keeps the dep
-// graph one-way.
+
+/**
+ * Branded message identifier.
+ *
+ * This lives in the conversation module to keep the message module downstream:
+ * conversation participant state references the last-read message, and message
+ * rows reference their conversation.
+ */
 export const MessageId = brandedId("MessageId");
+
+/** Branded message identifier value. */
 export type MessageId = Schema.Schema.Type<typeof MessageId>;
 
 /** The referenced conversation does not exist under the task (or is not visible). */
@@ -40,6 +52,7 @@ export class NotAParticipantError extends Schema.TaggedError<NotAParticipantErro
   static readonly message = "Not a participant in the conversation";
 }
 
+/** The conversation is archived and cannot accept the requested mutation. */
 export class ConversationArchivedError extends Schema.TaggedError<ConversationArchivedError>()(
   "ConversationArchived",
   errorPayloadFields,
@@ -47,6 +60,7 @@ export class ConversationArchivedError extends Schema.TaggedError<ConversationAr
   static readonly message = "Conversation is archived";
 }
 
+/** The conversation has reached its participant capacity. */
 export class ConversationFullError extends Schema.TaggedError<ConversationFullError>()(
   "ConversationFull",
   errorPayloadFields,
@@ -101,14 +115,23 @@ const ConversationSummarySchema = Schema.Struct({
   participants: Schema.optional(Schema.Array(AgentParticipantRefSchema)),
 });
 
+/** Conversation row visible on task conversation surfaces. */
 export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
+
+/** Participant row for a conversation. */
 export type ConversationParticipant = Schema.Schema.Type<
   typeof ConversationParticipantSchema
 >;
+
+/** Conversation summary row used by list surfaces. */
 export type ConversationSummary = Schema.Schema.Type<
   typeof ConversationSummarySchema
 >;
 
+/**
+ * Return the canonical conversation schema.
+ * @returns The canonical conversation schema.
+ */
 export function conversationSchema(): typeof ConversationSchema {
   return ConversationSchema;
 }

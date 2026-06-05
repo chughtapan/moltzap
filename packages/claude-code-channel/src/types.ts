@@ -22,8 +22,8 @@ import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
 import type {
   ConversationId as ProtocolConversationId,
   MessageId as ProtocolMessageId,
-  TaskId as ProtocolTaskId,
-} from "@moltzap/protocol/task";
+} from "@moltzap/protocol/conversation";
+import type { TaskId as ProtocolTaskId } from "@moltzap/protocol/task";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { AllowlistError, PushError } from "./errors.js";
 

@@ -16,7 +16,7 @@ arbitrary derivation, and Toxiproxy adversity helpers.
 
 ## Public surface
 
-### [`agentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L76)
+### [`agentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L78)
 
 _Function_
 
@@ -24,7 +24,7 @@ _Function_
 export const agentId = (value: string): Schema.Schema.Type<typeof AgentId>
 ```
 
-### [`agentKeyArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L116)
+### [`agentKeyArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L118)
 
 _Variable_
 
@@ -33,7 +33,7 @@ export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
   agentKeyStringArbitrary.map(redactedAgentKey)
 ```
 
-### [`agentKeyString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L118)
+### [`agentKeyString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L120)
 
 _Function_
 
@@ -41,7 +41,7 @@ _Function_
 export const agentKeyString = (seed: number): string
 ```
 
-### [`agentKeyStringArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L111)
+### [`agentKeyStringArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L113)
 
 _Variable_
 
@@ -53,7 +53,7 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
   ).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`)
 ```
 
-### [`AgentRegistrationError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L162)
+### [`AgentRegistrationError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L164)
 
 _Class_
 
@@ -70,7 +70,7 @@ export class AgentRegistrationError extends Data.TaggedError(
 
 HTTP registration failed (network, non-2xx, malformed response).
 
-### [`appId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L94)
+### [`appId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L96)
 
 _Function_
 
@@ -78,7 +78,7 @@ _Function_
 export const appId = (value: string): Schema.Schema.Type<typeof AppId>
 ```
 
-### [`connectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L128)
+### [`connectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L130)
 
 _Function_
 
@@ -86,7 +86,7 @@ _Function_
 export const connectionId = (value: string): ConnectionId
 ```
 
-### [`contactId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L78)
+### [`contactId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L80)
 
 _Function_
 
@@ -96,7 +96,7 @@ export const contactId = (
 ): Schema.Schema.Type<typeof ContactId>
 ```
 
-### [`conversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L82)
+### [`conversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L84)
 
 _Function_
 
@@ -106,7 +106,7 @@ export const conversationId = (
 ): Schema.Schema.Type<typeof ConversationId>
 ```
 
-### [`leaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L92)
+### [`leaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L94)
 
 _Function_
 
@@ -136,7 +136,7 @@ export function makeTestAppClient(
 ): Effect.Effect<TestAppClient, unknown>
 ```
 
-### [`messageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L86)
+### [`messageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L88)
 
 _Function_
 
@@ -146,7 +146,7 @@ export const messageId = (
 ): Schema.Schema.Type<typeof MessageId>
 ```
 
-### [`mintTestAppCredential`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L308)
+### [`mintTestAppCredential`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L310)
 
 _Function_
 
@@ -183,7 +183,7 @@ export class RealServerAcquireError extends Data.TaggedError(
 
 Consumer-supplied real-server factory threw or returned an unusable handle.
 
-### [`redactedAgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L96)
+### [`redactedAgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L98)
 
 _Function_
 
@@ -191,7 +191,7 @@ _Function_
 export const redactedAgentKey = (value: string): AgentKey
 ```
 
-### [`redactedAppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L98)
+### [`redactedAppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L100)
 
 _Function_
 
@@ -199,7 +199,7 @@ _Function_
 export const redactedAppKey = (value: string): AppKey
 ```
 
-### [`redactedRegistrationSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L100)
+### [`redactedRegistrationSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L102)
 
 _Function_
 
@@ -207,7 +207,7 @@ _Function_
 export const redactedRegistrationSecret = (value: string): RegistrationSecret
 ```
 
-### [`redactedServerEncryptionMasterSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L102)
+### [`redactedServerEncryptionMasterSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L104)
 
 _Function_
 
@@ -217,7 +217,7 @@ export const redactedServerEncryptionMasterSecret = (
 ): ServerEncryptionMasterSecret
 ```
 
-### [`registerTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L355)
+### [`registerTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L357)
 
 _Function_
 
@@ -261,7 +261,7 @@ export class RpcTimeoutError extends Data.TaggedError(
 
 Wall-clock deadline for a request expired before a response.
 
-### [`taskId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L90)
+### [`taskId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L92)
 
 _Function_
 
@@ -269,7 +269,7 @@ _Function_
 export const taskId = (value: string): Schema.Schema.Type<typeof TaskId>
 ```
 
-### [`TestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L138)
+### [`TestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L140)
 
 _Interface_
 
@@ -349,7 +349,7 @@ export interface TestAppClient {
 }
 ```
 
-### [`TestAppCredential`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L250)
+### [`TestAppCredential`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L252)
 
 _Interface_
 
@@ -362,7 +362,7 @@ export interface TestAppCredential {
 
 Server-minted app principal credentials.
 
-### [`TestAppHttpRegistrationError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L274)
+### [`TestAppHttpRegistrationError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L276)
 
 _Class_
 
@@ -435,7 +435,7 @@ export class TransportIoError extends Data.TaggedError(
 
 Underlying transport raised (socket error, DNS, TLS, etc.).
 
-### [`userId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L74)
+### [`userId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L76)
 
 _Function_
 

@@ -21,7 +21,8 @@ import { withTestServiceConfig } from "@moltzap/client/test-utils";
 import { AgentKey, type Message } from "@moltzap/protocol";
 import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
 import { makeMoltZapChannel, MoltZapChannel } from "../channels/moltzap.js";

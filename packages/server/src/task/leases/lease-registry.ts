@@ -2,23 +2,21 @@
 import { Data, Effect, Fiber, Option, Ref, Schema } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol";
-import type {
-  AppId,
-  ConversationId,
-  MessageId,
-  TaskId,
-} from "@moltzap/protocol/task";
-import type { DispatchesGet, ResultOf } from "@moltzap/protocol";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
+import type { DispatchesGet, DispatchId } from "@moltzap/protocol/dispatch";
+import type { ResultOf } from "@moltzap/protocol";
 import {
   DispatchId as DispatchIdSchema,
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
+} from "@moltzap/protocol/dispatch";
+import {
   LeaseId as LeaseIdSchema,
-  type DispatchId,
   type LeaseId,
-  type NotificationParamsOf,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
+import { type NotificationParamsOf } from "@moltzap/protocol";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
 import type { ConnectionManager } from "../../transport/connection.js";
 import type { LeaseTransitionObserver } from "../../network/services/presence-types.js";

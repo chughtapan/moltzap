@@ -30,9 +30,9 @@ import {
 import {
   DEFAULT_APP_ID,
   TaskRequest,
-  type ConversationId,
   type TaskId,
 } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;

@@ -19,7 +19,8 @@ import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import { agentId, waitUntil } from "@moltzap/protocol/testing";
 import { bootClaudeCodeChannel } from "../entry.js";
 import type { Handle } from "../types.js";

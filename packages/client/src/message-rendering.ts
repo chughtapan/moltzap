@@ -1,4 +1,4 @@
-import type { Part } from "@moltzap/protocol/task";
+import type { Part } from "@moltzap/protocol/message";
 import { Match } from "effect";
 
 export const renderPart: (part: Part) => string = Match.type<Part>().pipe(

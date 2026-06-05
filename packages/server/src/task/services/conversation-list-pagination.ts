@@ -15,7 +15,7 @@ import type {
   ConversationSummary,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect } from "effect";
 import { InvalidParamsError } from "@moltzap/protocol";

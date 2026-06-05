@@ -1,18 +1,10 @@
 /**
- * @file Public barrel for app RPC descriptors and app-hook protocol types.
+ * @file Public barrel for app manifest and app-hook protocol types.
  */
 export {
-  DispatchId,
-  DispatchRequest,
-  DispatchAuthorize,
-  DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
-  DispatchesGet,
   MessagesAuthorize,
   TaskCreate,
   validateAppManifest,
-  DispatchNotFoundError,
 } from "./methods.js";
 
 export type { AppManifest } from "./methods.js";

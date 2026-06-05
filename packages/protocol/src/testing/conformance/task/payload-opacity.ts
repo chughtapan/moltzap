@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
-} from "../../../task/index.js";
+} from "../../../message/index.js";
 import {
   isNotificationDeliveryFor,
   type NotificationDelivery,

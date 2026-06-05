@@ -4,11 +4,11 @@ _`packages/protocol/src/task`_
 
 ## Purpose
 
-Public barrel for task, conversation, message, and task-manager protocol descriptors.
+Public barrel for task protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableTaskRpcMethods`](./methods.ts#L107)
+### [`agentCallableTaskRpcMethods`](./methods.ts#L70)
 
 _Variable_
 
@@ -18,12 +18,10 @@ export const agentCallableTaskRpcMethods = [
   TaskList,
   TaskLeave,
   TaskConversationList,
-  MessagesSend,
-  MessagesList,
 ] as const
 ```
 
-### [`appCallableTaskRpcMethods`](./methods.ts#L116)
+### [`appCallableTaskRpcMethods`](./methods.ts#L77)
 
 _Variable_
 
@@ -56,99 +54,6 @@ _Variable_
 export const AppId = brandedId("AppId")
 ```
 
-### [`Conversation`](./conversations.ts#L104)
-
-_TypeAlias_
-
-```ts
-export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
-```
-
-### [`ConversationArchivedError`](./conversations.ts#L43)
-
-_Class_
-
-```ts
-export class ConversationArchivedError extends Schema.TaggedError<ConversationArchivedError>()(
-  "ConversationArchived",
-  errorPayloadFields,
-) {
-  static readonly message = "Conversation is archived";
-}
-```
-
-### [`ConversationFullError`](./conversations.ts#L50)
-
-_Class_
-
-```ts
-export class ConversationFullError extends Schema.TaggedError<ConversationFullError>()(
-  "ConversationFull",
-  errorPayloadFields,
-) {
-  static readonly message = "Conversation is full";
-}
-```
-
-### [`ConversationId`](./conversations.ts#L17)
-
-_TypeAlias_
-
-```ts
-export const ConversationId = brandedId("ConversationId");
-```
-
-### [`ConversationId`](./conversations.ts#L17)
-
-_Variable_
-
-```ts
-export const ConversationId = brandedId("ConversationId")
-```
-
-### [`ConversationNotFoundError`](./conversations.ts#L28)
-
-_Class_
-
-```ts
-export class ConversationNotFoundError extends Schema.TaggedError<ConversationNotFoundError>()(
-  "ConversationNotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Conversation not found";
-}
-```
-
-The referenced conversation does not exist under the task (or is not visible).
-
-### [`ConversationParticipant`](./conversations.ts#L105)
-
-_TypeAlias_
-
-```ts
-export type ConversationParticipant = Schema.Schema.Type<
-  typeof ConversationParticipantSchema
->;
-```
-
-### [`conversationSchema`](./conversations.ts#L112)
-
-_Function_
-
-```ts
-export function conversationSchema(): typeof ConversationSchema
-```
-
-### [`ConversationSummary`](./conversations.ts#L108)
-
-_TypeAlias_
-
-```ts
-export type ConversationSummary = Schema.Schema.Type<
-  typeof ConversationSummarySchema
->;
-```
-
 ### [`DEFAULT_APP_ID`](./ids.ts#L25)
 
 _Variable_
@@ -158,43 +63,6 @@ export const DEFAULT_APP_ID = Schema.decodeSync(AppId)(
   "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb",
 )
 ```
-
-### [`DispatchDecision`](./messages.ts#L293)
-
-_TypeAlias_
-
-```ts
-export type DispatchDecision = Schema.Schema.Type<
-  typeof DispatchDecisionSchema
->;
-```
-
-### [`dispatchDecisionSchema`](./messages.ts#L310)
-
-_Function_
-
-```ts
-export function dispatchDecisionSchema(): typeof DispatchDecisionSchema
-```
-
-### [`DispatchNotFoundError`](./messages.ts#L135)
-
-_Class_
-
-```ts
-export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
-  "DispatchNotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Dispatch lease not found";
-}
-```
-
-The referenced dispatch lease does not exist (or the caller is not its
-moderator). Lives here next to LeaseId — the lease-id vocabulary the
-`messages/send` `dispatchLeaseId` and the app-layer `dispatches/get` both
-key on — so both layers raise the same typed not-found without a
-`task → app` import cycle.
 
 ### [`HookBlockedError`](./tasks.ts#L114)
 
@@ -217,203 +85,6 @@ _TypeAlias_
 export type InitialConversationInput = Schema.Schema.Type<
   typeof InitialConversationSchema
 >;
-```
-
-### [`LeaseId`](./messages.ts#L125)
-
-_TypeAlias_
-
-```ts
-export const LeaseId = brandedId("LeaseId");
-```
-
-### [`LeaseId`](./messages.ts#L125)
-
-_Variable_
-
-```ts
-export const LeaseId = brandedId("LeaseId")
-```
-
-### [`Message`](./messages.ts#L97)
-
-_TypeAlias_
-
-```ts
-export type Message = Schema.Schema.Type<typeof MessageSchema>;
-```
-
-### [`MessageId`](./conversations.ts#L24)
-
-_TypeAlias_
-
-```ts
-export const MessageId = brandedId("MessageId");
-```
-
-### [`MessageId`](./conversations.ts#L24)
-
-_Variable_
-
-```ts
-export const MessageId = brandedId("MessageId")
-```
-
-### [`MessageNotFoundError`](./messages.ts#L43)
-
-_Class_
-
-```ts
-export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundError>()(
-  "MessageNotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Message not found";
-}
-```
-
-The referenced message does not exist (e.g. a `replyToId` reply target).
-
-### [`messagePartsSchema`](./messages.ts#L117)
-
-_Function_
-
-```ts
-export function messagePartsSchema(): typeof MessagePartsSchema
-```
-
-### [`MessageReceivedNotification`](./messages.ts#L248)
-
-_TypeAlias_
-
-```ts
-export type MessageReceivedNotification = Schema.Schema.Type<
-  typeof MessageReceivedNotificationSchema
->;
-```
-
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L256)
-
-_Variable_
-
-```ts
-export const MessageReceivedNotificationDefinition = defineNotification({
-  name: "messages/received",
-  params: MessageReceivedNotificationSchema,
-})
-```
-
-Pushed when a new message is delivered to your WebSocket connection.
-
-### [`MessagesList`](./messages.ts#L231)
-
-_Variable_
-
-```ts
-export const MessagesList = defineRpc({
-  name: "messages/list",
-  params: MessagesListParams,
-  result: MessagesListResult,
-  requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
-  errors: [ForbiddenError],
-})
-```
-
-List messages in a conversation with cursor-based pagination using sequence
-numbers.
-
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
-- **Params:** `taskId`, `conversationId`, optional `sinceSeq` cursor, `limit`.
-- **Result:** the `messages` page plus `hasMore`.
-- **Caps (run order):** `TaskReadAccess` proves the caller may read the task,
-  then `ConversationInTask` resolves the conversation's task membership.
-  Conversation-not-found rides those cap error channels.
-
-### [`MessagesSend`](./messages.ts#L179)
-
-_Variable_
-
-```ts
-export const MessagesSend = defineRpc({
-  name: "messages/send",
-  params: MessagesSendParams,
-  result: MessagesSendResult,
-  requires: [
-    AgentPrincipal,
-    AgentClaimed,
-    ConversationInTask,
-    ConversationSendAccess,
-  ],
-  errors: [
-    HookBlockedError,
-    ForbiddenError,
-    MessageNotFoundError,
-    DispatchNotFoundError,
-    TaskClosedError,
-    ConversationArchivedError,
-  ],
-})
-```
-
-Send a message to a conversation under a task. Both `taskId` and
-`conversationId` are required; the conversation must already exist
-(created via `task/conversation/create`) and the sender must be a
-participant.
-
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
-- **Params:** `taskId`, `conversationId`, `parts` (1–10 text/image/file
-  parts), optional `replyToId`, optional `dispatchLeaseId`.
-- **Result:** the created `message` (ID, parts, sender, timestamp).
-- **Caps (run order):** `ConversationInTask` resolves the conversation's
-  task membership; `ConversationSendAccess` proves participation and does
-  the ONE joined (`conversations ⋈ tasks`) read, handing the send row to
-  the handler. The remaining send preconditions — task-active,
-  conversation-not-archived, reply-target — are handler-body guards that
-  refine that provided row (they share the one read; `@effect/rpc`
-  middlewares cannot read each other's provided value, so a refinement
-  that depends on the row is a handler guard, not a standalone middleware).
-
-**Returns:** The created message with ID, sequence number, and timestamp.
-
-### [`MessageWithDispatchDecision`](./messages.ts#L306)
-
-_TypeAlias_
-
-```ts
-export type MessageWithDispatchDecision = Schema.Schema.Type<
-  typeof MessageWithDispatchDecisionSchema
->;
-```
-
-### [`messageWithDispatchDecisionSchema`](./messages.ts#L314)
-
-_Function_
-
-```ts
-export function messageWithDispatchDecisionSchema(): typeof MessageWithDispatchDecisionSchema
-```
-
-### [`NotAParticipantError`](./conversations.ts#L36)
-
-_Class_
-
-```ts
-export class NotAParticipantError extends Schema.TaggedError<NotAParticipantError>()(
-  "NotAParticipant",
-  errorPayloadFields,
-) {
-  static readonly message = "Not a participant in the conversation";
-}
-```
-
-The caller is not a participant in the conversation it is acting on.
-
-### [`Part`](./messages.ts#L79)
-
-_TypeAlias_
-
-```ts
-export type Part = Schema.Schema.Type<typeof PartSchema>;
 ```
 
 ### [`ParticipantNotAdmittedError`](./tasks.ts#L128)
@@ -899,13 +570,12 @@ The referenced task does not exist (or the caller cannot see it). Lives in the
 task-id leaf so the `TaskReadAccess` capability can declare it as its
 fail-closed not-found without a `capabilities → tasks` runtime import cycle.
 
-### [`taskNotifications`](./methods.ts#L127)
+### [`taskNotifications`](./methods.ts#L88)
 
 _Variable_
 
 ```ts
 export const taskNotifications = [
-  MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
@@ -1015,34 +685,8 @@ _TypeAlias_
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 ```
 
-### [`validateDispatchDecision`](./messages.ts#L299)
-
-_Variable_
-
-```ts
-export const validateDispatchDecision = closedGuard(DispatchDecisionSchema)
-```
-
-### [`validateMessage`](./messages.ts#L115)
-
-_Variable_
-
-```ts
-export const validateMessage = closedGuard(MessageSchema)
-```
-
-### [`validateTextPart`](./messages.ts#L114)
-
-_Variable_
-
-```ts
-export const validateTextPart = closedGuard(TextPartSchema)
-```
-
 ## Files
 
-- `conversations.ts`
 - `ids.ts`
-- `messages.ts`
 - `methods.ts`
 - `tasks.ts`

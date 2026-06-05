@@ -5,7 +5,8 @@
  */
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
-import { ConversationId, TaskId } from "@moltzap/protocol/task";
+import { ConversationId } from "@moltzap/protocol/conversation";
+import { TaskId } from "@moltzap/protocol/task";
 import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import { logJson, logLines } from "../output.js";

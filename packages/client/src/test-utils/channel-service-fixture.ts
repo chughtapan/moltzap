@@ -1,8 +1,9 @@
 /** Test fixture factory for ChannelService-shaped objects. */
 
 import { Effect } from "effect";
-import type { Message } from "@moltzap/protocol/task";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { Message } from "@moltzap/protocol/message";
+import type { TaskId } from "@moltzap/protocol/task";
 import { testAgentId, testConversationId, testTaskId } from "./ids.js";
 import type { ChannelService, DispatchReleaseFrame } from "../channel-core.js";
 import type { CrossConversationEntry, CrossConvMessage } from "../service.js";

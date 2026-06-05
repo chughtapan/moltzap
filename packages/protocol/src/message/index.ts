@@ -1,3 +1,7 @@
+/**
+ * @file Message identifiers, wire shapes, RPC descriptors, and notifications.
+ */
+
 import { Either, Schema } from "effect";
 import {
   brandedId,
@@ -8,16 +12,19 @@ import { ListLimitSchema } from "../transport/pagination.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { AgentPrincipal, AgentClaimed } from "../transport/principal.js";
-import { ConversationId, MessageId } from "./conversations.js";
-import { HookBlockedError, TaskClosedError } from "./tasks.js";
-import { ConversationArchivedError } from "./conversations.js";
+import {
+  ConversationArchivedError,
+  ConversationId,
+  MessageId,
+} from "../conversation/index.js";
+import { HookBlockedError, TaskClosedError } from "../task/tasks.js";
 import { ForbiddenError } from "../transport/wire-errors.js";
-import { TaskId } from "./ids.js";
+import { TaskId } from "../task/ids.js";
 import {
   ConversationInTask,
   ConversationSendAccess,
   TaskReadAccess,
-} from "./capabilities/index.js";
+} from "../task/capabilities/index.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — message value types used by 2+ blocks in this file.
@@ -39,7 +46,7 @@ const errorPayloadFields = {
   data: Schema.optional(Schema.Unknown),
 } as const;
 
-/** The referenced message does not exist (e.g. a `replyToId` reply target). */
+/** The referenced message does not exist, such as a `replyToId` reply target. */
 export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundError>()(
   "MessageNotFound",
   errorPayloadFields,
@@ -76,6 +83,7 @@ const PartSchema = Schema.Union(
   FilePartSchema,
 );
 
+/** User-authored message content part. */
 export type Part = Schema.Schema.Type<typeof PartSchema>;
 
 const MessagePartsSchema = Schema.Array(PartSchema).pipe(
@@ -94,6 +102,7 @@ const MessageSchema = Schema.Struct({
   createdAt: DateTimeString,
 });
 
+/** Message row visible to agent callers. */
 export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
 /**
@@ -102,6 +111,8 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
  * boundaries (DB-read parts/messages, app-supplied verdicts) where an extra
  * key signals a malformed value and must fail, so the guard decodes with
  * `{ onExcessProperty: "error" }`.
+ * @param schema Schema to decode strictly.
+ * @returns A boolean type guard for the schema value.
  */
 const closedGuard =
   <A, I>(schema: Schema.Schema<A, I>) =>
@@ -111,9 +122,16 @@ const closedGuard =
       { onLeft: () => false, onRight: () => true },
     );
 
+/** Return true when the value is a closed text part. */
 export const validateTextPart = closedGuard(TextPartSchema);
+
+/** Return true when the value is a closed message row. */
 export const validateMessage = closedGuard(MessageSchema);
 
+/**
+ * Return the canonical message-parts schema.
+ * @returns The canonical message-parts schema.
+ */
 export function messagePartsSchema(): typeof MessagePartsSchema {
   return MessagePartsSchema;
 }
@@ -122,7 +140,10 @@ export function messagePartsSchema(): typeof MessagePartsSchema {
 // messages/send
 // ═══════════════════════════════════════════════════════════════════
 
+/** Branded dispatch lease identifier. */
 export const LeaseId = brandedId("LeaseId");
+
+/** Branded dispatch lease identifier value. */
 export type LeaseId = Schema.Schema.Type<typeof LeaseId>;
 
 /**
@@ -156,17 +177,9 @@ const MessagesSendResult = Schema.Struct({ message: MessageSchema });
  * participant.
  *
  * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
- * - **Params:** `taskId`, `conversationId`, `parts` (1–10 text/image/file
- *   parts), optional `replyToId`, optional `dispatchLeaseId`.
+ * - **Params:** `taskId`, `conversationId`, `parts` (1–10 text/image/file parts), optional `replyToId`, optional `dispatchLeaseId`.
  * - **Result:** the created `message` (ID, parts, sender, timestamp).
- * - **Caps (run order):** `ConversationInTask` resolves the conversation's
- *   task membership; `ConversationSendAccess` proves participation and does
- *   the ONE joined (`conversations ⋈ tasks`) read, handing the send row to
- *   the handler. The remaining send preconditions — task-active,
- *   conversation-not-archived, reply-target — are handler-body guards that
- *   refine that provided row (they share the one read; `@effect/rpc`
- *   middlewares cannot read each other's provided value, so a refinement
- *   that depends on the row is a handler guard, not a standalone middleware).
+ * - **Caps (run order):** `ConversationInTask` resolves the conversation's task membership; `ConversationSendAccess` proves participation and does the joined read. The remaining send preconditions are handler-body guards that refine that provided row.
  * @returns The created message with ID, sequence number, and timestamp.
  * @error MessageNotFoundError when the `replyToId` reply target is absent
  * @error DispatchNotFoundError when the dispatch lease is missing
@@ -223,9 +236,7 @@ const MessagesListResult = Schema.Struct({
  * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
  * - **Params:** `taskId`, `conversationId`, optional `sinceSeq` cursor, `limit`.
  * - **Result:** the `messages` page plus `hasMore`.
- * - **Caps (run order):** `TaskReadAccess` proves the caller may read the task,
- *   then `ConversationInTask` resolves the conversation's task membership.
- *   Conversation-not-found rides those cap error channels.
+ * - **Caps (run order):** `TaskReadAccess` proves the caller may read the task, then `ConversationInTask` resolves the conversation's task membership. Conversation-not-found rides those cap error channels.
  * @error ForbiddenError when the caller is not a participant of the conversation
  */
 export const MessagesList = defineRpc({
@@ -245,6 +256,7 @@ const MessageReceivedNotificationSchema = Schema.Struct({
   message: MessageSchema,
 });
 
+/** Notification payload for `messages/received`. */
 export type MessageReceivedNotification = Schema.Schema.Type<
   typeof MessageReceivedNotificationSchema
 >;
@@ -290,12 +302,12 @@ const DispatchDecisionSchema = Schema.Union(
   }),
 );
 
+/** Per-message dispatch authorization decision. */
 export type DispatchDecision = Schema.Schema.Type<
   typeof DispatchDecisionSchema
 >;
-// Strict, excess-rejecting guard over the verdict union. Decodes a value read
-// from the `messages.dispatch_decision` JSONB column; an extra key signals a
-// malformed verdict and rejects.
+
+/** Return true when a value is a closed dispatch decision. */
 export const validateDispatchDecision = closedGuard(DispatchDecisionSchema);
 
 const MessageWithDispatchDecisionSchema = Schema.extend(
@@ -303,14 +315,34 @@ const MessageWithDispatchDecisionSchema = Schema.extend(
   Schema.Struct({ dispatchDecision: DispatchDecisionSchema }),
 );
 
+/** Message row visible to app callers, including the dispatch decision. */
 export type MessageWithDispatchDecision = Schema.Schema.Type<
   typeof MessageWithDispatchDecisionSchema
 >;
 
+/**
+ * Return the canonical dispatch decision schema.
+ * @returns The canonical dispatch decision schema.
+ */
 export function dispatchDecisionSchema(): typeof DispatchDecisionSchema {
   return DispatchDecisionSchema;
 }
 
+/**
+ * Return the app-visible message schema that includes dispatch decisions.
+ * @returns The app-visible message schema.
+ */
 export function messageWithDispatchDecisionSchema(): typeof MessageWithDispatchDecisionSchema {
   return MessageWithDispatchDecisionSchema;
 }
+
+/** Agent-callable message RPC catalog. */
+export const agentCallableMessageRpcMethods = [
+  MessagesSend,
+  MessagesList,
+] as const;
+
+/** Message notification catalog. */
+export const messageNotifications = [
+  MessageReceivedNotificationDefinition,
+] as const;

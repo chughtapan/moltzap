@@ -9,7 +9,7 @@ import {
   type PropertyRun,
 } from "../_shared/registry.js";
 import { makeDispatchTestDriver, type DispatchTestDriver } from "./_driver.js";
-import type { MessageId } from "@moltzap/protocol/task";
+import type { MessageId } from "@moltzap/protocol/conversation";
 import { messageId as makeMessageId } from "../_shared/test-fixtures.js";
 
 export const DISPATCH_ADMISSION_CATEGORY = "dispatch-admission" as const;

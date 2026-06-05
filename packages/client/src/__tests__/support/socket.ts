@@ -3,7 +3,8 @@ import {
   LocalDaemonCommands,
   requestDaemonCommand,
 } from "../../cli/socket-client.js";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import type { HistoryRequest, HistoryResponse } from "../../local-history.js";
 import { SOCKET_HISTORY_LIMIT } from "./constants.js";
 

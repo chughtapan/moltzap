@@ -26,11 +26,11 @@ import {
   TaskFailedNotificationDefinition,
   TaskRequest,
   TaskLeave,
-  type Conversation,
   type Task,
   type TaskConversationListItem,
   type TaskId,
 } from "../../../task/index.js";
+import type { Conversation } from "../../../conversation/index.js";
 import { TaskCreate } from "../../../app/index.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
 import { type TestAgent } from "../_shared/test-fixtures.js";

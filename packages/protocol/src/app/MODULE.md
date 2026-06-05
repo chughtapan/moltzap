@@ -4,27 +4,11 @@ _`packages/protocol/src/app`_
 
 ## Purpose
 
-Public barrel for app RPC descriptors and app-hook protocol types.
+Public barrel for app manifest and app-hook protocol types.
 
 ## Public surface
 
-### [`agentCallableAppRpcMethods`](./methods.ts#L43)
-
-_Variable_
-
-```ts
-export const agentCallableAppRpcMethods = [DispatchRequest] as const
-```
-
-### [`appCallableAppRpcMethods`](./methods.ts#L45)
-
-_Variable_
-
-```ts
-export const appCallableAppRpcMethods = [DispatchesGet] as const
-```
-
-### [`AppCallbackHandlers`](./methods.ts#L91)
+### [`AppCallbackHandlers`](./methods.ts#L63)
 
 _TypeAlias_
 
@@ -39,7 +23,7 @@ Closed handler table for an app moderating one or more tasks. Every
 `appCallbackMethods` member is required; vacuous-deny moderators still write
 the handler explicitly.
 
-### [`appCallbackMethods`](./methods.ts#L47)
+### [`appCallbackMethods`](./methods.ts#L25)
 
 _Variable_
 
@@ -51,7 +35,7 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppCallbackRpcDefinition`](./methods.ts#L84)
+### [`AppCallbackRpcDefinition`](./methods.ts#L56)
 
 _TypeAlias_
 
@@ -78,198 +62,7 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`appNotifications`](./methods.ts#L53)
-
-_Variable_
-
-```ts
-export const appNotifications = [
-  DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
-] as const
-```
-
-### [`DispatchAuthorize`](./dispatch.ts#L143)
-
-_Variable_
-
-```ts
-export const DispatchAuthorize = defineRpc({
-  name: "dispatch/authorize",
-  params: DispatchAuthorizeContextSchema,
-  result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
-  requires: [],
-  errors: [ForbiddenError],
-})
-```
-
-Server → moderator request asking for the admission verdict. Carried
-inside the forked moderator round-trip; failure / timeout in the
-round-trip synthesizes a fail-closed `deny` verdict at
-`LeaseRegistry.resolve`. The server emits this RPC only for a manifest
-whose `dispatch_authorize` policy is `{ kind: "hook" }`.
-
-- **Principal:** none — a server→client reverse callback. The client serves
-  it, the server does not gate it, so `requires` is empty.
-
-### [`DispatchesConsumed`](./dispatch.ts#L188)
-
-_Variable_
-
-```ts
-export const DispatchesConsumed = defineNotification({
-  name: "dispatches/consumed",
-  params: Schema.Struct({
-    dispatchId: DispatchId,
-    leaseId: LeaseId,
-    conversationId: ConversationId,
-    messageId: MessageId,
-    consumedAt: DateTimeString,
-  }),
-})
-```
-
-Server → moderator notification: a lease was consumed by a
-successful `messages/send`. Fires at `Claim.finalize` time, after
-the durable insert lands, scoped to the moderator's connection only
-(NOT broadcast). The moderator IS the authority for the lease, so
-`messageId` visibility is in-scope.
-
-### [`DispatchesExpired`](./dispatch.ts#L205)
-
-_Variable_
-
-```ts
-export const DispatchesExpired = defineNotification({
-  name: "dispatches/expired",
-  params: Schema.Struct({
-    dispatchId: DispatchId,
-    leaseId: LeaseId,
-    conversationId: ConversationId,
-    expiredAt: DateTimeString,
-  }),
-})
-```
-
-Server → moderator notification: a granted lease aged out via post-
-grant TTL without being consumed. Scoped to the moderator's
-connection only. Distinct from DENIED (verdict-deny) and ABANDONED
-(recipient disconnect) — EXPIRED is the inactivity outcome.
-
-### [`DispatchesGet`](./dispatch.ts#L270)
-
-_Variable_
-
-```ts
-export const DispatchesGet = defineRpc({
-  name: "dispatches/get",
-  params: Schema.Struct({ dispatchId: DispatchId }),
-  result: Schema.Struct({ lease: LeaseRecordSchema }),
-  requires: [AppPrincipal],
-  errors: [DispatchNotFoundError, ForbiddenError],
-})
-```
-
-Moderator-only query for a specific lease record. Scope-enforced at
-the handler: the calling connection must match the lease's
-`moderatorConnectionId` (the binding tuple recorded at mint time);
-non-moderator callers fail with `ForbiddenError`.
-
-- **Principal:** `AppPrincipal` head.
-
-### [`DispatchId`](./dispatch.ts#L43)
-
-_TypeAlias_
-
-```ts
-export const DispatchId = brandedId("DispatchId");
-```
-
-Branded dispatch identifier minted alongside the lease. Distinct from
-the lease id so observability surfaces (`dispatches/get`,
-`dispatches/consumed`, `dispatches/expired`) can reference an
-admission attempt by a stable handle whose lease may have been
-rolled back-and-re-granted within the same dispatch.
-
-### [`DispatchId`](./dispatch.ts#L43)
-
-_Variable_
-
-```ts
-export const DispatchId = brandedId("DispatchId")
-```
-
-Branded dispatch identifier minted alongside the lease. Distinct from
-the lease id so observability surfaces (`dispatches/get`,
-`dispatches/consumed`, `dispatches/expired`) can reference an
-admission attempt by a stable handle whose lease may have been
-rolled back-and-re-granted within the same dispatch.
-
-### [`DispatchRelease`](./dispatch.ts#L165)
-
-_Variable_
-
-```ts
-export const DispatchRelease = defineNotification({
-  name: "dispatch/release",
-  params: Schema.Struct({
-    dispatchId: DispatchId,
-    leaseId: LeaseId,
-    verdict: DispatchAdmissionDecisionSchema,
-    leaseTimeoutMs: Schema.optional(
-      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
-    ),
-  }),
-})
-```
-
-Server → recipient verdict notification. Fire-and-forget on the wire. Always
-emitted, including synthesized infra-hold. The recipient parks client-side
-on `leaseId` and unparks on this notification.
-
-`leaseTimeoutMs` is set on the `grant` arm only and is the post-grant TTL.
-HOLD inherits the same TTL by ageing out via the standard EXPIRED path; no
-`leaseTimeoutMs` field needed on the hold arm because the grant TTL has not
-started yet (lease never reached GRANTED).
-
-### [`DispatchRequest`](./dispatch.ts#L95)
-
-_Variable_
-
-```ts
-export const DispatchRequest = defineRpc({
-  name: "dispatch/request",
-  params: Schema.Struct({
-    conversationId: ConversationId,
-    messageId: MessageId,
-    senderAgentId: AgentId,
-    parts: Schema.optional(MessagePartsSchema),
-    receivedAt: Schema.optional(DateTimeString),
-    pending: Schema.optional(PendingMessageArraySchema),
-    attempt: Schema.optional(
-      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
-    ),
-  }),
-  result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
-  requires: [AgentPrincipal, AgentClaimed],
-  errors: [],
-})
-```
-
-Recipient → server admission request. The server returns an
-immediate ack carrying `{leaseId, dispatchId}` and emits an out-of-
-band `dispatch/release` notification carrying the verdict.
-
-Wire ordering: the ack and `dispatch/release` may race — the
-recipient absorbs the race via a client-side ring buffer + per-
-lease `Deferred` (see `packages/client/src/channel-core.ts`).
-
-- **Principal:** `AgentPrincipal` head + `AgentClaimed`. Agent-originated
-  even though the recipient handler runs in the app layer: an agent posts a
-  dispatch to a conversation it sends into.
-
-### [`HandlerSlot`](./methods.ts#L65)
+### [`HandlerSlot`](./methods.ts#L37)
 
 _Interface_
 
@@ -296,7 +89,7 @@ export const manifestPolicyCanaries =
 
 Aggregate so each binding is referenced (no unused-variable lint).
 
-### [`MessagesAuthorize`](./app-callbacks.ts#L74)
+### [`MessagesAuthorize`](./app-callbacks.ts#L75)
 
 _Variable_
 
@@ -326,7 +119,7 @@ sender's transcript but is delivered to no one else.
 
 - **Principal:** none — a server→client reverse callback.
 
-### [`TaskCreate`](./app-callbacks.ts#L156)
+### [`TaskCreate`](./app-callbacks.ts#L157)
 
 _Variable_
 
@@ -389,7 +182,6 @@ operator-supplied configuration, not wire traffic). On failure surfaces every
 ## Files
 
 - `app-callbacks.ts`
-- `dispatch.ts`
 - `manifest-policy.types-check.ts`
 - `manifest.ts`
 - `methods.ts`

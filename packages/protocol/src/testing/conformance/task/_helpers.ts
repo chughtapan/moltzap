@@ -21,9 +21,6 @@ import type {
 } from "../../../transport/index.js";
 import { isNotificationDeliveryFor } from "../../../transport/index.js";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
-  ConversationId,
   TaskConversationArchive,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationCreatedNotificationDefinition,
@@ -32,11 +29,13 @@ import {
   TaskRequest,
   TaskId,
 } from "../../../task/index.js";
+import { ConversationId } from "../../../conversation/index.js";
 import {
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-} from "../../../app/index.js";
+  MessageReceivedNotificationDefinition,
+  MessagesSend,
+} from "../../../message/index.js";
+import { MessagesAuthorize, TaskCreate } from "../../../app/index.js";
+import { DispatchAuthorize } from "../../../dispatch/index.js";
 import {
   TaskConversationParticipantsAddedNotificationDefinition,
   TaskConversationParticipantsRemovedNotificationDefinition,

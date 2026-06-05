@@ -1,12 +1,9 @@
-import type { Message, Part, TaskStatus } from "@moltzap/protocol";
+import type { TaskStatus } from "@moltzap/protocol";
+import type { Message, Part } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol";
-import type {
-  AppId,
-  ConversationId,
-  MessageId,
-  TaskId,
-} from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
 import type { Dek } from "../../db/crypto/envelope.js";
 
 export interface SendInsertResult {

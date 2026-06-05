@@ -1,8 +1,13 @@
+/**
+ * @file Dispatch admission RPC descriptors and notifications.
+ */
+
 import { Schema } from "effect";
 import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
-import { ConversationId, MessageId, TaskId } from "../task/methods.js";
-import { messagePartsSchema } from "../task/methods.js";
-import { LeaseId, DispatchNotFoundError } from "../task/messages.js";
+import { ConversationId, MessageId } from "../conversation/index.js";
+import { TaskId } from "../task/ids.js";
+import { messagePartsSchema } from "../message/index.js";
+import { LeaseId, DispatchNotFoundError } from "../message/index.js";
 import {
   dateTimeStringSchema,
   brandedId,
@@ -16,7 +21,7 @@ import {
 } from "../transport/principal.js";
 import { ForbiddenError } from "../transport/wire-errors.js";
 
-export { DispatchNotFoundError } from "../task/messages.js";
+export { DispatchNotFoundError } from "../message/index.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — dispatch value types + the dispatch error.
@@ -41,6 +46,8 @@ const MessagePartsSchema = messagePartsSchema();
  * rolled back-and-re-granted within the same dispatch.
  */
 export const DispatchId = brandedId("DispatchId");
+
+/** Branded dispatch identifier value. */
 export type DispatchId = Schema.Schema.Type<typeof DispatchId>;
 
 const DispatchAdmissionDecisionSchema = Schema.Union(
@@ -88,9 +95,7 @@ const PendingMessageArraySchema = Schema.Array(PendingMessageSchema).pipe(
  * recipient absorbs the race via a client-side ring buffer + per-
  * lease `Deferred` (see `packages/client/src/channel-core.ts`).
  *
- * - **Principal:** `AgentPrincipal` head + `AgentClaimed`. Agent-originated
- *   even though the recipient handler runs in the app layer: an agent posts a
- *   dispatch to a conversation it sends into.
+ * - **Principal:** `AgentPrincipal` head + `AgentClaimed`. Agent-originated even though the recipient handler runs in the app layer: an agent posts a dispatch to a conversation it sends into.
  */
 export const DispatchRequest = defineRpc({
   name: "dispatch/request",
@@ -136,8 +141,7 @@ const DispatchAuthorizeContextSchema = Schema.Struct({
  * `LeaseRegistry.resolve`. The server emits this RPC only for a manifest
  * whose `dispatch_authorize` policy is `{ kind: "hook" }`.
  *
- * - **Principal:** none — a server→client reverse callback. The client serves
- *   it, the server does not gate it, so `requires` is empty.
+ * - **Principal:** none — a server→client reverse callback. The client serves it, the server does not gate it, so `requires` is empty.
  * @error ForbiddenError when the moderator rejects outright (collapsed to a fail-closed deny by the server)
  */
 export const DispatchAuthorize = defineRpc({
@@ -274,3 +278,19 @@ export const DispatchesGet = defineRpc({
   requires: [AppPrincipal],
   errors: [DispatchNotFoundError, ForbiddenError],
 });
+
+/** Agent-callable dispatch RPC catalog. */
+export const agentCallableDispatchRpcMethods = [DispatchRequest] as const;
+
+/** App-callable dispatch RPC catalog. */
+export const appCallableDispatchRpcMethods = [DispatchesGet] as const;
+
+/** App callback dispatch RPC catalog. */
+export const dispatchCallbackMethods = [DispatchAuthorize] as const;
+
+/** Dispatch notification catalog. */
+export const dispatchNotifications = [
+  DispatchRelease,
+  DispatchesConsumed,
+  DispatchesExpired,
+] as const;

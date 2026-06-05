@@ -6,12 +6,12 @@
 import { Effect, Exit, Fiber, Stream } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
+import { TaskId } from "../../../task/index.js";
+import { ConversationId } from "../../../conversation/index.js";
 import {
-  ConversationId,
   MessageReceivedNotificationDefinition,
   MessagesSend,
-  TaskId,
-} from "../../../task/index.js";
+} from "../../../message/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,

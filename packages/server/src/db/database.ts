@@ -3,12 +3,8 @@
 
 import type { ColumnType, Selectable } from "kysely";
 import type { AgentId, ContactId, UserId } from "@moltzap/protocol/identity";
-import type {
-  AppId,
-  ConversationId,
-  MessageId,
-  TaskId,
-} from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
 
 import type {
   Agents as RawAgents,

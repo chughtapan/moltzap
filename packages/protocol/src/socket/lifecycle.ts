@@ -32,13 +32,13 @@ import {
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-} from "../app/dispatch.js";
+} from "../dispatch/index.js";
 import {
   ContactAcceptedNotificationDefinition,
   ContactRequestNotificationDefinition,
 } from "../identity/contacts.js";
 import { PresenceChangedNotificationDefinition } from "../network/presence.js";
-import { MessageReceivedNotificationDefinition } from "../task/messages.js";
+import { MessageReceivedNotificationDefinition } from "../message/index.js";
 import {
   TaskClosedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,

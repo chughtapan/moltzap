@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
-} from "@moltzap/protocol/task";
+} from "@moltzap/protocol/message";
 import { isNotificationDeliveryFor } from "../../../transport/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {

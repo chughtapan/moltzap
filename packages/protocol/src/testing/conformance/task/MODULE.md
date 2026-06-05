@@ -18,7 +18,7 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L509)
+### [`acquireClient`](./_helpers.ts#L508)
 
 _Function_
 
@@ -29,7 +29,7 @@ export function acquireClient(
 ): Effect.Effect<ConversationActor, string, Scope.Scope>
 ```
 
-### [`acquireConversation`](./_helpers.ts#L751)
+### [`acquireConversation`](./_helpers.ts#L750)
 
 _Function_
 
@@ -41,7 +41,7 @@ export function acquireConversation(
 ): Effect.Effect<ConversationFixture, string, Scope.Scope>
 ```
 
-### [`acquirePropertyConversation`](./_helpers.ts#L291)
+### [`acquirePropertyConversation`](./_helpers.ts#L290)
 
 _Function_
 
@@ -53,7 +53,7 @@ export function acquirePropertyConversation(
 ): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`agent`](./_helpers.ts#L85)
+### [`agent`](./_helpers.ts#L84)
 
 _Property_
 
@@ -91,7 +91,7 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-### [`archiveConversation`](./_helpers.ts#L329)
+### [`archiveConversation`](./_helpers.ts#L328)
 
 _Function_
 
@@ -103,7 +103,7 @@ export function archiveConversation(
 )
 ```
 
-### [`assertConversationRejectsMessages`](./_helpers.ts#L468)
+### [`assertConversationRejectsMessages`](./_helpers.ts#L467)
 
 _Function_
 
@@ -113,7 +113,7 @@ export function assertConversationRejectsMessages(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L460)
+### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L459)
 
 _Interface_
 
@@ -127,7 +127,7 @@ export interface AssertConversationRejectsMessagesInput {
 }
 ```
 
-### [`awaitOneNotification`](./_helpers.ts#L259)
+### [`awaitOneNotification`](./_helpers.ts#L258)
 
 _Function_
 
@@ -151,7 +151,7 @@ Surfaces a single string message on either timeout or stream
 exhaustion, so call sites use an `e.message`-style error mapper without
 a tagged error type per definition.
 
-### [`client`](./_helpers.ts#L86)
+### [`client`](./_helpers.ts#L85)
 
 _Property_
 
@@ -188,7 +188,7 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-### [`ConversationActor`](./_helpers.ts#L84)
+### [`ConversationActor`](./_helpers.ts#L83)
 
 _TypeAlias_
 
@@ -212,7 +212,7 @@ export type ConversationActor = {
 };
 ```
 
-### [`ConversationFixture`](./_helpers.ts#L68)
+### [`ConversationFixture`](./_helpers.ts#L67)
 
 _Interface_
 
@@ -234,7 +234,7 @@ export interface ConversationFixture {
 }
 ```
 
-### [`DELIVERY_CATEGORY`](./_helpers.ts#L63)
+### [`DELIVERY_CATEGORY`](./_helpers.ts#L62)
 
 _Variable_
 
@@ -242,7 +242,7 @@ _Variable_
 export const DELIVERY_CATEGORY = "delivery" as const
 ```
 
-### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L65)
+### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L64)
 
 _Variable_
 
@@ -250,7 +250,7 @@ _Variable_
 export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3
 ```
 
-### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L64)
+### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L63)
 
 _Variable_
 
@@ -258,7 +258,7 @@ _Variable_
 export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`deliveryViolation`](./_helpers.ts#L235)
+### [`deliveryViolation`](./_helpers.ts#L234)
 
 _Function_
 
@@ -269,7 +269,7 @@ export function deliveryViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`firstParticipant`](./_helpers.ts#L301)
+### [`firstParticipant`](./_helpers.ts#L300)
 
 _Function_
 
@@ -280,7 +280,7 @@ export function firstParticipant(
 ): Effect.Effect<ConversationActor, PropertyInvariantViolation>
 ```
 
-### [`fixtureN`](./_helpers.ts#L287)
+### [`fixtureN`](./_helpers.ts#L286)
 
 _Function_
 
@@ -288,7 +288,7 @@ _Function_
 export function fixtureN(requested: number): number
 ```
 
-### [`moderateAs`](./_helpers.ts#L720)
+### [`moderateAs`](./_helpers.ts#L719)
 
 _Function_
 
@@ -313,7 +313,7 @@ notifications are agent broadcasts that CANNOT reach an `AppConnection`.
 The shared in-process `participantsRef` bridges the owner's subscriber to
 the app's forward-all callback.
 
-### [`ModeratedHandle`](./_helpers.ts#L684)
+### [`ModeratedHandle`](./_helpers.ts#L683)
 
 _Interface_
 
@@ -341,7 +341,7 @@ export interface ModeratedHandle {
 }
 ```
 
-### [`NotificationBuffer`](./_helpers.ts#L115)
+### [`NotificationBuffer`](./_helpers.ts#L114)
 
 _Interface_
 
@@ -366,7 +366,7 @@ set to true when the transport-side stream terminates (either via
 consumes it to surface "Connection closed" rather than masquerading
 a missing notification as a timeout.
 
-### [`notifications`](./_helpers.ts#L99)
+### [`notifications`](./_helpers.ts#L98)
 
 _Property_
 
@@ -494,7 +494,7 @@ _Function_
 export function registerTaskRequestReject(ctx: ConformanceRunContext): void
 ```
 
-### [`sendText`](./_helpers.ts#L313)
+### [`sendText`](./_helpers.ts#L312)
 
 _Function_
 
@@ -544,7 +544,7 @@ export const TASK_PROPERTIES: ReadonlyArray<
 All task-layer property registrars: delivery subset first, then the
 `task/conversation/*` family.
 
-### [`unarchiveConversation`](./_helpers.ts#L340)
+### [`unarchiveConversation`](./_helpers.ts#L339)
 
 _Function_
 
@@ -556,7 +556,7 @@ export function unarchiveConversation(
 )
 ```
 
-### [`waitForArchivedEvent`](./_helpers.ts#L403)
+### [`waitForArchivedEvent`](./_helpers.ts#L402)
 
 _Function_
 
@@ -569,7 +569,7 @@ export function waitForArchivedEvent(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForConversationCreatedNotification`](./_helpers.ts#L351)
+### [`waitForConversationCreatedNotification`](./_helpers.ts#L350)
 
 _Function_
 
@@ -581,7 +581,7 @@ export function waitForConversationCreatedNotification(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForMessageReceivedNotification`](./_helpers.ts#L377)
+### [`waitForMessageReceivedNotification`](./_helpers.ts#L376)
 
 _Function_
 
@@ -593,7 +593,7 @@ export function waitForMessageReceivedNotification(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForUnarchivedEvent`](./_helpers.ts#L433)
+### [`waitForUnarchivedEvent`](./_helpers.ts#L432)
 
 _Function_
 

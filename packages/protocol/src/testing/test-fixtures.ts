@@ -25,7 +25,9 @@ import { UserId, AgentId, ContactId } from "../identity/index.js";
 import type { ConnectionId } from "../socket/connection.js";
 import { AppId } from "../task/index.js";
 import type { AppManifest } from "../app/index.js";
-import { ConversationId, LeaseId, MessageId, TaskId } from "../task/index.js";
+import { ConversationId, MessageId } from "../conversation/index.js";
+import { LeaseId } from "../message/index.js";
+import { TaskId } from "../task/index.js";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
