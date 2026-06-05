@@ -168,6 +168,10 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/protocol/src/app/index.ts"),
   },
   {
+    find: /^@moltzap\/protocol\/socket$/,
+    replacement: fromRoot("packages/protocol/src/socket/index.ts"),
+  },
+  {
     find: /^@moltzap\/protocol$/,
     replacement: fromRoot("packages/protocol/src/index.ts"),
   },
