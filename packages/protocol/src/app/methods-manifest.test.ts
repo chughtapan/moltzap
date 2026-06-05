@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Either, type Schema } from "effect";
 import * as fc from "fast-check";
-import { validateAppManifest } from "./methods.js";
+import { validateAppManifest } from "./manifest.js";
 import { DispatchAuthorize, DispatchRequest } from "../dispatch/index.js";
 import { decodesStrictly } from "../transport/strict-decode.js";
 

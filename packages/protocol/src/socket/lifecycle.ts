@@ -40,12 +40,14 @@ import {
 import { PresenceChangedNotificationDefinition } from "../network/presence.js";
 import { MessageReceivedNotificationDefinition } from "../message/index.js";
 import {
-  TaskClosedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationParticipantsAddedNotificationDefinition,
   TaskConversationParticipantsRemovedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,
+} from "../conversation/index.js";
+import {
+  TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
 } from "../task/tasks.js";

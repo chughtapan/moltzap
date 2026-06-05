@@ -1,11 +1,14 @@
 ---
 title: "task/create"
-description: "Call `task/create`."
+description: "Server → app round-trip asking whether the app accepts a newly requested task."
 ---
 
 # task/create
 
-Call `task/create`.
+Server → app round-trip asking whether the app accepts a newly requested
+task.
+
+- **Principal:** none — a server→client reverse callback.
 
 ## Parameters
 
@@ -34,3 +37,9 @@ Call `task/create`.
 <ResponseField name="verdict" type="union">
   The verdict field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the app rejects (collapsed to a fail-closed reject by the server) |

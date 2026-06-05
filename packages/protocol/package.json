@@ -79,7 +79,13 @@
     "#network": "./src/network/index.ts",
     "#task": "./src/task/index.ts",
     "#task/requirements": "./src/task/capabilities/index.ts",
+    "#conversation": "./src/conversation/index.ts",
+    "#message": "./src/message/index.ts",
+    "#dispatch": "./src/dispatch/index.ts",
+    "#app": "./src/app/index.ts",
     "#socket": "./src/socket/index.ts",
+    "#credentials": "./src/credentials.ts",
+    "#requirements": "./src/requirements.ts",
     "#testing": "./src/testing/index.ts"
   },
   "scripts": {

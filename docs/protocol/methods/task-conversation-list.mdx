@@ -1,15 +1,11 @@
 ---
 title: "task/conversation/list"
-description: "Self-only listing of every conversation the caller participates in (across all tasks)."
+description: "Call `task/conversation/list`."
 ---
 
 # task/conversation/list
 
-Self-only listing of every conversation the caller participates in (across
-all tasks). No filter params; archived rows are included; callers filter
-`archivedAt` locally.
-
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+Call `task/conversation/list`.
 
 ## Parameters
 
@@ -30,10 +26,3 @@ all tasks). No filter params; archived rows are included; callers filter
 <ResponseField name="nextCursor" type="string">
   The nextCursor field.
 </ResponseField>
-
-## Errors
-
-| Type | When |
-|------|------|
-| `InvalidParamsError` | the `cursor` does not decode |
-| `ConversationNotFoundError` | a listed conversation's row vanished mid-projection |

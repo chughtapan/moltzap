@@ -1,6 +1,6 @@
 ---
 title: "protocol/app"
-description: "Public barrel for app manifest and app-hook protocol types."
+description: "Public barrel for app manifest protocol types."
 ---
 
 # protocol/app
@@ -9,44 +9,9 @@ _`packages/protocol/src/app`_
 
 ## Purpose
 
-Public barrel for app manifest and app-hook protocol types.
+Public barrel for app manifest protocol types.
 
 ## Public surface
-
-### [`AppCallbackHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L63)
-
-_TypeAlias_
-
-```ts
-export type AppCallbackHandlers<Ctx> = HandlerTable<
-  AppCallbackRpcDefinition,
-  Ctx
->;
-```
-
-Closed handler table for an app moderating one or more tasks. Every
-`appCallbackMethods` member is required; vacuous-deny moderators still write
-the handler explicitly.
-
-### [`appCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L25)
-
-_Variable_
-
-```ts
-export const appCallbackMethods = [
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-] as const
-```
-
-### [`AppCallbackRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L56)
-
-_TypeAlias_
-
-```ts
-export type AppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
-```
 
 ### [`AppManifest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/manifest.ts#L125)
 
@@ -67,23 +32,6 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`HandlerSlot`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/methods.ts#L37)
-
-_Interface_
-
-```ts
-export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
-  readonly definition: D;
-  readonly handle: (
-    params: ParamsOf<D>,
-    ctx: Ctx,
-  ) => Effect.Effect<ResultOf<D>, unknown>;
-}
-```
-
-Per-definition app-callback handler slot. `Ctx` is the per-frame context the
-client hands every handler.
-
 ### [`manifestPolicyCanaries`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/manifest-policy.types-check.ts#L102)
 
 _Variable_
@@ -93,80 +41,6 @@ export const manifestPolicyCanaries =
 ```
 
 Aggregate so each binding is referenced (no unused-variable lint).
-
-### [`MessagesAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/app-callbacks.ts#L75)
-
-_Variable_
-
-```ts
-export const MessagesAuthorize = defineRpc({
-  name: "messages/authorize",
-  params: MessagesAuthorizeContextSchema,
-  result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
-  requires: [],
-  errors: [ForbiddenError],
-})
-```
-
-Server → TM round-trip asking for the per-message fan-out verdict.
-Triggered from `MessageService.sendCommit` after the durable insert
-lands and before the broadcast. The server emits this RPC only for a
-manifest whose `message_authorize` policy is `{ kind: "hook" }`.
-Failure / timeout in the round-trip synthesizes a fail-closed
-`Block { reason: "app_unreachable" }` verdict at the AppHost envelope
-(mirrors the `dispatch/authorize` `wrapHookEffectWithEnvelope`
-posture).
-
-`Forward { recipients }` MUST be a subset of the conversation's
-participants; the server does not re-fan to non-participants.
-`Forward { recipients: [] }` is legal — message lands in the
-sender's transcript but is delivered to no one else.
-
-- **Principal:** none — a server→client reverse callback.
-
-### [`TaskCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/app-callbacks.ts#L157)
-
-_Variable_
-
-```ts
-export const TaskCreate = defineRpc({
-  name: "task/create",
-  params: TaskCreateContextSchema,
-  result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
-  requires: [],
-  errors: [ForbiddenError],
-})
-```
-
-Server → TM round-trip asking whether the TM accepts a newly
-requested task. Triggered from the `task/request` handler after
-the task row is inserted (status `"waiting"`) and before the
-requester observes any state.
-
-The TM owns the post-accept lifecycle:
-  - On `accept` the server transitions the task to `"active"`
-    and fires `task/created` to the requester. The TM SHOULD
-    then call `task/conversation/create` to honor the
-    requester's `initialConversation` hint if it chose to.
-  - On `reject` (or timeout / RPC error / decode failure) the
-    server transitions the task to `"failed"` and fires
-    `task/failed` to the requester.
-
-Fail-closed envelope mirrors `DispatchAuthorize` /
-`MessagesAuthorize`: timeout synthesizes
-`{ decision: "reject", reason: "timeout" }`; an unknown app or
-RPC/decode failure synthesizes `reason: "app_unreachable"`.
-
-Durability note: the `task/request` handler inserts the task row
-(`waiting`) BEFORE this callback's network round-trip, and the
-terminal `setStatus` runs AFTER it. The sequence is not atomic
-(the callback is a network call, not a DB op), so a crash or fiber
-interrupt in that window can strand a task in `waiting`. Stranded
-waiting tasks are invisible to delivery (no conversation, no
-participants observe them) and would be reaped by a stale-waiting-task
-sweep.
-
-- **Principal:** none — a server→client reverse callback.
 
 ### [`validateAppManifest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/app/manifest.ts#L146)
 
@@ -186,7 +60,5 @@ operator-supplied configuration, not wire traffic). On failure surfaces every
 
 ## Files
 
-- `app-callbacks.ts`
 - `manifest-policy.types-check.ts`
 - `manifest.ts`
-- `methods.ts`

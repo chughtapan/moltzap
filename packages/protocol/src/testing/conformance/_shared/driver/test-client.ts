@@ -23,17 +23,15 @@ import type {
   AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
 } from "../../../../rpc-method-groups.js";
-import {
-  MessagesAuthorize,
-  TaskCreate,
-  type AppCallbackHandlers,
-} from "../../../../app/index.js";
+import { MessagesAuthorize } from "../../../../message/index.js";
+import { TaskCreate } from "../../../../task/index.js";
 import { DispatchAuthorize } from "../../../../dispatch/index.js";
 import { MoltZapAgentClient } from "../../../../socket/agent-client.js";
 import {
   MoltZapAppClient,
   type AppCallbackContext,
 } from "../../../../socket/app-client.js";
+import type { AppCallbackHandlers } from "../../../../socket/app-callbacks.js";
 import type {
   ClientDefinitionPayload,
   ClientDefinitionSuccess,

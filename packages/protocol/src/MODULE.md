@@ -12,7 +12,7 @@ exports are already available on focused subpaths.
 
 ## Public surface
 
-### [`AgentCallableGroup`](./rpc-method-groups.ts#L90)
+### [`AgentCallableGroup`](./rpc-method-groups.ts#L105)
 
 _Variable_
 
@@ -20,7 +20,7 @@ _Variable_
 export const AgentCallableGroup = makeClientRpcGroup(agentCallableMethods)
 ```
 
-### [`agentCallableMethods`](./rpc-method-groups.ts#L43)
+### [`agentCallableMethods`](./rpc-method-groups.ts#L55)
 
 _Variable_
 
@@ -29,6 +29,7 @@ export const agentCallableMethods = [
   ...identityRpcMethods,
   ...agentCallableNetworkRpcMethods,
   ...agentCallableTaskRpcMethods,
+  ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...agentCallableDispatchRpcMethods,
 ] as const
@@ -50,7 +51,7 @@ _Variable_
 export const AgentKey = Schema.Redacted(AgentKeyValue)
 ```
 
-### [`AnyAgentCallableRpcDefinition`](./rpc-method-groups.ts#L74)
+### [`AnyAgentCallableRpcDefinition`](./rpc-method-groups.ts#L89)
 
 _TypeAlias_
 
@@ -59,7 +60,7 @@ export type AnyAgentCallableRpcDefinition =
   (typeof agentCallableMethods)[number];
 ```
 
-### [`AnyAppCallableRpcDefinition`](./rpc-method-groups.ts#L76)
+### [`AnyAppCallableRpcDefinition`](./rpc-method-groups.ts#L91)
 
 _TypeAlias_
 
@@ -67,7 +68,7 @@ _TypeAlias_
 export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
 ```
 
-### [`AnyAppCallbackRpcDefinition`](./rpc-method-groups.ts#L78)
+### [`AnyAppCallbackRpcDefinition`](./rpc-method-groups.ts#L93)
 
 _TypeAlias_
 
@@ -75,7 +76,7 @@ _TypeAlias_
 export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 ```
 
-### [`AnyNotificationDefinition`](./rpc-method-groups.ts#L80)
+### [`AnyNotificationDefinition`](./rpc-method-groups.ts#L95)
 
 _TypeAlias_
 
@@ -84,7 +85,7 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](./rpc-method-groups.ts#L73)
+### [`AnyServerRpcDefinition`](./rpc-method-groups.ts#L88)
 
 _TypeAlias_
 
@@ -92,7 +93,7 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 ```
 
-### [`AppCallableGroup`](./rpc-method-groups.ts#L92)
+### [`AppCallableGroup`](./rpc-method-groups.ts#L107)
 
 _Variable_
 
@@ -100,7 +101,7 @@ _Variable_
 export const AppCallableGroup = makeClientRpcGroup(appCallableMethods)
 ```
 
-### [`appCallableMethods`](./rpc-method-groups.ts#L51)
+### [`appCallableMethods`](./rpc-method-groups.ts#L64)
 
 _Variable_
 
@@ -111,12 +112,16 @@ export const appCallableMethods = [
 ] as const
 ```
 
-### [`appCallbackMethods`](./rpc-method-groups.ts#L28)
+### [`appCallbackMethods`](./rpc-method-groups.ts#L35)
 
 _Variable_
 
 ```ts
-export const appCallbackMethods = appDomainCallbackMethods
+export const appCallbackMethods = [
+  ...dispatchCallbackMethods,
+  ...messageCallbackMethods,
+  ...taskCallbackMethods,
+] as const
 ```
 
 ### [`AppKey`](./credentials.ts#L29)
@@ -212,7 +217,7 @@ export type MwStackFor<Requires extends ReadonlyArray<unknown>> = Extract<
 >;
 ```
 
-### [`notificationDefinitions`](./rpc-method-groups.ts#L65)
+### [`notificationDefinitions`](./rpc-method-groups.ts#L79)
 
 _Variable_
 
@@ -221,12 +226,13 @@ export const notificationDefinitions = [
   ...networkNotifications,
   ...identityNotifications,
   ...taskNotifications,
+  ...conversationNotifications,
   ...messageNotifications,
   ...dispatchNotifications,
 ] as const
 ```
 
-### [`NotificationRpcGroup`](./rpc-method-groups.ts#L135)
+### [`NotificationRpcGroup`](./rpc-method-groups.ts#L150)
 
 _Variable_
 
@@ -331,7 +337,7 @@ export const requiresClaimed = (
 ): boolean
 ```
 
-### [`ReverseRpcGroup`](./rpc-method-groups.ts#L150)
+### [`ReverseRpcGroup`](./rpc-method-groups.ts#L165)
 
 _Variable_
 
@@ -372,7 +378,7 @@ export const ServerEncryptionMasterSecret = Schema.Redacted(
 )
 ```
 
-### [`serverInboundMethods`](./rpc-method-groups.ts#L56)
+### [`serverInboundMethods`](./rpc-method-groups.ts#L69)
 
 _Variable_
 
@@ -381,6 +387,7 @@ export const serverInboundMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
   ...agentCallableTaskRpcMethods,
+  ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...appOnlyCallableMethods,
   ...agentCallableDispatchRpcMethods,

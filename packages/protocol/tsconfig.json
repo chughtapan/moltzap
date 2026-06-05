@@ -53,8 +53,17 @@
       "#dispatch": [
         "dispatch/index.ts"
       ],
+      "#app": [
+        "app/index.ts"
+      ],
       "#socket": [
         "socket/index.ts"
+      ],
+      "#credentials": [
+        "credentials.ts"
+      ],
+      "#requirements": [
+        "requirements.ts"
       ],
       "#testing": [
         "testing/index.ts"

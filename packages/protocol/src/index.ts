@@ -162,7 +162,6 @@ export {
   TaskNotFoundError,
   TaskRejectedError,
   HookBlockedError,
-  ParticipantNotAdmittedError,
   TaskList,
   TaskClose,
   TaskAddParticipant,
@@ -170,23 +169,14 @@ export {
   AppId,
   DEFAULT_APP_ID,
   TaskRequest,
+  TaskCreate,
   TaskLeave,
-  TaskConversationCreate,
-  TaskConversationList,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationUnarchivedNotificationDefinition,
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
+  taskCallbackMethods,
 } from "./task/index.js";
 export type {
   TaskReadAccessValue,
@@ -197,12 +187,6 @@ export type {
   Task,
   TaskParticipant,
   InitialConversationInput,
-  TaskConversationListItem,
-  TaskConversationCreatedNotification,
-  TaskConversationArchivedNotification,
-  TaskConversationUnarchivedNotification,
-  TaskConversationParticipantsAddedNotification,
-  TaskConversationParticipantsRemovedNotification,
 } from "./task/index.js";
 
 export {
@@ -212,11 +196,32 @@ export {
   ConversationNotFoundError,
   MessageId,
   NotAParticipantError,
+  ParticipantNotAdmittedError,
+  TaskConversationCreate,
+  TaskConversationList,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
+  TaskConversationParticipantsAddedNotificationDefinition,
+  TaskConversationParticipantsRemovedNotificationDefinition,
+  agentCallableConversationRpcMethods,
+  appCallableConversationRpcMethods,
+  conversationNotifications,
 } from "./conversation/index.js";
 export type {
   Conversation,
   ConversationParticipant,
   ConversationSummary,
+  TaskConversationListItem,
+  TaskConversationCreatedNotification,
+  TaskConversationArchivedNotification,
+  TaskConversationUnarchivedNotification,
+  TaskConversationParticipantsAddedNotification,
+  TaskConversationParticipantsRemovedNotification,
 } from "./conversation/index.js";
 
 export {
@@ -224,8 +229,10 @@ export {
   LeaseId,
   MessageNotFoundError,
   MessageReceivedNotificationDefinition,
+  MessagesAuthorize,
   MessagesList,
   MessagesSend,
+  messageCallbackMethods,
   dispatchDecisionSchema,
   messagePartsSchema,
   messageWithDispatchDecisionSchema,
@@ -247,19 +254,16 @@ export {
   DispatchesConsumed,
   DispatchesExpired,
   DispatchesGet,
+  dispatchCallbackMethods,
 } from "./dispatch/index.js";
 
-export {
-  MessagesAuthorize,
-  TaskCreate,
-  validateAppManifest,
-} from "./app/index.js";
+export { validateAppManifest } from "./app/index.js";
+export type { AppManifest } from "./app/index.js";
 export type {
   AppCallbackHandlers,
   AppCallbackRpcDefinition,
-  AppManifest,
   HandlerSlot,
-} from "./app/index.js";
+} from "./socket/index.js";
 
 export {
   NotificationRpcGroup,

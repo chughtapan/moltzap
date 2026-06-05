@@ -1,16 +1,11 @@
 ---
 title: "task/conversation/participants/remove"
-description: "TM-only: remove an agent from one conversation."
+description: "Call `task/conversation/participants/remove`."
 ---
 
 # task/conversation/participants/remove
 
-TM-only: remove an agent from one conversation. The agent stays in
-`task_participants` (so they may still receive messages on other
-conversations within the task).
-
-- **Principal:** `AppPrincipal` head + `ConversationInTask` +
-  `assertCallerAppOwnsTask` (see `task/close`).
+Call `task/conversation/participants/remove`.
 
 ## Parameters
 
@@ -29,10 +24,3 @@ conversations within the task).
 ## Response
 
 This method returns an empty object.
-
-## Errors
-
-| Type | When |
-|------|------|
-| `ForbiddenError` | the caller does not own the task |
-| `TaskNotFoundError` | the task does not exist or is not open |

@@ -35,6 +35,29 @@ export interface AppCallbackContext {
 }
 ```
 
+### [`AppCallbackHandlers`](./app-callbacks.ts#L46)
+
+_TypeAlias_
+
+```ts
+export type AppCallbackHandlers<Ctx> = HandlerTable<
+  AppCallbackRpcDefinition,
+  Ctx
+>;
+```
+
+Closed handler table for an app moderating one or more tasks. Every
+`appCallbackMethods` member is required; vacuous-deny moderators still write
+the handler explicitly.
+
+### [`AppCallbackRpcDefinition`](./app-callbacks.ts#L39)
+
+_TypeAlias_
+
+```ts
+export type AppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
+```
+
 ### [`AppClientOptions`](./app-client.ts#L70)
 
 _Interface_
@@ -59,7 +82,7 @@ export function classifyCloseCause(
 ): CloseKind
 ```
 
-### [`ClientConnectError`](./lifecycle.ts#L112)
+### [`ClientConnectError`](./lifecycle.ts#L114)
 
 _TypeAlias_
 
@@ -67,7 +90,7 @@ _TypeAlias_
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
 ```
 
-### [`ClientDefinitionError`](./lifecycle.ts#L101)
+### [`ClientDefinitionError`](./lifecycle.ts#L103)
 
 _TypeAlias_
 
@@ -75,7 +98,7 @@ _TypeAlias_
 export type ClientDefinitionError<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L97)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L99)
 
 _TypeAlias_
 
@@ -83,7 +106,7 @@ _TypeAlias_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L99)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L101)
 
 _TypeAlias_
 
@@ -91,7 +114,7 @@ _TypeAlias_
 export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L207)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L209)
 
 _Interface_
 
@@ -117,7 +140,7 @@ export interface ClientLifecycleOptions<
 }
 ```
 
-### [`clientRpc`](./lifecycle.ts#L95)
+### [`clientRpc`](./lifecycle.ts#L97)
 
 _Property_
 
@@ -127,7 +150,7 @@ _Property_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L94)
+### [`ClientRpcDefinition`](./lifecycle.ts#L96)
 
 _TypeAlias_
 
@@ -221,7 +244,7 @@ site happens to use UUIDs, but conformance-test fixtures sometimes
 pass synthetic strings; the brand boundary is the type system, not
 a format check.
 
-### [`ConnectResult`](./lifecycle.ts#L106)
+### [`ConnectResult`](./lifecycle.ts#L108)
 
 _TypeAlias_
 
@@ -255,7 +278,24 @@ export function extractCloseInfo(
 ): CloseInfo
 ```
 
-### [`makeServerProtocolLayer`](./server.ts#L106)
+### [`HandlerSlot`](./app-callbacks.ts#L20)
+
+_Interface_
+
+```ts
+export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
+  readonly definition: D;
+  readonly handle: (
+    params: ParamsOf<D>,
+    ctx: Ctx,
+  ) => Effect.Effect<ResultOf<D>, unknown>;
+}
+```
+
+Per-definition app-callback handler slot. `Ctx` is the per-frame context the
+client hands every handler.
+
+### [`makeServerProtocolLayer`](./server.ts#L107)
 
 _Function_
 
@@ -347,7 +387,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapServer`](./server.ts#L352)
+### [`MoltZapServer`](./server.ts#L353)
 
 _Class_
 
@@ -462,7 +502,7 @@ export class MoltZapServer<
 }
 ```
 
-### [`MoltZapServerOptions`](./server.ts#L61)
+### [`MoltZapServerOptions`](./server.ts#L62)
 
 _Interface_
 
@@ -490,7 +530,7 @@ export interface MoltZapServerOptions<
 }
 ```
 
-### [`MoltZapServerSession`](./server.ts#L47)
+### [`MoltZapServerSession`](./server.ts#L48)
 
 _Interface_
 
@@ -512,7 +552,7 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L564)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L566)
 
 _Function_
 
@@ -526,7 +566,7 @@ export const openProtocolAgentClientSocket = (
 >
 ```
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L576)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L578)
 
 _Function_
 
@@ -540,7 +580,7 @@ export const openProtocolAppClientSocket = (
 >
 ```
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L645)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L647)
 
 _Class_
 
@@ -667,7 +707,7 @@ export class ProtocolClientLifecycle<
     });
 ```
 
-### [`ReverseCallbackError`](./server.ts#L182)
+### [`ReverseCallbackError`](./server.ts#L183)
 
 _TypeAlias_
 
@@ -675,7 +715,7 @@ _TypeAlias_
 export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L254)
+### [`ReverseCallbackHandlers`](./lifecycle.ts#L256)
 
 _TypeAlias_
 
@@ -688,7 +728,7 @@ export type ReverseCallbackHandlers = {
 };
 ```
 
-### [`ReverseCallbackPayload`](./server.ts#L178)
+### [`ReverseCallbackPayload`](./server.ts#L179)
 
 _TypeAlias_
 
@@ -696,7 +736,7 @@ _TypeAlias_
 export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackRequest`](./server.ts#L184)
+### [`ReverseCallbackRequest`](./server.ts#L185)
 
 _TypeAlias_
 
@@ -708,7 +748,7 @@ export type ReverseCallbackRequest =
     }
 ```
 
-### [`ReverseCallbackSuccess`](./server.ts#L180)
+### [`ReverseCallbackSuccess`](./server.ts#L181)
 
 _TypeAlias_
 
@@ -716,7 +756,7 @@ _TypeAlias_
 export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackTag`](./server.ts#L174)
+### [`ReverseCallbackTag`](./server.ts#L175)
 
 _TypeAlias_
 
@@ -727,7 +767,7 @@ export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
 >;
 ```
 
-### [`ReverseCallError`](./server.ts#L170)
+### [`ReverseCallError`](./server.ts#L171)
 
 _TypeAlias_
 
@@ -737,7 +777,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 type ReverseRpcs = RpcGroup.Rpcs<typeof ReverseRpcGroup>;
 ```
 
-### [`ReverseClient`](./server.ts#L256)
+### [`ReverseClient`](./server.ts#L257)
 
 _Interface_
 
@@ -764,7 +804,7 @@ export interface ReverseClient {
 }
 ```
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L80)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L82)
 
 _Variable_
 
@@ -772,7 +812,7 @@ _Variable_
 export const RPC_TIMEOUT_MS = 30_000
 ```
 
-### [`RpcCallOptions`](./lifecycle.ts#L90)
+### [`RpcCallOptions`](./lifecycle.ts#L92)
 
 _Interface_
 
@@ -782,7 +822,7 @@ export interface RpcCallOptions {
 }
 ```
 
-### [`ServerSocketWrite`](./server.ts#L43)
+### [`ServerSocketWrite`](./server.ts#L44)
 
 _TypeAlias_
 
@@ -795,6 +835,7 @@ export type ServerSocketWrite = (
 ## Files
 
 - `agent-client.ts`
+- `app-callbacks.ts`
 - `app-client.ts`
 - `close-info.ts`
 - `connection.ts`

@@ -21,17 +21,19 @@ import { Effect, Either } from "effect";
 import type { AgentId } from "../../../identity/index.js";
 import {
   DEFAULT_APP_ID,
-  TaskConversationList,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
   TaskRequest,
   TaskLeave,
+  TaskCreate,
   type Task,
-  type TaskConversationListItem,
   type TaskId,
 } from "../../../task/index.js";
-import type { Conversation } from "../../../conversation/index.js";
-import { TaskCreate } from "../../../app/index.js";
+import {
+  TaskConversationList,
+  type Conversation,
+  type TaskConversationListItem,
+} from "../../../conversation/index.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
 import { type TestAgent } from "../_shared/test-fixtures.js";
 import { registerTestApp } from "../_shared/test-app.js";

@@ -13,7 +13,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`ContextOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L188)
+### [`ContextOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L187)
 
 _Interface_
 
@@ -25,7 +25,7 @@ export interface ContextOptions {
 }
 ```
 
-### [`ConversationMeta`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L181)
+### [`ConversationMeta`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L180)
 
 _Interface_
 
@@ -38,7 +38,7 @@ export interface ConversationMeta {
 }
 ```
 
-### [`CrossConversationEntry`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L195)
+### [`CrossConversationEntry`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L194)
 
 _Interface_
 
@@ -56,7 +56,7 @@ export interface CrossConversationEntry {
 
 Structured summary of recent activity in one other conversation.
 
-### [`CrossConvMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L263)
+### [`CrossConvMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L262)
 
 _Interface_
 
@@ -100,7 +100,7 @@ Drain every page of a cursor-paginated list RPC, echoing the opaque
 NonAdvancingCursorError if the server returns a cursor it already
 emitted (cycle guard).
 
-### [`formatCrossConversationBlock`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L215)
+### [`formatCrossConversationBlock`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L214)
 
 _Function_
 
@@ -115,7 +115,7 @@ Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
 that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
 share this formatter so sanitization and line shape stay in one place.
 
-### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L315)
+### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L314)
 
 _Class_
 
@@ -316,7 +316,7 @@ export type RegisterResponse = ResultOf<typeof Register>;
 HTTP response from the agent registration endpoints
 (`/api/v1/auth/register`).
 
-### [`sanitizeForSystemReminder`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L206)
+### [`sanitizeForSystemReminder`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L205)
 
 _Function_
 
@@ -337,7 +337,7 @@ export type SendRpcFn<E, Definition extends ClientDescriptor> = (
 ) => Effect.Effect<ClientDefinitionSuccess<Definition>, E>;
 ```
 
-### [`ServiceRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L176)
+### [`ServiceRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L175)
 
 _TypeAlias_
 

@@ -58,7 +58,7 @@ export function dispatchAdmissionViolation(
 }
 
 // Frame-payload narrowings used across the property bodies. The narrow
-// surfaces match the wire schemas in `protocol/src/app/methods.ts`.
+// surfaces match the dispatch wire schemas.
 export type ReleaseFrameView = {
   readonly leaseId: string;
   readonly verdict: { decision: string; reason?: string };

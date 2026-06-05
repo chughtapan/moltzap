@@ -6,39 +6,22 @@ export {
   TaskClosedError,
   TaskRejectedError,
   HookBlockedError,
-  ParticipantNotAdmittedError,
   TaskList,
   TaskRequest,
+  TaskCreate,
   TaskLeave,
   TaskClose,
   TaskAddParticipant,
   TaskRemoveParticipant,
-  TaskConversationCreate,
-  TaskConversationList,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
   TaskFailedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskClosedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationUnarchivedNotificationDefinition,
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
 } from "./tasks.js";
 export type {
   TaskStatus,
   Task,
   TaskParticipant,
   InitialConversationInput,
-  TaskConversationListItem,
-  TaskConversationCreatedNotification,
-  TaskConversationArchivedNotification,
-  TaskConversationUnarchivedNotification,
-  TaskConversationParticipantsAddedNotification,
-  TaskConversationParticipantsRemovedNotification,
 } from "./tasks.js";
 
 import {
@@ -50,18 +33,8 @@ import {
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
   TaskRequest,
+  TaskCreate,
   TaskLeave,
-  TaskConversationCreate,
-  TaskConversationList,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationUnarchivedNotificationDefinition,
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
 } from "./tasks.js";
 
 // The `agentCallable` / `appCallable` split is the OUTBOUND client
@@ -71,27 +44,18 @@ export const agentCallableTaskRpcMethods = [
   TaskRequest,
   TaskList,
   TaskLeave,
-  TaskConversationList,
 ] as const;
 
 export const appCallableTaskRpcMethods = [
   TaskClose,
   TaskAddParticipant,
   TaskRemoveParticipant,
-  TaskConversationCreate,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
 ] as const;
+
+export const taskCallbackMethods = [TaskCreate] as const;
 
 export const taskNotifications = [
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationUnarchivedNotificationDefinition,
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
 ] as const;

@@ -9,7 +9,8 @@ import {
   type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
 } from "../rpc-method-groups.js";
-import { MessagesAuthorize, TaskCreate } from "../app/methods.js";
+import { MessagesAuthorize } from "../message/index.js";
+import { TaskCreate } from "../task/methods.js";
 import { DispatchAuthorize } from "../dispatch/index.js";
 import {
   makeClientChannelProtocol,

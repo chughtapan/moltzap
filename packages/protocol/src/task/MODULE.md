@@ -8,7 +8,7 @@ Public barrel for task protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableTaskRpcMethods`](./methods.ts#L70)
+### [`agentCallableTaskRpcMethods`](./methods.ts#L43)
 
 _Variable_
 
@@ -17,11 +17,10 @@ export const agentCallableTaskRpcMethods = [
   TaskRequest,
   TaskList,
   TaskLeave,
-  TaskConversationList,
 ] as const
 ```
 
-### [`appCallableTaskRpcMethods`](./methods.ts#L77)
+### [`appCallableTaskRpcMethods`](./methods.ts#L49)
 
 _Variable_
 
@@ -30,11 +29,6 @@ export const appCallableTaskRpcMethods = [
   TaskClose,
   TaskAddParticipant,
   TaskRemoveParticipant,
-  TaskConversationCreate,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
 ] as const
 ```
 
@@ -64,7 +58,7 @@ export const DEFAULT_APP_ID = Schema.decodeSync(AppId)(
 )
 ```
 
-### [`HookBlockedError`](./tasks.ts#L114)
+### [`HookBlockedError`](./tasks.ts#L95)
 
 _Class_
 
@@ -77,7 +71,7 @@ export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
 }
 ```
 
-### [`InitialConversationInput`](./tasks.ts#L201)
+### [`InitialConversationInput`](./tasks.ts#L168)
 
 _TypeAlias_
 
@@ -87,26 +81,7 @@ export type InitialConversationInput = Schema.Schema.Type<
 >;
 ```
 
-### [`ParticipantNotAdmittedError`](./tasks.ts#L128)
-
-_Class_
-
-```ts
-export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantNotAdmittedError>()(
-  "ParticipantNotAdmitted",
-  errorPayloadFields,
-) {
-  static readonly message = "Agent is not admitted to the task";
-}
-```
-
-`task/conversation/create` and `task/conversation/participants/add`
-reject agents who are not already in `task_participants`. The error
-tag lets clients distinguish "wrong agentId shape" (InvalidParams)
-from "agent exists but is not admitted to this task" (this tag)
-without parsing message strings.
-
-### [`Task`](./tasks.ts#L150)
+### [`Task`](./tasks.ts#L117)
 
 _TypeAlias_
 
@@ -114,7 +89,7 @@ _TypeAlias_
 export type Task = Schema.Schema.Type<typeof TaskSchema>;
 ```
 
-### [`TaskAddParticipant`](./tasks.ts#L300)
+### [`TaskAddParticipant`](./tasks.ts#L314)
 
 _Variable_
 
@@ -136,7 +111,15 @@ TM-only: admit an agent to a task the calling app owns.
 - **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
   `task/close`).
 
-### [`TaskClose`](./tasks.ts#L280)
+### [`taskCallbackMethods`](./methods.ts#L55)
+
+_Variable_
+
+```ts
+export const taskCallbackMethods = [TaskCreate] as const
+```
+
+### [`TaskClose`](./tasks.ts#L294)
 
 _Variable_
 
@@ -156,7 +139,7 @@ TM-only: close a task the calling app owns.
   runs `assertCallerAppOwnsTask` before the body, rejecting a caller that
   does not own the task.
 
-### [`TaskClosedError`](./tasks.ts#L91)
+### [`TaskClosedError`](./tasks.ts#L72)
 
 _Class_
 
@@ -169,7 +152,7 @@ export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
 }
 ```
 
-### [`TaskClosedNotificationDefinition`](./tasks.ts#L556)
+### [`TaskClosedNotificationDefinition`](./tasks.ts#L391)
 
 _Variable_
 
@@ -182,281 +165,26 @@ export const TaskClosedNotificationDefinition = defineNotification({
 
 Pushed when a task closes.
 
-### [`TaskConversationAddParticipant`](./tasks.ts#L475)
+### [`TaskCreate`](./tasks.ts#L248)
 
 _Variable_
 
 ```ts
-export const TaskConversationAddParticipant = defineRpc({
-  name: "task/conversation/participants/add",
-  params: Schema.Struct({
-    taskId: TaskId,
-    conversationId: ConversationId,
-    agentId: AgentId,
-  }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError, ParticipantNotAdmittedError],
+export const TaskCreate = defineRpc({
+  name: "task/create",
+  params: TaskCreateContextSchema,
+  result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
+  requires: [],
+  errors: [ForbiddenError],
 })
 ```
 
-TM-only: add an agent to one conversation. The agent MUST already appear in
-`task_participants` for `taskId`; otherwise `ParticipantNotAdmittedError`.
+Server → app round-trip asking whether the app accepts a newly requested
+task.
 
-- **Principal:** `AppPrincipal` head + `ConversationInTask`. App-ownership is
-  gated by the app-arm handler's `assertCallerAppOwnsTask` BEFORE
-  `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
-  not the participant-admitted state probe).
+- **Principal:** none — a server→client reverse callback.
 
-### [`TaskConversationArchive`](./tasks.ts#L430)
-
-_Variable_
-
-```ts
-export const TaskConversationArchive = defineRpc({
-  name: "task/conversation/archive",
-  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
-})
-```
-
-TM-only: archive one conversation. Task stays open.
-
-- **Principal:** `AppPrincipal` head + `ConversationInTask` +
-  `assertCallerAppOwnsTask` (see `task/close`).
-
-### [`TaskConversationArchivedNotification`](./tasks.ts#L606)
-
-_TypeAlias_
-
-```ts
-export type TaskConversationArchivedNotification = Schema.Schema.Type<
-  typeof TaskConversationArchivedNotificationSchema
->;
-```
-
-### [`TaskConversationArchivedNotificationDefinition`](./tasks.ts#L627)
-
-_Variable_
-
-```ts
-export const TaskConversationArchivedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/archived",
-    params: TaskConversationArchivedNotificationSchema,
-  })
-```
-
-### [`TaskConversationCreate`](./tasks.ts#L355)
-
-_Variable_
-
-```ts
-export const TaskConversationCreate = defineRpc({
-  name: "task/conversation/create",
-  params: Schema.Struct({
-    taskId: TaskId,
-    name: Schema.optional(
-      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
-    ),
-    participants: Schema.Array(AgentId).pipe(Schema.minItems(1)),
-  }),
-  result: Schema.Struct({ conversation: ConversationSchema }),
-  requires: [AppPrincipal],
-  errors: [
-    ForbiddenError,
-    TaskNotFoundError,
-    AgentNotFoundError,
-    ParticipantNotAdmittedError,
-    ConversationFullError,
-  ],
-})
-```
-
-TM-only: mint a new conversation under an existing task. Every
-entry in `participants` MUST already appear in `task_participants`
-for `taskId`; violations return `ParticipantNotAdmittedError`.
-
-- **Principal:** `AppPrincipal` head. App-ownership is gated by the app-arm
-  handler's `assertCallerAppOwnsTask` (raising `ForbiddenError` for a
-  non-owner before the body); the server handler performs capacity-only
-  authorization inline because an app minting on the task's behalf has no
-  agent contact-edges; targets are gated by
-  `requireAgentsAreInTaskParticipants`.
-
-### [`TaskConversationCreatedNotification`](./tasks.ts#L603)
-
-_TypeAlias_
-
-```ts
-export type TaskConversationCreatedNotification = Schema.Schema.Type<
-  typeof TaskConversationCreatedNotificationSchema
->;
-```
-
-### [`TaskConversationCreatedNotificationDefinition`](./tasks.ts#L620)
-
-_Variable_
-
-```ts
-export const TaskConversationCreatedNotificationDefinition = defineNotification(
-  {
-    name: "task/conversation/created",
-    params: TaskConversationCreatedNotificationSchema,
-  },
-)
-```
-
-### [`TaskConversationList`](./tasks.ts#L398)
-
-_Variable_
-
-```ts
-export const TaskConversationList = defineRpc({
-  name: "task/conversation/list",
-  params: Schema.Struct({
-    limit: ListLimitSchema,
-    cursor: Schema.optional(Schema.String),
-  }),
-  result: Schema.Struct({
-    items: Schema.Array(TaskConversationListItemSchema),
-    nextCursor: Schema.optional(Schema.String),
-  }),
-  requires: [AgentPrincipal, AgentClaimed],
-  errors: [InvalidParamsError, ConversationNotFoundError],
-})
-```
-
-Self-only listing of every conversation the caller participates in (across
-all tasks). No filter params; archived rows are included; callers filter
-`archivedAt` locally.
-
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
-
-### [`TaskConversationListItem`](./tasks.ts#L385)
-
-_TypeAlias_
-
-```ts
-export type TaskConversationListItem = Schema.Schema.Type<
-  typeof TaskConversationListItemSchema
->;
-```
-
-### [`TaskConversationParticipantsAddedNotification`](./tasks.ts#L612)
-
-_TypeAlias_
-
-```ts
-export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
-  typeof TaskConversationParticipantsAddedNotificationSchema
->;
-```
-
-### [`TaskConversationParticipantsAddedNotificationDefinition`](./tasks.ts#L639)
-
-_Variable_
-
-```ts
-export const TaskConversationParticipantsAddedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/participants/added",
-    params: TaskConversationParticipantsAddedNotificationSchema,
-  })
-```
-
-### [`TaskConversationParticipantsRemovedNotification`](./tasks.ts#L615)
-
-_TypeAlias_
-
-```ts
-export type TaskConversationParticipantsRemovedNotification =
-  Schema.Schema.Type<
-    typeof TaskConversationParticipantsRemovedNotificationSchema
-  >;
-```
-
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](./tasks.ts#L645)
-
-_Variable_
-
-```ts
-export const TaskConversationParticipantsRemovedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/participants/removed",
-    params: TaskConversationParticipantsRemovedNotificationSchema,
-  })
-```
-
-### [`TaskConversationRemoveParticipant`](./tasks.ts#L501)
-
-_Variable_
-
-```ts
-export const TaskConversationRemoveParticipant = defineRpc({
-  name: "task/conversation/participants/remove",
-  params: Schema.Struct({
-    taskId: TaskId,
-    conversationId: ConversationId,
-    agentId: AgentId,
-  }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError],
-})
-```
-
-TM-only: remove an agent from one conversation. The agent stays in
-`task_participants` (so they may still receive messages on other
-conversations within the task).
-
-- **Principal:** `AppPrincipal` head + `ConversationInTask` +
-  `assertCallerAppOwnsTask` (see `task/close`).
-
-### [`TaskConversationUnarchive`](./tasks.ts#L451)
-
-_Variable_
-
-```ts
-export const TaskConversationUnarchive = defineRpc({
-  name: "task/conversation/unarchive",
-  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
-})
-```
-
-TM-only: reverse of `task/conversation/archive`.
-
-- **Principal:** `AppPrincipal` head + `ConversationInTask` +
-  `assertCallerAppOwnsTask` (see `task/close`).
-
-### [`TaskConversationUnarchivedNotification`](./tasks.ts#L609)
-
-_TypeAlias_
-
-```ts
-export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
-  typeof TaskConversationUnarchivedNotificationSchema
->;
-```
-
-### [`TaskConversationUnarchivedNotificationDefinition`](./tasks.ts#L633)
-
-_Variable_
-
-```ts
-export const TaskConversationUnarchivedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/unarchived",
-    params: TaskConversationUnarchivedNotificationSchema,
-  })
-```
-
-### [`TaskCreatedNotificationDefinition`](./tasks.ts#L547)
+### [`TaskCreatedNotificationDefinition`](./tasks.ts#L382)
 
 _Variable_
 
@@ -472,7 +200,7 @@ the `task/create` wire callback and the task transitions from `waiting` to
 `active`. Carries the full Task row (matching `task/closed`'s shape) so
 subscribers don't need a second read to discover the post-transition state.
 
-### [`TaskFailedNotificationDefinition`](./tasks.ts#L536)
+### [`TaskFailedNotificationDefinition`](./tasks.ts#L371)
 
 _Variable_
 
@@ -501,7 +229,7 @@ _Variable_
 export const TaskId = brandedId("TaskId")
 ```
 
-### [`TaskLeave`](./tasks.ts#L259)
+### [`TaskLeave`](./tasks.ts#L273)
 
 _Variable_
 
@@ -526,7 +254,7 @@ fires alongside in the same transaction.
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`TaskList`](./tasks.ts#L176)
+### [`TaskList`](./tasks.ts#L143)
 
 _Variable_
 
@@ -570,7 +298,7 @@ The referenced task does not exist (or the caller cannot see it). Lives in the
 task-id leaf so the `TaskReadAccess` capability can declare it as its
 fail-closed not-found without a `capabilities → tasks` runtime import cycle.
 
-### [`taskNotifications`](./methods.ts#L88)
+### [`taskNotifications`](./methods.ts#L57)
 
 _Variable_
 
@@ -579,15 +307,10 @@ export const taskNotifications = [
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationUnarchivedNotificationDefinition,
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
 ] as const
 ```
 
-### [`TaskParticipant`](./tasks.ts#L164)
+### [`TaskParticipant`](./tasks.ts#L131)
 
 _TypeAlias_
 
@@ -595,7 +318,7 @@ _TypeAlias_
 export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
 ```
 
-### [`TaskRejectedError`](./tasks.ts#L107)
+### [`TaskRejectedError`](./tasks.ts#L88)
 
 _Class_
 
@@ -616,7 +339,7 @@ rejected by the moderator" — an expected, actionable outcome —
 from an opaque internal error. The TM's reason rides in the
 `data` arm when present.
 
-### [`TaskRemoveParticipant`](./tasks.ts#L323)
+### [`TaskRemoveParticipant`](./tasks.ts#L337)
 
 _Variable_
 
@@ -638,7 +361,7 @@ TM-only: remove an agent from a task the calling app owns.
 - **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
   `task/close`).
 
-### [`TaskRequest`](./tasks.ts#L227)
+### [`TaskRequest`](./tasks.ts#L194)
 
 _Variable_
 
@@ -666,8 +389,8 @@ Dedup is a client-side concern: clients that want "one DM per
 participant set" semantics list their tasks and filter locally
 before creating a new one.
 
-The agent-facing entry RPC is `task/request`; the TM-facing wire callback
-`task/create` lives in `packages/protocol/src/app/methods.ts`. The server
+The agent-facing entry RPC is `task/request`; the app-facing wire callback
+`task/create` lives in this task domain. The server
 forks `task/create` to the bound TM after inserting the task in `waiting`;
 the TM's verdict drives the lifecycle (accept → active + `task/created`;
 reject → failed + `task/failed`). The synchronous `{ task, conversation }`
@@ -677,7 +400,7 @@ result is returned after the verdict resolves (the handler awaits it).
 - **Caps (run order):** `ContactPolicyAllowsReach` proves the caller may
   reach every `invitedAgentIds` target under the recipient's contact policy.
 
-### [`TaskStatus`](./tasks.ts#L138)
+### [`TaskStatus`](./tasks.ts#L105)
 
 _TypeAlias_
 

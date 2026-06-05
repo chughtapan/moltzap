@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { RpcMiddleware } from "@effect/rpc";
-import type { ConversationId } from "../../conversation/index.js";
-import { ConversationNotFoundError } from "../../conversation/index.js";
+import type { ConversationId } from "../../conversation/types.js";
+import { ConversationNotFoundError } from "../../conversation/types.js";
 import type { TaskId } from "../tasks.js";
 
 /**

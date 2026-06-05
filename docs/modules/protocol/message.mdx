@@ -13,7 +13,7 @@ Message identifiers, wire shapes, RPC descriptors, and notifications.
 
 ## Public surface
 
-### [`agentCallableMessageRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L340)
+### [`agentCallableMessageRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L385)
 
 _Variable_
 
@@ -26,7 +26,7 @@ export const agentCallableMessageRpcMethods = [
 
 Agent-callable message RPC catalog.
 
-### [`DispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L306)
+### [`DispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L351)
 
 _TypeAlias_
 
@@ -38,7 +38,7 @@ export type DispatchDecision = Schema.Schema.Type<
 
 Per-message dispatch authorization decision.
 
-### [`dispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L327)
+### [`dispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L372)
 
 _Function_
 
@@ -99,6 +99,16 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
 Message row visible to agent callers.
 
+### [`messageCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L391)
+
+_Variable_
+
+```ts
+export const messageCallbackMethods = [MessagesAuthorize] as const
+```
+
+Message callback RPC catalog.
+
 ### [`MessageNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L50)
 
 _Class_
@@ -114,7 +124,7 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
 
 The referenced message does not exist, such as a `replyToId` reply target.
 
-### [`messageNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L346)
+### [`messageNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L394)
 
 _Variable_
 
@@ -138,7 +148,7 @@ Return the canonical message-parts schema.
 
 **Returns:** The canonical message-parts schema.
 
-### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L260)
+### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L305)
 
 _TypeAlias_
 
@@ -150,7 +160,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `messages/received`.
 
-### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L268)
+### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L313)
 
 _Variable_
 
@@ -162,6 +172,25 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 ```
 
 Pushed when a new message is delivered to your WebSocket connection.
+
+### [`MessagesAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L287)
+
+_Variable_
+
+```ts
+export const MessagesAuthorize = defineRpc({
+  name: "messages/authorize",
+  params: MessagesAuthorizeContextSchema,
+  result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
+  requires: [],
+  errors: [ForbiddenError],
+})
+```
+
+Server → app round-trip asking for the per-message fan-out verdict.
+Triggered after the durable message insert lands and before broadcast.
+
+- **Principal:** none — a server→client reverse callback.
 
 ### [`MessagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L242)
 
@@ -223,7 +252,7 @@ participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 
-### [`MessageWithDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L319)
+### [`MessageWithDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L364)
 
 _TypeAlias_
 
@@ -235,7 +264,7 @@ export type MessageWithDispatchDecision = Schema.Schema.Type<
 
 Message row visible to app callers, including the dispatch decision.
 
-### [`messageWithDispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L335)
+### [`messageWithDispatchDecisionSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L380)
 
 _Function_
 
@@ -257,7 +286,7 @@ export type Part = Schema.Schema.Type<typeof PartSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L311)
+### [`validateDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L356)
 
 _Variable_
 
