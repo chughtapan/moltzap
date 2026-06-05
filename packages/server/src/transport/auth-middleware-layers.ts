@@ -4,7 +4,7 @@
  * (`@moltzap/protocol` `requirements.ts`).
  *
  * Each requirement is its own `RpcMiddleware.Tag`; the engine stacks the
- * method's declared requirements (`server-lifecycle.ts -> buildEngineMember`).
+ * method's declared requirements (`socket/server.ts -> buildEngineMember`).
  * The descriptor tag + its `failure` schema are protocol-owned; the impl that
  * resolves a connection to its narrowed arm or runs a cap obtain is a server
  * concern, supplied here.
@@ -34,7 +34,7 @@ import {
   type TaskId,
 } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/runtime";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import {
   ConnectionManagerTag,
   ConversationServiceTag,

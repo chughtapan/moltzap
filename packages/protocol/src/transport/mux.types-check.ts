@@ -7,7 +7,7 @@
  * corresponding low-level `Protocol.make` extension point accepts. If
  * `@effect/rpc` changes either protocol-impl contract, these stop compiling
  * here rather than at the live-wiring site (`MoltZapServer`,
- * `client-lifecycle.ts`).
+ * `socket/lifecycle.ts`).
  *
  * `RpcServer.Protocol.make` / `RpcClient.Protocol.make` each take a callback
  * returning an Effect of the impl record; the canaries map the builder's

@@ -13,14 +13,17 @@ import type {
 import {
   MoltZapAgentClient,
   type AgentClientOptions,
-} from "../agent-client.js";
-import { MoltZapAppClient, type AppClientOptions } from "../app-client.js";
+} from "../socket/agent-client.js";
+import {
+  MoltZapAppClient,
+  type AppClientOptions,
+} from "../socket/app-client.js";
 import {
   type ClientDefinitionError,
   type ClientDefinitionPayload,
   type ClientDefinitionSuccess,
   type RpcCallOptions,
-} from "../client-lifecycle.js";
+} from "../socket/lifecycle.js";
 import type { AgentId } from "../identity/agents.js";
 import type { AppId } from "../task/ids.js";
 import type { RpcGroup } from "@effect/rpc";

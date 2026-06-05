@@ -109,7 +109,7 @@ _Function_
 export const leaseId = (value: string): Schema.Schema.Type<typeof LeaseId>
 ```
 
-### [`makeTestAgentClient`](./lifecycle.ts#L239)
+### [`makeTestAgentClient`](./lifecycle.ts#L242)
 
 _Function_
 
@@ -120,7 +120,7 @@ export function makeTestAgentClient(
 ): Effect.Effect<TestAgentClient, unknown>
 ```
 
-### [`makeTestAppClient`](./lifecycle.ts#L263)
+### [`makeTestAppClient`](./lifecycle.ts#L266)
 
 _Function_
 
@@ -276,7 +276,7 @@ export interface TestAgent {
 }
 ```
 
-### [`TestAgentClient`](./lifecycle.ts#L56)
+### [`TestAgentClient`](./lifecycle.ts#L59)
 
 _Interface_
 
@@ -310,7 +310,7 @@ export interface TestAgentClient {
 }
 ```
 
-### [`TestAppClient`](./lifecycle.ts#L84)
+### [`TestAppClient`](./lifecycle.ts#L87)
 
 _Interface_
 
@@ -387,7 +387,7 @@ export type TestingError =
   | RealServerAcquireError;
 ```
 
-### [`TestServer`](./lifecycle.ts#L50)
+### [`TestServer`](./lifecycle.ts#L53)
 
 _Interface_
 

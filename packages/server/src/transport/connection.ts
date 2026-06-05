@@ -12,7 +12,7 @@ import {
   MessagesAuthorize,
   TaskCreate,
 } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol/runtime";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { AgentContext, AppContext } from "../transport/context.js";

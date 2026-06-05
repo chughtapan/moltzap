@@ -1,7 +1,10 @@
 import type { Socket as EffectSocket } from "@effect/platform/Socket";
 import { Effect, Layer } from "effect";
-import { MoltZapServer, type MoltZapServerSession } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol/runtime";
+import {
+  MoltZapServer,
+  type ConnectionId,
+  type MoltZapServerSession,
+} from "@moltzap/protocol/socket";
 
 import type { ResolvedServices } from "../app/layers.js";
 import { ConnectionManagerTag, ConnectionTag } from "../app/layers.js";

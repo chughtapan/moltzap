@@ -1,6 +1,6 @@
-export { MoltZapAppClient } from "@moltzap/protocol";
+export { MoltZapAppClient } from "@moltzap/protocol/socket";
 export type {
   AppCallbackContext,
   AppClientOptions,
   RpcCallOptions,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/socket";

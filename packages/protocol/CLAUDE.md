@@ -18,12 +18,13 @@ The source DAG is reflected in `src/index.ts`:
   mux routing, notification subscribers, principal middleware tags, wire string
   brands, and cross-cutting tagged errors.
 - `src/identity/` — agents, users, contacts, and identity RPC descriptors.
-- `src/network/` — `agent/connect`, `app/connect`, presence RPCs, and
-  `ConnectionId`.
+- `src/network/` — `agent/connect`, `app/connect`, and presence RPCs.
 - `src/task/` — task, conversation, message, dispatch lease, and capability
   descriptors. Capability requirements live next to the domain that consumes
   them under `src/task/capabilities/`.
 - `src/app/` — app-facing RPCs and server-to-app callback descriptors.
+- `src/socket/` — `MoltZapAgentClient`, `MoltZapAppClient`, `MoltZapServer`,
+  shared lifecycle helpers, close info, and `ConnectionId`.
 
 Root-level protocol assembly:
 
@@ -31,17 +32,13 @@ Root-level protocol assembly:
   AppCallback catalogs, plus the derived server-inbound and reverse groups.
 - `src/requirements.ts` — the closed requirement union and helpers. A
   requirement is the `@effect/rpc` middleware tag itself.
-- `src/client-lifecycle.ts` — shared client socket lifecycle for
-  `MoltZapAgentClient` and `MoltZapAppClient`.
-- `src/server-lifecycle.ts` — shared server socket lifecycle for
-  `MoltZapServer`.
 - `src/credentials.ts` — branded/redacted credential schemas.
 - `src/testing/` — lifecycle fixtures, conformance suites, arbitraries, and
   toxics.
 
 ## Commands
 
-- `pnpm build` — `tsc -b`
+- `pnpm build` — `tsc -b && tsc-alias -p tsconfig.json`
 - `pnpm test` — Vitest unit tests
 - `pnpm docs:generate` — regenerate protocol reference docs and module pages
 

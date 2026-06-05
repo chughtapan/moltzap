@@ -29,16 +29,16 @@ import {
   TaskCreate,
   type AppCallbackHandlers,
 } from "../../../../app/index.js";
-import { MoltZapAgentClient } from "../../../../agent-client.js";
+import { MoltZapAgentClient } from "../../../../socket/agent-client.js";
 import {
   MoltZapAppClient,
   type AppCallbackContext,
-} from "../../../../app-client.js";
+} from "../../../../socket/app-client.js";
 import type {
   ClientDefinitionPayload,
   ClientDefinitionSuccess,
-} from "../../../../client-lifecycle.js";
-import type { CloseInfo } from "../../../../close-info.js";
+} from "../../../../socket/lifecycle.js";
+import type { CloseInfo } from "../../../../socket/close-info.js";
 import {
   NotConnectedError,
   type NotificationDelivery,

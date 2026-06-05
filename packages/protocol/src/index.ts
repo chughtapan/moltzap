@@ -2,16 +2,19 @@
  * @file Protocol package root.
  *
  * Transitional compatibility surface while the protocol package is rebalanced.
- * The final root target is the runtime lifecycle surface; descriptor and schema
+ * The final root target is the socket lifecycle surface; descriptor and schema
  * exports are already available on focused subpaths.
  */
 
-export { MoltZapAgentClient } from "./agent-client.js";
-export { MoltZapAppClient } from "./app-client.js";
-export { MoltZapServer } from "./server-lifecycle.js";
+export { MoltZapAgentClient } from "./socket/agent-client.js";
+export { MoltZapAppClient } from "./socket/app-client.js";
+export { MoltZapServer } from "./socket/server.js";
 
-export type { AgentClientOptions } from "./agent-client.js";
-export type { AppCallbackContext, AppClientOptions } from "./app-client.js";
+export type { AgentClientOptions } from "./socket/agent-client.js";
+export type {
+  AppCallbackContext,
+  AppClientOptions,
+} from "./socket/app-client.js";
 export type {
   MoltZapServerOptions,
   MoltZapServerSession,
@@ -23,24 +26,24 @@ export type {
   ReverseCallbackRequest,
   ReverseClient,
   ServerSocketWrite,
-} from "./server-lifecycle.js";
+} from "./socket/server.js";
 
-export { RPC_TIMEOUT_MS } from "./client-lifecycle.js";
+export { RPC_TIMEOUT_MS } from "./socket/lifecycle.js";
 export type {
   ClientDefinitionError,
   ClientDefinitionPayload,
   ClientDefinitionSuccess,
   ClientRpcDefinition,
   RpcCallOptions,
-} from "./client-lifecycle.js";
+} from "./socket/lifecycle.js";
 
 export {
   classifyCloseCause,
   DEFAULT_ABNORMAL_CLOSE,
   DEFAULT_GRACEFUL_CLOSE,
   extractCloseInfo,
-} from "./close-info.js";
-export type { CloseInfo, CloseKind } from "./close-info.js";
+} from "./socket/close-info.js";
+export type { CloseInfo, CloseKind } from "./socket/close-info.js";
 
 export {
   AgentKey,
@@ -144,7 +147,7 @@ export {
   ConnectionId,
   connectionId,
   newConnectionId,
-} from "./runtime/connection.js";
+} from "./socket/connection.js";
 
 export {
   ConversationId,

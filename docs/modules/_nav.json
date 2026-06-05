@@ -6,7 +6,7 @@
     "modules/protocol/app",
     "modules/protocol/identity",
     "modules/protocol/network",
-    "modules/protocol/runtime",
+    "modules/protocol/socket",
     "modules/protocol/src",
     "modules/protocol/task",
     "modules/protocol/task/capabilities",

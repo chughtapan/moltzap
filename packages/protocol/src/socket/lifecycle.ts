@@ -20,25 +20,25 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { AgentConnect, AppConnect } from "./network/connect.js";
+import { AgentConnect, AppConnect } from "../network/connect.js";
 import {
   AgentCallableGroup,
   AppCallableGroup,
   ReverseRpcGroup,
   appCallbackMethods,
   type AnyNotificationDefinition,
-} from "./rpc-method-groups.js";
+} from "../rpc-method-groups.js";
 import {
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-} from "./app/dispatch.js";
+} from "../app/dispatch.js";
 import {
   ContactAcceptedNotificationDefinition,
   ContactRequestNotificationDefinition,
-} from "./identity/contacts.js";
-import { PresenceChangedNotificationDefinition } from "./network/presence.js";
-import { MessageReceivedNotificationDefinition } from "./task/messages.js";
+} from "../identity/contacts.js";
+import { PresenceChangedNotificationDefinition } from "../network/presence.js";
+import { MessageReceivedNotificationDefinition } from "../task/messages.js";
 import {
   TaskClosedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,
@@ -48,34 +48,34 @@ import {
   TaskConversationUnarchivedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-} from "./task/tasks.js";
+} from "../task/tasks.js";
 import { extractCloseInfo, type CloseInfo } from "./close-info.js";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
   ResultOf,
-} from "./transport/method.js";
+} from "../transport/method.js";
 import {
   makeNotificationSubscriberRegistry,
   notificationSubscribe,
   notificationSubscribeAll,
   type NotificationSubscriberRegistry,
-} from "./transport/notification-subscribers.js";
-import { NotConnectedError, RpcTimeoutError } from "./transport/rpc-errors.js";
-import { makeServerProtocolLayer } from "./server-lifecycle.js";
+} from "../transport/notification-subscribers.js";
+import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
+import { makeServerProtocolLayer } from "./server.js";
 import {
   makeClientChannelProtocol,
   runMuxReader,
   type ChannelSink,
   type WireWrite,
-} from "./transport/mux.js";
+} from "../transport/mux.js";
 import {
   makeTypedTransportCall,
   type ErrorForTag,
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,
-} from "./transport/typed-dispatch.js";
+} from "../transport/typed-dispatch.js";
 
 export const RPC_TIMEOUT_MS = 30_000;
 

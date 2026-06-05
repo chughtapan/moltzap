@@ -38,13 +38,13 @@
       "types": "./dist/network/index.d.ts",
       "import": "./dist/network/index.js"
     },
+    "./socket": {
+      "types": "./dist/socket/index.d.ts",
+      "import": "./dist/socket/index.js"
+    },
     "./credentials": {
       "types": "./dist/credentials.d.ts",
       "import": "./dist/credentials.js"
-    },
-    "./runtime": {
-      "types": "./dist/runtime/index.d.ts",
-      "import": "./dist/runtime/index.js"
     },
     "./requirements": {
       "types": "./dist/requirements.d.ts",
@@ -53,10 +53,6 @@
     "./rpc-method-groups": {
       "types": "./dist/rpc-method-groups.d.ts",
       "import": "./dist/rpc-method-groups.js"
-    },
-    "./close-info": {
-      "types": "./dist/close-info.d.ts",
-      "import": "./dist/close-info.js"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
@@ -71,6 +67,7 @@
     "#network": "./src/network/index.ts",
     "#task": "./src/task/index.ts",
     "#task/requirements": "./src/task/capabilities/index.ts",
+    "#socket": "./src/socket/index.ts",
     "#testing": "./src/testing/index.ts"
   },
   "scripts": {
