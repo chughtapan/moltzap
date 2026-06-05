@@ -21,16 +21,15 @@ import {
   type TaskBinding,
 } from "./test-helpers.js";
 
+import { AgentsLookupByName } from "@moltzap/protocol/identity";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  AgentsLookupByName,
-  DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesSend,
-  TaskRequest,
-  type AgentId,
-  type AgentKey,
-  type Message,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { Message } from "@moltzap/protocol/message";
 
 interface GatewayHarness {
   readonly containerAId: string;

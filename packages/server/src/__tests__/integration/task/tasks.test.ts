@@ -1,18 +1,20 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
+import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
 import {
-  DispatchAuthorize,
-  TaskCreate,
   DEFAULT_APP_ID,
   TaskAddParticipant,
   TaskClose,
-  TaskRequest,
+  TaskCreate,
   TaskList,
   TaskRemoveParticipant,
-  MessagesAuthorize,
-  type AppCallbackContext,
-  type AppCallbackHandlers,
-} from "@moltzap/protocol";
+  TaskRequest,
+} from "@moltzap/protocol/task";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
 import { agentId } from "@moltzap/protocol/testing";
 import {
   it,

@@ -1,11 +1,11 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect, Fiber, Option, Ref, Schema } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AppId, TaskId } from "@moltzap/protocol/task";
 import type { DispatchesGet, DispatchId } from "@moltzap/protocol/dispatch";
-import type { ResultOf } from "@moltzap/protocol";
+import type { ResultOf } from "@moltzap/protocol/transport";
 import {
   DispatchId as DispatchIdSchema,
   DispatchRelease,
@@ -16,7 +16,7 @@ import {
   LeaseId as LeaseIdSchema,
   type LeaseId,
 } from "@moltzap/protocol/message";
-import { type NotificationParamsOf } from "@moltzap/protocol";
+import type { NotificationParamsOf } from "@moltzap/protocol/transport";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
 import type { ConnectionManager } from "../../transport/connection.js";
 import type { LeaseTransitionObserver } from "../../network/services/presence-types.js";

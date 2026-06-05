@@ -8,7 +8,7 @@ Public exports for runtime adapter orchestration.
 
 ## Public surface
 
-### [`AgentName`](./runtime.ts#L7)
+### [`AgentName`](./runtime.ts#L8)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type AgentName = string & Brand.Brand<"AgentName">;
 ```
 
-### [`AgentName`](./runtime.ts#L7)
+### [`AgentName`](./runtime.ts#L8)
 
 _Variable_
 
@@ -272,7 +272,7 @@ Non-workspace usage: pass explicit `openclawBin` /
 `channelDistDir` to OpenClawAdapter's constructor
 directly. This factory is a convenience for monorepo callers.
 
-### [`launchRuntimeFleet`](./fleet.ts#L336)
+### [`launchRuntimeFleet`](./fleet.ts#L337)
 
 _Function_
 
@@ -297,7 +297,7 @@ Sibling: launchRuntimeFleetWithProcessSignals adds SIGINT
 / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
 `RuntimeFleetStartupInterrupted`.
 
-### [`launchRuntimeFleetWithProcessSignals`](./fleet.ts#L437)
+### [`launchRuntimeFleetWithProcessSignals`](./fleet.ts#L438)
 
 _Function_
 
@@ -330,7 +330,7 @@ flowchart TD
 
 - `RuntimeFleetStartupInterrupted` — a signal arrives during fleet startup
 
-### [`LogSlice`](./runtime.ts#L49)
+### [`LogSlice`](./runtime.ts#L50)
 
 _Interface_
 
@@ -646,7 +646,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`ReadyOutcome`](./runtime.ts#L56)
+### [`ReadyOutcome`](./runtime.ts#L57)
 
 _TypeAlias_
 
@@ -655,7 +655,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](./runtime.ts#L75)
+### [`Runtime`](./runtime.ts#L76)
 
 _Interface_
 
@@ -691,7 +691,7 @@ getLogs returns accumulated output from a byte offset.
 getInboundMarker returns a substring that proves an inbound message
 was received by the runtime's channel plugin.
 
-### [`RuntimeAgentSpec`](./fleet.ts#L35)
+### [`RuntimeAgentSpec`](./fleet.ts#L36)
 
 _Interface_
 
@@ -728,7 +728,7 @@ Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
 `exitCode` is `null` only if the process exited via signal.
 Caller action: inspect `stderr`; check binary auth config.
 
-### [`RuntimeFleet`](./fleet.ts#L75)
+### [`RuntimeFleet`](./fleet.ts#L76)
 
 _Interface_
 
@@ -740,7 +740,7 @@ export interface RuntimeFleet {
 }
 ```
 
-### [`RuntimeFleetAgent`](./fleet.ts#L70)
+### [`RuntimeFleetAgent`](./fleet.ts#L71)
 
 _Interface_
 
@@ -751,7 +751,7 @@ export interface RuntimeFleetAgent {
 }
 ```
 
-### [`RuntimeFleetLaunchOptions`](./fleet.ts#L54)
+### [`RuntimeFleetLaunchOptions`](./fleet.ts#L55)
 
 _Interface_
 
@@ -768,7 +768,7 @@ export interface RuntimeFleetLaunchOptions {
 }
 ```
 
-### [`RuntimeFleetProcessSignalOptions`](./fleet.ts#L65)
+### [`RuntimeFleetProcessSignalOptions`](./fleet.ts#L66)
 
 _Interface_
 
@@ -779,7 +779,7 @@ export interface RuntimeFleetProcessSignalOptions
 }
 ```
 
-### [`RuntimeFleetStartupInterrupted`](./fleet.ts#L81)
+### [`RuntimeFleetStartupInterrupted`](./fleet.ts#L82)
 
 _Class_
 
@@ -792,7 +792,7 @@ export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
 }> {}
 ```
 
-### [`RuntimeKind`](./fleet.ts#L31)
+### [`RuntimeKind`](./fleet.ts#L32)
 
 _TypeAlias_
 
@@ -851,7 +851,7 @@ within `timeoutMs`.
 Caller action: increase `readyTimeoutMs`, or inspect
 `runtime.getLogs(0)` to see what the subprocess is doing.
 
-### [`RuntimeServerHandle`](./runtime.ts#L20)
+### [`RuntimeServerHandle`](./runtime.ts#L21)
 
 _Interface_
 
@@ -877,7 +877,7 @@ export interface RuntimeServerHandle {
 }
 ```
 
-### [`RuntimeStartOptions`](./fleet.ts#L44)
+### [`RuntimeStartOptions`](./fleet.ts#L45)
 
 _Interface_
 
@@ -893,7 +893,7 @@ export interface RuntimeStartOptions {
 }
 ```
 
-### [`ServerUrl`](./runtime.ts#L8)
+### [`ServerUrl`](./runtime.ts#L9)
 
 _TypeAlias_
 
@@ -901,7 +901,7 @@ _TypeAlias_
 export type ServerUrl = string & Brand.Brand<"ServerUrl">;
 ```
 
-### [`ServerUrl`](./runtime.ts#L8)
+### [`ServerUrl`](./runtime.ts#L9)
 
 _Variable_
 
@@ -928,7 +928,7 @@ failure, state-dir creation failure.
 `cause` carries the underlying Error.
 Caller action: surface to user. No retry — binary or config is wrong.
 
-### [`SpawnInput`](./runtime.ts#L40)
+### [`SpawnInput`](./runtime.ts#L41)
 
 _Interface_
 
@@ -943,7 +943,7 @@ export interface SpawnInput {
 }
 ```
 
-### [`startRuntimeAgent`](./fleet.ts#L308)
+### [`startRuntimeAgent`](./fleet.ts#L309)
 
 _Function_
 
@@ -990,7 +990,7 @@ export interface WorkspaceClaudeCodeAdapterInput {
 }
 ```
 
-### [`WorkspaceFile`](./runtime.ts#L15)
+### [`WorkspaceFile`](./runtime.ts#L16)
 
 _Interface_
 

@@ -22,14 +22,16 @@ import { describe, expect, it } from "vitest";
 import * as fc from "fast-check";
 import { Effect, Fiber, Ref, Stream } from "effect";
 import {
-  makeNotificationSubscriberRegistry,
   NotConnectedError,
-  PresenceChangedNotificationDefinition,
-  MessageReceivedNotificationDefinition,
-  type AnyNotificationDefinition,
-  type NotificationDelivery,
-  type NotificationParamsOf,
-} from "@moltzap/protocol";
+  makeNotificationSubscriberRegistry,
+} from "@moltzap/protocol/transport";
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
+import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type {
+  NotificationDelivery,
+  NotificationParamsOf,
+} from "@moltzap/protocol/transport";
 import { subscribe } from "../stream.js";
 import {
   buildMessage,

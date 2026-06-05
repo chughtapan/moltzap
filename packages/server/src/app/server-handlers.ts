@@ -50,12 +50,13 @@ import {
 } from "../task/handlers/tasks.handlers.js";
 import { taskRequest } from "./handlers/task-request.handlers.js";
 import { dispatchRequest, dispatchesGet } from "./handlers/apps.handlers.js";
+import type { ServerHandlers } from "@moltzap/protocol/socket";
 
 /**
  * The handler map. Keys are the wire method names of every WS-dispatched
  * method; values are the per-method handler bodies.
  */
-export const serverHandlers = {
+export const serverHandlers: ServerHandlers = {
   "agent/connect": connectAgent,
   "app/connect": connectApp,
   "agents/lookup": agentsLookup,

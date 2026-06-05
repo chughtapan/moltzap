@@ -17,16 +17,18 @@ import {
   type TraceCaptureEvent,
 } from "./trace-capture-bundle.js";
 
+import type { AnyServerRpcDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentKey } from "@moltzap/protocol/credentials";
 import {
-  type AnyServerRpcDefinition,
-  type AgentId,
-  type AgentKey,
-  MessagesSend,
   MessageReceivedNotificationDefinition,
-  type NotificationParamsOf,
-  type ParamsOf,
-  type ResultOf,
-} from "@moltzap/protocol";
+  MessagesSend,
+} from "@moltzap/protocol/message";
+import type {
+  NotificationParamsOf,
+  ParamsOf,
+  ResultOf,
+} from "@moltzap/protocol/transport";
 import {
   DEFAULT_APP_ID,
   TaskRequest,

@@ -6,9 +6,9 @@ _`packages/protocol/src`_
 
 Protocol package root.
 
-Transitional compatibility surface while the protocol package is rebalanced.
-The final root target is the socket lifecycle surface; descriptor and schema
-exports are already available on focused subpaths.
+The root surface is intentionally tiny: concrete protocol-owned socket
+lifecycle classes only. Domain descriptors, schemas, requirement tags, and
+testing helpers live behind focused package subpaths.
 
 ## Public surface
 
@@ -35,20 +35,20 @@ export const agentCallableMethods = [
 ] as const
 ```
 
-### [`AgentKey`](./credentials.ts#L26)
+### [`AgentKey`](./credentials.ts#L35)
 
 _TypeAlias_
 
 ```ts
-export const AgentKey = Schema.Redacted(AgentKeyValue);
+export type AgentKey = Redacted.Redacted<AgentKeyValue>;
 ```
 
-### [`AgentKey`](./credentials.ts#L26)
+### [`AgentKey`](./credentials.ts#L35)
 
 _Variable_
 
 ```ts
-export const AgentKey = Schema.Redacted(AgentKeyValue)
+export type AgentKey = Redacted.Redacted<AgentKeyValue>
 ```
 
 ### [`AnyAgentCallableRpcDefinition`](./rpc-method-groups.ts#L89)
@@ -124,20 +124,20 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppKey`](./credentials.ts#L29)
+### [`AppKey`](./credentials.ts#L39)
 
 _TypeAlias_
 
 ```ts
-export const AppKey = Schema.Redacted(AppKeyValue);
+export type AppKey = Redacted.Redacted<AppKeyValue>;
 ```
 
-### [`AppKey`](./credentials.ts#L29)
+### [`AppKey`](./credentials.ts#L39)
 
 _Variable_
 
 ```ts
-export const AppKey = Schema.Redacted(AppKeyValue)
+export type AppKey = Redacted.Redacted<AppKeyValue>
 ```
 
 ### [`CapabilityRequirement`](./requirements.ts#L34)
@@ -176,20 +176,20 @@ export const middlewaresForRequirements = (
 };
 ```
 
-### [`InviteCode`](./credentials.ts#L38)
+### [`InviteCode`](./credentials.ts#L51)
 
 _TypeAlias_
 
 ```ts
-export const InviteCode = Schema.Redacted(InviteCodeValue);
+export type InviteCode = Redacted.Redacted<InviteCodeValue>;
 ```
 
-### [`InviteCode`](./credentials.ts#L38)
+### [`InviteCode`](./credentials.ts#L51)
 
 _Variable_
 
 ```ts
-export const InviteCode = Schema.Redacted(InviteCodeValue)
+export type InviteCode = Redacted.Redacted<InviteCodeValue>
 ```
 
 ### [`middlewaresForRequirements`](./requirements.ts#L50)
@@ -281,20 +281,20 @@ export type PrincipalRequirementOf<
 > = Requires extends readonly [infer Head, ...ReadonlyArray<unknown>]
 ```
 
-### [`RegistrationSecret`](./credentials.ts#L58)
+### [`RegistrationSecret`](./credentials.ts#L77)
 
 _TypeAlias_
 
 ```ts
-export const RegistrationSecret = Schema.Redacted(RegistrationSecretValue);
+export type RegistrationSecret = Redacted.Redacted<RegistrationSecretValue>;
 ```
 
-### [`RegistrationSecret`](./credentials.ts#L58)
+### [`RegistrationSecret`](./credentials.ts#L77)
 
 _Variable_
 
 ```ts
-export const RegistrationSecret = Schema.Redacted(RegistrationSecretValue)
+export type RegistrationSecret = Redacted.Redacted<RegistrationSecretValue>
 ```
 
 ### [`Requirement`](./requirements.ts#L40)
@@ -358,24 +358,22 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked — an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`ServerEncryptionMasterSecret`](./credentials.ts#L61)
+### [`ServerEncryptionMasterSecret`](./credentials.ts#L81)
 
 _TypeAlias_
 
 ```ts
-export const ServerEncryptionMasterSecret = Schema.Redacted(
-  ServerEncryptionMasterSecretValue,
-);
+export type ServerEncryptionMasterSecret =
+  Redacted.Redacted<ServerEncryptionMasterSecretValue>;
 ```
 
-### [`ServerEncryptionMasterSecret`](./credentials.ts#L61)
+### [`ServerEncryptionMasterSecret`](./credentials.ts#L81)
 
 _Variable_
 
 ```ts
-export const ServerEncryptionMasterSecret = Schema.Redacted(
-  ServerEncryptionMasterSecretValue,
-)
+export type ServerEncryptionMasterSecret =
+  Redacted.Redacted<ServerEncryptionMasterSecretValue>
 ```
 
 ### [`serverInboundMethods`](./rpc-method-groups.ts#L69)

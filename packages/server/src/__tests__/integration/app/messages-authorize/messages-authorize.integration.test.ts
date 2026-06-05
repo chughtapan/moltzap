@@ -7,23 +7,23 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
+import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DispatchAuthorize,
-  TaskCreate,
+  MessageReceivedNotificationDefinition,
   MessagesAuthorize,
   MessagesList,
   MessagesSend,
-  MessageReceivedNotificationDefinition,
-  TaskConversationCreate,
-  TaskRequest,
-  type AgentId,
-  type AppCallbackContext,
-  type AppCallbackHandlers,
-  type AppId,
-  type AppManifest,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
+import { TaskConversationCreate } from "@moltzap/protocol/conversation";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
+import type { AppManifest } from "@moltzap/protocol/app";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
   startTestServerEffect,
   stopTestServerEffect,

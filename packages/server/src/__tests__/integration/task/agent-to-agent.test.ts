@@ -10,16 +10,15 @@ import {
   registerAndConnect,
   type ConnectedAgent,
 } from "../helpers.js";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
+  MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  MessageReceivedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskRequest,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
+import { TaskConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 
 const it = effectIt.live;
 

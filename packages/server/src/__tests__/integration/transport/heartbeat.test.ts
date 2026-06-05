@@ -11,12 +11,11 @@ import {
   DEFAULT_NOTIFICATION_TIMEOUT_MS,
 } from "../helpers.js";
 
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
-  MessagesSend,
   MessageReceivedNotificationDefinition,
-  TaskRequest,
-} from "@moltzap/protocol";
+  MessagesSend,
+} from "@moltzap/protocol/message";
 
 const ALIVE_AFTER_IDLE_TEXT = "Still alive after idle";
 const REPLY_AFTER_IDLE_TEXT = "Reply after idle";

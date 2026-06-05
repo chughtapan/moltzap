@@ -21,7 +21,7 @@ import {
 } from "../helpers.js";
 import { agentId, userId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
-import { PresenceSubscribe } from "@moltzap/protocol";
+import { PresenceSubscribe } from "@moltzap/protocol/network";
 
 const it = effectIt.live;
 

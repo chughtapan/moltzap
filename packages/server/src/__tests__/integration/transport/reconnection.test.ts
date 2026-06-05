@@ -13,16 +13,15 @@ import {
   type TestAgentClient,
 } from "../helpers.js";
 
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
+  MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  MessageReceivedNotificationDefinition,
-  TaskRequest,
-  type AgentId,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 
 const PRE_DISCONNECT_TEXT = "Pre-disconnect";
 const OFFLINE_TEXT = "Sent while you were away";

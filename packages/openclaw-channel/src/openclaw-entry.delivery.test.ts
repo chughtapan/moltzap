@@ -10,19 +10,18 @@ import {
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
-import {
-  AgentsLookup,
-  MessagesSend,
-  type ConversationId,
-  type LeaseId,
-  type MessageId,
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
-  type TaskId,
-} from "@moltzap/protocol";
+import { AgentsLookup } from "@moltzap/protocol/identity";
+import { MessagesSend } from "@moltzap/protocol/message";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { LeaseId } from "@moltzap/protocol/message";
+import type {
+  ParamsOf,
+  ResultOf,
+  RpcDefinition,
+} from "@moltzap/protocol/transport";
+import type { TaskId } from "@moltzap/protocol/task";
 import { TaskClosedError } from "@moltzap/protocol/task";
-import { ForbiddenError } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol/transport";
 import { Data, Effect } from "effect";
 import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";

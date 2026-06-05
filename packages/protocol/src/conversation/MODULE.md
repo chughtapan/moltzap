@@ -36,7 +36,7 @@ export const appCallableConversationRpcMethods = [
 
 App-callable conversation RPC catalog.
 
-### [`Conversation`](./types.ts#L130)
+### [`Conversation`](./types.ts#L134)
 
 _TypeAlias_
 
@@ -46,7 +46,7 @@ export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
 
 Conversation row visible on task conversation surfaces.
 
-### [`ConversationArchivedError`](./types.ts#L56)
+### [`ConversationArchivedError`](./types.ts#L60)
 
 _Class_
 
@@ -61,7 +61,7 @@ export class ConversationArchivedError extends Schema.TaggedError<ConversationAr
 
 The conversation is archived and cannot accept the requested mutation.
 
-### [`ConversationFullError`](./types.ts#L64)
+### [`ConversationFullError`](./types.ts#L68)
 
 _Class_
 
@@ -76,27 +76,25 @@ export class ConversationFullError extends Schema.TaggedError<ConversationFullEr
 
 The conversation has reached its participant capacity.
 
-### [`ConversationId`](./types.ts#L22)
+### [`ConversationId`](./types.ts#L21)
 
 _TypeAlias_
 
 ```ts
-export const ConversationId = brandedId("ConversationId");
-```
-
-Branded conversation identifier value.
-
-### [`ConversationId`](./types.ts#L22)
-
-_Variable_
-
-```ts
-export const ConversationId = brandedId("ConversationId")
+export type ConversationId = string & Brand.Brand<"ConversationId">;
 ```
 
 Branded conversation identifier.
 
-### [`ConversationNotFoundError`](./types.ts#L40)
+### [`ConversationId`](./types.ts#L21)
+
+_Variable_
+
+```ts
+export type ConversationId = string & Brand.Brand<"ConversationId">
+```
+
+### [`ConversationNotFoundError`](./types.ts#L44)
 
 _Class_
 
@@ -127,7 +125,7 @@ export const conversationNotifications = [
 
 Conversation notification catalog.
 
-### [`ConversationParticipant`](./types.ts#L133)
+### [`ConversationParticipant`](./types.ts#L137)
 
 _TypeAlias_
 
@@ -139,7 +137,7 @@ export type ConversationParticipant = Schema.Schema.Type<
 
 Participant row for a conversation.
 
-### [`conversationSchema`](./types.ts#L146)
+### [`conversationSchema`](./types.ts#L150)
 
 _Function_
 
@@ -151,7 +149,7 @@ Return the canonical conversation schema.
 
 **Returns:** The canonical conversation schema.
 
-### [`ConversationSummary`](./types.ts#L138)
+### [`ConversationSummary`](./types.ts#L142)
 
 _TypeAlias_
 
@@ -163,22 +161,12 @@ export type ConversationSummary = Schema.Schema.Type<
 
 Conversation summary row used by list surfaces.
 
-### [`MessageId`](./types.ts#L34)
+### [`MessageId`](./types.ts#L35)
 
 _TypeAlias_
 
 ```ts
-export const MessageId = brandedId("MessageId");
-```
-
-Branded message identifier value.
-
-### [`MessageId`](./types.ts#L34)
-
-_Variable_
-
-```ts
-export const MessageId = brandedId("MessageId")
+export type MessageId = string & Brand.Brand<"MessageId">;
 ```
 
 Branded message identifier.
@@ -187,7 +175,15 @@ This lives in the conversation module to keep the message module downstream:
 conversation participant state references the last-read message, and message
 rows reference their conversation.
 
-### [`NotAParticipantError`](./types.ts#L48)
+### [`MessageId`](./types.ts#L35)
+
+_Variable_
+
+```ts
+export type MessageId = string & Brand.Brand<"MessageId">
+```
+
+### [`NotAParticipantError`](./types.ts#L52)
 
 _Class_
 
@@ -202,7 +198,7 @@ export class NotAParticipantError extends Schema.TaggedError<NotAParticipantErro
 
 The caller is not a participant in the conversation it is acting on.
 
-### [`ParticipantNotAdmittedError`](./types.ts#L75)
+### [`ParticipantNotAdmittedError`](./types.ts#L79)
 
 _Class_
 

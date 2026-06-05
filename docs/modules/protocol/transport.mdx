@@ -91,74 +91,6 @@ Principal requirement: require any authenticated arm. Used by methods that
 are shared by first-party agent and app clients but still must reject the
 unauthenticated pre-connect arm.
 
-### [`brandedId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L143)
-
-_Function_
-
-```ts
-export function brandedId<const BrandName extends string>(brand: BrandName)
-```
-
-Convenience over brandedString that adds the `uuid` format. The
-canonical way to define wire id types in this package
-(`AgentId = brandedId("AgentId")`, `TaskId = brandedId("TaskId")`, etc.).
-The format check runs the `UUID_RE` regex at decode time and annotates the
-schema so `JSONSchema.make` emits `format:"uuid"` for the docs walker.
-
-### [`brandedString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L45)
-
-_Function_
-
-```ts
-export function brandedString<const BrandName extends string>(
-  brand: BrandName,
-  options: BrandedStringOptions = {},
-): Schema.Schema<BrandedString<BrandName>, string>
-```
-
-Effect `Schema` whose decoded type is `BrandedString&lt;BrandName>`. The
-brand exists only at the type level — decode runs against the underlying
-string with the requested refinements (`minLength`, `maxLength`, `pattern`,
-and the three wire `format` checkers below) as `Schema.pattern` /
-`Schema.filter` refinements inside the same `Schema.decode*` engine as
-everything else.
-
-`format` annotates the schema with `{ jsonSchema: { format } }` so
-`JSONSchema.make` re-emits the draft-07 `format` keyword the docs walker
-reads (`scripts/docs/schema.ts → getStringTypeName`). The `pattern`/`filter`
-refinement still runs at decode time regardless of the annotation.
-
-### [`BrandedString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L17)
-
-_TypeAlias_
-
-```ts
-export type BrandedString<BrandName extends string> = string &
-```
-
-A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
-a `string` from accidentally type-fitting a slot expecting the brand.
-
-`Schema.brand` produces `string & Brand.Brand&lt;BrandName>`, identical to
-this alias, so a `brandedString("Foo")` schema's `Schema.Schema.Type` is
-assignable both ways with `BrandedString&lt;"Foo">`.
-
-### [`BrandedStringOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L24)
-
-_Interface_
-
-```ts
-export interface BrandedStringOptions {
-  readonly minLength?: number;
-  readonly maxLength?: number;
-  readonly pattern?: string;
-  readonly format?: WireStringFormat;
-  readonly description?: string;
-}
-```
-
-Refinement options accepted by brandedString.
-
 ### [`CallErrorsOf`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/method.ts#L174)
 
 _TypeAlias_
@@ -239,7 +171,7 @@ export class ConflictError extends Schema.TaggedError<ConflictError>()(
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
 
-### [`dateTimeStringSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L185)
+### [`dateTimeStringSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L113)
 
 _Function_
 
@@ -278,7 +210,7 @@ export function decodesStrictly<A, I>(
 ): boolean
 ```
 
-### [`DEFAULT_PAGE_LIMIT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L4)
+### [`DEFAULT_PAGE_LIMIT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L3)
 
 _Variable_
 
@@ -426,7 +358,7 @@ export class ForbiddenError extends Schema.TaggedError<ForbiddenError>()(
 
 Authenticated but not authorized for this resource.
 
-### [`formatString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L157)
+### [`formatString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L85)
 
 _Function_
 
@@ -478,15 +410,15 @@ Internal factory for descriptor construction (`defineRpc`,
 `defineNotification`). Callers pass plain strings to descriptors, and the
 literal type is preserved in every method/key position.
 
-### [`ListCursor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L15)
+### [`ListCursor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L14)
 
 _TypeAlias_
 
 ```ts
-export type ListCursor = BrandedString<"ListCursor">;
+export type ListCursor = string & Brand.Brand<"ListCursor">;
 ```
 
-### [`listCursorSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L24)
+### [`listCursorSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L26)
 
 _Function_
 
@@ -494,7 +426,7 @@ _Function_
 export function listCursorSchema(): typeof ListCursorSchema
 ```
 
-### [`ListLimitSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L7)
+### [`ListLimitSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L6)
 
 _Variable_
 
@@ -592,7 +524,7 @@ no value-boundary cast. Every endpoint that stands a non-flat client (the
 agent + app clients, the server's reverse client) shares this one bridge, so
 the transport-error fold is written once.
 
-### [`MAX_PAGE_LIMIT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L5)
+### [`MAX_PAGE_LIMIT`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/pagination.ts#L4)
 
 _Variable_
 
@@ -1149,7 +1081,7 @@ The two role-inverted sinks on one socket. `server` is the local
 `RpcClient`'s inbound sink (response-family frames). A socket may carry
 either or both.
 
-### [`stringEnum`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L168)
+### [`stringEnum`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L96)
 
 _Function_
 
@@ -1211,21 +1143,23 @@ export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
 
 Not authenticated — `agent/connect` or `app/connect` has not run on this socket.
 
-### [`WireStringFormat`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L21)
+### [`WireStringFormat`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L10)
 
 _TypeAlias_
 
 ```ts
 export type WireStringFormat = "uuid" | "uri" | "date-time";
 
-/** Refinement options accepted by {@link brandedString}. */
-export interface BrandedStringOptions {
-  readonly minLength?: number;
-  readonly maxLength?: number;
-  readonly pattern?: string;
-  readonly format?: WireStringFormat;
-  readonly description?: string;
-}
+// Arbitrary-annotation factories. `Arbitrary.make` derives a generator by
+// reading the schema's refinements — but for a `Schema.pattern` like the UUID
+// regex it FALLS BACK to filter-rejection (generate random strings, keep ones
+// matching the regex), which for a UUID essentially never produces a hit and
+// makes conformance fuzzing hang. So each format primitive carries an explicit
+// `arbitrary` annotation that generates valid values DIRECTLY. The `fc` arg is
+// Effect's re-exported FastCheck instance, passed in by `Arbitrary.make` — no
+// top-level `fast-check` import in production code.
+const dateTimeArbitrary =
+  () =>
 ```
 
 The three wire string formats.

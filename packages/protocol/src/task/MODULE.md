@@ -32,23 +32,23 @@ export const appCallableTaskRpcMethods = [
 ] as const
 ```
 
-### [`AppId`](./ids.ts#L22)
+### [`AppId`](./ids.ts#L25)
 
 _TypeAlias_
 
 ```ts
-export const AppId = brandedId("AppId");
+export type AppId = string & Brand.Brand<"AppId">;
 ```
 
-### [`AppId`](./ids.ts#L22)
+### [`AppId`](./ids.ts#L25)
 
 _Variable_
 
 ```ts
-export const AppId = brandedId("AppId")
+export type AppId = string & Brand.Brand<"AppId">
 ```
 
-### [`DEFAULT_APP_ID`](./ids.ts#L25)
+### [`DEFAULT_APP_ID`](./ids.ts#L31)
 
 _Variable_
 
@@ -218,7 +218,7 @@ Pushed when a task fails before becoming ready.
 _TypeAlias_
 
 ```ts
-export const TaskId = brandedId("TaskId");
+export type TaskId = string & Brand.Brand<"TaskId">;
 ```
 
 ### [`TaskId`](./ids.ts#L4)
@@ -226,7 +226,7 @@ export const TaskId = brandedId("TaskId");
 _Variable_
 
 ```ts
-export const TaskId = brandedId("TaskId")
+export type TaskId = string & Brand.Brand<"TaskId">
 ```
 
 ### [`TaskLeave`](./tasks.ts#L273)
@@ -278,7 +278,7 @@ List the caller's own tasks, cursor-paginated.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`TaskNotFoundError`](./ids.ts#L12)
+### [`TaskNotFoundError`](./ids.ts#L15)
 
 _Class_
 

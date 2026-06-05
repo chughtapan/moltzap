@@ -1,21 +1,28 @@
 import type { Db } from "../../db/client.js";
-import type { Conversation, ConversationSummary } from "@moltzap/protocol";
+import type {
+  Conversation,
+  ConversationSummary,
+} from "@moltzap/protocol/conversation";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect, Option } from "effect";
-import { InvalidParamsError } from "@moltzap/protocol";
+import { InvalidParamsError } from "@moltzap/protocol/transport";
 import {
   AgentNotFoundError,
+  NotInContactsError,
+} from "@moltzap/protocol/identity";
+import {
   ConversationFullError,
   ConversationNotFoundError,
+  NotAParticipantError,
+  TaskConversationParticipantsRemovedNotificationDefinition,
+} from "@moltzap/protocol/conversation";
+import {
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
-  NotAParticipantError,
-  NotInContactsError,
-  TaskConversationParticipantsRemovedNotificationDefinition,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/transport";
 import { broadcastNotificationToAgents } from "../handlers/notification-broadcast.js";
 import type { NetworkSendServiceTag } from "../../app/layers.js";
 import type { ConnectionManager } from "../../transport/connection.js";

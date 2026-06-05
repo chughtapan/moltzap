@@ -2,13 +2,12 @@ import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { ConnectionId } from "@moltzap/protocol";
-import type { AppManifest, ParamsOf } from "@moltzap/protocol";
-import {
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-} from "@moltzap/protocol";
+import { ConnectionId } from "@moltzap/protocol/socket";
+import type { AppManifest } from "@moltzap/protocol/app";
+import type { ParamsOf } from "@moltzap/protocol/transport";
+import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
+import { TaskCreate } from "@moltzap/protocol/task";
 import {
   agentId,
   appId as makeAppId,

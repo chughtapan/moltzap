@@ -82,8 +82,10 @@ Then commit both the schema change and the regenerated docs together. CI runs `p
 
 ## Code style
 
-- Use TypeBox schemas for all protocol types (not raw TypeScript interfaces)
-- Use `brandedId()` for UUID string types
-- Use `stringEnum()` instead of `Type.Union([Type.Literal(...)])`
-- All `Type.Object()` calls use `{ additionalProperties: false }`
+- Use Effect `Schema` for protocol wire shapes
+- Declare branded domain strings in their owning domain file with
+  `Brand.Brand<...>` and `Schema.brand(...)`
+- Use `stringEnum()` instead of hand-written literal unions when a shared enum
+  schema is needed
+- Use strict schema decode at boundaries instead of manual shape checks
 - Prefer integration tests over unit tests with mocks

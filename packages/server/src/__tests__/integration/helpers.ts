@@ -11,7 +11,7 @@ import {
   getBaseUrl,
 } from "../../test-utils/index.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
-import type { AgentKey } from "@moltzap/protocol";
+import type { AgentKey } from "@moltzap/protocol/credentials";
 import { UserId } from "@moltzap/protocol/identity";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { Part } from "@moltzap/protocol/message";

@@ -22,7 +22,7 @@ import type {
 import type {
   ClientDefinitionPayload,
   ClientDefinitionSuccess,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/socket";
 import {
   type TaskConversationCreatedNotification,
   type TaskConversationArchivedNotification,

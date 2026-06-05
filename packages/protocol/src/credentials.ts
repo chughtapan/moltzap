@@ -1,5 +1,4 @@
-import { Schema } from "effect";
-import { brandedString, type BrandedString } from "./transport/wire-string.js";
+import { Schema, type Brand, type Redacted } from "effect";
 
 const AGENT_KEY_PREFIX = "moltzap_agent_";
 const APP_KEY_PREFIX = "moltzap_app_";
@@ -11,56 +10,77 @@ const KEY_ID_HEX_PATTERN = `[0-9a-f]{${KEY_ID_HEX_CHARS}}`;
 const SECRET_HEX_PATTERN = `[0-9a-f]{${SECRET_HEX_CHARS}}`;
 const SERVER_MASTER_SECRET_BASE64_PATTERN = `[A-Za-z0-9+/]{43}=`;
 
-const AgentKeyValue = brandedString("AgentKey", {
-  pattern: `^${AGENT_KEY_PREFIX}${KEY_ID_HEX_PATTERN}_${SECRET_HEX_PATTERN}$`,
-  description: "MoltZap agent API key",
-});
-type AgentKeyValue = BrandedString<"AgentKey">;
-
-const AppKeyValue = brandedString("AppKey", {
-  pattern: `^${APP_KEY_PREFIX}${KEY_ID_HEX_PATTERN}_${SECRET_HEX_PATTERN}$`,
-  description: "MoltZap app API key",
-});
-type AppKeyValue = BrandedString<"AppKey">;
-
-export const AgentKey = Schema.Redacted(AgentKeyValue);
-export type AgentKey = Schema.Schema.Type<typeof AgentKey>;
-
-export const AppKey = Schema.Redacted(AppKeyValue);
-export type AppKey = Schema.Schema.Type<typeof AppKey>;
-
-const InviteCodeValue = brandedString("InviteCode", {
-  minLength: 1,
-  description: "Registration invite code",
-});
-type InviteCodeValue = BrandedString<"InviteCode">;
-
-export const InviteCode = Schema.Redacted(InviteCodeValue);
-export type InviteCode = Schema.Schema.Type<typeof InviteCode>;
-
-const RegistrationSecretValue = brandedString("RegistrationSecret", {
-  minLength: 1,
-  description: "Registration invite secret",
-});
-type RegistrationSecretValue = BrandedString<"RegistrationSecret">;
-
-const ServerEncryptionMasterSecretValue = brandedString(
-  "ServerEncryptionMasterSecret",
-  {
-    minLength: SERVER_MASTER_SECRET_BASE64_CHARS,
-    pattern: `^${SERVER_MASTER_SECRET_BASE64_PATTERN}$`,
-    description: "32-byte base64 server encryption master secret",
-  },
+type AgentKeyValue = string & Brand.Brand<"AgentKey">;
+const AgentKeyValue: Schema.Schema<AgentKeyValue, string> = Schema.String.pipe(
+  Schema.pattern(
+    new RegExp(
+      `^${AGENT_KEY_PREFIX}${KEY_ID_HEX_PATTERN}_${SECRET_HEX_PATTERN}$`,
+    ),
+  ),
+  Schema.brand("AgentKey"),
+  Schema.annotations({ description: "MoltZap agent API key" }),
 );
-type ServerEncryptionMasterSecretValue =
-  BrandedString<"ServerEncryptionMasterSecret">;
 
-export const RegistrationSecret = Schema.Redacted(RegistrationSecretValue);
-export type RegistrationSecret = Schema.Schema.Type<typeof RegistrationSecret>;
+type AppKeyValue = string & Brand.Brand<"AppKey">;
+const AppKeyValue: Schema.Schema<AppKeyValue, string> = Schema.String.pipe(
+  Schema.pattern(
+    new RegExp(
+      `^${APP_KEY_PREFIX}${KEY_ID_HEX_PATTERN}_${SECRET_HEX_PATTERN}$`,
+    ),
+  ),
+  Schema.brand("AppKey"),
+  Schema.annotations({ description: "MoltZap app API key" }),
+);
 
-export const ServerEncryptionMasterSecret = Schema.Redacted(
+export type AgentKey = Redacted.Redacted<AgentKeyValue>;
+export const AgentKey: Schema.Schema<AgentKey, string> =
+  Schema.Redacted(AgentKeyValue);
+
+export type AppKey = Redacted.Redacted<AppKeyValue>;
+export const AppKey: Schema.Schema<AppKey, string> =
+  Schema.Redacted(AppKeyValue);
+
+type InviteCodeValue = string & Brand.Brand<"InviteCode">;
+const InviteCodeValue: Schema.Schema<InviteCodeValue, string> =
+  Schema.String.pipe(
+    Schema.minLength(1),
+    Schema.brand("InviteCode"),
+    Schema.annotations({ description: "Registration invite code" }),
+  );
+
+export type InviteCode = Redacted.Redacted<InviteCodeValue>;
+export const InviteCode: Schema.Schema<InviteCode, string> =
+  Schema.Redacted(InviteCodeValue);
+
+type RegistrationSecretValue = string & Brand.Brand<"RegistrationSecret">;
+const RegistrationSecretValue: Schema.Schema<RegistrationSecretValue, string> =
+  Schema.String.pipe(
+    Schema.minLength(1),
+    Schema.brand("RegistrationSecret"),
+    Schema.annotations({ description: "Registration invite secret" }),
+  );
+
+type ServerEncryptionMasterSecretValue = string &
+  Brand.Brand<"ServerEncryptionMasterSecret">;
+const ServerEncryptionMasterSecretValue: Schema.Schema<
   ServerEncryptionMasterSecretValue,
+  string
+> = Schema.String.pipe(
+  Schema.minLength(SERVER_MASTER_SECRET_BASE64_CHARS),
+  Schema.pattern(new RegExp(`^${SERVER_MASTER_SECRET_BASE64_PATTERN}$`)),
+  Schema.brand("ServerEncryptionMasterSecret"),
+  Schema.annotations({
+    description: "32-byte base64 server encryption master secret",
+  }),
 );
-export type ServerEncryptionMasterSecret = Schema.Schema.Type<
-  typeof ServerEncryptionMasterSecret
->;
+
+export type RegistrationSecret = Redacted.Redacted<RegistrationSecretValue>;
+export const RegistrationSecret: Schema.Schema<RegistrationSecret, string> =
+  Schema.Redacted(RegistrationSecretValue);
+
+export type ServerEncryptionMasterSecret =
+  Redacted.Redacted<ServerEncryptionMasterSecretValue>;
+export const ServerEncryptionMasterSecret: Schema.Schema<
+  ServerEncryptionMasterSecret,
+  string
+> = Schema.Redacted(ServerEncryptionMasterSecretValue);

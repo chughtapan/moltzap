@@ -45,6 +45,8 @@ export type {
   ReverseCallbackSuccess,
   ReverseCallbackTag,
   ReverseClient,
+  ServerHandler,
+  ServerHandlers,
   ServerSocketWrite,
 } from "./server.js";
 

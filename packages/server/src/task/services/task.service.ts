@@ -2,12 +2,12 @@ import { Cause, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
 import type {
   AppId,
-  Conversation,
-  ListCursor,
   Task,
   TaskParticipant,
   TaskStatus,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/task";
+import type { Conversation } from "@moltzap/protocol/conversation";
+import type { ListCursor } from "@moltzap/protocol/transport";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
@@ -30,10 +30,12 @@ import type { Transaction } from "../../db/kysely-vendor.js";
 import {
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
-  TaskNotFoundError,
+} from "@moltzap/protocol/transport";
+import { TaskNotFoundError } from "@moltzap/protocol/task";
+import {
   ConversationNotFoundError,
   ParticipantNotAdmittedError,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/conversation";
 import type { ConversationService } from "./conversation.service.js";
 import type { MessageService } from "./message.service.js";
 const ERR_NOT_FOUND = "Task not found";

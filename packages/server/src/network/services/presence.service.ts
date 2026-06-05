@@ -1,10 +1,10 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Effect, Option, Ref } from "effect";
 
-import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { LeaseId } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol";
+import type { LeaseId } from "@moltzap/protocol/message";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 
 import type {
   ConnectionManager,

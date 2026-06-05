@@ -1,15 +1,18 @@
 import { Effect } from "effect";
 import {
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactsById,
-  ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
-  InvalidParamsError,
-  type NotificationParamsOf,
-  type ParamsOf,
-} from "@moltzap/protocol";
+  ContactRequestNotificationDefinition,
+  ContactsAccept,
+  ContactsAdd,
+  ContactsById,
+  ContactsList,
+} from "@moltzap/protocol/identity";
+import { InvalidParamsError } from "@moltzap/protocol/transport";
+import type {
+  NotificationParamsOf,
+  ParamsOf,
+} from "@moltzap/protocol/transport";
+import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
 import type { AuthService } from "../../identity/services/auth.service.js";
@@ -108,22 +111,22 @@ function contactsByIdBody(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const contactsList = (params: ParamsOf<typeof ContactsList>) =>
+export const contactsList: ServerHandler<typeof ContactsList> = (params) =>
   Effect.gen(function* () {
     return yield* contactsListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsList"));
 
-export const contactsAdd = (params: ParamsOf<typeof ContactsAdd>) =>
+export const contactsAdd: ServerHandler<typeof ContactsAdd> = (params) =>
   Effect.gen(function* () {
     return yield* contactsAddBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsAdd"));
 
-export const contactsAccept = (params: ParamsOf<typeof ContactsAccept>) =>
+export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params) =>
   Effect.gen(function* () {
     return yield* contactsAcceptBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsAccept"));
 
-export const contactsById = (params: ParamsOf<typeof ContactsById>) =>
+export const contactsById: ServerHandler<typeof ContactsById> = (params) =>
   Effect.gen(function* () {
     return yield* contactsByIdBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsById"));

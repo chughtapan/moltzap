@@ -10,12 +10,11 @@ import {
   setupAgentPair,
 } from "../helpers.js";
 
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
-  MessagesSend,
   MessageReceivedNotificationDefinition,
-  TaskRequest,
-} from "@moltzap/protocol";
+  MessagesSend,
+} from "@moltzap/protocol/message";
 
 const FIRST_MESSAGE_TEXT = "First message";
 const SECOND_MESSAGE_TEXT = "Second message";

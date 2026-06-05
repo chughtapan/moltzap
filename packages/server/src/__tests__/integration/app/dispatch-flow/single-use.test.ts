@@ -2,11 +2,9 @@
  * #529 reshape additive: dispatch admission single-use lease behavior.
  */
 import { it as effectIt } from "@effect/vitest";
-import {
-  TaskConversationArchive,
-  type AppManifest,
-  type LeaseId,
-} from "@moltzap/protocol";
+import { TaskConversationArchive } from "@moltzap/protocol/conversation";
+import type { AppManifest } from "@moltzap/protocol/app";
+import type { LeaseId } from "@moltzap/protocol/message";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {

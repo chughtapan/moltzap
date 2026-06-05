@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import { JSONSchema, Schema } from "effect";
 import {
   stringEnum,
-  brandedId,
-  brandedString,
   formatString,
   dateTimeStringSchema,
 } from "./wire-string.js";
@@ -17,14 +15,6 @@ const INVALID_ENUM_VALUE = 123;
 // `{ onExcessProperty: "error" }`, the wire boundary's option).
 const accepts = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
   decodesStrictly(schema, value);
-
-// The `description` reaches the wire/docs surface via `JSONSchema.make`'s
-// `description` keyword (what the docs walker reads). Assert it there rather
-// than digging into the branded `ast.annotations` internals.
-const jsonDescription = (schema: Schema.Schema.AnyNoContext): string => {
-  const node = JSONSchema.make(schema) as { description?: string };
-  return node.description ?? "";
-};
 
 describe("stringEnum", () => {
   const schema = stringEnum(["user", "agent"]);
@@ -52,39 +42,6 @@ describe("stringEnum", () => {
   });
 });
 
-describe("brandedString", () => {
-  it("honors minLength/maxLength refinements", () => {
-    const schema = brandedString("Tag", { minLength: 3, maxLength: 12 });
-    expect(accepts(schema, "ok")).toBe(false);
-    expect(accepts(schema, "good")).toBe(true);
-    expect(accepts(schema, "waaaaaaaaaaaaaaay-too-long")).toBe(false);
-  });
-
-  it("defaults description with brand name embedded when caller omits it", () => {
-    const schema = brandedString("Color");
-    expect(jsonDescription(schema)).toMatch(/Color/);
-  });
-
-  it("respects caller-supplied description override", () => {
-    const custom = "the color value";
-    const schema = brandedString("Color", { description: custom });
-    expect(jsonDescription(schema)).toContain(custom);
-  });
-});
-
-describe("brandedId", () => {
-  const schema = brandedId("UserId");
-
-  it("accepts valid UUIDs", () => {
-    expect(accepts(schema, "550e8400-e29b-41d4-a716-446655440000")).toBe(true);
-  });
-
-  it("rejects non-UUID strings", () => {
-    expect(accepts(schema, "not-a-uuid")).toBe(false);
-    expect(accepts(schema, "")).toBe(false);
-  });
-});
-
 describe("DateTimeString", () => {
   it("accepts ISO 8601 timestamps", () => {
     expect(accepts(DateTimeString, "2026-03-14T12:00:00.000Z")).toBe(true);
@@ -105,7 +62,7 @@ describe("DateTimeString", () => {
  */
 describe("wire-format parity corpus", () => {
   it("uuid", () => {
-    const schema = brandedId("AgentId");
+    const schema = formatString("uuid");
     expect(accepts(schema, "550e8400-e29b-41d4-a716-446655440000")).toBe(true);
     expect(accepts(schema, "not-a-uuid")).toBe(false);
   });

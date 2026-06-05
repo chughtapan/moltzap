@@ -1,17 +1,15 @@
 import { Data, Effect, HashMap, Match, Option, Ref } from "effect";
 import type { SocketError } from "@effect/platform/Socket";
 import type {
+  ReverseCallError,
   ReverseCallbackError,
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
   ReverseClient,
-  ReverseCallError,
-} from "@moltzap/protocol";
-import {
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/socket";
+import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
+import { TaskCreate } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";

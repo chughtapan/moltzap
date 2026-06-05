@@ -6,8 +6,12 @@ import {
 } from "@effect/platform";
 import * as Socket from "@effect/platform/Socket";
 import { Cause, Data, Effect, Either, Exit, Redacted, Schema } from "effect";
-import type { AgentKey, ParamsOf, RegistrationSecret } from "@moltzap/protocol";
-import { Register } from "@moltzap/protocol";
+import type {
+  AgentKey,
+  RegistrationSecret,
+} from "@moltzap/protocol/credentials";
+import type { ParamsOf } from "@moltzap/protocol/transport";
+import { Register } from "@moltzap/protocol/identity";
 import { validateAppManifest, type AppManifest } from "@moltzap/protocol/app";
 
 import type { AppTags } from "../transport/layer-tags.js";

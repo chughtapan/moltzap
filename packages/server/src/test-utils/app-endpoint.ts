@@ -16,23 +16,21 @@
  *     verdict round-trips through a registered hook.
  */
 import { Effect } from "effect";
+import type { AnyAppCallbackRpcDefinition } from "@moltzap/protocol/rpc-method-groups";
 import type {
-  AnyAppCallbackRpcDefinition,
   ReverseCallbackError,
   ReverseCallbackPayload,
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
-} from "@moltzap/protocol";
-import {
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-  type ConnectionId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/socket";
+import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
+import { TaskCreate } from "@moltzap/protocol/task";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { RpcSerialization } from "@effect/rpc";
 import type { AppEndpoint } from "../app/app-registration.js";
 import type { Originator } from "../transport/connection.js";
-import type { ReverseCallError } from "@moltzap/protocol";
+import type { ReverseCallError } from "@moltzap/protocol/socket";
 
 /**
  * In-process handler for one task-callback RPC. The handler returns

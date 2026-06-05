@@ -1,20 +1,19 @@
 import { Effect, Match, Option } from "effect";
 import {
-  PROTOCOL_VERSION,
   AgentConnect,
   AppConnect,
-  // `checkProtocolRange` lives in `@moltzap/protocol/network/connect.ts` so
-  // regression tests can import it directly without an illegal seam
-  // through this server-internal handler module.
+  PROTOCOL_VERSION,
   checkProtocolRange,
+} from "@moltzap/protocol/network";
+import {
   NotConnectedError,
   UnauthorizedError,
-  type AgentKey,
-  type AppKey,
-  type AppManifest,
-  type HelloOk,
-  type ParamsOf,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/transport";
+import type { AgentKey, AppKey } from "@moltzap/protocol/credentials";
+import type { AppManifest } from "@moltzap/protocol/app";
+import type { HelloOk } from "@moltzap/protocol/network";
+import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ServerHandler } from "@moltzap/protocol/socket";
 import {
   agentContextFrom,
   AgentContext,
@@ -32,13 +31,13 @@ import {
   DbTag,
   PresenceServiceTag,
 } from "../../app/layers.js";
-import type { ConnectionId } from "@moltzap/protocol";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
 import type { AppAuthService } from "../../identity/services/app-auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
 import type { ConversationService } from "../../task/services/conversation.service.js";
-import { InvalidParamsError } from "@moltzap/protocol";
+import { InvalidParamsError } from "@moltzap/protocol/transport";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type {
   Connection,
@@ -455,8 +454,8 @@ function handleAppConnect(params: AppConnectParams) {
 // `agent/connect` and `app/connect` are the unauthenticated methods. The
 // method tag selects the principal kind; the body only unwraps the redacted
 // key at the auth-service boundary.
-export const connectAgent = (params: AgentConnectParams) =>
+export const connectAgent: ServerHandler<typeof AgentConnect> = (params) =>
   handleAgentConnect(params).pipe(Effect.withSpan("connect.agent"));
 
-export const connectApp = (params: AppConnectParams) =>
+export const connectApp: ServerHandler<typeof AppConnect> = (params) =>
   handleAppConnect(params).pipe(Effect.withSpan("connect.app"));

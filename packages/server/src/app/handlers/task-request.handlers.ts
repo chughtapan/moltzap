@@ -21,17 +21,16 @@
  *      reason, fail the RPC with `TaskRejectedError`.
  */
 import { Effect } from "effect";
+import { TaskConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
 import {
-  TaskConversationCreatedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
   TaskRejectedError,
   TaskRequest,
-  type AppId,
-  type Conversation,
-  type ParamsOf,
-  type Task,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/task";
+import type { AppId, Task } from "@moltzap/protocol/task";
+import type { Conversation } from "@moltzap/protocol/conversation";
+import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { TaskId } from "@moltzap/protocol/task";
 import type { AgentId } from "../types.js";
 import {
@@ -195,7 +194,7 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
 //
 // The `ContactPolicyAllowsReach` requirement gates the frame before this body
 // runs. `agentArm` reads the narrowed principal.
-export const taskRequest = (params: ParamsOf<typeof TaskRequest>) =>
+export const taskRequest: ServerHandler<typeof TaskRequest> = (params) =>
   Effect.gen(function* () {
     const ctx = yield* agentArm;
     return yield* taskRequestBody(params, ctx);

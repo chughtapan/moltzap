@@ -2,10 +2,9 @@
  * @file Conversation identifiers, wire shapes, and domain errors.
  */
 
-import { Schema } from "effect";
+import { Schema, type Brand } from "effect";
 import {
   dateTimeStringSchema,
-  brandedId,
   formatString,
 } from "../transport/wire-string.js";
 import { AgentId } from "../identity/agents.js";
@@ -19,10 +18,12 @@ const errorPayloadFields = {
 } as const;
 
 /** Branded conversation identifier. */
-export const ConversationId = brandedId("ConversationId");
-
-/** Branded conversation identifier value. */
-export type ConversationId = Schema.Schema.Type<typeof ConversationId>;
+export type ConversationId = string & Brand.Brand<"ConversationId">;
+export const ConversationId: Schema.Schema<ConversationId, string> =
+  formatString("uuid").pipe(
+    Schema.brand("ConversationId"),
+    Schema.annotations({ description: "Branded ConversationId" }),
+  );
 
 /**
  * Branded message identifier.
@@ -31,10 +32,13 @@ export type ConversationId = Schema.Schema.Type<typeof ConversationId>;
  * conversation participant state references the last-read message, and message
  * rows reference their conversation.
  */
-export const MessageId = brandedId("MessageId");
-
-/** Branded message identifier value. */
-export type MessageId = Schema.Schema.Type<typeof MessageId>;
+export type MessageId = string & Brand.Brand<"MessageId">;
+export const MessageId: Schema.Schema<MessageId, string> = formatString(
+  "uuid",
+).pipe(
+  Schema.brand("MessageId"),
+  Schema.annotations({ description: "Branded MessageId" }),
+);
 
 /** The referenced conversation does not exist under the task (or is not visible). */
 export class ConversationNotFoundError extends Schema.TaggedError<ConversationNotFoundError>()(

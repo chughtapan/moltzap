@@ -51,14 +51,16 @@ import {
   Stream,
 } from "effect";
 import {
-  makeNotificationSubscriberRegistry,
-  MessageReceivedNotificationDefinition,
   NotConnectedError,
-  PresenceChangedNotificationDefinition,
-  type AnyNotificationDefinition,
-  type NotificationDelivery,
-  type NotificationParamsOf,
-} from "@moltzap/protocol";
+  makeNotificationSubscriberRegistry,
+} from "@moltzap/protocol/transport";
+import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type {
+  NotificationDelivery,
+  NotificationParamsOf,
+} from "@moltzap/protocol/transport";
 import {
   buildMessage,
   testAgentId,

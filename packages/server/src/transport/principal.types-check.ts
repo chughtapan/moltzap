@@ -97,7 +97,7 @@ const _badPhase = new ServerBootFailedError({ phase: "db", cause: httpErr });
 
 // Reference every binding so no-unused-vars stays quiet; the canary's job is
 // the type relationships above, not runtime behavior.
-export const _principalCanaryRefs = [
+export const _principalCanaryRefs: readonly unknown[] = [
   _agentId,
   _appId,
   _noAppIdOnAgent,

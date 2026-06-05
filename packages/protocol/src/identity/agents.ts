@@ -1,8 +1,8 @@
-import { Either, Schema } from "effect";
+import { Either, Schema, type Brand } from "effect";
 import {
   stringEnum,
   dateTimeStringSchema,
-  brandedId,
+  formatString,
 } from "../transport/wire-string.js";
 import { AgentKey, InviteCode } from "../credentials.js";
 import { ListLimitSchema, listCursorSchema } from "../transport/pagination.js";
@@ -40,10 +40,18 @@ export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()
   static readonly message = "Agent not found";
 }
 
-export const UserId = brandedId("UserId");
-export type UserId = Schema.Schema.Type<typeof UserId>;
-export const AgentId = brandedId("AgentId");
-export type AgentId = Schema.Schema.Type<typeof AgentId>;
+export type UserId = string & Brand.Brand<"UserId">;
+export const UserId: Schema.Schema<UserId, string> = formatString("uuid").pipe(
+  Schema.brand("UserId"),
+  Schema.annotations({ description: "Branded UserId" }),
+);
+export type AgentId = string & Brand.Brand<"AgentId">;
+export const AgentId: Schema.Schema<AgentId, string> = formatString(
+  "uuid",
+).pipe(
+  Schema.brand("AgentId"),
+  Schema.annotations({ description: "Branded AgentId" }),
+);
 
 const AgentMetadataSchema = Schema.Struct({
   purpose: Schema.optional(Schema.Array(Schema.String)),

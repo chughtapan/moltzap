@@ -1,5 +1,5 @@
-import { Schema } from "effect";
-import { brandedId } from "../transport/wire-string.js";
+import { Schema, type Brand } from "effect";
+import { formatString } from "../transport/wire-string.js";
 import { ListLimitSchema, listCursorSchema } from "../transport/pagination.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { AgentPrincipal } from "../transport/principal.js";
@@ -27,8 +27,13 @@ const errorPayloadFields = {
   data: Schema.optional(Schema.Unknown),
 } as const;
 
-export const ContactId = brandedId("ContactId");
-export type ContactId = Schema.Schema.Type<typeof ContactId>;
+export type ContactId = string & Brand.Brand<"ContactId">;
+export const ContactId: Schema.Schema<ContactId, string> = formatString(
+  "uuid",
+).pipe(
+  Schema.brand("ContactId"),
+  Schema.annotations({ description: "Branded ContactId" }),
+);
 
 export class NotInContactsError extends Schema.TaggedError<NotInContactsError>()(
   "NotInContacts",

@@ -4,10 +4,8 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import { Data, Duration, Effect, Either, Option, Stream } from "effect";
-import type {
-  AnyNotificationDefinition,
-  NotificationDelivery,
-} from "@moltzap/protocol";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type { NotificationDelivery } from "@moltzap/protocol/transport";
 import {
   makeTestAgentClient,
   makeTestAppClient,
@@ -20,15 +18,13 @@ import {
 import { DEFAULT_TEST_ADMIN_USER_ID, getCoreDb, getWsUrl } from "./server.js";
 import { AuthService } from "../identity/services/auth.service.js";
 
-import {
-  DEFAULT_APP_ID,
-  TaskRequest,
-  type AppCallbackContext,
-  type AppCallbackHandlers,
-  type AgentKey,
-  type AgentId,
-  type AppKey,
-} from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
+import type { AgentKey, AppKey } from "@moltzap/protocol/credentials";
+import type { AgentId } from "@moltzap/protocol/identity";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/app";
 import type { ConversationId } from "@moltzap/protocol/conversation";

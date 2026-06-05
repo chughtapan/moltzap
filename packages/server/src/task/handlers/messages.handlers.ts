@@ -1,12 +1,12 @@
 import {
-  MessagesSend,
-  MessagesList,
   DispatchNotFoundError,
-  ForbiddenError,
-  type LeaseId,
-  type ParamsOf,
-} from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol";
+  MessagesList,
+  MessagesSend,
+} from "@moltzap/protocol/message";
+import { ForbiddenError } from "@moltzap/protocol/transport";
+import type { LeaseId } from "@moltzap/protocol/message";
+import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ConnectionId, ServerHandler } from "@moltzap/protocol/socket";
 import { agentArm } from "../../app/server-handlers-runtime.js";
 import { Effect, Exit } from "effect";
 import type { AgentContext } from "../../transport/context.js";
@@ -157,7 +157,7 @@ function handleMessageList(
 // narrow the arm via `agentArm`, run the same domain work as the live slot path,
 // and leave `ConnectionTag` + domain services to the request runtime.
 
-export const messagesSend = (params: MessagesSendParams) =>
+export const messagesSend: ServerHandler<typeof MessagesSend> = (params) =>
   Effect.gen(function* () {
     // The send-permission requirements gated this frame in the engine stack
     // before this handler runs. `agentArm` reads the narrowed principal off
@@ -166,7 +166,7 @@ export const messagesSend = (params: MessagesSendParams) =>
     return yield* handleMessageSend(params, ctx);
   }).pipe(Effect.withSpan("messagesSend"));
 
-export const messagesList = (params: ParamsOf<typeof MessagesList>) =>
+export const messagesList: ServerHandler<typeof MessagesList> = (params) =>
   Effect.gen(function* () {
     // Gated by the `TaskReadAccess` + `ConversationInTask` requirements in the
     // engine stack; the body trusts the gated `params`.

@@ -4,23 +4,20 @@ import * as fc from "fast-check";
 import { Data, Effect, Stream } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test-utils";
-import type {
-  AgentId,
-  AgentKey,
-  ConversationId,
-  Message,
-  TaskId,
-} from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { Message } from "@moltzap/protocol/message";
+import type { TaskId } from "@moltzap/protocol/task";
 import { registerTestAgent, waitFor } from "./test-helpers.js";
 
+import { AgentsLookup } from "@moltzap/protocol/identity";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  AgentsLookup,
-  DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  TaskRequest,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
 
 let baseUrl: string;
 let wsUrl: string;

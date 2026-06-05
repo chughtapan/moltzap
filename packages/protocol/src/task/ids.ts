@@ -1,8 +1,11 @@
-import { Schema } from "effect";
-import { brandedId } from "../transport/wire-string.js";
+import { Schema, type Brand } from "effect";
+import { formatString } from "../transport/wire-string.js";
 
-export const TaskId = brandedId("TaskId");
-export type TaskId = Schema.Schema.Type<typeof TaskId>;
+export type TaskId = string & Brand.Brand<"TaskId">;
+export const TaskId: Schema.Schema<TaskId, string> = formatString("uuid").pipe(
+  Schema.brand("TaskId"),
+  Schema.annotations({ description: "Branded TaskId" }),
+);
 
 /**
  * The referenced task does not exist (or the caller cannot see it). Lives in the
@@ -19,8 +22,11 @@ export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
   static readonly message = "Task not found";
 }
 
-export const AppId = brandedId("AppId");
-export type AppId = Schema.Schema.Type<typeof AppId>;
+export type AppId = string & Brand.Brand<"AppId">;
+export const AppId: Schema.Schema<AppId, string> = formatString("uuid").pipe(
+  Schema.brand("AppId"),
+  Schema.annotations({ description: "Branded AppId" }),
+);
 
 export const DEFAULT_APP_ID = Schema.decodeSync(AppId)(
   "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb",

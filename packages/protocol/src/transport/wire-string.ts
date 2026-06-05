@@ -1,4 +1,4 @@
-import { Schema, type Brand } from "effect";
+import { Schema } from "effect";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -6,66 +6,8 @@ const DATE_TIME_RE =
   /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const URI_RE = /^[A-Za-z][A-Za-z0-9+.-]*:\S+$/;
 
-/**
- * A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
- * a `string` from accidentally type-fitting a slot expecting the brand.
- *
- * `Schema.brand` produces `string & Brand.Brand&lt;BrandName>`, identical to
- * this alias, so a `brandedString("Foo")` schema's `Schema.Schema.Type` is
- * assignable both ways with `BrandedString&lt;"Foo">`.
- */
-export type BrandedString<BrandName extends string> = string &
-  Brand.Brand<BrandName>;
-
 /** The three wire string formats. */
 export type WireStringFormat = "uuid" | "uri" | "date-time";
-
-/** Refinement options accepted by {@link brandedString}. */
-export interface BrandedStringOptions {
-  readonly minLength?: number;
-  readonly maxLength?: number;
-  readonly pattern?: string;
-  readonly format?: WireStringFormat;
-  readonly description?: string;
-}
-
-/**
- * Effect `Schema` whose decoded type is `BrandedString&lt;BrandName>`. The
- * brand exists only at the type level — decode runs against the underlying
- * string with the requested refinements (`minLength`, `maxLength`, `pattern`,
- * and the three wire `format` checkers below) as `Schema.pattern` /
- * `Schema.filter` refinements inside the same `Schema.decode*` engine as
- * everything else.
- *
- * `format` annotates the schema with `{ jsonSchema: { format } }` so
- * `JSONSchema.make` re-emits the draft-07 `format` keyword the docs walker
- * reads (`scripts/docs/schema.ts → getStringTypeName`). The `pattern`/`filter`
- * refinement still runs at decode time regardless of the annotation.
- */
-export function brandedString<const BrandName extends string>(
-  brand: BrandName,
-  options: BrandedStringOptions = {},
-): Schema.Schema<BrandedString<BrandName>, string> {
-  let base: Schema.Schema<string> = Schema.String;
-  if (options.minLength !== undefined) {
-    base = base.pipe(Schema.minLength(options.minLength));
-  }
-  if (options.maxLength !== undefined) {
-    base = base.pipe(Schema.maxLength(options.maxLength));
-  }
-  if (options.pattern !== undefined) {
-    base = base.pipe(Schema.pattern(new RegExp(options.pattern)));
-  }
-  if (options.format !== undefined) {
-    base = applyStringFormat(base, options.format);
-  }
-  return base.pipe(
-    Schema.brand(brand),
-    Schema.annotations({
-      description: options.description ?? `Branded ${brand}`,
-    }),
-  );
-}
 
 // Arbitrary-annotation factories. `Arbitrary.make` derives a generator by
 // reading the schema's refinements — but for a `Schema.pattern` like the UUID
@@ -131,20 +73,6 @@ function applyStringFormat(
         dateTimeArbitrary,
       );
   }
-}
-
-/**
- * Convenience over {@link brandedString} that adds the `uuid` format. The
- * canonical way to define wire id types in this package
- * (`AgentId = brandedId("AgentId")`, `TaskId = brandedId("TaskId")`, etc.).
- * The format check runs the `UUID_RE` regex at decode time and annotates the
- * schema so `JSONSchema.make` emits `format:"uuid"` for the docs walker.
- */
-export function brandedId<const BrandName extends string>(brand: BrandName) {
-  return brandedString(brand, {
-    format: "uuid",
-    description: `Branded ${brand}`,
-  });
 }
 
 /**

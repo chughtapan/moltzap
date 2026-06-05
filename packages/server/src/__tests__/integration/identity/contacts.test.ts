@@ -2,13 +2,13 @@ import * as fc from "fast-check";
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
+  ContactAcceptedNotificationDefinition,
+  ContactRequestNotificationDefinition,
   ContactsAccept,
   ContactsAdd,
   ContactsList,
-  type Contact,
-  ContactAcceptedNotificationDefinition,
-  ContactRequestNotificationDefinition,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/identity";
+import type { Contact } from "@moltzap/protocol/identity";
 import {
   it,
   startTestServerEffect,

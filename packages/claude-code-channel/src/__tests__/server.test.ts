@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { ForbiddenError } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol/transport";
 
 import {
   CHANNEL_CAPABILITIES,

@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import type { RpcSerialization } from "@effect/rpc";
-import type { AppManifest } from "@moltzap/protocol";
-import { ConnectionId } from "@moltzap/protocol";
+import type { AppManifest } from "@moltzap/protocol/app";
+import { ConnectionId } from "@moltzap/protocol/socket";
 import { DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AppHost } from "./app-host.js";
 import type { AppEndpoint } from "./app-registration.js";

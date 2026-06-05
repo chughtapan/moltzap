@@ -32,19 +32,23 @@ import * as fc from "fast-check";
 import { Effect, Exit } from "effect";
 import {
   DEFAULT_APP_ID,
+  TaskClosedNotificationDefinition,
+  TaskCreate,
+  TaskLeave,
+  TaskRequest,
+} from "@moltzap/protocol/task";
+import {
   TaskConversationCreate,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationList,
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-  TaskRequest,
-  TaskLeave,
-  TaskClosedNotificationDefinition,
-  type AppCallbackContext,
-  type AppCallbackHandlers,
-  type AgentId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/conversation";
+import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
+import type { AgentId } from "@moltzap/protocol/identity";
 import type { UserId } from "@moltzap/protocol/identity";
 import {
   it,

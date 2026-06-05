@@ -8,12 +8,8 @@ import {
   registerAndConnect,
 } from "../helpers.js";
 
-import {
-  DEFAULT_APP_ID,
-  MessagesList,
-  MessagesSend,
-  TaskRequest,
-} from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 
 const TEST_GROUP_NAME = "Test Group";
 const FIRST_MESSAGE_TEXT = "Message 1";

@@ -3,12 +3,9 @@ import { describe, expect } from "vitest";
 import { Effect, Schema } from "effect";
 
 const it = effectIt.effect;
-import {
-  AgentId,
-  AgentsList,
-  listCursorSchema,
-  type ClientDefinitionSuccess,
-} from "@moltzap/protocol";
+import { AgentId, AgentsList } from "@moltzap/protocol/identity";
+import { listCursorSchema } from "@moltzap/protocol/transport";
+import type { ClientDefinitionSuccess } from "@moltzap/protocol/socket";
 import {
   drainPaginatedList,
   NonAdvancingCursorError,

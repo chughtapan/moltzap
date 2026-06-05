@@ -57,12 +57,12 @@ export type { SocketHistoryResponse } from "./socket.js";
 
 export {
   ConversationArchivedError,
-  DEFAULT_APP_ID,
+  TaskConversationArchive,
+  TaskConversationList,
+} from "@moltzap/protocol/conversation";
+export { DEFAULT_APP_ID, TaskLeave, TaskRequest } from "@moltzap/protocol/task";
+export {
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  TaskConversationArchive,
-  TaskConversationList,
-  TaskRequest,
-  TaskLeave,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";

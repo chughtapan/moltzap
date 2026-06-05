@@ -11,9 +11,9 @@ _`packages/protocol/src`_
 
 Protocol package root.
 
-Transitional compatibility surface while the protocol package is rebalanced.
-The final root target is the socket lifecycle surface; descriptor and schema
-exports are already available on focused subpaths.
+The root surface is intentionally tiny: concrete protocol-owned socket
+lifecycle classes only. Domain descriptors, schemas, requirement tags, and
+testing helpers live behind focused package subpaths.
 
 ## Public surface
 
@@ -40,20 +40,20 @@ export const agentCallableMethods = [
 ] as const
 ```
 
-### [`AgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L26)
+### [`AgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L35)
 
 _TypeAlias_
 
 ```ts
-export const AgentKey = Schema.Redacted(AgentKeyValue);
+export type AgentKey = Redacted.Redacted<AgentKeyValue>;
 ```
 
-### [`AgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L26)
+### [`AgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L35)
 
 _Variable_
 
 ```ts
-export const AgentKey = Schema.Redacted(AgentKeyValue)
+export type AgentKey = Redacted.Redacted<AgentKeyValue>
 ```
 
 ### [`AnyAgentCallableRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L89)
@@ -129,20 +129,20 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L29)
+### [`AppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L39)
 
 _TypeAlias_
 
 ```ts
-export const AppKey = Schema.Redacted(AppKeyValue);
+export type AppKey = Redacted.Redacted<AppKeyValue>;
 ```
 
-### [`AppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L29)
+### [`AppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L39)
 
 _Variable_
 
 ```ts
-export const AppKey = Schema.Redacted(AppKeyValue)
+export type AppKey = Redacted.Redacted<AppKeyValue>
 ```
 
 ### [`CapabilityRequirement`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/requirements.ts#L34)
@@ -181,20 +181,20 @@ export const middlewaresForRequirements = (
 };
 ```
 
-### [`InviteCode`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L38)
+### [`InviteCode`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L51)
 
 _TypeAlias_
 
 ```ts
-export const InviteCode = Schema.Redacted(InviteCodeValue);
+export type InviteCode = Redacted.Redacted<InviteCodeValue>;
 ```
 
-### [`InviteCode`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L38)
+### [`InviteCode`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L51)
 
 _Variable_
 
 ```ts
-export const InviteCode = Schema.Redacted(InviteCodeValue)
+export type InviteCode = Redacted.Redacted<InviteCodeValue>
 ```
 
 ### [`middlewaresForRequirements`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/requirements.ts#L50)
@@ -286,20 +286,20 @@ export type PrincipalRequirementOf<
 > = Requires extends readonly [infer Head, ...ReadonlyArray<unknown>]
 ```
 
-### [`RegistrationSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L58)
+### [`RegistrationSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L77)
 
 _TypeAlias_
 
 ```ts
-export const RegistrationSecret = Schema.Redacted(RegistrationSecretValue);
+export type RegistrationSecret = Redacted.Redacted<RegistrationSecretValue>;
 ```
 
-### [`RegistrationSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L58)
+### [`RegistrationSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L77)
 
 _Variable_
 
 ```ts
-export const RegistrationSecret = Schema.Redacted(RegistrationSecretValue)
+export type RegistrationSecret = Redacted.Redacted<RegistrationSecretValue>
 ```
 
 ### [`Requirement`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/requirements.ts#L40)
@@ -363,24 +363,22 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked — an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`ServerEncryptionMasterSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L61)
+### [`ServerEncryptionMasterSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L81)
 
 _TypeAlias_
 
 ```ts
-export const ServerEncryptionMasterSecret = Schema.Redacted(
-  ServerEncryptionMasterSecretValue,
-);
+export type ServerEncryptionMasterSecret =
+  Redacted.Redacted<ServerEncryptionMasterSecretValue>;
 ```
 
-### [`ServerEncryptionMasterSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L61)
+### [`ServerEncryptionMasterSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L81)
 
 _Variable_
 
 ```ts
-export const ServerEncryptionMasterSecret = Schema.Redacted(
-  ServerEncryptionMasterSecretValue,
-)
+export type ServerEncryptionMasterSecret =
+  Redacted.Redacted<ServerEncryptionMasterSecretValue>
 ```
 
 ### [`serverInboundMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L69)

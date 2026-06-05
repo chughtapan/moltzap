@@ -12,7 +12,7 @@ import {
   testTaskId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
-import type { Message } from "@moltzap/protocol";
+import type { Message } from "@moltzap/protocol/message";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
 
 // Header literal from channel-base's `json-header` markup variant (per spec
