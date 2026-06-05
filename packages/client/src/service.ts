@@ -2,15 +2,28 @@
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import {
+  AgentId as AgentIdSchema,
+  AgentNotFoundError,
   AgentsLookup,
   AgentsLookupByName,
-  type HelloOk,
-  type AnyNotificationDefinition,
-  type AnyServerRpcDefinition,
+  type AgentId,
+} from "@moltzap/protocol/identity";
+import {
   DispatchRequest,
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
+} from "@moltzap/protocol/app";
+import type { HelloOk } from "@moltzap/protocol/network";
+import type {
+  AnyAgentCallableRpcDefinition,
+  AnyNotificationDefinition,
+} from "@moltzap/protocol/rpc-method-groups";
+import type {
+  ClientDefinitionPayload,
+  ClientDefinitionSuccess,
+} from "@moltzap/protocol";
+import {
   type Message,
   type MessageReceivedNotification,
   type TaskConversationCreatedNotification,
@@ -26,18 +39,20 @@ import {
   MessagesSend,
   TaskRequest,
   TaskConversationList,
+} from "@moltzap/protocol/task";
+import {
   NotConnectedError,
-  AgentCallableGroup,
   RpcTimeoutError,
-  serverRpcMethods,
+  isNotificationDeliveryFor,
   type NotificationDelivery,
   type NotificationParamsOf,
+  type PayloadForTag,
   type ParamsOf,
   type ResultOf,
-} from "@moltzap/protocol";
+  type SuccessForTag,
+} from "@moltzap/protocol/transport";
+import { AgentCallableGroup } from "@moltzap/protocol/rpc-method-groups";
 import type { RpcGroup, Rpc } from "@effect/rpc";
-import type { PayloadForTag, SuccessForTag } from "./runtime/typed-dispatch.js";
-import type { AgentId } from "@moltzap/protocol/identity";
 import type {
   ConversationId,
   LeaseId,
@@ -48,25 +63,31 @@ import {
   Config,
   ConfigProvider,
   Effect,
+  Exit,
   HashMap,
   Option,
   Ref,
+  Schema,
   Scope,
   Stream,
 } from "effect";
 import { MoltZapAgentClient, type RpcCallOptions } from "./agent-client.js";
-import { AgentNotFoundError } from "./runtime/errors.js";
-import { getOr, snapshot } from "./runtime/refs.js";
-import { LocalServiceCommands } from "./runtime/local-service-commands.js";
+import {
+  loadServiceConfig,
+  type MoltzapServiceConfig,
+  type ServiceConfigError,
+} from "./config.js";
+import { getOr, snapshot } from "./refs.js";
 import {
   getMoltZapAgentServiceSocketPath,
   getMoltZapServiceSocketPath,
 } from "./local-paths.js";
-import type { LocalDaemonParams } from "./local-daemon-rpc.js";
+import { type LocalDaemonHandlers } from "./local-daemon-rpc.js";
+import { makeLocalDaemonHandlers } from "./service-local-daemon.js";
 import {
   startLocalSocketServer,
   stopLocalSocketServer,
-} from "./runtime/local-socket-server.js";
+} from "./local-socket-server.js";
 import {
   buildContextEntries,
   type ContextCandidate,
@@ -74,18 +95,14 @@ import {
   makeContextCandidate,
   newMessagesForConversation,
   notificationTraceRecord,
-  renderPart,
-  ServiceInputError,
-} from "./runtime/service-helpers.js";
+} from "./service-helpers.js";
+import { renderPart } from "./message-rendering.js";
 import {
-  decodeHistoryRequest,
   formatHistoryMessage,
-  type HistoryRequestInputError,
   type HistoryRequest,
   type HistoryResponse,
   lastReadIdsForSession,
-} from "./runtime/local-history.js";
-import { composeServiceTeardown } from "./runtime/service-teardown.js";
+} from "./local-history.js";
 import {
   purgeAgentCacheEntries,
   purgeLastNotified,
@@ -98,6 +115,7 @@ const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
 const HISTORY_LOOKUP_CONCURRENCY = 2;
 const SEND_TO_AGENT_LOOKUP_PAGE_SIZE = 50;
 const SEND_TO_AGENT_LOOKUP_MAX_PAGES = 20;
+const decodeAgentId = Schema.decodeUnknownOption(AgentIdSchema);
 
 const ClientEventLogDir = Config.option(
   Config.string("MOLTZAP_CLIENT_EVENT_LOG_DIR"),
@@ -158,36 +176,6 @@ export type ServiceRpcError =
   | RpcTimeoutError
   | NotConnectedError;
 
-/**
- * One entry in {@link AGENT_DISPATCH}: forward already-validated daemon-socket
- * params to a service's typed `call` for a fixed tag. The closure captures the
- * concrete tag so the indexed dispatch (`map.get(name)`) is the only runtime
- * lookup — the per-tag `call` typing lives inside the closure.
- */
-type AgentDispatchEntry = (
-  service: MoltZapService,
-  params: LocalDaemonParams,
-) => Effect.Effect<unknown, ServiceRpcError>;
-
-/**
- * Name-indexed dispatch over the agent-callable methods, built once from the
- * group's request set. Each entry forwards to `service.call(tag, …)` for its
- * own tag. The construction launders the group's `string` request keys into the
- * `AgentCallableTag` the typed `call` requires — the same tuple-keying proof
- * `AgentCallableGroup` itself cannot express; the live request set is exactly
- * the agent-callable tags. Consumption (`AGENT_DISPATCH.get(name)`) is cast-free.
- */
-const AGENT_DISPATCH: ReadonlyMap<string, AgentDispatchEntry> = new Map(
-  [...AgentCallableGroup.requests.keys()].map((tag) => [
-    tag,
-    (service: MoltZapService, params: LocalDaemonParams) =>
-      service.call(
-        tag as AgentCallableTag,
-        params as PayloadForTag<AgentCallableRpcs, AgentCallableTag>,
-      ),
-  ]),
-);
-
 export interface ConversationMeta {
   id: string;
   type: string;
@@ -242,28 +230,11 @@ export function formatCrossConversationBlock(
   ].join("\n");
 }
 
-export interface ServiceOptions {
-  serverUrl: string;
-  agentKey: string;
-
-  /**
-   * The agent's own id, registered and stored by the caller via the
-   * `agents/register` HTTP flow. The empty `network/connect` HelloOk carries no
-   * identity back, so `ownAgentId` (isFromMe, the `~/.moltzap/<agentId>` socket
-   * path, status, trace records) sources from here. Optional: a caller that has
-   * not yet registered leaves it unset and `ownAgentId` is `undefined` until it
-   * registers — the same pre-identity state the old HelloOk-sourced id had
-   * before the handshake completed.
-   */
-  agentId?: string;
-}
+type ServiceOptions = MoltzapServiceConfig;
 
 type NotificationHandler<T> = (data: T) => void;
 type ClientNotificationDelivery =
   NotificationDelivery<AnyNotificationDefinition>;
-type NotificationDispatcher = (
-  params: NotificationParamsOf<AnyNotificationDefinition>,
-) => void;
 
 interface ServiceHandlerPayloads {
   readonly message: { readonly taskId: TaskId; readonly message: Message };
@@ -413,77 +384,46 @@ export class MoltZapService {
     dispatchesConsumed: [],
     dispatchesExpired: [],
   };
-  private readonly notificationDispatchers = new Map<
-    AnyNotificationDefinition,
-    NotificationDispatcher
-  >([
-    [
-      MessageReceivedNotificationDefinition,
-      (params) =>
-        this.handleMessageReceivedNotification(
-          params as MessageReceivedNotification,
-        ),
-    ],
-    [
-      TaskConversationCreatedNotificationDefinition,
-      (params) =>
-        this.handleConversationCreatedNotification(
-          params as TaskConversationCreatedNotification,
-        ),
-    ],
-    [
-      TaskConversationArchivedNotificationDefinition,
-      (params) =>
-        this.handleConversationArchivedNotification(
-          params as TaskConversationArchivedNotification,
-        ),
-    ],
-    [
-      TaskConversationUnarchivedNotificationDefinition,
-      (params) =>
-        this.handleConversationUnarchivedNotification(
-          params as TaskConversationUnarchivedNotification,
-        ),
-    ],
-    [
-      DispatchRelease,
-      (params) =>
-        fanout(
-          this.handlers.dispatchRelease,
-          params as NotificationParamsOf<typeof DispatchRelease>,
-        ),
-    ],
-    [
-      DispatchesConsumed,
-      (params) =>
-        fanout(
-          this.handlers.dispatchesConsumed,
-          params as NotificationParamsOf<typeof DispatchesConsumed>,
-        ),
-    ],
-    [
-      DispatchesExpired,
-      (params) =>
-        fanout(
-          this.handlers.dispatchesExpired,
-          params as NotificationParamsOf<typeof DispatchesExpired>,
-        ),
-    ],
-  ]);
 
-  private _ownAgentId: string | undefined;
+  private _ownAgentId: AgentId;
 
-  constructor(private opts: ServiceOptions) {
+  protected constructor(private opts: ServiceOptions) {
     // The empty HelloOk carries no identity; `ownAgentId` is the client's
     // registered/stored id, available before the handshake.
     this._ownAgentId = opts.agentId;
+  }
+
+  static fromConfig(config: MoltzapServiceConfig): MoltZapService {
+    return new MoltZapService(config);
+  }
+
+  static make(
+    profileName: string,
+  ): Effect.Effect<MoltZapService, ServiceConfigError> {
+    return loadServiceConfig(profileName).pipe(
+      Effect.map(MoltZapService.fromConfig),
+    );
+  }
+
+  static startDaemon(
+    profileName: string,
+  ): Effect.Effect<
+    MoltZapService,
+    ServiceConfigError | ServiceRpcError | unknown
+  > {
+    return Effect.gen(function* () {
+      const service = yield* MoltZapService.make(profileName);
+      yield* service.connect();
+      yield* service.startSocketServer();
+      return service;
+    }).pipe(Effect.withSpan("MoltZapService.startDaemon"));
   }
 
   get connected(): boolean {
     return this._connected;
   }
 
-  get ownAgentId(): string | undefined {
+  get ownAgentId(): AgentId | undefined {
     return this._ownAgentId;
   }
 
@@ -548,22 +488,17 @@ export class MoltZapService {
   close(): void {
     this._connected = false;
     Effect.runFork(this.stopSocketServer());
-    // Close the service-owned scope BEFORE the client. Closing the scope
-    // interrupts the `subscribeAll().pipe(Stream.runForEach, …)` fiber; the
-    // client's
-    // `close()` then closes the registry which fires `onClose` on every
-    // live subscription's Stream — but since our consumer fiber has
-    // already been interrupted, the typed-error delivery is to a
-    // terminated consumer (no-op, idempotent).
-    // Order: close the service-scope FIRST (interrupting the
-    // `subscribeAll → runForEach` fiber), THEN close the ws-client.
-    // zipRight chains the two Effects sequentially inside a single
-    // fork so the ordering is honoured deterministically.
     const scopeToClose = this.serviceScope;
     const clientToClose = this.client;
     this.serviceScope = null;
     this.client = null;
-    Effect.runFork(composeServiceTeardown(scopeToClose, clientToClose));
+    const closeScope =
+      scopeToClose === null
+        ? Effect.void
+        : Scope.close(scopeToClose, Exit.void);
+    const closeClient =
+      clientToClose === null ? Effect.void : clientToClose.close();
+    Effect.runFork(closeScope.pipe(Effect.zipRight(closeClient)));
     Effect.runSync(
       Effect.all([
         Ref.set(this.conversationsRef, HashMap.empty()),
@@ -617,8 +552,7 @@ export class MoltZapService {
       const running = yield* startLocalSocketServer({
         socketPath: this.socketPath,
         defaultSocketPath: MoltZapService.SOCKET_PATH,
-        handleRequest: (method, params) =>
-          this.handleSocketRequestEffect(method, params),
+        handlers: this.localDaemonHandlers(),
       });
       this.socketServerScope = running.socketScope;
       this.activeSocketPath = running.socketPath;
@@ -636,35 +570,6 @@ export class MoltZapService {
     return { socketScope, sockPath };
   }
 
-  /**
-   * Forward a daemon-socket RPC (resolved by name, params already validated by
-   * the descriptor) to the server through the typed `call`. The local socket
-   * only carries agent-callable methods; a name outside the agent group is
-   * rejected rather than forwarded. The validated params are the matching
-   * method's payload — `call` recovers the per-method result + error union.
-   *
-   * This is the one runtime-string dispatch site: the method name arrives over
-   * the daemon socket, resolved against the catalog and schema-validated, so
-   * the static per-tag correlation cannot be expressed. The agent-group
-   * membership guard makes the forward well-formed; the dispatch indexes the
-   * group's own request set.
-   */
-  private forwardSocketRpc(
-    definition: AnyServerRpcDefinition,
-    params: LocalDaemonParams,
-  ): Effect.Effect<unknown, ServiceRpcError | ServiceInputError> {
-    const tag = definition.name;
-    const entry = AGENT_DISPATCH.get(tag);
-    if (entry === undefined) {
-      return Effect.fail(
-        new ServiceInputError({
-          message: `method not callable by an agent: ${tag}`,
-        }),
-      );
-    }
-    return entry(this, params);
-  }
-
   private stopSocketServer(): Effect.Effect<void, never> {
     const { socketScope, sockPath } = this.resetSocketServerState();
     return stopLocalSocketServer({
@@ -674,64 +579,23 @@ export class MoltZapService {
     }).pipe(Effect.withSpan("MoltZapService.stopSocketServer"));
   }
 
-  private handleSocketRequestEffect(
-    method: string,
-    params: LocalDaemonParams,
-  ): Effect.Effect<
-    unknown,
-    HistoryRequestInputError | ServiceInputError | ServiceRpcError
-  > {
-    return Effect.suspend(
-      (): Effect.Effect<
-        unknown,
-        HistoryRequestInputError | ServiceInputError | ServiceRpcError
-      > => {
-        switch (method) {
-          case LocalServiceCommands.Ping:
-            return Effect.succeed({ ok: true, agentId: this.ownAgentId });
-
-          case LocalServiceCommands.Status:
-            return Effect.succeed({
-              agentId: this.ownAgentId,
-              connected: this._connected,
-              conversations: this.getConversations().length,
-            });
-
-          case LocalServiceCommands.History:
-            return this.handleHistoryRequest(params);
-
-          default: {
-            const definition = serverRpcMethods.find(
-              (d): d is AnyServerRpcDefinition => d.name === method,
-            );
-            if (
-              definition === undefined ||
-              !definition.validateParams(params)
-            ) {
-              return Effect.fail(
-                new ServiceInputError({
-                  message: `unknown or invalid RPC method: ${method}`,
-                }),
-              );
-            }
-            return this.forwardSocketRpc(definition, params);
-          }
-        }
-      },
-    );
+  private localDaemonHandlers(): LocalDaemonHandlers {
+    return makeLocalDaemonHandlers({
+      ownAgentId: this._ownAgentId,
+      connected: this._connected,
+      conversationCount: () => this.getConversations().length,
+      call: this.call.bind(this),
+      handleHistoryRequest: (request) => this.handleHistoryRequest(request),
+    });
   }
 
   private handleHistoryRequest(
-    params: Record<string, unknown>,
-  ): Effect.Effect<
-    HistoryResponse,
-    HistoryRequestInputError | ServiceRpcError
-  > {
+    request: HistoryRequest,
+  ): Effect.Effect<HistoryResponse, ServiceRpcError> {
     return Effect.gen(this, function* () {
-      const request = yield* decodeHistoryRequest(params);
       const result = yield* this.call(MessagesList.name, {
-        taskId: request.taskId as TaskId,
-        conversationId: request.conversationId as ConversationId,
+        taskId: request.taskId,
+        conversationId: request.conversationId,
         limit: request.limit,
       });
       const convMeta = yield* this.loadHistorySupportData(
@@ -760,7 +624,7 @@ export class MoltZapService {
   }
 
   private loadHistorySupportData(
-    convId: string,
+    convId: ConversationId,
     messages: ReadonlyArray<Message>,
   ) {
     return Effect.gen(this, function* () {
@@ -802,13 +666,13 @@ export class MoltZapService {
     });
   }
 
-  private fetchHistoryConversationMeta(convId: string) {
+  private fetchHistoryConversationMeta(convId: ConversationId) {
     // The client filters `TaskConversationList` output for the matching
     // conversation id (there is no per-conversation get RPC).
     return this.call(TaskConversationList.name, {}).pipe(
       Effect.map((result) => {
         const hit = result.items.find(
-          (item) => item.conversation.id === (convId as ConversationId),
+          (item) => item.conversation.id === convId,
         );
         return hit?.conversation;
       }),
@@ -889,13 +753,16 @@ export class MoltZapService {
    */
   resolveAgentName(agentId: string): Effect.Effect<string, never> {
     return Effect.gen(this, function* () {
+      const decodedAgentId = Option.getOrUndefined(decodeAgentId(agentId));
+      if (decodedAgentId === undefined) return agentId;
+
       const cached = Option.getOrUndefined(
         HashMap.get(snapshot(this.agentNamesRef), agentId),
       );
       if (cached !== undefined) return cached;
 
       return yield* this.call(AgentsLookup.name, {
-        agentIds: [agentId],
+        agentIds: [decodedAgentId],
       }).pipe(
         Effect.flatMap((result) => {
           const agent = result.agents[0];
@@ -933,7 +800,7 @@ export class MoltZapService {
    *     svc-->>caller: fail(RpcServerError ConversationArchived)
    *   else
    *     svc->>ws: sendRpc(MessagesSend, params)
-   *     Note over ws: stateRef None → fail NotConnectedError<br>otherwise allocate JsonRpcId, encode frame
+   *     Note over ws: stateRef None → fail NotConnectedError<br>otherwise allocate request id, encode frame
    *     ws->>server: {jsonrpc, method messages/send, id, params}
    *     Note over ws: Deferred raced against 30s timeout
    *     server-->>ws: {result, id} or {error, id}
@@ -997,12 +864,17 @@ export class MoltZapService {
         });
         const agent = lookupResult.agents[0];
         if (!agent) {
-          return yield* Effect.fail(new AgentNotFoundError({ agentName }));
+          return yield* Effect.fail(
+            new AgentNotFoundError({
+              message: `Agent not found: ${agentName}`,
+              data: { agentName },
+            }),
+          );
         }
         const createResult = yield* this.call(TaskRequest.name, {
           appId: DEFAULT_APP_ID,
-          invitedAgentIds: [agent.id as AgentId],
-          initialConversation: { participants: [agent.id as AgentId] },
+          invitedAgentIds: [agent.id],
+          initialConversation: { participants: [agent.id] },
         });
         // `conversation: null` is the documented dedup-hit shape under
         // `DEFAULT_APP_ID`. Resolve the reusable conversation under the
@@ -1046,7 +918,12 @@ export class MoltZapService {
         if (result.nextCursor === undefined) break;
         cursor = result.nextCursor;
       }
-      return yield* Effect.fail(new AgentNotFoundError({ agentName }));
+      return yield* Effect.fail(
+        new AgentNotFoundError({
+          message: `Agent not found: ${agentName}`,
+          data: { agentName },
+        }),
+      );
     });
   }
 
@@ -1236,11 +1113,23 @@ export class MoltZapService {
     });
   }
 
+  callDefinition<D extends AnyAgentCallableRpcDefinition>(
+    definition: D,
+    payload: ClientDefinitionPayload<D>,
+    opts?: RpcCallOptions,
+  ): Effect.Effect<ClientDefinitionSuccess<D>, ServiceRpcError> {
+    return Effect.suspend(() => {
+      const client = this.client;
+      if (!client) {
+        return Effect.fail(new NotConnectedError({ message: "Not connected" }));
+      }
+      return client.callDefinition(definition, payload, opts);
+    });
+  }
+
   // --- Internals ---
 
-  protected handleNotification(
-    notification: ClientNotificationDelivery,
-  ): void {
+  protected handleNotification(notification: ClientNotificationDelivery): void {
     this.recordNotificationTrace(notification);
     fanout(this.handlers.rawNotification, notification);
     this.dispatchTypedNotification(notification);
@@ -1259,11 +1148,73 @@ export class MoltZapService {
   private dispatchTypedNotification(
     notification: ClientNotificationDelivery,
   ): void {
-    const dispatch = this.notificationDispatchers.get(notification.definition);
-    if (dispatch === undefined) {
+    if (this.dispatchMessageNotification(notification)) return;
+    if (this.dispatchConversationNotification(notification)) return;
+    this.dispatchAppNotification(notification);
+  }
+
+  private dispatchMessageNotification(
+    notification: ClientNotificationDelivery,
+  ): boolean {
+    if (
+      isNotificationDeliveryFor(
+        notification,
+        MessageReceivedNotificationDefinition,
+      )
+    ) {
+      this.handleMessageReceivedNotification(notification.params);
+      return true;
+    }
+    return false;
+  }
+
+  private dispatchConversationNotification(
+    notification: ClientNotificationDelivery,
+  ): boolean {
+    if (
+      isNotificationDeliveryFor(
+        notification,
+        TaskConversationCreatedNotificationDefinition,
+      )
+    ) {
+      this.handleConversationCreatedNotification(notification.params);
+      return true;
+    }
+    if (
+      isNotificationDeliveryFor(
+        notification,
+        TaskConversationArchivedNotificationDefinition,
+      )
+    ) {
+      this.handleConversationArchivedNotification(notification.params);
+      return true;
+    }
+    if (
+      isNotificationDeliveryFor(
+        notification,
+        TaskConversationUnarchivedNotificationDefinition,
+      )
+    ) {
+      this.handleConversationUnarchivedNotification(notification.params);
+      return true;
+    }
+    return false;
+  }
+
+  private dispatchAppNotification(
+    notification: ClientNotificationDelivery,
+  ): void {
+    if (isNotificationDeliveryFor(notification, DispatchRelease)) {
+      fanout(this.handlers.dispatchRelease, notification.params);
       return;
     }
-    dispatch(notification.params);
+    if (isNotificationDeliveryFor(notification, DispatchesConsumed)) {
+      fanout(this.handlers.dispatchesConsumed, notification.params);
+      return;
+    }
+    if (isNotificationDeliveryFor(notification, DispatchesExpired)) {
+      fanout(this.handlers.dispatchesExpired, notification.params);
+    }
   }
 
   /**
@@ -1292,7 +1243,8 @@ export class MoltZapService {
     }
     if (dedupSet.size >= DEDUP_WINDOW_PER_CONV) {
       // size >= 1 guaranteed by the guard above; next().value is defined.
-      dedupSet.delete(dedupSet.keys().next().value as MessageId);
+      const oldest = dedupSet.keys().next();
+      if (!oldest.done) dedupSet.delete(oldest.value);
     }
     dedupSet.add(msgId);
     return true;

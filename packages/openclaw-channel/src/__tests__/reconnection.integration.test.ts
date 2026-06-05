@@ -3,14 +3,15 @@ import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
 import { Data, Effect, Stream } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
-import { stripWsPath } from "@moltzap/client/test";
+import { stripWsPath } from "@moltzap/client/test-utils";
 import type {
   AgentId,
+  AgentKey,
   ConversationId,
   Message,
   TaskId,
 } from "@moltzap/protocol";
-import { registerAndClaim, waitFor } from "./test-helpers.js";
+import { registerTestAgent, waitFor } from "./test-helpers.js";
 
 import {
   AgentsLookup,
@@ -70,7 +71,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
 function registerAgent(name: string) {
   return Effect.tryPromise({
-    try: () => registerAndClaim(name),
+    try: () => registerTestAgent(name),
     catch: (cause) =>
       new ReconnectionTestError({
         message: `Registration failed for ${name}`,
@@ -90,7 +91,7 @@ function waitUntil(predicate: () => boolean, timeoutMs: number, label: string) {
   });
 }
 
-function createClient(agentKey: string, options = {}) {
+function createClient(agentKey: AgentKey, options = {}) {
   return new MoltZapAgentClient({
     serverUrl: baseUrl,
     agentKey,
@@ -98,7 +99,7 @@ function createClient(agentKey: string, options = {}) {
   });
 }
 
-function createStrippedClient(agentKey: string) {
+function createStrippedClient(agentKey: AgentKey) {
   return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,

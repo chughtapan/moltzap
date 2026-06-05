@@ -1,10 +1,10 @@
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import type { Effect } from "effect";
 
 type ContactPolicyCheck = (
-  ownerUserIdA: string,
-  ownerUserIdB: string,
+  ownerUserIdA: UserId,
+  ownerUserIdB: UserId,
 ) => Effect.Effect<boolean, never>;
 
 export type ContactPolicyResolver = () => ContactPolicyCheck | null;
@@ -57,14 +57,14 @@ export interface CreateConversationOptions<TaskMintError = never> {
 export interface CreatorContactPolicyInput {
   readonly creatorAgentId: AgentId;
   readonly targetAgentIds: ReadonlyArray<AgentId>;
-  readonly ownerByAgentId: ReadonlyMap<AgentId, string | null>;
+  readonly ownerByAgentId: ReadonlyMap<AgentId, UserId>;
   readonly policy: ContactPolicyCheck;
 }
 
 export interface ContactEdgeInput {
   readonly requesterAgentId: AgentId;
-  readonly requesterOwnerUserId: string | null;
+  readonly requesterOwnerUserId: UserId;
   readonly targetAgentId: AgentId;
-  readonly targetOwnerUserId: string | null;
+  readonly targetOwnerUserId: UserId;
   readonly policy: ContactPolicyCheck;
 }

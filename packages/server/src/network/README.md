@@ -13,7 +13,7 @@ Presence, ping, agent-endpoint resolution, outbound
 ## Files
 
 - `agent-endpoint-resolver.ts` — `AgentId → HashSet<ConnId>` multimap
-  kept fresh by `network/connect` success and the disconnect
+  kept fresh by `agent/connect` success and the disconnect
   finalizer.
 - `network-send.ts` — `NetworkSendService` (the sole outbound
   routing surface; consumes the resolver + connection manager).

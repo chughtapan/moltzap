@@ -8,7 +8,7 @@ Public exports for runtime adapter orchestration.
 
 ## Public surface
 
-### [`AgentName`](./runtime.ts#L6)
+### [`AgentName`](./runtime.ts#L7)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type AgentName = string & Brand.Brand<"AgentName">;
 ```
 
-### [`AgentName`](./runtime.ts#L6)
+### [`AgentName`](./runtime.ts#L7)
 
 _Variable_
 
@@ -24,36 +24,20 @@ _Variable_
 export type AgentName = string & Brand.Brand<"AgentName">
 ```
 
-### [`ApiKey`](./runtime.ts#L7)
-
-_TypeAlias_
-
-```ts
-export type ApiKey = string & Brand.Brand<"ApiKey">;
-```
-
-### [`ApiKey`](./runtime.ts#L7)
-
-_Variable_
-
-```ts
-export type ApiKey = string & Brand.Brand<"ApiKey">
-```
-
-### [`awaitAgentReadyByPolling`](./await-agent-ready.ts#L105)
+### [`awaitAgentReadyByPolling`](./await-agent-ready.ts#L106)
 
 _Function_
 
 ```ts
 export function awaitAgentReadyByPolling(
   connections: PollingConnections,
-  agentId: string,
+  agentId: AgentId,
   timeoutMs: number,
   pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS,
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`ClaudeCodeAdapter`](./claude-code-adapter.ts#L419)
+### [`ClaudeCodeAdapter`](./claude-code-adapter.ts#L463)
 
 _Class_
 
@@ -83,7 +67,6 @@ export class ClaudeCodeAdapter implements Runtime {
         stateDir,
         extDir,
         serverUrl: input.serverUrl,
-        apiKey: input.apiKey,
         agentName: input.agentName,
       });
 
@@ -92,6 +75,7 @@ export class ClaudeCodeAdapter implements Runtime {
         deps: this.deps,
         stateDir,
         mcpConfigPath,
+        spawnInput: input,
         logBuffer,
       });
 
@@ -187,7 +171,7 @@ process with the moltzap channel installed as a stdio MCP server.
 flowchart TD
   CCS["ClaudeCodeAdapter.spawn(input)"]
   CC1["1. prepareClaudeCodeStateDir<br>makeTempDirectory, seedWorkspaceFiles,<br>installClaudeCodeChannelPlugin<br>(resolves modelcontextprotocol/sdk + effect)"]
-  CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_API_KEY, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
+  CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_PROFILE, MOLTZAP_CONFIG_HOME, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
   CC3["3. spawnConfiguredClaude<br>buildClaudeArgs:<br>--strict-mcp-config --mcp-config<br>--print --input-format stream-json<br>--output-format stream-json --verbose<br>--dangerously-skip-permissions<br>--add-dir stateDir/workspace<br>env: CLAUDE_CODE_HOME=stateDir"]
   CC4["4. state = { process, stateDir, logBuffer, ... }"]
   CCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>(cc-channel MCP stdio server authenticates on start)"]
@@ -200,7 +184,7 @@ is visible in claude's `--verbose` stream-json output. Shutdown
 via SIGTERM on the claude process propagates to the MCP stdio
 child naturally — no process-group kill needed (unlike OpenClaw).
 
-### [`ClaudeCodeAdapterDeps`](./claude-code-adapter.ts#L62)
+### [`ClaudeCodeAdapterDeps`](./claude-code-adapter.ts#L73)
 
 _Interface_
 
@@ -231,7 +215,7 @@ export interface ClaudeCodeAdapterDeps {
 }
 ```
 
-### [`createWorkspaceClaudeCodeAdapter`](./claude-code-adapter.ts#L575)
+### [`createWorkspaceClaudeCodeAdapter`](./claude-code-adapter.ts#L619)
 
 _Function_
 
@@ -258,7 +242,7 @@ flowchart TD
   CCCH --> CCCHFALL
 ```
 
-### [`createWorkspaceOpenClawAdapter`](./openclaw-adapter.ts#L407)
+### [`createWorkspaceOpenClawAdapter`](./openclaw-adapter.ts#L427)
 
 _Function_
 
@@ -346,7 +330,7 @@ flowchart TD
 
 - `RuntimeFleetStartupInterrupted` — a signal arrives during fleet startup
 
-### [`LogSlice`](./runtime.ts#L51)
+### [`LogSlice`](./runtime.ts#L49)
 
 _Interface_
 
@@ -383,6 +367,8 @@ export class NanoclawAdapter implements Runtime {
       yield* ensureNanoclawRuntimeInstalledEffect();
 
       const handle = yield* startNanoclawRuntimeEffect({
+        agentName: input.agentName,
+        agentId: input.agentId,
         apiKey: input.apiKey,
         serverUrl: input.serverUrl,
         workspaceFiles: input.workspaceFiles,
@@ -500,7 +486,7 @@ export interface NanoclawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L268)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L287)
 
 _Class_
 
@@ -525,12 +511,13 @@ export class OpenClawAdapter implements Runtime {
       const { deps } = this;
       const stateDir = yield* prepareOpenClawStateDir(deps, input);
       const logBuffer = { value: "" };
-      const child = yield* spawnConfiguredOpenClaw(
+      const child = yield* spawnConfiguredOpenClaw({
         deps,
         stateDir,
+        input,
         port,
         logBuffer,
-      );
+      });
 
       const st: AdapterState = {
         process: child,
@@ -646,7 +633,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L145)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L155)
 
 _Interface_
 
@@ -659,7 +646,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`ReadyOutcome`](./runtime.ts#L58)
+### [`ReadyOutcome`](./runtime.ts#L56)
 
 _TypeAlias_
 
@@ -668,7 +655,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](./runtime.ts#L77)
+### [`Runtime`](./runtime.ts#L75)
 
 _Interface_
 
@@ -711,8 +698,8 @@ _Interface_
 ```ts
 export interface RuntimeAgentSpec {
   readonly agentName: string;
-  readonly apiKey: string;
-  readonly agentId: string;
+  readonly apiKey: AgentKey;
+  readonly agentId: AgentId;
   readonly serverUrl: string;
   readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
   readonly modelId?: string;
@@ -760,7 +747,7 @@ _Interface_
 ```ts
 export interface RuntimeFleetAgent {
   readonly name: string;
-  readonly agentId: string;
+  readonly agentId: AgentId;
 }
 ```
 
@@ -816,8 +803,8 @@ const LOG_START_OFFSET = 0;
 
 export interface RuntimeAgentSpec {
   readonly agentName: string;
-  readonly apiKey: string;
-  readonly agentId: string;
+  readonly apiKey: AgentKey;
+  readonly agentId: AgentId;
   readonly serverUrl: string;
   readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
   readonly modelId?: string;
@@ -864,7 +851,7 @@ within `timeoutMs`.
 Caller action: increase `readyTimeoutMs`, or inspect
 `runtime.getLogs(0)` to see what the subprocess is doing.
 
-### [`RuntimeServerHandle`](./runtime.ts#L22)
+### [`RuntimeServerHandle`](./runtime.ts#L20)
 
 _Interface_
 
@@ -884,7 +871,7 @@ export interface RuntimeServerHandle {
    * presence-event subscription on the server's WebSocket API.
    */
   awaitAgentReady(
-    agentId: string,
+    agentId: AgentId,
     timeoutMs: number,
   ): Effect.Effect<ReadyOutcome, never, never>;
 }
@@ -941,15 +928,15 @@ failure, state-dir creation failure.
 `cause` carries the underlying Error.
 Caller action: surface to user. No retry — binary or config is wrong.
 
-### [`SpawnInput`](./runtime.ts#L42)
+### [`SpawnInput`](./runtime.ts#L40)
 
 _Interface_
 
 ```ts
 export interface SpawnInput {
   readonly agentName: AgentName;
-  readonly apiKey: ApiKey;
-  readonly agentId: string;
+  readonly apiKey: AgentKey;
+  readonly agentId: AgentId;
   readonly serverUrl: ServerUrl;
   readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
   readonly modelId?: string;
@@ -990,7 +977,7 @@ coordinated startup.
 - `RuntimeReadyTimedOut` — `waitUntilReady` exceeds `readyTimeoutMs`
 - `RuntimeExitedBeforeReady` — the process exits before signaling ready (inspect `stderr`)
 
-### [`WorkspaceClaudeCodeAdapterInput`](./claude-code-adapter.ts#L87)
+### [`WorkspaceClaudeCodeAdapterInput`](./claude-code-adapter.ts#L98)
 
 _Interface_
 
@@ -1003,7 +990,7 @@ export interface WorkspaceClaudeCodeAdapterInput {
 }
 ```
 
-### [`WorkspaceFile`](./runtime.ts#L17)
+### [`WorkspaceFile`](./runtime.ts#L15)
 
 _Interface_
 
@@ -1014,7 +1001,7 @@ export interface WorkspaceFile {
 }
 ```
 
-### [`WorkspaceOpenClawAdapterInput`](./openclaw-adapter.ts#L152)
+### [`WorkspaceOpenClawAdapterInput`](./openclaw-adapter.ts#L162)
 
 _Interface_
 

@@ -1,6 +1,7 @@
 import { Cause, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
 import type {
+  AppId,
   Conversation,
   ListCursor,
   Task,
@@ -34,13 +35,6 @@ import {
 } from "@moltzap/protocol";
 import type { ConversationService } from "./conversation.service.js";
 import type { MessageService } from "./message.service.js";
-import {
-  ConversationInTask,
-  TaskReadAccess,
-  assertConversationInTaskMatches,
-  assertTaskReadAccessMatchesTask,
-} from "@moltzap/protocol/task";
-
 const ERR_NOT_FOUND = "Task not found";
 const ERR_NOT_PARTICIPANT = "Caller is not a participant of this task";
 const ERR_CONV_NOT_IN_TASK =
@@ -93,7 +87,7 @@ function rowToParticipant(row: {
 }
 
 export interface TaskCreateInput {
-  readonly appId: string;
+  readonly appId: AppId;
   readonly invitedAgentIds?: readonly AgentId[];
 }
 
@@ -230,7 +224,7 @@ export class TaskService {
               })
               .onConflict((oc) => oc.doNothing());
           }
-          return rowToTask(row as TaskRow);
+          return rowToTask(row);
         }),
       ),
     );
@@ -265,22 +259,20 @@ export class TaskService {
             .where("status", "=", "waiting")
             .returningAll(),
         );
-        return rowToTask(row as TaskRow);
+        return rowToTask(row);
       }),
     );
   }
 
   get(
     id: TaskId,
-    _caller: AgentId,
+    caller: AgentId,
   ): Effect.Effect<
     { task: Task; participants: TaskParticipant[] },
-    ForbiddenError,
-    TaskReadAccess
+    TaskNotFoundError | ForbiddenError
   > {
     return Effect.gen(this, function* () {
-      const cap = yield* TaskReadAccess;
-      yield* assertTaskReadAccessMatchesTask(cap, id);
+      const task = yield* this.loadTaskWithReadAccess(id, caller);
       const rows = yield* catchSqlErrorAsDefect(
         this.db
           .selectFrom("task_participants")
@@ -288,7 +280,7 @@ export class TaskService {
           .where("task_id", "=", id),
       );
       return {
-        task: cap.task,
+        task,
         participants: rows.map(rowToParticipant),
       };
     });
@@ -372,7 +364,7 @@ export class TaskService {
       const participantsByConversation =
         yield* this.readConversationParticipantMap(trx, conversationIds);
       return {
-        task: rowToTask(taskRow as TaskRow),
+        task: rowToTask(taskRow),
         participantAgentIds: yield* this.readAdmittedTaskParticipantIds(
           trx,
           id,
@@ -538,7 +530,7 @@ export class TaskService {
             new TaskNotFoundError({ message: ERR_NOT_FOUND }),
           );
         }
-        return rowToTask(opt.value as TaskRow);
+        return rowToTask(opt.value);
       }),
     );
   }
@@ -655,7 +647,7 @@ export class TaskService {
   findExistingTaskByParticipants(
     creator: AgentId,
     invitedAgentIds: ReadonlyArray<AgentId>,
-    appId: string,
+    appId: AppId,
   ): Effect.Effect<Task | null, never> {
     const fullParticipantSet = new Set<AgentId>([creator, ...invitedAgentIds]);
     return catchSqlErrorAsDefect(
@@ -665,7 +657,7 @@ export class TaskService {
 
   private scanExistingTaskByParticipants(
     creator: AgentId,
-    appId: string,
+    appId: AppId,
     fullParticipantSet: ReadonlySet<AgentId>,
   ): Effect.Effect<Task | null, SqlError> {
     return Effect.gen(this, function* () {
@@ -683,7 +675,7 @@ export class TaskService {
 
   private candidateTaskIds(
     creator: AgentId,
-    appId: string,
+    appId: AppId,
   ): Effect.Effect<ReadonlyArray<TaskId>, SqlError> {
     // Closed tasks are excluded so a fresh `task/create` after a close
     // mints a new task instead of returning the dead one.
@@ -717,9 +709,7 @@ export class TaskService {
       const taskRow = yield* takeFirstOption(
         this.db.selectFrom("tasks").selectAll().where("id", "=", taskId),
       );
-      return Option.isNone(taskRow)
-        ? null
-        : rowToTask(taskRow.value as TaskRow);
+      return Option.isNone(taskRow) ? null : rowToTask(taskRow.value);
     });
   }
 
@@ -837,7 +827,7 @@ export class TaskService {
           .where("id", "=", id)
           .returningAll(),
       );
-      return rowToTask(closedRow as TaskRow);
+      return rowToTask(closedRow);
     });
   }
 
@@ -848,7 +838,7 @@ export class TaskService {
    * so the handler can fan out the `task/conversation/archived`
    * notification. App-ownership (`assertAppOwnsTask`) is asserted by the
    * app-arm handler before this call, so this body assumes authority is
-   * proven. `ConversationInTask` is required as an R-channel proof.
+   * proven. `ConversationInTask` is enforced by requirement middleware.
    * @internal
    */
   archiveTaskConversation(
@@ -857,11 +847,9 @@ export class TaskService {
   ): Effect.Effect<
     { conversation: Conversation; archivedAt: string },
     ConversationNotFoundError | ForbiddenError,
-    ConversationInTask
+    never
   > {
     return Effect.gen(this, function* () {
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, conversationId);
       return yield* catchSqlErrorAsDefect(
         Effect.gen(this, function* () {
           const archivedAt = new Date();
@@ -911,11 +899,9 @@ export class TaskService {
   ): Effect.Effect<
     { conversation: Conversation },
     ConversationNotFoundError | ForbiddenError,
-    ConversationInTask
+    never
   > {
     return Effect.gen(this, function* () {
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, conversationId);
       return yield* catchSqlErrorAsDefect(
         Effect.gen(this, function* () {
           yield* this.db
@@ -941,7 +927,7 @@ export class TaskService {
    * `task_participants` for `taskId`) is enforced by
    * `requireAgentsAreInTaskParticipants` in the handler before this
    * call; the conversation-in-task relationship is enforced by the
-   * `ConversationInTask` capability.
+   * `ConversationInTask` requirement.
    * @internal
    */
   addTaskConversationParticipant(
@@ -951,11 +937,9 @@ export class TaskService {
   ): Effect.Effect<
     { postMutationParticipants: ReadonlyArray<AgentId> },
     ForbiddenError,
-    ConversationInTask
+    never
   > {
     return Effect.gen(this, function* () {
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, conversationId);
       return yield* catchSqlErrorAsDefect(
         Effect.gen(this, function* () {
           yield* this.db
@@ -997,11 +981,9 @@ export class TaskService {
       wasParticipant: boolean;
     },
     ForbiddenError,
-    ConversationInTask
+    never
   > {
     return Effect.gen(this, function* () {
-      const inTask = yield* ConversationInTask;
-      yield* assertConversationInTaskMatches(inTask, id, conversationId);
       return yield* catchSqlErrorAsDefect(
         Effect.gen(this, function* () {
           const preRows = yield* this.db

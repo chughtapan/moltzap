@@ -1,5 +1,6 @@
 import { Data } from "effect";
-import type { ServiceRpcError } from "@moltzap/client";
+import type { Effect } from "effect";
+import type { MoltZapService, ServiceRpcError } from "@moltzap/client";
 import { LeaseAlreadyConsumed } from "@moltzap/client/channel-base";
 
 // `LeaseAlreadyConsumed` has one canonical definition site shared across all
@@ -10,19 +11,19 @@ export class McpTransportFailed extends Data.TaggedError("McpTransportFailed")<{
   readonly cause: string;
 }> {}
 
-export class AgentKeyInvalid extends Data.TaggedError("AgentKeyInvalid")<{
-  readonly cause: string;
-}> {}
-
 class SchemaDecodeFailed extends Data.TaggedError("SchemaDecodeFailed")<{
   readonly cause: string;
   readonly at: "ws" | "mcp";
 }> {}
 
+type ClientBootConfigError = Effect.Effect.Error<
+  ReturnType<typeof MoltZapService.make>
+>;
+
 export type BootError =
+  | ClientBootConfigError
   | ServiceRpcError
   | McpTransportFailed
-  | AgentKeyInvalid
   | SchemaDecodeFailed;
 
 export class EmitFailed extends Data.TaggedError("EmitFailed")<{

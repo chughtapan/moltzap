@@ -13,7 +13,8 @@
  */
 
 import type { Effect } from "effect";
+import type { UserId } from "@moltzap/protocol/identity";
 
 export interface ContactService {
-  areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
+  areInContact(userIdA: UserId, userIdB: UserId): Effect.Effect<boolean, never>;
 }

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Message } from "@moltzap/protocol";
+import type { Message } from "@moltzap/protocol/task";
 import type { TaskId } from "@moltzap/protocol/task";
 import type {
   ChannelService,

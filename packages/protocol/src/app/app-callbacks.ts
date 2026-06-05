@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { AgentId } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
 import { messagePartsSchema } from "../task/methods.js";
-import { dateTimeStringSchema } from "../schema-primitives.js";
+import { dateTimeStringSchema } from "../transport/wire-string.js";
 import { defineRpc } from "../transport/method.js";
 import { ForbiddenError } from "../transport/wire-errors.js";
 

@@ -16,8 +16,12 @@
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import type { AppManifest, ConversationId } from "@moltzap/protocol";
-import { Effect, Fiber } from "effect";
+import {
+  DispatchRelease,
+  type AppManifest,
+  type ConversationId,
+} from "@moltzap/protocol";
+import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
@@ -29,7 +33,6 @@ import {
   requestDispatch,
   startDispatchFlowServer,
   stopDispatchFlowServer,
-  waitForDispatchRelease,
 } from "./fixture.js";
 import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
 
@@ -67,22 +70,17 @@ function requestDispatchesInParallel(
   );
 }
 
-function forkTwoReleaseFibers(recipient: ConnectedAgent) {
-  return Effect.gen(function* () {
-    // Fork-before-trigger (Spec B #596 r2 fix): each fiber subscribes to
-    // its own `dispatch/release` Stream BEFORE the parallel dispatch RPCs
-    // fire, so neither release notification can arrive in the gap before
-    // the subscription registers.
-    const fiber1 = yield* waitForDispatchRelease(
-      recipient,
-      DISPATCH_RELEASE_TIMEOUT_MS,
-    );
-    const fiber2 = yield* waitForDispatchRelease(
-      recipient,
-      DISPATCH_RELEASE_TIMEOUT_MS,
-    );
-    return [fiber1, fiber2] as const;
-  });
+function forkTwoReleaseCollector(recipient: ConnectedAgent) {
+  return recipient.client.subscribe(DispatchRelease).pipe(
+    Stream.take(2),
+    Stream.runCollect,
+    Effect.map(Chunk.toReadonlyArray),
+    Effect.timeoutFail({
+      duration: Duration.millis(DISPATCH_RELEASE_TIMEOUT_MS),
+      onTimeout: () => new Error("timed out waiting for dispatch releases"),
+    }),
+    Effect.fork,
+  );
 }
 
 function crossConversationRequestsRunConcurrently() {
@@ -99,16 +97,16 @@ function crossConversationRequestsRunConcurrently() {
       bob,
       TEST_APP_MANIFEST,
     );
-    const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
+    const releasesFiber = yield* forkTwoReleaseCollector(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv1.conversationId,
       conv2.conversationId,
     ]);
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);
-    const release1 = yield* Fiber.join(fiber1);
-    const release2 = yield* Fiber.join(fiber2);
-    const seen = new Set([release1.leaseId, release2.leaseId]);
+    const releases = yield* Fiber.join(releasesFiber);
+    expect(releases).toHaveLength(EXPECTED_HOOK_CALLS);
+    const seen = new Set(releases.map((release) => release.leaseId));
     expect(seen.has(ack1.leaseId)).toBe(true);
     expect(seen.has(ack2.leaseId)).toBe(true);
     expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
@@ -124,7 +122,7 @@ function sameConversationRequestsRunConcurrently() {
       bob,
       TEST_APP_MANIFEST,
     );
-    const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
+    const releasesFiber = yield* forkTwoReleaseCollector(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv.conversationId,
       conv.conversationId,
@@ -132,8 +130,7 @@ function sameConversationRequestsRunConcurrently() {
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);
     expect(ack1.dispatchId).not.toBe(ack2.dispatchId);
-    yield* Fiber.join(fiber1);
-    yield* Fiber.join(fiber2);
+    expect(yield* Fiber.join(releasesFiber)).toHaveLength(EXPECTED_HOOK_CALLS);
     expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
   });
 }

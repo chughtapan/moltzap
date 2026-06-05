@@ -4,23 +4,22 @@ import type { ContactService } from "../identity/services/contact-policy.js";
 import { sendRpcToClient } from "../transport/connection.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import type {
-  AnyAppCallbackRpcDefinition,
   AppManifest,
   DispatchId,
   LeaseId,
   ParamsOf,
   Part,
+  ReverseCallbackRequest,
+  ReverseCallbackSuccess,
   ResultOf,
 } from "@moltzap/protocol";
-import { DispatchAuthorize, TaskCreate } from "@moltzap/protocol";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
-import type {
-  AppId,
-  ConversationId,
-  MessageId,
-  TaskId,
-} from "@moltzap/protocol/task";
+import {
+  DispatchAuthorize,
+  TaskCreate,
+  type ConnectionId,
+} from "@moltzap/protocol";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import type { AppId, ConversationId, MessageId } from "@moltzap/protocol/task";
 import {
   type DispatchAdmissionResult,
   type MessageAuthorizeContext,
@@ -40,27 +39,19 @@ import {
   takeFirstOption,
 } from "../db/effect-kysely-toolkit.js";
 import {
-  lookupAppForConversation,
-  type ConversationAppLookup,
+  lookupAppBoundForConversation,
+  type AppBoundConversationLookup,
 } from "./conversation-app-lookup.js";
 import { NetworkSendServiceTag } from "./layers.js";
 import type {
   LeaseRegistry,
   LeaseVerdict,
+  ModeratorBoundLeaseBinding,
 } from "../task/leases/lease-registry.js";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
-
-const EMPTY_TASK_ID = "" as TaskId;
-// Placeholder app id used by the dispatchBindingForLookup default-grant
-// branch; the binding is consumed only by the registry mint path, which
-// never re-uses it for an app-ownership check. The empty-string
-// sentinel mirrors `EMPTY_TASK_ID` and the moderator-conn-id default
-// below — see `dispatchBindingForLookup`.
-const EMPTY_APP_ID = "" as AppId;
-const EMPTY_CONNECTION_ID = "" as ConnectionId;
 
 /**
  * Structural slice of `ConversationService` that AppHost +
@@ -96,6 +87,17 @@ class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
   }
 }
 
+class DispatchAppUnavailableError extends Data.TaggedError(
+  "DispatchAppUnavailableError",
+)<{
+  readonly appId: AppId;
+  readonly conversationId: ConversationId;
+}> {
+  override get message(): string {
+    return `dispatch/request cannot mint a moderator-bound lease because app ${this.appId} is unavailable for conversation ${this.conversationId}`;
+  }
+}
+
 type PendingDispatchMessage = Readonly<{
   messageId: MessageId;
   conversationId: ConversationId;
@@ -120,12 +122,6 @@ interface EnqueueDispatchRequestArgs {
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;
 }
 
-interface DispatchBindingContext {
-  readonly appId: AppId;
-  readonly taskId: TaskId;
-  readonly moderatorConnectionId: ConnectionId;
-}
-
 interface DispatchRoundTripParams {
   readonly conversationId: ConversationId;
   readonly recipientAgentId: AgentId;
@@ -135,18 +131,7 @@ interface DispatchRoundTripParams {
   readonly attempt?: number;
   readonly receivedAt?: string;
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;
-  readonly moderatorConnectionId: ConnectionId;
 }
-
-type AppBoundConversationLookup = Extract<
-  ConversationAppLookup,
-  { readonly _tag: "AppBound" }
->;
-
-type NonAppBoundConversationLookup = Exclude<
-  ConversationAppLookup,
-  AppBoundConversationLookup
->;
 
 function dispatchVerdictToLeaseVerdict(
   verdict: DispatchAdmissionResult,
@@ -197,7 +182,7 @@ export class AppHost {
   /**
    * Single source of truth for app registrations. Each `AppId` maps to
    * one `AppRegistration` carrying its `AppEndpoint` (`{ connId, originator }`)
-   * — minted from the live `AppConnection` arm for wire-registered apps, or an
+   * — minted from the live `AppConnection` arm for connected apps, or an
    * inert endpoint for the boot-installed default app (`DEFAULT_APP_ID`).
    * AppHost dispatches via the endpoint's `originator` only for a policy whose
    * `kind` is `"hook"`; an app whose policies are all static (the default app)
@@ -297,7 +282,7 @@ export class AppHost {
 
   /**
    * Drop every registration whose connection matches `connId`. Called
-   * by `socket-handler.ts → closeSession` on WS disconnect. The
+   * by `MoltZapServer`/`transport/server-socket.ts` close cleanup on WS disconnect. The
    * default app's inert endpoint has a server-minted id that no
    * client connection can ever match, so this method never targets
    * boot-installed apps.
@@ -341,13 +326,12 @@ export class AppHost {
    * - `senderAgentId` etc — same shape as `runAuthorizeDispatch`.
    *
    * Side-effects via the registry:
-   *  - `NoAppSession` / `ConversationNotFound`: synthesize `grant`,
-   *    resolve immediately. Recipient sees `dispatch/release{grant}`
-   *    after the ack lands.
-   *  - `ConversationArchived`: synthesize `deny{conversation_archived}`.
-   *  - `AppBound` whose app has no live registration (WS dropped):
-   *    synthesize `hold{moderator_unavailable}` (load-bearing — does NOT
-   *    call `removeParticipant`).
+   *  - non-`AppBound` lookup results are invariant violations for this
+   *    surface; no lease is minted.
+   *  - `AppBound` whose app has no live registration before mint:
+   *    fail before the registry is reachable.
+   *  - `AppBound` whose app disconnects after mint: synthesize
+   *    `deny{app_unavailable}`.
    *  - `AppBound` with a live registration: run the
    *    `dispatch_authorize` policy switch; a verdict-deny + timeout-deny
    *    call `resolve(deny)` and the caller is responsible for
@@ -384,19 +368,12 @@ export class AppHost {
     NetworkSendServiceTag
   > {
     return Effect.gen(this, function* () {
-      const lookup = yield* lookupAppForConversation(
+      const lookup = yield* lookupAppBoundForConversation(
         this.db,
         args.conversationId,
       );
-      const binding = this.dispatchBindingForLookup(lookup);
-      const minted = yield* registry.mint({
-        recipientAgentId: args.recipientAgentId,
-        recipientConnectionId: args.recipientConnectionId,
-        moderatorConnectionId: binding.moderatorConnectionId,
-        taskId: binding.taskId,
-        conversationId: args.conversationId,
-        appId: binding.appId,
-      });
+      const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
+      const minted = yield* registry.mint(binding);
 
       yield* this.attachDispatchRoundTripFiber(
         registry,
@@ -411,35 +388,45 @@ export class AppHost {
           attempt: args.attempt,
           receivedAt: args.receivedAt,
           pending: args.pending,
-          moderatorConnectionId: binding.moderatorConnectionId,
         },
       );
       return minted;
     });
   }
 
-  private dispatchBindingForLookup(
-    lookup: ConversationAppLookup,
-  ): DispatchBindingContext {
-    if (lookup._tag !== "AppBound") {
-      return {
-        appId: EMPTY_APP_ID,
-        taskId: EMPTY_TASK_ID,
-        moderatorConnectionId: EMPTY_CONNECTION_ID,
-      };
-    }
+  private dispatchLeaseBindingForLookup(
+    args: EnqueueDispatchRequestArgs,
+    lookup: AppBoundConversationLookup,
+  ): Effect.Effect<ModeratorBoundLeaseBinding, never> {
+    const base = {
+      recipientAgentId: args.recipientAgentId,
+      recipientConnectionId: args.recipientConnectionId,
+      conversationId: args.conversationId,
+    };
+
     const entry = this.apps.get(lookup.appId);
-    return {
+    if (!entry) {
+      return Effect.die(
+        new DispatchAppUnavailableError({
+          appId: lookup.appId,
+          conversationId: args.conversationId,
+        }),
+      );
+    }
+
+    return Effect.succeed({
+      _tag: "ModeratorBound",
+      ...base,
       appId: lookup.appId,
       taskId: lookup.taskId,
-      moderatorConnectionId: entry?.endpoint.connId ?? EMPTY_CONNECTION_ID,
-    };
+      moderatorConnectionId: entry.endpoint.connId,
+    });
   }
 
   private attachDispatchRoundTripFiber(
     registry: LeaseRegistry,
     leaseId: LeaseId,
-    lookup: ConversationAppLookup,
+    lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
   ): Effect.Effect<void, never, NetworkSendServiceTag> {
     return Effect.gen(this, function* () {
@@ -460,31 +447,12 @@ export class AppHost {
   private runForkedDispatchRoundTrip(
     registry: LeaseRegistry,
     leaseId: LeaseId,
-    lookup: ConversationAppLookup,
+    lookup: AppBoundConversationLookup,
     params: DispatchRoundTripParams,
   ): Effect.Effect<void, never, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(
-      lookup._tag === "AppBound"
-        ? this.runAppBoundDispatchRoundTrip(registry, leaseId, lookup, params)
-        : this.resolveNonAppBoundDispatch(registry, leaseId, lookup),
+      this.runAppBoundDispatchRoundTrip(registry, leaseId, lookup, params),
     );
-  }
-
-  private resolveNonAppBoundDispatch(
-    registry: LeaseRegistry,
-    leaseId: LeaseId,
-    lookup: NonAppBoundConversationLookup,
-  ): Effect.Effect<void, never> {
-    switch (lookup._tag) {
-      case "ConversationArchived":
-        return this.resolveDispatchLease(registry, leaseId, {
-          _tag: "deny",
-          reason: "conversation_archived",
-        });
-      case "ConversationNotFound":
-      case "NoAppSession":
-        return this.resolveDispatchLease(registry, leaseId, { _tag: "grant" });
-    }
   }
 
   private runAppBoundDispatchRoundTrip(
@@ -495,8 +463,8 @@ export class AppHost {
   ): Effect.Effect<void, SqlError, NetworkSendServiceTag> {
     if (!this.isAppRegistered(lookup.appId)) {
       return this.resolveDispatchLease(registry, leaseId, {
-        _tag: "hold",
-        reason: "moderator_unavailable",
+        _tag: "deny",
+        reason: "app_unavailable",
       });
     }
 
@@ -521,10 +489,10 @@ export class AppHost {
     params: DispatchRoundTripParams,
   ): Effect.Effect<DispatchAuthorizeContext, SqlError> {
     return Effect.gen(this, function* () {
-      const ownerId = yield* this.recipientOwnerId(params.recipientAgentId);
+      const ownerUserId = yield* this.recipientOwnerId(params.recipientAgentId);
       return {
         conversationId: params.conversationId,
-        recipient: { agentId: params.recipientAgentId, ownerId },
+        recipient: { agentId: params.recipientAgentId, ownerUserId },
         message: {
           id: params.messageId,
           senderAgentId: params.senderAgentId,
@@ -543,17 +511,18 @@ export class AppHost {
     });
   }
 
-  private recipientOwnerId(agentId: AgentId): Effect.Effect<string, SqlError> {
+  private recipientOwnerId(agentId: AgentId): Effect.Effect<UserId, SqlError> {
     return takeFirstOption(
       this.db
         .selectFrom("agents")
         .select("owner_user_id")
         .where("id", "=", agentId),
     ).pipe(
-      Effect.map((agentOpt) =>
+      Effect.flatMap((agentOpt) =>
         Option.match(agentOpt, {
-          onNone: () => "",
-          onSome: (agent) => agent.owner_user_id ?? "",
+          onNone: () =>
+            Effect.dieMessage(`recipient agent ${agentId} not found`),
+          onSome: (agent) => Effect.succeed(agent.owner_user_id),
         }),
       ),
     );
@@ -654,7 +623,7 @@ export class AppHost {
     const entry = this.apps.get(appId);
     if (entry === undefined) {
       // Unknown app — fail-closed Deny. Every registered conversation's
-      // appId came from `AppsRegister` or boot, so reaching here means
+      // appId came from HTTP registration/connect or boot, so reaching here means
       // the app's WS dropped after the conversation was created. No
       // moderator means no admission grant.
       return Effect.succeed({
@@ -675,11 +644,10 @@ export class AppHost {
         const taskId = ctx.taskId;
         const timeoutMs = policy.timeoutMs;
         return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
-          raw: this.callAppRpc(
-            entry,
-            DispatchAuthorize,
-            this.authorizeDispatchParamsForWire(ctx),
-          ).pipe(Effect.map((envelope) => envelope.admission)),
+          raw: this.callAppRpc(entry, {
+            definition: DispatchAuthorize,
+            params: this.authorizeDispatchParamsForWire(ctx),
+          }).pipe(Effect.map((envelope) => envelope.admission)),
           timeoutMs,
           timeoutLogMessage: "dispatch/authorize timed out",
           timeoutLogContext: { taskId, appId, timeoutMs },
@@ -734,7 +702,7 @@ export class AppHost {
    * Switches on the manifest's `message_authorize` policy:
    * `forwardAllExceptSender` / `deny` resolve in-process,
    * `hook` round-trips `messages/authorize` over the app's connection
-   * (the wire-registered app's WebSocket) under the uniform fail-closed
+   * (the connected app's WebSocket) under the uniform fail-closed
    * envelope.
    *
    * Unknown-app: fail-closed Block. Reaching this branch means the
@@ -781,11 +749,10 @@ export class AppHost {
   ): Effect.Effect<MessageAuthorizeResult, never> {
     const taskId = ctx.taskId;
     return this.wrapHookEffectWithEnvelope<MessageAuthorizeResult>({
-      raw: this.callAppRpc(
-        entry,
-        MessagesAuthorize,
-        this.messageAuthorizeParamsForWire(ctx),
-      ).pipe(Effect.map((envelope) => envelope.verdict)),
+      raw: this.callAppRpc(entry, {
+        definition: MessagesAuthorize,
+        params: this.messageAuthorizeParamsForWire(ctx),
+      }).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
       timeoutLogMessage: "messages/authorize timed out",
       timeoutLogContext: { taskId, appId, timeoutMs },
@@ -837,9 +804,10 @@ export class AppHost {
         return this.wrapHookEffectWithEnvelope<
           ResultOf<typeof TaskCreate>["verdict"]
         >({
-          raw: this.callAppRpc(entry, TaskCreate, ctx).pipe(
-            Effect.map((envelope) => envelope.verdict),
-          ),
+          raw: this.callAppRpc(entry, {
+            definition: TaskCreate,
+            params: ctx,
+          }).pipe(Effect.map((envelope) => envelope.verdict)),
           timeoutMs,
           timeoutLogMessage: "task/create timed out",
           timeoutLogContext: { taskId: ctx.taskId, appId, timeoutMs },
@@ -868,18 +836,41 @@ export class AppHost {
    * socket error, decode failure) fold into the fail-closed envelope
    * upstream via `wrapHookEffectWithEnvelope`.
    */
-  private callAppRpc<D extends AnyAppCallbackRpcDefinition>(
+  private callAppRpc(
     entry: AppRegistration,
-    definition: D,
-    params: ParamsOf<D>,
-  ): Effect.Effect<ResultOf<D>, Error> {
-    return sendRpcToClient(entry.endpoint.originator, definition, params).pipe(
+    request: Extract<
+      ReverseCallbackRequest,
+      { readonly definition: typeof DispatchAuthorize }
+    >,
+  ): Effect.Effect<ReverseCallbackSuccess<typeof DispatchAuthorize>, Error>;
+  private callAppRpc(
+    entry: AppRegistration,
+    request: Extract<
+      ReverseCallbackRequest,
+      { readonly definition: typeof MessagesAuthorize }
+    >,
+  ): Effect.Effect<ReverseCallbackSuccess<typeof MessagesAuthorize>, Error>;
+  private callAppRpc(
+    entry: AppRegistration,
+    request: Extract<
+      ReverseCallbackRequest,
+      { readonly definition: typeof TaskCreate }
+    >,
+  ): Effect.Effect<ReverseCallbackSuccess<typeof TaskCreate>, Error>;
+  private callAppRpc(
+    entry: AppRegistration,
+    request: ReverseCallbackRequest,
+  ): Effect.Effect<
+    ReverseCallbackSuccess<ReverseCallbackRequest["definition"]>,
+    Error
+  > {
+    return sendRpcToClient(entry.endpoint.originator, request).pipe(
       // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Upstream `wrapHookEffectWithEnvelope` collapses every Effect failure into a fail-closed verdict; per-tag handling cannot influence the outcome. The `RemoteHookError` here preserves call-context (appId, method, connectionId) in the log message and is the `messageAuthorizeRaw`/`dispatchAuthorizeRaw` envelope shape.
       Effect.mapError(
         (cause) =>
           new RemoteHookError({
             appId: entry.appId,
-            method: definition.name,
+            method: request.definition.name,
             connectionId: entry.endpoint.connId,
             reason: `task-callback RPC failed: ${errorMessage(cause)}`,
             cause,

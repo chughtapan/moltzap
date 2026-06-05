@@ -8,10 +8,11 @@
 
 import { afterAll, beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { MoltZapService } from "@moltzap/client";
 import type { ServiceRpcError } from "@moltzap/client";
-import type { Message } from "@moltzap/protocol";
+import { withTestServiceConfig } from "@moltzap/client/test-utils";
+import { AgentKey, type Message } from "@moltzap/protocol";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
@@ -31,8 +32,8 @@ class EchoIntegrationError extends Data.TaggedError("EchoIntegrationError")<{
 
 interface InjectedConfig {
   readonly wsUrl: string;
-  readonly agentAApiKey: string;
-  readonly agentBApiKey: string;
+  readonly agentAApiKey: AgentKey;
+  readonly agentBApiKey: AgentKey;
   readonly channelAgentId: AgentId;
   readonly peerAgentId: AgentId;
 }
@@ -60,6 +61,7 @@ const SHOULD_ERROR_TEXT = "should-error";
 const REPLY_TOOL_NAME = "reply";
 const SERVER_NAME = "test-claude-code-channel";
 const SERVER_INSTRUCTIONS = "integration test";
+const CHANNEL_PROFILE_NAME = "channel-agent";
 const MCP_CLIENT_NAME = "integration-test";
 const MCP_CLIENT_VERSION = "0.1.0";
 const REQUIRED_META_KEYS = ["chat_id", "message_id", "ts", "user"].sort();
@@ -78,8 +80,8 @@ const tryPromise = <A>(
 function injectedConfig(): InjectedConfig {
   return {
     wsUrl: injectString("moltzapWsUrl"),
-    agentAApiKey: injectString("agentAApiKey"),
-    agentBApiKey: injectString("agentBApiKey"),
+    agentAApiKey: decodeInjectedAgentKey("agentAApiKey"),
+    agentBApiKey: decodeInjectedAgentKey("agentBApiKey"),
     channelAgentId: agentId(injectString("agentAAgentId")),
     peerAgentId: agentId(injectString("agentBAgentId")),
   };
@@ -89,30 +91,47 @@ function injectString(key: keyof import("vitest").ProvidedContext): string {
   return inject(key);
 }
 
+function decodeInjectedAgentKey(
+  key: keyof import("vitest").ProvidedContext,
+): AgentKey {
+  return Schema.decodeUnknownSync(AgentKey)(injectString(key));
+}
+
 function bootChannelHandle(
   config: InjectedConfig,
   serverTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[0],
 ): Effect.Effect<Handle, EchoIntegrationError> {
-  return Effect.gen(function* () {
-    const boot = yield* tryPromise("bootClaudeCodeChannel", () =>
-      bootClaudeCodeChannel({
-        serverUrl: config.wsUrl,
-        agentKey: config.agentAApiKey,
-        serverName: SERVER_NAME,
-        instructions: SERVER_INSTRUCTIONS,
-        _testTransportFactory: () => serverTransport,
-      }),
-    );
-    if (boot._tag === "Err") {
-      return yield* Effect.fail(
-        new EchoIntegrationError({
-          operation: "bootClaudeCodeChannel",
-          cause: boot.error,
+  return withTestServiceConfig(
+    {
+      agentId: config.channelAgentId,
+      agentKey: config.agentAApiKey,
+      serverUrl: config.wsUrl,
+      profileName: CHANNEL_PROFILE_NAME,
+      agentName: CHANNEL_PROFILE_NAME,
+    },
+    Effect.tryPromise({
+      try: () =>
+        bootClaudeCodeChannel({
+          profileName: CHANNEL_PROFILE_NAME,
+          serverName: SERVER_NAME,
+          instructions: SERVER_INSTRUCTIONS,
+          _testTransportFactory: () => serverTransport,
         }),
-      );
-    }
-    return boot.value;
-  });
+      catch: (cause) =>
+        new EchoIntegrationError({ operation: "bootClaudeCodeChannel", cause }),
+    }).pipe(
+      Effect.flatMap((boot) =>
+        boot._tag === "Err"
+          ? Effect.fail(
+              new EchoIntegrationError({
+                operation: "bootClaudeCodeChannel",
+                cause: boot.error,
+              }),
+            )
+          : Effect.succeed(boot.value),
+      ),
+    ),
+  );
 }
 
 function makeMcpClient(notifications: Notification[]): Client {
@@ -130,15 +149,22 @@ function makeMcpClient(notifications: Notification[]): Client {
 function makePeerService(
   config: InjectedConfig,
   peerInbox: Message[],
-): MoltZapService {
-  const peerService = new MoltZapService({
-    serverUrl: config.wsUrl,
-    agentKey: config.agentBApiKey,
-  });
-  peerService.on("message", ({ message }) => {
-    peerInbox.push(message);
-  });
-  return peerService;
+): Effect.Effect<MoltZapService, unknown> {
+  return Effect.succeed(
+    MoltZapService.fromConfig({
+      agentId: config.peerAgentId,
+      agentKey: config.agentBApiKey,
+      serverUrl: config.wsUrl,
+    }),
+  ).pipe(
+    Effect.tap((peerService) =>
+      Effect.sync(() => {
+        peerService.on("message", ({ message }) => {
+          peerInbox.push(message);
+        });
+      }),
+    ),
+  );
 }
 
 function createPeerConversation(
@@ -178,7 +204,7 @@ function bootHarness(): Effect.Effect<
       mcpClient.connect(clientTransport),
     );
 
-    const peerService = makePeerService(config, peerInbox);
+    const peerService = yield* makePeerService(config, peerInbox);
     yield* peerService.connect();
     const { taskId, conversationId } = yield* createPeerConversation(
       peerService,

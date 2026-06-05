@@ -1,14 +1,19 @@
-import type { AgentContext } from "../../transport/context.js";
+import type { AgentContext, AppContext } from "../../transport/context.js";
 import {
   PresenceSubscribe,
   NotInContactsError,
   type ParamsOf,
 } from "@moltzap/protocol";
-import type { AgentId as ServerAgentId } from "../../app/types.js";
+import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
-import { ConnectionTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
+import {
+  ConnectionManagerTag,
+  ConnectionTag,
+  DbTag,
+  PresenceServiceTag,
+} from "../../app/layers.js";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
-import { agentArm } from "../../app/server-handlers-runtime.js";
+import { peekLiveArm } from "../../transport/principal-gate.js";
 
 /**
  * `presence/subscribe` registers fan-out interest via
@@ -22,30 +27,37 @@ import { agentArm } from "../../app/server-handlers-runtime.js";
  */
 function presenceSubscribeBody(
   params: ParamsOf<typeof PresenceSubscribe>,
-  ctx: AgentContext,
+  ctx: AgentContext | AppContext,
 ) {
   return Effect.gen(function* () {
     const presenceService = yield* PresenceServiceTag;
-    const db = yield* DbTag;
     const connection = yield* ConnectionTag;
-    const requested = params.agentIds as ServerAgentId[];
-    const visibleIds = yield* visibleAgentIds({
-      db,
-      callerAgentId: ctx.agentId,
-      callerOwnerUserId: ctx.ownerUserId,
-      restrictTo: requested,
-    });
-    const visibleSet = new Set(visibleIds);
-    const rejected = requested.filter((id) => !visibleSet.has(id));
-    if (rejected.length > 0) {
-      return yield* Effect.fail(
-        new NotInContactsError({ data: { agentIds: rejected } }),
-      );
+    const requested = params.agentIds;
+
+    let subscribedIds: ReadonlyArray<AgentId>;
+    if (ctx._tag === "AgentContext") {
+      const db = yield* DbTag;
+      const visibleIds = yield* visibleAgentIds({
+        db,
+        callerAgentId: ctx.agentId,
+        callerOwnerUserId: ctx.ownerUserId,
+        restrictTo: requested,
+      });
+      const visibleSet = new Set(visibleIds);
+      const rejected = requested.filter((id) => !visibleSet.has(id));
+      if (rejected.length > 0) {
+        return yield* Effect.fail(
+          new NotInContactsError({ data: { agentIds: rejected } }),
+        );
+      }
+      subscribedIds = visibleIds;
+    } else {
+      subscribedIds = requested;
     }
-    presenceService.subscribe(connection.connId, visibleIds);
+    presenceService.subscribe(connection.connId, subscribedIds);
     // The status snapshot is a ReadonlyArray; the wire schema expects a mutable
     // Array, so map to a fresh array (point-in-time copy).
-    const projected = yield* presenceService.statusMany(visibleIds);
+    const projected = yield* presenceService.statusMany(subscribedIds);
     const statuses = projected.map((entry) => ({
       agentId: entry.agentId,
       status: entry.status,
@@ -56,7 +68,26 @@ function presenceSubscribeBody(
 
 // ── @effect/rpc handler body ─────────────────────────────────────────
 
+const authenticatedArm: Effect.Effect<
+  AgentContext | AppContext,
+  never,
+  ConnectionTag | ConnectionManagerTag
+> = Effect.gen(function* () {
+  const snapshot = yield* ConnectionTag;
+  const manager = yield* ConnectionManagerTag;
+  const connection = yield* peekLiveArm(manager, snapshot.connId);
+  if (
+    connection._tag === "AgentConnection" ||
+    connection._tag === "AppConnection"
+  ) {
+    return connection.auth;
+  }
+  return yield* Effect.dieMessage(
+    `handler: authenticated method reached on ${connection._tag} arm`,
+  );
+}).pipe(Effect.withSpan("serverHandlers.authenticatedArm"));
+
 export const presenceSubscribe = (params: ParamsOf<typeof PresenceSubscribe>) =>
   Effect.gen(function* () {
-    return yield* presenceSubscribeBody(params, yield* agentArm);
+    return yield* presenceSubscribeBody(params, yield* authenticatedArm);
   }).pipe(Effect.withSpan("presenceSubscribe"));

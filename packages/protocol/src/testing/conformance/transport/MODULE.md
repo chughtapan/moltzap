@@ -8,8 +8,8 @@ Public barrel for transport-layer conformance properties.
 
 Transport-layer conformance properties.
 
-Wire-level invariants — frame schemas, RPC dispatch primitives,
-adversity (latency / framing / connection-reset / timeout / close).
+Lifecycle transport invariants — adversity around latency,
+connection-reset, timeout, and close.
 
 Each `register*` lives in its own file. This barrel re-exports them
 by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
@@ -17,7 +17,7 @@ by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireProxiedClient`](./_helpers.ts#L58)
+### [`acquireProxiedClient`](./_helpers.ts#L57)
 
 _Function_
 
@@ -29,13 +29,13 @@ export function acquireProxiedClient(opts: {
   readonly defaultTimeoutMs: number;
   readonly unavailable: (reason: string) => PropertyUnavailable;
 }): Effect.Effect<
-  { agent: TestAgent; client: TestClient },
+  { agent: TestAgent; client: AgentTestClient },
   PropertyUnavailable,
   Scope.Scope
 >
 ```
 
-Acquire a TestClient that routes through the Toxiproxy proxy.
+Acquire an agent client that routes through the Toxiproxy proxy.
 
 ### [`ADVERSITY_CATEGORY`](./_helpers.ts#L24)
 
@@ -45,7 +45,7 @@ _Variable_
 export const ADVERSITY_CATEGORY = "adversity" as const
 ```
 
-### [`adversityViolation`](./_helpers.ts#L31)
+### [`adversityViolation`](./_helpers.ts#L30)
 
 _Function_
 
@@ -56,7 +56,7 @@ export function adversityViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`attachToxic`](./_helpers.ts#L114)
+### [`attachToxic`](./_helpers.ts#L111)
 
 _Property_
 
@@ -64,14 +64,14 @@ _Property_
   readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
 ```
 
-### [`createOneOnOneConversation`](./_helpers.ts#L219)
+### [`createOneOnOneConversation`](./_helpers.ts#L216)
 
 _Function_
 
 ```ts
 export function createOneOnOneConversation(
-  owner: { agent: TestAgent; client: TestClient },
-  participant: { agent: TestAgent; client: TestClient },
+  owner: { agent: TestAgent; client: AgentTestClient },
+  participant: { agent: TestAgent; client: AgentTestClient },
   propertyName: string,
 ): Effect.Effect<
   { taskId: TaskId; conversationId: ConversationId },
@@ -79,15 +79,7 @@ export function createOneOnOneConversation(
 >
 ```
 
-### [`DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L25)
-
-_Variable_
-
-```ts
-export const DEFAULT_CAPTURE_CAPACITY = 128
-```
-
-### [`proxy`](./_helpers.ts#L112)
+### [`proxy`](./_helpers.ts#L109)
 
 _Property_
 
@@ -96,7 +88,7 @@ _Property_
   readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
-### [`proxyName`](./_helpers.ts#L49)
+### [`proxyName`](./_helpers.ts#L48)
 
 _Function_
 
@@ -104,60 +96,12 @@ _Function_
 export function proxyName(prefix: string, seed: number): string
 ```
 
-### [`registerCallerControlledAppCallbackTimeout`](./caller-controlled-app-callback-timeout.ts#L41)
-
-_Function_
-
-```ts
-export function registerCallerControlledAppCallbackTimeout(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L24)
+### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L27)
 
 _Function_
 
 ```ts
 export function registerLatencyResilience(ctx: ConformanceRunContext): void
-```
-
-### [`registerMalformedFrameHandling`](./malformed-frame-handling.ts#L26)
-
-_Function_
-
-```ts
-export function registerMalformedFrameHandling(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerNotificationWellFormedness`](./notification-well-formedness.ts#L37)
-
-_Function_
-
-```ts
-export function registerNotificationWellFormedness(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerRequestIdUniqueness`](./request-id-uniqueness.ts#L32)
-
-_Function_
-
-```ts
-export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void
-```
-
-### [`registerRequestWellFormedness`](./request-well-formedness.ts#L34)
-
-_Function_
-
-```ts
-export function registerRequestWellFormedness(
-  ctx: ConformanceRunContext,
-): void
 ```
 
 ### [`registerResetPeerRecovery`](./adversity-reset-peer-recovery.ts#L28)
@@ -166,38 +110,6 @@ _Function_
 
 ```ts
 export function registerResetPeerRecovery(ctx: ConformanceRunContext): void
-```
-
-### [`registerRoundTripIdentity`](./round-trip-identity.ts#L20)
-
-_Function_
-
-```ts
-export function registerRoundTripIdentity(ctx: ConformanceRunContext): void
-```
-
-### [`registerRpcMapCoverage`](./rpc-map-coverage.ts#L47)
-
-_Function_
-
-```ts
-export function registerRpcMapCoverage(ctx: ConformanceRunContext): void
-```
-
-### [`registerSchemaExhaustiveFuzz`](./schema-exhaustive-fuzz.ts#L44)
-
-_Function_
-
-```ts
-export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void
-```
-
-### [`registerSlicerFraming`](./adversity-slicer-framing.ts#L25)
-
-_Function_
-
-```ts
-export function registerSlicerFraming(ctx: ConformanceRunContext): void
 ```
 
 ### [`registerSlowCloseCleanup`](./adversity-slow-close-cleanup.ts#L20)
@@ -216,7 +128,7 @@ _Function_
 export function registerTimeoutSurface(ctx: ConformanceRunContext): void
 ```
 
-### [`ToxicBodyParams`](./_helpers.ts#L111)
+### [`ToxicBodyParams`](./_helpers.ts#L108)
 
 _TypeAlias_
 
@@ -241,11 +153,11 @@ Effect.scoped(gen(function* () {
 }))                                                // client close OK
 ```
 
-so the toxic is removed BEFORE TestClient's socket close. Under
+so the toxic is removed BEFORE the agent client's socket close. Under
 disruptive toxics (timeout, reset_peer), this lets the WS close
 handshake flow cleanly instead of hanging on a black-holed channel.
 
-### [`TRANSPORT_PROPERTIES`](./index.ts#L50)
+### [`TRANSPORT_PROPERTIES`](./index.ts#L31)
 
 _Variable_
 
@@ -253,27 +165,17 @@ _Variable_
 export const TRANSPORT_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
 > = [
-  registerRequestWellFormedness,
-  registerNotificationWellFormedness,
-  registerRoundTripIdentity,
-  registerMalformedFrameHandling,
-  registerRpcMapCoverage,
-  registerRequestIdUniqueness,
-  registerCallerControlledAppCallbackTimeout,
   registerLatencyResilience,
-  registerSlicerFraming,
   registerResetPeerRecovery,
   registerTimeoutSurface,
   registerSlowCloseCleanup,
-  registerSchemaExhaustiveFuzz,
 ]
 ```
 
 All transport-layer property registrars, in the order
-`_shared/suite.ts` invokes them: schema-conformance subset (5) →
-rpc-semantics subset (2) → adversity (5) → boundary subset (1).
+`_shared/suite.ts` invokes them.
 
-### [`unavailable`](./_helpers.ts#L113)
+### [`unavailable`](./_helpers.ts#L110)
 
 _Property_
 
@@ -281,7 +183,7 @@ _Property_
   readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
-### [`withToxicProxy`](./_helpers.ts#L123)
+### [`withToxicProxy`](./_helpers.ts#L120)
 
 _Function_
 
@@ -308,15 +210,6 @@ reports `PropertyUnavailable` (not a pass, not a crash).
 - `_helpers.ts`
 - `adversity-latency-resilience.ts`
 - `adversity-reset-peer-recovery.ts`
-- `adversity-slicer-framing.ts`
 - `adversity-slow-close-cleanup.ts`
 - `adversity-timeout-surface.ts`
-- `caller-controlled-app-callback-timeout.ts`
 - `index.ts`
-- `malformed-frame-handling.ts`
-- `notification-well-formedness.ts`
-- `request-id-uniqueness.ts`
-- `request-well-formedness.ts`
-- `round-trip-identity.ts`
-- `rpc-map-coverage.ts`
-- `schema-exhaustive-fuzz.ts`

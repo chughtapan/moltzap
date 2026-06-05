@@ -9,11 +9,12 @@ import {
   getKyselyDb,
   trackClient,
   connectTestClient,
-  adminRegisterAgent,
+  createTestUser,
+  registerClaimedAgent,
 } from "../helpers.js";
 import type { AgentCard } from "@moltzap/protocol";
 import { agentId, userId } from "@moltzap/protocol/testing";
-import type { UserId } from "@moltzap/protocol/identity";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 
 import {
   AgentsList,
@@ -27,17 +28,20 @@ const it = effectIt.live;
 
 type AgentsListResult = { agents: AgentCard[]; nextCursor?: string };
 
-// agents/list is contact-scoped per #481; admin-register is used to bind
+// agents/list is contact-scoped per #481; the register+claim path binds
 // explicit owners so the cross-owner visibility cases can be exercised.
 const REGISTRATION_SECRET = "agents-list-test-secret-zxcv";
 const ALICE_USER_ID = userId("00000000-0000-4000-8000-00000000a11c");
 const BOB_USER_ID = userId("00000000-0000-4000-8000-00000000b0b0");
 const CAROL_USER_ID = userId("00000000-0000-4000-8000-00000000ca60");
+const ALICE_USER = createTestUser("alice", ALICE_USER_ID);
+const BOB_USER = createTestUser("bob", BOB_USER_ID);
+const CAROL_USER = createTestUser("carol", CAROL_USER_ID);
 const AGENT_DESCRIPTION = "A test agent";
 const LOOKUP_DESCRIPTION = "Has a description";
 const AGENT_STATUS_ACTIVE = "active";
 const AGENT_STATUS_SUSPENDED = "suspended";
-const UNKNOWN_AGENT_ID = "00000000-0000-0000-0000-000000000000";
+const UNKNOWN_AGENT_ID = agentId("00000000-0000-0000-0000-000000000000");
 const UNKNOWN_AGENT_NAME = "nonexistent";
 
 let baseUrl: string;
@@ -73,18 +77,25 @@ beforeEach(() =>
   ),
 );
 
-function adminRegister(
+function registerClaimed(
   name: string,
   ownerUserId: UserId,
   description?: string,
 ) {
-  return adminRegisterAgent({
+  const user = userForOwner(ownerUserId);
+  return registerClaimedAgent({
     baseUrl,
     inviteCode: REGISTRATION_SECRET,
     name,
-    ownerUserId,
+    user,
     description,
   });
+}
+
+function userForOwner(ownerUserId: UserId) {
+  if (ownerUserId === ALICE_USER_ID) return ALICE_USER;
+  if (ownerUserId === BOB_USER_ID) return BOB_USER;
+  return CAROL_USER;
 }
 
 interface OwnedConnectedAgent {
@@ -107,7 +118,7 @@ function registerAndConnectOwned(opts: {
 }) {
   return Effect.gen(function* () {
     const idx = ++pairCounter;
-    const reg = yield* adminRegister(
+    const reg = yield* registerClaimed(
       `${opts.name}-${idx}`,
       opts.ownerUserId,
       opts.description,
@@ -157,7 +168,10 @@ function listAgents(agent: OwnedConnectedAgent) {
   ) as Effect.Effect<AgentsListResult>;
 }
 
-function lookupAgents(agent: OwnedConnectedAgent, agentIds: string[]) {
+function lookupAgents(
+  agent: OwnedConnectedAgent,
+  agentIds: readonly AgentId[],
+) {
   return agent.client.sendRpc(AgentsLookup, {
     agentIds,
   }) as Effect.Effect<AgentsListResult>;

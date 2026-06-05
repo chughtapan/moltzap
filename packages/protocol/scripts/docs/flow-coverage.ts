@@ -52,8 +52,7 @@ export function isBehavioralExport(ex: TypeDocExport): boolean {
  *
  * - Source path contains a `__dunder__/` folder segment. Convention
  *   for "internal-only across-file scaffolding" — sibling tests
- *   import the symbols but no consumer outside the folder does
- *   (e.g., `testing/conformance/__divergence_proofs__/`).
+ *   import the symbols but no consumer outside the folder does.
  * - Source path contains a single-leading-underscore folder segment
  *   (e.g., `_shared/`). The JavaScript convention for "private to
  *   this subtree". Cross-file imports inside the subtree require

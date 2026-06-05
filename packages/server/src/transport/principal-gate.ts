@@ -14,17 +14,22 @@ import { Effect, Option } from "effect";
 import {
   AgentPrincipal,
   AppPrincipal,
+  AuthenticatedPrincipal,
   ForbiddenError,
-} from "@moltzap/protocol";
-import type { Principal, PrincipalRequirement } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol/network";
+} from "@moltzap/protocol/transport";
+import type {
+  Principal,
+  PrincipalRequirement,
+} from "@moltzap/protocol/requirements";
+import type { ConnectionId } from "@moltzap/protocol/runtime";
 import type { ConnectionManager, Connection } from "./connection.js";
 
 const FORBIDDEN_AGENT_ONLY =
   "This method is callable only by an agent principal";
 const FORBIDDEN_APP_ONLY = "This method is callable only by an app principal";
-const FORBIDDEN_INACTIVE =
-  "Agent must be claimed before performing this action";
+const FORBIDDEN_AUTHENTICATED_ONLY =
+  "This method requires an authenticated principal";
+const FORBIDDEN_INACTIVE = "Agent must be active before performing this action";
 
 /** A wrong-principal / inactive rejection as the tagged `ForbiddenError`. */
 const forbidden = (message: string): ForbiddenError =>
@@ -77,6 +82,14 @@ const narrowAppArm = (
     ? Effect.succeed(connection.auth)
     : Effect.fail(forbidden(FORBIDDEN_APP_ONLY));
 
+/** Admit either authenticated arm, rejecting the pre-connect arm. */
+const narrowAuthenticatedArm = (
+  connection: Connection,
+): Effect.Effect<Principal, ForbiddenError> =>
+  connection._tag === "AgentConnection" || connection._tag === "AppConnection"
+    ? Effect.succeed(connection.auth)
+    : Effect.fail(forbidden(FORBIDDEN_AUTHENTICATED_ONLY));
+
 /**
  * Narrow the live arm to the principal a gated method's `requires` head demands.
  * A gated method always has a principal head: the empty-`requires` Connect path
@@ -93,6 +106,9 @@ export const narrowByPolicy = (
   }
   if (principal === AppPrincipal) {
     return narrowAppArm(connection);
+  }
+  if (principal === AuthenticatedPrincipal) {
+    return narrowAuthenticatedArm(connection);
   }
   return Effect.dieMessage(
     "principal gate: a gated method carried no principal requirement",

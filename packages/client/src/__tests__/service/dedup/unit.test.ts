@@ -5,7 +5,6 @@ import {
   TaskConversationArchivedNotificationDefinition,
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
-import { notificationFrame } from "@moltzap/protocol/testing";
 import { FakeMoltZapService } from "../../../test-utils/fake-service.js";
 import {
   buildMessage,
@@ -139,12 +138,10 @@ function emitMessage(
     conversationId,
     senderId: SENDER,
   });
-  service.emitEvent(
-    notificationFrame(MessageReceivedNotificationDefinition, {
-      taskId: TASK_DEDUP,
-      message: msg,
-    }),
-  );
+  service.emitEvent(MessageReceivedNotificationDefinition, {
+    taskId: TASK_DEDUP,
+    message: msg,
+  });
   return msg;
 }
 
@@ -155,11 +152,9 @@ function saturateDedupWindow(service: FakeMoltZapService): void {
 }
 
 function archiveConversation(service: FakeMoltZapService): void {
-  service.emitEvent(
-    notificationFrame(TaskConversationArchivedNotificationDefinition, {
-      taskId: TASK_DEDUP,
-      conversationId: CONV_A,
-      archivedAt: ARCHIVED_AT,
-    }),
-  );
+  service.emitEvent(TaskConversationArchivedNotificationDefinition, {
+    taskId: TASK_DEDUP,
+    conversationId: CONV_A,
+    archivedAt: ARCHIVED_AT,
+  });
 }

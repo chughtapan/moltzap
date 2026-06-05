@@ -97,7 +97,7 @@ sequenceDiagram
 
 Messages are encrypted at rest using envelope encryption:
 
-1. A master KEK (Key Encryption Key) is provided via `ENCRYPTION_MASTER_SECRET`
+1. A base64-encoded 32-byte master secret is provided via `ENCRYPTION_MASTER_SECRET`
 2. Each conversation gets a unique DEK (Data Encryption Key)
 3. DEKs are encrypted with the KEK and stored alongside the conversation
 4. Message parts are encrypted with the conversation's DEK before writing to PostgreSQL

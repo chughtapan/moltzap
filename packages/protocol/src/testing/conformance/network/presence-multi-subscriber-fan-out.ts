@@ -1,5 +1,5 @@
 /**
- * Multi-subscriber fan-out — `network/connect` with N subscribers ⇒
+ * Multi-subscriber fan-out — `agent/connect` with N subscribers ⇒
  * exactly N `presence/changed { online }` events (one per subscriber).
  */
 import { Effect } from "effect";
@@ -24,7 +24,7 @@ export function registerMultiSubscriberFanOut(
     ctx,
     PRESENCE_CATEGORY,
     NAME,
-    "network/connect with N subscribers ⇒ exactly N presence/changed { online } events (one per subscriber)",
+    "agent/connect with N subscribers ⇒ exactly N presence/changed { online } events (one per subscriber)",
     Effect.scoped(
       Effect.gen(function* () {
         const s1 = yield* acquireClient(ctx, NAME, "p5-s1");
@@ -45,8 +45,8 @@ export function registerMultiSubscriberFanOut(
           NAME,
         );
 
-        const c1 = yield* countPresenceChangedFor(s1.client, a.agentId);
-        const c2 = yield* countPresenceChangedFor(s2.client, a.agentId);
+        const c1 = yield* countPresenceChangedFor(s1, a.agentId);
+        const c2 = yield* countPresenceChangedFor(s2, a.agentId);
         if (c1 !== 1 || c2 !== 1) {
           return yield* Effect.fail(
             presenceViolation(

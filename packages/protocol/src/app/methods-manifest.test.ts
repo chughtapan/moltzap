@@ -6,7 +6,7 @@ import {
   DispatchAuthorize,
   DispatchRequest,
 } from "./methods.js";
-import { decodesStrictly } from "../schema-primitives.js";
+import { decodesStrictly } from "../transport/strict-decode.js";
 
 // Strict, excess-rejecting decode check — the parity oracle for the former
 // `ajv.compile(schema)` strict validators (post-#723 Effect Schema cutover).

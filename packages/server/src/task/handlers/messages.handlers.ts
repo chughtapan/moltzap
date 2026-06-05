@@ -3,11 +3,10 @@ import {
   MessagesList,
   DispatchNotFoundError,
   ForbiddenError,
-  ConversationSendAccess,
   type LeaseId,
   type ParamsOf,
 } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import type { ConnectionId } from "@moltzap/protocol";
 import { agentArm } from "../../app/server-handlers-runtime.js";
 import { Effect, Exit } from "effect";
 import type { AgentContext } from "../../transport/context.js";
@@ -20,6 +19,7 @@ import {
   guardTaskActive,
   guardConversationNotArchived,
   guardReplyTarget,
+  obtainConversationSendAccess,
 } from "../services/send-permissions.js";
 import { LeaseInvalidError } from "../leases/lease-registry.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
@@ -60,7 +60,12 @@ interface LeaseSendInput {
 
 function sendWithDispatchLease(input: LeaseSendInput) {
   return Effect.gen(function* () {
-    const leaseId = input.params.dispatchLeaseId as LeaseId;
+    const leaseId = input.params.dispatchLeaseId;
+    if (leaseId === undefined) {
+      return yield* Effect.dieMessage(
+        "messages/send dispatch lease path called without dispatchLeaseId",
+      );
+    }
     let finalized = false;
     const message = yield* Effect.scoped(
       Effect.acquireUseRelease(
@@ -98,12 +103,14 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
       const messageService = yield* MessageServiceTag;
       const leaseRegistry = yield* LeaseRegistryTag;
       const connection = yield* ConnectionTag;
-      // `ConversationSendAccess` is provided by its cap middleware (the one
-      // joined `conversations ⋈ tasks` read after the participant check). The
-      // remaining send preconditions refine that row, in order: a closed task
-      // surfaces `TaskClosed` BEFORE the auto-archive's `ConversationArchived`,
-      // then the reply target is verified.
-      const sendRow = yield* ConversationSendAccess;
+      // The `ConversationSendAccess` requirement already gates the frame. The
+      // body still needs the joined send row for task/conversation guards, so it
+      // reads that row directly here.
+      const sendRow = yield* obtainConversationSendAccess({
+        conversationId: params.conversationId,
+        senderAgentId: ctx.agentId,
+        taskId: params.taskId,
+      });
       yield* guardTaskActive(sendRow);
       yield* guardConversationNotArchived(sendRow);
       yield* guardReplyTarget({
@@ -146,26 +153,23 @@ function handleMessageList(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 //
-// Each reads its method's `*Auth` proof for the cap proofs (the per-method
-// `*AuthMw` ran them and keyed each by its cap tag's `key`), provides them as
-// services, narrows the arm via `agentArm`, and runs the SAME body the live slot
-// path runs. The domain error channel maps to the wire envelope each member
-// carries; `ConnectionTag` + the service tags ride out, provided by the request
-// runtime; the native engine excludes the proof tag.
+// Requirement middleware gates each frame before these bodies run. The bodies
+// narrow the arm via `agentArm`, run the same domain work as the live slot path,
+// and leave `ConnectionTag` + domain services to the request runtime.
 
 export const messagesSend = (params: MessagesSendParams) =>
   Effect.gen(function* () {
-    // The send-permission cap middlewares gated this frame in the engine stack
-    // before this handler runs; the body trusts the gated `params` and reads no
-    // cap proof. `agentArm` reads the narrowed principal off `ConnectionTag`.
+    // The send-permission requirements gated this frame in the engine stack
+    // before this handler runs. `agentArm` reads the narrowed principal off
+    // `ConnectionTag`.
     const ctx = yield* agentArm;
     return yield* handleMessageSend(params, ctx);
   }).pipe(Effect.withSpan("messagesSend"));
 
 export const messagesList = (params: ParamsOf<typeof MessagesList>) =>
   Effect.gen(function* () {
-    // Gated by the `TaskReadAccess` + `ConversationInTask` cap middlewares in the
-    // engine stack; the body reads no cap proof and trusts the gated `params`.
+    // Gated by the `TaskReadAccess` + `ConversationInTask` requirements in the
+    // engine stack; the body trusts the gated `params`.
     const ctx = yield* agentArm;
     return yield* handleMessageList(params, ctx);
   }).pipe(Effect.withSpan("messagesList"));

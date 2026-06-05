@@ -1,8 +1,8 @@
 import { JSONSchema, type Schema } from "effect";
 import {
-  serverRpcMethods,
+  serverInboundMethods,
   appCallbackMethods,
-} from "../../src/rpc-registry.js";
+} from "../../src/rpc-method-groups.js";
 import * as protocolSchema from "../../src/index.js";
 import {
   SORT_KEY_PAD_WIDTH,
@@ -31,7 +31,7 @@ const RPC_DEFINITION_FIELDS: readonly RpcDefinitionField[] = [
 
 export function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
   const ordered = [
-    ...serverRpcMethods,
+    ...serverInboundMethods,
     ...appCallbackMethods,
     ...Object.values(protocolSchema).filter(isRpcDefinition),
   ];

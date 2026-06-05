@@ -5,7 +5,7 @@
       "name": "PROTOCOL_VERSION",
       "value": "2026.529.0",
       "kind": "string",
-      "sourcePath": "packages/protocol/src/version.ts",
+      "sourcePath": "packages/protocol/src/network/connect.ts",
       "note": "Current wire-protocol version emitted in HelloOk + accepted in `network/connect`."
     },
     {

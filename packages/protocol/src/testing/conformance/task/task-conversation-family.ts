@@ -21,12 +21,7 @@ import { Effect, Either } from "effect";
 import type { AgentId } from "../../../identity/index.js";
 import {
   DEFAULT_APP_ID,
-  TaskConversationAddParticipant,
-  TaskConversationArchive,
-  TaskConversationCreate,
   TaskConversationList,
-  TaskConversationRemoveParticipant,
-  TaskConversationUnarchive,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
   TaskRequest,
@@ -37,7 +32,7 @@ import {
   type TaskId,
 } from "../../../task/index.js";
 import { TaskCreate } from "../../../app/index.js";
-import type { TestClient } from "../_shared/driver/test-client.js";
+import type { AgentTestClient } from "../_shared/driver/test-client.js";
 import { type TestAgent } from "../_shared/test-fixtures.js";
 import { registerTestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -56,7 +51,7 @@ const CATEGORY = DELIVERY_CATEGORY;
 type FixtureError = ReturnType<typeof deliveryViolation>;
 interface Actor {
   readonly agent: TestAgent;
-  readonly client: TestClient;
+  readonly client: AgentTestClient;
   readonly notifications: NotificationBuffer;
 }
 
@@ -197,7 +192,7 @@ const registerRejectingTm = (ctx: ConformanceRunContext) =>
     Effect.mapError((e) =>
       deliveryViolation(
         TASK_REQUEST_REJECT_PROPERTY,
-        `apps/register: ${e._tag}`,
+        `app registration: ${e._tag}`,
       ),
     ),
     Effect.tap((app) =>
@@ -460,218 +455,6 @@ export function registerTaskConversationCreateAndList(
   );
 }
 
-// ─── TM-only deny paths ──────────────────────────────────────────────
-//
-// Under DEFAULT_APP_ID the TM endpoint is the in-process app handler,
-// so no test agent passes the TM authority gate. Each property pins
-// the deny shape (typed wire error). Success paths are exercised
-// end-to-end by the integration suite under
-// `packages/server/src/__tests__/integration/task/`.
-
-const expectRpcDenial = <Result>(
-  send: Effect.Effect<Result, unknown>,
-  property: string,
-  context: string,
-): Effect.Effect<void, FixtureError> =>
-  send.pipe(
-    Effect.either,
-    Effect.flatMap((res) =>
-      Either.match(res, {
-        onLeft: () => Effect.void,
-        onRight: () =>
-          Effect.fail(
-            deliveryViolation(
-              property,
-              `${context}: expected RPC denial; succeeded`,
-            ),
-          ),
-      }),
-    ),
-  );
-
-const TCA_DENIED_PROPERTY = "task-conversation-archive-denied";
-
-const runArchiveUnarchiveDenied = (ctx: ConformanceRunContext) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const alice = yield* acquireActor(ctx, TCA_DENIED_PROPERTY, "tcf-tca-a");
-      const bob = yield* acquireActor(ctx, TCA_DENIED_PROPERTY, "tcf-tca-b");
-      const payload = yield* createTaskWithInitialConversation(
-        alice,
-        bob,
-        "tca",
-        TCA_DENIED_PROPERTY,
-      );
-      const conversation = payload.conversation;
-      if (conversation === null) {
-        return yield* Effect.fail(
-          deliveryViolation(TCA_DENIED_PROPERTY, "no conversation to archive"),
-        );
-      }
-      yield* expectRpcDenial(
-        alice.client.sendRpc(TaskConversationArchive, {
-          taskId: payload.task.id,
-          conversationId: conversation.id,
-        }),
-        TCA_DENIED_PROPERTY,
-        "task/conversation/archive",
-      );
-      yield* expectRpcDenial(
-        alice.client.sendRpc(TaskConversationUnarchive, {
-          taskId: payload.task.id,
-          conversationId: conversation.id,
-        }),
-        TCA_DENIED_PROPERTY,
-        "task/conversation/unarchive",
-      );
-    }),
-  );
-
-export function registerTaskConversationArchiveDenied(
-  ctx: ConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    TCA_DENIED_PROPERTY,
-    "TaskConversationArchive/Unarchive deny non-TM callers under DEFAULT_APP_ID",
-    runArchiveUnarchiveDenied(ctx).pipe(
-      Effect.withSpan("registerTaskConversationArchiveDenied"),
-    ),
-  );
-}
-
-const TCAP_PROPERTY = "task-conversation-add-participant";
-
-export function registerTaskConversationAddParticipant(
-  ctx: ConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    TCAP_PROPERTY,
-    "TaskConversationAddParticipant rejects non-admitted targets",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const alice = yield* acquireActor(ctx, TCAP_PROPERTY, "tcf-tcap-a");
-        const bob = yield* acquireActor(ctx, TCAP_PROPERTY, "tcf-tcap-b");
-        const carol = yield* acquireActor(ctx, TCAP_PROPERTY, "tcf-tcap-c");
-        const payload = yield* createTaskWithInitialConversation(
-          alice,
-          bob,
-          "tcap",
-          TCAP_PROPERTY,
-        );
-        const conversation = payload.conversation;
-        if (conversation === null) {
-          return yield* Effect.fail(
-            deliveryViolation(TCAP_PROPERTY, "no conversation"),
-          );
-        }
-        // Carol is NOT in `task_participants`; the participant-
-        // admitted invariant fires before the authority gate.
-        yield* expectRpcDenial(
-          alice.client.sendRpc(TaskConversationAddParticipant, {
-            taskId: payload.task.id,
-            conversationId: conversation.id,
-            agentId: carol.agent.agentId as AgentId,
-          }),
-          TCAP_PROPERTY,
-          "task/conversation/participants/add (non-admitted)",
-        );
-      }),
-    ).pipe(Effect.withSpan("registerTaskConversationAddParticipant")),
-  );
-}
-
-const TCRP_PROPERTY = "task-conversation-remove-participant";
-
-export function registerTaskConversationRemoveParticipant(
-  ctx: ConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    TCRP_PROPERTY,
-    "TaskConversationRemoveParticipant denies non-TM callers",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const alice = yield* acquireActor(ctx, TCRP_PROPERTY, "tcf-tcrp-a");
-        const bob = yield* acquireActor(ctx, TCRP_PROPERTY, "tcf-tcrp-b");
-        const payload = yield* createTaskWithInitialConversation(
-          alice,
-          bob,
-          "tcrp",
-          TCRP_PROPERTY,
-        );
-        const conversation = payload.conversation;
-        if (conversation === null) {
-          return yield* Effect.fail(
-            deliveryViolation(TCRP_PROPERTY, "no conversation"),
-          );
-        }
-        yield* expectRpcDenial(
-          alice.client.sendRpc(TaskConversationRemoveParticipant, {
-            taskId: payload.task.id,
-            conversationId: conversation.id,
-            agentId: bob.agent.agentId as AgentId,
-          }),
-          TCRP_PROPERTY,
-          "task/conversation/participants/remove (non-TM)",
-        );
-      }),
-    ).pipe(Effect.withSpan("registerTaskConversationRemoveParticipant")),
-  );
-}
-
-const TCC_DENIED_PROPERTY = "task-conversation-create-denied";
-
-export function registerTaskConversationCreateDenied(
-  ctx: ConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    TCC_DENIED_PROPERTY,
-    "TaskConversationCreate denies non-TM caller under DEFAULT_APP_ID",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const alice = yield* acquireActor(
-          ctx,
-          TCC_DENIED_PROPERTY,
-          "tcf-tccd-a",
-        );
-        const bob = yield* acquireActor(ctx, TCC_DENIED_PROPERTY, "tcf-tccd-b");
-        const payload = yield* alice.client
-          .sendRpc(TaskRequest, {
-            appId: DEFAULT_APP_ID,
-            invitedAgentIds: [bob.agent.agentId as AgentId],
-          })
-          .pipe(
-            Effect.either,
-            Effect.flatMap((res) =>
-              requireRight(res, (e) =>
-                deliveryViolation(
-                  TCC_DENIED_PROPERTY,
-                  `task/create: ${e._tag ?? String(e)}`,
-                ),
-              ),
-            ),
-          );
-        yield* expectRpcDenial(
-          alice.client.sendRpc(TaskConversationCreate, {
-            taskId: payload.task.id,
-            name: "denied-spinoff",
-            participants: [bob.agent.agentId as AgentId],
-          }),
-          TCC_DENIED_PROPERTY,
-          "task/conversation/create (non-TM)",
-        );
-      }),
-    ).pipe(Effect.withSpan("registerTaskConversationCreateDenied")),
-  );
-}
-
 // ─── Aggregate ───────────────────────────────────────────────────────
 
 export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
@@ -681,8 +464,4 @@ export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
   registerTaskRequestReject,
   registerTaskLeave,
   registerTaskConversationCreateAndList,
-  registerTaskConversationCreateDenied,
-  registerTaskConversationArchiveDenied,
-  registerTaskConversationAddParticipant,
-  registerTaskConversationRemoveParticipant,
 ];

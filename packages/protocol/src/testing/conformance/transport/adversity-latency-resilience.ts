@@ -3,12 +3,15 @@
  * sends `messages/send`; participant observes ≥1 inbound message
  * event. Latency merely slows delivery; it must not drop events.
  */
-import { Effect } from "effect";
+import { Effect, Exit, Fiber, Stream } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
-import { inboundNotificationMethod } from "../_shared/frame-mutator.js";
-import type { CapturedFrame } from "../_shared/captures.js";
-import type { TestClient } from "../_shared/driver/test-client.js";
-import { ConversationId, MessagesSend, TaskId } from "../../../task/index.js";
+import type { AgentTestClient } from "../_shared/driver/test-client.js";
+import {
+  ConversationId,
+  MessageReceivedNotificationDefinition,
+  MessagesSend,
+  TaskId,
+} from "../../../task/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
@@ -47,14 +50,18 @@ function runLatencyResilience(
       participant,
       "latency-resilience",
     );
+    const observed = yield* waitForLatencyDelivery(
+      participant.client,
+      conversationId,
+    ).pipe(Effect.fork);
     yield* sendLatencyProbe(
       params.attachToxic,
       owner.client,
       taskId,
       conversationId,
     );
-    const snap = yield* participant.client.snapshot;
-    if (snap.filter(isMessageNotification).length === 0) {
+    const delivered = yield* Fiber.await(observed);
+    if (Exit.isFailure(delivered)) {
       return yield* Effect.fail(
         adversityViolation(
           "latency-resilience",
@@ -81,7 +88,7 @@ function acquireLatencyClient(
 
 function sendLatencyProbe(
   attachToxic: ToxicBodyParams["attachToxic"],
-  client: TestClient,
+  client: AgentTestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
@@ -100,8 +107,18 @@ function sendLatencyProbe(
   );
 }
 
-function isMessageNotification(frame: CapturedFrame): boolean {
-  if (frame.kind !== "inbound" || frame.frame === null) return false;
-  const method = inboundNotificationMethod(frame.frame);
-  return method !== null && method.includes("message");
+function waitForLatencyDelivery(
+  client: AgentTestClient,
+  conversationId: ConversationId,
+) {
+  return client.subscribe(MessageReceivedNotificationDefinition).pipe(
+    Stream.filter(
+      (frame) => frame.params.message.conversationId === conversationId,
+    ),
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: "2 seconds",
+      onTimeout: () => "timeout" as const,
+    }),
+  );
 }

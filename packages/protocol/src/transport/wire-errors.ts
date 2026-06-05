@@ -29,12 +29,13 @@ export interface RpcErrorPayload {
   readonly data?: unknown;
 }
 
-/** Not authenticated — `network/connect` has not run on this socket. */
+/** Not authenticated — `agent/connect` or `app/connect` has not run on this socket. */
 export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
   "Unauthorized",
   errorPayloadFields,
 ) {
-  static readonly message = "Not authenticated. Send network/connect first.";
+  static readonly message =
+    "Not authenticated. Send agent/connect or app/connect first.";
 }
 
 /** Authenticated but not authorized for this resource. */
@@ -80,19 +81,6 @@ export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
   static readonly message =
     "Principal already has an active connection. Disconnect the prior session first.";
 }
-
-/**
- * Inbound frame failed to parse as JSON or did not match the expected shape.
- * Transport-internal — not a wire `error` union member (never crosses the wire
- * as a method failure).
- */
-export class MalformedFrameError extends Schema.TaggedError<MalformedFrameError>()(
-  "MalformedFrameError",
-  {
-    raw: Schema.String,
-    cause: Schema.optional(Schema.Unknown),
-  },
-) {}
 
 /** The principal-gate error classes every authenticated method's gate can fail with. */
 export const principalGateErrorClasses = [

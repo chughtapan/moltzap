@@ -2,12 +2,15 @@ import type { Db } from "../../db/client.js";
 import type { Message, Part } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type {
-  AppId,
   ConversationId,
   MessageId,
   DispatchDecision,
 } from "@moltzap/protocol/task";
-import { validateDispatchDecision } from "@moltzap/protocol/task";
+import {
+  MessageId as MessageIdSchema,
+  messagePartsSchema,
+  validateDispatchDecision,
+} from "@moltzap/protocol/task";
 import type { AppHost } from "../../app/app-host.js";
 import {
   DEFAULT_PAGE_LIMIT,
@@ -17,27 +20,16 @@ import {
   MessageNotFoundError,
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
-import { Cause, Duration, Effect, Fiber, Option, Schedule } from "effect";
+import { Cause, Effect, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import { nextSnowflakeId } from "../../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { NetworkSendService } from "../../network/network-send.js";
-import {
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "@effect/platform";
-import { signWebhookPayload } from "../../crypto/webhook-signature.js";
-import {
-  type EnvelopeEncryption,
-  generateDek,
-  wrapKey,
-  unwrapKey,
-} from "../../crypto/envelope.js";
+import { type EnvelopeEncryption, type Dek } from "../../db/crypto/envelope.js";
 import {
   serializePayload,
   deserializePayload,
-} from "../../crypto/serialization.js";
+} from "../../db/crypto/serialization.js";
 import { sql } from "../../db/sql.js";
 import type { MessageRow } from "../../db/database.js";
 import {
@@ -89,8 +81,6 @@ function textPartsMetadata(parts: readonly Part[]): {
   return { textPartCount, textLength };
 }
 
-const DELIVERY_WEBHOOK_RETRY_BASE_SECONDS = 1;
-const DELIVERY_WEBHOOK_BACKOFF_FACTOR = 2;
 const PLAINTEXT_IV_BYTES = 12;
 const PLAINTEXT_TAG_BYTES = 16;
 const CONVERSATION_KEYS_ALIAS = "conversation_keys as ck";
@@ -101,23 +91,14 @@ const COL_CK_WRAPPED_DEK = "ck.wrapped_dek";
 const COL_CK_DEK_VERSION = "ck.dek_version";
 const COL_EK_ENCRYPTED_KEY = "ek.encrypted_key";
 const COL_CK_CONVERSATION_ID = "ck.conversation_id";
-
-/** Config for the optional `deliveryWebhook` fire-and-forget fanout. */
-export interface DeliveryWebhookConfig {
-  url: string;
-  secret: string;
-}
-
-const DELIVERY_WEBHOOK_TIMEOUT_MS = 5_000;
-const DELIVERY_WEBHOOK_MAX_ATTEMPTS = 3;
+const decodeMessageId = Schema.decodeUnknownSync(MessageIdSchema);
+const decodeMessageParts = Schema.decodeUnknownSync(messagePartsSchema());
 
 export interface MessageServiceDeps {
   readonly db: Db;
   readonly conversations: ConversationService;
   readonly networkSend: NetworkSendService;
   readonly encryption: EnvelopeEncryption | null;
-  readonly deliveryWebhook: DeliveryWebhookConfig | null;
-  readonly httpClient: HttpClient.HttpClient;
 
   /**
    * AppHost owns the `messages/authorize` registry and runner. The send
@@ -143,16 +124,10 @@ export interface MessageServiceDeps {
  * `verdict.recipients`; on Block, the call fails with `HookBlocked`.
  */
 export class MessageService {
-  private deliveryWebhookFibers = new Set<
-    Fiber.RuntimeFiber<unknown, unknown>
-  >();
-
   private readonly db: Db;
   private readonly conversations: ConversationService;
   private readonly networkSendService: NetworkSendService;
   private readonly encryption: EnvelopeEncryption | null;
-  private readonly deliveryWebhook: DeliveryWebhookConfig | null;
-  private readonly httpClient: HttpClient.HttpClient;
   private readonly appHost: AppHost;
 
   constructor(deps: MessageServiceDeps) {
@@ -160,15 +135,11 @@ export class MessageService {
     this.conversations = deps.conversations;
     this.networkSendService = deps.networkSend;
     this.encryption = deps.encryption;
-    this.deliveryWebhook = deps.deliveryWebhook;
-    this.httpClient = deps.httpClient;
     this.appHost = deps.appHost;
   }
 
   close(): Effect.Effect<void, never> {
-    const pending = [...this.deliveryWebhookFibers];
-    this.deliveryWebhookFibers.clear();
-    return pending.length > 0 ? Fiber.interruptAll(pending) : Effect.void;
+    return Effect.void;
   }
 
   /**
@@ -306,7 +277,7 @@ export class MessageService {
     conv: SendConversationRow,
     encryptedParts: EncryptedParts,
   ): Effect.Effect<MessageRow, SqlError> {
-    const messageIdValue = crypto.randomUUID() as MessageId;
+    const messageIdValue = decodeMessageId(crypto.randomUUID());
     const createdAtIso = new Date().toISOString();
     return Effect.tryPromise({
       try: () =>
@@ -334,9 +305,9 @@ export class MessageService {
   }
 
   /**
-   * Authorization routing, broadcast, trace, and delivery webhook tail.
+   * Authorization routing, broadcast, and trace tail.
    *
-   * Sequencing is: authorize route -> preview -> fan-out -> trace -> webhook.
+   * Sequencing is: authorize route -> preview -> fan-out -> trace.
    *
    * The `messages/authorize` gate:
    *   1. Resolve the dispatch-authorization verdict via
@@ -349,8 +320,8 @@ export class MessageService {
    *
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
-   * were reached, `recordTrace` and `deliveryWebhook` observe the misses, and
-   * reconnecting clients recover durable history via `messages/list`.
+   * were reached, `recordTrace` observes the misses, and reconnecting clients
+   * recover durable history via `messages/list`.
    */
   sendCommit(
     carrier: SendInsertResult,
@@ -381,7 +352,6 @@ export class MessageService {
         recipientList,
       );
       yield* this.recordTrace(input, recipientList, delivered);
-      this.spawnDeliveryWebhooks(input, recipientList, delivered);
       yield* this.logMessageSent(input);
       return input.carrier.message;
     });
@@ -403,9 +373,7 @@ export class MessageService {
   ): Effect.Effect<DispatchDecision, never> {
     return this.resolveSendVerdict({
       messageId: input.carrier.message.id,
-      // Boundary cast: SendConversationRow.app_id arrives as the raw
-      // Kysely `string`; brand at the consumer call site.
-      appId: input.carrier.conv.app_id as AppId,
+      appId: input.carrier.conv.app_id,
       conversationId: input.conversationId,
       senderAgentId: input.senderAgentId,
       parts: input.carrier.parts,
@@ -448,7 +416,7 @@ export class MessageService {
   ): Effect.Effect<readonly AgentId[], never> {
     const audience = Array.from(
       new Set([...recipientList, input.senderAgentId]),
-    ) as AgentId[];
+    );
     return this.networkSendService
       .broadcastNotification(
         audience,
@@ -528,24 +496,6 @@ export class MessageService {
           },
         }),
       );
-    });
-  }
-
-  private spawnDeliveryWebhooks(
-    input: SendCommitInput,
-    recipientList: readonly AgentId[],
-    delivered: readonly AgentId[],
-  ): void {
-    if (this.deliveryWebhook === null) return;
-    const deliveredSet = new Set(delivered);
-    const offlineRecipientAgentIds = recipientList.filter(
-      (id) => id !== input.senderAgentId && !deliveredSet.has(id),
-    ) as AgentId[];
-    if (offlineRecipientAgentIds.length === 0) return;
-    this.spawnDeliveryWebhook({
-      conversationId: input.conversationId,
-      messageId: input.carrier.message.id,
-      offlineRecipientAgentIds,
     });
   }
 
@@ -637,81 +587,6 @@ export class MessageService {
     });
   }
 
-  private spawnDeliveryWebhook(body: {
-    conversationId: ConversationId;
-    messageId: MessageId;
-    offlineRecipientAgentIds: AgentId[];
-  }): void {
-    const fibers = this.deliveryWebhookFibers;
-    const fiber = Effect.runFork(
-      this.fireDeliveryWebhook(body),
-    ) as Fiber.RuntimeFiber<unknown, unknown>;
-    fibers.add(fiber);
-    fiber.addObserver(() => {
-      fibers.delete(fiber);
-    });
-  }
-
-  private fireDeliveryWebhook(body: {
-    conversationId: ConversationId;
-    messageId: MessageId;
-    offlineRecipientAgentIds: AgentId[];
-  }): Effect.Effect<void, never> {
-    const cfg = this.deliveryWebhook;
-    // Defensive: TS narrowing doesn't propagate across the fork boundary
-    // in `spawnDeliveryWebhook`, so we re-check here.
-    if (!cfg) return Effect.void;
-
-    // HMAC byte-exactness: the signature MUST cover the exact bytes that
-    // go on the wire. `HttpClientRequest.bodyText(payload)` writes the
-    // pre-serialized string verbatim; `bodyJson` / `bodyUnsafeJson`
-    // re-stringify the object and would drift the signature.
-    const payload = JSON.stringify(body);
-    const signature = signWebhookPayload(cfg.secret, payload);
-
-    // 1s base, doubled per attempt, ±50% jitter. `intersect` with `recurs`
-    // caps the retry count at `MAX_ATTEMPTS - 1` so total attempts = MAX.
-    const retrySchedule = Schedule.intersect(
-      Schedule.exponential(
-        Duration.seconds(DELIVERY_WEBHOOK_RETRY_BASE_SECONDS),
-        DELIVERY_WEBHOOK_BACKOFF_FACTOR,
-      ).pipe(Schedule.jittered),
-      Schedule.recurs(DELIVERY_WEBHOOK_MAX_ATTEMPTS - 1),
-    );
-
-    const request = HttpClientRequest.post(cfg.url).pipe(
-      HttpClientRequest.setHeaders({
-        "Content-Type": "application/json",
-        "X-MoltZap-Event": "messages.delivered",
-        "X-MoltZap-Signature": signature,
-      }),
-      HttpClientRequest.bodyText(payload, "application/json"),
-    );
-
-    return this.httpClient.execute(request).pipe(
-      // Drain the response body unconditionally before `filterStatusOk`.
-      // Fire-and-forget receivers typically reply 204/empty, but
-      // 4xx/5xx bodies still carry diagnostic text; reading + discarding
-      // here ensures the socket buffer doesn't sit pending until the
-      // FinalizationRegistry reaps it. `response.text` is `Effect.cached`,
-      // so this is a single read either way.
-      Effect.tap((response) => response.text),
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.timeout(Duration.millis(DELIVERY_WEBHOOK_TIMEOUT_MS)),
-      Effect.retry(retrySchedule),
-      Effect.asVoid,
-      Effect.catchAll((err) =>
-        Effect.logError("Delivery webhook dropped after retries").pipe(
-          Effect.annotateLogs({
-            err: String(err),
-            url: cfg.url,
-            messageId: body.messageId,
-          }),
-        ),
-      ),
-    );
-  }
-
   list(
     conversationId: ConversationId,
     requesterAgentId: AgentId,
@@ -786,7 +661,7 @@ export class MessageService {
     rows: ReadonlyArray<MessageRow>,
   ): Effect.Effect<Message[], never> {
     return Effect.gen(this, function* () {
-      const dekCache = new Map<number, Buffer>();
+      const dekCache = new Map<number, Dek>();
       const messages: Message[] = [];
       for (const row of rows) {
         const parts = yield* this.decryptPartsWithCache(row, dekCache);
@@ -871,12 +746,12 @@ export class MessageService {
     never
   > {
     return Effect.gen(this, function* () {
-      const newDek = generateDek();
+      const newDek = encryption.generateDek();
       const kekRow = yield* this.activeKekRow();
       const kek = encryption.decryptKek(
         deserializePayload(kekRow.encrypted_key),
       );
-      const wrappedDek = wrapKey(newDek, kek);
+      const wrappedDek = encryption.wrapDek(newDek, kek);
       const insertedOpt = yield* takeFirstOption(
         this.db
           .insertInto("conversation_keys")
@@ -970,57 +845,72 @@ export class MessageService {
 
   private decryptPartsWithCache(
     row: MessageRow,
-    dekCache: Map<number, Buffer>,
-  ): Effect.Effect<Part[]> {
+    dekCache: Map<number, Dek>,
+  ): Effect.Effect<ReadonlyArray<Part>> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const dekVersion = row.dek_version;
+        const encryption = this.encryption;
 
-        if (!this.encryption || dekVersion === 0) {
-          return JSON.parse(
-            toBuf(row.parts_encrypted).toString("utf-8"),
-          ) as Part[];
+        if (encryption === null || dekVersion === 0) {
+          return decodeMessageParts(
+            JSON.parse(toBuf(row.parts_encrypted).toString("utf-8")),
+          );
         }
 
-        let dek = dekCache.get(dekVersion);
-        if (!dek) {
-          const keyRowOpt = yield* takeFirstOption(
-            this.db
-              .selectFrom(CONVERSATION_KEYS_ALIAS)
-              .innerJoin(
-                ENCRYPTION_KEYS_ALIAS,
-                COL_EK_VERSION,
-                COL_CK_KEK_VERSION,
-              )
-              .select([COL_CK_WRAPPED_DEK, COL_EK_ENCRYPTED_KEY])
-              .where(COL_CK_CONVERSATION_ID, "=", row.conversation_id)
-              .where(COL_CK_DEK_VERSION, "=", dekVersion),
-          );
-
-          if (Option.isNone(keyRowOpt)) {
-            return yield* Effect.die("Decryption key not found");
-          }
-
-          const kek = this.encryption.decryptKek(
-            deserializePayload(keyRowOpt.value.encrypted_key),
-          );
-          dek = unwrapKey(deserializePayload(keyRowOpt.value.wrapped_dek), kek);
-          dekCache.set(dekVersion, dek);
-        }
-
-        return this.encryption.decryptMessage(
-          {
-            ciphertext: toBuf(row.parts_encrypted),
-            iv: toBuf(row.parts_iv),
-            tag: toBuf(row.parts_tag),
-          },
-          dek,
-        ) as Part[];
+        const dek = yield* this.dekForMessageRow(
+          row,
+          dekVersion,
+          dekCache,
+          encryption,
+        );
+        return decodeMessageParts(
+          encryption.decryptMessage(
+            {
+              ciphertext: toBuf(row.parts_encrypted),
+              iv: toBuf(row.parts_iv),
+              tag: toBuf(row.parts_tag),
+            },
+            dek,
+          ),
+        );
       }),
     );
   }
 
-  private mapMessage(row: MessageRow, parts: Part[]): Message {
+  private dekForMessageRow(
+    row: MessageRow,
+    dekVersion: number,
+    dekCache: Map<number, Dek>,
+    encryption: EnvelopeEncryption,
+  ): Effect.Effect<Dek, SqlError> {
+    const cachedDek = dekCache.get(dekVersion);
+    if (cachedDek !== undefined) return Effect.succeed(cachedDek);
+    return Effect.gen(this, function* () {
+      const keyRowOpt = yield* takeFirstOption(
+        this.db
+          .selectFrom(CONVERSATION_KEYS_ALIAS)
+          .innerJoin(ENCRYPTION_KEYS_ALIAS, COL_EK_VERSION, COL_CK_KEK_VERSION)
+          .select([COL_CK_WRAPPED_DEK, COL_EK_ENCRYPTED_KEY])
+          .where(COL_CK_CONVERSATION_ID, "=", row.conversation_id)
+          .where(COL_CK_DEK_VERSION, "=", dekVersion),
+      );
+      if (Option.isNone(keyRowOpt)) {
+        return yield* Effect.die("Decryption key not found");
+      }
+      const kek = encryption.decryptKek(
+        deserializePayload(keyRowOpt.value.encrypted_key),
+      );
+      const dek = encryption.unwrapDek(
+        deserializePayload(keyRowOpt.value.wrapped_dek),
+        kek,
+      );
+      dekCache.set(dekVersion, dek);
+      return dek;
+    });
+  }
+
+  private mapMessage(row: MessageRow, parts: ReadonlyArray<Part>): Message {
     return {
       id: row.id,
       conversationId: row.conversation_id,
@@ -1053,7 +943,7 @@ function unwrapConversationDek(
 ): ConversationDek {
   const kek = encryption.decryptKek(deserializePayload(row.encrypted_key));
   return {
-    dek: unwrapKey(deserializePayload(row.wrapped_dek), kek),
+    dek: encryption.unwrapDek(deserializePayload(row.wrapped_dek), kek),
     dekVersion: row.dek_version,
     kekVersion: row.kek_version,
   };

@@ -1,20 +1,51 @@
 /**
- * @file Public barrel for network and presence protocol descriptors.
+ * @file Public barrel for connect and presence protocol descriptors.
  */
 export {
-  Connect,
-  // Presence is server-derived from LeaseRegistry; clients cannot
-  // manually set status, so there is no client-driven presence-update
-  // descriptor.
+  AgentConnect,
+  AppConnect,
+  PROTOCOL_VERSION,
+  compareProtocolVersion,
+  checkProtocolRange,
+  InvalidProtocolVersionError,
+  ProtocolMismatchError,
+} from "./connect.js";
+export type { HelloOk, ProtocolMismatchReason } from "./connect.js";
+
+export {
   PresenceSubscribe,
   PresenceChangedNotificationDefinition,
-  // Backs the `Connect` descriptor's `@error` JSDoc claim.
-  ProtocolMismatchError,
-} from "./methods.js";
+} from "./presence.js";
 
-export type { HelloOk, ProtocolMismatchReason } from "./methods.js";
+import { AgentConnect, AppConnect } from "./connect.js";
+import {
+  PresenceSubscribe,
+  PresenceChangedNotificationDefinition,
+} from "./presence.js";
 
-// Server-internal WebSocket connection id brand. Lives in the protocol
-// layer so service signatures can be brand-typed across the server
-// boundary without a server-internal import.
-export { ConnectionId } from "./actor-model.js";
+/** Network RPCs shared by all authenticated principals after connect. */
+export const sharedNetworkRpcMethods = [PresenceSubscribe] as const;
+
+/** Network RPCs callable by agent clients. */
+export const agentCallableNetworkRpcMethods = [
+  AgentConnect,
+  PresenceSubscribe,
+] as const;
+
+/** Network RPCs callable by app clients. */
+export const appCallableNetworkRpcMethods = [
+  AppConnect,
+  PresenceSubscribe,
+] as const;
+
+/** Network RPCs accepted by the server. */
+export const networkRpcMethods = [
+  AgentConnect,
+  AppConnect,
+  PresenceSubscribe,
+] as const;
+
+/** Network notifications emitted by the server. */
+export const networkNotifications = [
+  PresenceChangedNotificationDefinition,
+] as const;

@@ -20,8 +20,9 @@
  * unlike openclaw whose gateway children sit outside the openclaw bin's
  * own process tree.
  *
- * Auth gate: cc-channel needs only the moltzap api key (env-injected via
- * the MCP config). Claude Code itself authenticates against Anthropic via
+ * Auth gate: cc-channel loads a MoltZap profile from the per-agent state dir.
+ * Claude Code itself
+ * authenticates against Anthropic via
  * whichever path the host has set up — `ANTHROPIC_API_KEY`, OAuth, or a
  * keychain credential. We do not pin the strategy; if auth fails the
  * subprocess exits with an error and `waitUntilReady` surfaces it as a
@@ -30,7 +31,17 @@
 import { Command, FileSystem, Path } from "@effect/platform";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import { NodeContext } from "@effect/platform-node";
-import { Data, Effect, Exit, Fiber, Option, Scope, Stream, pipe } from "effect";
+import {
+  Data,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Redacted,
+  Scope,
+  Stream,
+  pipe,
+} from "effect";
 
 import type {
   Runtime,
@@ -118,6 +129,7 @@ interface AdapterState {
 }
 
 const TERM_WAIT_MS = 10_000;
+const JSON_INDENT_SPACES = 2;
 const UTF8_DECODER = new TextDecoder("utf-8");
 
 function consumeProcessStream(
@@ -265,8 +277,37 @@ function prepareClaudeCodeStateDir(
       prefix: `claude-code-${input.agentName}-`,
     });
     yield* seedWorkspaceFiles(stateDir, input.workspaceFiles);
+    yield* writeMoltZapProfileConfig(stateDir, input);
     const extDir = yield* installClaudeCodeChannelPlugin(deps, stateDir);
     return { stateDir, extDir };
+  });
+}
+
+function writeMoltZapProfileConfig(
+  stateDir: string,
+  input: SpawnInput,
+): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const configDir = path.join(stateDir, ".moltzap");
+    yield* fileSystem.makeDirectory(configDir, { recursive: true });
+    yield* fileSystem.writeFileString(
+      path.join(configDir, "config.json"),
+      JSON.stringify(
+        {
+          profiles: {
+            [input.agentName]: {
+              agentId: input.agentId,
+              apiKey: Redacted.value(input.apiKey),
+              agentName: input.agentName,
+            },
+          },
+        },
+        null,
+        JSON_INDENT_SPACES,
+      ),
+    );
   });
 }
 
@@ -367,6 +408,7 @@ function spawnConfiguredClaude(input: {
   readonly deps: ClaudeCodeAdapterDeps;
   readonly stateDir: string;
   readonly mcpConfigPath: string;
+  readonly spawnInput: SpawnInput;
   readonly logBuffer: { value: string };
 }): Effect.Effect<SpawnedProcess, Error, Path.Path> {
   return Path.Path.pipe(
@@ -375,7 +417,9 @@ function spawnConfiguredClaude(input: {
         claudeBin: input.deps.claudeBin,
         args: buildClaudeArgs(path, input.stateDir, input.mcpConfigPath),
         cwd: input.stateDir,
-        env: { CLAUDE_CODE_HOME: input.stateDir },
+        env: {
+          CLAUDE_CODE_HOME: input.stateDir,
+        },
         logBuffer: input.logBuffer,
       }),
     ),
@@ -403,7 +447,7 @@ function pollClaudeExitCode(
  * flowchart TD
  *   CCS["ClaudeCodeAdapter.spawn(input)"]
  *   CC1["1. prepareClaudeCodeStateDir<br>makeTempDirectory, seedWorkspaceFiles,<br>installClaudeCodeChannelPlugin<br>(resolves modelcontextprotocol/sdk + effect)"]
- *   CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_API_KEY, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
+ *   CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_PROFILE, MOLTZAP_CONFIG_HOME, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
  *   CC3["3. spawnConfiguredClaude<br>buildClaudeArgs:<br>--strict-mcp-config --mcp-config<br>--print --input-format stream-json<br>--output-format stream-json --verbose<br>--dangerously-skip-permissions<br>--add-dir stateDir/workspace<br>env: CLAUDE_CODE_HOME=stateDir"]
  *   CC4["4. state = { process, stateDir, logBuffer, ... }"]
  *   CCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>(cc-channel MCP stdio server authenticates on start)"]
@@ -441,7 +485,6 @@ export class ClaudeCodeAdapter implements Runtime {
         stateDir,
         extDir,
         serverUrl: input.serverUrl,
-        apiKey: input.apiKey,
         agentName: input.agentName,
       });
 
@@ -450,6 +493,7 @@ export class ClaudeCodeAdapter implements Runtime {
         deps: this.deps,
         stateDir,
         mcpConfigPath,
+        spawnInput: input,
         logBuffer,
       });
 

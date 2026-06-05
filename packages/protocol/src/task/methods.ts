@@ -1,6 +1,80 @@
-export * from "./conversations.js";
-export * from "./messages.js";
-export * from "./tasks.js";
+export {
+  ConversationId,
+  MessageId,
+  ConversationNotFoundError,
+  NotAParticipantError,
+  ConversationArchivedError,
+  ConversationFullError,
+} from "./conversations.js";
+export type {
+  Conversation,
+  ConversationParticipant,
+  ConversationSummary,
+} from "./conversations.js";
+
+export {
+  MessageNotFoundError,
+  validateTextPart,
+  validateMessage,
+  messagePartsSchema,
+  LeaseId,
+  MessagesSend,
+  MessagesList,
+  MessageReceivedNotificationDefinition,
+  validateDispatchDecision,
+  dispatchDecisionSchema,
+  messageWithDispatchDecisionSchema,
+} from "./messages.js";
+export type {
+  Part,
+  Message,
+  MessageReceivedNotification,
+  DispatchDecision,
+  MessageWithDispatchDecision,
+} from "./messages.js";
+
+export {
+  AppId,
+  DEFAULT_APP_ID,
+  TaskId,
+  TaskNotFoundError,
+  TaskClosedError,
+  TaskRejectedError,
+  HookBlockedError,
+  ParticipantNotAdmittedError,
+  TaskList,
+  TaskRequest,
+  TaskLeave,
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
+  TaskConversationCreate,
+  TaskConversationList,
+  TaskConversationArchive,
+  TaskConversationUnarchive,
+  TaskConversationAddParticipant,
+  TaskConversationRemoveParticipant,
+  TaskFailedNotificationDefinition,
+  TaskCreatedNotificationDefinition,
+  TaskClosedNotificationDefinition,
+  TaskConversationCreatedNotificationDefinition,
+  TaskConversationArchivedNotificationDefinition,
+  TaskConversationUnarchivedNotificationDefinition,
+  TaskConversationParticipantsAddedNotificationDefinition,
+  TaskConversationParticipantsRemovedNotificationDefinition,
+} from "./tasks.js";
+export type {
+  TaskStatus,
+  Task,
+  TaskParticipant,
+  InitialConversationInput,
+  TaskConversationListItem,
+  TaskConversationCreatedNotification,
+  TaskConversationArchivedNotification,
+  TaskConversationUnarchivedNotification,
+  TaskConversationParticipantsAddedNotification,
+  TaskConversationParticipantsRemovedNotification,
+} from "./tasks.js";
 
 import { MessagesSend, MessagesList } from "./messages.js";
 import { MessageReceivedNotificationDefinition } from "./messages.js";
@@ -27,23 +101,6 @@ import {
   TaskConversationParticipantsRemovedNotificationDefinition,
 } from "./tasks.js";
 
-export const taskRpcMethods = [
-  MessagesSend,
-  MessagesList,
-  TaskRequest,
-  TaskLeave,
-  TaskList,
-  TaskClose,
-  TaskAddParticipant,
-  TaskRemoveParticipant,
-  TaskConversationCreate,
-  TaskConversationList,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
-] as const;
-
 // The `agentCallable` / `appCallable` split is the OUTBOUND client
 // catalog partition: which task RPCs a `MoltZapAgentClient` may
 // originate vs which an app/TM client may.
@@ -51,6 +108,7 @@ export const agentCallableTaskRpcMethods = [
   TaskRequest,
   TaskList,
   TaskLeave,
+  TaskConversationList,
   MessagesSend,
   MessagesList,
 ] as const;

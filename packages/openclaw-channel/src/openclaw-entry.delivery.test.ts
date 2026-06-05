@@ -29,8 +29,6 @@ import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
 
 const ACCOUNT_ID = "delivery-test";
-const ACCOUNT_KEY = "moltzap_agent_delivery";
-const SERVER_URL = "ws://localhost:9999";
 const ACCOUNT_AGENT_NAME = "bob-delivery";
 const SELF_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440401");
 const SENDER_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440402");
@@ -259,8 +257,6 @@ function sendRpcDefault<D extends RpcDefinition<string, any, any>>(
 function makeAccount() {
   return {
     id: ACCOUNT_ID,
-    apiKey: ACCOUNT_KEY,
-    serverUrl: SERVER_URL,
     agentName: ACCOUNT_AGENT_NAME,
   };
 }

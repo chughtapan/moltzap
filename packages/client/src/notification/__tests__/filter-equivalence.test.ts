@@ -1,4 +1,4 @@
-/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/as-unknown-as, agent-code-guard/async-keyword, jsdoc/text-escaping -- fast-check + Effect.gen + Stream.runForEach nest by construction; the cross-shape brand erasure in `oracle`/`fakeOtherFrame` is the typed→erased boundary the property test deliberately probes; fc.asyncProperty requires an async function */
+/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword, jsdoc/text-escaping -- fast-check + Effect.gen + Stream.runForEach nest by construction; fc.asyncProperty requires an async function */
 
 /**
  * Property test: `subscribe`'s Stream output equals a pure-JS filter oracle.
@@ -26,10 +26,16 @@ import {
   NotConnectedError,
   PresenceChangedNotificationDefinition,
   MessageReceivedNotificationDefinition,
+  type AnyNotificationDefinition,
   type NotificationDelivery,
   type NotificationParamsOf,
 } from "@moltzap/protocol";
 import { subscribe } from "../stream.js";
+import {
+  buildMessage,
+  testAgentId,
+  testTaskId,
+} from "../../test-utils/index.js";
 
 const MAX_SEQUENCE_LENGTH = 32;
 const VALUE_POOL_SIZE = 8;
@@ -40,20 +46,23 @@ type PresenceParams = NotificationParamsOf<
 >;
 
 const makeSubscriberRegistry = () =>
-  makeNotificationSubscriberRegistry({
+  makeNotificationSubscriberRegistry<
+    NotConnectedError,
+    AnyNotificationDefinition
+  >({
     closeCause: () =>
       new NotConnectedError({ message: "WebSocket not connected" }),
   });
 
 interface GeneratedFrame {
   readonly definitionTag: "presence" | "other";
-  readonly agentId: string;
+  readonly agentId: PresenceParams["agentId"];
   readonly status: "online" | "offline";
 }
 
 const arbAgentId = fc
   .integer({ min: 0, max: VALUE_POOL_SIZE - 1 })
-  .map((n) => `agent-${n}`);
+  .map((n) => testAgentId(`agent-${n}`));
 
 const arbStatus = fc.constantFrom<"online" | "offline">("online", "offline");
 
@@ -87,10 +96,10 @@ function oracle(
   predicate: (params: PresenceParams) => boolean,
 ): ReadonlyArray<PresenceParams> {
   const presenceOnly = frames.filter((f) => f.definitionTag === "presence");
-  const presenceParams = presenceOnly.map(
-    (f) =>
-      ({ agentId: f.agentId, status: f.status }) as unknown as PresenceParams, // #ignore-sloppy-code[as-unknown-as]: oracle uses property-generated string agentIds; brand assertion is the deliberate typed→erased boundary the property test exercises
-  );
+  const presenceParams = presenceOnly.map((f) => ({
+    agentId: f.agentId,
+    status: f.status,
+  }));
   return presenceParams.filter(predicate);
 }
 
@@ -101,22 +110,23 @@ function decodedPresence(
     definition: PresenceChangedNotificationDefinition,
     method: PresenceChangedNotificationDefinition.name,
     params: {
-      agentId: generated.agentId as PresenceParams["agentId"],
+      agentId: generated.agentId,
       status: generated.status,
     },
-  } as NotificationDelivery<typeof PresenceChangedNotificationDefinition>;
+  };
 }
 
-function fakeOtherFrame(generated: GeneratedFrame): NotificationDelivery {
+function otherFrame(): NotificationDelivery<
+  typeof MessageReceivedNotificationDefinition
+> {
   // A frame whose `.definition` reference does NOT match
   // `PresenceChangedNotificationDefinition` — used to verify the registry's
   // definition-identity filter drops it before the predicate runs.
-  const raw = {
+  return {
     definition: MessageReceivedNotificationDefinition,
     method: MessageReceivedNotificationDefinition.name,
-    params: { agentId: generated.agentId, status: generated.status },
+    params: { taskId: testTaskId("task-1"), message: buildMessage() },
   };
-  return raw as unknown as NotificationDelivery; // #ignore-sloppy-code[as-unknown-as]: fake delivery for the non-matching arm; the test is precisely about the boundary's behaviour on mismatched params
 }
 
 describe("subscribe filter-equivalence oracle", () => {
@@ -153,7 +163,7 @@ describe("subscribe filter-equivalence oracle", () => {
               const decoded =
                 f.definitionTag === "presence"
                   ? decodedPresence(f)
-                  : fakeOtherFrame(f);
+                  : otherFrame();
               yield* registry.dispatch(decoded);
             }
 
@@ -201,14 +211,14 @@ describe("subscribe filter-equivalence oracle", () => {
         yield* registry.dispatch(
           decodedPresence({
             definitionTag: "presence",
-            agentId: "agent-0",
+            agentId: testAgentId("agent-0"),
             status: "online",
           }),
         );
         yield* registry.dispatch(
           decodedPresence({
             definitionTag: "presence",
-            agentId: "agent-1",
+            agentId: testAgentId("agent-1"),
             status: "offline",
           }),
         );
@@ -218,7 +228,9 @@ describe("subscribe filter-equivalence oracle", () => {
         yield* Fiber.join(fiber);
 
         const observed = yield* Ref.get(seen);
-        expect(observed).toEqual([{ agentId: "agent-0", status: "online" }]);
+        expect(observed).toEqual([
+          { agentId: testAgentId("agent-0"), status: "online" },
+        ]);
       }),
     ));
 });

@@ -19,9 +19,10 @@ import {
 
 import {
   type AnyServerRpcDefinition,
+  type AgentId,
+  type AgentKey,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  type DecodedNotification,
   type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
@@ -32,12 +33,11 @@ import {
   type ConversationId,
   type TaskId,
 } from "@moltzap/protocol/task";
-import { agentId } from "@moltzap/protocol/testing";
 
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;
 const DEFAULT_GROUP_NAME = "cc-judge-group";
-const PLACEHOLDER_AGENT_ID = "target-agent";
+const PLAN_TARGET_AGENT_ID = "target-agent";
 const PLACEHOLDER_IMAGE = "managed/by-moltzap-trace-capture";
 
 interface RuntimeCrypto {
@@ -71,7 +71,7 @@ class ContainerStartFailed extends Data.TaggedError("ContainerStartFailed")<{
 }> {}
 
 class AgentStartFailed extends Data.TaggedError("AgentStartFailed")<{
-  readonly agentId: string;
+  readonly agentId: AgentId;
   readonly detail: ContainerStartFailed;
 }> {}
 
@@ -112,7 +112,7 @@ interface HarnessClient {
   subscribe<D extends typeof MessageReceivedNotificationDefinition>(
     definition: D,
     refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<DecodedNotification<D>, Error, never>;
+  ): Stream.Stream<NotificationParamsOf<D>, Error, never>;
   sendRpc<D extends AnyServerRpcDefinition>(
     method: D,
     payload: ParamsOf<D>,
@@ -120,7 +120,7 @@ interface HarnessClient {
 }
 
 interface ConnectedActor {
-  readonly agentId: string;
+  readonly agentId: AgentId;
   readonly name: string;
   readonly client: HarnessClient;
 }
@@ -131,8 +131,8 @@ interface ClientTestModule {
     name: string,
   ): Effect.Effect<
     {
-      readonly agentId: string;
-      readonly apiKey: string;
+      readonly agentId: AgentId;
+      readonly apiKey: AgentKey;
     },
     Error,
     never
@@ -143,8 +143,8 @@ interface ClientTestModule {
     name: string,
   ): Effect.Effect<
     {
-      readonly agentId: string;
-      readonly apiKey: string;
+      readonly agentId: AgentId;
+      readonly apiKey: AgentKey;
       readonly client: HarnessClient;
     },
     Error,
@@ -165,7 +165,7 @@ interface CoreAppHandle {
 // the concrete implementation lives in @moltzap/server-core's test-utils.
 interface RuntimeServerLike {
   awaitAgentReady(
-    agentId: string,
+    agentId: AgentId,
     timeoutMs: number,
   ): Effect.Effect<
     | { readonly _tag: "Ready" }
@@ -207,10 +207,13 @@ function failHarness(message: string): HarnessFailure {
   };
 }
 
-function failAgentStart(detail: ContainerStartFailed): HarnessFailure {
+function failAgentStart(
+  agentId: AgentId,
+  detail: ContainerStartFailed,
+): HarnessFailure {
   return {
     cause: new AgentStartFailed({
-      agentId: PLACEHOLDER_AGENT_ID,
+      agentId,
       detail,
     }),
   };
@@ -338,7 +341,7 @@ function extractTextFromEvent(data: {
  */
 function waitForTargetResponseStream(input: {
   readonly client: HarnessClient;
-  readonly targetAgentId: string;
+  readonly targetAgentId: AgentId;
   readonly conversationId: ConversationId;
   readonly timeoutMs: number;
 }): Effect.Effect<ConversationResponse, HarnessFailure, never> {
@@ -366,8 +369,7 @@ function waitForTargetResponseStream(input: {
                 `notification stream closed before ${input.targetAgentId} response arrived`,
               ),
             ),
-          onSome: (event) => {
-            const data = event.params;
+          onSome: (data) => {
             return Effect.succeed({
               conversationId: data.message.conversationId,
               senderId: data.message.senderId,
@@ -387,7 +389,7 @@ function waitForTargetResponseStream(input: {
 
 function sendMessageAndWait(input: {
   readonly sender: ConnectedActor;
-  readonly targetAgentId: string;
+  readonly targetAgentId: AgentId;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly message: string;
@@ -441,14 +443,13 @@ interface TaskScope {
 
 function createDirectConversation(
   sender: ConnectedActor,
-  targetAgentId: string,
+  targetAgentId: AgentId,
 ): Effect.Effect<TaskScope, HarnessFailure, never> {
-  const target = agentId(targetAgentId);
   return sender.client
     .sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [target],
-      initialConversation: { participants: [target] },
+      invitedAgentIds: [targetAgentId],
+      initialConversation: { participants: [targetAgentId] },
     })
     .pipe(
       Effect.mapError((error) => failHarness(error.message)),
@@ -467,13 +468,13 @@ function createDirectConversation(
 
 function createGroupConversation(input: {
   readonly sender: ConnectedActor;
-  readonly targetAgentId: string;
+  readonly targetAgentId: AgentId;
   readonly groupName: string;
   readonly participants: ReadonlyArray<ConnectedActor>;
 }): Effect.Effect<TaskScope, HarnessFailure, never> {
   const invited = [
-    agentId(input.targetAgentId),
-    ...input.participants.map((p) => agentId(p.agentId)),
+    input.targetAgentId,
+    ...input.participants.map((p) => p.agentId),
   ];
   return input.sender.client
     .sendRpc(TaskRequest, {
@@ -521,7 +522,7 @@ function executeConversationKind(
     readonly payload: HarnessPayload;
     readonly baseUrl: string;
     readonly wsUrl: string;
-    readonly targetAgentId: string;
+    readonly targetAgentId: AgentId;
     readonly clientModule: ClientTestModule;
   },
   state: ConversationExecutionState,
@@ -539,7 +540,7 @@ function executeConversationKind(
 function executeDirectConversation(
   input: {
     readonly payload: HarnessPayload;
-    readonly targetAgentId: string;
+    readonly targetAgentId: AgentId;
   },
   state: ConversationExecutionState,
 ) {
@@ -564,7 +565,7 @@ function executeGroupConversation(
     readonly payload: HarnessPayload;
     readonly baseUrl: string;
     readonly wsUrl: string;
-    readonly targetAgentId: string;
+    readonly targetAgentId: AgentId;
     readonly clientModule: ClientTestModule;
   },
   state: ConversationExecutionState,
@@ -597,7 +598,7 @@ function executeCrossConversation(
     readonly payload: HarnessPayload;
     readonly baseUrl: string;
     readonly wsUrl: string;
-    readonly targetAgentId: string;
+    readonly targetAgentId: AgentId;
     readonly clientModule: ClientTestModule;
   },
   state: ConversationExecutionState,
@@ -707,7 +708,7 @@ function registerProbeSender(
 function sendSetupAndFollowUps(input: {
   readonly state: ConversationExecutionState;
   readonly sender: ConnectedActor;
-  readonly targetAgentId: string;
+  readonly targetAgentId: AgentId;
   readonly scope: TaskScope;
   readonly setupMessage: string;
   readonly followUpMessages: ReadonlyArray<string>;
@@ -741,7 +742,7 @@ function sendBystanderMessages(
     readonly actor: ConnectedActor;
     readonly messages: ReadonlyArray<string>;
   }>,
-  targetAgentId: string,
+  targetAgentId: AgentId,
   scope: TaskScope,
 ) {
   return Effect.forEach(
@@ -767,7 +768,7 @@ function executeConversationPlan(input: {
   readonly payload: HarnessPayload;
   readonly baseUrl: string;
   readonly wsUrl: string;
-  readonly targetAgentId: string;
+  readonly targetAgentId: AgentId;
   readonly clientModule: ClientTestModule;
 }): Effect.Effect<ConversationRun, HarnessFailure, never> {
   return Effect.gen(function* () {
@@ -817,8 +818,8 @@ function withExclusiveRun<A, E>(
 }
 
 interface TargetAgentRegistration {
-  readonly agentId: string;
-  readonly apiKey: string;
+  readonly agentId: AgentId;
+  readonly apiKey: AgentKey;
   readonly agentName: string;
 }
 
@@ -863,12 +864,19 @@ function registerTargetAgent(input: {
     );
 }
 
-function mapRuntimeStartError(error: unknown): HarnessFailure {
+function mapRuntimeStartError(
+  error: unknown,
+  agentId: AgentId,
+): HarnessFailure {
   if (error instanceof SpawnFailed) {
-    return failAgentStart(new ContainerStartFailed({ message: error.message }));
+    return failAgentStart(
+      agentId,
+      new ContainerStartFailed({ message: error.message }),
+    );
   }
   if (error instanceof RuntimeReadyTimedOut) {
     return failAgentStart(
+      agentId,
       new ContainerStartFailed({
         message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
       }),
@@ -876,6 +884,7 @@ function mapRuntimeStartError(error: unknown): HarnessFailure {
   }
   const exited = error as { readonly stderr?: unknown };
   return failAgentStart(
+    agentId,
     new ContainerStartFailed({
       message: `runtime exited before readiness: ${String(exited.stderr)}`,
     }),
@@ -899,7 +908,11 @@ function startHarnessRuntime(input: {
       agentId: input.targetAgent.agentId,
       serverUrl: input.clientModule.stripWsPath(input.server.wsUrl),
     },
-  }).pipe(Effect.mapError(mapRuntimeStartError));
+  }).pipe(
+    Effect.mapError((error) =>
+      mapRuntimeStartError(error, input.targetAgent.agentId),
+    ),
+  );
 }
 
 function stopCoreTraceServer(
@@ -1067,7 +1080,7 @@ function buildHarnessPlan(args: HarnessLoadArgs, payload: HarnessPayload) {
 
 function targetAgentPlan(payload: HarnessPayload) {
   return {
-    id: PLACEHOLDER_AGENT_ID,
+    id: PLAN_TARGET_AGENT_ID,
     name:
       payload.runtime.targetAgentName ??
       defaultTargetAgentName(payload.runtime.kind),

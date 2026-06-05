@@ -1,5 +1,5 @@
 /**
- * Presence — `network/connect after subscribe` ⇒ subscriber receives
+ * Presence — `agent/connect after subscribe` ⇒ subscriber receives
  * `presence/changed { online }`.
  */
 import { Effect } from "effect";
@@ -20,7 +20,7 @@ export function registerConnectBroadcast(ctx: ConformanceRunContext): void {
     ctx,
     PRESENCE_CATEGORY,
     NAME,
-    "network/connect after subscribe ⇒ subscriber receives presence/changed { online }",
+    "agent/connect after subscribe ⇒ subscriber receives presence/changed { online }",
     Effect.scoped(
       Effect.gen(function* () {
         const sub = yield* acquireClient(ctx, NAME, "p1-sub");

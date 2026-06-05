@@ -13,19 +13,38 @@
  * every test that uses the fake.
  */
 
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentKey } from "@moltzap/protocol/credentials";
+import {
+  AgentCallableGroup,
+  type AnyAgentCallableRpcDefinition,
+  type AnyNotificationDefinition,
+} from "@moltzap/protocol/rpc-method-groups";
 import type {
-  AnyNotificationDefinition,
   NotificationDelivery,
   NotificationParamsOf,
-  Message,
-  ResultOf,
-  RpcDefinition,
-} from "@moltzap/protocol";
-import { NotFoundError } from "@moltzap/protocol";
+  PayloadForTag,
+  SuccessForTag,
+} from "@moltzap/protocol/transport";
+import type { Message } from "@moltzap/protocol/task";
+import type { RpcGroup } from "@effect/rpc";
+import { NotFoundError } from "@moltzap/protocol/transport";
+import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import type { RpcCallOptions } from "@moltzap/client";
 import { testAgentId } from "./ids.js";
+
+const TEST_AGENT_KEY = redactedAgentKey(agentKeyString(0));
+
+type FakeAgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+type FakeAgentCallableTag = FakeAgentCallableRpcs["_tag"];
+type FakeResponseMap = {
+  [Tag in FakeAgentCallableTag]?: () => Effect.Effect<
+    SuccessForTag<FakeAgentCallableRpcs, Tag>,
+    ServiceRpcError
+  >;
+};
 
 /** A tracked `call` invocation. */
 export interface RecordedCall {
@@ -36,64 +55,61 @@ export interface RecordedCall {
 
 export class FakeMoltZapService extends MoltZapService {
   calls: RecordedCall[] = [];
-  private readonly responses = new Map<
-    string,
-    () => Effect.Effect<unknown, ServiceRpcError>
-  >();
+  private readonly responses: FakeResponseMap = {};
 
   constructor(
     opts: {
       serverUrl?: string;
-      agentKey?: string;
-      agentId?: string;
+      agentKey?: AgentKey;
+      agentId?: AgentId;
     } = {},
   ) {
     super({
       serverUrl: opts.serverUrl ?? "ws://test.invalid",
-      agentKey: opts.agentKey ?? "test-key",
-      agentId: opts.agentId ?? "test-agent",
+      agentKey: opts.agentKey ?? TEST_AGENT_KEY,
+      agentId: opts.agentId ?? testAgentId("test-agent"),
     });
   }
 
   /**
    * Register a canned response, typed against the real RPC descriptor.
    */
-  setResponse<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    result: ResultOf<D>,
+  setResponse<Tag extends FakeAgentCallableTag>(
+    definition: Extract<AnyAgentCallableRpcDefinition, { readonly name: Tag }>,
+    result: SuccessForTag<FakeAgentCallableRpcs, Tag>,
   ): void {
-    this.responses.set(definition.name, () => Effect.succeed(result));
+    this.responses[definition.name] = () => Effect.succeed(result);
   }
 
   /**
    * Remove a previously-registered response.
    */
-  deleteResponse<D extends RpcDefinition<string, any, any>>(
-    definition: D,
+  deleteResponse<Tag extends FakeAgentCallableTag>(
+    definition: Extract<AnyAgentCallableRpcDefinition, { readonly name: Tag }>,
   ): void {
-    this.responses.delete(definition.name);
+    delete this.responses[definition.name];
   }
 
-  override call<Tag extends Parameters<MoltZapService["call"]>[0]>(
+  override call<Tag extends FakeAgentCallableTag>(
     tag: Tag,
-    payload: Parameters<MoltZapService["call"]>[1],
+    payload: PayloadForTag<FakeAgentCallableRpcs, Tag>,
     opts?: RpcCallOptions,
-  ): ReturnType<MoltZapService["call"]> {
+  ): Effect.Effect<SuccessForTag<FakeAgentCallableRpcs, Tag>, ServiceRpcError> {
     return Effect.suspend(() => {
       this.calls.push(
         opts === undefined
           ? { method: tag, params: payload }
           : { method: tag, params: payload, opts },
       );
-      const responder = this.responses.get(tag);
+      const responder = this.responses[tag];
       if (responder !== undefined) {
-        return responder() as ReturnType<MoltZapService["call"]>;
+        return responder();
       }
       return Effect.fail(
         new NotFoundError({
           message: `FakeMoltZapService: no canned response for ${tag}`,
         }),
-      ) as ReturnType<MoltZapService["call"]>;
+      );
     });
   }
 

@@ -20,7 +20,7 @@ import {
   type MessageId,
   type TaskId,
 } from "@moltzap/protocol";
-import { rotateKek } from "../../../crypto/key-rotation.js";
+import { rotateKek } from "../../../db/crypto/key-rotation.js";
 
 const it = effectIt.live;
 

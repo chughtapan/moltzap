@@ -8,18 +8,15 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`AgentClaimed`](./principal.ts#L73)
+### [`AgentClaimed`](./principal.ts#L67)
 
 _Class_
 
 ```ts
-export class AgentClaimed extends Context.Tag(
+export class AgentClaimed extends RpcMiddleware.Tag<AgentClaimed>()(
   "@moltzap/protocol/requirement/AgentClaimed",
-)<AgentClaimed, PrincipalMarker>() {
-  static get errors() {
-    return [ForbiddenError] as const;
-  }
-}
+  { failure: agentClaimedFailure },
+) {}
 ```
 
 Refinement requirement (agent-only): the agent arm must be claimed/active.
@@ -27,25 +24,22 @@ Type-paired with AgentPrincipal — the server reads
 `connection.auth.agentStatus`; it is meaningless without a preceding agent
 principal. Fails `Forbidden` on a not-yet-claimed agent.
 
-### [`AgentPrincipal`](./principal.ts#L46)
+### [`AgentPrincipal`](./principal.ts#L36)
 
 _Class_
 
 ```ts
-export class AgentPrincipal extends Context.Tag(
+export class AgentPrincipal extends RpcMiddleware.Tag<AgentPrincipal>()(
   "@moltzap/protocol/requirement/AgentPrincipal",
-)<AgentPrincipal, PrincipalMarker>() {
-  static get errors() {
-    return principalGateErrorClasses;
-  }
-}
+  { failure: principalGateFailure },
+) {}
 ```
 
 Principal requirement: narrow the live connection to the agent arm. The first
 element of an agent-callable method's `requires`. Fails `Unauthorized` /
 `Forbidden` (the principal-gate errors) on a non-agent arm.
 
-### [`AlreadyConnected`](./wire-errors.ts#L76)
+### [`AlreadyConnected`](./wire-errors.ts#L77)
 
 _Class_
 
@@ -62,36 +56,110 @@ export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
 A principal (agent or app) already holds an active connection. The
 `principal` discriminator names which arm the conflict is on.
 
-### [`AppPrincipal`](./principal.ts#L59)
+### [`AppPrincipal`](./principal.ts#L46)
 
 _Class_
 
 ```ts
-export class AppPrincipal extends Context.Tag(
+export class AppPrincipal extends RpcMiddleware.Tag<AppPrincipal>()(
   "@moltzap/protocol/requirement/AppPrincipal",
-)<AppPrincipal, PrincipalMarker>() {
-  static get errors() {
-    return principalGateErrorClasses;
-  }
-}
+  { failure: principalGateFailure },
+) {}
 ```
 
 Principal requirement: narrow the live connection to the app arm. The first
 element of an app-callable method's `requires`. Fails `Unauthorized` /
 `Forbidden` on a non-app arm.
 
-### [`CallErrorsOf`](./method.ts#L181)
+### [`AuthenticatedPrincipal`](./principal.ts#L56)
+
+_Class_
+
+```ts
+export class AuthenticatedPrincipal extends RpcMiddleware.Tag<AuthenticatedPrincipal>()(
+  "@moltzap/protocol/requirement/AuthenticatedPrincipal",
+  { failure: principalGateFailure },
+) {}
+```
+
+Principal requirement: require any authenticated arm. Used by methods that
+are shared by first-party agent and app clients but still must reject the
+unauthenticated pre-connect arm.
+
+### [`brandedId`](./wire-string.ts#L143)
+
+_Function_
+
+```ts
+export function brandedId<const BrandName extends string>(brand: BrandName)
+```
+
+Convenience over brandedString that adds the `uuid` format. The
+canonical way to define wire id types in this package
+(`AgentId = brandedId("AgentId")`, `TaskId = brandedId("TaskId")`, etc.).
+The format check runs the `UUID_RE` regex at decode time and annotates the
+schema so `JSONSchema.make` emits `format:"uuid"` for the docs walker.
+
+### [`brandedString`](./wire-string.ts#L45)
+
+_Function_
+
+```ts
+export function brandedString<const BrandName extends string>(
+  brand: BrandName,
+  options: BrandedStringOptions = {},
+): Schema.Schema<BrandedString<BrandName>, string>
+```
+
+Effect `Schema` whose decoded type is `BrandedString&lt;BrandName>`. The
+brand exists only at the type level — decode runs against the underlying
+string with the requested refinements (`minLength`, `maxLength`, `pattern`,
+and the three wire `format` checkers below) as `Schema.pattern` /
+`Schema.filter` refinements inside the same `Schema.decode*` engine as
+everything else.
+
+`format` annotates the schema with `{ jsonSchema: { format } }` so
+`JSONSchema.make` re-emits the draft-07 `format` keyword the docs walker
+reads (`scripts/docs/schema.ts → getStringTypeName`). The `pattern`/`filter`
+refinement still runs at decode time regardless of the annotation.
+
+### [`BrandedString`](./wire-string.ts#L17)
 
 _TypeAlias_
 
 ```ts
-export type CallErrorsOf<
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >,
-> =
+export type BrandedString<BrandName extends string> = string &
+```
+
+A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
+a `string` from accidentally type-fitting a slot expecting the brand.
+
+`Schema.brand` produces `string & Brand.Brand&lt;BrandName>`, identical to
+this alias, so a `brandedString("Foo")` schema's `Schema.Schema.Type` is
+assignable both ways with `BrandedString&lt;"Foo">`.
+
+### [`BrandedStringOptions`](./wire-string.ts#L24)
+
+_Interface_
+
+```ts
+export interface BrandedStringOptions {
+  readonly minLength?: number;
+  readonly maxLength?: number;
+  readonly pattern?: string;
+  readonly format?: WireStringFormat;
+  readonly description?: string;
+}
+```
+
+Refinement options accepted by brandedString.
+
+### [`CallErrorsOf`](./method.ts#L174)
+
+_TypeAlias_
+
+```ts
+export type CallErrorsOf<D extends RpcDefinitionAny> =
 ```
 
 The full typed error channel of a per-method call: the method's handler-domain
@@ -100,7 +168,7 @@ transport errors. This is exactly what the typed client surfaces on
 `client["method/name"](payload)`'s Effect — the same union the wire
 `errorSchema` decodes, plus transport.
 
-### [`ChannelProtocol`](./mux.ts#L229)
+### [`ChannelProtocol`](./mux.ts#L261)
 
 _Interface_
 
@@ -141,7 +209,17 @@ export const clientProtocolCanary = RpcClient.Protocol.make((write) =>
 )
 ```
 
-### [`ConflictError`](./wire-errors.ts#L57)
+### [`closedStructGuard`](./strict-decode.ts#L15)
+
+_Function_
+
+```ts
+export function closedStructGuard<A, I>(
+  schema: Schema.Schema<A, I>,
+): (value: unknown)
+```
+
+### [`ConflictError`](./wire-errors.ts#L58)
 
 _Class_
 
@@ -156,79 +234,18 @@ export class ConflictError extends Schema.TaggedError<ConflictError>()(
 
 Conflict on a resource (cross-cutting; e.g., duplicate registration).
 
-### [`DecodedNotification`](./rpc-groups.ts#L54)
-
-_TypeAlias_
-
-```ts
-export type DecodedNotification<
-  D extends AnyNotificationDefinition,
-  R = unknown,
-> = D extends AnyNotificationDefinition
-```
-
-A decoded notification carries the discriminator + descriptor + typed
-params + the original wire `jsonrpc`. It does NOT extend `NotificationFrame`
-— re-encoding builds a fresh frame from the descriptor + params, not by
-re-serializing this struct, so the strict-additionalProperties wire schema
-stays unstuck.
-
-The optional second parameter `R` narrows the `params` field to the refined
-type — used by `MoltZapAgentClient.subscribe`'s user-defined-type-guard
-overload. The default sentinel `unknown` resolves to the per-branch
-`NotificationParamsOf<D>` shape, preserving the one-arg form for every
-consumer.
-
-The default uses an `unknown` sentinel rather than `NotificationParamsOf<D>`
-because TS does not distribute type-alias defaults through the
-`D extends AnyNotificationDefinition` distributive conditional below —
-a `NotificationParamsOf<D>` default would resolve once over the input
-union and break per-branch params narrowing for `D` unions like
-`DispatchesConsumed | DispatchesExpired`. Carrying `R` as a sentinel and
-resolving inside the conditional keeps the original `params` shape per
-distribution branch when the one-arg form is used.
-
-### [`DecodedRpcRequest`](./rpc-groups.ts#L22)
-
-_TypeAlias_
-
-```ts
-export type DecodedRpcRequest<D extends AnyServerRpcDefinition> =
-```
-
-### [`decodeNotification`](./rpc-groups.ts#L124)
+### [`dateTimeStringSchema`](./wire-string.ts#L185)
 
 _Function_
 
 ```ts
-export function decodeNotification<
-  const Definitions extends readonly AnyNotificationDefinition[],
->(
-  definitions: Definitions,
-  frame: NotificationFrame,
-): Effect.Effect<
-  DecodedNotification<Definitions[number]>,
-  NotificationDecodeError
->
+export function dateTimeStringSchema(): typeof DateTimeStringSchema
 ```
 
-### [`decodeRpcRequest`](./rpc-groups.ts#L99)
+Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
+can keep `as const` references stable while the schema body is owned here.
 
-_Function_
-
-```ts
-export function decodeRpcRequest<
-  const Definitions extends readonly AnyServerRpcDefinition[],
->(
-  definitions: Definitions,
-  frame: RequestFrame,
-): Effect.Effect<
-  DecodedRpcRequest<Definitions[number]>,
-  RpcRequestDecodeError
->
-```
-
-### [`decodeRpcResult`](./method.ts#L395)
+### [`decodeRpcResult`](./method.ts#L509)
 
 _Function_
 
@@ -237,13 +254,34 @@ export function decodeRpcResult<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
+  Requires extends ReadonlyArray<RequirementShape>,
+  Errs extends ReadonlyArray<RpcErrorClass>,
 >(
-  definition: RpcDefinition<Name, P, R>,
+  definition: RpcDefinition<Name, P, R, Requires, Errs>,
   data: unknown,
 ): Effect.Effect<Schema.Schema.Type<R>, RpcResultDecodeError>
 ```
 
-### [`defineNotification`](./method.ts#L370)
+### [`decodesStrictly`](./strict-decode.ts#L5)
+
+_Function_
+
+```ts
+export function decodesStrictly<A, I>(
+  schema: Schema.Schema<A, I>,
+  value: unknown,
+): boolean
+```
+
+### [`DEFAULT_PAGE_LIMIT`](./pagination.ts#L4)
+
+_Variable_
+
+```ts
+export const DEFAULT_PAGE_LIMIT = 50
+```
+
+### [`defineNotification`](./method.ts#L481)
 
 _Function_
 
@@ -251,14 +289,17 @@ _Function_
 export function defineNotification<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
->(def: { name: Name; params: P }): NotificationDefinition<Name, P>
+>(def: {
+  name: Name;
+  params: P;
+}): NotificationDefinition<Name, P, Schema.Schema.Type<P>>
 ```
 
 Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema — notifications are
 fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./method.ts#L275)
+### [`defineRpc`](./method.ts#L244)
 
 _Function_
 
@@ -267,32 +308,14 @@ export function defineRpc<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
-  const Requires extends ReadonlyArray<RequirementShape> = readonly [],
   const Errs extends ReadonlyArray<RpcErrorClass> = readonly [],
 >(def: {
   name: Name;
   params: P;
   result: R;
-
-  /**
-   * REQUIRED. The ordered authority list. The FIRST element is exactly one
-   * principal requirement (`AgentPrincipal` | `AppPrincipal`); an optional
-   * `AgentClaimed` refinement (agent-only) follows; the rest are capability
-   * tags, in run order. The public `network/connect` is the lone method with
-   * `requires: []`. Each requirement folds its declared `errors` into the
-   * method's effective wire error union.
-   */
-  requires: Requires;
-
-  /**
-   * REQUIRED. The handler-domain tagged-error classes this method can fail
-   * with — only what the handler itself raises. The principal-gate errors
-   * (`Unauthorized`/`Forbidden` for authenticated methods) and each cap's own
-   * `errors` are added automatically. A method with no handler-domain error
-   * declares `[]`.
-   */
+  requires: readonly [];
   errors: Errs;
-}): RpcDefinition<Name, P, R, Requires, Errs>
+}): RpcDefinition<Name, P, R, readonly [], Errs>
 ```
 
 Create one wire method's frozen descriptor: name, Effect `Schema` shapes,
@@ -320,9 +343,8 @@ flowchart TD
   bare `Schema.is` accepts unknown keys, so per-method validation closes the
   struct to catch a caller that sends a field the descriptor never declared.
 
-Method names are branded `JsonRpcMethod&lt;"the.name">` so a runtime
-string can never accidentally type-fit a method position. See
-`wire.ts → JsonRpcMethod` for the brand.
+Method names stay as literal strings so Effect RPC's generated client remains
+a normal string-keyed dispatch map.
 
 Sibling: defineNotification — same pipeline minus the
 result schema and the error union.
@@ -345,23 +367,17 @@ error. Leaf call sites pass a literal tag and recover the precise types; a
 caller generic over `K` keeps the correlation because the map is keyed on the
 literal tag, not on a widened def union.
 
-### [`DomainErrorsOf`](./method.ts#L157)
+### [`DomainErrorsOf`](./method.ts#L162)
 
 _TypeAlias_
 
 ```ts
-export type DomainErrorsOf<
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >,
-> =
+export type DomainErrorsOf<D extends RpcDefinitionAny> =
 ```
 
 The handler-domain error instance union a descriptor declares.
 
-### [`effectiveErrorClasses`](./method.ts#L205)
+### [`effectiveErrorClasses`](./method.ts#L185)
 
 _Function_
 
@@ -369,14 +385,13 @@ _Function_
 export function effectiveErrorClasses(
   requires: ReadonlyArray<RequirementShape>,
   handlerErrors: ReadonlyArray<RpcErrorClass>,
-): ReadonlyArray<RpcErrorClass>
+): ReadonlyArray<Schema.Schema.AnyNoContext>
 ```
 
-The effective wire-error class list for a method: every requirement's declared
-errors (in `requires` order) then the handler-domain errors, deduped by
-identity (a class shared across a requirement and the handler list appears
-once). This is the single source the wire `errorSchema`, the server gate, and
-the typed client all read.
+The effective wire-error schema list for a method: every requirement
+middleware's failure schema (in `requires` order) then the handler-domain
+errors. This is the single source the wire `errorSchema`, the server gate,
+and the typed client all read.
 
 ### [`ErrorForTag`](./typed-dispatch.ts#L38)
 
@@ -391,15 +406,7 @@ export type ErrorForTag<
 
 The method's own tagged-error union for one tag (from its `errorSchema`).
 
-### [`errors`](./method.ts#L33)
-
-_Property_
-
-```ts
-  readonly errors: ReadonlyArray<RpcErrorClass>;
-```
-
-### [`ForbiddenError`](./wire-errors.ts#L41)
+### [`ForbiddenError`](./wire-errors.ts#L42)
 
 _Class_
 
@@ -414,7 +421,21 @@ export class ForbiddenError extends Schema.TaggedError<ForbiddenError>()(
 
 Authenticated but not authorized for this resource.
 
-### [`InvalidParamsError`](./wire-errors.ts#L65)
+### [`formatString`](./wire-string.ts#L157)
+
+_Function_
+
+```ts
+export function formatString(format: WireStringFormat): Schema.Schema<string>
+```
+
+Unbranded `Schema.String` carrying one of the three wire `format` checkers.
+Use for `result`/nested string fields that need a `format` but no brand
+(e.g. a callback URL `uri`, a raw `uuid`-shaped id field). Emits the draft-07
+`format` keyword for the docs walker and runs the regex/finiteness
+refinement at decode time.
+
+### [`InvalidParamsError`](./wire-errors.ts#L66)
 
 _Class_
 
@@ -429,65 +450,60 @@ export class InvalidParamsError extends Schema.TaggedError<InvalidParamsError>()
 
 Boundary validation error — params failed schema validation.
 
-### [`isDecodedNotification`](./rpc-groups.ts#L155)
+### [`isNotificationDeliveryFor`](./method.ts#L466)
 
 _Function_
 
 ```ts
-export function isDecodedNotification<D extends AnyNotificationDefinition>(
+export function isNotificationDeliveryFor<D extends NotificationDefinitionAny>(
+  delivery: NotificationDelivery,
   definition: D,
-  notification: DecodedNotification<AnyNotificationDefinition>,
-): notification is DecodedNotification<D>
+): delivery is NotificationDelivery<D>
 ```
 
-### [`JSON_RPC_VERSION`](./wire.ts#L6)
+### [`jsonRpcMethod`](./method.ts#L12)
+
+_Function_
+
+```ts
+export const jsonRpcMethod = <const Name extends string>(method: Name): Name
+```
+
+Internal factory for descriptor construction (`defineRpc`,
+`defineNotification`). Callers pass plain strings to descriptors, and the
+literal type is preserved in every method/key position.
+
+### [`ListCursor`](./pagination.ts#L15)
+
+_TypeAlias_
+
+```ts
+export type ListCursor = BrandedString<"ListCursor">;
+```
+
+### [`listCursorSchema`](./pagination.ts#L24)
+
+_Function_
+
+```ts
+export function listCursorSchema(): typeof ListCursorSchema
+```
+
+### [`ListLimitSchema`](./pagination.ts#L7)
 
 _Variable_
 
 ```ts
-export const JSON_RPC_VERSION = "2.0" as const
+export const ListLimitSchema = Schema.optional(
+  Schema.Number.pipe(
+    Schema.int(),
+    Schema.greaterThanOrEqualTo(1),
+    Schema.lessThanOrEqualTo(MAX_PAGE_LIMIT),
+  ),
+)
 ```
 
-### [`JsonRpcId`](./wire.ts#L13)
-
-_TypeAlias_
-
-```ts
-export type JsonRpcId = Schema.Schema.Type<typeof JsonRpcIdSchema>;
-```
-
-### [`jsonRpcMethod`](./wire.ts#L24)
-
-_Function_
-
-```ts
-export const jsonRpcMethod = <const Name extends string>(
-  method: Name,
-): JsonRpcMethod<Name>
-```
-
-Internal factory for descriptor construction (`defineRpc`,
-`defineNotification`). Not on the package barrel — callers pass plain
-strings to descriptors, which brand internally.
-
-### [`JsonRpcMethod`](./wire.ts#L14)
-
-_TypeAlias_
-
-```ts
-export type JsonRpcMethod<Name extends string = string> = Name &
-```
-
-### [`key`](./method.ts#L32)
-
-_Property_
-
-```ts
-  readonly key: string;
-  readonly errors: ReadonlyArray<RpcErrorClass>;
-```
-
-### [`makeClientChannelProtocol`](./mux.ts#L294)
+### [`makeClientChannelProtocol`](./mux.ts#L329)
 
 _Function_
 
@@ -506,7 +522,23 @@ string; the sink's `inject` feeds decoded inbound `FromServerEncoded` frames
 into the engine. The client engine has no `disconnects` Mailbox — socket
 close fails the client call channel through the underlying socket.
 
-### [`makeServerChannelProtocol`](./mux.ts#L246)
+### [`makeNotificationSubscriberRegistry`](./notification-subscribers.ts#L336)
+
+_Function_
+
+```ts
+export function makeNotificationSubscriberRegistry<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor = AnyNotificationDescriptor,
+>(
+  options: NotificationSubscriberRegistryOptions<CloseError>,
+): Effect.Effect<
+  NotificationSubscriberRegistry<CloseError, Definitions>,
+  never
+>
+```
+
+### [`makeServerChannelProtocol`](./mux.ts#L278)
 
 _Function_
 
@@ -555,49 +587,28 @@ no value-boundary cast. Every endpoint that stands a non-flat client (the
 agent + app clients, the server's reverse client) shares this one bridge, so
 the transport-error fold is written once.
 
-### [`MalformedFrameError`](./wire-errors.ts#L89)
-
-_Class_
-
-```ts
-export class MalformedFrameError extends Schema.TaggedError<MalformedFrameError>()(
-  "MalformedFrameError",
-  {
-    raw: Schema.String,
-    cause: Schema.optional(Schema.Unknown),
-  },
-) {}
-```
-
-Inbound frame failed to parse as JSON or did not match the expected shape.
-Transport-internal — not a wire `error` union member (never crosses the wire
-as a method failure).
-
-### [`MUX_CLIENT_ID`](./mux.ts#L189)
+### [`MAX_PAGE_LIMIT`](./pagination.ts#L5)
 
 _Variable_
 
 ```ts
-const MUX_CLIENT_ID = 0
+export const MAX_PAGE_LIMIT = 200
 ```
 
-The single physical client every engine on one socket shares. The server
-`Protocol` keys per-client state by id; one socket carries one logical
-client, so the server reports this id for the socket.
-
-### [`NotConnectedError`](./rpc-errors.ts#L15)
+### [`NotConnectedError`](./rpc-errors.ts#L14)
 
 _Class_
 
 ```ts
-export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
-  readonly message: string;
-}> {}
+export class NotConnectedError extends Schema.TaggedError<NotConnectedError>()(
+  "NotConnectedError",
+  { message: Schema.String },
+) {}
 ```
 
 The socket is not in the OPEN state when an RPC was attempted.
 
-### [`NotFoundError`](./wire-errors.ts#L49)
+### [`NotFoundError`](./wire-errors.ts#L50)
 
 _Class_
 
@@ -612,42 +623,7 @@ export class NotFoundError extends Schema.TaggedError<NotFoundError>()(
 
 Resource not found (cross-cutting; domain-specific NotFound errors live with their domain).
 
-### [`NotificationDecodeError`](./rpc-groups.ts#L95)
-
-_TypeAlias_
-
-```ts
-export type NotificationDecodeError =
-  | UnknownNotificationMethodError
-  | InvalidNotificationParamsError;
-
-export function decodeRpcRequest<
-  const Definitions extends readonly AnyServerRpcDefinition[],
->(
-  definitions: Definitions,
-  frame: RequestFrame,
-): Effect.Effect<
-  DecodedRpcRequest<Definitions[number]>,
-  RpcRequestDecodeError
-> {
-  const definition = definitions.find((d) => d.name === frame.method);
-  if (definition === undefined) {
-    return Effect.fail(new UnknownRpcMethodError({ frame }));
-  }
-  const params = frame.params ?? {};
-  if (!definition.validateParams(params)) {
-    return Effect.fail(new InvalidRpcParamsError({ frame, definition }));
-  }
-  return Effect.succeed({
-    frame,
-    id: frame.id,
-    definition,
-    params,
-  } as DecodedRpcRequest<Definitions[number]>);
-}
-```
-
-### [`NotificationDefinition`](./method.ts#L348)
+### [`NotificationDefinition`](./method.ts#L423)
 
 _Interface_
 
@@ -655,10 +631,17 @@ _Interface_
 export interface NotificationDefinition<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
+  Params = Schema.Schema.Type<P>,
 > {
-  readonly name: JsonRpcMethod<Name>;
+  readonly name: Name;
   readonly paramsSchema: P;
-  readonly validateParams: (data: unknown) => data is Schema.Schema.Type<P>;
+  readonly notificationRpc: Rpc.Rpc<
+    Name,
+    RpcMemberPayload<P>,
+    typeof Schema.Void,
+    typeof Schema.Never
+  >;
+  readonly validateParams: (data: unknown) => data is Params;
 }
 ```
 
@@ -683,48 +666,154 @@ Descriptor role at the transport layer: the wire `name` + params schema +
 strict decode-time validator. Routing semantics live in consumers (e.g.
 `@moltzap/client/runtime/subscribers.ts`).
 
-### [`NotificationFrame`](./wire.ts#L82)
+### [`NotificationDefinitionAny`](./method.ts#L439)
 
 _TypeAlias_
 
 ```ts
-export type NotificationFrame = Schema.Schema.Type<
-  typeof NotificationFrameSchema
+export type NotificationDefinitionAny = NotificationDefinition<
+  any,
+  any,
+  unknown
 >;
 ```
 
-### [`notificationFrameSchema`](./wire.ts#L94)
+### [`NotificationDelivery`](./method.ts#L458)
+
+_Interface_
+
+```ts
+export interface NotificationDelivery<
+  D extends NotificationDefinitionAny = NotificationDefinitionAny,
+> {
+  readonly definition: D;
+  readonly method: D["name"];
+  readonly params: NotificationParamsOf<D>;
+}
+```
+
+Descriptor-tagged notification delivery after native Effect RPC/Schema
+decode. This is the broad-subscription shape; typed subscriptions consume
+`NotificationParamsOf<D>` directly.
+
+### [`NotificationParamsOf`](./method.ts#L450)
+
+_TypeAlias_
+
+```ts
+export type NotificationParamsOf<D extends NotificationDefinitionAny> =
+```
+
+Type-only accessor for a decoded notification delivery payload.
+
+### [`NotificationPayloadOf`](./method.ts#L446)
+
+_TypeAlias_
+
+```ts
+export type NotificationPayloadOf<D extends NotificationDefinitionAny> =
+```
+
+Type-only accessor for a notification's outbound call payload.
+
+### [`notificationSubscribe`](./notification-subscribers.ts#L375)
 
 _Function_
 
 ```ts
-export function notificationFrameSchema(): typeof NotificationFrameSchema
+export function notificationSubscribe<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+  D extends Definitions,
+  R extends NotificationParamsOf<D>,
+>(
+  registry: NotificationSubscriberRegistry<CloseError, Definitions>,
+  definition: D,
+  refinement: (params: NotificationParamsOf<D>) => params is R,
+): Stream.Stream<R, CloseError>
 ```
 
-### [`NotificationParamsOf`](./method.ts#L358)
+### [`notificationSubscribeAll`](./notification-subscribers.ts#L420)
+
+_Function_
+
+```ts
+export function notificationSubscribeAll<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  registry: NotificationSubscriberRegistry<CloseError, Definitions>,
+  refinement?: (delivery: DeliveryOf<Definitions>) => boolean,
+): Stream.Stream<DeliveryOf<Definitions>, CloseError>
+```
+
+### [`NotificationSubscriberRegistry`](./notification-subscribers.ts#L51)
+
+_Interface_
+
+```ts
+export interface NotificationSubscriberRegistry<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor = AnyNotificationDescriptor,
+> {
+  readonly register: <D extends Definitions>(
+    definition: D,
+    refinement: ((params: NotificationParamsOf<D>) => boolean) | undefined,
+    callbacks: {
+      readonly onFrame: (
+        params: NotificationParamsOf<D>,
+      ) => Effect.Effect<void, never>;
+      readonly onClose: SubscriberCloseCallback<CloseError>;
+    },
+  ) => Effect.Effect<NotificationSubscriptionHandle, never>;
+
+  readonly registerAll: (
+    refinement: ((delivery: DeliveryOf<Definitions>) => boolean) | undefined,
+    callbacks: {
+      readonly onFrame: BroadSubscriberFrameCallback<Definitions>;
+      readonly onClose: SubscriberCloseCallback<CloseError>;
+    },
+  ) => Effect.Effect<NotificationSubscriptionHandle, never>;
+
+  readonly dispatch: (
+    delivery: DeliveryOf<Definitions>,
+  ) => Effect.Effect<void, never>;
+
+  readonly closeAll: Effect.Effect<void, never>;
+}
+```
+
+### [`NotificationSubscriberRegistryOptions`](./notification-subscribers.ts#L81)
+
+_Interface_
+
+```ts
+export interface NotificationSubscriberRegistryOptions<CloseError> {
+  readonly closeCause: () => CloseError;
+  readonly logPrefix?: string;
+  readonly spanName?: string;
+}
+```
+
+### [`NotificationSubscriptionHandle`](./notification-subscribers.ts#L46)
+
+_Interface_
+
+```ts
+export interface NotificationSubscriptionHandle {
+  readonly id: string;
+  readonly unregister: Effect.Effect<void, never>;
+}
+```
+
+### [`ParamsOf`](./method.ts#L130)
 
 _TypeAlias_
 
 ```ts
-export type NotificationParamsOf<
-  D extends NotificationDefinition<string, Schema.Schema.AnyNoContext>,
-> =
-```
-
-Type-only accessor for a notification's params payload.
-
-### [`ParamsOf`](./method.ts#L112)
-
-_TypeAlias_
-
-```ts
-export type ParamsOf<
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >,
-> =
+export type ParamsOf<D extends RpcDefinitionAny> = Schema.Schema.Type<
+  D["paramsSchema"]
+>;
 ```
 
 Type-only accessor for a definition's params payload.
@@ -742,7 +831,7 @@ export type PayloadForTag<
 
 The payload type one tag accepts.
 
-### [`principalGateErrorClasses`](./wire-errors.ts#L98)
+### [`principalGateErrorClasses`](./wire-errors.ts#L86)
 
 _Variable_
 
@@ -755,89 +844,48 @@ export const principalGateErrorClasses = [
 
 The principal-gate error classes every authenticated method's gate can fail with.
 
-### [`PrincipalMarker`](./principal.ts#L37)
-
-_Interface_
-
-```ts
-export interface PrincipalMarker {
-  readonly _principalMarker: never;
-}
-```
-
-Vestigial service type for the principal requirement tags. The tags are pure
-markers in a `requires` list — nothing provides or reads a value through their
-`Context.Tag` slot (the principal gate has no `provides`; the request
-principal rides `CurrentPrincipal`). A dedicated empty marker keeps the wire
-layer free of the domain `Principal` type without weakening the tag identity
-the classifiers discriminate on.
-
-### [`PrincipalRequirement`](./principal.ts#L82)
+### [`PrincipalRequirement`](./principal.ts#L73)
 
 _TypeAlias_
 
 ```ts
-export type PrincipalRequirement = typeof AgentPrincipal | typeof AppPrincipal;
+export type PrincipalRequirement =
+  | typeof AgentPrincipal
+  | typeof AppPrincipal
+  | typeof AuthenticatedPrincipal;
 ```
 
-The two principal-requirement tags — the only valid `requires` heads.
+The principal-requirement tags — the only valid `requires` heads.
 
-### [`RequestFrame`](./wire.ts#L80)
-
-_TypeAlias_
-
-```ts
-export type RequestFrame = Schema.Schema.Type<typeof RequestFrameSchema>;
-```
-
-### [`requestFrameSchema`](./wire.ts#L86)
-
-_Function_
-
-```ts
-export function requestFrameSchema(): typeof RequestFrameSchema
-```
-
-### [`RequirementErrorsOf`](./method.ts#L150)
+### [`RequirementErrorsOf`](./method.ts#L152)
 
 _TypeAlias_
 
 ```ts
 export type RequirementErrorsOf<
   Requires extends ReadonlyArray<RequirementShape>,
-> = InstanceType<Requires[number]["errors"][number]>;
+> =
 ```
 
-The union of every requirement's error instances for a `requires` tuple: each
-requirement (principal, agent-claimed refinement, capability) declares its own
-`static errors`, read directly off each entry's RequirementShape (no
-structural cast). The lone empty `requires` (`network/connect`) yields `never`.
+The union of every requirement middleware's failure type for a `requires`
+tuple. Empty `requires` yields `never`.
 
 ### [`RequirementShape`](./method.ts#L31)
 
 _TypeAlias_
 
 ```ts
-export type RequirementShape = {
-  readonly key: string;
-  readonly errors: ReadonlyArray<RpcErrorClass>;
+export type RequirementShape = RpcMiddleware.TagClassAny & {
+  readonly failure: Schema.Schema.AnyNoContext;
 };
 ```
 
-The STRUCTURAL shape of one `requires` entry at the wire layer: a requirement
-tag carries a `key` (its `Context.Tag` identifier) and a `static errors` tuple
-the descriptor folds into the wire error union. The descriptor factory needs
-only this shape — it reads `.errors` and treats the tag as an opaque marker.
+The structural shape of one `requires` entry: the requirement IS the
+`@effect/rpc` middleware tag. The descriptor factory reads its `failure`
+schema for wire-error aggregation and treats the tag itself as the authority
+marker the engine stacks.
 
-The GENUINE closed union of the actual requirement tags (principal | claimed |
-capability) and the compile-error-on-unregistered-cap guarantee live in the
-engine layer (`engine/requirements.ts` → `Requirement` / `capRequirementsOf`),
-above the domains: that is where a cap with no registered middleware fails to
-compile, at the engine-member binding. Keeping the wire-layer constraint
-structural is what lets the domains call `defineRpc` without the wire layer
-importing the capability tags upward.
-
-### [`ResponseErrorsOf`](./method.ts#L142)
+### [`ResponseErrorsOf`](./method.ts#L146)
 
 _TypeAlias_
 
@@ -845,14 +893,12 @@ _TypeAlias_
 export type ResponseErrorsOf = NotConnectedError | RpcTimeoutError;
 
 /**
- * The union of every requirement's error instances for a `requires` tuple: each
- * requirement (principal, agent-claimed refinement, capability) declares its own
- * `static errors`, read directly off each entry's {@link RequirementShape} (no
- * structural cast). The lone empty `requires` (`network/connect`) yields `never`.
+ * The union of every requirement middleware's failure type for a `requires`
+ * tuple. Empty `requires` yields `never`.
  */
 export type RequirementErrorsOf<
   Requires extends ReadonlyArray<RequirementShape>,
-> = InstanceType<Requires[number]["errors"][number]>;
+> =
 ```
 
 The transport-level errors any descriptor-driven call can surface regardless
@@ -861,39 +907,19 @@ arrived. They originate at the client transport, not the handler, so they are
 NOT in a descriptor's effective error union; the typed client adds them to
 every per-method call's error channel.
 
-### [`ResponseFrame`](./wire.ts#L81)
+### [`ResultOf`](./method.ts#L135)
 
 _TypeAlias_
 
 ```ts
-export type ResponseFrame = Schema.Schema.Type<typeof ResponseFrameSchema>;
-```
-
-### [`responseFrameSchema`](./wire.ts#L90)
-
-_Function_
-
-```ts
-export function responseFrameSchema(): typeof ResponseFrameSchema
-```
-
-### [`ResultOf`](./method.ts#L124)
-
-_TypeAlias_
-
-```ts
-export type ResultOf<
-  D extends RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >,
-> =
+export type ResultOf<D extends RpcDefinitionAny> = Schema.Schema.Type<
+  D["resultSchema"]
+>;
 ```
 
 Type-only accessor for a definition's result payload.
 
-### [`routeInbound`](./mux.ts#L139)
+### [`routeInbound`](./mux.ts#L171)
 
 _Function_
 
@@ -914,7 +940,7 @@ on the shared connection. When `reply` is omitted the chunk is dropped after
 a warning. The engine's Parser may yield zero or more decoded frames per wire
 string; every frame is injected in order.
 
-### [`RpcDefinition`](./method.ts#L54)
+### [`RpcDefinition`](./method.ts#L56)
 
 _Interface_
 
@@ -927,25 +953,39 @@ export interface RpcDefinition<
     ReadonlyArray<RequirementShape> = ReadonlyArray<RequirementShape>,
   Errs extends ReadonlyArray<RpcErrorClass> = ReadonlyArray<RpcErrorClass>,
 > {
-  readonly name: JsonRpcMethod<Name>;
+  readonly name: Name;
   readonly paramsSchema: P;
   readonly resultSchema: R;
+  readonly clientRpc: Rpc.Rpc<
+    Name,
+    RpcMemberPayload<P>,
+    R,
+    Schema.Schema.AnyNoContext
+  >;
+  readonly serverRpc: Rpc.Rpc<
+    Name,
+    RpcMemberPayload<P>,
+    R,
+    Schema.Schema.AnyNoContext,
+    Requires[number]
+  >;
 
   /**
    * The ordered authority list. The FIRST element is exactly one principal
-   * requirement (`AgentPrincipal` | `AppPrincipal`); an optional `AgentClaimed`
-   * refinement (agent-only) follows; the rest are capability tags, in run
-   * order. Empty for the lone unauthenticated method (`network/connect`). The
-   * client groups partition on the head; the server stacks one `RpcMiddleware`
-   * per element; each element's `errors` fold into the wire error union.
+   * requirement (`AgentPrincipal` | `AppPrincipal` |
+   * `AuthenticatedPrincipal`); an optional `AgentClaimed` refinement
+   * (agent-only) follows; the rest are capability tags, in run order. Empty for
+   * the unauthenticated connect methods (`agent/connect`, `app/connect`). The
+   * server stacks each requirement middleware; each element's `failure` folds
+   * into the wire error union.
    */
   readonly requires: Requires;
 
   /**
    * The handler-domain tagged-error classes this method can fail with — only
    * the errors the HANDLER raises, not the requirement (principal/cap) errors
-   * (those come from each requirement's own `errors`). The method's effective
-   * wire error union is the dedup'd union of both; see
+   * (those come from each requirement's own `failure`). The method's effective
+   * wire error union is the union of both; see
    * {@link effectiveErrorClasses} / {@link errorSchema}.
    */
   readonly errors: Errs;
@@ -955,9 +995,9 @@ export interface RpcDefinition<
    * method's failures against: `Schema.Union(...effectiveErrorClasses)`. The
    * union discriminates on each error's `_tag`, so the per-method decode picks
    * the exact tagged-error class with no code lookup and no global registry.
-   * `Schema.Never` when the method has no effective errors (only the lone
-   * unauthenticated `network/connect`, which still inherits transport errors at
-   * the client surface via {@link ResponseErrorsOf}).
+   * `Schema.Never` when the method has no effective errors. Connect methods
+   * still inherit transport errors at the client surface via
+   * {@link ResponseErrorsOf}.
    */
   readonly errorSchema: Schema.Schema.AnyNoContext;
 
@@ -989,12 +1029,20 @@ Schema.Schema.AnyNoContext` — the wire schemas have no decode context).
 guards wrap a `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
 "error" })` to reject excess properties at the trust boundary.
 
-`requires` is the ONE authority axis: the client groups partition on its head
-(the principal requirement), the server stacks one `RpcMiddleware` per
-requirement, and the descriptor folds each requirement's `errors` into the
-effective wire error union.
+`requires` is the one authority axis: the client groups partition on its head
+(the principal requirement), the server stacks each requirement middleware,
+and the descriptor folds each requirement's `failure` into the effective wire
+error union.
 
-### [`RpcErrorClass`](./method.ts#L14)
+### [`RpcDefinitionAny`](./method.ts#L127)
+
+_TypeAlias_
+
+```ts
+export type RpcDefinitionAny = RpcDefinition<any, any, any, any, any>;
+```
+
+### [`RpcErrorClass`](./method.ts#L22)
 
 _TypeAlias_
 
@@ -1028,61 +1076,31 @@ an optional overriding message and optional `data`.
 _TypeAlias_
 
 ```ts
-export type RpcForTag<
-  Rpcs extends Rpc.Any,
-  K extends Rpcs["_tag"],
-> = Rpc.ExtractTag<Rpcs, K>;
+export type RpcForTag<Rpcs extends Rpc.Any, K extends Rpcs["_tag"]> = Extract<
+  Rpcs,
+  { readonly _tag: K }
+>;
 ```
 
 The `Rpc` member of `Rpcs` whose tag is `K`.
-
-### [`RpcRequestDecodeError`](./rpc-groups.ts#L78)
-
-_TypeAlias_
-
-```ts
-export type RpcRequestDecodeError =
-  | UnknownRpcMethodError
-  | InvalidRpcParamsError;
-
-class UnknownNotificationMethodError extends Data.TaggedError(
-  "UnknownNotificationMethodError",
-)<{
-  readonly frame: NotificationFrame;
-}> {}
-```
-
-### [`RpcResultDecodeError`](./method.ts#L384)
-
-_Class_
-
-```ts
-export class RpcResultDecodeError extends Data.TaggedError(
-  "RpcResultDecodeError",
-)<{
-  readonly definition: RpcDefinition<
-    string,
-    Schema.Schema.AnyNoContext,
-    Schema.Schema.AnyNoContext
-  >;
-  readonly data: unknown;
-}> {}
-```
 
 ### [`RpcTimeoutError`](./rpc-errors.ts#L20)
 
 _Class_
 
 ```ts
-export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
-  readonly method: JsonRpcMethod;
-  readonly timeoutMs: number;
-}> {}
+export class RpcTimeoutError extends Schema.TaggedError<RpcTimeoutError>()(
+  "RpcTimeoutError",
+  {
+    method: Schema.String,
+    timeoutMs: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  },
+) {}
 ```
 
 The RPC exceeded the per-call timeout without a response frame.
 
-### [`runMuxReader`](./mux.ts#L356)
+### [`runMuxReader`](./mux.ts#L394)
 
 _Function_
 
@@ -1126,6 +1144,22 @@ The two role-inverted sinks on one socket. `server` is the local
 `RpcClient`'s inbound sink (response-family frames). A socket may carry
 either or both.
 
+### [`stringEnum`](./wire-string.ts#L168)
+
+_Function_
+
+```ts
+export function stringEnum<T extends string[]>(
+  values: [...T],
+): Schema.Schema<T[number]>
+```
+
+`Schema.Literal(...values)` typed as the union of the literal values. Use
+instead of `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` — same
+wire shape, simpler schema. `JSONSchema.make` renders a literal union as
+`{ "enum": [...] }` (string-valued), which the docs walker reads off
+`.enum`.
+
 ### [`SuccessForTag`](./typed-dispatch.ts#L32)
 
 _TypeAlias_
@@ -1165,35 +1199,31 @@ export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
   "Unauthorized",
   errorPayloadFields,
 ) {
-  static readonly message = "Not authenticated. Send network/connect first.";
+  static readonly message =
+    "Not authenticated. Send agent/connect or app/connect first.";
 }
 ```
 
-Not authenticated — `network/connect` has not run on this socket.
+Not authenticated — `agent/connect` or `app/connect` has not run on this socket.
 
-### [`validateNotificationFrame`](./wire.ts#L111)
+### [`WireStringFormat`](./wire-string.ts#L21)
 
-_Function_
-
-```ts
-export const validateNotificationFrame = (v: unknown): v is NotificationFrame
-```
-
-### [`validateRequestFrame`](./wire.ts#L107)
-
-_Function_
+_TypeAlias_
 
 ```ts
-export const validateRequestFrame = (v: unknown): v is RequestFrame
+export type WireStringFormat = "uuid" | "uri" | "date-time";
+
+/** Refinement options accepted by {@link brandedString}. */
+export interface BrandedStringOptions {
+  readonly minLength?: number;
+  readonly maxLength?: number;
+  readonly pattern?: string;
+  readonly format?: WireStringFormat;
+  readonly description?: string;
+}
 ```
 
-### [`validateResponseFrame`](./wire.ts#L109)
-
-_Function_
-
-```ts
-export const validateResponseFrame = (v: unknown): v is ResponseFrame
-```
+The three wire string formats.
 
 ### [`WireWrite`](./mux.ts#L58)
 
@@ -1214,9 +1244,11 @@ fails with a Socket.SocketError if the socket is gone.
 - `method.ts`
 - `mux.ts`
 - `mux.types-check.ts`
+- `notification-subscribers.ts`
+- `pagination.ts`
 - `principal.ts`
 - `rpc-errors.ts`
-- `rpc-groups.ts`
+- `strict-decode.ts`
 - `typed-dispatch.ts`
 - `wire-errors.ts`
-- `wire.ts`
+- `wire-string.ts`

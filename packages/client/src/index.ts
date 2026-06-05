@@ -9,33 +9,17 @@ export {
   type ContextOptions,
   type CrossConvMessage,
   type CrossConversationEntry,
-  type ServiceOptions,
   type ServiceRpcError,
 } from "./service.js";
-export { AgentNotFoundError, MalformedFrameError } from "./runtime/errors.js";
-export {
-  MoltZapChannelCore,
-  type ChannelCoreOptions,
-  type ChannelService,
-  type ContextBlocks,
-  type DispatchAdmissionDecision,
-  type DispatchAdmissionRequest,
-  type DispatchReleaseFrame,
-  type EnrichedConversationMeta,
-  type EnrichedInboundMessage,
-  type EnrichedSender,
-  type InboundHandler,
-  type PendingDispatchMessage,
-} from "./channel-core.js";
+export { AgentNotFoundError } from "@moltzap/protocol";
 export { MoltZapAgentClient, type AgentClientOptions } from "./agent-client.js";
 export {
   MoltZapAppClient,
   type AppClientOptions,
-  type AppCallbackHandlers,
   type AppCallbackContext,
   type RpcCallOptions,
 } from "./app-client.js";
-export type { CloseInfo } from "./runtime/close-info.js";
+export type { AppCallbackHandlers } from "@moltzap/protocol";
 // Tagged errors for the typed-Stream subscribe surface.
 // `NotificationConsumerError` is a type union (see notification/errors.ts
 // header for rationale).

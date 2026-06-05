@@ -4,63 +4,82 @@ _`packages/protocol/src`_
 
 ## Purpose
 
-Public barrel — protocol layer DAG.
+Protocol package root.
 
-The protocol package is the leaf in the workspace dependency
-graph, and internally it is split into layers with their own
-one-way dependency order. Re-exports below are arranged in DAG
-order so the file itself is the manifest.
-
-```mermaid
-flowchart TD
-  engine[engine/] --> app[app/]
-  engine --> task[task/]
-  engine --> transport[transport/]
-  app --> task
-  app --> identity[identity/]
-  app --> transport
-  task --> identity
-  task --> transport
-  network[network/] --> identity
-  network --> transport
-  identity --> transport
-  transport --> schema[schema-primitives]
-```
-
-`transport/` is the wire bottom (frames, the descriptor factory, the
-mux, the low principal tags). `engine/` is the TOP: the genuine
-`Requirement` union + capability middlewares + the server/client engine
-groups, which couple to the full catalog (`rpc-registry`) and the
-task-layer capability tags. A `task/*` method may reference `identity/*`
-types (e.g. `AgentId`); the reverse import is forbidden. The server's
-Tag-allowlist hierarchy in `@moltzap/server-core` mirrors this DAG: a
-handler may pull services only from layers at-or-below its own home layer.
+Transitional compatibility surface while the protocol package is rebalanced.
+The final root target is the runtime lifecycle surface; descriptor and schema
+exports are already available on focused subpaths.
 
 ## Public surface
 
-### [`agentClientRpcMethods`](./rpc-registry.ts#L25)
+### [`AgentCallableGroup`](./rpc-method-groups.ts#L83)
 
 _Variable_
 
 ```ts
-export const agentClientRpcMethods = [
+export const AgentCallableGroup = makeClientRpcGroup(agentCallableMethods)
+```
+
+### [`agentCallableMethods`](./rpc-method-groups.ts#L39)
+
+_Variable_
+
+```ts
+export const agentCallableMethods = [
   ...identityRpcMethods,
-  ...networkRpcMethods,
+  ...agentCallableNetworkRpcMethods,
   ...agentCallableTaskRpcMethods,
-  ...appRpcMethods,
+  ...agentCallableAppRpcMethods,
 ] as const
 ```
 
-### [`AnyAgentClientRpcDefinition`](./rpc-registry.ts#L53)
+### [`AgentClientOptions`](./agent-client.ts#L38)
+
+_Interface_
+
+```ts
+export interface AgentClientOptions {
+  readonly serverUrl: string;
+  readonly agentKey: AgentKey;
+  readonly onDisconnect?: (close: CloseInfo) => void;
+  readonly onReconnect?: (helloOk: ConnectResult) => void;
+}
+```
+
+### [`AgentKey`](./credentials.ts#L26)
 
 _TypeAlias_
 
 ```ts
-export type AnyAgentClientRpcDefinition =
-  (typeof agentClientRpcMethods)[number] & RpcDefinition<string, any, any>;
+export const AgentKey = Schema.Redacted(AgentKeyValue);
 ```
 
-### [`AnyAppCallbackRpcDefinition`](./rpc-registry.ts#L56)
+### [`AgentKey`](./credentials.ts#L26)
+
+_Variable_
+
+```ts
+export const AgentKey = Schema.Redacted(AgentKeyValue)
+```
+
+### [`AnyAgentCallableRpcDefinition`](./rpc-method-groups.ts#L67)
+
+_TypeAlias_
+
+```ts
+export type AnyAgentCallableRpcDefinition =
+  (typeof agentCallableMethods)[number];
+```
+
+### [`AnyAppCallableRpcDefinition`](./rpc-method-groups.ts#L69)
+
+_TypeAlias_
+
+```ts
+export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
+```
+
+### [`AnyAppCallbackRpcDefinition`](./rpc-method-groups.ts#L71)
 
 _TypeAlias_
 
@@ -68,7 +87,7 @@ _TypeAlias_
 export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 ```
 
-### [`AnyNotificationDefinition`](./rpc-registry.ts#L58)
+### [`AnyNotificationDefinition`](./rpc-method-groups.ts#L73)
 
 _TypeAlias_
 
@@ -77,320 +96,554 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](./rpc-registry.ts#L51)
+### [`AnyServerRpcDefinition`](./rpc-method-groups.ts#L66)
 
 _TypeAlias_
 
 ```ts
-export type AnyServerRpcDefinition = (typeof serverRpcMethods)[number] &
+export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 ```
 
-### [`appCallableRpcMethods`](./rpc-registry.ts#L32)
+### [`AppCallableGroup`](./rpc-method-groups.ts#L85)
 
 _Variable_
 
 ```ts
-export const appCallableRpcMethods = [
-  ...agentClientRpcMethods,
-  ...appCallableTaskRpcMethods,
+export const AppCallableGroup = makeClientRpcGroup(appCallableMethods)
+```
+
+### [`appCallableMethods`](./rpc-method-groups.ts#L46)
+
+_Variable_
+
+```ts
+export const appCallableMethods = [
+  ...appCallableNetworkRpcMethods,
+  ...appOnlyCallableMethods,
 ] as const
 ```
 
-### [`brandedId`](./schema-primitives.ts#L143)
-
-_Function_
-
-```ts
-export function brandedId<const BrandName extends string>(brand: BrandName)
-```
-
-Convenience over brandedString that adds the `uuid` format. The
-canonical way to define wire id types in this package
-(`AgentId = brandedId("AgentId")`, `TaskId = brandedId("TaskId")`, etc.).
-The format check runs the `UUID_RE` regex at decode time and annotates the
-schema so `JSONSchema.make` emits `format:"uuid"` for the docs walker.
-
-### [`brandedString`](./schema-primitives.ts#L45)
-
-_Function_
-
-```ts
-export function brandedString<const BrandName extends string>(
-  brand: BrandName,
-  options: BrandedStringOptions = {},
-): Schema.Schema<BrandedString<BrandName>, string>
-```
-
-Effect `Schema` whose decoded type is `BrandedString&lt;BrandName>`. The
-brand exists only at the type level — decode runs against the underlying
-string with the requested refinements (`minLength`, `maxLength`, `pattern`,
-and the three wire `format` checkers below) as `Schema.pattern` /
-`Schema.filter` refinements inside the same `Schema.decode*` engine as
-everything else.
-
-`format` annotates the schema with `{ jsonSchema: { format } }` so
-`JSONSchema.make` re-emits the draft-07 `format` keyword the docs walker
-reads (`scripts/docs/schema.ts → getStringTypeName`). The `pattern`/`filter`
-refinement still runs at decode time regardless of the annotation.
-
-### [`BrandedString`](./schema-primitives.ts#L17)
-
-_TypeAlias_
-
-```ts
-export type BrandedString<BrandName extends string> = string &
-```
-
-A `string` carrying a nominal `Brand.Brand&lt;BrandName>` tag. Prevents
-a `string` from accidentally type-fitting a slot expecting the brand.
-
-`Schema.brand` produces `string & Brand.Brand&lt;BrandName>`, identical to
-this alias, so a `brandedString("Foo")` schema's `Schema.Schema.Type` is
-assignable both ways with `BrandedString&lt;"Foo">`.
-
-### [`BrandedStringOptions`](./schema-primitives.ts#L24)
+### [`AppCallbackContext`](./app-client.ts#L33)
 
 _Interface_
 
 ```ts
-export interface BrandedStringOptions {
-  readonly minLength?: number;
-  readonly maxLength?: number;
-  readonly pattern?: string;
-  readonly format?: WireStringFormat;
-  readonly description?: string;
+export interface AppCallbackContext {
+  readonly requestId: string;
 }
 ```
 
-Refinement options accepted by brandedString.
+### [`AppClientOptions`](./app-client.ts#L70)
 
-### [`checkProtocolRange`](./version.ts#L143)
-
-_Function_
+_Interface_
 
 ```ts
-export function checkProtocolRange(
-  params: { readonly minProtocol: string; readonly maxProtocol: string },
-  serverVersion: string,
-): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError>
-```
-
-Range-check the client's protocol-version interval against an
-injected server version. Runs at `network/connect` BEFORE auth
-resolution; the server-side handler in
-`@moltzap/server-core/identity/handlers/connect.handlers.ts`
-yields this Effect as the FIRST step of `handleConnect`.
-
-`serverVersion` is a parameter (not the `PROTOCOL_VERSION` constant)
-so regression tests can inject future-version values, and the
-function lives in `@moltzap/protocol` so tests can import it without
-a seam through the server-internal handler module.
-
-Two error channels, both typed:
-
-- `ProtocolMismatchError` — versions are well-formed, just outside
-  the supported range. Two `reason` discriminants in the wire
-  error's `data` field:
-  - `server-above-client-max` —
-    `compareProtocolVersion(serverVersion, params.maxProtocol) > 0`.
-    The server is newer than the client knows how to talk to.
-  - `server-below-client-min` —
-    `compareProtocolVersion(serverVersion, params.minProtocol) < 0`.
-    The client is newer than the server supports.
-- `InvalidProtocolVersionError` — `params.minProtocol` or
-  `params.maxProtocol` is not a well-formed numeric version
-  string. Untrusted client input crosses the boundary here, so
-  the sync throw in compareProtocolVersion is wrapped in
-  `Effect.try` and surfaces as a typed channel error. Callers
-  (the `network/connect` handler) catch this and map to
-  `InvalidParamsError` (JSON-RPC `-32602`).
-
-Production callers (`handleConnect`) pass the live
-`PROTOCOL_VERSION` constant; tests inject future-version values
-to exercise rejection paths against an unbumped branch.
-
-Example test usage: `Effect.runSync(Effect.either(checkProtocolRange({
-minProtocol: "2026.526.0", maxProtocol: "2026.526.0" },
-"2026.527.0")))` resolves to a `Left` carrying a
-`ProtocolMismatchError` whose `data.reason` is
-`"server-above-client-max"`.
-
-### [`closedStructGuard`](./schema-primitives.ts#L245)
-
-_Function_
-
-```ts
-export function closedStructGuard<A, I>(
-  schema: Schema.Schema<A, I>,
-): (value: unknown)
-```
-
-Build a boolean type-guard from a `Schema` that REJECTS excess keys,
-matching the former `ajv.compile(schema)` strict type guards. A bare
-`Schema.is(schema)` ACCEPTS excess (loosening the trust boundary), so the
-standalone validators (`validateAgent`, `validateMessage`, …) wrap a
-strict `decodeUnknownEither` instead.
-
-### [`compareProtocolVersion`](./version.ts#L71)
-
-_Function_
-
-```ts
-export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1
-```
-
-Numeric comparator for `PROTOCOL_VERSION` strings, ordered by their
-dotted numeric segments (NOT lexicographically).
-
-CalVer values of the form `YYYY.NNNN.M` carry variable-digit middle
-components, so lexicographic ordering is wrong:
-`"2026.1001.0".localeCompare("2026.527.0") === -1` (lex: `1001 <
-527`), opposite of the numeric truth. The `network/connect`
-old-client-rejection gate routes through this helper so it stays
-correct as the publish workflow rolls the middle component past
-`999`.
-
-Returns `-1 | 0 | 1` with conventional semantics:
-
-    compareProtocolVersion("2026.527.0",  "2026.527.0")  →  0
-    compareProtocolVersion("2026.526.0",  "2026.527.0")  → -1
-    compareProtocolVersion("2026.1001.0", "2026.527.0")  →  1   // numeric, NOT lex
-    compareProtocolVersion("2025.999.0",  "2026.1.0")    → -1   // year boundary
-    compareProtocolVersion("2026.527.0",  "2026.527.1")  → -1
-
-Each input MUST be a dotted `n.n.n` (or wider) numeric string. The
-function is intentionally strict — it does NOT accept SemVer
-pre-release suffixes (`2026.527.0-rc.1`) or build metadata
-(`2026.527.0+abc`). Empty segments (e.g., `"2026..0"`) and
-non-digit characters (`"abc"`) also reject — `Number("") === 0`
-would otherwise silently coerce, contradicting the strict /
-fail-closed contract.
-
-Throws InvalidProtocolVersionError (a `Data.TaggedError`) on
-any malformed segment. Untrusted client input MUST be funnelled
-through checkProtocolRange, which wraps this call in
-`Effect.try` so the parse error flows through the Effect channel
-rather than escaping as a sync throw into the JSON-RPC handler.
-
-### [`dateTimeStringSchema`](./schema-primitives.ts#L188)
-
-_Function_
-
-```ts
-export function dateTimeStringSchema(): typeof DateTimeStringSchema
-```
-
-Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
-can keep `as const` references stable while the schema body is owned here.
-
-### [`decodesStrictly`](./schema-primitives.ts#L228)
-
-_Function_
-
-```ts
-export function decodesStrictly<A, I>(
-  schema: Schema.Schema<A, I>,
-  value: unknown,
-): boolean
-```
-
-Whether `value` decodes cleanly against `schema` with excess-key rejection
-(the strict AJV-parity check). The canonical boolean form used by the wire
-frame validators, the standalone struct guards, and the conformance ports —
-built on `Either.match` (the repo's required Either discriminant).
-
-### [`DEFAULT_PAGE_LIMIT`](./pagination.ts#L14)
-
-_Variable_
-
-```ts
-export const DEFAULT_PAGE_LIMIT = 50
-```
-
-### [`formatString`](./schema-primitives.ts#L157)
-
-_Function_
-
-```ts
-export function formatString(format: WireStringFormat): Schema.Schema<string>
-```
-
-Unbranded `Schema.String` carrying one of the three wire `format` checkers.
-Use for `result`/nested string fields that need a `format` but no brand
-(e.g. a `claimUrl` `uri`, a raw `uuid`-shaped id field). Emits the draft-07
-`format` keyword for the docs walker and runs the regex/finiteness
-refinement at decode time.
-
-### [`InvalidProtocolVersionError`](./version.ts#L29)
-
-_Class_
-
-```ts
-export class InvalidProtocolVersionError extends Data.TaggedError(
-  "InvalidProtocolVersionError",
-)<{ readonly version: string; readonly segment: string }> {
-  override get message(): string {
-    return `compareProtocolVersion: invalid segment ${JSON.stringify(this.segment)} in ${JSON.stringify(this.version)}`;
-  }
+export interface AppClientOptions {
+  readonly serverUrl: string;
+  readonly appKey: AppKey;
+  readonly onDisconnect?: (close: CloseInfo) => void;
+  readonly onReconnect?: (helloOk: ConnectResult) => void;
+  readonly handlers: AppCallbackHandlers<AppCallbackContext>;
 }
 ```
 
-Raised by compareProtocolVersion (and surfaced through the
-Effect channel of checkProtocolRange) when an input string
-carries a non-numeric or empty segment — e.g., SemVer pre-release
-suffixes like `2026.527.0-rc.1`, leading/trailing dots like
-`"2026..0"`, or non-digit characters like `"abc.def"`.
-
-A `Data.TaggedError` so the error flows through Effect's typed `E`
-channel cleanly (`Effect.catchTag("InvalidProtocolVersionError",
-...)` works in checkProtocolRange's caller) and matches the
-sibling ProtocolMismatchError convention in
-`network/methods.ts`.
-
-This is INPUT-VALIDATION for untrusted client-supplied version
-strings, not a wire-protocol error. The `network/connect` handler
-catches it and maps to `InvalidParamsError` (JSON-RPC -32602) so the
-client gets a typed malformed-input response, not a defect.
-
-### [`ListCursor`](./schema-primitives.ts#L195)
+### [`AppKey`](./credentials.ts#L29)
 
 _TypeAlias_
 
 ```ts
-export type ListCursor = BrandedString<"ListCursor">;
+export const AppKey = Schema.Redacted(AppKeyValue);
 ```
 
-### [`listCursorSchema`](./schema-primitives.ts#L204)
+### [`AppKey`](./credentials.ts#L29)
+
+_Variable_
+
+```ts
+export const AppKey = Schema.Redacted(AppKeyValue)
+```
+
+### [`CapabilityRequirement`](./requirements.ts#L34)
+
+_TypeAlias_
+
+```ts
+export type CapabilityRequirement =
+  | typeof ConversationInTask
+  | typeof ConversationSendAccess
+  | typeof TaskReadAccess
+  | typeof ContactPolicyAllowsReach;
+
+export type Requirement =
+  | PrincipalRequirement
+  | typeof AgentClaimed
+  | CapabilityRequirement;
+
+/**
+ * The middleware stack for a `requires` tuple, de-duplicated by middleware tag.
+ * The descriptor order is logical run order. `@effect/rpc` runs the last
+ * attached middleware first, so the engine attaches the reverse order.
+ */
+export const middlewaresForRequirements = (
+  requires: ReadonlyArray<Requirement>,
+): ReadonlyArray<Requirement> => {
+  const stack: Requirement[] = [];
+  const seen = new Set<Requirement>();
+  for (const requirement of requires) {
+    if (!seen.has(requirement)) {
+      seen.add(requirement);
+      stack.push(requirement);
+    }
+  }
+  return stack.reverse();
+};
+```
+
+### [`classifyCloseCause`](./close-info.ts#L39)
 
 _Function_
 
 ```ts
-export function listCursorSchema(): typeof ListCursorSchema
+export function classifyCloseCause(
+  cause: Cause.Cause<Socket.SocketError>,
+): CloseKind
 ```
 
-### [`ListLimitSchema`](./pagination.ts#L23)
+### [`ClientConnectError`](./client-lifecycle.ts#L112)
+
+_TypeAlias_
+
+```ts
+export type ClientConnectError<Rpcs extends ProtocolRpc> =
+```
+
+### [`ClientDefinitionError`](./client-lifecycle.ts#L101)
+
+_TypeAlias_
+
+```ts
+export type ClientDefinitionError<D extends ClientRpcDefinition> =
+```
+
+### [`ClientDefinitionPayload`](./client-lifecycle.ts#L97)
+
+_TypeAlias_
+
+```ts
+export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
+```
+
+### [`ClientDefinitionSuccess`](./client-lifecycle.ts#L99)
+
+_TypeAlias_
+
+```ts
+export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
+```
+
+### [`ClientLifecycleOptions`](./client-lifecycle.ts#L207)
+
+_Interface_
+
+```ts
+export interface ClientLifecycleOptions<
+  Rpcs extends ProtocolRpc,
+  Client extends TypedDispatchMap<Rpcs, RpcClientError>,
+> {
+  readonly serverUrl: string;
+  readonly connectTag: ConnectTag<Rpcs>;
+  readonly connectPayload: PayloadForTag<Rpcs, ConnectTag<Rpcs>>;
+  readonly openSession: (
+    options: ClientSocketSessionOptions<Rpcs>,
+  ) => Effect.Effect<
+    ClientConnection<Rpcs, Client>,
+    NotConnectedError,
+    Socket.WebSocketConstructor
+  >;
+  readonly callbackHandlers: () => ReverseCallbackHandlers;
+  readonly onDisconnect?: (close: CloseInfo) => void;
+  readonly onReconnect?: (helloOk: ConnectResult) => void;
+  readonly failConnectWhenClosed: boolean;
+}
+```
+
+### [`clientRpc`](./client-lifecycle.ts#L95)
+
+_Property_
+
+```ts
+  readonly clientRpc: Rpcs;
+};
+export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
+```
+
+### [`ClientRpcDefinition`](./client-lifecycle.ts#L94)
+
+_TypeAlias_
+
+```ts
+export type ClientRpcDefinition<Rpcs extends Rpc.Any = Rpc.Any> = {
+  readonly clientRpc: Rpcs;
+};
+```
+
+### [`CloseInfo`](./close-info.ts#L4)
+
+_Interface_
+
+```ts
+export interface CloseInfo {
+  readonly code: number;
+  readonly reason: string;
+}
+```
+
+### [`CloseKind`](./close-info.ts#L9)
+
+_TypeAlias_
+
+```ts
+export type CloseKind = Data.TaggedEnum<{
+  Clean: {
+    readonly code: number;
+    readonly reason: string;
+  };
+  EndOfStream: {};
+  HandshakeFailure: {
+    readonly underlying: "Open" | "OpenTimeout";
+  };
+  TransportFailure: {
+    readonly underlying: "Read" | "Write";
+  };
+  Unknown: {};
+}>;
+```
+
+### [`ConnectResult`](./client-lifecycle.ts#L106)
+
+_TypeAlias_
+
+```ts
+export type ConnectResult = ResultOf<typeof AgentConnect>;
+```
+
+### [`DEFAULT_ABNORMAL_CLOSE`](./close-info.ts#L30)
 
 _Variable_
 
 ```ts
-export const ListLimitSchema = Schema.optional(
-  Schema.Number.pipe(
-    Schema.int(),
-    Schema.greaterThanOrEqualTo(1),
-    Schema.lessThanOrEqualTo(MAX_PAGE_LIMIT),
-  ),
-)
+export const DEFAULT_ABNORMAL_CLOSE: CloseInfo =
 ```
 
-### [`MAX_PAGE_LIMIT`](./pagination.ts#L18)
+### [`DEFAULT_GRACEFUL_CLOSE`](./close-info.ts#L26)
 
 _Variable_
 
 ```ts
-export const MAX_PAGE_LIMIT = 200
+export const DEFAULT_GRACEFUL_CLOSE: CloseInfo =
 ```
 
-### [`notificationDefinitions`](./rpc-registry.ts#L44)
+### [`extractCloseInfo`](./close-info.ts#L77)
+
+_Function_
+
+```ts
+export function extractCloseInfo(
+  exit: Exit.Exit<void, Socket.SocketError>,
+): CloseInfo
+```
+
+### [`InviteCode`](./credentials.ts#L38)
+
+_TypeAlias_
+
+```ts
+export const InviteCode = Schema.Redacted(InviteCodeValue);
+```
+
+### [`InviteCode`](./credentials.ts#L38)
+
+_Variable_
+
+```ts
+export const InviteCode = Schema.Redacted(InviteCodeValue)
+```
+
+### [`makeServerProtocolLayer`](./server-lifecycle.ts#L109)
+
+_Function_
+
+```ts
+export const makeServerProtocolLayer = (options: {
+  readonly write: WireWrite;
+  readonly disconnects: Mailbox.Mailbox<number>;
+  readonly sinkReady: Deferred.Deferred<ChannelSink>;
+}): Layer.Layer<RpcServer.Protocol>
+```
+
+### [`middlewaresForRequirements`](./requirements.ts#L50)
+
+_Function_
+
+```ts
+export const middlewaresForRequirements = (
+  requires: ReadonlyArray<Requirement>,
+): ReadonlyArray<Requirement>
+```
+
+The middleware stack for a `requires` tuple, de-duplicated by middleware tag.
+The descriptor order is logical run order. `@effect/rpc` runs the last
+attached middleware first, so the engine attaches the reverse order.
+
+### [`MoltZapAgentClient`](./agent-client.ts#L45)
+
+_Class_
+
+```ts
+export class MoltZapAgentClient extends ProtocolClientLifecycle<
+  AgentCallableRpcs,
+  AgentClientDispatch
+> {
+  constructor(options: AgentClientOptions) {
+    super({
+      serverUrl: options.serverUrl,
+      connectTag: AgentConnect.name,
+      connectPayload: {
+        agentKey: options.agentKey,
+        minProtocol: PROTOCOL_VERSION,
+        maxProtocol: PROTOCOL_VERSION,
+      },
+      openSession: openProtocolAgentClientSocket,
+      callbackHandlers: makeAgentCallbackHandlers,
+      onDisconnect: options.onDisconnect,
+      onReconnect: options.onReconnect,
+      failConnectWhenClosed: false,
+    });
+  }
+
+  call<Tag extends AgentCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AgentCallableRpcs, Tag>,
+    opts?: RpcCallOptions,
+  ): Effect.Effect<
+    SuccessForTag<AgentCallableRpcs, Tag>,
+    ErrorForTag<AgentCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError
+  > {
+    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
+    return this.callEffect(tag, payload, timeoutMs);
+  }
+}
+```
+
+### [`MoltZapAppClient`](./app-client.ts#L78)
+
+_Class_
+
+```ts
+export class MoltZapAppClient extends ProtocolClientLifecycle<
+  AppCallableRpcs,
+  AppClientDispatch
+> {
+  constructor(options: AppClientOptions) {
+    super({
+      serverUrl: options.serverUrl,
+      connectTag: AppConnect.name,
+      connectPayload: {
+        appKey: options.appKey,
+        minProtocol: PROTOCOL_VERSION,
+        maxProtocol: PROTOCOL_VERSION,
+      },
+      openSession: openProtocolAppClientSocket,
+      callbackHandlers: () => makeAppCallbackHandlers(options.handlers),
+      onDisconnect: options.onDisconnect,
+      onReconnect: options.onReconnect,
+      failConnectWhenClosed: true,
+    });
+  }
+
+  call<Tag extends AppCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<AppCallableRpcs, Tag>,
+    opts?: RpcCallOptions,
+  ): Effect.Effect<
+    SuccessForTag<AppCallableRpcs, Tag>,
+    ErrorForTag<AppCallableRpcs, Tag> | NotConnectedError | RpcTimeoutError
+  > {
+    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
+    return this.callEffect(tag, payload, timeoutMs);
+  }
+}
+```
+
+### [`MoltZapServer`](./server-lifecycle.ts#L355)
+
+_Class_
+
+```ts
+export class MoltZapServer<
+  AuthRequires,
+  ConnectionProvides,
+  ConnectionRequires,
+  HookRequires = never,
+> {
+  constructor(
+    private readonly options: MoltZapServerOptions<
+      AuthRequires,
+      ConnectionProvides,
+      ConnectionRequires,
+      HookRequires
+    >,
+  ) {}
+
+  handleSocket(
+    socket: Socket.Socket,
+  ): Effect.Effect<
+    void,
+    Socket.SocketError,
+    ServerSocketRequirements<AuthRequires, ConnectionRequires, HookRequires>
+  > {
+    return Effect.scoped(this.openSocketSession(socket));
+  }
+
+  private openSocketSession(
+    socket: Socket.Socket,
+  ): Effect.Effect<
+    void,
+    Socket.SocketError,
+    ScopedServerSocketRequirements<
+      AuthRequires,
+      ConnectionRequires,
+      HookRequires
+    >
+  > {
+    return Effect.gen(this, function* () {
+      const accepted = yield* makeAcceptedSocketSession(socket);
+      const scope = yield* Effect.scope;
+      const originator = yield* buildReverseClient({
+        write: accepted.write,
+        scope,
+      });
+      const session = makeMoltZapServerSession(accepted, originator);
+
+      yield* this.options.onOpen(session);
+      yield* Effect.logInfo("WebSocket connected").pipe(
+        Effect.annotateLogs({ connId: session.connId }),
+      );
+
+      const disconnects = yield* Mailbox.make<number>();
+      const sinkReady = yield* Deferred.make<ChannelSink>();
+      yield* Layer.build(
+        makeSocketRpcLayer({
+          write: session.write,
+          disconnects,
+          sinkReady,
+          handlers: this.options.handlers,
+          authLayer: this.options.authLayer(session.connId),
+          connectionLayer: this.options.connectionLayer(session.connId),
+        }),
+      );
+      const serverSink = yield* Deferred.await(sinkReady);
+      const reader = runMuxReader(
+        socket,
+        { server: serverSink, client: session.originator.sink },
+        disconnects,
+        session.write,
+      );
+      yield* this.runSocketReader(reader, session);
+    }).pipe(Effect.withSpan("MoltZapServer.openSocketSession"));
+  }
+
+  private runSocketReader(
+    reader: Effect.Effect<
+      void,
+      Socket.SocketError,
+      ServerSocketRequirements<AuthRequires, ConnectionRequires, HookRequires>
+    >,
+    session: MoltZapServerSession,
+  ): Effect.Effect<
+    void,
+    Socket.SocketError,
+    ServerSocketRequirements<AuthRequires, ConnectionRequires, HookRequires>
+  > {
+    return Effect.raceFirst(
+      reader,
+      Deferred.await(session.closeRequested),
+    ).pipe(
+      Effect.onExit((exit) =>
+        Effect.gen(this, function* () {
+          yield* this.options.onClose(exit, session);
+          if (Exit.isFailure(exit)) {
+            yield* Effect.logWarning("WebSocket error").pipe(
+              Effect.annotateLogs({
+                connId: session.connId,
+                cause: Cause.pretty(exit.cause),
+              }),
+            );
+          }
+          yield* Effect.logInfo("WebSocket disconnected").pipe(
+            Effect.annotateLogs({ connId: session.connId }),
+          );
+        }),
+      ),
+    );
+  }
+}
+```
+
+### [`MoltZapServerOptions`](./server-lifecycle.ts#L64)
+
+_Interface_
+
+```ts
+export interface MoltZapServerOptions<
+  AuthRequires,
+  ConnectionProvides,
+  ConnectionRequires,
+  HookRequires = never,
+> {
+  readonly handlers: ServerHandlers;
+  readonly authLayer: (
+    connId: ConnectionId,
+  ) => Layer.Layer<ServerRequirementMiddleware, never, AuthRequires>;
+  readonly connectionLayer: (
+    connId: ConnectionId,
+  ) => Layer.Layer<ConnectionProvides, never, ConnectionRequires>;
+  readonly onOpen: (
+    session: MoltZapServerSession,
+  ) => Effect.Effect<void, never, HookRequires>;
+  readonly onClose: (
+    exit: Exit.Exit<void, Socket.SocketError>,
+    session: MoltZapServerSession,
+  ) => Effect.Effect<void, never, HookRequires>;
+}
+```
+
+### [`MoltZapServerSession`](./server-lifecycle.ts#L50)
+
+_Interface_
+
+```ts
+export interface MoltZapServerSession {
+  readonly connId: ConnectionId;
+  readonly write: ServerSocketWrite;
+  readonly closeRequested: Deferred.Deferred<void>;
+  readonly shutdown: Effect.Effect<void>;
+  readonly originator: ReverseClient;
+}
+```
+
+### [`MwStackFor`](./requirements.ts#L64)
+
+_TypeAlias_
+
+```ts
+export type MwStackFor<Requires extends ReadonlyArray<unknown>> = Extract<
+  Requires[number],
+  Requirement
+>;
+```
+
+### [`notificationDefinitions`](./rpc-method-groups.ts#L59)
 
 _Variable_
 
@@ -403,65 +656,453 @@ export const notificationDefinitions = [
 ] as const
 ```
 
-### [`PROTOCOL_VERSION`](./version.ts#L9)
+### [`NotificationRpcGroup`](./rpc-method-groups.ts#L128)
 
 _Variable_
 
 ```ts
-export const PROTOCOL_VERSION = "2026.529.0"
+export const NotificationRpcGroup = makeNotificationRpcGroup(
+  notificationDefinitions,
+)
 ```
 
-### [`serverRpcMethods`](./rpc-registry.ts#L37)
+Server→client reverse notification group. The server fires each notification
+as a fire-and-forget `void`-result RPC on a target connection's reverse
+channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
+each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
+machinery as the moderator callbacks folded into ReverseRpcGroup.
 
-_Variable_
-
-```ts
-export const serverRpcMethods = [
-  ...identityRpcMethods,
-  ...networkRpcMethods,
-  ...taskRpcMethods,
-  ...appRpcMethods,
-] as const
-```
-
-### [`stringEnum`](./schema-primitives.ts#L168)
+### [`openProtocolAgentClientSocket`](./client-lifecycle.ts#L564)
 
 _Function_
 
 ```ts
-export function stringEnum<T extends string[]>(
-  values: [...T],
-): Schema.Schema<T[number]>
+export const openProtocolAgentClientSocket = (
+  options: ClientSocketSessionOptions<AgentCallableRpcs>,
+): Effect.Effect<
+  ClientConnection<AgentCallableRpcs, AgentClientDispatch>,
+  NotConnectedError,
+  Socket.WebSocketConstructor
+>
 ```
 
-`Schema.Literal(...values)` typed as the union of the literal values. Use
-instead of `Schema.Union(Schema.Literal("a"), Schema.Literal("b"))` — same
-wire shape, simpler schema. `JSONSchema.make` renders a literal union as
-`{ "enum": [...] }` (string-valued), which the docs walker reads off
-`.enum`.
+### [`openProtocolAppClientSocket`](./client-lifecycle.ts#L576)
 
-### [`WireStringFormat`](./schema-primitives.ts#L21)
+_Function_
+
+```ts
+export const openProtocolAppClientSocket = (
+  options: ClientSocketSessionOptions<AppCallableRpcs>,
+): Effect.Effect<
+  ClientConnection<AppCallableRpcs, AppClientDispatch>,
+  NotConnectedError,
+  Socket.WebSocketConstructor
+>
+```
+
+### [`Principal`](./requirements.ts#L30)
 
 _TypeAlias_
 
 ```ts
-export type WireStringFormat = "uuid" | "uri" | "date-time";
+export type Principal =
+  | { readonly _tag: "AgentContext"; readonly agentId: AgentId }
+```
 
-/** Refinement options accepted by {@link brandedString}. */
-export interface BrandedStringOptions {
-  readonly minLength?: number;
-  readonly maxLength?: number;
-  readonly pattern?: string;
-  readonly format?: WireStringFormat;
-  readonly description?: string;
+The authenticated principal of the in-flight request. The server's
+`AgentContext` / `AppContext` structurally inhabit this union, so the server
+can return the live narrowed arm directly from the principal gate.
+
+### [`principalRequirementOf`](./requirements.ts#L69)
+
+_Function_
+
+```ts
+export const principalRequirementOf = (
+  requires: ReadonlyArray<Requirement>,
+): PrincipalRequirement | undefined
+```
+
+### [`PrincipalRequirementOf`](./requirements.ts#L80)
+
+_TypeAlias_
+
+```ts
+export type PrincipalRequirementOf<
+  Requires extends ReadonlyArray<Requirement>,
+> = Requires extends readonly [infer Head, ...ReadonlyArray<unknown>]
+```
+
+### [`ProtocolClientLifecycle`](./client-lifecycle.ts#L645)
+
+_Class_
+
+```ts
+export class ProtocolClientLifecycle<
+  Rpcs extends ProtocolRpc,
+  Client extends TypedDispatchMap<Rpcs, RpcClientError>,
+> {
+  private readonly stateRef: Ref.Ref<
+    Option.Option<ClientConnection<Rpcs, Client>>
+  >;
+  private readonly runtime: ManagedRuntime.ManagedRuntime<
+    Socket.WebSocketConstructor,
+    never
+  >;
+  private readonly subscribers: SubscriberRegistry;
+  private closed = false;
+  private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
+  private _helloOk: ConnectResult | null = null;
+
+  protected constructor(
+    private readonly options: ClientLifecycleOptions<Rpcs, Client>,
+  ) {
+    this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
+    this.stateRef = this.runtime.runSync(
+      Ref.make<Option.Option<ClientConnection<Rpcs, Client>>>(Option.none()),
+    );
+    this.subscribers = this.runtime.runSync(
+      makeNotificationSubscriberRegistry<
+        NotConnectedError,
+        AnyNotificationDefinition
+      >({
+        closeCause: makeNotConnectedError,
+        logPrefix: "subscriber",
+        spanName: "makeSubscriberRegistry",
+      }),
+    );
+  }
+
+  get helloOk(): ConnectResult | null {
+    return this._helloOk;
+  }
+
+  connect(): Effect.Effect<ConnectResult, ClientConnectError<Rpcs>> {
+    return Effect.suspend(() => {
+      if (this.closed && this.options.failConnectWhenClosed) {
+        return Effect.fail(makeNotConnectedError());
+      }
+      return this.connectEffect().pipe(
+        Effect.provide(NodeSocket.layerWebSocketConstructor),
+      );
+    });
+  }
+
+  subscribe<
+    D extends AnyNotificationDefinition,
+    R extends NotificationParamsOf<D>,
+  >(
+    definition: D,
+    refinement: (params: NotificationParamsOf<D>) => params is R,
+  ): Stream.Stream<R, NotConnectedError, never>;
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never>;
+  subscribe<D extends AnyNotificationDefinition>(
+    definition: D,
+    refinement?: (params: NotificationParamsOf<D>) => boolean,
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never> {
+    if (refinement === undefined) {
+      return notificationSubscribe(this.subscribers, definition);
+    }
+    return notificationSubscribe(this.subscribers, definition, refinement);
+  }
+
+  subscribeAll(
+    refinement?: (
+      definition: AnyNotificationDefinition,
+      params: NotificationParamsOf<AnyNotificationDefinition>,
+    ) => boolean,
+  ): Stream.Stream<
+    NotificationDelivery<AnyNotificationDefinition>,
+    NotConnectedError,
+    never
+  > {
+    if (refinement === undefined) {
+      return notificationSubscribeAll(this.subscribers);
+    }
+    const deliveryRefinement = (
+      delivery: NotificationDelivery<AnyNotificationDefinition>,
+    ): boolean => {
+      return refinement(delivery.definition, delivery.params);
+    };
+    return notificationSubscribeAll(this.subscribers, deliveryRefinement);
+  }
+
+  close(): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      if (this.closed) return;
+      const hasCompletedHandshake = this._helloOk !== null;
+      this.closed = true;
+      this._helloOk = null;
+      if (this.reconnectFiber !== null) {
+        const f = this.reconnectFiber;
+        this.reconnectFiber = null;
+        this.runtime.runFork(Fiber.interrupt(f));
+      }
+      const state = this.runtime.runSync(
+        Ref.getAndSet(this.stateRef, Option.none()),
+      );
+      const drainConnection = Option.isSome(state)
+        ? drainConnectionEffect({
+            write: state.value.write,
+            scope: state.value.scope,
+            hasCompletedHandshake,
+          })
+        : Effect.void;
+      this.runtime.runFork(
+        this.subscribers.closeAll.pipe(
+          Effect.zipRight(drainConnection),
+          Effect.ensuring(Effect.sync(() => this.runtime.dispose())),
+        ),
+      );
+    });
+```
+
+### [`RegistrationSecret`](./credentials.ts#L58)
+
+_TypeAlias_
+
+```ts
+export const RegistrationSecret = Schema.Redacted(RegistrationSecretValue);
+```
+
+### [`RegistrationSecret`](./credentials.ts#L58)
+
+_Variable_
+
+```ts
+export const RegistrationSecret = Schema.Redacted(RegistrationSecretValue)
+```
+
+### [`Requirement`](./requirements.ts#L40)
+
+_TypeAlias_
+
+```ts
+export type Requirement =
+  | PrincipalRequirement
+  | typeof AgentClaimed
+  | CapabilityRequirement;
+
+/**
+ * The middleware stack for a `requires` tuple, de-duplicated by middleware tag.
+ * The descriptor order is logical run order. `@effect/rpc` runs the last
+ * attached middleware first, so the engine attaches the reverse order.
+ */
+export const middlewaresForRequirements = (
+  requires: ReadonlyArray<Requirement>,
+): ReadonlyArray<Requirement> => {
+  const stack: Requirement[] = [];
+  const seen = new Set<Requirement>();
+  for (const requirement of requires) {
+    if (!seen.has(requirement)) {
+      seen.add(requirement);
+      stack.push(requirement);
+    }
+  }
+  return stack.reverse();
+};
+```
+
+### [`requiresClaimed`](./requirements.ts#L88)
+
+_Function_
+
+```ts
+export const requiresClaimed = (
+  requires: ReadonlyArray<Requirement>,
+): boolean
+```
+
+### [`ReverseCallbackError`](./server-lifecycle.ts#L185)
+
+_TypeAlias_
+
+```ts
+export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
+```
+
+### [`ReverseCallbackHandlers`](./client-lifecycle.ts#L254)
+
+_TypeAlias_
+
+```ts
+export type ReverseCallbackHandlers = {
+  readonly [D in ReverseCallbackDefinition as D["name"]]: Rpc.ToHandlerFn<
+    D["clientRpc"],
+    never
+  >;
+};
+```
+
+### [`ReverseCallbackPayload`](./server-lifecycle.ts#L181)
+
+_TypeAlias_
+
+```ts
+export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
+```
+
+### [`ReverseCallbackRequest`](./server-lifecycle.ts#L187)
+
+_TypeAlias_
+
+```ts
+export type ReverseCallbackRequest =
+  | {
+      readonly definition: typeof DispatchAuthorize;
+      readonly params: ReverseCallbackPayload<typeof DispatchAuthorize>;
+    }
+```
+
+### [`ReverseCallbackSuccess`](./server-lifecycle.ts#L183)
+
+_TypeAlias_
+
+```ts
+export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
+```
+
+### [`ReverseCallbackTag`](./server-lifecycle.ts#L177)
+
+_TypeAlias_
+
+```ts
+export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
+  D["clientRpc"]["_tag"],
+  ReverseTag
+>;
+```
+
+### [`ReverseCallError`](./server-lifecycle.ts#L173)
+
+_TypeAlias_
+
+```ts
+export type ReverseCallError = NotConnectedError | RpcTimeoutError;
+
+type ReverseRpcs = RpcGroup.Rpcs<typeof ReverseRpcGroup>;
+```
+
+### [`ReverseClient`](./server-lifecycle.ts#L259)
+
+_Interface_
+
+```ts
+export interface ReverseClient {
+  readonly call: <Tag extends ReverseTag>(
+    tag: Tag,
+    payload: PayloadForTag<ReverseRpcs, Tag>,
+  ) => Effect.Effect<
+    SuccessForTag<ReverseRpcs, Tag>,
+    ErrorForTag<ReverseRpcs, Tag> | ReverseCallError
+  >;
+  readonly callback: (
+    request: ReverseCallbackRequest,
+  ) => Effect.Effect<
+    ReverseCallbackRequestSuccess,
+    ReverseCallbackRequestError | ReverseCallError
+  >;
+  readonly notify: <D extends AnyNotificationDefinition>(
+    definition: D,
+    params: NotificationPayloadOf<D>,
+  ) => Effect.Effect<void, ReverseCallError>;
+  readonly sink: ChannelSink;
 }
 ```
 
-The three wire string formats.
+### [`ReverseRpcGroup`](./rpc-method-groups.ts#L143)
+
+_Variable_
+
+```ts
+export const ReverseRpcGroup = makeReverseRpcGroup(
+  appCallbackMethods,
+  notificationDefinitions,
+)
+```
+
+The full server→client reverse group: the moderator callbacks
+(`appCallbackMethods`) ∪ the notifications (NotificationRpcGroup),
+built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
+server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
+awaiting a verdict, fires notifications fork-and-forget); the agent + app
+clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent client
+only ever receives notifications (its handlers for the three callback methods
+are never invoked — an agent is not a moderator), but it serves the whole
+group so the s2c engine binds one handler map.
+
+### [`RPC_TIMEOUT_MS`](./client-lifecycle.ts#L80)
+
+_Variable_
+
+```ts
+export const RPC_TIMEOUT_MS = 30_000
+```
+
+### [`RpcCallOptions`](./client-lifecycle.ts#L90)
+
+_Interface_
+
+```ts
+export interface RpcCallOptions {
+  readonly timeoutMs?: number;
+}
+```
+
+### [`ServerEncryptionMasterSecret`](./credentials.ts#L61)
+
+_TypeAlias_
+
+```ts
+export const ServerEncryptionMasterSecret = Schema.Redacted(
+  ServerEncryptionMasterSecretValue,
+);
+```
+
+### [`ServerEncryptionMasterSecret`](./credentials.ts#L61)
+
+_Variable_
+
+```ts
+export const ServerEncryptionMasterSecret = Schema.Redacted(
+  ServerEncryptionMasterSecretValue,
+)
+```
+
+### [`serverInboundMethods`](./rpc-method-groups.ts#L51)
+
+_Variable_
+
+```ts
+export const serverInboundMethods = [
+  ...identityRpcMethods,
+  ...networkRpcMethods,
+  ...agentCallableTaskRpcMethods,
+  ...appOnlyCallableMethods,
+  ...agentCallableAppRpcMethods,
+] as const
+```
+
+### [`ServerSocketWrite`](./server-lifecycle.ts#L46)
+
+_TypeAlias_
+
+```ts
+export type ServerSocketWrite = (
+  raw: string,
+) => Effect.Effect<void, Socket.SocketError>;
+```
 
 ## Files
 
-- `pagination.ts`
-- `rpc-registry.ts`
-- `schema-primitives.ts`
-- `version.ts`
+- `agent-client.ts`
+- `app-client.ts`
+- `client-lifecycle.ts`
+- `close-info.ts`
+- `credentials.ts`
+- `requirements.ts`
+- `rpc-method-groups.ts`
+- `server-lifecycle.ts`

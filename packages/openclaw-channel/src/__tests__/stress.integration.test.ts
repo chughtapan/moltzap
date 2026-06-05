@@ -7,15 +7,20 @@ import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Data, Effect } from "effect";
 import { MoltZapAgentClient, type ServiceRpcError } from "@moltzap/client";
-import { stripWsPath } from "@moltzap/client/test";
+import { stripWsPath } from "@moltzap/client/test-utils";
 import { getLogs } from "../test-utils/container-core.js";
 import {
-  registerAndClaim,
+  registerTestAgent,
   extractTaskBinding,
   extractText,
   type TaskBinding,
 } from "./test-helpers.js";
-import type { AgentId, ConversationId, Message } from "@moltzap/protocol";
+import type {
+  AgentId,
+  AgentKey,
+  ConversationId,
+  Message,
+} from "@moltzap/protocol";
 import { agentId, waitForValue } from "@moltzap/protocol/testing";
 
 import {
@@ -26,7 +31,7 @@ import {
 } from "@moltzap/protocol";
 
 interface StressAgent {
-  readonly apiKey: string;
+  readonly apiKey: AgentKey;
 }
 
 interface StressClients {
@@ -119,7 +124,7 @@ const registerStressAgents = Effect.all(
 
 function registerAgent(name: string) {
   return Effect.tryPromise({
-    try: () => registerAndClaim(name),
+    try: () => registerTestAgent(name),
     catch: (cause) =>
       new StressTestError({
         message: `Registration failed for ${name}`,
@@ -146,7 +151,7 @@ function stressClients(
   });
 }
 
-function stressClient(agentKey: string) {
+function stressClient(agentKey: AgentKey) {
   return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,

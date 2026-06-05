@@ -278,6 +278,7 @@ function buildServerEnv(
     NODE_ENV: "production",
     DATABASE_URL: `postgresql://test:test@${pgHost}:${pgPort}/${dbName}`,
     ENCRYPTION_MASTER_SECRET: masterSecret,
+    MOLTZAP_ADMIN_USER_ID: "00000000-0000-4000-8000-000000000001",
     MOLTZAP_DEV_MODE: "true",
     PORT: String(port),
     FIREBASE_SERVICE_ACCOUNT_KEY: generateTestFirebaseKey(),
@@ -285,7 +286,6 @@ function buildServerEnv(
       "BHKL-uNCIASscCmYZERbVn--qT9RVp6mt90rIrLwrXSAxuCTSbamzi7JlQulOQ5TTmAzMgYLcsqzEM-zFLSFbdE",
     VAPID_PRIVATE_KEY: "Z9kV3uuqbO7rr_39L2dFA-FKgVpeLv6gS6W_5_cylMk",
     VAPID_SUBJECT: "mailto:test@example.com",
-    CLAIM_BASE_URL: `http://localhost:${port}`,
   };
 }
 

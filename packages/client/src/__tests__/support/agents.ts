@@ -3,44 +3,38 @@ import {
   DEFAULT_APP_ID,
   MessagesSend,
   TaskRequest,
+  type AgentKey,
   type AgentId,
   type ConversationId,
   type TaskId,
 } from "@moltzap/protocol";
-import { agentId as brandAgentId } from "@moltzap/protocol/testing";
+import { createTestAgent } from "@moltzap/server-core/test-utils";
 import { MoltZapAgentClient } from "@moltzap/client";
-import {
-  registerAgent as registerAgentHttp,
-  stripWsPath,
-} from "@moltzap/client/test";
+import { stripWsPath } from "../../test-utils/index.js";
 import { MoltZapService } from "../../service.js";
 import { MESSAGE_SETTLE_MS } from "./constants.js";
 import { coreBaseUrl, coreWsUrl } from "./server.js";
 
 export function registerAgent(name: string) {
   return Effect.gen(function* () {
-    const reg = yield* registerAgentHttp(coreBaseUrl(), name);
+    const reg = yield* createTestAgent(name);
     const client = new MoltZapAgentClient({
       serverUrl: stripWsPath(coreWsUrl()),
       agentKey: reg.apiKey,
     });
-    return { ...reg, agentId: brandAgentId(reg.agentId), client };
+    return { ...reg, client };
   }).pipe(Effect.withSpan("registerAgent"));
 }
 
 export function connectService(
-  apiKey: string,
-  agentId?: string,
+  apiKey: AgentKey,
+  agentId: AgentId,
 ): Effect.Effect<MoltZapService, Error> {
   return Effect.gen(function* () {
-    // The empty `HelloOk` carries no identity, so the service learns
-    // `ownAgentId` from construction, not the handshake. Pass the registered id
-    // so the local-service surface (`ping`/`status`, the per-agent socket path)
-    // reports it.
-    const service = new MoltZapService({
-      serverUrl: coreBaseUrl(),
-      agentKey: apiKey,
+    const service = MoltZapService.fromConfig({
       agentId,
+      agentKey: apiKey,
+      serverUrl: coreBaseUrl(),
     });
     yield* service.connect();
     return service;

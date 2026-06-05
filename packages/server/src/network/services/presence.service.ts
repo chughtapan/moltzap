@@ -4,7 +4,7 @@ import { Effect, Option, Ref } from "effect";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import type { ConnectionId } from "@moltzap/protocol";
 
 import type {
   ConnectionManager,
@@ -169,9 +169,7 @@ function auditStaleConnId(
     leaseId: cb.leaseId,
     kind: cb.kind,
     staleConnId: cb.recipientConnId,
-    currentConnId: firstLive.done
-      ? cb.recipientConnId
-      : (firstLive.value as ConnectionId),
+    currentConnId: firstLive.done ? cb.recipientConnId : firstLive.value,
   };
 }
 

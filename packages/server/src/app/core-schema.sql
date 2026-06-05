@@ -5,7 +5,7 @@
 --   3. Integration test DB setup
 
 -- Enum types
-CREATE TYPE agent_status AS ENUM ('pending_claim', 'active', 'suspended');
+CREATE TYPE agent_status AS ENUM ('active', 'suspended');
 CREATE TYPE encryption_key_status AS ENUM ('active', 'deprecated', 'revoked');
 
 -- Shared trigger for updated_at columns
@@ -24,15 +24,14 @@ $$;
 -- Auth: Key ID + Secret format (moltzap_agent_<keyId>_<secret>)
 CREATE TABLE agents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id UUID,
+  owner_user_id UUID NOT NULL,
   name TEXT UNIQUE NOT NULL
     CHECK (name ~ '^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$'),
   display_name TEXT,
   description TEXT,
   api_key_id CHAR(16) NOT NULL,
   api_key_secret_hash CHAR(64) NOT NULL,
-  claim_token TEXT UNIQUE NOT NULL,
-  status agent_status NOT NULL DEFAULT 'pending_claim',
+  status agent_status NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

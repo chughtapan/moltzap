@@ -18,6 +18,7 @@ import {
 } from "@effect/platform";
 import { Duration, Effect, Schema } from "effect";
 import type { ContactService } from "./contact-policy.js";
+import type { UserId } from "@moltzap/protocol/identity";
 
 const ContactsCheckResponse = Schema.Struct({ inContact: Schema.Boolean });
 const EVENT_NAME = "contacts.check";
@@ -30,8 +31,8 @@ export class WebhookContactService implements ContactService {
   ) {}
 
   areInContact(
-    userIdA: string,
-    userIdB: string,
+    userIdA: UserId,
+    userIdB: UserId,
   ): Effect.Effect<boolean, never> {
     return this.httpClient
       .execute(

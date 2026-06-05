@@ -1,37 +1,21 @@
 import { Effect } from "effect";
 import {
-  LocalServiceCommands,
-  request as socketRpcRequest,
-  requestLocalService,
-  sendSocketRequest,
+  LocalDaemonCommands,
+  requestDaemonCommand,
 } from "../../cli/socket-client.js";
-import type {
-  HistoryRequestInput,
-  HistoryResponse,
-} from "../../runtime/local-history.js";
+import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { HistoryRequest, HistoryResponse } from "../../local-history.js";
 import { SOCKET_HISTORY_LIMIT } from "./constants.js";
 
 export type SocketHistoryResponse = HistoryResponse;
 
-export const socketRequest = (
-  method: string,
-  params?: Record<string, unknown>,
-  socketPath?: string,
-) => {
-  const resolvedParams = params ?? {};
-  if (socketPath === undefined) {
-    return sendSocketRequest(method, resolvedParams);
-  }
-  return sendSocketRequest(method, resolvedParams, socketPath);
-};
-
 export const socketHistory = (
-  taskId: string,
-  conversationId: string,
+  taskId: TaskId,
+  conversationId: ConversationId,
   sessionKey?: string,
   limit = SOCKET_HISTORY_LIMIT,
 ): Effect.Effect<SocketHistoryResponse, unknown> => {
-  const params: HistoryRequestInput =
+  const params: HistoryRequest =
     sessionKey === undefined
       ? {
           taskId,
@@ -44,9 +28,9 @@ export const socketHistory = (
           sessionKey,
           limit,
         };
-  return requestLocalService(LocalServiceCommands.History, params).pipe(
+  return requestDaemonCommand(LocalDaemonCommands.History, params).pipe(
     Effect.withSpan("socketHistory"),
   );
 };
 
-export { LocalServiceCommands, requestLocalService, socketRpcRequest };
+export { LocalDaemonCommands, requestDaemonCommand };

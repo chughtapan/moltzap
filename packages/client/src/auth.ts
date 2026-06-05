@@ -4,35 +4,28 @@ import {
   HttpClientResponse,
 } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
-import { Data, Effect, Either } from "effect";
+import { Data, Effect, Either, Schema } from "effect";
+import { Register } from "@moltzap/protocol/identity";
+import type { ResultOf } from "@moltzap/protocol/transport";
 
 /**
  * HTTP response from the agent registration endpoints
- * (`/api/v1/auth/register` and `/api/v1/admin/register-agent`).
+ * (`/api/v1/auth/register`).
  */
-export interface RegisterResponse {
-  agentId: string;
-  apiKey: string;
-  claimUrl: string;
-  claimToken: string;
-}
+export type RegisterResponse = ResultOf<typeof Register>;
 
 /** Options for {@link registerAgent}. */
 export interface RegisterAgentOptions {
   description?: string;
   inviteCode?: string;
-
-  /**
-   * When set, registers via the secret-gated admin endpoint and pre-claims
-   * the agent for this user. See {@link registerAgent}.
-   */
-  ownerUserId?: string;
 }
 
 const PUBLIC_PATH = "/api/v1/auth/register";
-const ADMIN_PATH = "/api/v1/admin/register-agent";
 const HTTP_SUCCESS_STATUS_MIN = 200;
 const HTTP_REDIRECT_STATUS_MIN = 300;
+const decodeRegisterBody = Schema.decodeUnknown(Register.paramsSchema);
+const encodeRegisterBody = Schema.encode(Register.paramsSchema);
+const decodeRegisterResult = Schema.decodeUnknown(Register.resultSchema);
 
 export class RegisterAgentError extends Data.TaggedError("RegisterAgentError")<{
   readonly message: string;
@@ -49,9 +42,8 @@ const registerAgentError = (
  * endpoints — the WebSocket dance is `MoltZapAgentClient`'s job; this just
  * returns the credentials the caller feeds it as `agentKey` at construction.
  *
- * Routes to `/api/v1/admin/register-agent` when `ownerUserId` is provided
- * (admin path pre-claims the agent for the given owner); otherwise routes
- * to the public `/api/v1/auth/register` endpoint.
+ * Uses the public `/api/v1/auth/register` endpoint. Server boot policy owns
+ * the registered agent immediately and returns the credential once.
  */
 export const registerAgent = (
   baseUrl: string,
@@ -82,8 +74,8 @@ function registerAgentRequest(
 ): Effect.Effect<RegisterResponse, RegisterAgentError, HttpClient.HttpClient> {
   return Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
-    const body = registerAgentBody(name, opts);
-    const request = registerHttpRequest(baseUrl, registerPath(opts), body);
+    const body = yield* registerAgentBody(name, opts);
+    const request = registerHttpRequest(baseUrl, PUBLIC_PATH, body);
     const response = yield* client
       .execute(request)
       .pipe(
@@ -100,28 +92,22 @@ function registerAgentRequest(
 function registerAgentBody(
   name: string,
   opts: RegisterAgentOptions,
-): Record<string, string> {
-  return {
+): Effect.Effect<unknown, RegisterAgentError> {
+  return decodeRegisterBody({
     name,
     ...(opts?.description !== undefined
       ? { description: opts.description }
       : {}),
     ...(opts?.inviteCode !== undefined ? { inviteCode: opts.inviteCode } : {}),
-    ...(opts?.ownerUserId !== undefined
-      ? { ownerUserId: opts.ownerUserId }
-      : {}),
-  };
+  }).pipe(
+    Effect.flatMap(encodeRegisterBody),
+    Effect.mapError((cause) =>
+      registerAgentError("Register request body decode failed", cause),
+    ),
+  );
 }
 
-function registerPath(opts: RegisterAgentOptions): string {
-  return opts?.ownerUserId ? ADMIN_PATH : PUBLIC_PATH;
-}
-
-function registerHttpRequest(
-  baseUrl: string,
-  path: string,
-  body: Record<string, string>,
-) {
+function registerHttpRequest(baseUrl: string, path: string, body: unknown) {
   return HttpClientRequest.post(`${baseUrl}${path}`).pipe(
     HttpClientRequest.setHeader("Content-Type", "application/json"),
     HttpClientRequest.bodyUnsafeJson(body),
@@ -171,7 +157,12 @@ function decodeRegisterResponse(
           Effect.fail(
             registerAgentError("Register response decode failed", cause),
           ),
-        onRight: (value) => Effect.succeed(value as RegisterResponse),
+        onRight: (value) =>
+          decodeRegisterResult(value).pipe(
+            Effect.mapError((cause) =>
+              registerAgentError("Register response decode failed", cause),
+            ),
+          ),
       }),
     ),
   );

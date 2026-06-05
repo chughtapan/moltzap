@@ -13,6 +13,7 @@ export {
   DropViewBuilder,
   InsertQueryBuilder,
   Kysely,
+  sql,
   UpdateQueryBuilder,
   WheneableMergeQueryBuilder,
 } from "kysely";

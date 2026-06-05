@@ -2,8 +2,9 @@ import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
-import { registerAgent, type RegisterResponse } from "@moltzap/client";
-import { Data, Effect } from "effect";
+import { type RegisterResponse } from "@moltzap/client";
+import { registerStandaloneAgentPair } from "@moltzap/client/test-utils";
+import { Data, Effect, Redacted } from "effect";
 import type { GlobalSetupContext } from "vitest/node";
 import {
   startEchoServer,
@@ -13,6 +14,7 @@ import { echoModelConfig } from "./src/__tests__/openclaw-container.js";
 import {
   isImageAvailable,
   buildOpenClawConfig,
+  normalizeContainerServerUrl,
   startRawContainer,
   waitForReady,
   stopContainer,
@@ -57,13 +59,11 @@ function setupIntegrationTests(provide: GlobalSetupContext["provide"]) {
     const server = yield* startServer(prerequisites.pg);
     spawnedServer = server;
 
-    const [agentA, agentB] = yield* Effect.all(
-      [
-        registerAgent(server.baseUrl, "container-agent-a"),
-        registerAgent(server.baseUrl, "container-agent-b"),
-      ],
-      { concurrency: 2 },
-    );
+    const { first: agentA, second: agentB } =
+      yield* registerStandaloneAgentPair(server.baseUrl, {
+        first: "container-agent-a",
+        second: "container-agent-b",
+      });
 
     yield* startOpenClawContainers(prerequisites.echo, server, agentA, agentB);
     provideIntegrationValues(provide, server, agentA, agentB);
@@ -114,6 +114,34 @@ function startServer(
   });
 }
 
+function startSharedOpenClawContainer(input: {
+  readonly model: ReturnType<typeof echoModelConfig>;
+  readonly server: SpawnedServer;
+  readonly slot: "shared-a" | "shared-b";
+  readonly agentName: string;
+  readonly agent: RegisterResponse;
+  readonly portRange?: readonly [number, number];
+}) {
+  return startRawContainer(
+    buildOpenClawConfig({
+      model: input.model,
+      agentName: input.agentName,
+    }),
+    {
+      name: input.slot,
+      agentName: input.agentName,
+      moltzapProfile: {
+        agentId: input.agent.agentId,
+        apiKey: input.agent.apiKey,
+      },
+      envVars: {
+        MOLTZAP_SERVER_URL: normalizeContainerServerUrl(input.server.baseUrl),
+      },
+      ...(input.portRange !== undefined ? { portRange: input.portRange } : {}),
+    },
+  );
+}
+
 function startOpenClawContainers(
   echo: EchoServer,
   server: SpawnedServer,
@@ -125,28 +153,21 @@ function startOpenClawContainers(
   return Effect.gen(function* () {
     const [firstContainer, secondContainer] = yield* Effect.all(
       [
-        startRawContainer(
-          buildOpenClawConfig({
-            model,
-            serverUrl: server.baseUrl,
-            agentApiKey: agentA.apiKey,
-            agentName: "container-agent-a",
-          }),
-          { name: "shared-a", agentName: "container-agent-a" },
-        ),
-        startRawContainer(
-          buildOpenClawConfig({
-            model,
-            serverUrl: server.baseUrl,
-            agentApiKey: agentB.apiKey,
-            agentName: "container-agent-b",
-          }),
-          {
-            name: "shared-b",
-            agentName: "container-agent-b",
-            portRange: [19500, 19999],
-          },
-        ),
+        startSharedOpenClawContainer({
+          model,
+          server,
+          slot: "shared-a",
+          agentName: "container-agent-a",
+          agent: agentA,
+        }),
+        startSharedOpenClawContainer({
+          model,
+          server,
+          slot: "shared-b",
+          agentName: "container-agent-b",
+          agent: agentB,
+          portRange: [19500, 19999],
+        }),
       ],
       { concurrency: 2 },
     );
@@ -179,10 +200,10 @@ function provideIntegrationValues(
   provide("wsUrl", server.wsUrl);
   provide("containerAId", containerA?.containerId ?? EMPTY_CONTAINER_ID);
   provide("containerAAgentId", agentA.agentId);
-  provide("containerAApiKey", agentA.apiKey);
+  provide("containerAApiKey", Redacted.value(agentA.apiKey));
   provide("containerBId", containerB?.containerId ?? EMPTY_CONTAINER_ID);
   provide("containerBAgentId", agentB.agentId);
-  provide("containerBApiKey", agentB.apiKey);
+  provide("containerBApiKey", Redacted.value(agentB.apiKey));
 }
 
 function teardownIntegrationTests() {

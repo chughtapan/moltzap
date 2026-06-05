@@ -3,7 +3,7 @@ import {
   dateTimeStringSchema,
   brandedId,
   formatString,
-} from "../schema-primitives.js";
+} from "../transport/wire-string.js";
 import { AgentId } from "../identity/agents.js";
 
 const DateTimeString = dateTimeStringSchema();

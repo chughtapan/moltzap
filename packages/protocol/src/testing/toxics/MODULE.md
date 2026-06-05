@@ -33,7 +33,7 @@ _Variable_
 export const defaultToxicProfile:
 ```
 
-### [`makeToxiproxyClient`](./client.ts#L231)
+### [`makeToxiproxyClient`](./client.ts#L255)
 
 _Function_
 
@@ -59,7 +59,7 @@ export class ToxicControlError extends Data.TaggedError(
 
 Toxiproxy HTTP API returned a non-2xx, or the control endpoint is down.
 
-### [`ToxicHandle`](./client.ts#L36)
+### [`ToxicHandle`](./client.ts#L60)
 
 _Interface_
 
@@ -109,7 +109,7 @@ _TypeAlias_
 export type ToxicTag = (typeof allToxicTags)[number];
 ```
 
-### [`ToxiproxyClient`](./client.ts#L57)
+### [`ToxiproxyClient`](./client.ts#L81)
 
 _Interface_
 
@@ -133,10 +133,28 @@ _Interface_
 export interface ToxiproxyConfig {
   /** Control-plane URL, e.g. `http://localhost:8474`. */
   readonly apiUrl: string;
+  readonly network?: ToxiproxyNetworkConfig;
 }
 ```
 
-### [`ToxiproxyProxy`](./client.ts#L46)
+### [`ToxiproxyNetworkConfig`](./client.ts#L31)
+
+_Interface_
+
+```ts
+export interface ToxiproxyNetworkConfig {
+  /** Hostname Toxiproxy should use when dialing the real server upstream. */
+  readonly upstreamHost?: string;
+  /** Address Toxiproxy should bind inside its own process/container. */
+  readonly listenHost?: string;
+  /** Hostname conformance clients should use when dialing a Toxiproxy listener. */
+  readonly connectHost?: string;
+  /** Fixed listener port range for Docker bridge mode. Omit for `:0`. */
+  readonly listenPortRange?: ToxiproxyListenPortRange;
+}
+```
+
+### [`ToxiproxyProxy`](./client.ts#L70)
 
 _Interface_
 

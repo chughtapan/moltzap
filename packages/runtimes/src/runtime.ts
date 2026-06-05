@@ -1,17 +1,15 @@
 import { Brand, type Effect } from "effect";
+import type { AgentId, AgentKey } from "@moltzap/protocol";
 import type { SpawnFailed } from "./errors.js";
 
 // Branded types for Runtime inputs.
 
 export type AgentName = string & Brand.Brand<"AgentName">;
-export type ApiKey = string & Brand.Brand<"ApiKey">;
 export type ServerUrl = string & Brand.Brand<"ServerUrl">;
 const AgentNameBrand = Brand.nominal<AgentName>();
-const ApiKeyBrand = Brand.nominal<ApiKey>();
 const ServerUrlBrand = Brand.nominal<ServerUrl>();
 
 export const AgentName = (value: string): AgentName => AgentNameBrand(value);
-export const ApiKey = (value: string): ApiKey => ApiKeyBrand(value);
 export const ServerUrl = (value: string): ServerUrl => ServerUrlBrand(value);
 
 export interface WorkspaceFile {
@@ -34,15 +32,15 @@ export interface RuntimeServerHandle {
    * presence-event subscription on the server's WebSocket API.
    */
   awaitAgentReady(
-    agentId: string,
+    agentId: AgentId,
     timeoutMs: number,
   ): Effect.Effect<ReadyOutcome, never, never>;
 }
 
 export interface SpawnInput {
   readonly agentName: AgentName;
-  readonly apiKey: ApiKey;
-  readonly agentId: string;
+  readonly apiKey: AgentKey;
+  readonly agentId: AgentId;
   readonly serverUrl: ServerUrl;
   readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
   readonly modelId?: string;

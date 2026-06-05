@@ -4,17 +4,19 @@
  *
  * This property asserts the weaker **basic-delivery-landing** invariant:
  * N messages sent to a live conversation land in every currently-
- * subscribed participant's capture buffer. The full offline-replay
+ * subscribed participant's notification buffer. The full offline-replay
  * assertion is not asserted because the server does not buffer events
- * for offline subscribers — after reconnect, the participant's capture
+ * for offline subscribers — after reconnect, the participant's notification
  * buffer holds zero of the N messages sent during the offline window.
- * That is a server-side gap, not a TestClient gap: TestClient can
+ * That is a server-side gap, not a client-driver gap: agent clients can
  * re-open with the same apiKey/agentId via `Effect.scoped`.
  */
 import { Effect } from "effect";
-import { MessagesSend } from "../../../task/index.js";
-import { inboundNotificationMethod } from "../_shared/frame-mutator.js";
-import type { CapturedFrame } from "../_shared/captures.js";
+import {
+  MessageReceivedNotificationDefinition,
+  MessagesSend,
+} from "../../../task/index.js";
+import type { NotificationDelivery } from "../../../transport/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,
@@ -34,7 +36,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
     ctx,
     DELIVERY_CATEGORY,
     PROPERTY,
-    "every messages/send lands in a live participant's capture buffer (basic-delivery-landing; offline-replay is a server-side gap)",
+    "every messages/send lands in a live participant's notification buffer (basic-delivery-landing; offline-replay is a server-side gap)",
     runStoreAndReplay(ctx).pipe(Effect.withSpan("registerStoreAndReplay")),
   );
 }
@@ -52,7 +54,7 @@ function runStoreAndReplay(ctx: ConformanceRunContext) {
       const sent = 3;
       yield* sendReplayMessages(fixture, sent);
       yield* Effect.sleep("350 millis");
-      const snap = yield* participant.client.snapshot;
+      const snap = yield* participant.notifications.snapshot;
       yield* assertDeliveredCount(snap, sent);
     }),
   );
@@ -83,10 +85,10 @@ function sendReplayMessages(fixture: StoreFixture, sent: number) {
 }
 
 function assertDeliveredCount(
-  snap: ReadonlyArray<CapturedFrame>,
+  snap: ReadonlyArray<NotificationDelivery>,
   sent: number,
 ) {
-  const delivered = snap.filter(isInboundMessageNotification).length;
+  const delivered = snap.filter(isMessageNotification).length;
   return delivered >= sent
     ? Effect.void
     : Effect.fail(
@@ -98,8 +100,6 @@ function assertDeliveredCount(
       );
 }
 
-function isInboundMessageNotification(frame: CapturedFrame): boolean {
-  if (frame.kind !== "inbound" || frame.frame === null) return false;
-  const method = inboundNotificationMethod(frame.frame);
-  return method !== null && method.includes("message");
+function isMessageNotification(frame: NotificationDelivery): boolean {
+  return frame.definition === MessageReceivedNotificationDefinition;
 }

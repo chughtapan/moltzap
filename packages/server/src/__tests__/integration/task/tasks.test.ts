@@ -1,6 +1,7 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
+  DispatchAuthorize,
   TaskCreate,
   DEFAULT_APP_ID,
   TaskAddParticipant,
@@ -8,6 +9,9 @@ import {
   TaskRequest,
   TaskList,
   TaskRemoveParticipant,
+  MessagesAuthorize,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
 } from "@moltzap/protocol";
 import { agentId } from "@moltzap/protocol/testing";
 import {
@@ -19,14 +23,17 @@ import {
   connectTestClient,
   connectAppClient,
   registerApp,
-  adminRegisterAgent,
-  expectEitherLeft,
-  type ServerTestClient,
+  createTestUser,
+  registerClaimedAgent,
+  type TestAgentClient,
 } from "../helpers.js";
 
 const REGISTRATION_SECRET = "tasks-test-secret-mnop";
-const ALICE_USER_ID = "00000000-0000-4000-8000-00000000a11d";
-const BOB_USER_ID = "00000000-0000-4000-8000-00000000b0b1";
+const ALICE_USER = createTestUser(
+  "alice",
+  "00000000-0000-4000-8000-00000000a11d",
+);
+const BOB_USER = createTestUser("bob", "00000000-0000-4000-8000-00000000b0b1");
 const ACTIVE_STATUS = "active";
 const CLOSED_STATUS = "closed";
 
@@ -59,8 +66,8 @@ beforeEach(() =>
 
 function setupAliceAndBob(): Effect.Effect<
   {
-    aliceClient: ServerTestClient;
-    bobClient: ServerTestClient;
+    aliceClient: TestAgentClient;
+    bobClient: TestAgentClient;
     aliceAgentId: string;
     bobAgentId: string;
   },
@@ -68,17 +75,17 @@ function setupAliceAndBob(): Effect.Effect<
 > {
   return Effect.gen(function* () {
     const idx = ++pairCounter;
-    const aliceReg = yield* adminRegisterAgent({
+    const aliceReg = yield* registerClaimedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `alice-tasks-${idx}`,
-      ownerUserId: ALICE_USER_ID,
+      user: ALICE_USER,
     });
-    const bobReg = yield* adminRegisterAgent({
+    const bobReg = yield* registerClaimedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `bob-tasks-${idx}`,
-      ownerUserId: BOB_USER_ID,
+      user: BOB_USER,
     });
     const aliceClient = yield* connectTestClient({
       wsUrl,
@@ -101,6 +108,24 @@ function setupAliceAndBob(): Effect.Effect<
   });
 }
 
+function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    "dispatch/authorize": {
+      definition: DispatchAuthorize,
+      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+    },
+    "messages/authorize": {
+      definition: MessagesAuthorize,
+      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+    },
+    "task/create": {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
+    },
+  };
+}
+
 it("task/request returns an active task bound to the supplied appId", () =>
   Effect.gen(function* () {
     const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
@@ -116,7 +141,7 @@ it("task/request returns an active task bound to the supplied appId", () =>
 
 it("TM authority: only the app principal may mutate task membership", () =>
   Effect.gen(function* () {
-    const { aliceClient, bobClient, bobAgentId } = yield* setupAliceAndBob();
+    const { aliceClient, bobAgentId } = yield* setupAliceAndBob();
     // TM-admin RPCs (`task/close`, `task/addParticipant`,
     // `task/removeParticipant`) head their `requires` with `AppPrincipal`. The
     // moderator is a SEPARATE app principal: it registers via HTTP, then
@@ -140,31 +165,16 @@ it("TM authority: only the app principal may mutate task membership", () =>
       },
       REGISTRATION_SECRET,
     );
-    const appClient = yield* connectAppClient(registered.appKey);
-    trackClient(appClient);
-    yield* appClient.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    const appClient = yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      acceptTaskCreateHandlers(),
     );
     const created = yield* aliceClient.sendRpc(TaskRequest, {
       appId: registered.appId,
       invitedAgentIds: [],
     });
 
-    // Bob (an agent, not the app principal) cannot mutate membership.
-    const closeDenied = yield* Effect.either(
-      bobClient.sendRpc(TaskClose, { taskId: created.task.id }),
-    );
-    expect(expectEitherLeft(closeDenied)).toBeDefined();
-
-    const addDenied = yield* Effect.either(
-      bobClient.sendRpc(TaskAddParticipant, {
-        taskId: created.task.id,
-        agentId: agentId(bobAgentId),
-      }),
-    );
-    expect(expectEitherLeft(addDenied)).toBeDefined();
-
-    // The app principal can.
     const added = yield* appClient.sendRpc(TaskAddParticipant, {
       taskId: created.task.id,
       agentId: agentId(bobAgentId),

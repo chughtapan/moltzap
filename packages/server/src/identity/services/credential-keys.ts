@@ -6,6 +6,8 @@
  * `app-auth.service.ts` imports the app-key half for the App principal.
  */
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
+import { Redacted, Schema } from "effect";
+import { AgentKey, AppKey } from "@moltzap/protocol/credentials";
 
 /**
  * Stable string prefix on every agent API key. Encoded once here;
@@ -13,21 +15,25 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
  * (`scripts/generate-constants-snippets.ts`) reads this literal via
  * the TS compiler API so doc copy stays in lockstep.
  */
-export const API_KEY_PREFIX = "moltzap_agent_";
+const API_KEY_PREFIX = "moltzap_agent_";
 /** Stable string prefix on every app key. Sibling of `API_KEY_PREFIX`. */
-export const APP_KEY_PREFIX = "moltzap_app_";
+const APP_KEY_PREFIX = "moltzap_app_";
 const KEY_ID_BYTES = 8;
 const SECRET_BYTES = 24;
 const HEX_CHARS_PER_BYTE = 2;
-const CLAIM_TOKEN_BYTES = 16;
 
 /** Generate a Key ID + Secret API key with its derived storage values. */
 export function generateApiKey(): {
-  apiKey: string;
+  apiKey: AgentKey;
   keyId: string;
   secretHash: string;
 } {
-  return generateKeyWithPrefix(API_KEY_PREFIX);
+  const { apiKey, keyId, secretHash } = generateKeyWithPrefix(API_KEY_PREFIX);
+  return {
+    apiKey: Schema.decodeUnknownSync(AgentKey)(apiKey),
+    keyId,
+    secretHash,
+  };
 }
 
 /**
@@ -36,12 +42,16 @@ export function generateApiKey(): {
  * Plaintext key is returned once; only `keyId` + `secretHash` persist.
  */
 export function generateAppKey(): {
-  appKey: string;
+  appKey: AppKey;
   keyId: string;
   secretHash: string;
 } {
   const { apiKey, keyId, secretHash } = generateKeyWithPrefix(APP_KEY_PREFIX);
-  return { appKey: apiKey, keyId, secretHash };
+  return {
+    appKey: Schema.decodeUnknownSync(AppKey)(apiKey),
+    keyId,
+    secretHash,
+  };
 }
 
 function generateKeyWithPrefix(prefix: string): {
@@ -57,16 +67,16 @@ function generateKeyWithPrefix(prefix: string): {
 
 /** Extract keyId and secret from a full API key string. */
 export function parseApiKey(
-  key: string,
+  key: AgentKey,
 ): { keyId: string; secret: string } | null {
-  return parseKeyWithPrefix(key, API_KEY_PREFIX);
+  return parseKeyWithPrefix(Redacted.value(key), API_KEY_PREFIX);
 }
 
 /** Extract keyId and secret from a full app key string. */
 export function parseAppKey(
-  key: string,
+  key: AppKey,
 ): { keyId: string; secret: string } | null {
-  return parseKeyWithPrefix(key, APP_KEY_PREFIX);
+  return parseKeyWithPrefix(Redacted.value(key), APP_KEY_PREFIX);
 }
 
 function parseKeyWithPrefix(
@@ -99,8 +109,4 @@ export function safeEqual(a: string, b: string): boolean {
 /** SHA-256 hex digest of the secret portion. */
 export function hashSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
-}
-
-export function generateClaimToken(): string {
-  return "MZAP-" + randomBytes(CLAIM_TOKEN_BYTES).toString("hex").toUpperCase();
 }

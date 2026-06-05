@@ -17,10 +17,10 @@ import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
 
 /** The `Rpc` member of `Rpcs` whose tag is `K`. */
-export type RpcForTag<
-  Rpcs extends Rpc.Any,
-  K extends Rpcs["_tag"],
-> = Rpc.ExtractTag<Rpcs, K>;
+export type RpcForTag<Rpcs extends Rpc.Any, K extends Rpcs["_tag"]> = Extract<
+  Rpcs,
+  { readonly _tag: K }
+>;
 
 /** The payload type one tag accepts. */
 export type PayloadForTag<

@@ -1,4 +1,5 @@
-import { Context } from "effect";
+import { Schema } from "effect";
+import { RpcMiddleware } from "@effect/rpc";
 import type { ConversationId } from "../conversations.js";
 import { ConversationNotFoundError } from "../conversations.js";
 import type { TaskId } from "../tasks.js";
@@ -16,10 +17,7 @@ export interface ConversationInTaskValue {
   readonly conversationId: ConversationId;
 }
 
-export class ConversationInTask extends Context.Tag(
+export class ConversationInTask extends RpcMiddleware.Tag<ConversationInTask>()(
   "@moltzap/protocol/ConversationInTask",
-)<ConversationInTask, ConversationInTaskValue>() {
-  static get errors() {
-    return [ConversationNotFoundError] as const;
-  }
-}
+  { failure: Schema.Union(ConversationNotFoundError) },
+) {}

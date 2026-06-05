@@ -13,7 +13,8 @@ import path from "node:path";
 import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { Effect } from "effect";
+import { Effect, Redacted } from "effect";
+import type { AgentId, AgentKey } from "@moltzap/protocol";
 
 const CONTROL_UI_PORT = 18789;
 const OPENCLAW_TOKEN_RADIX = 36;
@@ -36,6 +37,10 @@ class OpenClawContainerError extends Error {
 interface StartContainerOptions {
   readonly name: string;
   readonly agentName: string;
+  readonly moltzapProfile?: {
+    readonly agentId: AgentId;
+    readonly apiKey: AgentKey;
+  };
   readonly envVars?: Record<string, string>;
   readonly portRange?: [number, number];
 }
@@ -70,7 +75,7 @@ export type ContainerModelConfig = {
     modelId: string;
     baseUrl: string;
     api: string;
-    apiKey: string;
+    apiKey: Redacted.Redacted<string>;
   };
 };
 
@@ -94,12 +99,10 @@ export function isImageAvailable(): boolean {
 
 interface BuildOpenClawConfigOptions {
   model: ContainerModelConfig;
-  serverUrl: string;
-  agentApiKey: string;
   agentName: string;
 }
 
-function normalizeServerUrl(serverUrl: string): string {
+export function normalizeContainerServerUrl(serverUrl: string): string {
   return serverUrl
     .replace(/\/ws$/, "")
     .replace(/^ws:/, "http:")
@@ -109,7 +112,6 @@ function normalizeServerUrl(serverUrl: string): string {
 
 function baseOpenClawConfig(
   opts: BuildOpenClawConfigOptions,
-  serverUrl: string,
 ): Record<string, unknown> {
   return {
     agents: {
@@ -133,9 +135,7 @@ function baseOpenClawConfig(
       moltzap: {
         accounts: [
           {
-            id: "default",
-            apiKey: opts.agentApiKey,
-            serverUrl,
+            id: opts.agentName,
             agentName: opts.agentName,
           },
         ],
@@ -168,7 +168,7 @@ function providerModelsConfig(
         [providerConfig.provider]: {
           baseUrl: providerConfig.baseUrl,
           api: providerConfig.api,
-          apiKey: providerConfig.apiKey,
+          apiKey: Redacted.value(providerConfig.apiKey),
           models: [
             { id: providerConfig.modelId, name: providerConfig.modelId },
           ],
@@ -182,7 +182,7 @@ function providerModelsConfig(
 export function buildOpenClawConfig(
   opts: BuildOpenClawConfigOptions,
 ): Record<string, unknown> {
-  const config = baseOpenClawConfig(opts, normalizeServerUrl(opts.serverUrl));
+  const config = baseOpenClawConfig(opts);
   return opts.model.providerConfig
     ? { ...config, ...providerModelsConfig(opts.model.providerConfig) }
     : config;
@@ -224,6 +224,7 @@ function createContainerFiles(
       JSON.stringify(config, null, JSON_INDENT_SPACES),
     );
     yield* createContainerSubdirectories(fileSystem, tmpDir);
+    yield* writeContainerMoltZapConfig(fileSystem, tmpDir, opts);
     yield* fileSystem.writeFileString(
       path.join(tmpDir, "workspace", "IDENTITY.md"),
       `---\nName: ${opts.agentName}\nCreature: AI agent\nVibe: helpful\n---\n`,
@@ -237,10 +238,34 @@ function createContainerSubdirectories(
   tmpDir: string,
 ) {
   return Effect.all(
-    ["workspace", "logs"].map((sub) =>
+    ["workspace", "logs", ".moltzap"].map((sub) =>
       fileSystem.makeDirectory(path.join(tmpDir, sub), { recursive: true }),
     ),
     { concurrency: 2 },
+  );
+}
+
+function writeContainerMoltZapConfig(
+  fileSystem: FileSystem.FileSystem,
+  tmpDir: string,
+  opts: StartContainerOptions,
+) {
+  if (opts.moltzapProfile === undefined) return Effect.void;
+  return fileSystem.writeFileString(
+    path.join(tmpDir, ".moltzap", "config.json"),
+    JSON.stringify(
+      {
+        profiles: {
+          [opts.agentName]: {
+            agentId: opts.moltzapProfile.agentId,
+            apiKey: Redacted.value(opts.moltzapProfile.apiKey),
+            agentName: opts.agentName,
+          },
+        },
+      },
+      null,
+      JSON_INDENT_SPACES,
+    ),
   );
 }
 
@@ -253,7 +278,12 @@ function allocateControlPort(opts: StartContainerOptions): number {
 }
 
 function containerEnvArgs(envVars: Record<string, string> | undefined) {
-  const envParts = ["-e", `OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`];
+  const envParts = [
+    "-e",
+    `OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`,
+    "-e",
+    `MOLTZAP_CONFIG_HOME=${OPENCLAW_STATE_DIR}/.moltzap`,
+  ];
   for (const [key, value] of Object.entries(envVars ?? {})) {
     envParts.push("-e", `${key}=${value}`);
   }
@@ -330,6 +360,7 @@ function chownContainerState(containerId: string): void {
     "node:node",
     `${OPENCLAW_STATE_DIR}/workspace`,
     `${OPENCLAW_STATE_DIR}/logs`,
+    `${OPENCLAW_STATE_DIR}/.moltzap`,
   ]);
 }
 

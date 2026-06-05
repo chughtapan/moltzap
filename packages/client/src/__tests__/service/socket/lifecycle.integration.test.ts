@@ -63,7 +63,7 @@ it("socket request resolves without 10s hang (timer leak regression)", () =>
     yield* service.startSocketServer();
     try {
       const start = performance.now();
-      yield* H.requestLocalService(H.LocalServiceCommands.Ping);
+      yield* H.requestDaemonCommand(H.LocalDaemonCommands.Status, {});
       const elapsed = performance.now() - start;
       expect(elapsed).toBeLessThan(H.SOCKET_RESPONSE_TIMEOUT_MS);
     } finally {
@@ -84,14 +84,14 @@ it("two services use separate socket paths", () =>
       expect(serviceA.socketPath).not.toBe(serviceB.socketPath);
 
       // Both respond via their own socket path
-      const resultA = yield* H.requestLocalService(
-        H.LocalServiceCommands.Ping,
-        undefined,
+      const resultA = yield* H.requestDaemonCommand(
+        H.LocalDaemonCommands.Status,
+        {},
         serviceA.socketPath,
       );
-      const resultB = yield* H.requestLocalService(
-        H.LocalServiceCommands.Ping,
-        undefined,
+      const resultB = yield* H.requestDaemonCommand(
+        H.LocalDaemonCommands.Status,
+        {},
         serviceB.socketPath,
       );
       expect(resultA.agentId).toBe(regA.agentId);

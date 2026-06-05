@@ -2,7 +2,6 @@ import { describe, expect, it as vitestIt } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect, Either } from "effect";
 import { ForbiddenError } from "@moltzap/protocol";
-import { MoltZapChannelCore } from "@moltzap/client";
 import {
   buildMessage,
   createFakeChannelService,
@@ -37,7 +36,6 @@ interface RecordedChannelOpts extends ChannelOpts {
 
 interface Harness {
   readonly fake: FakeChannelService;
-  readonly core: MoltZapChannelCore;
   readonly opts: RecordedChannelOpts;
   readonly channel: MoltZapChannel;
 }
@@ -146,10 +144,9 @@ function createRecordedOpts(): RecordedChannelOpts {
 
 function createHarness(evalMode = false): Harness {
   const fake = createFakeChannelService({ ownAgentId: AGENT_SELF });
-  const core = new MoltZapChannelCore({ service: fake.service });
   const opts = createRecordedOpts();
-  const channel = new MoltZapChannel(opts, core, AGENT_SELF, evalMode);
-  return { fake, core, opts, channel };
+  const channel = MoltZapChannel.fromService(opts, fake.service, evalMode);
+  return { fake, opts, channel };
 }
 
 function asJid(conversationId: string): string {

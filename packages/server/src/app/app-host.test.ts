@@ -2,9 +2,13 @@ import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { ConnectionId } from "@moltzap/protocol/network";
+import { ConnectionId } from "@moltzap/protocol";
 import type { AppManifest, ParamsOf } from "@moltzap/protocol";
-import { DispatchAuthorize, MessagesAuthorize } from "@moltzap/protocol";
+import {
+  DispatchAuthorize,
+  MessagesAuthorize,
+  TaskCreate,
+} from "@moltzap/protocol";
 import {
   agentId,
   appId as makeAppId,
@@ -85,6 +89,8 @@ describe("AppHost.registerApp", () => {
               recipients: [] as ReadonlyArray<AgentId>,
             },
           }),
+        [TaskCreate.name]: () =>
+          Effect.succeed({ verdict: { decision: "accept" as const } }),
       },
     });
     host.registerApp(APP_ID, APP_MANIFEST, connection);
@@ -123,6 +129,8 @@ function runRegisteredMessageAuthorize() {
                   : [SENDER],
             },
           }),
+        [TaskCreate.name]: () =>
+          Effect.succeed({ verdict: { decision: "accept" as const } }),
       },
     });
     host.registerApp(APP_ID, APP_MANIFEST, connection);

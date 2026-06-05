@@ -1,5 +1,5 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import {
   awaitOneNotification,
   firstTextPart,
@@ -42,6 +42,10 @@ it("connection survives idle period and still delivers messages", () =>
     // Wait 5 seconds of idle time
     yield* Effect.sleep(DEFAULT_NOTIFICATION_TIMEOUT_MS);
 
+    const bobEventFiber = yield* Effect.fork(
+      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+    );
+
     // After idle period, Alice sends a message
     yield* alice.client.sendRpc(MessagesSend, {
       taskId,
@@ -49,12 +53,13 @@ it("connection survives idle period and still delivers messages", () =>
       parts: [{ type: "text", text: ALIVE_AFTER_IDLE_TEXT }],
     });
 
-    const bobEvent = yield* awaitOneNotification(
-      bob.client,
-      MessageReceivedNotificationDefinition,
-    );
+    const bobEvent = yield* Fiber.join(bobEventFiber);
     const received = bobEvent.params.message;
     expect(firstTextPart(received.parts)).toBe(ALIVE_AFTER_IDLE_TEXT);
+
+    const aliceEventFiber = yield* Effect.fork(
+      awaitOneNotification(alice.client, MessageReceivedNotificationDefinition),
+    );
 
     // Verify bidirectional: Bob replies after idle
     yield* bob.client.sendRpc(MessagesSend, {
@@ -63,10 +68,7 @@ it("connection survives idle period and still delivers messages", () =>
       parts: [{ type: "text", text: REPLY_AFTER_IDLE_TEXT }],
     });
 
-    const aliceEvent = yield* awaitOneNotification(
-      alice.client,
-      MessageReceivedNotificationDefinition,
-    );
+    const aliceEvent = yield* Fiber.join(aliceEventFiber);
     const aliceReceived = aliceEvent.params.message;
     expect(firstTextPart(aliceReceived.parts)).toBe(REPLY_AFTER_IDLE_TEXT);
   }));

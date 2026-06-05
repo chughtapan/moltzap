@@ -24,11 +24,7 @@ import { registerArchiveLifecycle } from "./archive-lifecycle.js";
 // `register*` exercises one wire method end-to-end on the family.
 import {
   TASK_CONVERSATION_FAMILY_PROPERTIES,
-  registerTaskConversationAddParticipant,
-  registerTaskConversationArchiveDenied,
   registerTaskConversationCreateAndList,
-  registerTaskConversationCreateDenied,
-  registerTaskConversationRemoveParticipant,
   registerTaskCreate,
   registerTaskRequestReject,
   registerTaskLeave,
@@ -42,11 +38,7 @@ export {
   registerConversationLifecycle,
   registerTaskCloseLifecycle,
   registerArchiveLifecycle,
-  registerTaskConversationAddParticipant,
-  registerTaskConversationArchiveDenied,
   registerTaskConversationCreateAndList,
-  registerTaskConversationCreateDenied,
-  registerTaskConversationRemoveParticipant,
   registerTaskCreate,
   registerTaskRequestReject,
   registerTaskLeave,

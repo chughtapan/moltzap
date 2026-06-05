@@ -1,13 +1,12 @@
 /** Standalone server — loads YAML config, boots PGlite or Postgres, starts the server. */
 
-import { randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sql } from "./db/sql.js";
 import { Data, Effect, Layer } from "effect";
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
-import { createCoreApp } from "./app/server.js";
+import { createCoreApp } from "./core-server.js";
 import { applyOutboundWebhookCap } from "./app/outbound-webhook-cap.js";
 import {
   loadStandaloneConfig,
@@ -15,8 +14,9 @@ import {
   type ConfigLoadError,
   type StandaloneBootPlan,
 } from "./config.js";
-import { seedInitialKek } from "./crypto/key-rotation.js";
-import { EnvelopeEncryption } from "./crypto/envelope.js";
+import type { ServerEncryptionMasterSecret } from "@moltzap/protocol/credentials";
+import { seedInitialKek } from "./db/crypto/key-rotation.js";
+import { EnvelopeEncryption } from "./db/crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
 import { WebhookContactService } from "./identity/services/webhook-contact-service.js";
 import type { CoreApp } from "./app/types.js";
@@ -199,7 +199,7 @@ function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound, never> {
  */
 function autoMigrateEffect(
   handle: DbHandle,
-  encryptionSecret: string | undefined,
+  encryptionSecret: ServerEncryptionMasterSecret | undefined,
 ): Effect.Effect<
   void,
   SchemaFileNotFound | StandaloneOperationFailed,
@@ -233,7 +233,7 @@ function autoMigrateEffect(
 
     yield* handle.runMigrationSql(schema);
 
-    if (encryptionSecret) {
+    if (encryptionSecret !== undefined) {
       const envelope = new EnvelopeEncryption(encryptionSecret);
       yield* Effect.tryPromise({
         try: () => seedInitialKek(handle.db, envelope),
@@ -289,15 +289,14 @@ function startServerEffect(
     //    a destroyed Agent. The process-global dispatcher has no
     //    per-instance lifecycle, matching this client's server-
     //    lifetime role. The CoreApp constructs its own scoped Undici
-    //    client for delivery webhooks (see `app/server.ts →
+    //    client for delivery webhooks (see `core-server.ts →
     //    HttpClientLive`); that one IS managed by the dispatch
     //    ManagedRuntime's scope and disposes cleanly on `app.close()`.
     //
     // 2. Outbound-webhook concurrency cap. We apply
     //    {@link applyOutboundWebhookCap} so this client pulls from the
-    //    SAME process-wide `Effect.Semaphore(10)` as the CoreApp's
-    //    `HttpClientLive`. Result: one shared cap covers both outbound
-    //    webhook paths (delivery + contacts).
+    //    process-wide `Effect.Semaphore(10)`. The remaining standalone
+    //    webhook path is contact policy.
     const rawHttpClient = yield* HttpClient.HttpClient.pipe(
       Effect.provide(
         NodeHttpClient.layerUndiciWithoutDispatcher.pipe(
@@ -306,12 +305,12 @@ function startServerEffect(
       ),
     );
     const httpClient = applyOutboundWebhookCap(rawHttpClient);
-    const devModeUserId = resolveDevModeUserId(bootPlan);
-    yield* warnDevModeUserId(devModeUserId);
+    yield* Effect.logWarning(
+      "Boot admin user configured; registered agents will be auto-owned until the app registration flow claims them",
+    ).pipe(Effect.annotateLogs({ adminUserId: bootPlan.adminUserId }));
     const coreConfig = makeCoreConfig({
       bootPlan,
       handle: database.handle,
-      devModeUserId,
     });
     const app = createCoreApp(coreConfig);
     yield* installContactService(app, bootPlan, httpClient);
@@ -349,26 +348,9 @@ function migrateStandaloneDatabase(
   );
 }
 
-function resolveDevModeUserId(
-  bootPlan: StandaloneBootPlan,
-): string | undefined {
-  if (!bootPlan.devModeEnabled) return undefined;
-  return bootPlan.devModeUserId ?? randomUUID();
-}
-
-function warnDevModeUserId(
-  devModeUserId: string | undefined,
-): Effect.Effect<void> {
-  if (devModeUserId === undefined) return Effect.void;
-  return Effect.logWarning(
-    "dev_mode.enabled=true - registered agents will be auto-owned; do not use in production",
-  ).pipe(Effect.annotateLogs({ devModeUserId }));
-}
-
 function makeCoreConfig(options: {
   readonly bootPlan: StandaloneBootPlan;
   readonly handle: DbHandle;
-  readonly devModeUserId: string | undefined;
 }): CoreConfig {
   const { bootPlan, handle } = options;
   return {
@@ -379,7 +361,7 @@ function makeCoreConfig(options: {
     corsOrigins: bootPlan.corsOrigins,
     registrationSecret: bootPlan.registrationSecret,
     devMode: bootPlan.devMode,
-    devModeUserId: options.devModeUserId,
+    adminUserId: bootPlan.adminUserId,
   };
 }
 

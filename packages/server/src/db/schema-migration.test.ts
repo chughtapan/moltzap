@@ -1,7 +1,12 @@
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import { describe, expect } from "vitest";
-import { agentId, conversationId, taskId } from "@moltzap/protocol/testing";
+import {
+  agentId,
+  conversationId,
+  taskId,
+  userId,
+} from "@moltzap/protocol/testing";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
@@ -12,6 +17,7 @@ import { takeFirstOrFail } from "./effect-kysely-toolkit.js";
 const it = effectIt.scoped;
 
 const AGENT_ID = agentId("00000000-0000-4000-8000-0000000a9e47");
+const OWNER_USER_ID = userId("00000000-0000-4000-8000-00000000a9e0");
 const TASK_ID = taskId("00000000-0000-4000-8000-0000000fa5c0");
 const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
 const ORPHAN_TASK_ID = taskId("00000000-0000-4000-8000-0000000d3ad0");
@@ -302,18 +308,18 @@ function seedTaskSchemaHarness(
 
     INSERT INTO agents (
       id,
+      owner_user_id,
       name,
       api_key_id,
       api_key_secret_hash,
-      claim_token,
       status
     )
     VALUES (
       '${AGENT_ID}',
+      '${OWNER_USER_ID}',
       'task-fixture',
       '0123456789abcdef',
       '${"x".repeat(API_KEY_SECRET_HASH_LENGTH)}',
-      'claim-task-fixture',
       'active'
     );
   `);

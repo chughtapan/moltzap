@@ -1,13 +1,16 @@
 import { Effect, Match, Option } from "effect";
 import {
   PROTOCOL_VERSION,
-  Connect,
-  // `checkProtocolRange` lives in `@moltzap/protocol/version.ts` so
+  AgentConnect,
+  AppConnect,
+  // `checkProtocolRange` lives in `@moltzap/protocol/network/connect.ts` so
   // regression tests can import it directly without an illegal seam
   // through this server-internal handler module.
   checkProtocolRange,
   NotConnectedError,
   UnauthorizedError,
+  type AgentKey,
+  type AppKey,
   type AppManifest,
   type HelloOk,
   type ParamsOf,
@@ -29,29 +32,31 @@ import {
   DbTag,
   PresenceServiceTag,
 } from "../../app/layers.js";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import type { ConnectionId } from "@moltzap/protocol";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";
-import { API_KEY_PREFIX, APP_KEY_PREFIX } from "../services/credential-keys.js";
 import type { AppAuthService } from "../../identity/services/app-auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
 import type { ConversationService } from "../../task/services/conversation.service.js";
 import { InvalidParamsError } from "@moltzap/protocol";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type {
+  Connection,
   ConnectionManager,
   Originator,
 } from "../../transport/connection.js";
 import type { AppHost } from "../../app/app-host.js";
 
-type ConnectParams = ParamsOf<typeof Connect>;
+type AgentConnectParams = ParamsOf<typeof AgentConnect>;
+type AppConnectParams = ParamsOf<typeof AppConnect>;
+type ConnectParams = AgentConnectParams | AppConnectParams;
 
 /** The empty HelloOk — success is the only payload. */
 const HELLO_OK: HelloOk = {};
 
 /** Agent API-key path — mints the closed-union `AgentContext` arm directly. */
 function authenticateAgentKey(
-  agentKey: string,
+  agentKey: AgentKey,
   authService: AuthService,
 ): Effect.Effect<AgentContext, UnauthorizedError> {
   return Effect.gen(function* () {
@@ -96,7 +101,7 @@ function buildHelloOk(
  * `manifest_corrupted` reason (set inside `authenticateApp`).
  */
 function authenticateAppKey(
-  appKey: string,
+  appKey: AppKey,
   appAuthService: AppAuthService,
 ): Effect.Effect<
   { auth: AppContext; manifest: AppManifest },
@@ -170,8 +175,8 @@ function registerAppEndpoint(args: {
 /**
  * Mint the `AppConnection` arm via the immutable transition AND
  * implicitly register its `AppEndpoint` into `AppHost`/`AppRegistry`. An
- * app's routing surface is now minted from the live `AppConnection` arm on
- * appKey Connect — there is no separate WS `apps/register` RPC. Mirrors
+ * app's routing surface is minted from the live `AppConnection` arm on
+ * appKey Connect. Mirrors
  * {@link mirrorAgentArmTransition}
  * for the app principal; all `TransitionOutcome` arms are matched exhaustively:
  * `ok-app` registers the endpoint (see {@link registerAppEndpoint}); `ok-agent`
@@ -276,7 +281,7 @@ function mirrorAgentArmTransition(
  * emits the empty `HelloOk`. Reached only for the agent-prefixed credential
  * (the app-prefixed credential returns early in {@link handleConnect}).
  */
-function completeAgentConnect(credential: string, connId: ConnectionId) {
+function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
   return Effect.gen(function* () {
     const authService = yield* AuthServiceTag;
     const conversationService = yield* ConversationServiceTag;
@@ -352,115 +357,106 @@ function fireConnectionHooks(auth: AgentContext, connId: ConnectionId) {
   }).pipe(Effect.withSpan("connect.fireConnectionHooks"));
 }
 
-/**
- * Prefix-resolve the single `credential` on the unauthenticated arm:
- * `moltzap_app_` mints an `AppConnection` (no agent identity, no
- * conversation/presence hydration); `moltzap_agent_` runs the full agent-side
- * hydration; neither prefix is `UnauthorizedError`. The prefix is the principal
- * selector — an app credential can never mint an agent arm and vice versa.
- */
-function resolveCredential(
-  credential: string,
-  connId: ConnectionId,
-  deps: {
-    readonly connections: ConnectionManager;
-    readonly appAuthService: AppAuthService;
-    readonly appHost: AppHost;
-  },
-): Effect.Effect<
-  HelloOk,
-  UnauthorizedError | NotConnectedError | InvalidParamsError,
-  | AuthServiceTag
-  | ConversationServiceTag
-  | PresenceServiceTag
-  | ConnectionManagerTag
-  | AgentEndpointResolverTag
-  | ConnectionHooksTag
-  | DbTag
-> {
-  return Effect.gen(function* () {
-    if (credential.startsWith(APP_KEY_PREFIX)) {
-      const { auth: appAuth, manifest } = yield* authenticateAppKey(
-        credential,
-        deps.appAuthService,
-      );
-      yield* registerAppArmTransition({
-        connections: deps.connections,
-        appHost: deps.appHost,
-        connId,
-        auth: appAuth,
-        manifest,
-      });
-      return HELLO_OK;
-    }
-    if (credential.startsWith(API_KEY_PREFIX)) {
-      return yield* completeAgentConnect(credential, connId);
-    }
-    return yield* Effect.fail(
-      new UnauthorizedError({
-        message: "Credential has no recognized principal prefix",
-      }),
-    );
-  }).pipe(Effect.withSpan("connect.resolveCredential"));
+function checkConnectProtocol(params: ConnectParams) {
+  // Protocol-range gate runs BEFORE auth resolution: clients outside the
+  // supported version range are rejected at the version edge, so no partial
+  // state leaks before the rejection. A malformed `min/maxProtocol` string
+  // maps to the wire-typed `InvalidParamsError` (JSON-RPC -32602).
+  return checkProtocolRange(params, PROTOCOL_VERSION).pipe(
+    Effect.catchTag("InvalidProtocolVersionError", (cause) =>
+      Effect.fail(
+        new InvalidParamsError({
+          message: `Malformed protocol version ${JSON.stringify(cause.version)}: invalid segment ${JSON.stringify(cause.segment)}`,
+        }),
+      ),
+    ),
+  );
 }
 
-function handleConnect(params: ConnectParams) {
+function reemitHelloIfAuthenticated(
+  conn: Connection,
+  presenceService: PresenceService,
+) {
+  return Effect.gen(function* () {
+    if (conn._tag === "AgentConnection") {
+      const helloOk = yield* buildHelloOk(
+        conn.auth,
+        conn.connId,
+        presenceService,
+      );
+      yield* fireConnectionHooks(conn.auth, conn.connId);
+      return Option.some(helloOk);
+    }
+    if (conn._tag === "AppConnection") {
+      return Option.some(HELLO_OK);
+    }
+    return Option.none<HelloOk>();
+  }).pipe(Effect.withSpan("connect.reemitHelloIfAuthenticated"));
+}
+
+function handleAgentConnect(params: AgentConnectParams) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
-      // Protocol-range gate runs BEFORE auth resolution: clients
-      // outside the supported version range are rejected at the version
-      // edge, so no partial state leaks before the rejection. A
-      // malformed `min/maxProtocol` string raises
-      // `InvalidProtocolVersionError`, mapped here to the wire-typed
-      // `InvalidParamsError` (JSON-RPC -32602) so it surfaces as a typed
-      // response rather than an untyped defect. `ProtocolMismatchError`
-      // stays in the channel for the well-formed-but-out-of-range case.
-      yield* checkProtocolRange(params, PROTOCOL_VERSION).pipe(
-        Effect.catchTag("InvalidProtocolVersionError", (cause) =>
-          Effect.fail(
-            new InvalidParamsError({
-              message: `Malformed protocol version ${JSON.stringify(cause.version)}: invalid segment ${JSON.stringify(cause.segment)}`,
-            }),
-          ),
-        ),
+      yield* checkConnectProtocol(params);
+
+      const presenceService = yield* PresenceServiceTag;
+      const conn = yield* ConnectionTag;
+
+      const existingHello = yield* reemitHelloIfAuthenticated(
+        conn,
+        presenceService,
       );
+      if (Option.isSome(existingHello)) {
+        return existingHello.value;
+      }
+
+      return yield* completeAgentConnect(params.agentKey, conn.connId);
+    }).pipe(Effect.withSpan("agent.connect")),
+  );
+}
+
+function handleAppConnect(params: AppConnectParams) {
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      yield* checkConnectProtocol(params);
+
+      const presenceService = yield* PresenceServiceTag;
+      const conn = yield* ConnectionTag;
+
+      const existingHello = yield* reemitHelloIfAuthenticated(
+        conn,
+        presenceService,
+      );
+      if (Option.isSome(existingHello)) {
+        return existingHello.value;
+      }
 
       const connections = yield* ConnectionManagerTag;
       const appAuthService = yield* AppAuthServiceTag;
       const appHost = yield* AppHostTag;
-      const presenceService = yield* PresenceServiceTag;
-      const conn = yield* ConnectionTag;
-
-      // Connect dispatches on the live arm. A re-Connect on an
-      // already-authenticated arm is an idempotent no-op that re-emits the
-      // empty HelloOk.
-      if (conn._tag === "AgentConnection") {
-        const helloOk = yield* buildHelloOk(
-          conn.auth,
-          conn.connId,
-          presenceService,
-        );
-        yield* fireConnectionHooks(conn.auth, conn.connId);
-        return helloOk;
-      }
-      if (conn._tag === "AppConnection") {
-        return HELLO_OK;
-      }
-
-      return yield* resolveCredential(params.credential, conn.connId, {
-        connections,
+      const { auth: appAuth, manifest } = yield* authenticateAppKey(
+        params.appKey,
         appAuthService,
+      );
+      yield* registerAppArmTransition({
+        connections,
         appHost,
+        connId: conn.connId,
+        auth: appAuth,
+        manifest,
       });
-    }).pipe(Effect.withSpan("network.connect")),
+      return HELLO_OK;
+    }).pipe(Effect.withSpan("app.connect")),
   );
 }
 
-// ── @effect/rpc handler body ─────────────────────────────────────────
+// ── @effect/rpc handler bodies ────────────────────────────────────────
 //
-// `network/connect` is the lone unauthenticated method: it carries no `*Auth`
-// proof. The body dispatches on the credential union itself, reading the live
-// `UnauthenticatedConnection` arm via `ConnectionTag`. Its domain errors map to
-// the coded wire envelope the engine member's `error` schema carries.
-export const connect = (params: ConnectParams) =>
-  handleConnect(params).pipe(Effect.withSpan("connect"));
+// `agent/connect` and `app/connect` are the unauthenticated methods. The
+// method tag selects the principal kind; the body only unwraps the redacted
+// key at the auth-service boundary.
+export const connectAgent = (params: AgentConnectParams) =>
+  handleAgentConnect(params).pipe(Effect.withSpan("connect.agent"));
+
+export const connectApp = (params: AppConnectParams) =>
+  handleAppConnect(params).pipe(Effect.withSpan("connect.app"));

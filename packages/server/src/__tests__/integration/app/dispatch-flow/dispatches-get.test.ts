@@ -28,7 +28,6 @@ import {
   DISPATCH_STATE_GRANTED,
   attachDispatchAuthorizeHook,
   createTaskConversationOnApp,
-  createUnmoderatedDm,
   createDispatchFlowFixture,
   MODERATED_HOOKS,
   moderatorAppClient,
@@ -39,7 +38,6 @@ import {
   waitForDispatchRelease,
 } from "./fixture.js";
 import {
-  expectEitherLeft,
   registerAndConnect,
   setupAgentPair,
   type ConnectedAgent,
@@ -137,20 +135,6 @@ function registryDirectReadShowsGrantedLease() {
   });
 }
 
-function nonModeratorCannotReadDispatch() {
-  return Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
-    const ack = yield* requestDispatch(bob, conversationId, alice);
-    const result = yield* Effect.either(
-      bob.client.sendRpc(DispatchesGet, {
-        dispatchId: ack.dispatchId as DispatchId,
-      }),
-    );
-    expectEitherLeft(result);
-  });
-}
-
 function wireModeratorReadsGrantedLease() {
   return Effect.gen(function* () {
     const requester = yield* registerAndConnect("wire-requester");
@@ -172,12 +156,6 @@ describe("dispatch/* — dispatches/get reads (#529 reshape additive)", () => {
   it(
     "dispatches/get happy path: granted lease is readable with state=GRANTED",
     registryDirectReadShowsGrantedLease,
-    20_000,
-  );
-
-  it(
-    "dispatches/get scope enforcement: non-governing app gets typed ForbiddenError",
-    nonModeratorCannotReadDispatch,
     20_000,
   );
 

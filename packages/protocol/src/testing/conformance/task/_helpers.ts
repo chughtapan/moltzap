@@ -14,9 +14,12 @@ import {
   Scope,
   Schema,
 } from "effect";
-import type { AnyNotificationDefinition } from "../../../engine/rpc-method-groups.js";
-import type { NotificationParamsOf } from "../../../transport/index.js";
-import type { DecodedNotification } from "../../../transport/index.js";
+import type { AnyNotificationDefinition } from "../../../rpc-method-groups.js";
+import type {
+  NotificationDelivery,
+  NotificationParamsOf,
+} from "../../../transport/index.js";
+import { isNotificationDeliveryFor } from "../../../transport/index.js";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
@@ -46,8 +49,10 @@ import {
 } from "../_shared/test-fixtures.js";
 import { RpcResponseError } from "../_shared/errors.js";
 import {
-  makeTestClient,
-  type TestClient,
+  makeAgentTestClient,
+  type AgentTestClient,
+  type AppTestClient,
+  type NotificationClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import { registerTestApp } from "../_shared/test-app.js";
@@ -57,7 +62,6 @@ import { requireRight } from "../_shared/_helpers.js";
 
 export const DELIVERY_CATEGORY = "delivery" as const;
 export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000;
-export const DELIVERY_DEFAULT_CAPTURE_CAPACITY = 256;
 export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3;
 const MAX_N = 4;
 
@@ -74,15 +78,15 @@ export interface ConversationFixture {
    * they route through THIS client, not the agent `owner`. `owner` (an agent)
    * drives `task/request` + `messages/send`.
    */
-  readonly moderatorClient: TestClient;
+  readonly moderatorClient: AppTestClient;
 }
 
 export type ConversationActor = {
   readonly agent: TestAgent;
-  readonly client: TestClient;
+  readonly client: AgentTestClient;
 
   /**
-   * Per-client historical notification buffer: `TestClient.subscribe`
+   * Per-client historical notification buffer: `subscribe`
    * only emits frames arriving AFTER materialisation, so a sequential
    * `send → awaitOneNotification` races the response frame. The buffer
    * is fed by a long-lived
@@ -97,7 +101,7 @@ export type ConversationActor = {
 
 /**
  * Historical notification buffer used by `awaitOneNotification`. Holds
- * every inbound notification arriving on a single `TestClient`'s
+ * every inbound notification arriving on a single client's
  * `subscribeAll()` Stream until a consumer pulls a matching frame.
  *
  * The `snapshot` and `closed` fields are the only public surfaces;
@@ -110,7 +114,7 @@ export type ConversationActor = {
  */
 export interface NotificationBuffer {
   readonly snapshot: Ref.Ref<
-    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+    ReadonlyArray<NotificationDelivery<AnyNotificationDefinition>>
   >;
   readonly closed: Ref.Ref<boolean>;
 }
@@ -142,11 +146,11 @@ const PUMP_POLL_INTERVAL_MS = 5;
  * `Stream.runHead`.
  */
 function makeNotificationBuffer(
-  client: TestClient,
+  client: NotificationClient,
 ): Effect.Effect<NotificationBuffer, never, Scope.Scope> {
   return Effect.gen(function* () {
     const snapshot = yield* Ref.make<
-      ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+      ReadonlyArray<NotificationDelivery<AnyNotificationDefinition>>
     >([]);
     const closed = yield* Ref.make<boolean>(false);
     const pumpFiber = yield* Effect.fork(
@@ -171,11 +175,17 @@ function makeNotificationBuffer(
 function pullMatchingFromBuffer<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
-): Effect.Effect<DecodedNotification<D> | null> {
+): Effect.Effect<NotificationDelivery<D> | null> {
   return Ref.modify(buffer.snapshot, (frames) => {
     const idx = frames.findIndex((frame) => frame.definition === definition);
     if (idx < 0) return [null, frames];
-    const matched = frames[idx] as DecodedNotification<D>;
+    const matched = frames[idx];
+    if (
+      matched === undefined ||
+      !isNotificationDeliveryFor(matched, definition)
+    ) {
+      return [null, frames];
+    }
     const rest = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
     return [matched, rest];
   });
@@ -203,7 +213,7 @@ type BufferedStreamClosed = typeof BUFFERED_STREAM_CLOSED;
 function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
-): Stream.Stream<DecodedNotification<D>, BufferedStreamClosed> {
+): Stream.Stream<NotificationDelivery<D>, BufferedStreamClosed> {
   return Stream.repeatEffectChunk(
     pullMatchingFromBuffer(buffer, definition).pipe(
       Effect.flatMap((maybe) => {
@@ -213,7 +223,7 @@ function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
             isClosed
               ? Effect.fail(BUFFERED_STREAM_CLOSED)
               : Effect.sleep(Duration.millis(PUMP_POLL_INTERVAL_MS)).pipe(
-                  Effect.as(Chunk.empty<DecodedNotification<D>>()),
+                  Effect.as(Chunk.empty<NotificationDelivery<D>>()),
                 ),
           ),
         );
@@ -221,12 +231,6 @@ function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
     ),
   );
 }
-
-type MessageEventData = {
-  readonly message?: {
-    readonly conversationId?: unknown;
-  };
-};
 
 export function deliveryViolation(
   name: string,
@@ -256,7 +260,7 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
   timeoutMs: number,
-): Effect.Effect<DecodedNotification<D>, string> {
+): Effect.Effect<NotificationDelivery<D>, string> {
   return bufferedSubscribeStream(buffer, definition).pipe(
     Stream.runHead,
     Effect.timeoutFail({
@@ -323,7 +327,7 @@ export function sendText(
 // `requires` with `AppPrincipal`; callers pass the fixture's
 // `moderatorClient` (the app principal), NOT the agent owner.
 export function archiveConversation(
-  moderatorClient: TestClient,
+  moderatorClient: AppTestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
@@ -334,7 +338,7 @@ export function archiveConversation(
 }
 
 export function unarchiveConversation(
-  moderatorClient: TestClient,
+  moderatorClient: AppTestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
@@ -359,9 +363,7 @@ export function waitForConversationCreatedNotification(
         deliveryViolation(propertyName, `created event missing: ${reason}`),
       ),
     );
-    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
-    const data = event.params as { conversationId?: unknown } | undefined;
-    if (data?.conversationId !== conversationId) {
+    if (event.params.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,
@@ -387,8 +389,7 @@ export function waitForMessageReceivedNotification(
         deliveryViolation(propertyName, `message event missing: ${reason}`),
       ),
     );
-    const data = event.params as MessageEventData | undefined;
-    if (data?.message?.conversationId !== conversationId) {
+    if (event.params.message.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,
@@ -415,16 +416,9 @@ export function waitForArchivedEvent(
         deliveryViolation(propertyName, `archive event missing: ${reason}`),
       ),
     );
-    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
-    const data = event.params as
-      | {
-          conversationId?: unknown;
-          archivedAt?: unknown;
-        }
-      | undefined;
     if (
-      data?.conversationId !== conversationId ||
-      typeof data.archivedAt !== "string"
+      event.params.conversationId !== conversationId ||
+      typeof event.params.archivedAt !== "string"
     ) {
       return yield* Effect.fail(
         deliveryViolation(
@@ -452,9 +446,7 @@ export function waitForUnarchivedEvent(
         deliveryViolation(propertyName, `unarchive event missing: ${reason}`),
       ),
     );
-    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
-    const data = event.params as { conversationId?: unknown } | undefined;
-    if (data?.conversationId !== conversationId) {
+    if (event.params.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,
@@ -523,13 +515,13 @@ export function acquireClient(
       baseUrl: ctx.realServer.baseUrl,
       name,
     }).pipe(Effect.mapError((e) => `register(${name}): ${e.body}`));
-    const client = yield* makeTestClient({
+    const client = yield* makeAgentTestClient({
       serverUrl: ctx.realServer.wsUrl,
       agentKey: agent.apiKey,
-      agentId: agent.agentId,
       defaultTimeoutMs: DELIVERY_DEFAULT_TIMEOUT_MS,
-      captureCapacity: DELIVERY_DEFAULT_CAPTURE_CAPACITY,
-    }).pipe(Effect.mapError((e) => `makeTestClient(${name}): ${String(e)}`));
+    }).pipe(
+      Effect.mapError((e) => `makeAgentTestClient(${name}): ${String(e)}`),
+    );
     const notifications = yield* makeNotificationBuffer(client);
     return { agent, client, notifications };
   }).pipe(Effect.withSpan("acquireClient"));
@@ -540,13 +532,15 @@ function freshConformanceAppId(): string {
   return crypto.randomUUID();
 }
 
-function attachGrantDispatchAuthorize(client: TestClient): Effect.Effect<void> {
+function attachGrantDispatchAuthorize(
+  client: AppTestClient,
+): Effect.Effect<void> {
   return client.onAppCallback(DispatchAuthorize, () =>
     Effect.succeed({ admission: { decision: "grant" as const } }),
   );
 }
 
-function attachAcceptTaskCreate(client: TestClient): Effect.Effect<void> {
+function attachAcceptTaskCreate(client: AppTestClient): Effect.Effect<void> {
   return client.onAppCallback(TaskCreate, () =>
     Effect.succeed({ verdict: { decision: "accept" as const } }),
   );
@@ -558,7 +552,7 @@ type ParticipantMap = Map<
 >;
 
 function attachForwardAllMessagesAuthorize(
-  client: TestClient,
+  client: AppTestClient,
   participantsRef: Ref.Ref<ParticipantMap>,
 ): Effect.Effect<void> {
   return client.onAppCallback(MessagesAuthorize, (params) =>
@@ -626,7 +620,7 @@ function applyParticipantsRemoved(
 }
 
 function subscribeParticipantNotifications(
-  client: TestClient,
+  client: AgentTestClient,
   participantsRef: Ref.Ref<ParticipantMap>,
 ): Effect.Effect<void, never, Scope.Scope> {
   const pump = <D extends AnyNotificationDefinition>(
@@ -694,7 +688,7 @@ export interface ModeratedHandle {
    * The app-principal `AppConnection` bound as moderator. TM-admin RPCs (their
    * `requires` head is `AppPrincipal`) route through this client.
    */
-  readonly client: TestClient;
+  readonly client: AppTestClient;
 
   /**
    * Block until the moderator has observed `expectedAgentIds` as
@@ -711,7 +705,7 @@ export interface ModeratedHandle {
 
 /**
  * Wire a SEPARATE app principal as moderator: HTTP-register the manifest
- * + `appKey`-Connect a `TestClient` whose implicit registration binds it
+ * + `appKey`-Connect an `AppTestClient` whose implicit registration binds it
  * as the app's moderator endpoint. The grant-all `DispatchAuthorize` +
  * accept `TaskCreate` + forward-all `MessagesAuthorize` callbacks run on
  * THAT app connection (all are server-initiated, app-principal
@@ -736,7 +730,7 @@ export function moderateAs(
       wsUrl: ctx.realServer.wsUrl,
       appId: freshConformanceAppId(),
       name: `${namePrefix}-app`,
-    }).pipe(Effect.mapError((e) => `apps/register failed: ${e._tag}`));
+    }).pipe(Effect.mapError((e) => `app registration failed: ${e._tag}`));
     yield* attachGrantDispatchAuthorize(app.client);
     yield* attachAcceptTaskCreate(app.client);
     yield* attachForwardAllMessagesAuthorize(app.client, participantsRef);

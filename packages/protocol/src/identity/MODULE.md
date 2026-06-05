@@ -8,7 +8,7 @@ Public barrel for identity, agent, and contact protocol descriptors.
 
 ## Public surface
 
-### [`Agent`](./agents.ts#L85)
+### [`Agent`](./agents.ts#L79)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](./agents.ts#L86)
+### [`AgentCard`](./agents.ts#L80)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ _TypeAlias_
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentId`](./agents.ts#L51)
+### [`AgentId`](./agents.ts#L45)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ _TypeAlias_
 export const AgentId = brandedId("AgentId");
 ```
 
-### [`AgentId`](./agents.ts#L51)
+### [`AgentId`](./agents.ts#L45)
 
 _Variable_
 
@@ -40,7 +40,7 @@ _Variable_
 export const AgentId = brandedId("AgentId")
 ```
 
-### [`AgentNotFoundError`](./agents.ts#L42)
+### [`AgentNotFoundError`](./agents.ts#L36)
 
 _Class_
 
@@ -55,10 +55,10 @@ export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()
 
 A referenced agent id does not resolve to an agent row. Raised wire-side when
 a `participants` / `invitedAgentIds` target names an agent that does not
-exist. Distinct from the client SDK's `AgentNotFoundError` (a name→agent
-lookup miss that never crosses the wire).
+exist. Client-side name lookups use the same tagged error with a message/data
+payload describing the missing name.
 
-### [`agentOwnershipSchema`](./agents.ts#L104)
+### [`agentOwnershipSchema`](./agents.ts#L98)
 
 _Function_
 
@@ -66,7 +66,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L246)
+### [`AgentsList`](./agents.ts#L188)
 
 _Variable_
 
@@ -92,7 +92,7 @@ caller. Unclaimed callers see only themselves.
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`AgentsLookup`](./agents.ts#L200)
+### [`AgentsLookup`](./agents.ts#L142)
 
 _Variable_
 
@@ -100,7 +100,7 @@ _Variable_
 export const AgentsLookup = defineRpc({
   name: "agents/lookup",
   params: Schema.Struct({
-    agentIds: Schema.Array(formatString("uuid")).pipe(
+    agentIds: Schema.Array(AgentId).pipe(
       Schema.minItems(1),
       Schema.maxItems(100),
     ),
@@ -115,7 +115,7 @@ Look up agents by their UUIDs. Returns agent cards for found agents.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`AgentsLookupByName`](./agents.ts#L222)
+### [`AgentsLookupByName`](./agents.ts#L164)
 
 _Variable_
 
@@ -136,57 +136,6 @@ export const AgentsLookupByName = defineRpc({
 Look up agents by their short names.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
-
-### [`Claim`](./agents.ts#L176)
-
-_Variable_
-
-```ts
-export const Claim = defineRpc({
-  name: "agents/claim",
-  params: Schema.Struct({
-    claimToken: Schema.String.pipe(Schema.minLength(1)),
-    ownerUserId: formatString("uuid"),
-    inviteCode: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-  }),
-  result: Schema.Struct({
-    agentId: AgentId,
-    ownerUserId: formatString("uuid"),
-  }),
-  requires: [],
-  errors: [UnauthorizedError, ForbiddenError],
-})
-```
-
-Programmatic claim path. Pairs with `agents/register` to give automated
-callers (provisioning scripts, app-server self-mints, BYOA harnesses) a
-two-step flow that does not require knowing or sharing the agent
-`apiKey`: register → take the returned `claimToken` → claim with the
-intended `ownerUserId`.
-
-Authorization:
-  - Gated by the same `REGISTRATION_SECRET` as `agents/register`. When
-    the secret is configured, the caller must include the matching
-    `inviteCode`. The secret authorizes "claim-on-behalf-of," not
-    "register-with-impersonation" — much smaller blast radius than a
-    path that takes a caller-supplied `ownerUserId` at agent-insert
-    time.
-
-Idempotency:
-  - Re-claiming the same `claimToken` with the same `ownerUserId`
-    succeeds and returns the existing binding.
-  - Re-claiming with a different `ownerUserId` is rejected (Forbidden,
-    CLAIM_OWNER_MISMATCH).
-  - A non-matching `claimToken` is rejected (Unauthorized,
-    CLAIM_NOT_FOUND). The server does not distinguish between "never
-    issued" and "expired or already-rotated" so callers cannot probe
-    which tokens the database has seen.
-
-Recommended order: `agents/register → agents/claim → network/connect`
-(the apiKey from register opens the WebSocket; owner-gated RPCs
-unblock once claim has bound `ownerUserId`).
-
-HTTP-only (see `agents/register`): no principal requirement.
 
 ### [`Contact`](./contacts.ts#L65)
 
@@ -334,7 +283,7 @@ List contacts for the authenticated agent.
 
 - **Principal:** `AgentPrincipal` head (no claimed refinement).
 
-### [`identityNotifications`](./methods.ts#L28)
+### [`identityNotifications`](./methods.ts#L51)
 
 _Variable_
 
@@ -345,7 +294,7 @@ export const identityNotifications = [
 ] as const
 ```
 
-### [`identityRpcMethods`](./methods.ts#L18)
+### [`identityRpcMethods`](./methods.ts#L41)
 
 _Variable_
 
@@ -374,7 +323,7 @@ export class NotInContactsError extends Schema.TaggedError<NotInContactsError>()
 }
 ```
 
-### [`Register`](./agents.ts#L122)
+### [`Register`](./agents.ts#L116)
 
 _Variable_
 
@@ -386,13 +335,11 @@ export const Register = defineRpc({
       Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
     ),
     description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
-    inviteCode: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+    inviteCode: Schema.optional(InviteCode),
   }),
   result: Schema.Struct({
     agentId: AgentId,
-    apiKey: Schema.String,
-    claimUrl: formatString("uri"),
-    claimToken: Schema.String,
+    apiKey: AgentKey,
   }),
   requires: [],
   errors: [ConflictError],
@@ -401,9 +348,9 @@ export const Register = defineRpc({
 
 Register a new agent and receive an API key.
 
-**Returns:** Agent ID, API key, and claim URL.
+**Returns:** Agent ID and API key.
 
-### [`UserId`](./agents.ts#L49)
+### [`UserId`](./agents.ts#L43)
 
 _TypeAlias_
 
@@ -411,7 +358,7 @@ _TypeAlias_
 export const UserId = brandedId("UserId");
 ```
 
-### [`UserId`](./agents.ts#L49)
+### [`UserId`](./agents.ts#L43)
 
 _Variable_
 
@@ -419,7 +366,7 @@ _Variable_
 export const UserId = brandedId("UserId")
 ```
 
-### [`validateAgent`](./agents.ts#L101)
+### [`validateAgent`](./agents.ts#L95)
 
 _Variable_
 
@@ -427,7 +374,7 @@ _Variable_
 export const validateAgent = closedGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](./agents.ts#L102)
+### [`validateAgentCard`](./agents.ts#L96)
 
 _Variable_
 

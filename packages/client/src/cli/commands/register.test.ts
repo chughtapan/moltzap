@@ -2,20 +2,21 @@ import { Data, Effect, Option } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { registerCommand } from "./register.js";
+import type { AgentKey } from "@moltzap/protocol";
+import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
+import { parseProfileName } from "../../profile.js";
 
 const it = effectIt.effect;
-const AGENT_NAME = "my-agent";
+const AGENT_NAME = Effect.runSync(parseProfileName("my-agent"));
 const INVITE_CODE = "inv_abc123";
 const BAD_INVITE_CODE = "inv_bad";
 const DESCRIPTION = "A test agent";
-const AGENT_ID = "agent-123";
-const API_KEY = "moltzap_agent_testkey";
-const CLAIM_URL = "https://moltzap.xyz/claim/tok_abc";
+const AGENT_ID = "00000000-0000-4000-8000-000000000123";
+const API_KEY = redactedAgentKey(agentKeyString(10));
 
 type RegisterResult = {
   agentId: string;
-  apiKey: string;
-  claimUrl: string;
+  apiKey: AgentKey;
 };
 
 class RegisterTestFailure extends Data.TaggedError("RegisterTestFailure")<{
@@ -25,32 +26,26 @@ class RegisterTestFailure extends Data.TaggedError("RegisterTestFailure")<{
 const mockRegisterAgent =
   vi.fn<
     (
+      baseUrl: string,
       name: string,
-      inviteCode: string,
-      description?: string,
+      opts?: { readonly inviteCode?: string; readonly description?: string },
     ) => Effect.Effect<RegisterResult, RegisterTestFailure>
   >();
 
-vi.mock("../http-client.js", () => ({
-  registerAgent: (name: string, inviteCode: string, description?: string) => {
-    const resolvedDescription = description;
-    return mockRegisterAgent(name, inviteCode, resolvedDescription);
+vi.mock("../../auth.js", () => ({
+  registerAgent: (
+    baseUrl: string,
+    name: string,
+    opts?: { readonly inviteCode?: string; readonly description?: string },
+  ) => {
+    if (opts === undefined) return mockRegisterAgent(baseUrl, name);
+    return mockRegisterAgent(baseUrl, name, opts);
   },
 }));
 
-vi.mock("../config.js", () => ({
-  updateConfig: vi.fn(() => Effect.void),
+vi.mock("../../config.js", () => ({
+  getHttpUrl: Effect.succeed("https://test"),
   getServerUrl: Effect.succeed("wss://test"),
-}));
-
-// Avoid real fs writes — register calls writeOpenClawChannelConfig which
-// uses node:fs directly. Mock the whole module surface.
-vi.mock("node:fs", () => ({
-  readFileSync: vi.fn(() => {
-    throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-  }),
-  writeFileSync: vi.fn(),
-  mkdirSync: vi.fn(),
 }));
 
 function registerHandlerInput(description: Option.Option<string>) {
@@ -59,7 +54,7 @@ function registerHandlerInput(description: Option.Option<string>) {
     inviteCode: INVITE_CODE,
     description,
     profile: Option.none<string>(),
-    noPersist: false,
+    noPersist: true,
   };
 }
 
@@ -67,7 +62,6 @@ function successfulRegistration() {
   return Effect.succeed({
     agentId: AGENT_ID,
     apiKey: API_KEY,
-    claimUrl: CLAIM_URL,
   });
 }
 
@@ -80,11 +74,9 @@ function failedRegistration() {
 function passThroughWithoutDescription() {
   return Effect.gen(function* () {
     yield* registerCommand.handler(registerHandlerInput(Option.none()));
-    expect(mockRegisterAgent).toHaveBeenCalledWith(
-      AGENT_NAME,
-      INVITE_CODE,
-      undefined,
-    );
+    expect(mockRegisterAgent).toHaveBeenCalledWith("https://test", AGENT_NAME, {
+      inviteCode: INVITE_CODE,
+    });
   });
 }
 
@@ -93,11 +85,10 @@ function forwardsDescription() {
     yield* registerCommand.handler(
       registerHandlerInput(Option.some(DESCRIPTION)),
     );
-    expect(mockRegisterAgent).toHaveBeenCalledWith(
-      AGENT_NAME,
-      INVITE_CODE,
-      DESCRIPTION,
-    );
+    expect(mockRegisterAgent).toHaveBeenCalledWith("https://test", AGENT_NAME, {
+      inviteCode: INVITE_CODE,
+      description: DESCRIPTION,
+    });
   });
 }
 

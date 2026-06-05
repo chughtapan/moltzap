@@ -1,5 +1,5 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import {
   awaitOneNotification,
   it,
@@ -33,7 +33,18 @@ it("group creation notifies all participants with task/conversation/created even
       ConnectedAgent,
     ];
 
-    // Set up event waiters on Bob and Eve BEFORE creating the group
+    const bobCreatedFiber = yield* Effect.fork(
+      awaitOneNotification(
+        bob.client,
+        TaskConversationCreatedNotificationDefinition,
+      ),
+    );
+    const eveCreatedFiber = yield* Effect.fork(
+      awaitOneNotification(
+        eve.client,
+        TaskConversationCreatedNotificationDefinition,
+      ),
+    );
 
     const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
@@ -46,14 +57,8 @@ it("group creation notifies all participants with task/conversation/created even
 
     expect(conv.conversation!.name).toBe(GROUP_NAME);
 
-    const bobCreated = yield* awaitOneNotification(
-      bob.client,
-      TaskConversationCreatedNotificationDefinition,
-    );
-    const eveCreated = yield* awaitOneNotification(
-      eve.client,
-      TaskConversationCreatedNotificationDefinition,
-    );
+    const bobCreated = yield* Fiber.join(bobCreatedFiber);
+    const eveCreated = yield* Fiber.join(eveCreatedFiber);
 
     expect(bobCreated.params.conversationId).toBe(conv.conversation!.id);
     expect(eveCreated.params.conversationId).toBe(conv.conversation!.id);

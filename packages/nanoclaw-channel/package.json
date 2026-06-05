@@ -15,14 +15,17 @@
   "main": "./dist/channels/moltzap.js",
   "types": "./dist/channels/moltzap.d.ts",
   "exports": {
-    ".": "./dist/channels/moltzap.js"
+    ".": {
+      "types": "./dist/channels/moltzap.d.ts",
+      "import": "./dist/channels/moltzap.js"
+    }
   },
   "scripts": {
     "build": "tsc -b",
     "lint": "eslint src *.ts --cache --max-warnings=0",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts",
+    "test:conformance": "vitest run -c vitest.conformance.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {

@@ -1,4 +1,5 @@
-import { Context } from "effect";
+import { Schema } from "effect";
+import { RpcMiddleware } from "@effect/rpc";
 import type { TaskId, AppId } from "../ids.js";
 import type { ConversationId } from "../conversations.js";
 import type { TaskStatus } from "../tasks.js";
@@ -23,10 +24,7 @@ export interface ConversationSendAccessValue {
   readonly archivedAt: Date | null;
 }
 
-export class ConversationSendAccess extends Context.Tag(
+export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAccess>()(
   "@moltzap/protocol/ConversationSendAccess",
-)<ConversationSendAccess, ConversationSendAccessValue>() {
-  static get errors() {
-    return [ForbiddenError] as const;
-  }
-}
+  { failure: Schema.Union(ForbiddenError) },
+) {}

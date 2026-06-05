@@ -2,19 +2,18 @@
  * Regression coverage for offline conversation participants.
  *
  * `messages/send` is durable first and participant fan-out is best-effort:
- * an offline non-sender participant must not block insertion. The task manager
- * path remains fail-closed in `task-manager-routing.test.ts`; this file covers
- * the separate participant-broadcast path.
+ * an offline non-sender participant must not block insertion.
  */
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import {
   DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
   TaskRequest,
+  type AgentKey,
   type AgentId,
   type ConversationId,
   type Message,
@@ -27,18 +26,18 @@ import {
   resetTestDbEffect,
   trackClient,
   connectTestClient,
-  registerAgent,
+  createTestAgent,
   getKyselyDb,
-  type ServerTestClient,
+  type TestAgentClient,
 } from "../helpers.js";
 
 const it = effectIt.live;
 const OFFLINE_TEXT = "sent while recipient offline";
 const HAPPY_TEXT = "happy path";
 const FINALIZER_GRACE = "200 millis";
+const SUBSCRIBE_SETTLE = "10 millis";
 const TEST_TIMEOUT_MS = 20_000;
 
-let baseUrl: string;
 let wsUrl: string;
 
 beforeAll(
@@ -47,7 +46,6 @@ beforeAll(
       startTestServerEffect().pipe(
         Effect.tap((server) =>
           Effect.sync(() => {
-            baseUrl = server.baseUrl;
             wsUrl = server.wsUrl;
           }),
         ),
@@ -61,23 +59,20 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 interface ThreeAgents {
-  readonly tm: ServerTestClient;
+  readonly tm: TestAgentClient;
   readonly tmAgentId: AgentId;
-  readonly sender: ServerTestClient;
+  readonly sender: TestAgentClient;
   readonly senderAgentId: AgentId;
-  readonly recipient: ServerTestClient;
+  readonly recipient: TestAgentClient;
   readonly recipientAgentId: AgentId;
-  readonly recipientApiKey: string;
+  readonly recipientApiKey: AgentKey;
 }
 
 function setupThreeAgents(index: number): Effect.Effect<ThreeAgents, Error> {
   return Effect.gen(function* () {
-    const tmReg = yield* registerAgent(baseUrl, `offline-tm-${index}`);
-    const senderReg = yield* registerAgent(baseUrl, `offline-sender-${index}`);
-    const recipientReg = yield* registerAgent(
-      baseUrl,
-      `offline-recipient-${index}`,
-    );
+    const tmReg = yield* createTestAgent(`offline-tm-${index}`);
+    const senderReg = yield* createTestAgent(`offline-sender-${index}`);
+    const recipientReg = yield* createTestAgent(`offline-recipient-${index}`);
     const tm = yield* connectTracked(tmReg.agentId, tmReg.apiKey);
     const sender = yield* connectTracked(senderReg.agentId, senderReg.apiKey);
     const recipient = yield* connectTracked(
@@ -96,7 +91,7 @@ function setupThreeAgents(index: number): Effect.Effect<ThreeAgents, Error> {
   });
 }
 
-function connectTracked(agentId: string, apiKey: string) {
+function connectTracked(agentId: AgentId, apiKey: AgentKey) {
   return Effect.gen(function* () {
     const client = yield* connectTestClient({ wsUrl, agentId, apiKey });
     trackClient(client);
@@ -144,7 +139,7 @@ function messageRowsForConversation(conversationId: ConversationId) {
 }
 
 function sendText(
-  client: ServerTestClient,
+  client: TestAgentClient,
   binding: GroupBinding,
   text: string,
 ) {
@@ -190,13 +185,18 @@ function broadcastsWhenParticipantsAreOnline() {
   return Effect.gen(function* () {
     const agents = yield* setupThreeAgents(2);
     const binding = yield* setupGroupConversation(agents);
+    const receivedFiber = yield* Effect.fork(
+      awaitOneNotification(
+        agents.recipient,
+        MessageReceivedNotificationDefinition,
+      ),
+    );
+    yield* Effect.sleep(SUBSCRIBE_SETTLE);
+
     const sent = yield* sendText(agents.sender, binding, HAPPY_TEXT);
     expect(sent.message.parts).toEqual([{ type: "text", text: HAPPY_TEXT }]);
 
-    const received = yield* awaitOneNotification(
-      agents.recipient,
-      MessageReceivedNotificationDefinition,
-    );
+    const received = yield* Fiber.join(receivedFiber);
     const receivedMsg = (received.params as { message: Message }).message;
     expect(receivedMsg.id).toBe(sent.message.id);
 

@@ -48,7 +48,7 @@ psql postgresql://localhost/moltzap_dev < packages/server/src/app/core-schema.sq
 
 ```bash
 DATABASE_URL="postgresql://localhost/moltzap_dev" \
-ENCRYPTION_MASTER_SECRET="dev-secret-change-me-in-production-32ch" \
+ENCRYPTION_MASTER_SECRET="$(openssl rand -base64 32)" \
 pnpm --filter @moltzap/server-core dev
 ```
 

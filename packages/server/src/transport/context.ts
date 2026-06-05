@@ -5,10 +5,10 @@ import type { AgentId, UserId } from "../app/types.js";
 /**
  * Closed agent lifecycle states. Mirrors
  * `core-schema.sql → CREATE TYPE agent_status AS ENUM (...)`. The closed
- * union makes the `AgentClaimed` active-agent check exhaustive — adding a state
- * forces every consumer switch to handle it.
+ * union makes the active-agent check exhaustive — adding a state forces every
+ * consumer switch to handle it.
  */
-export type AgentStatus = "active" | "pending_claim" | "suspended";
+export type AgentStatus = "active" | "suspended";
 
 /**
  * The two tagged principal arms. These are the only "context" classes; a
@@ -23,7 +23,7 @@ export type AgentStatus = "active" | "pending_claim" | "suspended";
 export class AgentContext extends Data.TaggedClass("AgentContext")<{
   readonly agentId: AgentId;
   readonly agentStatus: AgentStatus;
-  readonly ownerUserId: UserId | null;
+  readonly ownerUserId: UserId;
 }> {}
 
 export class AppContext extends Data.TaggedClass("AppContext")<{
@@ -42,11 +42,10 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 export function agentContextFrom(parts: {
   readonly agentId: AgentId;
   readonly agentStatus: string;
-  readonly ownerUserId: UserId | null;
+  readonly ownerUserId: UserId;
 }): Effect.Effect<AgentContext> {
   switch (parts.agentStatus) {
     case "active":
-    case "pending_claim":
     case "suspended":
       return Effect.succeed(
         new AgentContext({

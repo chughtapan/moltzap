@@ -8,12 +8,11 @@ Public barrel for app-layer conformance properties.
 
 App-layer conformance properties.
 
-Dispatch / lease / app-callback invariants — the 15
+Dispatch / lease / app-callback invariants — the 14
 `dispatch-admission` properties (request / authorize / release /
 dispatches-consumed / dispatches-expired / dispatches-get / slow-first
 / same-conv-concurrent / release-for-one-lease) plus app-disconnect
-fail-policy, hook-gated delivery, multi-app FIFO (tombstone), spurious
-app-callback frame handling (tombstone), and idempotence.
+fail-policy and idempotence.
 
 Each `register*` lives in its own file. The `dispatch-admission`
 properties draw on the cross-impl driver in `app/_driver.ts`.
@@ -36,7 +35,7 @@ _Variable_
 export const ABANDON_POLL_EXTRA_MS = 2_000
 ```
 
-### [`APP_PROPERTIES`](./index.ts#L68)
+### [`APP_PROPERTIES`](./index.ts#L58)
 
 _Variable_
 
@@ -55,21 +54,16 @@ export const APP_PROPERTIES: ReadonlyArray<
   registerDispatchesExpiredFiresOnTtl,
   registerDispatchesExpiredSuppressedOnConsumeBeforeTtl,
   registerDispatchesGetModeratorSeesRecord,
-  registerDispatchesGetNonModeratorRejected,
   registerSameConversationDispatchesConcurrent,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
-  registerHookGatedDelivery,
-  registerMultiAppFifoShortCircuit,
   registerAppDisconnectFailPolicy,
-  registerSpuriousAppCallbackFrameHandling,
   registerIdempotence,
 ]
 ```
 
-All app-layer property registrars: 15 dispatch-admission registrars
-first, then the 5 cross-category registrars (delivery tombstones,
-boundary unavailable, rpc-semantics spurious-callback tombstone,
+All app-layer property registrars: dispatch-admission registrars first,
+then the cross-category registrars (boundary unavailable,
 rpc-semantics idempotence).
 
 ### [`ConsumedFrameView`](./_helpers.ts#L67)
@@ -102,7 +96,7 @@ export function dispatchAdmissionViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`DispatchTestDriver`](./_driver.ts#L265)
+### [`DispatchTestDriver`](./_driver.ts#L266)
 
 _Interface_
 
@@ -124,16 +118,6 @@ export interface DispatchTestDriver {
   readonly addRecipient: (opts: {
     readonly agentName?: string;
   }) => Effect.Effect<RecipientHandle, PropertyFailure, Scope.Scope>;
-
-  /**
-   * Issue `dispatches/get` from a NON-moderator connection (the
-   * recipient or a third-party client). Used by the negative scope
-   * property `dispatches-get-non-moderator-rejected`. Returns the
-   * server's typed error rather than the lease record.
-   */
-  readonly getLeaseFromNonModerator: (
-    dispatchId: Schema.Schema.Type<typeof DispatchId>,
-  ) => Effect.Effect<{ readonly errorTag: string }, PropertyFailure>;
 
   /**
    * Poll `dispatches/get` until the lease reaches `expected` or the
@@ -162,29 +146,7 @@ acquired under the property's `Scope`. Wires up the real server,
 recipient + moderator clients, and shared task / conversation
 fixtures.
 
-### [`DispatchTestDriverConfig`](./_driver.ts#L327)
-
-_Interface_
-
-```ts
-export interface DispatchTestDriverConfig {
-  readonly taskAppId?: string | null;
-  readonly moderatorTimeoutMs?: number;
-  readonly leaseTimeoutMs?: number;
-}
-```
-
-Driver options. `taskAppId` controls whether the server-side path is
-app-bound (moderated, default) or default-grant. Default: app-bound
-via `taskAppId: "conformance-test-app"`. The `default-grant` properties
-(none today; reserved for future) pass `taskAppId: null`.
-
-`moderatorTimeoutMs` is propagated to the manifest's
-`dispatch_authorize` `{ kind: "hook", timeoutMs }` policy. Properties
-that exercise the moderator-response TTL pass a small value (e.g.,
-200 ms); properties that don't care pass the default 5_000 ms.
-
-### [`DispatchVerdict`](./_driver.ts#L88)
+### [`DispatchVerdict`](./_driver.ts#L87)
 
 _TypeAlias_
 
@@ -282,7 +244,7 @@ _TypeAlias_
 export type LeaseIdOnlyView = { readonly leaseId: string };
 ```
 
-### [`LeaseState`](./_driver.ts#L99)
+### [`LeaseState`](./_driver.ts#L98)
 
 _TypeAlias_
 
@@ -300,10 +262,10 @@ export type LeaseState =
 // ── Recipient handle ──────────────────────────────────────────────────
 
 /**
- * Recipient-side surface. Owns one TestClient connected to the real
+ * Recipient-side surface. Owns one `AgentTestClient` connected to the real
  * server under a recipient agent identity. All methods return Effects
  * scoped to the surrounding `Scope`; releasing the scope closes the
- * underlying TestClient.
+ * underlying agent client.
  */
 export interface RecipientHandle {
   readonly agentId: Schema.Schema.Type<typeof AgentId>;
@@ -334,10 +296,12 @@ export interface RecipientHandle {
    * delivery.
    */
   readonly waitForRelease: (
-    predicate?: (frame: DecodedNotification<typeof DispatchRelease>) => boolean,
+    predicate?: (
+      frame: NotificationDelivery<typeof DispatchRelease>,
+    ) => boolean,
     timeoutMs?: number,
   ) => Effect.Effect<
-    DecodedNotification<typeof DispatchRelease>,
+    NotificationDelivery<typeof DispatchRelease>,
     PropertyFailure
   >;
 
@@ -378,19 +342,19 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L949)
+### [`makeDispatchTestDriver`](./_driver.ts#L896)
 
 _Function_
 
 ```ts
 export function makeDispatchTestDriver(
   ctx: ConformanceRunContext,
-  config?: DispatchTestDriverConfig,
+  config?: { readonly moderatorTimeoutMs?: number },
 ): Effect.Effect<DispatchTestDriver, PropertyFailure, Scope.Scope>
 ```
 
 Acquire a fully-wired driver under the surrounding `Scope`. Releases
-close every TestClient + drop the `apps/register` registration.
+close every lifecycle client + drop the connected app registration.
 
 Property authors call this from inside their property body; the driver
 is per-property, never shared. Cross-property state leakage is the
@@ -408,7 +372,7 @@ _Property_
 export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
 ```
 
-### [`ModeratorHandle`](./_driver.ts#L192)
+### [`ModeratorHandle`](./_driver.ts#L193)
 
 _Interface_
 
@@ -420,7 +384,7 @@ export interface ModeratorHandle {
   /**
    * Park until a `dispatch/authorize` S→C request arrives that matches
    * `predicate` (default: any), then reply with `respondWith`. Internally
-   * uses `TestClient.onAppCallback` to register the reply and
+   * uses `AppTestClient.onAppCallback` to register the reply and
    * `awaitServerRequest` to observe the params.
    *
    * `holdResponseFor` is for the timeout-synthesizes-deny property:
@@ -456,8 +420,8 @@ export interface ModeratorHandle {
     },
   ) => Effect.Effect<
     K extends "consumed"
-      ? DecodedNotification<typeof DispatchesConsumed>
-      : DecodedNotification<typeof DispatchesExpired>,
+      ? NotificationDelivery<typeof DispatchesConsumed>
+      : NotificationDelivery<typeof DispatchesExpired>,
     PropertyFailure
   >;
 
@@ -479,9 +443,9 @@ export interface ModeratorHandle {
 }
 ```
 
-Moderator-side surface. Owns one TestClient connected to the real
-server under a moderator agent identity, with `apps/register` already
-driven to install a `dispatch_authorize` hook for the test app. Holds
+Moderator-side surface. Owns one `AppTestClient` connected to the real
+server under a moderator app identity, with HTTP registration plus
+`app/connect` already driven to install a `dispatch_authorize` hook. Holds
 the registered `appId` for `dispatches/get` scope assertions.
 
 ### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](./_helpers.ts#L21)
@@ -500,7 +464,7 @@ _Variable_
 export const NO_SECOND_RELEASE_WINDOW_MS = 250
 ```
 
-### [`RecipientHandle`](./_driver.ts#L117)
+### [`RecipientHandle`](./_driver.ts#L116)
 
 _Interface_
 
@@ -534,10 +498,12 @@ export interface RecipientHandle {
    * delivery.
    */
   readonly waitForRelease: (
-    predicate?: (frame: DecodedNotification<typeof DispatchRelease>) => boolean,
+    predicate?: (
+      frame: NotificationDelivery<typeof DispatchRelease>,
+    ) => boolean,
     timeoutMs?: number,
   ) => Effect.Effect<
-    DecodedNotification<typeof DispatchRelease>,
+    NotificationDelivery<typeof DispatchRelease>,
     PropertyFailure
   >;
 
@@ -573,12 +539,12 @@ export interface RecipientHandle {
 }
 ```
 
-Recipient-side surface. Owns one TestClient connected to the real
+Recipient-side surface. Owns one `AgentTestClient` connected to the real
 server under a recipient agent identity. All methods return Effects
 scoped to the surrounding `Scope`; releasing the scope closes the
-underlying TestClient.
+underlying agent client.
 
-### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L45)
+### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L44)
 
 _Function_
 
@@ -658,16 +624,6 @@ export function registerDispatchesGetModeratorSeesRecord(
 ): void
 ```
 
-### [`registerDispatchesGetNonModeratorRejected`](./dispatches-get-non-moderator-rejected.ts#L12)
-
-_Function_
-
-```ts
-export function registerDispatchesGetNonModeratorRejected(
-  ctx: ConformanceRunContext,
-): void
-```
-
 ### [`registerDispatchReleaseFiresAfterResolve`](./dispatch-release-after-resolve.ts#L33)
 
 _Function_
@@ -708,30 +664,12 @@ export function registerDispatchRequestRecipientDisconnectAbandons(
 ): void
 ```
 
-### [`registerHookGatedDelivery`](./hook-gated-delivery.ts#L18)
-
-_Function_
-
-```ts
-export function registerHookGatedDelivery(ctx: ConformanceRunContext): void
-```
-
-### [`registerIdempotence`](./idempotence.ts#L54)
+### [`registerIdempotence`](./idempotence.ts#L51)
 
 _Function_
 
 ```ts
 export function registerIdempotence(ctx: ConformanceRunContext): void
-```
-
-### [`registerMultiAppFifoShortCircuit`](./multi-app-fifo-short-circuit.ts#L16)
-
-_Function_
-
-```ts
-export function registerMultiAppFifoShortCircuit(
-  ctx: ConformanceRunContext,
-): void
 ```
 
 ### [`registerReleaseForOneLeaseDoesNotWaitOnAnother`](./release-for-one-lease-does-not-wait.ts#L17)
@@ -760,16 +698,6 @@ _Function_
 
 ```ts
 export function registerSlowFirstDoesNotDelaySecondAck(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerSpuriousAppCallbackFrameHandling`](./spurious-app-callback-frame.ts#L31)
-
-_Function_
-
-```ts
-export function registerSpuriousAppCallbackFrameHandling(
   ctx: ConformanceRunContext,
 ): void
 ```
@@ -858,12 +786,8 @@ driver, runs `body`, releases on completion.
 - `dispatches-expired-fires-on-ttl.ts`
 - `dispatches-expired-suppressed-on-consume.ts`
 - `dispatches-get-moderator-sees.ts`
-- `dispatches-get-non-moderator-rejected.ts`
-- `hook-gated-delivery.ts`
 - `idempotence.ts`
 - `index.ts`
-- `multi-app-fifo-short-circuit.ts`
 - `release-for-one-lease-does-not-wait.ts`
 - `same-conv-dispatches-concurrent.ts`
 - `slow-first-does-not-delay-second-ack.ts`
-- `spurious-app-callback-frame.ts`

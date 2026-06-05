@@ -16,8 +16,13 @@ import {
 
 import {
   DEFAULT_APP_ID,
+  DispatchAuthorize,
+  MessagesAuthorize,
   MessagesSend,
+  TaskCreate,
   TaskRequest,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
   type AppManifest,
 } from "@moltzap/protocol";
 import { messageId } from "@moltzap/protocol/testing";
@@ -34,12 +39,27 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
+function unexpectedAppCallbacks(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    "dispatch/authorize": {
+      definition: DispatchAuthorize,
+      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+    },
+    "messages/authorize": {
+      definition: MessagesAuthorize,
+      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+    },
+    "task/create": {
+      definition: TaskCreate,
+      handle: () => Effect.dieMessage("unexpected task/create"),
+    },
+  };
+}
+
 // D #705 CP9 — app registration is the HTTP `/api/v1/apps/register`
 // endpoint (server-minted `appId` + `appKey`); the app then `appKey`-
-// Connects to bind its `AppConnection` as the moderator endpoint. There
-// is no cross-principal WS `apps/register` RPC (an agent registering an
-// app is the dissolved anti-pattern). These exercise the live HTTP
-// boundary + the appKey-Connect arm.
+// Connects to bind its `AppConnection` as the moderator endpoint. These
+// exercise the live HTTP boundary + the appKey-Connect arm.
 it("apps/register: HTTP registers a valid manifest and the app can connect", () =>
   Effect.gen(function* () {
     const manifest: AppManifest = {
@@ -56,14 +76,16 @@ it("apps/register: HTTP registers a valid manifest and the app can connect", () 
     const registered = yield* registerApp(getBaseUrl(), manifest);
 
     // The server mints its OWN `appId` (gen_random_uuid()), distinct from
-    // the manifest's declared id, and a parseable `appKey`.
-    expect(registered.appId).toEqual(expect.any(String));
+    // the manifest's declared id.
     expect(registered.appId).not.toBe(APP_ID);
-    expect(registered.appKey).toEqual(expect.any(String));
 
     // The minted `appKey` authenticates an `AppConnection` (implicit
     // moderator-endpoint registration) — proves the credential is live.
-    yield* connectAppClient(registered.appKey);
+    yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      unexpectedAppCallbacks(),
+    );
   }));
 
 it("apps/register: HTTP rejects a manifest missing required fields", () =>

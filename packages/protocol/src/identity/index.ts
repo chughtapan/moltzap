@@ -12,7 +12,6 @@ export { AgentId, ContactId, UserId } from "./methods.js";
 
 export {
   Register,
-  Claim,
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,

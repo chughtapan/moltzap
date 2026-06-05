@@ -6,8 +6,8 @@
  * impl record each channel builder returns is exactly the shape the
  * corresponding low-level `Protocol.make` extension point accepts. If
  * `@effect/rpc` changes either protocol-impl contract, these stop compiling
- * here rather than at the live-wiring site (`socket-handler.ts`,
- * `mux-client.ts`).
+ * here rather than at the live-wiring site (`MoltZapServer`,
+ * `client-lifecycle.ts`).
  *
  * `RpcServer.Protocol.make` / `RpcClient.Protocol.make` each take a callback
  * returning an Effect of the impl record; the canaries map the builder's

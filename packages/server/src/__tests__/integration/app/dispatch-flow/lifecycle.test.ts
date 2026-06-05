@@ -14,7 +14,6 @@ import {
   MODERATED_HOOKS,
   attachDispatchAuthorizeHook,
   createTaskConversationOnApp,
-  createUnmoderatedDm,
   readLeaseByDispatchId,
   readLeaseByLeaseId,
   requestDispatch,
@@ -70,23 +69,6 @@ function requestModeratedDispatch(
   }).pipe(Effect.withSpan("requestModeratedLifecycleDispatch"));
 }
 
-function requestUnmoderatedDispatch(
-  alice: ConnectedAgent,
-  bob: ConnectedAgent,
-  text: string,
-) {
-  return Effect.gen(function* () {
-    const binding = yield* createUnmoderatedDm(alice, bob);
-    const ack = yield* requestDispatch(
-      bob,
-      binding.conversationId,
-      alice,
-      text,
-    );
-    return { ack, binding, conversationId: binding.conversationId };
-  }).pipe(Effect.withSpan("requestUnmoderatedLifecycleDispatch"));
-}
-
 function grantedLeaseExpiresAfterTtl() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
@@ -132,8 +114,14 @@ function pendingDisconnectAbandonsLease() {
 function grantedDisconnectExpiresLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
+    fixture.setNextHookVerdict({ decision: "grant" });
     const releaseFiber = yield* waitForDispatchRelease(bob);
-    const { ack } = yield* requestUnmoderatedDispatch(alice, bob, "probe");
+    const { ack } = yield* requestModeratedDispatch(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+      "probe",
+    );
     yield* Fiber.join(releaseFiber);
 
     const granted = yield* readLeaseByLeaseId(ack.leaseId);
@@ -150,10 +138,12 @@ function grantedDisconnectExpiresLease() {
 function consumedDisconnectKeepsLeaseConsumed() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
+    fixture.setNextHookVerdict({ decision: "grant" });
     const releaseFiber = yield* waitForDispatchRelease(bob);
-    const { ack, binding } = yield* requestUnmoderatedDispatch(
+    const { ack, binding } = yield* requestModeratedDispatch(
       alice,
       bob,
+      TEST_APP_MANIFEST,
       "first",
     );
     yield* Fiber.join(releaseFiber);

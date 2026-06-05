@@ -13,6 +13,7 @@ import { Config, ConfigProvider, Effect, type Scope } from "effect";
 import {
   makeToxiproxyClient,
   type ToxiproxyClient,
+  type ToxiproxyNetworkConfig,
 } from "../../toxics/client.js";
 import { RealServerAcquireError } from "./errors.js";
 import { ToxicControlError } from "../../toxics/errors.js";
@@ -52,6 +53,7 @@ export interface ConformanceRunOptions {
   readonly manageToxiproxy?: boolean;
   /** Toxiproxy control URL — defaults to `http://127.0.0.1:8474`. */
   readonly toxiproxyUrl?: string;
+  readonly toxiproxyNetwork?: ToxiproxyNetworkConfig;
   /** Output directory for seed + toxic-config dump on failure. */
   readonly artifactDir?: string;
 }
@@ -90,7 +92,10 @@ export function acquireRunContext(
     let toxiproxy: ToxiproxyClient | null = null;
     if (effectiveOpts.tiers.includes("D")) {
       const url = effectiveOpts.toxiproxyUrl ?? "http://127.0.0.1:8474";
-      toxiproxy = yield* makeToxiproxyClient({ apiUrl: url });
+      toxiproxy = yield* makeToxiproxyClient({
+        apiUrl: url,
+        network: effectiveOpts.toxiproxyNetwork,
+      });
       yield* toxiproxy.ping.pipe(Effect.retry({ times: 10 }));
     }
 

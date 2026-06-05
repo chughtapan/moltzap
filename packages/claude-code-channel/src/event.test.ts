@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import { Brand } from "effect";
-import type { EnrichedInboundMessage } from "@moltzap/client";
+import type { EnrichedInboundMessage } from "@moltzap/client/channel-base";
 import { taskId } from "@moltzap/protocol/testing";
 import {
   brandConversationId,

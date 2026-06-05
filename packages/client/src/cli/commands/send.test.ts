@@ -1,10 +1,12 @@
-import { Effect, Option } from "effect";
+import { Effect, Logger, Option } from "effect";
 import { it as effectIt } from "@effect/vitest";
-import { afterEach, beforeEach, describe, expect, vi } from "vitest";
+import { describe, expect } from "vitest";
 import { sendCommand } from "./send.js";
 
-import { MessagesSend } from "@moltzap/protocol";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
+import { Transport } from "../transport.js";
+import { makeFakeTransport } from "./test-transport.js";
 import {
   conversationId as makeConversationId,
   messageId as makeMessageId,
@@ -17,66 +19,66 @@ const CONV_UUID = "00000000-0000-4000-8000-00000000abc1";
 const REPLY_MSG = "00000000-0000-4000-8000-0000000000a1";
 const HELLO_WORLD = "Hello world";
 const REPLY_TEXT = "Reply text";
-
-const mockRequest = vi.fn(() => Effect.succeed({ message: { id: "msg-123" } }));
-
-vi.mock("../socket-client.js", () => ({
-  request: (...args: unknown[]) => mockRequest(...(args as [])),
-}));
+const SilentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
 
 function runSendCommand(input: {
   readonly target: { taskId: TaskId; conversationId: ConversationId };
   readonly message: string;
   readonly replyTo: Option.Option<MessageId>;
 }) {
-  return sendCommand.handler(input);
+  const fixture = makeFakeTransport(() => ({ messageId: "msg-123" }));
+  return {
+    calls: fixture.calls,
+    effect: sendCommand
+      .handler(input)
+      .pipe(
+        Effect.provideService(Transport, fixture.transport),
+        Effect.provide(SilentLogger),
+      ),
+  };
 }
 
 describe("send command handler", () => {
-  const originalExit = process.exit;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockRequest.mockImplementation(() =>
-      Effect.succeed({ message: { id: "msg-123" } }),
-    );
-    process.exit = vi.fn() as never;
-  });
-
-  afterEach(() => {
-    process.exit = originalExit;
-  });
-
   const taskId = makeTaskId(TASK_UUID);
   const conversationId = makeConversationId(CONV_UUID);
   const replyToId = makeMessageId(REPLY_MSG);
 
   it("sends to task+conversation target", () =>
     Effect.gen(function* () {
-      yield* runSendCommand({
+      const run = runSendCommand({
         target: { taskId, conversationId },
         message: HELLO_WORLD,
         replyTo: Option.none(),
       });
-      expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
-        taskId,
-        conversationId,
-        parts: [{ type: "text", text: HELLO_WORLD }],
-      });
+      yield* run.effect;
+      expect(run.calls).toEqual([
+        {
+          method: LocalDaemonCommands.Send,
+          params: {
+            target: { taskId, conversationId },
+            message: HELLO_WORLD,
+          },
+        },
+      ]);
     }));
 
   it("includes replyToId when --reply-to is provided", () =>
     Effect.gen(function* () {
-      yield* runSendCommand({
+      const run = runSendCommand({
         target: { taskId, conversationId },
         message: REPLY_TEXT,
         replyTo: Option.some(replyToId),
       });
-      expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
-        taskId,
-        conversationId,
-        parts: [{ type: "text", text: REPLY_TEXT }],
-        replyToId,
-      });
+      yield* run.effect;
+      expect(run.calls).toEqual([
+        {
+          method: LocalDaemonCommands.Send,
+          params: {
+            target: { taskId, conversationId },
+            message: REPLY_TEXT,
+            replyToId,
+          },
+        },
+      ]);
     }));
 });

@@ -23,11 +23,16 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import { type RegisterResponse } from "@moltzap/client";
+import { registerStandaloneAgentPair } from "@moltzap/client/test-utils";
 import {
-  registerAgent as registerClientAgent,
-  type RegisterResponse,
-} from "@moltzap/client";
-import { Config, ConfigProvider, Data, Duration, Effect } from "effect";
+  Config,
+  ConfigProvider,
+  Data,
+  Duration,
+  Effect,
+  Redacted,
+} from "effect";
 import type { GlobalSetupContext } from "vitest/node";
 
 const DEFAULT_READY_TIMEOUT_MS = 180_000;
@@ -76,13 +81,11 @@ function setupIntegrationTests(provide: GlobalSetupContext["provide"]) {
     const standalone = yield* startStandalone(paths, port);
     const baseUrl = `http://localhost:${port}`;
     yield* waitForStandaloneReady(standalone, baseUrl);
-    const [agentA, agentB] = yield* Effect.all(
-      [
-        registerClientAgent(baseUrl, "channel-agent-a"),
-        registerClientAgent(baseUrl, "peer-agent-b"),
-      ],
-      { concurrency: 2 },
-    );
+    const { first: agentA, second: agentB } =
+      yield* registerStandaloneAgentPair(baseUrl, {
+        first: "channel-agent-a",
+        second: "peer-agent-b",
+      });
     provideIntegrationValues(provide, port, agentA, agentB);
     return () => Effect.runPromise(teardownIntegrationTests());
   }).pipe(
@@ -184,9 +187,10 @@ function startStandalone(
 function standaloneEnv(configPath: string, port: number): NodeJS.ProcessEnv {
   return {
     MOLTZAP_CONFIG: configPath,
+    MOLTZAP_ADMIN_USER_ID: "00000000-0000-4000-8000-000000000001",
     MOLTZAP_DEV_MODE: "true",
     PORT: String(port),
-    ENCRYPTION_MASTER_SECRET: "a".repeat(44),
+    ENCRYPTION_MASTER_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
   };
 }
 
@@ -253,9 +257,9 @@ function provideIntegrationValues(
   provide("moltzapBaseUrl", `http://localhost:${port}`);
   provide("moltzapWsUrl", `ws://localhost:${port}`);
   provide("agentAAgentId", agentA.agentId);
-  provide("agentAApiKey", agentA.apiKey);
+  provide("agentAApiKey", Redacted.value(agentA.apiKey));
   provide("agentBAgentId", agentB.agentId);
-  provide("agentBApiKey", agentB.apiKey);
+  provide("agentBApiKey", Redacted.value(agentB.apiKey));
 }
 
 function teardownIntegrationTests(): Effect.Effect<void> {

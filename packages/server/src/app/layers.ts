@@ -4,7 +4,6 @@
  * Dependency order is encoded in each `Layer.effect`'s `yield*` chain.
  * Tag string convention: `moltzap/&lt;ClassName>`.
  */
-import { HttpClient } from "@effect/platform";
 import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
@@ -16,17 +15,14 @@ import { AppAuthService } from "../identity/services/app-auth.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
 import { ConversationService } from "../task/services/conversation.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
-import {
-  MessageService,
-  type DeliveryWebhookConfig,
-} from "../task/services/message.service.js";
+import { MessageService } from "../task/services/message.service.js";
 import { TaskService } from "../task/services/task.service.js";
 import { AppHost } from "./app-host.js";
 import {
   makeLeaseRegistry,
   type LeaseRegistry,
 } from "../task/leases/lease-registry.js";
-import type { EnvelopeEncryption } from "../crypto/envelope.js";
+import type { EnvelopeEncryption } from "../db/crypto/envelope.js";
 import type { ConnectionHook, DisconnectionHook } from "./types.js";
 
 /** Default retention window for terminal lease records: 5 minutes. */
@@ -67,8 +63,8 @@ export class ConnectionManagerTag extends Context.Tag(
 )<ConnectionManagerTag, ConnectionManager>() {}
 
 /**
- * The server-app's connection / disconnection hook arrays, read by the native
- * `network/connect` handler on a successful AGENT connect (it fires the
+ * The server-app's connection / disconnection hook arrays, read by the
+ * `agent/connect` handler on a successful AGENT connect (it fires the
  * connection hooks once the agent arm is minted) and by the socket-close
  * finalizer (it fires the disconnection hooks). The arrays are the mutable
  * registration surface the `CoreApp.onConnection` / `onDisconnection`
@@ -88,7 +84,7 @@ export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
 
 /**
  * `AgentId → HashSet&lt;ConnectionId>` multimap maintained by the
- * `network/connect` success path and the WS disconnect finalizer. Read by
+ * `agent/connect` success path and the WS disconnect finalizer. Read by
  * {@link NetworkSendServiceTag} for O(1) outbound routing.
  */
 export class AgentEndpointResolverTag extends Context.Tag(
@@ -156,21 +152,6 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
   TaskServiceTag,
   TaskService
->() {}
-
-/**
- * Optional fire-and-forget message-delivery webhook. `null` means no
- * webhook — the fanout is skipped entirely.
- *
- * The transport (`@effect/platform/HttpClient.HttpClient`) is the
- * standard Tag from `@effect/platform`; production wiring sits in
- * `app/server.ts` (`NodeHttpClient.layerUndici`, optionally wrapped
- * with a concurrency-cap `HttpClient.transform`). Tests override it
- * via `Layer.succeed(HttpClient.HttpClient, mockClient)`.
- */
-export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
-  DeliveryWebhookTag,
-  DeliveryWebhookConfig | null
 >() {}
 
 // ── Infrastructure Layers (no app deps) ───────────────────────────────────
@@ -310,16 +291,12 @@ const MessageServiceLive = Layer.effect(
     const conversations = yield* ConversationServiceTag;
     const networkSend = yield* NetworkSendServiceTag;
     const encryption = yield* EncryptionTag;
-    const deliveryWebhook = yield* DeliveryWebhookTag;
-    const httpClient = yield* HttpClient.HttpClient;
     const appHost = yield* AppHostTag;
     return new MessageService({
       db,
       conversations,
       networkSend,
       encryption,
-      deliveryWebhook,
-      httpClient,
       appHost,
     });
   }).pipe(Effect.withSpan("MessageServiceLive")),
@@ -344,8 +321,7 @@ const MessageServiceLive = Layer.effect(
 //   Tier 3 — AppHost (db + connections + leases; the boot-installed
 //            default app's static policies resolve in-process).
 //   Tier 4 — ConversationService (db + participants + connections + AppHost).
-//   Tier 5 — MessageService (every upstream + Encryption + DeliveryWebhook +
-//            Webhook + TraceCapture + AppHost).
+//   Tier 5 — MessageService (every upstream + Encryption + AppHost).
 //   Tier 6 — TaskService (db + Conversation + Message).
 //
 // `Layer.provideMerge` (not `Layer.provide`) is load-bearing: every

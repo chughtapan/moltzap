@@ -1,4 +1,5 @@
-import { Context } from "effect";
+import { Schema } from "effect";
+import { RpcMiddleware } from "@effect/rpc";
 import type { AgentId } from "../../identity/index.js";
 import { NotInContactsError } from "../../identity/contacts.js";
 
@@ -14,10 +15,7 @@ export interface ContactPolicyAllowsReachValue {
  * requires this cap, so the failure is part of the method's typed error channel
  * with no server-side error definition of its own.
  */
-export class ContactPolicyAllowsReach extends Context.Tag(
+export class ContactPolicyAllowsReach extends RpcMiddleware.Tag<ContactPolicyAllowsReach>()(
   "@moltzap/protocol/ContactPolicyAllowsReach",
-)<ContactPolicyAllowsReach, ContactPolicyAllowsReachValue>() {
-  static get errors() {
-    return [NotInContactsError] as const;
-  }
-}
+  { failure: Schema.Union(NotInContactsError) },
+) {}

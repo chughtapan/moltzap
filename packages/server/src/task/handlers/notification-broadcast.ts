@@ -1,9 +1,7 @@
 import { Effect } from "effect";
-import {
-  type NotificationDefinition,
-  type NotificationParamsOf,
-} from "@moltzap/protocol";
+import { type NotificationParamsOf } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
 import { type NetworkSendService } from "../../network/network-send.js";
 import { NetworkSendServiceTag } from "../../app/layers.js";
 
@@ -19,7 +17,7 @@ type BroadcastOptions = NonNullable<
  * `SubscriberRegistry`. Replaces the raw `socket.write(encodedFrame)` path.
  */
 export const broadcastNotificationToAgents = <
-  D extends NotificationDefinition<string, any>,
+  D extends AnyNotificationDefinition,
 >(
   agentIds: readonly AgentId[],
   definition: D,

@@ -1,6 +1,6 @@
 import type { Db } from "../../db/client.js";
 import type { Conversation, ConversationSummary } from "@moltzap/protocol";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect, Option } from "effect";
@@ -26,7 +26,6 @@ import {
   transaction,
 } from "../../db/effect-kysely-toolkit.js";
 import { listConversations } from "./conversation-list-pagination.js";
-import { ConversationCreateAuthorization } from "@moltzap/protocol/task";
 import type {
   ContactEdgeInput,
   ContactPolicyResolver,
@@ -75,23 +74,14 @@ export class ConversationService {
 
   create<TaskMintError = never>(
     input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<
-    Conversation,
-    TaskMintError,
-    ConversationCreateAuthorization
-  > {
+  ): Effect.Effect<Conversation, TaskMintError> {
     return catchSqlErrorAsDefect(this.createConversationEffect(input));
   }
 
   private createConversationEffect<TaskMintError>(
     input: CreateConversationOptions<TaskMintError>,
-  ): Effect.Effect<
-    Conversation,
-    TaskMintError | SqlError,
-    ConversationCreateAuthorization
-  > {
+  ): Effect.Effect<Conversation, TaskMintError | SqlError> {
     return Effect.gen(this, function* () {
-      yield* ConversationCreateAuthorization;
       const task = yield* input.mintTask;
       const created = yield* this.insertConversation(input, task.id);
       yield* this.subscribeCreatedConversation(input, created.id);
@@ -104,7 +94,7 @@ export class ConversationService {
   loadAgentOwners(
     agentIds: ReadonlyArray<AgentId>,
   ): Effect.Effect<
-    ReadonlyMap<AgentId, string | null>,
+    ReadonlyMap<AgentId, UserId>,
     AgentNotFoundError | SqlError
   > {
     return Effect.gen(this, function* () {
@@ -115,7 +105,7 @@ export class ConversationService {
               .selectFrom("agents")
               .select(["id", "owner_user_id"])
               .where("id", "in", [...agentIds]);
-      const ownerByAgentId = new Map<AgentId, string | null>();
+      const ownerByAgentId = new Map<AgentId, UserId>();
       for (const row of rows) {
         ownerByAgentId.set(row.id, row.owner_user_id);
       }
@@ -134,7 +124,7 @@ export class ConversationService {
   assertContactPolicyForCreate(
     creatorAgentId: AgentId,
     targetAgentIds: ReadonlyArray<AgentId>,
-    ownerByAgentId: ReadonlyMap<AgentId, string | null>,
+    ownerByAgentId: ReadonlyMap<AgentId, UserId>,
   ): Effect.Effect<void, AgentNotFoundError | NotInContactsError> {
     const policy = this.resolveContactPolicy();
     if (policy === null || targetAgentIds.length === 0) return Effect.void;
@@ -173,7 +163,7 @@ export class ConversationService {
         );
         const taskId = Option.match(taskRowOpt, {
           onNone: () => null,
-          onSome: (row) => row.task_id as TaskId,
+          onSome: (row) => row.task_id,
         });
         const deleted = yield* this.db
           .deleteFrom("conversation_participants")
@@ -437,7 +427,14 @@ export class ConversationService {
               }),
             );
           }
-          const targetOwner = input.ownerByAgentId.get(targetAgentId) ?? null;
+          const targetOwner = input.ownerByAgentId.get(targetAgentId);
+          if (targetOwner === undefined) {
+            return yield* Effect.fail(
+              new AgentNotFoundError({
+                message: `Agent ${targetAgentId} not found`,
+              }),
+            );
+          }
           yield* this.checkContactEdge({
             requesterAgentId: input.creatorAgentId,
             requesterOwnerUserId: creatorOwner,
@@ -455,13 +452,6 @@ export class ConversationService {
     input: ContactEdgeInput,
   ): Effect.Effect<void, NotInContactsError> {
     return Effect.gen(this, function* () {
-      if (!input.requesterOwnerUserId || !input.targetOwnerUserId) {
-        return yield* Effect.fail(
-          new NotInContactsError({
-            message: `Contact policy requires both agents to have an owner`,
-          }),
-        );
-      }
       const allowed = yield* input.policy(
         input.requesterOwnerUserId,
         input.targetOwnerUserId,

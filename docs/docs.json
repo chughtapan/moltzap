@@ -54,6 +54,7 @@
             "group": "Development",
             "pages": [
               "development/local-setup",
+              "development/protocol-organization",
               "development/testing",
               "development/evals",
               "development/contributing"

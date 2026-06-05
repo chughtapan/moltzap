@@ -8,6 +8,37 @@ Public barrel for app RPC descriptors and app-hook protocol types.
 
 ## Public surface
 
+### [`agentCallableAppRpcMethods`](./methods.ts#L43)
+
+_Variable_
+
+```ts
+export const agentCallableAppRpcMethods = [DispatchRequest] as const
+```
+
+### [`appCallableAppRpcMethods`](./methods.ts#L45)
+
+_Variable_
+
+```ts
+export const appCallableAppRpcMethods = [DispatchesGet] as const
+```
+
+### [`AppCallbackHandlers`](./methods.ts#L91)
+
+_TypeAlias_
+
+```ts
+export type AppCallbackHandlers<Ctx> = HandlerTable<
+  AppCallbackRpcDefinition,
+  Ctx
+>;
+```
+
+Closed handler table for an app moderating one or more tasks. Every
+`appCallbackMethods` member is required; vacuous-deny moderators still write
+the handler explicitly.
+
 ### [`appCallbackMethods`](./methods.ts#L47)
 
 _Variable_
@@ -20,7 +51,15 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppManifest`](./manifest.ts#L128)
+### [`AppCallbackRpcDefinition`](./methods.ts#L84)
+
+_TypeAlias_
+
+```ts
+export type AppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
+```
+
+### [`AppManifest`](./manifest.ts#L125)
 
 _TypeAlias_
 
@@ -28,7 +67,7 @@ _TypeAlias_
 export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
 ```
 
-### [`AppManifestValidationResult`](./manifest.ts#L137)
+### [`AppManifestValidationResult`](./manifest.ts#L134)
 
 _TypeAlias_
 
@@ -50,36 +89,6 @@ export const appNotifications = [
   DispatchesExpired,
 ] as const
 ```
-
-### [`appRpcMethods`](./methods.ts#L41)
-
-_Variable_
-
-```ts
-export const appRpcMethods = [
-  AppsRegister,
-  DispatchRequest,
-  DispatchesGet,
-] as const
-```
-
-### [`AppsRegister`](./manifest.ts#L175)
-
-_Variable_
-
-```ts
-export const AppsRegister = defineRpc({
-  name: "apps/register",
-  params: Schema.Struct({ manifest: AppManifestSchema }),
-  result: Schema.Struct({ appId: Schema.String }),
-  requires: [AppPrincipal],
-  errors: [ForbiddenError],
-})
-```
-
-Register an app manifest for the current connection.
-
-- **Principal:** `AppPrincipal` head.
 
 ### [`DispatchAuthorize`](./dispatch.ts#L143)
 
@@ -216,8 +225,8 @@ export const DispatchRelease = defineNotification({
 ```
 
 Server → recipient verdict notification. Fire-and-forget on the wire. Always
-emitted, including default-grant and synthesized infra-hold. The recipient
-parks client-side on `leaseId` and unparks on this notification.
+emitted, including synthesized infra-hold. The recipient parks client-side
+on `leaseId` and unparks on this notification.
 
 `leaseTimeoutMs` is set on the `grant` arm only and is the post-grant TTL.
 HOLD inherits the same TTL by ageing out via the standard EXPIRED path; no
@@ -259,6 +268,23 @@ lease `Deferred` (see `packages/client/src/channel-core.ts`).
 - **Principal:** `AgentPrincipal` head + `AgentClaimed`. Agent-originated
   even though the recipient handler runs in the app layer: an agent posts a
   dispatch to a conversation it sends into.
+
+### [`HandlerSlot`](./methods.ts#L65)
+
+_Interface_
+
+```ts
+export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
+  readonly definition: D;
+  readonly handle: (
+    params: ParamsOf<D>,
+    ctx: Ctx,
+  ) => Effect.Effect<ResultOf<D>, unknown>;
+}
+```
+
+Per-definition app-callback handler slot. `Ctx` is the per-frame context the
+client hands every handler.
 
 ### [`manifestPolicyCanaries`](./manifest-policy.types-check.ts#L102)
 
@@ -344,7 +370,7 @@ sweep.
 
 - **Principal:** none — a server→client reverse callback.
 
-### [`validateAppManifest`](./manifest.ts#L149)
+### [`validateAppManifest`](./manifest.ts#L146)
 
 _Function_
 

@@ -2,14 +2,14 @@
  * reset_peer — mid-flight the toxic forcibly resets the connection.
  * Spec invariant: sender's RPCs surface a typed `TransportClosedError`,
  * never hang, never crash. Full store-and-replay (reconnect + missed-
- * event replay) is a consumer-side concern driven by each real client
- * against `TestServer`; protocol-level guarantee is that the TestClient
- * surfaces the transport failure as a typed outcome.
+ * event replay) is a consumer-side concern driven by each real lifecycle
+ * client; protocol-level guarantee is that the agent client surfaces the
+ * transport failure as a typed outcome.
  */
 import { Clock, Effect, Either } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { TransportClosedError } from "../_shared/errors.js";
-import type { TestClient } from "../_shared/driver/test-client.js";
+import type { AgentTestClient } from "../_shared/driver/test-client.js";
 import { TaskList } from "../../../task/index.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable } from "../_shared/registry.js";
@@ -62,7 +62,7 @@ function runResetPeerRecovery(
 }
 
 function observeResetClose(
-  client: TestClient,
+  client: AgentTestClient,
   attachToxic: ToxicBodyParams["attachToxic"],
 ) {
   return Effect.scoped(
@@ -79,7 +79,7 @@ function observeResetClose(
   );
 }
 
-function rpcClosedByTransport(client: TestClient) {
+function rpcClosedByTransport(client: AgentTestClient) {
   return Effect.gen(function* () {
     const outcome = yield* client.sendRpc(TaskList, {}).pipe(Effect.either);
     return Either.match(outcome, {

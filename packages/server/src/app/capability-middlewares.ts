@@ -3,11 +3,10 @@
  * stacked on a method's engine member (`task-read-access`, `conversation-in-task`,
  * `contact-policy-allows-reach`).
  *
- * Each `obtain` resolves a capability's proof value against server services. The
+ * Each `obtain` resolves a capability against server services. The
  * per-cap `RpcMiddleware` impl Layer (`transport/auth-middleware-layers.ts`)
  * derives the obtain's input from the decoded payload + the caller's agent id and
- * runs it, then the engine provides the resulting value under the cap's
- * `Context.Tag`. The send-path obtains (`ConversationSendAccess`,
+ * runs it. The send-path obtains (`ConversationSendAccess`,
  * `ActiveTaskPermission`, …) live in `task/services/send-permissions.ts`.
  */
 import { Effect } from "effect";

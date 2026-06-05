@@ -1,11 +1,14 @@
 import {
-  DEFAULT_APP_ID,
   DispatchAuthorize,
   DispatchRelease,
   DispatchRequest,
+  MessagesAuthorize,
   MessagesSend,
   TaskConversationParticipantsRemovedNotificationDefinition,
+  TaskCreate,
   TaskRequest,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
   type AppId,
   type AppManifest,
   type ConversationId,
@@ -27,7 +30,7 @@ import {
   startTestServerEffect,
   stopTestServerEffect,
   type ConnectedAgent,
-  type ServerTestClient,
+  type TestAppClient,
 } from "../../helpers.js";
 import { getBaseUrl } from "../../../../test-utils/index.js";
 
@@ -103,13 +106,13 @@ export function createTaskConversationOnApp(
 
 /**
  * Per-test moderator-app state: the DB-minted `appId` + the live
- * `AppConnection` client whose `onAppCallback` handlers answer the
+ * `AppConnection` client whose constructor-supplied handlers answer the
  * server→client moderator round-trips. Memoized per manifest so a test that
  * creates several conversations under one moderator reuses one app client.
  */
 interface ModeratorApp {
   readonly appId: AppId;
-  readonly client: ServerTestClient;
+  readonly client: TestAppClient;
 }
 
 let moderatorApp: ModeratorApp | null = null;
@@ -137,22 +140,38 @@ function ensureModeratorApp(
   return Effect.gen(function* () {
     if (moderatorApp !== null) return moderatorApp.appId;
     const registered = yield* registerApp(getBaseUrl(), manifest);
-    const client = yield* connectAppClient(registered.appKey);
+    const client = yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      moderatorHandlers(),
+    );
     moderatorApp = { appId: registered.appId, client };
-    yield* wireModeratorCallbacks(client);
     return registered.appId;
   }).pipe(Effect.withSpan("ensureModeratorApp"));
 }
 
-function wireModeratorCallbacks(client: ServerTestClient): Effect.Effect<void> {
-  return client.onAppCallback(DispatchAuthorize, () =>
-    Effect.gen(function* () {
-      if (attachedFixture === null) return yield* Effect.never;
-      const verdict = attachedFixture.consumeNextVerdict();
-      if ("kind" in verdict) return yield* Effect.never;
-      return { admission: verdict };
-    }).pipe(Effect.withSpan("dispatchFlow.wireHook")),
-  );
+function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    "dispatch/authorize": {
+      definition: DispatchAuthorize,
+      handle: () =>
+        Effect.gen(function* () {
+          if (attachedFixture === null) return yield* Effect.never;
+          const verdict = attachedFixture.consumeNextVerdict();
+          if ("kind" in verdict) return yield* Effect.never;
+          return { admission: verdict };
+        }).pipe(Effect.withSpan("dispatchFlow.dispatchAuthorize")),
+    },
+    "messages/authorize": {
+      definition: MessagesAuthorize,
+      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+    },
+    "task/create": {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
+    },
+  };
 }
 
 /**
@@ -162,7 +181,7 @@ function wireModeratorCallbacks(client: ServerTestClient): Effect.Effect<void> {
  * stale `ModeratorApp` reference is dropped here before the next test
  * re-mints one.
  */
-function resetRegisteredApps(): void {
+function resetModeratorAppState(): void {
   moderatorApp = null;
   attachedFixture = null;
 }
@@ -171,8 +190,8 @@ function resetRegisteredApps(): void {
  * Arm the fixture's moderator callbacks. The verdict callback lives on the
  * fixture's app `AppConnection` (a disjoint principal from `alice`), so this
  * records the active fixture whose `consumeNextVerdict` the callback consults;
- * the actual `onAppCallback` wiring happens once at app-client connect time
- * (see {@link wireModeratorCallbacks}). Call BEFORE
+ * the actual handler table is installed at app-client connect time.
+ * Call BEFORE
  * {@link createTaskConversationOnApp} so the verdict source is live by the
  * time the server forks the moderator round-trip on `dispatch/request`.
  */
@@ -193,27 +212,13 @@ export function attachDispatchAuthorizeHook(
  * Throws if no conversation has been created yet (the app client is minted
  * lazily by {@link createTaskConversationOnApp}).
  */
-export function moderatorAppClient(): ServerTestClient {
+export function moderatorAppClient(): TestAppClient {
   if (moderatorApp === null) {
     throw new Error(
       "moderatorAppClient: no moderator app — call createTaskConversationOnApp first",
     );
   }
   return moderatorApp.client;
-}
-
-export function createUnmoderatedDm(
-  alice: ConnectedAgent,
-  bob: ConnectedAgent,
-): Effect.Effect<ConversationBinding, unknown> {
-  return Effect.gen(function* () {
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
-    });
-    return { taskId: conv.task.id, conversationId: conv.conversation!.id };
-  }).pipe(Effect.withSpan("createUnmoderatedDm"));
 }
 
 export function requestDispatch(
@@ -328,7 +333,7 @@ export function createDispatchFlowFixture(
         Effect.sync(() => {
           hookCalls = 0;
           nextHookVerdict = { decision: "grant" };
-          resetRegisteredApps();
+          resetModeratorAppState();
         }),
       ),
       Effect.withSpan("dispatchFlow.reset"),

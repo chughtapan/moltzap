@@ -18,17 +18,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./transport": {
-      "types": "./dist/transport/index.d.ts",
-      "import": "./dist/transport/index.js"
-    },
     "./identity": {
       "types": "./dist/identity/index.d.ts",
       "import": "./dist/identity/index.js"
-    },
-    "./network": {
-      "types": "./dist/network/index.d.ts",
-      "import": "./dist/network/index.js"
     },
     "./task": {
       "types": "./dist/task/index.d.ts",
@@ -37,6 +29,34 @@
     "./app": {
       "types": "./dist/app/index.d.ts",
       "import": "./dist/app/index.js"
+    },
+    "./transport": {
+      "types": "./dist/transport/index.d.ts",
+      "import": "./dist/transport/index.js"
+    },
+    "./network": {
+      "types": "./dist/network/index.d.ts",
+      "import": "./dist/network/index.js"
+    },
+    "./credentials": {
+      "types": "./dist/credentials.d.ts",
+      "import": "./dist/credentials.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
+    },
+    "./requirements": {
+      "types": "./dist/requirements.d.ts",
+      "import": "./dist/requirements.js"
+    },
+    "./rpc-method-groups": {
+      "types": "./dist/rpc-method-groups.d.ts",
+      "import": "./dist/rpc-method-groups.js"
+    },
+    "./close-info": {
+      "types": "./dist/close-info.d.ts",
+      "import": "./dist/close-info.js"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
@@ -53,11 +73,11 @@
   },
   "dependencies": {
     "@effect/platform": "^0.96.1",
+    "@effect/platform-node": "^0.106.0",
     "@effect/rpc": "0.75.1",
     "effect": "3.21.2"
   },
   "devDependencies": {
-    "@effect/platform-node": "^0.106.0",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^3.23.1",

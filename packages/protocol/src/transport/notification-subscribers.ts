@@ -1,30 +1,26 @@
 import { Brand, Effect, Ref, Stream } from "effect";
-import type { Schema } from "effect";
+import { isNotificationDeliveryFor } from "./method.js";
 import type {
-  NotificationDefinition,
+  NotificationDefinitionAny,
   NotificationDelivery,
   NotificationParamsOf,
 } from "./method.js";
 
-type AnyNotificationDescriptor = NotificationDefinition<
-  string,
-  Schema.Schema.AnyNoContext
->;
+type AnyNotificationDescriptor = NotificationDefinitionAny;
 
 type SubscriptionId = string & Brand.Brand<"NotificationSubscriptionId">;
 const SubscriptionIdBrand = Brand.nominal<SubscriptionId>();
 
-type ErasedNotificationRefinement = (
-  params: NotificationParamsOf<AnyNotificationDescriptor>,
-) => boolean;
-
-type SubscriberFrameCallback = (
-  params: NotificationParamsOf<AnyNotificationDescriptor>,
-) => Effect.Effect<void, never>;
-
-type BroadSubscriberFrameCallback = (
+type SubscriberDeliveryCallback = (
   delivery: NotificationDelivery,
 ) => Effect.Effect<void, never>;
+
+type DeliveryOf<Definitions extends AnyNotificationDescriptor> =
+  NotificationDelivery<Definitions>;
+
+type BroadSubscriberFrameCallback<
+  Definitions extends AnyNotificationDescriptor,
+> = (delivery: DeliveryOf<Definitions>) => Effect.Effect<void, never>;
 
 type SubscriberCloseCallback<CloseError> = (
   cause: CloseError,
@@ -32,16 +28,18 @@ type SubscriberCloseCallback<CloseError> = (
 
 interface LiveSubscription<CloseError> {
   readonly id: SubscriptionId;
-  readonly definition: AnyNotificationDescriptor;
-  readonly refinement?: ErasedNotificationRefinement;
-  readonly onFrame: SubscriberFrameCallback;
+  readonly accepts: (delivery: NotificationDelivery) => boolean;
+  readonly onFrame: SubscriberDeliveryCallback;
   readonly onClose: SubscriberCloseCallback<CloseError>;
 }
 
-interface LiveBroadSubscription<CloseError> {
+interface LiveBroadSubscription<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+> {
   readonly id: SubscriptionId;
-  readonly refinement?: (delivery: NotificationDelivery) => boolean;
-  readonly onFrame: BroadSubscriberFrameCallback;
+  readonly refinement?: (delivery: DeliveryOf<Definitions>) => boolean;
+  readonly onFrame: BroadSubscriberFrameCallback<Definitions>;
   readonly onClose: SubscriberCloseCallback<CloseError>;
 }
 
@@ -50,8 +48,11 @@ export interface NotificationSubscriptionHandle {
   readonly unregister: Effect.Effect<void, never>;
 }
 
-export interface NotificationSubscriberRegistry<CloseError> {
-  readonly register: <D extends AnyNotificationDescriptor>(
+export interface NotificationSubscriberRegistry<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor = AnyNotificationDescriptor,
+> {
+  readonly register: <D extends Definitions>(
     definition: D,
     refinement: ((params: NotificationParamsOf<D>) => boolean) | undefined,
     callbacks: {
@@ -63,15 +64,15 @@ export interface NotificationSubscriberRegistry<CloseError> {
   ) => Effect.Effect<NotificationSubscriptionHandle, never>;
 
   readonly registerAll: (
-    refinement: ((delivery: NotificationDelivery) => boolean) | undefined,
+    refinement: ((delivery: DeliveryOf<Definitions>) => boolean) | undefined,
     callbacks: {
-      readonly onFrame: BroadSubscriberFrameCallback;
+      readonly onFrame: BroadSubscriberFrameCallback<Definitions>;
       readonly onClose: SubscriberCloseCallback<CloseError>;
     },
   ) => Effect.Effect<NotificationSubscriptionHandle, never>;
 
   readonly dispatch: (
-    delivery: NotificationDelivery,
+    delivery: DeliveryOf<Definitions>,
   ) => Effect.Effect<void, never>;
 
   readonly closeAll: Effect.Effect<void, never>;
@@ -81,6 +82,19 @@ export interface NotificationSubscriberRegistryOptions<CloseError> {
   readonly closeCause: () => CloseError;
   readonly logPrefix?: string;
   readonly spanName?: string;
+}
+
+interface NotificationSubscriberRegistryState<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+> {
+  readonly logPrefix: string;
+  readonly subsRef: Ref.Ref<ReadonlyArray<LiveSubscription<CloseError>>>;
+  readonly subsAllRef: Ref.Ref<
+    ReadonlyArray<LiveBroadSubscription<CloseError, Definitions>>
+  >;
+  readonly counterRef: Ref.Ref<number>;
+  readonly closeCause: () => CloseError;
 }
 
 function nextSubscriptionId(
@@ -100,15 +114,6 @@ function removeSubscription<T extends { readonly id: SubscriptionId }>(
   );
 }
 
-function eraseRefinement<D extends AnyNotificationDescriptor>(
-  refinement: ((params: NotificationParamsOf<D>) => boolean) | undefined,
-): ErasedNotificationRefinement | undefined {
-  if (refinement === undefined) return undefined;
-  // The registry invokes this only after `delivery.definition === sub.definition`.
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- documented typed-erased boundary enforced by definition identity
-  return refinement as unknown as ErasedNotificationRefinement; // #ignore-sloppy-code[as-unknown-as]: heterogeneous subscription storage; dispatch gates by descriptor identity.
-}
-
 function safePredicate<P>(
   predicate: (params: P) => boolean,
   params: P,
@@ -119,7 +124,10 @@ function safePredicate<P>(
     return predicate(params);
   } catch (err) {
     Effect.runFork(
-      Effect.logWarning(`${logPrefix} ${context} refinement predicate threw`, err),
+      Effect.logWarning(
+        `${logPrefix} ${context} refinement predicate threw`,
+        err,
+      ),
     );
     return false;
   }
@@ -127,30 +135,41 @@ function safePredicate<P>(
 
 function dispatchToSubscriber<CloseError>(
   sub: LiveSubscription<CloseError>,
-  params: NotificationParamsOf<AnyNotificationDescriptor>,
+  delivery: NotificationDelivery,
   logPrefix: string,
 ): Effect.Effect<void> {
-  return Effect.suspend(() => sub.onFrame(params)).pipe(
+  return Effect.suspend(() => sub.onFrame(delivery)).pipe(
     Effect.catchAllDefect((err) =>
       Effect.logWarning(`${logPrefix} onFrame callback threw`, err),
     ),
   );
 }
 
-function dispatchToBroadSubscriber<CloseError>(
-  sub: LiveBroadSubscription<CloseError>,
-  delivery: NotificationDelivery,
+function dispatchToBroadSubscriber<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  sub: LiveBroadSubscription<CloseError, Definitions>,
+  delivery: DeliveryOf<Definitions>,
   logPrefix: string,
 ): Effect.Effect<void> {
   return Effect.suspend(() => sub.onFrame(delivery)).pipe(
     Effect.catchAllDefect((err) =>
-      Effect.logWarning(`${logPrefix} subscribeAll onFrame callback threw`, err),
+      Effect.logWarning(
+        `${logPrefix} subscribeAll onFrame callback threw`,
+        err,
+      ),
     ),
   );
 }
 
-function closeSubscriber<CloseError>(
-  sub: LiveSubscription<CloseError> | LiveBroadSubscription<CloseError>,
+function closeSubscriber<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  sub:
+    | LiveSubscription<CloseError>
+    | LiveBroadSubscription<CloseError, Definitions>,
   cause: CloseError,
   logPrefix: string,
 ): Effect.Effect<void> {
@@ -164,143 +183,220 @@ function closeSubscriber<CloseError>(
 function subAcceptsDelivery<CloseError>(
   sub: LiveSubscription<CloseError>,
   delivery: NotificationDelivery,
-  logPrefix: string,
 ): boolean {
-  if (sub.definition !== delivery.definition) return false;
-  if (sub.refinement === undefined) return true;
-  return safePredicate(
-    sub.refinement,
-    delivery.params,
-    "subscribe",
-    logPrefix,
-  );
+  return sub.accepts(delivery);
 }
 
-function broadAcceptsDelivery<CloseError>(
-  sub: LiveBroadSubscription<CloseError>,
-  delivery: NotificationDelivery,
+function broadAcceptsDelivery<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  sub: LiveBroadSubscription<CloseError, Definitions>,
+  delivery: DeliveryOf<Definitions>,
   logPrefix: string,
 ): boolean {
   if (sub.refinement === undefined) return true;
   return safePredicate(sub.refinement, delivery, "subscribeAll", logPrefix);
 }
 
-export function makeNotificationSubscriberRegistry<CloseError>(
+function registerSubscription<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+  D extends Definitions,
+>(
+  state: NotificationSubscriberRegistryState<CloseError, Definitions>,
+  definition: D,
+  refinement: ((params: NotificationParamsOf<D>) => boolean) | undefined,
+  callbacks: {
+    readonly onFrame: (
+      params: NotificationParamsOf<D>,
+    ) => Effect.Effect<void, never>;
+    readonly onClose: SubscriberCloseCallback<CloseError>;
+  },
+): Effect.Effect<NotificationSubscriptionHandle, never> {
+  return Effect.gen(function* () {
+    const id = yield* nextSubscriptionId(state.counterRef);
+    const live: LiveSubscription<CloseError> = {
+      id,
+      accepts: (delivery) => {
+        if (!isNotificationDeliveryFor(delivery, definition)) return false;
+        if (refinement === undefined) return true;
+        return safePredicate(
+          refinement,
+          delivery.params,
+          "subscribe",
+          state.logPrefix,
+        );
+      },
+      onFrame: (delivery) => {
+        if (!isNotificationDeliveryFor(delivery, definition)) {
+          return Effect.void;
+        }
+        return callbacks.onFrame(delivery.params);
+      },
+      onClose: callbacks.onClose,
+    };
+    yield* Ref.update(state.subsRef, (subscriptions) => [
+      ...subscriptions,
+      live,
+    ]);
+    return { id, unregister: removeSubscription(state.subsRef, id) };
+  });
+}
+
+function registerBroadSubscription<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  state: NotificationSubscriberRegistryState<CloseError, Definitions>,
+  refinement: ((delivery: DeliveryOf<Definitions>) => boolean) | undefined,
+  callbacks: {
+    readonly onFrame: BroadSubscriberFrameCallback<Definitions>;
+    readonly onClose: SubscriberCloseCallback<CloseError>;
+  },
+): Effect.Effect<NotificationSubscriptionHandle, never> {
+  return Effect.gen(function* () {
+    const id = yield* nextSubscriptionId(state.counterRef);
+    const live: LiveBroadSubscription<CloseError, Definitions> = {
+      id,
+      ...(refinement !== undefined ? { refinement } : {}),
+      onFrame: callbacks.onFrame,
+      onClose: callbacks.onClose,
+    };
+    yield* Ref.update(state.subsAllRef, (subscriptions) => [
+      ...subscriptions,
+      live,
+    ]);
+    return { id, unregister: removeSubscription(state.subsAllRef, id) };
+  });
+}
+
+function dispatchDelivery<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  state: NotificationSubscriberRegistryState<CloseError, Definitions>,
+  delivery: DeliveryOf<Definitions>,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const snapshot = yield* Ref.get(state.subsRef);
+    const broadSnapshot = yield* Ref.get(state.subsAllRef);
+    for (const sub of snapshot) {
+      if (subAcceptsDelivery(sub, delivery)) {
+        yield* dispatchToSubscriber(sub, delivery, state.logPrefix);
+      }
+    }
+    for (const sub of broadSnapshot) {
+      if (broadAcceptsDelivery(sub, delivery, state.logPrefix)) {
+        yield* dispatchToBroadSubscriber(sub, delivery, state.logPrefix);
+      }
+    }
+  });
+}
+
+function closeSubscriptions<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  state: NotificationSubscriberRegistryState<CloseError, Definitions>,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const snapshot = yield* Ref.getAndSet(state.subsRef, []);
+    const broadSnapshot = yield* Ref.getAndSet(state.subsAllRef, []);
+    const cause = state.closeCause();
+    for (const sub of snapshot) {
+      yield* closeSubscriber(sub, cause, state.logPrefix);
+    }
+    for (const sub of broadSnapshot) {
+      yield* closeSubscriber(sub, cause, state.logPrefix);
+    }
+  });
+}
+
+function makeRegister<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  state: NotificationSubscriberRegistryState<CloseError, Definitions>,
+): NotificationSubscriberRegistry<CloseError, Definitions>["register"] {
+  return (definition, refinement, callbacks) =>
+    registerSubscription(state, definition, refinement, callbacks);
+}
+
+function makeRegisterAll<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  state: NotificationSubscriberRegistryState<CloseError, Definitions>,
+): NotificationSubscriberRegistry<CloseError, Definitions>["registerAll"] {
+  return (refinement, callbacks) =>
+    registerBroadSubscription(state, refinement, callbacks);
+}
+
+export function makeNotificationSubscriberRegistry<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor = AnyNotificationDescriptor,
+>(
   options: NotificationSubscriberRegistryOptions<CloseError>,
-): Effect.Effect<NotificationSubscriberRegistry<CloseError>, never> {
+): Effect.Effect<
+  NotificationSubscriberRegistry<CloseError, Definitions>,
+  never
+> {
   return Effect.gen(function* () {
     const logPrefix = options.logPrefix ?? "notification subscriber";
     const subsRef = yield* Ref.make<
       ReadonlyArray<LiveSubscription<CloseError>>
     >([]);
     const subsAllRef = yield* Ref.make<
-      ReadonlyArray<LiveBroadSubscription<CloseError>>
+      ReadonlyArray<LiveBroadSubscription<CloseError, Definitions>>
     >([]);
     const counterRef = yield* Ref.make(0);
-
-    const register: NotificationSubscriberRegistry<CloseError>["register"] = (
-      definition,
-      refinement,
-      callbacks,
-    ) =>
-      Effect.gen(function* () {
-        const id = yield* nextSubscriptionId(counterRef);
-        const erasedRefinement = eraseRefinement(refinement);
-        const live: LiveSubscription<CloseError> = {
-          id,
-          definition,
-          ...(erasedRefinement !== undefined
-            ? { refinement: erasedRefinement }
-            : {}),
-          onFrame: callbacks.onFrame as SubscriberFrameCallback,
-          onClose: callbacks.onClose,
-        };
-        yield* Ref.update(subsRef, (subscriptions) => [
-          ...subscriptions,
-          live,
-        ]);
-        return { id, unregister: removeSubscription(subsRef, id) };
-      });
-
-    const registerAll: NotificationSubscriberRegistry<CloseError>["registerAll"] =
-      (refinement, callbacks) =>
-        Effect.gen(function* () {
-          const id = yield* nextSubscriptionId(counterRef);
-          const live: LiveBroadSubscription<CloseError> = {
-            id,
-            ...(refinement !== undefined ? { refinement } : {}),
-            onFrame: callbacks.onFrame,
-            onClose: callbacks.onClose,
-          };
-          yield* Ref.update(subsAllRef, (subscriptions) => [
-            ...subscriptions,
-            live,
-          ]);
-          return { id, unregister: removeSubscription(subsAllRef, id) };
-        });
-
-    const dispatch: NotificationSubscriberRegistry<CloseError>["dispatch"] = (
-      delivery,
-    ) =>
-      Effect.gen(function* () {
-        const snapshot = yield* Ref.get(subsRef);
-        const broadSnapshot = yield* Ref.get(subsAllRef);
-        for (const sub of snapshot) {
-          if (subAcceptsDelivery(sub, delivery, logPrefix)) {
-            yield* dispatchToSubscriber(sub, delivery.params, logPrefix);
-          }
-        }
-        for (const sub of broadSnapshot) {
-          if (broadAcceptsDelivery(sub, delivery, logPrefix)) {
-            yield* dispatchToBroadSubscriber(sub, delivery, logPrefix);
-          }
-        }
-      });
-
-    const closeAll = Effect.gen(function* () {
-      const snapshot = yield* Ref.getAndSet(
+    const state: NotificationSubscriberRegistryState<CloseError, Definitions> =
+      {
+        logPrefix,
         subsRef,
-        [] as ReadonlyArray<LiveSubscription<CloseError>>,
-      );
-      const broadSnapshot = yield* Ref.getAndSet(
         subsAllRef,
-        [] as ReadonlyArray<LiveBroadSubscription<CloseError>>,
-      );
-      const cause = options.closeCause();
-      for (const sub of snapshot) {
-        yield* closeSubscriber(sub, cause, logPrefix);
-      }
-      for (const sub of broadSnapshot) {
-        yield* closeSubscriber(sub, cause, logPrefix);
-      }
-    });
+        counterRef,
+        closeCause: options.closeCause,
+      };
 
-    return { register, registerAll, dispatch, closeAll };
-  }).pipe(Effect.withSpan(options.spanName ?? "makeNotificationSubscriberRegistry"));
+    return {
+      register: makeRegister(state),
+      registerAll: makeRegisterAll(state),
+      dispatch: (delivery: DeliveryOf<Definitions>) =>
+        dispatchDelivery(state, delivery),
+      closeAll: closeSubscriptions(state),
+    };
+  }).pipe(
+    Effect.withSpan(options.spanName ?? "makeNotificationSubscriberRegistry"),
+  );
 }
 
 export function notificationSubscribe<
   CloseError,
-  D extends AnyNotificationDescriptor,
+  Definitions extends AnyNotificationDescriptor,
+  D extends Definitions,
   R extends NotificationParamsOf<D>,
 >(
-  registry: NotificationSubscriberRegistry<CloseError>,
+  registry: NotificationSubscriberRegistry<CloseError, Definitions>,
   definition: D,
   refinement: (params: NotificationParamsOf<D>) => params is R,
 ): Stream.Stream<R, CloseError>;
 export function notificationSubscribe<
   CloseError,
-  D extends AnyNotificationDescriptor,
+  Definitions extends AnyNotificationDescriptor,
+  D extends Definitions,
 >(
-  registry: NotificationSubscriberRegistry<CloseError>,
+  registry: NotificationSubscriberRegistry<CloseError, Definitions>,
   definition: D,
   refinement?: (params: NotificationParamsOf<D>) => boolean,
 ): Stream.Stream<NotificationParamsOf<D>, CloseError>;
 export function notificationSubscribe<
   CloseError,
-  D extends AnyNotificationDescriptor,
+  Definitions extends AnyNotificationDescriptor,
+  D extends Definitions,
 >(
-  registry: NotificationSubscriberRegistry<CloseError>,
+  registry: NotificationSubscriberRegistry<CloseError, Definitions>,
   definition: D,
   refinement?: (params: NotificationParamsOf<D>) => boolean,
 ): Stream.Stream<NotificationParamsOf<D>, CloseError> {
@@ -321,11 +417,14 @@ export function notificationSubscribe<
   });
 }
 
-export function notificationSubscribeAll<CloseError>(
-  registry: NotificationSubscriberRegistry<CloseError>,
-  refinement?: (delivery: NotificationDelivery) => boolean,
-): Stream.Stream<NotificationDelivery, CloseError> {
-  return Stream.async<NotificationDelivery, CloseError>((emit) => {
+export function notificationSubscribeAll<
+  CloseError,
+  Definitions extends AnyNotificationDescriptor,
+>(
+  registry: NotificationSubscriberRegistry<CloseError, Definitions>,
+  refinement?: (delivery: DeliveryOf<Definitions>) => boolean,
+): Stream.Stream<DeliveryOf<Definitions>, CloseError> {
+  return Stream.async<DeliveryOf<Definitions>, CloseError>((emit) => {
     const handle = Effect.runSync(
       registry.registerAll(refinement, {
         onFrame: (delivery) =>

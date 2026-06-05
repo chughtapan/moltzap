@@ -10,7 +10,7 @@ Only names listed here are part of the public surface.
 
 ## Public surface
 
-### [`AllowlistError`](./errors.ts#L50)
+### [`AllowlistError`](./errors.ts#L51)
 
 _TypeAlias_
 
@@ -22,7 +22,7 @@ class NoActiveConversation extends Data.TaggedError("NoActiveConversation")<{
 }> {}
 ```
 
-### [`bootClaudeCodeChannel`](./entry.ts#L313)
+### [`bootClaudeCodeChannel`](./entry.ts#L294)
 
 _Function_
 
@@ -44,8 +44,7 @@ sequenceDiagram
   participant server as server.ts
   participant client as moltzap-client
   Caller->>entry: bootClaudeCodeChannel(opts)
-  note over entry: [1] validateBootOptions (agentKey, serverUrl)
-  entry->>client: [2] new MoltZapService
+  entry->>client: [1] MoltZapService.make(profileName)
   entry->>client: [3] new MoltZapChannelCore
   note over entry: [4] createRoutingState
   note over entry: [5] makeSendReply(core)
@@ -68,19 +67,19 @@ tool.
 
 **Fails with:**
 
-- `AgentKeyInvalid` — opts.agentKey or opts.serverUrl is blank
+- `client config error` — MoltZap config is missing or invalid
 - `McpTransportFailed` — MCP server init or stdio connect rejects (step 6)
 - `ServiceRpcError` — WS connect / auth rejects (step 8)
 
-### [`BootError`](./errors.ts#L22)
+### [`BootError`](./errors.ts#L23)
 
 _TypeAlias_
 
 ```ts
 export type BootError =
+  | ClientBootConfigError
   | ServiceRpcError
   | McpTransportFailed
-  | AgentKeyInvalid
   | SchemaDecodeFailed;
 
 export class EmitFailed extends Data.TaggedError("EmitFailed")<{
@@ -94,8 +93,7 @@ _Interface_
 
 ```ts
 export interface BootOptions {
-  readonly serverUrl: string;
-  readonly agentKey: string;
+  readonly profileName: string;
   readonly gateInbound?: GateInbound;
 
   /**
@@ -130,7 +128,7 @@ Boot options — one struct per caller.
 No `Record&lt;string, unknown&gt;`, no `any`. Logging is provided through Effect
 logger layers at process boundaries.
 
-### [`BootResult`](./entry.ts#L36)
+### [`BootResult`](./entry.ts#L35)
 
 _TypeAlias_
 
@@ -236,7 +234,7 @@ Branded conversation id — corresponds to MoltZap's `conversationId` on the
 wire, rendered to Claude Code as the contract-meta key `chat_id`. The brand
 prevents accidental confusion with `MessageId` at call sites.
 
-### [`EventShapeError`](./errors.ts#L82)
+### [`EventShapeError`](./errors.ts#L83)
 
 _TypeAlias_
 
@@ -280,7 +278,7 @@ targeted by `reply_to`.
 Failure error variants live in `errors.ts → AllowlistError`
 (`SenderNotAllowed` / `ConversationNotAllowed`).
 
-### [`Handle`](./types.ts#L162)
+### [`Handle`](./types.ts#L161)
 
 _Interface_
 
@@ -367,7 +365,7 @@ export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
 Branded message id — corresponds to MoltZap's `id`, rendered as
 contract-meta `message_id`.
 
-### [`PushError`](./errors.ts#L36)
+### [`PushError`](./errors.ts#L37)
 
 _TypeAlias_
 
@@ -380,7 +378,7 @@ class SenderNotAllowed extends Data.TaggedError("SenderNotAllowed")<{
 }> {}
 ```
 
-### [`ReplyError`](./errors.ts#L68)
+### [`ReplyError`](./errors.ts#L69)
 
 _TypeAlias_
 

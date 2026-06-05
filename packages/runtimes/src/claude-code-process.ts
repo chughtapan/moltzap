@@ -17,7 +17,6 @@ export interface WriteClaudeCodeMcpConfigOpts {
   readonly stateDir: string;
   readonly extDir: string;
   readonly serverUrl: string;
-  readonly apiKey: string;
   readonly agentName: string;
 }
 
@@ -65,7 +64,8 @@ export function writeClaudeCodeMcpConfig(
           command: "node",
           args: [binPath],
           env: {
-            MOLTZAP_API_KEY: opts.apiKey,
+            MOLTZAP_PROFILE: opts.agentName,
+            MOLTZAP_CONFIG_HOME: path.join(opts.stateDir, ".moltzap"),
             MOLTZAP_SERVER_URL: serverUrl,
             MOLTZAP_SERVER_NAME: channelServerName,
           },

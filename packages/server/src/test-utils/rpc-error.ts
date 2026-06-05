@@ -5,13 +5,11 @@ import {
   RpcResponseError,
   TransportClosedError,
   TransportIoError,
-  FrameSchemaError,
 } from "@moltzap/protocol/testing";
 
 type RpcTestError =
   | TransportClosedError
   | TransportIoError
-  | FrameSchemaError
   | RpcTimeoutError
   | RpcResponseError;
 
@@ -35,8 +33,6 @@ function rpcFailureHandlers(expectedTag: string) {
       failUnexpected(expectedTag, `TransportClosedError: ${err.reason}`),
     TestingTransportIoError: (err: TransportIoError) =>
       failUnexpected(expectedTag, `TransportIoError: ${String(err.cause)}`),
-    TestingFrameSchemaError: (err: FrameSchemaError) =>
-      failUnexpected(expectedTag, `FrameSchemaError: ${err.reason}`),
     TestingRpcTimeoutError: (err: RpcTimeoutError) =>
       failUnexpected(
         expectedTag,

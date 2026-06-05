@@ -14,7 +14,7 @@ it("lastRead tracks seen message IDs across reads", () =>
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(TaskRequest.name, {
+      const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
@@ -70,7 +70,7 @@ it("non-text message parts render as markers in socket history", () =>
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(TaskRequest.name, {
+      const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
@@ -110,12 +110,12 @@ it("socketPath is stable after connect (cached at startSocketServer time)", () =
     yield* service.startSocketServer();
     const pathAtStart = service.socketPath;
     try {
-      const result = yield* H.requestLocalService(
-        H.LocalServiceCommands.Ping,
-        undefined,
+      const result = yield* H.requestDaemonCommand(
+        H.LocalDaemonCommands.Status,
+        {},
         pathAtStart,
       );
-      expect(result.ok).toBe(true);
+      expect(result.agentId).toBe(reg.agentId);
     } finally {
       service.close();
       yield* reg.client.close();
