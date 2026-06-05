@@ -13,7 +13,7 @@ Lifecycle-backed conformance client barrel.
 
 ## Public surface
 
-### [`AgentTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L96)
+### [`AgentTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L94)
 
 _Interface_
 
@@ -27,7 +27,7 @@ export interface AgentTestClient extends NotificationClient {
 }
 ```
 
-### [`AgentTestClientConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L61)
+### [`AgentTestClientConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L59)
 
 _Interface_
 
@@ -40,7 +40,7 @@ export interface AgentTestClientConfig {
 }
 ```
 
-### [`AppTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L104)
+### [`AppTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L102)
 
 _Interface_
 
@@ -68,7 +68,7 @@ export interface AppTestClient extends NotificationClient {
 }
 ```
 
-### [`AppTestClientConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L68)
+### [`AppTestClientConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L66)
 
 _Interface_
 
@@ -81,7 +81,7 @@ export interface AppTestClientConfig {
 }
 ```
 
-### [`CloseableAgentTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L126)
+### [`CloseableAgentTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L124)
 
 _Interface_
 
@@ -91,7 +91,7 @@ export interface CloseableAgentTestClient extends AgentTestClient {
 }
 ```
 
-### [`CloseableAppTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L130)
+### [`CloseableAppTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L128)
 
 _Interface_
 
@@ -101,7 +101,7 @@ export interface CloseableAppTestClient extends AppTestClient {
 }
 ```
 
-### [`makeAgentTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L165)
+### [`makeAgentTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L163)
 
 _Function_
 
@@ -111,7 +111,7 @@ export function makeAgentTestClient(
 ): Effect.Effect<AgentTestClient, SendRpcError, Scope.Scope>
 ```
 
-### [`makeAppTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L183)
+### [`makeAppTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L181)
 
 _Function_
 
@@ -121,7 +121,7 @@ export function makeAppTestClient(
 ): Effect.Effect<AppTestClient, SendRpcError, Scope.Scope>
 ```
 
-### [`makeCloseableAgentTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L175)
+### [`makeCloseableAgentTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L173)
 
 _Function_
 
@@ -131,7 +131,7 @@ export function makeCloseableAgentTestClient(
 ): Effect.Effect<CloseableAgentTestClient, SendRpcError>
 ```
 
-### [`makeCloseableAppTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L193)
+### [`makeCloseableAppTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L191)
 
 _Function_
 
@@ -141,7 +141,7 @@ export function makeCloseableAppTestClient(
 ): Effect.Effect<CloseableAppTestClient, SendRpcError>
 ```
 
-### [`NotificationClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L81)
+### [`NotificationClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L79)
 
 _Interface_
 
@@ -162,7 +162,7 @@ export interface NotificationClient {
 }
 ```
 
-### [`ServerRequestWaitError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L134)
+### [`ServerRequestWaitError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L132)
 
 _Class_
 
@@ -176,7 +176,7 @@ export class ServerRequestWaitError extends Data.TaggedError(
 }> {}
 ```
 
-### [`ServerRpcContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L146)
+### [`ServerRpcContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L144)
 
 _Interface_
 
@@ -187,7 +187,7 @@ export interface ServerRpcContext {
 }
 ```
 
-### [`ServerRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L142)
+### [`ServerRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L140)
 
 _TypeAlias_
 
@@ -196,7 +196,7 @@ export type ServerRpcDefinition = AnyAppCallbackRpcDefinition;
 export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 ```
 
-### [`ServerRpcParams`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L143)
+### [`ServerRpcParams`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L141)
 
 _TypeAlias_
 
@@ -204,7 +204,7 @@ _TypeAlias_
 export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 ```
 
-### [`ServerRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L144)
+### [`ServerRpcResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/_shared/driver/test-client.ts#L142)
 
 _TypeAlias_
 

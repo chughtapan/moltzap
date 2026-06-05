@@ -38,13 +38,11 @@ import {
   type PropertyFailure,
 } from "../_shared/registry.js";
 import type { AgentId } from "../../../identity/index.js";
+import { AppId, TaskAddParticipant, TaskRequest } from "@moltzap/protocol/task";
 import {
-  AppId,
-  TaskAddParticipant,
   TaskConversationAddParticipant,
   TaskConversationCreate,
-  TaskRequest,
-} from "@moltzap/protocol/task";
+} from "@moltzap/protocol/conversation";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { MessagesSend, LeaseId } from "@moltzap/protocol/message";
 import type { TaskId } from "../../../task/index.js";

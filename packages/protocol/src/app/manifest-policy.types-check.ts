@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the required manifest hook policies
- * (`app/methods.ts → AppManifestSchema`).
+ * (`app/manifest.ts → AppManifestSchema`).
  *
  * The manifest's `hooks` block and each of its three policy slots are
  * required discriminated unions. That is the load-bearing invariant: an
@@ -24,7 +24,7 @@
  * the canary non-vacuous. The exported aggregate references each binding
  * so the unused-variable lint does not flag them.
  */
-import type { AppManifest } from "./methods.js";
+import type { AppManifest } from "./manifest.js";
 
 type DispatchPolicy = AppManifest["hooks"]["dispatch_authorize"];
 type TaskPolicy = AppManifest["hooks"]["task_create"];

@@ -5,7 +5,7 @@ import type {
   AppCallbackHandlers,
   AppCallbackRpcDefinition,
   HandlerSlot,
-} from "../app/methods.js";
+} from "./app-callbacks.js";
 import type { AppKey } from "../credentials.js";
 import { AppConnect, PROTOCOL_VERSION } from "../network/connect.js";
 import { AppCallableGroup } from "../rpc-method-groups.js";

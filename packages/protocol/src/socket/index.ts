@@ -11,6 +11,11 @@ export type { AgentClientOptions } from "./agent-client.js";
 
 export { MoltZapAppClient } from "./app-client.js";
 export type { AppCallbackContext, AppClientOptions } from "./app-client.js";
+export type {
+  AppCallbackHandlers,
+  AppCallbackRpcDefinition,
+  HandlerSlot,
+} from "./app-callbacks.js";
 
 export {
   RPC_TIMEOUT_MS,

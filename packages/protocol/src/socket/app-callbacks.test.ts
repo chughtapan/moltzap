@@ -13,7 +13,8 @@
 import { describe, it, expect } from "vitest";
 import type { Schema } from "effect";
 import { DispatchAuthorize } from "../dispatch/index.js";
-import { MessagesAuthorize, TaskCreate } from "./methods.js";
+import { MessagesAuthorize } from "../message/index.js";
+import { TaskCreate } from "../task/methods.js";
 import { appCallbackMethods } from "../rpc-method-groups.js";
 import { decodesStrictly } from "../transport/strict-decode.js";
 

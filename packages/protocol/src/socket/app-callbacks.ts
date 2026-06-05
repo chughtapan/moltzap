@@ -1,32 +1,15 @@
 /**
- * @file App-domain RPC descriptors and the app-callback handler table.
- *
- * The app domain authors the app-callable c2s methods, the agent-callable
- * app-mediated methods, the server→app callback catalog, and the notification
- * descriptors. The engine consumes these catalogs to build concrete RPC groups.
+ * @file App reverse-callback handler table for protocol app clients.
  */
-import type { Effect } from "effect";
 
+import type { Effect } from "effect";
+import type { appCallbackMethods } from "../rpc-method-groups.js";
 import type {
   ParamsOf,
   ResultOf,
   RpcDefinition,
   RpcDefinitionAny,
 } from "../transport/method.js";
-
-export { validateAppManifest } from "./manifest.js";
-export type { AppManifest } from "./manifest.js";
-
-export { MessagesAuthorize, TaskCreate } from "./app-callbacks.js";
-
-import { DispatchAuthorize } from "../dispatch/index.js";
-import { MessagesAuthorize, TaskCreate } from "./app-callbacks.js";
-
-export const appCallbackMethods = [
-  DispatchAuthorize,
-  MessagesAuthorize,
-  TaskCreate,
-] as const;
 
 type AppCallbackDescriptor = RpcDefinitionAny;
 

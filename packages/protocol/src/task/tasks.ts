@@ -13,16 +13,11 @@ import {
   AgentClaimed,
 } from "../transport/principal.js";
 import {
-  ConversationId,
   conversationSchema,
   ConversationFullError,
-  ConversationNotFoundError,
-} from "../conversation/index.js";
+} from "../conversation/types.js";
 import { AppId, TaskId, TaskNotFoundError } from "./ids.js";
-import {
-  ConversationInTask,
-  ContactPolicyAllowsReach,
-} from "./capabilities/index.js";
+import { ContactPolicyAllowsReach } from "./capabilities/index.js";
 
 // `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
 // re-exported here so import paths can reach them through this module.
@@ -34,9 +29,8 @@ export { AppId, DEFAULT_APP_ID, TaskId, TaskNotFoundError } from "./ids.js";
 // `TaskSchema` is the task-row shape returned by `task/list`, `task/close`,
 // `task/request`, and pushed by the `task/created` / `task/closed`
 // notifications; `TaskParticipantSchema` is the membership row;
-// `ConversationSchema` (from `./conversations.js`) the conversation row that
-// `task/request` + `task/conversation/*` return. The tagged errors are the
-// task surface's shared failure channels.
+// `ConversationSchema` the conversation row that `task/request` may return.
+// The tagged errors are the task surface's shared failure channels.
 //
 // A task is the unit of admission: every conversation under a task draws its
 // participant pool from `task_participants`, and the task's owning app's TM
@@ -52,23 +46,10 @@ export { AppId, DEFAULT_APP_ID, TaskId, TaskNotFoundError } from "./ids.js";
 // | task/close                          | TM (app owns the task)                   |
 // | task/addParticipant                 | TM only                                  |
 // | task/removeParticipant              | TM only                                  |
-// | task/conversation/create            | TM + participant-admitted invariant      |
-// | task/conversation/list              | self only (caller in conversation)       |
-// | task/conversation/archive/unarchive | TM only                                  |
-// | task/conversation/participants/add  | TM + participant-admitted invariant      |
-// | task/conversation/participants/remove | TM only                                |
 //
 // TM authority: the app-callable task-admin RPCs head their `requires` with
 // `AppPrincipal` and gate on `assertCallerAppOwnsTask` (the app-arm successor
-// to the dissolved `TmAuthority` capability) BEFORE any participant probe — so
-// a non-owner sees `ForbiddenError` rather than leaking task-membership
-// existence through `ParticipantNotAdmittedError`.
-//
-// Participant-admitted invariant (`task/conversation/create`,
-// `task/conversation/participants/add`): every agent listed in `participants`
-// MUST already appear in `task_participants` for `taskId`. Conversations are
-// scoped strictly within their task's admission set; missing rows fail with
-// `ParticipantNotAdmittedError`.
+// to the dissolved `TmAuthority` capability) before any participant probe.
 //
 // Notification emission: each mutating op enqueues notifications AFTER the row
 // mutation returns. Broadcast is best-effort: socket writes fork via
@@ -116,20 +97,6 @@ export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
   errorPayloadFields,
 ) {
   static readonly message = "Hook blocked the dispatch";
-}
-
-/**
- * `task/conversation/create` and `task/conversation/participants/add`
- * reject agents who are not already in `task_participants`. The error
- * tag lets clients distinguish "wrong agentId shape" (InvalidParams)
- * from "agent exists but is not admitted to this task" (this tag)
- * without parsing message strings.
- */
-export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantNotAdmittedError>()(
-  "ParticipantNotAdmitted",
-  errorPayloadFields,
-) {
-  static readonly message = "Agent is not admitted to the task";
 }
 
 // Mirrors the `task_status` DB enum.
@@ -210,8 +177,8 @@ export type InitialConversationInput = Schema.Schema.Type<
  * participant set" semantics list their tasks and filter locally
  * before creating a new one.
  *
- * The agent-facing entry RPC is `task/request`; the TM-facing wire callback
- * `task/create` lives in `packages/protocol/src/app/methods.ts`. The server
+ * The agent-facing entry RPC is `task/request`; the app-facing wire callback
+ * `task/create` lives in this task domain. The server
  * forks `task/create` to the bound TM after inserting the task in `waiting`;
  * the TM's verdict drives the lifecycle (accept → active + `task/created`;
  * reject → failed + `task/failed`). The synchronous `{ task, conversation }`
@@ -237,6 +204,53 @@ export const TaskRequest = defineRpc({
   }),
   requires: [AgentPrincipal, AgentClaimed, ContactPolicyAllowsReach],
   errors: [TaskRejectedError, AgentNotFoundError, ConversationFullError],
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// task/create (reverse callback)
+//
+// Agent-driven `task/request` creates a task in `"waiting"` state and forks
+// this wire callback to the registered app. The app responds with an
+// accept/reject verdict; on accept the task transitions to `"active"`.
+// ═══════════════════════════════════════════════════════════════════
+
+const TaskCreateContextSchema = Schema.Struct({
+  taskId: TaskId,
+  initiatorAgentId: AgentId,
+  invitedAgentIds: Schema.Array(AgentId),
+  initialConversation: Schema.optional(
+    Schema.Struct({
+      name: Schema.optional(Schema.String),
+      participants: Schema.optional(Schema.Array(AgentId)),
+    }),
+  ),
+  receivedAt: Schema.optional(DateTimeString),
+});
+
+const TaskCreateVerdictSchema = Schema.Union(
+  Schema.Struct({ decision: Schema.Literal("accept") }),
+  Schema.Struct({
+    decision: Schema.Literal("reject"),
+    // Bound matches `TaskFailedNotificationDefinition.reason`.
+    reason: Schema.optional(
+      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
+    ),
+  }),
+);
+
+/**
+ * Server → app round-trip asking whether the app accepts a newly requested
+ * task.
+ *
+ * - **Principal:** none — a server→client reverse callback.
+ * @error ForbiddenError when the app rejects (collapsed to a fail-closed reject by the server)
+ */
+export const TaskCreate = defineRpc({
+  name: "task/create",
+  params: TaskCreateContextSchema,
+  result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
+  requires: [],
+  errors: [ForbiddenError],
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -332,185 +346,6 @@ export const TaskRemoveParticipant = defineRpc({
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// task/conversation/create
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * TM-only: mint a new conversation under an existing task. Every
- * entry in `participants` MUST already appear in `task_participants`
- * for `taskId`; violations return `ParticipantNotAdmittedError`.
- *
- * - **Principal:** `AppPrincipal` head. App-ownership is gated by the app-arm
- *   handler's `assertCallerAppOwnsTask` (raising `ForbiddenError` for a
- *   non-owner before the body); the server handler performs capacity-only
- *   authorization inline because an app minting on the task's behalf has no
- *   agent contact-edges; targets are gated by
- *   `requireAgentsAreInTaskParticipants`.
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist
- * @error AgentNotFoundError when a listed participant agent does not exist
- * @error ParticipantNotAdmittedError when a participant is not admitted to the task
- * @error ConversationFullError when the conversation is at capacity
- */
-export const TaskConversationCreate = defineRpc({
-  name: "task/conversation/create",
-  params: Schema.Struct({
-    taskId: TaskId,
-    name: Schema.optional(
-      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
-    ),
-    participants: Schema.Array(AgentId).pipe(Schema.minItems(1)),
-  }),
-  result: Schema.Struct({ conversation: ConversationSchema }),
-  requires: [AppPrincipal],
-  errors: [
-    ForbiddenError,
-    TaskNotFoundError,
-    AgentNotFoundError,
-    ParticipantNotAdmittedError,
-    ConversationFullError,
-  ],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/list
-// ═══════════════════════════════════════════════════════════════════
-
-const TaskConversationListItemSchema = Schema.Struct({
-  taskId: TaskId,
-  conversation: ConversationSchema,
-  participants: Schema.Array(AgentId),
-});
-
-export type TaskConversationListItem = Schema.Schema.Type<
-  typeof TaskConversationListItemSchema
->;
-
-/**
- * Self-only listing of every conversation the caller participates in (across
- * all tasks). No filter params; archived rows are included; callers filter
- * `archivedAt` locally.
- *
- * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
- * @error InvalidParamsError when the `cursor` does not decode
- * @error ConversationNotFoundError when a listed conversation's row vanished mid-projection
- */
-export const TaskConversationList = defineRpc({
-  name: "task/conversation/list",
-  params: Schema.Struct({
-    limit: ListLimitSchema,
-    cursor: Schema.optional(Schema.String),
-  }),
-  result: Schema.Struct({
-    items: Schema.Array(TaskConversationListItemSchema),
-    nextCursor: Schema.optional(Schema.String),
-  }),
-  requires: [AgentPrincipal, AgentClaimed],
-  errors: [InvalidParamsError, ConversationNotFoundError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/archive
-//
-// The four conversation-targeted descriptors below share the IDENTICAL
-// `[AppPrincipal, ConversationInTask]` requirement. App-ownership is gated in
-// the app-arm handlers; `ConversationInTask` resolves the conversation's task
-// membership. The wire descriptors here carry only their params/result shape.
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * TM-only: archive one conversation. Task stays open.
- *
- * - **Principal:** `AppPrincipal` head + `ConversationInTask` +
- *   `assertCallerAppOwnsTask` (see `task/close`).
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist or is not open
- * @error ConversationNotFoundError when the conversation does not exist under the task
- */
-export const TaskConversationArchive = defineRpc({
-  name: "task/conversation/archive",
-  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/unarchive
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * TM-only: reverse of `task/conversation/archive`.
- *
- * - **Principal:** `AppPrincipal` head + `ConversationInTask` +
- *   `assertCallerAppOwnsTask` (see `task/close`).
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist or is not open
- * @error ConversationNotFoundError when the conversation does not exist under the task
- */
-export const TaskConversationUnarchive = defineRpc({
-  name: "task/conversation/unarchive",
-  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/participants/add
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * TM-only: add an agent to one conversation. The agent MUST already appear in
- * `task_participants` for `taskId`; otherwise `ParticipantNotAdmittedError`.
- *
- * - **Principal:** `AppPrincipal` head + `ConversationInTask`. App-ownership is
- *   gated by the app-arm handler's `assertCallerAppOwnsTask` BEFORE
- *   `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
- *   not the participant-admitted state probe).
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist or is not open
- * @error ParticipantNotAdmittedError when the agent is not admitted to the task
- */
-export const TaskConversationAddParticipant = defineRpc({
-  name: "task/conversation/participants/add",
-  params: Schema.Struct({
-    taskId: TaskId,
-    conversationId: ConversationId,
-    agentId: AgentId,
-  }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError, ParticipantNotAdmittedError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/participants/remove
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * TM-only: remove an agent from one conversation. The agent stays in
- * `task_participants` (so they may still receive messages on other
- * conversations within the task).
- *
- * - **Principal:** `AppPrincipal` head + `ConversationInTask` +
- *   `assertCallerAppOwnsTask` (see `task/close`).
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist or is not open
- */
-export const TaskConversationRemoveParticipant = defineRpc({
-  name: "task/conversation/participants/remove",
-  params: Schema.Struct({
-    taskId: TaskId,
-    conversationId: ConversationId,
-    agentId: AgentId,
-  }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
 // task/* lifecycle notifications
 // ═══════════════════════════════════════════════════════════════════
 
@@ -557,93 +392,3 @@ export const TaskClosedNotificationDefinition = defineNotification({
   name: "task/closed",
   params: TaskClosedNotificationSchema,
 });
-
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/* notifications
-//
-// Recipient fan-out:
-//   - `created` → initial `participants` list
-//   - `archived` / `unarchived` → post-mutation `conversation_participants`
-//   - `participants/added` → post-mutation membership (newcomer included)
-//   - `participants/removed` → pre-mutation membership (so the removed agent
-//     still receives the notification)
-// ═══════════════════════════════════════════════════════════════════
-
-const TaskConversationCreatedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  name: Schema.optional(Schema.String),
-  participants: Schema.Array(AgentId),
-});
-
-const TaskConversationArchivedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  archivedAt: DateTimeString,
-});
-
-const TaskConversationUnarchivedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-});
-
-const TaskConversationParticipantsAddedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  addedAgentId: AgentId,
-});
-
-const TaskConversationParticipantsRemovedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  removedAgentId: AgentId,
-  reason: stringEnum(["app_remove", "task_leave"]),
-});
-
-export type TaskConversationCreatedNotification = Schema.Schema.Type<
-  typeof TaskConversationCreatedNotificationSchema
->;
-export type TaskConversationArchivedNotification = Schema.Schema.Type<
-  typeof TaskConversationArchivedNotificationSchema
->;
-export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
-  typeof TaskConversationUnarchivedNotificationSchema
->;
-export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
-  typeof TaskConversationParticipantsAddedNotificationSchema
->;
-export type TaskConversationParticipantsRemovedNotification =
-  Schema.Schema.Type<
-    typeof TaskConversationParticipantsRemovedNotificationSchema
-  >;
-
-export const TaskConversationCreatedNotificationDefinition = defineNotification(
-  {
-    name: "task/conversation/created",
-    params: TaskConversationCreatedNotificationSchema,
-  },
-);
-
-export const TaskConversationArchivedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/archived",
-    params: TaskConversationArchivedNotificationSchema,
-  });
-
-export const TaskConversationUnarchivedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/unarchived",
-    params: TaskConversationUnarchivedNotificationSchema,
-  });
-
-export const TaskConversationParticipantsAddedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/participants/added",
-    params: TaskConversationParticipantsAddedNotificationSchema,
-  });
-
-export const TaskConversationParticipantsRemovedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/participants/removed",
-    params: TaskConversationParticipantsRemovedNotificationSchema,
-  });

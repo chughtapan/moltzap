@@ -30,10 +30,9 @@ import {
   TaskConversationCreatedNotificationDefinition,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationUnarchivedNotificationDefinition,
-  DEFAULT_APP_ID,
-  TaskRequest,
   TaskConversationList,
-} from "@moltzap/protocol/task";
+} from "@moltzap/protocol/conversation";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
   ConversationArchivedError,
   type ConversationId,

@@ -9,9 +9,9 @@ import {
   type AgentId,
 } from "@moltzap/protocol/identity";
 import { AgentCallableGroup } from "@moltzap/protocol/rpc-method-groups";
+import { TaskConversationList } from "@moltzap/protocol/conversation";
 import {
   DEFAULT_APP_ID,
-  TaskConversationList,
   TaskRequest,
   type TaskId,
 } from "@moltzap/protocol/task";

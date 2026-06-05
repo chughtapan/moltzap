@@ -13,22 +13,34 @@ import {
   taskNotifications,
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
+  taskCallbackMethods,
 } from "./task/methods.js";
 import {
+  agentCallableConversationRpcMethods,
+  appCallableConversationRpcMethods,
+  conversationNotifications,
+} from "./conversation/index.js";
+import {
   agentCallableMessageRpcMethods,
+  messageCallbackMethods,
   messageNotifications,
 } from "./message/index.js";
 import {
   agentCallableDispatchRpcMethods,
   appCallableDispatchRpcMethods,
+  dispatchCallbackMethods,
   dispatchNotifications,
 } from "./dispatch/index.js";
-import { appCallbackMethods as appDomainCallbackMethods } from "./app/methods.js";
 
-export const appCallbackMethods = appDomainCallbackMethods;
+export const appCallbackMethods = [
+  ...dispatchCallbackMethods,
+  ...messageCallbackMethods,
+  ...taskCallbackMethods,
+] as const;
 
 const appOnlyCallableMethods = [
   ...appCallableTaskRpcMethods,
+  ...appCallableConversationRpcMethods,
   ...appCallableDispatchRpcMethods,
 ] as const;
 
@@ -44,6 +56,7 @@ export const agentCallableMethods = [
   ...identityRpcMethods,
   ...agentCallableNetworkRpcMethods,
   ...agentCallableTaskRpcMethods,
+  ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...agentCallableDispatchRpcMethods,
 ] as const;
@@ -57,6 +70,7 @@ export const serverInboundMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
   ...agentCallableTaskRpcMethods,
+  ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...appOnlyCallableMethods,
   ...agentCallableDispatchRpcMethods,
@@ -66,6 +80,7 @@ export const notificationDefinitions = [
   ...networkNotifications,
   ...identityNotifications,
   ...taskNotifications,
+  ...conversationNotifications,
   ...messageNotifications,
   ...dispatchNotifications,
 ] as const;

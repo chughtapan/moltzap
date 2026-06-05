@@ -17,7 +17,7 @@ exports are already available on focused subpaths.
 
 ## Public surface
 
-### [`AgentCallableGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L90)
+### [`AgentCallableGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L105)
 
 _Variable_
 
@@ -25,7 +25,7 @@ _Variable_
 export const AgentCallableGroup = makeClientRpcGroup(agentCallableMethods)
 ```
 
-### [`agentCallableMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L43)
+### [`agentCallableMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L55)
 
 _Variable_
 
@@ -34,6 +34,7 @@ export const agentCallableMethods = [
   ...identityRpcMethods,
   ...agentCallableNetworkRpcMethods,
   ...agentCallableTaskRpcMethods,
+  ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...agentCallableDispatchRpcMethods,
 ] as const
@@ -55,7 +56,7 @@ _Variable_
 export const AgentKey = Schema.Redacted(AgentKeyValue)
 ```
 
-### [`AnyAgentCallableRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L74)
+### [`AnyAgentCallableRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L89)
 
 _TypeAlias_
 
@@ -64,7 +65,7 @@ export type AnyAgentCallableRpcDefinition =
   (typeof agentCallableMethods)[number];
 ```
 
-### [`AnyAppCallableRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L76)
+### [`AnyAppCallableRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L91)
 
 _TypeAlias_
 
@@ -72,7 +73,7 @@ _TypeAlias_
 export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
 ```
 
-### [`AnyAppCallbackRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L78)
+### [`AnyAppCallbackRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L93)
 
 _TypeAlias_
 
@@ -80,7 +81,7 @@ _TypeAlias_
 export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 ```
 
-### [`AnyNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L80)
+### [`AnyNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L95)
 
 _TypeAlias_
 
@@ -89,7 +90,7 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L73)
+### [`AnyServerRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L88)
 
 _TypeAlias_
 
@@ -97,7 +98,7 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 ```
 
-### [`AppCallableGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L92)
+### [`AppCallableGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L107)
 
 _Variable_
 
@@ -105,7 +106,7 @@ _Variable_
 export const AppCallableGroup = makeClientRpcGroup(appCallableMethods)
 ```
 
-### [`appCallableMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L51)
+### [`appCallableMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L64)
 
 _Variable_
 
@@ -116,12 +117,16 @@ export const appCallableMethods = [
 ] as const
 ```
 
-### [`appCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L28)
+### [`appCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L35)
 
 _Variable_
 
 ```ts
-export const appCallbackMethods = appDomainCallbackMethods
+export const appCallbackMethods = [
+  ...dispatchCallbackMethods,
+  ...messageCallbackMethods,
+  ...taskCallbackMethods,
+] as const
 ```
 
 ### [`AppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L29)
@@ -217,7 +222,7 @@ export type MwStackFor<Requires extends ReadonlyArray<unknown>> = Extract<
 >;
 ```
 
-### [`notificationDefinitions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L65)
+### [`notificationDefinitions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L79)
 
 _Variable_
 
@@ -226,12 +231,13 @@ export const notificationDefinitions = [
   ...networkNotifications,
   ...identityNotifications,
   ...taskNotifications,
+  ...conversationNotifications,
   ...messageNotifications,
   ...dispatchNotifications,
 ] as const
 ```
 
-### [`NotificationRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L135)
+### [`NotificationRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L150)
 
 _Variable_
 
@@ -336,7 +342,7 @@ export const requiresClaimed = (
 ): boolean
 ```
 
-### [`ReverseRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L150)
+### [`ReverseRpcGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L165)
 
 _Variable_
 
@@ -377,7 +383,7 @@ export const ServerEncryptionMasterSecret = Schema.Redacted(
 )
 ```
 
-### [`serverInboundMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L56)
+### [`serverInboundMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L69)
 
 _Variable_
 
@@ -386,6 +392,7 @@ export const serverInboundMethods = [
   ...identityRpcMethods,
   ...networkRpcMethods,
   ...agentCallableTaskRpcMethods,
+  ...agentCallableConversationRpcMethods,
   ...agentCallableMessageRpcMethods,
   ...appOnlyCallableMethods,
   ...agentCallableDispatchRpcMethods,

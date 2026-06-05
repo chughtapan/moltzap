@@ -8,7 +8,7 @@ Message identifiers, wire shapes, RPC descriptors, and notifications.
 
 ## Public surface
 
-### [`agentCallableMessageRpcMethods`](./index.ts#L340)
+### [`agentCallableMessageRpcMethods`](./index.ts#L385)
 
 _Variable_
 
@@ -21,7 +21,7 @@ export const agentCallableMessageRpcMethods = [
 
 Agent-callable message RPC catalog.
 
-### [`DispatchDecision`](./index.ts#L306)
+### [`DispatchDecision`](./index.ts#L351)
 
 _TypeAlias_
 
@@ -33,7 +33,7 @@ export type DispatchDecision = Schema.Schema.Type<
 
 Per-message dispatch authorization decision.
 
-### [`dispatchDecisionSchema`](./index.ts#L327)
+### [`dispatchDecisionSchema`](./index.ts#L372)
 
 _Function_
 
@@ -94,6 +94,16 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
 Message row visible to agent callers.
 
+### [`messageCallbackMethods`](./index.ts#L391)
+
+_Variable_
+
+```ts
+export const messageCallbackMethods = [MessagesAuthorize] as const
+```
+
+Message callback RPC catalog.
+
 ### [`MessageNotFoundError`](./index.ts#L50)
 
 _Class_
@@ -109,7 +119,7 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
 
 The referenced message does not exist, such as a `replyToId` reply target.
 
-### [`messageNotifications`](./index.ts#L346)
+### [`messageNotifications`](./index.ts#L394)
 
 _Variable_
 
@@ -133,7 +143,7 @@ Return the canonical message-parts schema.
 
 **Returns:** The canonical message-parts schema.
 
-### [`MessageReceivedNotification`](./index.ts#L260)
+### [`MessageReceivedNotification`](./index.ts#L305)
 
 _TypeAlias_
 
@@ -145,7 +155,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `messages/received`.
 
-### [`MessageReceivedNotificationDefinition`](./index.ts#L268)
+### [`MessageReceivedNotificationDefinition`](./index.ts#L313)
 
 _Variable_
 
@@ -157,6 +167,25 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 ```
 
 Pushed when a new message is delivered to your WebSocket connection.
+
+### [`MessagesAuthorize`](./index.ts#L287)
+
+_Variable_
+
+```ts
+export const MessagesAuthorize = defineRpc({
+  name: "messages/authorize",
+  params: MessagesAuthorizeContextSchema,
+  result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
+  requires: [],
+  errors: [ForbiddenError],
+})
+```
+
+Server → app round-trip asking for the per-message fan-out verdict.
+Triggered after the durable message insert lands and before broadcast.
+
+- **Principal:** none — a server→client reverse callback.
 
 ### [`MessagesList`](./index.ts#L242)
 
@@ -218,7 +247,7 @@ participant.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 
-### [`MessageWithDispatchDecision`](./index.ts#L319)
+### [`MessageWithDispatchDecision`](./index.ts#L364)
 
 _TypeAlias_
 
@@ -230,7 +259,7 @@ export type MessageWithDispatchDecision = Schema.Schema.Type<
 
 Message row visible to app callers, including the dispatch decision.
 
-### [`messageWithDispatchDecisionSchema`](./index.ts#L335)
+### [`messageWithDispatchDecisionSchema`](./index.ts#L380)
 
 _Function_
 
@@ -252,7 +281,7 @@ export type Part = Schema.Schema.Type<typeof PartSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](./index.ts#L311)
+### [`validateDispatchDecision`](./index.ts#L356)
 
 _Variable_
 

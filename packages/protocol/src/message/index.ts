@@ -248,6 +248,51 @@ export const MessagesList = defineRpc({
 });
 
 // ═══════════════════════════════════════════════════════════════════
+// messages/authorize (reverse callback)
+//
+// The send-side authority gate: the app declares per-message fan-out policy as
+// a verdict; the server enforces it before broadcast.
+// ═══════════════════════════════════════════════════════════════════
+
+const MessagesAuthorizeContextSchema = Schema.Struct({
+  taskId: TaskId,
+  appId: Schema.String,
+  conversationId: ConversationId,
+  message: Schema.Struct({
+    id: MessageId,
+    senderAgentId: AgentId,
+    parts: Schema.optional(MessagePartsSchema),
+  }),
+  receivedAt: Schema.optional(DateTimeString),
+});
+
+const MessagesAuthorizeVerdictSchema = Schema.Union(
+  Schema.Struct({
+    decision: Schema.Literal("Forward"),
+    recipients: Schema.Array(AgentId),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("Block"),
+    reason: Schema.optional(Schema.String),
+  }),
+);
+
+/**
+ * Server → app round-trip asking for the per-message fan-out verdict.
+ * Triggered after the durable message insert lands and before broadcast.
+ *
+ * - **Principal:** none — a server→client reverse callback.
+ * @error ForbiddenError when the app rejects (collapsed to a fail-closed Block by the server)
+ */
+export const MessagesAuthorize = defineRpc({
+  name: "messages/authorize",
+  params: MessagesAuthorizeContextSchema,
+  result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
+  requires: [],
+  errors: [ForbiddenError],
+});
+
+// ═══════════════════════════════════════════════════════════════════
 // messages/received (notification)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -341,6 +386,9 @@ export const agentCallableMessageRpcMethods = [
   MessagesSend,
   MessagesList,
 ] as const;
+
+/** Message callback RPC catalog. */
+export const messageCallbackMethods = [MessagesAuthorize] as const;
 
 /** Message notification catalog. */
 export const messageNotifications = [
