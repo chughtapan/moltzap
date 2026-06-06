@@ -1,19 +1,3 @@
-export {
-  Register,
-  AgentsLookup,
-  AgentsLookupByName,
-  AgentsList,
-} from "./agents/index.js";
-
-export {
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactsById,
-  ContactRequestNotificationDefinition,
-  ContactAcceptedNotificationDefinition,
-} from "./contacts/index.js";
-
 import { AgentsLookup, AgentsLookupByName, AgentsList } from "./agents/index.js";
 import {
   ContactsList,
