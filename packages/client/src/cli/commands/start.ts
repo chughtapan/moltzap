@@ -27,6 +27,13 @@ export interface StartCommandArgs {
 
 type StartCommandError = TransportError;
 
+type StartCommandParsed = {
+  readonly name: string;
+  readonly participants: StartParticipantType[];
+  readonly message: Option.Option<string>;
+  readonly appId: Option.Option<AppIdV4>;
+};
+
 const startMessage = (result: StartTaskCommandResult): string =>
   result.reusedConversation
     ? `Task started: ${result.taskId} (reusing existing conversation: ${result.conversationId})`
@@ -117,7 +124,12 @@ export const runStartHandler = (
 ): Effect.Effect<void, never, Transport> =>
   runStartCommand(startCommandHandler(args));
 
-export const startCommand = Command.make(
+export const startCommand: Command.Command<
+  "start",
+  Transport,
+  never,
+  StartCommandParsed
+> = Command.make(
   "start",
   {
     name: nameArg,

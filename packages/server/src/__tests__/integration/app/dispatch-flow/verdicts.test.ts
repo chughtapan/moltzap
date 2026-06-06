@@ -1,11 +1,9 @@
 /**
- * #529 reshape additive — `dispatch/{request, authorize, release}` +
- * `dispatches/{consumed, expired, get}` admission surface.
+ * `dispatch/{request, authorize, release}` + `dispatches/{consumed, expired,
+ * get}` admission surface.
  *
- * Bucket file: `verdicts` group. Split from `dispatch-flow.integration.test.ts`
- * (Phase 2B reorg, #543). Each split file owns its own server-fixture
- * `beforeAll`/`afterAll`/`beforeEach` so vitest's `fileParallelism: true`
- * runner can execute buckets concurrently without sharing state.
+ * Bucket file: `verdicts` group. Each bucket owns its own server fixture so
+ * vitest can execute buckets concurrently without sharing state.
  */
 import { it as effectIt } from "@effect/vitest";
 import type { AppManifest } from "@moltzap/protocol/app";
@@ -93,8 +91,7 @@ function moderatorDenyReleasesDeny() {
       decision: "deny",
       reason: DENIAL_REASON,
     });
-    // Fork-before-trigger (Spec B #596 r2 fix): subscribe BEFORE the
-    // requestDispatch RPC fires so the release notification can't arrive
+    // Subscribe before requestDispatch so the release notification can't arrive
     // in the gap before subscription.
     const releaseFiber = yield* waitForDispatchRelease(bob);
     const { ack } = yield* requestModeratedDispatch(alice, bob);
@@ -130,10 +127,9 @@ function moderatorTimeoutRemovesRecipient() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ kind: "never-reply" });
-    // Fork BOTH subscribers before trigger (Spec B #596 r2 fix). With
-    // fork-before-trigger, the participants/removed timer starts at fork
-    // time, NOT after release — so it must cover the full
-    // moderator-timeout (release fires at +10s) + the release→removed gap
+    // Subscribe to both notifications before triggering the RPC. The
+    // participants/removed timeout starts at fork time, so it must cover the
+    // moderator timeout plus the release-to-removed gap.
     // (the server emits removed only after the timeout-induced deny).
     const releaseFiber = yield* waitForDispatchRelease(
       bob,

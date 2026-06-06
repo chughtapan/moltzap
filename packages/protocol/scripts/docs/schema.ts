@@ -1,8 +1,5 @@
 import { JSONSchema, type Schema } from "effect";
-import {
-  serverInboundMethods,
-  appCallbackMethods,
-} from "../../src/rpc-method-groups.js";
+import { serverInboundMethods, appCallbackMethods } from "#socket";
 import * as protocolSchema from "../../src/index.js";
 import {
   SORT_KEY_PAD_WIDTH,

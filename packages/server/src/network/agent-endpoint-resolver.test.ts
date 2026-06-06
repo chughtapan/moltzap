@@ -1,20 +1,9 @@
 /**
  * Unit tests for {@link AgentEndpointResolver}.
  *
- * Each test covers exactly one behavior named in plan §2.11 or issue #426
- * acceptance: multimap semantics, atomic add/remove, idempotence, fan-out
- * snapshot. Tests run synchronously via `Effect.runSync` because the
- * resolver is a pure in-memory `Ref`.
- *
- * Phase 9b consumer-migration (sub-issue #460 amendment): the resolver
- * now keys by `ConnectionId` directly. The legacy `agent-conn`
- * `EndpointAddress` wrapping retired alongside the deletion of the
- * `agent-conn` kind from the public `EndpointAddress` brand. Tests that
- * previously asserted `HashSet&lt;EndpointAddress&gt;` shape now assert
- * `HashSet&lt;ConnectionId&gt;` shape; tests that previously round-tripped
- * `connectionForAddress` were dropped — the resolver no longer exposes
- * that surface (callers go through `resolveAll` and pick a connection
- * id directly).
+ * Each test covers one resolver behavior: multimap semantics, atomic
+ * add/remove, idempotence, and fan-out snapshots. Tests run synchronously via
+ * `Effect.runSync` because the resolver is a pure in-memory `Ref`.
  */
 import { describe, expect, it } from "vitest";
 import { Effect, HashSet } from "effect";
@@ -28,10 +17,8 @@ import {
 const ALICE = agentId("00000000-0000-4000-8000-00000000a11c");
 const BOB = agentId("00000000-0000-4000-8000-00000000b0b0");
 
-// Test connection ids. Phase 9b: the resolver does not enforce a UUID
-// shape on connection ids (the brand is nominal), but `transport/server-socket.ts`
-// always mints them via `crypto.randomUUID()` so the suite reflects
-// production shape.
+// Test connection ids. The resolver does not enforce UUID shape on connection
+// ids, but `transport/server-socket.ts` mints them via `crypto.randomUUID()`.
 const CONN_A = connectionId("00000000-0000-4000-8000-00000000c001");
 const CONN_B = connectionId("00000000-0000-4000-8000-00000000c002");
 const CONN_C = connectionId("00000000-0000-4000-8000-00000000c003");
@@ -171,13 +158,7 @@ describe("AgentEndpointResolver — multi-connection", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Phase 8 codex-deferral test cases (folded into Phase 9 #427
-// acceptance per the issue body's "additional acceptance items"
-// section). Each test names exactly one deferral.
-// ─────────────────────────────────────────────────────────────────────
-
-describe("AgentEndpointResolver — Phase 8 codex deferrals", () => {
+describe("AgentEndpointResolver — ownership invariants", () => {
   it("cross-agent add conflict: new add evicts the prior agent's forward entry atomically", () => {
     // Defense-in-depth (deferral 2): if the same connection ends up under
     // two agents (UUID collision or programmer error), the new add takes
@@ -196,7 +177,7 @@ describe("AgentEndpointResolver — Phase 8 codex deferrals", () => {
     expect(HashSet.size(bobFan)).toBe(1);
     expect(HashSet.has(bobFan, CONN_A)).toBe(true);
 
-    // ALICE no longer owns it — the eviction inside `add` removed it.
+    // The eviction inside `add` removes Alice's forward entry.
     const aliceFan = Effect.runSync(resolver.resolveAll(ALICE));
     expect(HashSet.size(aliceFan)).toBe(0);
   });

@@ -8,7 +8,7 @@ Public barrel for schema-derived protocol arbitraries used by tests.
 
 ## Public surface
 
-### [`allRpcMethods`](./rpc.ts#L38)
+### [`allRpcMethods`](./rpc.ts#L35)
 
 _Variable_
 
@@ -21,7 +21,7 @@ Ordered list of every wire method name. Exposed so properties can
 assert "every method exercised at least once" without going through
 `RpcMap` directly.
 
-### [`arbitraryAnyCall`](./rpc.ts#L70)
+### [`arbitraryAnyCall`](./rpc.ts#L67)
 
 _Function_
 
@@ -32,7 +32,7 @@ export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall>
 Arbitrary that draws any method name + matching params. Used by the
 RpcMap-coverage property and the cross-RPC fuzz property.
 
-### [`arbitraryCallFor`](./rpc.ts#L47)
+### [`arbitraryCallFor`](./rpc.ts#L44)
 
 _Function_
 
@@ -61,7 +61,7 @@ re-exported `FastCheck.Arbitrary` — the SAME `fast-check` module the rest of
 the suite samples with (both pinned to fast-check v3, the version Effect's
 `Arbitrary.make` binds to), so no cross-module cast is needed.
 
-### [`ArbitraryRpcCall`](./rpc.ts#L27)
+### [`ArbitraryRpcCall`](./rpc.ts#L24)
 
 _Interface_
 

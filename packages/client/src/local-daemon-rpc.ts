@@ -11,7 +11,7 @@ import {
   ContactsList,
   UserId,
 } from "@moltzap/protocol/identity";
-import { agentCallableMethods } from "@moltzap/protocol/rpc-method-groups";
+import { agentCallableMethods } from "@moltzap/protocol/socket";
 import { AppId, TaskId } from "@moltzap/protocol/task";
 import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { MessagesList } from "@moltzap/protocol/message";

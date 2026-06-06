@@ -26,7 +26,7 @@ import type { AgentContext, AppContext } from "../transport/context.js";
  * BUILD-time snapshot (it predates `agent/connect` / `app/connect`, so its `_tag` is still
  * `UnauthenticatedConnection`); the connection arm transitions to
  * `AgentConnection` / `AppConnection` AFTER connect runs. The handler must read
- * the CURRENT arm — `ConnectionTag` only carries the stable `connId` used to
+ * the live arm; `ConnectionTag` only carries the stable `connId` used to
  * re-peek the live arm off the manager.
  */
 const liveArm = Effect.gen(function* () {

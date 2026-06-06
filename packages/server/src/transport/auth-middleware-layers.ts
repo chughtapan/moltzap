@@ -1,21 +1,21 @@
 /**
  * @file The per-requirement `@effect/rpc` middleware impl Layers — one
- * server-supplied per-socket `Layer` over each protocol-owned middleware
- * (`@moltzap/protocol` `requirements.ts`).
+ * server-supplied per-socket `Layer` over each protocol-owned middleware tag.
  *
  * Each requirement is its own `RpcMiddleware.Tag`; the engine stacks the
  * method's declared requirements (`socket/server.ts -> buildEngineMember`).
  * The descriptor tag + its `failure` schema are protocol-owned; the impl that
- * resolves a connection to its narrowed arm or runs a cap obtain is a server
+ * resolves a connection to its narrowed arm or runs a requirement obtain is a server
  * concern, supplied here.
  *
  * Principal requirements are gate-only middleware: they narrow the live arm and
  * fail `Unauthorized` / `Forbidden`. They provide nothing; handlers read the
  * narrowed arm off `ConnectionTag` (`agentArm`/`appArm`).
  *
- * Each cap requirement impl peeks the live arm when it needs the caller's agent
- * id, derives input from the decoded `payload`, and runs the cap's `obtain`.
- * A cap-obtain failure encodes against that requirement's own `failure` schema.
+ * Each domain requirement impl peeks the live arm when it needs the caller's
+ * agent id, derives input from the decoded `payload`, and runs the requirement's
+ * `obtain`. An obtain failure encodes against that requirement's own `failure`
+ * schema.
  */
 import { Context, Effect, Layer } from "effect";
 import type { RpcMiddleware } from "@effect/rpc";
@@ -45,11 +45,11 @@ import {
   obtainTaskReadAccess,
   obtainConversationInTask,
   obtainContactPolicyAllowsReach,
-} from "../app/capability-middlewares.js";
+} from "../app/requirement-middlewares.js";
 import { obtainConversationSendAccess } from "../task/services/send-permissions.js";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
-/** Read the caller's agent id off the live arm (cap mws derive from it). */
+/** Read the caller's agent id off the live arm when a requirement derives from it. */
 const callerAgentIdFor = (
   manager: ConnectionManagerService,
   connId: ConnectionId,
@@ -59,7 +59,7 @@ const callerAgentIdFor = (
       connection._tag === "AgentConnection"
         ? Effect.succeed(connection.auth.agentId)
         : Effect.dieMessage(
-            `cap middleware: agent-gated cap reached on ${connection._tag} arm`,
+            `requirement middleware: agent-gated requirement reached on ${connection._tag} arm`,
           ),
     ),
   );
@@ -122,9 +122,9 @@ const makeAgentClaimedLayer = (connId: ConnectionId) =>
     ),
   );
 
-// ── Cap middlewares ───────────────────────────────────────────────────────────
+// ── Domain requirements ──────────────────────────────────────────────────────
 
-/** The cap obtains' service env. */
+/** The requirement obtains' service env. */
 type MwEnv = TaskServiceTag | ConversationServiceTag | MessageServiceTag;
 
 /** The options an `@effect/rpc` `RpcMiddleware` impl receives per request. */
@@ -175,15 +175,15 @@ function requirePayload<A>(
 ): Effect.Effect<A> {
   if (guard(payload)) return Effect.succeed(payload);
   return Effect.dieMessage(
-    `cap middleware ${requirement}: incompatible RPC payload`,
+    `requirement middleware ${requirement}: incompatible RPC payload`,
   );
 }
 
 /**
- * The cap obtains' service env as a `Context` snapshot, read once at Layer build
- * (per socket). Each cap mw impl `Effect.provide`s it so the impl's Effect has
- * no service `R` — the `RpcMiddleware` contract is `Effect&lt;void, E>` with
- * no context channel.
+ * The requirement obtains' service env as a `Context` snapshot, read once at
+ * Layer build (per socket). Each requirement middleware impl
+ * `Effect.provide`s it so the impl's Effect has no service `R` — the
+ * `RpcMiddleware` contract is `Effect&lt;void, E>` with no context channel.
  */
 const mwEnv = Effect.gen(function* () {
   const taskService = yield* TaskServiceTag;
@@ -199,26 +199,35 @@ const mwEnv = Effect.gen(function* () {
 });
 
 /**
- * The Layer requirement every cap mw impl shares: the obtain services plus the
- * connection manager (for the caller-peeking variant).
+ * The Layer requirement every domain requirement impl shares: the obtain
+ * services plus the connection manager (for the caller-peeking variant).
  */
-type CapMwLayerR =
+type RequirementMiddlewareLayerR =
   | TaskServiceTag
   | ConversationServiceTag
   | MessageServiceTag
   | ConnectionManagerTag;
 
 /**
- * Build a cap mw impl Layer whose `derive` reads ONLY the decoded `payload` (no
- * caller). Used for caps that gate on pure params — e.g. `ConversationInTask`,
+ * Build a requirement impl Layer whose `derive` reads ONLY the decoded `payload`
+ * (no caller). Used for requirements that gate on pure params — e.g. `ConversationInTask`,
  * which the app-principal `task/conversation/*` methods declare, so its impl
  * MUST NOT peek the caller's AGENT id (the live arm is an `AppConnection`).
  */
-const capMwLayer = <Mw extends RpcMiddleware.TagClassAny, Value, Err, In>(
+const requirementMiddlewareLayer = <
+  Mw extends RpcMiddleware.TagClassAny,
+  Value,
+  Err,
+  In,
+>(
   mw: Mw,
   derive: (payload: unknown) => Effect.Effect<In>,
   obtain: (input: In) => Effect.Effect<Value, Err, MwEnv>,
-): Layer.Layer<Context.Tag.Identifier<Mw>, never, CapMwLayerR> =>
+): Layer.Layer<
+  Context.Tag.Identifier<Mw>,
+  never,
+  RequirementMiddlewareLayerR
+> =>
   Layer.effect(
     mw,
     Effect.map(
@@ -234,13 +243,13 @@ const capMwLayer = <Mw extends RpcMiddleware.TagClassAny, Value, Err, In>(
   );
 
 /**
- * Build a cap mw impl Layer whose `derive` ALSO reads the caller's agent id,
- * peeked off the live arm. Used by the agent-principal caps
+ * Build a requirement impl Layer whose `derive` ALSO reads the caller's agent
+ * id, peeked off the live arm. Used by the agent-principal requirements
  * (`ConversationSendAccess`, `TaskReadAccess`, `ContactPolicyAllowsReach`); the
- * peek dies on a non-agent arm, which is sound only because these caps gate
+ * peek dies on a non-agent arm, which is sound only because these requirements gate
  * agent-callable methods.
  */
-const capMwLayerWithCaller = <
+const requirementMiddlewareLayerWithCaller = <
   Mw extends RpcMiddleware.TagClassAny,
   Value,
   Err,
@@ -250,7 +259,11 @@ const capMwLayerWithCaller = <
   connId: ConnectionId,
   derive: (payload: unknown, callerAgentId: AgentId) => Effect.Effect<In>,
   obtain: (input: In) => Effect.Effect<Value, Err, MwEnv>,
-): Layer.Layer<Context.Tag.Identifier<Mw>, never, CapMwLayerR> =>
+): Layer.Layer<
+  Context.Tag.Identifier<Mw>,
+  never,
+  RequirementMiddlewareLayerR
+> =>
   Layer.effect(
     mw,
     Effect.map(
@@ -269,7 +282,7 @@ const capMwLayerWithCaller = <
   );
 
 const makeConversationInTaskLayer = () =>
-  capMwLayer(
+  requirementMiddlewareLayer(
     ConversationInTask,
     (payload) =>
       requirePayload(payload, isTaskAndConvParams, ConversationInTask.key).pipe(
@@ -282,7 +295,7 @@ const makeConversationInTaskLayer = () =>
   );
 
 const makeConversationSendAccessLayer = (connId: ConnectionId) =>
-  capMwLayerWithCaller(
+  requirementMiddlewareLayerWithCaller(
     ConversationSendAccess,
     connId,
     (payload, senderAgentId) =>
@@ -297,7 +310,7 @@ const makeConversationSendAccessLayer = (connId: ConnectionId) =>
   );
 
 const makeTaskReadAccessLayer = (connId: ConnectionId) =>
-  capMwLayerWithCaller(
+  requirementMiddlewareLayerWithCaller(
     TaskReadAccess,
     connId,
     (payload, callerAgentId) =>
@@ -311,7 +324,7 @@ const makeTaskReadAccessLayer = (connId: ConnectionId) =>
   );
 
 const makeContactPolicyAllowsReachLayer = (connId: ConnectionId) =>
-  capMwLayerWithCaller(
+  requirementMiddlewareLayerWithCaller(
     ContactPolicyAllowsReach,
     connId,
     (payload, creatorAgentId) =>
@@ -334,7 +347,7 @@ const makeContactPolicyAllowsReachLayer = (connId: ConnectionId) =>
  * caller (pure params — it gates app-principal methods too); the rest peek the
  * caller's agent id.
  */
-export const makeCapMiddlewareLayers = (connId: ConnectionId) =>
+export const makeRequirementMiddlewareLayers = (connId: ConnectionId) =>
   Layer.mergeAll(
     makeAgentPrincipalLayer(connId),
     makeAppPrincipalLayer(connId),

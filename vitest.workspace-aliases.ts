@@ -17,10 +17,7 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     find: /^@moltzap\/server-core\/test-utils$/,
     replacement: fromRoot("packages/server/src/test-utils/index.ts"),
   },
-  // Phase 2A r2 — subpath exports for protocol-aligned layers. The matcher
-  // order matters: more-specific subpath matchers (`/transport`, `/identity`,
-  // `/network`, `/task`, `/app`) must precede the bare `@moltzap/server-core`
-  // entry.
+  // Specific subpath matchers must precede each package's root matcher.
   {
     find: /^@moltzap\/server-core\/transport$/,
     replacement: fromRoot("packages/server/src/transport/index.ts"),
@@ -70,16 +67,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/protocol/src/identity/index.ts"),
   },
   {
-    find: /^#identity\/principals$/,
-    replacement: fromRoot("packages/protocol/src/identity/principals/index.ts"),
-  },
-  {
-    find: /^#identity\/requirements$/,
-    replacement: fromRoot(
-      "packages/protocol/src/identity/requirements/index.ts",
-    ),
-  },
-  {
     find: /^#identity\/agents$/,
     replacement: fromRoot("packages/protocol/src/identity/agents/index.ts"),
   },
@@ -96,12 +83,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/protocol/src/identity/contacts/index.ts"),
   },
   {
-    find: /^#identity\/contacts\/requirements$/,
-    replacement: fromRoot(
-      "packages/protocol/src/identity/contacts/requirements/index.ts",
-    ),
-  },
-  {
     find: /^#network$/,
     replacement: fromRoot("packages/protocol/src/network/index.ts"),
   },
@@ -111,17 +92,11 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^#task\/requirements$/,
-    replacement: fromRoot("packages/protocol/src/task/capabilities/index.ts"),
+    replacement: fromRoot("packages/protocol/src/task/requirements/index.ts"),
   },
   {
     find: /^#conversation$/,
     replacement: fromRoot("packages/protocol/src/conversation/index.ts"),
-  },
-  {
-    find: /^#conversation\/requirements$/,
-    replacement: fromRoot(
-      "packages/protocol/src/conversation/requirements/index.ts",
-    ),
   },
   {
     find: /^#message$/,
@@ -138,10 +113,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   {
     find: /^#testing$/,
     replacement: fromRoot("packages/protocol/src/testing/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/schemas$/,
-    replacement: fromRoot("packages/protocol/src/schema/index.ts"),
   },
   {
     find: /^@moltzap\/protocol\/testing$/,

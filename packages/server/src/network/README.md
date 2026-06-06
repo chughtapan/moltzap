@@ -36,9 +36,12 @@ Presence, ping, agent-endpoint resolution, outbound
 ## Handler shape
 
 ```ts
-defineNetworkMethod(Ping, {
-  handler: () => Effect.succeed({ pong: true }),
+export const presenceSubscribe: ServerHandler<typeof PresenceSubscribe> = (
+  params,
+) => Effect.gen(function* () {
+  const presence = yield* PresenceServiceTag;
+  // ...
 });
 ```
 
-No deps argument. Tags resolved by the dispatcher's `ManagedRuntime`.
+No deps argument. Tags are resolved by the socket runtime.

@@ -1,15 +1,10 @@
----
-title: "protocol/task/capabilities"
-description: "Public barrel for capability requirement middleware tags."
----
+# protocol/task/requirements
 
-# protocol/task/capabilities
-
-_`packages/protocol/src/task/capabilities`_
+_`packages/protocol/src/task/requirements`_
 
 ## Purpose
 
-Public barrel for capability requirement middleware tags.
+Public barrel for task requirement middleware tags.
 
 Each tag is both the descriptor requirement and the `@effect/rpc` middleware
 tag the server implements. The `obtain*` impls that resolve a permission
@@ -17,7 +12,7 @@ against server-side services live in `@moltzap/server-core`.
 
 ## Public surface
 
-### [`assertAppOwnsTask`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/assert-capability-matches-task.ts#L78)
+### [`assertAppOwnsTask`](./assert-requirement-matches-task.ts#L84)
 
 _Function_
 
@@ -31,7 +26,7 @@ export const assertAppOwnsTask = (
 App-principal ownership gate. Asserts the calling app IS the app
 bound to `task` — the app on whose behalf the task's TM acts. The 8
 task-admin RPCs (`task/close`, `task/addParticipant`,
-`task/removeParticipant`, `task/conversation/&#123;create,archive,
+`task/removeParticipant`, `task/conversation/{create,archive,
 unarchive,addParticipant,removeParticipant}`) load the open task in
 their handler and call this asserter before the service mutation.
 
@@ -40,38 +35,38 @@ system, so the equality check compares the branded `appId` argument to
 the row value directly. Fails with `ForbiddenError` (wire -32001) when
 the app does not own the task.
 
-### [`assertConversationInTaskMatches`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/assert-capability-matches-task.ts#L48)
+### [`assertConversationInTaskMatches`](./assert-requirement-matches-task.ts#L50)
 
 _Function_
 
 ```ts
 export const assertConversationInTaskMatches = (
-  cap: ConversationInTaskValue,
+  requirement: ConversationInTaskValue,
   expectedTaskId: TaskId,
   expectedConversationId: ConversationId,
 ): Effect.Effect<void, ForbiddenError>
 ```
 
-Verifies the capability's carried `(taskId, conversationId)` pair
+Verifies the requirement's carried `(taskId, conversationId)` pair
 equals the expected pair. Fails with `ForbiddenError` on the first
 mismatch; runs both comparisons in one Effect for handler-side
 symmetry with `assertTaskReadAccessMatchesTask`.
 
-### [`assertTaskReadAccessMatchesTask`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/assert-capability-matches-task.ts#L36)
+### [`assertTaskReadAccessMatchesTask`](./assert-requirement-matches-task.ts#L38)
 
 _Function_
 
 ```ts
 export const assertTaskReadAccessMatchesTask = (
-  cap: TaskReadAccessValue,
+  requirement: TaskReadAccessValue,
   expectedTaskId: TaskId,
 ): Effect.Effect<void, ForbiddenError>
 ```
 
-Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. A
+Verifies `requirement.task.id === expectedTaskId` for `TaskReadAccess`. A
 separate overload keeps the type narrowed at the call site.
 
-### [`ContactPolicyAllowsReach`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/contact-policy-allows-reach.ts#L18)
+### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L18)
 
 _Class_
 
@@ -82,13 +77,13 @@ export class ContactPolicyAllowsReach extends RpcMiddleware.Tag<ContactPolicyAll
 ) {}
 ```
 
-Capability-as-middleware: resolves whether the creator may reach every
+Requirement middleware: resolves whether the creator may reach every
 target under the recipients' contact policy. Its `obtain` (server-side) fails
 with `NotInContactsError`; the descriptor unions that into every method that
-requires this cap, so the failure is part of the method's typed error channel
-with no server-side error definition of its own.
+requires this tag, so the failure is part of the method's typed error
+channel with no server-side error definition of its own.
 
-### [`ContactPolicyAllowsReachValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/contact-policy-allows-reach.ts#L6)
+### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L6)
 
 _Interface_
 
@@ -99,7 +94,7 @@ export interface ContactPolicyAllowsReachValue {
 }
 ```
 
-### [`ConversationInTask`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-in-task.ts#L20)
+### [`ConversationInTask`](./conversation-in-task.ts#L21)
 
 _Class_
 
@@ -110,7 +105,7 @@ export class ConversationInTask extends RpcMiddleware.Tag<ConversationInTask>()(
 ) {}
 ```
 
-### [`ConversationInTaskValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-in-task.ts#L15)
+### [`ConversationInTaskValue`](./conversation-in-task.ts#L16)
 
 _Interface_
 
@@ -121,14 +116,15 @@ export interface ConversationInTaskValue {
 }
 ```
 
-Tier 2 capability — proves `conversation.task_id === taskId`.
+Requirement: proves `conversation.task_id === taskId`.
 
-`assertCapabilityMatchesTask` (see `assert-capability-matches-task.ts`)
+`assertConversationInTaskMatches` (see
+`assert-requirement-matches-task.ts`)
 verifies the carried `taskId` matches the handler-input `taskId` at
 call time — the one-line runtime check that catches "handler passed
 a different taskId than the obtain proved".
 
-### [`ConversationSendAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-send-access.ts#L28)
+### [`ConversationSendAccess`](./conversation-send-access.ts#L28)
 
 _Class_
 
@@ -139,7 +135,7 @@ export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAc
 ) {}
 ```
 
-### [`ConversationSendAccessValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/conversation-send-access.ts#L20)
+### [`ConversationSendAccessValue`](./conversation-send-access.ts#L20)
 
 _Interface_
 
@@ -163,7 +159,7 @@ so a refinement of the fetched row is a handler guard, not a standalone
 middleware. The whole send path costs one joined read. `appId` identifies the
 authorizing app for the task on the verdict route.
 
-### [`TaskReadAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-read-access.ts#L23)
+### [`TaskReadAccess`](./task-read-access.ts#L22)
 
 _Class_
 
@@ -176,7 +172,7 @@ export class TaskReadAccess extends RpcMiddleware.Tag<TaskReadAccess>()(
 ) {}
 ```
 
-### [`TaskReadAccessValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/capabilities/task-read-access.ts#L18)
+### [`TaskReadAccessValue`](./task-read-access.ts#L17)
 
 _Interface_
 
@@ -187,19 +183,18 @@ export interface TaskReadAccessValue {
 }
 ```
 
-Tier 1 capability — caller has read access to `task` (initiator OR
+Requirement: caller has read access to `task` (initiator OR
 admitted `task_participant`).
 
 Value payload carries the `task` row already fetched by the
 `TaskService.loadTaskWithReadAccess` check; consumers reuse the payload.
 
-Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
-`getMessagesSince`) via the R-channel; handlers wire the value with
-`Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
+The server middleware implementation resolves the value once and provides it
+to handlers through the `@effect/rpc` middleware context.
 
 ## Files
 
-- `assert-capability-matches-task.ts`
+- `assert-requirement-matches-task.ts`
 - `contact-policy-allows-reach.ts`
 - `conversation-in-task.ts`
 - `conversation-send-access.ts`

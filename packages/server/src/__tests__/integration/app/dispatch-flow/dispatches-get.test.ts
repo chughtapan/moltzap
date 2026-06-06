@@ -1,15 +1,11 @@
 /**
- * #529 reshape additive — `dispatch/{request, authorize, release}` +
- * `dispatches/{consumed, expired, get}` admission surface.
+ * `dispatch/{request, authorize, release}` + `dispatches/{consumed, expired,
+ * get}` admission surface.
  *
- * Bucket file: `dispatches-get` group. Split from `dispatch-flow.integration.test.ts`
- * (Phase 2B reorg, #543). Each split file owns its own server-fixture
- * `beforeAll`/`afterAll`/`beforeEach` so vitest's `fileParallelism: true`
- * runner can execute buckets concurrently without sharing state.
+ * Bucket file: `dispatches-get` group. Each bucket owns its own server fixture
+ * so vitest can execute buckets concurrently without sharing state.
  *
- * See parent dispatch-flow architecture comment in the original file
- * (now replaced by these 6 bucket files): the recipient calls
- * `dispatch/request` over WS; server mints a lease, returns ack
+ * The recipient calls `dispatch/request` over WS; server mints a lease, returns ack
  * synchronously, forks the moderator round-trip; recipient observes
  * the verdict via `dispatch/release` notification. `messages/send(
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
@@ -92,7 +88,7 @@ function requestWireModeratedDispatch(
       recipient,
       WIRE_APP_MANIFEST,
     );
-    // Fork-before-trigger (Spec B #596 r2 fix).
+    // Subscribe before the trigger RPC so the release notification is observed.
     const releaseFiber = yield* waitForDispatchRelease(
       recipient,
       DISPATCH_RELEASE_TIMEOUT_MS,
@@ -150,7 +146,7 @@ function wireModeratorReadsGrantedLease() {
   });
 }
 
-describe("dispatch/* — dispatches/get reads (#529 reshape additive)", () => {
+describe("dispatch/* — dispatches/get reads", () => {
   it(
     "dispatches/get happy path: granted lease is readable with state=GRANTED",
     registryDirectReadShowsGrantedLease,

@@ -82,7 +82,7 @@ export interface RpcDefinition<
    * The ordered authority list. The FIRST element is exactly one principal
    * requirement (`AgentPrincipal` | `AppPrincipal` |
    * `AuthenticatedPrincipal`); an optional `AgentClaimed` refinement
-   * (agent-only) follows; the rest are capability tags, in run order. Empty for
+   * (agent-only) follows; the rest are requirement tags, in run order. Empty for
    * the unauthenticated connect methods (`agent/connect`, `app/connect`). The
    * server stacks each requirement middleware; each element's `failure` folds
    * into the wire error union.
@@ -91,7 +91,7 @@ export interface RpcDefinition<
 
   /**
    * The handler-domain tagged-error classes this method can fail with — only
-   * the errors the HANDLER raises, not the requirement (principal/cap) errors
+   * the errors the HANDLER raises, not the requirement middleware errors
    * (those come from each requirement's own `failure`). The method's effective
    * wire error union is the union of both; see
    * {@link effectiveErrorClasses} / {@link errorSchema}.
@@ -112,7 +112,7 @@ export interface RpcDefinition<
   /**
    * The wire `error` Schema for the HANDLER-DOMAIN errors ALONE
    * (`Schema.Union(...errors)`) — what the server engine member sets as its
-   * `error`. The principal-gate and cap errors are NOT here; they ride each
+   * `error`. The principal-gate and domain requirement errors are NOT here; they ride each
    * stacked middleware's own `failure`, and the engine unions them into the
    * method's error (`Rpc.ErrorSchema = _Error | _Middleware`). The catalog/client
    * group uses the full {@link errorSchema} (the client carries no middleware,
@@ -229,8 +229,8 @@ function makeErrorSchema(
  *
  * - Every slot is REQUIRED in the handler table; omitting any key fails TS2741
  *   at the factory call.
- * - Capabilities are NOT descriptor metadata; `defineRpc` carries only the
- *   wire shape, and the server's per-method `*AuthMw` runs the caps.
+ * - Requirements are descriptor metadata because they are also
+ *   `@effect/rpc` middleware tags; the server supplies the implementations.
  * - The param/result validators reject excess keys (`closedStructGuard`): a
  *   bare `Schema.is` accepts unknown keys, so per-method validation closes the
  *   struct to catch a caller that sends a field the descriptor never declared.
@@ -320,7 +320,7 @@ export function defineRpc(def: {
    * REQUIRED. The ordered authority list. The FIRST element is exactly one
    * principal requirement (`AgentPrincipal` | `AppPrincipal` |
    * `AuthenticatedPrincipal`); an optional `AgentClaimed` refinement
-   * (agent-only) follows; the rest are capability tags, in run order. The
+   * (agent-only) follows; the rest are requirement tags, in run order. The
    * unauthenticated connect methods use `requires: []`. Each requirement folds
    * its declared `errors` into the method's effective wire error union.
    */
@@ -329,7 +329,7 @@ export function defineRpc(def: {
   /**
    * REQUIRED. The handler-domain tagged-error classes this method can fail
    * with — only what the handler itself raises. The principal-gate errors
-   * (`Unauthorized`/`Forbidden` for authenticated methods) and each cap's own
+   * (`Unauthorized`/`Forbidden` for authenticated methods) and each requirement's own
    * `errors` are added automatically. A method with no handler-domain error
    * declares `[]`.
    */
@@ -364,7 +364,7 @@ export function defineRpc(def: {
     // discriminated by `_tag`.
     errorSchema,
     // Handler-domain errors ALONE: the engine member's `error`. The requirement
-    // (principal/cap) errors come from the stacked middlewares' `failure`.
+    // Requirement middleware errors come from the stacked middlewares' `failure`.
     handlerErrorSchema,
     validateParams: closedStructGuard(def.params),
     validateResult: closedStructGuard(def.result),

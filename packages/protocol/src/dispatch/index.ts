@@ -147,7 +147,7 @@ const DispatchAuthorizeContextSchema = Schema.Struct({
  * whose `dispatch_authorize` policy is `{ kind: "hook" }`.
  *
  * - **Principal:** none — a server→client reverse callback. The client serves it, the server does not gate it, so `requires` is empty.
- * @error ForbiddenError when the moderator rejects outright (collapsed to a fail-closed deny by the server)
+ * @error ForbiddenError when the moderator rejects outright; the server treats the verdict as a fail-closed deny
  */
 export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",

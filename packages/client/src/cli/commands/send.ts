@@ -1,9 +1,20 @@
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
-import { LocalDaemonCommands, SendTarget } from "../../local-daemon-rpc.js";
+import {
+  LocalDaemonCommands,
+  SendTarget,
+  type SendTarget as SendTargetValue,
+} from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
+import type { Transport } from "../transport.js";
 
 import { MessageId } from "@moltzap/protocol/conversation";
+
+type SendCommandParsed = {
+  readonly target: SendTargetValue;
+  readonly message: string;
+  readonly replyTo: Option.Option<MessageId>;
+};
 
 const targetArg = Args.text({ name: "target" }).pipe(
   Args.withSchema(SendTarget),
@@ -65,7 +76,12 @@ const replyToOption = Options.text("reply-to").pipe(
  * `--profile` selects the per-agent daemon socket; credentials remain owned
  * by the running MoltZapService.
  */
-export const sendCommand = Command.make(
+export const sendCommand: Command.Command<
+  "send",
+  Transport,
+  never,
+  SendCommandParsed
+> = Command.make(
   "send",
   { target: targetArg, message: messageArg, replyTo: replyToOption },
   ({ target, message, replyTo }) => {

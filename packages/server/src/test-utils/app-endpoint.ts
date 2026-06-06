@@ -1,14 +1,10 @@
 /**
  * @file Test-only {@link AppEndpoint} builders for AppHost unit tests.
  *
- * Production code no longer mints in-process app endpoints: the
- * boot-installed default app declares no hooks and is served entirely by
- * AppHost's manifest-default fast-path (see
- * `app/default-app.ts → makeDefaultAppEndpoint`). These builders exist so
- * AppHost unit tests can still exercise the HOOK-DECLARING dispatch path —
- * a manifest with a declared hook routes through `AppHost.callAppRpc →
- * sendRpcToClient(entry.endpoint.originator, …)`, which needs a concrete
- * originator to dispatch into.
+ * The boot-installed default app declares a required `hooks` block whose
+ * policies are all static. AppHost resolves those policies in-process.
+ * These builders let AppHost unit tests exercise manifests that choose
+ * `kind: "hook"`, which need a concrete originator to dispatch into.
  *
  * Two shapes:
  *   - {@link makeHandlerAppEndpoint} — `originator.callback` dispatches to
@@ -16,7 +12,7 @@
  *     verdict round-trips through a registered hook.
  */
 import { Effect } from "effect";
-import type { AnyAppCallbackRpcDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type { AnyAppCallbackRpcDefinition } from "@moltzap/protocol/socket";
 import type {
   ReverseCallbackError,
   ReverseCallbackPayload,

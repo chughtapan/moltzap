@@ -43,7 +43,7 @@ import {
   type NotificationSubscriberRegistry,
   type NotificationParamsOf,
 } from "@moltzap/protocol/transport";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 
 type ClientNotificationDelivery =
   NotificationDelivery<AnyNotificationDefinition>;

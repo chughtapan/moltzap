@@ -3,7 +3,7 @@ import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
 import type { AgentKey } from "#identity/agents";
 import { AgentConnect, PROTOCOL_VERSION } from "../network/connect.js";
-import { AgentCallableGroup } from "../rpc-method-groups.js";
+import { AgentCallableGroup } from "./rpc-groups.js";
 import { type CloseInfo } from "./close-info.js";
 import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
 import {

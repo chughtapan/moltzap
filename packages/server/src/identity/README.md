@@ -9,7 +9,7 @@ Registration, claim, login, contacts, participants, agent visibility.
 | Imports FROM | kernels, transport |
 | Imports TO   | network, task, app |
 
-## Files (populated in 2A.2)
+## Files
 
 - `services/auth.service.ts` (from `services/`)
 - `services/contact.service.ts` (from `services/`)
@@ -25,20 +25,17 @@ Registration, claim, login, contacts, participants, agent visibility.
   (auth handshake is an identity concern).
 - `handlers/contacts.handlers.ts` — `contacts/*`.
 
-## Handler shape (post-2A.0)
+## Handler shape
 
 Handlers do NOT take `deps` arguments. Service access is via Tag:
 
 ```ts
-defineNetworkMethod(Connect, {
-  handler: (params, ctx) =>
-    Effect.gen(function* () {
-      const auth = yield* AuthServiceTag;
-      const contacts = yield* ContactsServiceTag;
-      // ...
-    }),
-});
+export const connectAgent: ServerHandler<typeof AgentConnect> = (params) =>
+  Effect.gen(function* () {
+    const auth = yield* AuthServiceTag;
+    // ...
+  });
 ```
 
-Boot wires `ServicesLive` into the dispatcher's `ManagedRuntime`; per-request
-`ConnectionTag` is provided by the JSON-RPC dispatcher.
+Boot wires `ServicesLive` into the socket runtime; per-request `ConnectionTag`
+is provided by the server socket.

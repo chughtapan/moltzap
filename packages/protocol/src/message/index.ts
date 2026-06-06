@@ -23,7 +23,7 @@ import {
   ConversationInTask,
   ConversationSendAccess,
   TaskReadAccess,
-} from "../task/capabilities/index.js";
+} from "#task/requirements";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — message value types used by 2+ blocks in this file.
@@ -183,12 +183,12 @@ const MessagesSendResult = Schema.Struct({ message: MessageSchema });
  * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
  * - **Params:** `taskId`, `conversationId`, `parts` (1–10 text/image/file parts), optional `replyToId`, optional `dispatchLeaseId`.
  * - **Result:** the created `message` (ID, parts, sender, timestamp).
- * - **Caps (run order):** `ConversationInTask` resolves the conversation's task membership; `ConversationSendAccess` proves participation and does the joined read. The remaining send preconditions are handler-body guards that refine that provided row.
+ * - **Requirements (run order):** `ConversationInTask` resolves the conversation's task membership; `ConversationSendAccess` proves participation and does the joined read. The remaining send preconditions are handler-body guards that refine that provided row.
  * @returns The created message with ID, sequence number, and timestamp.
  * @error MessageNotFoundError when the `replyToId` reply target is absent
  * @error DispatchNotFoundError when the dispatch lease is missing
  * @error ForbiddenError when Not a participant, or the dispatch lease is consumed/invalid (`data.reason: "LeaseInvalid"`)
- * @error TaskClosedError when the task is no longer active
+ * @error TaskClosedError when the task is closed or failed
  * @error ConversationArchivedError when the conversation is archived
  * @error HookBlockedError when an app-side send hook blocks the message
  * @relatedNotification messages/received
@@ -240,7 +240,7 @@ const MessagesListResult = Schema.Struct({
  * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
  * - **Params:** `taskId`, `conversationId`, optional `sinceSeq` cursor, `limit`.
  * - **Result:** the `messages` page plus `hasMore`.
- * - **Caps (run order):** `TaskReadAccess` proves the caller may read the task, then `ConversationInTask` resolves the conversation's task membership. Conversation-not-found rides those cap error channels.
+ * - **Requirements (run order):** `TaskReadAccess` proves the caller may read the task, then `ConversationInTask` resolves the conversation's task membership. Conversation-not-found rides those requirement error channels.
  * @error ForbiddenError when the caller is not a participant of the conversation
  */
 export const MessagesList = defineRpc({
@@ -286,7 +286,7 @@ const MessagesAuthorizeVerdictSchema = Schema.Union(
  * Triggered after the durable message insert lands and before broadcast.
  *
  * - **Principal:** none — a server→client reverse callback.
- * @error ForbiddenError when the app rejects (collapsed to a fail-closed Block by the server)
+ * @error ForbiddenError when the app rejects; the server treats the verdict as a fail-closed block
  */
 export const MessagesAuthorize = defineRpc({
   name: "messages/authorize",

@@ -1,5 +1,5 @@
 import type { NotificationDelivery } from "@moltzap/protocol/transport";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type { Message } from "@moltzap/protocol/message";
 import { HashMap, Option } from "effect";
 import type { ConversationMeta, CrossConversationEntry } from "./service.js";

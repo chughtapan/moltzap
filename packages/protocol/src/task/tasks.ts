@@ -18,7 +18,7 @@ import {
 } from "../conversation/types.js";
 import { AppId } from "#identity/apps";
 import { TaskId, TaskNotFoundError } from "./ids.js";
-import { ContactPolicyAllowsReach } from "./capabilities/index.js";
+import { ContactPolicyAllowsReach } from "./requirements/index.js";
 
 export { AppId, DEFAULT_APP_ID } from "#identity/apps";
 export { TaskId, TaskNotFoundError } from "./ids.js";
@@ -48,8 +48,8 @@ export { TaskId, TaskNotFoundError } from "./ids.js";
 // | task/removeParticipant              | TM only                                  |
 //
 // TM authority: the app-callable task-admin RPCs head their `requires` with
-// `AppPrincipal` and gate on `assertCallerAppOwnsTask` (the app-arm successor
-// to the dissolved `TmAuthority` capability) before any participant probe.
+// `AppPrincipal` and gate on `assertCallerAppOwnsTask` before any participant
+// probe.
 //
 // Notification emission: each mutating op enqueues notifications AFTER the row
 // mutation returns. Broadcast is best-effort: socket writes fork via
@@ -185,7 +185,7 @@ export type InitialConversationInput = Schema.Schema.Type<
  * result is returned after the verdict resolves (the handler awaits it).
  *
  * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
- * - **Caps (run order):** `ContactPolicyAllowsReach` proves the caller may
+ * - **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
  *   reach every `invitedAgentIds` target under the recipient's contact policy.
  * @error TaskRejectedError when the bound TM rejects the task
  * @error AgentNotFoundError when an `initialConversation` participant agent is missing
@@ -243,7 +243,7 @@ const TaskCreateVerdictSchema = Schema.Union(
  * task.
  *
  * - **Principal:** none — a server→client reverse callback.
- * @error ForbiddenError when the app rejects (collapsed to a fail-closed reject by the server)
+ * @error ForbiddenError when the app rejects; the server treats the verdict as a fail-closed reject
  */
 export const TaskCreate = defineRpc({
   name: "task/create",

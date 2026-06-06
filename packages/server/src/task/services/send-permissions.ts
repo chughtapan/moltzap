@@ -15,9 +15,8 @@ import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 /**
  * `ConversationSendAccess` obtain: prove the caller participates in the
  * conversation, then do the ONE joined read (`conversations ⋈ tasks`). The row
- * it returns is the shared context the gating permissions
- * (`ActiveTaskPermission`, `OpenConversationPermission`) read their column off,
- * so the whole send-cap chain costs one joined read. A `conversationId` that
+ * it returns is the shared context the send handler guards read from, so the
+ * whole send path costs one joined read. A `conversationId` that
  * survives the participant check but vanishes from the join is a true race
  * (archival/deletion) — surfaced as a defect, not a user error.
  */
@@ -67,10 +66,9 @@ export const obtainConversationSendAccess = (input: {
 // ── Send-precondition handler guards ──────────────────────────────────────────
 //
 // The remaining send preconditions refine the `ConversationSendAccess` row the
-// cap middleware already fetched. `@effect/rpc` middlewares cannot read each
-// other's provided value, so these are HANDLER guards (called in order at the
-// top of the `messages/send` body), not standalone middlewares. They take the
-// provided row as a value — no DB read, no service env.
+// requirement middleware already fetched. They are HANDLER guards (called in
+// order at the top of the `messages/send` body), not standalone middlewares.
+// They take the provided row as a value: no DB read, no service env.
 
 /**
  * Refine the task is active (status is NOT `closed`/`failed`). Called BEFORE

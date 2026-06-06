@@ -9,8 +9,8 @@ export const TaskId: Schema.Schema<TaskId, string> = formatString("uuid").pipe(
 
 /**
  * The referenced task does not exist (or the caller cannot see it). Lives in the
- * task-id leaf so the `TaskReadAccess` capability can declare it as its
- * fail-closed not-found without a `capabilities → tasks` runtime import cycle.
+ * task-id leaf so the `TaskReadAccess` requirement can declare it as its
+ * fail-closed not-found without a `requirements -> tasks` runtime import cycle.
  */
 export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
   "TaskNotFound",

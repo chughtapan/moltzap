@@ -19,20 +19,14 @@ The source DAG is reflected in `src/index.ts`:
   brands, and cross-cutting tagged errors.
 - `src/identity/` — agents, users, contacts, and identity RPC descriptors.
 - `src/network/` — `agent/connect`, `app/connect`, and presence RPCs.
-- `src/task/` — task, conversation, message, dispatch lease, and capability
-  descriptors. Capability requirements live next to the domain that consumes
-  them under `src/task/capabilities/`.
+- `src/task/` — task, conversation, message, dispatch lease, and domain
+  requirement descriptors. Requirement middleware tags live next to the domain
+  that consumes them under `src/task/requirements/`.
 - `src/app/` — app-facing RPCs and server-to-app callback descriptors.
 - `src/socket/` — `MoltZapAgentClient`, `MoltZapAppClient`, `MoltZapServer`,
-  shared lifecycle helpers, close info, and `ConnectionId`.
-
-Root-level protocol assembly:
-
-- `src/rpc-method-groups.ts` — authored AgentCallable, AppCallable, and
-  AppCallback catalogs, plus the derived server-inbound and reverse groups.
-- `src/requirements.ts` — the closed requirement union and helpers. A
-  requirement is the `@effect/rpc` middleware tag itself.
-- `src/credentials.ts` — branded/redacted credential schemas.
+  shared lifecycle helpers, close info, `ConnectionId`, and the socket-owned
+  AgentCallable, AppCallable, AppCallback, server-inbound, and reverse RPC
+  groups.
 - `src/testing/` — lifecycle fixtures, conformance suites, arbitraries, and
   toxics.
 
@@ -71,7 +65,7 @@ source. Update the descriptor, schema, or JSDoc, then run
 
    `requires` is required. The first element is one principal requirement
    (`AgentPrincipal`, `AppPrincipal`, or `AuthenticatedPrincipal`), optionally
-   followed by `AgentClaimed`, then capability requirements in run order.
+   followed by `AgentClaimed`, then domain requirements in run order.
    `agent/connect`, `app/connect`, and server-to-client callbacks use
    `requires: []`.
 
@@ -82,13 +76,12 @@ source. Update the descriptor, schema, or JSDoc, then run
    lines and the method summary.
 
 6. Add the descriptor to the layer catalog and the correct callable partition.
-   The root `rpc-method-groups.ts` derives server-inbound and client groups from
+   `src/socket/rpc-groups.ts` derives server-inbound and client groups from
    those authored catalogs.
 
-7. For a new capability requirement, declare the protocol tag as an
+7. For a new domain requirement, declare the protocol tag as an
    `RpcMiddleware.Tag` in the owning domain folder and include its `failure`
-   schema. Add it to `CapabilityRequirement` in `src/requirements.ts`, then
-   implement the server Layer in
+   schema, then implement the server Layer in
    `@moltzap/server-core/src/transport/auth-middleware-layers.ts`.
 
 8. Implement the server handler in `@moltzap/server-core` and add it to
@@ -143,8 +136,8 @@ Type checks:
   requirement metadata.
 - **Requirement** — A protocol-owned `RpcMiddleware.Tag`. The descriptor lists
   it; the server supplies a per-socket Layer that implements it.
-- **Capability Requirement** — A requirement that proves domain authority, such
-  as `ConversationInTask` or `TaskReadAccess`.
+- **Domain Requirement** — A requirement that proves domain authority, such as
+  `ConversationInTask` or `TaskReadAccess`.
 - **Principal Requirement** — `AgentPrincipal`, `AppPrincipal`,
   `AuthenticatedPrincipal`, or `AgentClaimed`.
 - **Reverse RPC Group** — The server-to-client group containing app callbacks

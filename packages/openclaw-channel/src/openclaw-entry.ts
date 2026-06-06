@@ -40,7 +40,7 @@ import {
 } from "./context-log.js";
 import { AgentsList } from "@moltzap/protocol/identity";
 import { TaskConversationList } from "@moltzap/protocol/conversation";
-import type { AnyAgentCallableRpcDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type { AnyAgentCallableRpcDefinition } from "@moltzap/protocol/socket";
 import type { ResultOf } from "@moltzap/protocol/transport";
 import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { TaskClosedError, TaskId } from "@moltzap/protocol/task";

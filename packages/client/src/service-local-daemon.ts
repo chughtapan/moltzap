@@ -8,7 +8,7 @@ import {
   ContactsList,
   type AgentId,
 } from "@moltzap/protocol/identity";
-import { AgentCallableGroup } from "@moltzap/protocol/rpc-method-groups";
+import { AgentCallableGroup } from "@moltzap/protocol/socket";
 import { TaskConversationList } from "@moltzap/protocol/conversation";
 import {
   DEFAULT_APP_ID,

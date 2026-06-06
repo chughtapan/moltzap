@@ -1,6 +1,5 @@
 /**
- * Spec D1 (#598) — integration coverage for the additive
- * `task/*` + `task/conversation/*` family.
+ * Integration coverage for the `task/*` + `task/conversation/*` family.
  *
  * Each test exercises one wire method end-to-end against a real
  * Postgres instance: schema decode, authority gate, happy path,
@@ -8,11 +7,8 @@
  * fan-out (legacy `conversations/*` + new `task/conversation/*`
  * both fire from the same handler in the same tx).
  *
- * Per architect plan §9: this file is the integration counterpart
- * to the per-method conformance properties under
- * `packages/protocol/src/testing/conformance/task/`. The conformance
- * suite drives the wire shape (property-based); these tests pin the
- * concrete DB + notification observable behavior.
+ * The conformance suite drives the wire shape; these tests pin the concrete DB
+ * and notification observable behavior.
  *
  * Coverage map (one `it(...)` per row at minimum):
  *
@@ -353,8 +349,7 @@ it("TaskConversationList returns items with { taskId, conversation, participants
     expect(item).toBeDefined();
     expect(item!.taskId).toBe(created.task.id);
     expect(item!.participants.length).toBeGreaterThanOrEqual(1);
-    // Conversation row shape — including `archivedAt` Optional (spec
-    // body Goal 1 + plan §R6 canary _L4).
+    // Conversation row shape includes optional `archivedAt`.
     expect(item!.conversation.archivedAt).toBeUndefined();
   }));
 

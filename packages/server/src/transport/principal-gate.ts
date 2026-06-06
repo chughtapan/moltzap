@@ -16,13 +16,13 @@ import {
   AppPrincipal,
   AuthenticatedPrincipal,
   ForbiddenError,
+  type PrincipalRequirement,
 } from "@moltzap/protocol/transport";
-import type {
-  Principal,
-  PrincipalRequirement,
-} from "@moltzap/protocol/requirements";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConnectionManager, Connection } from "./connection.js";
+import type { AgentContext, AppContext } from "./context.js";
+
+type Principal = AgentContext | AppContext;
 
 const FORBIDDEN_AGENT_ONLY =
   "This method is callable only by an agent principal";

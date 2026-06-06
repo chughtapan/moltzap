@@ -101,6 +101,5 @@ type TaskTags =
  */
 export type AppTags = TaskTags | AppHostTag;
 
-// There is no global capability-tag union: per-frame capability tags are not
-// admitted into one. Each method's caps ride its own `*AuthMw` proof (server-core
-// `auth-middleware-layers.ts`).
+// There is no global requirement-tag union: each method's requirements ride its
+// own `*AuthMw` proof (server-core `auth-middleware-layers.ts`).

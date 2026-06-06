@@ -3,11 +3,10 @@
  * brokers an app-callback gate via `task/create` before the task
  * transitions out of `waiting`.
  *
- * Lives in the **app layer** (bound via `defineAppMethod`) rather
- * than the task layer because the handler needs `AppHostTag` to
- * fire the `task/create` callback over the bound app's connection.
- * The descriptor itself stays in `@moltzap/protocol/task` — the
- * wire shape is task-domain; only the dispatch layer changes.
+ * Lives in the **app layer** rather than the task layer because the handler
+ * needs `AppHostTag` to fire the `task/create` callback over the bound app's
+ * connection. The descriptor itself stays in `@moltzap/protocol/task` because
+ * the wire shape is task-domain.
  *
  * Lifecycle (one-way, fail-closed):
  *   1. Validate contact policy + create the task row in `waiting`.

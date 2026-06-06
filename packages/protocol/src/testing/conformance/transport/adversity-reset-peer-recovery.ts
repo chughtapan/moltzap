@@ -1,10 +1,9 @@
 /**
  * reset_peer — mid-flight the toxic forcibly resets the connection.
- * Spec invariant: sender's RPCs surface a typed `TransportClosedError`,
- * never hang, never crash. Full store-and-replay (reconnect + missed-
- * event replay) is a consumer-side concern driven by each real lifecycle
- * client; protocol-level guarantee is that the agent client surfaces the
- * transport failure as a typed outcome.
+ * Sender RPCs surface a typed `TransportClosedError`, never hang, and never
+ * crash. Full store-and-replay is a consumer-side concern driven by each real
+ * lifecycle client; the protocol-level guarantee is that the agent client
+ * surfaces the transport failure as a typed outcome.
  */
 import { Clock, Effect, Either } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";

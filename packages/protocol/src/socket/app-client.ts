@@ -8,7 +8,7 @@ import type {
 } from "./app-callbacks.js";
 import type { AppKey } from "#identity/apps";
 import { AppConnect, PROTOCOL_VERSION } from "../network/connect.js";
-import { AppCallableGroup } from "../rpc-method-groups.js";
+import { AppCallableGroup } from "./rpc-groups.js";
 import { type CloseInfo } from "./close-info.js";
 import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
 import {

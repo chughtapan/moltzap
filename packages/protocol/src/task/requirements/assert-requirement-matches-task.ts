@@ -7,54 +7,60 @@ import type { ConversationInTaskValue } from "./conversation-in-task.js";
 import type { TaskReadAccessValue } from "./task-read-access.js";
 
 /**
- * Runtime equality check: the capability's carried `taskId` matches
+ * Runtime equality check: the requirement's carried `taskId` matches
  * the caller-passed `expectedTaskId`. One-line guard at the start of
- * every service method that consumes a capability + a separate `taskId`
- * handler-input — catches the "handler obtained capability for task A
+ * every service method that consumes a requirement + a separate `taskId`
+ * handler-input — catches the "handler obtained requirement for task A
  * but passed task B" bug at a token cost (one comparison).
  *
- * Variants below mirror each capability's carried-ID shape.
+ * Variants below mirror each requirement's carried-ID shape.
  */
 
-const ERR_CAP_TASK_MISMATCH = "capability/task mismatch";
-const ERR_CAP_CONV_MISMATCH = "capability/conversation mismatch";
+const ERR_REQUIREMENT_TASK_MISMATCH = "requirement/task mismatch";
+const ERR_REQUIREMENT_CONV_MISMATCH = "requirement/conversation mismatch";
 
 const assertTaskIdMatches = (
-  capTaskId: TaskId,
+  requirementTaskId: TaskId,
   expectedTaskId: TaskId,
 ): Effect.Effect<void, ForbiddenError> => {
-  if (capTaskId !== expectedTaskId) {
-    return Effect.fail(new ForbiddenError({ message: ERR_CAP_TASK_MISMATCH }));
+  if (requirementTaskId !== expectedTaskId) {
+    return Effect.fail(
+      new ForbiddenError({ message: ERR_REQUIREMENT_TASK_MISMATCH }),
+    );
   }
   return Effect.void;
 };
 
 /**
- * Verifies `cap.task.id === expectedTaskId` for `TaskReadAccess`. A
+ * Verifies `requirement.task.id === expectedTaskId` for `TaskReadAccess`. A
  * separate overload keeps the type narrowed at the call site.
  */
 export const assertTaskReadAccessMatchesTask = (
-  cap: TaskReadAccessValue,
+  requirement: TaskReadAccessValue,
   expectedTaskId: TaskId,
 ): Effect.Effect<void, ForbiddenError> =>
-  assertTaskIdMatches(cap.task.id, expectedTaskId);
+  assertTaskIdMatches(requirement.task.id, expectedTaskId);
 
 /**
- * Verifies the capability's carried `(taskId, conversationId)` pair
+ * Verifies the requirement's carried `(taskId, conversationId)` pair
  * equals the expected pair. Fails with `ForbiddenError` on the first
  * mismatch; runs both comparisons in one Effect for handler-side
  * symmetry with `assertTaskReadAccessMatchesTask`.
  */
 export const assertConversationInTaskMatches = (
-  cap: ConversationInTaskValue,
+  requirement: ConversationInTaskValue,
   expectedTaskId: TaskId,
   expectedConversationId: ConversationId,
 ): Effect.Effect<void, ForbiddenError> => {
-  if (cap.taskId !== expectedTaskId) {
-    return Effect.fail(new ForbiddenError({ message: ERR_CAP_TASK_MISMATCH }));
+  if (requirement.taskId !== expectedTaskId) {
+    return Effect.fail(
+      new ForbiddenError({ message: ERR_REQUIREMENT_TASK_MISMATCH }),
+    );
   }
-  if (cap.conversationId !== expectedConversationId) {
-    return Effect.fail(new ForbiddenError({ message: ERR_CAP_CONV_MISMATCH }));
+  if (requirement.conversationId !== expectedConversationId) {
+    return Effect.fail(
+      new ForbiddenError({ message: ERR_REQUIREMENT_CONV_MISMATCH }),
+    );
   }
   return Effect.void;
 };

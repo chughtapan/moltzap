@@ -97,13 +97,9 @@ function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
   return typeof tag === "string" ? tag : null;
 }
 
-// D #705 R7 — the `TmAuthority` capability is dissolved; the task-admin
-// SERVICE methods (`close`, `addParticipant`, `removeParticipant`,
-// `archiveTaskConversation`, …) no longer gate on caller authority.
-// App-ownership now lives in the app-arm HANDLER (`assertCallerAppOwnsTask`),
-// exercised by the app-principal integration and conformance suites. These
-// unit tests cover the service mechanics + the open-status gate
-// (`loadOpenTask`).
+// Task-admin service methods cover mutation mechanics. App-ownership is
+// enforced by the app-arm handler through `assertCallerAppOwnsTask`, and the
+// service-level open-status gate is `loadOpenTask`.
 
 function createsWaitingTask() {
   return Effect.gen(function* () {
@@ -264,10 +260,8 @@ function removesParticipant() {
   });
 }
 
-// The open-status gate is `loadOpenTask`, exercised directly below. The
-// app-arm handler runs it (via `assertCallerAppOwnsTask`) before any
-// mutation, so a closed task is rejected at the handler boundary; the
-// unguarded service mutation methods no longer re-check status.
+// The app-arm handler runs `loadOpenTask` before any mutation, so a closed task
+// is rejected at the handler boundary.
 function loadOpenTaskRejectsAfterClose() {
   return Effect.gen(function* () {
     const svc = makeService();
@@ -331,10 +325,6 @@ function registerCreateReadListTests() {
 }
 
 function registerTaskAdminTests() {
-  // D #705 R7 — the task-admin service methods are unguarded (auth moved
-  // to the app-arm handler `assertCallerAppOwnsTask`). These cover the
-  // mutation mechanics; the app-ownership 403 lives in the integration
-  // suite (`conversations-archive.test.ts`).
   describe("task-admin mutations (unguarded service layer)", () => {
     it("close: transitions task to closed", closesTask);
     it("addParticipant: admits the target agent", addsParticipant);

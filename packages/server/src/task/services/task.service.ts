@@ -968,7 +968,7 @@ export class TaskService {
    *
    * Returns the pre-mutation membership snapshot so the handler can
    * fan out the participants-removed notification to the removed
-   * agent (who is no longer in `conversation_participants` post-DELETE).
+   * agent after their `conversation_participants` row is deleted.
    * Idempotent: no-op when the agent is not currently in the
    * conversation. The conversation is NOT auto-archived when its
    * `conversation_participants` becomes empty.

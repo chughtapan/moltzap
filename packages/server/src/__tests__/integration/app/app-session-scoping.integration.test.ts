@@ -1,16 +1,15 @@
 /**
- * App-session-scoping: TM authority belongs to the APP principal that owns
- * the task. D #705 CP9 dissolved the cross-principal "the calling WS
- * connection IS the moderator" model: an app authenticates via `appKey`
- * (a disjoint `AppConnection`), and task-admin RPCs (`task/conversation/create`
- * etc.) are gated by `assertAppOwnsTask(connection.auth.appId, task)` — NOT by
- * a live registration. The requesting agent is a separate principal.
+ * App-session-scoping: TM authority belongs to the app principal that owns the
+ * task. An app authenticates via `appKey` as an `AppConnection`, and
+ * task-admin RPCs (`task/conversation/create`, etc.) are gated by
+ * `assertAppOwnsTask(connection.auth.appId, task)`. The requesting agent is a
+ * separate principal.
  *
  * Coverage:
  * 1. The owning app's `AppConnection` passes the TM gate.
- * 2. An AGENT connection does NOT (only an `AppConnection` is an app
+ * 2. An agent connection does not pass (only an `AppConnection` is an app
  *    principal; `assertCallerAppOwnsTask` rejects non-app callers).
- * 3. A DIFFERENT app (different `appKey` → different DB appId) does not own
+ * 3. A different app (different `appKey` -> different DB appId) does not own
  *    the task and is rejected.
  *
  * The hijack rejection (a second connection cannot steal a live app's

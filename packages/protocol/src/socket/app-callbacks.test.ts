@@ -2,24 +2,19 @@
  * Schema conformance for the server-initiated task-callback verbs.
  *
  * Strict Effect-Schema decode checks against the descriptor's `paramsSchema`
- * / `resultSchema` (post-#723: the former `ajv.compile` validators are now
- * the descriptors' `validateParams` guard + a `Schema.decodeUnknownEither`
- * for results). The verdict-shape coverage on `DispatchAdmissionDecision`
- * itself lives in `DispatchRequest`'s schema; the cases here are smoke
- * checks that the `dispatch/authorize` manifest references the same
- * shared decision schema. `messages/authorize` coverage pins the
- * send-side fan-out gate restored by #560.
+ * and `resultSchema`. `DispatchAdmissionDecision` verdict-shape coverage lives
+ * in `DispatchRequest`'s schema; the cases here smoke-check that the
+ * `dispatch/authorize` manifest references the same shared decision schema.
+ * `messages/authorize` coverage pins the send-side fan-out gate.
  */
 import { describe, it, expect } from "vitest";
 import type { Schema } from "effect";
 import { DispatchAuthorize } from "../dispatch/index.js";
 import { MessagesAuthorize } from "../message/index.js";
 import { TaskCreate } from "../task/methods.js";
-import { appCallbackMethods } from "../rpc-method-groups.js";
+import { appCallbackMethods } from "./rpc-groups.js";
 import { decodesStrictly } from "../transport/strict-decode.js";
 
-// Strict, excess-rejecting decode check — the parity oracle for the former
-// `ajv.compile(resultSchema)` strict validators.
 const decodes = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
   decodesStrictly(schema, value);
 

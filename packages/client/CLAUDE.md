@@ -92,7 +92,7 @@ Exports from `@moltzap/client/channel-base`:
 - `LeaseStore<HostKey, T>` — generic per-key lease tracker (nanoclaw uses
   `LeaseStore<string, string>` keyed by JID, peek-style for stale-entry-on-retry).
 - `LeaseGuard` — per-dispatch single-shot dup-reply detection (openclaw uses
-  one per inbound message, replaces the `consumedLeaseAt` closure).
+  one per inbound message).
 - `formatCrossConv` / `formatGroupBlock` / `getGroupFields` — markup-
   parameterized formatters (`"json-header"` for openclaw, `"xml-system-reminder"`
   for nanoclaw).

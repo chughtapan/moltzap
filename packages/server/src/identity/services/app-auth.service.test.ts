@@ -216,7 +216,7 @@ function installUpsertsAndRotatesKey() {
       .where("app_id", "=", DEFAULT_APP_ID);
     expect(rows).toHaveLength(1);
 
-    // The rotated key authenticates; the prior boot's key no longer does.
+    // The current key authenticates; the stale boot key is rejected.
     expect(yield* svc.authenticateApp(secondKey)).not.toBeNull();
     expect(yield* svc.authenticateApp(firstKey)).toBeNull();
   });

@@ -27,7 +27,7 @@ import {
   ReverseRpcGroup,
   appCallbackMethods,
   type AnyNotificationDefinition,
-} from "../rpc-method-groups.js";
+} from "./rpc-groups.js";
 import {
   DispatchRelease,
   DispatchesConsumed,

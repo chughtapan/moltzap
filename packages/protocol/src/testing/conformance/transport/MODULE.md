@@ -104,7 +104,7 @@ _Function_
 export function registerLatencyResilience(ctx: ConformanceRunContext): void
 ```
 
-### [`registerResetPeerRecovery`](./adversity-reset-peer-recovery.ts#L28)
+### [`registerResetPeerRecovery`](./adversity-reset-peer-recovery.ts#L27)
 
 _Function_
 

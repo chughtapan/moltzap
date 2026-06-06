@@ -10,9 +10,6 @@ import { decodesStrictly } from "./strict-decode.js";
 const DateTimeString = dateTimeStringSchema();
 const INVALID_ENUM_VALUE = 123;
 
-// Strict decode check (excess-rejecting) — the parity oracle for the former
-// `ajv.compile(schema)` strict validators (`decodesStrictly` passes
-// `{ onExcessProperty: "error" }`, the wire boundary's option).
 const accepts = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
   decodesStrictly(schema, value);
 
@@ -53,12 +50,9 @@ describe("DateTimeString", () => {
 });
 
 /**
- * Format-checker parity corpus (replaces the deleted AJV/`FormatRegistry`
- * side-effect tests, #370/#383). The three wire formats are now decode-time
- * `Schema.pattern` / `Schema.filter` refinements; assert they accept/reject
- * the SAME corpus the old `FormatRegistry` checkers did — in particular the
- * date-time regex-pass-but-`Date.parse`-NaN cliff (the one behavioral case
- * that the finiteness `filter` guards and a regex alone would miss).
+ * Wire formats are decode-time `Schema.pattern` / `Schema.filter`
+ * refinements. The date-time cases include the regex-pass-but-`Date.parse`-NaN
+ * cliff that the finiteness `filter` must guard.
  */
 describe("wire-format parity corpus", () => {
   it("uuid", () => {

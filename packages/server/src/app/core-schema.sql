@@ -100,13 +100,6 @@ CREATE TABLE messages (
 );
 CREATE INDEX idx_messages_conversation_seq ON messages(conversation_id, seq);
 
--- Message-delivery tracking (table `message_delivery`, enum `delivery_status`)
--- dropped in Phase 7.5 (sub-issue #450). Per-message per-recipient
--- sent/delivered/read state was server-side audit debt: zero internal
--- consumers, no external API surface, the synchronous network.send
--- ack-channel that lands in Phase 8 covers "did it deliver" semantics
--- end-to-end without persistence.
-
 -- Key Encryption Keys (envelope encryption)
 CREATE TABLE encryption_keys (
   version INT PRIMARY KEY,
@@ -125,11 +118,6 @@ CREATE TABLE conversation_keys (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (conversation_id, dek_version)
 );
-
--- App sessions: dropped in Phase 7 (B+E cutover, sub-issue #425). The
--- `tasks/task_participants` schema below + `conversations.task_id` (added
--- in Phase 5) is the durable replacement; `apps/createSession`-style
--- wire RPCs are deleted in favour of `tasks/*` (Phase 6).
 
 -- Contacts (user-to-user relationship graph)
 CREATE TYPE contact_status AS ENUM ('pending', 'accepted');
@@ -177,12 +165,9 @@ CREATE TABLE task_participants (
 );
 CREATE INDEX idx_task_participants_agent ON task_participants(agent_id);
 
--- Phase 9b consumer-migration (sub-issue #460 round 3 R12): NOT NULL.
 -- Every conversation belongs to a task. `conversations/create` and
--- `tasks/createConversation` both populate `task_id` in the same
--- transaction as the conversation insert; the pre-R12 path that
--- created task-less conversations retired alongside the broadcast
--- fallback in `MessageService.send`.
+-- `tasks/createConversation` both populate `task_id` in the same transaction as
+-- the conversation insert.
 --
 -- Greenfield schema — pre-prod rebuilds, no migration.
 ALTER TABLE conversations

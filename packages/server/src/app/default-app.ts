@@ -48,7 +48,7 @@ const DEFAULT_APP_MANIFEST = {
 function inertOriginatorOp(op: string): Effect.Effect<never> {
   return Effect.die(
     new Error(
-      `default app endpoint: ${op} invoked — the default app declares no hooks, so its originator must never be called`,
+      `default app endpoint: ${op} invoked — the default app declares only static policies, so its originator must never be called`,
     ),
   );
 }

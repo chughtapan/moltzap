@@ -11,7 +11,7 @@ import { ConnectionManagerTag, ConnectionTag } from "../app/layers.js";
 import type { DisconnectionHook } from "../app/types.js";
 import type { AgentContext } from "./context.js";
 import { serverHandlers } from "../app/server-handlers.js";
-import { makeCapMiddlewareLayers } from "./auth-middleware-layers.js";
+import { makeRequirementMiddlewareLayers } from "./auth-middleware-layers.js";
 import { peekLiveArm } from "./principal-gate.js";
 
 export function makeCoreSocketHandler(options: {
@@ -20,7 +20,7 @@ export function makeCoreSocketHandler(options: {
 }) {
   const protocolServer = new MoltZapServer({
     handlers: serverHandlers,
-    authLayer: makeCapMiddlewareLayers,
+    authLayer: makeRequirementMiddlewareLayers,
     connectionLayer: makeConnectionTagLayer,
     onOpen: (session) =>
       options.services.connections.addUnauthenticated(

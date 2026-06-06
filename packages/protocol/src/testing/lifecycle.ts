@@ -5,7 +5,7 @@ import type {
   AnyAppCallableRpcDefinition,
   AnyNotificationDefinition,
   AppCallableGroup,
-} from "../rpc-method-groups.js";
+} from "#socket";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
