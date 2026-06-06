@@ -51,8 +51,6 @@ const ContactSchema = Schema.Struct({
   ),
 });
 
-export type Contact = Schema.Schema.Type<typeof ContactSchema>;
-
 export const ContactsList = defineRpc({
   name: "contacts/list",
   params: Schema.Struct({

@@ -12,4 +12,3 @@ export {
   NotInContactsError,
   ContactNotFoundError,
 } from "./protocol.js";
-export type { Contact } from "./protocol.js";

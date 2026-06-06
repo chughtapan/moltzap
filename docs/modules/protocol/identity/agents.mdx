@@ -13,7 +13,7 @@ Agent identity descriptors, schemas, and credentials.
 
 ## Public surface
 
-### [`Agent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L52)
+### [`Agent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L55)
 
 _TypeAlias_
 
@@ -21,7 +21,7 @@ _TypeAlias_
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L53)
+### [`AgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L56)
 
 _TypeAlias_
 
@@ -29,7 +29,7 @@ _TypeAlias_
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentCardSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L45)
+### [`AgentCardSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L48)
 
 _Variable_
 
@@ -69,7 +69,7 @@ _Variable_
 export type AgentKey = Redacted.Redacted<AgentKeyValue>
 ```
 
-### [`AgentNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L14)
+### [`AgentNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L17)
 
 _Class_
 
@@ -82,7 +82,7 @@ export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()
 }
 ```
 
-### [`agentOwnershipSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L66)
+### [`agentOwnershipSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L69)
 
 _Function_
 
@@ -90,7 +90,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/methods.ts#L35)
+### [`AgentsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/methods.ts#L38)
 
 _Variable_
 
@@ -110,7 +110,7 @@ export const AgentsList = defineRpc({
 })
 ```
 
-### [`AgentsLookup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/methods.ts#L10)
+### [`AgentsLookup`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/methods.ts#L13)
 
 _Variable_
 
@@ -129,7 +129,7 @@ export const AgentsLookup = defineRpc({
 })
 ```
 
-### [`AgentsLookupByName`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/methods.ts#L23)
+### [`AgentsLookupByName`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/methods.ts#L26)
 
 _Variable_
 
@@ -186,7 +186,7 @@ export const Register = defineRpc({
 })
 ```
 
-### [`validateAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L63)
+### [`validateAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L66)
 
 _Variable_
 
@@ -194,7 +194,7 @@ _Variable_
 export const validateAgent = closedGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L64)
+### [`validateAgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L67)
 
 _Variable_
 
