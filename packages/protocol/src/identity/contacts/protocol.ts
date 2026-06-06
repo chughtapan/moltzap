@@ -1,7 +1,10 @@
 import { Schema } from "effect";
 
 import { defineRpc, defineNotification } from "../../transport/method.js";
-import { ListLimitSchema, listCursorSchema } from "../../transport/pagination.js";
+import {
+  ListLimitSchema,
+  listCursorSchema,
+} from "../../transport/pagination.js";
 import { AgentPrincipal } from "../../transport/principal.js";
 import {
   ConflictError,

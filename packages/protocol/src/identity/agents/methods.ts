@@ -2,7 +2,10 @@ import { Schema } from "effect";
 
 import { AgentClaimed, AgentPrincipal } from "../../transport/principal.js";
 import { defineRpc } from "../../transport/method.js";
-import { ListLimitSchema, listCursorSchema } from "../../transport/pagination.js";
+import {
+  ListLimitSchema,
+  listCursorSchema,
+} from "../../transport/pagination.js";
 import { InvalidParamsError } from "../../transport/wire-errors.js";
 import { AgentId } from "./ids.js";
 import { AgentCardSchema } from "./types.js";

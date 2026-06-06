@@ -1,6 +1,9 @@
 import { Either, Schema } from "effect";
 
-import { dateTimeStringSchema, stringEnum } from "../../transport/wire-string.js";
+import {
+  dateTimeStringSchema,
+  stringEnum,
+} from "../../transport/wire-string.js";
 import { AgentId } from "./ids.js";
 import { UserId } from "../users/index.js";
 
