@@ -4,8 +4,8 @@
  * A descriptor's `requires` tuple contains requirement tags, and every
  * requirement tag is itself the `@effect/rpc` middleware tag the engine stacks.
  */
-import type { AgentId } from "./identity/agents.js";
-import type { AppId } from "./task/ids.js";
+import type { AgentId } from "#identity/agents";
+import type { AppId } from "#identity/apps";
 import {
   AgentPrincipal,
   AppPrincipal,

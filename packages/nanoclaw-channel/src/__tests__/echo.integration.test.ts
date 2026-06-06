@@ -18,7 +18,7 @@ import { live as it } from "@effect/vitest";
 import { Data, Effect, Schema } from "effect";
 import { MoltZapService } from "@moltzap/client";
 import { withTestServiceConfig } from "@moltzap/client/test-utils";
-import { AgentKey } from "@moltzap/protocol/credentials";
+import { AgentKey } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
 import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";

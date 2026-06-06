@@ -28,7 +28,7 @@ import {
   MessagesSend,
 } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
 
 interface GatewayHarness {

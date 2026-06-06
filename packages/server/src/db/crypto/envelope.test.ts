@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import * as fc from "fast-check";
-import { ServerEncryptionMasterSecret } from "@moltzap/protocol/credentials";
+import { ServerEncryptionMasterSecret } from "../../config/secrets.js";
 import { EnvelopeEncryption } from "./envelope.js";
 import { randomBytes } from "node:crypto";
 

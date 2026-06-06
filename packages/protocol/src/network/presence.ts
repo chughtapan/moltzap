@@ -1,9 +1,9 @@
 import { Schema } from "effect";
-import { AgentId } from "../identity/methods.js";
+import { AgentId } from "#identity/agents";
 import { stringEnum } from "../transport/wire-string.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
 import { AuthenticatedPrincipal } from "../transport/principal.js";
-import { NotInContactsError } from "../identity/contacts.js";
+import { NotInContactsError } from "#identity/contacts";
 
 // Presence is server-derived from `LeaseRegistry` lifecycle: `online` =
 // connected with no active lease, `working` = connected with active work, and

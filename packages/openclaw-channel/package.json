@@ -22,12 +22,30 @@
     }
   },
   "scripts": {
-    "build": "tsc -b",
-    "lint": "eslint src *.ts --cache --max-warnings=0",
+    "build": "nx run @moltzap/openclaw-channel:build",
+    "lint": "nx run @moltzap/openclaw-channel:lint",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:conformance": "vitest run -c vitest.conformance.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/openclaw-channel",
+          "command": "tsc -b"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/openclaw-channel",
+          "command": "eslint src *.ts --cache --max-warnings=0"
+        }
+      }
+    }
   },
   "dependencies": {
     "@effect/platform": "^0.96.1",

@@ -5,7 +5,7 @@ import { Data, Effect, Stream } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test-utils";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";

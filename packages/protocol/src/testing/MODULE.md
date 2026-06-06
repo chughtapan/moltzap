@@ -19,7 +19,7 @@ _Function_
 export const agentId = (value: string): Schema.Schema.Type<typeof AgentId>
 ```
 
-### [`agentKeyArbitrary`](./test-fixtures.ts#L118)
+### [`agentKeyArbitrary`](./test-fixtures.ts#L112)
 
 _Variable_
 
@@ -28,7 +28,7 @@ export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
   agentKeyStringArbitrary.map(redactedAgentKey)
 ```
 
-### [`agentKeyString`](./test-fixtures.ts#L120)
+### [`agentKeyString`](./test-fixtures.ts#L114)
 
 _Function_
 
@@ -36,7 +36,7 @@ _Function_
 export const agentKeyString = (seed: number): string
 ```
 
-### [`agentKeyStringArbitrary`](./test-fixtures.ts#L113)
+### [`agentKeyStringArbitrary`](./test-fixtures.ts#L107)
 
 _Variable_
 
@@ -48,7 +48,7 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
   ).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`)
 ```
 
-### [`AgentRegistrationError`](./test-fixtures.ts#L164)
+### [`AgentRegistrationError`](./test-fixtures.ts#L154)
 
 _Class_
 
@@ -73,12 +73,12 @@ _Function_
 export const appId = (value: string): Schema.Schema.Type<typeof AppId>
 ```
 
-### [`connectionId`](./test-fixtures.ts#L130)
+### [`connectionId`](./test-fixtures.ts#L121)
 
-_Function_
+_Variable_
 
 ```ts
-export const connectionId = (value: string): ConnectionId
+export const connectionId = decodeConnectionId
 ```
 
 ### [`contactId`](./test-fixtures.ts#L80)
@@ -141,7 +141,7 @@ export const messageId = (
 ): Schema.Schema.Type<typeof MessageId>
 ```
 
-### [`mintTestAppCredential`](./test-fixtures.ts#L310)
+### [`mintTestAppCredential`](./test-fixtures.ts#L300)
 
 _Function_
 
@@ -194,25 +194,7 @@ _Function_
 export const redactedAppKey = (value: string): AppKey
 ```
 
-### [`redactedRegistrationSecret`](./test-fixtures.ts#L102)
-
-_Function_
-
-```ts
-export const redactedRegistrationSecret = (value: string): RegistrationSecret
-```
-
-### [`redactedServerEncryptionMasterSecret`](./test-fixtures.ts#L104)
-
-_Function_
-
-```ts
-export const redactedServerEncryptionMasterSecret = (
-  value: string,
-): ServerEncryptionMasterSecret
-```
-
-### [`registerTestAgent`](./test-fixtures.ts#L357)
+### [`registerTestAgent`](./test-fixtures.ts#L347)
 
 _Function_
 
@@ -264,7 +246,7 @@ _Function_
 export const taskId = (value: string): Schema.Schema.Type<typeof TaskId>
 ```
 
-### [`TestAgent`](./test-fixtures.ts#L140)
+### [`TestAgent`](./test-fixtures.ts#L130)
 
 _Interface_
 
@@ -344,7 +326,7 @@ export interface TestAppClient {
 }
 ```
 
-### [`TestAppCredential`](./test-fixtures.ts#L252)
+### [`TestAppCredential`](./test-fixtures.ts#L242)
 
 _Interface_
 
@@ -357,7 +339,7 @@ export interface TestAppCredential {
 
 Server-minted app principal credentials.
 
-### [`TestAppHttpRegistrationError`](./test-fixtures.ts#L276)
+### [`TestAppHttpRegistrationError`](./test-fixtures.ts#L266)
 
 _Class_
 

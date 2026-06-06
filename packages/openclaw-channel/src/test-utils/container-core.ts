@@ -15,7 +15,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Redacted } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 
 const CONTROL_UI_PORT = 18789;
 const OPENCLAW_TOKEN_RADIX = 36;

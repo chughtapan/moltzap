@@ -7,7 +7,7 @@ import {
   dateTimeStringSchema,
   formatString,
 } from "../transport/wire-string.js";
-import { AgentId } from "../identity/agents.js";
+import { AgentId } from "#identity/agents";
 
 const DateTimeString = dateTimeStringSchema();
 

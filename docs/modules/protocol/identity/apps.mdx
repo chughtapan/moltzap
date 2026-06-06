@@ -1,0 +1,61 @@
+---
+title: "protocol/identity/apps"
+description: "App identity descriptors, identifiers, and credentials."
+---
+
+# protocol/identity/apps
+
+_`packages/protocol/src/identity/apps`_
+
+## Purpose
+
+App identity descriptors, identifiers, and credentials.
+
+## Public surface
+
+### [`AppId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/apps/ids.ts#L5)
+
+_TypeAlias_
+
+```ts
+export type AppId = string & Brand.Brand<"AppId">;
+```
+
+### [`AppId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/apps/ids.ts#L5)
+
+_Variable_
+
+```ts
+export type AppId = string & Brand.Brand<"AppId">
+```
+
+### [`AppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/apps/credentials.ts#L20)
+
+_TypeAlias_
+
+```ts
+export type AppKey = Redacted.Redacted<AppKeyValue>;
+```
+
+### [`AppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/apps/credentials.ts#L20)
+
+_Variable_
+
+```ts
+export type AppKey = Redacted.Redacted<AppKeyValue>
+```
+
+### [`DEFAULT_APP_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/apps/ids.ts#L11)
+
+_Variable_
+
+```ts
+export const DEFAULT_APP_ID = Schema.decodeSync(AppId)(
+  "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb",
+)
+```
+
+## Files
+
+- `credentials.ts`
+- `ids.ts`

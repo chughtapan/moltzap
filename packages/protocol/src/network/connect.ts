@@ -1,6 +1,7 @@
 // Auto-bumped by publish workflow.
 import { Data, Effect, Schema } from "effect";
-import { AgentKey, AppKey } from "../credentials.js";
+import { AgentKey } from "#identity/agents";
+import { AppKey } from "#identity/apps";
 import { defineRpc } from "../transport/method.js";
 import {
   UnauthorizedError,

@@ -16,14 +16,14 @@ import {
 } from "@effect/platform";
 import { Data, Effect, Either, FastCheck, Schema } from "effect";
 import {
+  AgentId,
   AgentKey,
+  AppId,
   AppKey,
-  RegistrationSecret,
-  ServerEncryptionMasterSecret,
-} from "../credentials.js";
-import { UserId, AgentId, ContactId } from "../identity/index.js";
-import type { ConnectionId } from "../socket/connection.js";
-import { AppId } from "../task/index.js";
+  ContactId,
+  UserId,
+} from "../identity/index.js";
+import { connectionId as decodeConnectionId } from "../socket/connection.js";
 import type { AppManifest } from "../app/index.js";
 import { ConversationId, MessageId } from "../conversation/index.js";
 import { LeaseId } from "../message/index.js";
@@ -99,12 +99,6 @@ export const redactedAgentKey = (value: string): AgentKey =>
   Schema.decodeUnknownSync(AgentKey)(value);
 export const redactedAppKey = (value: string): AppKey =>
   Schema.decodeUnknownSync(AppKey)(value);
-export const redactedRegistrationSecret = (value: string): RegistrationSecret =>
-  Schema.decodeUnknownSync(RegistrationSecret)(value);
-export const redactedServerEncryptionMasterSecret = (
-  value: string,
-): ServerEncryptionMasterSecret =>
-  Schema.decodeUnknownSync(ServerEncryptionMasterSecret)(value);
 const hexStringArbitrary = (length: number): FastCheck.Arbitrary<string> =>
   FastCheck.array(FastCheck.constantFrom(...HEX_DIGITS), {
     minLength: length,
@@ -124,11 +118,7 @@ export const agentKeyString = (seed: number): string => {
   });
   return value ?? FALLBACK_AGENT_KEY_STRING;
 };
-// `ConnectionId` is only nominally branded (no UUID format predicate); skip
-// decode and brand the raw string directly. Test fixtures use synthetic
-// non-UUID values like "owner-conn-1".
-export const connectionId = (value: string): ConnectionId =>
-  value as ConnectionId;
+export const connectionId = decodeConnectionId;
 
 // --- Real-server agent registration ---
 //

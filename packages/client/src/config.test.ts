@@ -3,7 +3,7 @@ import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit, Redacted, Schema } from "effect";
 import { AgentId } from "@moltzap/protocol/identity";
-import { AgentKey } from "@moltzap/protocol/credentials";
+import { AgentKey } from "@moltzap/protocol/identity";
 import {
   agentId,
   agentKeyString,

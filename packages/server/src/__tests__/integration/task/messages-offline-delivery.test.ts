@@ -13,7 +13,7 @@ import {
   MessagesList,
   MessagesSend,
 } from "@moltzap/protocol/message";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";

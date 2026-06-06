@@ -1,13 +1,11 @@
 ---
 title: "contacts/list"
-description: "List contacts for the authenticated agent."
+description: "Call `contacts/list`."
 ---
 
 # contacts/list
 
-List contacts for the authenticated agent.
-
-- **Principal:** `AgentPrincipal` head (no claimed refinement).
+Call `contacts/list`.
 
 ## Parameters
 
@@ -28,10 +26,3 @@ List contacts for the authenticated agent.
 <ResponseField name="nextCursor" type="string">
   Opaque pagination cursor. Omit for the first page; pass the prior response's nextCursor to fetch the next page. Treat as opaque; do not parse, compare, or construct it.
 </ResponseField>
-
-## Errors
-
-| Type | When |
-|------|------|
-| `InvalidParamsError` | the `cursor` does not decode |
-| `UnauthorizedError` | the calling agent has no owner user |

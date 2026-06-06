@@ -36,7 +36,7 @@ import {
 import {
   ContactAcceptedNotificationDefinition,
   ContactRequestNotificationDefinition,
-} from "../identity/contacts.js";
+} from "#identity/contacts";
 import { PresenceChangedNotificationDefinition } from "../network/presence.js";
 import { MessageReceivedNotificationDefinition } from "../message/index.js";
 import {

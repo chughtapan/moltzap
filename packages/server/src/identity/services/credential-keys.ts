@@ -7,7 +7,7 @@
  */
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Redacted, Schema } from "effect";
-import { AgentKey, AppKey } from "@moltzap/protocol/credentials";
+import { AgentKey, AppKey } from "@moltzap/protocol/identity";
 
 /**
  * Stable string prefix on every agent API key. Encoded once here;

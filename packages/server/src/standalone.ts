@@ -14,7 +14,7 @@ import {
   type ConfigLoadError,
   type StandaloneBootPlan,
 } from "./config.js";
-import type { ServerEncryptionMasterSecret } from "@moltzap/protocol/credentials";
+import type { ServerEncryptionMasterSecret } from "./config/secrets.js";
 import { seedInitialKek } from "./db/crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./db/crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";

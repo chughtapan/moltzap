@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Redacted, Schema } from "effect";
 import * as fc from "fast-check";
-import { AgentKey, AppKey } from "@moltzap/protocol/credentials";
+import { AgentKey, AppKey } from "@moltzap/protocol/identity";
 import {
   generateApiKey,
   generateAppKey,

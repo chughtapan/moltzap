@@ -8,7 +8,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Data, Effect, Either, Schema } from "effect";
 import { AgentId } from "@moltzap/protocol/identity";
-import { AgentKey } from "@moltzap/protocol/credentials";
+import { AgentKey } from "@moltzap/protocol/identity";
 import { getMoltZapConfigDir, getMoltZapConfigPath } from "./local-paths.js";
 
 // ─── Branded names ─────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import type {
   AppCallbackRpcDefinition,
   HandlerSlot,
 } from "./app-callbacks.js";
-import type { AppKey } from "../credentials.js";
+import type { AppKey } from "#identity/apps";
 import { AppConnect, PROTOCOL_VERSION } from "../network/connect.js";
 import { AppCallableGroup } from "../rpc-method-groups.js";
 import { type CloseInfo } from "./close-info.js";

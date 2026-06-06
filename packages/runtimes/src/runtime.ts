@@ -1,6 +1,6 @@
 import { Brand, type Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import type { SpawnFailed } from "./errors.js";
 
 // Branded types for Runtime inputs.

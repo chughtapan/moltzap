@@ -1,7 +1,7 @@
 import type { RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
-import type { AgentKey } from "../credentials.js";
+import type { AgentKey } from "#identity/agents";
 import { AgentConnect, PROTOCOL_VERSION } from "../network/connect.js";
 import { AgentCallableGroup } from "../rpc-method-groups.js";
 import { type CloseInfo } from "./close-info.js";

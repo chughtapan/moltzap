@@ -5,7 +5,7 @@ import { Effect, pipe, Schema } from "effect";
 import {
   RegistrationSecret,
   ServerEncryptionMasterSecret,
-} from "@moltzap/protocol/credentials";
+} from "../config/secrets.js";
 import type {
   AgentId,
   UserId as UserIdValue,

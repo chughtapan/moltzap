@@ -32,7 +32,7 @@ import { TreeFormatter } from "effect/ParseResult";
 import {
   RegistrationSecret,
   ServerEncryptionMasterSecret,
-} from "@moltzap/protocol/credentials";
+} from "./config/secrets.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { UserId } from "@moltzap/protocol/identity";
 import type { Db } from "./db/client.js";

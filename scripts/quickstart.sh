@@ -103,11 +103,11 @@ if [ ! -d node_modules ]; then
   pnpm install --frozen-lockfile
 fi
 
-# Always run `pnpm -r build` — it's idempotent (tsc skips unchanged files in
+# Always run the root Nx build — it's idempotent (tsc skips unchanged files in
 # seconds) and ensures every workspace package has a dist/. Gating on a
 # single file misses packages outside the server-core dep tree.
-info "building workspace (pnpm -r build) — idempotent, ~5–30s"
-pnpm -r build
+info "building workspace (pnpm build) — idempotent, ~5–30s"
+pnpm build
 
 # ── Start server ──────────────────────────────────────────────────
 info "starting server on $SERVER_URL"

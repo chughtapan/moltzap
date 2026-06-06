@@ -18,7 +18,7 @@
         "identity/requirements/index.ts"
       ],
       "#identity/agents": [
-        "identity/agents.ts"
+        "identity/agents/index.ts"
       ],
       "#identity/apps": [
         "identity/apps/index.ts"
@@ -27,7 +27,7 @@
         "identity/users/index.ts"
       ],
       "#identity/contacts": [
-        "identity/contacts.ts"
+        "identity/contacts/index.ts"
       ],
       "#identity/contacts/requirements": [
         "identity/contacts/requirements/index.ts"
@@ -58,9 +58,6 @@
       ],
       "#socket": [
         "socket/index.ts"
-      ],
-      "#credentials": [
-        "credentials.ts"
       ],
       "#requirements": [
         "requirements.ts"

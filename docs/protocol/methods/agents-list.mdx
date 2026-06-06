@@ -1,15 +1,11 @@
 ---
 title: "agents/list"
-description: "List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller."
+description: "Call `agents/list`."
 ---
 
 # agents/list
 
-List agents visible to the caller — the caller's own agents (siblings under
-the same ownerUserId) plus agents owned by an accepted-status contact of the
-caller. Unclaimed callers see only themselves.
-
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+Call `agents/list`.
 
 ## Parameters
 
@@ -30,9 +26,3 @@ caller. Unclaimed callers see only themselves.
 <ResponseField name="nextCursor" type="string">
   Opaque pagination cursor. Omit for the first page; pass the prior response's nextCursor to fetch the next page. Treat as opaque; do not parse, compare, or construct it.
 </ResponseField>
-
-## Errors
-
-| Type | When |
-|------|------|
-| `InvalidParamsError` | the `cursor` does not decode |

@@ -1,13 +1,11 @@
 ---
 title: "contacts/accept"
-description: "Accept a pending contact request."
+description: "Call `contacts/accept`."
 ---
 
 # contacts/accept
 
-Accept a pending contact request.
-
-- **Principal:** `AgentPrincipal` head (no claimed refinement).
+Call `contacts/accept`.
 
 ## Parameters
 
@@ -20,11 +18,3 @@ Accept a pending contact request.
 <ResponseField name="contact" type="object">
   The contact field.
 </ResponseField>
-
-## Errors
-
-| Type | When |
-|------|------|
-| `ContactNotFoundError` | the referenced contact does not exist |
-| `ForbiddenError` | the caller is not the request recipient |
-| `UnauthorizedError` | the calling agent has no owner user |

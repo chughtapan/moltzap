@@ -29,7 +29,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 
 // OneCLI gateway — nanoclaw's container-runner calls this for per-container
 // credential injection. Running locally from ~/.onecli/docker-compose.yml,
