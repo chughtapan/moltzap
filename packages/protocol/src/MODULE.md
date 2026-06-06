@@ -35,22 +35,6 @@ export const agentCallableMethods = [
 ] as const
 ```
 
-### [`AgentKey`](./credentials.ts#L35)
-
-_TypeAlias_
-
-```ts
-export type AgentKey = Redacted.Redacted<AgentKeyValue>;
-```
-
-### [`AgentKey`](./credentials.ts#L35)
-
-_Variable_
-
-```ts
-export type AgentKey = Redacted.Redacted<AgentKeyValue>
-```
-
 ### [`AnyAgentCallableRpcDefinition`](./rpc-method-groups.ts#L89)
 
 _TypeAlias_
@@ -124,22 +108,6 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppKey`](./credentials.ts#L39)
-
-_TypeAlias_
-
-```ts
-export type AppKey = Redacted.Redacted<AppKeyValue>;
-```
-
-### [`AppKey`](./credentials.ts#L39)
-
-_Variable_
-
-```ts
-export type AppKey = Redacted.Redacted<AppKeyValue>
-```
-
 ### [`CapabilityRequirement`](./requirements.ts#L34)
 
 _TypeAlias_
@@ -174,22 +142,6 @@ export const middlewaresForRequirements = (
   }
   return stack.reverse();
 };
-```
-
-### [`InviteCode`](./credentials.ts#L51)
-
-_TypeAlias_
-
-```ts
-export type InviteCode = Redacted.Redacted<InviteCodeValue>;
-```
-
-### [`InviteCode`](./credentials.ts#L51)
-
-_Variable_
-
-```ts
-export type InviteCode = Redacted.Redacted<InviteCodeValue>
 ```
 
 ### [`middlewaresForRequirements`](./requirements.ts#L50)
@@ -281,22 +233,6 @@ export type PrincipalRequirementOf<
 > = Requires extends readonly [infer Head, ...ReadonlyArray<unknown>]
 ```
 
-### [`RegistrationSecret`](./credentials.ts#L77)
-
-_TypeAlias_
-
-```ts
-export type RegistrationSecret = Redacted.Redacted<RegistrationSecretValue>;
-```
-
-### [`RegistrationSecret`](./credentials.ts#L77)
-
-_Variable_
-
-```ts
-export type RegistrationSecret = Redacted.Redacted<RegistrationSecretValue>
-```
-
 ### [`Requirement`](./requirements.ts#L40)
 
 _TypeAlias_
@@ -358,24 +294,6 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked — an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`ServerEncryptionMasterSecret`](./credentials.ts#L81)
-
-_TypeAlias_
-
-```ts
-export type ServerEncryptionMasterSecret =
-  Redacted.Redacted<ServerEncryptionMasterSecretValue>;
-```
-
-### [`ServerEncryptionMasterSecret`](./credentials.ts#L81)
-
-_Variable_
-
-```ts
-export type ServerEncryptionMasterSecret =
-  Redacted.Redacted<ServerEncryptionMasterSecretValue>
-```
-
 ### [`serverInboundMethods`](./rpc-method-groups.ts#L69)
 
 _Variable_
@@ -394,6 +312,5 @@ export const serverInboundMethods = [
 
 ## Files
 
-- `credentials.ts`
 - `requirements.ts`
 - `rpc-method-groups.ts`

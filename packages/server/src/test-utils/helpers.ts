@@ -23,7 +23,7 @@ import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AgentKey, AppKey } from "@moltzap/protocol/credentials";
+import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/app";

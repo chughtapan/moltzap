@@ -2,7 +2,7 @@
 import { Data, Effect, Exit, Fiber } from "effect";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import {
   RuntimeExitedBeforeReady,
   RuntimeReadyTimedOut,

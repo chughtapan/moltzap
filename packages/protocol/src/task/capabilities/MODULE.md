@@ -123,7 +123,7 @@ verifies the carried `taskId` matches the handler-input `taskId` at
 call time — the one-line runtime check that catches "handler passed
 a different taskId than the obtain proved".
 
-### [`ConversationSendAccess`](./conversation-send-access.ts#L27)
+### [`ConversationSendAccess`](./conversation-send-access.ts#L28)
 
 _Class_
 
@@ -134,7 +134,7 @@ export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAc
 ) {}
 ```
 
-### [`ConversationSendAccessValue`](./conversation-send-access.ts#L19)
+### [`ConversationSendAccessValue`](./conversation-send-access.ts#L20)
 
 _Interface_
 

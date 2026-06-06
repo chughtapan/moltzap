@@ -3,7 +3,7 @@
  */
 
 import { Schema, type Brand } from "effect";
-import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
+import { AgentId, agentOwnershipSchema } from "#identity/agents";
 import { ConversationId, MessageId } from "../conversation/index.js";
 import { TaskId } from "../task/ids.js";
 import { messagePartsSchema } from "../message/index.js";

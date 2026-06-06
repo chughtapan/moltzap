@@ -2,7 +2,7 @@ import { Data, Effect, Option } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { registerCommand } from "./register.js";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { parseProfileName } from "../../profile.js";
 

@@ -6,10 +6,7 @@ import {
 } from "@effect/platform";
 import * as Socket from "@effect/platform/Socket";
 import { Cause, Data, Effect, Either, Exit, Redacted, Schema } from "effect";
-import type {
-  AgentKey,
-  RegistrationSecret,
-} from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import { Register } from "@moltzap/protocol/identity";
 import { validateAppManifest, type AppManifest } from "@moltzap/protocol/app";
@@ -18,6 +15,7 @@ import type { AppTags } from "../transport/layer-tags.js";
 import type { ConnectionTag, ResolvedServices } from "./layers.js";
 import { safeEqual } from "../identity/services/credential-keys.js";
 import type { CoreConfig } from "../config.js";
+import type { RegistrationSecret } from "../config/secrets.js";
 
 const HTTP_CREATED = 201;
 const HTTP_BAD_REQUEST = 400;

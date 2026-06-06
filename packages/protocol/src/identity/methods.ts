@@ -1,31 +1,20 @@
 export {
-  AgentNotFoundError,
-  UserId,
-  AgentId,
-  validateAgent,
-  validateAgentCard,
-  agentOwnershipSchema,
   Register,
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
-} from "./agents.js";
-export type { Agent, AgentCard } from "./agents.js";
+} from "./agents/index.js";
 
 export {
-  ContactId,
-  NotInContactsError,
-  ContactNotFoundError,
   ContactsList,
   ContactsAdd,
   ContactsAccept,
   ContactsById,
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
-} from "./contacts.js";
-export type { Contact } from "./contacts.js";
+} from "./contacts/index.js";
 
-import { AgentsLookup, AgentsLookupByName, AgentsList } from "./agents.js";
+import { AgentsLookup, AgentsLookupByName, AgentsList } from "./agents/index.js";
 import {
   ContactsList,
   ContactsAdd,
@@ -33,7 +22,7 @@ import {
   ContactsById,
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
-} from "./contacts.js";
+} from "./contacts/index.js";
 
 // `agents/register` (`Register` in `agents.ts`) is HTTP-only: served over
 // `http-routes.ts`, never dispatched on the WS engine, so it is NOT a catalog

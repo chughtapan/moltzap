@@ -8,7 +8,7 @@ import {
   formatString,
 } from "../transport/wire-string.js";
 import { ListLimitSchema } from "../transport/pagination.js";
-import { AgentId } from "../identity/agents.js";
+import { AgentId } from "#identity/agents";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import { AgentPrincipal, AgentClaimed } from "../transport/principal.js";
 import {

@@ -24,7 +24,7 @@ _Function_
 export const agentId = (value: string): Schema.Schema.Type<typeof AgentId>
 ```
 
-### [`agentKeyArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L118)
+### [`agentKeyArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L112)
 
 _Variable_
 
@@ -33,7 +33,7 @@ export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
   agentKeyStringArbitrary.map(redactedAgentKey)
 ```
 
-### [`agentKeyString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L120)
+### [`agentKeyString`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L114)
 
 _Function_
 
@@ -41,7 +41,7 @@ _Function_
 export const agentKeyString = (seed: number): string
 ```
 
-### [`agentKeyStringArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L113)
+### [`agentKeyStringArbitrary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L107)
 
 _Variable_
 
@@ -53,7 +53,7 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
   ).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`)
 ```
 
-### [`AgentRegistrationError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L164)
+### [`AgentRegistrationError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L154)
 
 _Class_
 
@@ -78,12 +78,12 @@ _Function_
 export const appId = (value: string): Schema.Schema.Type<typeof AppId>
 ```
 
-### [`connectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L130)
+### [`connectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L121)
 
-_Function_
+_Variable_
 
 ```ts
-export const connectionId = (value: string): ConnectionId
+export const connectionId = decodeConnectionId
 ```
 
 ### [`contactId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L80)
@@ -146,7 +146,7 @@ export const messageId = (
 ): Schema.Schema.Type<typeof MessageId>
 ```
 
-### [`mintTestAppCredential`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L310)
+### [`mintTestAppCredential`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L300)
 
 _Function_
 
@@ -199,25 +199,7 @@ _Function_
 export const redactedAppKey = (value: string): AppKey
 ```
 
-### [`redactedRegistrationSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L102)
-
-_Function_
-
-```ts
-export const redactedRegistrationSecret = (value: string): RegistrationSecret
-```
-
-### [`redactedServerEncryptionMasterSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L104)
-
-_Function_
-
-```ts
-export const redactedServerEncryptionMasterSecret = (
-  value: string,
-): ServerEncryptionMasterSecret
-```
-
-### [`registerTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L357)
+### [`registerTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L347)
 
 _Function_
 
@@ -269,7 +251,7 @@ _Function_
 export const taskId = (value: string): Schema.Schema.Type<typeof TaskId>
 ```
 
-### [`TestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L140)
+### [`TestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L130)
 
 _Interface_
 
@@ -349,7 +331,7 @@ export interface TestAppClient {
 }
 ```
 
-### [`TestAppCredential`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L252)
+### [`TestAppCredential`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L242)
 
 _Interface_
 
@@ -362,7 +344,7 @@ export interface TestAppCredential {
 
 Server-minted app principal credentials.
 
-### [`TestAppHttpRegistrationError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L276)
+### [`TestAppHttpRegistrationError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/test-fixtures.ts#L266)
 
 _Class_
 

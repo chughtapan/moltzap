@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { stringEnum, dateTimeStringSchema } from "../transport/wire-string.js";
 import { ListLimitSchema, listCursorSchema } from "../transport/pagination.js";
-import { AgentId, AgentNotFoundError } from "../identity/agents.js";
+import { AgentId, AgentNotFoundError } from "#identity/agents";
 import {
   ForbiddenError,
   InvalidParamsError,
@@ -16,12 +16,12 @@ import {
   conversationSchema,
   ConversationFullError,
 } from "../conversation/types.js";
-import { AppId, TaskId, TaskNotFoundError } from "./ids.js";
+import { AppId } from "#identity/apps";
+import { TaskId, TaskNotFoundError } from "./ids.js";
 import { ContactPolicyAllowsReach } from "./capabilities/index.js";
 
-// `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
-// re-exported here so import paths can reach them through this module.
-export { AppId, DEFAULT_APP_ID, TaskId, TaskNotFoundError } from "./ids.js";
+export { AppId, DEFAULT_APP_ID } from "#identity/apps";
+export { TaskId, TaskNotFoundError } from "./ids.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — task value types + errors used by 2+ blocks in this file.

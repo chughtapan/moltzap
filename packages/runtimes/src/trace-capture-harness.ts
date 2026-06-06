@@ -19,7 +19,7 @@ import {
 
 import type { AnyServerRpcDefinition } from "@moltzap/protocol/rpc-method-groups";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,

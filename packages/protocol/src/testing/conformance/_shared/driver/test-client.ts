@@ -43,7 +43,7 @@ import {
   type ParamsOf,
   type ResultOf,
 } from "../../../../transport/index.js";
-import { AgentKey, AppKey } from "../../../../credentials.js";
+import { AgentKey, AppKey } from "../../../../identity/index.js";
 import { RpcTimeoutError as ProtocolRpcTimeoutError } from "../../../../transport/index.js";
 import {
   RpcResponseError,

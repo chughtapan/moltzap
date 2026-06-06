@@ -21,13 +21,3 @@ export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
 ) {
   static readonly message = "Task not found";
 }
-
-export type AppId = string & Brand.Brand<"AppId">;
-export const AppId: Schema.Schema<AppId, string> = formatString("uuid").pipe(
-  Schema.brand("AppId"),
-  Schema.annotations({ description: "Branded AppId" }),
-);
-
-export const DEFAULT_APP_ID = Schema.decodeSync(AppId)(
-  "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb",
-);

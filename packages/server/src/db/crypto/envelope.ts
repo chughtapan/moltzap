@@ -5,7 +5,7 @@ import {
   createHash,
 } from "node:crypto";
 import { Redacted } from "effect";
-import type { ServerEncryptionMasterSecret } from "@moltzap/protocol/credentials";
+import type { ServerEncryptionMasterSecret } from "../../config/secrets.js";
 
 /**
  * Envelope encryption layer:

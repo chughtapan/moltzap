@@ -23,8 +23,6 @@ export {
   agentKeyStringArbitrary,
   redactedAgentKey,
   redactedAppKey,
-  redactedRegistrationSecret,
-  redactedServerEncryptionMasterSecret,
   taskId,
 } from "./test-fixtures.js";
 

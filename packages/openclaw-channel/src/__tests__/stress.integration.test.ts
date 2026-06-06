@@ -16,7 +16,7 @@ import {
   type TaskBinding,
 } from "./test-helpers.js";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import { agentId, waitForValue } from "@moltzap/protocol/testing";

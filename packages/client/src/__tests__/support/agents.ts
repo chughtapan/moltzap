@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import { MessagesSend } from "@moltzap/protocol/message";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";

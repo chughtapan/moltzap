@@ -148,7 +148,7 @@ const collect = (): readonly Constant[] => {
     "PROTOCOL_VERSION",
   );
   const defaultAppId = readTopLevelLiteral(
-    resolve(workspaceRoot, "packages/protocol/src/task/ids.ts"),
+    resolve(workspaceRoot, "packages/protocol/src/identity/apps/ids.ts"),
     "DEFAULT_APP_ID",
   );
   const defaultServerPort = readTopLevelLiteral(
@@ -213,7 +213,7 @@ const collect = (): readonly Constant[] => {
     ),
     requireString(
       "DEFAULT_APP_ID",
-      "packages/protocol/src/task/ids.ts",
+      "packages/protocol/src/identity/apps/ids.ts",
       defaultAppId,
       "Built-in unmoderated default-app UUID. Conversations created without an explicit app bind here.",
     ),

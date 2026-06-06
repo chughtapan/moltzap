@@ -12,7 +12,7 @@ import { Data, Effect, Schema } from "effect";
 import { MoltZapService } from "@moltzap/client";
 import type { ServiceRpcError } from "@moltzap/client";
 import { withTestServiceConfig } from "@moltzap/client/test-utils";
-import { AgentKey } from "@moltzap/protocol/credentials";
+import { AgentKey } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";

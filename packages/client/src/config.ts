@@ -1,6 +1,6 @@
 import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/credentials";
+import type { AgentKey } from "@moltzap/protocol/identity";
 import {
   loadLayeredConfig,
   parseProfileName,

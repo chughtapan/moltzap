@@ -40,22 +40,6 @@ export const agentCallableMethods = [
 ] as const
 ```
 
-### [`AgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L35)
-
-_TypeAlias_
-
-```ts
-export type AgentKey = Redacted.Redacted<AgentKeyValue>;
-```
-
-### [`AgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L35)
-
-_Variable_
-
-```ts
-export type AgentKey = Redacted.Redacted<AgentKeyValue>
-```
-
 ### [`AnyAgentCallableRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L89)
 
 _TypeAlias_
@@ -129,22 +113,6 @@ export const appCallbackMethods = [
 ] as const
 ```
 
-### [`AppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L39)
-
-_TypeAlias_
-
-```ts
-export type AppKey = Redacted.Redacted<AppKeyValue>;
-```
-
-### [`AppKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L39)
-
-_Variable_
-
-```ts
-export type AppKey = Redacted.Redacted<AppKeyValue>
-```
-
 ### [`CapabilityRequirement`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/requirements.ts#L34)
 
 _TypeAlias_
@@ -179,22 +147,6 @@ export const middlewaresForRequirements = (
   }
   return stack.reverse();
 };
-```
-
-### [`InviteCode`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L51)
-
-_TypeAlias_
-
-```ts
-export type InviteCode = Redacted.Redacted<InviteCodeValue>;
-```
-
-### [`InviteCode`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L51)
-
-_Variable_
-
-```ts
-export type InviteCode = Redacted.Redacted<InviteCodeValue>
 ```
 
 ### [`middlewaresForRequirements`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/requirements.ts#L50)
@@ -286,22 +238,6 @@ export type PrincipalRequirementOf<
 > = Requires extends readonly [infer Head, ...ReadonlyArray<unknown>]
 ```
 
-### [`RegistrationSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L77)
-
-_TypeAlias_
-
-```ts
-export type RegistrationSecret = Redacted.Redacted<RegistrationSecretValue>;
-```
-
-### [`RegistrationSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L77)
-
-_Variable_
-
-```ts
-export type RegistrationSecret = Redacted.Redacted<RegistrationSecretValue>
-```
-
 ### [`Requirement`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/requirements.ts#L40)
 
 _TypeAlias_
@@ -363,24 +299,6 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked — an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`ServerEncryptionMasterSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L81)
-
-_TypeAlias_
-
-```ts
-export type ServerEncryptionMasterSecret =
-  Redacted.Redacted<ServerEncryptionMasterSecretValue>;
-```
-
-### [`ServerEncryptionMasterSecret`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/credentials.ts#L81)
-
-_Variable_
-
-```ts
-export type ServerEncryptionMasterSecret =
-  Redacted.Redacted<ServerEncryptionMasterSecretValue>
-```
-
 ### [`serverInboundMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/rpc-method-groups.ts#L69)
 
 _Variable_
@@ -399,6 +317,5 @@ export const serverInboundMethods = [
 
 ## Files
 
-- `credentials.ts`
 - `requirements.ts`
 - `rpc-method-groups.ts`

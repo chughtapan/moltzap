@@ -3,7 +3,7 @@
  */
 
 import { Schema } from "effect";
-import { AgentId, AgentNotFoundError } from "../identity/agents.js";
+import { AgentId, AgentNotFoundError } from "#identity/agents";
 import { ListLimitSchema } from "../transport/pagination.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
 import {

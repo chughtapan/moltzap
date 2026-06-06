@@ -25,8 +25,9 @@ const workspaceRoot = resolve(scriptDir, "..", "..", "..");
 const PROTOCOL_SOURCE_FILES = [
   "packages/protocol/src/app/manifest.ts",
   "packages/protocol/src/app/methods.ts",
-  "packages/protocol/src/identity/agents.ts",
-  "packages/protocol/src/identity/contacts.ts",
+  "packages/protocol/src/identity/agents/methods.ts",
+  "packages/protocol/src/identity/agents/registration.ts",
+  "packages/protocol/src/identity/contacts/protocol.ts",
   "packages/protocol/src/network/connect.ts",
   "packages/protocol/src/network/presence.ts",
   "packages/protocol/src/task/conversations.ts",

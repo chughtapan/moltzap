@@ -1,13 +1,11 @@
 ---
 title: "contacts/add"
-description: "Create a contact request."
+description: "Call `contacts/add`."
 ---
 
 # contacts/add
 
-Create a contact request.
-
-- **Principal:** `AgentPrincipal` head (no claimed refinement).
+Call `contacts/add`.
 
 ## Parameters
 
@@ -24,11 +22,3 @@ Create a contact request.
 <ResponseField name="contact" type="object">
   The contact field.
 </ResponseField>
-
-## Errors
-
-| Type | When |
-|------|------|
-| `ForbiddenError` | the caller tries to add itself as a contact |
-| `ConflictError` | the contact already exists |
-| `UnauthorizedError` | the calling agent has no owner user |

@@ -54,10 +54,6 @@
       "types": "./dist/socket/index.d.ts",
       "import": "./dist/socket/index.js"
     },
-    "./credentials": {
-      "types": "./dist/credentials.d.ts",
-      "import": "./dist/credentials.js"
-    },
     "./requirements": {
       "types": "./dist/requirements.d.ts",
       "import": "./dist/requirements.js"
@@ -74,8 +70,10 @@
   "imports": {
     "#transport": "./src/transport/index.ts",
     "#identity": "./src/identity/index.ts",
-    "#identity/agents": "./src/identity/agents.ts",
-    "#identity/contacts": "./src/identity/contacts.ts",
+    "#identity/agents": "./src/identity/agents/index.ts",
+    "#identity/apps": "./src/identity/apps/index.ts",
+    "#identity/users": "./src/identity/users/index.ts",
+    "#identity/contacts": "./src/identity/contacts/index.ts",
     "#network": "./src/network/index.ts",
     "#task": "./src/task/index.ts",
     "#task/requirements": "./src/task/capabilities/index.ts",
@@ -84,17 +82,39 @@
     "#dispatch": "./src/dispatch/index.ts",
     "#app": "./src/app/index.ts",
     "#socket": "./src/socket/index.ts",
-    "#credentials": "./src/credentials.ts",
     "#requirements": "./src/requirements.ts",
     "#testing": "./src/testing/index.ts"
   },
   "scripts": {
-    "build": "tsc -b && tsc-alias -p tsconfig.json",
-    "lint": "eslint src scripts *.ts --cache --max-warnings=0",
+    "build": "nx run @moltzap/protocol:build",
+    "lint": "nx run @moltzap/protocol:lint",
     "docs:generate": "tsx scripts/generate-docs.ts && (cd ../.. && pnpm exec typedoc) && tsx scripts/generate-modules.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/protocol",
+          "parallel": false,
+          "commands": [
+            "tsc -b",
+            "tsc-alias -p tsconfig.json",
+            "node scripts/check-dist-aliases.js"
+          ]
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/protocol",
+          "command": "eslint src scripts *.ts --cache --max-warnings=0"
+        }
+      }
+    }
   },
   "dependencies": {
     "@effect/platform": "^0.96.1",

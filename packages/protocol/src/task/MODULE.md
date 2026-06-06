@@ -32,32 +32,6 @@ export const appCallableTaskRpcMethods = [
 ] as const
 ```
 
-### [`AppId`](./ids.ts#L25)
-
-_TypeAlias_
-
-```ts
-export type AppId = string & Brand.Brand<"AppId">;
-```
-
-### [`AppId`](./ids.ts#L25)
-
-_Variable_
-
-```ts
-export type AppId = string & Brand.Brand<"AppId">
-```
-
-### [`DEFAULT_APP_ID`](./ids.ts#L31)
-
-_Variable_
-
-```ts
-export const DEFAULT_APP_ID = Schema.decodeSync(AppId)(
-  "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb",
-)
-```
-
 ### [`HookBlockedError`](./tasks.ts#L95)
 
 _Class_

@@ -15,11 +15,29 @@
     }
   },
   "scripts": {
-    "build": "tsc -b",
-    "lint": "eslint src *.ts --cache --max-warnings=0",
+    "build": "nx run @moltzap/runtimes:build",
+    "lint": "nx run @moltzap/runtimes:lint",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/runtimes",
+          "command": "tsc -b"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/runtimes",
+          "command": "eslint src *.ts --cache --max-warnings=0"
+        }
+      }
+    }
   },
   "dependencies": {
     "@effect/platform": "^0.96.1",

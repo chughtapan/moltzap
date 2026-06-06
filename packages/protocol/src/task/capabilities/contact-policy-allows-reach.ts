@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { RpcMiddleware } from "@effect/rpc";
 import type { AgentId } from "../../identity/index.js";
-import { NotInContactsError } from "../../identity/contacts.js";
+import { NotInContactsError } from "#identity/contacts";
 
 export interface ContactPolicyAllowsReachValue {
   readonly creatorAgentId: AgentId;

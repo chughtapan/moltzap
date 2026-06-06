@@ -81,7 +81,7 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^#identity\/agents$/,
-    replacement: fromRoot("packages/protocol/src/identity/agents.ts"),
+    replacement: fromRoot("packages/protocol/src/identity/agents/index.ts"),
   },
   {
     find: /^#identity\/apps$/,
@@ -93,7 +93,7 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^#identity\/contacts$/,
-    replacement: fromRoot("packages/protocol/src/identity/contacts.ts"),
+    replacement: fromRoot("packages/protocol/src/identity/contacts/index.ts"),
   },
   {
     find: /^#identity\/contacts\/requirements$/,

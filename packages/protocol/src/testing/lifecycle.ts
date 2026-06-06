@@ -24,8 +24,8 @@ import {
   type ClientDefinitionSuccess,
   type RpcCallOptions,
 } from "../socket/lifecycle.js";
-import type { AgentId } from "../identity/agents.js";
-import type { AppId } from "../task/ids.js";
+import type { AgentId } from "#identity/agents";
+import type { AppId } from "#identity/apps";
 import type { RpcGroup } from "@effect/rpc";
 import type {
   ErrorForTag,
