@@ -1,6 +1,5 @@
 /**
- * Unit tests for the profile layer. Spec items Section 5.2 (`--profile`,
- * `--no-persist`), Invariants 4.3 (coexistence), 4.4 (no-disk-write).
+ * Unit tests for profile selection, profile coexistence, and no-persist mode.
  */
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";

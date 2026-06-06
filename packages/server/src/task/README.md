@@ -16,8 +16,8 @@ Conversations, messages, tasks, task-manager dispatch.
   `messages/list`.
 - `handlers/tasks.handlers.ts` — `task/*` + `task/conversation/*`
   admin family. `task/request` lives in
-  `app/handlers/task-request.handlers.ts` because its handler binds
-  via `defineAppMethod`.
+  `app/handlers/task-request.handlers.ts` because the handler needs the app
+  dispatcher.
 - `handlers/notification-broadcast.ts` — shared best-effort fan-out
   helper (forks socket writes via `Effect.runFork`).
 
@@ -35,17 +35,13 @@ Conversations, messages, tasks, task-manager dispatch.
 ## Handler shape
 
 ```ts
-defineTaskMethod(MessagesSend, {
-  requiresActive: true,
-  handler: (params, ctx) =>
-    Effect.gen(function* () {
-      const messages = yield* MessageServiceTag;
-      const conversations = yield* ConversationServiceTag;
-      // ...
-    }),
-});
+export const messagesSend: ServerHandler<typeof MessagesSend> = (params) =>
+  Effect.gen(function* () {
+    const messages = yield* MessageServiceTag;
+    // ...
+  });
 ```
 
-No `createMessageHandlers({deps})` factory. The handler binding's `R`
-channel holds every Tag the body pulls; the dispatcher's
-`ManagedRuntime` provides them.
+Handlers are collected in `app/server-handlers.ts`. The handler body's `R`
+channel holds every Tag it pulls; the socket runtime provides the services and
+per-request `ConnectionTag`.

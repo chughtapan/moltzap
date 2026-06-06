@@ -13,7 +13,7 @@ Public barrel for schema-derived protocol arbitraries used by tests.
 
 ## Public surface
 
-### [`allRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L38)
+### [`allRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L35)
 
 _Variable_
 
@@ -26,7 +26,7 @@ Ordered list of every wire method name. Exposed so properties can
 assert "every method exercised at least once" without going through
 `RpcMap` directly.
 
-### [`arbitraryAnyCall`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L70)
+### [`arbitraryAnyCall`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L67)
 
 _Function_
 
@@ -37,7 +37,7 @@ export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall>
 Arbitrary that draws any method name + matching params. Used by the
 RpcMap-coverage property and the cross-RPC fuzz property.
 
-### [`arbitraryCallFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L47)
+### [`arbitraryCallFor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L44)
 
 _Function_
 
@@ -66,7 +66,7 @@ re-exported `FastCheck.Arbitrary` — the SAME `fast-check` module the rest of
 the suite samples with (both pinned to fast-check v3, the version Effect's
 `Arbitrary.make` binds to), so no cross-module cast is needed.
 
-### [`ArbitraryRpcCall`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L27)
+### [`ArbitraryRpcCall`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/arbitraries/rpc.ts#L24)
 
 _Interface_
 

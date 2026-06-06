@@ -1,6 +1,5 @@
 /**
- * Unit tests for `moltzap messages list` handler. Spec test-coverage floor:
- * one success + one RPC-failure path.
+ * Unit tests for the `moltzap messages list` success and RPC-failure paths.
  */
 import { Effect, Exit, Logger } from "effect";
 import { it as effectIt } from "@effect/vitest";

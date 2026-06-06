@@ -269,8 +269,8 @@ export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
 ```
 
 The referenced task does not exist (or the caller cannot see it). Lives in the
-task-id leaf so the `TaskReadAccess` capability can declare it as its
-fail-closed not-found without a `capabilities → tasks` runtime import cycle.
+task-id leaf so the `TaskReadAccess` requirement can declare it as its
+fail-closed not-found without a `requirements -> tasks` runtime import cycle.
 
 ### [`taskNotifications`](./methods.ts#L57)
 
@@ -371,7 +371,7 @@ reject → failed + `task/failed`). The synchronous `{ task, conversation }`
 result is returned after the verdict resolves (the handler awaits it).
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
-- **Caps (run order):** `ContactPolicyAllowsReach` proves the caller may
+- **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
   reach every `invitedAgentIds` target under the recipient's contact policy.
 
 ### [`TaskStatus`](./tasks.ts#L105)

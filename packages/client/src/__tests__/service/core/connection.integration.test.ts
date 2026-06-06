@@ -31,10 +31,8 @@ it("task/conversation/list returns existing conversations after connect", () =>
       initialConversation: { participants: [regB.agentId] },
     });
 
-    // Phase 12: HelloOk no longer carries task-layer state (no eager
-    // conversations payload). The service cache populates from
-    // notifications going forward; existing conversations are fetched
-    // explicitly via `task/conversation/list`.
+    // The handshake carries no task-layer state. Existing conversations are
+    // fetched explicitly via `task/conversation/list`.
     const service = yield* H.connectService(regB.apiKey, regB.agentId);
     expect(service.getConversation(conv.conversation!.id)).toBeUndefined();
 

@@ -54,14 +54,6 @@
       "types": "./dist/socket/index.d.ts",
       "import": "./dist/socket/index.js"
     },
-    "./requirements": {
-      "types": "./dist/requirements.d.ts",
-      "import": "./dist/requirements.js"
-    },
-    "./rpc-method-groups": {
-      "types": "./dist/rpc-method-groups.d.ts",
-      "import": "./dist/rpc-method-groups.js"
-    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
@@ -76,13 +68,12 @@
     "#identity/contacts": "./src/identity/contacts/index.ts",
     "#network": "./src/network/index.ts",
     "#task": "./src/task/index.ts",
-    "#task/requirements": "./src/task/capabilities/index.ts",
+    "#task/requirements": "./src/task/requirements/index.ts",
     "#conversation": "./src/conversation/index.ts",
     "#message": "./src/message/index.ts",
     "#dispatch": "./src/dispatch/index.ts",
     "#app": "./src/app/index.ts",
     "#socket": "./src/socket/index.ts",
-    "#requirements": "./src/requirements.ts",
     "#testing": "./src/testing/index.ts"
   },
   "scripts": {

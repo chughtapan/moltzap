@@ -9,7 +9,7 @@ import {
   type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
   type AnyServerRpcDefinition,
-} from "../rpc-method-groups.js";
+} from "./rpc-groups.js";
 import { MessagesAuthorize } from "../message/index.js";
 import { TaskCreate } from "../task/methods.js";
 import { DispatchAuthorize } from "../dispatch/index.js";
@@ -40,7 +40,7 @@ import type {
   ConversationInTask,
   ConversationSendAccess,
   TaskReadAccess,
-} from "../task/capabilities/index.js";
+} from "#task/requirements";
 
 export type ServerSocketWrite = (
   raw: string,

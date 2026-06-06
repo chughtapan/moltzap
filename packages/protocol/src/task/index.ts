@@ -11,13 +11,13 @@ export {
   assertAppOwnsTask,
   assertConversationInTaskMatches,
   assertTaskReadAccessMatchesTask,
-} from "./capabilities/index.js";
+} from "./requirements/index.js";
 export type {
   TaskReadAccessValue,
   ConversationInTaskValue,
   ConversationSendAccessValue,
   ContactPolicyAllowsReachValue,
-} from "./capabilities/index.js";
+} from "./requirements/index.js";
 
 export {
   TaskClosedError,

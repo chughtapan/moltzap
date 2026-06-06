@@ -16,7 +16,7 @@
     "modules/protocol/socket",
     "modules/protocol/src",
     "modules/protocol/task",
-    "modules/protocol/task/capabilities",
+    "modules/protocol/task/requirements",
     "modules/protocol/testing",
     "modules/protocol/testing/arbitraries",
     "modules/protocol/testing/conformance",

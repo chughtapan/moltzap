@@ -18,7 +18,7 @@ import type { HelloOk } from "@moltzap/protocol/network";
 import type {
   AnyAgentCallableRpcDefinition,
   AnyNotificationDefinition,
-} from "@moltzap/protocol/rpc-method-groups";
+} from "@moltzap/protocol/socket";
 import type {
   ClientDefinitionPayload,
   ClientDefinitionSuccess,
@@ -57,7 +57,7 @@ import {
   type ResultOf,
   type SuccessForTag,
 } from "@moltzap/protocol/transport";
-import { AgentCallableGroup } from "@moltzap/protocol/rpc-method-groups";
+import { AgentCallableGroup } from "@moltzap/protocol/socket";
 import type { RpcGroup, Rpc } from "@effect/rpc";
 import type { TaskId } from "@moltzap/protocol/task";
 import {

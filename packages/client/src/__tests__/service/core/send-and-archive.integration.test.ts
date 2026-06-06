@@ -15,15 +15,9 @@ it("send() delivers message to other agent", () =>
 
     const conv = yield* H.createDm(service, regB.agentId);
 
-    // Spec B (#596): `subscribe` returns a Stream backed by `Stream.async`
-    // with no historical buffer — a notification that arrives BEFORE
-    // materialization is lost forever. Fork the subscriber BEFORE
-    // triggering `service.send` so the registry's `register` callback is
-    // installed before the server fans the `messages/received` frame to
-    // `regB`. Matches the class-sweep pattern applied to openclaw-channel
-    // (`waitForReceivedMessage` callers, r1 cleanup) and server-core
-    // (`waitForDispatchRelease` etc., r2 cleanup). See
-    // `feedback_class_sweep_after_specific_fix`.
+    // `subscribe` has no historical buffer. Fork the subscriber before
+    // triggering `service.send` so the registry callback is installed before
+    // the server fans out the `messages/received` frame.
     const eventFiber = yield* Effect.fork(
       regB.client.subscribe(H.MessageReceivedNotificationDefinition).pipe(
         Stream.runHead,

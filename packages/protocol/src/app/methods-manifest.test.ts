@@ -5,8 +5,6 @@ import { validateAppManifest } from "./manifest.js";
 import { DispatchAuthorize, DispatchRequest } from "../dispatch/index.js";
 import { decodesStrictly } from "../transport/strict-decode.js";
 
-// Strict, excess-rejecting decode check — the parity oracle for the former
-// `ajv.compile(schema)` strict validators (post-#723 Effect Schema cutover).
 const decodes = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
   decodesStrictly(schema, value);
 

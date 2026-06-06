@@ -8,7 +8,7 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`AgentClaimed`](./principal.ts#L67)
+### [`AgentClaimed`](./principal.ts#L66)
 
 _Class_
 
@@ -24,7 +24,7 @@ Type-paired with AgentPrincipal — the server reads
 `connection.auth.agentStatus`; it is meaningless without a preceding agent
 principal. Fails `Forbidden` on a not-yet-claimed agent.
 
-### [`AgentPrincipal`](./principal.ts#L36)
+### [`AgentPrincipal`](./principal.ts#L35)
 
 _Class_
 
@@ -56,7 +56,7 @@ export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
 A principal (agent or app) already holds an active connection. The
 `principal` discriminator names which arm the conflict is on.
 
-### [`AppPrincipal`](./principal.ts#L46)
+### [`AppPrincipal`](./principal.ts#L45)
 
 _Class_
 
@@ -71,7 +71,7 @@ Principal requirement: narrow the live connection to the app arm. The first
 element of an app-callable method's `requires`. Fails `Unauthorized` /
 `Forbidden` on a non-app arm.
 
-### [`AuthenticatedPrincipal`](./principal.ts#L56)
+### [`AuthenticatedPrincipal`](./principal.ts#L55)
 
 _Class_
 
@@ -269,8 +269,8 @@ flowchart TD
 
 - Every slot is REQUIRED in the handler table; omitting any key fails TS2741
   at the factory call.
-- Capabilities are NOT descriptor metadata; `defineRpc` carries only the
-  wire shape, and the server's per-method `*AuthMw` runs the caps.
+- Requirements are descriptor metadata because they are also
+  `@effect/rpc` middleware tags; the server supplies the implementations.
 - The param/result validators reject excess keys (`closedStructGuard`): a
   bare `Schema.is` accepts unknown keys, so per-method validation closes the
   struct to catch a caller that sends a field the descriptor never declared.
@@ -776,7 +776,7 @@ export const principalGateErrorClasses = [
 
 The principal-gate error classes every authenticated method's gate can fail with.
 
-### [`PrincipalRequirement`](./principal.ts#L73)
+### [`PrincipalRequirement`](./principal.ts#L72)
 
 _TypeAlias_
 
@@ -906,7 +906,7 @@ export interface RpcDefinition<
    * The ordered authority list. The FIRST element is exactly one principal
    * requirement (`AgentPrincipal` | `AppPrincipal` |
    * `AuthenticatedPrincipal`); an optional `AgentClaimed` refinement
-   * (agent-only) follows; the rest are capability tags, in run order. Empty for
+   * (agent-only) follows; the rest are requirement tags, in run order. Empty for
    * the unauthenticated connect methods (`agent/connect`, `app/connect`). The
    * server stacks each requirement middleware; each element's `failure` folds
    * into the wire error union.
@@ -915,7 +915,7 @@ export interface RpcDefinition<
 
   /**
    * The handler-domain tagged-error classes this method can fail with — only
-   * the errors the HANDLER raises, not the requirement (principal/cap) errors
+   * the errors the HANDLER raises, not the requirement middleware errors
    * (those come from each requirement's own `failure`). The method's effective
    * wire error union is the union of both; see
    * {@link effectiveErrorClasses} / {@link errorSchema}.
@@ -936,7 +936,7 @@ export interface RpcDefinition<
   /**
    * The wire `error` Schema for the HANDLER-DOMAIN errors ALONE
    * (`Schema.Union(...errors)`) — what the server engine member sets as its
-   * `error`. The principal-gate and cap errors are NOT here; they ride each
+   * `error`. The principal-gate and domain requirement errors are NOT here; they ride each
    * stacked middleware's own `failure`, and the engine unions them into the
    * method's error (`Rpc.ErrorSchema = _Error | _Middleware`). The catalog/client
    * group uses the full {@link errorSchema} (the client carries no middleware,

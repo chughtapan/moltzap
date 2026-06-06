@@ -1,6 +1,9 @@
 import { it as effectIt } from "@effect/vitest";
 import { ForbiddenError } from "@moltzap/protocol/transport";
 import type { LeaseId, Message } from "@moltzap/protocol/message";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 
 import {
@@ -166,10 +169,11 @@ export function installAdmission(
     );
 }
 
-export const agent = testAgentId;
-export const conversation = testConversationId;
-export const message = testMessageId;
-export const task = testTaskId;
+export const agent: (agentLabel: string) => AgentId = testAgentId;
+export const conversation: (conversationLabel: string) => ConversationId =
+  testConversationId;
+export const message: (messageLabel: string) => MessageId = testMessageId;
+export const task: (taskLabel: string) => TaskId = testTaskId;
 export { testLeaseId };
 export const participant = (agentLabel: string): string =>
   "agent:" + agent(agentLabel);

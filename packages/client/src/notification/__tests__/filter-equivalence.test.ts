@@ -27,7 +27,7 @@ import {
 } from "@moltzap/protocol/transport";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
@@ -122,7 +122,7 @@ function otherFrame(): NotificationDelivery<
   typeof MessageReceivedNotificationDefinition
 > {
   // A frame whose `.definition` reference does NOT match
-  // `PresenceChangedNotificationDefinition` — used to verify the registry's
+  // A frame with a different descriptor reference verifies that the registry's
   // definition-identity filter drops it before the predicate runs.
   return {
     definition: MessageReceivedNotificationDefinition,

@@ -200,11 +200,9 @@ export class MessageService {
     input: SendInsertInput,
   ): Effect.Effect<SendInsertResult, SqlError | Cause.NoSuchElementException> {
     return Effect.gen(this, function* () {
-      // The send-permission cap middlewares (`ConversationSendAccess`,
-      // `ActiveTaskPermission`, `OpenConversationPermission`,
-      // `ReplyTargetPermission`) gate this method in the engine middleware stack
-      // before the handler runs, so `send` requires no permission token in its
-      // Env and trusts `input` (the handler's already-gated params).
+      // `ConversationSendAccess` gates this method in the engine middleware
+      // stack before the handler runs, so `send` requires no permission token in
+      // its Env and trusts `input` (the handler's already-gated params).
       const conv = yield* this.readSendConversation(input.conversationId);
       const parts = [...input.parts];
       const encrypted = yield* this.encryptParts(input.conversationId, parts);
@@ -219,8 +217,8 @@ export class MessageService {
   }
 
   /**
-   * Send-conversation projection consumed by the `ConversationSendAccess` cap
-   * `obtain` (which feeds the downstream send-permission caps) AND
+   * Send-conversation projection consumed by the `ConversationSendAccess`
+   * `obtain` AND
    * `MessageService.sendCommit`'s `messages/authorize` verdict route.
    * Joins `conversations` ⋈ `tasks` and returns
    * `(archived_at, task_id, app_id, task_status)`.

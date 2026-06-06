@@ -1,5 +1,5 @@
 /**
- * @file Public barrel for capability requirement middleware tags.
+ * @file Public barrel for task requirement middleware tags.
  *
  * Each tag is both the descriptor requirement and the `@effect/rpc` middleware
  * tag the server implements. The `obtain*` impls that resolve a permission
@@ -18,4 +18,4 @@ export {
   assertAppOwnsTask,
   assertConversationInTaskMatches,
   assertTaskReadAccessMatchesTask,
-} from "./assert-capability-matches-task.js";
+} from "./assert-requirement-matches-task.js";

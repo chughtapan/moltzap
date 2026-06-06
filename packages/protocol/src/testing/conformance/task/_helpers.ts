@@ -14,7 +14,7 @@ import {
   Scope,
   Schema,
 } from "effect";
-import type { AnyNotificationDefinition } from "../../../rpc-method-groups.js";
+import type { AnyNotificationDefinition } from "#socket";
 import type {
   NotificationDelivery,
   NotificationParamsOf,

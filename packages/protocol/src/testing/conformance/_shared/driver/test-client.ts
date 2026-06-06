@@ -22,7 +22,7 @@ import type {
   AnyAppCallableRpcDefinition,
   AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
-} from "../../../../rpc-method-groups.js";
+} from "#socket";
 import { MessagesAuthorize } from "../../../../message/index.js";
 import { TaskCreate } from "../../../../task/index.js";
 import { DispatchAuthorize } from "../../../../dispatch/index.js";

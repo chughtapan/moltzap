@@ -212,7 +212,7 @@ numbers.
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 - **Params:** `taskId`, `conversationId`, optional `sinceSeq` cursor, `limit`.
 - **Result:** the `messages` page plus `hasMore`.
-- **Caps (run order):** `TaskReadAccess` proves the caller may read the task, then `ConversationInTask` resolves the conversation's task membership. Conversation-not-found rides those cap error channels.
+- **Requirements (run order):** `TaskReadAccess` proves the caller may read the task, then `ConversationInTask` resolves the conversation's task membership. Conversation-not-found rides those requirement error channels.
 
 ### [`MessagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/index.ts#L196)
 
@@ -248,7 +248,7 @@ participant.
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 - **Params:** `taskId`, `conversationId`, `parts` (1–10 text/image/file parts), optional `replyToId`, optional `dispatchLeaseId`.
 - **Result:** the created `message` (ID, parts, sender, timestamp).
-- **Caps (run order):** `ConversationInTask` resolves the conversation's task membership; `ConversationSendAccess` proves participation and does the joined read. The remaining send preconditions are handler-body guards that refine that provided row.
+- **Requirements (run order):** `ConversationInTask` resolves the conversation's task membership; `ConversationSendAccess` proves participation and does the joined read. The remaining send preconditions are handler-body guards that refine that provided row.
 
 **Returns:** The created message with ID, sequence number, and timestamp.
 

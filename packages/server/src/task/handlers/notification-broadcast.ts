@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { NotificationParamsOf } from "@moltzap/protocol/transport";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import { type NetworkSendService } from "../../network/network-send.js";
 import { NetworkSendServiceTag } from "../../app/layers.js";
 

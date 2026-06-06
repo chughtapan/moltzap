@@ -72,17 +72,13 @@ export const stopDispatchFlowServer = () =>
 export const makeProbeMessageId = () => messageId(crypto.randomUUID());
 
 /**
- * D #705 CP9 — create a task + conversation under the fixture's
- * moderator app. The app is minted via the `/api/v1/apps/register` HTTP
- * endpoint (DB-issued `appId`) and a SEPARATE app client `appKey`-Connects
- * (disjoint principal); its implicit registration binds that connection as
- * the app's moderator endpoint. `task/request` is sent by `alice` (the
- * requesting AGENT, R1) and targets the DB-minted `appId`. The caller MUST
- * have wired the moderator callbacks (via {@link attachDispatchAuthorizeHook})
- * BEFORE calling this — the server resolves the forked moderator round-trip
- * on the first `dispatch/request`. `manifest.appId` is ignored; the manifest
- * supplies the hook declarations (so the server's hookless fast-path does NOT
- * short-circuit to a synthetic grant) + conversation defaults.
+ * Create a task + conversation under the fixture's moderator app. The app is
+ * minted through app registration, connects as a separate `AppConnection`, and
+ * binds that connection as the app's moderator endpoint. `task/request` is sent
+ * by `alice` and targets the DB-minted `appId`. The caller must attach the
+ * moderator callbacks before calling this; the server resolves the forked
+ * moderator round-trip on the first `dispatch/request`. `manifest.appId` is
+ * ignored; the manifest supplies hook declarations and conversation defaults.
  */
 export function createTaskConversationOnApp(
   alice: ConnectedAgent,
@@ -249,11 +245,9 @@ export function sendMessageWithLease(
 }
 
 /**
- * Spec B (#596) r2 cleanup: notification helpers return a `Fiber` that the
- * caller MUST acquire BEFORE issuing the trigger RPC. The underlying
- * `Stream.async` subscription has no historical buffer — if the helper
- * subscribed after the trigger, notifications firing in the gap between
- * trigger-return and subscription-registration are lost.
+ * Notification helpers return a `Fiber` that the caller must acquire before
+ * issuing the trigger RPC. The underlying `Stream.async` subscription has no
+ * historical buffer.
  *
  * Caller pattern (fork-before-trigger + Fiber.join):
  * ```

@@ -20,7 +20,7 @@ reject → failed + `task/failed`). The synchronous `{ task, conversation }`
 result is returned after the verdict resolves (the handler awaits it).
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
-- **Caps (run order):** `ContactPolicyAllowsReach` proves the caller may
+- **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
   reach every `invitedAgentIds` target under the recipient's contact policy.
 
 ## Parameters

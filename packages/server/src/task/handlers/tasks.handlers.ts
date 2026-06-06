@@ -170,11 +170,8 @@ interface LeaveParticipantFanoutInput {
 
 function fanoutLeaveParticipantRemoval(input: LeaveParticipantFanoutInput) {
   return Effect.gen(function* () {
-    // Recipients: the leaver PLUS the remaining participants on the
-    // conversation. The leaver is included so they receive their own
-    // removal notification (post-DELETE the leaver is no longer in
-    // `conversation_participants`, so we snapshot membership
-    // explicitly).
+    // Recipients: the leaver plus the remaining participants. The leaver is
+    // included by snapshotting membership before their row is deleted.
     const conversationService = yield* ConversationServiceTag;
     const remaining = yield* conversationService
       .getParticipantAgentIds(input.conversationId)
@@ -464,7 +461,7 @@ function taskConversationRemoveParticipantBody(
 //
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 //
-// The cap-less app/agent methods read only their `*Auth` proof for the gate.
+// Methods without domain requirements read only their `*Auth` proof for the gate.
 // The four `task/conversation/*` admin methods provide their `ConversationInTask`
 // proof off the `*Auth` proof as a service before running the shared body.
 

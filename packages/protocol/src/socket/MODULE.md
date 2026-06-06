@@ -12,6 +12,29 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
+### [`AgentCallableGroup`](./rpc-groups.ts#L105)
+
+_Variable_
+
+```ts
+export const AgentCallableGroup = makeClientRpcGroup(agentCallableMethods)
+```
+
+### [`agentCallableMethods`](./rpc-groups.ts#L55)
+
+_Variable_
+
+```ts
+export const agentCallableMethods = [
+  ...identityRpcMethods,
+  ...agentCallableNetworkRpcMethods,
+  ...agentCallableTaskRpcMethods,
+  ...agentCallableConversationRpcMethods,
+  ...agentCallableMessageRpcMethods,
+  ...agentCallableDispatchRpcMethods,
+] as const
+```
+
 ### [`AgentClientOptions`](./agent-client.ts#L38)
 
 _Interface_
@@ -23,6 +46,67 @@ export interface AgentClientOptions {
   readonly onDisconnect?: (close: CloseInfo) => void;
   readonly onReconnect?: (helloOk: ConnectResult) => void;
 }
+```
+
+### [`AnyAgentCallableRpcDefinition`](./rpc-groups.ts#L89)
+
+_TypeAlias_
+
+```ts
+export type AnyAgentCallableRpcDefinition =
+  (typeof agentCallableMethods)[number];
+```
+
+### [`AnyAppCallableRpcDefinition`](./rpc-groups.ts#L91)
+
+_TypeAlias_
+
+```ts
+export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
+```
+
+### [`AnyAppCallbackRpcDefinition`](./rpc-groups.ts#L93)
+
+_TypeAlias_
+
+```ts
+export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
+```
+
+### [`AnyNotificationDefinition`](./rpc-groups.ts#L95)
+
+_TypeAlias_
+
+```ts
+export type AnyNotificationDefinition =
+  (typeof notificationDefinitions)[number];
+```
+
+### [`AnyServerRpcDefinition`](./rpc-groups.ts#L88)
+
+_TypeAlias_
+
+```ts
+export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
+```
+
+### [`AppCallableGroup`](./rpc-groups.ts#L107)
+
+_Variable_
+
+```ts
+export const AppCallableGroup = makeClientRpcGroup(appCallableMethods)
+```
+
+### [`appCallableMethods`](./rpc-groups.ts#L64)
+
+_Variable_
+
+```ts
+export const appCallableMethods = [
+  ...appCallableNetworkRpcMethods,
+  ...appOnlyCallableMethods,
+] as const
 ```
 
 ### [`AppCallbackContext`](./app-client.ts#L33)
@@ -49,6 +133,18 @@ export type AppCallbackHandlers<Ctx> = HandlerTable<
 Closed handler table for an app moderating one or more tasks. Every
 `appCallbackMethods` member is required; vacuous-deny moderators still write
 the handler explicitly.
+
+### [`appCallbackMethods`](./rpc-groups.ts#L35)
+
+_Variable_
+
+```ts
+export const appCallbackMethods = [
+  ...dispatchCallbackMethods,
+  ...messageCallbackMethods,
+  ...taskCallbackMethods,
+] as const
+```
 
 ### [`AppCallbackRpcDefinition`](./app-callbacks.ts#L39)
 
@@ -537,6 +633,37 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
+### [`notificationDefinitions`](./rpc-groups.ts#L79)
+
+_Variable_
+
+```ts
+export const notificationDefinitions = [
+  ...networkNotifications,
+  ...identityNotifications,
+  ...taskNotifications,
+  ...conversationNotifications,
+  ...messageNotifications,
+  ...dispatchNotifications,
+] as const
+```
+
+### [`NotificationRpcGroup`](./rpc-groups.ts#L150)
+
+_Variable_
+
+```ts
+export const NotificationRpcGroup = makeNotificationRpcGroup(
+  notificationDefinitions,
+)
+```
+
+Server→client reverse notification group. The server fires each notification
+as a fire-and-forget `void`-result RPC on a target connection's reverse
+channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
+each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
+machinery as the moderator callbacks folded into ReverseRpcGroup.
+
 ### [`openProtocolAgentClientSocket`](./lifecycle.ts#L566)
 
 _Function_
@@ -789,6 +916,27 @@ export interface ReverseClient {
 }
 ```
 
+### [`ReverseRpcGroup`](./rpc-groups.ts#L165)
+
+_Variable_
+
+```ts
+export const ReverseRpcGroup = makeReverseRpcGroup(
+  appCallbackMethods,
+  notificationDefinitions,
+)
+```
+
+The full server→client reverse group: the moderator callbacks
+(`appCallbackMethods`) ∪ the notifications (NotificationRpcGroup),
+built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
+server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
+awaiting a verdict, fires notifications fork-and-forget); the agent + app
+clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent client
+only ever receives notifications (its handlers for the three callback methods
+are never invoked — an agent is not a moderator), but it serves the whole
+group so the s2c engine binds one handler map.
+
 ### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L82)
 
 _Variable_
@@ -825,6 +973,22 @@ export type ServerHandlers = RpcGroup.HandlersFrom<
 >;
 ```
 
+### [`serverInboundMethods`](./rpc-groups.ts#L69)
+
+_Variable_
+
+```ts
+export const serverInboundMethods = [
+  ...identityRpcMethods,
+  ...networkRpcMethods,
+  ...agentCallableTaskRpcMethods,
+  ...agentCallableConversationRpcMethods,
+  ...agentCallableMessageRpcMethods,
+  ...appOnlyCallableMethods,
+  ...agentCallableDispatchRpcMethods,
+] as const
+```
+
 ### [`ServerSocketWrite`](./server.ts#L45)
 
 _TypeAlias_
@@ -843,4 +1007,5 @@ export type ServerSocketWrite = (
 - `close-info.ts`
 - `connection.ts`
 - `lifecycle.ts`
+- `rpc-groups.ts`
 - `server.ts`

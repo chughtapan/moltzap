@@ -12,7 +12,7 @@
  */
 import { Stream } from "effect";
 import type { Effect } from "effect";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/rpc-method-groups";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type {
   NotConnectedError,
   NotificationDelivery,
@@ -41,10 +41,9 @@ type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
 >;
 
 // Canary #1b — the user-defined-type-guard overload exists and resolves at
-// call sites. Validated by COMPILATION of a concrete `subscribe(def,
-// type-guard)` call: if the type-guard overload is deleted from `stream.ts`,
-// the third-argument `params is R` shape no longer matches and tsc reports
-// a type error here.
+// call sites. Validated by compilation of a concrete `subscribe(def,
+// type-guard)` call: the third-argument `params is R` shape must match the
+// overload in `stream.ts`.
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 declare const _canary1bRegistry: NotificationSubscriberRegistry<
   NotConnectedError,

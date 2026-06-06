@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the reverse `@effect/rpc` `RpcGroup` construction
- * (`rpc-method-groups.ts`).
+ * (`rpc-groups.ts`).
  *
  * These canaries are the groups' live type consumer (so the unused-export pass
  * does not flag the exports dead) AND the documented invariants the build
@@ -29,7 +29,7 @@ import {
   NotificationRpcGroup,
   ReverseRpcGroup,
   type AnyNotificationDefinition,
-} from "./rpc-method-groups.js";
+} from "./rpc-groups.js";
 
 // Compile-time equality helper.
 type Expect<T extends true> = T;
@@ -104,7 +104,7 @@ type _R3 = Expect<
 
 // Canary 3: the callable groups keep literal tags instead of widening to
 // `string`. Exact method membership is owned by the authored
-// catalogs in `rpc-method-groups.ts`, not duplicated here.
+// catalogs in `rpc-groups.ts`, not duplicated here.
 type AgentCallableTags = RpcGroup.Rpcs<typeof AgentCallableGroup>["_tag"];
 type AppCallableTags = RpcGroup.Rpcs<typeof AppCallableGroup>["_tag"];
 

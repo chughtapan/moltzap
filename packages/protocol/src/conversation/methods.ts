@@ -16,7 +16,7 @@ import {
   ForbiddenError,
   InvalidParamsError,
 } from "../transport/wire-errors.js";
-import { ConversationInTask } from "../task/capabilities/index.js";
+import { ConversationInTask } from "#task/requirements";
 import { TaskId, TaskNotFoundError } from "../task/ids.js";
 import {
   ConversationFullError,

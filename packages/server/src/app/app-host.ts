@@ -289,7 +289,7 @@ export class AppHost {
   }
 
   /**
-   * Read-side accessor for handlers + capability obtain helpers.
+   * Read-side accessor for handlers + requirement obtain helpers.
    * Returns the registration record (manifest + connection) or
    * undefined if no entry exists.
    */

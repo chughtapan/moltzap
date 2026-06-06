@@ -1,5 +1,5 @@
 /**
- * #529 reshape additive: dispatch admission single-use lease behavior.
+ * Dispatch admission single-use lease behavior.
  */
 import { it as effectIt } from "@effect/vitest";
 import { TaskConversationArchive } from "@moltzap/protocol/conversation";
@@ -84,7 +84,7 @@ function requestGrantedModeratedDispatch(
       bob,
       TEST_APP_MANIFEST,
     );
-    // Fork-before-trigger (Spec B #596 r2 fix).
+    // Subscribe before the trigger RPC so the release notification is observed.
     const releaseFiber = yield* waitForDispatchRelease(bob);
     const ack = yield* requestDispatch(
       bob,
@@ -149,10 +149,9 @@ function grantedLeaseIsSingleUse() {
 function insertFailureRollsBackLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    // D #705 CP9 — moderated path so the fixture's app `AppConnection` owns the
-    // task and thus has `TaskConversationArchive` authority (R7: task-admin
-    // RPCs are app-arm + `assertAppOwnsTask`). Archiving from the app client
-    // forces the subsequent messages/send to fail at insert time.
+    // The moderated path binds the task to the fixture's app connection.
+    // Archiving from that app client forces the subsequent messages/send to
+    // fail at insert time.
     const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,

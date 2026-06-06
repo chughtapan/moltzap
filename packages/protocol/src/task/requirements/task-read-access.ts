@@ -5,15 +5,14 @@ import { TaskNotFoundError } from "../ids.js";
 import type { AgentId } from "../../identity/index.js";
 
 /**
- * Tier 1 capability — caller has read access to `task` (initiator OR
+ * Requirement: caller has read access to `task` (initiator OR
  * admitted `task_participant`).
  *
  * Value payload carries the `task` row already fetched by the
  * `TaskService.loadTaskWithReadAccess` check; consumers reuse the payload.
  *
- * Consumed by the `task.service.ts` public methods (`get`, `getMessages`,
- * `getMessagesSince`) via the R-channel; handlers wire the value with
- * `Effect.provideServiceEffect(TaskReadAccess, obtainTaskReadAccess(...))`.
+ * The server middleware implementation resolves the value once and provides it
+ * to handlers through the `@effect/rpc` middleware context.
  */
 export interface TaskReadAccessValue {
   readonly task: Task;

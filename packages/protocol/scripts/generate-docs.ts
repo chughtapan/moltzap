@@ -9,7 +9,7 @@ import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect } from "effect";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { notificationDefinitions } from "../src/rpc-method-groups.js";
+import { notificationDefinitions } from "#socket";
 import {
   generateMethodPage,
   generateNotificationPage,

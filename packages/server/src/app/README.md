@@ -1,6 +1,6 @@
 # app/
 
-App-host, app registration, capability middlewares, top-level
+App-host, app registration, requirement middleware, top-level
 server boot, layer composition, HTTP routes, WS socket handler. (The
 dispatch lease registry lives in `task/leases/`.)
 
@@ -28,10 +28,9 @@ dispatch lease registry lives in `task/leases/`.)
   inert endpoint; AppHost resolves each in-process (`dispatch_authorize
   → grant`, `message_authorize → forwardAllExceptSender`, `task_create →
   accept`).
-- `capability-middlewares.ts` — one `CapabilityMiddleware` per cap
-  (`provides` / `derivePayload` / `obtain`), woven at the binding site by
-  `weaveCaps`. File-level JSDoc covers the full R-channel
-  capability pattern and the recipe for new capabilities.
+- `requirement-middlewares.ts` — server-side `obtain` impls for protocol
+  requirement middleware; the socket auth layer wires each protocol tag to its
+  server services.
 - `http-routes.ts` — `makeCoreHttpApp`; `/health`, `/ws`, auth
   register / claim, optional admin route.
 - `server.ts` — `createCoreApp`; wires protocol `MoltZapServer` to

@@ -8,8 +8,7 @@
  * {@link AuthenticatedPrincipal}) — the server's principal gate narrows or
  * admits the live connection. An optional {@link AgentClaimed} refinement
  * (agent-only) follows when the agent must be claimed/active. The rest are
- * capability requirements, defined ABOVE the domains in the engine layer
- * ({@link CapabilityRequirement}).
+ * domain requirements, declared beside the domain methods that consume them.
  *
  * These tags live at the wire layer (the DAG bottom) because the domain
  * descriptors list them in `requires` and must depend on them DOWNWARD. They

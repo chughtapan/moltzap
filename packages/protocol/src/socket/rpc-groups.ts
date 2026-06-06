@@ -2,35 +2,35 @@ import { RpcGroup, type Rpc } from "@effect/rpc";
 import {
   identityRpcMethods,
   identityNotifications,
-} from "./identity/methods.js";
+} from "../identity/methods.js";
 import {
   agentCallableNetworkRpcMethods,
   appCallableNetworkRpcMethods,
   networkRpcMethods,
   networkNotifications,
-} from "./network/index.js";
+} from "../network/index.js";
 import {
   taskNotifications,
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
   taskCallbackMethods,
-} from "./task/methods.js";
+} from "../task/methods.js";
 import {
   agentCallableConversationRpcMethods,
   appCallableConversationRpcMethods,
   conversationNotifications,
-} from "./conversation/index.js";
+} from "../conversation/index.js";
 import {
   agentCallableMessageRpcMethods,
   messageCallbackMethods,
   messageNotifications,
-} from "./message/index.js";
+} from "../message/index.js";
 import {
   agentCallableDispatchRpcMethods,
   appCallableDispatchRpcMethods,
   dispatchCallbackMethods,
   dispatchNotifications,
-} from "./dispatch/index.js";
+} from "../dispatch/index.js";
 
 export const appCallbackMethods = [
   ...dispatchCallbackMethods,

@@ -19,7 +19,7 @@ import {
   AgentCallableGroup,
   type AnyAgentCallableRpcDefinition,
   type AnyNotificationDefinition,
-} from "@moltzap/protocol/rpc-method-groups";
+} from "@moltzap/protocol/socket";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
@@ -117,8 +117,7 @@ export class FakeMoltZapService extends MoltZapService {
 
   /**
    * Insert a message into the service's internal buffer without going
-   * through the WebSocket path — used to stage state for context-building
-   * tests.
+   * through the WebSocket path. Tests use this to stage context-building state.
    */
   addMessage(convId: string, msg: Message): void {
     Effect.runSync(

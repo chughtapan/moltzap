@@ -1,10 +1,10 @@
 /**
- * @file The server-side `obtain` impls for the capabilities whose middleware is
+ * @file The server-side `obtain` impls for the requirements whose middleware is
  * stacked on a method's engine member (`task-read-access`, `conversation-in-task`,
  * `contact-policy-allows-reach`).
  *
- * Each `obtain` resolves a capability against server services. The
- * per-cap `RpcMiddleware` impl Layer (`transport/auth-middleware-layers.ts`)
+ * Each `obtain` resolves a requirement against server services. The
+ * per-requirement `RpcMiddleware` impl Layer (`transport/auth-middleware-layers.ts`)
  * derives the obtain's input from the decoded payload + the caller's agent id and
  * runs it. The send-path obtains (`ConversationSendAccess`,
  * `ActiveTaskPermission`, …) live in `task/services/send-permissions.ts`.

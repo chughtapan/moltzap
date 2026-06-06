@@ -59,3 +59,22 @@ export {
 export type { CloseInfo, CloseKind } from "./close-info.js";
 
 export { ConnectionId, connectionId, newConnectionId } from "./connection.js";
+
+export {
+  agentCallableMethods,
+  appCallableMethods,
+  appCallbackMethods,
+  serverInboundMethods,
+  notificationDefinitions,
+  AgentCallableGroup,
+  AppCallableGroup,
+  NotificationRpcGroup,
+  ReverseRpcGroup,
+} from "./rpc-groups.js";
+export type {
+  AnyServerRpcDefinition,
+  AnyAgentCallableRpcDefinition,
+  AnyAppCallableRpcDefinition,
+  AnyAppCallbackRpcDefinition,
+  AnyNotificationDefinition,
+} from "./rpc-groups.js";

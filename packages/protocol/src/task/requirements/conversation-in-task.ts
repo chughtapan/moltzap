@@ -5,9 +5,10 @@ import { ConversationNotFoundError } from "../../conversation/types.js";
 import type { TaskId } from "../tasks.js";
 
 /**
- * Tier 2 capability — proves `conversation.task_id === taskId`.
+ * Requirement: proves `conversation.task_id === taskId`.
  *
- * `assertCapabilityMatchesTask` (see `assert-capability-matches-task.ts`)
+ * `assertConversationInTaskMatches` (see
+ * `assert-requirement-matches-task.ts`)
  * verifies the carried `taskId` matches the handler-input `taskId` at
  * call time — the one-line runtime check that catches "handler passed
  * a different taskId than the obtain proved".
