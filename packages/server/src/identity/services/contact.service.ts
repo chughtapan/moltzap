@@ -7,9 +7,8 @@ import {
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
 } from "@moltzap/protocol/transport";
-import { ContactNotFoundError } from "@moltzap/protocol/identity";
-import type { Contact } from "@moltzap/protocol/identity";
-import type { ListCursor } from "@moltzap/protocol/transport";
+import { ContactNotFoundError, ContactsAdd } from "@moltzap/protocol/identity";
+import type { ListCursor, ResultOf } from "@moltzap/protocol/transport";
 import type { ContactId, UserId } from "@moltzap/protocol/identity";
 import {
   decodeListCursor,
@@ -18,6 +17,8 @@ import {
   sortKeyExpr,
   type InvalidCursorError,
 } from "../../db/list-cursor.js";
+
+type Contact = ResultOf<typeof ContactsAdd>["contact"];
 
 export interface ContactsListInput {
   readonly limit?: number;

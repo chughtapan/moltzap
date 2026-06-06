@@ -8,7 +8,7 @@ Agent identity descriptors, schemas, and credentials.
 
 ## Public surface
 
-### [`Agent`](./types.ts#L52)
+### [`Agent`](./types.ts#L55)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](./types.ts#L53)
+### [`AgentCard`](./types.ts#L56)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ _TypeAlias_
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentCardSchema`](./types.ts#L45)
+### [`AgentCardSchema`](./types.ts#L48)
 
 _Variable_
 
@@ -64,7 +64,7 @@ _Variable_
 export type AgentKey = Redacted.Redacted<AgentKeyValue>
 ```
 
-### [`AgentNotFoundError`](./types.ts#L14)
+### [`AgentNotFoundError`](./types.ts#L17)
 
 _Class_
 
@@ -77,7 +77,7 @@ export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()
 }
 ```
 
-### [`agentOwnershipSchema`](./types.ts#L66)
+### [`agentOwnershipSchema`](./types.ts#L69)
 
 _Function_
 
@@ -85,7 +85,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./methods.ts#L35)
+### [`AgentsList`](./methods.ts#L38)
 
 _Variable_
 
@@ -105,7 +105,7 @@ export const AgentsList = defineRpc({
 })
 ```
 
-### [`AgentsLookup`](./methods.ts#L10)
+### [`AgentsLookup`](./methods.ts#L13)
 
 _Variable_
 
@@ -124,7 +124,7 @@ export const AgentsLookup = defineRpc({
 })
 ```
 
-### [`AgentsLookupByName`](./methods.ts#L23)
+### [`AgentsLookupByName`](./methods.ts#L26)
 
 _Variable_
 
@@ -181,7 +181,7 @@ export const Register = defineRpc({
 })
 ```
 
-### [`validateAgent`](./types.ts#L63)
+### [`validateAgent`](./types.ts#L66)
 
 _Variable_
 
@@ -189,7 +189,7 @@ _Variable_
 export const validateAgent = closedGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](./types.ts#L64)
+### [`validateAgentCard`](./types.ts#L67)
 
 _Variable_
 

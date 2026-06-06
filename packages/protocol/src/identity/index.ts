@@ -33,4 +33,3 @@ export {
   NotInContactsError,
   ContactNotFoundError,
 } from "./contacts/index.js";
-export type { Contact } from "./contacts/index.js";
