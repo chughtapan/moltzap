@@ -17,7 +17,7 @@ import { ConversationService } from "../task/services/conversation.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
 import { MessageService } from "../task/services/message.service.js";
 import { TaskService } from "../task/services/task.service.js";
-import { AppHost } from "./app-host.js";
+import { AppHost } from "../app/app-host.js";
 import {
   makeLeaseRegistry,
   type LeaseRegistry,
@@ -334,7 +334,7 @@ const MessageServiceLive = Layer.effect(
 // a backref into it (for the dispatch-deny path's removeParticipant
 // call). The cycle is broken with a post-construction
 // `appHost.setConversationService(conv)` wire-up — see
-// `WireConvIntoAppHost` in `server.ts`.
+// `WireConvIntoAppHost` in `core/app.ts`.
 //
 // The composition below is bottom-up by dependency order. Each stage merges
 // a new service Layer on top of the lower tier, with the lower tier's

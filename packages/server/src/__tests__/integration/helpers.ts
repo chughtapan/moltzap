@@ -30,7 +30,7 @@ import {
   connectTestClient,
   postJson,
 } from "../../test-utils/helpers.js";
-import type { CoreApp } from "../../app/types.js";
+import type { CoreApp } from "#core";
 import { Effect, Either, Schema } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { inject } from "vitest";

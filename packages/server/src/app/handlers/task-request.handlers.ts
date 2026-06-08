@@ -31,15 +31,11 @@ import type { AppId, Task } from "@moltzap/protocol/task";
 import type { Conversation } from "@moltzap/protocol/conversation";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { TaskId } from "@moltzap/protocol/task";
-import type { AgentId } from "../types.js";
-import {
-  AppHostTag,
-  ConversationServiceTag,
-  TaskServiceTag,
-} from "../layers.js";
+import type { AgentId } from "#core";
+import { AppHostTag, ConversationServiceTag, TaskServiceTag } from "#core";
 import { authorizeConversationCreate } from "../../task/services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "../../task/handlers/notification-broadcast.js";
-import { agentArm } from "../server-handlers-runtime.js";
+import { agentArm } from "#core";
 
 type TaskRequestParams = {
   readonly appId: AppId;

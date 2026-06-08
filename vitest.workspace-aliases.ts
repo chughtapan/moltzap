@@ -181,3 +181,72 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/openclaw-channel/src/openclaw-entry.ts"),
   },
 ];
+
+export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
+  {
+    find: /^#core$/,
+    replacement: fromRoot("packages/server/src/core/index.ts"),
+  },
+  {
+    find: /^#socket$/,
+    replacement: fromRoot("packages/server/src/socket/index.ts"),
+  },
+  {
+    find: /^#http$/,
+    replacement: fromRoot("packages/server/src/http/index.ts"),
+  },
+  {
+    find: /^#db$/,
+    replacement: fromRoot("packages/server/src/db/index.ts"),
+  },
+  {
+    find: /^#identity\/agents$/,
+    replacement: fromRoot("packages/server/src/identity/agents/index.ts"),
+  },
+  {
+    find: /^#identity\/apps$/,
+    replacement: fromRoot("packages/server/src/identity/apps/index.ts"),
+  },
+  {
+    find: /^#identity\/contacts$/,
+    replacement: fromRoot("packages/server/src/identity/contacts/index.ts"),
+  },
+  {
+    find: /^#network$/,
+    replacement: fromRoot("packages/server/src/network/index.ts"),
+  },
+  {
+    find: /^#network\/presence$/,
+    replacement: fromRoot("packages/server/src/network/presence/index.ts"),
+  },
+  {
+    find: /^#task$/,
+    replacement: fromRoot("packages/server/src/task/index.ts"),
+  },
+  {
+    find: /^#task\/requirements$/,
+    replacement: fromRoot("packages/server/src/task/requirements/index.ts"),
+  },
+  {
+    find: /^#conversation$/,
+    replacement: fromRoot("packages/server/src/conversation/index.ts"),
+  },
+  {
+    find: /^#conversation\/requirements$/,
+    replacement: fromRoot(
+      "packages/server/src/conversation/requirements/index.ts",
+    ),
+  },
+  {
+    find: /^#message$/,
+    replacement: fromRoot("packages/server/src/message/index.ts"),
+  },
+  {
+    find: /^#message\/dispatch$/,
+    replacement: fromRoot("packages/server/src/message/dispatch/index.ts"),
+  },
+  {
+    find: /^#test-utils$/,
+    replacement: fromRoot("packages/server/src/test-utils/index.ts"),
+  },
+];

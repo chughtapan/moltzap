@@ -30,7 +30,7 @@ import {
   ConversationServiceTag,
   DbTag,
   PresenceServiceTag,
-} from "../../app/layers.js";
+} from "#core";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
 import type { AuthService } from "../../identity/services/auth.service.js";

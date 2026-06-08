@@ -7,9 +7,9 @@ import { ForbiddenError } from "@moltzap/protocol/transport";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import { Effect } from "effect";
-import { AppHostTag, ConnectionTag } from "../layers.js";
+import { AppHostTag, ConnectionTag } from "#core";
 import { leaseRecordToWire } from "../../task/leases/lease-registry.js";
-import { agentArm } from "../server-handlers-runtime.js";
+import { agentArm } from "#core";
 
 // `dispatch/request` — returns ack immediately, forks the moderator round-trip,
 // recipient observes the verdict via `dispatch/release` notification.

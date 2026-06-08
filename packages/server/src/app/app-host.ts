@@ -22,7 +22,7 @@ import {
   type MessageAuthorizeContext,
   type MessageAuthorizeResult,
   type DispatchAuthorizeContext,
-} from "./types.js";
+} from "../core/types.js";
 import {
   AppRegistry,
   type AppEndpoint,
@@ -39,7 +39,7 @@ import {
   lookupAppBoundForConversation,
   type AppBoundConversationLookup,
 } from "./conversation-app-lookup.js";
-import { NetworkSendServiceTag } from "./layers.js";
+import type { NetworkSendServiceTag } from "../core/layers.js";
 import type {
   LeaseRegistry,
   LeaseVerdict,

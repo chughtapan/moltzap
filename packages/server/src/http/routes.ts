@@ -15,7 +15,7 @@ import {
 } from "@moltzap/protocol/identity";
 
 import type { AppTags } from "../transport/layer-tags.js";
-import type { ConnectionTag, ResolvedServices } from "./layers.js";
+import type { ConnectionTag, ResolvedServices } from "#core";
 import { safeEqual } from "../identity/services/credential-keys.js";
 import type { CoreConfig } from "../config.js";
 import type { RegistrationSecret } from "../config/secrets.js";

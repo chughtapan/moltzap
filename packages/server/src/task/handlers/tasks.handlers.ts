@@ -34,11 +34,11 @@ import {
 } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentContext, AppContext } from "../../transport/context.js";
-import type { AgentId } from "../../app/types.js";
-import { ConversationServiceTag, TaskServiceTag } from "../../app/layers.js";
+import type { AgentId } from "#core";
+import { ConversationServiceTag, TaskServiceTag } from "#core";
 import { authorizeConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";
 import { broadcastNotificationToAgents } from "./notification-broadcast.js";
-import { agentArm, appArm } from "../../app/server-handlers-runtime.js";
+import { agentArm, appArm } from "#core";
 
 /**
  * App-arm authority gate for the task-admin RPCs: the app must own the

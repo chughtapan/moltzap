@@ -16,10 +16,10 @@ import {
   SimpleSpanProcessor,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { createCoreApp } from "../core-server.js";
+import { createCoreApp } from "../core/app.js";
 import { seedInitialKek } from "../db/crypto/key-rotation.js";
 import { EnvelopeEncryption } from "../db/crypto/envelope.js";
-import type { CoreApp } from "../app/types.js";
+import type { CoreApp } from "#core";
 import type { Database } from "../db/database.js";
 import {
   makeEffectKysely,
@@ -28,7 +28,7 @@ import {
 import { loadCoreSchemaSql } from "./core-schema-sql.js";
 
 export type { Database } from "../db/database.js";
-export type { CoreApp } from "../app/types.js";
+export type { CoreApp } from "#core";
 
 class CoreTestServerError extends Error {
   override readonly name = "CoreTestServerError";

@@ -13,8 +13,8 @@ import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { AgentContext } from "../../transport/context.js";
-import { agentArm } from "../../app/server-handlers-runtime.js";
-import { DbTag } from "../../app/layers.js";
+import { agentArm } from "#core";
+import { DbTag } from "#core";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
 import {

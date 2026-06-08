@@ -4,7 +4,7 @@
  * Two collaborators: the {@link AgentEndpointResolver} for the durable
  * `AgentId → live ConnectionId set` lookup and the
  * {@link ConnectionManager} for the writable socket. A Tag at
- * `app/layers.ts` provides this composition.
+ * `core/layers.ts` provides this composition.
  *
  * Outbound routing is strictly per-agent ({@link send}) or
  * per-agent-set ({@link broadcast}). App callbacks write over the app's

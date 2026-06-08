@@ -42,6 +42,6 @@ export const messagesSend: ServerHandler<typeof MessagesSend> = (params) =>
   });
 ```
 
-Handlers are collected in `app/server-handlers.ts`. The handler body's `R`
+Handlers are collected in `core/handler-catalog.ts`. The handler body's `R`
 channel holds every Tag it pulls; the socket runtime provides the services and
 per-request `ConnectionTag`.

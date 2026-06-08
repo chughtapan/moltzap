@@ -10,7 +10,7 @@ import {
   ConnectionTag,
   DbTag,
   PresenceServiceTag,
-} from "../../app/layers.js";
+} from "#core";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
 import { peekLiveArm } from "../../transport/principal-gate.js";
 

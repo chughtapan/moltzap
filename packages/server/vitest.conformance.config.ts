@@ -1,4 +1,8 @@
 import { defineConfig } from "vitest/config";
+import {
+  serverCoreSourceAliases,
+  workspaceSourceAliases,
+} from "../../vitest.workspace-aliases.js";
 
 /**
  * Dedicated vitest config for the protocol conformance suite. Scoped to
@@ -9,6 +13,9 @@ import { defineConfig } from "vitest/config";
  * `pnpm -F \@moltzap/server-core test:conformance`.
  */
 export default defineConfig({
+  resolve: {
+    alias: [...serverCoreSourceAliases, ...workspaceSourceAliases],
+  },
   test: {
     // The suite file drives real server traffic against the protocol
     // conformance properties.

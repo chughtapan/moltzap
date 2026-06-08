@@ -13,7 +13,7 @@
  *   (used as-is) ahead of the base `OTEL_EXPORTER_OTLP_ENDPOINT` (suffixed
  *   with `/v1/traces`), per the OTel exporter env-var spec.
  *
- * `core-server.ts` consumes this; tests inject their own InMemorySpanExporter
+ * `core/app.ts` consumes this; tests inject their own InMemorySpanExporter
  * via `CoreConfig.spanProcessor` and read finished spans back from it.
  */
 

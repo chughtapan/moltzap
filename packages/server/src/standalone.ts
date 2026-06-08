@@ -6,7 +6,7 @@ import { sql } from "./db/sql.js";
 import { Data, Effect, Layer } from "effect";
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
-import { createCoreApp } from "./core-server.js";
+import { createCoreApp } from "./core/app.js";
 import { applyOutboundWebhookCap } from "./app/outbound-webhook-cap.js";
 import {
   loadStandaloneConfig,
@@ -19,7 +19,7 @@ import { seedInitialKek } from "./db/crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./db/crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
 import { WebhookContactService } from "./identity/services/webhook-contact-service.js";
-import type { CoreApp } from "./app/types.js";
+import type { CoreApp } from "#core";
 import type { Database } from "./db/database.js";
 import type { Db } from "./db/client.js";
 import { PostgresDialect } from "./db/postgres-dialect.js";
@@ -288,10 +288,9 @@ function startServerEffect(
     //    below). The contact service would then issue requests against
     //    a destroyed Agent. The process-global dispatcher has no
     //    per-instance lifecycle, matching this client's server-
-    //    lifetime role. The CoreApp constructs its own scoped Undici
-    //    client for delivery webhooks (see `core-server.ts →
-    //    HttpClientLive`); that one IS managed by the dispatch
-    //    ManagedRuntime's scope and disposes cleanly on `app.close()`.
+    //    lifetime role. The CoreApp constructs its own scoped Undici client
+    //    through `core/layers.ts`; that one IS managed by the dispatch
+    //    ManagedRuntime scope and disposes cleanly on `app.close()`.
     //
     // 2. Outbound-webhook concurrency cap. We apply
     //    {@link applyOutboundWebhookCap} so this client pulls from the

@@ -31,6 +31,8 @@
     "modules/protocol/testing/toxics",
     "modules/protocol/transport",
     "modules/runtimes/src",
+    "modules/server-core/core",
+    "modules/server-core/http",
     "modules/server-core/test-utils"
   ]
 }

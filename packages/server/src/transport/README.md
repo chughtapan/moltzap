@@ -20,7 +20,7 @@ Layers, and the bridge from an Effect `Socket` to the core services.
 
 ## Flow
 
-1. `core-server.ts` accepts an upgraded WebSocket and delegates to
+1. `core/app.ts` accepts an upgraded WebSocket and delegates to
    `makeCoreSocketHandler`.
 2. `server-socket.ts` opens a protocol `MoltZapServer` session and registers an
    unauthenticated connection.

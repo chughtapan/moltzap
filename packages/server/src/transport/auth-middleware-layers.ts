@@ -39,7 +39,7 @@ import {
   ConversationServiceTag,
   MessageServiceTag,
   TaskServiceTag,
-} from "../app/layers.js";
+} from "#core";
 import {
   obtainTaskReadAccess,
   obtainConversationInTask,

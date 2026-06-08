@@ -21,8 +21,8 @@ import {
   AuthServiceTag,
   ContactsServiceTag,
   NetworkSendServiceTag,
-} from "../../app/layers.js";
-import { agentArm } from "../../app/server-handlers-runtime.js";
+} from "#core";
+import { agentArm } from "#core";
 
 const fanOut = <D extends AnyNotificationDefinition>(
   target: UserId,
