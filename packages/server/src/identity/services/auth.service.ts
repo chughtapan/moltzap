@@ -3,7 +3,7 @@ import type { Db } from "../../db/client.js";
 import type { AgentKey } from "@moltzap/protocol/identity";
 import type { Register } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/transport";
-import type { AgentId, UserId } from "../../app/types.js";
+import type { AgentId, UserId } from "#core";
 
 type RegisterParams = ParamsOf<typeof Register>;
 import {

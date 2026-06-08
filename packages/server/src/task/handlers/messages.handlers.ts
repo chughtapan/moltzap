@@ -4,14 +4,10 @@ import { ForbiddenError } from "@moltzap/protocol/transport";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { ConnectionId, ServerHandler } from "@moltzap/protocol/socket";
-import { agentArm } from "../../app/server-handlers-runtime.js";
+import { agentArm } from "#core";
 import { Effect, Exit } from "effect";
 import type { AgentContext } from "../../transport/context.js";
-import {
-  ConnectionTag,
-  LeaseRegistryTag,
-  MessageServiceTag,
-} from "../../app/layers.js";
+import { ConnectionTag, LeaseRegistryTag, MessageServiceTag } from "#core";
 import {
   guardTaskActive,
   guardConversationNotArchived,

@@ -7,7 +7,7 @@
  * already run, so the body reads the narrowed principal and domain services.
  *
  * Protocol binds this map onto the server engine. `agents/register` is
- * HTTP-only — served over `http-routes.ts`, never a catalog member, so it has
+ * HTTP-only — served over `http/routes.ts`, never a catalog member, so it has
  * no entry here.
  *
  * The handler-map/catalog correlation is checked when `MoltZapServer` accepts
@@ -48,8 +48,11 @@ import {
   taskConversationAddParticipant,
   taskConversationRemoveParticipant,
 } from "../task/handlers/tasks.handlers.js";
-import { taskRequest } from "./handlers/task-request.handlers.js";
-import { dispatchRequest, dispatchesGet } from "./handlers/apps.handlers.js";
+import { taskRequest } from "../app/handlers/task-request.handlers.js";
+import {
+  dispatchRequest,
+  dispatchesGet,
+} from "../app/handlers/apps.handlers.js";
 import type { ServerHandlers } from "@moltzap/protocol/socket";
 
 /**

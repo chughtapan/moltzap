@@ -8,7 +8,7 @@
  * `services.contacts: { type: "webhook" }` appears in the YAML config.
  *
  * The transport is the `@effect/platform/HttpClient` Tag from
- * `app/layers.ts`; tests override it via `Layer.succeed(HttpClient.HttpClient, mock)`.
+ * `core/layers.ts`; tests override it via `Layer.succeed(HttpClient.HttpClient, mock)`.
  */
 
 import {

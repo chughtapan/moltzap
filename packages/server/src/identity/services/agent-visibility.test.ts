@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect } from "vitest";
 import { Effect } from "effect";
 import { userId } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
-import type { AgentId } from "../../app/types.js";
+import type { AgentId } from "#core";
 import { takeFirstOrFail } from "../../db/effect-kysely-toolkit.js";
 import {
   makePgliteHarness,

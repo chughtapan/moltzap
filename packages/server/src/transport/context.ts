@@ -1,6 +1,6 @@
 import { Data, Effect } from "effect";
 import type { AppId } from "@moltzap/protocol/task";
-import type { AgentId, UserId } from "../app/types.js";
+import type { AgentId, UserId } from "#core";
 
 /**
  * Closed agent lifecycle states. Mirrors

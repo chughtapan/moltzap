@@ -2,7 +2,58 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "baseUrl": "./src",
+    "paths": {
+      "#core": [
+        "core/index.ts"
+      ],
+      "#socket": [
+        "socket/index.ts"
+      ],
+      "#http": [
+        "http/index.ts"
+      ],
+      "#db": [
+        "db/index.ts"
+      ],
+      "#identity/agents": [
+        "identity/agents/index.ts"
+      ],
+      "#identity/apps": [
+        "identity/apps/index.ts"
+      ],
+      "#identity/contacts": [
+        "identity/contacts/index.ts"
+      ],
+      "#network": [
+        "network/index.ts"
+      ],
+      "#network/presence": [
+        "network/presence/index.ts"
+      ],
+      "#task": [
+        "task/index.ts"
+      ],
+      "#task/requirements": [
+        "task/requirements/index.ts"
+      ],
+      "#conversation": [
+        "conversation/index.ts"
+      ],
+      "#conversation/requirements": [
+        "conversation/requirements/index.ts"
+      ],
+      "#message": [
+        "message/index.ts"
+      ],
+      "#message/dispatch": [
+        "message/dispatch/index.ts"
+      ],
+      "#test-utils": [
+        "test-utils/index.ts"
+      ]
+    }
   },
   "include": [
     "src"

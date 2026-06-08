@@ -41,7 +41,7 @@ import type {
   TaskServiceTag,
   LeaseRegistryTag,
   AppHostTag,
-} from "../app/layers.js";
+} from "#core";
 
 /**
  * Bottom kernel — per-request connection id plus the database handle.

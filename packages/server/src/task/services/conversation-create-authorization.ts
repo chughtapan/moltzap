@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { ConversationServiceTag } from "../../app/layers.js";
+import { ConversationServiceTag } from "#core";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type {
   AgentNotFoundError,

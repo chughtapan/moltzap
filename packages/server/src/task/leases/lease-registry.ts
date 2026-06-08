@@ -386,7 +386,7 @@ export interface LeaseRegistry {
 
   /**
    * Deterministic shutdown drain — invoked by `CoreApp.close`
-   * (`core-server.ts → closeCoreAppEffect`) BEFORE `Scope.close(appScope)`.
+   * (`core/app.ts -> closeCoreAppEffect`) BEFORE `Scope.close(appScope)`.
    *
    * Closing the app scope interrupts every per-connection WebSocket fiber.
    * Each interrupted fiber runs its disconnect cleanup

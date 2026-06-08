@@ -390,6 +390,9 @@ importers:
       kysely-codegen:
         specifier: ^0.20.0
         version: 0.20.0(kysely@0.28.16)(pg@8.20.0)(typescript@5.9.3)
+      tsc-alias:
+        specifier: ^1.8.17
+        version: 1.8.17
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

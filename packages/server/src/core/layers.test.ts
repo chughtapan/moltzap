@@ -10,13 +10,8 @@ import { ContactsService } from "../identity/services/contact.service.js";
 import { ConversationService } from "../task/services/conversation.service.js";
 import { MessageService } from "../task/services/message.service.js";
 import { PresenceService } from "../network/services/presence.service.js";
-import { AppHost } from "./app-host.js";
-import {
-  DbTag,
-  EncryptionTag,
-  ServicesLive,
-  resolveServices,
-} from "./layers.js";
+import { AppHost } from "../app/app-host.js";
+import { DbTag, EncryptionTag, ServicesLive, resolveServices } from "#core";
 
 const it = effectIt.effect;
 

@@ -1,8 +1,8 @@
 # app/
 
-App-host, app registration, requirement middleware, top-level
-server boot, layer composition, HTTP routes, WS socket handler. (The
-dispatch lease registry lives in `task/leases/`.)
+App endpoint registration, default-app wiring, and the temporary AppHost
+callback router. Server boot, layer composition, HTTP routes, and socket
+handling have moved to `core/`, `http/`, and `transport/`.
 
 ## Layer rules
 
@@ -13,10 +13,6 @@ dispatch lease registry lives in `task/leases/`.)
 
 ## Files
 
-- `server.ts` — `createCoreApp` (composition root) + the boot Effect
-  that wires Layers, services, and HTTP/WS routes.
-- `layers.ts` — Tag definitions + `ServicesLive` tier composition for
-  the whole stack.
 - `app-host.ts` — `AppHost` class; hook envelope + per-policy switch
   (unknown-app fail-closed / static policy resolved in-process /
   `kind: "hook"` round-trip over the endpoint originator) for
@@ -31,10 +27,6 @@ dispatch lease registry lives in `task/leases/`.)
 - `requirement-middlewares.ts` — server-side `obtain` impls for protocol
   requirement middleware; the socket auth layer wires each protocol tag to its
   server services.
-- `http-routes.ts` — `makeCoreHttpApp`; `/health`, `/ws`, auth
-  register / claim, optional admin route.
-- `server.ts` — `createCoreApp`; wires protocol `MoltZapServer` to
-  server-core handlers, middleware, and cleanup hooks.
 - `conversation-app-lookup.ts` — derives a conversation's
   app-binding (the `app_id IS NULL` discriminator) for
   `messages/authorize` routing.

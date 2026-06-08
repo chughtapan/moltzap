@@ -19,7 +19,7 @@ import type {
   ConversationInTaskValue,
 } from "@moltzap/protocol/conversation";
 import type { TaskId, TaskReadAccessValue } from "@moltzap/protocol/task";
-import { ConversationServiceTag, TaskServiceTag } from "./layers.js";
+import { ConversationServiceTag, TaskServiceTag } from "#core";
 import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
 
 /** Input for {@link obtainTaskReadAccess}. */

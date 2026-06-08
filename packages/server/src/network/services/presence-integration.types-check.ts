@@ -78,7 +78,7 @@ import {
   PresenceServiceLive,
   type PresenceServiceTag,
   type ConnectionManagerTag,
-} from "../../app/layers.js";
+} from "#core";
 import type { Layer } from "effect";
 
 declare const presenceServiceLive: typeof PresenceServiceLive;
