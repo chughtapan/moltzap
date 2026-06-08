@@ -1,10 +1,10 @@
 import type { ParamsOf } from "@moltzap/protocol/transport";
-import type { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import type { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import type { MessagesAuthorize } from "@moltzap/protocol/message";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { MessageId } from "@moltzap/protocol/conversation";
-import type { LeaseId } from "@moltzap/protocol/message";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ContactService } from "../identity/services/contact-policy.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";

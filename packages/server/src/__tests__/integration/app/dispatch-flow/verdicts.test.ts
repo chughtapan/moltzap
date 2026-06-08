@@ -6,7 +6,7 @@
  * vitest can execute buckets concurrently without sharing state.
  */
 import { it as effectIt } from "@effect/vitest";
-import type { AppManifest } from "@moltzap/protocol/app";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {

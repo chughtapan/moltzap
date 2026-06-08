@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
-import { AgentClaimed, AgentPrincipal } from "../../transport/principal.js";
+import { AgentPrincipal } from "#identity/principals";
+import { AgentClaimed } from "#identity/requirements";
 import { defineRpc } from "../../transport/method.js";
 import {
   ListLimitSchema,

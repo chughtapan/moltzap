@@ -20,18 +20,17 @@
 import { Context, Effect, Layer } from "effect";
 import type { RpcMiddleware } from "@effect/rpc";
 import {
+  AgentClaimed,
   AgentPrincipal,
   AppPrincipal,
+  ContactPolicyAllowsReach,
   AuthenticatedPrincipal,
-  AgentClaimed,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/identity";
 import {
   ConversationInTask,
   ConversationSendAccess,
-  TaskReadAccess,
-  ContactPolicyAllowsReach,
-  type TaskId,
-} from "@moltzap/protocol/task";
+} from "@moltzap/protocol/conversation";
+import { TaskReadAccess, type TaskId } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";

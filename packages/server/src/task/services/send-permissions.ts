@@ -1,8 +1,6 @@
 import { Cause, Effect } from "effect";
-import type {
-  ConversationSendAccessValue,
-  TaskId,
-} from "@moltzap/protocol/task";
+import type { ConversationSendAccessValue } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import { TaskClosedError } from "@moltzap/protocol/task";
 import { ConversationArchivedError } from "@moltzap/protocol/conversation";
 import { ForbiddenError } from "@moltzap/protocol/transport";

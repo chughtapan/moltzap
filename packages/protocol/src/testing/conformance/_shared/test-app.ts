@@ -9,11 +9,11 @@
  * conversations beyond manifest defaults.
  */
 import { Duration, Effect, Ref, type Scope, Schema } from "effect";
-import type { AppManifest } from "../../../app/index.js";
-import { MessagesAuthorize } from "../../../message/index.js";
-import { TaskCreate } from "../../../task/index.js";
-import { DispatchAuthorize } from "../../../dispatch/index.js";
-import { AppId } from "../../../task/index.js";
+import type { AppManifest } from "#identity/apps";
+import { MessagesAuthorize } from "#message";
+import { TaskCreate } from "#task";
+import { DispatchAuthorize } from "#message/dispatch";
+import { AppId } from "#task";
 import { makeAppTestClient, type AppTestClient } from "./driver/test-client.js";
 import type {
   ServerRpcDefinition,

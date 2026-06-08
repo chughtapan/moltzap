@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConnectionId } from "@moltzap/protocol/socket";
-import type { AppManifest } from "@moltzap/protocol/app";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/transport";
-import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize } from "@moltzap/protocol/message";
 import { TaskCreate } from "@moltzap/protocol/task";
 import {

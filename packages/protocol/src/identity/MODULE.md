@@ -8,7 +8,7 @@ Public barrel for identity, agent, and contact protocol descriptors.
 
 ## Public surface
 
-### [`identityNotifications`](./methods.ts#L28)
+### [`identityNotifications`](./index.ts#L79)
 
 _Variable_
 
@@ -19,7 +19,9 @@ export const identityNotifications = [
 ] as const
 ```
 
-### [`identityRpcMethods`](./methods.ts#L18)
+Identity notification catalog emitted by the server.
+
+### [`identityRpcMethods`](./index.ts#L68)
 
 _Variable_
 
@@ -35,6 +37,8 @@ export const identityRpcMethods = [
 ] as const
 ```
 
+Identity RPC catalog accepted by agent clients.
+
 ## Files
 
-- `methods.ts`
+- `index.ts`

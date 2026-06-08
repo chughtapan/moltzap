@@ -4,18 +4,19 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AppId, TaskId } from "@moltzap/protocol/task";
-import type { DispatchesGet, DispatchId } from "@moltzap/protocol/dispatch";
+import type {
+  DispatchesGet,
+  DispatchId,
+} from "@moltzap/protocol/message/dispatch";
 import type { ResultOf } from "@moltzap/protocol/transport";
 import {
   DispatchId as DispatchIdSchema,
+  LeaseId as LeaseIdSchema,
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-} from "@moltzap/protocol/dispatch";
-import {
-  LeaseId as LeaseIdSchema,
-  type LeaseId,
-} from "@moltzap/protocol/message";
+} from "@moltzap/protocol/message/dispatch";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { NotificationParamsOf } from "@moltzap/protocol/transport";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type { ConnectionManager } from "../../transport/connection.js";

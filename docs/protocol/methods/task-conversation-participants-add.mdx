@@ -1,11 +1,17 @@
 ---
 title: "task/conversation/participants/add"
-description: "Call `task/conversation/participants/add`."
+description: "TM-only: add an agent to one conversation."
 ---
 
 # task/conversation/participants/add
 
-Call `task/conversation/participants/add`.
+TM-only: add an agent to one conversation. The agent MUST already appear in
+`task_participants` for `taskId`; otherwise `ParticipantNotAdmittedError`.
+
+- **Principal:** `AppPrincipal` head + `ConversationInTask`. App-ownership is
+  gated by the app-arm handler's `assertCallerAppOwnsTask` BEFORE
+  `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
+  not the participant-admitted state probe).
 
 ## Parameters
 
@@ -24,3 +30,11 @@ Call `task/conversation/participants/add`.
 ## Response
 
 This method returns an empty object.
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the caller does not own the task |
+| `TaskNotFoundError` | the task does not exist or is not open |
+| `ParticipantNotAdmittedError` | the agent is not admitted to the task |

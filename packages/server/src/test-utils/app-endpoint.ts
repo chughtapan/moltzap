@@ -19,7 +19,7 @@ import type {
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
 } from "@moltzap/protocol/socket";
-import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize } from "@moltzap/protocol/message";
 import { TaskCreate } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";

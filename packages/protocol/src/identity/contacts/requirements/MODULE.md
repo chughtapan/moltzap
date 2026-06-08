@@ -1,0 +1,38 @@
+# protocol/identity/contacts/requirements
+
+_`packages/protocol/src/identity/contacts/requirements`_
+
+## Purpose
+
+Contact-owned requirement middleware tags.
+
+## Public surface
+
+### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L15)
+
+_Class_
+
+```ts
+export class ContactPolicyAllowsReach extends RpcMiddleware.Tag<ContactPolicyAllowsReach>()(
+  "@moltzap/protocol/ContactPolicyAllowsReach",
+  { failure: Schema.Union(NotInContactsError) },
+) {}
+```
+
+Requirement middleware: resolves whether the creator may reach every target
+under the recipients' contact policy.
+
+### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L6)
+
+_Interface_
+
+```ts
+export interface ContactPolicyAllowsReachValue {
+  readonly creatorAgentId: AgentId;
+  readonly targetAgentIds: readonly AgentId[];
+}
+```
+
+## Files
+
+- `contact-policy-allows-reach.ts`

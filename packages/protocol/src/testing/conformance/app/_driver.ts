@@ -44,7 +44,8 @@ import {
   TaskConversationCreate,
 } from "@moltzap/protocol/conversation";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { MessagesSend, LeaseId } from "@moltzap/protocol/message";
+import { LeaseId } from "#message/dispatch";
+import { MessagesSend } from "@moltzap/protocol/message";
 import type { TaskId } from "../../../task/index.js";
 import {
   DispatchAuthorize,
@@ -54,7 +55,7 @@ import {
   DispatchesExpired,
   DispatchesGet,
   type DispatchId,
-} from "../../../dispatch/index.js";
+} from "#message/dispatch";
 import type { NotificationDelivery } from "../../../transport/index.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
@@ -1201,4 +1202,4 @@ export type {
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-} from "../../../dispatch/index.js";
+} from "#message/dispatch";

@@ -13,7 +13,8 @@ import {
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-} from "@moltzap/protocol/dispatch";
+  type LeaseId,
+} from "@moltzap/protocol/message/dispatch";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type {
   AnyAgentCallableRpcDefinition,
@@ -39,7 +40,6 @@ import {
   type MessageId,
 } from "@moltzap/protocol/conversation";
 import {
-  type LeaseId,
   type Message,
   type MessageReceivedNotification,
   MessageReceivedNotificationDefinition,

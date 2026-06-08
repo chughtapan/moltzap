@@ -1,27 +1,17 @@
 /**
  * @file Public barrel for task protocol descriptors.
  */
-export { TaskId } from "./methods.js";
+export { TaskId, TaskNotFoundError } from "./ids.js";
 
 export {
   TaskReadAccess,
-  ConversationInTask,
-  ConversationSendAccess,
-  ContactPolicyAllowsReach,
   assertAppOwnsTask,
-  assertConversationInTaskMatches,
   assertTaskReadAccessMatchesTask,
 } from "./requirements/index.js";
-export type {
-  TaskReadAccessValue,
-  ConversationInTaskValue,
-  ConversationSendAccessValue,
-  ContactPolicyAllowsReachValue,
-} from "./requirements/index.js";
+export type { TaskReadAccessValue } from "./requirements/index.js";
 
 export {
   TaskClosedError,
-  TaskNotFoundError,
   TaskRejectedError,
   HookBlockedError,
   TaskList,
@@ -36,15 +26,48 @@ export {
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  // Per-kind catalog subsets.
-  agentCallableTaskRpcMethods,
-  appCallableTaskRpcMethods,
-  taskCallbackMethods,
-} from "./methods.js";
+} from "./tasks.js";
 
 export type {
   TaskStatus,
   Task,
   TaskParticipant,
   InitialConversationInput,
-} from "./methods.js";
+} from "./tasks.js";
+
+import {
+  TaskList,
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
+  TaskClosedNotificationDefinition,
+  TaskCreatedNotificationDefinition,
+  TaskFailedNotificationDefinition,
+  TaskRequest,
+  TaskCreate,
+  TaskLeave,
+} from "./tasks.js";
+
+/** Task RPC catalog callable by agent clients. */
+export const agentCallableTaskRpcMethods = [
+  TaskRequest,
+  TaskList,
+  TaskLeave,
+] as const;
+
+/** Task RPC catalog callable by app clients. */
+export const appCallableTaskRpcMethods = [
+  TaskClose,
+  TaskAddParticipant,
+  TaskRemoveParticipant,
+] as const;
+
+/** Task callback catalog served by app clients for server-initiated calls. */
+export const taskCallbackMethods = [TaskCreate] as const;
+
+/** Task notification catalog emitted by the server. */
+export const taskNotifications = [
+  TaskClosedNotificationDefinition,
+  TaskCreatedNotificationDefinition,
+  TaskFailedNotificationDefinition,
+] as const;

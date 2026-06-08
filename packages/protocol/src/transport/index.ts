@@ -72,18 +72,3 @@ export {
   principalGateErrorClasses,
 } from "./wire-errors.js";
 export type { RpcErrorPayload } from "./wire-errors.js";
-
-// The principal + refinement requirement tags — the low head of a method's
-// `requires` list, depended on DOWNWARD by every domain descriptor.
-// `AgentPrincipal`/`AppPrincipal` narrow the connection to that arm;
-// `AuthenticatedPrincipal` admits either authenticated arm; `AgentClaimed`
-// (agent-only) refines to a claimed agent. The closed requirement model and
-// middleware registry live in the engine layer, surfaced through the package's
-// main barrel.
-export {
-  AgentPrincipal,
-  AppPrincipal,
-  AuthenticatedPrincipal,
-  AgentClaimed,
-} from "./principal.js";
-export type { PrincipalRequirement } from "./principal.js";

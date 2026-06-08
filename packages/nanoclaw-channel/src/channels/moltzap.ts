@@ -2,7 +2,7 @@
 import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
 import { ConversationId } from "@moltzap/protocol/conversation";
-import type { LeaseId } from "@moltzap/protocol/message";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { TaskId } from "@moltzap/protocol/task";
 import {
   LeaseAlreadyConsumed,

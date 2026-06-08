@@ -19,6 +19,15 @@ export type {
 } from "./types.js";
 
 export {
+  ConversationInTask,
+  ConversationSendAccess,
+} from "./requirements/index.js";
+export type {
+  ConversationInTaskValue,
+  ConversationSendAccessValue,
+} from "./requirements/index.js";
+
+export {
   TaskConversationAddParticipant,
   TaskConversationArchive,
   TaskConversationCreate,
@@ -33,7 +42,7 @@ export {
   agentCallableConversationRpcMethods,
   appCallableConversationRpcMethods,
   conversationNotifications,
-} from "./methods.js";
+} from "./conversations.js";
 export type {
   TaskConversationArchivedNotification,
   TaskConversationCreatedNotification,
@@ -41,4 +50,4 @@ export type {
   TaskConversationParticipantsAddedNotification,
   TaskConversationParticipantsRemovedNotification,
   TaskConversationUnarchivedNotification,
-} from "./methods.js";
+} from "./conversations.js";

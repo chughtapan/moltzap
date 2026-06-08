@@ -7,7 +7,7 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
-import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
 import {
   MessageReceivedNotificationDefinition,
@@ -22,7 +22,7 @@ import type {
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
 import type { AppId, TaskId } from "@moltzap/protocol/task";
-import type { AppManifest } from "@moltzap/protocol/app";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
   startTestServerEffect,

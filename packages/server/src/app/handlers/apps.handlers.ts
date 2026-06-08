@@ -1,5 +1,8 @@
 import type { AgentContext } from "../../transport/context.js";
-import { DispatchRequest, DispatchesGet } from "@moltzap/protocol/dispatch";
+import {
+  DispatchRequest,
+  DispatchesGet,
+} from "@moltzap/protocol/message/dispatch";
 import { ForbiddenError } from "@moltzap/protocol/transport";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { ServerHandler } from "@moltzap/protocol/socket";

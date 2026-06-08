@@ -4,19 +4,16 @@
 
 import { Schema } from "effect";
 import { AgentId, AgentNotFoundError } from "#identity/agents";
+import { AgentClaimed } from "#identity/requirements";
+import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { ListLimitSchema } from "../transport/pagination.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
-import {
-  AgentClaimed,
-  AgentPrincipal,
-  AppPrincipal,
-} from "../transport/principal.js";
 import { dateTimeStringSchema, stringEnum } from "../transport/wire-string.js";
 import {
   ForbiddenError,
   InvalidParamsError,
 } from "../transport/wire-errors.js";
-import { ConversationInTask } from "#task/requirements";
+import { ConversationInTask } from "#conversation/requirements";
 import { TaskId, TaskNotFoundError } from "../task/ids.js";
 import {
   ConversationFullError,

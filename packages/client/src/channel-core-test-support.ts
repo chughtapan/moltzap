@@ -1,6 +1,7 @@
 import { it as effectIt } from "@effect/vitest";
 import { ForbiddenError } from "@moltzap/protocol/transport";
-import type { LeaseId, Message } from "@moltzap/protocol/message";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
+import type { Message } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";

@@ -83,6 +83,22 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/protocol/src/identity/contacts/index.ts"),
   },
   {
+    find: /^#identity\/contacts\/requirements$/,
+    replacement: fromRoot(
+      "packages/protocol/src/identity/contacts/requirements/index.ts",
+    ),
+  },
+  {
+    find: /^#identity\/principals$/,
+    replacement: fromRoot("packages/protocol/src/identity/principals/index.ts"),
+  },
+  {
+    find: /^#identity\/requirements$/,
+    replacement: fromRoot(
+      "packages/protocol/src/identity/requirements/index.ts",
+    ),
+  },
+  {
     find: /^#network$/,
     replacement: fromRoot("packages/protocol/src/network/index.ts"),
   },
@@ -99,12 +115,18 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/protocol/src/conversation/index.ts"),
   },
   {
+    find: /^#conversation\/requirements$/,
+    replacement: fromRoot(
+      "packages/protocol/src/conversation/requirements/index.ts",
+    ),
+  },
+  {
     find: /^#message$/,
     replacement: fromRoot("packages/protocol/src/message/index.ts"),
   },
   {
-    find: /^#dispatch$/,
-    replacement: fromRoot("packages/protocol/src/dispatch/index.ts"),
+    find: /^#message\/dispatch$/,
+    replacement: fromRoot("packages/protocol/src/message/dispatch.ts"),
   },
   {
     find: /^#socket$/,
@@ -143,12 +165,8 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/protocol/src/message/index.ts"),
   },
   {
-    find: /^@moltzap\/protocol\/dispatch$/,
-    replacement: fromRoot("packages/protocol/src/dispatch/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/app$/,
-    replacement: fromRoot("packages/protocol/src/app/index.ts"),
+    find: /^@moltzap\/protocol\/message\/dispatch$/,
+    replacement: fromRoot("packages/protocol/src/message/dispatch.ts"),
   },
   {
     find: /^@moltzap\/protocol\/socket$/,

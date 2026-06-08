@@ -12,7 +12,7 @@ against server-side services live in `@moltzap/server-core`.
 
 ## Public surface
 
-### [`assertAppOwnsTask`](./assert-requirement-matches-task.ts#L84)
+### [`assertAppOwnsTask`](./assert-requirement-matches-task.ts#L57)
 
 _Function_
 
@@ -35,24 +35,7 @@ system, so the equality check compares the branded `appId` argument to
 the row value directly. Fails with `ForbiddenError` (wire -32001) when
 the app does not own the task.
 
-### [`assertConversationInTaskMatches`](./assert-requirement-matches-task.ts#L50)
-
-_Function_
-
-```ts
-export const assertConversationInTaskMatches = (
-  requirement: ConversationInTaskValue,
-  expectedTaskId: TaskId,
-  expectedConversationId: ConversationId,
-): Effect.Effect<void, ForbiddenError>
-```
-
-Verifies the requirement's carried `(taskId, conversationId)` pair
-equals the expected pair. Fails with `ForbiddenError` on the first
-mismatch; runs both comparisons in one Effect for handler-side
-symmetry with `assertTaskReadAccessMatchesTask`.
-
-### [`assertTaskReadAccessMatchesTask`](./assert-requirement-matches-task.ts#L38)
+### [`assertTaskReadAccessMatchesTask`](./assert-requirement-matches-task.ts#L35)
 
 _Function_
 
@@ -65,99 +48,6 @@ export const assertTaskReadAccessMatchesTask = (
 
 Verifies `requirement.task.id === expectedTaskId` for `TaskReadAccess`. A
 separate overload keeps the type narrowed at the call site.
-
-### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L18)
-
-_Class_
-
-```ts
-export class ContactPolicyAllowsReach extends RpcMiddleware.Tag<ContactPolicyAllowsReach>()(
-  "@moltzap/protocol/ContactPolicyAllowsReach",
-  { failure: Schema.Union(NotInContactsError) },
-) {}
-```
-
-Requirement middleware: resolves whether the creator may reach every
-target under the recipients' contact policy. Its `obtain` (server-side) fails
-with `NotInContactsError`; the descriptor unions that into every method that
-requires this tag, so the failure is part of the method's typed error
-channel with no server-side error definition of its own.
-
-### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L6)
-
-_Interface_
-
-```ts
-export interface ContactPolicyAllowsReachValue {
-  readonly creatorAgentId: AgentId;
-  readonly targetAgentIds: readonly AgentId[];
-}
-```
-
-### [`ConversationInTask`](./conversation-in-task.ts#L21)
-
-_Class_
-
-```ts
-export class ConversationInTask extends RpcMiddleware.Tag<ConversationInTask>()(
-  "@moltzap/protocol/ConversationInTask",
-  { failure: Schema.Union(ConversationNotFoundError) },
-) {}
-```
-
-### [`ConversationInTaskValue`](./conversation-in-task.ts#L16)
-
-_Interface_
-
-```ts
-export interface ConversationInTaskValue {
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-}
-```
-
-Requirement: proves `conversation.task_id === taskId`.
-
-`assertConversationInTaskMatches` (see
-`assert-requirement-matches-task.ts`)
-verifies the carried `taskId` matches the handler-input `taskId` at
-call time — the one-line runtime check that catches "handler passed
-a different taskId than the obtain proved".
-
-### [`ConversationSendAccess`](./conversation-send-access.ts#L28)
-
-_Class_
-
-```ts
-export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAccess>()(
-  "@moltzap/protocol/ConversationSendAccess",
-  { failure: Schema.Union(ForbiddenError) },
-) {}
-```
-
-### [`ConversationSendAccessValue`](./conversation-send-access.ts#L20)
-
-_Interface_
-
-```ts
-export interface ConversationSendAccessValue {
-  readonly conversationId: ConversationId;
-  readonly taskId: TaskId;
-  readonly appId: AppId | null;
-  readonly taskStatus: TaskStatus;
-  readonly archivedAt: Date | null;
-}
-```
-
-Permission: the caller may send to this conversation — proven by participant
-membership. Its `obtain` does the one joined read (`conversations ⋈ tasks`)
-after the participant check, and the value carries that send row to the
-handler. The remaining send preconditions (task-active,
-conversation-not-archived, reply-target) are handler-body guards that refine
-this row — `@effect/rpc` middlewares cannot read each other's provided value,
-so a refinement of the fetched row is a handler guard, not a standalone
-middleware. The whole send path costs one joined read. `appId` identifies the
-authorizing app for the task on the verdict route.
 
 ### [`TaskReadAccess`](./task-read-access.ts#L22)
 
@@ -195,7 +85,4 @@ to handlers through the `@effect/rpc` middleware context.
 ## Files
 
 - `assert-requirement-matches-task.ts`
-- `contact-policy-allows-reach.ts`
-- `conversation-in-task.ts`
-- `conversation-send-access.ts`
 - `task-read-access.ts`

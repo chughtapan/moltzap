@@ -1,11 +1,14 @@
 ---
 title: "task/conversation/unarchive"
-description: "Call `task/conversation/unarchive`."
+description: "TM-only: reverse of `task/conversation/archive`."
 ---
 
 # task/conversation/unarchive
 
-Call `task/conversation/unarchive`.
+TM-only: reverse of `task/conversation/archive`.
+
+- **Principal:** `AppPrincipal` head + `ConversationInTask` +
+  `assertCallerAppOwnsTask` (see `task/close`).
 
 ## Parameters
 
@@ -20,3 +23,11 @@ Call `task/conversation/unarchive`.
 ## Response
 
 This method returns an empty object.
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the caller does not own the task |
+| `TaskNotFoundError` | the task does not exist or is not open |
+| `ConversationNotFoundError` | the conversation does not exist under the task |

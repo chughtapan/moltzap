@@ -35,8 +35,8 @@ import {
   MessageReceivedNotificationDefinition,
   MessagesAuthorize,
   MessagesSend,
-} from "../../../message/index.js";
-import { DispatchAuthorize } from "../../../dispatch/index.js";
+} from "#message";
+import { DispatchAuthorize } from "#message/dispatch";
 import { AppId as AppIdSchema } from "../../../task/index.js";
 import { AgentId } from "../../../identity/index.js";
 import {

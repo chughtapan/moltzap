@@ -8,7 +8,8 @@ import {
 } from "@moltzap/protocol/conversation";
 import type { DispatchDecision } from "@moltzap/protocol/message";
 import {
-  messagePartsSchema,
+  decodeMessageParts,
+  decodeMessagePartsText,
   validateDispatchDecision,
 } from "@moltzap/protocol/message";
 import type { AppHost } from "../../app/app-host.js";
@@ -94,7 +95,6 @@ const COL_CK_DEK_VERSION = "ck.dek_version";
 const COL_EK_ENCRYPTED_KEY = "ek.encrypted_key";
 const COL_CK_CONVERSATION_ID = "ck.conversation_id";
 const decodeMessageId = Schema.decodeUnknownSync(MessageIdSchema);
-const decodeMessageParts = Schema.decodeUnknownSync(messagePartsSchema());
 
 export interface MessageServiceDeps {
   readonly db: Db;
@@ -853,8 +853,8 @@ export class MessageService {
         const encryption = this.encryption;
 
         if (encryption === null || dekVersion === 0) {
-          return decodeMessageParts(
-            JSON.parse(toBuf(row.parts_encrypted).toString("utf-8")),
+          return yield* decodeMessagePartsText(
+            toBuf(row.parts_encrypted).toString("utf-8"),
           );
         }
 
@@ -864,7 +864,7 @@ export class MessageService {
           dekCache,
           encryption,
         );
-        return decodeMessageParts(
+        return yield* decodeMessageParts(
           encryption.decryptMessage(
             {
               ciphertext: toBuf(row.parts_encrypted),

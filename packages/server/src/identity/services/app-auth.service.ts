@@ -1,8 +1,8 @@
 import { Effect, Either } from "effect";
 import { AppKey } from "@moltzap/protocol/identity";
 import { UnauthorizedError } from "@moltzap/protocol/transport";
-import { validateAppManifest } from "@moltzap/protocol/app";
-import type { AppManifest } from "@moltzap/protocol/app";
+import { validateAppManifest } from "@moltzap/protocol/identity";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import type { AppId } from "@moltzap/protocol/task";
 import type { Db } from "../../db/client.js";
 import {

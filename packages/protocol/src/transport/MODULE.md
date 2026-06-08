@@ -8,37 +8,6 @@ Public barrel for JSON-RPC transport descriptors and runtime helpers.
 
 ## Public surface
 
-### [`AgentClaimed`](./principal.ts#L66)
-
-_Class_
-
-```ts
-export class AgentClaimed extends RpcMiddleware.Tag<AgentClaimed>()(
-  "@moltzap/protocol/requirement/AgentClaimed",
-  { failure: agentClaimedFailure },
-) {}
-```
-
-Refinement requirement (agent-only): the agent arm must be claimed/active.
-Type-paired with AgentPrincipal — the server reads
-`connection.auth.agentStatus`; it is meaningless without a preceding agent
-principal. Fails `Forbidden` on a not-yet-claimed agent.
-
-### [`AgentPrincipal`](./principal.ts#L35)
-
-_Class_
-
-```ts
-export class AgentPrincipal extends RpcMiddleware.Tag<AgentPrincipal>()(
-  "@moltzap/protocol/requirement/AgentPrincipal",
-  { failure: principalGateFailure },
-) {}
-```
-
-Principal requirement: narrow the live connection to the agent arm. The first
-element of an agent-callable method's `requires`. Fails `Unauthorized` /
-`Forbidden` (the principal-gate errors) on a non-agent arm.
-
 ### [`AlreadyConnected`](./wire-errors.ts#L77)
 
 _Class_
@@ -55,36 +24,6 @@ export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
 
 A principal (agent or app) already holds an active connection. The
 `principal` discriminator names which arm the conflict is on.
-
-### [`AppPrincipal`](./principal.ts#L45)
-
-_Class_
-
-```ts
-export class AppPrincipal extends RpcMiddleware.Tag<AppPrincipal>()(
-  "@moltzap/protocol/requirement/AppPrincipal",
-  { failure: principalGateFailure },
-) {}
-```
-
-Principal requirement: narrow the live connection to the app arm. The first
-element of an app-callable method's `requires`. Fails `Unauthorized` /
-`Forbidden` on a non-app arm.
-
-### [`AuthenticatedPrincipal`](./principal.ts#L55)
-
-_Class_
-
-```ts
-export class AuthenticatedPrincipal extends RpcMiddleware.Tag<AuthenticatedPrincipal>()(
-  "@moltzap/protocol/requirement/AuthenticatedPrincipal",
-  { failure: principalGateFailure },
-) {}
-```
-
-Principal requirement: require any authenticated arm. Used by methods that
-are shared by first-party agent and app clients but still must reject the
-unauthenticated pre-connect arm.
 
 ### [`CallErrorsOf`](./method.ts#L174)
 
@@ -776,19 +715,6 @@ export const principalGateErrorClasses = [
 
 The principal-gate error classes every authenticated method's gate can fail with.
 
-### [`PrincipalRequirement`](./principal.ts#L72)
-
-_TypeAlias_
-
-```ts
-export type PrincipalRequirement =
-  | typeof AgentPrincipal
-  | typeof AppPrincipal
-  | typeof AuthenticatedPrincipal;
-```
-
-The principal-requirement tags — the only valid `requires` heads.
-
 ### [`RequirementErrorsOf`](./method.ts#L152)
 
 _TypeAlias_
@@ -1180,7 +1106,6 @@ fails with a Socket.SocketError if the socket is gone.
 - `mux.types-check.ts`
 - `notification-subscribers.ts`
 - `pagination.ts`
-- `principal.ts`
 - `rpc-errors.ts`
 - `strict-decode.ts`
 - `typed-dispatch.ts`

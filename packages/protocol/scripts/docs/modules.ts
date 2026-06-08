@@ -550,6 +550,7 @@ function isBehavioral(ex: TypeDocExport): boolean {
   // `_D1NegativeCanary`) — they live in `*.types-check.ts` files as
   // compile-time gates, not intentional exports.
   if (ex.name.startsWith("_")) return false;
+  if (ex.comment?.tags.some((tag) => tag.tag === "@internal")) return false;
   return true;
 }
 

@@ -1,10 +1,7 @@
-import {
-  DispatchNotFoundError,
-  MessagesList,
-  MessagesSend,
-} from "@moltzap/protocol/message";
+import { DispatchNotFoundError } from "@moltzap/protocol/message/dispatch";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 import { ForbiddenError } from "@moltzap/protocol/transport";
-import type { LeaseId } from "@moltzap/protocol/message";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { ConnectionId, ServerHandler } from "@moltzap/protocol/socket";
 import { agentArm } from "../../app/server-handlers-runtime.js";
