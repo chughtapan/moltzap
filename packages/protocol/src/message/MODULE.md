@@ -4,11 +4,19 @@ _`packages/protocol/src/message`_
 
 ## Purpose
 
-Message identifiers, wire shapes, RPC descriptors, and notifications.
+Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableMessageRpcMethods`](./index.ts#L389)
+### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L204)
+
+_Variable_
+
+```ts
+export const agentCallableDispatchRpcMethods = [DispatchRequest] as const
+```
+
+### [`agentCallableMessageRpcMethods`](./messages.ts#L163)
 
 _Variable_
 
@@ -21,7 +29,71 @@ export const agentCallableMessageRpcMethods = [
 
 Agent-callable message RPC catalog.
 
-### [`DispatchDecision`](./index.ts#L355)
+### [`appCallableDispatchRpcMethods`](./dispatch.ts#L206)
+
+_Variable_
+
+```ts
+export const appCallableDispatchRpcMethods = [DispatchesGet] as const
+```
+
+### [`decodeMessageParts`](./parts.ts#L56)
+
+_Function_
+
+```ts
+export function decodeMessageParts(
+  value: unknown,
+): Effect.Effect<ReadonlyArray<Part>, never>
+```
+
+Decode a message-parts payload and die on malformed persisted data.
+
+### [`decodeMessagePartsText`](./parts.ts#L65)
+
+_Function_
+
+```ts
+export function decodeMessagePartsText(
+  value: string,
+): Effect.Effect<ReadonlyArray<Part>, never>
+```
+
+Decode persisted plaintext message parts and die on malformed persisted data.
+
+### [`DispatchAdmissionDecision`](./dispatch.ts#L69)
+
+_TypeAlias_
+
+```ts
+export type DispatchAdmissionDecision = Schema.Schema.Type<
+  typeof DispatchAdmissionDecisionSchema
+>;
+```
+
+### [`DispatchAuthorize`](./dispatch.ts#L123)
+
+_Variable_
+
+```ts
+export const DispatchAuthorize = defineRpc({
+  name: "dispatch/authorize",
+  params: DispatchAuthorizeContextSchema,
+  result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
+  requires: [],
+  errors: [ForbiddenError],
+})
+```
+
+### [`dispatchCallbackMethods`](./dispatch.ts#L208)
+
+_Variable_
+
+```ts
+export const dispatchCallbackMethods = [DispatchAuthorize] as const
+```
+
+### [`DispatchDecision`](./messages.ts#L87)
 
 _TypeAlias_
 
@@ -31,21 +103,72 @@ export type DispatchDecision = Schema.Schema.Type<
 >;
 ```
 
-Per-message dispatch authorization decision.
+Per-message dispatch authorization decision persisted with the message.
 
-### [`dispatchDecisionSchema`](./index.ts#L376)
+### [`DispatchesConsumed`](./dispatch.ts#L143)
 
-_Function_
+_Variable_
 
 ```ts
-export function dispatchDecisionSchema(): typeof DispatchDecisionSchema
+export const DispatchesConsumed = defineNotification({
+  name: "dispatches/consumed",
+  params: Schema.Struct({
+    dispatchId: DispatchId,
+    leaseId: LeaseId,
+    conversationId: ConversationId,
+    messageId: MessageId,
+    consumedAt: DateTimeString,
+  }),
+})
 ```
 
-Return the canonical dispatch decision schema.
+### [`DispatchesExpired`](./dispatch.ts#L154)
 
-**Returns:** The canonical dispatch decision schema.
+_Variable_
 
-### [`DispatchNotFoundError`](./index.ts#L160)
+```ts
+export const DispatchesExpired = defineNotification({
+  name: "dispatches/expired",
+  params: Schema.Struct({
+    dispatchId: DispatchId,
+    leaseId: LeaseId,
+    conversationId: ConversationId,
+    expiredAt: DateTimeString,
+  }),
+})
+```
+
+### [`DispatchesGet`](./dispatch.ts#L196)
+
+_Variable_
+
+```ts
+export const DispatchesGet = defineRpc({
+  name: "dispatches/get",
+  params: Schema.Struct({ dispatchId: DispatchId }),
+  result: Schema.Struct({ lease: LeaseRecordSchema }),
+  requires: [AppPrincipal],
+  errors: [DispatchNotFoundError, ForbiddenError],
+})
+```
+
+### [`DispatchId`](./dispatch.ts#L25)
+
+_TypeAlias_
+
+```ts
+export type DispatchId = string & Brand.Brand<"DispatchId">;
+```
+
+### [`DispatchId`](./dispatch.ts#L25)
+
+_Variable_
+
+```ts
+export type DispatchId = string & Brand.Brand<"DispatchId">
+```
+
+### [`DispatchNotFoundError`](./dispatch.ts#L39)
 
 _Class_
 
@@ -54,17 +177,68 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
   "DispatchNotFound",
   errorPayloadFields,
 ) {
-  static readonly message = "Dispatch lease not found";
+  static readonly message = "Dispatch not found";
 }
 ```
 
-The referenced dispatch lease does not exist (or the caller is not its
-moderator). Lives here next to LeaseId — the lease-id vocabulary the
-`messages/send` `dispatchLeaseId` and the app-layer `dispatches/get` both
-key on — so both layers raise the same typed not-found without a
-`task → app` import cycle.
+### [`dispatchNotifications`](./dispatch.ts#L210)
 
-### [`LeaseId`](./index.ts#L143)
+_Variable_
+
+```ts
+export const dispatchNotifications = [
+  DispatchRelease,
+  DispatchesConsumed,
+  DispatchesExpired,
+] as const
+```
+
+### [`DispatchRelease`](./dispatch.ts#L131)
+
+_Variable_
+
+```ts
+export const DispatchRelease = defineNotification({
+  name: "dispatch/release",
+  params: Schema.Struct({
+    dispatchId: DispatchId,
+    leaseId: LeaseId,
+    verdict: DispatchAdmissionDecisionSchema,
+    leaseTimeoutMs: Schema.optional(
+      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+    ),
+  }),
+})
+```
+
+### [`DispatchRequest`](./dispatch.ts#L90)
+
+_Variable_
+
+```ts
+export const DispatchRequest = defineRpc({
+  name: "dispatch/request",
+  params: Schema.Struct({
+    conversationId: ConversationId,
+    messageId: MessageId,
+    senderAgentId: AgentId,
+    parts: Schema.optional(MessageParts),
+    receivedAt: Schema.optional(DateTimeString),
+    pending: Schema.optional(PendingMessageArraySchema),
+    attempt: Schema.optional(
+      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
+    ),
+  }),
+  result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
+  requires: [AgentPrincipal, AgentClaimed],
+  errors: [],
+})
+```
+
+Recipient admission request. The server acks immediately and emits
+`dispatch/release` when the moderator verdict resolves.
+
+### [`LeaseId`](./dispatch.ts#L16)
 
 _TypeAlias_
 
@@ -72,9 +246,7 @@ _TypeAlias_
 export type LeaseId = string & Brand.Brand<"LeaseId">;
 ```
 
-Branded dispatch lease identifier.
-
-### [`LeaseId`](./index.ts#L143)
+### [`LeaseId`](./dispatch.ts#L16)
 
 _Variable_
 
@@ -82,9 +254,7 @@ _Variable_
 export type LeaseId = string & Brand.Brand<"LeaseId">
 ```
 
-Dispatch lease identifier schema.
-
-### [`Message`](./index.ts#L105)
+### [`Message`](./messages.ts#L61)
 
 _TypeAlias_
 
@@ -94,7 +264,7 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](./index.ts#L395)
+### [`messageCallbackMethods`](./messages.ts#L204)
 
 _Variable_
 
@@ -104,7 +274,7 @@ export const messageCallbackMethods = [MessagesAuthorize] as const
 
 Message callback RPC catalog.
 
-### [`MessageNotFoundError`](./index.ts#L49)
+### [`MessageNotFoundError`](./messages.ts#L42)
 
 _Class_
 
@@ -117,9 +287,9 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
 }
 ```
 
-The referenced message does not exist, such as a `replyToId` reply target.
+The referenced message does not exist, such as a missing reply target.
 
-### [`messageNotifications`](./index.ts#L398)
+### [`messageNotifications`](./messages.ts#L226)
 
 _Variable_
 
@@ -131,19 +301,7 @@ export const messageNotifications = [
 
 Message notification catalog.
 
-### [`messagePartsSchema`](./index.ts#L134)
-
-_Function_
-
-```ts
-export function messagePartsSchema(): typeof MessagePartsSchema
-```
-
-Return the canonical message-parts schema.
-
-**Returns:** The canonical message-parts schema.
-
-### [`MessageReceivedNotification`](./index.ts#L309)
+### [`MessageReceivedNotification`](./messages.ts#L212)
 
 _TypeAlias_
 
@@ -155,7 +313,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `messages/received`.
 
-### [`MessageReceivedNotificationDefinition`](./index.ts#L317)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L220)
 
 _Variable_
 
@@ -166,9 +324,9 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 })
 ```
 
-Pushed when a new message is delivered to your WebSocket connection.
+Pushed when a new message is delivered to a WebSocket connection.
 
-### [`MessagesAuthorize`](./index.ts#L291)
+### [`MessagesAuthorize`](./messages.ts#L195)
 
 _Variable_
 
@@ -182,12 +340,9 @@ export const MessagesAuthorize = defineRpc({
 })
 ```
 
-Server → app round-trip asking for the per-message fan-out verdict.
-Triggered after the durable message insert lands and before broadcast.
+Server callback asking an app for the per-message fan-out verdict.
 
-- **Principal:** none — a server→client reverse callback.
-
-### [`MessagesList`](./index.ts#L246)
+### [`MessagesList`](./messages.ts#L154)
 
 _Variable_
 
@@ -201,15 +356,9 @@ export const MessagesList = defineRpc({
 })
 ```
 
-List messages in a conversation with cursor-based pagination using sequence
-numbers.
+List messages in a conversation with cursor-based pagination.
 
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
-- **Params:** `taskId`, `conversationId`, optional `sinceSeq` cursor, `limit`.
-- **Result:** the `messages` page plus `hasMore`.
-- **Requirements (run order):** `TaskReadAccess` proves the caller may read the task, then `ConversationInTask` resolves the conversation's task membership. Conversation-not-found rides those requirement error channels.
-
-### [`MessagesSend`](./index.ts#L196)
+### [`MessagesSend`](./messages.ts#L114)
 
 _Variable_
 
@@ -235,43 +384,9 @@ export const MessagesSend = defineRpc({
 })
 ```
 
-Send a message to a conversation under a task. Both `taskId` and
-`conversationId` are required; the conversation must already exist
-(created via `task/conversation/create`) and the sender must be a
-participant.
+Send a message to a conversation under a task.
 
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
-- **Params:** `taskId`, `conversationId`, `parts` (1–10 text/image/file parts), optional `replyToId`, optional `dispatchLeaseId`.
-- **Result:** the created `message` (ID, parts, sender, timestamp).
-- **Requirements (run order):** `ConversationInTask` resolves the conversation's task membership; `ConversationSendAccess` proves participation and does the joined read. The remaining send preconditions are handler-body guards that refine that provided row.
-
-**Returns:** The created message with ID, sequence number, and timestamp.
-
-### [`MessageWithDispatchDecision`](./index.ts#L368)
-
-_TypeAlias_
-
-```ts
-export type MessageWithDispatchDecision = Schema.Schema.Type<
-  typeof MessageWithDispatchDecisionSchema
->;
-```
-
-Message row visible to app callers, including the dispatch decision.
-
-### [`messageWithDispatchDecisionSchema`](./index.ts#L384)
-
-_Function_
-
-```ts
-export function messageWithDispatchDecisionSchema(): typeof MessageWithDispatchDecisionSchema
-```
-
-Return the app-visible message schema that includes dispatch decisions.
-
-**Returns:** The app-visible message schema.
-
-### [`Part`](./index.ts#L86)
+### [`Part`](./parts.ts#L34)
 
 _TypeAlias_
 
@@ -281,7 +396,7 @@ export type Part = Schema.Schema.Type<typeof PartSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](./index.ts#L360)
+### [`validateDispatchDecision`](./messages.ts#L92)
 
 _Variable_
 
@@ -291,7 +406,7 @@ export const validateDispatchDecision = closedGuard(DispatchDecisionSchema)
 
 Return true when a value is a closed dispatch decision.
 
-### [`validateMessage`](./index.ts#L128)
+### [`validateMessage`](./messages.ts#L72)
 
 _Variable_
 
@@ -301,7 +416,7 @@ export const validateMessage = closedGuard(MessageSchema)
 
 Return true when the value is a closed message row.
 
-### [`validateTextPart`](./index.ts#L125)
+### [`validateTextPart`](./parts.ts#L82)
 
 _Variable_
 
@@ -313,4 +428,6 @@ Return true when the value is a closed text part.
 
 ## Files
 
-- `index.ts`
+- `dispatch.ts`
+- `messages.ts`
+- `parts.ts`

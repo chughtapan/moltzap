@@ -13,7 +13,7 @@ Public barrel for task protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableTaskRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L43)
+### [`agentCallableTaskRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/index.ts#L52)
 
 _Variable_
 
@@ -25,7 +25,9 @@ export const agentCallableTaskRpcMethods = [
 ] as const
 ```
 
-### [`appCallableTaskRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L49)
+Task RPC catalog callable by agent clients.
+
+### [`appCallableTaskRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/index.ts#L59)
 
 _Variable_
 
@@ -37,7 +39,9 @@ export const appCallableTaskRpcMethods = [
 ] as const
 ```
 
-### [`HookBlockedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L95)
+Task RPC catalog callable by app clients.
+
+### [`HookBlockedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L91)
 
 _Class_
 
@@ -50,7 +54,7 @@ export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
 }
 ```
 
-### [`InitialConversationInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L168)
+### [`InitialConversationInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L164)
 
 _TypeAlias_
 
@@ -60,7 +64,7 @@ export type InitialConversationInput = Schema.Schema.Type<
 >;
 ```
 
-### [`Task`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L117)
+### [`Task`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L113)
 
 _TypeAlias_
 
@@ -68,7 +72,7 @@ _TypeAlias_
 export type Task = Schema.Schema.Type<typeof TaskSchema>;
 ```
 
-### [`TaskAddParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L314)
+### [`TaskAddParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L310)
 
 _Variable_
 
@@ -90,7 +94,7 @@ TM-only: admit an agent to a task the calling app owns.
 - **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
   `task/close`).
 
-### [`taskCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L55)
+### [`taskCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/index.ts#L66)
 
 _Variable_
 
@@ -98,7 +102,9 @@ _Variable_
 export const taskCallbackMethods = [TaskCreate] as const
 ```
 
-### [`TaskClose`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L294)
+Task callback catalog served by app clients for server-initiated calls.
+
+### [`TaskClose`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L290)
 
 _Variable_
 
@@ -118,7 +124,7 @@ TM-only: close a task the calling app owns.
   runs `assertCallerAppOwnsTask` before the body, rejecting a caller that
   does not own the task.
 
-### [`TaskClosedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L72)
+### [`TaskClosedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L68)
 
 _Class_
 
@@ -131,7 +137,7 @@ export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
 }
 ```
 
-### [`TaskClosedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L391)
+### [`TaskClosedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L387)
 
 _Variable_
 
@@ -144,7 +150,7 @@ export const TaskClosedNotificationDefinition = defineNotification({
 
 Pushed when a task closes.
 
-### [`TaskCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L248)
+### [`TaskCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L244)
 
 _Variable_
 
@@ -163,7 +169,7 @@ task.
 
 - **Principal:** none — a server→client reverse callback.
 
-### [`TaskCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L382)
+### [`TaskCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L378)
 
 _Variable_
 
@@ -179,7 +185,7 @@ the `task/create` wire callback and the task transitions from `waiting` to
 `active`. Carries the full Task row (matching `task/closed`'s shape) so
 subscribers don't need a second read to discover the post-transition state.
 
-### [`TaskFailedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L371)
+### [`TaskFailedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L367)
 
 _Variable_
 
@@ -208,7 +214,7 @@ _Variable_
 export type TaskId = string & Brand.Brand<"TaskId">
 ```
 
-### [`TaskLeave`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L273)
+### [`TaskLeave`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L269)
 
 _Variable_
 
@@ -233,7 +239,7 @@ fires alongside in the same transaction.
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`TaskList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L143)
+### [`TaskList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L139)
 
 _Variable_
 
@@ -277,7 +283,7 @@ The referenced task does not exist (or the caller cannot see it). Lives in the
 task-id leaf so the `TaskReadAccess` requirement can declare it as its
 fail-closed not-found without a `requirements -> tasks` runtime import cycle.
 
-### [`taskNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/methods.ts#L57)
+### [`taskNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/index.ts#L69)
 
 _Variable_
 
@@ -289,7 +295,9 @@ export const taskNotifications = [
 ] as const
 ```
 
-### [`TaskParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L131)
+Task notification catalog emitted by the server.
+
+### [`TaskParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L127)
 
 _TypeAlias_
 
@@ -297,7 +305,7 @@ _TypeAlias_
 export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
 ```
 
-### [`TaskRejectedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L88)
+### [`TaskRejectedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L84)
 
 _Class_
 
@@ -318,7 +326,7 @@ rejected by the moderator" — an expected, actionable outcome —
 from an opaque internal error. The TM's reason rides in the
 `data` arm when present.
 
-### [`TaskRemoveParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L337)
+### [`TaskRemoveParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L333)
 
 _Variable_
 
@@ -340,7 +348,7 @@ TM-only: remove an agent from a task the calling app owns.
 - **Principal:** `AppPrincipal` head + `assertCallerAppOwnsTask` (see
   `task/close`).
 
-### [`TaskRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L194)
+### [`TaskRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L190)
 
 _Variable_
 
@@ -379,7 +387,7 @@ result is returned after the verdict resolves (the handler awaits it).
 - **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
   reach every `invitedAgentIds` target under the recipient's contact policy.
 
-### [`TaskStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L105)
+### [`TaskStatus`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/task/tasks.ts#L101)
 
 _TypeAlias_
 
@@ -390,5 +398,5 @@ export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 ## Files
 
 - `ids.ts`
-- `methods.ts`
+- `index.ts`
 - `tasks.ts`

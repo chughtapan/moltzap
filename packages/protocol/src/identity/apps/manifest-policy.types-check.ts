@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the required manifest hook policies
- * (`app/manifest.ts → AppManifestSchema`).
+ * (`identity/apps/manifest.ts -> AppManifestSchema`).
  *
  * The manifest's `hooks` block and each of its three policy slots are
  * required discriminated unions. That is the load-bearing invariant: an

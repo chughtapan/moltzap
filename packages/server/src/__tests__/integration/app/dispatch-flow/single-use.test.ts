@@ -3,8 +3,8 @@
  */
 import { it as effectIt } from "@effect/vitest";
 import { TaskConversationArchive } from "@moltzap/protocol/conversation";
-import type { AppManifest } from "@moltzap/protocol/app";
-import type { LeaseId } from "@moltzap/protocol/message";
+import type { AppManifest } from "@moltzap/protocol/identity";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {

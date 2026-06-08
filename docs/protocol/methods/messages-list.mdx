@@ -1,11 +1,11 @@
 ---
 title: "messages/list"
-description: "Call `messages/list`."
+description: "List messages in a conversation with cursor-based pagination."
 ---
 
 # messages/list
 
-Call `messages/list`.
+List messages in a conversation with cursor-based pagination.
 
 ## Parameters
 
@@ -34,3 +34,9 @@ Call `messages/list`.
 <ResponseField name="hasMore" type="boolean">
   The hasMore field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the caller is not a participant of the conversation |

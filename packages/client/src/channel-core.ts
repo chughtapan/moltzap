@@ -6,7 +6,8 @@
 
 import { Cause, Chunk, Deferred, Duration, Effect, Fiber, Queue } from "effect";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { LeaseId, Message } from "@moltzap/protocol/message";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
+import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
 import type {
   CrossConversationEntry,

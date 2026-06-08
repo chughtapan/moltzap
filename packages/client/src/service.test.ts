@@ -9,7 +9,7 @@ import {
   TaskConversationList,
   TaskConversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
-import { DispatchRequest } from "@moltzap/protocol/dispatch";
+import { DispatchRequest } from "@moltzap/protocol/message/dispatch";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,

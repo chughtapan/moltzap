@@ -11,5 +11,5 @@ export {
   validateAgentCard,
   agentOwnershipSchema,
 } from "./types.js";
-export { AgentsLookup, AgentsLookupByName, AgentsList } from "./methods.js";
+export { AgentsLookup, AgentsLookupByName, AgentsList } from "./agents.js";
 export type { Agent, AgentCard } from "./types.js";

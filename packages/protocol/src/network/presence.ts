@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { AgentId } from "#identity/agents";
 import { stringEnum } from "../transport/wire-string.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
-import { AuthenticatedPrincipal } from "../transport/principal.js";
+import { AuthenticatedPrincipal } from "#identity/principals";
 import { NotInContactsError } from "#identity/contacts";
 
 // Presence is server-derived from `LeaseRegistry` lifecycle: `online` =

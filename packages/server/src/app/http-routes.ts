@@ -9,7 +9,10 @@ import { Cause, Data, Effect, Either, Exit, Redacted, Schema } from "effect";
 import type { AgentKey } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import { Register } from "@moltzap/protocol/identity";
-import { validateAppManifest, type AppManifest } from "@moltzap/protocol/app";
+import {
+  validateAppManifest,
+  type AppManifest,
+} from "@moltzap/protocol/identity";
 
 import type { AppTags } from "../transport/layer-tags.js";
 import type { ConnectionTag, ResolvedServices } from "./layers.js";

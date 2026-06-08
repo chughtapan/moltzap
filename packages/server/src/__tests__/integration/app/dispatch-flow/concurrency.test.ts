@@ -12,8 +12,8 @@
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import { DispatchRelease } from "@moltzap/protocol/dispatch";
-import type { AppManifest } from "@moltzap/protocol/app";
+import { DispatchRelease } from "@moltzap/protocol/message/dispatch";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";

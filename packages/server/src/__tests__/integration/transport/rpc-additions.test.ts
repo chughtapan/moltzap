@@ -19,13 +19,13 @@ import {
   TaskCreate,
   TaskRequest,
 } from "@moltzap/protocol/task";
-import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize, MessagesSend } from "@moltzap/protocol/message";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AppManifest } from "@moltzap/protocol/app";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import { messageId } from "@moltzap/protocol/testing";
 
 const APP_ID = "00000000-0000-4000-8000-000000010008";

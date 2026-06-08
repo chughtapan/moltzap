@@ -24,9 +24,9 @@ import {
   UserId,
 } from "../identity/index.js";
 import { connectionId as decodeConnectionId } from "../socket/connection.js";
-import type { AppManifest } from "../app/index.js";
+import type { AppManifest } from "#identity/apps";
 import { ConversationId, MessageId } from "../conversation/index.js";
-import { LeaseId } from "../message/index.js";
+import { LeaseId } from "#message/dispatch";
 import { TaskId } from "../task/index.js";
 
 const UNIQUE_SUFFIX_RADIX = 36;

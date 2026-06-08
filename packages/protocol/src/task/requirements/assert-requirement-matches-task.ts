@@ -1,9 +1,8 @@
 import { Effect } from "effect";
 import { ForbiddenError } from "../../transport/wire-errors.js";
-import type { TaskId, Task } from "../tasks.js";
+import type { TaskId } from "../ids.js";
+import type { Task } from "../tasks.js";
 import type { AppId } from "#identity/apps";
-import type { ConversationId } from "../../conversation/types.js";
-import type { ConversationInTaskValue } from "./conversation-in-task.js";
 import type { TaskReadAccessValue } from "./task-read-access.js";
 
 /**
@@ -17,8 +16,6 @@ import type { TaskReadAccessValue } from "./task-read-access.js";
  */
 
 const ERR_REQUIREMENT_TASK_MISMATCH = "requirement/task mismatch";
-const ERR_REQUIREMENT_CONV_MISMATCH = "requirement/conversation mismatch";
-
 const assertTaskIdMatches = (
   requirementTaskId: TaskId,
   expectedTaskId: TaskId,
@@ -40,30 +37,6 @@ export const assertTaskReadAccessMatchesTask = (
   expectedTaskId: TaskId,
 ): Effect.Effect<void, ForbiddenError> =>
   assertTaskIdMatches(requirement.task.id, expectedTaskId);
-
-/**
- * Verifies the requirement's carried `(taskId, conversationId)` pair
- * equals the expected pair. Fails with `ForbiddenError` on the first
- * mismatch; runs both comparisons in one Effect for handler-side
- * symmetry with `assertTaskReadAccessMatchesTask`.
- */
-export const assertConversationInTaskMatches = (
-  requirement: ConversationInTaskValue,
-  expectedTaskId: TaskId,
-  expectedConversationId: ConversationId,
-): Effect.Effect<void, ForbiddenError> => {
-  if (requirement.taskId !== expectedTaskId) {
-    return Effect.fail(
-      new ForbiddenError({ message: ERR_REQUIREMENT_TASK_MISMATCH }),
-    );
-  }
-  if (requirement.conversationId !== expectedConversationId) {
-    return Effect.fail(
-      new ForbiddenError({ message: ERR_REQUIREMENT_CONV_MISMATCH }),
-    );
-  }
-  return Effect.void;
-};
 
 const ERR_NOT_TASK_APP =
   "Caller is not the registered task manager for this task";

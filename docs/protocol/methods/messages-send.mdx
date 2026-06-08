@@ -1,11 +1,11 @@
 ---
 title: "messages/send"
-description: "Call `messages/send`."
+description: "Send a message to a conversation under a task."
 ---
 
 # messages/send
 
-Call `messages/send`.
+Send a message to a conversation under a task.
 
 ## Parameters
 
@@ -34,3 +34,18 @@ Call `messages/send`.
 <ResponseField name="message" type="object">
   The message field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `MessageNotFoundError` | the `replyToId` reply target is absent |
+| `DispatchNotFoundError` | the dispatch lease is missing |
+| `ForbiddenError` | the sender cannot post or the dispatch lease is consumed/invalid |
+| `TaskClosedError` | the task is closed or failed |
+| `ConversationArchivedError` | the conversation is archived |
+| `HookBlockedError` | an app-side send hook blocks the message |
+
+## Related Notifications
+
+- [`messages/received`](/protocol/notifications/messages-received)

@@ -10,9 +10,9 @@ import {
   type AnyNotificationDefinition,
   type AnyServerRpcDefinition,
 } from "./rpc-groups.js";
-import { MessagesAuthorize } from "../message/index.js";
-import { TaskCreate } from "../task/methods.js";
-import { DispatchAuthorize } from "../dispatch/index.js";
+import { MessagesAuthorize } from "#message";
+import { TaskCreate } from "#task";
+import { DispatchAuthorize } from "#message/dispatch";
 import {
   makeClientChannelProtocol,
   makeServerChannelProtocol,
@@ -30,17 +30,17 @@ import {
 import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
 import type {
   AgentPrincipal,
-  AgentClaimed,
   AppPrincipal,
   AuthenticatedPrincipal,
-} from "../transport/principal.js";
+} from "#identity/principals";
+import type { AgentClaimed } from "#identity/requirements";
 import type { NotificationPayloadOf } from "../transport/method.js";
 import type {
-  ContactPolicyAllowsReach,
   ConversationInTask,
   ConversationSendAccess,
-  TaskReadAccess,
-} from "#task/requirements";
+} from "#conversation/requirements";
+import type { ContactPolicyAllowsReach } from "#identity/contacts/requirements";
+import type { TaskReadAccess } from "#task/requirements";
 
 export type ServerSocketWrite = (
   raw: string,

@@ -8,14 +8,7 @@
 
 export { TaskReadAccess } from "./task-read-access.js";
 export type { TaskReadAccessValue } from "./task-read-access.js";
-export { ConversationInTask } from "./conversation-in-task.js";
-export type { ConversationInTaskValue } from "./conversation-in-task.js";
-export { ConversationSendAccess } from "./conversation-send-access.js";
-export type { ConversationSendAccessValue } from "./conversation-send-access.js";
-export { ContactPolicyAllowsReach } from "./contact-policy-allows-reach.js";
-export type { ContactPolicyAllowsReachValue } from "./contact-policy-allows-reach.js";
 export {
   assertAppOwnsTask,
-  assertConversationInTaskMatches,
   assertTaskReadAccessMatchesTask,
 } from "./assert-requirement-matches-task.js";

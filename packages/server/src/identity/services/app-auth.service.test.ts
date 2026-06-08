@@ -2,7 +2,7 @@ import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
 import { Cause, Effect, Exit } from "effect";
 import * as fc from "fast-check";
-import type { AppManifest } from "@moltzap/protocol/app";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import { appId as makeAppId, redactedAppKey } from "@moltzap/protocol/testing";
 import { UnauthorizedError } from "@moltzap/protocol/transport";
 import {

@@ -11,4 +11,6 @@ export {
   ContactAcceptedNotificationDefinition,
   NotInContactsError,
   ContactNotFoundError,
-} from "./protocol.js";
+} from "./contacts.js";
+export { ContactPolicyAllowsReach } from "./requirements/index.js";
+export type { ContactPolicyAllowsReachValue } from "./requirements/index.js";

@@ -1,6 +1,5 @@
 import { Effect, Schema } from "effect";
-import type { DispatchId } from "../../../dispatch/index.js";
-import type { LeaseId } from "../../../message/index.js";
+import type { DispatchId, LeaseId } from "#message/dispatch";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {

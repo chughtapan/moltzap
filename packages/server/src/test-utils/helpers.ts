@@ -26,7 +26,7 @@ import type {
 import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { UserId } from "@moltzap/protocol/identity";
-import type { AppManifest } from "@moltzap/protocol/app";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AppId, TaskId } from "@moltzap/protocol/task";
 

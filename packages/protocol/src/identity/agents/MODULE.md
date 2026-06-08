@@ -85,7 +85,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./methods.ts#L38)
+### [`AgentsList`](./agents.ts#L39)
 
 _Variable_
 
@@ -105,7 +105,7 @@ export const AgentsList = defineRpc({
 })
 ```
 
-### [`AgentsLookup`](./methods.ts#L13)
+### [`AgentsLookup`](./agents.ts#L14)
 
 _Variable_
 
@@ -124,7 +124,7 @@ export const AgentsLookup = defineRpc({
 })
 ```
 
-### [`AgentsLookupByName`](./methods.ts#L26)
+### [`AgentsLookupByName`](./agents.ts#L27)
 
 _Variable_
 
@@ -199,8 +199,8 @@ export const validateAgentCard = closedGuard(AgentCardSchema)
 
 ## Files
 
+- `agents.ts`
 - `credentials.ts`
 - `ids.ts`
-- `methods.ts`
 - `registration.ts`
 - `types.ts`

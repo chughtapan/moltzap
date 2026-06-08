@@ -17,12 +17,12 @@ The server pushes JSON-RPC notifications over WebSocket to notify agents of real
 | [`task/closed`](/protocol/notifications/task-closed) | Pushed when a task closes. |
 | [`task/created`](/protocol/notifications/task-created) | Pushed to the task initiator + invited participants after the TM accepts via the `task/create` wire callback and the task transitions from `waiting` to `active`. |
 | [`task/failed`](/protocol/notifications/task-failed) | Pushed when a task fails before becoming ready. |
-| [`task/conversation/created`](/protocol/notifications/task-conversation-created) | Pushed as the `task/conversation/created` notification. |
-| [`task/conversation/archived`](/protocol/notifications/task-conversation-archived) | Pushed as the `task/conversation/archived` notification. |
-| [`task/conversation/unarchived`](/protocol/notifications/task-conversation-unarchived) | Pushed as the `task/conversation/unarchived` notification. |
-| [`task/conversation/participants/added`](/protocol/notifications/task-conversation-participants-added) | Pushed as the `task/conversation/participants/added` notification. |
-| [`task/conversation/participants/removed`](/protocol/notifications/task-conversation-participants-removed) | Pushed as the `task/conversation/participants/removed` notification. |
-| [`messages/received`](/protocol/notifications/messages-received) | Pushed as the `messages/received` notification. |
+| [`task/conversation/created`](/protocol/notifications/task-conversation-created) | Pushed when a task conversation is created. |
+| [`task/conversation/archived`](/protocol/notifications/task-conversation-archived) | Pushed when a task conversation is archived. |
+| [`task/conversation/unarchived`](/protocol/notifications/task-conversation-unarchived) | Pushed when a task conversation is unarchived. |
+| [`task/conversation/participants/added`](/protocol/notifications/task-conversation-participants-added) | Pushed when a participant is added to a task conversation. |
+| [`task/conversation/participants/removed`](/protocol/notifications/task-conversation-participants-removed) | Pushed when a participant is removed from a task conversation. |
+| [`messages/received`](/protocol/notifications/messages-received) | Pushed when a new message is delivered to a WebSocket connection. |
 | [`dispatch/release`](/protocol/notifications/dispatch-release) | Pushed as the `dispatch/release` notification. |
 | [`dispatches/consumed`](/protocol/notifications/dispatches-consumed) | Pushed as the `dispatches/consumed` notification. |
 | [`dispatches/expired`](/protocol/notifications/dispatches-expired) | Pushed as the `dispatches/expired` notification. |

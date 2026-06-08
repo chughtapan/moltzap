@@ -18,9 +18,23 @@ export {
 } from "./agents/index.js";
 export type { Agent, AgentCard } from "./agents/index.js";
 
-export { AppId, DEFAULT_APP_ID, AppKey } from "./apps/index.js";
+export {
+  AppId,
+  DEFAULT_APP_ID,
+  AppKey,
+  validateAppManifest,
+} from "./apps/index.js";
+export type { AppManifest, AppManifestValidationResult } from "./apps/index.js";
 
 export { UserId } from "./users/index.js";
+
+export {
+  AgentPrincipal,
+  AppPrincipal,
+  AuthenticatedPrincipal,
+} from "./principals/index.js";
+export type { PrincipalRequirement } from "./principals/index.js";
+export { AgentClaimed } from "./requirements/index.js";
 
 export {
   ContactId,
@@ -32,4 +46,37 @@ export {
   ContactAcceptedNotificationDefinition,
   NotInContactsError,
   ContactNotFoundError,
+  ContactPolicyAllowsReach,
 } from "./contacts/index.js";
+export type { ContactPolicyAllowsReachValue } from "./contacts/index.js";
+
+import {
+  AgentsLookup,
+  AgentsLookupByName,
+  AgentsList,
+} from "./agents/index.js";
+import {
+  ContactsList,
+  ContactsAdd,
+  ContactsAccept,
+  ContactsById,
+  ContactRequestNotificationDefinition,
+  ContactAcceptedNotificationDefinition,
+} from "./contacts/index.js";
+
+/** Identity RPC catalog accepted by agent clients. */
+export const identityRpcMethods = [
+  AgentsLookup,
+  AgentsLookupByName,
+  AgentsList,
+  ContactsList,
+  ContactsAdd,
+  ContactsAccept,
+  ContactsById,
+] as const;
+
+/** Identity notification catalog emitted by the server. */
+export const identityNotifications = [
+  ContactRequestNotificationDefinition,
+  ContactAcceptedNotificationDefinition,
+] as const;

@@ -1,4 +1,4 @@
-import type { AppManifest } from "@moltzap/protocol/app";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import { AppId } from "@moltzap/protocol/task";
 import type { Originator } from "../transport/connection.js";

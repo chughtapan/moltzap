@@ -1,0 +1,66 @@
+# protocol/conversation/requirements
+
+_`packages/protocol/src/conversation/requirements`_
+
+## Purpose
+
+Conversation-owned requirement middleware tags.
+
+## Public surface
+
+### [`ConversationInTask`](./conversation-in-task.ts#L15)
+
+_Class_
+
+```ts
+export class ConversationInTask extends RpcMiddleware.Tag<ConversationInTask>()(
+  "@moltzap/protocol/ConversationInTask",
+  { failure: Schema.Union(ConversationNotFoundError) },
+) {}
+```
+
+### [`ConversationInTaskValue`](./conversation-in-task.ts#L10)
+
+_Interface_
+
+```ts
+export interface ConversationInTaskValue {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+```
+
+Requirement: proves `conversation.task_id === taskId`.
+
+### [`ConversationSendAccess`](./conversation-send-access.ts#L20)
+
+_Class_
+
+```ts
+export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAccess>()(
+  "@moltzap/protocol/ConversationSendAccess",
+  { failure: Schema.Union(ForbiddenError) },
+) {}
+```
+
+### [`ConversationSendAccessValue`](./conversation-send-access.ts#L12)
+
+_Interface_
+
+```ts
+export interface ConversationSendAccessValue {
+  readonly conversationId: ConversationId;
+  readonly taskId: TaskId;
+  readonly appId: AppId | null;
+  readonly taskStatus: TaskStatus;
+  readonly archivedAt: Date | null;
+}
+```
+
+Permission: the caller may send to this conversation, proven by participant
+membership. The server obtain performs the joined read that feeds send guards.
+
+## Files
+
+- `conversation-in-task.ts`
+- `conversation-send-access.ts`

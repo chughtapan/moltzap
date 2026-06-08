@@ -5,7 +5,7 @@ import {
   ListLimitSchema,
   listCursorSchema,
 } from "../../transport/pagination.js";
-import { AgentPrincipal } from "../../transport/principal.js";
+import { AgentPrincipal } from "#identity/principals";
 import {
   ConflictError,
   ForbiddenError,

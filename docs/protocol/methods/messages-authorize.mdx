@@ -1,11 +1,11 @@
 ---
 title: "messages/authorize"
-description: "Call `messages/authorize`."
+description: "Server callback asking an app for the per-message fan-out verdict."
 ---
 
 # messages/authorize
 
-Call `messages/authorize`.
+Server callback asking an app for the per-message fan-out verdict.
 
 ## Parameters
 
@@ -34,3 +34,9 @@ Call `messages/authorize`.
 <ResponseField name="verdict" type="union">
   The verdict field.
 </ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the app rejects; the server treats the verdict as a fail-closed block |

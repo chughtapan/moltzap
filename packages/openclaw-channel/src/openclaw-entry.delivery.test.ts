@@ -13,7 +13,7 @@ import type { ServiceRpcError } from "@moltzap/client";
 import { AgentsLookup } from "@moltzap/protocol/identity";
 import { MessagesSend } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { LeaseId } from "@moltzap/protocol/message";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type {
   ParamsOf,
   ResultOf,

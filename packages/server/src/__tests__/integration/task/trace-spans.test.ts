@@ -19,7 +19,7 @@ import {
   TaskCreate,
   TaskRequest,
 } from "@moltzap/protocol/task";
-import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
   MessageReceivedNotificationDefinition,
   MessagesAuthorize,
@@ -31,7 +31,7 @@ import type {
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
 import type { AppId } from "@moltzap/protocol/task";
-import type { AppManifest } from "@moltzap/protocol/app";
+import type { AppManifest } from "@moltzap/protocol/identity";
 
 let spanExporter: InMemorySpanExporter;
 const TRACE_APP_ID = "00000000-0000-4000-8000-000000010006" as AppId;

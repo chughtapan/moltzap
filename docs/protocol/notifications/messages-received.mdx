@@ -1,11 +1,11 @@
 ---
 title: "messages/received"
-description: "Pushed as the `messages/received` notification."
+description: "Pushed when a new message is delivered to a WebSocket connection."
 ---
 
 # messages/received
 
-Pushed as the `messages/received` notification.
+Pushed when a new message is delivered to a WebSocket connection.
 
 ## Params
 
@@ -26,3 +26,7 @@ Pushed as the `messages/received` notification.
   "params": { ... }
 }
 ```
+
+## Triggered By
+
+- [`messages/send`](/protocol/methods/messages-send)

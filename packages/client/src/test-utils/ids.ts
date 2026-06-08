@@ -1,6 +1,6 @@
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { LeaseId } from "@moltzap/protocol/message";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { TaskId } from "@moltzap/protocol/task";
 import {
   agentId,

@@ -23,9 +23,9 @@ import type {
   AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
 } from "#socket";
-import { MessagesAuthorize } from "../../../../message/index.js";
+import { MessagesAuthorize } from "#message";
 import { TaskCreate } from "../../../../task/index.js";
-import { DispatchAuthorize } from "../../../../dispatch/index.js";
+import { DispatchAuthorize } from "#message/dispatch";
 import { MoltZapAgentClient } from "../../../../socket/agent-client.js";
 import {
   MoltZapAppClient,

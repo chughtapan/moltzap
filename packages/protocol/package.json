@@ -34,13 +34,9 @@
       "types": "./dist/message/index.d.ts",
       "import": "./dist/message/index.js"
     },
-    "./dispatch": {
-      "types": "./dist/dispatch/index.d.ts",
-      "import": "./dist/dispatch/index.js"
-    },
-    "./app": {
-      "types": "./dist/app/index.d.ts",
-      "import": "./dist/app/index.js"
+    "./message/dispatch": {
+      "types": "./dist/message/dispatch.d.ts",
+      "import": "./dist/message/dispatch.js"
     },
     "./transport": {
       "types": "./dist/transport/index.d.ts",
@@ -66,13 +62,16 @@
     "#identity/apps": "./src/identity/apps/index.ts",
     "#identity/users": "./src/identity/users/index.ts",
     "#identity/contacts": "./src/identity/contacts/index.ts",
+    "#identity/contacts/requirements": "./src/identity/contacts/requirements/index.ts",
+    "#identity/principals": "./src/identity/principals/index.ts",
+    "#identity/requirements": "./src/identity/requirements/index.ts",
     "#network": "./src/network/index.ts",
     "#task": "./src/task/index.ts",
     "#task/requirements": "./src/task/requirements/index.ts",
     "#conversation": "./src/conversation/index.ts",
+    "#conversation/requirements": "./src/conversation/requirements/index.ts",
     "#message": "./src/message/index.ts",
-    "#dispatch": "./src/dispatch/index.ts",
-    "#app": "./src/app/index.ts",
+    "#message/dispatch": "./src/message/dispatch.ts",
     "#socket": "./src/socket/index.ts",
     "#testing": "./src/testing/index.ts"
   },

@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 
 const distRoot = new URL("../dist", import.meta.url).pathname;
 const importAliasPattern =
-  /\b(?:from|import)\s*(?:\([^)]*)?["']#[^"']+["']|^\s*export\s+.*\sfrom\s+["']#[^"']+["']/;
+  /\bfrom\s+["']#[^"']+["']|\bimport\s+["']#[^"']+["']/;
 
 function* emittedFiles(dir) {
   for (const entry of readdirSync(dir)) {

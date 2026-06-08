@@ -8,7 +8,7 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](./methods.ts#L317)
+### [`agentCallableConversationRpcMethods`](./conversations.ts#L314)
 
 _Variable_
 
@@ -20,7 +20,7 @@ export const agentCallableConversationRpcMethods = [
 
 Agent-callable conversation RPC catalog.
 
-### [`appCallableConversationRpcMethods`](./methods.ts#L322)
+### [`appCallableConversationRpcMethods`](./conversations.ts#L319)
 
 _Variable_
 
@@ -109,7 +109,7 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 
 The referenced conversation does not exist under the task (or is not visible).
 
-### [`conversationNotifications`](./methods.ts#L331)
+### [`conversationNotifications`](./conversations.ts#L328)
 
 _Variable_
 
@@ -214,7 +214,7 @@ export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantN
 A requested conversation participant is not admitted to the task that owns
 the conversation.
 
-### [`TaskConversationAddParticipant`](./methods.ts#L174)
+### [`TaskConversationAddParticipant`](./conversations.ts#L171)
 
 _Variable_
 
@@ -240,7 +240,7 @@ TM-only: add an agent to one conversation. The agent MUST already appear in
   `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
   not the participant-admitted state probe).
 
-### [`TaskConversationArchive`](./methods.ts#L129)
+### [`TaskConversationArchive`](./conversations.ts#L126)
 
 _Variable_
 
@@ -259,7 +259,7 @@ TM-only: archive one conversation. Task stays open.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationArchivedNotification`](./methods.ts#L260)
+### [`TaskConversationArchivedNotification`](./conversations.ts#L257)
 
 _TypeAlias_
 
@@ -271,7 +271,7 @@ export type TaskConversationArchivedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/archived`.
 
-### [`TaskConversationArchivedNotificationDefinition`](./methods.ts#L289)
+### [`TaskConversationArchivedNotificationDefinition`](./conversations.ts#L286)
 
 _Variable_
 
@@ -285,7 +285,7 @@ export const TaskConversationArchivedNotificationDefinition =
 
 Pushed when a task conversation is archived.
 
-### [`TaskConversationCreate`](./methods.ts#L53)
+### [`TaskConversationCreate`](./conversations.ts#L50)
 
 _Variable_
 
@@ -322,7 +322,7 @@ for `taskId`; violations return `ParticipantNotAdmittedError`.
   agent contact-edges; targets are gated by
   `requireAgentsAreInTaskParticipants`.
 
-### [`TaskConversationCreatedNotification`](./methods.ts#L255)
+### [`TaskConversationCreatedNotification`](./conversations.ts#L252)
 
 _TypeAlias_
 
@@ -334,7 +334,7 @@ export type TaskConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/created`.
 
-### [`TaskConversationCreatedNotificationDefinition`](./methods.ts#L281)
+### [`TaskConversationCreatedNotificationDefinition`](./conversations.ts#L278)
 
 _Variable_
 
@@ -349,7 +349,7 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 
 Pushed when a task conversation is created.
 
-### [`TaskConversationList`](./methods.ts#L97)
+### [`TaskConversationList`](./conversations.ts#L94)
 
 _Variable_
 
@@ -375,7 +375,7 @@ all tasks). No filter params; archived rows are included; callers filter
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`TaskConversationListItem`](./methods.ts#L84)
+### [`TaskConversationListItem`](./conversations.ts#L81)
 
 _TypeAlias_
 
@@ -387,7 +387,7 @@ export type TaskConversationListItem = Schema.Schema.Type<
 
 Conversation list item returned by `task/conversation/list`.
 
-### [`TaskConversationParticipantsAddedNotification`](./methods.ts#L270)
+### [`TaskConversationParticipantsAddedNotification`](./conversations.ts#L267)
 
 _TypeAlias_
 
@@ -399,7 +399,7 @@ export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/participants/added`.
 
-### [`TaskConversationParticipantsAddedNotificationDefinition`](./methods.ts#L303)
+### [`TaskConversationParticipantsAddedNotificationDefinition`](./conversations.ts#L300)
 
 _Variable_
 
@@ -413,7 +413,7 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
 
 Pushed when a participant is added to a task conversation.
 
-### [`TaskConversationParticipantsRemovedNotification`](./methods.ts#L275)
+### [`TaskConversationParticipantsRemovedNotification`](./conversations.ts#L272)
 
 _TypeAlias_
 
@@ -426,7 +426,7 @@ export type TaskConversationParticipantsRemovedNotification =
 
 Notification payload for `task/conversation/participants/removed`.
 
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](./methods.ts#L310)
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](./conversations.ts#L307)
 
 _Variable_
 
@@ -440,7 +440,7 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
 
 Pushed when a participant is removed from a task conversation.
 
-### [`TaskConversationRemoveParticipant`](./methods.ts#L200)
+### [`TaskConversationRemoveParticipant`](./conversations.ts#L197)
 
 _Variable_
 
@@ -465,7 +465,7 @@ conversations within the task).
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchive`](./methods.ts#L150)
+### [`TaskConversationUnarchive`](./conversations.ts#L147)
 
 _Variable_
 
@@ -484,7 +484,7 @@ TM-only: reverse of `task/conversation/archive`.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchivedNotification`](./methods.ts#L265)
+### [`TaskConversationUnarchivedNotification`](./conversations.ts#L262)
 
 _TypeAlias_
 
@@ -496,7 +496,7 @@ export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/unarchived`.
 
-### [`TaskConversationUnarchivedNotificationDefinition`](./methods.ts#L296)
+### [`TaskConversationUnarchivedNotificationDefinition`](./conversations.ts#L293)
 
 _Variable_
 
@@ -512,5 +512,5 @@ Pushed when a task conversation is unarchived.
 
 ## Files
 
-- `methods.ts`
+- `conversations.ts`
 - `types.ts`

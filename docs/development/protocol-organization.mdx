@@ -24,16 +24,16 @@ Protocol layers build upward:
 transport
   -> identity
   -> network
-  -> task / conversation / message / dispatch
-  -> catalog
+  -> task / conversation / message
   -> socket
   -> testing
 ```
 
 `identity` owns principals, identities, credentials, and principal
 requirements. `network` owns socket handshake and presence protocol. Task,
-conversation, message, and dispatch are peer domains. `socket` owns the runtime
-factories that open agent/app clients and the server.
+conversation, and message are peer domains. Dispatch is message moderation, so
+it stays under the message domain. `socket` owns the runtime factories that
+open agent/app clients and the server.
 
 ## Target Tree
 
@@ -53,7 +53,6 @@ packages/protocol/src/
 
   identity/
     index.ts
-    catalog.ts
 
     principals/
       agent-principal.ts
@@ -70,7 +69,7 @@ packages/protocol/src/
       ids.ts
       credentials.ts
       registration.ts
-      methods.ts
+      agents.ts
       types.ts
 
     apps/
@@ -91,58 +90,36 @@ packages/protocol/src/
       requirements/
         contact-policy-allows-reach.ts
         index.ts
-      methods.ts
-      notifications.ts
-      types.ts
+      contacts.ts
 
   network/
     index.ts
-    catalog.ts
     connect.ts
     presence.ts
 
   task/
     index.ts
-    catalog.ts
     ids.ts
     requirements/
       task-read-access.ts
       app-owns-task.ts
       index.ts
-    methods.ts
-    notifications.ts
-    types.ts
+    tasks.ts
 
   conversation/
     index.ts
-    catalog.ts
-    ids.ts
     requirements/
       conversation-in-task.ts
       conversation-send-access.ts
       index.ts
-    methods.ts
-    notifications.ts
+    conversations.ts
     types.ts
 
   message/
     index.ts
-    catalog.ts
-    ids.ts
-    methods.ts
-    callbacks.ts
-    notifications.ts
+    messages.ts
+    dispatch.ts
     parts.ts
-    types.ts
-
-  dispatch/
-    index.ts
-    catalog.ts
-    ids.ts
-    methods.ts
-    callbacks.ts
-    notifications.ts
-    decisions.ts
 
   socket/
     index.ts
@@ -153,7 +130,6 @@ packages/protocol/src/
     connection.ts
     close-info.ts
 
-  catalog.ts
   testing/
 ```
 
@@ -169,12 +145,13 @@ Examples:
 - app connect belongs in `network/connect.ts`
 - app key and app manifest belong in `identity/apps/`
 - `app/message/authorize` belongs in `message/callbacks.ts`
-- `app/dispatch/authorize` belongs in `dispatch/callbacks.ts`
+- `app/dispatch/authorize` belongs in `message/dispatch.ts`
 - `app/task/create` belongs in `task` because it is a task callback
 
-Task, conversation, message, and dispatch are peer domains. Do not nest
-conversation or message under task just because their requirements include
-`taskId`.
+Task, conversation, and message are peer domains. Dispatch is the message
+moderation lifecycle, so its ids, methods, callbacks, notifications, and
+decisions live under `message/dispatch.ts`. Do not nest conversation or message
+under task just because their requirements include `taskId`.
 
 ## Wire Naming
 
@@ -287,7 +264,7 @@ agent/message/received                notification
 app/message/authorize                 callback RPC
 ```
 
-### Dispatch
+### Message Dispatch
 
 ```text
 agent/dispatch/request                RPC
@@ -301,7 +278,8 @@ app/dispatch/lease-expired            notification
 ```
 
 Only `app/dispatch/lease/get` is a method. Lease consumed and expired are
-server-pushed events, not method siblings.
+server-pushed events, not method siblings. These descriptors live under
+`message/dispatch`; there is no top-level `dispatch` package export.
 
 ## Credentials
 
@@ -361,9 +339,9 @@ Each domain gets a narrow `index.ts` barrel. Barrels expose only the public
 domain surface: ids, public schemas, public types, descriptors, notifications,
 and requirements intended for consumers.
 
-Each domain can have a `catalog.ts` for descriptor arrays used by protocol
-composition. Catalog files are internal package implementation details and
-should not be package-exported.
+Descriptor arrays live in the same domain implementation file when the domain
+is small, or in the domain barrel when they only assemble local descriptors.
+Do not create catalog files just to avoid a few imports.
 
 Public package exports should be limited to:
 
@@ -375,7 +353,7 @@ Public package exports should be limited to:
   "./task": "./dist/task/index.js",
   "./conversation": "./dist/conversation/index.js",
   "./message": "./dist/message/index.js",
-  "./dispatch": "./dist/dispatch/index.js",
+  "./message/dispatch": "./dist/message/dispatch.js",
   "./socket": "./dist/socket/index.js",
   "./testing": "./dist/testing/index.js"
 }
@@ -399,8 +377,8 @@ their option/result types
 ## Import Rules
 
 Imports should go through barrels, and source files should use absolute import
-specifiers. Relative imports are only for the barrel/catalog files that assemble
-their own local folder surface.
+specifiers. Relative imports are only for barrels that assemble their own local
+folder surface and for files importing private helpers from the same folder.
 
 Allowed:
 
@@ -456,7 +434,7 @@ Target protocol source aliases:
 #conversation
 #conversation/requirements
 #message
-#dispatch
+#message/dispatch
 #socket
 #testing
 ```
@@ -471,10 +449,10 @@ Target protocol source aliases:
 5. Move credentials and branded ids to their owning identity/domain folders.
 6. Move principals to `identity/principals` and concrete requirements to domain
    `requirements/` folders.
-7. Move descriptors into task, conversation, message, dispatch, identity, and
+7. Move descriptors into task, conversation, message/dispatch, identity, and
    network domain files.
 8. Move socket lifecycle factories into `socket/`.
-9. Build internal `catalog.ts` composition from domain `catalog.ts` files.
+9. Build socket composition from domain barrels.
 10. Narrow package exports and remove public `requirements` and
    `rpc-method-groups` subpaths.
 11. Rename wire methods to the principal-prefixed naming scheme. This is the
@@ -664,7 +642,7 @@ Allowed:
 import { CoreApp } from "#core";
 import { AgentAuthService } from "#identity/agents";
 import { ConversationService } from "#conversation";
-import { LeaseRegistry } from "#dispatch";
+import { LeaseRegistry } from "#message/dispatch";
 import { ServerSocket } from "#socket";
 ```
 
@@ -673,7 +651,7 @@ Not allowed:
 ```ts
 import { CoreApp } from "../core/app";
 import { AgentAuthService } from "#identity/agents/auth.service";
-import { LeaseRegistry } from "#dispatch/lease-registry";
+import { LeaseRegistry } from "#message/dispatch/lease-registry";
 // Do not import internal service types from "@moltzap/server-core".
 ```
 
@@ -694,14 +672,14 @@ Target server-core source aliases:
 #conversation
 #conversation/requirements
 #message
-#dispatch
+#message/dispatch
 #test-utils
 ```
 
 ### Server Migration Order
 
-1. Add `core/`, `socket/`, `http/`, `conversation/`, `message/`, and
-   `dispatch/` folders without moving behavior.
+1. Add `core/`, `socket/`, `http/`, `conversation/`, and `message/dispatch/`
+   folders without moving behavior.
 2. Add server-core TypeScript `paths`, `tsc-alias` build rewriting, and
    matching source-test alias resolution.
 3. Move boot/wiring files out of `app/` into `core/`, rewriting imports to

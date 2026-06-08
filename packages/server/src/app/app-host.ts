@@ -3,15 +3,15 @@ import type { Db } from "../db/client.js";
 import type { ContactService } from "../identity/services/contact-policy.js";
 import { sendRpcToClient } from "../transport/connection.js";
 import type { ConnectionManager } from "../transport/connection.js";
-import type { AppManifest } from "@moltzap/protocol/app";
-import type { DispatchId } from "@moltzap/protocol/dispatch";
-import type { LeaseId, Part } from "@moltzap/protocol/message";
+import type { AppManifest } from "@moltzap/protocol/identity";
+import type { DispatchId, LeaseId } from "@moltzap/protocol/message/dispatch";
+import type { Part } from "@moltzap/protocol/message";
 import type { ParamsOf, ResultOf } from "@moltzap/protocol/transport";
 import type {
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
 } from "@moltzap/protocol/socket";
-import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { TaskCreate } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";

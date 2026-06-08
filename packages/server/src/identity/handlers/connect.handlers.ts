@@ -10,7 +10,7 @@ import {
   UnauthorizedError,
 } from "@moltzap/protocol/transport";
 import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
-import type { AppManifest } from "@moltzap/protocol/app";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { ServerHandler } from "@moltzap/protocol/socket";

@@ -46,7 +46,7 @@
 import type { Effect, Option } from "effect";
 
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { LeaseId } from "@moltzap/protocol/message";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 
 import type {

@@ -2,7 +2,7 @@ import { RpcGroup, type Rpc } from "@effect/rpc";
 import {
   identityRpcMethods,
   identityNotifications,
-} from "../identity/methods.js";
+} from "../identity/index.js";
 import {
   agentCallableNetworkRpcMethods,
   appCallableNetworkRpcMethods,
@@ -14,7 +14,7 @@ import {
   agentCallableTaskRpcMethods,
   appCallableTaskRpcMethods,
   taskCallbackMethods,
-} from "../task/methods.js";
+} from "../task/index.js";
 import {
   agentCallableConversationRpcMethods,
   appCallableConversationRpcMethods,
@@ -30,7 +30,7 @@ import {
   appCallableDispatchRpcMethods,
   dispatchCallbackMethods,
   dispatchNotifications,
-} from "../dispatch/index.js";
+} from "../message/dispatch.js";
 
 export const appCallbackMethods = [
   ...dispatchCallbackMethods,

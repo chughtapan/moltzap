@@ -38,7 +38,7 @@ import {
   TaskConversationCreatedNotificationDefinition,
   TaskConversationList,
 } from "@moltzap/protocol/conversation";
-import { DispatchAuthorize } from "@moltzap/protocol/dispatch";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize } from "@moltzap/protocol/message";
 import type {
   AppCallbackContext,

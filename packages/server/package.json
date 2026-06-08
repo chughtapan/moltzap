@@ -31,7 +31,6 @@
   "scripts": {
     "build": "nx run @moltzap/server-core:build",
     "lint": "nx run @moltzap/server-core:lint",
-    "typecheck:layers": "tsc -p src/network && tsc -p src/task",
     "dev": "tsx watch src/standalone.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",

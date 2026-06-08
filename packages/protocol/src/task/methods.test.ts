@@ -4,7 +4,7 @@ import {
   validateDispatchDecision,
   validateMessage,
   validateTextPart,
-} from "../message/index.js";
+} from "#message";
 
 describe("TextPartSchema", () => {
   it("accepts valid text part", () => {
