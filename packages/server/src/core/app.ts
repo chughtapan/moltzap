@@ -25,7 +25,7 @@ import {
   ServicesLive,
   resolveServices,
 } from "./layers.js";
-import { installDefaultApp } from "../app/default-app.js";
+import { installDefaultApp } from "#identity/apps";
 import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
 import { makeCoreSocketHandler } from "../socket/server-socket.js";
 
@@ -236,7 +236,7 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  * deadlocking `Scope.close`. Draining the registry first (fail-closed every
  * lease so notifications drop, interrupt the live TTL/round-trip fibers)
  * removes the parked write. See
- * `task/leases/lease-registry.ts → LeaseRegistry.shutdown`.
+ * `dispatch/lease-registry.ts → LeaseRegistry.shutdown`.
  */
 function closeCoreAppEffect(options: CoreAppApiOptions) {
   const { services } = options;

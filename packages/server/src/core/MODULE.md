@@ -33,7 +33,7 @@ gate narrowed the arm to `"agent"`. A non-agent arm is an impossible-state
 defect: the gate runs before the handler, so reaching here off a non-agent arm
 means the engine ran a handler whose middleware should have rejected the frame.
 
-### [`AgentEndpointResolverTag`](./layers.ts#L90)
+### [`AgentEndpointResolverTag`](./layers.ts#L87)
 
 _Class_
 
@@ -71,7 +71,7 @@ Read the request-scoped app context for a handler whose principal gate
 narrowed the arm to `"app"`. A non-app arm is an impossible-state defect for
 the same reason as agentArm.
 
-### [`AppAuthServiceTag`](./layers.ts#L112)
+### [`AppAuthServiceTag`](./layers.ts#L109)
 
 _Class_
 
@@ -82,7 +82,7 @@ export class AppAuthServiceTag extends Context.Tag("moltzap/AppAuthService")<
 >() {}
 ```
 
-### [`AppHostTag`](./layers.ts#L131)
+### [`AppHostTag`](./layers.ts#L128)
 
 _Class_
 
@@ -93,7 +93,7 @@ export class AppHostTag extends Context.Tag("moltzap/AppHost")<
 >() {}
 ```
 
-### [`AuthServiceTag`](./layers.ts#L102)
+### [`AuthServiceTag`](./layers.ts#L99)
 
 _Class_
 
@@ -118,7 +118,7 @@ export type ConnectionHook = (params: {
 }) => PromiseLike<void> | void;
 ```
 
-### [`ConnectionHooks`](./layers.ts#L75)
+### [`ConnectionHooks`](./layers.ts#L72)
 
 _Interface_
 
@@ -138,7 +138,7 @@ accessors push into; the tag carries them into the request-scoped engine so
 the native handler can fire them in place of the bare-frame
 `fireConnectionHooks` path.
 
-### [`ConnectionHooksTag`](./layers.ts#L80)
+### [`ConnectionHooksTag`](./layers.ts#L77)
 
 _Class_
 
@@ -149,7 +149,7 @@ export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
 >() {}
 ```
 
-### [`ConnectionManagerTag`](./layers.ts#L61)
+### [`ConnectionManagerTag`](./layers.ts#L58)
 
 _Class_
 
@@ -159,7 +159,7 @@ export class ConnectionManagerTag extends Context.Tag(
 )<ConnectionManagerTag, ConnectionManager>() {}
 ```
 
-### [`ConnectionTag`](./layers.ts#L56)
+### [`ConnectionTag`](./layers.ts#L53)
 
 _Class_
 
@@ -177,7 +177,7 @@ need the id read `.connId`; handlers that need the principal narrow on
 `.auth._tag` (`AgentConnection` carries `AgentContext`, `AppConnection`
 carries `AppContext`, `UnauthenticatedConnection` has neither).
 
-### [`ContactsServiceTag`](./layers.ts#L121)
+### [`ContactsServiceTag`](./layers.ts#L118)
 
 _Class_
 
@@ -188,7 +188,7 @@ export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
 >() {}
 ```
 
-### [`ConversationServiceTag`](./layers.ts#L117)
+### [`ConversationServiceTag`](./layers.ts#L114)
 
 _Class_
 
@@ -261,7 +261,7 @@ _Function_
 export function createCoreApp(config: CoreConfig): CoreApp
 ```
 
-### [`DbTag`](./layers.ts#L40)
+### [`DbTag`](./layers.ts#L37)
 
 _Class_
 
@@ -311,7 +311,7 @@ derived from the protocol's wire schemas via `ParamsOf` — the
 hook context IS the wire param shape, so a drift between the
 server-side type and the descriptor is impossible by construction.
 
-### [`EncryptionTag`](./layers.ts#L43)
+### [`EncryptionTag`](./layers.ts#L40)
 
 _Class_
 
@@ -324,7 +324,7 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 
 Optional envelope-encryption helper. null when encryption is disabled.
 
-### [`LeaseRegistryTag`](./layers.ts#L142)
+### [`LeaseRegistryTag`](./layers.ts#L139)
 
 _Class_
 
@@ -382,7 +382,7 @@ participants; the server does not re-fan to non-participants.
 Empty `recipients` is legal — message lands in the sender's
 transcript but is delivered to no one else.
 
-### [`MessageServiceTag`](./layers.ts#L147)
+### [`MessageServiceTag`](./layers.ts#L144)
 
 _Class_
 
@@ -393,7 +393,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 >() {}
 ```
 
-### [`NetworkSendServiceTag`](./layers.ts#L98)
+### [`NetworkSendServiceTag`](./layers.ts#L95)
 
 _Class_
 
@@ -406,7 +406,7 @@ export class NetworkSendServiceTag extends Context.Tag(
 Single outbound surface: `send` (directed) and `broadcast`
 (fan-out).
 
-### [`PresenceServiceLive`](./layers.ts#L246)
+### [`PresenceServiceLive`](./layers.ts#L243)
 
 _Variable_
 
@@ -432,7 +432,7 @@ socket. `LeaseRegistryLive` consumes `PresenceServiceTag` as its
 `transitionObserver`, so a missing wiring surfaces at `tsc --build`
 via the unresolved R channel.
 
-### [`PresenceServiceTag`](./layers.ts#L126)
+### [`PresenceServiceTag`](./layers.ts#L123)
 
 _Class_
 
@@ -479,7 +479,7 @@ precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
 returns `null` — the caller falls through to a no-op tracing Layer (spans
 stay in Effect's fiber context but are not exported).
 
-### [`ResolvedServices`](./layers.ts#L409)
+### [`ResolvedServices`](./layers.ts#L406)
 
 _Interface_
 
@@ -505,7 +505,7 @@ export interface ResolvedServices {
 Shape of the fully-resolved services. Handler factories consume this
 plain-object view rather than reading each tag individually.
 
-### [`resolveServices`](./layers.ts#L431)
+### [`resolveServices`](./layers.ts#L428)
 
 _Variable_
 
@@ -567,7 +567,7 @@ Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
 and flow through the boot-failure `catchAllCause` envelope without a phase
 tag.
 
-### [`serverHandlers`](./handler-catalog.ts#L62)
+### [`serverHandlers`](./handler-catalog.ts#L58)
 
 _Variable_
 
@@ -578,7 +578,7 @@ export const serverHandlers: ServerHandlers =
 The handler map. Keys are the wire method names of every WS-dispatched
 method; values are the per-method handler bodies.
 
-### [`ServicesLive`](./layers.ts#L403)
+### [`ServicesLive`](./layers.ts#L400)
 
 _Variable_
 
@@ -589,7 +589,7 @@ export const ServicesLive = Tier6
 All service Layers merged, with cross-layer deps resolved. Still requires
 `DbTag | EncryptionTag` from a base Layer.
 
-### [`TaskServiceTag`](./layers.ts#L152)
+### [`TaskServiceTag`](./layers.ts#L149)
 
 _Class_
 

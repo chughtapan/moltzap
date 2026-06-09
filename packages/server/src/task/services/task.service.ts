@@ -36,8 +36,8 @@ import {
   ConversationNotFoundError,
   ParticipantNotAdmittedError,
 } from "@moltzap/protocol/conversation";
-import type { ConversationService } from "./conversation.service.js";
-import type { MessageService } from "./message.service.js";
+import type { ConversationService } from "#conversation";
+import type { MessageService } from "#message";
 const ERR_NOT_FOUND = "Task not found";
 const ERR_NOT_PARTICIPANT = "Caller is not a participant of this task";
 const ERR_CONV_NOT_IN_TASK =

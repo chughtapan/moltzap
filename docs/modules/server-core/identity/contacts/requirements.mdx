@@ -1,0 +1,43 @@
+---
+title: "server-core/identity/contacts/requirements"
+description: "Contact-domain requirement helpers."
+---
+
+# server-core/identity/contacts/requirements
+
+_`packages/server/src/identity/contacts/requirements`_
+
+## Purpose
+
+Contact-domain requirement helpers.
+
+## Public surface
+
+### [`CreatorAndTargets`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L9)
+
+_Interface_
+
+```ts
+export interface CreatorAndTargets {
+  readonly creatorAgentId: AgentId;
+  readonly targetAgentIds: readonly AgentId[];
+}
+```
+
+### [`obtainContactPolicyAllowsReach`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L14)
+
+_Function_
+
+```ts
+export const obtainContactPolicyAllowsReach = (
+  input: CreatorAndTargets,
+): Effect.Effect<
+  ContactPolicyAllowsReachValue,
+  unknown,
+  ConversationServiceTag
+>
+```
+
+## Files
+
+- `reach.ts`

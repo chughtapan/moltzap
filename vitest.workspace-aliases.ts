@@ -31,10 +31,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/server/src/task/index.ts"),
   },
   {
-    find: /^@moltzap\/server-core\/app$/,
-    replacement: fromRoot("packages/server/src/app/index.ts"),
-  },
-  {
     find: /^@moltzap\/server-core$/,
     replacement: fromRoot("packages/server/src/index.ts"),
   },
@@ -178,6 +174,13 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   },
 ];
 
+const protocolSourceRoot = fromRoot("packages/protocol/src");
+
+export const workspaceSourceAliasesWithoutProtocol: WorkspaceSourceAlias[] =
+  workspaceSourceAliases.filter(
+    (alias) => !alias.replacement.startsWith(protocolSourceRoot),
+  );
+
 export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   {
     find: /^#core$/,
@@ -208,6 +211,12 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/server/src/identity/contacts/index.ts"),
   },
   {
+    find: /^#identity\/contacts\/requirements$/,
+    replacement: fromRoot(
+      "packages/server/src/identity/contacts/requirements/index.ts",
+    ),
+  },
+  {
     find: /^#network$/,
     replacement: fromRoot("packages/server/src/network/index.ts"),
   },
@@ -220,12 +229,20 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/server/src/task/index.ts"),
   },
   {
+    find: /^#task\/handlers$/,
+    replacement: fromRoot("packages/server/src/task/handlers/index.ts"),
+  },
+  {
     find: /^#task\/requirements$/,
     replacement: fromRoot("packages/server/src/task/requirements/index.ts"),
   },
   {
     find: /^#conversation$/,
     replacement: fromRoot("packages/server/src/conversation/index.ts"),
+  },
+  {
+    find: /^#conversation\/handlers$/,
+    replacement: fromRoot("packages/server/src/conversation/handlers/index.ts"),
   },
   {
     find: /^#conversation\/requirements$/,
@@ -238,8 +255,16 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/server/src/message/index.ts"),
   },
   {
-    find: /^#message\/dispatch$/,
-    replacement: fromRoot("packages/server/src/message/dispatch/index.ts"),
+    find: /^#message\/handlers$/,
+    replacement: fromRoot("packages/server/src/message/handlers/index.ts"),
+  },
+  {
+    find: /^#dispatch$/,
+    replacement: fromRoot("packages/server/src/dispatch/index.ts"),
+  },
+  {
+    find: /^#dispatch\/handlers$/,
+    replacement: fromRoot("packages/server/src/dispatch/handlers/index.ts"),
   },
   {
     find: /^#test-utils$/,

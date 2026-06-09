@@ -16,19 +16,15 @@ inherited).
 
 ```
 packages/server/src/
-├── app/                # AppHost + composition root
-│   ├── server.ts             # createCoreApp — composes Layers, mounts routes
-│   ├── app-host.ts           # AppHost — dispatch/* + hook fan-out
-│   ├── requirement-middlewares.ts # server-side obtains for protocol requirements
-│   ├── handlers/             # apps.handlers, task-request.handler
-│   ├── layers.ts             # Tag definitions + Live composition
-│   └── types.ts              # CoreConfig, CoreApp, ConnectionHook / DisconnectionHook
-├── identity/           # Auth, agents, sessions, participants
-├── network/            # Ping, presence, connection liveness, send routing
-├── task/               # Conversations, messages, dispatch lease lifecycle
-│   └── leases/            # LeaseRegistry — in-memory lease state machine + TTL fibers
-├── transport/          # WS connection acquisition, dispatch context, layer-tags
-├── crypto/             # Envelope encryption, key rotation, webhook HMAC signing
+├── core/               # createCoreApp, Layer composition, handler catalog
+├── socket/             # WS connection lifecycle, principal gates, requirement layers
+├── http/               # HTTP routes and Node HTTP server construction
+├── identity/           # Agents, apps, contacts, auth services
+├── network/            # Presence, connection liveness, send routing, outbound caps
+├── task/               # Task lifecycle and task-owned RPC handlers
+├── conversation/       # Conversation service + conversation requirements
+├── message/            # Message service + message RPC handlers
+├── dispatch/           # LeaseRegistry and dispatch admission handlers
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
 ├── config.ts           # YAML config loader + schema validation
 ├── test-utils/         # PGlite boot + test drivers
@@ -43,14 +39,15 @@ packages/server/src/
 Protocol descriptors list their authority requirements in `requires`. Each
 requirement is an `@effect/rpc` middleware tag owned by `@moltzap/protocol`;
 server-core supplies the per-socket implementation layer in
-`src/transport/auth-middleware-layers.ts`.
+`src/socket/auth-middleware-layers.ts`.
 
 Principal requirements narrow the live connection arm. Domain requirements
 resolve additional proof from server services: for example,
 `ConversationSendAccess` proves sender membership and loads the joined
 conversation/task row used by send guards. The obtain helpers that touch
-server services live in `src/app/requirement-middlewares.ts` or beside the
-service that owns the query.
+server services live beside the domain that owns the requirement:
+`task/requirements`, `conversation/requirements`, and
+`identity/contacts/requirements`.
 
 App-owned task administration loads the task and calls
 `assertAppOwnsTask(appConn.auth.appId, task)` in the handler body. A handler
@@ -60,7 +57,7 @@ the loaded row directly.
 
 When you add a new domain requirement, declare the tag class + value type in
 the owning protocol domain folder and implement its server layer in
-`src/transport/auth-middleware-layers.ts`.
+`src/socket/auth-middleware-layers.ts`.
 
 ## Data stores
 
@@ -132,7 +129,7 @@ derived from `app_id` at routing time.
   `allConnections`, `agentConnections`, `getByAgentConnection`,
   `currentSize`.
 - **Hook envelope** — The `wrapHookEffectWithEnvelope` fail-CLOSED
-  wrapper in `app/app-host.ts`. Adds timeout, on-error, and
+  wrapper in `identity/apps/host.ts`. Adds timeout, on-error, and
   on-timeout fallback verdicts to any hook runner.
 - **ManagedRuntime** — Effect's persistent runtime, built once at
   `createCoreApp` time from `FullLive`. Drives all dispatch fibers
@@ -141,4 +138,4 @@ derived from `app_id` at routing time.
 - **Domain requirement** — Protocol-owned `RpcMiddleware.Tag` whose
   implementation resolves runtime IDs or already-fetched payload rows needed
   by a handler. Implemented per socket by
-  `src/transport/auth-middleware-layers.ts`.
+  `src/socket/auth-middleware-layers.ts`.

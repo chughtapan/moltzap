@@ -1,12 +1,15 @@
 import { defineConfig } from "vitest/config";
 import {
   serverCoreSourceAliases,
-  workspaceSourceAliases,
+  workspaceSourceAliasesWithoutProtocol,
 } from "../../vitest.workspace-aliases.js";
 
 export default defineConfig({
   resolve: {
-    alias: [...serverCoreSourceAliases, ...workspaceSourceAliases],
+    alias: [
+      ...serverCoreSourceAliases,
+      ...workspaceSourceAliasesWithoutProtocol,
+    ],
   },
   test: {
     include: ["src/**/*.test.ts"],

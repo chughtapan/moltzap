@@ -280,7 +280,7 @@ export function makeCoreSocketHandler(options: {
 })
 ```
 
-### [`makeRequirementMiddlewareLayers`](./auth-middleware-layers.ts#L349)
+### [`makeRequirementMiddlewareLayers`](./auth-middleware-layers.ts#L347)
 
 _Function_
 

@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 import {
   serverCoreSourceAliases,
-  workspaceSourceAliases,
+  workspaceSourceAliasesWithoutProtocol,
 } from "../../vitest.workspace-aliases.js";
 
 /**
@@ -14,7 +14,10 @@ import {
  */
 export default defineConfig({
   resolve: {
-    alias: [...serverCoreSourceAliases, ...workspaceSourceAliases],
+    alias: [
+      ...serverCoreSourceAliases,
+      ...workspaceSourceAliasesWithoutProtocol,
+    ],
   },
   test: {
     // The suite file drives real server traffic against the protocol

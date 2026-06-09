@@ -7,7 +7,7 @@ import { Data, Effect, Layer } from "effect";
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { createCoreApp } from "./core/app.js";
-import { applyOutboundWebhookCap } from "./app/outbound-webhook-cap.js";
+import { applyOutboundWebhookCap } from "#network";
 import {
   loadStandaloneConfig,
   type CoreConfig,
@@ -176,16 +176,16 @@ function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound, never> {
     // Docker: copied to package root
     const dockerPath = join(__dirname, "..", "core-schema.sql");
     if (yield* exists(dockerPath)) return dockerPath;
-    // Dev (tsx): running from src/, schema in src/app/
-    const devPath = join(__dirname, "app", "core-schema.sql");
+    // Dev (tsx): running from src/, schema in src/db/
+    const devPath = join(__dirname, "db", "core-schema.sql");
     if (yield* exists(devPath)) return devPath;
-    // Compiled (node dist/): schema in ../src/app/
-    const distPath = join(__dirname, "..", "src", "app", "core-schema.sql");
+    // Compiled (node dist/): schema in ../src/db/
+    const distPath = join(__dirname, "..", "src", "db", "core-schema.sql");
     if (yield* exists(distPath)) return distPath;
     return yield* Effect.fail(
       new SchemaFileNotFound({
         message:
-          "Cannot find core-schema.sql. Ensure it exists at the package root or in src/app/.",
+          "Cannot find core-schema.sql. Ensure it exists at the package root or in src/db/.",
       }),
     );
   }).pipe(Effect.provide(NodeFileSystem.layer));

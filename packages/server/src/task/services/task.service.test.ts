@@ -9,8 +9,8 @@ import {
   WIRE_ERROR_TAG,
 } from "@moltzap/protocol/testing";
 import { TaskService } from "./task.service.js";
-import type { ConversationService } from "./conversation.service.js";
-import type { MessageService } from "./message.service.js";
+import type { ConversationService } from "#conversation";
+import type { MessageService } from "#message";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,

@@ -40,12 +40,10 @@ import {
   MessageServiceTag,
   TaskServiceTag,
 } from "../core/layers.js";
-import {
-  obtainTaskReadAccess,
-  obtainConversationInTask,
-  obtainContactPolicyAllowsReach,
-} from "../app/requirement-middlewares.js";
-import { obtainConversationSendAccess } from "../task/services/send-permissions.js";
+import { obtainTaskReadAccess } from "#task/requirements";
+import { obtainConversationInTask } from "#conversation/requirements";
+import { obtainContactPolicyAllowsReach } from "#identity/contacts/requirements";
+import { obtainConversationSendAccess } from "#conversation/requirements";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
 /** Read the caller's agent id off the live arm when a requirement derives from it. */
