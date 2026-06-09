@@ -1,5 +1,5 @@
 // @generated — thin wrapper over kysely-codegen output for core schema.
-// Run `pnpm db:generate` after changing src/app/core-schema.sql.
+// Run `pnpm db:generate` after changing src/db/core-schema.sql.
 
 import type { ColumnType, Selectable } from "kysely";
 import type { AgentId, ContactId, UserId } from "@moltzap/protocol/identity";

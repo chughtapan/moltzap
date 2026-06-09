@@ -33,7 +33,7 @@
 
 import type { PresenceService } from "./presence.service.js";
 import type { ConnectionManager } from "#socket";
-import type { LeaseRegistryDeps } from "../../task/leases/lease-registry.js";
+import type { LeaseRegistryDeps } from "#dispatch";
 
 import type { LeaseTransitionObserver } from "./presence-types.js";
 import { noopLeaseTransitionObserver } from "./presence-types.js";

@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 import {
   serverCoreSourceAliases,
-  workspaceSourceAliases,
+  workspaceSourceAliasesWithoutProtocol,
 } from "../../vitest.workspace-aliases.js";
 
 const INTEGRATION_TEST_TIMEOUT_MS = 60_000;
@@ -9,7 +9,10 @@ const INTEGRATION_HOOK_TIMEOUT_MS = 60_000;
 
 export default defineConfig({
   resolve: {
-    alias: [...serverCoreSourceAliases, ...workspaceSourceAliases],
+    alias: [
+      ...serverCoreSourceAliases,
+      ...workspaceSourceAliasesWithoutProtocol,
+    ],
   },
   test: {
     include: ["src/__tests__/integration/**/*.test.ts"],

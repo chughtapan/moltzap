@@ -28,6 +28,9 @@ export { agentArm, appArm } from "./handler-runtime.js";
 export type {
   AgentId,
   CoreApp,
+  DispatchAdmissionResult,
+  DispatchAuthorizeContext,
   MessageAuthorizeContext,
+  MessageAuthorizeResult,
   UserId,
 } from "./types.js";

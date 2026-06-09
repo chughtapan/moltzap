@@ -24,7 +24,7 @@ import { MessagesAuthorize } from "@moltzap/protocol/message";
 import { TaskCreate } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { RpcSerialization } from "@effect/rpc";
-import type { AppEndpoint } from "../app/app-registration.js";
+import type { AppEndpoint } from "#identity/apps";
 import type { Originator } from "#socket";
 import type { ReverseCallError } from "@moltzap/protocol/socket";
 

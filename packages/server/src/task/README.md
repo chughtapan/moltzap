@@ -1,36 +1,28 @@
 # task/
 
-Conversations, messages, tasks, task-manager dispatch.
+Task lifecycle and task-owned RPC handlers.
 
 ## Layer rules
 
 | Direction | Allowed |
 |---|---|
 | Imports FROM | kernels (db, crypto, runtime), socket, identity, network |
-| Imports TO   | app |
+| Imports TO   | conversation, message, dispatch, identity/apps |
 
 ## Files
 
 ### Handlers
-- `handlers/messages.handlers.ts` — `messages/send`, `messages/get`,
-  `messages/list`.
 - `handlers/tasks.handlers.ts` — `task/*` + `task/conversation/*`
-  admin family. `task/request` lives in
-  `app/handlers/task-request.handlers.ts` because the handler needs the app
-  dispatcher.
-- `handlers/notification-broadcast.ts` — shared best-effort fan-out
-  helper (forks socket writes via `Effect.runFork`).
+  admin family.
+- `handlers/task-request.handlers.ts` — `task/request`, including the
+  `task/create` app callback.
 
 ### Services
-- `services/conversation.service.ts` + `conversation-service-types.ts`
-  — conversation CRUD, participant membership, archive.
-- `services/message.service.ts` + `message-service-types.ts` —
-  message insert (`sendInsert` + `sendCommit`), delivery webhook
-  fan-out, trace capture wiring.
 - `services/task.service.ts` — task lifecycle plus the
   `TaskConversation*` administrative methods.
-- `services/conversation-list-pagination.ts` — shared cursor +
-  page-shape helpers consumed by `conversation.service.ts`.
+
+### Requirements
+- `requirements/read-access.ts` — `TaskReadAccess` obtain.
 
 ## Handler shape
 

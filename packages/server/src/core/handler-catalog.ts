@@ -31,28 +31,24 @@ import {
   contactsById,
 } from "../identity/handlers/contacts.handlers.js";
 import { presenceSubscribe } from "../network/handlers/presence.handlers.js";
-import {
-  messagesSend,
-  messagesList,
-} from "../task/handlers/messages.handlers.js";
+import { messagesSend, messagesList } from "#message/handlers";
 import {
   taskList,
   taskLeave,
   taskClose,
   taskAddParticipant,
   taskRemoveParticipant,
+  taskRequest,
+} from "#task/handlers";
+import {
   taskConversationCreate,
   taskConversationList,
   taskConversationArchive,
   taskConversationUnarchive,
   taskConversationAddParticipant,
   taskConversationRemoveParticipant,
-} from "../task/handlers/tasks.handlers.js";
-import { taskRequest } from "../app/handlers/task-request.handlers.js";
-import {
-  dispatchRequest,
-  dispatchesGet,
-} from "../app/handlers/apps.handlers.js";
+} from "#conversation/handlers";
+import { dispatchRequest, dispatchesGet } from "#dispatch/handlers";
 import type { ServerHandlers } from "@moltzap/protocol/socket";
 
 /**

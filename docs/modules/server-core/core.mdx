@@ -38,7 +38,7 @@ gate narrowed the arm to `"agent"`. A non-agent arm is an impossible-state
 defect: the gate runs before the handler, so reaching here off a non-agent arm
 means the engine ran a handler whose middleware should have rejected the frame.
 
-### [`AgentEndpointResolverTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L90)
+### [`AgentEndpointResolverTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L87)
 
 _Class_
 
@@ -76,7 +76,7 @@ Read the request-scoped app context for a handler whose principal gate
 narrowed the arm to `"app"`. A non-app arm is an impossible-state defect for
 the same reason as agentArm.
 
-### [`AppAuthServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L112)
+### [`AppAuthServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L109)
 
 _Class_
 
@@ -87,7 +87,7 @@ export class AppAuthServiceTag extends Context.Tag("moltzap/AppAuthService")<
 >() {}
 ```
 
-### [`AppHostTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L131)
+### [`AppHostTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L128)
 
 _Class_
 
@@ -98,7 +98,7 @@ export class AppHostTag extends Context.Tag("moltzap/AppHost")<
 >() {}
 ```
 
-### [`AuthServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L102)
+### [`AuthServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L99)
 
 _Class_
 
@@ -123,7 +123,7 @@ export type ConnectionHook = (params: {
 }) => PromiseLike<void> | void;
 ```
 
-### [`ConnectionHooks`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L75)
+### [`ConnectionHooks`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L72)
 
 _Interface_
 
@@ -143,7 +143,7 @@ accessors push into; the tag carries them into the request-scoped engine so
 the native handler can fire them in place of the bare-frame
 `fireConnectionHooks` path.
 
-### [`ConnectionHooksTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L80)
+### [`ConnectionHooksTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L77)
 
 _Class_
 
@@ -154,7 +154,7 @@ export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
 >() {}
 ```
 
-### [`ConnectionManagerTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L61)
+### [`ConnectionManagerTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L58)
 
 _Class_
 
@@ -164,7 +164,7 @@ export class ConnectionManagerTag extends Context.Tag(
 )<ConnectionManagerTag, ConnectionManager>() {}
 ```
 
-### [`ConnectionTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L56)
+### [`ConnectionTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L53)
 
 _Class_
 
@@ -182,7 +182,7 @@ need the id read `.connId`; handlers that need the principal narrow on
 `.auth._tag` (`AgentConnection` carries `AgentContext`, `AppConnection`
 carries `AppContext`, `UnauthenticatedConnection` has neither).
 
-### [`ContactsServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L121)
+### [`ContactsServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L118)
 
 _Class_
 
@@ -193,7 +193,7 @@ export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
 >() {}
 ```
 
-### [`ConversationServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L117)
+### [`ConversationServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L114)
 
 _Class_
 
@@ -266,7 +266,7 @@ _Function_
 export function createCoreApp(config: CoreConfig): CoreApp
 ```
 
-### [`DbTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L40)
+### [`DbTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L37)
 
 _Class_
 
@@ -316,7 +316,7 @@ derived from the protocol's wire schemas via `ParamsOf` — the
 hook context IS the wire param shape, so a drift between the
 server-side type and the descriptor is impossible by construction.
 
-### [`EncryptionTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L43)
+### [`EncryptionTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L40)
 
 _Class_
 
@@ -329,7 +329,7 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 
 Optional envelope-encryption helper. null when encryption is disabled.
 
-### [`LeaseRegistryTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L142)
+### [`LeaseRegistryTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L139)
 
 _Class_
 
@@ -387,7 +387,7 @@ participants; the server does not re-fan to non-participants.
 Empty `recipients` is legal — message lands in the sender's
 transcript but is delivered to no one else.
 
-### [`MessageServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L147)
+### [`MessageServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L144)
 
 _Class_
 
@@ -398,7 +398,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 >() {}
 ```
 
-### [`NetworkSendServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L98)
+### [`NetworkSendServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L95)
 
 _Class_
 
@@ -411,7 +411,7 @@ export class NetworkSendServiceTag extends Context.Tag(
 Single outbound surface: `send` (directed) and `broadcast`
 (fan-out).
 
-### [`PresenceServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L246)
+### [`PresenceServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L243)
 
 _Variable_
 
@@ -437,7 +437,7 @@ socket. `LeaseRegistryLive` consumes `PresenceServiceTag` as its
 `transitionObserver`, so a missing wiring surfaces at `tsc --build`
 via the unresolved R channel.
 
-### [`PresenceServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L126)
+### [`PresenceServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L123)
 
 _Class_
 
@@ -484,7 +484,7 @@ precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
 returns `null` — the caller falls through to a no-op tracing Layer (spans
 stay in Effect's fiber context but are not exported).
 
-### [`ResolvedServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L409)
+### [`ResolvedServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L406)
 
 _Interface_
 
@@ -510,7 +510,7 @@ export interface ResolvedServices {
 Shape of the fully-resolved services. Handler factories consume this
 plain-object view rather than reading each tag individually.
 
-### [`resolveServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L431)
+### [`resolveServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L428)
 
 _Variable_
 
@@ -572,7 +572,7 @@ Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
 and flow through the boot-failure `catchAllCause` envelope without a phase
 tag.
 
-### [`serverHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/handler-catalog.ts#L62)
+### [`serverHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/handler-catalog.ts#L58)
 
 _Variable_
 
@@ -583,7 +583,7 @@ export const serverHandlers: ServerHandlers =
 The handler map. Keys are the wire method names of every WS-dispatched
 method; values are the per-method handler bodies.
 
-### [`ServicesLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L403)
+### [`ServicesLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L400)
 
 _Variable_
 
@@ -594,7 +594,7 @@ export const ServicesLive = Tier6
 All service Layers merged, with cross-layer deps resolved. Still requires
 `DbTag | EncryptionTag` from a base Layer.
 
-### [`TaskServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L152)
+### [`TaskServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L149)
 
 _Class_
 

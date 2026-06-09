@@ -32,11 +32,11 @@ import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolve
 import type { AuthService } from "../../identity/services/auth.service.js";
 import type { AppAuthService } from "../../identity/services/app-auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
-import type { ConversationService } from "../../task/services/conversation.service.js";
+import type { ConversationService } from "#conversation";
 import { InvalidParamsError } from "@moltzap/protocol/transport";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type { Connection, ConnectionManager, Originator } from "#socket";
-import type { AppHost } from "../../app/app-host.js";
+import type { AppHost } from "#identity/apps";
 
 type AgentConnectParams = ParamsOf<typeof AgentConnect>;
 type AppConnectParams = ParamsOf<typeof AppConnect>;

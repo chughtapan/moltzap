@@ -13,15 +13,12 @@ import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../identity/services/auth.service.js";
 import { AppAuthService } from "../identity/services/app-auth.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
-import { ConversationService } from "../task/services/conversation.service.js";
+import { ConversationService } from "#conversation";
 import { PresenceService } from "../network/services/presence.service.js";
-import { MessageService } from "../task/services/message.service.js";
-import { TaskService } from "../task/services/task.service.js";
-import { AppHost } from "../app/app-host.js";
-import {
-  makeLeaseRegistry,
-  type LeaseRegistry,
-} from "../task/leases/lease-registry.js";
+import { MessageService } from "#message";
+import { TaskService } from "#task";
+import { AppHost } from "#identity/apps";
+import { makeLeaseRegistry, type LeaseRegistry } from "#dispatch";
 import type { EnvelopeEncryption } from "../db/crypto/envelope.js";
 import type { ConnectionHook, DisconnectionHook } from "./types.js";
 

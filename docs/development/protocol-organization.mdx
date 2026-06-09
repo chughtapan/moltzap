@@ -642,7 +642,7 @@ Allowed:
 import { CoreApp } from "#core";
 import { AgentAuthService } from "#identity/agents";
 import { ConversationService } from "#conversation";
-import { LeaseRegistry } from "#message/dispatch";
+import { LeaseRegistry } from "#dispatch";
 import { ServerSocket } from "#socket";
 ```
 
@@ -651,7 +651,7 @@ Not allowed:
 ```ts
 import { CoreApp } from "../core/app";
 import { AgentAuthService } from "#identity/agents/auth.service";
-import { LeaseRegistry } from "#message/dispatch/lease-registry";
+import { LeaseRegistry } from "#dispatch/lease-registry";
 // Do not import internal service types from "@moltzap/server-core".
 ```
 
@@ -664,28 +664,37 @@ Target server-core source aliases:
 #db
 #identity/agents
 #identity/apps
-#identity/contacts
+#identity/contacts/requirements
 #network
 #network/presence
 #task
+#task/handlers
 #task/requirements
 #conversation
+#conversation/handlers
 #conversation/requirements
 #message
-#message/dispatch
+#message/handlers
+#dispatch
+#dispatch/handlers
 #test-utils
 ```
 
-### Remaining Server Migration Order
+### Server Migration Status
 
-1. Split `AppHost` into app endpoint registry plus domain callback/admission
-   services.
-2. Move conversation and message services/handlers out of `task/` into their
-   own domain folders.
-3. Move lease registry and dispatch handlers into `dispatch/`.
-4. Move server-side requirement checks beside their domains.
-5. Recompose the handler catalog from domain handler modules.
-6. Delete the old `app/` folder once empty.
+Completed:
 
-This migration should follow the protocol reorg. Keep wire names stable until
-the protocol descriptor rename step is scheduled.
+1. Conversation and message services/handlers moved out of `task/`.
+2. Lease registry and dispatch handlers moved into `dispatch/`.
+3. Server-side requirement checks moved beside their domains.
+4. Handler catalog imports through domain handler barrels.
+5. The old `app/` folder was deleted; app endpoint registration now lives under
+   `identity/apps`.
+
+Remaining:
+
+1. Split `identity/apps/host.ts` further into endpoint registry, dispatch
+   admission, message authorization, and task-create callback services.
+2. Continue narrowing server barrels as those services settle.
+
+Keep wire names stable until the protocol descriptor rename step is scheduled.

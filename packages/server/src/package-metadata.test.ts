@@ -8,7 +8,7 @@ const it = effectIt.effect;
 
 const PACKAGE_JSON_FILE = "package.json";
 const BIN_FILE = "bin/moltzap-server";
-const CORE_SCHEMA_FILE = "src/app/core-schema.sql";
+const CORE_SCHEMA_FILE = "src/db/core-schema.sql";
 const SERVER_BIN_NAME = "moltzap-server";
 const SERVER_BIN_PATH = "bin/moltzap-server";
 const UTF8_ENCODING = "utf8";

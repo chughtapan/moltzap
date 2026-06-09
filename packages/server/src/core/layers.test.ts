@@ -7,10 +7,10 @@ import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../identity/services/auth.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
-import { ConversationService } from "../task/services/conversation.service.js";
-import { MessageService } from "../task/services/message.service.js";
+import { ConversationService } from "#conversation";
+import { MessageService } from "#message";
 import { PresenceService } from "../network/services/presence.service.js";
-import { AppHost } from "../app/app-host.js";
+import { AppHost } from "#identity/apps";
 import { DbTag, EncryptionTag, ServicesLive, resolveServices } from "#core";
 
 const it = effectIt.effect;
