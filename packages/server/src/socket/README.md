@@ -1,6 +1,6 @@
-# transport/
+# socket/
 
-Server-side WebSocket/runtime adapters around the protocol package.
+Server-side WebSocket runtime adapters around the protocol package.
 
 The protocol package owns the RPC catalogs, socket lifecycle classes, and
 requirement middleware tags. Server-core supplies the implementation pieces:
@@ -10,7 +10,7 @@ Layers, and the bridge from an Effect `Socket` to the core services.
 ## Files
 
 - `server-socket.ts` — creates `MoltZapServer` with the server handler map,
-  per-socket requirement Layers, per-socket `ConnectionTag`, and close cleanup.
+  per-socket requirement layers, per-socket `ConnectionTag`, and close cleanup.
 - `connection.ts` — connection manager and reverse-client alias used by
   server services.
 - `context.ts` — server auth context value types.

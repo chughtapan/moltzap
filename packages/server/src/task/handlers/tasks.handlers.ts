@@ -33,7 +33,7 @@ import {
   type TaskId,
 } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { AgentContext, AppContext } from "../../transport/context.js";
+import type { AgentContext, AppContext } from "#socket";
 import type { AgentId } from "#core";
 import { ConversationServiceTag, TaskServiceTag } from "#core";
 import { authorizeConversationCreateCapacityOnly } from "../services/conversation-create-authorization.js";

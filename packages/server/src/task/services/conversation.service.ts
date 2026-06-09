@@ -25,7 +25,7 @@ import {
 } from "@moltzap/protocol/transport";
 import { broadcastNotificationToAgents } from "../handlers/notification-broadcast.js";
 import type { NetworkSendServiceTag } from "#core";
-import type { ConnectionManager } from "../../transport/connection.js";
+import type { ConnectionManager } from "#socket";
 import { sql } from "../../db/sql.js";
 import {
   catchSqlErrorAsDefect,

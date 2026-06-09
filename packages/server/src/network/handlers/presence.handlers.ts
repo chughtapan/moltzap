@@ -1,4 +1,4 @@
-import type { AgentContext, AppContext } from "../../transport/context.js";
+import type { AgentContext, AppContext } from "#socket";
 import { PresenceSubscribe } from "@moltzap/protocol/network";
 import { NotInContactsError } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/transport";
@@ -12,7 +12,7 @@ import {
   PresenceServiceTag,
 } from "#core";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
-import { peekLiveArm } from "../../transport/principal-gate.js";
+import { peekLiveArm } from "#socket";
 
 /**
  * `presence/subscribe` registers fan-out interest via

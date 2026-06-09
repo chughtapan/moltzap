@@ -10,7 +10,7 @@ import {
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
 } from "../../test-utils/index.js";
-import { AppContext } from "../../transport/context.js";
+import { AppContext } from "#socket";
 import { AppAuthService } from "./app-auth.service.js";
 import { hashSecret, parseAppKey } from "./credential-keys.js";
 

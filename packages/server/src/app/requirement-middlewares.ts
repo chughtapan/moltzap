@@ -4,7 +4,7 @@
  * `contact-policy-allows-reach`).
  *
  * Each `obtain` resolves a requirement against server services. The
- * per-requirement `RpcMiddleware` impl Layer (`transport/auth-middleware-layers.ts`)
+ * per-requirement `RpcMiddleware` impl Layer (`socket/auth-middleware-layers.ts`)
  * derives the obtain's input from the decoded payload + the caller's agent id and
  * runs it. The send-path obtains (`ConversationSendAccess`,
  * `ActiveTaskPermission`, …) live in `task/services/send-permissions.ts`.

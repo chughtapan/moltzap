@@ -18,8 +18,8 @@
  */
 import { Effect } from "effect";
 import { ConnectionManagerTag, ConnectionTag } from "./layers.js";
-import { peekLiveArm } from "../transport/principal-gate.js";
-import type { AgentContext, AppContext } from "../transport/context.js";
+import { peekLiveArm } from "#socket";
+import type { AgentContext, AppContext } from "#socket";
 
 /**
  * Read the LIVE connection arm for this request. `ConnectionTag` is a per-socket

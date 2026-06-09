@@ -17,8 +17,8 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { SocketError } from "@effect/platform/Socket";
-import { ConnectionManager } from "../transport/connection.js";
-import type { AgentConnection } from "../transport/connection.js";
+import { ConnectionManager } from "#socket";
+import type { AgentConnection } from "#socket";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 
 /**

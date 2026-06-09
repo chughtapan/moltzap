@@ -19,7 +19,7 @@ import {
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { NotificationParamsOf } from "@moltzap/protocol/transport";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
-import type { ConnectionManager } from "../../transport/connection.js";
+import type { ConnectionManager } from "#socket";
 import type { LeaseTransitionObserver } from "../../network/services/presence-types.js";
 
 /** Wire-side LeaseRecord shape (flat). */
@@ -390,7 +390,7 @@ export interface LeaseRegistry {
    *
    * Closing the app scope interrupts every per-connection WebSocket fiber.
    * Each interrupted fiber runs its disconnect cleanup
-   * (`MoltZapServer`/`transport/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
+   * (`MoltZapServer`/`socket/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
    * `onExit` region, and that cleanup calls {@link abandon}. For a recipient
    * connection holding a GRANTED lease, `abandon` emits a `dispatches/expired`
    * frame to the MODERATOR connection via {@link fireNotification}. When the

@@ -1,6 +1,5 @@
 import { Data, Effect } from "effect";
-import type { AppId } from "@moltzap/protocol/task";
-import type { AgentId, UserId } from "#core";
+import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
 
 /**
  * Closed agent lifecycle states. Mirrors
@@ -11,14 +10,8 @@ import type { AgentId, UserId } from "#core";
 export type AgentStatus = "active" | "suspended";
 
 /**
- * The two tagged principal arms. These are the only "context" classes; a
- * connection's principal is reached via `conn.auth`
- * off the three-arm `Connection` union (`transport/connection.ts`). No
- * `AuthenticatedContext`-style wrapper sits above them — the bare union
- * `AgentContext | AppContext` is the principal type, minted directly on the
- * Connect path. Handlers receive their NARROWED arm
- * ({@link AgentContext} for agent-callable RPCs, {@link AppContext} for
- * app-callable), keyed by each method's `requires` head.
+ * Principal context arms stored on authenticated socket connections. Handlers
+ * receive the arm selected by each method's `requires` head.
  */
 export class AgentContext extends Data.TaggedClass("AgentContext")<{
   readonly agentId: AgentId;
@@ -31,13 +24,9 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 }> {}
 
 /**
- * Mint the closed-union {@link AgentContext} arm DIRECTLY from the
- * raw fields an authenticator resolves (the Connect path's sole minting site;
- * there is no `AuthenticatedContext` intermediary). The `agent_status` SQL
- * enum (`core-schema.sql → CREATE TYPE agent_status`) constrains the stored
- * value to exactly the {@link AgentStatus} members, but the DB driver types it
- * as `string`, so a value outside the union is an impossible-state defect
- * (`Effect.die`), not a caller-actionable error.
+ * Mint an {@link AgentContext} from authenticator fields. The `agent_status`
+ * SQL enum constrains stored values to {@link AgentStatus}, but the DB driver
+ * types it as `string`, so any other value is an impossible-state defect.
  */
 export function agentContextFrom(parts: {
   readonly agentId: AgentId;

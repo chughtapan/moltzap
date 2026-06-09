@@ -16,7 +16,7 @@ import {
   taskId,
 } from "@moltzap/protocol/testing";
 import type { Db } from "../db/client.js";
-import type { ConnectionManager } from "../transport/connection.js";
+import type { ConnectionManager } from "#socket";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
 import type { MessageAuthorizeContext } from "#core";

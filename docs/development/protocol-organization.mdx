@@ -231,8 +231,8 @@ agent/task/closed                     notification
 agent/task/failed                     notification
 ```
 
-`app/task/update` replaces separate task participant add/remove and task close
-commands. Its schema owns validation for which changes are allowed together.
+`app/task/update` owns task participant changes and task close semantics. Its
+schema owns validation for which changes are allowed together.
 
 ### Conversation
 
@@ -249,9 +249,9 @@ agent/conversation/participants-added notification
 agent/conversation/participants-removed notification
 ```
 
-`app/conversation/update` replaces separate archive, unarchive, participant
-add, and participant remove methods. Requirements still enforce task ownership
-and conversation membership.
+`app/conversation/update` owns archive, unarchive, participant add, and
+participant remove semantics. Requirements still enforce task ownership and
+conversation membership.
 
 ### Message
 
@@ -576,11 +576,11 @@ packages/server/src/
 `app/server-handlers.ts`, `app/server-handlers-runtime.ts`, `app/tracing.ts`,
 and `core-server.ts` belong under `core/`.
 
-`socket/` owns WebSocket connection lifecycle and request-scoped transport
-context. Files currently under `transport/` that are about live socket
-connections move to `socket/`. Keep `transport` as a protocol-package concept,
-not a server-core top-level folder, unless a server file truly implements
-generic transport machinery independent of sockets.
+`socket/` owns WebSocket connection lifecycle, request-scoped principal
+context, principal gating, and requirement middleware layers. Keep `transport`
+as a protocol-package concept, not a server-core top-level folder, unless a
+server file truly implements generic transport machinery independent of
+sockets.
 
 `http/` owns HTTP routing and Node HTTP server construction. Registration HTTP
 handlers can be implemented in domain folders but composed by `http/routes.ts`.
@@ -676,24 +676,16 @@ Target server-core source aliases:
 #test-utils
 ```
 
-### Server Migration Order
+### Remaining Server Migration Order
 
-1. Add `core/`, `socket/`, `http/`, `conversation/`, and `message/dispatch/`
-   folders without moving behavior.
-2. Add server-core TypeScript `paths`, `tsc-alias` build rewriting, and
-   matching source-test alias resolution.
-3. Move boot/wiring files out of `app/` into `core/`, rewriting imports to
-   absolute barrels as files move.
-4. Move socket lifecycle files from `transport/` to `socket/`.
-5. Move HTTP files from `app/` to `http/`.
-6. Split `AppHost` into app endpoint registry plus domain callback/admission
+1. Split `AppHost` into app endpoint registry plus domain callback/admission
    services.
-7. Move conversation and message services/handlers out of `task/` into their
+2. Move conversation and message services/handlers out of `task/` into their
    own domain folders.
-8. Move lease registry and dispatch handlers into `dispatch/`.
-9. Move server-side requirement checks beside their domains.
-10. Recompose the handler catalog from domain handler modules.
-11. Delete the old `app/` and server `transport/` folders once empty.
+3. Move lease registry and dispatch handlers into `dispatch/`.
+4. Move server-side requirement checks beside their domains.
+5. Recompose the handler catalog from domain handler modules.
+6. Delete the old `app/` folder once empty.
 
 This migration should follow the protocol reorg. Keep wire names stable until
 the protocol descriptor rename step is scheduled.

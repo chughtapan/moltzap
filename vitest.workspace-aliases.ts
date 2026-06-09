@@ -19,10 +19,6 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   },
   // Specific subpath matchers must precede each package's root matcher.
   {
-    find: /^@moltzap\/server-core\/transport$/,
-    replacement: fromRoot("packages/server/src/transport/index.ts"),
-  },
-  {
     find: /^@moltzap\/server-core\/identity$/,
     replacement: fromRoot("packages/server/src/identity/index.ts"),
   },

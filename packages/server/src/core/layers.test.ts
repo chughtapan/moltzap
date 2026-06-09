@@ -2,7 +2,7 @@ import { it as effectIt } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { expect } from "vitest";
 import type { Db } from "../db/client.js";
-import { ConnectionManager } from "../transport/connection.js";
+import { ConnectionManager } from "#socket";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../identity/services/auth.service.js";

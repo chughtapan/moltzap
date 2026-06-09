@@ -5,7 +5,7 @@ import { ConnectionId } from "@moltzap/protocol/socket";
 import { DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AppHost } from "./app-host.js";
 import type { AppEndpoint } from "./app-registration.js";
-import type { Originator } from "../transport/connection.js";
+import type { Originator } from "#socket";
 
 /**
  * Connection id for the boot-installed default app — server-minted so
