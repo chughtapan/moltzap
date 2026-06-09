@@ -39,7 +39,7 @@ import {
   ConversationServiceTag,
   MessageServiceTag,
   TaskServiceTag,
-} from "#core";
+} from "../core/layers.js";
 import {
   obtainTaskReadAccess,
   obtainConversationInTask,
@@ -208,10 +208,10 @@ type RequirementMiddlewareLayerR =
   | ConnectionManagerTag;
 
 /**
- * Build a requirement impl Layer whose `derive` reads ONLY the decoded `payload`
+ * Build a requirement impl Layer whose `derive` reads only the decoded `payload`
  * (no caller). Used for requirements that gate on pure params — e.g. `ConversationInTask`,
  * which the app-principal `task/conversation/*` methods declare, so its impl
- * MUST NOT peek the caller's AGENT id (the live arm is an `AppConnection`).
+ * must not peek the caller's agent id (the live arm is an `AppConnection`).
  */
 const requirementMiddlewareLayer = <
   Mw extends RpcMiddleware.TagClassAny,

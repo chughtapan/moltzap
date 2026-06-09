@@ -18,7 +18,7 @@ const ALICE = agentId("00000000-0000-4000-8000-00000000a11c");
 const BOB = agentId("00000000-0000-4000-8000-00000000b0b0");
 
 // Test connection ids. The resolver does not enforce UUID shape on connection
-// ids, but `transport/server-socket.ts` mints them via `crypto.randomUUID()`.
+// Socket sessions mint connection ids via `crypto.randomUUID()`.
 const CONN_A = connectionId("00000000-0000-4000-8000-00000000c001");
 const CONN_B = connectionId("00000000-0000-4000-8000-00000000c002");
 const CONN_C = connectionId("00000000-0000-4000-8000-00000000c003");

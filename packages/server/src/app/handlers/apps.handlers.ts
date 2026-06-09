@@ -1,4 +1,4 @@
-import type { AgentContext } from "../../transport/context.js";
+import type { AgentContext } from "#socket";
 import {
   DispatchRequest,
   DispatchesGet,

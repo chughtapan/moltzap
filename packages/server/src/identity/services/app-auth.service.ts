@@ -9,7 +9,7 @@ import {
   catchSqlErrorAsDefect,
   takeFirstOrFail,
 } from "../../db/effect-kysely-toolkit.js";
-import { AppContext } from "../../transport/context.js";
+import { AppContext } from "#socket";
 import {
   generateAppKey,
   hashSecret,

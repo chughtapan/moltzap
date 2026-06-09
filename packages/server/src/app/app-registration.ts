@@ -1,7 +1,7 @@
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import { AppId } from "@moltzap/protocol/task";
-import type { Originator } from "../transport/connection.js";
+import type { Originator } from "#socket";
 
 /**
  * The minimal server→app dispatch surface a registration needs: the

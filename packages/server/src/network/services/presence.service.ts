@@ -6,10 +6,7 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 
-import type {
-  ConnectionManager,
-  Originator,
-} from "../../transport/connection.js";
+import type { ConnectionManager, Originator } from "#socket";
 import {
   type AgentPresenceEntry,
   deriveEntryStatus,

@@ -13,7 +13,7 @@ import { TaskCreate } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import { AgentContext, AppContext } from "../transport/context.js";
+import { AgentContext, AppContext } from "./context.js";
 
 /**
  * Send an awaitable RPC from server → client over the connection's reverse
@@ -67,14 +67,6 @@ export function sendRpcToClient(
   return originator.callback(request);
 }
 
-// ===========================================================================
-// Three-arm discriminated-union connection state. This IS the connections
-// map's only entry shape. Handlers consume `AgentConnection` / `AppConnection`
-// via `ConnectionTag`; the sanctioned construction + transition surface
-// (`addUnauthenticated` / `authenticate` / `rollbackToUnauthenticated` /
-// `removeAndReturn`) is the only mutator of `connectionsRef`.
-// ===========================================================================
-
 /**
  * The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires
  * callbacks/notifications through. Constructed by protocol `MoltZapServer`
@@ -84,9 +76,7 @@ export function sendRpcToClient(
 export type Originator = ReverseClient;
 
 /**
- * The per-connection socket handle (write + shutdown). Lifted to a standalone
- * public type so `ConnectionManager.addUnauthenticated` can take it as a
- * constructible parameter without accepting a `Connection`-arm value.
+ * The per-connection socket handle registered with `ConnectionManager`.
  */
 export interface WebSocketRef {
   /**
@@ -108,17 +98,9 @@ interface ConnectionBase {
   readonly originator: Originator;
 }
 
-// Module-private classes — constructors NOT exported (only the `export type`
-// forms land). External modules that need an arm value go through
-// `ConnectionManager.add` / `.authenticate` / `.rollbackToUnauthenticated`,
-// which use these constructors internally.
-//
-// The `private readonly __brand: never` field is a NOMINAL seal: TypeScript is
-// structurally typed by default, so without it an external module could forge
-// an object literal matching the field shape and pass it through an
-// `import type { AgentConnection }` parameter slot. The private member is
-// unreachable from outside the class declaration (TS2741 / TS18013 at the use
-// site), so external code cannot synthesize a value of any arm.
+// Module-private classes with private members keep external modules from
+// forging connection arms structurally. Callers receive arm values only through
+// `ConnectionManager`.
 // eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class UnauthenticatedConnection extends Data.TaggedClass(
   "UnauthenticatedConnection",
@@ -139,9 +121,6 @@ class AgentConnection extends Data.TaggedClass("AgentConnection")<
      * (`ConnectionManager.subscribeAgentsToConversation`) and on
      * `ConversationService.removeParticipant`. App-armed connections have no
      * conversation membership, so this field lives on the agent arm only.
-     *
-     * The per-connection cache is a known denormalization smell — a
-     * first-class subscription index would replace it.
      */
     readonly conversationIds: Set<ConversationId>;
   }
@@ -166,7 +145,7 @@ export type Connection =
 
 /**
  * Outcome of `ConnectionManager.authenticate`'s atomic transition. The
- * success arms are SPLIT per minted arm so the Connect handler's
+ * success arms are split per minted arm so the Connect handler's
  * `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
  * `authed` structurally — no `as AgentConnection` cast.
  */
@@ -180,10 +159,8 @@ export type TransitionOutcome =
   | { readonly kind: "ok-app"; readonly authed: AppConnection };
 
 /**
- * The ONE site of the `auth._tag` runtime check: mint the connection arm
- * matching the resolved principal. Module-private —
- * `ConnectionManager.authenticate` is the only caller. Splits the success
- * outcome per arm so the caller narrows `authed` without a cast.
+ * Mint the connection arm matching the resolved principal. This is the single
+ * runtime check of `auth._tag`; callers narrow through `TransitionOutcome`.
  */
 const mintAuthedArm = (
   base: ConnectionBase,
@@ -218,19 +195,9 @@ export class ConnectionManager {
     HashMap.HashMap<ConnectionId, Connection>
   > = Effect.runSync(Ref.make(HashMap.empty<ConnectionId, Connection>()));
 
-  // =========================================================================
-  // Sanctioned construction + transition surface over the three-arm
-  // `connectionsRef`. Every method below accepts only primitives or
-  // publicly-constructible types (`AgentContext` / `AppContext` are exported
-  // `Data.TaggedClass`); none accept an arm value, since the arm constructors
-  // are module-private. Return types ARE the arms, since callers only READ.
-  // =========================================================================
-
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
-   * at WS-open. The ONLY construction site for the unauth arm. The
-   * `Connect`-handler `authenticate` transition promotes it to the agent/app
-   * arm in place.
+   * at WebSocket open. The Connect handler promotes it to the agent/app arm.
    */
   addUnauthenticated(
     connId: ConnectionId,
@@ -272,9 +239,8 @@ export class ConnectionManager {
 
   /**
    * Atomic per-connection authentication gate. Pattern-matches on
-   * `auth._tag` ONCE to decide which arm to mint — the only surviving site of
-   * that runtime check. Returns a split-per-arm `TransitionOutcome` so the
-   * caller narrows without a cast.
+   * `auth._tag` once to decide which arm to mint. Returns a split-per-arm
+   * `TransitionOutcome` so callers narrow without a cast.
    */
   authenticate(
     connId: ConnectionId,
@@ -328,9 +294,7 @@ export class ConnectionManager {
     return Ref.update(this.connectionsRef, (map) => {
       const current = HashMap.get(map, connId);
       if (Option.isNone(current)) return map;
-      // Both authed arms roll back to the same unauth shape (only the shared
-      // `ConnectionBase` fields carry over — auth + agent state are dropped);
-      // the unauth arm is already at the target state.
+      // Auth fields are dropped; the shared socket/originator fields remain.
       const demote = (authed: AgentConnection | AppConnection) =>
         HashMap.set(
           map,
@@ -416,7 +380,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Add `conversationId` to the subscription set of every currently-connected
+   * Add `conversationId` to the subscription set of every live
    * agent arm in `agentIds`. Idempotent (Set semantics); returns the
    * subscribed connection ids for observability. The arm's `conversationIds`
    * Set is mutated in place (the `Data.TaggedClass` field is a `readonly`
@@ -445,10 +409,9 @@ export class ConnectionManager {
   }
 
   /**
-   * Seed the subscription set of a SINGLE agent-arm connection from its
+   * Seed the subscription set of one agent-arm connection from its
    * persisted `conversation_participants` rows at connect time. No-op
-   * if the entry is absent (close race) or not an agent arm. Mirrors the
-   * legacy per-connection `hydrateConnectionState` loop.
+   * if the entry is absent (close race) or not an agent arm.
    */
   hydrateConversationIds(
     connId: ConnectionId,

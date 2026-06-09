@@ -7,7 +7,7 @@ Presence, ping, agent-endpoint resolution, outbound
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | kernels (db, crypto, runtime), transport, identity |
+| Imports FROM | kernels (db, crypto, runtime), socket, identity |
 | Imports TO   | task, app |
 
 ## Files

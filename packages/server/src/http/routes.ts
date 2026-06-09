@@ -14,7 +14,7 @@ import {
   type AppManifest,
 } from "@moltzap/protocol/identity";
 
-import type { AppTags } from "../transport/layer-tags.js";
+import type { AppTags } from "#socket";
 import type { ConnectionTag, ResolvedServices } from "#core";
 import { safeEqual } from "../identity/services/credential-keys.js";
 import type { CoreConfig } from "../config.js";

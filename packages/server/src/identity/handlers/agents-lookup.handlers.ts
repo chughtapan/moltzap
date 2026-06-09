@@ -12,7 +12,7 @@ import type { AgentCard } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ServerHandler } from "@moltzap/protocol/socket";
-import type { AgentContext } from "../../transport/context.js";
+import type { AgentContext } from "#socket";
 import { agentArm } from "#core";
 import { DbTag } from "#core";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";

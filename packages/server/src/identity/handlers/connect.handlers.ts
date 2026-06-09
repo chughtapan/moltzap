@@ -14,11 +14,7 @@ import type { AppManifest } from "@moltzap/protocol/identity";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { ServerHandler } from "@moltzap/protocol/socket";
-import {
-  agentContextFrom,
-  AgentContext,
-  AppContext,
-} from "../../transport/context.js";
+import { agentContextFrom, AgentContext, AppContext } from "#socket";
 import {
   AgentEndpointResolverTag,
   AppAuthServiceTag,
@@ -39,11 +35,7 @@ import type { PresenceService } from "../../network/services/presence.service.js
 import type { ConversationService } from "../../task/services/conversation.service.js";
 import { InvalidParamsError } from "@moltzap/protocol/transport";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
-import type {
-  Connection,
-  ConnectionManager,
-  Originator,
-} from "../../transport/connection.js";
+import type { Connection, ConnectionManager, Originator } from "#socket";
 import type { AppHost } from "../../app/app-host.js";
 
 type AgentConnectParams = ParamsOf<typeof AgentConnect>;

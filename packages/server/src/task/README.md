@@ -6,7 +6,7 @@ Conversations, messages, tasks, task-manager dispatch.
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | kernels (db, crypto, runtime), transport, identity, network |
+| Imports FROM | kernels (db, crypto, runtime), socket, identity, network |
 | Imports TO   | app |
 
 ## Files

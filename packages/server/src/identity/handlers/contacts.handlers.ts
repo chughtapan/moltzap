@@ -16,7 +16,7 @@ import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type { AuthService } from "../../identity/services/auth.service.js";
-import type { AgentContext } from "../../transport/context.js";
+import type { AgentContext } from "#socket";
 import {
   AuthServiceTag,
   ContactsServiceTag,

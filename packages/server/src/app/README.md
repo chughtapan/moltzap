@@ -1,14 +1,14 @@
 # app/
 
-App endpoint registration, default-app wiring, and the temporary AppHost
-callback router. Server boot, layer composition, HTTP routes, and socket
-handling have moved to `core/`, `http/`, and `transport/`.
+App endpoint registration, default-app wiring, and the AppHost callback router.
+Server boot, layer composition, HTTP routes, and socket handling live in
+`core/`, `http/`, and `socket/`.
 
 ## Layer rules
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | kernels (db, crypto, runtime), transport, identity, network, task |
+| Imports FROM | kernels (db, crypto, runtime), socket, identity, network, task |
 | Imports TO   | (none — `app` is the top protocol layer) |
 
 ## Files

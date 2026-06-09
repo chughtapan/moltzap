@@ -1,8 +1,8 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import type { Db } from "../db/client.js";
 import type { ContactService } from "../identity/services/contact-policy.js";
-import { sendRpcToClient } from "../transport/connection.js";
-import type { ConnectionManager } from "../transport/connection.js";
+import { sendRpcToClient } from "#socket";
+import type { ConnectionManager } from "#socket";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { DispatchId, LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { Part } from "@moltzap/protocol/message";
@@ -279,7 +279,7 @@ export class AppHost {
 
   /**
    * Drop every registration whose connection matches `connId`. Called
-   * by `MoltZapServer`/`transport/server-socket.ts` close cleanup on WS disconnect. The
+   * by `MoltZapServer`/`socket/server-socket.ts` close cleanup on WS disconnect. The
    * default app's inert endpoint has a server-minted id that no
    * client connection can ever match, so this method never targets
    * boot-installed apps.

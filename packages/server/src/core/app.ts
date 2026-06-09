@@ -27,7 +27,7 @@ import {
 } from "./layers.js";
 import { installDefaultApp } from "../app/default-app.js";
 import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
-import { makeCoreSocketHandler } from "../transport/server-socket.js";
+import { makeCoreSocketHandler } from "../socket/server-socket.js";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;
@@ -244,7 +244,7 @@ function closeCoreAppEffect(options: CoreAppApiOptions) {
     // Drain the lease runtime FIRST, before any socket teardown. Both
     // the explicit `conn.socket.shutdown` loop below AND `Scope.close`'s
     // interrupt of the WS fibers trigger each connection's disconnect cleanup
-    // (`MoltZapServer`/`transport/server-socket.ts -> leaseRegistry.abandon`),
+    // (`MoltZapServer`/`socket/server-socket.ts -> leaseRegistry.abandon`),
     // which for a recipient holding a GRANTED lease emits a cross-connection
     // `dispatches/expired` frame to the moderator. If the moderator socket is
     // closing concurrently that write parks forever on its closed write-latch.

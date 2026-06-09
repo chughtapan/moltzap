@@ -6,7 +6,7 @@ import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { MessageId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ContactService } from "../identity/services/contact-policy.js";
-import type { ConnectionManager } from "../transport/connection.js";
+import type { ConnectionManager } from "#socket";
 import type { NetworkSendService } from "../network/network-send.js";
 import type { LeaseRegistry } from "../task/leases/lease-registry.js";
 

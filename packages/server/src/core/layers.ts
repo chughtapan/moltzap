@@ -7,7 +7,7 @@
 import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
-import { ConnectionManager, type Connection } from "../transport/connection.js";
+import { ConnectionManager, type Connection } from "#socket";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../identity/services/auth.service.js";
