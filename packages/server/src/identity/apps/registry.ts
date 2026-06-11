@@ -1,6 +1,6 @@
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import { AppId } from "@moltzap/protocol/task";
+import type { AppId } from "@moltzap/protocol/identity";
 import type { Originator } from "#socket";
 
 /**
@@ -8,10 +8,10 @@ import type { Originator } from "#socket";
  * connection id (for close-time cleanup via `unregisterByConnection`) and
  * the outbound {@link Originator} (the `sendRpcToClient` channel). Minted from
  * the live `AppConnection` arm's `{ connId, originator }` at `app/connect`.
- * The boot-installed default app carries an INERT endpoint
- * (`default-app.ts → makeDefaultAppEndpoint`) whose originator defects — its
- * manifest declares only static policies, which AppHost resolves in-process,
- * so the originator is never invoked.
+ * The boot-installed default app carries an inert endpoint
+ * (`default-app.ts -> makeDefaultAppEndpoint`) whose originator defects. Its
+ * manifest declares only static policies, so domain callback services never
+ * invoke that endpoint.
  */
 export interface AppEndpoint {
   readonly connId: ConnectionId;
@@ -24,10 +24,9 @@ export interface AppEndpoint {
  * {@link AppEndpoint}. Connected apps hold the `{ connId, originator }`
  * minted from the `AppConnection` arm their `app/connect` call arrived on;
  * the default app holds an inert endpoint (see
- * `default-app.ts → makeDefaultAppEndpoint`) and declares only static
- * policies, which AppHost resolves in-process rather than over the
- * `sendRpcToClient(entry.endpoint.originator, …)` path a `kind: "hook"` policy
- * uses. AppHost sees ONE registration shape regardless.
+ * `default-app.ts -> makeDefaultAppEndpoint`) and declares only static
+ * policies. Domain callback services only call the endpoint for a
+ * `kind: "hook"` policy. AppHost sees one registration shape regardless.
  */
 export interface AppRegistration {
   readonly appId: AppId;
@@ -78,7 +77,7 @@ export class AppRegistry {
    * by the WS-close path to clean up any apps the closing connection
    * registered.
    */
-  unregisterByConnection(connectionId: string): void {
+  unregisterByConnection(connectionId: ConnectionId): void {
     for (const [appId, entry] of this.entries) {
       if (entry.endpoint.connId === connectionId) {
         this.entries.delete(appId);

@@ -18,10 +18,10 @@ import { AgentContext, AppContext } from "./context.js";
 /**
  * Send an awaitable RPC from server → client over the connection's reverse
  * client. Narrows `D` to the moderator-callback union so a client→server method
- * cannot be fired on the reverse channel by mistake. The caller
- * (`AppHost.callAppRpc`) sources the {@link Originator} from the registered
- * app's `AppEndpoint`, minted from the live `AppConnection` arm. Caller controls
- * timeout via `Effect.timeout` at the call site.
+ * cannot be fired on the reverse channel by mistake. Domain callback services
+ * source the {@link Originator} from the registered app's `AppEndpoint`, minted
+ * from the live `AppConnection` arm. Caller controls timeout via
+ * `Effect.timeout` at the call site.
  */
 export function sendRpcToClient(
   originator: Originator,

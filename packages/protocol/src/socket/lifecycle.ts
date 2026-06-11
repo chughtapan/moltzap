@@ -51,7 +51,11 @@ import {
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
 } from "../task/tasks.js";
-import { extractCloseInfo, type CloseInfo } from "./close-info.js";
+import {
+  DEFAULT_GRACEFUL_CLOSE,
+  extractCloseInfo,
+  type CloseInfo,
+} from "./close-info.js";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
@@ -865,7 +869,11 @@ export class ProtocolClientLifecycle<
     scope: Scope.CloseableScope,
   ): Effect.Effect<void> {
     return Effect.gen(this, function* () {
-      if (Exit.isFailure(exit)) {
+      const closeInfo = extractCloseInfo(exit);
+      if (
+        Exit.isFailure(exit) &&
+        closeInfo.code !== DEFAULT_GRACEFUL_CLOSE.code
+      ) {
         yield* Effect.logWarning("WebSocket error", exit.cause);
       }
       this._helloOk = null;
@@ -874,7 +882,7 @@ export class ProtocolClientLifecycle<
       );
       yield* Ref.set(this.stateRef, Option.none());
       yield* Scope.close(scope, Exit.void);
-      yield* this.notifyDisconnect(extractCloseInfo(exit));
+      yield* this.notifyDisconnect(closeInfo);
       if (!this.closed) this.scheduleReconnect();
     });
   }

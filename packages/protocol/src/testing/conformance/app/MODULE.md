@@ -544,7 +544,7 @@ server under a recipient agent identity. All methods return Effects
 scoped to the surrounding `Scope`; releasing the scope closes the
 underlying agent client.
 
-### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L44)
+### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L45)
 
 _Function_
 

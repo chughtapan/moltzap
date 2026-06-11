@@ -1,10 +1,10 @@
 # @moltzap/server-core
 
 Standalone MoltZap server runtime. Composes Effect Layers for the
-service graph, exposes WebSocket + HTTP transport, runs the
-`AppHost` dispatcher for moderator round-trips, and persists state
-through Kysely against PostgreSQL (or PGlite under test). Ships as a
-binary (`packages/server/bin/moltzap-server`) — root barrel
+service graph, exposes WebSocket + HTTP transport, routes app
+callbacks through the dispatch/message/task domain services, and
+persists state through Kysely against PostgreSQL (or PGlite under
+test). Ships as a binary (`packages/server/bin/moltzap-server`) — root barrel
 (`src/index.ts`) is intentionally `export {}`; this package is not a
 programmatic SDK and consumers must not import from it.
 
@@ -94,11 +94,10 @@ derived from `app_id` at routing time.
 
 ## Glossary
 
-- **AppHost** — Server-side dispatcher routing app-callback RPCs
-  (`dispatch/authorize`, `messages/authorize`, hook RPCs) to the
-  registered moderator connection. Owns the in-process + remote hook
-  registries; emits `dispatch/release` and `participants/removed`
-  notifications post-verdict.
+- **AppHost** — Live app endpoint registry keyed by server-minted
+  `AppId`. Dispatch, message, and task callback behavior lives in the
+  matching domain services; they look up registered app endpoints through
+  AppHost.
 - **TM (Task Manager)** — Authority for a task's conversation set.
   The default-app UUID (`DEFAULT_APP_ID`) covers ordinary DMs/groups
   (no moderator); a registered app's UUID covers app-moderated
@@ -129,8 +128,8 @@ derived from `app_id` at routing time.
   `allConnections`, `agentConnections`, `getByAgentConnection`,
   `currentSize`.
 - **Hook envelope** — The `wrapHookEffectWithEnvelope` fail-CLOSED
-  wrapper in `identity/apps/host.ts`. Adds timeout, on-error, and
-  on-timeout fallback verdicts to any hook runner.
+  wrapper in `identity/apps/callback-rpc.ts`. Adds timeout, on-error,
+  and on-timeout fallback verdicts to any hook runner.
 - **ManagedRuntime** — Effect's persistent runtime, built once at
   `createCoreApp` time from `FullLive`. Drives all dispatch fibers
   so handler `yield* Tag` reads resolve structurally without

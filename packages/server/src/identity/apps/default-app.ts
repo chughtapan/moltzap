@@ -1,8 +1,7 @@
 import { Effect, Schema } from "effect";
 import type { RpcSerialization } from "@effect/rpc";
-import type { AppManifest } from "@moltzap/protocol/identity";
+import { DEFAULT_APP_ID, type AppManifest } from "@moltzap/protocol/identity";
 import { ConnectionId } from "@moltzap/protocol/socket";
-import { DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AppHost } from "./host.js";
 import type { AppEndpoint } from "./registry.js";
 import type { Originator } from "#socket";
@@ -26,9 +25,8 @@ const DEFAULT_APP_CONNECTION_ID = Schema.decodeUnknownSync(ConnectionId)(
  *     `ConversationService.getParticipantAgentIds`.
  *   - `task_create: { kind: "accept" }` — auto-accept every task.
  *
- * Each policy is a static arm AppHost resolves in-process, so
- * `AppHost.callAppRpc` is never reached for `DEFAULT_APP_ID` and the
- * endpoint's `originator` is never invoked. The registration still
+ * Each policy is a static arm resolved in-process by the domain callback
+ * services, so the endpoint's `originator` is never invoked. The registration still
  * needs an {@link AppEndpoint} for its `connId` (close-time keying), so
  * the default app carries an inert endpoint whose outbound channel
  * defects — any call is a wiring bug (a `kind: "hook"` arm fired
@@ -91,19 +89,13 @@ function makeDefaultAppEndpoint(): AppEndpoint {
 
 /**
  * Boot-time installation of the default app. Registers the static-only
- * manifest under {@link DEFAULT_APP_ID}; AppHost resolves every policy
- * verdict in-process (see {@link DEFAULT_APP_MANIFEST}). No app
- * round-trip is ever made.
+ * manifest under {@link DEFAULT_APP_ID}. No app round-trip is ever made.
  *
  * TM-admin RPCs (rebound to the app principal) remain unreachable on
  * `DEFAULT_APP_ID` tasks because no client `AppConnection` can ever own
  * the default app — its endpoint is a server-minted inert endpoint, not
  * a connected HTTP-registered app.
  *
- * No `ConversationService` arg: the `forwardAllExceptSender` policy
- * reads participants through the ConversationService back-edge AppHost
- * already holds (wired by `server.ts → setConversationService`
- * immediately before this call).
  */
 export function installDefaultApp(appHost: AppHost): void {
   appHost.registerApp(

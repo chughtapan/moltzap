@@ -8,7 +8,7 @@ Task-domain requirement helpers.
 
 ## Public surface
 
-### [`assertCallerAppOwnsTask`](./app-ownership.ts#L6)
+### [`assertCallerAppOwnsTask`](./app-ownership.ts#L7)
 
 _Function_
 

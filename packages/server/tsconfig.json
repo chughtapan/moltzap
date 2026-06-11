@@ -15,7 +15,7 @@
         "http/index.ts"
       ],
       "#db": [
-        "db/index.ts"
+        "db/client.ts"
       ],
       "#identity/agents": [
         "identity/agents/index.ts"

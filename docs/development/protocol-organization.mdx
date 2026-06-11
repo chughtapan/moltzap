@@ -690,11 +690,13 @@ Completed:
 4. Handler catalog imports through domain handler barrels.
 5. The old `app/` folder was deleted; app endpoint registration now lives under
    `identity/apps`.
+6. `identity/apps/host.ts` was reduced to the app endpoint registry/contact
+   policy surface; dispatch admission, message authorization, and task-create
+   authorization live in their domain services.
 
 Remaining:
 
-1. Split `identity/apps/host.ts` further into endpoint registry, dispatch
-   admission, message authorization, and task-create callback services.
-2. Continue narrowing server barrels as those services settle.
+1. Continue narrowing server barrels as the domain services settle.
+2. Clean up conformance/socket teardown noise after the service split is stable.
 
 Keep wire names stable until the protocol descriptor rename step is scheduled.

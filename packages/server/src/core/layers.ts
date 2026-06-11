@@ -15,10 +15,14 @@ import { AppAuthService } from "../identity/services/app-auth.service.js";
 import { ContactsService } from "../identity/services/contact.service.js";
 import { ConversationService } from "#conversation";
 import { PresenceService } from "../network/services/presence.service.js";
-import { MessageService } from "#message";
-import { TaskService } from "#task";
+import { MessageAuthorizationService, MessageService } from "#message";
+import { TaskAuthorizationService, TaskService } from "#task";
 import { AppHost } from "#identity/apps";
-import { makeLeaseRegistry, type LeaseRegistry } from "#dispatch";
+import {
+  DispatchAdmissionService,
+  makeLeaseRegistry,
+  type LeaseRegistry,
+} from "#dispatch";
 import type { EnvelopeEncryption } from "../db/crypto/envelope.js";
 import type { ConnectionHook, DisconnectionHook } from "./types.js";
 
@@ -140,6 +144,18 @@ export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
   LeaseRegistryTag,
   LeaseRegistry
 >() {}
+
+export class DispatchAdmissionServiceTag extends Context.Tag(
+  "moltzap/DispatchAdmissionService",
+)<DispatchAdmissionServiceTag, DispatchAdmissionService>() {}
+
+class MessageAuthorizationServiceTag extends Context.Tag(
+  "moltzap/MessageAuthorizationService",
+)<MessageAuthorizationServiceTag, MessageAuthorizationService>() {}
+
+export class TaskAuthorizationServiceTag extends Context.Tag(
+  "moltzap/TaskAuthorizationService",
+)<TaskAuthorizationServiceTag, TaskAuthorizationService>() {}
 
 export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
   MessageServiceTag,
@@ -269,16 +285,39 @@ const LeaseRegistryLive = Layer.effect(
   }).pipe(Effect.withSpan("LeaseRegistryLive")),
 );
 
-const AppHostLive = Layer.effect(
-  AppHostTag,
+const AppHostLive = Layer.sync(AppHostTag, () => new AppHost());
+
+const DispatchAdmissionServiceLive = Layer.effect(
+  DispatchAdmissionServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
-    const connections = yield* ConnectionManagerTag;
+    const appHost = yield* AppHostTag;
     const leaseRegistry = yield* LeaseRegistryTag;
-    const host = new AppHost(db, connections);
-    host.setLeaseRegistry(leaseRegistry);
-    return host;
-  }).pipe(Effect.withSpan("AppHostLive")),
+    const conversations = yield* ConversationServiceTag;
+    return new DispatchAdmissionService(
+      db,
+      appHost,
+      leaseRegistry,
+      conversations,
+    );
+  }).pipe(Effect.withSpan("DispatchAdmissionServiceLive")),
+);
+
+const MessageAuthorizationServiceLive = Layer.effect(
+  MessageAuthorizationServiceTag,
+  Effect.gen(function* () {
+    const appHost = yield* AppHostTag;
+    const conversations = yield* ConversationServiceTag;
+    return new MessageAuthorizationService(appHost, conversations);
+  }).pipe(Effect.withSpan("MessageAuthorizationServiceLive")),
+);
+
+const TaskAuthorizationServiceLive = Layer.effect(
+  TaskAuthorizationServiceTag,
+  Effect.gen(function* () {
+    const appHost = yield* AppHostTag;
+    return new TaskAuthorizationService(appHost);
+  }).pipe(Effect.withSpan("TaskAuthorizationServiceLive")),
 );
 
 const MessageServiceLive = Layer.effect(
@@ -288,13 +327,13 @@ const MessageServiceLive = Layer.effect(
     const conversations = yield* ConversationServiceTag;
     const networkSend = yield* NetworkSendServiceTag;
     const encryption = yield* EncryptionTag;
-    const appHost = yield* AppHostTag;
+    const messageAuthorization = yield* MessageAuthorizationServiceTag;
     return new MessageService({
       db,
       conversations,
       networkSend,
       encryption,
-      appHost,
+      messageAuthorization,
     });
   }).pipe(Effect.withSpan("MessageServiceLive")),
 );
@@ -315,23 +354,17 @@ const MessageServiceLive = Layer.effect(
 //   Tier 2 — Presence, AgentEndpointResolver (provideMerge over T1).
 //   Tier 2.5 — NetworkSendService.
 //   Tier 2.6 — LeaseRegistry (consumes PresenceServiceTag as its transitionObserver).
-//   Tier 3 — AppHost (db + connections + leases; the boot-installed
-//            default app's static policies resolve in-process).
+//   Tier 3 — AppHost (live app endpoint registry).
 //   Tier 4 — ConversationService (db + participants + connections + AppHost).
-//   Tier 5 — MessageService (every upstream + Encryption + AppHost).
-//   Tier 6 — TaskService (db + Conversation + Message).
+//   Tier 5 — Domain authorization/admission services.
+//   Tier 6 — MessageService (db + Conversation + MessageAuthorization).
+//   Tier 7 — TaskService (db + Conversation + Message).
 //
 // `Layer.provideMerge` (not `Layer.provide`) is load-bearing: every
 // downstream tier sees ALL upstream Tags in its R-channel resolution,
 // not just the immediately-above tier. RPC handler bodies can `yield*
 // XServiceTag` for any service and have it resolved by the shared
 // `dispatchRuntime` without a per-frame `Effect.provide`.
-//
-// `ConversationService` is built ABOVE `AppHost` but `AppHost` carries
-// a backref into it (for the dispatch-deny path's removeParticipant
-// call). The cycle is broken with a post-construction
-// `appHost.setConversationService(conv)` wire-up — see
-// `WireConvIntoAppHost` in `core/app.ts`.
 //
 // The composition below is bottom-up by dependency order. Each stage merges
 // a new service Layer on top of the lower tier, with the lower tier's
@@ -365,22 +398,31 @@ const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2);
 /**
  * Tier 2.6 — LeaseRegistryLive consumes ConnectionManager from Tier 1
  * AND PresenceServiceTag from Tier 2 (the service IS the registry's
- * required `transitionObserver`). Sits below AppHost so the registry is
- * wired into AppHost at construction.
+ * required `transitionObserver`).
  */
 const Tier2LeaseRegistry = Layer.provideMerge(
   LeaseRegistryLive,
   Tier2NetworkSend,
 );
 
-/** Tier 3 — AppHost holds db + connections + optional user validator. */
+/** Tier 3 — AppHost holds app registrations and optional contact policy. */
 const Tier3 = Layer.provideMerge(AppHostLive, Tier2LeaseRegistry);
 
 /** Tier 4 — ConversationService needs AppHost for the session-attach check. */
 const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
 
-/** Tier 5 — MessageService needs ConversationService + AppHost + upstream. */
-const Tier5 = Layer.provideMerge(MessageServiceLive, Tier4);
+/** Tier 5 — domain callback/admission services. */
+const Tier5Auth = Layer.provideMerge(
+  Layer.mergeAll(
+    DispatchAdmissionServiceLive,
+    MessageAuthorizationServiceLive,
+    TaskAuthorizationServiceLive,
+  ),
+  Tier4,
+);
+
+/** Tier 6 — MessageService needs ConversationService + authorization. */
+const Tier6Message = Layer.provideMerge(MessageServiceLive, Tier5Auth);
 
 const TaskServiceLive = Layer.effect(
   TaskServiceTag,
@@ -391,13 +433,13 @@ const TaskServiceLive = Layer.effect(
     return new TaskService(db, conversations, messages);
   }).pipe(Effect.withSpan("TaskServiceLive")),
 );
-const Tier6 = Layer.provideMerge(TaskServiceLive, Tier5);
+const Tier7 = Layer.provideMerge(TaskServiceLive, Tier6Message);
 
 /**
  * All service Layers merged, with cross-layer deps resolved. Still requires
  * `DbTag | EncryptionTag` from a base Layer.
  */
-export const ServicesLive = Tier6;
+export const ServicesLive = Tier7;
 
 /**
  * Shape of the fully-resolved services. Handler factories consume this

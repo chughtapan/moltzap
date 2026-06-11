@@ -7,7 +7,11 @@ import { ForbiddenError } from "@moltzap/protocol/transport";
 import type { ParamsOf } from "@moltzap/protocol/transport";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import { Effect } from "effect";
-import { AppHostTag, ConnectionTag } from "#core";
+import {
+  ConnectionTag,
+  DispatchAdmissionServiceTag,
+  LeaseRegistryTag,
+} from "#core";
 import { leaseRecordToWire } from "#dispatch";
 import { agentArm } from "#core";
 
@@ -21,9 +25,9 @@ function dispatchRequestBody(
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
-    const appHost = yield* AppHostTag;
+    const admission = yield* DispatchAdmissionServiceTag;
     const connection = yield* ConnectionTag;
-    const minted = yield* appHost.enqueueDispatchRequest({
+    const minted = yield* admission.enqueue({
       conversationId: params.conversationId,
       recipientAgentId: ctx.agentId,
       recipientConnectionId: connection.connId,
@@ -43,14 +47,8 @@ function dispatchRequestBody(
 // typed `ForbiddenError`.
 function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
   return Effect.gen(function* () {
-    const appHost = yield* AppHostTag;
     const connection = yield* ConnectionTag;
-    const registry = appHost.getLeaseRegistry();
-    if (!registry) {
-      return yield* Effect.die(
-        "AppHost.getLeaseRegistry returned null — registry not wired",
-      );
-    }
+    const registry = yield* LeaseRegistryTag;
     const record = yield* registry
       .read({ _tag: "dispatchId", value: params.dispatchId })
       .pipe(

@@ -36,6 +36,8 @@ import type {
   NetworkSendServiceTag,
   PresenceServiceTag,
   ContactsServiceTag,
+  DispatchAdmissionServiceTag,
+  TaskAuthorizationServiceTag,
   MessageServiceTag,
   ConversationServiceTag,
   TaskServiceTag,
@@ -91,15 +93,15 @@ type TaskTags =
   | MessageServiceTag
   | ConversationServiceTag
   | TaskServiceTag
+  | TaskAuthorizationServiceTag
   | ContactsServiceTag
   | LeaseRegistryTag
   | AppAuthServiceTag;
 
 /**
- * App-layer allowlist: `apps.handlers.ts` (registration + dispatch
- * authorize).
+ * App-layer allowlist: dispatch admission and connected app registration.
  */
-export type AppTags = TaskTags | AppHostTag;
+export type AppTags = TaskTags | AppHostTag | DispatchAdmissionServiceTag;
 
 // There is no global requirement-tag union: each method's requirements ride its
 // own `*AuthMw` proof (server-core `auth-middleware-layers.ts`).

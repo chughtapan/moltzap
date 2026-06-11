@@ -3,13 +3,12 @@
  * brokers an app-callback gate via `task/create` before the task
  * transitions out of `waiting`.
  *
- * Lives in the task domain. The handler depends on `AppHostTag` to fire the
- * `task/create` callback over the bound app's connection, but the RPC and
- * lifecycle it owns are task-domain behavior.
+ * Lives in the task domain. The handler depends on `TaskAuthorizationServiceTag`
+ * to fire the `task/create` callback over the bound app's connection.
  *
  * Lifecycle (one-way, fail-closed):
  *   1. Validate contact policy + create the task row in `waiting`.
- *   2. Fire `task/create` callback to the bound app via AppHost.
+ *   2. Fire `task/create` callback to the bound app.
  *      Timeout / RPC error / decode failure synthesizes a reject
  *      verdict with a synthesized reason code.
  *   3. On `accept` → setStatus(active), fan out `task/created` to
@@ -26,12 +25,17 @@ import {
   TaskRejectedError,
   TaskRequest,
 } from "@moltzap/protocol/task";
-import type { AppId, Task } from "@moltzap/protocol/task";
+import type { AppId } from "@moltzap/protocol/identity";
+import type { Task } from "@moltzap/protocol/task";
 import type { Conversation } from "@moltzap/protocol/conversation";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { TaskId } from "@moltzap/protocol/task";
 import type { AgentId } from "#core";
-import { AppHostTag, ConversationServiceTag, TaskServiceTag } from "#core";
+import {
+  ConversationServiceTag,
+  TaskAuthorizationServiceTag,
+  TaskServiceTag,
+} from "#core";
 import { authorizeConversationCreate } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 import { agentArm } from "#core";
@@ -160,7 +164,7 @@ function handleAccept(
 function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
-    const appHost = yield* AppHostTag;
+    const taskAuthorization = yield* TaskAuthorizationServiceTag;
     // Contact-policy reachability is enforced by the method's requirement
     // middleware before this body runs.
     const waitingTask = yield* taskService.create(ctx.agentId, {
@@ -168,7 +172,7 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
       invitedAgentIds: params.invitedAgentIds,
     });
     const initial = initialConversationForWire(params);
-    const verdict = yield* appHost.runTaskCreate(params.appId, {
+    const verdict = yield* taskAuthorization.authorizeCreate(params.appId, {
       taskId: waitingTask.id,
       initiatorAgentId: ctx.agentId,
       invitedAgentIds: [...params.invitedAgentIds],

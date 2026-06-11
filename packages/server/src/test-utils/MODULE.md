@@ -8,7 +8,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AppEndpointHandlers`](./app-endpoint.ts#L50)
+### [`AppEndpointHandlers`](./app-endpoint.ts#L48)
 
 _TypeAlias_
 
@@ -311,7 +311,7 @@ the compile-time contract-drift insurance. Adding a field to the real
 interface does NOT fail compilation (tests are a Partial), but changing an
 existing field's signature does.
 
-### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L119)
+### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L117)
 
 _Function_
 

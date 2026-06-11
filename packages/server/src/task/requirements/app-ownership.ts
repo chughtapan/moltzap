@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import { assertAppOwnsTask, type AppId } from "@moltzap/protocol/task";
+import type { AppId } from "@moltzap/protocol/identity";
+import { assertAppOwnsTask } from "@moltzap/protocol/task";
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "#core";
 
