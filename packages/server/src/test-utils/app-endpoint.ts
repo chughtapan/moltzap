@@ -1,9 +1,7 @@
 /**
  * @file Test-only {@link AppEndpoint} builders for AppHost unit tests.
  *
- * The boot-installed default app declares a required `hooks` block whose
- * policies are all static. AppHost resolves those policies in-process.
- * These builders let AppHost unit tests exercise manifests that choose
+ * These builders let domain authorization tests exercise manifests that choose
  * `kind: "hook"`, which need a concrete originator to dispatch into.
  *
  * Two shapes:

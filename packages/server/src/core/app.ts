@@ -19,7 +19,6 @@ import type { CoreConfig } from "../config.js";
 import {
   AppHostTag,
   ConnectionHooksTag,
-  ConversationServiceTag,
   DbTag,
   EncryptionTag,
   ServicesLive,
@@ -95,18 +94,13 @@ function makeCoreRuntime(config: CoreConfig) {
     Layer.succeed(EncryptionTag, envelope),
   );
   const ServicesWithBase = Layer.provideMerge(ServicesLive, BaseLive);
-  const WireConversationIntoAppHost = Layer.effectDiscard(
+  const InstallDefaultApp = Layer.effectDiscard(
     Effect.gen(function* () {
       const appHost = yield* AppHostTag;
-      const conversation = yield* ConversationServiceTag;
-      appHost.setConversationService(conversation);
       installDefaultApp(appHost);
-    }).pipe(Effect.withSpan("makeCoreRuntime.wireConversationIntoAppHost")),
+    }).pipe(Effect.withSpan("makeCoreRuntime.installDefaultApp")),
   );
-  const FullLive = Layer.provideMerge(
-    WireConversationIntoAppHost,
-    ServicesWithBase,
-  );
+  const FullLive = Layer.provideMerge(InstallDefaultApp, ServicesWithBase);
   // The connection/disconnection hook arrays are created here so the native
   // `agent/connect` handler can fire the connection hooks via
   // `ConnectionHooksTag`. They are mutable references the `CoreApp.onConnection`

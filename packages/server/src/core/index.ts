@@ -11,6 +11,7 @@ export {
   ContactsServiceTag,
   ConversationServiceTag,
   DbTag,
+  DispatchAdmissionServiceTag,
   EncryptionTag,
   LeaseRegistryTag,
   MessageServiceTag,
@@ -18,6 +19,7 @@ export {
   PresenceServiceLive,
   PresenceServiceTag,
   ServicesLive,
+  TaskAuthorizationServiceTag,
   TaskServiceTag,
   resolveServices,
 } from "./layers.js";
@@ -25,12 +27,4 @@ export type { ResolvedServices } from "./layers.js";
 
 export { agentArm, appArm } from "./handler-runtime.js";
 
-export type {
-  AgentId,
-  CoreApp,
-  DispatchAdmissionResult,
-  DispatchAuthorizeContext,
-  MessageAuthorizeContext,
-  MessageAuthorizeResult,
-  UserId,
-} from "./types.js";
+export type { AgentId, CoreApp, UserId } from "./types.js";

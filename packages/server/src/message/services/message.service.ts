@@ -12,7 +12,6 @@ import {
   decodeMessagePartsText,
   validateDispatchDecision,
 } from "@moltzap/protocol/message";
-import type { AppHost } from "#identity/apps";
 import {
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
@@ -27,6 +26,7 @@ import { Cause, Effect, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import { nextSnowflakeId } from "../../db/snowflake.js";
 import type { ConversationService } from "#conversation";
+import type { MessageAuthorizationService } from "../authorization.js";
 import type { NetworkSendService } from "../../network/network-send.js";
 import { type EnvelopeEncryption, type Dek } from "../../db/crypto/envelope.js";
 import {
@@ -102,11 +102,7 @@ export interface MessageServiceDeps {
   readonly networkSend: NetworkSendService;
   readonly encryption: EnvelopeEncryption | null;
 
-  /**
-   * AppHost owns the `messages/authorize` registry and runner. The send
-   * path routes every dispatch-authorization verdict through it.
-   */
-  readonly appHost: AppHost;
+  readonly messageAuthorization: MessageAuthorizationService;
 }
 
 /**
@@ -120,24 +116,25 @@ export interface MessageServiceDeps {
  * - `{waiting, active}` → insert + `messages/authorize` verdict +
  *   verdict-scoped broadcast.
  *
- * The `messages/authorize` round-trip is the authorization gate: AppHost
- * fails closed (`Block { reason: "app_unreachable" }`) on timeout, handler
- * error, or RPC failure. On Forward, `network.send` broadcasts to
- * `verdict.recipients`; on Block, the call fails with `HookBlocked`.
+ * The `messages/authorize` round-trip is the authorization gate:
+ * `MessageAuthorizationService` fails closed (`Block { reason:
+ * "app_unreachable" }`) on timeout, handler error, or RPC failure. On
+ * Forward, `network.send` broadcasts to `verdict.recipients`; on Block, the
+ * call fails with `HookBlocked`.
  */
 export class MessageService {
   private readonly db: Db;
   private readonly conversations: ConversationService;
   private readonly networkSendService: NetworkSendService;
   private readonly encryption: EnvelopeEncryption | null;
-  private readonly appHost: AppHost;
+  private readonly messageAuthorization: MessageAuthorizationService;
 
   constructor(deps: MessageServiceDeps) {
     this.db = deps.db;
     this.conversations = deps.conversations;
     this.networkSendService = deps.networkSend;
     this.encryption = deps.encryption;
-    this.appHost = deps.appHost;
+    this.messageAuthorization = deps.messageAuthorization;
   }
 
   close(): Effect.Effect<void, never> {
@@ -311,7 +308,7 @@ export class MessageService {
    *
    * The `messages/authorize` gate:
    *   1. Resolve the dispatch-authorization verdict via
-   *      `appHost.runMessageAuthorize`.
+   *      `MessageAuthorizationService.authorize`.
    *   2. CAS-guarded `recordDispatchDecision` writes the verdict to
    *      `messages.dispatch_decision`; loser of the race no-ops.
    *   3. (winner only) On Block, fail closed with `HookBlockedError`.
@@ -509,17 +506,16 @@ export class MessageService {
   }
 
   /**
-   * Run the `messages/authorize` gate via AppHost and translate the
-   * verdict into the `DispatchDecision` shape persisted on
-   * `messages.dispatch_decision`. AppHost fails closed (`Block { reason:
-   * "app_unreachable" }`) on timeout / handler error / RPC failure;
-   * this method never errors.
+   * Run the `messages/authorize` gate and translate the verdict into the
+   * `DispatchDecision` shape persisted on `messages.dispatch_decision`.
+   * The authorization service fails closed (`Block { reason:
+   * "app_unreachable" }`) on timeout / handler error / RPC failure.
    */
   private resolveSendVerdict(
     input: ResolveSendVerdictInput,
   ): Effect.Effect<DispatchDecision, never> {
     return Effect.gen(this, function* () {
-      const result = yield* this.appHost.runMessageAuthorize(input.appId, {
+      const result = yield* this.messageAuthorization.authorize(input.appId, {
         conversationId: input.conversationId,
         message: {
           id: input.messageId,

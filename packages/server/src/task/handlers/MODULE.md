@@ -52,7 +52,7 @@ export const taskRemoveParticipant: ServerHandler<
 > = (params)
 ```
 
-### [`taskRequest`](./task-request.handlers.ts#L191)
+### [`taskRequest`](./task-request.handlers.ts#L195)
 
 _Variable_
 

@@ -32,6 +32,8 @@ export const DEFAULT_ABNORMAL_CLOSE: CloseInfo = {
   reason: "abnormal",
 };
 
+const NO_STATUS_RECEIVED_CLOSE_CODE = 1005;
+
 function absurd(x: never): never {
   throw new Error(`unreachable CloseKind branch: ${JSON.stringify(x)}`);
 }
@@ -83,6 +85,9 @@ export function extractCloseInfo(
   const kind = classifyCloseCause(exit.cause);
   switch (kind._tag) {
     case "Clean":
+      if (kind.code === NO_STATUS_RECEIVED_CLOSE_CODE) {
+        return DEFAULT_GRACEFUL_CLOSE;
+      }
       return { code: kind.code, reason: kind.reason };
     case "EndOfStream":
       return DEFAULT_GRACEFUL_CLOSE;

@@ -168,7 +168,7 @@ export interface AppClientOptions {
 }
 ```
 
-### [`classifyCloseCause`](./close-info.ts#L39)
+### [`classifyCloseCause`](./close-info.ts#L41)
 
 _Function_
 
@@ -178,7 +178,7 @@ export function classifyCloseCause(
 ): CloseKind
 ```
 
-### [`ClientConnectError`](./lifecycle.ts#L114)
+### [`ClientConnectError`](./lifecycle.ts#L118)
 
 _TypeAlias_
 
@@ -186,7 +186,7 @@ _TypeAlias_
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
 ```
 
-### [`ClientDefinitionError`](./lifecycle.ts#L103)
+### [`ClientDefinitionError`](./lifecycle.ts#L107)
 
 _TypeAlias_
 
@@ -194,7 +194,7 @@ _TypeAlias_
 export type ClientDefinitionError<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L99)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L103)
 
 _TypeAlias_
 
@@ -202,7 +202,7 @@ _TypeAlias_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L101)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L105)
 
 _TypeAlias_
 
@@ -210,7 +210,7 @@ _TypeAlias_
 export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L209)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L213)
 
 _Interface_
 
@@ -236,7 +236,7 @@ export interface ClientLifecycleOptions<
 }
 ```
 
-### [`clientRpc`](./lifecycle.ts#L97)
+### [`clientRpc`](./lifecycle.ts#L101)
 
 _Property_
 
@@ -246,7 +246,7 @@ _Property_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L96)
+### [`ClientRpcDefinition`](./lifecycle.ts#L100)
 
 _TypeAlias_
 
@@ -325,7 +325,7 @@ _Variable_
 export type ConnectionId = string & Brand.Brand<"ConnectionId">
 ```
 
-### [`ConnectResult`](./lifecycle.ts#L108)
+### [`ConnectResult`](./lifecycle.ts#L112)
 
 _TypeAlias_
 
@@ -349,7 +349,7 @@ _Variable_
 export const DEFAULT_GRACEFUL_CLOSE: CloseInfo =
 ```
 
-### [`extractCloseInfo`](./close-info.ts#L77)
+### [`extractCloseInfo`](./close-info.ts#L79)
 
 _Function_
 
@@ -664,7 +664,7 @@ channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
 machinery as the moderator callbacks folded into ReverseRpcGroup.
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L566)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L570)
 
 _Function_
 
@@ -678,7 +678,7 @@ export const openProtocolAgentClientSocket = (
 >
 ```
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L578)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L582)
 
 _Function_
 
@@ -692,7 +692,7 @@ export const openProtocolAppClientSocket = (
 >
 ```
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L647)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L651)
 
 _Class_
 
@@ -827,7 +827,7 @@ _TypeAlias_
 export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L256)
+### [`ReverseCallbackHandlers`](./lifecycle.ts#L260)
 
 _TypeAlias_
 
@@ -937,7 +937,7 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked — an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L82)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L86)
 
 _Variable_
 
@@ -945,7 +945,7 @@ _Variable_
 export const RPC_TIMEOUT_MS = 30_000
 ```
 
-### [`RpcCallOptions`](./lifecycle.ts#L92)
+### [`RpcCallOptions`](./lifecycle.ts#L96)
 
 _Interface_
 

@@ -1,30 +1,30 @@
-# server-core/message
+import { Effect } from "effect";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
+import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { AgentId, AppId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import {
+  callAppRpc,
+  type AppHost,
+  type AppRegistration,
+  wrapHookEffectWithEnvelope,
+} from "#identity/apps";
 
-_`packages/server/src/message`_
+export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
 
-## Purpose
+export type MessageAuthorizeResult =
+  | {
+      readonly decision: "Forward";
+      readonly recipients: ReadonlyArray<AgentId>;
+    }
+  | { readonly decision: "Block"; readonly reason?: string };
 
-Message-domain service barrel.
-
-## Public surface
-
-### [`MessageAuthorizationConversations`](./authorization.ts#L22)
-
-_Interface_
-
-```ts
 export interface MessageAuthorizationConversations {
   getParticipantAgentIds(
     conversationId: ConversationId,
   ): Effect.Effect<readonly AgentId[]>;
 }
-```
 
-### [`MessageAuthorizationService`](./authorization.ts#L28)
-
-_Class_
-
-```ts
 export class MessageAuthorizationService {
   constructor(
     private readonly apps: AppHost,
@@ -119,28 +119,3 @@ export class MessageAuthorizationService {
     };
   }
 }
-```
-
-### [`MessageAuthorizeContext`](./authorization.ts#L13)
-
-_TypeAlias_
-
-```ts
-export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
-```
-
-### [`MessageAuthorizeResult`](./authorization.ts#L15)
-
-_TypeAlias_
-
-```ts
-export type MessageAuthorizeResult =
-  | {
-      readonly decision: "Forward";
-      readonly recipients: ReadonlyArray<AgentId>;
-    }
-```
-
-## Files
-
-- `authorization.ts`

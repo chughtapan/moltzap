@@ -1,9 +1,9 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect, Fiber, Option, Ref, Schema } from "effect";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import type { AppId, TaskId } from "@moltzap/protocol/task";
+import type { TaskId } from "@moltzap/protocol/task";
 import type {
   DispatchesGet,
   DispatchId,
@@ -213,10 +213,10 @@ interface Claim {
 }
 
 /**
- * Public contract of the lease registry. One instance per server
- * lifetime; held by `AppHost` and the messages handler. Backed by an
- * in-process `Ref&lt;Map&lt;LeaseId, LeaseEntry>>` with per-lease TTL
- * fibers — no DB row. State transitions are atomic via `Ref.modify`.
+ * Public contract of the lease registry. One instance per server lifetime,
+ * shared by dispatch admission and message send. Backed by an in-process
+ * `Ref&lt;Map&lt;LeaseId, LeaseEntry>>` with per-lease TTL fibers — no DB row.
+ * State transitions are atomic via `Ref.modify`.
  *
  * Lease state machine (eight states; `LeaseState` in this file is the
  * normative enumeration):

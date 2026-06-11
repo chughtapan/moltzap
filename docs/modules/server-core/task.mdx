@@ -13,8 +13,69 @@ Task-domain service barrel.
 
 ## Public surface
 
-_No exports surfaced from this folder._
+### [`TaskAuthorizationService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/authorization.ts#L13)
+
+_Class_
+
+```ts
+export class TaskAuthorizationService {
+  constructor(private readonly apps: AppHost) {}
+
+  authorizeCreate(
+    appId: AppId,
+    ctx: ParamsOf<typeof TaskCreate>,
+  ): Effect.Effect<TaskCreateVerdict, never> {
+    const entry = this.apps.lookupApp(appId);
+    if (entry === undefined) {
+      return Effect.succeed({
+        decision: "reject",
+        reason: "app_unreachable",
+      });
+    }
+    const policy = entry.manifest.hooks.task_create;
+    switch (policy.kind) {
+      case "accept":
+        return Effect.succeed({ decision: "accept" });
+      case "reject":
+        return Effect.succeed({
+          decision: "reject",
+          reason: policy.reason,
+        });
+      case "hook": {
+        const timeoutMs = policy.timeoutMs;
+        return wrapHookEffectWithEnvelope({
+          raw: callAppRpc(entry, {
+            definition: TaskCreate,
+            params: ctx,
+          }).pipe(Effect.map((envelope) => envelope.verdict)),
+          timeoutMs,
+          timeoutLogMessage: "task/create timed out",
+          timeoutLogContext: { taskId: ctx.taskId, appId, timeoutMs },
+          errorLogMessage: "task/create error",
+          errorLogContext: { taskId: ctx.taskId, appId },
+          onTimeout: () => ({
+            decision: "reject",
+            reason: "timeout",
+          }),
+          onError: () => ({
+            decision: "reject",
+            reason: "app_unreachable",
+          }),
+        });
+      }
+    }
+  }
+}
+```
+
+### [`TaskCreateVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/authorization.ts#L11)
+
+_TypeAlias_
+
+```ts
+export type TaskCreateVerdict = ResultOf<typeof TaskCreate>["verdict"];
+```
 
 ## Files
 
-_No source files tracked under this folder by TypeDoc._
+- `authorization.ts`

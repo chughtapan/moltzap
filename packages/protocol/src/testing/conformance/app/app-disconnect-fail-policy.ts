@@ -4,8 +4,9 @@
  * Contract:
  *   - When an app's WS severs while admission RPCs are in flight, the
  *     server's pending Deferreds fail with a typed close.
- *   - AppHost applies fail-CLOSED verdicts: `before_dispatch` →
- *     `decision: "deny"`; `before_message_delivery` → `block: true`.
+ *   - Domain callback services apply fail-CLOSED verdicts:
+ *     `before_dispatch` → `decision: "deny"`;
+ *     `before_message_delivery` → `block: true`.
  *   - The per-connection appCallback pending map drains; no Deferred leaks past
  *     the connection's Scope.
  *

@@ -1,18 +1,15 @@
-# server-core/task
+import { Effect } from "effect";
+import { TaskCreate } from "@moltzap/protocol/task";
+import type { AppId } from "@moltzap/protocol/identity";
+import type { ParamsOf, ResultOf } from "@moltzap/protocol/transport";
+import {
+  callAppRpc,
+  type AppHost,
+  wrapHookEffectWithEnvelope,
+} from "#identity/apps";
 
-_`packages/server/src/task`_
+export type TaskCreateVerdict = ResultOf<typeof TaskCreate>["verdict"];
 
-## Purpose
-
-Task-domain service barrel.
-
-## Public surface
-
-### [`TaskAuthorizationService`](./authorization.ts#L13)
-
-_Class_
-
-```ts
 export class TaskAuthorizationService {
   constructor(private readonly apps: AppHost) {}
 
@@ -61,16 +58,3 @@ export class TaskAuthorizationService {
     }
   }
 }
-```
-
-### [`TaskCreateVerdict`](./authorization.ts#L11)
-
-_TypeAlias_
-
-```ts
-export type TaskCreateVerdict = ResultOf<typeof TaskCreate>["verdict"];
-```
-
-## Files
-
-- `authorization.ts`

@@ -13,7 +13,7 @@ Dispatch-domain service barrel.
 
 ## Public surface
 
-### [`AppBoundConversationLookup`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/app-bound-conversation.ts#L10)
+### [`AppBoundConversationLookup`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/app-bound-conversation.ts#L11)
 
 _Interface_
 
@@ -22,6 +22,186 @@ export interface AppBoundConversationLookup {
   readonly _tag: "AppBound";
   readonly taskId: TaskId;
   readonly appId: AppId;
+}
+```
+
+### [`DispatchAdmissionConversations`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L64)
+
+_Interface_
+
+```ts
+export interface DispatchAdmissionConversations {
+  removeParticipant(
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<unknown, unknown, NetworkSendServiceTag>;
+}
+```
+
+### [`DispatchAdmissionResult`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L33)
+
+_TypeAlias_
+
+```ts
+export type DispatchAdmissionResult =
+  | {
+      readonly decision: "grant";
+      readonly leaseId?: LeaseId;
+      readonly leaseTimeoutMs?: number;
+      readonly dispatchMessageId?: MessageId;
+    }
+```
+
+### [`DispatchAdmissionService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L112)
+
+_Class_
+
+```ts
+export class DispatchAdmissionService {
+  constructor(
+    private readonly db: Db,
+    private readonly apps: AppHost,
+    private readonly registry: LeaseRegistry,
+    private readonly conversations: DispatchAdmissionConversations,
+  ) {}
+
+  enqueue(
+    args: EnqueueDispatchRequestArgs,
+  ): Effect.Effect<
+    { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
+    never,
+    NetworkSendServiceTag
+  > {
+    return catchSqlErrorAsDefect(this.enqueueEffect(args));
+  }
+
+  private enqueueEffect(
+    args: EnqueueDispatchRequestArgs,
+  ): Effect.Effect<
+    { readonly leaseId: LeaseId; readonly dispatchId: DispatchId },
+    SqlError,
+    NetworkSendServiceTag
+  > {
+    return Effect.gen(this, function* () {
+      const lookup = yield* lookupAppBoundForConversation(
+        this.db,
+        args.conversationId,
+      );
+      const binding = yield* this.dispatchLeaseBindingForLookup(args, lookup);
+      const minted = yield* this.registry.mint(binding);
+
+      yield* this.attachDispatchRoundTripFiber(minted.leaseId, lookup, {
+        conversationId: args.conversationId,
+        recipientAgentId: args.recipientAgentId,
+        messageId: args.messageId,
+        senderAgentId: args.senderAgentId,
+        parts: args.parts,
+        attempt: args.attempt,
+        receivedAt: args.receivedAt,
+        pending: args.pending,
+      });
+      return minted;
+    });
+  }
+
+  private dispatchLeaseBindingForLookup(
+    args: EnqueueDispatchRequestArgs,
+    lookup: AppBoundConversationLookup,
+  ): Effect.Effect<ModeratorBoundLeaseBinding, never> {
+    const entry = this.apps.lookupApp(lookup.appId);
+    if (entry === undefined) {
+      return Effect.die(
+        new DispatchAppUnavailableError({
+          appId: lookup.appId,
+          conversationId: args.conversationId,
+        }),
+      );
+    }
+
+    return Effect.succeed({
+      _tag: "ModeratorBound",
+      recipientAgentId: args.recipientAgentId,
+      recipientConnectionId: args.recipientConnectionId,
+      conversationId: args.conversationId,
+      appId: lookup.appId,
+      taskId: lookup.taskId,
+      moderatorConnectionId: entry.endpoint.connId,
+    });
+  }
+
+  private attachDispatchRoundTripFiber(
+    leaseId: LeaseId,
+    lookup: AppBoundConversationLookup,
+    params: DispatchRoundTripParams,
+  ): Effect.Effect<void, never, NetworkSendServiceTag> {
+    return Effect.gen(this, function* () {
+      const fiber = yield* Effect.forkDaemon(
+        this.runForkedDispatchRoundTrip(leaseId, lookup, params),
+      );
+      yield* this.registry.attachRoundTripFiber(leaseId, fiber);
+    });
+  }
+
+  private runForkedDispatchRoundTrip(
+    leaseId: LeaseId,
+    lookup: AppBoundConversationLookup,
+    params: DispatchRoundTripParams,
+  ): Effect.Effect<void, never, NetworkSendServiceTag> {
+    return catchSqlErrorAsDefect(
+      this.runAppBoundDispatchRoundTrip(leaseId, lookup, params),
+    );
+  }
+
+  private runAppBoundDispatchRoundTrip(
+    leaseId: LeaseId,
+    lookup: AppBoundConversationLookup,
+    params: DispatchRoundTripParams,
+  ): Effect.Effect<void, SqlError, NetworkSendServiceTag> {
+    if (this.apps.lookupApp(lookup.appId) === undefined) {
+      return this.resolveLease(leaseId, {
+        _tag: "deny",
+        reason: "app_unavailable",
+      });
+    }
+
+    return Effect.gen(this, function* () {
+      const ctx = yield* this.dispatchAuthorizeContext(lookup, params);
+      const verdict = yield* this.dispatchAuthorize(lookup.appId, ctx);
+      yield* this.resolveLease(leaseId, dispatchVerdictToLeaseVerdict(verdict));
+      yield* this.removeDeniedParticipant(verdict, params);
+    });
+  }
+
+  private dispatchAuthorizeContext(
+    lookup: AppBoundConversationLookup,
+    params: DispatchRoundTripParams,
+  ): Effect.Effect<DispatchAuthorizeContext, SqlError> {
+    return Effect.gen(this, function* () {
+```
+
+### [`DispatchAuthorizeContext`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L31)
+
+_TypeAlias_
+
+```ts
+export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
+```
+
+### [`EnqueueDispatchRequestArgs`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L52)
+
+_Interface_
+
+```ts
+export interface EnqueueDispatchRequestArgs {
+  readonly conversationId: ConversationId;
+  readonly recipientAgentId: AgentId;
+  readonly recipientConnectionId: ConnectionId;
+  readonly messageId: MessageId;
+  readonly senderAgentId: AgentId;
+  readonly parts?: ReadonlyArray<Part>;
+  readonly attempt?: number;
+  readonly receivedAt?: string;
+  readonly pending?: ReadonlyArray<PendingDispatchMessage>;
 }
 ```
 
@@ -210,10 +390,10 @@ export interface LeaseRegistry {
    *
 ```
 
-Public contract of the lease registry. One instance per server
-lifetime; held by `AppHost` and the messages handler. Backed by an
-in-process `Ref&lt;Map&lt;LeaseId, LeaseEntry>>` with per-lease TTL
-fibers — no DB row. State transitions are atomic via `Ref.modify`.
+Public contract of the lease registry. One instance per server lifetime,
+shared by dispatch admission and message send. Backed by an in-process
+`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` with per-lease TTL fibers — no DB row.
+State transitions are atomic via `Ref.modify`.
 
 Lease state machine (eight states; `LeaseState` in this file is the
 normative enumeration):
@@ -342,7 +522,7 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`lookupAppBoundForConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/app-bound-conversation.ts#L21)
+### [`lookupAppBoundForConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/app-bound-conversation.ts#L22)
 
 _Function_
 
@@ -400,5 +580,6 @@ Once recorded, the binding is immutable for the lease's lifetime.
 
 ## Files
 
+- `admission.service.ts`
 - `app-bound-conversation.ts`
 - `lease-registry.ts`

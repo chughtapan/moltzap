@@ -1,11 +1,7 @@
 import { Cause, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
-import type {
-  AppId,
-  Task,
-  TaskParticipant,
-  TaskStatus,
-} from "@moltzap/protocol/task";
+import type { AppId } from "@moltzap/protocol/identity";
+import type { Task, TaskParticipant, TaskStatus } from "@moltzap/protocol/task";
 import type { Conversation } from "@moltzap/protocol/conversation";
 import type { ListCursor } from "@moltzap/protocol/transport";
 import type { AgentId } from "@moltzap/protocol/identity";

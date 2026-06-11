@@ -2,4 +2,5 @@
 
 export { installDefaultApp } from "./default-app.js";
 export { AppHost } from "./host.js";
-export type { AppEndpoint } from "./registry.js";
+export { callAppRpc, wrapHookEffectWithEnvelope } from "./callback-rpc.js";
+export type { AppEndpoint, AppRegistration } from "./registry.js";

@@ -109,16 +109,15 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 }> {}
 ```
 
-### [`AppTags`](./layer-tags.ts#L102)
+### [`AppTags`](./layer-tags.ts#L104)
 
 _TypeAlias_
 
 ```ts
-export type AppTags = TaskTags | AppHostTag;
+export type AppTags = TaskTags | AppHostTag | DispatchAdmissionServiceTag;
 ```
 
-App-layer allowlist: `apps.handlers.ts` (registration + dispatch
-authorize).
+App-layer allowlist: dispatch admission and connected app registration.
 
 ### [`Connection`](./connection.ts#L141)
 
@@ -372,10 +371,10 @@ export function sendRpcToClient(
 
 Send an awaitable RPC from server → client over the connection's reverse
 client. Narrows `D` to the moderator-callback union so a client→server method
-cannot be fired on the reverse channel by mistake. The caller
-(`AppHost.callAppRpc`) sources the Originator from the registered
-app's `AppEndpoint`, minted from the live `AppConnection` arm. Caller controls
-timeout via `Effect.timeout` at the call site.
+cannot be fired on the reverse channel by mistake. Domain callback services
+source the Originator from the registered app's `AppEndpoint`, minted
+from the live `AppConnection` arm. Caller controls timeout via
+`Effect.timeout` at the call site.
 
 ### [`TransitionOutcome`](./connection.ts#L152)
 

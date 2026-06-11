@@ -1,10 +1,5 @@
-import type { ParamsOf } from "@moltzap/protocol/transport";
-import type { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import type { MessagesAuthorize } from "@moltzap/protocol/message";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { MessageId } from "@moltzap/protocol/conversation";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ContactService } from "../identity/services/contact-policy.js";
 import type { ConnectionManager } from "#socket";
 import type { NetworkSendService } from "../network/network-send.js";
@@ -25,46 +20,6 @@ export type DisconnectionHook = (params: {
   ownerUserId: UserId;
   connId: ConnectionId;
 }) => PromiseLike<void> | void;
-
-/**
- * Server-side hook context for the `dispatch/authorize` and
- * `messages/authorize` server-to-client RPCs. Context shapes are
- * derived from the protocol's wire schemas via `ParamsOf` — the
- * hook context IS the wire param shape, so a drift between the
- * server-side type and the descriptor is impossible by construction.
- */
-export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
-
-export type DispatchAdmissionResult =
-  | {
-      decision: "grant";
-      leaseId?: LeaseId;
-      leaseTimeoutMs?: number;
-      dispatchMessageId?: MessageId;
-    }
-  | { decision: "deny"; reason?: string }
-  | { decision: "hold"; reason?: string };
-
-/**
- * Server-side message-fan-out authorization hook context. Equals the
- * `messages/authorize` wire param shape. Symmetric to
- * `DispatchAuthorizeContext` — same fail-closed posture, different
- * verdict union.
- */
-export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
-
-/**
- * 2-arm verdict the TM declares for fan-out. `Forward { recipients }`
- * names the agents the server SHALL deliver to; `Block { reason }`
- * suppresses fan-out and surfaces `RpcFailure(HookBlocked)` to the
- * sender. `recipients` MUST be a subset of the conversation's
- * participants; the server does not re-fan to non-participants.
- * Empty `recipients` is legal — message lands in the sender's
- * transcript but is delivered to no one else.
- */
-export type MessageAuthorizeResult =
-  | { decision: "Forward"; recipients: ReadonlyArray<AgentId> }
-  | { decision: "Block"; reason?: string };
 
 export interface CoreApp {
   readonly port: number;
@@ -99,9 +54,8 @@ export interface CoreApp {
 
   /**
    * Wire a contact-policy gate for app-session admission and
-   * conversation-creation paths. The default policy (set by AppHost's
-   * constructor) is "allow all" — operators that need real policy
-   * decisions inject their resolver here.
+   * conversation-creation paths. Absence of a checker means "allow all";
+   * operators that need real policy decisions inject their resolver here.
    */
   setContactService: (checker: ContactService) => void;
 
