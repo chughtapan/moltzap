@@ -196,7 +196,7 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^#db$/,
-    replacement: fromRoot("packages/server/src/db/index.ts"),
+    replacement: fromRoot("packages/server/src/db/client.ts"),
   },
   {
     find: /^#identity\/agents$/,
