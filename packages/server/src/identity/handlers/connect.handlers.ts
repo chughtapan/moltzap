@@ -10,7 +10,7 @@ import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { ServerHandler } from "@moltzap/protocol/socket";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { agentContextFrom, AgentContext, AppContext } from "#socket";
 import {
   AgentEndpointResolverTag,

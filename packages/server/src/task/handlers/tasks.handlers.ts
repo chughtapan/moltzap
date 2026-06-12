@@ -13,7 +13,7 @@ import {
 } from "@moltzap/protocol/conversation";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { ServerHandler } from "@moltzap/protocol/socket";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentContext, AppContext } from "#socket";
 import type { AgentId } from "#core";

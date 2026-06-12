@@ -2,12 +2,9 @@ import { Schema } from "effect";
 
 import { AgentPrincipal } from "#identity/principals";
 import { AgentClaimed } from "#identity/requirements";
-import { defineRpc } from "../../transport/method.js";
-import {
-  ListLimitSchema,
-  listCursorSchema,
-} from "../../transport/pagination.js";
-import { InvalidParamsError } from "../../transport/wire-errors.js";
+import { defineRpc } from "#transport";
+import { ListLimitSchema, listCursorSchema } from "#transport";
+import { InvalidParamsError } from "#transport";
 import { AgentCardSchema } from "./types.js";
 
 export const AgentsList = defineRpc({

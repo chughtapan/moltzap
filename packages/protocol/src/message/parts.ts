@@ -1,5 +1,5 @@
 import { Effect, Either, Schema } from "effect";
-import { formatString } from "../transport/wire-string.js";
+import { formatString } from "#transport";
 
 const TextPartSchema = Schema.Struct({
   type: Schema.Literal("text"),

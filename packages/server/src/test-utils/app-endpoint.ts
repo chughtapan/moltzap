@@ -10,7 +10,7 @@
  *     verdict round-trips through a registered hook.
  */
 import { Effect } from "effect";
-import type { AnyAppCallbackRpcDefinition } from "@moltzap/protocol/socket";
+import type { AnyAppCallbackRpcDefinition } from "@moltzap/protocol/socket/catalog";
 import type {
   ReverseCallbackError,
   ReverseCallbackPayload,

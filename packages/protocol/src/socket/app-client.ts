@@ -1,16 +1,15 @@
 import type { Rpc, RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
-import type {
-  AppCallbackHandlers,
-  AppCallbackRpcDefinition,
-  HandlerSlot,
-} from "./app-callbacks.js";
+import type { AppCallbackHandlers, HandlerSlot } from "./app-callbacks.js";
 import type { AppKey } from "#identity/apps";
-import { AppConnect, PROTOCOL_VERSION } from "../network/connect.js";
-import { AppCallableGroup } from "./catalog.js";
+import { AppConnect, PROTOCOL_VERSION } from "#network";
+import {
+  AppCallableGroup,
+  type AnyAppCallbackRpcDefinition,
+} from "#socket/catalog";
 import { type CloseInfo } from "./close-info.js";
-import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
+import { NotConnectedError, RpcTimeoutError } from "#transport";
 import {
   openProtocolAppClientSocket,
   RPC_TIMEOUT_MS,
@@ -24,7 +23,7 @@ import {
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,
-} from "../transport/typed-dispatch.js";
+} from "#transport";
 
 type AppCallableRpcs = RpcGroup.Rpcs<typeof AppCallableGroup>;
 type AppCallableTag = AppCallableRpcs["_tag"];
@@ -38,7 +37,7 @@ const CALLBACK_CONTEXT: AppCallbackContext = {
   requestId: "reverse-rpc",
 };
 
-function isCallbackParams<D extends AppCallbackRpcDefinition>(
+function isCallbackParams<D extends AnyAppCallbackRpcDefinition>(
   slot: HandlerSlot<D, AppCallbackContext>,
   params: unknown,
 ): params is Parameters<HandlerSlot<D, AppCallbackContext>["handle"]>[0] {
@@ -49,7 +48,7 @@ function makeAppCallbackHandlers(
   handlers: AppCallbackHandlers<AppCallbackContext>,
 ): ReverseCallbackHandlers {
   const adapt =
-    <D extends AppCallbackRpcDefinition>(
+    <D extends AnyAppCallbackRpcDefinition>(
       slot: HandlerSlot<D, AppCallbackContext>,
     ) =>
     (params: Rpc.Payload<D["clientRpc"]>) => {

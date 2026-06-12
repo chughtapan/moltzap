@@ -81,7 +81,7 @@ source. Update the descriptor, schema, or JSDoc, then run
    lines and the method summary.
 
 6. Add the descriptor to the domain catalog and the correct callable partition.
-   `src/socket/catalog.ts` derives server-inbound and client groups from
+   `src/socket/catalog/index.ts` derives server-inbound and client groups from
    those authored catalogs.
 
 7. For a new domain requirement, declare the protocol tag as an

@@ -8,7 +8,7 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](./conversations.ts#L314)
+### [`agentCallableConversationRpcMethods`](./conversations.ts#L311)
 
 _Variable_
 
@@ -20,7 +20,7 @@ export const agentCallableConversationRpcMethods = [
 
 Agent-callable conversation RPC catalog.
 
-### [`appCallableConversationRpcMethods`](./conversations.ts#L319)
+### [`appCallableConversationRpcMethods`](./conversations.ts#L316)
 
 _Variable_
 
@@ -36,7 +36,7 @@ export const appCallableConversationRpcMethods = [
 
 App-callable conversation RPC catalog.
 
-### [`Conversation`](./types.ts#L134)
+### [`Conversation`](./types.ts#L131)
 
 _TypeAlias_
 
@@ -46,7 +46,7 @@ export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
 
 Conversation row visible on task conversation surfaces.
 
-### [`ConversationArchivedError`](./types.ts#L60)
+### [`ConversationArchivedError`](./types.ts#L57)
 
 _Class_
 
@@ -61,7 +61,7 @@ export class ConversationArchivedError extends Schema.TaggedError<ConversationAr
 
 The conversation is archived and cannot accept the requested mutation.
 
-### [`ConversationFullError`](./types.ts#L68)
+### [`ConversationFullError`](./types.ts#L65)
 
 _Class_
 
@@ -76,7 +76,7 @@ export class ConversationFullError extends Schema.TaggedError<ConversationFullEr
 
 The conversation has reached its participant capacity.
 
-### [`ConversationId`](./types.ts#L21)
+### [`ConversationId`](./types.ts#L18)
 
 _TypeAlias_
 
@@ -86,7 +86,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`ConversationId`](./types.ts#L21)
+### [`ConversationId`](./types.ts#L18)
 
 _Variable_
 
@@ -94,7 +94,7 @@ _Variable_
 export type ConversationId = string & Brand.Brand<"ConversationId">
 ```
 
-### [`ConversationNotFoundError`](./types.ts#L44)
+### [`ConversationNotFoundError`](./types.ts#L41)
 
 _Class_
 
@@ -109,7 +109,7 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 
 The referenced conversation does not exist under the task (or is not visible).
 
-### [`conversationNotifications`](./conversations.ts#L328)
+### [`conversationNotifications`](./conversations.ts#L325)
 
 _Variable_
 
@@ -125,7 +125,7 @@ export const conversationNotifications = [
 
 Conversation notification catalog.
 
-### [`ConversationParticipant`](./types.ts#L137)
+### [`ConversationParticipant`](./types.ts#L134)
 
 _TypeAlias_
 
@@ -137,7 +137,7 @@ export type ConversationParticipant = Schema.Schema.Type<
 
 Participant row for a conversation.
 
-### [`conversationSchema`](./types.ts#L150)
+### [`conversationSchema`](./types.ts#L147)
 
 _Function_
 
@@ -149,7 +149,7 @@ Return the canonical conversation schema.
 
 **Returns:** The canonical conversation schema.
 
-### [`ConversationSummary`](./types.ts#L142)
+### [`ConversationSummary`](./types.ts#L139)
 
 _TypeAlias_
 
@@ -161,7 +161,7 @@ export type ConversationSummary = Schema.Schema.Type<
 
 Conversation summary row used by list surfaces.
 
-### [`MessageId`](./types.ts#L35)
+### [`MessageId`](./types.ts#L32)
 
 _TypeAlias_
 
@@ -175,7 +175,7 @@ This lives in the conversation module to keep the message module downstream:
 conversation participant state references the last-read message, and message
 rows reference their conversation.
 
-### [`MessageId`](./types.ts#L35)
+### [`MessageId`](./types.ts#L32)
 
 _Variable_
 
@@ -183,7 +183,7 @@ _Variable_
 export type MessageId = string & Brand.Brand<"MessageId">
 ```
 
-### [`NotAParticipantError`](./types.ts#L52)
+### [`NotAParticipantError`](./types.ts#L49)
 
 _Class_
 
@@ -198,7 +198,7 @@ export class NotAParticipantError extends Schema.TaggedError<NotAParticipantErro
 
 The caller is not a participant in the conversation it is acting on.
 
-### [`ParticipantNotAdmittedError`](./types.ts#L79)
+### [`ParticipantNotAdmittedError`](./types.ts#L76)
 
 _Class_
 
@@ -214,7 +214,7 @@ export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantN
 A requested conversation participant is not admitted to the task that owns
 the conversation.
 
-### [`TaskConversationAddParticipant`](./conversations.ts#L171)
+### [`TaskConversationAddParticipant`](./conversations.ts#L168)
 
 _Variable_
 
@@ -240,7 +240,7 @@ TM-only: add an agent to one conversation. The agent MUST already appear in
   `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
   not the participant-admitted state probe).
 
-### [`TaskConversationArchive`](./conversations.ts#L126)
+### [`TaskConversationArchive`](./conversations.ts#L123)
 
 _Variable_
 
@@ -259,7 +259,7 @@ TM-only: archive one conversation. Task stays open.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationArchivedNotification`](./conversations.ts#L257)
+### [`TaskConversationArchivedNotification`](./conversations.ts#L254)
 
 _TypeAlias_
 
@@ -271,7 +271,7 @@ export type TaskConversationArchivedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/archived`.
 
-### [`TaskConversationArchivedNotificationDefinition`](./conversations.ts#L286)
+### [`TaskConversationArchivedNotificationDefinition`](./conversations.ts#L283)
 
 _Variable_
 
@@ -285,7 +285,7 @@ export const TaskConversationArchivedNotificationDefinition =
 
 Pushed when a task conversation is archived.
 
-### [`TaskConversationCreate`](./conversations.ts#L50)
+### [`TaskConversationCreate`](./conversations.ts#L47)
 
 _Variable_
 
@@ -322,7 +322,7 @@ for `taskId`; violations return `ParticipantNotAdmittedError`.
   agent contact-edges; targets are gated by
   `requireAgentsAreInTaskParticipants`.
 
-### [`TaskConversationCreatedNotification`](./conversations.ts#L252)
+### [`TaskConversationCreatedNotification`](./conversations.ts#L249)
 
 _TypeAlias_
 
@@ -334,7 +334,7 @@ export type TaskConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/created`.
 
-### [`TaskConversationCreatedNotificationDefinition`](./conversations.ts#L278)
+### [`TaskConversationCreatedNotificationDefinition`](./conversations.ts#L275)
 
 _Variable_
 
@@ -349,7 +349,7 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 
 Pushed when a task conversation is created.
 
-### [`TaskConversationList`](./conversations.ts#L94)
+### [`TaskConversationList`](./conversations.ts#L91)
 
 _Variable_
 
@@ -375,7 +375,7 @@ all tasks). No filter params; archived rows are included; callers filter
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`TaskConversationListItem`](./conversations.ts#L81)
+### [`TaskConversationListItem`](./conversations.ts#L78)
 
 _TypeAlias_
 
@@ -387,7 +387,7 @@ export type TaskConversationListItem = Schema.Schema.Type<
 
 Conversation list item returned by `task/conversation/list`.
 
-### [`TaskConversationParticipantsAddedNotification`](./conversations.ts#L267)
+### [`TaskConversationParticipantsAddedNotification`](./conversations.ts#L264)
 
 _TypeAlias_
 
@@ -399,7 +399,7 @@ export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/participants/added`.
 
-### [`TaskConversationParticipantsAddedNotificationDefinition`](./conversations.ts#L300)
+### [`TaskConversationParticipantsAddedNotificationDefinition`](./conversations.ts#L297)
 
 _Variable_
 
@@ -413,7 +413,7 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
 
 Pushed when a participant is added to a task conversation.
 
-### [`TaskConversationParticipantsRemovedNotification`](./conversations.ts#L272)
+### [`TaskConversationParticipantsRemovedNotification`](./conversations.ts#L269)
 
 _TypeAlias_
 
@@ -426,7 +426,7 @@ export type TaskConversationParticipantsRemovedNotification =
 
 Notification payload for `task/conversation/participants/removed`.
 
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](./conversations.ts#L307)
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](./conversations.ts#L304)
 
 _Variable_
 
@@ -440,7 +440,7 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
 
 Pushed when a participant is removed from a task conversation.
 
-### [`TaskConversationRemoveParticipant`](./conversations.ts#L197)
+### [`TaskConversationRemoveParticipant`](./conversations.ts#L194)
 
 _Variable_
 
@@ -465,7 +465,7 @@ conversations within the task).
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchive`](./conversations.ts#L147)
+### [`TaskConversationUnarchive`](./conversations.ts#L144)
 
 _Variable_
 
@@ -484,7 +484,7 @@ TM-only: reverse of `task/conversation/archive`.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchivedNotification`](./conversations.ts#L262)
+### [`TaskConversationUnarchivedNotification`](./conversations.ts#L259)
 
 _TypeAlias_
 
@@ -496,7 +496,7 @@ export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/unarchived`.
 
-### [`TaskConversationUnarchivedNotificationDefinition`](./conversations.ts#L293)
+### [`TaskConversationUnarchivedNotificationDefinition`](./conversations.ts#L290)
 
 _Variable_
 

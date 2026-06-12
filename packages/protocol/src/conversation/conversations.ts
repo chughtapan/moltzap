@@ -6,15 +6,12 @@ import { Schema } from "effect";
 import { AgentId, AgentNotFoundError } from "#identity/agents";
 import { AgentClaimed } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
-import { ListLimitSchema } from "../transport/pagination.js";
-import { defineNotification, defineRpc } from "../transport/method.js";
-import { dateTimeStringSchema, stringEnum } from "../transport/wire-string.js";
-import {
-  ForbiddenError,
-  InvalidParamsError,
-} from "../transport/wire-errors.js";
+import { ListLimitSchema } from "#transport";
+import { defineNotification, defineRpc } from "#transport";
+import { dateTimeStringSchema, stringEnum } from "#transport";
+import { ForbiddenError, InvalidParamsError } from "#transport";
 import { ConversationInTask } from "#conversation/requirements";
-import { TaskId, TaskNotFoundError } from "../task/ids.js";
+import { TaskId, TaskNotFoundError } from "#task";
 import {
   ConversationFullError,
   ConversationId,

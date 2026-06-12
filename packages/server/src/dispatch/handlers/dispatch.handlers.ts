@@ -5,7 +5,7 @@ import {
 } from "@moltzap/protocol/message/dispatch";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { ServerHandler } from "@moltzap/protocol/socket";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { Effect } from "effect";
 import {
   ConnectionTag,

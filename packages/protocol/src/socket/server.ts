@@ -5,36 +5,36 @@ import { Cause, Deferred, Effect, Exit, Layer, Mailbox, Scope } from "effect";
 import { ConnectionId, newConnectionId } from "./connection.js";
 import {
   ReverseRpcGroup,
-  serverInboundMethods,
+  ServerInboundGroup,
   type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
-  type AnyServerRpcDefinition,
-} from "./catalog.js";
+  type ServerHandlers,
+} from "#socket/catalog";
 import { MessagesAuthorize } from "#message";
 import { TaskCreate } from "#task";
 import { DispatchAuthorize } from "#message/dispatch";
 import {
   makeClientChannelProtocol,
-  makeServerChannelProtocol,
   runMuxReader,
   type ChannelSink,
   type WireWrite,
-} from "../transport/mux.js";
+} from "#transport";
+import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
 import {
   makeTypedTransportCall,
   type ErrorForTag,
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,
-} from "../transport/typed-dispatch.js";
-import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
+} from "#transport";
+import { NotConnectedError, RpcTimeoutError } from "#transport";
 import type {
   AgentPrincipal,
   AppPrincipal,
   AuthenticatedPrincipal,
 } from "#identity/principals";
 import type { AgentClaimed } from "#identity/requirements";
-import type { NotificationPayloadOf } from "../transport/method.js";
+import type { NotificationPayloadOf } from "#transport";
 import type {
   ConversationInTask,
   ConversationSendAccess,
@@ -82,21 +82,6 @@ export interface MoltZapServerOptions<
   ) => Effect.Effect<void, never, HookRequires>;
 }
 
-type ServerRpcDescriptor = { readonly serverRpc: Rpc.Any };
-
-const makeServerRpcGroup = <const Defs extends readonly ServerRpcDescriptor[]>(
-  defs: Defs,
-): RpcGroup.RpcGroup<Defs[number]["serverRpc"]> =>
-  RpcGroup.make(...defs.map((definition) => definition.serverRpc));
-
-const serverRpcGroup = makeServerRpcGroup(serverInboundMethods);
-
-export type ServerHandlers = RpcGroup.HandlersFrom<
-  RpcGroup.Rpcs<typeof serverRpcGroup>
->;
-export type ServerHandler<D extends AnyServerRpcDefinition> =
-  ServerHandlers[Extract<D["name"], keyof ServerHandlers>];
-
 type ServerRequirementMiddleware =
   | AgentPrincipal
   | AppPrincipal
@@ -107,27 +92,7 @@ type ServerRequirementMiddleware =
   | TaskReadAccess
   | ContactPolicyAllowsReach;
 
-export const makeServerProtocolLayer = (options: {
-  readonly write: WireWrite;
-  readonly disconnects: Mailbox.Mailbox<number>;
-  readonly sinkReady: Deferred.Deferred<ChannelSink>;
-}): Layer.Layer<RpcServer.Protocol> => {
-  const builder = makeServerChannelProtocol({
-    write: options.write,
-    disconnects: options.disconnects,
-  });
-  return Layer.scoped(
-    RpcServer.Protocol,
-    RpcServer.Protocol.make((write) =>
-      builder(write).pipe(
-        Effect.tap((built) => Deferred.succeed(options.sinkReady, built.sink)),
-        Effect.map((built) => built.impl),
-      ),
-    ),
-  );
-};
-
-const serverRpcLayer = RpcServer.layer(serverRpcGroup);
+const serverRpcLayer = RpcServer.layer(ServerInboundGroup);
 
 interface SocketRpcLayerOptions<
   AuthRequires,
@@ -159,7 +124,7 @@ const makeSocketRpcLayer = <
   >,
 ): Layer.Layer<never, never, AuthRequires | ConnectionRequires> =>
   serverRpcLayer.pipe(
-    Layer.provide(serverRpcGroup.toLayer(options.handlers)),
+    Layer.provide(ServerInboundGroup.toLayer(options.handlers)),
     Layer.provide(options.authLayer),
     Layer.provide(options.connectionLayer),
     Layer.provide(

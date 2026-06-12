@@ -4,7 +4,7 @@ import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
 } from "@moltzap/protocol/message";
-import { isNotificationDeliveryFor } from "../../../transport/index.js";
+import { isNotificationDeliveryFor } from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,

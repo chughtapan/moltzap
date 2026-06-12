@@ -5,11 +5,8 @@ import type {
   AnyAppCallableRpcDefinition,
   AnyNotificationDefinition,
   AppCallableGroup,
-} from "#socket";
-import type {
-  NotificationDelivery,
-  NotificationParamsOf,
-} from "../transport/method.js";
+} from "#socket/catalog";
+import type { NotificationDelivery, NotificationParamsOf } from "#transport";
 import {
   MoltZapAgentClient,
   type AgentClientOptions,
@@ -27,15 +24,8 @@ import {
 import type { AgentId } from "#identity/agents";
 import type { AppId } from "#identity/apps";
 import type { RpcGroup } from "@effect/rpc";
-import type {
-  ErrorForTag,
-  PayloadForTag,
-  SuccessForTag,
-} from "../transport/typed-dispatch.js";
-import type {
-  NotConnectedError,
-  RpcTimeoutError,
-} from "../transport/rpc-errors.js";
+import type { ErrorForTag, PayloadForTag, SuccessForTag } from "#transport";
+import type { NotConnectedError, RpcTimeoutError } from "#transport";
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
 type AppCallableRpcs = RpcGroup.Rpcs<typeof AppCallableGroup>;

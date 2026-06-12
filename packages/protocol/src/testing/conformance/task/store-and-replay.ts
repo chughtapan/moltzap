@@ -16,7 +16,7 @@ import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
 } from "../../../message/index.js";
-import type { NotificationDelivery } from "../../../transport/index.js";
+import type { NotificationDelivery } from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,

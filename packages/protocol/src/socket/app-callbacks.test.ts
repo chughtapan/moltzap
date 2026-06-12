@@ -12,8 +12,8 @@ import type { Schema } from "effect";
 import { DispatchAuthorize } from "#message/dispatch";
 import { MessagesAuthorize } from "#message";
 import { TaskCreate } from "#task";
-import { appCallbackMethods } from "./catalog.js";
-import { decodesStrictly } from "../transport/strict-decode.js";
+import { appCallbackMethods } from "#socket/catalog";
+import { decodesStrictly } from "#transport";
 
 const decodes = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
   decodesStrictly(schema, value);

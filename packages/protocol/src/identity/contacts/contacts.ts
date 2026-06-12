@@ -1,18 +1,15 @@
 import { Schema } from "effect";
 
-import { defineRpc, defineNotification } from "../../transport/method.js";
-import {
-  ListLimitSchema,
-  listCursorSchema,
-} from "../../transport/pagination.js";
+import { defineRpc, defineNotification } from "#transport";
+import { ListLimitSchema, listCursorSchema } from "#transport";
 import { AgentPrincipal } from "#identity/principals";
 import {
   ConflictError,
   ForbiddenError,
   InvalidParamsError,
   UnauthorizedError,
-} from "../../transport/wire-errors.js";
-import { UserId } from "../users/index.js";
+} from "#transport";
+import { UserId } from "#identity/users";
 import { ContactId } from "./ids.js";
 
 const errorPayloadFields = {

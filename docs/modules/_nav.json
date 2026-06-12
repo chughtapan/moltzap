@@ -17,6 +17,7 @@
     "modules/protocol/network",
     "modules/protocol/rpc",
     "modules/protocol/socket",
+    "modules/protocol/socket/catalog",
     "modules/protocol/src",
     "modules/protocol/task",
     "modules/protocol/task/requirements",

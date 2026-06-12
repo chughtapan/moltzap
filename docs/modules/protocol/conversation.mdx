@@ -13,7 +13,7 @@ Public conversation-domain barrel.
 
 ## Public surface
 
-### [`agentCallableConversationRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L314)
+### [`agentCallableConversationRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L311)
 
 _Variable_
 
@@ -25,7 +25,7 @@ export const agentCallableConversationRpcMethods = [
 
 Agent-callable conversation RPC catalog.
 
-### [`appCallableConversationRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L319)
+### [`appCallableConversationRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L316)
 
 _Variable_
 
@@ -41,7 +41,7 @@ export const appCallableConversationRpcMethods = [
 
 App-callable conversation RPC catalog.
 
-### [`Conversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L134)
+### [`Conversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L131)
 
 _TypeAlias_
 
@@ -51,7 +51,7 @@ export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
 
 Conversation row visible on task conversation surfaces.
 
-### [`ConversationArchivedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L60)
+### [`ConversationArchivedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L57)
 
 _Class_
 
@@ -66,7 +66,7 @@ export class ConversationArchivedError extends Schema.TaggedError<ConversationAr
 
 The conversation is archived and cannot accept the requested mutation.
 
-### [`ConversationFullError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L68)
+### [`ConversationFullError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L65)
 
 _Class_
 
@@ -81,7 +81,7 @@ export class ConversationFullError extends Schema.TaggedError<ConversationFullEr
 
 The conversation has reached its participant capacity.
 
-### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L21)
+### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L18)
 
 _TypeAlias_
 
@@ -91,7 +91,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L21)
+### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L18)
 
 _Variable_
 
@@ -99,7 +99,7 @@ _Variable_
 export type ConversationId = string & Brand.Brand<"ConversationId">
 ```
 
-### [`ConversationNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L44)
+### [`ConversationNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L41)
 
 _Class_
 
@@ -114,7 +114,7 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 
 The referenced conversation does not exist under the task (or is not visible).
 
-### [`conversationNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L328)
+### [`conversationNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L325)
 
 _Variable_
 
@@ -130,7 +130,7 @@ export const conversationNotifications = [
 
 Conversation notification catalog.
 
-### [`ConversationParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L137)
+### [`ConversationParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L134)
 
 _TypeAlias_
 
@@ -142,7 +142,7 @@ export type ConversationParticipant = Schema.Schema.Type<
 
 Participant row for a conversation.
 
-### [`conversationSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L150)
+### [`conversationSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L147)
 
 _Function_
 
@@ -154,7 +154,7 @@ Return the canonical conversation schema.
 
 **Returns:** The canonical conversation schema.
 
-### [`ConversationSummary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L142)
+### [`ConversationSummary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L139)
 
 _TypeAlias_
 
@@ -166,7 +166,7 @@ export type ConversationSummary = Schema.Schema.Type<
 
 Conversation summary row used by list surfaces.
 
-### [`MessageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L35)
+### [`MessageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L32)
 
 _TypeAlias_
 
@@ -180,7 +180,7 @@ This lives in the conversation module to keep the message module downstream:
 conversation participant state references the last-read message, and message
 rows reference their conversation.
 
-### [`MessageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L35)
+### [`MessageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L32)
 
 _Variable_
 
@@ -188,7 +188,7 @@ _Variable_
 export type MessageId = string & Brand.Brand<"MessageId">
 ```
 
-### [`NotAParticipantError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L52)
+### [`NotAParticipantError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L49)
 
 _Class_
 
@@ -203,7 +203,7 @@ export class NotAParticipantError extends Schema.TaggedError<NotAParticipantErro
 
 The caller is not a participant in the conversation it is acting on.
 
-### [`ParticipantNotAdmittedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L79)
+### [`ParticipantNotAdmittedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L76)
 
 _Class_
 
@@ -219,7 +219,7 @@ export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantN
 A requested conversation participant is not admitted to the task that owns
 the conversation.
 
-### [`TaskConversationAddParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L171)
+### [`TaskConversationAddParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L168)
 
 _Variable_
 
@@ -245,7 +245,7 @@ TM-only: add an agent to one conversation. The agent MUST already appear in
   `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
   not the participant-admitted state probe).
 
-### [`TaskConversationArchive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L126)
+### [`TaskConversationArchive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L123)
 
 _Variable_
 
@@ -264,7 +264,7 @@ TM-only: archive one conversation. Task stays open.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationArchivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L257)
+### [`TaskConversationArchivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L254)
 
 _TypeAlias_
 
@@ -276,7 +276,7 @@ export type TaskConversationArchivedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/archived`.
 
-### [`TaskConversationArchivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L286)
+### [`TaskConversationArchivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L283)
 
 _Variable_
 
@@ -290,7 +290,7 @@ export const TaskConversationArchivedNotificationDefinition =
 
 Pushed when a task conversation is archived.
 
-### [`TaskConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L50)
+### [`TaskConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L47)
 
 _Variable_
 
@@ -327,7 +327,7 @@ for `taskId`; violations return `ParticipantNotAdmittedError`.
   agent contact-edges; targets are gated by
   `requireAgentsAreInTaskParticipants`.
 
-### [`TaskConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L252)
+### [`TaskConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L249)
 
 _TypeAlias_
 
@@ -339,7 +339,7 @@ export type TaskConversationCreatedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/created`.
 
-### [`TaskConversationCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L278)
+### [`TaskConversationCreatedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L275)
 
 _Variable_
 
@@ -354,7 +354,7 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 
 Pushed when a task conversation is created.
 
-### [`TaskConversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L94)
+### [`TaskConversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L91)
 
 _Variable_
 
@@ -380,7 +380,7 @@ all tasks). No filter params; archived rows are included; callers filter
 
 - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
 
-### [`TaskConversationListItem`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L81)
+### [`TaskConversationListItem`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L78)
 
 _TypeAlias_
 
@@ -392,7 +392,7 @@ export type TaskConversationListItem = Schema.Schema.Type<
 
 Conversation list item returned by `task/conversation/list`.
 
-### [`TaskConversationParticipantsAddedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L267)
+### [`TaskConversationParticipantsAddedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L264)
 
 _TypeAlias_
 
@@ -404,7 +404,7 @@ export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/participants/added`.
 
-### [`TaskConversationParticipantsAddedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L300)
+### [`TaskConversationParticipantsAddedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L297)
 
 _Variable_
 
@@ -418,7 +418,7 @@ export const TaskConversationParticipantsAddedNotificationDefinition =
 
 Pushed when a participant is added to a task conversation.
 
-### [`TaskConversationParticipantsRemovedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L272)
+### [`TaskConversationParticipantsRemovedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L269)
 
 _TypeAlias_
 
@@ -431,7 +431,7 @@ export type TaskConversationParticipantsRemovedNotification =
 
 Notification payload for `task/conversation/participants/removed`.
 
-### [`TaskConversationParticipantsRemovedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L307)
+### [`TaskConversationParticipantsRemovedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L304)
 
 _Variable_
 
@@ -445,7 +445,7 @@ export const TaskConversationParticipantsRemovedNotificationDefinition =
 
 Pushed when a participant is removed from a task conversation.
 
-### [`TaskConversationRemoveParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L197)
+### [`TaskConversationRemoveParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L194)
 
 _Variable_
 
@@ -470,7 +470,7 @@ conversations within the task).
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L147)
+### [`TaskConversationUnarchive`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L144)
 
 _Variable_
 
@@ -489,7 +489,7 @@ TM-only: reverse of `task/conversation/archive`.
 - **Principal:** `AppPrincipal` head + `ConversationInTask` +
   `assertCallerAppOwnsTask` (see `task/close`).
 
-### [`TaskConversationUnarchivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L262)
+### [`TaskConversationUnarchivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L259)
 
 _TypeAlias_
 
@@ -501,7 +501,7 @@ export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
 
 Notification payload for `task/conversation/unarchived`.
 
-### [`TaskConversationUnarchivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L293)
+### [`TaskConversationUnarchivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/conversations.ts#L290)
 
 _Variable_
 

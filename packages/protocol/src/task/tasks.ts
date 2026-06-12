@@ -1,18 +1,12 @@
 import { Schema } from "effect";
-import { stringEnum, dateTimeStringSchema } from "../transport/wire-string.js";
-import { ListLimitSchema, listCursorSchema } from "../transport/pagination.js";
+import { stringEnum, dateTimeStringSchema } from "#transport";
+import { ListLimitSchema, listCursorSchema } from "#transport";
 import { AgentId, AgentNotFoundError } from "#identity/agents";
 import { AgentClaimed } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
-import {
-  ForbiddenError,
-  InvalidParamsError,
-} from "../transport/wire-errors.js";
-import { defineRpc, defineNotification } from "../transport/method.js";
-import {
-  conversationSchema,
-  ConversationFullError,
-} from "../conversation/types.js";
+import { ForbiddenError, InvalidParamsError } from "#transport";
+import { defineRpc, defineNotification } from "#transport";
+import { conversationSchema, ConversationFullError } from "#conversation";
 import { AppId } from "#identity/apps";
 import { ContactPolicyAllowsReach } from "#identity/contacts/requirements";
 import { TaskId, TaskNotFoundError } from "./ids.js";

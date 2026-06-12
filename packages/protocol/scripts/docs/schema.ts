@@ -1,5 +1,5 @@
 import { JSONSchema, type Schema } from "effect";
-import { serverInboundMethods, appCallbackMethods } from "#socket";
+import { appCallbackMethods, serverInboundMethods } from "#socket/catalog";
 import * as protocolSchema from "../../src/index.js";
 import {
   SORT_KEY_PAD_WIDTH,

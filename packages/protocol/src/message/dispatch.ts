@@ -4,14 +4,10 @@ import { ConversationId, MessageId } from "#conversation";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { AgentClaimed } from "#identity/requirements";
 import { messagePartsSchema } from "./parts.js";
-import { TaskId } from "../task/ids.js";
-import { defineNotification, defineRpc } from "../transport/method.js";
-import { ForbiddenError } from "../transport/wire-errors.js";
-import {
-  dateTimeStringSchema,
-  formatString,
-  stringEnum,
-} from "../transport/wire-string.js";
+import { TaskId } from "#task";
+import { defineNotification, defineRpc } from "#transport";
+import { ForbiddenError } from "#transport";
+import { dateTimeStringSchema, formatString, stringEnum } from "#transport";
 
 export type LeaseId = string & Brand.Brand<"LeaseId">;
 

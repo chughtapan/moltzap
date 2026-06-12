@@ -1,6 +1,6 @@
 import { Schema, type Brand } from "effect";
 
-import { formatString } from "../../transport/wire-string.js";
+import { formatString } from "#transport";
 
 export type AppId = string & Brand.Brand<"AppId">;
 export const AppId: Schema.Schema<AppId, string> = formatString("uuid").pipe(

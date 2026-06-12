@@ -9,7 +9,7 @@ import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect } from "effect";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { notificationDefinitions } from "#socket";
+import { notificationDefinitions } from "#socket/catalog";
 import {
   generateMethodPage,
   generateNotificationPage,

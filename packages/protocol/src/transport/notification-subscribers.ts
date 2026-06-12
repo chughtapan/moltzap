@@ -1,10 +1,10 @@
 import { Brand, Effect, Ref, Stream } from "effect";
-import { isNotificationDeliveryFor } from "./method.js";
+import { isNotificationDeliveryFor } from "./definition.js";
 import type {
   NotificationDefinitionAny,
   NotificationDelivery,
   NotificationParamsOf,
-} from "./method.js";
+} from "./definition.js";
 
 type AnyNotificationDescriptor = NotificationDefinitionAny;
 

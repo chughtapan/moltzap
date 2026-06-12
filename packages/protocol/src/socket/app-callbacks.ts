@@ -3,13 +3,13 @@
  */
 
 import type { Effect } from "effect";
-import type { appCallbackMethods } from "./catalog.js";
+import type { AnyAppCallbackRpcDefinition } from "#socket/catalog";
 import type {
   ParamsOf,
   ResultOf,
   RpcDefinition,
   RpcDefinitionAny,
-} from "../transport/method.js";
+} from "#transport";
 
 type AppCallbackDescriptor = RpcDefinitionAny;
 
@@ -36,14 +36,12 @@ type HandlerTable<Defs extends AppCallbackDescriptor, Ctx> = {
   readonly [D in Defs as NameOf<D>]: SlotValue<D, Ctx>;
 };
 
-export type AppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
-
 /**
  * Closed handler table for an app moderating one or more tasks. Every
- * `appCallbackMethods` member is required; vacuous-deny moderators still write
- * the handler explicitly.
+ * app callback member is required; vacuous-deny moderators still write the
+ * handler explicitly.
  */
 export type AppCallbackHandlers<Ctx> = HandlerTable<
-  AppCallbackRpcDefinition,
+  AnyAppCallbackRpcDefinition,
   Ctx
 >;

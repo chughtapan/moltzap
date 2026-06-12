@@ -56,7 +56,7 @@ import {
 } from "@moltzap/protocol/rpc";
 import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type {
   NotificationDelivery,
   NotificationParamsOf,

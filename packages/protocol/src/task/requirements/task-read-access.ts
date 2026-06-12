@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { RpcMiddleware } from "@effect/rpc";
 import type { Task } from "../tasks.js";
 import { TaskNotFoundError } from "../ids.js";
-import type { AgentId } from "../../identity/index.js";
+import type { AgentId } from "#identity/agents";
 
 /**
  * Requirement: caller has read access to `task` (initiator OR

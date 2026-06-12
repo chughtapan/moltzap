@@ -10,7 +10,7 @@ import {
   ContactsList,
   UserId,
 } from "@moltzap/protocol/identity";
-import { agentCallableMethods } from "@moltzap/protocol/socket";
+import { agentCallableMethods } from "@moltzap/protocol/socket/catalog";
 import { AppId, TaskId } from "@moltzap/protocol/task";
 import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { MessagesList } from "@moltzap/protocol/message";

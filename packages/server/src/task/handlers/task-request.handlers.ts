@@ -28,7 +28,7 @@ import {
 import type { AppId } from "@moltzap/protocol/identity";
 import type { Task } from "@moltzap/protocol/task";
 import type { Conversation } from "@moltzap/protocol/conversation";
-import type { ServerHandler } from "@moltzap/protocol/socket";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { TaskId } from "@moltzap/protocol/task";
 import type { AgentId } from "#core";
 import {

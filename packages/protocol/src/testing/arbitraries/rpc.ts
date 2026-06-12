@@ -6,7 +6,10 @@
  */
 import * as fc from "fast-check";
 import { Data } from "effect";
-import { serverInboundMethods, type AnyServerRpcDefinition } from "#socket";
+import {
+  serverInboundMethods,
+  type AnyServerRpcDefinition,
+} from "#socket/catalog";
 import { arbitraryFromSchema } from "./schema-arbitrary.js";
 
 type MethodName = (typeof serverInboundMethods)[number]["name"];

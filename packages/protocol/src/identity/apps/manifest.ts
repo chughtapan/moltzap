@@ -1,5 +1,5 @@
 import { Either, ParseResult, Schema } from "effect";
-import { stringEnum } from "../../transport/wire-string.js";
+import { stringEnum } from "#transport";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — manifest value types.

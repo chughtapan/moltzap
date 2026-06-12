@@ -6,6 +6,12 @@
  * testing helpers live behind focused package subpaths.
  */
 
-export { MoltZapAgentClient } from "./socket/agent-client.js";
-export { MoltZapAppClient } from "./socket/app-client.js";
-export { MoltZapServer } from "./socket/server.js";
+export { MoltZapAgentClient, MoltZapAppClient, MoltZapServer } from "#socket";
+export type {
+  AgentClientOptions,
+  AppClientOptions,
+  ConnectResult,
+  MoltZapServerOptions,
+  MoltZapServerSession,
+  RpcCallOptions,
+} from "#socket";

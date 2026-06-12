@@ -4,7 +4,7 @@ import { DEFAULT_PAGE_LIMIT, InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { AgentCard } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ServerHandler } from "@moltzap/protocol/socket";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentContext } from "#socket";
 import { agentArm } from "#core";
 import { DbTag } from "#core";

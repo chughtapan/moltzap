@@ -4,7 +4,7 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import { Data, Duration, Effect, Either, Option, Stream } from "effect";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type { NotificationDelivery } from "@moltzap/protocol/rpc";
 import {
   makeTestAgentClient,

@@ -16,12 +16,12 @@ import {
 import { TaskReadAccess } from "#task/requirements";
 import { DispatchNotFoundError, LeaseId } from "#message/dispatch";
 import { HookBlockedError, TaskClosedError, TaskId } from "#task";
-import { defineNotification, defineRpc } from "../transport/method.js";
-import { ListLimitSchema } from "../transport/pagination.js";
+import { defineNotification, defineRpc } from "#transport";
+import { ListLimitSchema } from "#transport";
 import { AgentPrincipal } from "#identity/principals";
 import { AgentClaimed } from "#identity/requirements";
-import { ForbiddenError } from "../transport/wire-errors.js";
-import { dateTimeStringSchema } from "../transport/wire-string.js";
+import { ForbiddenError } from "#transport";
+import { dateTimeStringSchema } from "#transport";
 import { messagePartsSchema } from "./parts.js";
 export {
   decodeMessageParts,

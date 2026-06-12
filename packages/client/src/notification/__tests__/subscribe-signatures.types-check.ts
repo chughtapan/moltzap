@@ -12,7 +12,7 @@
  */
 import { Stream } from "effect";
 import type { Effect } from "effect";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type {
   NotConnectedError,
   NotificationDelivery,

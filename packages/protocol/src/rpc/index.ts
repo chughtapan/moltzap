@@ -20,41 +20,38 @@ export type {
   ResultOf,
   RpcDefinition,
   RpcErrorClass,
-} from "../transport/method.js";
-export { isNotificationDeliveryFor } from "../transport/method.js";
+} from "#transport";
+export { isNotificationDeliveryFor } from "#transport";
 
 export {
   makeNotificationSubscriberRegistry,
   notificationSubscribe,
   notificationSubscribeAll,
-} from "../transport/notification-subscribers.js";
+} from "#transport";
 export type {
   NotificationSubscriberRegistry,
   NotificationSubscriberRegistryOptions,
   NotificationSubscriptionHandle,
-} from "../transport/notification-subscribers.js";
+} from "#transport";
 
-export {
-  dispatchCall,
-  makeTypedTransportCall,
-} from "../transport/typed-dispatch.js";
+export { dispatchCall, makeTypedTransportCall } from "#transport";
 export type {
   ErrorForTag,
   PayloadForTag,
   RpcForTag,
   SuccessForTag,
   TypedDispatchMap,
-} from "../transport/typed-dispatch.js";
+} from "#transport";
 
 export {
   DEFAULT_PAGE_LIMIT,
   ListLimitSchema,
   MAX_PAGE_LIMIT,
   listCursorSchema,
-} from "../transport/pagination.js";
-export type { ListCursor } from "../transport/pagination.js";
+} from "#transport";
+export type { ListCursor } from "#transport";
 
-export { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
+export { NotConnectedError, RpcTimeoutError } from "#transport";
 
 export {
   AlreadyConnected,
@@ -63,5 +60,5 @@ export {
   InvalidParamsError,
   NotFoundError,
   UnauthorizedError,
-} from "../transport/wire-errors.js";
-export type { RpcErrorPayload } from "../transport/wire-errors.js";
+} from "#transport";
+export type { RpcErrorPayload } from "#transport";
