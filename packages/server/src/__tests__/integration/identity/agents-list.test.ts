@@ -6,20 +6,17 @@ import {
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
-  getKyselyDb,
   trackClient,
   connectTestClient,
   createTestUser,
   registerClaimedAgent,
 } from "../helpers.js";
 import type { AgentCard } from "@moltzap/protocol/identity";
-import { agentId, userId } from "@moltzap/protocol/testing";
-import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import { userId } from "@moltzap/protocol/testing";
+import type { UserId } from "@moltzap/protocol/identity";
 
 import {
   AgentsList,
-  AgentsLookup,
-  AgentsLookupByName,
   ContactsAccept,
   ContactsAdd,
 } from "@moltzap/protocol/identity";
@@ -38,11 +35,7 @@ const ALICE_USER = createTestUser("alice", ALICE_USER_ID);
 const BOB_USER = createTestUser("bob", BOB_USER_ID);
 const CAROL_USER = createTestUser("carol", CAROL_USER_ID);
 const AGENT_DESCRIPTION = "A test agent";
-const LOOKUP_DESCRIPTION = "Has a description";
 const AGENT_STATUS_ACTIVE = "active";
-const AGENT_STATUS_SUSPENDED = "suspended";
-const UNKNOWN_AGENT_ID = agentId("00000000-0000-0000-0000-000000000000");
-const UNKNOWN_AGENT_NAME = "nonexistent";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -168,21 +161,6 @@ function listAgents(agent: OwnedConnectedAgent) {
   ) as Effect.Effect<AgentsListResult>;
 }
 
-function lookupAgents(
-  agent: OwnedConnectedAgent,
-  agentIds: readonly AgentId[],
-) {
-  return agent.client.sendRpc(AgentsLookup, {
-    agentIds,
-  }) as Effect.Effect<AgentsListResult>;
-}
-
-function lookupAgentsByName(agent: OwnedConnectedAgent, names: string[]) {
-  return agent.client.sendRpc(AgentsLookupByName, {
-    names,
-  }) as Effect.Effect<AgentsListResult>;
-}
-
 function acceptContact(
   requester: OwnedConnectedAgent,
   accepter: OwnedConnectedAgent,
@@ -196,26 +174,6 @@ function acceptContact(
       contactId: added.contact.id,
     });
   });
-}
-
-function persistedAgentName(id: string) {
-  return Effect.tryPromise(() =>
-    getKyselyDb()
-      .selectFrom("agents")
-      .select("name")
-      .where("id", "=", agentId(id))
-      .executeTakeFirstOrThrow(),
-  ).pipe(Effect.map((row) => row.name));
-}
-
-function suspendAgent(id: string) {
-  return Effect.tryPromise(() =>
-    getKyselyDb()
-      .updateTable("agents")
-      .set({ status: AGENT_STATUS_SUSPENDED })
-      .where("id", "=", agentId(id))
-      .execute(),
-  ).pipe(Effect.asVoid);
 }
 
 function agentIds(result: AgentsListResult) {
@@ -321,107 +279,6 @@ function returnsContactVisibleCardFields() {
   });
 }
 
-function looksUpAgentById() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-lookup");
-    const result = yield* lookupAgents(alice, [alice.agentId]);
-
-    expect(result.agents).toHaveLength(1);
-    expect(result.agents[0]!.id).toBe(alice.agentId);
-    expect(result.agents[0]!.status).toBe(AGENT_STATUS_ACTIVE);
-  });
-}
-
-function returnsEmptyForUnknownIds() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-lookup-empty");
-    const result = yield* lookupAgents(alice, [UNKNOWN_AGENT_ID]);
-
-    expect(result.agents).toHaveLength(0);
-  });
-}
-
-function includesDescriptionInLookupResults() {
-  return Effect.gen(function* () {
-    const described = yield* connectAlice("desc-agent", LOOKUP_DESCRIPTION);
-    const result = yield* lookupAgents(described, [described.agentId]);
-
-    expect(result.agents[0]!.description).toBe(LOOKUP_DESCRIPTION);
-  });
-}
-
-function returnsCrossOwnerCardsWithoutContact() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-lookup-xowner");
-    const carol = yield* connectCarol("carol-lookup-xowner");
-
-    const result = yield* lookupAgents(alice, [carol.agentId]);
-    expect(result.agents).toHaveLength(1);
-    expect(result.agents[0]!.id).toBe(carol.agentId);
-  });
-}
-
-function looksUpAgentByName() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-lbyn");
-    const aliceName = yield* persistedAgentName(alice.agentId);
-
-    const result = yield* lookupAgentsByName(alice, [aliceName]);
-
-    expect(result.agents).toHaveLength(1);
-    expect(result.agents[0]!.id).toBe(alice.agentId);
-  });
-}
-
-function onlyReturnsActiveAgentsByName() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-active");
-    const aliceName = yield* persistedAgentName(alice.agentId);
-    yield* suspendAgent(alice.agentId);
-
-    const bob = yield* connectBob("bob-active");
-    yield* acceptContact(bob, alice, ALICE_USER_ID);
-
-    const result = yield* lookupAgentsByName(bob, [aliceName]);
-
-    expect(result.agents).toHaveLength(0);
-  });
-}
-
-function returnsEmptyForUnknownNames() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-unknown");
-
-    const result = yield* lookupAgentsByName(alice, [UNKNOWN_AGENT_NAME]);
-
-    expect(result.agents).toHaveLength(0);
-  });
-}
-
-function dropsCrossOwnerNameWithoutContact() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-lbyn-iso");
-    const carol = yield* connectCarol("carol-lbyn-iso");
-    const carolName = yield* persistedAgentName(carol.agentId);
-
-    const result = yield* lookupAgentsByName(alice, [carolName]);
-    expect(result.agents).toHaveLength(0);
-  });
-}
-
-function returnsAcceptedContactCardByName() {
-  return Effect.gen(function* () {
-    const alice = yield* connectAlice("alice-lbyn-c");
-    const bob = yield* connectBob("bob-lbyn-c");
-    yield* acceptContact(alice, bob, BOB_USER_ID);
-    const bobName = yield* persistedAgentName(bob.agentId);
-
-    const result = yield* lookupAgentsByName(alice, [bobName]);
-    expect(result.agents).toHaveLength(1);
-    expect(result.agents[0]!.id).toBe(bob.agentId);
-  });
-}
-
 describe(`${AgentsList.name} — owner visibility per #481`, () => {
   it(
     "returns own agents (siblings under same ownerUserId), without contacts setup",
@@ -448,43 +305,5 @@ describe(`${AgentsList.name} — contact metadata per #481`, () => {
   it(
     "returns the AgentCard fields correctly for contact-visible agents",
     returnsContactVisibleCardFields,
-  );
-});
-
-describe(`${AgentsLookup.name} — NOT contact-scoped per #481`, () => {
-  it("returns agent cards by ID", looksUpAgentById);
-  it("returns empty array for unknown IDs", returnsEmptyForUnknownIds);
-  it(
-    "includes description in lookup results",
-    includesDescriptionInLookupResults,
-  );
-});
-
-describe(`${AgentsLookup.name} — cross-owner dereference per #481`, () => {
-  // Per architect #481: dereference-by-known-key. The client uses this RPC to
-  // resolve peer `AgentCard`s for UI rendering of conversation messages
-  // (`packages/client/src/service.ts:resolveAgentName` and the bulk-history
-  // lookup); contact-scoping it would render conversation peers as UUIDs.
-  it(
-    "returns cross-owner cards regardless of contact relationship",
-    returnsCrossOwnerCardsWithoutContact,
-  );
-});
-
-describe(`${AgentsLookupByName.name} — contact-scoped per #481/#506`, () => {
-  it("returns agent cards by name", looksUpAgentByName);
-  it("only returns active agents", onlyReturnsActiveAgentsByName);
-  it("returns empty array for unknown names", returnsEmptyForUnknownNames);
-});
-
-describe(`${AgentsLookupByName.name} — contact scope per #481/#506`, () => {
-  it(
-    "drops a cross-owner name match when the caller is not in contact with the owner",
-    dropsCrossOwnerNameWithoutContact,
-  );
-
-  it(
-    "returns the card when the name belongs to an accepted-contact-owned agent",
-    returnsAcceptedContactCardByName,
   );
 });

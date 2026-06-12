@@ -8,8 +8,6 @@ export {
   InviteCode,
   Register,
   AgentCardSchema,
-  AgentsLookup,
-  AgentsLookupByName,
   AgentsList,
   AgentNotFoundError,
   validateAgent,
@@ -41,7 +39,6 @@ export {
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactsById,
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
   NotInContactsError,
@@ -50,29 +47,21 @@ export {
 } from "./contacts/index.js";
 export type { ContactPolicyAllowsReachValue } from "./contacts/index.js";
 
-import {
-  AgentsLookup,
-  AgentsLookupByName,
-  AgentsList,
-} from "./agents/index.js";
+import { AgentsList } from "./agents/index.js";
 import {
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactsById,
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
 } from "./contacts/index.js";
 
 /** Identity RPC catalog accepted by agent clients. */
 export const identityRpcMethods = [
-  AgentsLookup,
-  AgentsLookupByName,
   AgentsList,
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactsById,
 ] as const;
 
 /** Identity notification catalog emitted by the server. */

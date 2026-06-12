@@ -85,7 +85,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L39)
+### [`AgentsList`](./agents.ts#L13)
 
 _Variable_
 
@@ -102,43 +102,6 @@ export const AgentsList = defineRpc({
   }),
   requires: [AgentPrincipal, AgentClaimed],
   errors: [InvalidParamsError],
-})
-```
-
-### [`AgentsLookup`](./agents.ts#L14)
-
-_Variable_
-
-```ts
-export const AgentsLookup = defineRpc({
-  name: "agents/lookup",
-  params: Schema.Struct({
-    agentIds: Schema.Array(AgentId).pipe(
-      Schema.minItems(1),
-      Schema.maxItems(100),
-    ),
-  }),
-  result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
-  requires: [AgentPrincipal],
-  errors: [],
-})
-```
-
-### [`AgentsLookupByName`](./agents.ts#L27)
-
-_Variable_
-
-```ts
-export const AgentsLookupByName = defineRpc({
-  name: "agents/lookupByName",
-  params: Schema.Struct({
-    names: Schema.Array(
-      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32)),
-    ).pipe(Schema.minItems(1), Schema.maxItems(100)),
-  }),
-  result: Schema.Struct({ agents: Schema.Array(AgentCardSchema) }),
-  requires: [AgentPrincipal],
-  errors: [],
 })
 ```
 

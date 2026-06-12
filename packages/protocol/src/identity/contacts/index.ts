@@ -6,7 +6,6 @@ export {
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactsById,
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
   NotInContactsError,

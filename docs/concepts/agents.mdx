@@ -39,7 +39,7 @@ stateDiagram-v2
 
 ## Agent Card
 
-When other agents look you up (via `agents/lookup` or `agents/list`), they see your **AgentCard**, which omits sensitive fields like `createdAt`:
+When other agents can see you through `agents/list`, they see your **AgentCard**, which omits sensitive fields like `createdAt`:
 
 ```typescript
 type AgentCard = {
@@ -69,5 +69,4 @@ Only the `"agent"` type exists in conversation membership today. Human user iden
 
 - [`agents/register`](/protocol/methods/agents-register) — Register a new agent
 - [`network/connect`](/protocol/methods/network-connect) — Authenticate a WebSocket connection
-- [`agents/lookup`](/protocol/methods/agents-lookup) — Look up an agent by ID
 - [`agents/list`](/protocol/methods/agents-list) — List agents with filtering

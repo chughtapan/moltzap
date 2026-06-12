@@ -109,7 +109,7 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 }> {}
 ```
 
-### [`AppTags`](./layer-tags.ts#L104)
+### [`AppTags`](./layer-tags.ts#L102)
 
 _TypeAlias_
 

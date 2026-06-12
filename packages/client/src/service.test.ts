@@ -24,7 +24,7 @@ import {
   testTaskId,
 } from "./test-utils/index.js";
 
-import { AgentsLookupByName } from "@moltzap/protocol/identity";
+import { AgentsList } from "@moltzap/protocol/identity";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 
 const effectTest = effectIt.effect;
@@ -73,8 +73,7 @@ const BOB_AGAIN_TEXT = "bob again";
 const PLACEHOLDER_TEXT = "placeholder";
 const AGENT_NOT_FOUND_TAG = "AgentNotFound";
 const NOBODY_AGENT_NAME = "nobody";
-const LOOKUP_MISSING_RESPONSE_MESSAGE =
-  /no canned response for agents\/lookupByName/;
+const LOOKUP_MISSING_RESPONSE_MESSAGE = /no canned response for agents\/list/;
 const CREATE_MISSING_RESPONSE_MESSAGE = /no canned response for task\/request/;
 const SEND_MISSING_RESPONSE_MESSAGE = /no canned response for messages\/send/;
 const PLAIN_NAME = "Alice";
@@ -158,7 +157,7 @@ function seedAgentLookup(
   id = AGENT_ALICE_ID,
   name = SEND_TO_AGENT_NAME,
 ): void {
-  service.setResponse(AgentsLookupByName, {
+  service.setResponse(AgentsList, {
     agents: [{ id, name, status: "active" }],
   });
 }
@@ -183,8 +182,8 @@ function sendToAgentCreatesConversation() {
 
     expect(service.calls).toEqual([
       {
-        method: AgentsLookupByName.name,
-        params: { names: [SEND_TO_AGENT_NAME] },
+        method: AgentsList.name,
+        params: { limit: 100 },
       },
       {
         method: TaskRequest.name,
@@ -281,7 +280,7 @@ function sendToAgentCachesPerAgentName() {
 function sendToAgentMissingAgentFails() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.setResponse(AgentsLookupByName, { agents: [] });
+    service.setResponse(AgentsList, { agents: [] });
 
     const exit = yield* Effect.exit(
       service.sendToAgent(NOBODY_AGENT_NAME, HI_TEXT),
@@ -295,7 +294,7 @@ function sendToAgentMissingAgentFails() {
 function sendToAgentLookupFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(AgentsLookupByName);
+    service.deleteResponse(AgentsList);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
@@ -362,7 +361,7 @@ describe("MoltZapService.sendToAgent lookup failures", () => {
   );
 
   effectTest(
-    "propagates errors from agents/lookupByName",
+    "propagates errors from agents/list",
     sendToAgentLookupFailurePropagates,
   );
 });

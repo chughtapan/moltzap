@@ -1,7 +1,6 @@
 import type { RpcGroup } from "@effect/rpc";
 import { Effect, Either } from "effect";
 import {
-  AgentsLookupByName,
   AgentsList,
   ContactsAccept,
   ContactsAdd,
@@ -18,6 +17,7 @@ import {
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 import type {
+  ListCursor,
   PayloadForTag,
   ResultOf,
   SuccessForTag,
@@ -73,6 +73,8 @@ interface OptionalStartMessageInput {
 }
 
 const MAX_START_PARTICIPANT_LOOKUP_NAMES = 100;
+const AGENT_LOOKUP_PAGE_SIZE = 100;
+const AGENT_LOOKUP_MAX_PAGES = 20;
 
 function startParticipantNames(
   participants: readonly StartParticipant[],
@@ -120,6 +122,37 @@ function resolveStartParticipantIds(
   });
 }
 
+function lookupAgentsByNames(
+  call: ServiceCall,
+  names: readonly string[],
+): Effect.Effect<ResultOf<typeof AgentsList>, ServiceRpcError> {
+  return Effect.gen(function* () {
+    const wanted = new Set(names);
+    const agents: Array<ResultOf<typeof AgentsList>["agents"][number]> = [];
+    let cursor: ListCursor | undefined = undefined;
+    for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
+      const result: ResultOf<typeof AgentsList> = yield* call(
+        AgentsList.name,
+        cursor === undefined
+          ? { limit: AGENT_LOOKUP_PAGE_SIZE }
+          : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor },
+      );
+      const matchedAgents = result.agents.filter((agent) =>
+        wanted.has(agent.name),
+      );
+      agents.push(...matchedAgents);
+      for (const agent of matchedAgents) {
+        wanted.delete(agent.name);
+      }
+      if (wanted.size === 0 || result.nextCursor === undefined) {
+        return { agents };
+      }
+      cursor = result.nextCursor;
+    }
+    return { agents };
+  });
+}
+
 function handleSendCommand(
   call: ServiceCall,
   params: SendCommandPayload,
@@ -147,7 +180,7 @@ function resolveStartParticipants(
     }
     const byName = new Map<string, AgentId>();
     if (names.length > 0) {
-      const result = yield* call(AgentsLookupByName.name, { names });
+      const result = yield* lookupAgentsByNames(call, names);
       for (const agent of result.agents) {
         if (!byName.has(agent.name)) byName.set(agent.name, agent.id);
       }
@@ -307,8 +340,8 @@ export function makeLocalDaemonHandlers({
         AgentsList.name,
         params.limit === undefined ? {} : { limit: params.limit },
       ),
-    [LocalDaemonCommands.AgentsLookup]: (params) =>
-      call(AgentsLookupByName.name, { names: params.names }),
+    [LocalDaemonCommands.AgentsSearch]: (params) =>
+      lookupAgentsByNames(call, params.names),
     [LocalDaemonCommands.ContactsList]: () => call(ContactsList.name, {}),
     [LocalDaemonCommands.ContactsAdd]: (params) =>
       call(ContactsAdd.name, { contactUserId: params.userId }),

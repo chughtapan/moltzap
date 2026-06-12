@@ -10,7 +10,7 @@ import {
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
-import { AgentsLookup } from "@moltzap/protocol/identity";
+import { AgentsList } from "@moltzap/protocol/identity";
 import { MessagesSend } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
@@ -234,11 +234,7 @@ function createTestService(fixture: FakeChannelService): TestService {
 function sendRpcDefault<D extends RpcDefinition<string, any, any>>(
   definition: D,
 ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
-  // Match by branded wire name (each descriptor's `name` is its unique
-  // identity). A direct `definition === AgentsLookup` reference comparison
-  // narrows `D` against the concrete descriptor's literal type params, which
-  // TS reads as non-overlapping; the name compare is identity-equivalent.
-  if (definition.name === AgentsLookup.name) {
+  if (definition.name === AgentsList.name) {
     return Effect.succeed({
       agents: [{ id: SENDER_AGENT_ID, name: "Atlas" }],
     } as ResultOf<D>);

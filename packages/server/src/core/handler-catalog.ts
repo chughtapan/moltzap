@@ -19,16 +19,11 @@ import {
   connectAgent,
   connectApp,
 } from "../identity/handlers/connect.handlers.js";
-import {
-  agentsLookup,
-  agentsLookupByName,
-  agentsList,
-} from "../identity/handlers/agents-lookup.handlers.js";
+import { agentsList } from "../identity/handlers/agents.handlers.js";
 import {
   contactsList,
   contactsAdd,
   contactsAccept,
-  contactsById,
 } from "../identity/handlers/contacts.handlers.js";
 import { presenceSubscribe } from "../network/handlers/presence.handlers.js";
 import { messagesSend, messagesList } from "#message/handlers";
@@ -58,13 +53,10 @@ import type { ServerHandlers } from "@moltzap/protocol/socket";
 export const serverHandlers: ServerHandlers = {
   "agent/connect": connectAgent,
   "app/connect": connectApp,
-  "agents/lookup": agentsLookup,
-  "agents/lookupByName": agentsLookupByName,
   "agents/list": agentsList,
   "contacts/list": contactsList,
   "contacts/add": contactsAdd,
   "contacts/accept": contactsAccept,
-  "contacts/byId": contactsById,
   "presence/subscribe": presenceSubscribe,
   "messages/send": messagesSend,
   "messages/list": messagesList,

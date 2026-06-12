@@ -4,7 +4,6 @@ import type * as SchemaAST from "effect/SchemaAST";
 import {
   AgentId,
   AgentsList,
-  AgentsLookupByName,
   ContactId,
   ContactsAccept,
   ContactsAdd,
@@ -176,7 +175,7 @@ export const LocalDaemonCommands = {
   Status: "daemon/status",
   History: "daemon/history",
   AgentsList: "cli/agents/list",
-  AgentsLookup: "cli/agents/lookup",
+  AgentsSearch: "cli/agents/search",
   ContactsList: "cli/contacts/list",
   ContactsAdd: "cli/contacts/add",
   ContactsAccept: "cli/contacts/accept",
@@ -189,7 +188,7 @@ const AgentsListCommandPayload = Schema.Struct({
   limit: Schema.optional(PageLimit),
 });
 
-const AgentsLookupCommandPayload = Schema.Struct({
+const AgentsSearchCommandPayload = Schema.Struct({
   names: Schema.Array(AgentName).pipe(
     Schema.minItems(1),
     Schema.maxItems(MAX_NAME_LOOKUP_BATCH),
@@ -309,9 +308,9 @@ export class LocalDaemonRpcs extends RpcGroup.make(
     success: AgentsList.resultSchema,
     error: LocalDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.AgentsLookup, {
-    payload: AgentsLookupCommandPayload,
-    success: AgentsLookupByName.resultSchema,
+  Rpc.make(LocalDaemonCommands.AgentsSearch, {
+    payload: AgentsSearchCommandPayload,
+    success: AgentsList.resultSchema,
     error: LocalDaemonErrorSchema,
   }),
   Rpc.make(LocalDaemonCommands.ContactsList, {
