@@ -1,7 +1,7 @@
 import { describe, expect, it as vitestIt } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { ForbiddenError } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import {
   buildMessage,
   createFakeChannelService,

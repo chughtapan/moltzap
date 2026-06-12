@@ -28,7 +28,7 @@ import type {
   NotificationParamsOf,
   ParamsOf,
   ResultOf,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import {
   DEFAULT_APP_ID,
   TaskRequest,

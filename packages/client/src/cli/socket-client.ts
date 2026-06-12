@@ -15,7 +15,7 @@ import {
   type TypedDispatchMap,
   type PayloadForTag,
   type SuccessForTag,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 
 type DaemonRpcs = RpcGroup.Rpcs<typeof LocalDaemonRpcs>;
 export type DaemonCommand = DaemonRpcs["_tag"];

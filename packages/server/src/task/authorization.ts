@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { TaskCreate } from "@moltzap/protocol/task";
 import type { AppId } from "@moltzap/protocol/identity";
-import type { ParamsOf, ResultOf } from "@moltzap/protocol/transport";
+import type { ParamsOf, ResultOf } from "@moltzap/protocol/rpc";
 import {
   callAppRpc,
   type AppHost,

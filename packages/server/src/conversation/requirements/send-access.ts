@@ -3,7 +3,7 @@ import type { ConversationSendAccessValue } from "@moltzap/protocol/conversation
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskClosedError } from "@moltzap/protocol/task";
 import { ConversationArchivedError } from "@moltzap/protocol/conversation";
-import { ForbiddenError } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { MessageNotFoundError } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";

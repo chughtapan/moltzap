@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect";
 
 const it = effectIt.effect;
 import { AgentId, AgentsList } from "@moltzap/protocol/identity";
-import { listCursorSchema } from "@moltzap/protocol/transport";
+import { listCursorSchema } from "@moltzap/protocol/rpc";
 import type { ClientDefinitionSuccess } from "@moltzap/protocol/socket";
 import {
   drainPaginatedList,

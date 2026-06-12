@@ -1,6 +1,6 @@
 import { Effect, Either } from "effect";
 import { AppKey } from "@moltzap/protocol/identity";
-import { UnauthorizedError } from "@moltzap/protocol/transport";
+import { UnauthorizedError } from "@moltzap/protocol/rpc";
 import { validateAppManifest } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { AppId } from "@moltzap/protocol/task";

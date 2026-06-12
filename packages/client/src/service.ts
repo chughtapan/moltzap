@@ -56,7 +56,7 @@ import {
   type ParamsOf,
   type ResultOf,
   type SuccessForTag,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import { AgentCallableGroup } from "@moltzap/protocol/socket";
 import type { RpcGroup, Rpc } from "@effect/rpc";
 import type { TaskId } from "@moltzap/protocol/task";

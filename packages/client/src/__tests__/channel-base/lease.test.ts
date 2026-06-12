@@ -11,7 +11,7 @@ import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Equal, Match, TestClock, TestContext } from "effect";
-import { ForbiddenError } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import {
   LeaseAlreadyConsumed,
   catchLeaseInvalid,

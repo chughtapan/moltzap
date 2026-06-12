@@ -4,7 +4,7 @@ import { it as effectIt } from "@effect/vitest";
 import { Effect, Option, Redacted, Schema } from "effect";
 import { AgentId, Register } from "@moltzap/protocol/identity";
 import { AgentKey } from "@moltzap/protocol/identity";
-import type { ResultOf } from "@moltzap/protocol/transport";
+import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
   agentId,
   agentKeyString,

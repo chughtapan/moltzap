@@ -17,7 +17,7 @@ import {
   AuthenticatedPrincipal,
   type PrincipalRequirement,
 } from "@moltzap/protocol/identity";
-import { ForbiddenError } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConnectionManager, Connection } from "./connection.js";
 import type { AgentContext, AppContext } from "./context.js";

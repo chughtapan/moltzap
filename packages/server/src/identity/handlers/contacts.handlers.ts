@@ -7,11 +7,8 @@ import {
   ContactsById,
   ContactsList,
 } from "@moltzap/protocol/identity";
-import { InvalidParamsError } from "@moltzap/protocol/transport";
-import type {
-  NotificationParamsOf,
-  ParamsOf,
-} from "@moltzap/protocol/transport";
+import { InvalidParamsError } from "@moltzap/protocol/rpc";
+import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";

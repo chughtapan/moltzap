@@ -5,14 +5,11 @@ import {
   PROTOCOL_VERSION,
   checkProtocolRange,
 } from "@moltzap/protocol/network";
-import {
-  NotConnectedError,
-  UnauthorizedError,
-} from "@moltzap/protocol/transport";
+import { NotConnectedError, UnauthorizedError } from "@moltzap/protocol/rpc";
 import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { HelloOk } from "@moltzap/protocol/network";
-import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import { agentContextFrom, AgentContext, AppContext } from "#socket";
 import {
@@ -33,7 +30,7 @@ import type { AuthService } from "../../identity/services/auth.service.js";
 import type { AppAuthService } from "../../identity/services/app-auth.service.js";
 import type { PresenceService } from "../../network/services/presence.service.js";
 import type { ConversationService } from "#conversation";
-import { InvalidParamsError } from "@moltzap/protocol/transport";
+import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 import type { Connection, ConnectionManager, Originator } from "#socket";
 import type { AppHost } from "#identity/apps";

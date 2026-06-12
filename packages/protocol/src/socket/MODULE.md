@@ -12,7 +12,7 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
-### [`AgentCallableGroup`](./rpc-groups.ts#L105)
+### [`AgentCallableGroup`](./catalog.ts#L105)
 
 _Variable_
 
@@ -20,7 +20,7 @@ _Variable_
 export const AgentCallableGroup = makeClientRpcGroup(agentCallableMethods)
 ```
 
-### [`agentCallableMethods`](./rpc-groups.ts#L55)
+### [`agentCallableMethods`](./catalog.ts#L55)
 
 _Variable_
 
@@ -48,7 +48,7 @@ export interface AgentClientOptions {
 }
 ```
 
-### [`AnyAgentCallableRpcDefinition`](./rpc-groups.ts#L89)
+### [`AnyAgentCallableRpcDefinition`](./catalog.ts#L89)
 
 _TypeAlias_
 
@@ -57,7 +57,7 @@ export type AnyAgentCallableRpcDefinition =
   (typeof agentCallableMethods)[number];
 ```
 
-### [`AnyAppCallableRpcDefinition`](./rpc-groups.ts#L91)
+### [`AnyAppCallableRpcDefinition`](./catalog.ts#L91)
 
 _TypeAlias_
 
@@ -65,7 +65,7 @@ _TypeAlias_
 export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
 ```
 
-### [`AnyAppCallbackRpcDefinition`](./rpc-groups.ts#L93)
+### [`AnyAppCallbackRpcDefinition`](./catalog.ts#L93)
 
 _TypeAlias_
 
@@ -73,7 +73,7 @@ _TypeAlias_
 export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 ```
 
-### [`AnyNotificationDefinition`](./rpc-groups.ts#L95)
+### [`AnyNotificationDefinition`](./catalog.ts#L95)
 
 _TypeAlias_
 
@@ -82,7 +82,7 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 ```
 
-### [`AnyServerRpcDefinition`](./rpc-groups.ts#L88)
+### [`AnyServerRpcDefinition`](./catalog.ts#L88)
 
 _TypeAlias_
 
@@ -90,7 +90,7 @@ _TypeAlias_
 export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 ```
 
-### [`AppCallableGroup`](./rpc-groups.ts#L107)
+### [`AppCallableGroup`](./catalog.ts#L107)
 
 _Variable_
 
@@ -98,7 +98,7 @@ _Variable_
 export const AppCallableGroup = makeClientRpcGroup(appCallableMethods)
 ```
 
-### [`appCallableMethods`](./rpc-groups.ts#L64)
+### [`appCallableMethods`](./catalog.ts#L64)
 
 _Variable_
 
@@ -134,7 +134,7 @@ Closed handler table for an app moderating one or more tasks. Every
 `appCallbackMethods` member is required; vacuous-deny moderators still write
 the handler explicitly.
 
-### [`appCallbackMethods`](./rpc-groups.ts#L35)
+### [`appCallbackMethods`](./catalog.ts#L35)
 
 _Variable_
 
@@ -633,7 +633,7 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-### [`notificationDefinitions`](./rpc-groups.ts#L79)
+### [`notificationDefinitions`](./catalog.ts#L79)
 
 _Variable_
 
@@ -648,7 +648,7 @@ export const notificationDefinitions = [
 ] as const
 ```
 
-### [`NotificationRpcGroup`](./rpc-groups.ts#L150)
+### [`NotificationRpcGroup`](./catalog.ts#L138)
 
 _Variable_
 
@@ -661,8 +661,7 @@ export const NotificationRpcGroup = makeNotificationRpcGroup(
 Server→client reverse notification group. The server fires each notification
 as a fire-and-forget `void`-result RPC on a target connection's reverse
 channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
-each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
-machinery as the moderator callbacks folded into ReverseRpcGroup.
+each payload into the `SubscriberRegistry`.
 
 ### [`openProtocolAgentClientSocket`](./lifecycle.ts#L570)
 
@@ -916,7 +915,7 @@ export interface ReverseClient {
 }
 ```
 
-### [`ReverseRpcGroup`](./rpc-groups.ts#L165)
+### [`ReverseRpcGroup`](./catalog.ts#L153)
 
 _Variable_
 
@@ -973,7 +972,7 @@ export type ServerHandlers = RpcGroup.HandlersFrom<
 >;
 ```
 
-### [`serverInboundMethods`](./rpc-groups.ts#L69)
+### [`serverInboundMethods`](./catalog.ts#L69)
 
 _Variable_
 
@@ -1004,8 +1003,8 @@ export type ServerSocketWrite = (
 - `agent-client.ts`
 - `app-callbacks.ts`
 - `app-client.ts`
+- `catalog.ts`
 - `close-info.ts`
 - `connection.ts`
 - `lifecycle.ts`
-- `rpc-groups.ts`
 - `server.ts`

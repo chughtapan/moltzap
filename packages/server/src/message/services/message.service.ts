@@ -16,7 +16,7 @@ import {
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
   MAX_PAGE_LIMIT,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import { HookBlockedError } from "@moltzap/protocol/task";
 import {
   MessageNotFoundError,

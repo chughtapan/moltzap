@@ -25,10 +25,10 @@ import type {
   NotificationParamsOf,
   PayloadForTag,
   SuccessForTag,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import type { Message } from "@moltzap/protocol/message";
 import type { RpcGroup } from "@effect/rpc";
-import { NotFoundError } from "@moltzap/protocol/transport";
+import { NotFoundError } from "@moltzap/protocol/rpc";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";

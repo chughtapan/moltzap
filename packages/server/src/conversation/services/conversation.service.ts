@@ -8,7 +8,7 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect, Option } from "effect";
-import { InvalidParamsError } from "@moltzap/protocol/transport";
+import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import {
   AgentNotFoundError,
   NotInContactsError,
@@ -19,10 +19,7 @@ import {
   NotAParticipantError,
   TaskConversationParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
-import {
-  DEFAULT_PAGE_LIMIT,
-  ForbiddenError,
-} from "@moltzap/protocol/transport";
+import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
 import { broadcastNotificationToAgents } from "#network";
 import type { NetworkSendServiceTag } from "#core";
 import type { ConnectionManager } from "#socket";

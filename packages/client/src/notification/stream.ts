@@ -42,7 +42,7 @@ import {
   notificationSubscribeAll,
   type NotificationSubscriberRegistry,
   type NotificationParamsOf,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 
 type ClientNotificationDelivery =

@@ -1,4 +1,4 @@
-import type { NotificationDelivery } from "@moltzap/protocol/transport";
+import type { NotificationDelivery } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type { Message } from "@moltzap/protocol/message";
 import { HashMap, Option } from "effect";

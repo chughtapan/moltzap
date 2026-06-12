@@ -70,11 +70,11 @@ export {
   AppCallableGroup,
   NotificationRpcGroup,
   ReverseRpcGroup,
-} from "./rpc-groups.js";
+} from "./catalog.js";
 export type {
   AnyServerRpcDefinition,
   AnyAgentCallableRpcDefinition,
   AnyAppCallableRpcDefinition,
   AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
-} from "./rpc-groups.js";
+} from "./catalog.js";

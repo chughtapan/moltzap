@@ -6,7 +6,7 @@ import {
 import { NodeHttpClient } from "@effect/platform-node";
 import { Data, Effect, Either, Schema } from "effect";
 import { Register } from "@moltzap/protocol/identity";
-import type { ResultOf } from "@moltzap/protocol/transport";
+import type { ResultOf } from "@moltzap/protocol/rpc";
 
 /**
  * HTTP response from the agent registration endpoints

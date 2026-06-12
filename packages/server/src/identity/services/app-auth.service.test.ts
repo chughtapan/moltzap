@@ -4,7 +4,7 @@ import { Cause, Effect, Exit } from "effect";
 import * as fc from "fast-check";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import { appId as makeAppId, redactedAppKey } from "@moltzap/protocol/testing";
-import { UnauthorizedError } from "@moltzap/protocol/transport";
+import { UnauthorizedError } from "@moltzap/protocol/rpc";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,

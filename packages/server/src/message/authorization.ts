@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { MessagesAuthorize } from "@moltzap/protocol/message";
-import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import {

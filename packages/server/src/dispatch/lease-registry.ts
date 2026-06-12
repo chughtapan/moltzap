@@ -8,7 +8,7 @@ import type {
   DispatchesGet,
   DispatchId,
 } from "@moltzap/protocol/message/dispatch";
-import type { ResultOf } from "@moltzap/protocol/transport";
+import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
   DispatchId as DispatchIdSchema,
   LeaseId as LeaseIdSchema,
@@ -17,7 +17,7 @@ import {
   DispatchesExpired,
 } from "@moltzap/protocol/message/dispatch";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
-import type { NotificationParamsOf } from "@moltzap/protocol/transport";
+import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type { ConnectionManager } from "#socket";
 import type { LeaseTransitionObserver } from "../network/services/presence-types.js";

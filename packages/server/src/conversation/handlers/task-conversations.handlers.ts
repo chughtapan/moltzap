@@ -17,7 +17,7 @@ import type {
   ConversationId,
   TaskConversationListItem,
 } from "@moltzap/protocol/conversation";
-import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { AppContext, AgentContext } from "#socket";
 import type { AgentId } from "#core";

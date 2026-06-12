@@ -19,7 +19,7 @@ import { requestDaemonCommand, SocketRequestError } from "./socket-client.js";
 import { type LocalDaemonError, LocalDaemonRpcs } from "../local-daemon-rpc.js";
 import type { ProfileError } from "../profile.js";
 import { parseProfileName, resolveProfileRecord } from "../profile.js";
-import type { PayloadForTag, SuccessForTag } from "@moltzap/protocol/transport";
+import type { PayloadForTag, SuccessForTag } from "@moltzap/protocol/rpc";
 
 /** The local daemon command group's member `Rpc`s. */
 type DaemonRpcs = RpcGroup.Rpcs<typeof LocalDaemonRpcs>;

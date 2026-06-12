@@ -2,7 +2,7 @@ import { it as effectIt } from "@effect/vitest";
 import { SqlError } from "@effect/sql/SqlError";
 import { Cause, Effect, Exit, Option } from "effect";
 import { describe, expect } from "vitest";
-import { ConflictError } from "@moltzap/protocol/transport";
+import { ConflictError } from "@moltzap/protocol/rpc";
 import {
   catchSqlErrorAsDefect,
   sqlErrorToDefect,

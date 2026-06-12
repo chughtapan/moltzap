@@ -6,9 +6,9 @@ import {
   ConflictError,
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import { ContactNotFoundError, ContactsAdd } from "@moltzap/protocol/identity";
-import type { ListCursor, ResultOf } from "@moltzap/protocol/transport";
+import type { ListCursor, ResultOf } from "@moltzap/protocol/rpc";
 import type { ContactId, UserId } from "@moltzap/protocol/identity";
 import {
   decodeListCursor,

@@ -21,7 +21,7 @@ import type {
   PayloadForTag,
   ResultOf,
   SuccessForTag,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import type { RpcCallOptions } from "./agent-client.js";
 import type { ServiceRpcError } from "./service.js";
 import type { HistoryRequest, HistoryResponse } from "./local-history.js";

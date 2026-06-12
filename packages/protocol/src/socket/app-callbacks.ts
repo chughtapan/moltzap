@@ -3,7 +3,7 @@
  */
 
 import type { Effect } from "effect";
-import type { appCallbackMethods } from "./rpc-groups.js";
+import type { appCallbackMethods } from "./catalog.js";
 import type {
   ParamsOf,
   ResultOf,

@@ -24,14 +24,14 @@ import { Effect, Fiber, Ref, Stream } from "effect";
 import {
   NotConnectedError,
   makeNotificationSubscriberRegistry,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import { subscribe } from "../stream.js";
 import {
   buildMessage,
