@@ -57,9 +57,7 @@ type TransportTags = ConnectionTag | DbTag;
 
 /**
  * Identity-layer allowlist: registration, claim, login, contacts,
- * agent-visibility lookups. Yielded by `agents-lookup.handlers.ts` (the
- * three pure-read handlers `AgentsLookup`, `AgentsLookupByName`,
- * `AgentsList` after the auth-handlers split).
+ * agent visibility, and contacts.
  */
 type IdentityTags = TransportTags | AuthServiceTag;
 

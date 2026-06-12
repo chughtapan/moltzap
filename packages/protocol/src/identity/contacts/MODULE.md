@@ -8,7 +8,7 @@ Contact identity descriptors, RPC descriptors, and notifications.
 
 ## Public surface
 
-### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L108)
+### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L100)
 
 _Variable_
 
@@ -48,7 +48,7 @@ export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundErro
 }
 ```
 
-### [`ContactRequestNotificationDefinition`](./contacts.ts#L103)
+### [`ContactRequestNotificationDefinition`](./contacts.ts#L95)
 
 _Variable_
 
@@ -87,20 +87,6 @@ export const ContactsAdd = defineRpc({
   result: Schema.Struct({ contact: ContactSchema }),
   requires: [AgentPrincipal],
   errors: [ForbiddenError, ConflictError, UnauthorizedError],
-})
-```
-
-### [`ContactsById`](./contacts.ts#L87)
-
-_Variable_
-
-```ts
-export const ContactsById = defineRpc({
-  name: "contacts/byId",
-  params: Schema.Struct({ contactId: ContactId }),
-  result: Schema.Struct({ contact: ContactSchema }),
-  requires: [AgentPrincipal],
-  errors: [ContactNotFoundError, UnauthorizedError],
 })
 ```
 

@@ -20,7 +20,7 @@ Registration, claim, login, contacts, participants, agent visibility.
   (the cross-user reach predicate `AppHost` asks at runtime).
 - `services/webhook-contact-service.ts` — webhook-backed
   `ContactService` (transport: `@effect/platform/HttpClient`).
-- `handlers/agents-lookup.handlers.ts` — `agents/lookup`.
+- `handlers/agents.handlers.ts` — `agents/list`.
 - `handlers/connect.handlers.ts` — `agent/connect` and `app/connect` post-auth wiring
   (auth handshake is an identity concern).
 - `handlers/contacts.handlers.ts` — `contacts/*`.

@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`ContextOptions`](./service.ts#L187)
+### [`ContextOptions`](./service.ts#L190)
 
 _Interface_
 
@@ -20,7 +20,7 @@ export interface ContextOptions {
 }
 ```
 
-### [`ConversationMeta`](./service.ts#L180)
+### [`ConversationMeta`](./service.ts#L183)
 
 _Interface_
 
@@ -33,7 +33,7 @@ export interface ConversationMeta {
 }
 ```
 
-### [`CrossConversationEntry`](./service.ts#L194)
+### [`CrossConversationEntry`](./service.ts#L197)
 
 _Interface_
 
@@ -51,7 +51,7 @@ export interface CrossConversationEntry {
 
 Structured summary of recent activity in one other conversation.
 
-### [`CrossConvMessage`](./service.ts#L262)
+### [`CrossConvMessage`](./service.ts#L265)
 
 _Interface_
 
@@ -95,7 +95,7 @@ Drain every page of a cursor-paginated list RPC, echoing the opaque
 NonAdvancingCursorError if the server returns a cursor it already
 emitted (cycle guard).
 
-### [`formatCrossConversationBlock`](./service.ts#L214)
+### [`formatCrossConversationBlock`](./service.ts#L217)
 
 _Function_
 
@@ -110,7 +110,7 @@ Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
 that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
 share this formatter so sanitization and line shape stay in one place.
 
-### [`MoltZapService`](./service.ts#L314)
+### [`MoltZapService`](./service.ts#L317)
 
 _Class_
 
@@ -311,7 +311,7 @@ export type RegisterResponse = ResultOf<typeof Register>;
 HTTP response from the agent registration endpoints
 (`/api/v1/auth/register`).
 
-### [`sanitizeForSystemReminder`](./service.ts#L205)
+### [`sanitizeForSystemReminder`](./service.ts#L208)
 
 _Function_
 
@@ -332,7 +332,7 @@ export type SendRpcFn<E, Definition extends ClientDescriptor> = (
 ) => Effect.Effect<ClientDefinitionSuccess<Definition>, E>;
 ```
 
-### [`ServiceRpcError`](./service.ts#L175)
+### [`ServiceRpcError`](./service.ts#L178)
 
 _TypeAlias_
 

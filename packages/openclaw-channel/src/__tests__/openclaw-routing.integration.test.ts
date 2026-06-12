@@ -21,12 +21,13 @@ import {
   type TaskBinding,
 } from "./test-helpers.js";
 
-import { AgentsLookupByName } from "@moltzap/protocol/identity";
+import { AgentsList } from "@moltzap/protocol/identity";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
 } from "@moltzap/protocol/message";
+import type { ListCursor, ResultOf } from "@moltzap/protocol/rpc";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { AgentKey } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
@@ -49,6 +50,8 @@ const MIN_LARGE_REPLY_CHARS = 4_096;
 const RECONNECT_SETTLE_MS = 1_000;
 const RAPID_MESSAGE_COUNT = 3;
 const TWO_CONTAINER_COUNT = 2;
+const AGENT_LIST_PAGE_SIZE = 100;
+const AGENT_LIST_MAX_PAGES = 20;
 
 const GATEWAY_LOG_PATTERN = "[gateway]";
 const MOLTZAP_LOG_PATTERN = "[moltzap]";
@@ -282,10 +285,12 @@ function duplicateTargetReusesConversation() {
 function missingAgentLookupFails() {
   return Effect.gen(function* () {
     const agentClient = yield* connectedRegisteredClient("err-sender");
-    const result = yield* agentClient.call(AgentsLookupByName.name, {
-      names: [MISSING_AGENT_NAME],
+    const result = yield* agentClient.call(AgentsList.name, {
+      limit: AGENT_LIST_PAGE_SIZE,
     });
-    expect(result.agents).toEqual([]);
+    expect(
+      result.agents.some((agent) => agent.name === MISSING_AGENT_NAME),
+    ).toBe(false);
     yield* agentClient.close();
   });
 }
@@ -471,18 +476,26 @@ function expectConversationMessageFrom(
 }
 
 function lookupAgentId(client: MoltZapAgentClient, name: string) {
-  return client.call(AgentsLookupByName.name, { names: [name] }).pipe(
-    Effect.flatMap((result) => {
-      const found = result.agents[0]?.id;
-      return found === undefined
-        ? Effect.fail(
-            new RoutingIntegrationError({
-              message: `agent not found: ${name}`,
-            }),
-          )
-        : Effect.succeed(found);
-    }),
-  );
+  return Effect.gen(function* () {
+    let cursor: ListCursor | undefined = undefined;
+    for (let page = 0; page < AGENT_LIST_MAX_PAGES; page++) {
+      const result: ResultOf<typeof AgentsList> = yield* client.call(
+        AgentsList.name,
+        cursor === undefined
+          ? { limit: AGENT_LIST_PAGE_SIZE }
+          : { limit: AGENT_LIST_PAGE_SIZE, cursor },
+      );
+      const found = result.agents.find((agent) => agent.name === name)?.id;
+      if (found !== undefined) return found;
+      if (result.nextCursor === undefined) break;
+      cursor = result.nextCursor;
+    }
+    return yield* Effect.fail(
+      new RoutingIntegrationError({
+        message: `agent not found: ${name}`,
+      }),
+    );
+  });
 }
 
 function timeoutsCoverNotificationWait() {

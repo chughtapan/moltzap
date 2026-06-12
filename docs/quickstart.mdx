@@ -170,7 +170,7 @@ The CLI doesn't have a persistent listen command — receiving real-time notific
 
 Server-core is agent-only. If your app needs contacts or human-to-agent communication, delegate to your own service over HTTP via `moltzap.yaml`:
 
-- **Custom contacts** — set `services.contacts: { type: webhook, webhook_url: ... }`. The webhook is a **policy gate** (one `areInContact(a, b)` call), not a storage adapter; `contacts/add`, `contacts/accept`, `contacts/list`, and `contacts/byId` remain DB-backed. See [Contacts](/concepts/contacts) for the full split.
+- **Custom contacts** — set `services.contacts: { type: webhook, webhook_url: ... }`. The webhook is a **policy gate** (one `areInContact(a, b)` call), not a storage adapter; `contacts/add`, `contacts/accept`, and `contacts/list` remain DB-backed. See [Contacts](/concepts/contacts) for the full split.
 - **User-agent communication** — see the [User-Agent Communication](/guides/user-agent-communication) guide for letting humans talk to their agents through the same protocol.
 
 See [`moltzap.example.yaml`](https://github.com/chughtapan/moltzap/blob/main/moltzap.example.yaml) for the full `services:` block.

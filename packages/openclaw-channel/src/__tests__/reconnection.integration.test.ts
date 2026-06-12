@@ -11,7 +11,7 @@ import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
 import { registerTestAgent, waitFor } from "./test-helpers.js";
 
-import { AgentsLookup } from "@moltzap/protocol/identity";
+import { AgentsList } from "@moltzap/protocol/identity";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
   MessageReceivedNotificationDefinition,
@@ -27,6 +27,7 @@ const RECONNECT_WAIT_MS = 10_000;
 const MESSAGE_DELIVERY_WAIT_MS = 5_000;
 const WAIT_BUDGET_FACTOR_MIN = 1;
 const WAIT_BUDGET_FACTOR_MAX = 3;
+const AGENT_LIST_PAGE_SIZE = 100;
 
 const RECONNECT_BOB_NAME = "recon-bob";
 const RECONNECT_ALICE_HISTORY_NAME = "recon-alice-history";
@@ -323,12 +324,13 @@ function rpcCallsWorkAfterReconnect() {
     yield* client.connect();
     yield* client.disconnect();
     yield* waitUntil(() => reconnected, RECONNECT_WAIT_MS, "reconnect");
-    const result = yield* client.call(AgentsLookup.name, {
-      agentIds: [bob.agentId],
+    const result = yield* client.call(AgentsList.name, {
+      limit: AGENT_LIST_PAGE_SIZE,
     });
+    const bobCard = result.agents.find((agent) => agent.id === bob.agentId);
 
-    expect(result.agents).toHaveLength(SINGLE_AGENT_COUNT);
-    expect(result.agents[0]?.name).toBe(RECONNECT_BOB_RPC_NAME);
+    expect(result.agents.length).toBeGreaterThanOrEqual(SINGLE_AGENT_COUNT);
+    expect(bobCard?.name).toBe(RECONNECT_BOB_RPC_NAME);
     yield* client.close();
   });
 }

@@ -4,8 +4,8 @@ import { NodeContext } from "@effect/platform-node";
 import {
   AgentId as AgentIdSchema,
   AgentNotFoundError,
-  AgentsLookup,
-  AgentsLookupByName,
+  AgentsList,
+  type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
 import {
@@ -52,6 +52,7 @@ import {
   isNotificationDeliveryFor,
   type NotificationDelivery,
   type NotificationParamsOf,
+  type ListCursor,
   type PayloadForTag,
   type ParamsOf,
   type ResultOf,
@@ -114,8 +115,10 @@ const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
 const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
 const HISTORY_LOOKUP_CONCURRENCY = 2;
-const SEND_TO_AGENT_LOOKUP_PAGE_SIZE = 50;
-const SEND_TO_AGENT_LOOKUP_MAX_PAGES = 20;
+const AGENT_LOOKUP_PAGE_SIZE = 100;
+const AGENT_LOOKUP_MAX_PAGES = 20;
+const REUSABLE_CONVERSATION_LOOKUP_PAGE_SIZE = 50;
+const REUSABLE_CONVERSATION_LOOKUP_MAX_PAGES = 20;
 const decodeAgentId = Schema.decodeUnknownOption(AgentIdSchema);
 
 const ClientEventLogDir = Config.option(
@@ -651,16 +654,7 @@ export class MoltZapService {
         ...new Set(messages.map((message) => message.senderId)),
       ].filter((id) => !HashMap.has(knownNames, id));
       if (unknownAgentIds.length === 0) return;
-      yield* this.call(AgentsLookup.name, { agentIds: unknownAgentIds }).pipe(
-        Effect.tap((result) =>
-          Ref.update(this.agentNamesRef, (names) => {
-            let next = names;
-            for (const agent of result.agents) {
-              next = HashMap.set(next, agent.id, agent.name);
-            }
-            return next;
-          }),
-        ),
+      yield* this.cacheVisibleAgentNamesForIds(new Set(unknownAgentIds)).pipe(
         Effect.asVoid,
         Effect.catchAll(() => Effect.void),
       );
@@ -762,20 +756,17 @@ export class MoltZapService {
       );
       if (cached !== undefined) return cached;
 
-      return yield* this.call(AgentsLookup.name, {
-        agentIds: [decodedAgentId],
-      }).pipe(
-        Effect.flatMap((result) => {
-          const agent = result.agents[0];
-          if (!agent) return Effect.succeed(agentId);
-          return Ref.update(this.agentNamesRef, (names) =>
-            HashMap.set(names, agentId, agent.name),
-          ).pipe(Effect.as(agent.name));
+      return yield* this.cacheVisibleAgentNamesForIds(
+        new Set([decodedAgentId]),
+      ).pipe(
+        Effect.map(() => {
+          const resolved = Option.getOrUndefined(
+            HashMap.get(snapshot(this.agentNamesRef), agentId),
+          );
+          return resolved ?? agentId;
         }),
         Effect.catchAll((err) =>
-          Effect.logWarning(
-            "agents/lookup failed; falling back to agentId",
-          ).pipe(
+          Effect.logWarning("agents/list failed; falling back to agentId").pipe(
             Effect.annotateLogs({ agentId, err: String(err) }),
             Effect.as(agentId),
           ),
@@ -860,10 +851,7 @@ export class MoltZapService {
       const cache = yield* Ref.get(this.agentConversationCacheRef);
       let entry = Option.getOrUndefined(HashMap.get(cache, agentName));
       if (entry === undefined) {
-        const lookupResult = yield* this.call(AgentsLookupByName.name, {
-          names: [agentName],
-        });
-        const agent = lookupResult.agents[0];
+        const agent = yield* this.findVisibleAgentByName(agentName);
         if (!agent) {
           return yield* Effect.fail(
             new AgentNotFoundError({
@@ -904,9 +892,13 @@ export class MoltZapService {
   ): Effect.Effect<ConversationId, ServiceRpcError | AgentNotFoundError> {
     return Effect.gen(this, function* () {
       let cursor: string | undefined = undefined;
-      for (let page = 0; page < SEND_TO_AGENT_LOOKUP_MAX_PAGES; page++) {
+      for (
+        let page = 0;
+        page < REUSABLE_CONVERSATION_LOOKUP_MAX_PAGES;
+        page++
+      ) {
         const params: { limit: number; cursor?: string } = {
-          limit: SEND_TO_AGENT_LOOKUP_PAGE_SIZE,
+          limit: REUSABLE_CONVERSATION_LOOKUP_PAGE_SIZE,
         };
         if (cursor !== undefined) params.cursor = cursor;
         const result = yield* this.call(TaskConversationList.name, params);
@@ -925,6 +917,59 @@ export class MoltZapService {
           data: { agentName },
         }),
       );
+    });
+  }
+
+  private cacheAgentNames(
+    agents: ReadonlyArray<AgentCard>,
+  ): Effect.Effect<void> {
+    if (agents.length === 0) return Effect.void;
+    return Ref.update(this.agentNamesRef, (names) => {
+      let next = names;
+      for (const agent of agents) {
+        next = HashMap.set(next, agent.id, agent.name);
+      }
+      return next;
+    });
+  }
+
+  private cacheVisibleAgentNamesForIds(
+    agentIds: ReadonlySet<string>,
+  ): Effect.Effect<void, ServiceRpcError> {
+    return Effect.gen(this, function* () {
+      const missing = new Set(agentIds);
+      let cursor: ListCursor | undefined = undefined;
+      for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
+        const params: ParamsOf<typeof AgentsList> =
+          cursor === undefined
+            ? { limit: AGENT_LOOKUP_PAGE_SIZE }
+            : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
+        const result = yield* this.call(AgentsList.name, params);
+        yield* this.cacheAgentNames(result.agents);
+        for (const agent of result.agents) missing.delete(agent.id);
+        if (missing.size === 0 || result.nextCursor === undefined) return;
+        cursor = result.nextCursor;
+      }
+    });
+  }
+
+  private findVisibleAgentByName(
+    agentName: string,
+  ): Effect.Effect<AgentCard | undefined, ServiceRpcError> {
+    return Effect.gen(this, function* () {
+      let cursor: ListCursor | undefined = undefined;
+      for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
+        const params: ParamsOf<typeof AgentsList> =
+          cursor === undefined
+            ? { limit: AGENT_LOOKUP_PAGE_SIZE }
+            : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
+        const result = yield* this.call(AgentsList.name, params);
+        yield* this.cacheAgentNames(result.agents);
+        const hit = result.agents.find((agent) => agent.name === agentName);
+        if (hit !== undefined || result.nextCursor === undefined) return hit;
+        cursor = result.nextCursor;
+      }
+      return undefined;
     });
   }
 
@@ -1097,7 +1142,7 @@ export class MoltZapService {
 
   /**
    * Outbound RPC, typed per method — delegates to the agent client's typed
-   * `call`. `call("agents/lookup", payload)` recovers the result and that
+   * `call`. `call("agents/list", payload)` recovers the result and that
    * method's tagged-error union; an app-only method does not typecheck.
    */
   call<Tag extends AgentCallableTag>(

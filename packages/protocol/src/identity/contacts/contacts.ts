@@ -84,14 +84,6 @@ export const ContactsAccept = defineRpc({
   errors: [ContactNotFoundError, ForbiddenError, UnauthorizedError],
 });
 
-export const ContactsById = defineRpc({
-  name: "contacts/byId",
-  params: Schema.Struct({ contactId: ContactId }),
-  result: Schema.Struct({ contact: ContactSchema }),
-  requires: [AgentPrincipal],
-  errors: [ContactNotFoundError, UnauthorizedError],
-});
-
 const ContactRequestNotificationSchema = Schema.Struct({
   contact: ContactSchema,
 });

@@ -4,7 +4,6 @@ import {
   ContactRequestNotificationDefinition,
   ContactsAccept,
   ContactsAdd,
-  ContactsById,
   ContactsList,
 } from "@moltzap/protocol/identity";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
@@ -94,18 +93,6 @@ function contactsAcceptBody(
   }).pipe(Effect.withSpan("contacts.accept"));
 }
 
-function contactsByIdBody(
-  params: ParamsOf<typeof ContactsById>,
-  ctx: AgentContext,
-) {
-  return Effect.gen(function* () {
-    const contactService = yield* ContactsServiceTag;
-    const owner = ctx.ownerUserId;
-    const contact = yield* contactService.byId(owner, params.contactId);
-    return { contact };
-  }).pipe(Effect.withSpan("contacts.byId"));
-}
-
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
 export const contactsList: ServerHandler<typeof ContactsList> = (params) =>
@@ -122,8 +109,3 @@ export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params) =>
   Effect.gen(function* () {
     return yield* contactsAcceptBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsAccept"));
-
-export const contactsById: ServerHandler<typeof ContactsById> = (params) =>
-  Effect.gen(function* () {
-    return yield* contactsByIdBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("contactsById"));

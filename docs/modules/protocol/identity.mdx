@@ -13,7 +13,7 @@ Public barrel for identity, agent, and contact protocol descriptors.
 
 ## Public surface
 
-### [`identityNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/index.ts#L79)
+### [`identityNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/index.ts#L68)
 
 _Variable_
 
@@ -26,19 +26,16 @@ export const identityNotifications = [
 
 Identity notification catalog emitted by the server.
 
-### [`identityRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/index.ts#L68)
+### [`identityRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/index.ts#L60)
 
 _Variable_
 
 ```ts
 export const identityRpcMethods = [
-  AgentsLookup,
-  AgentsLookupByName,
   AgentsList,
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactsById,
 ] as const
 ```
 

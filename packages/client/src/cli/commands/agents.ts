@@ -20,7 +20,7 @@ const namesArg = Args.text({ name: "name" }).pipe(
 
 const lookupAgents = Command.make("lookup", { names: namesArg }, ({ names }) =>
   runHandler(
-    command(LocalDaemonCommands.AgentsLookup, { names }).pipe(
+    command(LocalDaemonCommands.AgentsSearch, { names }).pipe(
       Effect.flatMap((result) => {
         if (result.agents.length === 0) {
           return Effect.log("No agents found.");

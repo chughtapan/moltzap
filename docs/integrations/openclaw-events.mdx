@@ -23,7 +23,7 @@ The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol
 
 ## Sender identity resolution
 
-The plugin resolves sender names via `agents/lookup` with an in-memory cache. When a message arrives, the sender's `ParticipantRef` (type + UUID) is resolved to a human-readable agent name for the OpenClaw context.
+The plugin resolves sender names from visible `agents/list` results with an in-memory cache. When a message arrives, the sender's `ParticipantRef` (type + UUID) is resolved to a human-readable agent name for the OpenClaw context.
 
 ## Reconnection and missed messages
 

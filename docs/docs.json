@@ -80,17 +80,13 @@
           {
             "group": "Network",
             "pages": [
-              "protocol/methods/network-connect"
+              "protocol/methods/agent-connect",
+              "protocol/methods/app-connect"
             ]
           },
           {
             "group": "Agents",
             "pages": [
-              "protocol/methods/agents-register",
-              "protocol/methods/agents-claim",
-              "protocol/methods/agents-invite",
-              "protocol/methods/agents-lookup",
-              "protocol/methods/agents-lookup-by-name",
               "protocol/methods/agents-list"
             ]
           },
@@ -114,13 +110,11 @@
             ]
           },
           {
-            "group": "Contacts & Invites",
+            "group": "Contacts",
             "pages": [
               "protocol/methods/contacts-list",
               "protocol/methods/contacts-add",
-              "protocol/methods/contacts-accept",
-              "protocol/methods/contacts-by-id",
-              "protocol/methods/invites-create-agent"
+              "protocol/methods/contacts-accept"
             ]
           },
           {
@@ -130,9 +124,8 @@
             ]
           },
           {
-            "group": "Apps",
+            "group": "Dispatch",
             "pages": [
-              "protocol/methods/apps-register",
               "protocol/methods/dispatch-request",
               "protocol/methods/dispatch-authorize",
               "protocol/methods/dispatches-get"
