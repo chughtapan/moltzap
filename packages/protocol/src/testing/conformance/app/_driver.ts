@@ -56,7 +56,7 @@ import {
   DispatchesGet,
   type DispatchId,
 } from "#message/dispatch";
-import type { NotificationDelivery } from "../../../transport/index.js";
+import type { NotificationDelivery } from "#transport";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
   makeAgentTestClient,

@@ -11,11 +11,7 @@ export type { AgentClientOptions } from "./agent-client.js";
 
 export { MoltZapAppClient } from "./app-client.js";
 export type { AppCallbackContext, AppClientOptions } from "./app-client.js";
-export type {
-  AppCallbackHandlers,
-  AppCallbackRpcDefinition,
-  HandlerSlot,
-} from "./app-callbacks.js";
+export type { AppCallbackHandlers, HandlerSlot } from "./app-callbacks.js";
 
 export {
   RPC_TIMEOUT_MS,
@@ -34,7 +30,7 @@ export type {
   RpcCallOptions,
 } from "./lifecycle.js";
 
-export { MoltZapServer, makeServerProtocolLayer } from "./server.js";
+export { MoltZapServer } from "./server.js";
 export type {
   MoltZapServerOptions,
   MoltZapServerSession,
@@ -45,8 +41,6 @@ export type {
   ReverseCallbackSuccess,
   ReverseCallbackTag,
   ReverseClient,
-  ServerHandler,
-  ServerHandlers,
   ServerSocketWrite,
 } from "./server.js";
 
@@ -59,22 +53,3 @@ export {
 export type { CloseInfo, CloseKind } from "./close-info.js";
 
 export { ConnectionId, connectionId, newConnectionId } from "./connection.js";
-
-export {
-  agentCallableMethods,
-  appCallableMethods,
-  appCallbackMethods,
-  serverInboundMethods,
-  notificationDefinitions,
-  AgentCallableGroup,
-  AppCallableGroup,
-  NotificationRpcGroup,
-  ReverseRpcGroup,
-} from "./catalog.js";
-export type {
-  AnyServerRpcDefinition,
-  AnyAgentCallableRpcDefinition,
-  AnyAppCallableRpcDefinition,
-  AnyAppCallbackRpcDefinition,
-  AnyNotificationDefinition,
-} from "./catalog.js";

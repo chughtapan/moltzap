@@ -22,7 +22,7 @@ import type {
   AnyAppCallableRpcDefinition,
   AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
-} from "#socket";
+} from "#socket/catalog";
 import { MessagesAuthorize } from "#message";
 import { TaskCreate } from "../../../../task/index.js";
 import { DispatchAuthorize } from "#message/dispatch";

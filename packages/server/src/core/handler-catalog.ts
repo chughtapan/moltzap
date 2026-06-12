@@ -44,7 +44,7 @@ import {
   taskConversationRemoveParticipant,
 } from "#conversation/handlers";
 import { dispatchRequest, dispatchesGet } from "#dispatch/handlers";
-import type { ServerHandlers } from "@moltzap/protocol/socket";
+import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
 
 /**
  * The handler map. Keys are the wire method names of every WS-dispatched

@@ -38,11 +38,11 @@ type RpcMemberPayload<P extends Schema.Schema.AnyNoContext> =
 /**
  * Typed manifest for one RPC method: wire name + Effect `Schema` shapes +
  * decode-time validators + the `requires` authority list. Type-only payload
- * accessors are exposed via `ParamsOf&lt;D>`/`ResultOf&lt;D>` — there is no
+ * accessors are exposed via `ParamsOf&lt;D>`/`ResultOf&lt;D>`; there is no
  * runtime `Params`/`Result` property.
  *
  * The `paramsSchema`/`resultSchema` are Effect `Schema` values (`P`/`R extends
- * Schema.Schema.AnyNoContext` — the wire schemas have no decode context).
+ * Schema.Schema.AnyNoContext`; the wire schemas have no decode context).
  * `validateParams`/`validateResult` are strict, excess-rejecting type guards
  * (`closedStructGuard`): a bare `Schema.is` would ACCEPT extra keys, so the
  * guards wrap a `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
@@ -90,7 +90,7 @@ export interface RpcDefinition<
   readonly requires: Requires;
 
   /**
-   * The handler-domain tagged-error classes this method can fail with — only
+   * The handler-domain tagged-error classes this method can fail with: only
    * the errors the HANDLER raises, not the requirement middleware errors
    * (those come from each requirement's own `failure`). The method's effective
    * wire error union is the union of both; see
@@ -111,7 +111,7 @@ export interface RpcDefinition<
 
   /**
    * The wire `error` Schema for the HANDLER-DOMAIN errors ALONE
-   * (`Schema.Union(...errors)`) — what the server engine member sets as its
+   * (`Schema.Union(...errors)`), which the server engine member sets as its
    * `error`. The principal-gate and domain requirement errors are NOT here; they ride each
    * stacked middleware's own `failure`, and the engine unions them into the
    * method's error (`Rpc.ErrorSchema = _Error | _Middleware`). The catalog/client
@@ -168,7 +168,7 @@ export type DomainErrorsOf<D extends RpcDefinitionAny> =
  * The full typed error channel of a per-method call: the method's handler-domain
  * errors, every requirement's declared errors, plus the always-possible
  * transport errors. This is exactly what the typed client surfaces on
- * `client["method/name"](payload)`'s Effect — the same union the wire
+ * `client["method/name"](payload)`'s Effect: the same union the wire
  * `errorSchema` decodes, plus transport.
  */
 export type CallErrorsOf<D extends RpcDefinitionAny> =
@@ -200,7 +200,7 @@ export function effectiveErrorClasses(
 function makeErrorSchema(
   classes: ReadonlyArray<Schema.Schema.AnyNoContext>,
 ): Schema.Schema.AnyNoContext {
-  // `Schema.Union` over the effective error classes — discriminated by `_tag`.
+  // `Schema.Union` over the effective error classes, discriminated by `_tag`.
   // The zero-arg union is the empty (never) error arm for a method that raises
   // no typed wire error; the one-arg
   // union is that single error. One construction path keeps the variance
@@ -219,8 +219,8 @@ function makeErrorSchema(
  * ```mermaid
  * flowchart TD
  *   A["domain layer call site:<br>defineRpc{ name, params, result }"]
- *   A --> B["closedStructGuard(params)<br>→ validateParams (strict decode)"]
- *   A --> C["closedStructGuard(result)<br>→ validateResult (strict decode)"]
+ *   A --> B["closedStructGuard(params)<br>to validateParams (strict decode)"]
+ *   A --> C["closedStructGuard(result)<br>to validateResult (strict decode)"]
  *   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
  *   C --> D
  *   D --> E["pushed into per-layer *RpcMethods const"]
@@ -238,7 +238,7 @@ function makeErrorSchema(
  * Method names stay as literal strings so Effect RPC's generated client remains
  * a normal string-keyed dispatch map.
  *
- * Sibling: {@link defineNotification} — same pipeline minus the
+ * Sibling: {@link defineNotification}; same pipeline minus the
  * result schema and the error union.
  */
 export function defineRpc<
@@ -328,9 +328,9 @@ export function defineRpc(def: {
 
   /**
    * REQUIRED. The handler-domain tagged-error classes this method can fail
-   * with — only what the handler itself raises. The principal-gate errors
-   * (`Unauthorized`/`Forbidden` for authenticated methods) and each requirement's own
-   * `errors` are added automatically. A method with no handler-domain error
+   * with: only what the handler itself raises. The principal-gate errors
+   * (`Unauthorized`/`Forbidden` for authenticated methods) and each
+   * requirement's own `errors` are added automatically. A method with no handler-domain error
    * declares `[]`.
    */
   errors: ReadonlyArray<RpcErrorClass>;
@@ -360,7 +360,7 @@ export function defineRpc(def: {
     requires: def.requires,
     errors: def.errors,
     // The per-method wire error union the engine encodes/decodes against: every
-    // requirement's declared errors ∪ the handler's declared errors, deduped,
+    // requirement's declared errors plus the handler's declared errors, deduped,
     // discriminated by `_tag`.
     errorSchema,
     // Handler-domain errors ALONE: the engine member's `error`. The requirement
@@ -400,7 +400,7 @@ function applyRequirementMiddlewares(
 
 /**
  * A frozen descriptor for one server-to-client notification.
- * Notifications are fire-and-forget — no `id`, no response, no
+ * Notifications are fire-and-forget: no `id`, no response, no
  * pending-call registry. The transport-side runtimes don't track
  * them; consumers subscribe externally via per-method handlers.
  *
@@ -411,7 +411,7 @@ function applyRequirementMiddlewares(
  *   participant Client
  *   Server->>Server: frame notification from descriptor + params
  *   Server->>Wire: {jsonrpc, method, params}
- *   Wire->>Client: frame arrives (has method → reverse RpcServer)
+ *   Wire->>Client: frame arrives (has method, reverse RpcServer)
  *   Client->>Client: reverse engine decodes the notification descriptor
  *   Client->>Client: subscriber dispatcher routes to handler
  * ```
@@ -475,7 +475,7 @@ export function isNotificationDeliveryFor<D extends NotificationDefinitionAny>(
 
 /**
  * Sibling of {@link defineRpc} for server-to-client notifications.
- * Same pipeline minus the result schema — notifications are
+ * Same pipeline minus the result schema; notifications are
  * fire-and-forget, no `id` field, no `result`.
  */
 export function defineNotification<
@@ -498,8 +498,8 @@ export function defineNotification<
   };
 }
 
-// ── Per-handler result decoder (Effect-shape; consumed by the conformance
-// test-client to verify a response decodes against the descriptor schema) ───
+// Per-handler result decoder. The conformance test client uses this to verify a
+// response decodes against the descriptor schema.
 
 class RpcResultDecodeError extends Data.TaggedError("RpcResultDecodeError")<{
   readonly definition: RpcDefinitionAny;

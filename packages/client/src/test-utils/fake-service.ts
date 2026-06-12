@@ -19,7 +19,7 @@ import {
   AgentCallableGroup,
   type AnyAgentCallableRpcDefinition,
   type AnyNotificationDefinition,
-} from "@moltzap/protocol/socket";
+} from "@moltzap/protocol/socket/catalog";
 import type {
   NotificationDelivery,
   NotificationParamsOf,

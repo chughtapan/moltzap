@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { AgentId } from "#identity/agents";
-import { stringEnum } from "../transport/wire-string.js";
-import { defineNotification, defineRpc } from "../transport/method.js";
+import { stringEnum } from "#transport";
+import { defineNotification, defineRpc } from "#transport";
 import { AuthenticatedPrincipal } from "#identity/principals";
 import { NotInContactsError } from "#identity/contacts";
 

@@ -12,7 +12,7 @@ import {
 } from "effect";
 
 import { PresenceChangedNotificationDefinition } from "../../../network/index.js";
-import type { NotificationDelivery } from "../../../transport/index.js";
+import type { NotificationDelivery } from "#transport";
 import { PresenceSubscribe } from "../../../network/index.js";
 import { AgentId } from "../../../identity/index.js";
 import {

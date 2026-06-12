@@ -59,6 +59,9 @@
       "#socket": [
         "socket/index.ts"
       ],
+      "#socket/catalog": [
+        "socket/catalog/index.ts"
+      ],
       "#testing": [
         "testing/index.ts"
       ]

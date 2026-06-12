@@ -2,10 +2,10 @@ import type { RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
 import type { AgentKey } from "#identity/agents";
-import { AgentConnect, PROTOCOL_VERSION } from "../network/connect.js";
-import { AgentCallableGroup } from "./catalog.js";
+import { AgentConnect, PROTOCOL_VERSION } from "#network";
+import { AgentCallableGroup } from "#socket/catalog";
 import { type CloseInfo } from "./close-info.js";
-import { NotConnectedError, RpcTimeoutError } from "../transport/rpc-errors.js";
+import { NotConnectedError, RpcTimeoutError } from "#transport";
 import {
   openProtocolAgentClientSocket,
   RPC_TIMEOUT_MS,
@@ -19,7 +19,7 @@ import {
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,
-} from "../transport/typed-dispatch.js";
+} from "#transport";
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
 type AgentCallableTag = AgentCallableRpcs["_tag"];

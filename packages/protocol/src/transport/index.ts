@@ -6,7 +6,9 @@
 // notification envelope produced after native decode.
 export type {
   RpcDefinition,
+  RpcDefinitionAny,
   NotificationDefinition,
+  NotificationDefinitionAny,
   ParamsOf,
   ResultOf,
   NotificationPayloadOf,
@@ -17,9 +19,15 @@ export type {
   DomainErrorsOf,
   RequirementErrorsOf,
   ResponseErrorsOf,
-} from "./method.js";
-export { effectiveErrorClasses, jsonRpcMethod } from "./method.js";
-export { isNotificationDeliveryFor } from "./method.js";
+} from "./definition.js";
+export {
+  decodeRpcResult,
+  defineNotification,
+  defineRpc,
+  effectiveErrorClasses,
+  jsonRpcMethod,
+} from "./definition.js";
+export { isNotificationDeliveryFor } from "./definition.js";
 
 export {
   makeNotificationSubscriberRegistry,
@@ -52,7 +60,15 @@ export {
 } from "./pagination.js";
 export type { ListCursor } from "./pagination.js";
 
-// Transport-layer call errors — the failures that originate at the CLIENT
+export { closedStructGuard, decodesStrictly } from "./strict-decode.js";
+
+export {
+  dateTimeStringSchema,
+  formatString,
+  stringEnum,
+} from "./wire-string.js";
+
+// Transport-layer call errors: the failures that originate at the CLIENT
 // transport, not at a method handler. Domain failures ride their own
 // `Schema.TaggedError` class, decoded per-method against the method's
 // `errorSchema` union by `_tag`.
@@ -72,3 +88,10 @@ export {
   principalGateErrorClasses,
 } from "./wire-errors.js";
 export type { RpcErrorPayload } from "./wire-errors.js";
+
+export {
+  makeClientChannelProtocol,
+  makeServerChannelProtocol,
+  runMuxReader,
+} from "./mux.js";
+export type { ChannelSink, WireWrite } from "./mux.js";

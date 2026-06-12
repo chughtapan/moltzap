@@ -359,6 +359,7 @@ Public package exports should be limited to:
   "./message": "./dist/message/index.js",
   "./message/dispatch": "./dist/message/dispatch.js",
   "./socket": "./dist/socket/index.js",
+  "./socket/catalog": "./dist/socket/catalog/index.js",
   "./testing": "./dist/testing/index.js"
 }
 ```
@@ -383,6 +384,11 @@ MoltZapAgentClient
 MoltZapAppClient
 their option/result types
 ```
+
+`./socket/catalog` is the explicit first-party integration surface for closed
+RPC catalogs, Effect RPC groups, and the derived handler/definition union types
+used by `@moltzap/client`, `@moltzap/server-core`, conformance, and generated
+reference docs. Do not re-export those catalog symbols from `./socket`.
 
 ## Import Rules
 

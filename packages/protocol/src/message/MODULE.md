@@ -8,7 +8,7 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L204)
+### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L200)
 
 _Variable_
 
@@ -29,7 +29,7 @@ export const agentCallableMessageRpcMethods = [
 
 Agent-callable message RPC catalog.
 
-### [`appCallableDispatchRpcMethods`](./dispatch.ts#L206)
+### [`appCallableDispatchRpcMethods`](./dispatch.ts#L202)
 
 _Variable_
 
@@ -61,7 +61,7 @@ export function decodeMessagePartsText(
 
 Decode persisted plaintext message parts and die on malformed persisted data.
 
-### [`DispatchAdmissionDecision`](./dispatch.ts#L69)
+### [`DispatchAdmissionDecision`](./dispatch.ts#L65)
 
 _TypeAlias_
 
@@ -71,7 +71,7 @@ export type DispatchAdmissionDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`DispatchAuthorize`](./dispatch.ts#L123)
+### [`DispatchAuthorize`](./dispatch.ts#L119)
 
 _Variable_
 
@@ -85,7 +85,7 @@ export const DispatchAuthorize = defineRpc({
 })
 ```
 
-### [`dispatchCallbackMethods`](./dispatch.ts#L208)
+### [`dispatchCallbackMethods`](./dispatch.ts#L204)
 
 _Variable_
 
@@ -105,7 +105,7 @@ export type DispatchDecision = Schema.Schema.Type<
 
 Per-message dispatch authorization decision persisted with the message.
 
-### [`DispatchesConsumed`](./dispatch.ts#L143)
+### [`DispatchesConsumed`](./dispatch.ts#L139)
 
 _Variable_
 
@@ -122,7 +122,7 @@ export const DispatchesConsumed = defineNotification({
 })
 ```
 
-### [`DispatchesExpired`](./dispatch.ts#L154)
+### [`DispatchesExpired`](./dispatch.ts#L150)
 
 _Variable_
 
@@ -138,7 +138,7 @@ export const DispatchesExpired = defineNotification({
 })
 ```
 
-### [`DispatchesGet`](./dispatch.ts#L196)
+### [`DispatchesGet`](./dispatch.ts#L192)
 
 _Variable_
 
@@ -152,7 +152,7 @@ export const DispatchesGet = defineRpc({
 })
 ```
 
-### [`DispatchId`](./dispatch.ts#L25)
+### [`DispatchId`](./dispatch.ts#L21)
 
 _TypeAlias_
 
@@ -160,7 +160,7 @@ _TypeAlias_
 export type DispatchId = string & Brand.Brand<"DispatchId">;
 ```
 
-### [`DispatchId`](./dispatch.ts#L25)
+### [`DispatchId`](./dispatch.ts#L21)
 
 _Variable_
 
@@ -168,7 +168,7 @@ _Variable_
 export type DispatchId = string & Brand.Brand<"DispatchId">
 ```
 
-### [`DispatchNotFoundError`](./dispatch.ts#L39)
+### [`DispatchNotFoundError`](./dispatch.ts#L35)
 
 _Class_
 
@@ -181,7 +181,7 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
 }
 ```
 
-### [`dispatchNotifications`](./dispatch.ts#L210)
+### [`dispatchNotifications`](./dispatch.ts#L206)
 
 _Variable_
 
@@ -193,7 +193,7 @@ export const dispatchNotifications = [
 ] as const
 ```
 
-### [`DispatchRelease`](./dispatch.ts#L131)
+### [`DispatchRelease`](./dispatch.ts#L127)
 
 _Variable_
 
@@ -211,7 +211,7 @@ export const DispatchRelease = defineNotification({
 })
 ```
 
-### [`DispatchRequest`](./dispatch.ts#L90)
+### [`DispatchRequest`](./dispatch.ts#L86)
 
 _Variable_
 
@@ -238,7 +238,7 @@ export const DispatchRequest = defineRpc({
 Recipient admission request. The server acks immediately and emits
 `dispatch/release` when the moderator verdict resolves.
 
-### [`LeaseId`](./dispatch.ts#L16)
+### [`LeaseId`](./dispatch.ts#L12)
 
 _TypeAlias_
 
@@ -246,7 +246,7 @@ _TypeAlias_
 export type LeaseId = string & Brand.Brand<"LeaseId">;
 ```
 
-### [`LeaseId`](./dispatch.ts#L16)
+### [`LeaseId`](./dispatch.ts#L12)
 
 _Variable_
 

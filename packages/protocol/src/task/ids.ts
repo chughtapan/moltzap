@@ -1,5 +1,5 @@
 import { Schema, type Brand } from "effect";
-import { formatString } from "../transport/wire-string.js";
+import { formatString } from "#transport";
 
 export type TaskId = string & Brand.Brand<"TaskId">;
 export const TaskId: Schema.Schema<TaskId, string> = formatString("uuid").pipe(

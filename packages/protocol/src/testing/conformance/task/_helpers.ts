@@ -14,12 +14,9 @@ import {
   Scope,
   Schema,
 } from "effect";
-import type { AnyNotificationDefinition } from "#socket";
-import type {
-  NotificationDelivery,
-  NotificationParamsOf,
-} from "../../../transport/index.js";
-import { isNotificationDeliveryFor } from "../../../transport/index.js";
+import type { AnyNotificationDefinition } from "#socket/catalog";
+import type { NotificationDelivery, NotificationParamsOf } from "#transport";
+import { isNotificationDeliveryFor } from "#transport";
 import { TaskCreate, TaskId, TaskRequest } from "../../../task/index.js";
 import {
   ConversationId,

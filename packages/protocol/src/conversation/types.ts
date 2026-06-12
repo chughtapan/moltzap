@@ -3,10 +3,7 @@
  */
 
 import { Schema, type Brand } from "effect";
-import {
-  dateTimeStringSchema,
-  formatString,
-} from "../transport/wire-string.js";
+import { dateTimeStringSchema, formatString } from "#transport";
 import { AgentId } from "#identity/agents";
 
 const DateTimeString = dateTimeStringSchema();

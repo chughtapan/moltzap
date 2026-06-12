@@ -12,29 +12,6 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
-### [`AgentCallableGroup`](./catalog.ts#L105)
-
-_Variable_
-
-```ts
-export const AgentCallableGroup = makeClientRpcGroup(agentCallableMethods)
-```
-
-### [`agentCallableMethods`](./catalog.ts#L55)
-
-_Variable_
-
-```ts
-export const agentCallableMethods = [
-  ...identityRpcMethods,
-  ...agentCallableNetworkRpcMethods,
-  ...agentCallableTaskRpcMethods,
-  ...agentCallableConversationRpcMethods,
-  ...agentCallableMessageRpcMethods,
-  ...agentCallableDispatchRpcMethods,
-] as const
-```
-
 ### [`AgentClientOptions`](./agent-client.ts#L38)
 
 _Interface_
@@ -48,68 +25,7 @@ export interface AgentClientOptions {
 }
 ```
 
-### [`AnyAgentCallableRpcDefinition`](./catalog.ts#L89)
-
-_TypeAlias_
-
-```ts
-export type AnyAgentCallableRpcDefinition =
-  (typeof agentCallableMethods)[number];
-```
-
-### [`AnyAppCallableRpcDefinition`](./catalog.ts#L91)
-
-_TypeAlias_
-
-```ts
-export type AnyAppCallableRpcDefinition = (typeof appCallableMethods)[number];
-```
-
-### [`AnyAppCallbackRpcDefinition`](./catalog.ts#L93)
-
-_TypeAlias_
-
-```ts
-export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
-```
-
-### [`AnyNotificationDefinition`](./catalog.ts#L95)
-
-_TypeAlias_
-
-```ts
-export type AnyNotificationDefinition =
-  (typeof notificationDefinitions)[number];
-```
-
-### [`AnyServerRpcDefinition`](./catalog.ts#L88)
-
-_TypeAlias_
-
-```ts
-export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
-```
-
-### [`AppCallableGroup`](./catalog.ts#L107)
-
-_Variable_
-
-```ts
-export const AppCallableGroup = makeClientRpcGroup(appCallableMethods)
-```
-
-### [`appCallableMethods`](./catalog.ts#L64)
-
-_Variable_
-
-```ts
-export const appCallableMethods = [
-  ...appCallableNetworkRpcMethods,
-  ...appOnlyCallableMethods,
-] as const
-```
-
-### [`AppCallbackContext`](./app-client.ts#L33)
+### [`AppCallbackContext`](./app-client.ts#L32)
 
 _Interface_
 
@@ -119,42 +35,22 @@ export interface AppCallbackContext {
 }
 ```
 
-### [`AppCallbackHandlers`](./app-callbacks.ts#L46)
+### [`AppCallbackHandlers`](./app-callbacks.ts#L44)
 
 _TypeAlias_
 
 ```ts
 export type AppCallbackHandlers<Ctx> = HandlerTable<
-  AppCallbackRpcDefinition,
+  AnyAppCallbackRpcDefinition,
   Ctx
 >;
 ```
 
 Closed handler table for an app moderating one or more tasks. Every
-`appCallbackMethods` member is required; vacuous-deny moderators still write
-the handler explicitly.
+app callback member is required; vacuous-deny moderators still write the
+handler explicitly.
 
-### [`appCallbackMethods`](./catalog.ts#L35)
-
-_Variable_
-
-```ts
-export const appCallbackMethods = [
-  ...dispatchCallbackMethods,
-  ...messageCallbackMethods,
-  ...taskCallbackMethods,
-] as const
-```
-
-### [`AppCallbackRpcDefinition`](./app-callbacks.ts#L39)
-
-_TypeAlias_
-
-```ts
-export type AppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
-```
-
-### [`AppClientOptions`](./app-client.ts#L70)
+### [`AppClientOptions`](./app-client.ts#L69)
 
 _Interface_
 
@@ -178,7 +74,7 @@ export function classifyCloseCause(
 ): CloseKind
 ```
 
-### [`ClientConnectError`](./lifecycle.ts#L118)
+### [`ClientConnectError`](./lifecycle.ts#L121)
 
 _TypeAlias_
 
@@ -186,7 +82,7 @@ _TypeAlias_
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
 ```
 
-### [`ClientDefinitionError`](./lifecycle.ts#L107)
+### [`ClientDefinitionError`](./lifecycle.ts#L110)
 
 _TypeAlias_
 
@@ -194,7 +90,7 @@ _TypeAlias_
 export type ClientDefinitionError<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L103)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L106)
 
 _TypeAlias_
 
@@ -202,7 +98,7 @@ _TypeAlias_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L105)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L108)
 
 _TypeAlias_
 
@@ -210,7 +106,7 @@ _TypeAlias_
 export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L213)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L216)
 
 _Interface_
 
@@ -236,7 +132,7 @@ export interface ClientLifecycleOptions<
 }
 ```
 
-### [`clientRpc`](./lifecycle.ts#L101)
+### [`clientRpc`](./lifecycle.ts#L104)
 
 _Property_
 
@@ -246,7 +142,7 @@ _Property_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L100)
+### [`ClientRpcDefinition`](./lifecycle.ts#L103)
 
 _TypeAlias_
 
@@ -325,7 +221,7 @@ _Variable_
 export type ConnectionId = string & Brand.Brand<"ConnectionId">
 ```
 
-### [`ConnectResult`](./lifecycle.ts#L112)
+### [`ConnectResult`](./lifecycle.ts#L115)
 
 _TypeAlias_
 
@@ -376,18 +272,6 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
 Per-definition app-callback handler slot. `Ctx` is the per-frame context the
 client hands every handler.
 
-### [`makeServerProtocolLayer`](./server.ts#L110)
-
-_Function_
-
-```ts
-export const makeServerProtocolLayer = (options: {
-  readonly write: WireWrite;
-  readonly disconnects: Mailbox.Mailbox<number>;
-  readonly sinkReady: Deferred.Deferred<ChannelSink>;
-}): Layer.Layer<RpcServer.Protocol>
-```
-
 ### [`MoltZapAgentClient`](./agent-client.ts#L45)
 
 _Class_
@@ -428,7 +312,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapAppClient`](./app-client.ts#L78)
+### [`MoltZapAppClient`](./app-client.ts#L77)
 
 _Class_
 
@@ -468,7 +352,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapServer`](./server.ts#L356)
+### [`MoltZapServer`](./server.ts#L321)
 
 _Class_
 
@@ -633,37 +517,7 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-### [`notificationDefinitions`](./catalog.ts#L79)
-
-_Variable_
-
-```ts
-export const notificationDefinitions = [
-  ...networkNotifications,
-  ...identityNotifications,
-  ...taskNotifications,
-  ...conversationNotifications,
-  ...messageNotifications,
-  ...dispatchNotifications,
-] as const
-```
-
-### [`NotificationRpcGroup`](./catalog.ts#L138)
-
-_Variable_
-
-```ts
-export const NotificationRpcGroup = makeNotificationRpcGroup(
-  notificationDefinitions,
-)
-```
-
-Server→client reverse notification group. The server fires each notification
-as a fire-and-forget `void`-result RPC on a target connection's reverse
-channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
-each payload into the `SubscriberRegistry`.
-
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L570)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L573)
 
 _Function_
 
@@ -677,7 +531,7 @@ export const openProtocolAgentClientSocket = (
 >
 ```
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L582)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L585)
 
 _Function_
 
@@ -691,7 +545,7 @@ export const openProtocolAppClientSocket = (
 >
 ```
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L651)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L654)
 
 _Class_
 
@@ -818,7 +672,7 @@ export class ProtocolClientLifecycle<
     });
 ```
 
-### [`ReverseCallbackError`](./server.ts#L186)
+### [`ReverseCallbackError`](./server.ts#L151)
 
 _TypeAlias_
 
@@ -826,7 +680,7 @@ _TypeAlias_
 export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L260)
+### [`ReverseCallbackHandlers`](./lifecycle.ts#L263)
 
 _TypeAlias_
 
@@ -839,7 +693,7 @@ export type ReverseCallbackHandlers = {
 };
 ```
 
-### [`ReverseCallbackPayload`](./server.ts#L182)
+### [`ReverseCallbackPayload`](./server.ts#L147)
 
 _TypeAlias_
 
@@ -847,7 +701,7 @@ _TypeAlias_
 export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackRequest`](./server.ts#L188)
+### [`ReverseCallbackRequest`](./server.ts#L153)
 
 _TypeAlias_
 
@@ -859,7 +713,7 @@ export type ReverseCallbackRequest =
     }
 ```
 
-### [`ReverseCallbackSuccess`](./server.ts#L184)
+### [`ReverseCallbackSuccess`](./server.ts#L149)
 
 _TypeAlias_
 
@@ -867,7 +721,7 @@ _TypeAlias_
 export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackTag`](./server.ts#L178)
+### [`ReverseCallbackTag`](./server.ts#L143)
 
 _TypeAlias_
 
@@ -878,7 +732,7 @@ export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
 >;
 ```
 
-### [`ReverseCallError`](./server.ts#L174)
+### [`ReverseCallError`](./server.ts#L139)
 
 _TypeAlias_
 
@@ -888,7 +742,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 type ReverseRpcs = RpcGroup.Rpcs<typeof ReverseRpcGroup>;
 ```
 
-### [`ReverseClient`](./server.ts#L260)
+### [`ReverseClient`](./server.ts#L225)
 
 _Interface_
 
@@ -915,28 +769,7 @@ export interface ReverseClient {
 }
 ```
 
-### [`ReverseRpcGroup`](./catalog.ts#L153)
-
-_Variable_
-
-```ts
-export const ReverseRpcGroup = makeReverseRpcGroup(
-  appCallbackMethods,
-  notificationDefinitions,
-)
-```
-
-The full server→client reverse group: the moderator callbacks
-(`appCallbackMethods`) ∪ the notifications (NotificationRpcGroup),
-built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
-server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
-awaiting a verdict, fires notifications fork-and-forget); the agent + app
-clients stand one `RpcServer&lt;ReverseRpcGroup>` on the s2c sink. An agent client
-only ever receives notifications (its handlers for the three callback methods
-are never invoked — an agent is not a moderator), but it serves the whole
-group so the s2c engine binds one handler map.
-
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L86)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L89)
 
 _Variable_
 
@@ -944,7 +777,7 @@ _Variable_
 export const RPC_TIMEOUT_MS = 30_000
 ```
 
-### [`RpcCallOptions`](./lifecycle.ts#L96)
+### [`RpcCallOptions`](./lifecycle.ts#L99)
 
 _Interface_
 
@@ -952,40 +785,6 @@ _Interface_
 export interface RpcCallOptions {
   readonly timeoutMs?: number;
 }
-```
-
-### [`ServerHandler`](./server.ts#L97)
-
-_TypeAlias_
-
-```ts
-export type ServerHandler<D extends AnyServerRpcDefinition> =
-```
-
-### [`ServerHandlers`](./server.ts#L94)
-
-_TypeAlias_
-
-```ts
-export type ServerHandlers = RpcGroup.HandlersFrom<
-  RpcGroup.Rpcs<typeof serverRpcGroup>
->;
-```
-
-### [`serverInboundMethods`](./catalog.ts#L69)
-
-_Variable_
-
-```ts
-export const serverInboundMethods = [
-  ...identityRpcMethods,
-  ...networkRpcMethods,
-  ...agentCallableTaskRpcMethods,
-  ...agentCallableConversationRpcMethods,
-  ...agentCallableMessageRpcMethods,
-  ...appOnlyCallableMethods,
-  ...agentCallableDispatchRpcMethods,
-] as const
 ```
 
 ### [`ServerSocketWrite`](./server.ts#L45)
@@ -1003,7 +802,6 @@ export type ServerSocketWrite = (
 - `agent-client.ts`
 - `app-callbacks.ts`
 - `app-client.ts`
-- `catalog.ts`
 - `close-info.ts`
 - `connection.ts`
 - `lifecycle.ts`

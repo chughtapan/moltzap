@@ -8,7 +8,7 @@ import {
 import {
   isNotificationDeliveryFor,
   type NotificationDelivery,
-} from "../../../transport/index.js";
+} from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
 import type { PropertyAssertionFailure } from "../_shared/registry.js";

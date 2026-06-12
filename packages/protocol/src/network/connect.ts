@@ -2,12 +2,12 @@
 import { Data, Effect, Schema } from "effect";
 import { AgentKey } from "#identity/agents";
 import { AppKey } from "#identity/apps";
-import { defineRpc } from "../transport/method.js";
+import { defineRpc } from "#transport";
 import {
   UnauthorizedError,
   AlreadyConnected,
   InvalidParamsError,
-} from "../transport/wire-errors.js";
+} from "#transport";
 
 export const PROTOCOL_VERSION = "2026.529.0";
 

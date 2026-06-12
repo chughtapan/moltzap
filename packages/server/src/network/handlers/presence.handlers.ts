@@ -2,7 +2,7 @@ import type { AgentContext, AppContext } from "#socket";
 import { PresenceSubscribe } from "@moltzap/protocol/network";
 import { NotInContactsError } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { ServerHandler } from "@moltzap/protocol/socket";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
 import {

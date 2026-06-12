@@ -2,7 +2,7 @@
  * Transport-level RPC errors — the failures that originate at the CLIENT
  * transport, not at a method handler. They are NOT wire `error` union members
  * (the server never sends them); the typed client adds them to every per-method
- * call's error channel (`method.ts → ResponseErrorsOf`).
+ * call's error channel (`definition.ts -> ResponseErrorsOf`).
  *
  * Domain/handler failures ride their own `Schema.TaggedError` class on the wire,
  * decoded per-method against that method's `errorSchema` union by `_tag` — no

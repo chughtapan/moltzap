@@ -8,7 +8,7 @@ Message-domain handler barrel.
 
 ## Public surface
 
-### [`messagesList`](./messages.handlers.ts#L162)
+### [`messagesList`](./messages.handlers.ts#L163)
 
 _Variable_
 
@@ -16,7 +16,7 @@ _Variable_
 export const messagesList: ServerHandler<typeof MessagesList> = (params)
 ```
 
-### [`messagesSend`](./messages.handlers.ts#L153)
+### [`messagesSend`](./messages.handlers.ts#L154)
 
 _Variable_
 

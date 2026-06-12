@@ -50,6 +50,10 @@
       "types": "./dist/socket/index.d.ts",
       "import": "./dist/socket/index.js"
     },
+    "./socket/catalog": {
+      "types": "./dist/socket/catalog/index.d.ts",
+      "import": "./dist/socket/catalog/index.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
@@ -74,6 +78,7 @@
     "#message": "./src/message/index.ts",
     "#message/dispatch": "./src/message/dispatch.ts",
     "#socket": "./src/socket/index.ts",
+    "#socket/catalog": "./src/socket/catalog/index.ts",
     "#testing": "./src/testing/index.ts"
   },
   "scripts": {

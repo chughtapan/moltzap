@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { ForbiddenError } from "../../transport/wire-errors.js";
+import { ForbiddenError } from "#transport";
 import type { TaskId } from "../ids.js";
 import type { Task } from "../tasks.js";
 import type { AppId } from "#identity/apps";

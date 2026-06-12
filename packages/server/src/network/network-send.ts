@@ -12,7 +12,7 @@
  */
 import { Brand, Data, Effect, Either, HashSet, Option } from "effect";
 import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";

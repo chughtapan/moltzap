@@ -18,7 +18,7 @@ import {
 } from "@moltzap/protocol/message/dispatch";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type { ConnectionManager } from "#socket";
 import type { LeaseTransitionObserver } from "../network/services/presence-types.js";
 
