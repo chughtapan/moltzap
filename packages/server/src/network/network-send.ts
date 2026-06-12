@@ -11,7 +11,7 @@
  * own `AppEndpoint` originator inside `AppHost`, not through here.
  */
 import { Brand, Data, Effect, Either, HashSet, Option } from "effect";
-import type { NotificationParamsOf } from "@moltzap/protocol/transport";
+import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";

@@ -8,6 +8,9 @@
       "#transport": [
         "transport/index.ts"
       ],
+      "#rpc": [
+        "rpc/index.ts"
+      ],
       "#identity": [
         "identity/index.ts"
       ],

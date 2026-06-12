@@ -16,13 +16,18 @@ The source DAG is reflected in `src/index.ts`:
 
 - `src/transport/` — descriptor factory, strict decode helpers, typed dispatch,
   mux routing, notification subscribers, principal middleware tags, wire string
-  brands, and cross-cutting tagged errors.
+  brands, and cross-cutting tagged errors. This is an internal implementation
+  layer, not the published consumer surface.
+- `src/rpc/` — published call-site support facade for RPC helper types,
+  notification subscriber helpers, pagination cursors, typed dispatch helpers,
+  and shared wire errors.
 - `src/identity/` — agents, users, contacts, and identity RPC descriptors.
 - `src/network/` — `agent/connect`, `app/connect`, and presence RPCs.
-- `src/task/` — task, conversation, message, dispatch lease, and domain
-  requirement descriptors. Requirement middleware tags live next to the domain
-  that consumes them under `src/task/requirements/`.
-- `src/app/` — app-facing RPCs and server-to-app callback descriptors.
+- `src/task/` — task RPCs, task identifiers, and task requirement descriptors.
+- `src/conversation/` — conversation RPCs, identifiers, notifications, and
+  conversation requirement descriptors.
+- `src/message/` — message RPCs, message parts, app callbacks, notifications,
+  and dispatch RPCs/callbacks.
 - `src/socket/` — `MoltZapAgentClient`, `MoltZapAppClient`, `MoltZapServer`,
   shared lifecycle helpers, close info, `ConnectionId`, and the socket-owned
   AgentCallable, AppCallable, AppCallback, server-inbound, and reverse RPC
@@ -75,14 +80,14 @@ source. Update the descriptor, schema, or JSDoc, then run
 5. Add focused JSDoc above the descriptor. The docs generator reads `@error`
    lines and the method summary.
 
-6. Add the descriptor to the layer catalog and the correct callable partition.
-   `src/socket/rpc-groups.ts` derives server-inbound and client groups from
+6. Add the descriptor to the domain catalog and the correct callable partition.
+   `src/socket/catalog.ts` derives server-inbound and client groups from
    those authored catalogs.
 
 7. For a new domain requirement, declare the protocol tag as an
    `RpcMiddleware.Tag` in the owning domain folder and include its `failure`
    schema, then implement the server Layer in
-   `@moltzap/server-core/src/transport/auth-middleware-layers.ts`.
+   `@moltzap/server-core/src/socket/auth-middleware-layers.ts`.
 
 8. Implement the server handler in `@moltzap/server-core` and add it to
    `serverHandlers`. The `MoltZapServer` constructor type-checks the handler

@@ -6,7 +6,7 @@ import {
   type TransportError,
 } from "../transport.js";
 import { LocalDaemonRpcs } from "../../local-daemon-rpc.js";
-import type { PayloadForTag, SuccessForTag } from "@moltzap/protocol/transport";
+import type { PayloadForTag, SuccessForTag } from "@moltzap/protocol/rpc";
 
 type DaemonRpcs = RpcGroup.Rpcs<typeof LocalDaemonRpcs>;
 type DaemonCommand = DaemonRpcs["_tag"];

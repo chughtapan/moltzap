@@ -15,10 +15,7 @@ import { agentCallableMethods } from "@moltzap/protocol/socket";
 import { AppId, TaskId } from "@moltzap/protocol/task";
 import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { MessagesList } from "@moltzap/protocol/message";
-import {
-  NotConnectedError,
-  RpcTimeoutError,
-} from "@moltzap/protocol/transport";
+import { NotConnectedError, RpcTimeoutError } from "@moltzap/protocol/rpc";
 import {
   historyRequestSchema,
   historyResponseSchema,

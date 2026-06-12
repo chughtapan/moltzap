@@ -38,9 +38,9 @@
       "types": "./dist/message/dispatch.d.ts",
       "import": "./dist/message/dispatch.js"
     },
-    "./transport": {
-      "types": "./dist/transport/index.d.ts",
-      "import": "./dist/transport/index.js"
+    "./rpc": {
+      "types": "./dist/rpc/index.d.ts",
+      "import": "./dist/rpc/index.js"
     },
     "./network": {
       "types": "./dist/network/index.d.ts",
@@ -57,6 +57,7 @@
   },
   "imports": {
     "#transport": "./src/transport/index.ts",
+    "#rpc": "./src/rpc/index.ts",
     "#identity": "./src/identity/index.ts",
     "#identity/agents": "./src/identity/agents/index.ts",
     "#identity/apps": "./src/identity/apps/index.ts",

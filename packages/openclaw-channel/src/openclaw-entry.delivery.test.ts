@@ -14,14 +14,10 @@ import { AgentsLookup } from "@moltzap/protocol/identity";
 import { MessagesSend } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
-import type {
-  ParamsOf,
-  ResultOf,
-  RpcDefinition,
-} from "@moltzap/protocol/transport";
+import type { ParamsOf, ResultOf, RpcDefinition } from "@moltzap/protocol/rpc";
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskClosedError } from "@moltzap/protocol/task";
-import { ForbiddenError } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import { Data, Effect } from "effect";
 import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";

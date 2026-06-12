@@ -1,5 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
-import { ForbiddenError } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { Message } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";

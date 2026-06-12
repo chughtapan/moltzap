@@ -1,6 +1,6 @@
 /**
  * @file Type canaries for the reverse `@effect/rpc` `RpcGroup` construction
- * (`rpc-groups.ts`).
+ * (`catalog.ts`).
  *
  * These canaries are the groups' live type consumer (so the unused-export pass
  * does not flag the exports dead) AND the documented invariants the build
@@ -29,7 +29,7 @@ import {
   NotificationRpcGroup,
   ReverseRpcGroup,
   type AnyNotificationDefinition,
-} from "./rpc-groups.js";
+} from "./catalog.js";
 
 // Compile-time equality helper.
 type Expect<T extends true> = T;
@@ -71,14 +71,12 @@ type _N5 = Expect<
   Equal<Exclude<NotificationDescriptorTags, ReverseTags>, never>
 >;
 
-// Canary 2: `ReverseRpcGroup` is one group over the COMBINED callback ∪
-// notification member tuple (not `RpcGroup.merge`), so a generic `Tag`'s success
-// reduces per tag through `makeTypedTransportCall` cast-free. The construction
-// asserts `... as readonly ReverseRpcMember[]`; these pin that the runtime
-// members keep per-slot tag↔payload correlation across BOTH a callback and a
-// notification member. A widened or merge-shaped member type collapses one of
-// the `MemberWithTag` selections to `never` (flipping `_R0`/`_R2`) or returns a
-// cross-member payload (failing `_R1`/`_R3`).
+// Canary 2: `ReverseRpcGroup` is one group over the combined callback ∪
+// notification member tuple, so a generic `Tag`'s success reduces per tag
+// through `makeTypedTransportCall` cast-free. These checks pin that the runtime
+// members keep per-slot tag↔payload correlation across both a callback and a
+// notification member. A widened member type collapses one of the
+// `MemberWithTag` selections to `never` or returns a cross-member payload.
 type ReverseDispatchMember = MemberWithTag<
   typeof ReverseRpcGroup,
   "dispatch/authorize"
@@ -104,7 +102,7 @@ type _R3 = Expect<
 
 // Canary 3: the callable groups keep literal tags instead of widening to
 // `string`. Exact method membership is owned by the authored
-// catalogs in `rpc-groups.ts`, not duplicated here.
+// catalogs in `catalog.ts`, not duplicated here.
 type AgentCallableTags = RpcGroup.Rpcs<typeof AgentCallableGroup>["_tag"];
 type AppCallableTags = RpcGroup.Rpcs<typeof AppCallableGroup>["_tag"];
 

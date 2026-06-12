@@ -11,8 +11,8 @@ import {
   TaskConversationArchivedNotificationDefinition,
   TaskConversationParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
-import { InvalidParamsError } from "@moltzap/protocol/transport";
-import type { ParamsOf } from "@moltzap/protocol/transport";
+import { InvalidParamsError } from "@moltzap/protocol/rpc";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentContext, AppContext } from "#socket";

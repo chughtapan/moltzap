@@ -18,7 +18,7 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect } from "effect";
-import { InvalidParamsError } from "@moltzap/protocol/transport";
+import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import { sql } from "../../db/sql.js";
 import {
   catchSqlErrorAsDefect,

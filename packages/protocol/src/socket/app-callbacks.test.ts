@@ -12,7 +12,7 @@ import type { Schema } from "effect";
 import { DispatchAuthorize } from "#message/dispatch";
 import { MessagesAuthorize } from "#message";
 import { TaskCreate } from "#task";
-import { appCallbackMethods } from "./rpc-groups.js";
+import { appCallbackMethods } from "./catalog.js";
 import { decodesStrictly } from "../transport/strict-decode.js";
 
 const decodes = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>

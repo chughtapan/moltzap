@@ -130,22 +130,10 @@ const makeReverseRpcGroup = <
   );
 
 /**
- * Build the server→client reverse `RpcGroup` for the notification catalog. Each
- * `defineNotification` descriptor maps to a `void`-result `Rpc.make`: the
- * notification's params is the payload, the success is `Schema.Void`. The
- * server holds the `RpcClient&lt;NotificationRpcGroup>` (fires each notification on
- * a target connection's reverse channel, fork-and-forget); the agent + app
- * clients hold the `RpcServer&lt;NotificationRpcGroup>` whose handlers route each
- * payload into the `SubscriberRegistry`, preserving the
- * `client.subscribe(def) → Stream` surface unchanged.
- */
-
-/**
  * Server→client reverse notification group. The server fires each notification
  * as a fire-and-forget `void`-result RPC on a target connection's reverse
  * channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
- * each payload into the `SubscriberRegistry`. Reuses the same s2c reverse-RPC
- * machinery as the moderator callbacks folded into {@link ReverseRpcGroup}.
+ * each payload into the `SubscriberRegistry`.
  */
 export const NotificationRpcGroup = makeNotificationRpcGroup(
   notificationDefinitions,

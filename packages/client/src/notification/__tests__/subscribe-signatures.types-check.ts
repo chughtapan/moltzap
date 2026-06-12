@@ -18,7 +18,7 @@ import type {
   NotificationDelivery,
   NotificationParamsOf,
   NotificationSubscriberRegistry,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import { subscribe, subscribeAll } from "../stream.js";
 
 // Standard TypeScript exact-equality helper.

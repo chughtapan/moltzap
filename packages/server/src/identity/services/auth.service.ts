@@ -2,7 +2,7 @@ import { Effect, Option } from "effect";
 import type { Db } from "../../db/client.js";
 import type { AgentKey } from "@moltzap/protocol/identity";
 import type { Register } from "@moltzap/protocol/identity";
-import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, UserId } from "#core";
 
 type RegisterParams = ParamsOf<typeof Register>;

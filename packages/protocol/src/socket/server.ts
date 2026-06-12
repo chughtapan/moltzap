@@ -9,7 +9,7 @@ import {
   type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
   type AnyServerRpcDefinition,
-} from "./rpc-groups.js";
+} from "./catalog.js";
 import { MessagesAuthorize } from "#message";
 import { TaskCreate } from "#task";
 import { DispatchAuthorize } from "#message/dispatch";

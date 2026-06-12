@@ -2,7 +2,7 @@ import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Exit } from "effect";
 import type { Message } from "@moltzap/protocol/message";
-import type { ResultOf } from "@moltzap/protocol/transport";
+import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
   TaskConversationArchivedNotificationDefinition,
   TaskConversationCreatedNotificationDefinition,

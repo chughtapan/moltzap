@@ -3,8 +3,8 @@ import {
   DispatchRequest,
   DispatchesGet,
 } from "@moltzap/protocol/message/dispatch";
-import { ForbiddenError } from "@moltzap/protocol/transport";
-import type { ParamsOf } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket";
 import { Effect } from "effect";
 import {

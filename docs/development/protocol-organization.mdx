@@ -51,6 +51,9 @@ packages/protocol/src/
     strict-decode.ts
     wire-string.ts
 
+  rpc/
+    index.ts                  # public call-site helpers and shared wire errors
+
   identity/
     index.ts
 
@@ -348,6 +351,7 @@ Public package exports should be limited to:
 ```json
 {
   ".": "./dist/index.js",
+  "./rpc": "./dist/rpc/index.js",
   "./identity": "./dist/identity/index.js",
   "./network": "./dist/network/index.js",
   "./task": "./dist/task/index.js",
@@ -364,6 +368,12 @@ Do not publish:
 - `./requirements`
 - `./rpc-method-groups`
 - `./transport`, unless we explicitly support third-party protocol extensions
+
+`./rpc` is the deliberate public replacement for `./transport`. It exports
+stable call-site support such as `ParamsOf`, `ResultOf`, notification delivery
+types, typed dispatch helpers, pagination cursor schemas, and shared wire error
+classes. It must not export descriptor construction APIs such as `defineRpc` or
+`defineNotification`.
 
 The root export should become a small runtime surface:
 

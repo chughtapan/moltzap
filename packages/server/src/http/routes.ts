@@ -7,7 +7,7 @@ import {
 import * as Socket from "@effect/platform/Socket";
 import { Cause, Data, Effect, Either, Exit, Redacted, Schema } from "effect";
 import type { AgentKey } from "@moltzap/protocol/identity";
-import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import { Register } from "@moltzap/protocol/identity";
 import {
   validateAppManifest,

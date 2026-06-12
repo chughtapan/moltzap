@@ -8,7 +8,7 @@
  * under `src/` so consumers cannot couple to the encoding.
  */
 import { Data, Effect } from "effect";
-import type { ListCursor } from "@moltzap/protocol/transport";
+import type { ListCursor } from "@moltzap/protocol/rpc";
 import type {
   Expression,
   ExpressionBuilder,

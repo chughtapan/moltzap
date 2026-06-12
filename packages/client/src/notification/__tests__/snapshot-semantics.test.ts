@@ -53,14 +53,14 @@ import {
 import {
   NotConnectedError,
   makeNotificationSubscriberRegistry,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
-} from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/rpc";
 import {
   buildMessage,
   testAgentId,

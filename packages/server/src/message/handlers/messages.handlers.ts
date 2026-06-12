@@ -1,8 +1,8 @@
 import { DispatchNotFoundError } from "@moltzap/protocol/message/dispatch";
 import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
-import { ForbiddenError } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
-import type { ParamsOf } from "@moltzap/protocol/transport";
+import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ConnectionId, ServerHandler } from "@moltzap/protocol/socket";
 import { agentArm } from "#core";
 import { Effect, Exit } from "effect";
