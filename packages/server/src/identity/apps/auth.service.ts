@@ -15,7 +15,7 @@ import {
   hashSecret,
   parseAppKey,
   safeEqual,
-} from "./credential-keys.js";
+} from "../credential-keys.js";
 
 /**
  * SQL-backed app authentication — the App-principal sibling of

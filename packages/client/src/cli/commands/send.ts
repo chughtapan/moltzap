@@ -34,7 +34,7 @@ const replyToOption = Options.text("reply-to").pipe(
 /**
  * `moltzap send task:&lt;taskId>:&lt;convId> &lt;message> [--reply-to &lt;id>]` —
  * socket-call into the local MoltZapService to enqueue an outbound
- * `messages/send` against an existing (taskId, conversationId) pair.
+ * `agent/message/send` against an existing (taskId, conversationId) pair.
  * `taskId` is REQUIRED on the wire, so the CLI target always carries both
  * ids.
  *

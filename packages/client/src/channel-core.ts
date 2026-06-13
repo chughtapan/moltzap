@@ -108,7 +108,7 @@ type DispatchHoldDecision = Extract<
 >;
 
 /**
- * Server → recipient `dispatch/release` notification payload (the
+ * Server → recipient `agent/dispatch/released` notification payload (the
  * verdict). Mirrors `NotificationParamsOf&lt;typeof DispatchRelease>` from
  * the protocol, kept structurally typed here so this module does not
  * need a direct protocol descriptor import (the channel core stays
@@ -174,7 +174,7 @@ export interface ChannelService {
   };
 
   /**
-   * Issue `dispatch/request` and receive the immediate
+   * Issue `agent/dispatch/request` and receive the immediate
    * `{leaseId, dispatchId}` ack. The verdict arrives asynchronously
    * via the `dispatchRelease` event.
    *
@@ -292,10 +292,10 @@ interface InboundDispatchWork {
  *   svc->>core: message listener
  *   Note over core: dedup via recordMessageIdIfNew<br>Queue.unsafeOffer(inboundQueue, work)
  *   Note over core: consumer fiber — Queue.take<br>takeDispatchCandidate prefers parked[convId]
- *   core->>server: dispatch/request — dispatchAdmission
+ *   core->>server: agent/dispatch/request — dispatchAdmission
  *   server-->>core: ack {leaseId, dispatchId}
  *   Note over server,core: ack/release race absorbed via<br>pendingDispatchesByLease (Deferred)<br>pendingReleasesByLease (ring 256, soft-TTL 30s)
- *   server->>ws: dispatch/release notification
+ *   server->>ws: agent/dispatch/released notification
  *   ws->>core: recordDispatchRelease — settles Deferred or buffers
  *   alt verdict deny
  *     Note over core: log + drop
@@ -651,7 +651,7 @@ export class MoltZapChannelCore {
   }
 
   /**
-   * Issue `dispatch/request` against the service, await the lease's
+   * Issue `agent/dispatch/request` against the service, await the lease's
    * `dispatchRelease` verdict, and return the channel-core
    * `DispatchAdmissionDecision`. Absorbs the ack/release race via
    * `pendingDispatchesByLease` (Deferred) plus
@@ -668,7 +668,7 @@ export class MoltZapChannelCore {
    * ```mermaid
    * stateDiagram-v2
    *   [*] --> PENDING
-   *   PENDING : dispatch/request sent<br>server minting lease
+   *   PENDING : agent/dispatch/request sent<br>server minting lease
    *   PENDING --> AWAITING_RELEASE : ack returns leaseId
    *   AWAITING_RELEASE : Deferred registered<br>or buffered release consumed
    *   AWAITING_RELEASE --> GRANTED : verdict grant
@@ -678,7 +678,7 @@ export class MoltZapChannelCore {
    *   GRANTED : proceed to enrichment
    *   DENIED : drop message — consumer fiber continues
    *   GRANTED --> IN_FLIGHT : dispatchWithLease
-   *   IN_FLIGHT : leaseIdInFlight set<br>handler executing<br>lease authorizes one messages/send
+   *   IN_FLIGHT : leaseIdInFlight set<br>handler executing<br>lease authorizes one agent/message/send
    *   IN_FLIGHT --> CONSUMED : handler returns within leaseTimeoutMs<br>server marks via dispatchLeaseId
    *   IN_FLIGHT --> EXPIRED : handler exceeds leaseTimeoutMs<br>DispatchLeaseExpired logged
    *   CONSUMED --> [*]

@@ -11,20 +11,20 @@ import {
   withDriver,
 } from "./_helpers.js";
 
-export function registerDispatchesConsumedFiresOnFirstSend(
+export function registerDispatchLeaseConsumedFiresOnFirstSend(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatches-consumed-fires-on-first-send";
+  const NAME = "dispatch-lease-consumed-fires-on-first-send";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "first messages/send(dispatchLeaseId=X) with X in GRANTED state emits dispatches/consumed with the right messageId to the moderator's connection",
-    dispatchesConsumedFiresOnFirstSend(ctx, NAME),
+    "first agent/message/send(dispatchLeaseId=X) with X in GRANTED state emits app/dispatch/lease-consumed with the right messageId to the moderator's connection",
+    dispatchLeaseConsumedFiresOnFirstSend(ctx, NAME),
   );
 }
 
-const dispatchesConsumedFiresOnFirstSend = (
+const dispatchLeaseConsumedFiresOnFirstSend = (
   ctx: ConformanceRunContext,
   propertyName: string,
 ) =>
@@ -54,7 +54,7 @@ const dispatchesConsumedFiresOnFirstSend = (
       yield* assertConsumedLeaseId(propertyName, params.leaseId, ack.leaseId);
       yield* assertConsumedMessageId(propertyName, params.messageId);
     }),
-  ).pipe(Effect.withSpan("dispatchesConsumedFiresOnFirstSend"));
+  ).pipe(Effect.withSpan("dispatchLeaseConsumedFiresOnFirstSend"));
 
 const assertMessageSendSucceeded = (
   propertyName: string,
@@ -65,7 +65,7 @@ const assertMessageSendSucceeded = (
     : Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          `messages/send unexpectedly failed: code=${String(errorTag)}`,
+          `agent/message/send unexpectedly failed: code=${String(errorTag)}`,
         ),
       );
 
@@ -79,7 +79,7 @@ const assertConsumedLeaseId = (
     : Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          `dispatches/consumed leaseId ${String(actual)} != ack ${String(expected)}`,
+          `app/dispatch/lease-consumed leaseId ${String(actual)} != ack ${String(expected)}`,
         ),
       );
 
@@ -92,6 +92,6 @@ const assertConsumedMessageId = (
     : Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          `dispatches/consumed messageId not UUIDv4: ${String(messageId)}`,
+          `app/dispatch/lease-consumed messageId not UUIDv4: ${String(messageId)}`,
         ),
       );

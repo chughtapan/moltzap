@@ -4,7 +4,7 @@
  * The 15 `dispatch-admission` properties cannot execute against a single
  * one client: the round-trip needs agent and app clients scripted in lockstep
  * against the same real server — a recipient that issues
- * `dispatch/request`, and a moderator that receives `dispatch/authorize`
+ * `agent/dispatch/request`, and a moderator that receives `app/dispatch/authorize`
  * and replies. The driver is the conformance-tier helper that wires both
  * ends.
  *
@@ -40,8 +40,8 @@ import {
 import type { AgentId } from "../../../identity/index.js";
 import { AppId, TaskRequest, TaskUpdate } from "@moltzap/protocol/task";
 import {
-  TaskConversationCreate,
-  TaskConversationUpdate,
+  ConversationCreate,
+  ConversationUpdate,
 } from "@moltzap/protocol/conversation";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { LeaseId } from "#message/dispatch";
@@ -51,9 +51,9 @@ import {
   DispatchAuthorize,
   DispatchRelease,
   DispatchRequest,
-  DispatchesConsumed,
-  DispatchesExpired,
-  DispatchesGet,
+  DispatchLeaseConsumed,
+  DispatchLeaseExpired,
+  DispatchLeaseGet,
   type DispatchId,
 } from "#message/dispatch";
 import type { NotificationDelivery } from "#transport";
@@ -88,7 +88,7 @@ export type DispatchVerdict =
 
 /**
  * Closed lease-state union mirroring `LeaseStateSchema`. The driver's
- * `assertLeaseState` polls `dispatches/get` until the registry settles
+ * `assertLeaseState` polls `app/dispatch/lease/get` until the registry settles
  * to the named state or the bound elapses (the bound is per-property;
  * default 5 s).
  */
@@ -114,7 +114,7 @@ export interface RecipientHandle {
   readonly agentId: Schema.Schema.Type<typeof AgentId>;
 
   /**
-   * Issue `dispatch/request` for the given inbound. Returns the ack
+   * Issue `agent/dispatch/request` for the given inbound. Returns the ack
    * payload `{leaseId, dispatchId}`. Single recipient may issue many
    * concurrent requests; the property is responsible for ordering its
    * own assertions.
@@ -133,7 +133,7 @@ export interface RecipientHandle {
   >;
 
   /**
-   * Park until a `dispatch/release` notification arrives that matches
+   * Park until a `agent/dispatch/released` notification arrives that matches
    * `predicate` (default: any). Used by every property in the
    * `DispatchRelease` group + every property that asserts a verdict
    * delivery.
@@ -149,7 +149,7 @@ export interface RecipientHandle {
   >;
 
   /**
-   * Send `messages/send` carrying `dispatchLeaseId`. Used to consume a
+   * Send `agent/message/send` carrying `dispatchLeaseId`. Used to consume a
    * GRANTED lease + assert the consumed/duplicate behavior. Returns the
    * minted message id on success; on the lease-already-CONSUMED path,
    * fails with a `PropertyInvariantViolation` whose `reason` carries
@@ -184,15 +184,15 @@ export interface RecipientHandle {
 /**
  * Moderator-side surface. Owns one `AppTestClient` connected to the real
  * server under a moderator app identity, with HTTP registration plus
- * `app/connect` already driven to install a `dispatch_authorize` hook. Holds
- * the registered `appId` for `dispatches/get` scope assertions.
+ * `app/network/connect` already driven to install a `dispatch_authorize` hook. Holds
+ * the registered `appId` for `app/dispatch/lease/get` scope assertions.
  */
 export interface ModeratorHandle {
   readonly agentId: Schema.Schema.Type<typeof AgentId>;
   readonly appId: string;
 
   /**
-   * Park until a `dispatch/authorize` S→C request arrives that matches
+   * Park until a `app/dispatch/authorize` S→C request arrives that matches
    * `predicate` (default: any), then reply with `respondWith`. Internally
    * uses `AppTestClient.onAppCallback` to register the reply and
    * `awaitServerRequest` to observe the params.
@@ -212,14 +212,14 @@ export interface ModeratorHandle {
   }) => Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Drop the next inbound `dispatch/authorize` S→C request — install no
+   * Drop the next inbound `app/dispatch/authorize` S→C request — install no
    * handler. Forces moderator-response TTL elapse. Used by
    * `dispatch-authorize-timeout-synthesizes-deny`.
    */
   readonly silenceAuthorize: Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Park until a `dispatches/consumed` or `dispatches/expired`
+   * Park until a `app/dispatch/lease-consumed` or `app/dispatch/lease-expired`
    * notification arrives matching `kind` and (optionally) `dispatchId`.
    */
   readonly waitForObservability: <K extends "consumed" | "expired">(
@@ -230,14 +230,14 @@ export interface ModeratorHandle {
     },
   ) => Effect.Effect<
     K extends "consumed"
-      ? NotificationDelivery<typeof DispatchesConsumed>
-      : NotificationDelivery<typeof DispatchesExpired>,
+      ? NotificationDelivery<typeof DispatchLeaseConsumed>
+      : NotificationDelivery<typeof DispatchLeaseExpired>,
     PropertyFailure
   >;
 
   /**
-   * Issue `dispatches/get` from the moderator's connection. Used by the
-   * positive `dispatches-get-moderator-sees-record` property + every
+   * Issue `app/dispatch/lease/get` from the moderator's connection. Used by the
+   * positive `dispatch-lease-get-moderator-sees-record` property + every
    * `assertLeaseState` poll.
    */
   readonly getLease: (
@@ -270,8 +270,8 @@ export interface DispatchTestDriver {
 
   /**
    * Spin up an additional recipient client under a fresh agent identity.
-   * Used by `same-conversation-dispatches-reach-moderator-concurrently`
-   * (two recipients in the same conversation issue `dispatch/request`
+   * Used by `same-conversation-dispatch-requests-reach-moderator-concurrently`
+   * (two recipients in the same conversation issue `agent/dispatch/request`
    * back-to-back).
    */
   readonly addRecipient: (opts: {
@@ -279,7 +279,7 @@ export interface DispatchTestDriver {
   }) => Effect.Effect<RecipientHandle, PropertyFailure, Scope.Scope>;
 
   /**
-   * Poll `dispatches/get` until the lease reaches `expected` or the
+   * Poll `app/dispatch/lease/get` until the lease reaches `expected` or the
    * bound elapses. Returns the final record. Used by every property
    * that asserts a state transition (PENDING→GRANTED, GRANTED→EXPIRED,
    * CLAIMED→CONSUMED, etc.). Implementation polls every 25 ms; bound
@@ -293,7 +293,7 @@ export interface DispatchTestDriver {
 
   /**
    * Sleep `durationMs` against the real clock to let server-side TTLs elapse.
-   * Property authors call this for `dispatches-expired-fires-on-ttl` and the
+   * Property authors call this for `dispatch-lease-expired-fires-on-ttl` and the
    * moderator-response timeout property, which both run against a live server.
    */
   readonly advanceTime: (durationMs: number) => Effect.Effect<void>;
@@ -412,8 +412,8 @@ type WireVerdictView = {
 };
 type ObservabilityNotification<K extends "consumed" | "expired"> =
   K extends "consumed"
-    ? NotificationDelivery<typeof DispatchesConsumed>
-    : NotificationDelivery<typeof DispatchesExpired>;
+    ? NotificationDelivery<typeof DispatchLeaseConsumed>
+    : NotificationDelivery<typeof DispatchLeaseExpired>;
 
 interface AcquiredCloseableClient {
   readonly agent: TestAgent;
@@ -534,7 +534,7 @@ function requestDispatch(
       Effect.mapError((e) =>
         violation(
           "recipient.requestDispatch",
-          `dispatch/request failed: ${unwrapError(e)}`,
+          `agent/dispatch/request failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -556,7 +556,7 @@ function waitForRelease(
         ? releaseWaitTimeoutFailure(timeoutMs)
         : violation(
             "recipient.waitForRelease",
-            `dispatch/release wait failed: ${reason}`,
+            `agent/dispatch/released wait failed: ${reason}`,
           ),
     ),
   );
@@ -634,7 +634,7 @@ function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
     return Effect.fail(
       violation(
         "recipient.sendWithLease",
-        `messages/send failed without RpcResponseError: ${exitCauseSummary(exit)}`,
+        `agent/message/send failed without RpcResponseError: ${exitCauseSummary(exit)}`,
       ),
     );
   }
@@ -675,13 +675,13 @@ interface DriverAgents {
 }
 
 interface DriverClients {
-  /** Agent connection — drives the agent-called `task/request`. */
+  /** Agent connection — drives the agent-called `agent/task/request`. */
   readonly moderatorClient: AgentTestClient;
 
   /**
    * App-principal `AppConnection` — hosts the moderator callbacks and
-   * the app-only RPCs (task/conversation/create, add-participant,
-   * dispatches/get).
+   * the app-only RPCs (app/conversation/create, add-participant,
+   * app/dispatch/lease/get).
    */
   readonly appClient: AppTestClient;
   readonly recipientAcquired: AcquiredCloseableClient;
@@ -724,9 +724,11 @@ interface LeaseStateTimeoutInput {
  */
 interface ObservabilityBuffers {
   readonly consumed: Queue.Queue<
-    NotificationDelivery<typeof DispatchesConsumed>
+    NotificationDelivery<typeof DispatchLeaseConsumed>
   >;
-  readonly expired: Queue.Queue<NotificationDelivery<typeof DispatchesExpired>>;
+  readonly expired: Queue.Queue<
+    NotificationDelivery<typeof DispatchLeaseExpired>
+  >;
 }
 
 function buildModeratorHandle(
@@ -734,17 +736,21 @@ function buildModeratorHandle(
 ): Effect.Effect<ModeratorHandle, never, Scope.Scope> {
   return Effect.gen(function* () {
     const consumed =
-      yield* Queue.unbounded<NotificationDelivery<typeof DispatchesConsumed>>();
+      yield* Queue.unbounded<
+        NotificationDelivery<typeof DispatchLeaseConsumed>
+      >();
     const expired =
-      yield* Queue.unbounded<NotificationDelivery<typeof DispatchesExpired>>();
+      yield* Queue.unbounded<
+        NotificationDelivery<typeof DispatchLeaseExpired>
+      >();
     yield* Effect.forkScoped(
-      opts.client.subscribe(DispatchesConsumed).pipe(
+      opts.client.subscribe(DispatchLeaseConsumed).pipe(
         Stream.runForEach((frame) => Queue.offer(consumed, frame)),
         Effect.catchAll(() => Effect.void),
       ),
     );
     yield* Effect.forkScoped(
-      opts.client.subscribe(DispatchesExpired).pipe(
+      opts.client.subscribe(DispatchLeaseExpired).pipe(
         Stream.runForEach((frame) => Queue.offer(expired, frame)),
         Effect.catchAll(() => Effect.void),
       ),
@@ -801,7 +807,7 @@ function waitForObservability<K extends "consumed" | "expired">(
 ): Effect.Effect<ObservabilityNotification<K>, PropertyFailure> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_OBSERVABILITY_TIMEOUT_MS;
   // Pull from the per-handle Queue populated by the long-lived
-  // `subscribe(DispatchesConsumed|Expired)` pumps installed in
+  // `subscribe(DispatchLeaseConsumed|Expired)` pumps installed in
   // `buildModeratorHandle`. The Queue buffers frames that arrive before
   // the wait, so properties call `waitForObservability` after the
   // triggering action (e.g. `advanceTime`) without races.
@@ -834,8 +840,8 @@ function observabilityTimeoutFailure(
 }
 
 type ObservabilityFrame =
-  | NotificationDelivery<typeof DispatchesConsumed>
-  | NotificationDelivery<typeof DispatchesExpired>;
+  | NotificationDelivery<typeof DispatchLeaseConsumed>
+  | NotificationDelivery<typeof DispatchLeaseExpired>;
 
 function observabilityViolation(
   kind: "consumed" | "expired",
@@ -856,12 +862,12 @@ function getLease(
   client: AppTestClient,
   dispatchId: Schema.Schema.Type<typeof DispatchId>,
 ): ReturnType<ModeratorHandle["getLease"]> {
-  return client.sendRpc(DispatchesGet, { dispatchId }).pipe(
+  return client.sendRpc(DispatchLeaseGet, { dispatchId }).pipe(
     Effect.map(leaseResultFromWire),
     Effect.mapError((e) =>
       violation(
         "moderator.getLease",
-        `dispatches/get failed: ${unwrapError(e)}`,
+        `app/dispatch/lease/get failed: ${unwrapError(e)}`,
       ),
     ),
   );
@@ -899,10 +905,10 @@ export function makeDispatchTestDriver(
   return Effect.gen(function* () {
     const agents = yield* acquireDriverAgents(ctx);
     // Register the moderator app FIRST (HTTP + `appKey` Connect → an
-    // `AppConnection`); `task/request` then targets the server-minted
-    // `appId`. App-only RPCs + moderator callbacks + `dispatches/get`
+    // `AppConnection`); `agent/task/request` then targets the server-minted
+    // `appId`. App-only RPCs + moderator callbacks + `app/dispatch/lease/get`
     // route through `app.client`; the agent `moderatorClient` only drives
-    // the agent-called `task/request`.
+    // the agent-called `agent/task/request`.
     const app = yield* registerDriverApp(ctx, moderatorTimeoutMs);
     const clients = yield* acquireDriverClients(ctx, agents, app);
     const fixtures = yield* createDriverFixtures(
@@ -973,9 +979,9 @@ function registerDriverApp(
         violation(SETUP_FAILURE_PROPERTY, `app registration failed: ${e._tag}`),
       ),
     );
-    // Remote apps must answer `messages/authorize` or the server's
+    // Remote apps must answer `app/message/authorize` or the server's
     // wire-callback round-trip times out (fail-closed Block). The
-    // dispatch-admission properties assert lease / dispatches/* events,
+    // dispatch-admission properties assert lease lifecycle events,
     // not message routing — `Forward { recipients: [] }` is sufficient
     // and matches the "store, don't fan out" intent.
     yield* app.messagesAuthorize.handle({
@@ -992,8 +998,8 @@ function createDriverFixtures(
   appId: Schema.Schema.Type<typeof AppId>,
   recipientAgent: TestAgent,
 ): Effect.Effect<DriverFixtures, PropertyFailure> {
-  // `task/request` is agent-called (the moderator agent); the app-only
-  // `task/conversation/create` routes through the app principal.
+  // `agent/task/request` is agent-called (the moderator agent); the app-only
+  // `app/conversation/create` routes through the app principal.
   return Effect.gen(function* () {
     const taskId = yield* createDriverTask(
       clients.moderatorClient,
@@ -1028,7 +1034,7 @@ function createDriverTask(
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,
-          `task/create failed: ${unwrapError(e)}`,
+          `app/task/create failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -1040,7 +1046,7 @@ function createDriverConversation(
   recipientAgent: TestAgent,
 ): Effect.Effect<Schema.Schema.Type<typeof ConversationId>, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TaskConversationCreate, {
+    .sendRpc(ConversationCreate, {
       taskId,
       name: "conformance-dispatch-conv",
       participants: [recipientAgent.agentId],
@@ -1057,7 +1063,7 @@ function createDriverConversation(
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,
-          `task/conversation/create failed: ${unwrapError(e)}`,
+          `app/conversation/create failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -1071,8 +1077,8 @@ function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
     addRecipient: (opts) =>
       addRecipient({
         ctx: parts.ctx,
-        // task/addParticipant + task/conversation/participants/add head their
-        // `requires` with `AppPrincipal` — route through the app principal.
+        // Task and conversation mutations are app-called; route through the app
+        // principal.
         moderatorClient: parts.clients.appClient,
         taskId: parts.fixtures.taskId,
         conversationId: parts.fixtures.conversationId,
@@ -1117,7 +1123,7 @@ function addTaskParticipant(
       Effect.mapError((e) =>
         violation(
           "driver.addRecipient",
-          `task/addParticipant failed: ${unwrapError(e)}`,
+          `app/task/update failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -1130,7 +1136,7 @@ function addConversationParticipant(
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TaskConversationUpdate, {
+    .sendRpc(ConversationUpdate, {
       action: "add-participant",
       taskId,
       conversationId,
@@ -1140,7 +1146,7 @@ function addConversationParticipant(
       Effect.mapError((e) =>
         violation(
           "driver.addRecipient",
-          `task/conversation/participants/add failed: ${unwrapError(e)}`,
+          `app/conversation/update failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -1202,6 +1208,6 @@ function advanceTime(durationMs: number): Effect.Effect<void> {
 
 export type {
   DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
+  DispatchLeaseConsumed,
+  DispatchLeaseExpired,
 } from "#message/dispatch";

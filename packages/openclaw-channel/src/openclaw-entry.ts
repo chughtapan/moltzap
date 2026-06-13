@@ -39,7 +39,7 @@ import {
   type OpenClawContextLogInput,
 } from "./context-log.js";
 import { AgentsList } from "@moltzap/protocol/identity";
-import { TaskConversationList } from "@moltzap/protocol/conversation";
+import { ConversationList } from "@moltzap/protocol/conversation";
 import type { AnyAgentCallableRpcDefinition } from "@moltzap/protocol/socket/catalog";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
@@ -680,10 +680,7 @@ function listGroupsEffect(
   return Effect.gen(function* () {
     const active = getActiveService(activeClients, params.accountId);
     if (!active?.service.callDefinition) return [];
-    const result = yield* active.service.callDefinition(
-      TaskConversationList,
-      {},
-    );
+    const result = yield* active.service.callDefinition(ConversationList, {});
     return result.items
       .filter((item) => isNamedGroup(item.conversation))
       .map((item) => ({

@@ -1,11 +1,9 @@
 /**
  * Golden-snapshot tests for `formatGroupBlock` + `getGroupFields`.
  *
- * Resolves P3 #609 framing: the `absent` case asserts
- * `getGroupFields(meta) === null` (the non-null check is the gate).
- * For group meta, both markup variants are asserted byte-identical to the
- * pre-refactor fixtures captured by
- * `scripts/capture-channel-base-fixtures.ts`.
+ * The absent case asserts `getGroupFields(meta) === null`; the non-null check
+ * is the gate. For group meta, both markup variants are asserted byte-identical
+ * to the fixtures captured by `scripts/capture-channel-base-fixtures.ts`.
  */
 
 import { readFileSync } from "node:fs";
@@ -66,8 +64,8 @@ describe("getGroupFields", () => {
     "property: returns null for any non-group meta, structured fields for group meta",
     propertyMatchesNarrowingPredicate,
   );
-  it("returns null when meta is undefined (P3 #609 framing)", undefinedIsNull);
-  it("returns null when meta.type !== 'group' (P3 #609 framing)", dmMetaIsNull);
+  it("returns null when meta is undefined", undefinedIsNull);
+  it("returns null when meta.type !== 'group'", dmMetaIsNull);
   it(
     "returns { name, participants } for group meta with participants",
     groupWithMembers,

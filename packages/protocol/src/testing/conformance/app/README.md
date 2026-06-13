@@ -1,9 +1,9 @@
 # Conformance — `app/` layer
 
 Dispatch / lease / app-callback invariants. Every property here
-exercises `dispatch/{request, authorize, release}`,
-`dispatches/{consumed, expired, get}`, or app-host adversity surfaces
-(disconnect).
+exercises `agent/dispatch/request`, `app/dispatch/authorize`,
+`agent/dispatch/released`, `app/dispatch/lease-*`, or app-host adversity
+surfaces.
 
 ## Property files
 
@@ -16,13 +16,13 @@ Each `register*` lives in its own file:
 - `dispatch-authorize-timeout.ts`
 - `dispatch-release-after-resolve.ts`
 - `dispatch-release-skipped-on-abandoned.ts`
-- `dispatches-consumed-fires-on-first-send.ts`
-- `dispatches-consumed-suppressed-on-second.ts`
-- `dispatches-expired-fires-on-ttl.ts`
-- `dispatches-expired-suppressed-on-consume.ts`
-- `dispatches-get-moderator-sees.ts`
+- `dispatch-lease-consumed-fires-on-first-send.ts`
+- `dispatch-lease-consumed-suppressed-on-second.ts`
+- `dispatch-lease-expired-fires-on-ttl.ts`
+- `dispatch-lease-expired-suppressed-on-consume.ts`
+- `dispatch-lease-get-moderator-sees.ts`
 - `slow-first-does-not-delay-second-ack.ts`
-- `same-conv-dispatches-concurrent.ts`
+- `same-conv-dispatch-requests-concurrent.ts`
 - `release-for-one-lease-does-not-wait.ts`
 - `app-disconnect-fail-policy.ts` — stays `PropertyUnavailable`
 - `idempotence.ts`

@@ -12,14 +12,14 @@ Task lifecycle and task-owned RPC handlers.
 ## Files
 
 ### Handlers
-- `handlers/tasks.handlers.ts` — `task/*` + `task/conversation/*`
+- `handlers/tasks.handlers.ts` — `task` + `conversation`
   admin family.
-- `handlers/task-request.handlers.ts` — `task/request`, including the
-  `task/create` app callback.
+- `handlers/task-request.handlers.ts` — `agent/task/request`, including the
+  `app/task/create` app callback.
 
 ### Services
 - `services/task.service.ts` — task lifecycle plus the
-  `TaskConversation*` administrative methods.
+  `Conversation*` administrative methods.
 
 ### Requirements
 - `requirements/read-access.ts` — `TaskReadAccess` obtain.

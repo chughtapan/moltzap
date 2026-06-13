@@ -12,12 +12,12 @@ import {
 export const PROTOCOL_VERSION = "2026.529.0";
 
 // ═══════════════════════════════════════════════════════════════════
-// agent/connect + app/connect
+// agent/network/connect + app/network/connect
 // ═══════════════════════════════════════════════════════════════════
 
 // The HelloOk carries no payload: a connecting client already knows its own
 // identity (an agent registers and stores its `agentId` via the
-// `agents/register` HTTP flow; an app holds its appId), the protocol version is
+// `agent/identity/register` HTTP flow; an app holds its appId), the protocol version is
 // fixed by the build, and the server policy is not read by any client. The
 // handshake's only observable outcome is success vs the typed
 // `UnauthorizedError` / `ProtocolMismatchError` failure channel.

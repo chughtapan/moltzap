@@ -11,15 +11,15 @@ import {
   withDriver,
 } from "./_helpers.js";
 
-export function registerDispatchesExpiredFiresOnTtl(
+export function registerDispatchLeaseExpiredFiresOnTtl(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatches-expired-fires-on-ttl";
+  const NAME = "dispatch-lease-expired-fires-on-ttl";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "granted-but-unused lease emits dispatches/expired to the moderator after leaseTimeoutMs elapses; lease state advances to EXPIRED",
+    "granted-but-unused lease emits app/dispatch/lease-expired to the moderator after leaseTimeoutMs elapses; lease state advances to EXPIRED",
     withDriver(ctx, (driver) =>
       Effect.gen(function* () {
         yield* driver.moderator.handleAuthorize({
@@ -35,7 +35,7 @@ export function registerDispatchesExpiredFiresOnTtl(
         });
         yield* driver.recipient.waitForRelease();
         // Sleep past the lease TTL — the server-side scheduled fiber
-        // fires `dispatches/expired` to the moderator and advances
+        // fires `app/dispatch/lease-expired` to the moderator and advances
         // the lease to EXPIRED.
         yield* driver.advanceTime(
           SHORT_LEASE_TIMEOUT_MS + TTL_OBSERVATION_BUFFER_MS,
@@ -49,12 +49,12 @@ export function registerDispatchesExpiredFiresOnTtl(
           return yield* Effect.fail(
             dispatchAdmissionViolation(
               NAME,
-              `dispatches/expired leaseId ${params.leaseId} != ack ${ack.leaseId}`,
+              `app/dispatch/lease-expired leaseId ${params.leaseId} != ack ${ack.leaseId}`,
             ),
           );
         }
         yield* driver.assertLeaseState(ack.dispatchId, "EXPIRED");
       }),
-    ).pipe(Effect.withSpan("registerDispatchesExpiredFiresOnTtl")),
+    ).pipe(Effect.withSpan("registerDispatchLeaseExpiredFiresOnTtl")),
   );
 }

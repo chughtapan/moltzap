@@ -101,9 +101,9 @@ const ConversationSchema = Schema.Struct({
   updatedAt: DateTimeString,
   // Present iff the conversation is archived. Clients filter
   // `archivedAt !== undefined` to exclude archived rows from a
-  // `TaskConversationList` response; the server returns archived rows
+  // `ConversationList` response; the server returns archived rows
   // unfiltered, since the visibility contract for
-  // `TaskConversationList` is "caller in `conversation_participants`",
+  // `ConversationList` is "caller in `conversation_participants`",
   // not "archived excluded".
   archivedAt: Schema.optional(DateTimeString),
 });

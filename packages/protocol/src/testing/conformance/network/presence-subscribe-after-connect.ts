@@ -35,7 +35,7 @@ export function registerSubscribeAfterConnect(
             Effect.mapError((e) =>
               presenceViolation(
                 NAME,
-                `presence/subscribe failed: ${String(e)}`,
+                `network/presence/subscribe failed: ${String(e)}`,
               ),
             ),
           );

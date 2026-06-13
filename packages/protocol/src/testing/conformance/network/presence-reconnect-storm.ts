@@ -2,7 +2,7 @@
  * Sequential reconnect only. The wait for `offline` between client #1
  * close and client #2 connect is the in-band fence proving the server's
  * onExit reached `setOffline` before the new handshake. Concurrent
- * reconnect (new agent/connect races old onExit) is OOS — see OQ6.
+ * reconnect (new agent/network/connect races old onExit) is OOS — see OQ6.
  */
 import { Effect } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -26,7 +26,7 @@ export function registerReconnectStorm(ctx: ConformanceRunContext): void {
     ctx,
     PRESENCE_CATEGORY,
     NAME,
-    "online → offline → online lands as three presence/changed events in strict order on a sequential reconnect",
+    "online → offline → online lands as three network/presence-changed events in strict order on a sequential reconnect",
     Effect.scoped(
       Effect.gen(function* () {
         const sub = yield* acquireClient(ctx, NAME, "p3-sub");

@@ -86,7 +86,7 @@ class DispatchAppUnavailableError extends Data.TaggedError(
   readonly conversationId: ConversationId;
 }> {
   override get message(): string {
-    return `dispatch/request cannot mint a moderator-bound lease because app ${this.appId} is unavailable for conversation ${this.conversationId}`;
+    return `agent/dispatch/request cannot mint a moderator-bound lease because app ${this.appId} is unavailable for conversation ${this.conversationId}`;
   }
 }
 
@@ -320,9 +320,9 @@ export class DispatchAdmissionService {
             params: this.dispatchAuthorizeParamsForWire(ctx),
           }).pipe(Effect.map((envelope) => envelope.admission)),
           timeoutMs,
-          timeoutLogMessage: "dispatch/authorize timed out",
+          timeoutLogMessage: "app/dispatch/authorize timed out",
           timeoutLogContext: { taskId, appId, timeoutMs },
-          errorLogMessage: "dispatch/authorize error",
+          errorLogMessage: "app/dispatch/authorize error",
           errorLogContext: { taskId, appId },
           onTimeout: () => ({
             decision: "deny",
@@ -330,7 +330,7 @@ export class DispatchAdmissionService {
           }),
           onError: () => ({
             decision: "deny",
-            reason: "dispatch/authorize error",
+            reason: "app/dispatch/authorize error",
           }),
         });
       }

@@ -72,9 +72,6 @@ export interface CoreTestRuntimeServerHandle {
 
 function awaitAgentReadyByPolling(
   connections: {
-    // D #705 CP4e — read the three-arm `connectionsRef` agent arm. An arm
-    // is returned only once authenticated, so a non-empty result already
-    // means "ready" (no separate `auth !== null` check).
     agentConnections(
       id: AgentId,
     ): Effect.Effect<ReadonlyArray<unknown>, never, never>;
@@ -82,6 +79,8 @@ function awaitAgentReadyByPolling(
   agentId: AgentId,
   timeoutMs: number,
 ): Effect.Effect<CoreTestReadyOutcome, never, never> {
+  // Agent connections are returned only after authentication, so a non-empty
+  // result is sufficient readiness for test servers.
   const tick = connections
     .agentConnections(agentId)
     .pipe(Effect.map((conns) => conns.length > 0));

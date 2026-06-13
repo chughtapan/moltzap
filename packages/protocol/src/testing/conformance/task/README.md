@@ -1,7 +1,7 @@
 # Conformance — `task/` layer
 
 Task / conversation / message invariants. Every property here
-exercises `tasks/*`, `conversations/*`, or `messages/*` semantics —
+exercises `agent/task/*`, `app|agent/conversation/*`, or `agent/message/*` semantics —
 the layer that owns durable state.
 
 ## Property files
@@ -13,7 +13,7 @@ the layer that owns durable state.
 - `conversation-lifecycle.ts`
 - `archive-lifecycle.ts`
 - `task-close-lifecycle.ts`
-- `task-conversation-family.ts` — the `task/conversation/*` family,
+- `conversation-family.ts` — the `app/conversation/*` family,
   one `register*` per method
 
 ## Aggregation

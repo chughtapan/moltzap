@@ -235,7 +235,7 @@ export function createOneOnOneConversation(
         Effect.mapError((error) =>
           adversityViolation(
             propertyName,
-            `task/create under toxic: ${error._tag}`,
+            `app/task/create under toxic: ${error._tag}`,
           ),
         ),
       );
@@ -248,7 +248,7 @@ export function createOneOnOneConversation(
       return yield* Effect.fail(
         adversityViolation(
           propertyName,
-          "task/create returned no conversation.id",
+          "app/task/create returned no conversation.id",
         ),
       );
     }

@@ -17,7 +17,7 @@ export function registerDispatchRequestRecipientDisconnectAbandons(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "closing the recipient's connection while in PENDING transitions the lease to ABANDONED; subsequent dispatches/get returns state=ABANDONED",
+    "closing the recipient's connection while in PENDING transitions the lease to ABANDONED; subsequent app/dispatch/lease/get returns state=ABANDONED",
     withDriver(
       ctx,
       (driver) =>
@@ -34,7 +34,7 @@ export function registerDispatchRequestRecipientDisconnectAbandons(
           // finalizer fires and transitions the lease to ABANDONED.
           yield* driver.recipient.hardClose;
           // Allow the server-side finalizer to run, then assert via
-          // moderator.dispatches/get. The driver's poll bound covers
+          // moderator.app/dispatch/lease/get. The driver's poll bound covers
           // the finalizer race window.
           yield* driver.assertLeaseState(ack.dispatchId, "ABANDONED", {
             timeoutMs: ABANDON_OBSERVATION_BUFFER_MS + ABANDON_POLL_EXTRA_MS,

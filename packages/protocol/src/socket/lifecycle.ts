@@ -35,8 +35,8 @@ import {
 } from "#socket/catalog";
 import {
   DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
+  DispatchLeaseConsumed,
+  DispatchLeaseExpired,
 } from "#message/dispatch";
 import {
   ContactAcceptedNotificationDefinition,
@@ -44,11 +44,11 @@ import {
 } from "#identity/contacts";
 import { MessageReceivedNotificationDefinition } from "#message";
 import {
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
-  TaskConversationUnarchivedNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationParticipantsAddedNotificationDefinition,
+  ConversationParticipantsRemovedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
 } from "#conversation";
 import {
   TaskClosedNotificationDefinition,
@@ -285,15 +285,15 @@ type TaskNotificationDefinition =
   | typeof TaskClosedNotificationDefinition
   | typeof TaskCreatedNotificationDefinition
   | typeof TaskFailedNotificationDefinition
-  | typeof TaskConversationCreatedNotificationDefinition
-  | typeof TaskConversationArchivedNotificationDefinition
-  | typeof TaskConversationUnarchivedNotificationDefinition
-  | typeof TaskConversationParticipantsAddedNotificationDefinition
-  | typeof TaskConversationParticipantsRemovedNotificationDefinition;
+  | typeof ConversationCreatedNotificationDefinition
+  | typeof ConversationArchivedNotificationDefinition
+  | typeof ConversationUnarchivedNotificationDefinition
+  | typeof ConversationParticipantsAddedNotificationDefinition
+  | typeof ConversationParticipantsRemovedNotificationDefinition;
 type DispatchNotificationDefinition =
   | typeof DispatchRelease
-  | typeof DispatchesConsumed
-  | typeof DispatchesExpired;
+  | typeof DispatchLeaseConsumed
+  | typeof DispatchLeaseExpired;
 
 type NetworkNotificationHandlers = NotificationHandlersFor<
   | typeof AgentPresenceChangedNotificationDefinition
@@ -467,27 +467,27 @@ const buildTaskNotificationHandlers = (
     registry,
     TaskFailedNotificationDefinition,
   ),
-  [TaskConversationCreatedNotificationDefinition.name]: notificationHandler(
+  [ConversationCreatedNotificationDefinition.name]: notificationHandler(
     registry,
-    TaskConversationCreatedNotificationDefinition,
+    ConversationCreatedNotificationDefinition,
   ),
-  [TaskConversationArchivedNotificationDefinition.name]: notificationHandler(
+  [ConversationArchivedNotificationDefinition.name]: notificationHandler(
     registry,
-    TaskConversationArchivedNotificationDefinition,
+    ConversationArchivedNotificationDefinition,
   ),
-  [TaskConversationUnarchivedNotificationDefinition.name]: notificationHandler(
+  [ConversationUnarchivedNotificationDefinition.name]: notificationHandler(
     registry,
-    TaskConversationUnarchivedNotificationDefinition,
+    ConversationUnarchivedNotificationDefinition,
   ),
-  [TaskConversationParticipantsAddedNotificationDefinition.name]:
+  [ConversationParticipantsAddedNotificationDefinition.name]:
     notificationHandler(
       registry,
-      TaskConversationParticipantsAddedNotificationDefinition,
+      ConversationParticipantsAddedNotificationDefinition,
     ),
-  [TaskConversationParticipantsRemovedNotificationDefinition.name]:
+  [ConversationParticipantsRemovedNotificationDefinition.name]:
     notificationHandler(
       registry,
-      TaskConversationParticipantsRemovedNotificationDefinition,
+      ConversationParticipantsRemovedNotificationDefinition,
     ),
 });
 
@@ -495,8 +495,14 @@ const buildDispatchNotificationHandlers = (
   registry: SubscriberRegistry,
 ): DispatchNotificationHandlers => ({
   [DispatchRelease.name]: notificationHandler(registry, DispatchRelease),
-  [DispatchesConsumed.name]: notificationHandler(registry, DispatchesConsumed),
-  [DispatchesExpired.name]: notificationHandler(registry, DispatchesExpired),
+  [DispatchLeaseConsumed.name]: notificationHandler(
+    registry,
+    DispatchLeaseConsumed,
+  ),
+  [DispatchLeaseExpired.name]: notificationHandler(
+    registry,
+    DispatchLeaseExpired,
+  ),
 });
 
 const buildNotificationHandlers = (

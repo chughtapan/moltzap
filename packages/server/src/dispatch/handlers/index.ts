@@ -1,3 +1,3 @@
 /** @file Dispatch-domain handler barrel. */
 
-export { dispatchRequest, dispatchesGet } from "./dispatch.handlers.js";
+export { dispatchRequest, dispatchLeaseGet } from "./dispatch.handlers.js";

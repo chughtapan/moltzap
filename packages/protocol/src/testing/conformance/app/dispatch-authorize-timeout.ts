@@ -19,7 +19,7 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    'moderator never replies within the hook policy timeoutMs; server emits dispatch/release{deny, reason: "timeout"} (and removes the recipient as a participant)',
+    'moderator never replies within the hook policy timeoutMs; server emits agent/dispatch/released{deny, reason: "timeout"} (and removes the recipient as a participant)',
     withDriver(
       ctx,
       (driver) =>
@@ -32,7 +32,7 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
           });
           // Server-side moderator-response TTL fires after
           // `moderatorTimeoutMs`; recipient sees a synthesized
-          // `dispatch/release{deny, reason="timeout"}`.
+          // `agent/dispatch/released{deny, reason="timeout"}`.
           const release = yield* driver.recipient.waitForRelease(
             undefined,
             TIMEOUT_RELEASE_WAIT_MS,

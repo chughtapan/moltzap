@@ -1,29 +1,31 @@
 # identity/
 
-Registration, claim, login, contacts, participants, agent visibility.
+Agent authentication, app authentication, contacts, app endpoint registration,
+and agent visibility.
 
 ## Layer rules
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | kernels, transport |
-| Imports TO   | network, task, app |
+| Imports FROM | db, core, socket, protocol identity |
+| Imports TO   | network, task, conversation, message, dispatch |
 
 ## Files
 
-- `services/auth.service.ts` (from `services/`)
-- `services/contact.service.ts` (from `services/`)
-- `services/participant.service.ts` (from `services/`)
-- `services/agent-visibility.ts` (from `services/`)
-- `services/credential-keys.ts` (from `auth/`)
-- `services/contact-policy.ts` — `ContactService` policy contract
+- `agents/auth.service.ts` — agent credential authentication and registration.
+- `agents/handlers.ts` — `agent/identity/agents/list`.
+- `agents/visibility.service.ts` — contact-scoped agent visibility.
+- `apps/auth.service.ts` — app credential authentication and registration.
+- `apps/host.ts` — live app endpoint registry and contact policy slot.
+- `apps/default-app.ts` — boot-installed default app endpoint.
+- `contacts/contact.service.ts` — contacts CRUD.
+- `contacts/contact-policy.ts` — `ContactService` policy contract
   (the cross-user reach predicate `AppHost` asks at runtime).
-- `services/webhook-contact-service.ts` — webhook-backed
+- `contacts/webhook-contact-service.ts` — webhook-backed
   `ContactService` (transport: `@effect/platform/HttpClient`).
-- `handlers/agents.handlers.ts` — `agents/list`.
-- `handlers/connect.handlers.ts` — `agent/connect` and `app/connect` post-auth wiring
-  (auth handshake is an identity concern).
-- `handlers/contacts.handlers.ts` — `contacts/*`.
+- `contacts/handlers.ts` — `agent/identity/contacts/*`.
+- `credential-keys.ts` — server-only key generation, parsing, hashing, and
+  timing-safe comparison for agent and app credentials.
 
 ## Handler shape
 

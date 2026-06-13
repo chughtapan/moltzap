@@ -11,7 +11,7 @@
  *     the connection's Scope.
  *
  * Conformance reach: the fail-closed verdicts are observable through the
- * SENDER's `messages/send` / dispatch RPC return — when no app is wired
+ * SENDER's `agent/message/send` / dispatch RPC return — when no app is wired
  * to admit, dispatch proceeds (no admission gate); when an app IS wired
  * and severs mid-flight, dispatch sees the deny verdict.
  *

@@ -180,7 +180,7 @@ CREATE INDEX idx_messages_task_seq ON messages(task_id, seq);
 
 -- Per-message dispatch-authorization verdict. Insert-then-gate ordering:
 -- the message is durably inserted first with verdict `{tag: "pending"}`,
--- then the `messages/authorize` round-trip resolves to `{tag: "forward",
+-- then the `app/message/authorize` round-trip resolves to `{tag: "forward",
 -- recipients: [...]}` or `{tag: "block", reason: "..."}`. `getMessages`
 -- visibility is per-caller: the authorizing app sees all rows, sender sees
 -- own rows regardless of tag, recipient sees only `forward` rows where they

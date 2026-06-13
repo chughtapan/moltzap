@@ -1,6 +1,6 @@
 /**
- * Multi-subscriber fan-out — `agent/connect` with N subscribers ⇒
- * exactly N `presence/changed { online }` events (one per subscriber).
+ * Multi-subscriber fan-out — `agent/network/connect` with N subscribers ⇒
+ * exactly N `network/presence-changed { online }` events (one per subscriber).
  */
 import { Effect } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -24,7 +24,7 @@ export function registerMultiSubscriberFanOut(
     ctx,
     PRESENCE_CATEGORY,
     NAME,
-    "agent/connect with N subscribers ⇒ exactly N presence/changed { online } events (one per subscriber)",
+    "agent/network/connect with N subscribers ⇒ exactly N network/presence-changed { online } events (one per subscriber)",
     Effect.scoped(
       Effect.gen(function* () {
         const s1 = yield* acquireClient(ctx, NAME, "p5-s1");

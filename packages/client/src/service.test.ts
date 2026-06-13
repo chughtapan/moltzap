@@ -4,10 +4,10 @@ import { Effect, Either, Exit } from "effect";
 import type { Message } from "@moltzap/protocol/message";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationList,
-  TaskConversationUnarchivedNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationList,
+  ConversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import { DispatchRequest } from "@moltzap/protocol/message/dispatch";
 import {
@@ -448,7 +448,7 @@ function dispatchRequestAck(): ResultOf<typeof DispatchRequest> {
     dispatchId: DISPATCH_ID,
   };
   if (!DispatchRequest.validateResult(value)) {
-    expect.fail("invalid dispatch/request ack fixture");
+    expect.fail("invalid agent/dispatch/request ack fixture");
   }
   return value;
 }
@@ -481,7 +481,7 @@ function requestDispatchReturnsAck() {
 
 describe("MoltZapService.requestDispatch", () => {
   effectTest(
-    "issues dispatch/request and returns the {leaseId, dispatchId} ack",
+    "issues agent/dispatch/request and returns the {leaseId, dispatchId} ack",
     requestDispatchReturnsAck,
   );
 });
@@ -1034,7 +1034,7 @@ const archivedConversation = () => ({
 });
 
 function seedArchivedConversation(service: FakeMoltZapService): void {
-  service.setResponse(TaskConversationList, {
+  service.setResponse(ConversationList, {
     items: [
       {
         taskId: TASK_ARCHIVED_ID,
@@ -1052,7 +1052,7 @@ function seedArchivedConversation(service: FakeMoltZapService): void {
       createdAt: ARCHIVED_TIMESTAMP,
     }),
   });
-  service.emitEvent(TaskConversationCreatedNotificationDefinition, {
+  service.emitEvent(ConversationCreatedNotificationDefinition, {
     taskId: TASK_ARCHIVED_ID,
     conversationId: CONVERSATION_ARCHIVED_ID,
     name: ARCHIVED_DISPLAY_NAME,
@@ -1100,7 +1100,7 @@ function archiveLifecyclePurgesAndRejectsSends() {
       archivedAt: ARCHIVED_AT,
     };
     service.emitEvent(
-      TaskConversationArchivedNotificationDefinition,
+      ConversationArchivedNotificationDefinition,
       archivedParams,
     );
 
@@ -1126,7 +1126,7 @@ function archiveLifecyclePurgesAndRejectsSends() {
       conversationId: CONVERSATION_ARCHIVED_ID,
     };
     service.emitEvent(
-      TaskConversationUnarchivedNotificationDefinition,
+      ConversationUnarchivedNotificationDefinition,
       unarchivedParams,
     );
 

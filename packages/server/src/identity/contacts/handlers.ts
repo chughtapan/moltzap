@@ -11,7 +11,7 @@ import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import type { AuthService } from "../../identity/services/auth.service.js";
+import type { AuthService } from "#identity/agents";
 import type { AgentContext } from "#socket";
 import {
   AuthServiceTag,

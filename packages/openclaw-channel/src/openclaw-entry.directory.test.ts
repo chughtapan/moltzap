@@ -26,11 +26,11 @@ function listPeers() {
   });
 }
 
-// `agents/list` is bounded to a server-default page. The openclaw directory
+// `agent/identity/agents/list` is bounded to a server-default page. The openclaw directory
 // must page through `nextCursor` to enumerate EVERY peer — a user with more
 // visible agents than one page must not silently lose the tail.
 // These tests drive `plugin.directory.listPeers` against a fake
-// `callDefinition` that paginates `agents/list`, and assert the full set is
+// `callDefinition` that paginates `agent/identity/agents/list`, and assert the full set is
 // resolved.
 
 const ACCOUNT_ID = "directory-test";
@@ -51,7 +51,7 @@ let fixture: FakeChannelService;
 let plugin: ReturnType<typeof createMoltzapChannelPlugin>;
 let agentsCallCount: number;
 // When set, the fake server returns a CONSTANT non-advancing nextCursor
-// on every `agents/list` page — the byzantine case the drain's
+// on every `agent/identity/agents/list` page — the byzantine case the drain's
 // cursor-cycle guard must terminate on (rather than loop forever).
 let byzantineConstantCursor: boolean;
 const CONSTANT_CURSOR = Buffer.from("stuck", "utf8").toString("base64url");
@@ -260,10 +260,10 @@ function resolvesWithReceiverStrippedSendRpc() {
   });
 }
 
-describe("directory: agents/list pagination", () => {
+describe("directory: agent/identity/agents/list pagination", () => {
   it("enumerates EVERY peer across multiple agent pages", enumeratesEveryPeer);
   it(
-    "follows nextCursor across pages (one agents/list call per page)",
+    "follows nextCursor across pages (one agent/identity/agents/list call per page)",
     followsNextCursorAcrossPages,
   );
   it(

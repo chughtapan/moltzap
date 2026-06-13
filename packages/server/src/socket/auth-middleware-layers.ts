@@ -208,7 +208,7 @@ type RequirementMiddlewareLayerR =
 /**
  * Build a requirement impl Layer whose `derive` reads only the decoded `payload`
  * (no caller). Used for requirements that gate on pure params — e.g. `ConversationInTask`,
- * which the app-principal `task/conversation/*` methods declare, so its impl
+ * which the app-principal `app/conversation/*` methods declare, so its impl
  * must not peek the caller's agent id (the live arm is an `AppConnection`).
  */
 const requirementMiddlewareLayer = <

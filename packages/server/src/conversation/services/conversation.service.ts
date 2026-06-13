@@ -17,7 +17,7 @@ import {
   ConversationFullError,
   ConversationNotFoundError,
   NotAParticipantError,
-  TaskConversationParticipantsRemovedNotificationDefinition,
+  ConversationParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
 import { broadcastNotificationToAgents } from "#network";
@@ -145,7 +145,7 @@ export class ConversationService {
    * Reduced-surface participant removal: NO authority gate. Used by
    * `AppHost.removeDeniedParticipant` for dispatch-deny eviction
    * (runs server-internally, not via a wire RPC). Broadcasts
-   * `TaskConversationParticipantsRemoved` with `reason: "app_remove"`
+   * `ConversationParticipantsRemoved` with `reason: "app_remove"`
    * so the evicted agent and the remaining participants observe the
    * removal.
    * @internal
@@ -187,7 +187,7 @@ export class ConversationService {
         if (taskId !== null) {
           yield* broadcastNotificationToAgents(
             participantsSnapshot,
-            TaskConversationParticipantsRemovedNotificationDefinition,
+            ConversationParticipantsRemovedNotificationDefinition,
             {
               taskId,
               conversationId,
@@ -227,7 +227,7 @@ export class ConversationService {
             .returningAll(),
         );
         // The creator is auto-seeded as a participant only on the agent
-        // path. The app-originated `task/conversation/create` passes
+        // path. The app-originated `app/conversation/create` passes
         // `seedCreatorAsParticipant: false`: membership = exactly
         // `input.agentIds`.
         if (input.seedCreatorAsParticipant !== false) {
@@ -309,7 +309,7 @@ export class ConversationService {
   }
 
   /**
-   * Parent task lookup for `task/conversation/list` row projection.
+   * Parent task lookup for `agent/conversation/list` row projection.
    * `conversations.task_id` is NOT NULL, so the only failure mode is
    * `ConversationNotFoundError` (row missing).
    * @internal
@@ -338,7 +338,7 @@ export class ConversationService {
   }
 
   /**
-   * By-id projection used by `task/conversation/{archive,unarchive}`
+   * By-id projection used by `app/conversation/update`
    * handlers to surface the post-mutation `Conversation` row (with
    * populated `archivedAt`) for the fan-out notification. Fails with
    * `ConversationNotFoundError` when the row is missing.

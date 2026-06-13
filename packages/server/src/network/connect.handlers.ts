@@ -25,13 +25,13 @@ import {
   PresenceServiceTag,
 } from "#core";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
-import type { AuthService } from "../../identity/services/auth.service.js";
-import type { AppAuthService } from "../../identity/services/app-auth.service.js";
-import type { PresenceService } from "../../network/services/presence.service.js";
+import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
+import type { AuthService } from "#identity/agents";
+import type { AppAuthService } from "#identity/apps";
+import type { PresenceService } from "#network/presence";
 import type { ConversationService } from "#conversation";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
-import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
 import type { Connection, ConnectionManager, Originator } from "#socket";
 import type { AppHost } from "#identity/apps";
 
@@ -134,7 +134,7 @@ function registerAppEndpoint(args: {
   const connId = authed.connId;
   return Effect.gen(function* () {
     // Register under the SERVER-MINTED `appId` (the authenticated
-    // principal), NOT `manifest.appId`. `task/request` routes to the appId the
+    // principal), NOT `manifest.appId`. `agent/task/request` routes to the appId the
     // registrant received from `/api/v1/apps/register` = this identity.
     const ok = appHost.registerApp(appId, manifest, {
       connId,
@@ -440,7 +440,7 @@ function handleAppConnect(params: AppConnectParams) {
 
 // ── @effect/rpc handler bodies ────────────────────────────────────────
 //
-// `agent/connect` and `app/connect` are the unauthenticated methods. The
+// `agent/network/connect` and `app/network/connect` are the unauthenticated methods. The
 // method tag selects the principal kind; the body only unwraps the redacted
 // key at the auth-service boundary.
 export const connectAgent: ServerHandler<typeof AgentConnect> = (params) =>

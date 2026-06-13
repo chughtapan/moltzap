@@ -37,12 +37,7 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-/**
- * Fork a "drop the first frame, then collect any extras" collector
- * (#645): the legacy `drainNotifications` historical queue is gone,
- * so the no-extra-event assertion must subscribe BEFORE the
- * triggering send.
- */
+/** Fork a "drop the first frame, then collect any extras" collector. */
 function forkExtraCollector(receiver: ConnectedAgent) {
   return receiver.client
     .subscribe(MessageReceivedNotificationDefinition)

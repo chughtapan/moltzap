@@ -1,13 +1,13 @@
 /**
- * `dispatch/{request, authorize, release}` + `dispatches/{consumed, expired,
- * get}` admission surface.
+ * `agent/dispatch/request`, `app/dispatch/authorize`,
+ * `agent/dispatch/released`, and `app/dispatch/lease-*` admission surface.
  *
  * Bucket file: `concurrency` group. Each bucket owns its own server fixture so
  * vitest can execute buckets concurrently without sharing state.
  *
- * The recipient calls `dispatch/request` over WS; server mints a lease, returns ack
+ * The recipient calls `agent/dispatch/request` over WS; server mints a lease, returns ack
  * synchronously, forks the moderator round-trip; recipient observes
- * the verdict via `dispatch/release` notification. `messages/send(
+ * the verdict via `agent/dispatch/released` notification. `agent/message/send(
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
@@ -21,7 +21,7 @@ import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_REQUEST_CONCURRENCY,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
+  createConversationOnApp,
   createDispatchFlowFixture,
   MODERATED_HOOKS,
   requestDispatch,
@@ -81,16 +81,8 @@ function crossConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const conv1 = yield* createTaskConversationOnApp(
-      alice,
-      bob,
-      TEST_APP_MANIFEST,
-    );
-    const conv2 = yield* createTaskConversationOnApp(
-      alice,
-      bob,
-      TEST_APP_MANIFEST,
-    );
+    const conv1 = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
+    const conv2 = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
     const releasesFiber = yield* forkTwoReleaseCollector(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv1.conversationId,
@@ -111,11 +103,7 @@ function sameConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const conv = yield* createTaskConversationOnApp(
-      alice,
-      bob,
-      TEST_APP_MANIFEST,
-    );
+    const conv = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
     const releasesFiber = yield* forkTwoReleaseCollector(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv.conversationId,
@@ -131,13 +119,13 @@ function sameConversationRequestsRunConcurrently() {
 
 describe("dispatch/* — concurrency", () => {
   it(
-    "cross-conversation concurrency: two dispatch/request in different (taskId, conversationId) run concurrently",
+    "cross-conversation concurrency: two agent/dispatch/request in different (taskId, conversationId) run concurrently",
     crossConversationRequestsRunConcurrently,
     25_000,
   );
 
   it(
-    "same-conversation concurrency: two dispatch/request in same (taskId, conversationId) run concurrently",
+    "same-conversation concurrency: two agent/dispatch/request in same (taskId, conversationId) run concurrently",
     sameConversationRequestsRunConcurrently,
     25_000,
   );

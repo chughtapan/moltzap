@@ -4,8 +4,8 @@
  * A TestApp is a registered app manifest plus scripted handlers for
  * server-initiated app callbacks. It deliberately stays above
  * `AppTestClient` and below app-domain scenario drivers: it knows how to
- * HTTP-register the app manifest and answer `dispatch/authorize` /
- * `messages/authorize`, but it does not know about tasks, leases, or
+ * HTTP-register the app manifest and answer `app/dispatch/authorize` /
+ * `app/message/authorize`, but it does not know about tasks, leases, or
  * conversations beyond manifest defaults.
  */
 import { Duration, Effect, Ref, type Scope, Schema } from "effect";
@@ -85,7 +85,7 @@ export interface TestAppCallbackScript<D extends ServerRpcDefinition> {
 }
 
 export interface TestApp {
-  /** Server-minted appId (the principal `task/request` targets). */
+  /** Server-minted appId (the principal `agent/task/request` targets). */
   readonly appId: Schema.Schema.Type<typeof AppId>;
   readonly manifest: AppManifest;
   /** The app-principal `AppConnection` hosting the moderator callbacks. */
@@ -142,7 +142,7 @@ export function registerTestApp(
       client,
       MessagesAuthorize,
     );
-    // task/request fires a task/create TM callback before the task
+    // agent/task/request fires a app/task/create TM callback before the task
     // leaves `waiting`. Dispatch-admission properties don't gate task
     // creation, so the test app auto-accepts; the dispatch lifecycle
     // is what they exercise.

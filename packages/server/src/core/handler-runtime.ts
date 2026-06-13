@@ -23,7 +23,7 @@ import type { AgentContext, AppContext } from "#socket";
 
 /**
  * Read the LIVE connection arm for this request. `ConnectionTag` is a per-socket
- * BUILD-time snapshot (it predates `agent/connect` / `app/connect`, so its `_tag` is still
+ * BUILD-time snapshot (it predates `agent/network/connect` / `app/network/connect`, so its `_tag` is still
  * `UnauthenticatedConnection`); the connection arm transitions to
  * `AgentConnection` / `AppConnection` AFTER connect runs. The handler must read
  * the live arm; `ConnectionTag` only carries the stable `connId` used to

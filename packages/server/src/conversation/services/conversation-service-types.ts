@@ -35,11 +35,11 @@ export interface CreateConversationOptions<TaskMintError = never> {
 
   /**
    * Creator-of-record FK (`conversations.created_by_id`). For the
-   * agent-originated `task/request → mintInitialConversation` path this
+   * agent-originated `agent/task/request → mintInitialConversation` path this
    * is the requesting agent (who IS a participant). For the
-   * app-originated `task/conversation/create` path this is
+   * app-originated `app/conversation/create` path this is
    * `task.initiatorAgentId` — the agent that sent the initial
-   * `task/request` — and is NOT seeded as a participant (see
+   * `agent/task/request` — and is NOT seeded as a participant (see
    * {@link seedCreatorAsParticipant}).
    */
   readonly creatorAgentId: AgentId;
@@ -47,7 +47,7 @@ export interface CreateConversationOptions<TaskMintError = never> {
   /**
    * Whether the creator is auto-seeded into `conversation_participants`
    * (and subscribed). Defaults to `true` for the agent path. The
-   * app-originated `task/conversation/create` path passes `false`:
+   * app-originated `app/conversation/create` path passes `false`:
    * participants = exactly `params.participants`, never the
    * TM-backing-agent creator-of-record.
    */

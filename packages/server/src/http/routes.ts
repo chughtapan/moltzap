@@ -16,7 +16,7 @@ import {
 
 import type { AppTags } from "#socket";
 import type { ConnectionTag, ResolvedServices } from "#core";
-import { safeEqual } from "../identity/services/credential-keys.js";
+import { safeEqual } from "../identity/credential-keys.js";
 import type { CoreConfig } from "../config.js";
 import type { RegistrationSecret } from "../config/secrets.js";
 

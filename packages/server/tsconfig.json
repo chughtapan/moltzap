@@ -26,6 +26,9 @@
       "#identity/contacts/requirements": [
         "identity/contacts/requirements/index.ts"
       ],
+      "#identity/contacts": [
+        "identity/contacts/index.ts"
+      ],
       "#network": [
         "network/index.ts"
       ],

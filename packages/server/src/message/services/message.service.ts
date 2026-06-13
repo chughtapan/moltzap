@@ -106,17 +106,17 @@ export interface MessageServiceDeps {
 }
 
 /**
- * `messages/send` server entry point. The `send` method runs the
+ * `agent/message/send` server entry point. The `send` method runs the
  * structural checks against `(conversations ⋈ tasks)`, persists the
  * message, then resolves the dispatch-authorization verdict via the
- * `messages/authorize` round-trip and broadcasts per verdict.
+ * `app/message/authorize` round-trip and broadcasts per verdict.
  *
  * Branch over `task.status`:
  * - `{closed, failed}` → fail closed with `TaskClosed`; no insert.
- * - `{waiting, active}` → insert + `messages/authorize` verdict +
+ * - `{waiting, active}` → insert + `app/message/authorize` verdict +
  *   verdict-scoped broadcast.
  *
- * The `messages/authorize` round-trip is the authorization gate:
+ * The `app/message/authorize` round-trip is the authorization gate:
  * `MessageAuthorizationService` fails closed (`Block { reason:
  * "app_unreachable" }`) on timeout, handler error, or RPC failure. On
  * Forward, `network.send` broadcasts to `verdict.recipients`; on Block, the
@@ -143,7 +143,7 @@ export class MessageService {
 
   /**
    * CAS-guarded UPDATE of `messages.dispatch_decision` after the
-   * `messages/authorize` gate resolves.
+   * `app/message/authorize` gate resolves.
    *
    * Each row inserts with `{tag: "pending"}` in {@link sendInsert};
    * this method transitions to `{tag: "forward", recipients}` or
@@ -216,7 +216,7 @@ export class MessageService {
   /**
    * Send-conversation projection consumed by the `ConversationSendAccess`
    * `obtain` AND
-   * `MessageService.sendCommit`'s `messages/authorize` verdict route.
+   * `MessageService.sendCommit`'s `app/message/authorize` verdict route.
    * Joins `conversations` ⋈ `tasks` and returns
    * `(archived_at, task_id, app_id, task_status)`.
    *
@@ -306,7 +306,7 @@ export class MessageService {
    *
    * Sequencing is: authorize route -> preview -> fan-out -> trace.
    *
-   * The `messages/authorize` gate:
+   * The `app/message/authorize` gate:
    *   1. Resolve the dispatch-authorization verdict via
    *      `MessageAuthorizationService.authorize`.
    *   2. CAS-guarded `recordDispatchDecision` writes the verdict to
@@ -506,7 +506,7 @@ export class MessageService {
   }
 
   /**
-   * Run the `messages/authorize` gate and translate the verdict into the
+   * Run the `app/message/authorize` gate and translate the verdict into the
    * `DispatchDecision` shape persisted on `messages.dispatch_decision`.
    * The authorization service fails closed (`Block { reason:
    * "app_unreachable" }`) on timeout / handler error / RPC failure.

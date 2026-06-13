@@ -1,5 +1,5 @@
 /**
- * Integration tests for presence/subscribe contact-policy error (#508).
+ * Integration tests for network/presence/subscribe contact-policy errors.
  *
  * Verifies that the server propagates NotInContactsError over the JSON-RPC
  * wire when a caller requests agentIds outside their contact-visible set.
@@ -154,7 +154,7 @@ function rejectsOnlyInvisibleSubset() {
   });
 }
 
-describe("presence/subscribe — NotInContactsError wire propagation (#508)", () => {
+describe("network/presence/subscribe — NotInContactsError wire propagation", () => {
   it(
     "returns NotInContactsError when subscribing to an agentId outside the caller's contact-visible set",
     rejectsInvisibleAgent,

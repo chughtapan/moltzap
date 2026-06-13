@@ -102,7 +102,7 @@ export function dedupePresenceStatus(
  * Audit-event taxonomy for "expected during teardown" lease callbacks.
  *
  * - **`LeaseEndAfterDisconnect`** — `onLeaseActiveEnd` fires for an
- *   agent whose entry was already dropped by `onAgentDisconnect`.
+ *   agent whose entry has already been dropped by `onAgentDisconnect`.
  *   `closeSocketSession` runs `onAgentDisconnect` BEFORE
  *   `leaseRegistry.abandon(connId)`, and abandon synchronously fires
  *   `onLeaseActiveEnd` for every active lease bound to the connection.

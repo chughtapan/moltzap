@@ -139,8 +139,8 @@ export interface PresenceActor {
 
 Subscriber actor: an agent client plus the historical
 `NotificationBuffer` fed by its `subscribeAll()` pump. `acquireClient`
-installs the pump before the subscriber issues `presence/subscribe`,
-so `waitForPresenceWithStatus` observes every `presence/changed` frame
+installs the pump before the subscriber issues `network/presence/subscribe`,
+so `waitForPresenceWithStatus` observes every `network/presence-changed` frame
 the server broadcasts — including ones that land between the
 triggering action and the wait.
 
@@ -271,13 +271,13 @@ export function waitForPresenceWithStatus(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-Wait for the next `presence/changed` notification whose payload
+Wait for the next `network/presence-changed` notification whose payload
 matches `expected.agentId` + `expected.status`.
 
 Polls the subscriber's historical `NotificationBuffer` (fed by the
 `subscribeAll()` pump installed at `acquireClient` time) rather than
 materialising a fresh `subscribeAll()` Stream inline. The pump
-buffers every notification from acquisition onward, so a `presence/changed`
+buffers every notification from acquisition onward, so a `network/presence-changed`
 that lands between the triggering action and this wait is still
 observable. Each match is removed from the buffer, giving sequential
 `online → offline → online` waits a consume-once semantic.

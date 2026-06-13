@@ -1,13 +1,13 @@
 /**
- * `dispatch/{request, authorize, release}` + `dispatches/{consumed, expired,
- * get}` admission surface.
+ * `agent/dispatch/request`, `app/dispatch/authorize`,
+ * `agent/dispatch/released`, and `app/dispatch/lease-*` admission surface.
  *
  * Bucket file: `happy-paths` group. Each bucket owns its own server fixture so
  * vitest can execute buckets concurrently without sharing state.
  *
- * The recipient calls `dispatch/request` over WS; server mints a lease, returns ack
+ * The recipient calls `agent/dispatch/request` over WS; server mints a lease, returns ack
  * synchronously, forks the moderator round-trip; recipient observes
- * the verdict via `dispatch/release` notification. `messages/send(
+ * the verdict via `agent/dispatch/released` notification. `agent/message/send(
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
@@ -20,7 +20,7 @@ import {
   DISPATCH_VERDICT_GRANT,
   EXPECTED_TYPE_STRING,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
+  createConversationOnApp,
   createDispatchFlowFixture,
   MODERATED_HOOKS,
   requestDispatch,
@@ -69,7 +69,7 @@ function moderatedDispatchReleasesGrant() {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const { conversationId } = yield* createTaskConversationOnApp(
+    const { conversationId } = yield* createConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
@@ -90,7 +90,7 @@ function moderatedDispatchReleasesGrant() {
 
 describe("dispatch/* — happy paths", () => {
   it(
-    "happy path moderated: dispatch/request then moderator grant releases grant",
+    "happy path moderated: agent/dispatch/request then moderator grant releases grant",
     moderatedDispatchReleasesGrant,
     20_000,
   );

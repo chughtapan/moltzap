@@ -29,7 +29,7 @@ export function registerDispatchAuthorizeVerdictResolves(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "moderator's {grant|deny|hold} reply causes the server to emit dispatch/release with the matching verdict to the recipient",
+    "moderator's {grant|deny|hold} reply causes the server to emit agent/dispatch/released with the matching verdict to the recipient",
     assertAllVerdictReleases(ctx, NAME).pipe(
       Effect.withSpan("registerDispatchAuthorizeVerdictResolves"),
     ),

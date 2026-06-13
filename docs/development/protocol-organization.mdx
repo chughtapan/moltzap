@@ -6,7 +6,8 @@ description: Target package layout, naming rules, and migration order for protoc
 # Protocol And Server Organization Plan
 
 This document is the source of truth for the protocol and server-core
-reorganization. Update this plan first, then move code to match it.
+organization. Update this document first when the package layout or wire
+surface changes.
 
 The goal is a protocol package whose folders describe protocol domains, whose
 wire names make the caller principal explicit, and whose public barrels expose
@@ -16,7 +17,7 @@ only the stable surface for each domain.
 
 `transport` is the lowest layer. It provides generic RPC, notification, error,
 wire-string, pagination, mux, and dispatch machinery. It must not import
-identity, network, task, conversation, message, dispatch, socket, or testing.
+identity, network, task, conversation, message, socket, or testing.
 
 Protocol layers build upward:
 
@@ -46,9 +47,11 @@ packages/protocol/src/
     definition.ts
     typed-dispatch.ts
     mux.ts
-    errors.ts
+    notification-subscribers.ts
     pagination.ts
+    rpc-errors.ts
     strict-decode.ts
+    wire-errors.ts
     wire-string.ts
 
   rpc/
@@ -90,9 +93,6 @@ packages/protocol/src/
     contacts/
       index.ts
       ids.ts
-      requirements/
-        contact-policy-allows-reach.ts
-        index.ts
       contacts.ts
 
   network/
@@ -127,11 +127,14 @@ packages/protocol/src/
   socket/
     index.ts
     agent-client.ts
+    app-callbacks.ts
     app-client.ts
     server.ts
     lifecycle.ts
     connection.ts
     close-info.ts
+    internal/
+      protocol-layer.ts
 
   testing/
 ```
@@ -242,7 +245,6 @@ schema owns validation for which changes are allowed together.
 ```text
 app/conversation/create               RPC
 agent/conversation/list               RPC
-app/conversation/list                 RPC
 app/conversation/update               RPC
 
 agent/conversation/created            notification
@@ -471,13 +473,13 @@ Target protocol source aliases:
 9. Build socket composition from domain barrels.
 10. Narrow package exports and remove public `requirements` and
    `rpc-method-groups` subpaths.
-11. Rename wire methods to the principal-prefixed naming scheme. This is the
-   compatibility-breaking step and should happen after structure is stable.
+11. Rename wire methods to the principal-prefixed naming scheme.
 12. Regenerate protocol reference docs from the new descriptors.
 
-During steps 2-10, prefer import rewrites and barrel limits over behavior
-changes. During step 11, update server handlers, clients, conformance, and
-generated docs together.
+Those steps are complete for the protocol package. Follow the same order for
+future package rebalances: establish aliases and barrels first, then move code,
+then update wire names and generated docs together when a compatibility break is
+intentional.
 
 ## Server-Core Organization
 
@@ -536,23 +538,32 @@ packages/server/src/
       visibility.service.ts
     apps/
       auth.service.ts
+      callback-rpc.ts
       registry.ts
       default-app.ts
-      endpoint.ts
-      registration-routes.ts
+      host.ts
+      index.ts
     contacts/
       handlers.ts
       contact.service.ts
       contact-policy.ts
       webhook-contact-service.ts
+      requirements/
+        reach.ts
+        index.ts
+    credential-keys.ts
 
   network/
+    connect.handlers.ts
     presence/
       handlers.ts
       presence.service.ts
       presence-types.ts
-    endpoint-resolver.ts
+    agent-endpoint-resolver.ts
+    index.ts
     network-send.ts
+    notification-broadcast.ts
+    outbound-webhook-cap.ts
 
   task/
     handlers.ts
@@ -680,6 +691,7 @@ Target server-core source aliases:
 #db
 #identity/agents
 #identity/apps
+#identity/contacts
 #identity/contacts/requirements
 #network
 #network/presence
@@ -709,10 +721,11 @@ Completed:
 6. `identity/apps/host.ts` was reduced to the app endpoint registry/contact
    policy surface; dispatch admission, message authorization, and task-create
    authorization live in their domain services.
+7. Agent identity handlers/services, app auth, contacts, connect handlers, and
+   presence are now under their domain folders and imported through server
+   source aliases.
 
 Remaining:
 
 1. Continue narrowing server barrels as the domain services settle.
 2. Clean up conformance/socket teardown noise after the service split is stable.
-
-Keep wire names stable until the protocol descriptor rename step is scheduled.

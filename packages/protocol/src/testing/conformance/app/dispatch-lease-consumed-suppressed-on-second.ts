@@ -11,18 +11,20 @@ import {
 } from "./_helpers.js";
 import type { DispatchTestDriver } from "./_driver.js";
 
-export function registerDispatchesConsumedSuppressedOnSecondSend(
+export function registerDispatchLeaseConsumedSuppressedOnSecondSend(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatches-consumed-suppressed-on-second-send";
+  const NAME = "dispatch-lease-consumed-suppressed-on-second-send";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "second messages/send(dispatchLeaseId=X) with X in CONSUMED state returns typed LeaseInvalidError and does NOT emit a duplicate dispatches/consumed",
+    "second agent/message/send(dispatchLeaseId=X) with X in CONSUMED state returns typed LeaseInvalidError and does NOT emit a duplicate app/dispatch/lease-consumed",
     withDriver(ctx, (driver) =>
       runConsumedSuppressedOnSecond(NAME, driver),
-    ).pipe(Effect.withSpan("registerDispatchesConsumedSuppressedOnSecondSend")),
+    ).pipe(
+      Effect.withSpan("registerDispatchLeaseConsumedSuppressedOnSecondSend"),
+    ),
   );
 }
 
@@ -92,7 +94,7 @@ function assertSecondSendRejected(
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          "second messages/send unexpectedly succeeded; expected LeaseInvalid",
+          "second agent/message/send unexpectedly succeeded; expected LeaseInvalid",
         ),
       );
     }
@@ -150,7 +152,7 @@ function assertNoDuplicateConsumed(
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          "saw a duplicate dispatches/consumed for the second send",
+          "saw a duplicate app/dispatch/lease-consumed for the second send",
         ),
       );
     }

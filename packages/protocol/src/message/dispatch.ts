@@ -136,7 +136,7 @@ export const DispatchRelease = defineNotification({
   }),
 });
 
-export const DispatchesConsumed = defineNotification({
+export const DispatchLeaseConsumed = defineNotification({
   name: "app/dispatch/lease-consumed",
   params: Schema.Struct({
     dispatchId: DispatchId,
@@ -147,7 +147,7 @@ export const DispatchesConsumed = defineNotification({
   }),
 });
 
-export const DispatchesExpired = defineNotification({
+export const DispatchLeaseExpired = defineNotification({
   name: "app/dispatch/lease-expired",
   params: Schema.Struct({
     dispatchId: DispatchId,
@@ -189,7 +189,7 @@ const LeaseRecordSchema = Schema.Struct({
   ),
 });
 
-export const DispatchesGet = defineRpc({
+export const DispatchLeaseGet = defineRpc({
   name: "app/dispatch/lease/get",
   params: Schema.Struct({ dispatchId: DispatchId }),
   result: Schema.Struct({ lease: LeaseRecordSchema }),
@@ -199,12 +199,12 @@ export const DispatchesGet = defineRpc({
 
 export const agentCallableDispatchRpcMethods = [DispatchRequest] as const;
 
-export const appCallableDispatchRpcMethods = [DispatchesGet] as const;
+export const appCallableDispatchRpcMethods = [DispatchLeaseGet] as const;
 
 export const dispatchCallbackMethods = [DispatchAuthorize] as const;
 
 export const dispatchNotifications = [
   DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
+  DispatchLeaseConsumed,
+  DispatchLeaseExpired,
 ] as const;

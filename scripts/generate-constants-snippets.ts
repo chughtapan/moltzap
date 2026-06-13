@@ -156,10 +156,7 @@ const collect = (): readonly Constant[] => {
     "DEFAULT_SERVER_PORT",
   );
   const apiKeyPrefix = readTopLevelLiteral(
-    resolve(
-      workspaceRoot,
-      "packages/server/src/identity/services/credential-keys.ts",
-    ),
+    resolve(workspaceRoot, "packages/server/src/identity/credential-keys.ts"),
     "API_KEY_PREFIX",
   );
   const quickstartPort = readQuickstartPort(
@@ -225,7 +222,7 @@ const collect = (): readonly Constant[] => {
     ),
     requireString(
       "API_KEY_PREFIX",
-      "packages/server/src/identity/services/credential-keys.ts",
+      "packages/server/src/identity/credential-keys.ts",
       apiKeyPrefix,
       "Stable string prefix on every agent API key.",
     ),

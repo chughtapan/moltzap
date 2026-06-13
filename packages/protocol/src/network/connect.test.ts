@@ -1,4 +1,4 @@
-/* eslint-disable agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- regression-only suite per the v5+ plan §8: each case names a specific contract case (lex vs numeric ordering, year boundary, wire-error reason discriminants). CalVer string literals are contractual values pinned by the plan; making them imports would lose the regression intent. */
+/* eslint-disable agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- regression-only suite: each case names a specific contract case (lex vs numeric ordering, year boundary, wire-error reason discriminants). CalVer string literals are contractual values; making them imports would lose the regression intent. */
 
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Exit } from "effect";
@@ -13,9 +13,9 @@ import {
   type ProtocolMismatchReason,
 } from "./connect.js";
 
-// regression-only: each case names a specific failure mode the v5 plan
-// enumerates (lex vs numeric ordering, year boundary, equality, etc.).
-describe("compareProtocolVersion (architect plan #706 v5 — codex r4 P2 #1)", () => {
+// Regression-only: each case names a specific failure mode such as
+// lexicographic ordering, numeric ordering, year boundaries, and equality.
+describe("compareProtocolVersion", () => {
   it("returns 0 for equal versions", () => {
     expect(compareProtocolVersion("2026.527.0", "2026.527.0")).toBe(0);
   });
@@ -52,8 +52,8 @@ describe("compareProtocolVersion (architect plan #706 v5 — codex r4 P2 #1)", (
   });
 
   it("throws InvalidProtocolVersionError on an empty segment (fail-closed)", () => {
-    // review-senior P3 #2: `Number("") === 0` silently coerced empty
-    // segments. The strict `^[0-9]+$` parser catches this now.
+    // `Number("") === 0` would silently coerce empty segments, so the parser
+    // requires explicit digits.
     expect(() => compareProtocolVersion("2026..0", "2026.527.0")).toThrow(
       InvalidProtocolVersionError,
     );
@@ -143,10 +143,9 @@ const checkInputIsNotDefect = (min: string, max: string): boolean => {
   return exit.cause._tag !== "Die";
 };
 
-// regression-only: each case covers a specific reason discriminant the
-// v9 plan §8 enumerates (server-above-client-max, server-below-client-min,
-// in-range).
-describe("checkProtocolRange (architect plan #706 v9 — codex r8 P2 #1)", () => {
+// Regression-only: each case covers a specific reason discriminant:
+// server-above-client-max, server-below-client-min, and in-range.
+describe("checkProtocolRange", () => {
   it("succeeds when the server version is bracketed by [minProtocol, maxProtocol]", () => {
     const exit = Effect.runSyncExit(
       checkProtocolRange(
@@ -205,11 +204,9 @@ describe("checkProtocolRange (architect plan #706 v9 — codex r8 P2 #1)", () =>
     expect(Exit.isSuccess(exit)).toBe(true);
   });
 
-  // P2 fix-roll (codex PR review #1 P2). The sync throw in
-  // `compareProtocolVersion` is now wrapped in `Effect.try` so the
-  // parse error reaches `checkProtocolRange`'s typed E channel
-  // instead of escaping into the JSON-RPC handler as a defect.
-  describe("malformed client input lands on the Effect E channel (P2)", () => {
+  // Malformed client input must land on the typed Effect error channel instead
+  // of escaping into the JSON-RPC handler as a defect.
+  describe("malformed client input lands on the Effect E channel", () => {
     it("maps to InvalidProtocolVersionError when maxProtocol is malformed", () => {
       const error = expectInvalidVersion(
         errorOrThrow(
@@ -243,9 +240,9 @@ describe("checkProtocolRange (architect plan #706 v9 — codex r8 P2 #1)", () =>
       expect(error.version).toBe("2026..0");
     });
 
-    // Property test: `checkProtocolRange` is a trust-boundary helper
-    // (codex PR review #1 P2). For ARBITRARY client-supplied strings,
-    // the returned Effect's outcome is always a typed `Left` (one of
+    // Property test: `checkProtocolRange` is a trust-boundary helper. For
+    // arbitrary client-supplied strings, the returned Effect's outcome is
+    // always a typed `Left` (one of
     // ProtocolMismatchError, InvalidProtocolVersionError) or `Right`
     // — never a sync throw, never a defect. The invariant: untrusted
     // client input crossing the boundary cannot turn into an

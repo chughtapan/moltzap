@@ -57,7 +57,7 @@ function sendWithDispatchLease(input: LeaseSendInput) {
     const leaseId = input.params.dispatchLeaseId;
     if (leaseId === undefined) {
       return yield* Effect.dieMessage(
-        "messages/send dispatch lease path called without dispatchLeaseId",
+        "agent/message/send dispatch lease path called without dispatchLeaseId",
       );
     }
     let finalized = false;
@@ -98,7 +98,7 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
       const leaseRegistry = yield* LeaseRegistryTag;
       const connection = yield* ConnectionTag;
       // The `ConversationSendAccess` requirement already gates the frame. The
-      // body still needs the joined send row for task/conversation guards, so it
+      // body still needs the joined send row for task and conversation guards, so it
       // reads that row directly here.
       const sendRow = yield* obtainConversationSendAccess({
         conversationId: params.conversationId,

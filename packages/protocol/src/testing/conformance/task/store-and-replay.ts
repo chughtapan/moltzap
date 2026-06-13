@@ -36,7 +36,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
     ctx,
     DELIVERY_CATEGORY,
     PROPERTY,
-    "every messages/send lands in a live participant's notification buffer (basic-delivery-landing; offline-replay is a server-side gap)",
+    "every agent/message/send lands in a live participant's notification buffer (basic-delivery-landing; offline-replay is a server-side gap)",
     runStoreAndReplay(ctx).pipe(Effect.withSpan("registerStoreAndReplay")),
   );
 }

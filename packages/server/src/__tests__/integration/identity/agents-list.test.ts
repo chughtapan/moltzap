@@ -25,8 +25,8 @@ const it = effectIt.live;
 
 type AgentsListResult = { agents: AgentCard[]; nextCursor?: string };
 
-// agents/list is contact-scoped per #481; the register+claim path binds
-// explicit owners so the cross-owner visibility cases can be exercised.
+// agent/identity/agents/list is contact-scoped; these fixtures bind explicit
+// owners so cross-owner visibility cases can be exercised.
 const REGISTRATION_SECRET = "agents-list-test-secret-zxcv";
 const ALICE_USER_ID = userId("00000000-0000-4000-8000-00000000a11c");
 const BOB_USER_ID = userId("00000000-0000-4000-8000-00000000b0b0");
@@ -279,7 +279,7 @@ function returnsContactVisibleCardFields() {
   });
 }
 
-describe(`${AgentsList.name} — owner visibility per #481`, () => {
+describe(`${AgentsList.name} — owner visibility`, () => {
   it(
     "returns own agents (siblings under same ownerUserId), without contacts setup",
     returnsOwnAgents,
@@ -296,7 +296,7 @@ describe(`${AgentsList.name} — owner visibility per #481`, () => {
   );
 });
 
-describe(`${AgentsList.name} — contact metadata per #481`, () => {
+describe(`${AgentsList.name} — contact metadata`, () => {
   it(
     "pending contact request does NOT yet expose the requester's agents to the recipient (and vice versa)",
     pendingContactDoesNotExposeAgents,

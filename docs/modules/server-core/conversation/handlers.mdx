@@ -13,36 +13,36 @@ Conversation-domain handler barrel.
 
 ## Public surface
 
-### [`taskConversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers/task-conversations.handlers.ts#L298)
+### [`conversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers/conversations.handlers.ts#L298)
 
 _Variable_
 
 ```ts
-export const taskConversationCreate: ServerHandler<
-  typeof TaskConversationCreate
-> = (params)
+export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
+  params,
+)
 ```
 
-### [`taskConversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers/task-conversations.handlers.ts#L291)
+### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers/conversations.handlers.ts#L291)
 
 _Variable_
 
 ```ts
-export const taskConversationList: ServerHandler<
-  typeof TaskConversationList
-> = (params)
+export const conversationList: ServerHandler<typeof ConversationList> = (
+  params,
+)
 ```
 
-### [`taskConversationUpdate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers/task-conversations.handlers.ts#L305)
+### [`conversationUpdate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers/conversations.handlers.ts#L305)
 
 _Variable_
 
 ```ts
-export const taskConversationUpdate: ServerHandler<
-  typeof TaskConversationUpdate
-> = (params)
+export const conversationUpdate: ServerHandler<typeof ConversationUpdate> = (
+  params,
+)
 ```
 
 ## Files
 
-- `task-conversations.handlers.ts`
+- `conversations.handlers.ts`

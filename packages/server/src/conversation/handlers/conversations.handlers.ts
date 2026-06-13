@@ -1,18 +1,18 @@
 import { Effect } from "effect";
 import {
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationCreate,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationList,
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
-  TaskConversationUpdate,
-  TaskConversationUnarchivedNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreate,
+  ConversationCreatedNotificationDefinition,
+  ConversationList,
+  ConversationParticipantsAddedNotificationDefinition,
+  ConversationParticipantsRemovedNotificationDefinition,
+  ConversationUpdate,
+  ConversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import type {
   Conversation,
   ConversationId,
-  TaskConversationListItem,
+  ConversationListItem,
 } from "@moltzap/protocol/conversation";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
@@ -24,28 +24,28 @@ import { broadcastNotificationToAgents } from "#network";
 import { assertCallerAppOwnsTask } from "#task/requirements";
 import { agentArm, appArm } from "#core";
 
-type TaskConversationUpdateParams = ParamsOf<typeof TaskConversationUpdate>;
+type ConversationUpdateParams = ParamsOf<typeof ConversationUpdate>;
 type ConversationArchiveParams = Extract<
-  TaskConversationUpdateParams,
+  ConversationUpdateParams,
   { action: "archive" }
 >;
 type ConversationUnarchiveParams = Extract<
-  TaskConversationUpdateParams,
+  ConversationUpdateParams,
   { action: "unarchive" }
 >;
 type ConversationAddParticipantParams = Extract<
-  TaskConversationUpdateParams,
+  ConversationUpdateParams,
   { action: "add-participant" }
 >;
 type ConversationRemoveParticipantParams = Extract<
-  TaskConversationUpdateParams,
+  ConversationUpdateParams,
   { action: "remove-participant" }
 >;
 
-function taskConversationCreateBody(
+function conversationCreateBody(
   appId: AppContext["appId"],
   params: {
-    readonly taskId: ParamsOf<typeof TaskConversationCreate>["taskId"];
+    readonly taskId: ParamsOf<typeof ConversationCreate>["taskId"];
     readonly name?: string;
     readonly participants: ReadonlyArray<AgentId>;
   },
@@ -66,7 +66,7 @@ function taskConversationCreateBody(
       seedCreatorAsParticipant: false,
       mintTask: Effect.succeed({ id: params.taskId }),
     });
-    yield* fanoutTaskConversationCreate({
+    yield* fanoutConversationCreate({
       taskId: params.taskId,
       conversation,
       participants: params.participants,
@@ -76,17 +76,17 @@ function taskConversationCreateBody(
   }).pipe(Effect.withSpan("task.conversation.create"));
 }
 
-interface TaskConversationCreateInput {
-  readonly taskId: ParamsOf<typeof TaskConversationCreate>["taskId"];
+interface ConversationCreateInput {
+  readonly taskId: ParamsOf<typeof ConversationCreate>["taskId"];
   readonly conversation: Conversation;
   readonly participants: ReadonlyArray<AgentId>;
   readonly name?: string;
 }
 
-function fanoutTaskConversationCreate(input: TaskConversationCreateInput) {
+function fanoutConversationCreate(input: ConversationCreateInput) {
   return broadcastNotificationToAgents(
     [...input.participants],
-    TaskConversationCreatedNotificationDefinition,
+    ConversationCreatedNotificationDefinition,
     {
       taskId: input.taskId,
       conversationId: input.conversation.id,
@@ -110,7 +110,7 @@ function fanoutArchive(input: ArchiveFanoutInput) {
       .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
-      TaskConversationArchivedNotificationDefinition,
+      ConversationArchivedNotificationDefinition,
       {
         taskId: input.taskId,
         conversationId: input.conversationId,
@@ -134,7 +134,7 @@ function fanoutUnarchive(input: UnarchiveFanoutInput) {
       .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
-      TaskConversationUnarchivedNotificationDefinition,
+      ConversationUnarchivedNotificationDefinition,
       {
         taskId: input.taskId,
         conversationId: input.conversationId,
@@ -144,8 +144,8 @@ function fanoutUnarchive(input: UnarchiveFanoutInput) {
   }).pipe(Effect.withSpan("task.conversation.unarchive.fanout"));
 }
 
-function taskConversationListBody(
-  params: ParamsOf<typeof TaskConversationList>,
+function conversationListBody(
+  params: ParamsOf<typeof ConversationList>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -157,7 +157,7 @@ function taskConversationListBody(
         params.cursor,
         "include",
       );
-    const items: TaskConversationListItem[] = [];
+    const items: ConversationListItem[] = [];
     for (const summary of conversations) {
       const conversation = yield* conversationService.loadById(summary.id);
       const participants = yield* conversationService
@@ -176,14 +176,14 @@ function taskConversationListBody(
   }).pipe(Effect.withSpan("task.conversation.list"));
 }
 
-function taskConversationArchiveBody(
+function conversationArchiveBody(
   params: ConversationArchiveParams,
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
     yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
     const taskService = yield* TaskServiceTag;
-    const { archivedAt } = yield* taskService.archiveTaskConversation(
+    const { archivedAt } = yield* taskService.archiveConversation(
       params.taskId,
       params.conversationId,
     );
@@ -196,14 +196,14 @@ function taskConversationArchiveBody(
   }).pipe(Effect.withSpan("task.conversation.archive"));
 }
 
-function taskConversationUnarchiveBody(
+function conversationUnarchiveBody(
   params: ConversationUnarchiveParams,
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
     yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
     const taskService = yield* TaskServiceTag;
-    yield* taskService.unarchiveTaskConversation(
+    yield* taskService.unarchiveConversation(
       params.taskId,
       params.conversationId,
     );
@@ -215,7 +215,7 @@ function taskConversationUnarchiveBody(
   }).pipe(Effect.withSpan("task.conversation.unarchive"));
 }
 
-function taskConversationAddParticipantBody(
+function conversationAddParticipantBody(
   params: ConversationAddParticipantParams,
   ctx: AppContext,
 ) {
@@ -226,14 +226,14 @@ function taskConversationAddParticipantBody(
       params.agentId,
     ]);
     const { postMutationParticipants } =
-      yield* taskService.addTaskConversationParticipant(
+      yield* taskService.addConversationParticipant(
         params.taskId,
         params.conversationId,
         params.agentId,
       );
     yield* broadcastNotificationToAgents(
       postMutationParticipants,
-      TaskConversationParticipantsAddedNotificationDefinition,
+      ConversationParticipantsAddedNotificationDefinition,
       {
         taskId: params.taskId,
         conversationId: params.conversationId,
@@ -244,7 +244,7 @@ function taskConversationAddParticipantBody(
   }).pipe(Effect.withSpan("task.conversation.participants.add"));
 }
 
-function taskConversationRemoveParticipantBody(
+function conversationRemoveParticipantBody(
   params: ConversationRemoveParticipantParams,
   ctx: AppContext,
 ) {
@@ -252,7 +252,7 @@ function taskConversationRemoveParticipantBody(
     yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
     const taskService = yield* TaskServiceTag;
     const { preMutationParticipants, wasParticipant } =
-      yield* taskService.removeTaskConversationParticipant(
+      yield* taskService.removeConversationParticipant(
         params.taskId,
         params.conversationId,
         params.agentId,
@@ -260,7 +260,7 @@ function taskConversationRemoveParticipantBody(
     if (!wasParticipant) return {};
     yield* broadcastNotificationToAgents(
       preMutationParticipants,
-      TaskConversationParticipantsRemovedNotificationDefinition,
+      ConversationParticipantsRemovedNotificationDefinition,
       {
         taskId: params.taskId,
         conversationId: params.conversationId,
@@ -272,39 +272,39 @@ function taskConversationRemoveParticipantBody(
   }).pipe(Effect.withSpan("task.conversation.participants.remove"));
 }
 
-function taskConversationUpdateBody(
-  params: TaskConversationUpdateParams,
+function conversationUpdateBody(
+  params: ConversationUpdateParams,
   ctx: AppContext,
 ) {
   switch (params.action) {
     case "archive":
-      return taskConversationArchiveBody(params, ctx);
+      return conversationArchiveBody(params, ctx);
     case "unarchive":
-      return taskConversationUnarchiveBody(params, ctx);
+      return conversationUnarchiveBody(params, ctx);
     case "add-participant":
-      return taskConversationAddParticipantBody(params, ctx);
+      return conversationAddParticipantBody(params, ctx);
     case "remove-participant":
-      return taskConversationRemoveParticipantBody(params, ctx);
+      return conversationRemoveParticipantBody(params, ctx);
   }
 }
 
-export const taskConversationList: ServerHandler<
-  typeof TaskConversationList
-> = (params) =>
+export const conversationList: ServerHandler<typeof ConversationList> = (
+  params,
+) =>
   Effect.gen(function* () {
-    return yield* taskConversationListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("taskConversationList"));
+    return yield* conversationListBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("conversationList"));
 
-export const taskConversationCreate: ServerHandler<
-  typeof TaskConversationCreate
-> = (params) =>
+export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
+  params,
+) =>
   Effect.gen(function* () {
-    return yield* taskConversationCreateBody((yield* appArm).appId, params);
-  }).pipe(Effect.withSpan("taskConversationCreate"));
+    return yield* conversationCreateBody((yield* appArm).appId, params);
+  }).pipe(Effect.withSpan("conversationCreate"));
 
-export const taskConversationUpdate: ServerHandler<
-  typeof TaskConversationUpdate
-> = (params) =>
+export const conversationUpdate: ServerHandler<typeof ConversationUpdate> = (
+  params,
+) =>
   Effect.gen(function* () {
-    return yield* taskConversationUpdateBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskConversationUpdate"));
+    return yield* conversationUpdateBody(params, yield* appArm);
+  }).pipe(Effect.withSpan("conversationUpdate"));

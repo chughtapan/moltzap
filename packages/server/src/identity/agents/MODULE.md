@@ -1,22 +1,26 @@
-import { Effect, Option } from "effect";
-import type { Db } from "../../db/client.js";
-import type { AgentKey } from "@moltzap/protocol/identity";
-import type { Register } from "@moltzap/protocol/identity";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { AgentId, UserId } from "#core";
+# server-core/identity/agents
 
-type RegisterParams = ParamsOf<typeof Register>;
-import {
-  generateApiKey,
-  parseApiKey,
-  hashSecret,
-} from "../../identity/services/credential-keys.js";
-import {
-  catchSqlErrorAsDefect,
-  takeFirstOption,
-  takeFirstOrFail,
-} from "../../db/effect-kysely-toolkit.js";
+_`packages/server/src/identity/agents`_
 
+## Purpose
+
+Agent identity server internals.
+
+## Public surface
+
+### [`agentsList`](./handlers.ts#L133)
+
+_Variable_
+
+```ts
+export const agentsList: ServerHandler<typeof AgentsList> = (params)
+```
+
+### [`AuthService`](./auth.service.ts#L16)
+
+_Class_
+
+```ts
 export class AuthService {
   constructor(private db: Db) {}
 
@@ -108,3 +112,34 @@ export class AuthService {
     );
   }
 }
+```
+
+### [`visibleAgentIds`](./visibility.service.ts#L22)
+
+_Function_
+
+```ts
+export function visibleAgentIds(
+  req: VisibleAgentIdsRequest,
+): Effect.Effect<ReadonlyArray<AgentId>, never>
+```
+
+### [`VisibleAgentIdsRequest`](./visibility.service.ts#L14)
+
+_Interface_
+
+```ts
+export interface VisibleAgentIdsRequest {
+  readonly db: Db;
+  readonly callerAgentId: AgentId;
+  readonly callerOwnerUserId: UserId;
+  /** When set, intersect the visible set with these IDs. */
+  readonly restrictTo?: ReadonlyArray<AgentId>;
+}
+```
+
+## Files
+
+- `auth.service.ts`
+- `handlers.ts`
+- `visibility.service.ts`

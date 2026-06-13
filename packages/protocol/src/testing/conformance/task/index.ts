@@ -20,15 +20,15 @@ import { registerTaskBoundaryIsolation } from "./task-boundary-isolation.js";
 import { registerConversationLifecycle } from "./conversation-lifecycle.js";
 import { registerTaskCloseLifecycle } from "./task-close-lifecycle.js";
 import { registerArchiveLifecycle } from "./archive-lifecycle.js";
-// `task/*` + `task/conversation/*` family per-method properties. Each
+// `task` + `conversation` family per-method properties. Each
 // `register*` exercises one wire method end-to-end on the family.
 import {
-  TASK_CONVERSATION_FAMILY_PROPERTIES,
-  registerTaskConversationCreateAndList,
+  CONVERSATION_FAMILY_PROPERTIES,
+  registerConversationCreateAndList,
   registerTaskCreate,
   registerTaskRequestReject,
   registerTaskLeave,
-} from "./task-conversation-family.js";
+} from "./conversation-family.js";
 
 export {
   registerFanOutCardinality,
@@ -38,7 +38,7 @@ export {
   registerConversationLifecycle,
   registerTaskCloseLifecycle,
   registerArchiveLifecycle,
-  registerTaskConversationCreateAndList,
+  registerConversationCreateAndList,
   registerTaskCreate,
   registerTaskRequestReject,
   registerTaskLeave,
@@ -46,7 +46,7 @@ export {
 
 /**
  * All task-layer property registrars: delivery subset first, then the
- * `task/conversation/*` family.
+ * `app/conversation/*` family.
  */
 export const TASK_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
@@ -58,5 +58,5 @@ export const TASK_PROPERTIES: ReadonlyArray<
   registerConversationLifecycle,
   registerTaskCloseLifecycle,
   registerArchiveLifecycle,
-  ...TASK_CONVERSATION_FAMILY_PROPERTIES,
+  ...CONVERSATION_FAMILY_PROPERTIES,
 ];

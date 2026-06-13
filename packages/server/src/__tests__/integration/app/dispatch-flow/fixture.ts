@@ -4,7 +4,7 @@ import {
   DispatchRequest,
 } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize, MessagesSend } from "@moltzap/protocol/message";
-import { TaskConversationParticipantsRemovedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { ConversationParticipantsRemovedNotificationDefinition } from "@moltzap/protocol/conversation";
 import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
 import type {
   AppCallbackContext,
@@ -73,13 +73,13 @@ export const makeProbeMessageId = () => messageId(crypto.randomUUID());
 /**
  * Create a task + conversation under the fixture's moderator app. The app is
  * minted through app registration, connects as a separate `AppConnection`, and
- * binds that connection as the app's moderator endpoint. `task/request` is sent
+ * binds that connection as the app's moderator endpoint. `agent/task/request` is sent
  * by `alice` and targets the DB-minted `appId`. The caller must attach the
  * moderator callbacks before calling this; the server resolves the forked
- * moderator round-trip on the first `dispatch/request`. `manifest.appId` is
+ * moderator round-trip on the first `agent/dispatch/request`. `manifest.appId` is
  * ignored; the manifest supplies hook declarations and conversation defaults.
  */
-export function createTaskConversationOnApp(
+export function createConversationOnApp(
   alice: ConnectedAgent,
   bob: ConnectedAgent,
   manifest: AppManifest,
@@ -95,7 +95,7 @@ export function createTaskConversationOnApp(
       taskId: result.task.id,
       conversationId: result.conversation!.id,
     };
-  }).pipe(Effect.withSpan("createTaskConversationOnApp"));
+  }).pipe(Effect.withSpan("createConversationOnApp"));
 }
 
 /**
@@ -158,7 +158,7 @@ function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
     },
     [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
-      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
     [TaskCreate.name]: {
       definition: TaskCreate,
@@ -186,8 +186,8 @@ function resetModeratorAppState(): void {
  * records the active fixture whose `consumeNextVerdict` the callback consults;
  * the actual handler table is installed at app-client connect time.
  * Call BEFORE
- * {@link createTaskConversationOnApp} so the verdict source is live by the
- * time the server forks the moderator round-trip on `dispatch/request`.
+ * {@link createConversationOnApp} so the verdict source is live by the
+ * time the server forks the moderator round-trip on `agent/dispatch/request`.
  */
 export function attachDispatchAuthorizeHook(
   _alice: ConnectedAgent,
@@ -200,16 +200,16 @@ export function attachDispatchAuthorizeHook(
 
 /**
  * The fixture's moderator `AppConnection` client — the disjoint principal
- * bound as the app's moderator endpoint. `dispatches/get` is moderator-scoped
+ * bound as the app's moderator endpoint. `app/dispatch/lease/get` is moderator-scoped
  * (the calling connection MUST be the lease's `moderatorConnectionId`), so a
  * test asserting that scope reads via THIS client, not the requesting agent.
  * Throws if no conversation has been created yet (the app client is minted
- * lazily by {@link createTaskConversationOnApp}).
+ * lazily by {@link createConversationOnApp}).
  */
 export function moderatorAppClient(): TestAppClient {
   if (moderatorApp === null) {
     throw new Error(
-      "moderatorAppClient: no moderator app — call createTaskConversationOnApp first",
+      "moderatorAppClient: no moderator app — call createConversationOnApp first",
     );
   }
   return moderatorApp.client;
@@ -278,7 +278,7 @@ export function waitForParticipantsRemoved(
   return Effect.fork(
     awaitOneNotification(
       recipient.client,
-      TaskConversationParticipantsRemovedNotificationDefinition,
+      ConversationParticipantsRemovedNotificationDefinition,
       timeoutMs,
     ).pipe(
       Effect.map((notification) => notification.params),

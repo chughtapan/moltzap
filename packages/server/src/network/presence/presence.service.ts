@@ -245,7 +245,7 @@ function statusForAgent(
 // ── Module-private fan-out sink ─────────────────────────────────────
 
 /**
- * Write one encoded `presence/changed` frame to a single subscriber
+ * Write one encoded `network/presence-changed` frame to a single subscriber
  * connection. Fire-and-forget — the wire write runs in a forked fiber
  * so the `Ref.modify` mutator (synchronous, single-CAS) is never
  * blocked on per-subscriber socket latency.
@@ -270,7 +270,7 @@ function fireOneNotification(
       .notify(definition, params)
       .pipe(
         Effect.catchAll((cause) =>
-          Effect.logDebug("presence/changed fan-out fire failed").pipe(
+          Effect.logDebug("network/presence-changed fan-out fire failed").pipe(
             Effect.annotateLogs({ cause, ...params }),
           ),
         ),
@@ -279,7 +279,7 @@ function fireOneNotification(
 }
 
 /**
- * Send a `presence/changed` notification to every subscriber
+ * Send a `network/presence-changed` notification to every subscriber
  * connection. The subscriber set is snapshotted by the caller before
  * this runs, so concurrent `subscribe` / `removeConnection` mutations
  * cannot leak into the fan-out. Reads the three-arm `connectionsRef`;
@@ -304,13 +304,13 @@ function fanOut(
 
 /**
  * Presence service: subscriber registry + lease-derived status engine
- * + `presence/changed` fan-out.
+ * + `network/presence-changed` fan-out.
  *
  * Implements {@link LeaseTransitionObserver} so the `LeaseRegistry`
  * can drive lease transitions through it — the registry depends on the
  * narrow observer contract, not on this whole surface. The WS-lifecycle
  * hooks (`onAgentConnect` / `onAgentDisconnect`) feed connection
- * transitions, and `presence/subscribe` reads status via `statusMany`
+ * transitions, and `network/presence/subscribe` reads status via `statusMany`
  * and registers fan-out interest via `subscribe`.
  *
  * **State.** Two in-memory stores, both lost on restart (agents
@@ -360,7 +360,7 @@ function fanOut(
  *     PS->>PS: dedupePresenceStatus(prev, next) — dedup
  *     alt decision = some(status)
  *       PS->>PS: snapshot = new Set(getSubscribers(agentId))
- *       PS->>Subs: presence/changed { agentId, status }
+ *       PS->>Subs: network/presence-changed { agentId, status }
  *     else decision = none
  *       Note over PS: dedup — concurrent GRANTED, no fan-out
  *     end
@@ -592,7 +592,7 @@ export class PresenceService implements LeaseTransitionObserver {
   }
 
   /**
-   * Bulk read for the `presence/subscribe` handler. Returns one entry
+   * Bulk read for the `network/presence/subscribe` handler. Returns one entry
    * per requested `agentId` in input order; unknown agents resolve to
    * `"offline"`. One `Ref.get` at the start of the call; all entries
    * are read from the same snapshot.

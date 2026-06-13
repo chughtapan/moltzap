@@ -1,6 +1,5 @@
 /**
- * Unit tests for `LeaseStore` — one per row of the API table
- * (per spec C #597 AC).
+ * Unit tests for the `LeaseStore` API.
  */
 
 import * as fc from "fast-check";

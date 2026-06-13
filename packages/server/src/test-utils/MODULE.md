@@ -106,7 +106,7 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`connectAppClient`](./helpers.ts#L290)
+### [`connectAppClient`](./helpers.ts#L271)
 
 _Function_
 
@@ -117,12 +117,6 @@ export function connectAppClient(
   handlers: AppCallbackHandlers<AppCallbackContext>,
 ): Effect.Effect<TestAppClient, Error>
 ```
-
-D #705 CP9 — open an `AppConnection` from a minted `appKey`. The Connect
-handler's `appKey` arm authenticates the app principal AND implicitly
-registers the live connection as the app's moderator endpoint, so the
-returned client receives server→client `dispatch/authorize` /
-`messages/authorize` / `task/create` callbacks. Tracked for cleanup.
 
 ### [`ConnectedAgent`](./helpers.ts#L99)
 
@@ -174,7 +168,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L122)
+### [`CoreTestServer`](./server.ts#L121)
 
 _Interface_
 
@@ -240,7 +234,7 @@ Asserts the RPC effect fails with a wire `error` carrying `expectedTag` and
 returns the narrowed error for follow-up assertions. `catchTags` routes by
 tag name declaratively so callers never reach for `err._tag`.
 
-### [`getBaseUrl`](./server.ts#L401)
+### [`getBaseUrl`](./server.ts#L400)
 
 _Function_
 
@@ -248,7 +242,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](./server.ts#L393)
+### [`getCoreApp`](./server.ts#L392)
 
 _Function_
 
@@ -256,7 +250,7 @@ _Function_
 export function getCoreApp(): CoreApp
 ```
 
-### [`getCoreDb`](./server.ts#L378)
+### [`getCoreDb`](./server.ts#L377)
 
 _Function_
 
@@ -264,7 +258,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L386)
+### [`getCoreEncryptionEnvelope`](./server.ts#L385)
 
 _Function_
 
@@ -272,7 +266,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L406)
+### [`getWsUrl`](./server.ts#L405)
 
 _Function_
 
@@ -396,7 +390,7 @@ function sqlPreview(sql: string): string {
 }
 ```
 
-### [`postJson`](./helpers.ts#L323)
+### [`postJson`](./helpers.ts#L304)
 
 _Function_
 
@@ -424,7 +418,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L307)
+### [`registerAndConnect`](./helpers.ts#L288)
 
 _Function_
 
@@ -436,7 +430,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L258)
+### [`registerApp`](./helpers.ts#L246)
 
 _Function_
 
@@ -451,18 +445,7 @@ export function registerApp(
 >
 ```
 
-D #705 CP9 — mint an app credential via the `/api/v1/apps/register` HTTP
-endpoint. The App-principal sibling of registerAgent: returns the
-server-minted `{ appId, appKey }` (the `appId` is `gen_random_uuid()`, NOT
-`manifest.appId`). The `appKey` is then handed to connectAppClient
-to open an `AppConnection`, whose implicit registration binds it as the
-app's moderator endpoint.
-
-`inviteCode` is required when the server boots with a `registrationSecret`
-(the HTTP route gates app registration behind the same secret as agent
-registration); omit it for the default open-registration server.
-
-### [`resetCoreTestDb`](./server.ts#L352)
+### [`resetCoreTestDb`](./server.ts#L351)
 
 _Function_
 
@@ -470,7 +453,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`setupAgentGroup`](./helpers.ts#L423)
+### [`setupAgentGroup`](./helpers.ts#L404)
 
 _Function_
 
@@ -490,7 +473,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L411)
+### [`setupAgentPair`](./helpers.ts#L392)
 
 _Function_
 
@@ -503,7 +486,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L313)
+### [`startCoreTestServer`](./server.ts#L312)
 
 _Function_
 
@@ -511,7 +494,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L326)
+### [`stopCoreTestServer`](./server.ts#L325)
 
 _Function_
 

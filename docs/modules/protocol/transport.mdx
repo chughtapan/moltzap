@@ -838,7 +838,7 @@ export interface RpcDefinition<
    * requirement (`AgentPrincipal` | `AppPrincipal` |
    * `AuthenticatedPrincipal`); an optional `AgentClaimed` refinement
    * (agent-only) follows; the rest are requirement tags, in run order. Empty for
-   * the unauthenticated connect methods (`agent/connect`, `app/connect`). The
+   * the unauthenticated connect methods (`agent/network/connect`, `app/network/connect`). The
    * server stacks each requirement middleware; each element's `failure` folds
    * into the wire error union.
    */
@@ -1063,11 +1063,11 @@ export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
   errorPayloadFields,
 ) {
   static readonly message =
-    "Not authenticated. Send agent/connect or app/connect first.";
+    "Not authenticated. Send agent/network/connect or app/network/connect first.";
 }
 ```
 
-Not authenticated — `agent/connect` or `app/connect` has not run on this socket.
+Not authenticated — `agent/network/connect` or `app/network/connect` has not run on this socket.
 
 ### [`WireStringFormat`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/transport/wire-string.ts#L10)
 

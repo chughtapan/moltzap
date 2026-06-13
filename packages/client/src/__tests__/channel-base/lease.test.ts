@@ -3,7 +3,7 @@
  *
  * Covers:
  * - `LeaseAlreadyConsumed` shape + tag narrowing + structural equality.
- * - `projectLeaseInvalid` predicate (4 cases per spec C #597 AC).
+ * - `projectLeaseInvalid` predicate.
  * - `catchLeaseInvalid` Effect-pipe wrapper (typed branch + pass-through).
  */
 
@@ -23,22 +23,10 @@ const SAMPLE_LEASE_ID = "lease-abc-123";
 const NON_LEASE_ERROR_MESSAGE = "boom";
 const LEASE_MESSAGE = "lease consumed";
 const LEASE_ID_FALLBACK = "(unknown)";
-// Forward-compat: server may later emit the canonical lease-error tag inside
-// the wire payload's `data._tag`. The predicate accepts that shape too.
-const FORWARD_COMPAT_LEASE_TAG = "LeaseAlreadyConsumed";
-
 function leaseInvalidWire(): ForbiddenError {
   return new ForbiddenError({
     message: LEASE_MESSAGE,
     data: { reason: "LeaseInvalid", state: "CONSUMED", expected: "OPEN" },
-  });
-}
-
-function leaseTagInvalidWire(): ForbiddenError {
-  return new ForbiddenError({
-    message: LEASE_MESSAGE,
-    // eslint-disable-next-line agent-code-guard/manual-tagged-error -- simulating wire payload shape; this is the literal predicate input the projector must accept
-    data: { _tag: FORWARD_COMPAT_LEASE_TAG, leaseId: SAMPLE_LEASE_ID },
   });
 }
 
@@ -80,8 +68,8 @@ describe("projectLeaseInvalid predicate", () => {
     propertyReasonArmProjects,
   );
   it(
-    "projects when data._tag matches the forward-compat tag",
-    projectsOnForwardCompatTag,
+    "passes the original error through when only a tag discriminant is present",
+    passesThroughTagOnlyError,
   );
   it(
     "passes the original error through when neither discriminant matches",
@@ -222,13 +210,20 @@ function propertyReasonArmProjects(): void {
   );
 }
 
-function projectsOnForwardCompatTag(): void {
-  const wire = leaseTagInvalidWire();
+function passesThroughTagOnlyError(): void {
+  const wire = new ForbiddenError({
+    message: LEASE_MESSAGE,
+    data: Object.fromEntries([
+      ["_tag", "LeaseAlreadyConsumed"],
+      ["leaseId", SAMPLE_LEASE_ID],
+    ]),
+  });
   const out = projectLeaseInvalid(wire, {
     leaseId: SAMPLE_LEASE_ID,
     consumedAt: FIXED_TS,
   });
-  expect(out).toBeInstanceOf(LeaseAlreadyConsumed);
+  expect(out).toBe(wire);
+  expect(out).not.toBeInstanceOf(LeaseAlreadyConsumed);
 }
 
 function passesThroughGenericError(): void {

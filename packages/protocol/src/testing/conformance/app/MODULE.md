@@ -10,7 +10,7 @@ App-layer conformance properties.
 
 Dispatch / lease / app-callback invariants — the 14
 `dispatch-admission` properties (request / authorize / release /
-dispatches-consumed / dispatches-expired / dispatches-get / slow-first
+dispatch-lease-consumed / dispatch-lease-expired / dispatch-lease-get / slow-first
 / same-conv-concurrent / release-for-one-lease) plus app-disconnect
 fail-policy and idempotence.
 
@@ -49,12 +49,12 @@ export const APP_PROPERTIES: ReadonlyArray<
   registerDispatchAuthorizeTimeoutSynthesizesDeny,
   registerDispatchReleaseFiresAfterResolve,
   registerDispatchReleaseSkippedOnAbandoned,
-  registerDispatchesConsumedFiresOnFirstSend,
-  registerDispatchesConsumedSuppressedOnSecondSend,
-  registerDispatchesExpiredFiresOnTtl,
-  registerDispatchesExpiredSuppressedOnConsumeBeforeTtl,
-  registerDispatchesGetModeratorSeesRecord,
-  registerSameConversationDispatchesConcurrent,
+  registerDispatchLeaseConsumedFiresOnFirstSend,
+  registerDispatchLeaseConsumedSuppressedOnSecondSend,
+  registerDispatchLeaseExpiredFiresOnTtl,
+  registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl,
+  registerDispatchLeaseGetModeratorSeesRecord,
+  registerSameConversationDispatchRequestsConcurrent,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
   registerAppDisconnectFailPolicy,
@@ -111,8 +111,8 @@ export interface DispatchTestDriver {
 
   /**
    * Spin up an additional recipient client under a fresh agent identity.
-   * Used by `same-conversation-dispatches-reach-moderator-concurrently`
-   * (two recipients in the same conversation issue `dispatch/request`
+   * Used by `same-conversation-dispatch-requests-reach-moderator-concurrently`
+   * (two recipients in the same conversation issue `agent/dispatch/request`
    * back-to-back).
    */
   readonly addRecipient: (opts: {
@@ -120,7 +120,7 @@ export interface DispatchTestDriver {
   }) => Effect.Effect<RecipientHandle, PropertyFailure, Scope.Scope>;
 
   /**
-   * Poll `dispatches/get` until the lease reaches `expected` or the
+   * Poll `app/dispatch/lease/get` until the lease reaches `expected` or the
    * bound elapses. Returns the final record. Used by every property
    * that asserts a state transition (PENDING→GRANTED, GRANTED→EXPIRED,
    * CLAIMED→CONSUMED, etc.). Implementation polls every 25 ms; bound
@@ -134,7 +134,7 @@ export interface DispatchTestDriver {
 
   /**
    * Sleep `durationMs` against the real clock to let server-side TTLs elapse.
-   * Property authors call this for `dispatches-expired-fires-on-ttl` and the
+   * Property authors call this for `dispatch-lease-expired-fires-on-ttl` and the
    * moderator-response timeout property, which both run against a live server.
    */
   readonly advanceTime: (durationMs: number) => Effect.Effect<void>;
@@ -271,7 +271,7 @@ export interface RecipientHandle {
   readonly agentId: Schema.Schema.Type<typeof AgentId>;
 
   /**
-   * Issue `dispatch/request` for the given inbound. Returns the ack
+   * Issue `agent/dispatch/request` for the given inbound. Returns the ack
    * payload `{leaseId, dispatchId}`. Single recipient may issue many
    * concurrent requests; the property is responsible for ordering its
    * own assertions.
@@ -290,7 +290,7 @@ export interface RecipientHandle {
   >;
 
   /**
-   * Park until a `dispatch/release` notification arrives that matches
+   * Park until a `agent/dispatch/released` notification arrives that matches
    * `predicate` (default: any). Used by every property in the
    * `DispatchRelease` group + every property that asserts a verdict
    * delivery.
@@ -306,7 +306,7 @@ export interface RecipientHandle {
   >;
 
   /**
-   * Send `messages/send` carrying `dispatchLeaseId`. Used to consume a
+   * Send `agent/message/send` carrying `dispatchLeaseId`. Used to consume a
    * GRANTED lease + assert the consumed/duplicate behavior. Returns the
    * minted message id on success; on the lease-already-CONSUMED path,
    * fails with a `PropertyInvariantViolation` whose `reason` carries
@@ -338,11 +338,11 @@ export interface RecipientHandle {
 ```
 
 Closed lease-state union mirroring `LeaseStateSchema`. The driver's
-`assertLeaseState` polls `dispatches/get` until the registry settles
+`assertLeaseState` polls `app/dispatch/lease/get` until the registry settles
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L893)
+### [`makeDispatchTestDriver`](./_driver.ts#L899)
 
 _Function_
 
@@ -382,7 +382,7 @@ export interface ModeratorHandle {
   readonly appId: string;
 
   /**
-   * Park until a `dispatch/authorize` S→C request arrives that matches
+   * Park until a `app/dispatch/authorize` S→C request arrives that matches
    * `predicate` (default: any), then reply with `respondWith`. Internally
    * uses `AppTestClient.onAppCallback` to register the reply and
    * `awaitServerRequest` to observe the params.
@@ -402,14 +402,14 @@ export interface ModeratorHandle {
   }) => Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Drop the next inbound `dispatch/authorize` S→C request — install no
+   * Drop the next inbound `app/dispatch/authorize` S→C request — install no
    * handler. Forces moderator-response TTL elapse. Used by
    * `dispatch-authorize-timeout-synthesizes-deny`.
    */
   readonly silenceAuthorize: Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Park until a `dispatches/consumed` or `dispatches/expired`
+   * Park until a `app/dispatch/lease-consumed` or `app/dispatch/lease-expired`
    * notification arrives matching `kind` and (optionally) `dispatchId`.
    */
   readonly waitForObservability: <K extends "consumed" | "expired">(
@@ -420,14 +420,14 @@ export interface ModeratorHandle {
     },
   ) => Effect.Effect<
     K extends "consumed"
-      ? NotificationDelivery<typeof DispatchesConsumed>
-      : NotificationDelivery<typeof DispatchesExpired>,
+      ? NotificationDelivery<typeof DispatchLeaseConsumed>
+      : NotificationDelivery<typeof DispatchLeaseExpired>,
     PropertyFailure
   >;
 
   /**
-   * Issue `dispatches/get` from the moderator's connection. Used by the
-   * positive `dispatches-get-moderator-sees-record` property + every
+   * Issue `app/dispatch/lease/get` from the moderator's connection. Used by the
+   * positive `dispatch-lease-get-moderator-sees-record` property + every
    * `assertLeaseState` poll.
    */
   readonly getLease: (
@@ -445,8 +445,8 @@ export interface ModeratorHandle {
 
 Moderator-side surface. Owns one `AppTestClient` connected to the real
 server under a moderator app identity, with HTTP registration plus
-`app/connect` already driven to install a `dispatch_authorize` hook. Holds
-the registered `appId` for `dispatches/get` scope assertions.
+`app/network/connect` already driven to install a `dispatch_authorize` hook. Holds
+the registered `appId` for `app/dispatch/lease/get` scope assertions.
 
 ### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](./_helpers.ts#L21)
 
@@ -473,7 +473,7 @@ export interface RecipientHandle {
   readonly agentId: Schema.Schema.Type<typeof AgentId>;
 
   /**
-   * Issue `dispatch/request` for the given inbound. Returns the ack
+   * Issue `agent/dispatch/request` for the given inbound. Returns the ack
    * payload `{leaseId, dispatchId}`. Single recipient may issue many
    * concurrent requests; the property is responsible for ordering its
    * own assertions.
@@ -492,7 +492,7 @@ export interface RecipientHandle {
   >;
 
   /**
-   * Park until a `dispatch/release` notification arrives that matches
+   * Park until a `agent/dispatch/released` notification arrives that matches
    * `predicate` (default: any). Used by every property in the
    * `DispatchRelease` group + every property that asserts a verdict
    * delivery.
@@ -508,7 +508,7 @@ export interface RecipientHandle {
   >;
 
   /**
-   * Send `messages/send` carrying `dispatchLeaseId`. Used to consume a
+   * Send `agent/message/send` carrying `dispatchLeaseId`. Used to consume a
    * GRANTED lease + assert the consumed/duplicate behavior. Returns the
    * minted message id on success; on the lease-already-CONSUMED path,
    * fails with a `PropertyInvariantViolation` whose `reason` carries
@@ -574,52 +574,52 @@ export function registerDispatchAuthorizeVerdictResolves(
 ): void
 ```
 
-### [`registerDispatchesConsumedFiresOnFirstSend`](./dispatches-consumed-fires-on-first-send.ts#L14)
+### [`registerDispatchLeaseConsumedFiresOnFirstSend`](./dispatch-lease-consumed-fires-on-first-send.ts#L14)
 
 _Function_
 
 ```ts
-export function registerDispatchesConsumedFiresOnFirstSend(
+export function registerDispatchLeaseConsumedFiresOnFirstSend(
   ctx: ConformanceRunContext,
 ): void
 ```
 
-### [`registerDispatchesConsumedSuppressedOnSecondSend`](./dispatches-consumed-suppressed-on-second.ts#L14)
+### [`registerDispatchLeaseConsumedSuppressedOnSecondSend`](./dispatch-lease-consumed-suppressed-on-second.ts#L14)
 
 _Function_
 
 ```ts
-export function registerDispatchesConsumedSuppressedOnSecondSend(
+export function registerDispatchLeaseConsumedSuppressedOnSecondSend(
   ctx: ConformanceRunContext,
 ): void
 ```
 
-### [`registerDispatchesExpiredFiresOnTtl`](./dispatches-expired-fires-on-ttl.ts#L14)
+### [`registerDispatchLeaseExpiredFiresOnTtl`](./dispatch-lease-expired-fires-on-ttl.ts#L14)
 
 _Function_
 
 ```ts
-export function registerDispatchesExpiredFiresOnTtl(
+export function registerDispatchLeaseExpiredFiresOnTtl(
   ctx: ConformanceRunContext,
 ): void
 ```
 
-### [`registerDispatchesExpiredSuppressedOnConsumeBeforeTtl`](./dispatches-expired-suppressed-on-consume.ts#L15)
+### [`registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl`](./dispatch-lease-expired-suppressed-on-consume.ts#L15)
 
 _Function_
 
 ```ts
-export function registerDispatchesExpiredSuppressedOnConsumeBeforeTtl(
+export function registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl(
   ctx: ConformanceRunContext,
 ): void
 ```
 
-### [`registerDispatchesGetModeratorSeesRecord`](./dispatches-get-moderator-sees.ts#L13)
+### [`registerDispatchLeaseGetModeratorSeesRecord`](./dispatch-lease-get-moderator-sees.ts#L13)
 
 _Function_
 
 ```ts
-export function registerDispatchesGetModeratorSeesRecord(
+export function registerDispatchLeaseGetModeratorSeesRecord(
   ctx: ConformanceRunContext,
 ): void
 ```
@@ -682,12 +682,12 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
 ): void
 ```
 
-### [`registerSameConversationDispatchesConcurrent`](./same-conv-dispatches-concurrent.ts#L13)
+### [`registerSameConversationDispatchRequestsConcurrent`](./same-conv-dispatch-requests-concurrent.ts#L13)
 
 _Function_
 
 ```ts
-export function registerSameConversationDispatchesConcurrent(
+export function registerSameConversationDispatchRequestsConcurrent(
   ctx: ConformanceRunContext,
 ): void
 ```
@@ -777,17 +777,17 @@ driver, runs `body`, releases on completion.
 - `app-disconnect-fail-policy.ts`
 - `dispatch-authorize-timeout.ts`
 - `dispatch-authorize-verdict.ts`
+- `dispatch-lease-consumed-fires-on-first-send.ts`
+- `dispatch-lease-consumed-suppressed-on-second.ts`
+- `dispatch-lease-expired-fires-on-ttl.ts`
+- `dispatch-lease-expired-suppressed-on-consume.ts`
+- `dispatch-lease-get-moderator-sees.ts`
 - `dispatch-release-after-resolve.ts`
 - `dispatch-release-skipped-on-abandoned.ts`
 - `dispatch-request-ack.ts`
 - `dispatch-request-recipient-disconnect.ts`
-- `dispatches-consumed-fires-on-first-send.ts`
-- `dispatches-consumed-suppressed-on-second.ts`
-- `dispatches-expired-fires-on-ttl.ts`
-- `dispatches-expired-suppressed-on-consume.ts`
-- `dispatches-get-moderator-sees.ts`
 - `idempotence.ts`
 - `index.ts`
 - `release-for-one-lease-does-not-wait.ts`
-- `same-conv-dispatches-concurrent.ts`
+- `same-conv-dispatch-requests-concurrent.ts`
 - `slow-first-does-not-delay-second-ack.ts`

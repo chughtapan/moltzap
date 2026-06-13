@@ -1,6 +1,6 @@
 /**
- * Contact-scoped agent visibility. Used by `agents/list` and
- * `presence/subscribe`. The visible set for a caller is:
+ * Contact-scoped agent visibility. Used by `agent/identity/agents/list` and
+ * `network/presence/subscribe`. The visible set for a caller is:
  *   - the caller's own agentId,
  *   - agents owned by the caller's `ownerUserId`,
  *   - agents owned by an `accepted`-status contact of the caller's

@@ -4,8 +4,8 @@
  * Strict Effect-Schema decode checks against the descriptor's `paramsSchema`
  * and `resultSchema`. `DispatchAdmissionDecision` verdict-shape coverage lives
  * in `DispatchRequest`'s schema; the cases here smoke-check that the
- * `dispatch/authorize` manifest references the same shared decision schema.
- * `messages/authorize` coverage pins the send-side fan-out gate.
+ * `app/dispatch/authorize` manifest references the same shared decision schema.
+ * `app/message/authorize` coverage pins the send-side fan-out gate.
  */
 import { describe, it, expect } from "vitest";
 import type { Schema } from "effect";
@@ -74,7 +74,7 @@ describe("admission RPC registration", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// dispatch/authorize — params surface; verdict union covered separately
+// app/dispatch/authorize — params surface; verdict union covered separately
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("DispatchAuthorize params acceptance", () => {
@@ -142,7 +142,7 @@ describe("DispatchAuthorize result", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// messages/authorize — send-side fan-out gate
+// app/message/authorize — send-side fan-out gate
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("MessagesAuthorize params acceptance", () => {

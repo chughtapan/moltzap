@@ -1,6 +1,6 @@
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ContactService } from "../identity/services/contact-policy.js";
+import type { ContactService } from "#identity/contacts";
 import type { ConnectionManager } from "#socket";
 import type { NetworkSendService } from "../network/network-send.js";
 import type { LeaseRegistry } from "#dispatch";
@@ -10,7 +10,7 @@ export type { UserId, AgentId };
 export type ConnectionHook = (params: {
   agentId: AgentId;
   agentName: string;
-  /** Owner user ID resolved at agent/connect time. */
+  /** Owner user ID resolved at agent/network/connect time. */
   ownerUserId: UserId;
   connId: ConnectionId;
 }) => PromiseLike<void> | void;

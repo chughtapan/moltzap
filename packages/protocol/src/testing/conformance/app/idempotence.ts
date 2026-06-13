@@ -177,8 +177,8 @@ function successPairOrNull(pair: ReplayPair) {
 /**
  * Idempotence canonical projection.
  *
- * `agents/list.agents` and `conversations/list.conversations` are
- * unordered row sets across replays per spec. Every OTHER array
+ * `agent/identity/agents/list.agents` and `agent/task/list.tasks` are
+ * unordered row sets across replays. Every OTHER array
  * (including any nested `participants` and every payload field that is
  * not one of the two named arrays) remains order-sensitive.
  *
@@ -199,11 +199,9 @@ function canonIdempotenceResult(
       agents: Array.isArray(r.agents) ? sortJsonArray(r.agents) : r.agents,
     });
   }
-  const r = result as { conversations?: unknown[]; cursor?: string };
+  const r = result as { tasks?: unknown[]; cursor?: string };
   return canonicalJson({
     ...r,
-    conversations: Array.isArray(r.conversations)
-      ? sortJsonArray(r.conversations)
-      : r.conversations,
+    tasks: Array.isArray(r.tasks) ? sortJsonArray(r.tasks) : r.tasks,
   });
 }

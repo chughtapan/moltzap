@@ -5,11 +5,11 @@ import type { Db } from "../db/client.js";
 import { ConnectionManager } from "#socket";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
-import { AuthService } from "../identity/services/auth.service.js";
-import { ContactsService } from "../identity/services/contact.service.js";
+import { AuthService } from "#identity/agents";
+import { ContactsService } from "#identity/contacts";
 import { ConversationService } from "#conversation";
 import { MessageService } from "#message";
-import { PresenceService } from "../network/services/presence.service.js";
+import { PresenceService } from "#network/presence";
 import { AppHost } from "#identity/apps";
 import { DbTag, EncryptionTag, ServicesLive, resolveServices } from "#core";
 

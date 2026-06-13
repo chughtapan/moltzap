@@ -16,7 +16,7 @@ import {
   MessagesList,
   MessagesSend,
 } from "@moltzap/protocol/message";
-import { TaskConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { ConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 
@@ -188,7 +188,7 @@ function connectedParticipantReceivesWithoutReconnect() {
     const createdEventFiber = yield* Effect.fork(
       awaitOneNotification(
         bob.client,
-        TaskConversationCreatedNotificationDefinition,
+        ConversationCreatedNotificationDefinition,
       ),
     );
     const conv = yield* createDm(alice, bob);
@@ -239,9 +239,9 @@ function senderDoesNotReceiveOwnMessage() {
     const bob = yield* registerAndConnect("bob-noecho");
     const conv = yield* createDm(alice, bob);
 
-    // #645: subscribe Alice BEFORE the send so the Stream observes
-    // any echo frame that would otherwise have arrived in flight.
-    // `Stream.interruptAfter` bounds the collection window.
+    // Subscribe Alice before the send so the stream observes any echo frame
+    // that arrives in flight. `Stream.interruptAfter` bounds the collection
+    // window.
     const aliceEcho = yield* alice.client
       .subscribe(MessageReceivedNotificationDefinition)
       .pipe(
@@ -273,7 +273,7 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
   it("messages fan out to all group participants", groupChatFansOut);
 });
 
-describe("Regression: task/conversation/create subscribes connected participants", () => {
+describe("Regression: app/conversation/create subscribes connected participants", () => {
   it(
     "participant connected before conversation creation receives messages without reconnecting",
     connectedParticipantReceivesWithoutReconnect,
@@ -287,7 +287,7 @@ describe("Regression: subscribe Stream delivers sequential live events", () => {
   );
 });
 
-describe("Regression: messages/send excludes sender from broadcast", () => {
+describe("Regression: agent/message/send excludes sender from broadcast", () => {
   it(
     "sender does not receive their own message as an event",
     senderDoesNotReceiveOwnMessage,

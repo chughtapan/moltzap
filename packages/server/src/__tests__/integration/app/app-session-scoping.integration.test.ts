@@ -1,7 +1,7 @@
 /**
  * App-session-scoping: TM authority belongs to the app principal that owns the
  * task. An app authenticates via `appKey` as an `AppConnection`, and
- * task-admin RPCs (`task/conversation/create`, etc.) are gated by
+ * task-admin RPCs (`app/conversation/create`, etc.) are gated by
  * `assertAppOwnsTask(connection.auth.appId, task)`. The requesting agent is a
  * separate principal.
  *
@@ -24,7 +24,7 @@ import { it as effectIt } from "@effect/vitest";
 import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize } from "@moltzap/protocol/message";
 import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
-import { TaskConversationCreate } from "@moltzap/protocol/conversation";
+import { ConversationCreate } from "@moltzap/protocol/conversation";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
@@ -75,7 +75,7 @@ function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): string | null {
 
 /**
  * Register an app (HTTP), open its `AppConnection`, wire an auto-accept
- * `task/create` callback, and return the live app client + DB-minted appId.
+ * `app/task/create` callback, and return the live app client + DB-minted appId.
  */
 function setupOwningApp(): Effect.Effect<
   { appClient: TestAppClient; appId: AppId },
@@ -96,11 +96,11 @@ function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
     [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
-      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
     [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
-      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
     [TaskCreate.name]: {
       definition: TaskCreate,
@@ -119,7 +119,7 @@ function owningAppConnPassesTmGate() {
       appId,
       invitedAgentIds: [bob.agentId],
     });
-    const conv = yield* appClient.sendRpc(TaskConversationCreate, {
+    const conv = yield* appClient.sendRpc(ConversationCreate, {
       taskId: task.task.id,
       participants: [bob.agentId],
     });
@@ -148,7 +148,7 @@ function nonOwningAppFailsTmGate() {
       acceptTaskCreateHandlers(),
     );
     const exit = yield* Effect.exit(
-      otherClient.sendRpc(TaskConversationCreate, {
+      otherClient.sendRpc(ConversationCreate, {
         taskId: task.task.id,
         participants: [bob.agentId],
       }),

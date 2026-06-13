@@ -20,7 +20,7 @@ export { AppId, DEFAULT_APP_ID } from "#identity/apps";
 // `app/task/update` close results, `agent/task/request`, and pushed by the
 // `agent/task/created` / `agent/task/closed`
 // notifications; `TaskParticipantSchema` is the membership row;
-// `ConversationSchema` the conversation row that `task/request` may return.
+// `ConversationSchema` the conversation row that `agent/task/request` may return.
 // The tagged errors are the task surface's shared failure channels.
 //
 // A task is the unit of admission: every conversation under a task draws its
@@ -252,7 +252,7 @@ export const TaskCreate = defineRpc({
  * every `conversation_participants` row under the task.
  *
  * Notification emission for each conversation the caller leaves uses
- * `TaskConversationParticipantsRemovedNotificationDefinition` with
+ * `ConversationParticipantsRemovedNotificationDefinition` with
  * `reason: "task_leave"`. If removal empties `task_participants` the task
  * transitions to `status = 'closed'` and `TaskClosedNotificationDefinition`
  * fires alongside in the same transaction.

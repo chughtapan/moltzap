@@ -41,8 +41,8 @@ export interface PresenceChangedPayload {
 /**
  * Subscriber actor: an agent client plus the historical
  * `NotificationBuffer` fed by its `subscribeAll()` pump. `acquireClient`
- * installs the pump before the subscriber issues `presence/subscribe`,
- * so `waitForPresenceWithStatus` observes every `presence/changed` frame
+ * installs the pump before the subscriber issues `network/presence/subscribe`,
+ * so `waitForPresenceWithStatus` observes every `network/presence-changed` frame
  * the server broadcasts — including ones that land between the
  * triggering action and the wait.
  */
@@ -107,7 +107,7 @@ function makeNotificationBuffer(
 }
 
 /**
- * Remove and return the first buffered `presence/changed` frame whose
+ * Remove and return the first buffered `network/presence-changed` frame whose
  * payload matches `expected.agentId` + `expected.status`, or `null` on
  * miss. Removal gives sequential `online → offline → online` waits a
  * consume-once semantic.
@@ -138,7 +138,7 @@ const PRESENCE_STREAM_CLOSED = "PRESENCE_STREAM_CLOSED" as const;
 type PresenceStreamClosed = typeof PRESENCE_STREAM_CLOSED;
 
 /**
- * Stream that polls the historical buffer for the first `presence/changed`
+ * Stream that polls the historical buffer for the first `network/presence-changed`
  * frame matching `expected`, emits it as a singleton chunk, and removes
  * it from the buffer. Empty chunks back off the poll without terminating
  * the stream so `Stream.runHead` blocks until either a match arrives, the
@@ -265,7 +265,7 @@ export function subscribePresence(
       Effect.mapError((e) =>
         presenceViolation(
           propertyName,
-          `presence/subscribe failed: ${String(e)}`,
+          `network/presence/subscribe failed: ${String(e)}`,
         ),
       ),
       Effect.asVoid,
@@ -273,13 +273,13 @@ export function subscribePresence(
 }
 
 /**
- * Wait for the next `presence/changed` notification whose payload
+ * Wait for the next `network/presence-changed` notification whose payload
  * matches `expected.agentId` + `expected.status`.
  *
  * Polls the subscriber's historical `NotificationBuffer` (fed by the
  * `subscribeAll()` pump installed at `acquireClient` time) rather than
  * materialising a fresh `subscribeAll()` Stream inline. The pump
- * buffers every notification from acquisition onward, so a `presence/changed`
+ * buffers every notification from acquisition onward, so a `network/presence-changed`
  * that lands between the triggering action and this wait is still
  * observable. Each match is removed from the buffer, giving sequential
  * `online → offline → online` waits a consume-once semantic.
@@ -297,14 +297,14 @@ export function waitForPresenceWithStatus(
       onTimeout: () =>
         presenceViolation(
           propertyName,
-          `timed out waiting for presence/changed { agentId: ${expected.agentId}, status: ${expected.status} }`,
+          `timed out waiting for network/presence-changed { agentId: ${expected.agentId}, status: ${expected.status} }`,
         ),
     }),
     Effect.mapError((e) =>
       e === PRESENCE_STREAM_CLOSED
         ? presenceViolation(
             propertyName,
-            `connection closed before presence/changed { agentId: ${expected.agentId}, status: ${expected.status} } arrived`,
+            `connection closed before network/presence-changed { agentId: ${expected.agentId}, status: ${expected.status} } arrived`,
           )
         : e,
     ),
@@ -314,7 +314,7 @@ export function waitForPresenceWithStatus(
         : Effect.fail(
             presenceViolation(
               propertyName,
-              `event stream exhausted before presence/changed { agentId: ${expected.agentId}, status: ${expected.status} } arrived`,
+              `event stream exhausted before network/presence-changed { agentId: ${expected.agentId}, status: ${expected.status} } arrived`,
             ),
           ),
     ),

@@ -243,11 +243,11 @@ export interface LeaseRecord {
 }
 ```
 
-Snapshot of a lease for `dispatches/get` and observability tests.
+Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L489)
+### [`leaseRecordToWire`](./lease-registry.ts#L488)
 
 _Function_
 
@@ -267,7 +267,7 @@ export interface LeaseRegistry {
   /**
    * Mint a new PENDING lease. Synchronous (`Effect&lt;..., never>`) — the
    * registry is in-process. Records the moderator-bound binding for audit,
-   * `dispatches/get`, and connection-close cleanup.
+   * `app/dispatch/lease/get`, and connection-close cleanup.
    *
    * Both ids are minted via `crypto.randomUUID()`; the brand on
    * `LeaseId` / `DispatchId` keeps them disjoint at every call site.
@@ -281,7 +281,7 @@ export interface LeaseRegistry {
    * the moderator's verdict (or a synthesized verdict for app-unavailable /
    * moderator-timeout). First writer wins via `Ref.modify`; second `resolve`
    * against the same lease fails with `LeaseInvalidError`. Internally calls the
-   * module-local `emitDispatchRelease` helper so `dispatch/release` fires on
+   * module-local `emitDispatchRelease` helper so `agent/dispatch/released` fires on
    * every resolution path uniformly.
    */
   resolve(
@@ -305,7 +305,7 @@ export interface LeaseRegistry {
   ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError, never>;
 
   /**
-   * Snapshot read for `dispatches/get`. Includes the live `leaseId` —
+   * Snapshot read for `app/dispatch/lease/get`. Includes the live `leaseId` —
    * the moderator is the authority for the lease, so live-id visibility
    * is in-scope.
    *
@@ -331,16 +331,16 @@ export interface LeaseRegistry {
    * - **PENDING → ABANDONED**: cancels the forked moderator round-trip
    *   (its `resolve` call against the now-ABANDONED lease returns
    *   `LeaseInvalidError(state=ABANDONED, expected=PENDING)`, which the
-   *   forked fiber catches and discards). No `dispatch/release`
+   *   forked fiber catches and discards). No `agent/dispatch/released`
    *   notification fires (the recipient is gone).
    *
    * - **GRANTED → EXPIRED-on-disconnect**: terminal state; emits
-   *   `dispatches/expired` to the moderator. Cancels the post-grant TTL
+   *   `app/dispatch/lease-expired` to the moderator. Cancels the post-grant TTL
    *   fiber. The recipient won't observe; the moderator's view stays
    *   consistent.
    *
    * - **CLAIMED → no-op (load-bearing rule 2)**: a CLAIMED lease has an
-   *   in-flight `messages/send` owning it via `Effect.acquireUseRelease`.
+   *   in-flight `agent/message/send` owning it via `Effect.acquireUseRelease`.
    *   Disconnecting mid-insert MUST NOT roll back the lease — the
    *   release-arm of the acquireUseRelease is responsible. Otherwise a
    *   committed durable row could be retried into a duplicate.
@@ -376,7 +376,7 @@ export interface LeaseRegistry {
    * Each interrupted fiber runs its disconnect cleanup
    * (`MoltZapServer`/`socket/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
    * `onExit` region, and that cleanup calls {@link abandon}. For a recipient
-   * connection holding a GRANTED lease, `abandon` emits a `dispatches/expired`
+   * connection holding a GRANTED lease, `abandon` emits a `app/dispatch/lease-expired`
    * frame to the MODERATOR connection via {@link fireNotification}. When the
    * moderator socket is being torn down concurrently its write-latch is
    * closed, so the cross-connection write SUSPENDS forever — inside the
@@ -401,7 +401,7 @@ stateDiagram-v2
   PENDING --> HOLD : verdict hold
   PENDING --> ABANDONED : conn close
   HOLD --> PENDING : retry on next inbound message in same conv
-  GRANTED --> CLAIMED : messages/send claim
+  GRANTED --> CLAIMED : agent/message/send claim
   GRANTED --> EXPIRED : TTL fires OR conn close
   HOLD --> EXPIRED : conn close
   CLAIMED --> CONSUMED : insert ok — finalize(messageId)
@@ -422,15 +422,15 @@ sequenceDiagram
   participant Mod as Moderator
   participant MS as MessageService
 
-  Recv->>AH: dispatch/request (C→S)
+  Recv->>AH: agent/dispatch/request (C→S)
   AH->>LR: mint(binding) — PENDING
   LR-->>AH: {leaseId, dispatchId}
   AH-->>Recv: ack returned immediately
   AH->>Mod: Effect.fork — dispatchAuthorizeHook
   Mod-->>AH: verdict
   AH->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
-  AH->>Recv: dispatch/release {verdict}
-  Recv->>MS: messages/send with dispatchLeaseId
+  AH->>Recv: agent/dispatch/released {verdict}
+  Recv->>MS: agent/message/send with dispatchLeaseId
   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
   Note over MS: Effect.acquireUseRelease<br>use sendInsert returns carrier<br>release Exit success → claim.finalize CLAIMED → CONSUMED<br>release Exit failure → claim.rollback CLAIMED → GRANTED
   MS->>MS: sendCommit — post-insert side effects
@@ -451,7 +451,7 @@ scheduler fibers are forbidden. Manifest TTLs come from the
 `dispatch_authorize` `{ kind: "hook", timeoutMs }` policy (moderator
 response) and the verdict's `leaseTimeoutMs` (post-grant lease).
 
-### [`LeaseRegistryDeps`](./lease-registry.ts#L432)
+### [`LeaseRegistryDeps`](./lease-registry.ts#L431)
 
 _Interface_
 
@@ -465,8 +465,8 @@ export interface LeaseRegistryDeps {
 
 Constructor dependencies for the lease registry.
 - `connections`: looked up by the internal `emitDispatchRelease`
-  helper to find the recipient and at `dispatches/consumed` /
-  `dispatches/expired` emission to find the moderator's connection.
+  helper to find the recipient and at `app/dispatch/lease-consumed` /
+  `app/dispatch/lease-expired` emission to find the moderator's connection.
 - `leaseRetentionMs`: terminal-state retention window (CONSUMED /
   DENIED / EXPIRED / ABANDONED). Live states (PENDING / GRANTED /
   HOLD / CLAIMED) age out on their own TTLs.
@@ -478,9 +478,8 @@ Constructor dependencies for the lease registry.
   `noopLeaseTransitionObserver` constant (tests that do not exercise
   presence). Required-not-default is structurally tighter: TypeScript
   surfaces missing wiring at the call site. See
-  `../../network/services/presence-types.ts → LeaseTransitionObserver`
-  for the call shape; the per-transition contract lives in
-  `../../network/services/presence.service.ts → PresenceService`.
+  `network/presence → LeaseTransitionObserver` for the call shape; the
+  per-transition contract lives in `network/presence → PresenceService`.
 
 ### [`LeaseState`](./lease-registry.ts#L111)
 
@@ -532,7 +531,7 @@ Dispatch admission is only defined for app-bound, non-archived
 conversations. The success type deliberately has no non-app-bound arm, so
 downstream lease minting cannot accidentally handle one as a lease binding.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1223)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1227)
 
 _Function_
 
@@ -569,7 +568,7 @@ export interface ModeratorBoundLeaseBinding {
 }
 ```
 
-Audit binding recorded at `mint` time. Used by `dispatches/get`
+Audit binding recorded at `mint` time. Used by `app/dispatch/lease/get`
 scope-enforcement, moderator observability, and connection-close cleanup.
 Once recorded, the binding is immutable for the lease's lifetime.
 

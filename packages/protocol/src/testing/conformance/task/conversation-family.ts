@@ -1,5 +1,5 @@
 /**
- * Conformance properties for the `task/*` + `task/conversation/*` family
+ * Conformance properties for the `task` + `conversation` family
  * (8 methods × 9 properties, N/A cells excluded). One `register*` per
  * method anchors a property whose body exercises the spec-body-mandated
  * case: schema decode, happy-path delivery, participant-admitted
@@ -10,7 +10,7 @@
  * of setup each without adding coverage. The "one property per method"
  * shape is preserved via separate `register*` functions per method.
  *
- * Out of scope (covered by the `task-conversation-family.test.ts`
+ * Out of scope (covered by the server conversation-family integration test
  * integration suite under
  * `packages/server/src/__tests__/integration/task/`):
  *   - Transaction rollback (requires real Postgres mid-tx failure).
@@ -30,9 +30,9 @@ import {
   type TaskId,
 } from "../../../task/index.js";
 import {
-  TaskConversationList,
+  ConversationList,
   type Conversation,
-  type TaskConversationListItem,
+  type ConversationListItem,
 } from "../../../conversation/index.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
 import { type TestAgent } from "../_shared/test-fixtures.js";
@@ -90,7 +90,7 @@ const createTaskCreate = (
         requireRight(res, (e) =>
           deliveryViolation(
             TASK_CREATE_PROPERTY,
-            `task/create: ${e._tag ?? String(e)}`,
+            `app/task/create: ${e._tag ?? String(e)}`,
           ),
         ),
       ),
@@ -100,8 +100,8 @@ const assertTaskCreateShape = (payload: {
   task: { status: string };
   conversation: Conversation | null;
 }): Effect.Effect<void, FixtureError> => {
-  // The conformance moderator auto-accepts the task/create TM
-  // callback, so task/request returns an `active` task (waiting →
+  // The conformance moderator auto-accepts the app/task/create TM
+  // callback, so agent/task/request returns an `active` task (waiting →
   // active transition completes before the RPC resolves).
   if (payload.task.status !== "active") {
     return Effect.fail(
@@ -127,7 +127,7 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     TASK_CREATE_PROPERTY,
-    "task/request under an accepting TM transitions waiting → active and fires task/created to the initiator",
+    "agent/task/request under an accepting TM transitions waiting → active and fires agent/task/created to the initiator",
     Effect.scoped(
       Effect.gen(function* () {
         const alice = yield* acquireActor(
@@ -143,7 +143,7 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
           return yield* Effect.fail(
             deliveryViolation(
               TASK_CREATE_PROPERTY,
-              `task/created carried task.id ${event.params.task.id}, expected ${payload.task.id}`,
+              `agent/task/created carried task.id ${event.params.task.id}, expected ${payload.task.id}`,
             ),
           );
         }
@@ -151,7 +151,7 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
           return yield* Effect.fail(
             deliveryViolation(
               TASK_CREATE_PROPERTY,
-              `task/created carried status ${event.params.task.status}, expected active`,
+              `agent/task/created carried status ${event.params.task.status}, expected active`,
             ),
           );
         }
@@ -167,7 +167,7 @@ const awaitTaskCreated = (actor: Actor, property: string) =>
     DELIVERY_DEFAULT_TIMEOUT_MS,
   ).pipe(
     Effect.mapError((reason) =>
-      deliveryViolation(property, `task/created missing: ${reason}`),
+      deliveryViolation(property, `agent/task/created missing: ${reason}`),
     ),
   );
 
@@ -177,8 +177,8 @@ const TASK_REQUEST_REJECT_PROPERTY = "task-request-tm-reject";
 const REJECT_REASON = "app_policy";
 
 // Register a SEPARATE app principal (HTTP + `appKey` Connect) whose
-// `task/create` callback always rejects. Returns the server-minted appId
-// that the requesting agent targets in `task/request`.
+// `app/task/create` callback always rejects. Returns the server-minted appId
+// that the requesting agent targets in `agent/task/request`.
 const registerRejectingTm = (ctx: ConformanceRunContext) =>
   registerTestApp({
     baseUrl: ctx.realServer.baseUrl,
@@ -223,7 +223,7 @@ const assertTaskRequestFailed = (
         : Effect.fail(
             deliveryViolation(
               TASK_REQUEST_REJECT_PROPERTY,
-              `task/request failed with ${String(tag)}, expected TaskRejected`,
+              `agent/task/request failed with ${String(tag)}, expected TaskRejected`,
             ),
           );
     },
@@ -231,7 +231,7 @@ const assertTaskRequestFailed = (
       Effect.fail(
         deliveryViolation(
           TASK_REQUEST_REJECT_PROPERTY,
-          "task/request resolved OK; expected an RPC error on TM reject",
+          "agent/task/request resolved OK; expected an RPC error on TM reject",
         ),
       ),
   });
@@ -265,7 +265,7 @@ export function registerTaskRequestReject(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     TASK_REQUEST_REJECT_PROPERTY,
-    "task/request fails and fires task/failed when the bound TM rejects via the task/create callback",
+    "agent/task/request fails and fires task/failed when the bound TM rejects via the app/task/create callback",
     Effect.scoped(
       Effect.gen(function* () {
         const alice = yield* acquireActor(
@@ -326,7 +326,10 @@ const createSelfOnlyTask = (
       Effect.either,
       Effect.flatMap((res) =>
         requireRight(res, (e) =>
-          deliveryViolation(property, `task/create: ${e._tag ?? String(e)}`),
+          deliveryViolation(
+            property,
+            `app/task/create: ${e._tag ?? String(e)}`,
+          ),
         ),
       ),
       Effect.map((r) => r.task),
@@ -351,9 +354,9 @@ export function registerTaskLeave(ctx: ConformanceRunContext): void {
   );
 }
 
-// ─── TaskConversationCreate + List ───────────────────────────────────
+// ─── Conversation Create + List ──────────────────────────────────────
 
-const TCC_LIST_PROPERTY = "task-conversation-create-list";
+const CONVERSATION_LIST_PROPERTY = "conversation-create-list";
 
 const createTaskWithInitialConversation = (
   alice: Actor,
@@ -377,22 +380,25 @@ const createTaskWithInitialConversation = (
       Effect.either,
       Effect.flatMap((res) =>
         requireRight(res, (e) =>
-          deliveryViolation(property, `task/create: ${e._tag ?? String(e)}`),
+          deliveryViolation(
+            property,
+            `app/task/create: ${e._tag ?? String(e)}`,
+          ),
         ),
       ),
     );
 
-const listTaskConversations = (
+const listConversations = (
   alice: Actor,
   property: string,
-): Effect.Effect<readonly TaskConversationListItem[], FixtureError> =>
-  alice.client.sendRpc(TaskConversationList, {}).pipe(
+): Effect.Effect<readonly ConversationListItem[], FixtureError> =>
+  alice.client.sendRpc(ConversationList, {}).pipe(
     Effect.either,
     Effect.flatMap((res) =>
       requireRight(res, (e) =>
         deliveryViolation(
           property,
-          `task/conversation/list: ${e._tag ?? String(e)}`,
+          `agent/conversation/list: ${e._tag ?? String(e)}`,
         ),
       ),
     ),
@@ -400,7 +406,7 @@ const listTaskConversations = (
   );
 
 const assertItemMatches = (
-  items: readonly TaskConversationListItem[],
+  items: readonly ConversationListItem[],
   conversation: Conversation,
   expectedTaskId: TaskId,
 ): Effect.Effect<void, FixtureError> => {
@@ -408,7 +414,7 @@ const assertItemMatches = (
   if (found === undefined) {
     return Effect.fail(
       deliveryViolation(
-        TCC_LIST_PROPERTY,
+        CONVERSATION_LIST_PROPERTY,
         "list did not surface the just-created conversation",
       ),
     );
@@ -416,7 +422,7 @@ const assertItemMatches = (
   if (found.taskId !== expectedTaskId) {
     return Effect.fail(
       deliveryViolation(
-        TCC_LIST_PROPERTY,
+        CONVERSATION_LIST_PROPERTY,
         `list item taskId mismatch (got ${found.taskId}, want ${expectedTaskId})`,
       ),
     );
@@ -424,46 +430,57 @@ const assertItemMatches = (
   return Effect.void;
 };
 
-export function registerTaskConversationCreateAndList(
+export function registerConversationCreateAndList(
   ctx: ConformanceRunContext,
 ): void {
   registerProperty(
     ctx,
     CATEGORY,
-    TCC_LIST_PROPERTY,
-    "TaskRequest(initialConversation) + TaskConversationList surface the new conversation",
+    CONVERSATION_LIST_PROPERTY,
+    "TaskRequest(initialConversation) + ConversationList surface the new conversation",
     Effect.scoped(
       Effect.gen(function* () {
-        const alice = yield* acquireActor(ctx, TCC_LIST_PROPERTY, "tcf-tcl-a");
-        const bob = yield* acquireActor(ctx, TCC_LIST_PROPERTY, "tcf-tcl-b");
+        const alice = yield* acquireActor(
+          ctx,
+          CONVERSATION_LIST_PROPERTY,
+          "tcf-tcl-a",
+        );
+        const bob = yield* acquireActor(
+          ctx,
+          CONVERSATION_LIST_PROPERTY,
+          "tcf-tcl-b",
+        );
         const payload = yield* createTaskWithInitialConversation(
           alice,
           bob,
           "conformance",
-          TCC_LIST_PROPERTY,
+          CONVERSATION_LIST_PROPERTY,
         );
         if (payload.conversation === null) {
           return yield* Effect.fail(
             deliveryViolation(
-              TCC_LIST_PROPERTY,
+              CONVERSATION_LIST_PROPERTY,
               "initialConversation supplied but conversation returned null",
             ),
           );
         }
-        const items = yield* listTaskConversations(alice, TCC_LIST_PROPERTY);
+        const items = yield* listConversations(
+          alice,
+          CONVERSATION_LIST_PROPERTY,
+        );
         yield* assertItemMatches(items, payload.conversation, payload.task.id);
       }),
-    ).pipe(Effect.withSpan("registerTaskConversationCreateAndList")),
+    ).pipe(Effect.withSpan("registerConversationCreateAndList")),
   );
 }
 
 // ─── Aggregate ───────────────────────────────────────────────────────
 
-export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
+export const CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
 > = [
   registerTaskCreate,
   registerTaskRequestReject,
   registerTaskLeave,
-  registerTaskConversationCreateAndList,
+  registerConversationCreateAndList,
 ];

@@ -125,7 +125,7 @@ connection → agent.
 
 All mutators run inside a single Ref.update so the forward and
 reverse views never disagree, even under concurrent add /
-remove calls from independent `agent/connect` and disconnect
+remove calls from independent `agent/network/connect` and disconnect
 fibers.
 
 ### [`applyOutboundWebhookCap`](./outbound-webhook-cap.ts#L50)
@@ -162,6 +162,22 @@ in `agentIds`. The notification rides the reverse `RpcClient` on each target
 connection (fired fork-and-forget, the `void` result settles on the client's
 ack); the client's reverse `RpcServer` routes it into its
 `SubscriberRegistry`. Replaces the raw `socket.write(encodedFrame)` path.
+
+### [`connectAgent`](./connect.handlers.ts#L446)
+
+_Variable_
+
+```ts
+export const connectAgent: ServerHandler<typeof AgentConnect> = (params)
+```
+
+### [`connectApp`](./connect.handlers.ts#L449)
+
+_Variable_
+
+```ts
+export const connectApp: ServerHandler<typeof AppConnect> = (params)
+```
 
 ### [`connectionId`](./agent-endpoint-resolver.ts#L37)
 
@@ -261,7 +277,7 @@ export class NetworkSendService {
    *   (`conn.conversationIds.has(...)`); absent, every connection
    *   of every listed agent receives.
    * - `excludeConnectionId` — skip the named connection. The
-   *   `messages/send` author uses this to avoid echoing the RPC reply
+   *   `agent/message/send` author uses this to avoid echoing the RPC reply
    *   back as a notification.
    *
    * `delivered` lists agents whose at-least-one connection was
@@ -353,6 +369,7 @@ arbitrary `string` where a wire-ready frame is expected.
 ## Files
 
 - `agent-endpoint-resolver.ts`
+- `connect.handlers.ts`
 - `network-send.ts`
 - `notification-broadcast.ts`
 - `outbound-webhook-cap.ts`

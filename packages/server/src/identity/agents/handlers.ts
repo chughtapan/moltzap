@@ -9,7 +9,7 @@ import type { AgentContext } from "#socket";
 import { agentArm } from "#core";
 import { DbTag } from "#core";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
-import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
+import { visibleAgentIds } from "./visibility.service.js";
 import {
   decodeListCursor,
   keysetWhere,
@@ -51,7 +51,7 @@ interface AgentsListPageInput {
   readonly pos?: ListCursorPosition;
 }
 
-// Keyset-paginated `agents/list` page over `(created_at DESC, id ASC)`
+// Keyset-paginated `agent/identity/agents/list` page over `(created_at DESC, id ASC)`
 // restricted to the caller's visible set (Invariant 4). Returns the wire
 // result shape; `nextCursor` present iff a further page exists.
 function agentsListPage(input: AgentsListPageInput) {

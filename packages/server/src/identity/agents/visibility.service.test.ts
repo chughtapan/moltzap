@@ -10,7 +10,7 @@ import {
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
 } from "../../test-utils/index.js";
-import { visibleAgentIds } from "./agent-visibility.js";
+import { visibleAgentIds } from "./visibility.service.js";
 
 const ALICE_OWNER = userId("00000000-0000-4000-8000-00000000a11c");
 const BOB_OWNER = userId("00000000-0000-4000-8000-00000000b0b0");

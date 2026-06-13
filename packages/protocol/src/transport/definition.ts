@@ -83,7 +83,7 @@ export interface RpcDefinition<
    * requirement (`AgentPrincipal` | `AppPrincipal` |
    * `AuthenticatedPrincipal`); an optional `AgentClaimed` refinement
    * (agent-only) follows; the rest are requirement tags, in run order. Empty for
-   * the unauthenticated connect methods (`agent/connect`, `app/connect`). The
+   * the unauthenticated connect methods (`agent/network/connect`, `app/network/connect`). The
    * server stacks each requirement middleware; each element's `failure` folds
    * into the wire error union.
    */

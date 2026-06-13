@@ -238,7 +238,7 @@ export class TaskService {
    * never observes a stale `waiting` row after the verdict resolves.
    *
    * Returns the updated row so the handler can fan out
-   * `task/created { task }` or `task/failed { taskId, reason }`
+   * `agent/task/created { task }` or `task/failed { taskId, reason }`
    * without a second SELECT.
    */
   setStatus(
@@ -351,7 +351,7 @@ export class TaskService {
     return Effect.gen(this, function* () {
       const closedAt = new Date();
       const taskRow = yield* this.closeTaskRow(trx, id, closedAt);
-      const archivedRows = yield* this.archiveOpenTaskConversations(
+      const archivedRows = yield* this.archiveOpenConversations(
         trx,
         id,
         closedAt,
@@ -383,7 +383,7 @@ export class TaskService {
     );
   }
 
-  private archiveOpenTaskConversations(
+  private archiveOpenConversations(
     trx: TaskTransaction,
     id: TaskId,
     closedAt: Date,
@@ -591,8 +591,8 @@ export class TaskService {
   }
 
   /**
-   * Participant-membership check for the `task/conversation/*` admin
-   * handlers. The invariant is "agent has a row in
+   * Participant-membership check for app conversation mutation handlers. The
+   * invariant is "agent has a row in
    * `task_participants(task_id, agent_id)`"; admission state is a
    * separate gate (a row with `admitted_at IS NULL` still passes). The
    * stricter "admitted only" check used by message-send authority is
@@ -634,7 +634,7 @@ export class TaskService {
   }
 
   /**
-   * Participant-set dedup for `task/create` under the bundled
+   * Participant-set dedup for `app/task/create` under the bundled
    * DEFAULT_APP. Returns the extant task whose `task_participants`
    * set is exactly `{creator} ∪ invitedAgentIds` for the given
    * `appId`, or `null` if no match exists.
@@ -673,7 +673,7 @@ export class TaskService {
     creator: AgentId,
     appId: AppId,
   ): Effect.Effect<ReadonlyArray<TaskId>, SqlError> {
-    // Closed tasks are excluded so a fresh `task/create` after a close
+    // Closed tasks are excluded so a fresh `app/task/create` after a close
     // mints a new task instead of returning the dead one.
     return this.db
       .selectFrom("tasks")
@@ -753,8 +753,8 @@ export class TaskService {
       // each see the other under read-committed isolation, each skip
       // `maybeCloseEmptyTask`, and leave the task in a "0 participants
       // but not closed" state. The lock serializes leaves per task; the
-      // second call sees the post-DELETE state and either no-ops (if it
-      // was already deleted) or fires the closure path correctly.
+      // second call sees the post-DELETE state and either no-ops or fires the
+      // closure path correctly.
       yield* trx
         .selectFrom("tasks")
         .select("id")
@@ -828,16 +828,16 @@ export class TaskService {
   }
 
   /**
-   * `task/conversation/archive` body.
+   * `app/conversation/update` body.
    *
    * Returns the updated `Conversation` (with populated `archivedAt`)
-   * so the handler can fan out the `task/conversation/archived`
-   * notification. App-ownership (`assertAppOwnsTask`) is asserted by the
+   * so the handler can fan out the archive notification. App-ownership
+   * (`assertAppOwnsTask`) is asserted by the
    * app-arm handler before this call, so this body assumes authority is
    * proven. `ConversationInTask` is enforced by requirement middleware.
    * @internal
    */
-  archiveTaskConversation(
+  archiveConversation(
     id: TaskId,
     conversationId: ConversationId,
   ): Effect.Effect<
@@ -884,12 +884,12 @@ export class TaskService {
   }
 
   /**
-   * `task/conversation/unarchive` body. Idempotent (no-op when the
+   * `app/conversation/update` body. Idempotent (no-op when the
    * conversation is not archived). Returns the updated `Conversation`
    * (with `archivedAt` cleared).
    * @internal
    */
-  unarchiveTaskConversation(
+  unarchiveConversation(
     id: TaskId,
     conversationId: ConversationId,
   ): Effect.Effect<
@@ -914,7 +914,7 @@ export class TaskService {
   }
 
   /**
-   * `task/conversation/participants/add` body.
+   * `app/conversation/update` body.
    *
    * Inserts a new `conversation_participants` row (idempotent via
    * `ON CONFLICT DO NOTHING`) AND captures the post-mutation membership
@@ -926,7 +926,7 @@ export class TaskService {
    * `ConversationInTask` requirement.
    * @internal
    */
-  addTaskConversationParticipant(
+  addConversationParticipant(
     id: TaskId,
     conversationId: ConversationId,
     agentId: AgentId,
@@ -957,7 +957,7 @@ export class TaskService {
   }
 
   /**
-   * `task/conversation/participants/remove` body.
+   * `app/conversation/update` body.
    *
    * Returns the pre-mutation membership snapshot so the handler can
    * fan out the participants-removed notification to the removed
@@ -967,7 +967,7 @@ export class TaskService {
    * `conversation_participants` becomes empty.
    * @internal
    */
-  removeTaskConversationParticipant(
+  removeConversationParticipant(
     id: TaskId,
     conversationId: ConversationId,
     agentId: AgentId,

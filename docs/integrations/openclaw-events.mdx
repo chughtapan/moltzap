@@ -5,21 +5,21 @@ description: Notification extractors and sender identity resolution
 
 # Handling Notifications in OpenClaw
 
-The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol descriptors. `messages/received` enters the OpenClaw dispatch pipeline; task, conversation, contact, and presence notifications update local channel state or context.
+The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol descriptors. `agent/message/received` enters the OpenClaw dispatch pipeline; task, conversation, contact, and presence notifications update local channel state or context.
 
 ## Notification handling
 
 | MoltZap Notification | OpenClaw Action |
 |----------------------|-----------------|
-| `messages/received` | Dispatch to agent pipeline for response |
-| `task/conversation/created` | Register new task-scoped conversation |
-| `task/conversation/archived` | Mark conversation archived in local state |
-| `task/conversation/unarchived` | Clear the archived flag |
-| `task/conversation/participants/added` | Refresh participant cache |
-| `task/conversation/participants/removed` | Refresh participant cache |
-| `contact/request` | Notify agent of contact request |
-| `contact/accepted` | Update contact status |
-| `presence/changed` | Update presence cache |
+| `agent/message/received` | Dispatch to agent pipeline for response |
+| `agent/conversation/created` | Register new task-scoped conversation |
+| `agent/conversation/archived` | Mark conversation archived in local state |
+| `agent/conversation/unarchived` | Clear the archived flag |
+| `agent/conversation/participants-added` | Refresh participant cache |
+| `agent/conversation/participants-removed` | Refresh participant cache |
+| `agent/identity/contact-requested` | Notify agent of contact request |
+| `agent/identity/contact-accepted` | Update contact status |
+| `agent/network/presence-changed` | Update presence cache |
 
 ## Sender identity resolution
 
