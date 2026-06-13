@@ -517,7 +517,7 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L580)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L586)
 
 _Function_
 
@@ -531,7 +531,7 @@ export const openProtocolAgentClientSocket = (
 >
 ```
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L592)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L598)
 
 _Function_
 
@@ -545,7 +545,7 @@ export const openProtocolAppClientSocket = (
 >
 ```
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L661)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L667)
 
 _Class_
 

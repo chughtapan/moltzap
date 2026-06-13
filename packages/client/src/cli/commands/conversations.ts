@@ -1,8 +1,3 @@
-/**
- * D3 cutover: only `history` survives; legacy list/create/archive/etc.
- * subcommands ship in the D3 ADD slice once typed `Task*` CLI helpers
- * land at the transport boundary.
- */
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import { ConversationId } from "@moltzap/protocol/conversation";
@@ -67,11 +62,6 @@ const historySubcommand = Command.make(
   historyHandler,
 ).pipe(Command.withDescription("Show message history for a conversation"));
 
-/**
- * `moltzap conversations [history]` — the legacy CRUD subcommands
- * retire with the `Conversations*` wire surface; restructure to
- * `Task*` / `TaskConversation*` ships in the D3 ADD slice.
- */
 export const conversationsCommand = Command.make("conversations", {}, () =>
   logLines([
     "moltzap conversations: only `history` is supported in this release.",

@@ -128,7 +128,7 @@ it("property: notification method matcher is exact", () =>
     );
   }));
 
-it("contacts/add fans contact/request to the recipient", () =>
+it("agent/identity/contacts/add fans contact/request to the recipient", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
     const bobRequestsFiber = yield* collectContactRequests(bobClient);
@@ -144,7 +144,7 @@ it("contacts/add fans contact/request to the recipient", () =>
     expect(aliceRequests).toHaveLength(0);
   }));
 
-it("contacts/accept fans contact/accepted to the requester", () =>
+it("agent/identity/contacts/accept fans contact/accepted to the requester", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
     const added = yield* aliceClient.sendRpc(ContactsAdd, {
@@ -163,7 +163,7 @@ it("contacts/accept fans contact/accepted to the requester", () =>
     expect(aliceAccepted[0]!.contact.contactUserId).toBe(BOB_USER_ID);
   }));
 
-it("contacts/accept is idempotent", () =>
+it("agent/identity/contacts/accept is idempotent", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
     const added = yield* aliceClient.sendRpc(ContactsAdd, {
@@ -181,7 +181,7 @@ it("contacts/accept is idempotent", () =>
     expect(aliceAccepted).toHaveLength(1);
   }));
 
-it("contacts/list returns both accepted rows", () =>
+it("agent/identity/contacts/list returns both accepted rows", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
     const added = yield* aliceClient.sendRpc(ContactsAdd, {
@@ -201,7 +201,7 @@ it("contacts/list returns both accepted rows", () =>
     );
   }));
 
-it("contacts/add rejects self-add", () =>
+it("agent/identity/contacts/add rejects self-add", () =>
   Effect.gen(function* () {
     const aliceReg = yield* registerClaimedAgent({
       baseUrl,

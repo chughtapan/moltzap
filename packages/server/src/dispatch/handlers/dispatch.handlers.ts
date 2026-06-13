@@ -1,7 +1,7 @@
 import type { AgentContext } from "#socket";
 import {
   DispatchRequest,
-  DispatchesGet,
+  DispatchLeaseGet,
 } from "@moltzap/protocol/message/dispatch";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
@@ -15,8 +15,8 @@ import {
 import { leaseRecordToWire } from "#dispatch";
 import { agentArm } from "#core";
 
-// `dispatch/request` — returns ack immediately, forks the moderator round-trip,
-// recipient observes the verdict via `dispatch/release` notification.
+// `agent/dispatch/request` — returns ack immediately, forks the moderator round-trip,
+// recipient observes the verdict via `agent/dispatch/released` notification.
 // Agent-called: its `requires` head is `AgentPrincipal`, so the body receives a
 // narrowed `AgentContext` and reads `ctx.agentId` as `recipientAgentId`. The
 // `AgentClaimed` requirement is load-bearing — only a claimed agent may dispatch.
@@ -42,10 +42,10 @@ function dispatchRequestBody(
   }).pipe(Effect.withSpan("dispatch.request"));
 }
 
-// `dispatches/get` — moderator-only read. Scope-enforced: the lease must be
+// `app/dispatch/lease/get` — moderator-only read. Scope-enforced: the lease must be
 // moderator-bound and the calling connection MUST match that binding. Otherwise
 // typed `ForbiddenError`.
-function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
+function dispatchLeaseGetBody(params: ParamsOf<typeof DispatchLeaseGet>) {
   return Effect.gen(function* () {
     const connection = yield* ConnectionTag;
     const registry = yield* LeaseRegistryTag;
@@ -55,7 +55,7 @@ function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
         Effect.catchTag("LeaseNotFoundError", () =>
           Effect.fail(
             new ForbiddenError({
-              message: "dispatches/get not authorized for this lease",
+              message: "app/dispatch/lease/get not authorized for this lease",
             }),
           ),
         ),
@@ -63,7 +63,7 @@ function dispatchesGetBody(params: ParamsOf<typeof DispatchesGet>) {
     if (record.binding.moderatorConnectionId !== connection.connId) {
       return yield* Effect.fail(
         new ForbiddenError({
-          message: "dispatches/get not authorized for this lease",
+          message: "app/dispatch/lease/get not authorized for this lease",
         }),
       );
     }
@@ -80,7 +80,9 @@ export const dispatchRequest: ServerHandler<typeof DispatchRequest> = (
     return yield* dispatchRequestBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("dispatchRequest"));
 
-export const dispatchesGet: ServerHandler<typeof DispatchesGet> = (params) =>
+export const dispatchLeaseGet: ServerHandler<typeof DispatchLeaseGet> = (
+  params,
+) =>
   Effect.gen(function* () {
-    return yield* dispatchesGetBody(params);
-  }).pipe(Effect.withSpan("dispatchesGet"));
+    return yield* dispatchLeaseGetBody(params);
+  }).pipe(Effect.withSpan("dispatchLeaseGet"));

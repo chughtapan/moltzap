@@ -1,8 +1,8 @@
 /**
  * Authorized caller → typed success on at least one known-safe RPC.
  * Registers a fresh agent, completes the handshake, calls
- * `conversations/list` (empty-collection result is defined for every
- * newly-registered agent), asserts a Right outcome.
+ * `agent/task/list` (empty-collection result is defined for every
+ * newly-registered agent), and asserts a Right outcome.
  */
 import { Effect } from "effect";
 import { TaskList } from "@moltzap/protocol/task";
@@ -31,7 +31,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     PROPERTY,
-    "authorized agent → typed success on conversations/list",
+    "authorized agent -> typed success on agent/task/list",
     Effect.scoped(
       Effect.gen(function* () {
         const agent = yield* registerTestAgent({
@@ -58,7 +58,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
             new PropertyInvariantViolation({
               category: CATEGORY,
               name: PROPERTY,
-              reason: `authorized conversations/list failed: ${failure._tag}`,
+              reason: `authorized agent/task/list failed: ${failure._tag}`,
             }),
           );
         }

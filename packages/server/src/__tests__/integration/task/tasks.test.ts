@@ -122,11 +122,11 @@ function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
     [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
-      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
     [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
-      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
     [TaskCreate.name]: {
       definition: TaskCreate,
@@ -136,14 +136,14 @@ function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
   };
 }
 
-it("task/request returns an active task bound to the supplied appId", () =>
+it("agent/task/request returns an active task bound to the supplied appId", () =>
   Effect.gen(function* () {
     const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
     const result = yield* aliceClient.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
-    // DEFAULT_APP auto-accepts the task/create TM callback → active.
+    // DEFAULT_APP auto-accepts the app/task/create TM callback → active.
     expect(result.task.status).toBe(ACTIVE_STATUS);
     expect(result.task.initiatorAgentId).toBe(aliceAgentId);
     expect(result.task.appId).toBe(DEFAULT_APP_ID);
@@ -155,7 +155,7 @@ it("TM authority: only the app principal may mutate task membership", () =>
     // TM-admin RPC (`app/task/update`) heads its `requires` with `AppPrincipal`. The
     // moderator is a SEPARATE app principal: it registers via HTTP, then
     // `appKey`-Connects to bind its `AppConnection` as the app's endpoint.
-    // Alice (agent) drives the agent-only `task/request`; the app client
+    // Alice (agent) drives the agent-only `agent/task/request`; the app client
     // does the membership mutations. Neither agent (`alice` nor `bob`) can
     // call the app-only admin RPCs — the gate rejects the non-app arm.
     const registered = yield* registerApp(

@@ -37,7 +37,7 @@ export function lookupAppBoundForConversation(
       );
       if (Option.isNone(rowOpt) || rowOpt.value.app_id === null) {
         return yield* Effect.dieMessage(
-          `dispatch/request requires an app-bound conversation: ${conversationId}`,
+          `agent/dispatch/request requires an app-bound conversation: ${conversationId}`,
         );
       }
       const lookup: AppBoundConversationLookup = {

@@ -17,7 +17,7 @@
  *
  * Auth-lifecycle:
  * - Socket connect: NOT yet added to the resolver (no `agentId` known).
- * - `agent/connect` success: {@link add} writes the entry atomically.
+ * - `agent/network/connect` success: {@link add} writes the entry atomically.
  * - Disconnect: {@link remove} removes the entry whether the connection
  *   was authed or not (idempotent on never-authed connections).
  *
@@ -58,7 +58,7 @@ const emptyState: ResolverState = {
  *
  * All mutators run inside a single {@link Ref.update} so the forward and
  * reverse views never disagree, even under concurrent {@link add} /
- * {@link remove} calls from independent `agent/connect` and disconnect
+ * {@link remove} calls from independent `agent/network/connect` and disconnect
  * fibers.
  */
 export class AgentEndpointResolver {

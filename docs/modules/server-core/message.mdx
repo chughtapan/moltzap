@@ -91,9 +91,9 @@ export class MessageAuthorizationService {
         params: this.messageAuthorizeParamsForWire(ctx),
       }).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
-      timeoutLogMessage: "messages/authorize timed out",
+      timeoutLogMessage: "app/message/authorize timed out",
       timeoutLogContext: { taskId, appId, timeoutMs },
-      errorLogMessage: "messages/authorize error",
+      errorLogMessage: "app/message/authorize error",
       errorLogContext: { taskId, appId },
       onTimeout: () => ({
         decision: "Block",

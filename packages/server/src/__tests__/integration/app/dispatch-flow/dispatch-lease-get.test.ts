@@ -1,18 +1,18 @@
 /**
- * `dispatch/{request, authorize, release}` + `dispatches/{consumed, expired,
- * get}` admission surface.
+ * `agent/dispatch/request`, `app/dispatch/authorize`,
+ * `agent/dispatch/released`, and `app/dispatch/lease-*` admission surface.
  *
- * Bucket file: `dispatches-get` group. Each bucket owns its own server fixture
+ * Bucket file: `dispatch-lease-get` group. Each bucket owns its own server fixture
  * so vitest can execute buckets concurrently without sharing state.
  *
- * The recipient calls `dispatch/request` over WS; server mints a lease, returns ack
+ * The recipient calls `agent/dispatch/request` over WS; server mints a lease, returns ack
  * synchronously, forks the moderator round-trip; recipient observes
- * the verdict via `dispatch/release` notification. `messages/send(
+ * the verdict via `agent/dispatch/released` notification. `agent/message/send(
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import { DispatchesGet } from "@moltzap/protocol/message/dispatch";
+import { DispatchLeaseGet } from "@moltzap/protocol/message/dispatch";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { DispatchId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
@@ -21,7 +21,7 @@ import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_STATE_GRANTED,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
+  createConversationOnApp,
   createDispatchFlowFixture,
   MODERATED_HOOKS,
   moderatorAppClient,
@@ -83,7 +83,7 @@ function requestWireModeratedDispatch(
     // a static verdict in-process.
     fixture.setNextHookVerdict({ decision: "grant" });
     yield* attachDispatchAuthorizeHook(requester, fixture);
-    const { conversationId } = yield* createTaskConversationOnApp(
+    const { conversationId } = yield* createConversationOnApp(
       requester,
       recipient,
       WIRE_APP_MANIFEST,
@@ -110,7 +110,7 @@ function registryDirectReadShowsGrantedLease() {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const { conversationId } = yield* createTaskConversationOnApp(
+    const { conversationId } = yield* createConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
@@ -135,9 +135,9 @@ function wireModeratorReadsGrantedLease() {
     const recipient = yield* registerAndConnect("wire-recipient");
     const ack = yield* requestWireModeratedDispatch(requester, recipient);
 
-    // `dispatches/get` is moderator-scoped: only the lease's
+    // `app/dispatch/lease/get` is moderator-scoped: only the lease's
     // `moderatorConnectionId` (the fixture's app `AppConnection`) may read it.
-    const view = yield* moderatorAppClient().sendRpc(DispatchesGet, {
+    const view = yield* moderatorAppClient().sendRpc(DispatchLeaseGet, {
       dispatchId: ack.dispatchId as DispatchId,
     });
     expect(view.lease.dispatchId).toBe(ack.dispatchId);
@@ -146,15 +146,15 @@ function wireModeratorReadsGrantedLease() {
   });
 }
 
-describe("dispatch/* — dispatches/get reads", () => {
+describe("dispatch/* — app/dispatch/lease/get reads", () => {
   it(
-    "dispatches/get happy path: granted lease is readable with state=GRANTED",
+    "app/dispatch/lease/get happy path: granted lease is readable with state=GRANTED",
     registryDirectReadShowsGrantedLease,
     20_000,
   );
 
   it(
-    "dispatches/get wire happy path: moderator over WS reads its lease record at GRANTED stage",
+    "app/dispatch/lease/get wire happy path: moderator over WS reads its lease record at GRANTED stage",
     wireModeratorReadsGrantedLease,
     25_000,
   );

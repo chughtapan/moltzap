@@ -7,7 +7,7 @@ import type { Originator } from "#socket";
  * The minimal server→app dispatch surface a registration needs: the
  * connection id (for close-time cleanup via `unregisterByConnection`) and
  * the outbound {@link Originator} (the `sendRpcToClient` channel). Minted from
- * the live `AppConnection` arm's `{ connId, originator }` at `app/connect`.
+ * the live `AppConnection` arm's `{ connId, originator }` at `app/network/connect`.
  * The boot-installed default app carries an inert endpoint
  * (`default-app.ts -> makeDefaultAppEndpoint`) whose originator defects. Its
  * manifest declares only static policies, so domain callback services never
@@ -22,7 +22,7 @@ export interface AppEndpoint {
  * A registered app. There is NO `InProcess` vs `Remote` distinction —
  * every app, including the boot-installed default, carries an
  * {@link AppEndpoint}. Connected apps hold the `{ connId, originator }`
- * minted from the `AppConnection` arm their `app/connect` call arrived on;
+ * minted from the `AppConnection` arm their `app/network/connect` call arrived on;
  * the default app holds an inert endpoint (see
  * `default-app.ts -> makeDefaultAppEndpoint`) and declares only static
  * policies. Domain callback services only call the endpoint for a
@@ -39,7 +39,7 @@ export interface AppRegistration {
  * notion of "boot" vs "connected" — both go through {@link register}.
  * The registry itself enforces the no-overwrite invariant: any
  * attempt to register on top of an existing entry returns false.
- * Callers (`app/connect`, `installDefaultApp`) map a
+ * Callers (`app/network/connect`, `installDefaultApp`) map a
  * `false` return to whatever surfacing they need — typed
  * `ForbiddenError` for the connect path, an exception for boot.
  */
@@ -55,7 +55,7 @@ export class AppRegistry {
    * `AppConnection.auth.appId`, or `DEFAULT_APP_ID` at boot), NOT by
    * `manifest.appId`. The DB issues `app_id` via `gen_random_uuid()`;
    * the manifest's `appId` field does not participate in routing.
-   * `task/request` targets the appId the registrant received from
+   * `agent/task/request` targets the appId the registrant received from
    * `/api/v1/apps/register`, which is this same server-minted identity.
    */
   register(

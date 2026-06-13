@@ -5,7 +5,7 @@ import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import type {
-  DispatchesGet,
+  DispatchLeaseGet,
   DispatchId,
 } from "@moltzap/protocol/message/dispatch";
 import type { ResultOf } from "@moltzap/protocol/rpc";
@@ -13,17 +13,17 @@ import {
   DispatchId as DispatchIdSchema,
   LeaseId as LeaseIdSchema,
   DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
+  DispatchLeaseConsumed,
+  DispatchLeaseExpired,
 } from "@moltzap/protocol/message/dispatch";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type { ConnectionManager } from "#socket";
-import type { LeaseTransitionObserver } from "../network/services/presence-types.js";
+import type { LeaseTransitionObserver } from "#network/presence";
 
 /** Wire-side LeaseRecord shape (flat). */
-type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
+type LeaseRecordWire = ResultOf<typeof DispatchLeaseGet>["lease"];
 const decodeDispatchId = Schema.decodeUnknownSync(DispatchIdSchema);
 const decodeLeaseId = Schema.decodeUnknownSync(LeaseIdSchema);
 
@@ -70,13 +70,13 @@ const decodeLeaseId = Schema.decodeUnknownSync(LeaseIdSchema);
  *    a `Ref.modify` predicate that is a no-op on CLAIMED state. Only
  *    `finalize` or `rollback` leaves CLAIMED. Without this rule, a
  *    TTL firing mid-`messageService.sendInsert` would expire the
- *    lease while the durable row commits — `dispatches/consumed`
+ *    lease while the durable row commits — `app/dispatch/lease-consumed`
  *    would never fire and the moderator's view would be inconsistent
  *    with the database.
  *
  * 2. **Connection close no-op on CLAIMED.** Recipient disconnect mid-
  *    insert MUST NOT roll back the lease. The in-flight
- *    `messages/send` owns the lease via `Effect.acquireUseRelease`
+ *    `agent/message/send` owns the lease via `Effect.acquireUseRelease`
  *    in the messages handler; the close finalizer waits for the
  *    wrapped insert+finalize/rollback to complete before draining
  *    its own state. Without this rule, a disconnect mid-insert
@@ -89,7 +89,7 @@ const decodeLeaseId = Schema.decodeUnknownSync(LeaseIdSchema);
  */
 
 /**
- * Audit binding recorded at `mint` time. Used by `dispatches/get`
+ * Audit binding recorded at `mint` time. Used by `app/dispatch/lease/get`
  * scope-enforcement, moderator observability, and connection-close cleanup.
  * Once recorded, the binding is immutable for the lease's lifetime.
  */
@@ -125,7 +125,7 @@ export type LeaseVerdict =
   | { readonly _tag: "hold"; readonly reason?: string };
 
 /**
- * Snapshot of a lease for `dispatches/get` and observability tests.
+ * Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
  * Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
  * cross-boundary stability.
  */
@@ -229,7 +229,7 @@ interface Claim {
  *   PENDING --> HOLD : verdict hold
  *   PENDING --> ABANDONED : conn close
  *   HOLD --> PENDING : retry on next inbound message in same conv
- *   GRANTED --> CLAIMED : messages/send claim
+ *   GRANTED --> CLAIMED : agent/message/send claim
  *   GRANTED --> EXPIRED : TTL fires OR conn close
  *   HOLD --> EXPIRED : conn close
  *   CLAIMED --> CONSUMED : insert ok — finalize(messageId)
@@ -250,15 +250,15 @@ interface Claim {
  *   participant Mod as Moderator
  *   participant MS as MessageService
  *
- *   Recv->>AH: dispatch/request (C→S)
+ *   Recv->>AH: agent/dispatch/request (C→S)
  *   AH->>LR: mint(binding) — PENDING
  *   LR-->>AH: {leaseId, dispatchId}
  *   AH-->>Recv: ack returned immediately
  *   AH->>Mod: Effect.fork — dispatchAuthorizeHook
  *   Mod-->>AH: verdict
  *   AH->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
- *   AH->>Recv: dispatch/release {verdict}
- *   Recv->>MS: messages/send with dispatchLeaseId
+ *   AH->>Recv: agent/dispatch/released {verdict}
+ *   Recv->>MS: agent/message/send with dispatchLeaseId
  *   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
  *   Note over MS: Effect.acquireUseRelease<br>use sendInsert returns carrier<br>release Exit success → claim.finalize CLAIMED → CONSUMED<br>release Exit failure → claim.rollback CLAIMED → GRANTED
  *   MS->>MS: sendCommit — post-insert side effects
@@ -283,7 +283,7 @@ export interface LeaseRegistry {
   /**
    * Mint a new PENDING lease. Synchronous (`Effect&lt;..., never>`) — the
    * registry is in-process. Records the moderator-bound binding for audit,
-   * `dispatches/get`, and connection-close cleanup.
+   * `app/dispatch/lease/get`, and connection-close cleanup.
    *
    * Both ids are minted via `crypto.randomUUID()`; the brand on
    * `LeaseId` / `DispatchId` keeps them disjoint at every call site.
@@ -297,7 +297,7 @@ export interface LeaseRegistry {
    * the moderator's verdict (or a synthesized verdict for app-unavailable /
    * moderator-timeout). First writer wins via `Ref.modify`; second `resolve`
    * against the same lease fails with `LeaseInvalidError`. Internally calls the
-   * module-local `emitDispatchRelease` helper so `dispatch/release` fires on
+   * module-local `emitDispatchRelease` helper so `agent/dispatch/released` fires on
    * every resolution path uniformly.
    */
   resolve(
@@ -321,7 +321,7 @@ export interface LeaseRegistry {
   ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError, never>;
 
   /**
-   * Snapshot read for `dispatches/get`. Includes the live `leaseId` —
+   * Snapshot read for `app/dispatch/lease/get`. Includes the live `leaseId` —
    * the moderator is the authority for the lease, so live-id visibility
    * is in-scope.
    *
@@ -347,16 +347,16 @@ export interface LeaseRegistry {
    * - **PENDING → ABANDONED**: cancels the forked moderator round-trip
    *   (its `resolve` call against the now-ABANDONED lease returns
    *   `LeaseInvalidError(state=ABANDONED, expected=PENDING)`, which the
-   *   forked fiber catches and discards). No `dispatch/release`
+   *   forked fiber catches and discards). No `agent/dispatch/released`
    *   notification fires (the recipient is gone).
    *
    * - **GRANTED → EXPIRED-on-disconnect**: terminal state; emits
-   *   `dispatches/expired` to the moderator. Cancels the post-grant TTL
+   *   `app/dispatch/lease-expired` to the moderator. Cancels the post-grant TTL
    *   fiber. The recipient won't observe; the moderator's view stays
    *   consistent.
    *
    * - **CLAIMED → no-op (load-bearing rule 2)**: a CLAIMED lease has an
-   *   in-flight `messages/send` owning it via `Effect.acquireUseRelease`.
+   *   in-flight `agent/message/send` owning it via `Effect.acquireUseRelease`.
    *   Disconnecting mid-insert MUST NOT roll back the lease — the
    *   release-arm of the acquireUseRelease is responsible. Otherwise a
    *   committed durable row could be retried into a duplicate.
@@ -392,7 +392,7 @@ export interface LeaseRegistry {
    * Each interrupted fiber runs its disconnect cleanup
    * (`MoltZapServer`/`socket/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
    * `onExit` region, and that cleanup calls {@link abandon}. For a recipient
-   * connection holding a GRANTED lease, `abandon` emits a `dispatches/expired`
+   * connection holding a GRANTED lease, `abandon` emits a `app/dispatch/lease-expired`
    * frame to the MODERATOR connection via {@link fireNotification}. When the
    * moderator socket is being torn down concurrently its write-latch is
    * closed, so the cross-connection write SUSPENDS forever — inside the
@@ -412,8 +412,8 @@ export interface LeaseRegistry {
 /**
  * Constructor dependencies for the lease registry.
  * - `connections`: looked up by the internal `emitDispatchRelease`
- *   helper to find the recipient and at `dispatches/consumed` /
- *   `dispatches/expired` emission to find the moderator's connection.
+ *   helper to find the recipient and at `app/dispatch/lease-consumed` /
+ *   `app/dispatch/lease-expired` emission to find the moderator's connection.
  * - `leaseRetentionMs`: terminal-state retention window (CONSUMED /
  *   DENIED / EXPIRED / ABANDONED). Live states (PENDING / GRANTED /
  *   HOLD / CLAIMED) age out on their own TTLs.
@@ -425,9 +425,8 @@ export interface LeaseRegistry {
  *   `noopLeaseTransitionObserver` constant (tests that do not exercise
  *   presence). Required-not-default is structurally tighter: TypeScript
  *   surfaces missing wiring at the call site. See
- *   `../../network/services/presence-types.ts → LeaseTransitionObserver`
- *   for the call shape; the per-transition contract lives in
- *   `../../network/services/presence.service.ts → PresenceService`.
+ *   `network/presence → LeaseTransitionObserver` for the call shape; the
+ *   per-transition contract lives in `network/presence → PresenceService`.
  */
 export interface LeaseRegistryDeps {
   readonly connections: ConnectionManager;
@@ -437,7 +436,7 @@ export interface LeaseRegistryDeps {
 
 /**
  * Internal entry — wraps the public `LeaseRecord` plus the recipient-
- * connection binding needed for `dispatch/release` fan-out and the
+ * connection binding needed for `agent/dispatch/released` fan-out and the
  * scheduled fiber for the post-grant TTL.
  */
 interface LeaseEntry {
@@ -448,7 +447,7 @@ interface LeaseEntry {
    * Forked moderator round-trip fiber. Attached by
    * {@link LeaseRegistry.attachRoundTripFiber} immediately after the
    * caller forks. Interrupted on PENDING → ABANDONED so the in-flight
-   * dispatch/authorize hook is cancelled rather than leaking until
+   * app/dispatch/authorize hook is cancelled rather than leaking until
    * timeout. Null after the fiber completes naturally (resolve fired)
    * or the lease left PENDING.
    */
@@ -637,7 +636,7 @@ function emitDispatchRelease(
   );
 }
 
-function emitDispatchesConsumed(
+function emitDispatchLeaseConsumed(
   state: LeaseRegistryState,
   record: LeaseRecord,
   messageId: MessageId,
@@ -646,7 +645,7 @@ function emitDispatchesConsumed(
   return fireNotification(
     state,
     record.binding.moderatorConnectionId,
-    DispatchesConsumed,
+    DispatchLeaseConsumed,
     {
       dispatchId: record.dispatchId,
       leaseId: record.leaseId,
@@ -657,7 +656,7 @@ function emitDispatchesConsumed(
   );
 }
 
-function emitDispatchesExpired(
+function emitDispatchLeaseExpired(
   state: LeaseRegistryState,
   record: LeaseRecord,
   expiredAt: string,
@@ -665,7 +664,7 @@ function emitDispatchesExpired(
   return fireNotification(
     state,
     record.binding.moderatorConnectionId,
-    DispatchesExpired,
+    DispatchLeaseExpired,
     {
       dispatchId: record.dispatchId,
       leaseId: record.leaseId,
@@ -745,7 +744,7 @@ function expireLeaseFromTtl(
       ttlFiber: null,
       roundTripFiber: null,
     });
-    yield* emitDispatchesExpired(state, nextRecord, expiredAt);
+    yield* emitDispatchLeaseExpired(state, nextRecord, expiredAt);
     yield* scheduleRetention(state, leaseId, nextRecord.dispatchId);
     if (wasActive) {
       yield* state.deps.transitionObserver.onLeaseActiveEnd(
@@ -836,7 +835,12 @@ function finalizeClaim(
       ttlFiber: null,
       roundTripFiber: null,
     });
-    yield* emitDispatchesConsumed(state, consumedRecord, messageId, consumedAt);
+    yield* emitDispatchLeaseConsumed(
+      state,
+      consumedRecord,
+      messageId,
+      consumedAt,
+    );
     yield* scheduleRetention(state, leaseId, consumedRecord.dispatchId);
     // CLAIMED → CONSUMED exits the active set; fire onLeaseActiveEnd so
     // the presence service re-derives the recipient's status (working →
@@ -1131,7 +1135,7 @@ function expireLeaseOnDisconnect(
       ttlFiber: null,
       roundTripFiber: null,
     });
-    yield* emitDispatchesExpired(state, expiredRecord, expiredAt);
+    yield* emitDispatchLeaseExpired(state, expiredRecord, expiredAt);
     yield* scheduleRetention(state, leaseId, expiredRecord.dispatchId);
     if (wasActive) {
       yield* state.deps.transitionObserver.onLeaseActiveEnd(

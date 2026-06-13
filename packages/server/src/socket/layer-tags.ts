@@ -1,7 +1,7 @@
 /**
  * Per-layer Tag allowlists. The hierarchy mirrors the protocol layer stack:
  *
- *   transport ─ identity ─ network ─ task ─ app
+ *   transport ─ identity ─ network ─ task + conversation + message ─ app
  *
  * Each layer's allowlist is a superset of the layer below: any Tag legal at
  * layer L is legal at every layer above L. Adding a Tag to a layer's
@@ -56,18 +56,16 @@ import type {
 type TransportTags = ConnectionTag | DbTag;
 
 /**
- * Identity-layer allowlist: registration, claim, login, contacts,
- * agent visibility, and contacts.
+ * Identity-layer allowlist: agent authentication, registration, contacts, and
+ * visibility.
  */
 type IdentityTags = TransportTags | AuthServiceTag;
 
 /**
  * Network-layer allowlist: Connect, presence, outbound routing. The
  * `agentEndpointResolver` is the `AgentId → ConnectionId` multimap
- * (network-conceptual — endpoint resolution is what the network layer
- * DOES, not who owns it). The presence service lives in
- * `network/services/`; its Tag is yielded by the presence handler at
- * `network/handlers/`, which fans out via PresenceService.
+ * maintained by network connect/disconnect paths. Presence owns the
+ * subscription registry and the status fan-out.
  */
 type NetworkTags =
   | IdentityTags
@@ -78,13 +76,10 @@ type NetworkTags =
 
 /**
  * Task-layer allowlist: conversations, messages, tasks.
- * Includes `LeaseRegistryTag` (admission gate for `messages/send`
- * dispatch leases — yielded by `messages.handlers.ts`) and
- * `AppAuthServiceTag` (yielded by the Connect handler at
- * `identity/handlers/connect.handlers.ts` on the `appKey` arm). The
- * Connect handler runs at task-tier because its body pulls
- * cross-cutting services spanning network (connections, presence) AND
- * task (conversation resolution for presence fan-out).
+ * Includes `LeaseRegistryTag` for message dispatch leases and
+ * `AppAuthServiceTag` for the app connect arm. The connect handler runs at
+ * this tier because it pulls cross-cutting services spanning network
+ * connections/presence and conversation resolution for presence fan-out.
  */
 type TaskTags =
   | NetworkTags

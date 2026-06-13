@@ -12,7 +12,7 @@ import {
   type SendRpcFn,
 } from "./pagination.js";
 
-// The drainer is wire-generic; we exercise it through `agents/list`
+// The drainer is wire-generic; we exercise it through `agent/identity/agents/list`
 // because its result is the `{ agents: T[], nextCursor? }` shape the
 // drain enumerates. The fake `sendRpc` never fails,
 // so the ONLY error channel left is the cursor-cycle guard — keeping the

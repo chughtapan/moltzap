@@ -18,7 +18,7 @@ import type { ServerEncryptionMasterSecret } from "./config/secrets.js";
 import { seedInitialKek } from "./db/crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./db/crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
-import { WebhookContactService } from "./identity/services/webhook-contact-service.js";
+import { WebhookContactService } from "#identity/contacts";
 import type { CoreApp } from "#core";
 import type { Database } from "./db/database.js";
 import type { Db } from "./db/client.js";

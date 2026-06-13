@@ -16,7 +16,7 @@ import {
   type TestAppClient,
 } from "@moltzap/protocol/testing";
 import { DEFAULT_TEST_ADMIN_USER_ID, getCoreDb, getWsUrl } from "./server.js";
-import { AuthService } from "../identity/services/auth.service.js";
+import { AuthService } from "#identity/agents";
 
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import type {
@@ -243,18 +243,6 @@ function appRegistrationError(error: {
   });
 }
 
-/**
- * D #705 CP9 — mint an app credential via the `/api/v1/apps/register` HTTP
- * endpoint. The App-principal sibling of {@link registerAgent}: returns the
- * server-minted `{ appId, appKey }` (the `appId` is `gen_random_uuid()`, NOT
- * `manifest.appId`). The `appKey` is then handed to {@link connectAppClient}
- * to open an `AppConnection`, whose implicit registration binds it as the
- * app's moderator endpoint.
- *
- * `inviteCode` is required when the server boots with a `registrationSecret`
- * (the HTTP route gates app registration behind the same secret as agent
- * registration); omit it for the default open-registration server.
- */
 export function registerApp(
   baseUrl: string,
   manifest: AppManifest,
@@ -280,13 +268,6 @@ export function registerApp(
   );
 }
 
-/**
- * D #705 CP9 — open an `AppConnection` from a minted `appKey`. The Connect
- * handler's `appKey` arm authenticates the app principal AND implicitly
- * registers the live connection as the app's moderator endpoint, so the
- * returned client receives server→client `dispatch/authorize` /
- * `messages/authorize` / `task/create` callbacks. Tracked for cleanup.
- */
 export function connectAppClient(
   appId: AppId,
   appKey: AppKey,

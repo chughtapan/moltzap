@@ -27,7 +27,7 @@ const HookTimeoutMsSchema = Schema.Number.pipe(
  *   moderator round-trip.
  * - `{ kind: "deny"; reason }` — every recipient is refused in-process
  *   with the stated reason.
- * - `{ kind: "hook"; timeoutMs }` — the server emits `dispatch/authorize`
+ * - `{ kind: "hook"; timeoutMs }` — the server emits `app/dispatch/authorize`
  *   to the bound moderator and waits up to `timeoutMs` for the verdict;
  *   timeout / RPC failure collapses to a fail-closed deny.
  *
@@ -52,7 +52,7 @@ const DispatchAuthorizePolicySchema = Schema.Union(
  *   conversation's participant set.
  * - `{ kind: "deny"; reason }` — the message reaches no one but the
  *   sender's transcript, with the stated reason.
- * - `{ kind: "hook"; timeoutMs }` — the server emits `messages/authorize`
+ * - `{ kind: "hook"; timeoutMs }` — the server emits `app/message/authorize`
  *   to the bound TM for a `Forward { recipients } | Block { reason }`
  *   verdict; timeout / RPC failure collapses to a fail-closed Block.
  */
@@ -72,7 +72,7 @@ const MessageAuthorizePolicySchema = Schema.Union(
  *   transitioning `waiting → active`.
  * - `{ kind: "reject"; reason }` — every requested task is refused
  *   in-process, transitioning `waiting → failed` with the stated reason.
- * - `{ kind: "hook"; timeoutMs }` — the server emits `task/create` to
+ * - `{ kind: "hook"; timeoutMs }` — the server emits `app/task/create` to
  *   the bound TM for the accept/reject verdict; timeout / RPC failure
  *   collapses to a fail-closed reject.
  */

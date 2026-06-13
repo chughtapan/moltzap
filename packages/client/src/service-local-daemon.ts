@@ -8,7 +8,7 @@ import {
   type AgentId,
 } from "@moltzap/protocol/identity";
 import { AgentCallableGroup } from "@moltzap/protocol/socket/catalog";
-import { TaskConversationList } from "@moltzap/protocol/conversation";
+import { ConversationList } from "@moltzap/protocol/conversation";
 import {
   DEFAULT_APP_ID,
   TaskRequest,
@@ -196,8 +196,8 @@ function findReusableStartConversation(
   return Effect.gen(function* () {
     let cursor: string | undefined = undefined;
     for (let page = 0; page < 10; page++) {
-      const result: ResultOf<typeof TaskConversationList> = yield* call(
-        TaskConversationList.name,
+      const result: ResultOf<typeof ConversationList> = yield* call(
+        ConversationList.name,
         {
           limit: 100,
           ...(cursor === undefined ? {} : { cursor }),

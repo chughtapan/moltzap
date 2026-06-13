@@ -5,7 +5,7 @@
  *
  * Dispatch / lease / app-callback invariants — the 14
  * `dispatch-admission` properties (request / authorize / release /
- * dispatches-consumed / dispatches-expired / dispatches-get / slow-first
+ * dispatch-lease-consumed / dispatch-lease-expired / dispatch-lease-get / slow-first
  * / same-conv-concurrent / release-for-one-lease) plus app-disconnect
  * fail-policy and idempotence.
  *
@@ -20,12 +20,12 @@ import { registerDispatchAuthorizeVerdictResolves } from "./dispatch-authorize-v
 import { registerDispatchAuthorizeTimeoutSynthesizesDeny } from "./dispatch-authorize-timeout.js";
 import { registerDispatchReleaseFiresAfterResolve } from "./dispatch-release-after-resolve.js";
 import { registerDispatchReleaseSkippedOnAbandoned } from "./dispatch-release-skipped-on-abandoned.js";
-import { registerDispatchesConsumedFiresOnFirstSend } from "./dispatches-consumed-fires-on-first-send.js";
-import { registerDispatchesConsumedSuppressedOnSecondSend } from "./dispatches-consumed-suppressed-on-second.js";
-import { registerDispatchesExpiredFiresOnTtl } from "./dispatches-expired-fires-on-ttl.js";
-import { registerDispatchesExpiredSuppressedOnConsumeBeforeTtl } from "./dispatches-expired-suppressed-on-consume.js";
-import { registerDispatchesGetModeratorSeesRecord } from "./dispatches-get-moderator-sees.js";
-import { registerSameConversationDispatchesConcurrent } from "./same-conv-dispatches-concurrent.js";
+import { registerDispatchLeaseConsumedFiresOnFirstSend } from "./dispatch-lease-consumed-fires-on-first-send.js";
+import { registerDispatchLeaseConsumedSuppressedOnSecondSend } from "./dispatch-lease-consumed-suppressed-on-second.js";
+import { registerDispatchLeaseExpiredFiresOnTtl } from "./dispatch-lease-expired-fires-on-ttl.js";
+import { registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl } from "./dispatch-lease-expired-suppressed-on-consume.js";
+import { registerDispatchLeaseGetModeratorSeesRecord } from "./dispatch-lease-get-moderator-sees.js";
+import { registerSameConversationDispatchRequestsConcurrent } from "./same-conv-dispatch-requests-concurrent.js";
 import { registerSlowFirstDoesNotDelaySecondAck } from "./slow-first-does-not-delay-second-ack.js";
 import { registerReleaseForOneLeaseDoesNotWaitOnAnother } from "./release-for-one-lease-does-not-wait.js";
 import { registerAppDisconnectFailPolicy } from "./app-disconnect-fail-policy.js";
@@ -38,12 +38,12 @@ export {
   registerDispatchAuthorizeTimeoutSynthesizesDeny,
   registerDispatchReleaseFiresAfterResolve,
   registerDispatchReleaseSkippedOnAbandoned,
-  registerDispatchesConsumedFiresOnFirstSend,
-  registerDispatchesConsumedSuppressedOnSecondSend,
-  registerDispatchesExpiredFiresOnTtl,
-  registerDispatchesExpiredSuppressedOnConsumeBeforeTtl,
-  registerDispatchesGetModeratorSeesRecord,
-  registerSameConversationDispatchesConcurrent,
+  registerDispatchLeaseConsumedFiresOnFirstSend,
+  registerDispatchLeaseConsumedSuppressedOnSecondSend,
+  registerDispatchLeaseExpiredFiresOnTtl,
+  registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl,
+  registerDispatchLeaseGetModeratorSeesRecord,
+  registerSameConversationDispatchRequestsConcurrent,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
   registerAppDisconnectFailPolicy,
@@ -64,12 +64,12 @@ export const APP_PROPERTIES: ReadonlyArray<
   registerDispatchAuthorizeTimeoutSynthesizesDeny,
   registerDispatchReleaseFiresAfterResolve,
   registerDispatchReleaseSkippedOnAbandoned,
-  registerDispatchesConsumedFiresOnFirstSend,
-  registerDispatchesConsumedSuppressedOnSecondSend,
-  registerDispatchesExpiredFiresOnTtl,
-  registerDispatchesExpiredSuppressedOnConsumeBeforeTtl,
-  registerDispatchesGetModeratorSeesRecord,
-  registerSameConversationDispatchesConcurrent,
+  registerDispatchLeaseConsumedFiresOnFirstSend,
+  registerDispatchLeaseConsumedSuppressedOnSecondSend,
+  registerDispatchLeaseExpiredFiresOnTtl,
+  registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl,
+  registerDispatchLeaseGetModeratorSeesRecord,
+  registerSameConversationDispatchRequestsConcurrent,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
   registerAppDisconnectFailPolicy,

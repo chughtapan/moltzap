@@ -38,7 +38,7 @@ export function registerDispatchReleaseFiresAfterResolve(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "for every resolved lease (grant/deny/hold), exactly one dispatch/release reaches the recipient",
+    "for every resolved lease (grant/deny/hold), exactly one agent/dispatch/released reaches the recipient",
     assertAllSingleReleases(ctx, NAME).pipe(
       Effect.withSpan("registerDispatchReleaseFiresAfterResolve"),
     ),
@@ -91,7 +91,7 @@ function assertNoSecondRelease(
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          "expected exactly one dispatch/release per lease; got a second frame",
+          "expected exactly one agent/dispatch/released per lease; got a second frame",
         ),
       );
     }

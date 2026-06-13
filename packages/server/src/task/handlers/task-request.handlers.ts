@@ -1,24 +1,24 @@
 /**
- * `task/request` handler — agent-initiated task creation that
- * brokers an app-callback gate via `task/create` before the task
+ * `agent/task/request` handler — agent-initiated task creation that
+ * brokers an app-callback gate via `app/task/create` before the task
  * transitions out of `waiting`.
  *
  * Lives in the task domain. The handler depends on `TaskAuthorizationServiceTag`
- * to fire the `task/create` callback over the bound app's connection.
+ * to fire the `app/task/create` callback over the bound app's connection.
  *
  * Lifecycle (one-way, fail-closed):
  *   1. Validate contact policy + create the task row in `waiting`.
- *   2. Fire `task/create` callback to the bound app.
+ *   2. Fire `app/task/create` callback to the bound app.
  *      Timeout / RPC error / decode failure synthesizes a reject
  *      verdict with a synthesized reason code.
- *   3. On `accept` → setStatus(active), fan out `task/created` to
+ *   3. On `accept` → setStatus(active), fan out `agent/task/created` to
  *      caller + invitees, optionally mint the initialConversation,
  *      return `{ task, conversation }`.
  *   4. On `reject` → setStatus(failed), fan out `task/failed` with
  *      reason, fail the RPC with `TaskRejectedError`.
  */
 import { Effect } from "effect";
-import { TaskConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { ConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
 import {
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
@@ -82,7 +82,7 @@ function mintInitialConversation(input: MintInitialInput) {
     ];
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
-      TaskConversationCreatedNotificationDefinition,
+      ConversationCreatedNotificationDefinition,
       {
         taskId: input.task.id,
         conversationId: conversation.id,
@@ -134,7 +134,7 @@ function handleReject(
   }).pipe(Effect.withSpan("task.request.reject"));
 }
 
-// accept verdict → waiting → active, fan out task/created, then mint
+// accept verdict → waiting → active, fan out agent/task/created, then mint
 // the initialConversation hint if present.
 function handleAccept(
   waitingTaskId: TaskId,

@@ -181,7 +181,7 @@ Self-only: caller removes themselves from `task_participants` AND
 every `conversation_participants` row under the task.
 
 Notification emission for each conversation the caller leaves uses
-`TaskConversationParticipantsRemovedNotificationDefinition` with
+`ConversationParticipantsRemovedNotificationDefinition` with
 `reason: "task_leave"`. If removal empties `task_participants` the task
 transitions to `status = 'closed'` and `TaskClosedNotificationDefinition`
 fires alongside in the same transaction.

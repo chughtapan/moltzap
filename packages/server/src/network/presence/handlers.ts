@@ -9,11 +9,11 @@ import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
 import { ConnectionTag, DbTag, PresenceServiceTag } from "#core";
-import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
+import { visibleAgentIds } from "#identity/agents";
 import { agentArm, appArm } from "#core";
 
 /**
- * `presence/subscribe` registers fan-out interest via
+ * `network/presence/subscribe` registers fan-out interest via
  * `PresenceService.subscribe` and reads the current status snapshot via
  * `PresenceService.statusMany`. Presence is server-derived from `LeaseRegistry`
  * lifecycle + WS connect/disconnect; there is no client-driven

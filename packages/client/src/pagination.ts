@@ -1,7 +1,7 @@
 /**
  * @file Generic drainer for the cursor-paginated list RPCs.
  *
- * The list RPCs (`contacts/list`, `agents/list`, `task/list`, ...) return a
+ * The list RPCs (`agent/identity/contacts/list`, `agent/identity/agents/list`, `task/list`, ...) return a
  * bounded page plus an opaque `nextCursor`. A consumer that needs the
  * COMPLETE set must page through every cursor. {@link drainPaginatedList}
  * does exactly that for descriptor-based RPC calls, with the caller supplying

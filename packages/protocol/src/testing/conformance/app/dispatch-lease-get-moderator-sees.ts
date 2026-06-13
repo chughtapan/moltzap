@@ -10,18 +10,18 @@ import {
 } from "./_helpers.js";
 import type { DispatchTestDriver } from "./_driver.js";
 
-export function registerDispatchesGetModeratorSeesRecord(
+export function registerDispatchLeaseGetModeratorSeesRecord(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatches-get-moderator-sees-record";
+  const NAME = "dispatch-lease-get-moderator-sees-record";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "dispatches/get from the moderator's connection at each lifecycle stage returns the full LeaseRecord with state matching the stage",
+    "app/dispatch/lease/get from the moderator's connection at each lifecycle stage returns the full LeaseRecord with state matching the stage",
     withDriver(ctx, (driver) =>
       assertModeratorSeesLifecycle(NAME, driver),
-    ).pipe(Effect.withSpan("registerDispatchesGetModeratorSeesRecord")),
+    ).pipe(Effect.withSpan("registerDispatchLeaseGetModeratorSeesRecord")),
   );
 }
 
@@ -101,7 +101,7 @@ function consumeLease(
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          `messages/send failed: code=${sent.errorTag}`,
+          `agent/message/send failed: code=${sent.errorTag}`,
         ),
       );
     }

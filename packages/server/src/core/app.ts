@@ -102,7 +102,7 @@ function makeCoreRuntime(config: CoreConfig) {
   );
   const FullLive = Layer.provideMerge(InstallDefaultApp, ServicesWithBase);
   // The connection/disconnection hook arrays are created here so the native
-  // `agent/connect` handler can fire the connection hooks via
+  // `agent/network/connect` handler can fire the connection hooks via
   // `ConnectionHooksTag`. They are mutable references the `CoreApp.onConnection`
   // / `onDisconnection` accessors push into AFTER this runtime is built; the
   // native handler reads the live array contents per connect.
@@ -224,7 +224,7 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  * `leaseRegistry.shutdown()` runs BEFORE `Scope.close(appScope)`:
  * closing the app scope interrupts every per-connection WS fiber, and each
  * runs its disconnect cleanup UNINTERRUPTIBLY. For a recipient holding a
- * GRANTED lease that cleanup emits a `dispatches/expired` frame to the
+ * GRANTED lease that cleanup emits a `app/dispatch/lease-expired` frame to the
  * moderator connection; when the moderator socket is torn down concurrently
  * the cross-connection write parks on its closed write-latch forever,
  * deadlocking `Scope.close`. Draining the registry first (fail-closed every
@@ -240,7 +240,7 @@ function closeCoreAppEffect(options: CoreAppApiOptions) {
     // interrupt of the WS fibers trigger each connection's disconnect cleanup
     // (`MoltZapServer`/`socket/server-socket.ts -> leaseRegistry.abandon`),
     // which for a recipient holding a GRANTED lease emits a cross-connection
-    // `dispatches/expired` frame to the moderator. If the moderator socket is
+    // `app/dispatch/lease-expired` frame to the moderator. If the moderator socket is
     // closing concurrently that write parks forever on its closed write-latch.
     // Flipping the registry closed up front makes every such notification drop
     // instead of park; it also interrupts the live TTL/round-trip fibers.

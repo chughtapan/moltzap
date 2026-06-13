@@ -12,7 +12,7 @@ against server-side services live in `@moltzap/server-core`.
 
 ## Public surface
 
-### [`assertAppOwnsTask`](./assert-requirement-matches-task.ts#L57)
+### [`assertAppOwnsTask`](./assert-requirement-matches-task.ts#L55)
 
 _Function_
 
@@ -23,12 +23,10 @@ export const assertAppOwnsTask = (
 ): Effect.Effect<void, ForbiddenError>
 ```
 
-App-principal ownership gate. Asserts the calling app IS the app
-bound to `task` — the app on whose behalf the task's TM acts. The 8
-task-admin RPCs (`task/close`, `task/addParticipant`,
-`task/removeParticipant`, `task/conversation/{create,archive,
-unarchive,addParticipant,removeParticipant}`) load the open task in
-their handler and call this asserter before the service mutation.
+App-principal ownership gate. Asserts the calling app IS the app bound to
+`task` — the app on whose behalf the task's TM acts. App task and
+conversation mutation handlers load the open task and call this asserter
+before the service mutation.
 
 `task.appId` rides as a wire `string`; the brand boundary is the type
 system, so the equality check compares the branded `appId` argument to

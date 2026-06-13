@@ -1,6 +1,6 @@
 /**
  * Latency — owner + participant route through a latency proxy. Owner
- * sends `messages/send`; participant observes ≥1 inbound message
+ * sends `agent/message/send`; participant observes ≥1 inbound message
  * event. Latency merely slows delivery; it must not drop events.
  */
 import { Effect, Exit, Fiber, Stream } from "effect";

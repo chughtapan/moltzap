@@ -280,9 +280,8 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         // dispatcher iterated the LIVE list, s2 would have been skipped
         // and `s2Received` would still be empty.
         //
-        // (Stream-API end-to-end coverage is exercised by tests #1 and
-        // the closeAll lifecycle test #4; here we need the registry's
-        // direct API to control dispatch ordering deterministically.)
+        // Stream API tests cover end-to-end subscription behavior; this case
+        // uses the registry directly to control dispatch ordering.
         const registry = yield* makeSubscriberRegistry();
         const enteredS1 = yield* Deferred.make<void>();
         const releaseS1 = yield* Deferred.make<void>();

@@ -1,6 +1,6 @@
 /**
- * `dispatch/{request, authorize, release}` + `dispatches/{consumed, expired,
- * get}` admission surface.
+ * `agent/dispatch/request`, `app/dispatch/authorize`,
+ * `agent/dispatch/released`, and `app/dispatch/lease-*` admission surface.
  *
  * Bucket file: `verdicts` group. Each bucket owns its own server fixture so
  * vitest can execute buckets concurrently without sharing state.
@@ -17,7 +17,7 @@ import {
   createDispatchFlowFixture,
   MODERATED_HOOKS,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
+  createConversationOnApp,
   requestDispatch,
   startDispatchFlowServer,
   stopDispatchFlowServer,
@@ -51,7 +51,7 @@ beforeEach(() => Effect.runPromise(fixture.reset));
 function requestModeratedDispatch(alice: ConnectedAgent, bob: ConnectedAgent) {
   return Effect.gen(function* () {
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const { conversationId } = yield* createTaskConversationOnApp(
+    const { conversationId } = yield* createConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
@@ -173,12 +173,12 @@ function explicitDenyRemovesRecipient() {
   });
 }
 
-describe("dispatch/* — release verdicts (#529 reshape additive)", () => {
+describe("dispatch/* — release verdicts", () => {
   it("moderator deny releases deny", moderatorDenyReleasesDeny, 20_000);
   it("moderator hold releases hold", moderatorHoldReleasesHold, 20_000);
 });
 
-describe("dispatch/* — deny removes recipient (#529 reshape additive)", () => {
+describe("dispatch/* — deny removes recipient", () => {
   it(
     "moderator timeout releases deny and removes the recipient",
     moderatorTimeoutRemovesRecipient,

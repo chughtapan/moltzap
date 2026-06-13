@@ -313,7 +313,7 @@ function handleDecodedReplyCall(
  *   srv->>srv: routing.resolveTarget(reply_to)
  *   srv-->>mcp: NoActiveConversation | ReplyToUnknown → toolErrorResult
  *   srv->>ent: deps.sendReply(conversationId, text)
- *   ent->>cli: messages/send with lease
+ *   ent->>cli: agent/message/send with lease
  *   alt LeaseInvalid wire error
  *     cli-->>ent: LeaseAlreadyConsumed (via catchLeaseInvalid)
  *   end

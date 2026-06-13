@@ -1,9 +1,4 @@
-/**
- * #560 — `messages/authorize` send-side gate.
- *
- * Validates the verdict-path, race-safety, default-flow regression,
- * and per-caller visibility filter from architect plan §8.
- */
+/** Integration coverage for the `app/message/authorize` send-side gate. */
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
@@ -15,7 +10,7 @@ import {
   MessagesList,
   MessagesSend,
 } from "@moltzap/protocol/message";
-import { TaskConversationCreate } from "@moltzap/protocol/conversation";
+import { ConversationCreate } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type {
   AppCallbackContext,
@@ -104,21 +99,13 @@ let appHookState: VerdictState = {
 };
 
 /**
- * D #705 CP9 — the per-test moderator app is a SEPARATE app principal:
- * it registers via the `/api/v1/apps/register` HTTP endpoint and Connects
- * with its minted `appKey`, yielding an `AppConnection`. The
- * `messages/authorize` + `task/create` callbacks and the TM-admin
- * `task/conversation/create` RPCs run on THIS connection (all head their
- * `requires` with `AppPrincipal`), disjoint from the requesting agent
- * (`alice`) who drives the agent-only `task/request` + `messages/send`.
- * Lazily minted by `createAppManagedTask`; the `beforeEach` reset closes
- * all clients via `resetTestDbEffect`, so the stale handle is dropped
- * here before the next test re-mints one.
+ * Per-test moderator app principal. Its callbacks and app-owned RPCs run on
+ * the app connection; the requesting agent drives `agent/task/request` and
+ * `agent/message/send`.
  *
- * `sender` is the requesting agent (`alice`): the app creates conversations
- * with `seedCreatorAsParticipant: false`, so the sender MUST be listed as a
- * conversation participant or its `messages/send` is rejected with
- * `ForbiddenError` BEFORE the `messages/authorize` round-trip fires.
+ * `sender` is the requesting agent. The app creates conversations with
+ * `seedCreatorAsParticipant: false`, so the sender must be listed as a
+ * participant for `agent/message/send` to reach `app/message/authorize`.
  */
 interface ModeratorApp {
   readonly client: TestAppClient;
@@ -147,13 +134,13 @@ beforeEach(() =>
 
 /**
  * Server→client callbacks served by the moderator app principal.
- * `task/create` auto-accepts; the scenarios exercise `messages/authorize`.
+ * `app/task/create` auto-accepts; the scenarios exercise `app/message/authorize`.
  */
 function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
     [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
-      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
     [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
@@ -316,9 +303,9 @@ function expectDecisionRecipients(
 /**
  * Mint the moderator app principal (HTTP register → `appKey` Connect),
  * wire its callbacks, then have the requesting `agent` drive the
- * agent-only `task/request` against the DB-minted `appId`. The
+ * agent-only `agent/task/request` against the DB-minted `appId`. The
  * server-minted `appId` (NOT `TEST_APP_MANIFEST.appId`) is what
- * `task/request` targets so the app's `AppConnection` is the resolved
+ * `agent/task/request` targets so the app's `AppConnection` is the resolved
  * moderator endpoint. Memoizes the app client for the rest of the test so
  * subsequent conversation creates reuse one app principal.
  */
@@ -343,14 +330,14 @@ function createAppManagedTask(
 
 // The app creates conversations off its own `AppConnection`
 // (`seedCreatorAsParticipant: false`); the sender agent is added
-// explicitly so its `messages/send` passes the participant gate.
+// explicitly so its `agent/message/send` passes the participant gate.
 function createManagedGroup(
   taskId: TaskId,
   name: string,
   participants: ReadonlyArray<ConnectedAgent>,
 ) {
   const app = currentModeratorApp();
-  return app.client.sendRpc(TaskConversationCreate, {
+  return app.client.sendRpc(ConversationCreate, {
     taskId,
     name,
     participants: [app.sender.agentId, ...participants.map((p) => p.agentId)],
@@ -359,7 +346,7 @@ function createManagedGroup(
 
 function createManagedDm(taskId: TaskId, participant: ConnectedAgent) {
   const app = currentModeratorApp();
-  return app.client.sendRpc(TaskConversationCreate, {
+  return app.client.sendRpc(ConversationCreate, {
     taskId,
     participants: [app.sender.agentId, participant.agentId],
   });
@@ -641,7 +628,7 @@ function casGuardPreservesCommittedVerdict() {
   });
 }
 
-describe("messages/authorize — block verdict paths", () => {
+describe("app/message/authorize — block verdict paths", () => {
   it(
     "Block: sender fails, recipient receives no message, DB row records block",
     blockVerdictPreventsFanoutAndPersistsBlock,
@@ -655,12 +642,12 @@ describe("messages/authorize — block verdict paths", () => {
   );
 
   // DEFAULT_APP_ID is boot-installed in-process; no connected app can
-  // register over it. The messages/authorize
+  // register over it. The app/message/authorize
   // verdict for DEFAULT_APP_ID tasks is fixed to the default Forward
   // policy and cannot be overridden.
 });
 
-describe("messages/authorize — forward verdict paths", () => {
+describe("app/message/authorize — forward verdict paths", () => {
   it(
     "Forward subset: only TM-authorized recipients see messages/received",
     forwardSubsetOnlyNotifiesAuthorizedRecipient,
@@ -674,7 +661,7 @@ describe("messages/authorize — forward verdict paths", () => {
   );
 });
 
-describe("messages/authorize — visibility filter", () => {
+describe("app/message/authorize — visibility filter", () => {
   it(
     "Sender sees own forward + own block; recipient sees only forwards-containing-self",
     senderAndRecipientsSeeOnlyAuthorizedRows,
@@ -682,7 +669,7 @@ describe("messages/authorize — visibility filter", () => {
   );
 });
 
-describe("messages/authorize — CAS race", () => {
+describe("app/message/authorize — CAS race", () => {
   it(
     "CAS guard: second pending-predicate update matches no rows and preserves committed state",
     casGuardPreservesCommittedVerdict,

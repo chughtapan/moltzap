@@ -18,7 +18,7 @@ it("connect() returns HelloOk with agentId", () =>
     yield* reg.client.close();
   }));
 
-it("task/conversation/list returns existing conversations after connect", () =>
+it("agent/conversation/list returns existing conversations after connect", () =>
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("agent-a");
     const regB = yield* H.registerAgent("agent-b");
@@ -32,11 +32,11 @@ it("task/conversation/list returns existing conversations after connect", () =>
     });
 
     // The handshake carries no task-layer state. Existing conversations are
-    // fetched explicitly via `task/conversation/list`.
+    // fetched explicitly via `agent/conversation/list`.
     const service = yield* H.connectService(regB.apiKey, regB.agentId);
     expect(service.getConversation(conv.conversation!.id)).toBeUndefined();
 
-    const list = yield* service.call(H.TaskConversationList.name, {});
+    const list = yield* service.call(H.ConversationList.name, {});
     const found = list.items.find(
       (c) => c.conversation.id === conv.conversation!.id,
     );

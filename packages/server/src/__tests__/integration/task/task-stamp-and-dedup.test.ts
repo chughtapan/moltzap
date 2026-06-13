@@ -18,7 +18,7 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-it("messages/send stamps task_id matching conversations.task_id", () =>
+it("agent/message/send stamps task_id matching conversations.task_id", () =>
   Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-465");
     const bob = yield* registerAndConnect("bob-465");

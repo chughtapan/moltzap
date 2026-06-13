@@ -6,7 +6,7 @@
  * `(payload, { clientId, headers }) => Effect`: requirement middleware has
  * already run, so the body reads the narrowed principal and domain services.
  *
- * Protocol binds this map onto the server engine. `agents/register` is
+ * Protocol binds this map onto the server engine. `agent/identity/register` is
  * HTTP-only — served over `http/routes.ts`, never a catalog member, so it has
  * no entry here.
  *
@@ -15,28 +15,21 @@
  * Requirement middleware provides the per-method authority tags before the
  * handler body.
  */
-import {
-  connectAgent,
-  connectApp,
-} from "../identity/handlers/connect.handlers.js";
-import { agentsList } from "../identity/handlers/agents.handlers.js";
-import {
-  contactsList,
-  contactsAdd,
-  contactsAccept,
-} from "../identity/handlers/contacts.handlers.js";
+import { connectAgent, connectApp } from "#network";
+import { agentsList } from "#identity/agents";
+import { contactsAccept, contactsAdd, contactsList } from "#identity/contacts";
 import {
   agentPresenceSubscribe,
   appPresenceSubscribe,
-} from "../network/handlers/presence.handlers.js";
+} from "#network/presence";
 import { messagesSend, messagesList } from "#message/handlers";
 import { taskList, taskLeave, taskRequest, taskUpdate } from "#task/handlers";
 import {
-  taskConversationCreate,
-  taskConversationList,
-  taskConversationUpdate,
+  conversationCreate,
+  conversationList,
+  conversationUpdate,
 } from "#conversation/handlers";
-import { dispatchRequest, dispatchesGet } from "#dispatch/handlers";
+import { dispatchRequest, dispatchLeaseGet } from "#dispatch/handlers";
 import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
 
 /**
@@ -58,9 +51,9 @@ export const serverHandlers: ServerHandlers = {
   "agent/task/leave": taskLeave,
   "agent/task/request": taskRequest,
   "app/task/update": taskUpdate,
-  "app/conversation/create": taskConversationCreate,
-  "agent/conversation/list": taskConversationList,
-  "app/conversation/update": taskConversationUpdate,
+  "app/conversation/create": conversationCreate,
+  "agent/conversation/list": conversationList,
+  "app/conversation/update": conversationUpdate,
   "agent/dispatch/request": dispatchRequest,
-  "app/dispatch/lease/get": dispatchesGet,
+  "app/dispatch/lease/get": dispatchLeaseGet,
 } as const;

@@ -16,8 +16,8 @@ import { Clock, Data, Effect } from "effect";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 
 /**
- * The dispatch lease was already consumed (the server mapped a second
- * `messages/send` on the same lease to `ForbiddenError(data.reason:
+ * The dispatch lease is already consumed (the server mapped a second
+ * `agent/message/send` on the same lease to `ForbiddenError(data.reason:
  * "LeaseInvalid")`).
  *
  * Construction is **only** via `projectLeaseInvalid` (or `catchLeaseInvalid`).
@@ -50,21 +50,14 @@ const LEASE_ID_FALLBACK = "(unknown)";
 function isLeaseInvalidData(data: unknown): boolean {
   if (typeof data !== "object" || data === null) return false;
   const reason = (data as { readonly reason?: unknown }).reason;
-  const tag = (data as { readonly _tag?: unknown })._tag;
-  // Current wire shape: `ForbiddenError.data.reason === "LeaseInvalid"`. The
-  // `_tag` arm matches a server that emits the canonical tag in `data`
-  // directly.
-  return reason === "LeaseInvalid" || tag === "LeaseAlreadyConsumed";
+  return reason === "LeaseInvalid";
 }
 
 /**
  * Project an `ForbiddenError` to `LeaseAlreadyConsumed` if it matches the
  * lease-invalid wire shape; otherwise return the original error unchanged.
  *
- * Predicate:
- *   `err.data.reason === "LeaseInvalid"` OR
- *   `err.data._tag === "LeaseAlreadyConsumed"` (matches a server that emits
- *   the canonical tag in data).
+ * Predicate: `err.data.reason === "LeaseInvalid"`.
  *
  * The wire code (-32001 / generic Forbidden) is intentionally NOT part of
  * the predicate because the code is too generic to discriminate on alone.

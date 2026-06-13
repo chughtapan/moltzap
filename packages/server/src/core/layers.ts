@@ -10,11 +10,11 @@ import type { Db } from "../db/client.js";
 import { ConnectionManager, type Connection } from "#socket";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
-import { AuthService } from "../identity/services/auth.service.js";
-import { AppAuthService } from "../identity/services/app-auth.service.js";
-import { ContactsService } from "../identity/services/contact.service.js";
+import { AuthService } from "#identity/agents";
+import { AppAuthService } from "#identity/apps";
+import { ContactsService } from "#identity/contacts";
 import { ConversationService } from "#conversation";
-import { PresenceService } from "../network/services/presence.service.js";
+import { PresenceService } from "#network/presence";
 import { MessageAuthorizationService, MessageService } from "#message";
 import { TaskAuthorizationService, TaskService } from "#task";
 import { AppHost } from "#identity/apps";
@@ -65,7 +65,7 @@ export class ConnectionManagerTag extends Context.Tag(
 
 /**
  * The server-app's connection / disconnection hook arrays, read by the
- * `agent/connect` handler on a successful AGENT connect (it fires the
+ * `agent/network/connect` handler on a successful AGENT connect (it fires the
  * connection hooks once the agent arm is minted) and by the socket-close
  * finalizer (it fires the disconnection hooks). The arrays are the mutable
  * registration surface the `CoreApp.onConnection` / `onDisconnection`
@@ -85,7 +85,7 @@ export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
 
 /**
  * `AgentId → HashSet&lt;ConnectionId>` multimap maintained by the
- * `agent/connect` success path and the WS disconnect finalizer. Read by
+ * `agent/network/connect` success path and the WS disconnect finalizer. Read by
  * {@link NetworkSendServiceTag} for O(1) outbound routing.
  */
 export class AgentEndpointResolverTag extends Context.Tag(
@@ -249,7 +249,7 @@ const ContactsServiceLive = Layer.effect(
 
 /**
  * `PresenceServiceLive` constructs the full {@link PresenceService}
- * (subscriber registry + lease-derived status engine + `presence/changed`
+ * (subscriber registry + lease-derived status engine + `network/presence-changed`
  * fan-out). The R channel consumes `ConnectionManagerTag` — the only
  * construction dep, used by the fan-out to resolve each subscriber's
  * socket. `LeaseRegistryLive` consumes `PresenceServiceTag` as its

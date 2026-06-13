@@ -6,8 +6,8 @@ import {
   TaskUpdate,
 } from "@moltzap/protocol/task";
 import {
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
@@ -63,7 +63,7 @@ function fanoutLeaveParticipantRemoval(input: LeaveParticipantFanoutInput) {
     const recipientAgentIds: AgentId[] = [input.leaver, ...remaining];
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
-      TaskConversationParticipantsRemovedNotificationDefinition,
+      ConversationParticipantsRemovedNotificationDefinition,
       {
         taskId: input.taskId,
         conversationId: input.conversationId,
@@ -110,7 +110,7 @@ function taskCloseBody(params: TaskUpdateCloseParams, ctx: AppContext) {
     for (const conversation of closed.archivedConversations) {
       yield* broadcastNotificationToAgents(
         conversation.participantAgentIds,
-        TaskConversationArchivedNotificationDefinition,
+        ConversationArchivedNotificationDefinition,
         {
           taskId: params.taskId,
           conversationId: conversation.conversationId,

@@ -26,7 +26,7 @@
       "name": "API_KEY_PREFIX",
       "value": "moltzap_agent_",
       "kind": "string",
-      "sourcePath": "packages/server/src/identity/services/credential-keys.ts",
+      "sourcePath": "packages/server/src/identity/credential-keys.ts",
       "note": "Stable string prefix on every agent API key."
     },
     {

@@ -54,7 +54,7 @@ const MoltZapChannelEnv = Config.all({
  *   via `opts.onChatMetadata` and `opts.onMessage`.
  * - `conversationIdFromJid` runs on the outbound path
  *   (`MoltZapChannel.sendMessage`) and strips the prefix back to a
- *   conversationId before the `messages/send` RPC.
+ *   conversationId before the `agent/message/send` RPC.
  */
 function jidFromConversationId(conversationId: string): string {
   return `${MOLTZAP_JID_PREFIX}${conversationId}`;
@@ -131,7 +131,7 @@ export class MoltZapChannel implements Channel {
   // `LeaseAlreadyConsumed`.
   private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
   // Per-JID memory of the task that owns the most recent conversation seen
-  // inbound. `messages/send` requires the taskId.
+  // inbound. `agent/message/send` requires the taskId.
   private readonly taskIdsByJid = new Map<string, TaskId>();
   private readonly ownAgentId: string;
 

@@ -1,10 +1,10 @@
 /**
  * Archive lifecycle — archival is observable and enforced:
- *   - conversations/archive broadcasts conversations/archived
- *   - messages/send to the archived conversation returns the typed
+ *   - app/conversation/update archive broadcasts agent/conversation/archived
+ *   - agent/message/send to the archived conversation returns the typed
  *     ConversationArchived error
- *   - conversations/unarchive broadcasts conversations/unarchived
- *   - messages/send succeeds again after unarchive
+ *   - app/conversation/update unarchive broadcasts agent/conversation/unarchived
+ *   - agent/message/send succeeds again after unarchive
  */
 import { Effect } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -32,7 +32,7 @@ export function registerArchiveLifecycle(ctx: ConformanceRunContext): void {
     ctx,
     DELIVERY_CATEGORY,
     PROPERTY,
-    "archive/unarchive emits lifecycle events and gates messages/send",
+    "archive/unarchive emits lifecycle events and gates agent/message/send",
     runArchiveLifecycle(ctx).pipe(Effect.withSpan("registerArchiveLifecycle")),
   );
 }
@@ -104,7 +104,7 @@ function assertUnarchive(
     yield* requireRight(resumedSend, (error) =>
       deliveryViolation(
         PROPERTY,
-        `messages/send failed after unarchive: ${error._tag}`,
+        `agent/message/send failed after unarchive: ${error._tag}`,
       ),
     );
   });

@@ -2,7 +2,7 @@
  * Dispatch admission single-use lease behavior.
  */
 import { it as effectIt } from "@effect/vitest";
-import { TaskConversationUpdate } from "@moltzap/protocol/conversation";
+import { ConversationUpdate } from "@moltzap/protocol/conversation";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
@@ -14,7 +14,7 @@ import {
   createDispatchFlowFixture,
   MODERATED_HOOKS,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
+  createConversationOnApp,
   moderatorAppClient,
   readLeaseByLeaseId,
   requestDispatch,
@@ -56,7 +56,7 @@ function requestPendingModeratedDispatch(
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ kind: "never-reply" });
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const binding = yield* createTaskConversationOnApp(
+    const binding = yield* createConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
@@ -79,7 +79,7 @@ function requestGrantedModeratedDispatch(
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ decision: "grant" });
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const binding = yield* createTaskConversationOnApp(
+    const binding = yield* createConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
@@ -150,14 +150,14 @@ function insertFailureRollsBackLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     // The moderated path binds the task to the fixture's app connection.
-    // Archiving from that app client forces the subsequent messages/send to
+    // Archiving from that app client forces the subsequent agent/message/send to
     // fail at insert time.
     const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "probe",
     );
-    yield* moderatorAppClient().sendRpc(TaskConversationUpdate, {
+    yield* moderatorAppClient().sendRpc(ConversationUpdate, {
       action: "archive",
       taskId: binding.taskId,
       conversationId: binding.conversationId,
@@ -214,10 +214,8 @@ function postInsertFailureKeepsLeaseConsumed() {
       "first",
     );
 
-    // D #705 CP9 — drop the MODERATOR (the fixture's app `AppConnection`), not
-    // the requesting agent: closing it makes the post-finalize commit
-    // side-effect round-trip to the moderator fail while the lease stays
-    // CONSUMED (the insert already committed).
+    // Drop the moderator app connection so the post-finalize side effect fails
+    // while the committed lease remains consumed.
     yield* moderatorAppClient().close();
     yield* Effect.sleep("300 millis");
 
@@ -245,13 +243,13 @@ function postInsertFailureKeepsLeaseConsumed() {
 
 describe("dispatch/* - single-use lease preconditions", () => {
   it(
-    "rejects messages/send while dispatch lease is still pending",
+    "rejects agent/message/send while dispatch lease is still pending",
     pendingLeaseRejectsSend,
     25_000,
   );
 
   it(
-    "rejects a second messages/send for a consumed lease",
+    "rejects a second agent/message/send for a consumed lease",
     grantedLeaseIsSingleUse,
     20_000,
   );

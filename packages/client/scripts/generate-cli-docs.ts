@@ -481,7 +481,7 @@ const readProtocolVersion = (): ReadResult<string> => {
 
 /**
  * Read `API_KEY_PREFIX` from
- * `packages/server/src/identity/services/credential-keys.ts`. The
+ * `packages/server/src/identity/credential-keys.ts`. The
  * generated `ws-connect-example.mdx` uses the live prefix instead of
  * a hardcoded `"moltzap_agent_"` so the snippet survives any future
  * prefix change (and the `check-no-hardcoded-constants` API_KEY_PREFIX
@@ -490,7 +490,7 @@ const readProtocolVersion = (): ReadResult<string> => {
 const readApiKeyPrefix = (): ReadResult<string> => {
   const sourcePath = resolve(
     workspaceRoot,
-    "packages/server/src/identity/services/credential-keys.ts",
+    "packages/server/src/identity/credential-keys.ts",
   );
   const result = readTopLevelStringConst(
     readFileSync(sourcePath, "utf8"),

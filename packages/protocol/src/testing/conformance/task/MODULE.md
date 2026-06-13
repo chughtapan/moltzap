@@ -188,6 +188,21 @@ _Property_
 export interface NotificationBuffer {
 ```
 
+### [`CONVERSATION_FAMILY_PROPERTIES`](./conversation-family.ts#L479)
+
+_Variable_
+
+```ts
+export const CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
+  (ctx: ConformanceRunContext) => void
+> = [
+  registerTaskCreate,
+  registerTaskRequestReject,
+  registerTaskLeave,
+  registerConversationCreateAndList,
+]
+```
+
 ### [`ConversationActor`](./_helpers.ts#L76)
 
 _TypeAlias_
@@ -228,7 +243,7 @@ export interface ConversationFixture {
    * moderator. TM-admin RPCs (archive, unarchive, addParticipant,
    * removeParticipant, close) head their `requires` with `AppPrincipal`, so
    * they route through THIS client, not the agent `owner`. `owner` (an agent)
-   * drives `task/request` + `messages/send`.
+   * drives `agent/task/request` + `agent/message/send`.
    */
   readonly moderatorClient: AppTestClient;
 }
@@ -305,10 +320,10 @@ Wire a SEPARATE app principal as moderator: HTTP-register the manifest
 as the app's moderator endpoint. The grant-all `DispatchAuthorize` +
 accept `TaskCreate` + forward-all `MessagesAuthorize` callbacks run on
 THAT app connection (all are server-initiated, app-principal
-round-trips). The agent `owner` drives `task/request` + `messages/send`.
+round-trips). The agent `owner` drives `agent/task/request` + `agent/message/send`.
 
 Participant tracking stays on `owner.client` (an agent + conversation
-participant): the `task/conversation/created` + participants/added/removed
+participant): the `app/conversation/created` + participants/added/removed
 notifications are agent broadcasts that CANNOT reach an `AppConnection`.
 The shared in-process `participantsRef` bridges the owner's subscriber to
 the app's forward-all callback.
@@ -330,7 +345,7 @@ export interface ModeratedHandle {
   /**
    * Block until the moderator has observed `expectedAgentIds` as
    * participants of `conversationId` via
-   * `task/conversation/participants/added` notifications. Bridges
+   * `app/conversation/updateed` notifications. Bridges
    * the gap between the create RPC returning and the notification
    * arriving on the moderator's subscriber.
    */
@@ -408,6 +423,16 @@ _Function_
 export function registerArchiveLifecycle(ctx: ConformanceRunContext): void
 ```
 
+### [`registerConversationCreateAndList`](./conversation-family.ts#L433)
+
+_Function_
+
+```ts
+export function registerConversationCreateAndList(
+  ctx: ConformanceRunContext,
+): void
+```
+
 ### [`registerConversationLifecycle`](./conversation-lifecycle.ts#L34)
 
 _Function_
@@ -460,17 +485,7 @@ _Function_
 export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskConversationCreateAndList`](./task-conversation-family.ts#L427)
-
-_Function_
-
-```ts
-export function registerTaskConversationCreateAndList(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerTaskCreate`](./task-conversation-family.ts#L125)
+### [`registerTaskCreate`](./conversation-family.ts#L125)
 
 _Function_
 
@@ -478,7 +493,7 @@ _Function_
 export function registerTaskCreate(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskLeave`](./task-conversation-family.ts#L335)
+### [`registerTaskLeave`](./conversation-family.ts#L338)
 
 _Function_
 
@@ -486,7 +501,7 @@ _Function_
 export function registerTaskLeave(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskRequestReject`](./task-conversation-family.ts#L263)
+### [`registerTaskRequestReject`](./conversation-family.ts#L263)
 
 _Function_
 
@@ -507,21 +522,6 @@ export function sendText(
 )
 ```
 
-### [`TASK_CONVERSATION_FAMILY_PROPERTIES`](./task-conversation-family.ts#L462)
-
-_Variable_
-
-```ts
-export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext) => void
-> = [
-  registerTaskCreate,
-  registerTaskRequestReject,
-  registerTaskLeave,
-  registerTaskConversationCreateAndList,
-]
-```
-
 ### [`TASK_PROPERTIES`](./index.ts#L51)
 
 _Variable_
@@ -537,12 +537,12 @@ export const TASK_PROPERTIES: ReadonlyArray<
   registerConversationLifecycle,
   registerTaskCloseLifecycle,
   registerArchiveLifecycle,
-  ...TASK_CONVERSATION_FAMILY_PROPERTIES,
+  ...CONVERSATION_FAMILY_PROPERTIES,
 ]
 ```
 
 All task-layer property registrars: delivery subset first, then the
-`task/conversation/*` family.
+`app/conversation/*` family.
 
 ### [`unarchiveConversation`](./_helpers.ts#L333)
 
@@ -610,6 +610,7 @@ export function waitForUnarchivedEvent(
 
 - `_helpers.ts`
 - `archive-lifecycle.ts`
+- `conversation-family.ts`
 - `conversation-lifecycle.ts`
 - `fan-out-cardinality.ts`
 - `index.ts`
@@ -617,4 +618,3 @@ export function waitForUnarchivedEvent(
 - `store-and-replay.ts`
 - `task-boundary-isolation.ts`
 - `task-close-lifecycle.ts`
-- `task-conversation-family.ts`

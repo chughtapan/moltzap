@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { AppId, AppManifest } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ContactService } from "../services/contact-policy.js";
+import type { ContactService } from "#identity/contacts";
 import {
   AppRegistry,
   type AppEndpoint,

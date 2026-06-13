@@ -11,8 +11,8 @@ import {
 import {
   DispatchRequest,
   DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
+  DispatchLeaseConsumed,
+  DispatchLeaseExpired,
   type LeaseId,
 } from "@moltzap/protocol/message/dispatch";
 import type { HelloOk } from "@moltzap/protocol/network";
@@ -25,13 +25,13 @@ import type {
   ClientDefinitionSuccess,
 } from "@moltzap/protocol/socket";
 import {
-  type TaskConversationCreatedNotification,
-  type TaskConversationArchivedNotification,
-  type TaskConversationUnarchivedNotification,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationUnarchivedNotificationDefinition,
-  TaskConversationList,
+  type ConversationCreatedNotification,
+  type ConversationArchivedNotification,
+  type ConversationUnarchivedNotification,
+  ConversationCreatedNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+  ConversationList,
 } from "@moltzap/protocol/conversation";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
@@ -252,11 +252,15 @@ interface ServiceHandlerPayloads {
   readonly rawNotification: ClientNotificationDelivery;
   readonly disconnect: void;
   readonly reconnect: HelloOk;
-  readonly conversationArchived: TaskConversationArchivedNotification;
-  readonly conversationUnarchived: TaskConversationUnarchivedNotification;
+  readonly conversationArchived: ConversationArchivedNotification;
+  readonly conversationUnarchived: ConversationUnarchivedNotification;
   readonly dispatchRelease: NotificationParamsOf<typeof DispatchRelease>;
-  readonly dispatchesConsumed: NotificationParamsOf<typeof DispatchesConsumed>;
-  readonly dispatchesExpired: NotificationParamsOf<typeof DispatchesExpired>;
+  readonly dispatchLeaseConsumed: NotificationParamsOf<
+    typeof DispatchLeaseConsumed
+  >;
+  readonly dispatchLeaseExpired: NotificationParamsOf<
+    typeof DispatchLeaseExpired
+  >;
 }
 
 type ServiceHandlerName = keyof ServiceHandlerPayloads;
@@ -310,9 +314,7 @@ function fanout<T>(
  * API contract: **every fallible method returns `Effect`.** No `*Async`
  * Promise siblings — async/await consumers run the Effect at the edge
  * with `Effect.runPromise`. Keep this class Effect-only so downstream
- * callers compose failures and cancellation explicitly. (Phase -1
- * vendored the legacy `@moltzap/app-sdk` Promise-shaped wrapper out
- * to arena; consumers wanting Promise wrappers maintain their own.)
+ * callers compose failures and cancellation explicitly.
  */
 export class MoltZapService {
   private client: MoltZapAgentClient | null = null;
@@ -385,8 +387,8 @@ export class MoltZapService {
     conversationArchived: [],
     conversationUnarchived: [],
     dispatchRelease: [],
-    dispatchesConsumed: [],
-    dispatchesExpired: [],
+    dispatchLeaseConsumed: [],
+    dispatchLeaseExpired: [],
   };
 
   private _ownAgentId: AgentId;
@@ -662,9 +664,9 @@ export class MoltZapService {
   }
 
   private fetchHistoryConversationMeta(convId: ConversationId) {
-    // The client filters `TaskConversationList` output for the matching
+    // The client filters `ConversationList` output for the matching
     // conversation id (there is no per-conversation get RPC).
-    return this.call(TaskConversationList.name, {}).pipe(
+    return this.call(ConversationList.name, {}).pipe(
       Effect.map((result) => {
         const hit = result.items.find(
           (item) => item.conversation.id === convId,
@@ -766,7 +768,9 @@ export class MoltZapService {
           return resolved ?? agentId;
         }),
         Effect.catchAll((err) =>
-          Effect.logWarning("agents/list failed; falling back to agentId").pipe(
+          Effect.logWarning(
+            "agent/identity/agents/list failed; falling back to agentId",
+          ).pipe(
             Effect.annotateLogs({ agentId, err: String(err) }),
             Effect.as(agentId),
           ),
@@ -793,7 +797,7 @@ export class MoltZapService {
    *   else
    *     svc->>ws: sendRpc(MessagesSend, params)
    *     Note over ws: stateRef None → fail NotConnectedError<br>otherwise allocate request id, encode frame
-   *     ws->>server: {jsonrpc, method messages/send, id, params}
+   *     ws->>server: {jsonrpc, method agent/message/send, id, params}
    *     Note over ws: Deferred raced against 30s timeout
    *     server-->>ws: {result, id} or {error, id}
    *     Note over ws: reader fiber decodes, resolves the Deferred
@@ -832,7 +836,7 @@ export class MoltZapService {
   }
 
   /**
-   * Issue `dispatch/request`. The server returns the ack
+   * Issue `agent/dispatch/request`. The server returns the ack
    * `{leaseId, dispatchId}` immediately; the recipient observes the
    * verdict asynchronously via the `dispatchRelease` event.
    */
@@ -901,7 +905,7 @@ export class MoltZapService {
           limit: REUSABLE_CONVERSATION_LOOKUP_PAGE_SIZE,
         };
         if (cursor !== undefined) params.cursor = cursor;
-        const result = yield* this.call(TaskConversationList.name, params);
+        const result = yield* this.call(ConversationList.name, params);
         const hit = result.items.find(
           (item) =>
             item.taskId === taskId &&
@@ -1220,7 +1224,7 @@ export class MoltZapService {
     if (
       isNotificationDeliveryFor(
         notification,
-        TaskConversationCreatedNotificationDefinition,
+        ConversationCreatedNotificationDefinition,
       )
     ) {
       this.handleConversationCreatedNotification(notification.params);
@@ -1229,7 +1233,7 @@ export class MoltZapService {
     if (
       isNotificationDeliveryFor(
         notification,
-        TaskConversationArchivedNotificationDefinition,
+        ConversationArchivedNotificationDefinition,
       )
     ) {
       this.handleConversationArchivedNotification(notification.params);
@@ -1238,7 +1242,7 @@ export class MoltZapService {
     if (
       isNotificationDeliveryFor(
         notification,
-        TaskConversationUnarchivedNotificationDefinition,
+        ConversationUnarchivedNotificationDefinition,
       )
     ) {
       this.handleConversationUnarchivedNotification(notification.params);
@@ -1254,12 +1258,12 @@ export class MoltZapService {
       fanout(this.handlers.dispatchRelease, notification.params);
       return;
     }
-    if (isNotificationDeliveryFor(notification, DispatchesConsumed)) {
-      fanout(this.handlers.dispatchesConsumed, notification.params);
+    if (isNotificationDeliveryFor(notification, DispatchLeaseConsumed)) {
+      fanout(this.handlers.dispatchLeaseConsumed, notification.params);
       return;
     }
-    if (isNotificationDeliveryFor(notification, DispatchesExpired)) {
-      fanout(this.handlers.dispatchesExpired, notification.params);
+    if (isNotificationDeliveryFor(notification, DispatchLeaseExpired)) {
+      fanout(this.handlers.dispatchLeaseExpired, notification.params);
     }
   }
 
@@ -1319,7 +1323,7 @@ export class MoltZapService {
   }
 
   private handleConversationCreatedNotification(
-    notification: TaskConversationCreatedNotification,
+    notification: ConversationCreatedNotification,
   ): void {
     const { conversationId, name, participants } = notification;
     this.archivedConversationIds.delete(conversationId);
@@ -1338,14 +1342,14 @@ export class MoltZapService {
   }
 
   private handleConversationArchivedNotification(
-    notification: TaskConversationArchivedNotification,
+    notification: ConversationArchivedNotification,
   ): void {
     this.markConversationArchived(notification.conversationId);
     fanout(this.handlers.conversationArchived, notification);
   }
 
   private handleConversationUnarchivedNotification(
-    notification: TaskConversationUnarchivedNotification,
+    notification: ConversationUnarchivedNotification,
   ): void {
     this.archivedConversationIds.delete(notification.conversationId);
     fanout(this.handlers.conversationUnarchived, notification);

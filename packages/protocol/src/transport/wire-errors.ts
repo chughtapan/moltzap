@@ -29,13 +29,13 @@ export interface RpcErrorPayload {
   readonly data?: unknown;
 }
 
-/** Not authenticated — `agent/connect` or `app/connect` has not run on this socket. */
+/** Not authenticated — `agent/network/connect` or `app/network/connect` has not run on this socket. */
 export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
   "Unauthorized",
   errorPayloadFields,
 ) {
   static readonly message =
-    "Not authenticated. Send agent/connect or app/connect first.";
+    "Not authenticated. Send agent/network/connect or app/network/connect first.";
 }
 
 /** Authenticated but not authorized for this resource. */

@@ -2,8 +2,7 @@
  * @file Shared Key-ID + Secret credential toolkit for BOTH principal kinds:
  * the generate/parse primitives for agent API keys (`API_KEY_PREFIX`) AND app
  * keys (`APP_KEY_PREFIX`). `generateKeyWithPrefix` / `parseKeyWithPrefix` are
- * the prefix-parameterized core both principal credentials share;
- * `app-auth.service.ts` imports the app-key half for the App principal.
+ * the prefix-parameterized core both principal credentials share.
  */
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Redacted, Schema } from "effect";

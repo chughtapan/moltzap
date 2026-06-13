@@ -24,7 +24,7 @@ Layers, and the bridge from an Effect `Socket` to the core services.
    `makeCoreSocketHandler`.
 2. `server-socket.ts` opens a protocol `MoltZapServer` session and registers an
    unauthenticated connection.
-3. `agent/connect` or `app/connect` authenticates the live connection arm.
+3. `agent/network/connect` or `app/network/connect` authenticates the live connection arm.
 4. Later RPCs run protocol-declared requirement middleware before the handler
    body.
 5. Socket close removes the connection, updates presence/routing state, abandons

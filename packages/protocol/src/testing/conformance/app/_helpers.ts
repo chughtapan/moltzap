@@ -25,12 +25,12 @@ export const FORBIDDEN_ERROR_TAG = "Forbidden";
 // fiber-scoped scope-close, so the poll bound must outlast both the
 // observation window and the connection-close round-trip.
 export const ABANDON_POLL_EXTRA_MS = 2_000;
-// Window for waiting on a synthesized timeout `dispatch/release`. Must
+// Window for waiting on a synthesized timeout `agent/dispatch/released`. Must
 // be greater than `TINY_MODERATOR_TIMEOUT_MS` (the server-side
 // moderator-response TTL) by enough margin to absorb scheduling jitter
 // in CI.
 export const TIMEOUT_RELEASE_WAIT_MS = 3_000;
-// Tight window asserting that NO second `dispatch/release` arrives for
+// Tight window asserting that NO second `agent/dispatch/released` arrives for
 // a single lease. Short enough to keep property runtime bounded; long
 // enough to catch a duplicate emit race.
 export const NO_SECOND_RELEASE_WINDOW_MS = 250;

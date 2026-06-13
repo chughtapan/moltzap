@@ -8,12 +8,14 @@ Dispatch-domain handler barrel.
 
 ## Public surface
 
-### [`dispatchesGet`](./dispatch.handlers.ts#L83)
+### [`dispatchLeaseGet`](./dispatch.handlers.ts#L83)
 
 _Variable_
 
 ```ts
-export const dispatchesGet: ServerHandler<typeof DispatchesGet> = (params)
+export const dispatchLeaseGet: ServerHandler<typeof DispatchLeaseGet> = (
+  params,
+)
 ```
 
 ### [`dispatchRequest`](./dispatch.handlers.ts#L76)

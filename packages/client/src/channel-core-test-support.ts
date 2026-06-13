@@ -65,15 +65,15 @@ export class TestInboundHandlerError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-type LegacyAdmissionRequest = DispatchAdmissionRequest;
+type AdmissionRequest = DispatchAdmissionRequest;
 
 const FALLBACK_RECEIVED_AT = "1970-01-01T00:00:00.000Z";
 const LEASE_MOCK_PREFIX = "lease-mock";
 const DISPATCH_MOCK_PREFIX = "dispatch-mock";
 
-const legacyAdmissionRequest = (
+const admissionRequest = (
   params: Parameters<NonNullable<ChannelService["requestDispatch"]>>[0],
-): LegacyAdmissionRequest => ({
+): AdmissionRequest => ({
   message: {
     id: params.messageId as Message["id"],
     conversationId: params.conversationId as Message["conversationId"],
@@ -85,7 +85,7 @@ const legacyAdmissionRequest = (
   senderAgentId: params.senderAgentId,
   attempt: params.attempt ?? 0,
   receivedAt: params.receivedAt ?? FALLBACK_RECEIVED_AT,
-  pending: (params.pending ?? []) as LegacyAdmissionRequest["pending"],
+  pending: (params.pending ?? []) as AdmissionRequest["pending"],
 });
 
 const grantVerdict = (
@@ -150,12 +150,12 @@ const dispatchIdForCounter = (counter: number): string =>
 export function installAdmission(
   fake: FakeChannelService,
   decide: (
-    request: LegacyAdmissionRequest,
+    request: AdmissionRequest,
   ) => Effect.Effect<DispatchAdmissionDecision, ServiceRpcError>,
 ): void {
   let counter = 0;
   fake.service.requestDispatch = (params) =>
-    decide(legacyAdmissionRequest(params)).pipe(
+    decide(admissionRequest(params)).pipe(
       Effect.map((decision) => {
         counter += 1;
         const leaseId = leaseIdForDecision(decision, counter);

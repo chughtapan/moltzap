@@ -38,7 +38,7 @@ const DEFAULT_CAPACITY = 256;
  *
  * Tracks message-id → `RoutingTarget` (task + conversation pair) for
  * `reply_to` resolution. Does NOT track dispatch lease tokens — the
- * lease FSM lives on the MoltZap server (see `messages/send`
+ * lease FSM lives on the MoltZap server (see `agent/message/send`
  * rejection projection via `catchLeaseInvalid` in the channel-base
  * library).
  *

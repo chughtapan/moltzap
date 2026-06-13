@@ -20,12 +20,12 @@ import { isNotificationDeliveryFor } from "#transport";
 import { TaskCreate, TaskId, TaskRequest } from "../../../task/index.js";
 import {
   ConversationId,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
-  TaskConversationUpdate,
-  TaskConversationUnarchivedNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationParticipantsAddedNotificationDefinition,
+  ConversationParticipantsRemovedNotificationDefinition,
+  ConversationUpdate,
+  ConversationUnarchivedNotificationDefinition,
 } from "../../../conversation/index.js";
 import {
   MessageReceivedNotificationDefinition,
@@ -68,7 +68,7 @@ export interface ConversationFixture {
    * moderator. TM-admin RPCs (archive, unarchive, addParticipant,
    * removeParticipant, close) head their `requires` with `AppPrincipal`, so
    * they route through THIS client, not the agent `owner`. `owner` (an agent)
-   * drives `task/request` + `messages/send`.
+   * drives `agent/task/request` + `agent/message/send`.
    */
   readonly moderatorClient: AppTestClient;
 }
@@ -323,7 +323,7 @@ export function archiveConversation(
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return moderatorClient.sendRpc(TaskConversationUpdate, {
+  return moderatorClient.sendRpc(ConversationUpdate, {
     action: "archive",
     taskId,
     conversationId,
@@ -335,7 +335,7 @@ export function unarchiveConversation(
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return moderatorClient.sendRpc(TaskConversationUpdate, {
+  return moderatorClient.sendRpc(ConversationUpdate, {
     action: "unarchive",
     taskId,
     conversationId,
@@ -350,7 +350,7 @@ export function waitForConversationCreatedNotification(
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      TaskConversationCreatedNotificationDefinition,
+      ConversationCreatedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
@@ -403,7 +403,7 @@ export function waitForArchivedEvent(
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      TaskConversationArchivedNotificationDefinition,
+      ConversationArchivedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
@@ -433,7 +433,7 @@ export function waitForUnarchivedEvent(
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      TaskConversationUnarchivedNotificationDefinition,
+      ConversationUnarchivedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
@@ -477,7 +477,7 @@ export function assertConversationRejectsMessages(
       onRight: () =>
         deliveryViolation(
           propertyName,
-          "messages/send succeeded while archived",
+          "agent/message/send succeeded while archived",
         ),
       onLeft: (error) => {
         if (
@@ -490,7 +490,7 @@ export function assertConversationRejectsMessages(
           error instanceof RpcResponseError ? error.tag : error._tag;
         return deliveryViolation(
           propertyName,
-          `messages/send returned ${errorLabel}, expected ${expectedError.tag}`,
+          `agent/message/send returned ${errorLabel}, expected ${expectedError.tag}`,
         );
       },
     });
@@ -564,16 +564,16 @@ function attachForwardAllMessagesAuthorize(
   );
 }
 
-// Initial-conversation snapshot. `task/conversation/created` is the
+// Initial-conversation snapshot. `app/conversation/created` is the
 // bulk event the server emits when a conversation is born (typically
-// as the initialConversation hint folded into task/request); seed
+// as the initialConversation hint folded into agent/task/request); seed
 // participantsRef from its `participants` field so
 // awaitConversationReady doesn't time out waiting for per-participant
 // added events that the server never sent.
 function applyConversationCreated(
   prev: ParticipantMap,
   params: NotificationParamsOf<
-    typeof TaskConversationCreatedNotificationDefinition
+    typeof ConversationCreatedNotificationDefinition
   >,
 ): ParticipantMap {
   const convId = makeConversationId(params.conversationId);
@@ -585,7 +585,7 @@ function applyConversationCreated(
 function applyParticipantsAdded(
   prev: ParticipantMap,
   params: NotificationParamsOf<
-    typeof TaskConversationParticipantsAddedNotificationDefinition
+    typeof ConversationParticipantsAddedNotificationDefinition
   >,
 ): ParticipantMap {
   const convId = makeConversationId(params.conversationId);
@@ -600,7 +600,7 @@ function applyParticipantsAdded(
 function applyParticipantsRemoved(
   prev: ParticipantMap,
   params: NotificationParamsOf<
-    typeof TaskConversationParticipantsRemovedNotificationDefinition
+    typeof ConversationParticipantsRemovedNotificationDefinition
   >,
 ): ParticipantMap {
   const convId = makeConversationId(params.conversationId);
@@ -637,15 +637,15 @@ function subscribeParticipantNotifications(
 
   return Effect.gen(function* () {
     yield* pump(
-      TaskConversationCreatedNotificationDefinition,
+      ConversationCreatedNotificationDefinition,
       applyConversationCreated,
     );
     yield* pump(
-      TaskConversationParticipantsAddedNotificationDefinition,
+      ConversationParticipantsAddedNotificationDefinition,
       applyParticipantsAdded,
     );
     yield* pump(
-      TaskConversationParticipantsRemovedNotificationDefinition,
+      ConversationParticipantsRemovedNotificationDefinition,
       applyParticipantsRemoved,
     );
   });
@@ -687,7 +687,7 @@ export interface ModeratedHandle {
   /**
    * Block until the moderator has observed `expectedAgentIds` as
    * participants of `conversationId` via
-   * `task/conversation/participants/added` notifications. Bridges
+   * `app/conversation/updateed` notifications. Bridges
    * the gap between the create RPC returning and the notification
    * arriving on the moderator's subscriber.
    */
@@ -703,10 +703,10 @@ export interface ModeratedHandle {
  * as the app's moderator endpoint. The grant-all `DispatchAuthorize` +
  * accept `TaskCreate` + forward-all `MessagesAuthorize` callbacks run on
  * THAT app connection (all are server-initiated, app-principal
- * round-trips). The agent `owner` drives `task/request` + `messages/send`.
+ * round-trips). The agent `owner` drives `agent/task/request` + `agent/message/send`.
  *
  * Participant tracking stays on `owner.client` (an agent + conversation
- * participant): the `task/conversation/created` + participants/added/removed
+ * participant): the `app/conversation/created` + participants/added/removed
  * notifications are agent broadcasts that CANNOT reach an `AppConnection`.
  * The shared in-process `participantsRef` bridges the owner's subscriber to
  * the app's forward-all callback.
@@ -757,7 +757,7 @@ export function acquireConversation(
     );
     // A separate app principal holds TM authority for TM-only RPCs
     // (archive, addParticipant, close); DEFAULT_APP_ID has no TM. `owner`
-    // (agent) drives task/request below.
+    // (agent) drives agent/task/request below.
     const moderator = yield* moderateAs(ctx, owner, namePrefix);
     const createResult = yield* owner.client
       .sendRpc(TaskRequest, {
@@ -771,14 +771,14 @@ export function acquireConversation(
       .pipe(Effect.either);
     const created = (yield* requireRight(
       createResult,
-      (error) => `task/create failed: ${error._tag}`,
+      (error) => `app/task/create failed: ${error._tag}`,
     )) as {
       task: { id: string };
       conversation: { id: string } | null;
     };
     const conversationId = created.conversation?.id;
     if (typeof conversationId !== "string" || conversationId.length === 0) {
-      return yield* Effect.fail(`task/create returned no conversation.id`);
+      return yield* Effect.fail(`app/task/create returned no conversation.id`);
     }
     const branded = makeConversationId(conversationId);
     yield* moderator.awaitConversationReady(

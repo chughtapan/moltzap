@@ -65,7 +65,7 @@ export const obtainConversationSendAccess = (input: {
 //
 // The remaining send preconditions refine the `ConversationSendAccess` row the
 // requirement middleware already fetched. They are HANDLER guards (called in
-// order at the top of the `messages/send` body), not standalone middlewares.
+// order at the top of the `agent/message/send` body), not standalone middlewares.
 // They take the provided row as a value: no DB read, no service env.
 
 /**

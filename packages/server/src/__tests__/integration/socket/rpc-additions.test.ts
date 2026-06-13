@@ -1,4 +1,4 @@
-/* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case names a specific live-server contract (HTTP apps/register manifest validation, messages/send replyToId threading + orphan rejection). These are scenario-shaped integration checks against the running server, not an input domain to generate over. */
+/* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case names a specific live-server contract (HTTP apps/register manifest validation, agent/message/send replyToId threading + orphan rejection). These are scenario-shaped integration checks against the running server, not an input domain to generate over. */
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect, Exit } from "effect";
 import {
@@ -44,23 +44,19 @@ function unexpectedAppCallbacks(): AppCallbackHandlers<AppCallbackContext> {
   return {
     [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
-      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
     [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
-      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
     [TaskCreate.name]: {
       definition: TaskCreate,
-      handle: () => Effect.dieMessage("unexpected task/create"),
+      handle: () => Effect.dieMessage("unexpected app/task/create"),
     },
   };
 }
 
-// D #705 CP9 — app registration is the HTTP `/api/v1/apps/register`
-// endpoint (server-minted `appId` + `appKey`); the app then `appKey`-
-// Connects to bind its `AppConnection` as the moderator endpoint. These
-// exercise the live HTTP boundary + the appKey-Connect arm.
 it("apps/register: HTTP registers a valid manifest and the app can connect", () =>
   Effect.gen(function* () {
     const manifest: AppManifest = {
@@ -109,7 +105,7 @@ it("apps/register: HTTP rejects a request missing the manifest param", () =>
     expect(status).toBe(HTTP_BAD_REQUEST);
   }));
 
-it("messages/send preserves replyToId on the persisted message", () =>
+it("agent/message/send preserves replyToId on the persisted message", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
@@ -138,7 +134,7 @@ it("messages/send preserves replyToId on the persisted message", () =>
     expect(replied.message.replyToId).toBe(sent.message.id);
   }));
 
-it("messages/send rejects replyToId that points to an unknown message", () =>
+it("agent/message/send rejects replyToId that points to an unknown message", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 

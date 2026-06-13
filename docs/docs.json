@@ -80,88 +80,80 @@
           {
             "group": "Network",
             "pages": [
-              "protocol/methods/agent-connect",
-              "protocol/methods/app-connect"
+              "protocol/methods/agent-network-connect",
+              "protocol/methods/app-network-connect",
+              "protocol/methods/agent-network-presence-subscribe",
+              "protocol/methods/app-network-presence-subscribe"
             ]
           },
           {
             "group": "Agents",
             "pages": [
-              "protocol/methods/agents-list"
-            ]
-          },
-          {
-            "group": "Messages",
-            "pages": [
-              "protocol/methods/messages-send",
-              "protocol/methods/messages-list",
-              "protocol/methods/messages-authorize"
-            ]
-          },
-          {
-            "group": "Conversations",
-            "pages": [
-              "protocol/methods/task-conversation-create",
-              "protocol/methods/task-conversation-list",
-              "protocol/methods/task-conversation-participants-add",
-              "protocol/methods/task-conversation-participants-remove",
-              "protocol/methods/task-conversation-archive",
-              "protocol/methods/task-conversation-unarchive"
+              "protocol/methods/agent-identity-agents-list"
             ]
           },
           {
             "group": "Contacts",
             "pages": [
-              "protocol/methods/contacts-list",
-              "protocol/methods/contacts-add",
-              "protocol/methods/contacts-accept"
+              "protocol/methods/agent-identity-contacts-list",
+              "protocol/methods/agent-identity-contacts-add",
+              "protocol/methods/agent-identity-contacts-accept"
             ]
           },
           {
-            "group": "Presence",
+            "group": "Messages",
             "pages": [
-              "protocol/methods/presence-subscribe"
+              "protocol/methods/agent-message-send",
+              "protocol/methods/agent-message-list",
+              "protocol/methods/app-message-authorize"
+            ]
+          },
+          {
+            "group": "Conversations",
+            "pages": [
+              "protocol/methods/app-conversation-create",
+              "protocol/methods/agent-conversation-list",
+              "protocol/methods/app-conversation-update"
             ]
           },
           {
             "group": "Dispatch",
             "pages": [
-              "protocol/methods/dispatch-request",
-              "protocol/methods/dispatch-authorize",
-              "protocol/methods/dispatches-get"
+              "protocol/methods/agent-dispatch-request",
+              "protocol/methods/app-dispatch-authorize",
+              "protocol/methods/app-dispatch-lease-get"
             ]
           },
           {
             "group": "Tasks",
             "pages": [
-              "protocol/methods/task-create",
-              "protocol/methods/task-request",
-              "protocol/methods/task-list",
-              "protocol/methods/task-close",
-              "protocol/methods/task-leave",
-              "protocol/methods/task-add-participant",
-              "protocol/methods/task-remove-participant"
+              "protocol/methods/agent-task-request",
+              "protocol/methods/agent-task-list",
+              "protocol/methods/agent-task-leave",
+              "protocol/methods/app-task-create",
+              "protocol/methods/app-task-update"
             ]
           },
           {
             "group": "Notifications",
             "pages": [
               "protocol/notifications/overview",
-              "protocol/notifications/messages-received",
-              "protocol/notifications/task-created",
-              "protocol/notifications/task-conversation-created",
-              "protocol/notifications/task-conversation-archived",
-              "protocol/notifications/task-conversation-unarchived",
-              "protocol/notifications/task-conversation-participants-added",
-              "protocol/notifications/task-conversation-participants-removed",
-              "protocol/notifications/contact-request",
-              "protocol/notifications/contact-accepted",
-              "protocol/notifications/presence-changed",
-              "protocol/notifications/task-closed",
-              "protocol/notifications/task-failed",
-              "protocol/notifications/dispatch-release",
-              "protocol/notifications/dispatches-consumed",
-              "protocol/notifications/dispatches-expired"
+              "protocol/notifications/agent-network-presence-changed",
+              "protocol/notifications/app-network-presence-changed",
+              "protocol/notifications/agent-identity-contact-requested",
+              "protocol/notifications/agent-identity-contact-accepted",
+              "protocol/notifications/agent-task-created",
+              "protocol/notifications/agent-task-closed",
+              "protocol/notifications/agent-task-failed",
+              "protocol/notifications/agent-conversation-created",
+              "protocol/notifications/agent-conversation-archived",
+              "protocol/notifications/agent-conversation-unarchived",
+              "protocol/notifications/agent-conversation-participants-added",
+              "protocol/notifications/agent-conversation-participants-removed",
+              "protocol/notifications/agent-message-received",
+              "protocol/notifications/agent-dispatch-released",
+              "protocol/notifications/app-dispatch-lease-consumed",
+              "protocol/notifications/app-dispatch-lease-expired"
             ]
           }
         ]

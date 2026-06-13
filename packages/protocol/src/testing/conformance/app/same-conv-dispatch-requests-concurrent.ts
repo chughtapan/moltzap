@@ -10,22 +10,25 @@ import {
 } from "./_helpers.js";
 import type { DispatchTestDriver, RecipientHandle } from "./_driver.js";
 
-export function registerSameConversationDispatchesConcurrent(
+export function registerSameConversationDispatchRequestsConcurrent(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "same-conversation-dispatches-reach-moderator-concurrently";
+  const NAME =
+    "same-conversation-dispatch-requests-reach-moderator-concurrently";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "two dispatch/request calls in same (taskId, conversationId) reach the moderator without server-side serialization",
+    "two agent/dispatch/request calls in same (taskId, conversationId) reach the moderator without server-side serialization",
     withDriver(ctx, (driver) =>
-      runSameConversationDispatchesConcurrent(NAME, driver),
-    ).pipe(Effect.withSpan("registerSameConversationDispatchesConcurrent")),
+      runSameConversationDispatchRequestsConcurrent(NAME, driver),
+    ).pipe(
+      Effect.withSpan("registerSameConversationDispatchRequestsConcurrent"),
+    ),
   );
 }
 
-function runSameConversationDispatchesConcurrent(
+function runSameConversationDispatchRequestsConcurrent(
   propertyName: string,
   driver: DispatchTestDriver,
 ) {

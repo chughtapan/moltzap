@@ -1,11 +1,10 @@
 /**
- * Integration coverage for the `task/*` + `task/conversation/*` family.
+ * Integration coverage for the `task` + `conversation` family.
  *
  * Each test exercises one wire method end-to-end against a real
  * Postgres instance: schema decode, authority gate, happy path,
- * key invariants, and (where applicable) the dual-emit notification
- * fan-out (legacy `conversations/*` + new `task/conversation/*`
- * both fire from the same handler in the same tx).
+ * key invariants, and (where applicable) notification fan-out from the
+ * handler transaction.
  *
  * The conformance suite drives the wire shape; these tests pin the concrete DB
  * and notification observable behavior.
@@ -16,11 +15,11 @@
  * |---|---|
  * | TaskRequest | happy-path + participants + dedup (DEFAULT_APP) + atomic initial conv + dual-emit |
  * | TaskLeave | self-only + idempotent no-op + last-participant closure + per-cid removal |
- * | TaskConversationCreate | TM-only + participant-admitted invariant + dual-emit |
- * | TaskConversationList | self only + items shape + archived-included |
- * | TaskConversationUpdate archive/unarchive | TM-only + idempotency + dual-emit |
- * | TaskConversationUpdate add-participant | TM-only + participant-admitted + idempotency + dual-emit |
- * | TaskConversationUpdate remove-participant | TM-only + idempotency + dual-emit |
+ * | ConversationCreate | TM-only + participant-admitted invariant + dual-emit |
+ * | ConversationList | self only + items shape + archived-included |
+ * | ConversationUpdate archive/unarchive | TM-only + idempotency + dual-emit |
+ * | ConversationUpdate add-participant | TM-only + participant-admitted + idempotency + dual-emit |
+ * | ConversationUpdate remove-participant | TM-only + idempotency + dual-emit |
  */
 
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
@@ -34,9 +33,9 @@ import {
   TaskRequest,
 } from "@moltzap/protocol/task";
 import {
-  TaskConversationCreate,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationList,
+  ConversationCreate,
+  ConversationCreatedNotificationDefinition,
+  ConversationList,
 } from "@moltzap/protocol/conversation";
 import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize } from "@moltzap/protocol/message";
@@ -138,11 +137,11 @@ function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
     [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
-      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
     [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
-      handle: () => Effect.dieMessage("unexpected messages/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
     [TaskCreate.name]: {
       definition: TaskCreate,
@@ -171,8 +170,8 @@ it("TaskRequest (DEFAULT_APP, multi-invitee) mints a fresh task with all partici
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, carol.agentId],
     });
-    // DEFAULT_APP auto-accepts the task/create TM callback, so the
-    // task transitions waiting → active before task/request returns.
+    // DEFAULT_APP auto-accepts the app/task/create TM callback, so the
+    // task transitions waiting → active before agent/task/request returns.
     expect(result.task.status).toBe(STATUS_ACTIVE);
     expect(result.task.appId).toBe(DEFAULT_APP_ID);
     expect(result.task.initiatorAgentId).toBe(alice.agentId);
@@ -187,11 +186,7 @@ it("TaskRequest (different appId) does NOT dedup across apps", () =>
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
     });
-    // Non-default app: an app principal registers (HTTP) + `appKey`-
-    // Connects so its `task/create` callback resolves. Alice (agent)
-    // drives the agent-only `task/request` against the DB-minted appId.
-    // Dedup is retired (#677); two requests under different apps always
-    // mint distinct tasks.
+    // Requests under different app identities always mint distinct tasks.
     const registered = yield* registerApp(
       baseUrl,
       {
@@ -220,7 +215,7 @@ it("TaskRequest (different appId) does NOT dedup across apps", () =>
     expect(second.task.id).not.toBe(first.task.id);
   }));
 
-it("TaskRequest (initialConversation) mints a conversation + emits task/conversation/created", () =>
+it("TaskRequest (initialConversation) mints a conversation + emits app/conversation/created", () =>
   Effect.gen(function* () {
     const { alice, bob, carol } = yield* setupThreeAgents();
     // Subscribe BEFORE sending so the stream-based waiter has the
@@ -228,7 +223,7 @@ it("TaskRequest (initialConversation) mints a conversation + emits task/conversa
     const newNotif = Effect.fork(
       awaitOneNotification(
         alice.client,
-        TaskConversationCreatedNotificationDefinition,
+        ConversationCreatedNotificationDefinition,
         NOTIF_TIMEOUT_MS,
       ),
     );
@@ -292,9 +287,9 @@ it("TaskLeave (last admitted participant) transitions task to closed + emits tas
     expect(params.task.status).toBe(STATUS_CLOSED);
   }));
 
-// ─── TaskConversationCreate ──────────────────────────────────────────
+// ─── ConversationCreate ──────────────────────────────────────────
 
-it("TaskConversationCreate (owning app caller) mints a conversation", () =>
+it("ConversationCreate (owning app caller) mints a conversation", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
     const registered = yield* registerApp(
@@ -319,7 +314,7 @@ it("TaskConversationCreate (owning app caller) mints a conversation", () =>
       appId: registered.appId,
       invitedAgentIds: [bob.agentId],
     });
-    const conversation = yield* appClient.sendRpc(TaskConversationCreate, {
+    const conversation = yield* appClient.sendRpc(ConversationCreate, {
       taskId: created.task.id,
       name: SPINOFF_CONVERSATION_NAME,
       participants: [bob.agentId],
@@ -327,9 +322,9 @@ it("TaskConversationCreate (owning app caller) mints a conversation", () =>
     expect(conversation.conversation.name).toBe(SPINOFF_CONVERSATION_NAME);
   }));
 
-// ─── TaskConversationList ────────────────────────────────────────────
+// ─── ConversationList ────────────────────────────────────────────
 
-it("TaskConversationList returns items with { taskId, conversation, participants }", () =>
+it("ConversationList returns items with { taskId, conversation, participants }", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
     const created = yield* alice.client.sendRpc(TaskRequest, {
@@ -341,7 +336,7 @@ it("TaskConversationList returns items with { taskId, conversation, participants
       },
     });
     expect(created.conversation).not.toBeNull();
-    const result = yield* alice.client.sendRpc(TaskConversationList, {});
+    const result = yield* alice.client.sendRpc(ConversationList, {});
     expect(result.items.length).toBeGreaterThanOrEqual(1);
     const item = result.items.find(
       (i) => i.conversation.id === created.conversation!.id,
@@ -353,10 +348,10 @@ it("TaskConversationList returns items with { taskId, conversation, participants
     expect(item!.conversation.archivedAt).toBeUndefined();
   }));
 
-it("TaskConversationList respects limit + returns nextCursor when more rows exist", () =>
+it("ConversationList respects limit + returns nextCursor when more rows exist", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
-    // Two task-conversations under one umbrella task.
+    // Two conversations under one umbrella task.
     yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
@@ -368,7 +363,7 @@ it("TaskConversationList respects limit + returns nextCursor when more rows exis
       invitedAgentIds: [carol.agentId],
       initialConversation: { name: "second", participants: [carol.agentId] },
     });
-    const result = yield* alice.client.sendRpc(TaskConversationList, {
+    const result = yield* alice.client.sendRpc(ConversationList, {
       limit: 1,
     });
     expect(result.items).toHaveLength(1);

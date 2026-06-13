@@ -56,7 +56,7 @@ export interface CrossConversationEntry {
 
 Structured summary of recent activity in one other conversation.
 
-### [`CrossConvMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L265)
+### [`CrossConvMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L269)
 
 _Interface_
 
@@ -115,7 +115,7 @@ Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
 that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
 share this formatter so sanitization and line shape stay in one place.
 
-### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L317)
+### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L319)
 
 _Class_
 
@@ -191,8 +191,8 @@ export class MoltZapService {
     conversationArchived: [],
     conversationUnarchived: [],
     dispatchRelease: [],
-    dispatchesConsumed: [],
-    dispatchesExpired: [],
+    dispatchLeaseConsumed: [],
+    dispatchLeaseExpired: [],
   };
 
   private _ownAgentId: AgentId;
@@ -248,9 +248,7 @@ agent name resolution, and cross-conversation context generation.
 API contract: **every fallible method returns `Effect`.** No `*Async`
 Promise siblings — async/await consumers run the Effect at the edge
 with `Effect.runPromise`. Keep this class Effect-only so downstream
-callers compose failures and cancellation explicitly. (Phase -1
-vendored the legacy `@moltzap/app-sdk` Promise-shaped wrapper out
-to arena; consumers wanting Promise wrappers maintain their own.)
+callers compose failures and cancellation explicitly.
 
 ### [`NonAdvancingCursorError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/pagination.ts#L27)
 

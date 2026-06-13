@@ -30,7 +30,7 @@
  *
  *   Host->>Channel: reply / sendMessage
  *   Channel->>Core: sendReply(conv, text, {dispatchLeaseId})
- *   Core->>Server: messages/send
+ *   Core->>Server: agent/message/send
  *   Server-->>Core: ForbiddenError data.reason LeaseInvalid
  *   Note over Channel,Core: catchLeaseInvalid reads Clock.currentTimeMillis<br>then projectLeaseInvalid stamps LeaseAlreadyConsumed
  *   Core-->>Channel: Effect.fail(LeaseAlreadyConsumed)
@@ -42,10 +42,6 @@
  *     Channel->>Host: Effect raises LeaseAlreadyConsumed
  *   end
  * ```
- *
- * The `_tag === "LeaseAlreadyConsumed"` forward-compat arm of
- * `projectLeaseInvalid` covers a future server that emits the
- * canonical tag in `data` directly; no channel-side change required.
  *
  * Primitives live one-per-file:
  *

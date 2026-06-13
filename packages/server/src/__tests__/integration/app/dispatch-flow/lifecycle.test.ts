@@ -1,6 +1,4 @@
-/**
- * #529 reshape additive: dispatch admission lease lifecycle behavior.
- */
+/** Integration coverage for dispatch admission lease lifecycle behavior. */
 import { it as effectIt } from "@effect/vitest";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import { Effect, Fiber } from "effect";
@@ -13,7 +11,7 @@ import {
   createDispatchFlowFixture,
   MODERATED_HOOKS,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
+  createConversationOnApp,
   readLeaseByDispatchId,
   readLeaseByLeaseId,
   requestDispatch,
@@ -58,7 +56,7 @@ function requestModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const binding = yield* createTaskConversationOnApp(alice, bob, manifest);
+    const binding = yield* createConversationOnApp(alice, bob, manifest);
     const ack = yield* requestDispatch(
       bob,
       binding.conversationId,

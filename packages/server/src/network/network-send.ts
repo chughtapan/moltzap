@@ -133,7 +133,7 @@ export class NetworkSendService {
    *   (`conn.conversationIds.has(...)`); absent, every connection
    *   of every listed agent receives.
    * - `excludeConnectionId` — skip the named connection. The
-   *   `messages/send` author uses this to avoid echoing the RPC reply
+   *   `agent/message/send` author uses this to avoid echoing the RPC reply
    *   back as a notification.
    *
    * `delivered` lists agents whose at-least-one connection was

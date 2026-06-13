@@ -34,7 +34,7 @@ Agent-callable message RPC catalog.
 _Variable_
 
 ```ts
-export const appCallableDispatchRpcMethods = [DispatchesGet] as const
+export const appCallableDispatchRpcMethods = [DispatchLeaseGet] as const
 ```
 
 ### [`decodeMessageParts`](./parts.ts#L56)
@@ -105,53 +105,6 @@ export type DispatchDecision = Schema.Schema.Type<
 
 Per-message dispatch authorization decision persisted with the message.
 
-### [`DispatchesConsumed`](./dispatch.ts#L139)
-
-_Variable_
-
-```ts
-export const DispatchesConsumed = defineNotification({
-  name: "app/dispatch/lease-consumed",
-  params: Schema.Struct({
-    dispatchId: DispatchId,
-    leaseId: LeaseId,
-    conversationId: ConversationId,
-    messageId: MessageId,
-    consumedAt: DateTimeString,
-  }),
-})
-```
-
-### [`DispatchesExpired`](./dispatch.ts#L150)
-
-_Variable_
-
-```ts
-export const DispatchesExpired = defineNotification({
-  name: "app/dispatch/lease-expired",
-  params: Schema.Struct({
-    dispatchId: DispatchId,
-    leaseId: LeaseId,
-    conversationId: ConversationId,
-    expiredAt: DateTimeString,
-  }),
-})
-```
-
-### [`DispatchesGet`](./dispatch.ts#L192)
-
-_Variable_
-
-```ts
-export const DispatchesGet = defineRpc({
-  name: "app/dispatch/lease/get",
-  params: Schema.Struct({ dispatchId: DispatchId }),
-  result: Schema.Struct({ lease: LeaseRecordSchema }),
-  requires: [AppPrincipal],
-  errors: [DispatchNotFoundError, ForbiddenError],
-})
-```
-
 ### [`DispatchId`](./dispatch.ts#L21)
 
 _TypeAlias_
@@ -166,6 +119,53 @@ _Variable_
 
 ```ts
 export type DispatchId = string & Brand.Brand<"DispatchId">
+```
+
+### [`DispatchLeaseConsumed`](./dispatch.ts#L139)
+
+_Variable_
+
+```ts
+export const DispatchLeaseConsumed = defineNotification({
+  name: "app/dispatch/lease-consumed",
+  params: Schema.Struct({
+    dispatchId: DispatchId,
+    leaseId: LeaseId,
+    conversationId: ConversationId,
+    messageId: MessageId,
+    consumedAt: DateTimeString,
+  }),
+})
+```
+
+### [`DispatchLeaseExpired`](./dispatch.ts#L150)
+
+_Variable_
+
+```ts
+export const DispatchLeaseExpired = defineNotification({
+  name: "app/dispatch/lease-expired",
+  params: Schema.Struct({
+    dispatchId: DispatchId,
+    leaseId: LeaseId,
+    conversationId: ConversationId,
+    expiredAt: DateTimeString,
+  }),
+})
+```
+
+### [`DispatchLeaseGet`](./dispatch.ts#L192)
+
+_Variable_
+
+```ts
+export const DispatchLeaseGet = defineRpc({
+  name: "app/dispatch/lease/get",
+  params: Schema.Struct({ dispatchId: DispatchId }),
+  result: Schema.Struct({ lease: LeaseRecordSchema }),
+  requires: [AppPrincipal],
+  errors: [DispatchNotFoundError, ForbiddenError],
+})
 ```
 
 ### [`DispatchNotFoundError`](./dispatch.ts#L35)
@@ -188,8 +188,8 @@ _Variable_
 ```ts
 export const dispatchNotifications = [
   DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
+  DispatchLeaseConsumed,
+  DispatchLeaseExpired,
 ] as const
 ```
 

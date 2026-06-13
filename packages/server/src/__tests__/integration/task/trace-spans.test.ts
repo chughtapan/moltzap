@@ -25,7 +25,7 @@ import {
   MessagesAuthorize,
   MessagesSend,
 } from "@moltzap/protocol/message";
-import { TaskConversationCreate } from "@moltzap/protocol/conversation";
+import { ConversationCreate } from "@moltzap/protocol/conversation";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
@@ -114,7 +114,7 @@ function blockingMessageHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
     [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
-      handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
+      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
     [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
@@ -187,12 +187,6 @@ function emitBlockedHookSpan() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-trace-span-blocked");
     const bob = yield* registerAndConnect("bob-trace-span-blocked");
-    // D #705 CP9 — the moderator app is a SEPARATE app principal (HTTP
-    // register → `appKey` Connect). Its `messages/authorize` + `task/create`
-    // callbacks and the app-only `task/conversation/create` RPC run on the
-    // app connection; alice (agent) drives the agent-only `task/request` +
-    // `messages/send`. Callbacks wired BEFORE any send so the server's
-    // forked round-trip lands on a live handler.
     const registered = yield* registerApp(getBaseUrl(), TRACE_APP_MANIFEST);
     const appClient = yield* connectAppClient(
       registered.appId,
@@ -206,10 +200,10 @@ function emitBlockedHookSpan() {
     });
     // The app creates the conversation off its own `AppConnection`
     // (`seedCreatorAsParticipant: false`); alice (the sender) is added
-    // explicitly so her `messages/send` passes the participant gate and
+    // explicitly so her `agent/message/send` passes the participant gate and
     // reaches the `before_message_delivery` hook (vs. a participant-gate
     // ForbiddenError firing first).
-    const conv = yield* appClient.sendRpc(TaskConversationCreate, {
+    const conv = yield* appClient.sendRpc(ConversationCreate, {
       taskId: task.task.id,
       participants: [alice.agentId, bob.agentId],
     });

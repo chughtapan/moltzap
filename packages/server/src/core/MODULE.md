@@ -44,7 +44,7 @@ export class AgentEndpointResolverTag extends Context.Tag(
 ```
 
 `AgentId → HashSet&lt;ConnectionId>` multimap maintained by the
-`agent/connect` success path and the WS disconnect finalizer. Read by
+`agent/network/connect` success path and the WS disconnect finalizer. Read by
 NetworkSendServiceTag for O(1) outbound routing.
 
 ### [`appArm`](./handler-runtime.ts#L63)
@@ -112,7 +112,7 @@ _TypeAlias_
 export type ConnectionHook = (params: {
   agentId: AgentId;
   agentName: string;
-  /** Owner user ID resolved at agent/connect time. */
+  /** Owner user ID resolved at agent/network/connect time. */
   ownerUserId: UserId;
   connId: ConnectionId;
 }) => PromiseLike<void> | void;
@@ -130,7 +130,7 @@ export interface ConnectionHooks {
 ```
 
 The server-app's connection / disconnection hook arrays, read by the
-`agent/connect` handler on a successful AGENT connect (it fires the
+`agent/network/connect` handler on a successful AGENT connect (it fires the
 connection hooks once the agent arm is minted) and by the socket-close
 finalizer (it fires the disconnection hooks). The arrays are the mutable
 registration surface the `CoreApp.onConnection` / `onDisconnection`
@@ -376,7 +376,7 @@ export const PresenceServiceLive: Layer.Layer<
 ```
 
 `PresenceServiceLive` constructs the full PresenceService
-(subscriber registry + lease-derived status engine + `presence/changed`
+(subscriber registry + lease-derived status engine + `network/presence-changed`
 fan-out). The R channel consumes `ConnectionManagerTag` — the only
 construction dep, used by the fan-out to resolve each subscriber's
 socket. `LeaseRegistryLive` consumes `PresenceServiceTag` as its
@@ -518,7 +518,7 @@ Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
 and flow through the boot-failure `catchAllCause` envelope without a phase
 tag.
 
-### [`serverHandlers`](./handler-catalog.ts#L46)
+### [`serverHandlers`](./handler-catalog.ts#L39)
 
 _Variable_
 

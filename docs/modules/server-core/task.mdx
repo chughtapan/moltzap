@@ -49,9 +49,9 @@ export class TaskAuthorizationService {
             params: ctx,
           }).pipe(Effect.map((envelope) => envelope.verdict)),
           timeoutMs,
-          timeoutLogMessage: "task/create timed out",
+          timeoutLogMessage: "app/task/create timed out",
           timeoutLogContext: { taskId: ctx.taskId, appId, timeoutMs },
-          errorLogMessage: "task/create error",
+          errorLogMessage: "app/task/create error",
           errorLogContext: { taskId: ctx.taskId, appId },
           onTimeout: () => ({
             decision: "reject",

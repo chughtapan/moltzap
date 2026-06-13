@@ -1,7 +1,7 @@
 /**
  * Regression coverage for offline conversation participants.
  *
- * `messages/send` is durable first and participant fan-out is best-effort:
+ * `agent/message/send` is durable first and participant fan-out is best-effort:
  * an offline non-sender participant must not block insertion.
  */
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
@@ -107,10 +107,6 @@ function setupGroupConversation(
   agents: ThreeAgents,
 ): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
-    // Single TaskRequest auto-admits invitees (#677) + atomically mints
-    // the initial conversation. Replaces the prior TaskUpdate add-participant +
-    // TaskConversationCreate dance which is TM-only and unreachable on
-    // DEFAULT_APP_ID tasks.
     const created = yield* agents.tm.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agents.senderAgentId, agents.recipientAgentId],
@@ -204,7 +200,7 @@ function broadcastsWhenParticipantsAreOnline() {
   });
 }
 
-describe("messages/send offline participant delivery", () => {
+describe("agent/message/send offline participant delivery", () => {
   it(
     "commits the message and lets an offline participant recover it from history",
     commitsWhenParticipantIsOffline,

@@ -5,8 +5,8 @@
  *
  * Where {@link presence.service.types-check.ts} asserts the service's
  * OWN surface, THIS file asserts the INTEGRATION-POINT contracts the
- * service threads through: the existing server symbols it composes
- * against at the lease-registry seam and the composition root.
+ * service threads through: the server symbols it composes against at the
+ * lease-registry boundary and the composition root.
  *
  * The canary makes a `tsc --build` failure surface the moment any of
  * these integration symbols changes shape in a way that would break the
@@ -16,7 +16,7 @@
  *    + `subscribe` + `removeConnection` live on the same instance the
  *    fan-out reads.
  * 2. **`ConnectionManager.get(connId)`** — the surface the fan-out uses
- *    to write `presence/changed` frames.
+ *    to write `network/presence-changed` frames.
  * 3. **`LeaseRegistryDeps.transitionObserver`** is assignable from
  *    `LeaseTransitionObserver` (and `noopLeaseTransitionObserver`
  *    satisfies it); the sibling fields (`connections`,
@@ -45,9 +45,6 @@ void presenceService.subscribe;
 void presenceService.removeConnection;
 
 // ── 2. ConnectionManager.peek ───────────────────────────────────────
-// D #705 CP4f — the legacy `get(id): MoltZapConnection` was deleted with the
-// legacy connections map; the live arm-aware lookup is `peek(connId)` over the
-// three-arm `connectionsRef`.
 declare const connections: ConnectionManager;
 void connections.peek;
 

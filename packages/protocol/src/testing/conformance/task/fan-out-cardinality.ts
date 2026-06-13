@@ -1,5 +1,5 @@
 /**
- * Fan-out cardinality — messages/send ⇒ **exactly** N inbound events
+ * Fan-out cardinality — agent/message/send ⇒ **exactly** N inbound events
  * (one per connection). The check is `=== N`, not `>= 1`, so a server
  * that duplicates events fails. Empty counts surface as an explicit
  * `PropertyInvariantViolation`.
@@ -33,7 +33,7 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
     ctx,
     DELIVERY_CATEGORY,
     "fan-out-cardinality",
-    "messages/send ⇒ exactly N inbound message events (one per connection)",
+    "agent/message/send ⇒ exactly N inbound message events (one per connection)",
     assertProperty(DELIVERY_CATEGORY, "fan-out-cardinality", (onFailure) =>
       runFanOutCardinalityProperty(ctx, onFailure),
     ).pipe(Effect.withSpan("registerFanOutCardinality")),

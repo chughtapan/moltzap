@@ -10,7 +10,7 @@ import {
   TaskRequest,
   TaskUpdate,
 } from "../../../task/index.js";
-import { TaskConversationCreate } from "../../../conversation/index.js";
+import { ConversationCreate } from "../../../conversation/index.js";
 import type { TaskId } from "../../../task/index.js";
 import type { ModeratedHandle } from "./_helpers.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -131,8 +131,8 @@ function acquireTaskCloseFixture(ctx: ConformanceRunContext) {
   });
 }
 
-// `task/request` is agent-called by `owner`; `task/addParticipant` heads its
-// `requires` with `AppPrincipal` and routes through the moderator app principal.
+// `agent/task/request` is agent-called by `owner`; participant mutation routes
+// through the moderator app principal.
 function createTaskAndAddParticipant(
   owner: ConversationActor,
   participant: ConversationActor,
@@ -146,7 +146,7 @@ function createTaskAndAddParticipant(
       })
       .pipe(Effect.either);
     const task = yield* requireRight(taskResult, (error) =>
-      deliveryViolation(PROPERTY, `task/create failed: ${error._tag}`),
+      deliveryViolation(PROPERTY, `agent/task/request failed: ${error._tag}`),
     );
     const addResult = yield* moderator.client
       .sendRpc(TaskUpdate, {
@@ -156,15 +156,15 @@ function createTaskAndAddParticipant(
       })
       .pipe(Effect.either);
     yield* requireRight(addResult, (error) =>
-      deliveryViolation(PROPERTY, `task/addParticipant failed: ${error._tag}`),
+      deliveryViolation(PROPERTY, `app/task/update failed: ${error._tag}`),
     );
     return task;
   });
 }
 
-// `task/conversation/create` heads its `requires` with `AppPrincipal` — the
+// `app/conversation/create` heads its `requires` with `AppPrincipal` — the
 // moderator app creates it. `owner` is included as a participant so its subscriber
-// observes the `task/conversation/created` event (`awaitConversationReady`
+// observes the `app/conversation/created` event (`awaitConversationReady`
 // polls a map fed by the owner's agent-broadcast stream; an `AppConnection`
 // cannot receive that broadcast).
 function createTaskCloseConversation(
@@ -175,7 +175,7 @@ function createTaskCloseConversation(
 ) {
   return Effect.gen(function* () {
     const conversationResult = yield* moderator.client
-      .sendRpc(TaskConversationCreate, {
+      .sendRpc(ConversationCreate, {
         taskId,
         participants: [owner.agent.agentId, participant.agent.agentId],
       })
@@ -183,7 +183,7 @@ function createTaskCloseConversation(
     return yield* requireRight(conversationResult, (error) =>
       deliveryViolation(
         PROPERTY,
-        `task/conversation/create failed: ${error._tag}`,
+        `app/conversation/create failed: ${error._tag}`,
       ),
     );
   });

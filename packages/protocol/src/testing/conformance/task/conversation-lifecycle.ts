@@ -1,12 +1,12 @@
 /**
  * Conversation lifecycle — the supported reversible path is observable
  * and enforced:
- *   - task/conversation/create broadcasts task/conversation/created
- *   - messages/send broadcasts messages/received
- *   - task/conversation/update broadcasts task/conversation/updated
+ *   - app/conversation/create broadcasts agent/conversation/created
+ *   - agent/message/send broadcasts agent/message/received
+ *   - app/conversation/update broadcasts agent/conversation lifecycle events
  *   - archive/unarchive form the only reversible terminal state
- *   - archived conversations reject messages/send
- *   - messages/send succeeds again after unarchive
+ *   - archived conversations reject agent/message/send
+ *   - agent/message/send succeeds again after unarchive
  */
 import { Effect } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -79,7 +79,7 @@ function assertCreatedAndInitialSend(
     yield* requireRight(firstSend, (error) =>
       deliveryViolation(
         PROPERTY,
-        `messages/send failed before archive: ${error._tag}`,
+        `agent/message/send failed before archive: ${error._tag}`,
       ),
     );
     yield* waitForMessageReceivedNotification(
@@ -146,7 +146,7 @@ function assertUnarchivePhase(
     yield* requireRight(resumedSend, (error) =>
       deliveryViolation(
         PROPERTY,
-        `messages/send failed after unarchive: ${error._tag}`,
+        `agent/message/send failed after unarchive: ${error._tag}`,
       ),
     );
   });
