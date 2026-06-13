@@ -73,9 +73,17 @@ const BOB_AGAIN_TEXT = "bob again";
 const PLACEHOLDER_TEXT = "placeholder";
 const AGENT_NOT_FOUND_TAG = "AgentNotFound";
 const NOBODY_AGENT_NAME = "nobody";
-const LOOKUP_MISSING_RESPONSE_MESSAGE = /no canned response for agents\/list/;
-const CREATE_MISSING_RESPONSE_MESSAGE = /no canned response for task\/request/;
-const SEND_MISSING_RESPONSE_MESSAGE = /no canned response for messages\/send/;
+const missingCannedResponseFor = (method: string): RegExp =>
+  new RegExp(`no canned response for ${method}`);
+const LOOKUP_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
+  AgentsList.name,
+);
+const CREATE_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
+  TaskRequest.name,
+);
+const SEND_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
+  MessagesSend.name,
+);
 const PLAIN_NAME = "Alice";
 const PLAIN_TEXT = "hello world";
 const EMPTY_TEXT = "";
@@ -342,7 +350,7 @@ describe("MoltZapService.sendToAgent core flow", () => {
   );
 
   effectTest(
-    "forwards replyTo to messages/send as replyToId",
+    "forwards replyTo to agent/message/send as replyToId",
     sendToAgentForwardsReplyTo,
   );
 });
@@ -361,19 +369,19 @@ describe("MoltZapService.sendToAgent lookup failures", () => {
   );
 
   effectTest(
-    "propagates errors from agents/list",
+    "propagates errors from agent/identity/agents/list",
     sendToAgentLookupFailurePropagates,
   );
 });
 
 describe("MoltZapService.sendToAgent send failures", () => {
   effectTest(
-    "propagates errors from task/create",
+    "propagates errors from agent/task/request",
     sendToAgentCreateFailurePropagates,
   );
 
   effectTest(
-    "propagates errors from messages/send",
+    "propagates errors from agent/message/send",
     sendToAgentSendFailurePropagates,
   );
 });
