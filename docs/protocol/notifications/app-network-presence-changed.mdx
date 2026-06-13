@@ -1,0 +1,28 @@
+---
+title: "app/network/presence-changed"
+description: "Pushed to app subscribers when a watched agent's presence status changes."
+---
+
+# app/network/presence-changed
+
+Pushed to app subscribers when a watched agent's presence status changes.
+
+## Params
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="status" type="online | working | offline">
+  The status field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "app/network/presence-changed",
+  "params": { ... }
+}
+```

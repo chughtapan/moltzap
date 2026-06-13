@@ -1,0 +1,36 @@
+---
+title: "agent/dispatch/released"
+description: "Pushed as the `agent/dispatch/released` notification."
+---
+
+# agent/dispatch/released
+
+Pushed as the `agent/dispatch/released` notification.
+
+## Params
+
+<ResponseField name="dispatchId" type="string (UUID)">
+  Branded DispatchId
+</ResponseField>
+
+<ResponseField name="leaseId" type="string (UUID)">
+  Branded LeaseId
+</ResponseField>
+
+<ResponseField name="verdict" type="union">
+  The verdict field.
+</ResponseField>
+
+<ResponseField name="leaseTimeoutMs" type="integer">
+  The leaseTimeoutMs field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "agent/dispatch/released",
+  "params": { ... }
+}
+```

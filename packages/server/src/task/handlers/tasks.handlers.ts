@@ -1,11 +1,9 @@
 import { Effect } from "effect";
 import {
-  TaskAddParticipant,
-  TaskClose,
   TaskClosedNotificationDefinition,
   TaskLeave,
   TaskList,
-  TaskRemoveParticipant,
+  TaskUpdate,
 } from "@moltzap/protocol/task";
 import {
   TaskConversationArchivedNotificationDefinition,
@@ -93,7 +91,18 @@ function taskListBody(params: ParamsOf<typeof TaskList>, ctx: AgentContext) {
   }).pipe(Effect.withSpan("task.list"));
 }
 
-function taskCloseBody(params: ParamsOf<typeof TaskClose>, ctx: AppContext) {
+type TaskUpdateParams = ParamsOf<typeof TaskUpdate>;
+type TaskUpdateCloseParams = Extract<TaskUpdateParams, { action: "close" }>;
+type TaskUpdateAddParticipantParams = Extract<
+  TaskUpdateParams,
+  { action: "add-participant" }
+>;
+type TaskUpdateRemoveParticipantParams = Extract<
+  TaskUpdateParams,
+  { action: "remove-participant" }
+>;
+
+function taskCloseBody(params: TaskUpdateCloseParams, ctx: AppContext) {
   return Effect.gen(function* () {
     yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
     const taskService = yield* TaskServiceTag;
@@ -115,12 +124,12 @@ function taskCloseBody(params: ParamsOf<typeof TaskClose>, ctx: AppContext) {
       TaskClosedNotificationDefinition,
       { task: closed.task },
     );
-    return { task: closed.task };
+    return { action: "closed" as const, task: closed.task };
   }).pipe(Effect.withSpan("task.close"));
 }
 
 function taskAddParticipantBody(
-  params: ParamsOf<typeof TaskAddParticipant>,
+  params: TaskUpdateAddParticipantParams,
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
@@ -130,20 +139,31 @@ function taskAddParticipantBody(
       params.taskId,
       params.agentId,
     );
-    return { participant };
+    return { action: "participant-added" as const, participant };
   }).pipe(Effect.withSpan("task.addParticipant"));
 }
 
 function taskRemoveParticipantBody(
-  params: ParamsOf<typeof TaskRemoveParticipant>,
+  params: TaskUpdateRemoveParticipantParams,
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
     yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
     const taskService = yield* TaskServiceTag;
     yield* taskService.removeParticipant(params.taskId, params.agentId);
-    return {};
+    return { action: "participant-removed" as const };
   }).pipe(Effect.withSpan("task.removeParticipant"));
+}
+
+function taskUpdateBody(params: TaskUpdateParams, ctx: AppContext) {
+  switch (params.action) {
+    case "close":
+      return taskCloseBody(params, ctx);
+    case "add-participant":
+      return taskAddParticipantBody(params, ctx);
+    case "remove-participant":
+      return taskRemoveParticipantBody(params, ctx);
+  }
 }
 
 export const taskList: ServerHandler<typeof TaskList> = (params) =>
@@ -156,21 +176,7 @@ export const taskLeave: ServerHandler<typeof TaskLeave> = (params) =>
     return yield* taskLeaveBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("taskLeave"));
 
-export const taskClose: ServerHandler<typeof TaskClose> = (params) =>
+export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params) =>
   Effect.gen(function* () {
-    return yield* taskCloseBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskClose"));
-
-export const taskAddParticipant: ServerHandler<typeof TaskAddParticipant> = (
-  params,
-) =>
-  Effect.gen(function* () {
-    return yield* taskAddParticipantBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskAddParticipant"));
-
-export const taskRemoveParticipant: ServerHandler<
-  typeof TaskRemoveParticipant
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskRemoveParticipantBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskRemoveParticipant"));
+    return yield* taskUpdateBody(params, yield* appArm);
+  }).pipe(Effect.withSpan("taskUpdate"));

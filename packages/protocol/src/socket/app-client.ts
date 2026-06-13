@@ -3,6 +3,8 @@ import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
 import type { AppCallbackHandlers, HandlerSlot } from "./app-callbacks.js";
 import type { AppKey } from "#identity/apps";
+import { MessagesAuthorize } from "#message";
+import { DispatchAuthorize } from "#message/dispatch";
 import { AppConnect, PROTOCOL_VERSION } from "#network";
 import {
   AppCallableGroup,
@@ -24,6 +26,7 @@ import {
   type SuccessForTag,
   type TypedDispatchMap,
 } from "#transport";
+import { TaskCreate } from "#task";
 
 type AppCallableRpcs = RpcGroup.Rpcs<typeof AppCallableGroup>;
 type AppCallableTag = AppCallableRpcs["_tag"];
@@ -60,9 +63,9 @@ function makeAppCallbackHandlers(
       return slot.handle(params, CALLBACK_CONTEXT);
     };
   return {
-    "dispatch/authorize": adapt(handlers["dispatch/authorize"]),
-    "messages/authorize": adapt(handlers["messages/authorize"]),
-    "task/create": adapt(handlers["task/create"]),
+    [DispatchAuthorize.name]: adapt(handlers[DispatchAuthorize.name]),
+    [MessagesAuthorize.name]: adapt(handlers[MessagesAuthorize.name]),
+    [TaskCreate.name]: adapt(handlers[TaskCreate.name]),
   };
 }
 

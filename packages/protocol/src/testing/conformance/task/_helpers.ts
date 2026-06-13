@@ -20,12 +20,11 @@ import { isNotificationDeliveryFor } from "#transport";
 import { TaskCreate, TaskId, TaskRequest } from "../../../task/index.js";
 import {
   ConversationId,
-  TaskConversationArchive,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationParticipantsAddedNotificationDefinition,
   TaskConversationParticipantsRemovedNotificationDefinition,
-  TaskConversationUnarchive,
+  TaskConversationUpdate,
   TaskConversationUnarchivedNotificationDefinition,
 } from "../../../conversation/index.js";
 import {
@@ -316,15 +315,16 @@ export function sendText(
   });
 }
 
-// TM-admin RPCs (`task/conversation/archive` + `unarchive`) head their
-// `requires` with `AppPrincipal`; callers pass the fixture's
-// `moderatorClient` (the app principal), NOT the agent owner.
+// TM-admin conversation updates head their `requires` with `AppPrincipal`;
+// callers pass the fixture's `moderatorClient` (the app principal), NOT the
+// agent owner.
 export function archiveConversation(
   moderatorClient: AppTestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return moderatorClient.sendRpc(TaskConversationArchive, {
+  return moderatorClient.sendRpc(TaskConversationUpdate, {
+    action: "archive",
     taskId,
     conversationId,
   });
@@ -335,7 +335,8 @@ export function unarchiveConversation(
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return moderatorClient.sendRpc(TaskConversationUnarchive, {
+  return moderatorClient.sendRpc(TaskConversationUpdate, {
+    action: "unarchive",
     taskId,
     conversationId,
   });

@@ -324,17 +324,17 @@ function makeDynamicAppHandlers(
   awaitersRef: Ref.Ref<Awaiters>,
 ): AppCallbackHandlers<AppCallbackContext> {
   return {
-    "dispatch/authorize": {
+    [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
       handle: (params: ParamsOf<typeof DispatchAuthorize>) =>
         runAppCallback(handlersRef, awaitersRef, DispatchAuthorize, params),
     },
-    "messages/authorize": {
+    [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
       handle: (params: ParamsOf<typeof MessagesAuthorize>) =>
         runAppCallback(handlersRef, awaitersRef, MessagesAuthorize, params),
     },
-    "task/create": {
+    [TaskCreate.name]: {
       definition: TaskCreate,
       handle: (params: ParamsOf<typeof TaskCreate>) =>
         runAppCallback(handlersRef, awaitersRef, TaskCreate, params),

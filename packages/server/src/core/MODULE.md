@@ -518,7 +518,7 @@ Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
 and flow through the boot-failure `catchAllCause` envelope without a phase
 tag.
 
-### [`serverHandlers`](./handler-catalog.ts#L53)
+### [`serverHandlers`](./handler-catalog.ts#L46)
 
 _Variable_
 

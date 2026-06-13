@@ -1142,7 +1142,7 @@ export class MoltZapService {
 
   /**
    * Outbound RPC, typed per method — delegates to the agent client's typed
-   * `call`. `call("agents/list", payload)` recovers the result and that
+   * `call`. `call("agent/identity/agents/list", payload)` recovers the result and that
    * method's tagged-error union; an app-only method does not typecheck.
    */
   call<Tag extends AgentCallableTag>(

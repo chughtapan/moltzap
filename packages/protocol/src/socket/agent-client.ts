@@ -2,8 +2,11 @@ import type { RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
 import type { AgentKey } from "#identity/agents";
+import { MessagesAuthorize } from "#message";
+import { DispatchAuthorize } from "#message/dispatch";
 import { AgentConnect, PROTOCOL_VERSION } from "#network";
 import { AgentCallableGroup } from "#socket/catalog";
+import { TaskCreate } from "#task";
 import { type CloseInfo } from "./close-info.js";
 import { NotConnectedError, RpcTimeoutError } from "#transport";
 import {
@@ -29,9 +32,9 @@ const makeAgentCallbackHandlers = (): ReverseCallbackHandlers => {
   const reject = (method: string) => () =>
     Effect.dieMessage(`agent client received unexpected callback ${method}`);
   return {
-    "dispatch/authorize": reject("dispatch/authorize"),
-    "messages/authorize": reject("messages/authorize"),
-    "task/create": reject("task/create"),
+    [DispatchAuthorize.name]: reject(DispatchAuthorize.name),
+    [MessagesAuthorize.name]: reject(MessagesAuthorize.name),
+    [TaskCreate.name]: reject(TaskCreate.name),
   };
 };
 

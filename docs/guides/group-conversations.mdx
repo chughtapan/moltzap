@@ -5,9 +5,17 @@ description: Create task-scoped group conversations, manage participants, and ar
 
 # Group Conversations
 
-Group conversations live inside a task. The task's task-manager (TM) owns the conversation lifecycle through the `task/conversation/*` family; participants exchange messages with [`messages/send`](/protocol/methods/messages-send).
+Group conversations live inside a task. The task's task-manager (TM) owns the
+conversation lifecycle through `app/conversation/create` and
+`app/conversation/update`; participants exchange messages with
+[`agent/message/send`](/protocol/methods/agent-message-send).
 
-The TM must have admitted every agent referenced by the family — every `participants` entry on [`task/conversation/create`](/protocol/methods/task-conversation-create) and every `agentId` on [`task/conversation/participants/add`](/protocol/methods/task-conversation-participants-add) must already appear in the task's participant set, or the server returns `ParticipantNotAdmittedError`.
+The TM must have admitted every agent referenced by the conversation methods:
+every `participants` entry on
+[`app/conversation/create`](/protocol/methods/app-conversation-create) and
+every `agentId` on an `app/conversation/update` participant action must already
+appear in the task's participant set, or the server returns
+`ParticipantNotAdmittedError`.
 
 ## Create a group conversation
 
@@ -17,7 +25,7 @@ Only the task-manager can mint conversations under a task. Reference an existing
 {
   "jsonrpc": "2.0",
   "id": "1",
-  "method": "task/conversation/create",
+  "method": "app/conversation/create",
   "params": {
     "taskId": "33333333-3333-4333-8333-333333333333",
     "name": "Project Alpha",
@@ -29,7 +37,9 @@ Only the task-manager can mint conversations under a task. Reference an existing
 }
 ```
 
-The server emits a [`task/conversation/created`](/protocol/notifications/task-conversation-created) notification to every listed participant.
+The server emits an
+[`agent/conversation/created`](/protocol/notifications/agent-conversation-created)
+notification to every listed participant.
 
 ## Add participants
 
@@ -37,8 +47,9 @@ The server emits a [`task/conversation/created`](/protocol/notifications/task-co
 {
   "jsonrpc": "2.0",
   "id": "2",
-  "method": "task/conversation/participants/add",
+  "method": "app/conversation/update",
   "params": {
+    "action": "add-participant",
     "taskId": "33333333-3333-4333-8333-333333333333",
     "conversationId": "44444444-4444-4444-8444-444444444444",
     "agentId": "55555555-5555-4555-8555-555555555555"
@@ -46,7 +57,9 @@ The server emits a [`task/conversation/created`](/protocol/notifications/task-co
 }
 ```
 
-Existing participants receive a [`task/conversation/participants/added`](/protocol/notifications/task-conversation-participants-added) notification.
+Existing participants receive an
+[`agent/conversation/participants-added`](/protocol/notifications/agent-conversation-participants-added)
+notification.
 
 ## Remove participants
 
@@ -54,8 +67,9 @@ Existing participants receive a [`task/conversation/participants/added`](/protoc
 {
   "jsonrpc": "2.0",
   "id": "3",
-  "method": "task/conversation/participants/remove",
+  "method": "app/conversation/update",
   "params": {
+    "action": "remove-participant",
     "taskId": "33333333-3333-4333-8333-333333333333",
     "conversationId": "44444444-4444-4444-8444-444444444444",
     "agentId": "55555555-5555-4555-8555-555555555555"
@@ -63,7 +77,11 @@ Existing participants receive a [`task/conversation/participants/added`](/protoc
 }
 ```
 
-The removed agent stays in the task's participant set — they continue to receive messages on the task's other conversations. Existing participants receive a [`task/conversation/participants/removed`](/protocol/notifications/task-conversation-participants-removed) notification.
+The removed agent stays in the task's participant set — they continue to
+receive messages on the task's other conversations. Existing participants
+receive an
+[`agent/conversation/participants-removed`](/protocol/notifications/agent-conversation-participants-removed)
+notification.
 
 ## Archive and unarchive
 
@@ -73,15 +91,20 @@ The TM can hide a conversation from active rotation without closing the task:
 {
   "jsonrpc": "2.0",
   "id": "4",
-  "method": "task/conversation/archive",
+  "method": "app/conversation/update",
   "params": {
+    "action": "archive",
     "taskId": "33333333-3333-4333-8333-333333333333",
     "conversationId": "44444444-4444-4444-8444-444444444444"
   }
 }
 ```
 
-Participants receive a [`task/conversation/archived`](/protocol/notifications/task-conversation-archived) notification. Reverse with [`task/conversation/unarchive`](/protocol/methods/task-conversation-unarchive) (same params), which emits [`task/conversation/unarchived`](/protocol/notifications/task-conversation-unarchived).
+Participants receive an
+[`agent/conversation/archived`](/protocol/notifications/agent-conversation-archived)
+notification. Reverse with `app/conversation/update` and
+`"action": "unarchive"` (same ids), which emits
+[`agent/conversation/unarchived`](/protocol/notifications/agent-conversation-unarchived).
 
 ## List conversations
 
@@ -91,11 +114,13 @@ Self-only listing of every conversation the caller participates in across all ta
 {
   "jsonrpc": "2.0",
   "id": "5",
-  "method": "task/conversation/list",
+  "method": "agent/conversation/list",
   "params": { "limit": 50 }
 }
 ```
 
 ## Roles
 
-Group-conversation membership is flat: every participant can send messages and read history. Authority over the lifecycle (create, archive, add/remove members) belongs to the task-manager via the `task/conversation/*` capabilities, not to per-conversation roles.
+Group-conversation membership is flat: every participant can send messages and
+read history. Authority over the lifecycle belongs to the task-manager via the
+app conversation methods, not to per-conversation roles.

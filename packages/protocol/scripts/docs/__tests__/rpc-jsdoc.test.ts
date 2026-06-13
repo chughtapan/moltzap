@@ -81,12 +81,12 @@ describe("parseJsDocText", () => {
     const text = `/**
  * Summary.
  *
- * @relatedNotification messages/received
- * @triggeredBy messages/send
+ * @relatedNotification agent/message/received
+ * @triggeredBy agent/message/send
  */`;
     const parsed = parseJsDocText(text);
-    expect(parsed.relatedNotifications).toEqual(["messages/received"]);
-    expect(parsed.triggeredBy).toEqual(["messages/send"]);
+    expect(parsed.relatedNotifications).toEqual(["agent/message/received"]);
+    expect(parsed.triggeredBy).toEqual(["agent/message/send"]);
   });
 
   it("ignores unknown tags", () => {

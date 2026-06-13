@@ -18,9 +18,9 @@
  * | TaskLeave | self-only + idempotent no-op + last-participant closure + per-cid removal |
  * | TaskConversationCreate | TM-only + participant-admitted invariant + dual-emit |
  * | TaskConversationList | self only + items shape + archived-included |
- * | TaskConversationArchive / Unarchive | TM-only + idempotency + dual-emit |
- * | TaskConversationAddParticipant | TM-only + participant-admitted + idempotency + dual-emit |
- * | TaskConversationRemoveParticipant | TM-only + idempotency + dual-emit |
+ * | TaskConversationUpdate archive/unarchive | TM-only + idempotency + dual-emit |
+ * | TaskConversationUpdate add-participant | TM-only + participant-admitted + idempotency + dual-emit |
+ * | TaskConversationUpdate remove-participant | TM-only + idempotency + dual-emit |
  */
 
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
@@ -136,15 +136,15 @@ function userForOwner(ownerUserId: UserId) {
 
 function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    "dispatch/authorize": {
+    [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
     },
-    "messages/authorize": {
+    [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
       handle: () => Effect.dieMessage("unexpected messages/authorize"),
     },
-    "task/create": {
+    [TaskCreate.name]: {
       definition: TaskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),

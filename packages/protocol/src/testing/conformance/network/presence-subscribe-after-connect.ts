@@ -2,7 +2,7 @@
  * Subscribing AFTER an agent connects ⇒ snapshot reflects status: online.
  */
 import { Effect } from "effect";
-import { PresenceSubscribe } from "../../../network/presence.js";
+import { AgentPresenceSubscribe } from "../../../network/presence.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
@@ -30,7 +30,7 @@ export function registerSubscribeAfterConnect(
 
         const sub = yield* acquireClient(ctx, NAME, "p6-sub");
         const result = yield* sub.client
-          .sendRpc(PresenceSubscribe, { agentIds: [a.agentId] })
+          .sendRpc(AgentPresenceSubscribe, { agentIds: [a.agentId] })
           .pipe(
             Effect.mapError((e) =>
               presenceViolation(

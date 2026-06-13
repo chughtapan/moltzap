@@ -8,27 +8,7 @@ Conversation-domain handler barrel.
 
 ## Public surface
 
-### [`taskConversationAddParticipant`](./task-conversations.handlers.ts#L288)
-
-_Variable_
-
-```ts
-export const taskConversationAddParticipant: ServerHandler<
-  typeof TaskConversationAddParticipant
-> = (params)
-```
-
-### [`taskConversationArchive`](./task-conversations.handlers.ts#L274)
-
-_Variable_
-
-```ts
-export const taskConversationArchive: ServerHandler<
-  typeof TaskConversationArchive
-> = (params)
-```
-
-### [`taskConversationCreate`](./task-conversations.handlers.ts#L267)
+### [`taskConversationCreate`](./task-conversations.handlers.ts#L298)
 
 _Variable_
 
@@ -38,7 +18,7 @@ export const taskConversationCreate: ServerHandler<
 > = (params)
 ```
 
-### [`taskConversationList`](./task-conversations.handlers.ts#L260)
+### [`taskConversationList`](./task-conversations.handlers.ts#L291)
 
 _Variable_
 
@@ -48,23 +28,13 @@ export const taskConversationList: ServerHandler<
 > = (params)
 ```
 
-### [`taskConversationRemoveParticipant`](./task-conversations.handlers.ts#L295)
+### [`taskConversationUpdate`](./task-conversations.handlers.ts#L305)
 
 _Variable_
 
 ```ts
-export const taskConversationRemoveParticipant: ServerHandler<
-  typeof TaskConversationRemoveParticipant
-> = (params)
-```
-
-### [`taskConversationUnarchive`](./task-conversations.handlers.ts#L281)
-
-_Variable_
-
-```ts
-export const taskConversationUnarchive: ServerHandler<
-  typeof TaskConversationUnarchive
+export const taskConversationUpdate: ServerHandler<
+  typeof TaskConversationUpdate
 > = (params)
 ```
 

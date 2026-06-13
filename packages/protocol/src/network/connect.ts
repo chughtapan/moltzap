@@ -169,7 +169,7 @@ function failProtocolMismatch(
  * @error AlreadyConnected when the principal already holds a live connection
  */
 export const AgentConnect = defineRpc({
-  name: "agent/connect",
+  name: "agent/network/connect",
   params: Schema.Struct({
     agentKey: AgentKey,
     minProtocol: Schema.String,
@@ -201,7 +201,7 @@ export const AgentConnect = defineRpc({
  * @error AlreadyConnected when the principal already holds a live connection
  */
 export const AppConnect = defineRpc({
-  name: "app/connect",
+  name: "app/network/connect",
   params: Schema.Struct({
     appKey: AppKey,
     minProtocol: Schema.String,

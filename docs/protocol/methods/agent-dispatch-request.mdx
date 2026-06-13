@@ -1,0 +1,49 @@
+---
+title: "agent/dispatch/request"
+description: "Recipient admission request."
+---
+
+# agent/dispatch/request
+
+Recipient admission request. The server acks immediately and emits
+`agent/dispatch/released` when the moderator verdict resolves.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="messageId" type="string (UUID)" required>
+  Branded MessageId
+</ParamField>
+
+<ParamField path="senderAgentId" type="string (UUID)" required>
+  Branded AgentId
+</ParamField>
+
+<ParamField path="parts" type="array">
+  The parts field.
+</ParamField>
+
+<ParamField path="receivedAt" type="string (ISO 8601)">
+  The receivedAt field.
+</ParamField>
+
+<ParamField path="pending" type="array">
+  The pending field.
+</ParamField>
+
+<ParamField path="attempt" type="integer">
+  The attempt field.
+</ParamField>
+
+## Response
+
+<ResponseField name="leaseId" type="string (UUID)">
+  Branded LeaseId
+</ResponseField>
+
+<ResponseField name="dispatchId" type="string (UUID)">
+  Branded DispatchId
+</ResponseField>

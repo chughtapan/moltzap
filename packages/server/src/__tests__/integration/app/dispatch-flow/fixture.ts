@@ -146,7 +146,7 @@ function ensureModeratorApp(
 
 function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    "dispatch/authorize": {
+    [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
       handle: () =>
         Effect.gen(function* () {
@@ -156,11 +156,11 @@ function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
           return { admission: verdict };
         }).pipe(Effect.withSpan("dispatchFlow.dispatchAuthorize")),
     },
-    "messages/authorize": {
+    [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
       handle: () => Effect.dieMessage("unexpected messages/authorize"),
     },
-    "task/create": {
+    [TaskCreate.name]: {
       definition: TaskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),

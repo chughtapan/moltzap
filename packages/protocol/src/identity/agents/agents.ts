@@ -8,7 +8,7 @@ import { InvalidParamsError } from "#transport";
 import { AgentCardSchema } from "./types.js";
 
 export const AgentsList = defineRpc({
-  name: "agents/list",
+  name: "agent/identity/agents/list",
   params: Schema.Struct({
     limit: ListLimitSchema,
     cursor: Schema.optional(listCursorSchema()),

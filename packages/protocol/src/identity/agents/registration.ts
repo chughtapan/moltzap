@@ -18,7 +18,7 @@ export const InviteCode: Schema.Schema<InviteCode, string> =
   Schema.Redacted(InviteCodeValue);
 
 export const Register = defineRpc({
-  name: "agents/register",
+  name: "agent/identity/register",
   params: Schema.Struct({
     name: Schema.String.pipe(
       Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),

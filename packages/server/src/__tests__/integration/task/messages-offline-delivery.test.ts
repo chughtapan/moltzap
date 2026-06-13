@@ -108,7 +108,7 @@ function setupGroupConversation(
 ): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
     // Single TaskRequest auto-admits invitees (#677) + atomically mints
-    // the initial conversation. Replaces the prior TaskAddParticipant +
+    // the initial conversation. Replaces the prior TaskUpdate add-participant +
     // TaskConversationCreate dance which is TM-only and unreachable on
     // DEFAULT_APP_ID tasks.
     const created = yield* agents.tm.sendRpc(TaskRequest, {

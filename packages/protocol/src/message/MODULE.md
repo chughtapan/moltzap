@@ -77,7 +77,7 @@ _Variable_
 
 ```ts
 export const DispatchAuthorize = defineRpc({
-  name: "dispatch/authorize",
+  name: "app/dispatch/authorize",
   params: DispatchAuthorizeContextSchema,
   result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
   requires: [],
@@ -111,7 +111,7 @@ _Variable_
 
 ```ts
 export const DispatchesConsumed = defineNotification({
-  name: "dispatches/consumed",
+  name: "app/dispatch/lease-consumed",
   params: Schema.Struct({
     dispatchId: DispatchId,
     leaseId: LeaseId,
@@ -128,7 +128,7 @@ _Variable_
 
 ```ts
 export const DispatchesExpired = defineNotification({
-  name: "dispatches/expired",
+  name: "app/dispatch/lease-expired",
   params: Schema.Struct({
     dispatchId: DispatchId,
     leaseId: LeaseId,
@@ -144,7 +144,7 @@ _Variable_
 
 ```ts
 export const DispatchesGet = defineRpc({
-  name: "dispatches/get",
+  name: "app/dispatch/lease/get",
   params: Schema.Struct({ dispatchId: DispatchId }),
   result: Schema.Struct({ lease: LeaseRecordSchema }),
   requires: [AppPrincipal],
@@ -199,7 +199,7 @@ _Variable_
 
 ```ts
 export const DispatchRelease = defineNotification({
-  name: "dispatch/release",
+  name: "agent/dispatch/released",
   params: Schema.Struct({
     dispatchId: DispatchId,
     leaseId: LeaseId,
@@ -217,7 +217,7 @@ _Variable_
 
 ```ts
 export const DispatchRequest = defineRpc({
-  name: "dispatch/request",
+  name: "agent/dispatch/request",
   params: Schema.Struct({
     conversationId: ConversationId,
     messageId: MessageId,
@@ -236,7 +236,7 @@ export const DispatchRequest = defineRpc({
 ```
 
 Recipient admission request. The server acks immediately and emits
-`dispatch/release` when the moderator verdict resolves.
+`agent/dispatch/released` when the moderator verdict resolves.
 
 ### [`LeaseId`](./dispatch.ts#L12)
 
@@ -311,7 +311,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 >;
 ```
 
-Notification payload for `messages/received`.
+Notification payload for `agent/message/received`.
 
 ### [`MessageReceivedNotificationDefinition`](./messages.ts#L220)
 
@@ -319,7 +319,7 @@ _Variable_
 
 ```ts
 export const MessageReceivedNotificationDefinition = defineNotification({
-  name: "messages/received",
+  name: "agent/message/received",
   params: MessageReceivedNotificationSchema,
 })
 ```
@@ -332,7 +332,7 @@ _Variable_
 
 ```ts
 export const MessagesAuthorize = defineRpc({
-  name: "messages/authorize",
+  name: "app/message/authorize",
   params: MessagesAuthorizeContextSchema,
   result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
   requires: [],
@@ -348,7 +348,7 @@ _Variable_
 
 ```ts
 export const MessagesList = defineRpc({
-  name: "messages/list",
+  name: "agent/message/list",
   params: MessagesListParams,
   result: MessagesListResult,
   requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
@@ -364,7 +364,7 @@ _Variable_
 
 ```ts
 export const MessagesSend = defineRpc({
-  name: "messages/send",
+  name: "agent/message/send",
   params: MessagesSendParams,
   result: MessagesSendResult,
   requires: [

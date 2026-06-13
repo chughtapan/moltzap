@@ -1,0 +1,47 @@
+---
+title: "app/task/update"
+description: "TM-only task mutation surface."
+---
+
+# app/task/update
+
+TM-only task mutation surface. `app/task/update` owns task close,
+participant admit, and participant remove semantics.
+
+- **Principal:** `AppPrincipal` head. The app-arm handler runs
+  `assertCallerAppOwnsTask` before dispatching the selected action.
+
+## Parameters
+
+<ParamField path="action" type="close">
+  The action field.
+</ParamField>
+
+<ParamField path="taskId" type="string (UUID)">
+  Branded TaskId
+</ParamField>
+
+<ParamField path="agentId" type="string (UUID)">
+  Branded AgentId
+</ParamField>
+
+## Response
+
+<ResponseField name="action" type="closed">
+  The action field.
+</ResponseField>
+
+<ResponseField name="task" type="object">
+  The task field.
+</ResponseField>
+
+<ResponseField name="participant" type="object">
+  The participant field.
+</ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the caller does not own the task |
+| `TaskNotFoundError` | the task does not exist |

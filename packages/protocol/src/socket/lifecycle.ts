@@ -23,7 +23,8 @@ import {
 import {
   AgentConnect,
   AppConnect,
-  PresenceChangedNotificationDefinition,
+  AgentPresenceChangedNotificationDefinition,
+  AppPresenceChangedNotificationDefinition,
 } from "#network";
 import {
   AgentCallableGroup,
@@ -295,7 +296,8 @@ type DispatchNotificationDefinition =
   | typeof DispatchesExpired;
 
 type NetworkNotificationHandlers = NotificationHandlersFor<
-  typeof PresenceChangedNotificationDefinition
+  | typeof AgentPresenceChangedNotificationDefinition
+  | typeof AppPresenceChangedNotificationDefinition
 >;
 type IdentityNotificationHandlers =
   NotificationHandlersFor<IdentityNotificationDefinition>;
@@ -305,7 +307,8 @@ type DispatchNotificationHandlers =
   NotificationHandlersFor<DispatchNotificationDefinition>;
 
 type NotificationHandlerDefinition =
-  | typeof PresenceChangedNotificationDefinition
+  | typeof AgentPresenceChangedNotificationDefinition
+  | typeof AppPresenceChangedNotificationDefinition
   | IdentityNotificationDefinition
   | TaskNotificationDefinition
   | DispatchNotificationDefinition;
@@ -422,9 +425,13 @@ const buildReverseHandlers = (options: {
 const buildNetworkNotificationHandlers = (
   registry: SubscriberRegistry,
 ): NetworkNotificationHandlers => ({
-  [PresenceChangedNotificationDefinition.name]: notificationHandler(
+  [AgentPresenceChangedNotificationDefinition.name]: notificationHandler(
     registry,
-    PresenceChangedNotificationDefinition,
+    AgentPresenceChangedNotificationDefinition,
+  ),
+  [AppPresenceChangedNotificationDefinition.name]: notificationHandler(
+    registry,
+    AppPresenceChangedNotificationDefinition,
   ),
 });
 

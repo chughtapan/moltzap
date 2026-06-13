@@ -28,12 +28,9 @@ export type {
 } from "./requirements/index.js";
 
 export {
-  TaskConversationAddParticipant,
-  TaskConversationArchive,
   TaskConversationCreate,
   TaskConversationList,
-  TaskConversationRemoveParticipant,
-  TaskConversationUnarchive,
+  TaskConversationUpdate,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationParticipantsAddedNotificationDefinition,
@@ -49,5 +46,6 @@ export type {
   TaskConversationListItem,
   TaskConversationParticipantsAddedNotification,
   TaskConversationParticipantsRemovedNotification,
+  TaskConversationUpdateParams,
   TaskConversationUnarchivedNotification,
 } from "./conversations.js";

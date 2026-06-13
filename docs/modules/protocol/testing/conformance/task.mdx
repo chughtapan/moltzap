@@ -23,7 +23,7 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L502)
+### [`acquireClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L503)
 
 _Function_
 
@@ -34,7 +34,7 @@ export function acquireClient(
 ): Effect.Effect<ConversationActor, string, Scope.Scope>
 ```
 
-### [`acquireConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L744)
+### [`acquireConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L745)
 
 _Function_
 
@@ -46,7 +46,7 @@ export function acquireConversation(
 ): Effect.Effect<ConversationFixture, string, Scope.Scope>
 ```
 
-### [`acquirePropertyConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L284)
+### [`acquirePropertyConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L283)
 
 _Function_
 
@@ -58,7 +58,7 @@ export function acquirePropertyConversation(
 ): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`agent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L78)
+### [`agent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L77)
 
 _Property_
 
@@ -96,7 +96,7 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-### [`archiveConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L322)
+### [`archiveConversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L321)
 
 _Function_
 
@@ -108,7 +108,7 @@ export function archiveConversation(
 )
 ```
 
-### [`assertConversationRejectsMessages`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L461)
+### [`assertConversationRejectsMessages`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L462)
 
 _Function_
 
@@ -118,7 +118,7 @@ export function assertConversationRejectsMessages(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`AssertConversationRejectsMessagesInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L453)
+### [`AssertConversationRejectsMessagesInput`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L454)
 
 _Interface_
 
@@ -132,7 +132,7 @@ export interface AssertConversationRejectsMessagesInput {
 }
 ```
 
-### [`awaitOneNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L252)
+### [`awaitOneNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L251)
 
 _Function_
 
@@ -156,7 +156,7 @@ Surfaces a single string message on either timeout or stream
 exhaustion, so call sites use an `e.message`-style error mapper without
 a tagged error type per definition.
 
-### [`client`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L79)
+### [`client`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L78)
 
 _Property_
 
@@ -193,7 +193,7 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-### [`ConversationActor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L77)
+### [`ConversationActor`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L76)
 
 _TypeAlias_
 
@@ -217,7 +217,7 @@ export type ConversationActor = {
 };
 ```
 
-### [`ConversationFixture`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L61)
+### [`ConversationFixture`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L60)
 
 _Interface_
 
@@ -239,7 +239,7 @@ export interface ConversationFixture {
 }
 ```
 
-### [`DELIVERY_CATEGORY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L56)
+### [`DELIVERY_CATEGORY`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L55)
 
 _Variable_
 
@@ -247,7 +247,7 @@ _Variable_
 export const DELIVERY_CATEGORY = "delivery" as const
 ```
 
-### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L58)
+### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L57)
 
 _Variable_
 
@@ -255,7 +255,7 @@ _Variable_
 export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3
 ```
 
-### [`DELIVERY_DEFAULT_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L57)
+### [`DELIVERY_DEFAULT_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L56)
 
 _Variable_
 
@@ -263,7 +263,7 @@ _Variable_
 export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`deliveryViolation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L228)
+### [`deliveryViolation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L227)
 
 _Function_
 
@@ -274,7 +274,7 @@ export function deliveryViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`firstParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L294)
+### [`firstParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L293)
 
 _Function_
 
@@ -285,7 +285,7 @@ export function firstParticipant(
 ): Effect.Effect<ConversationActor, PropertyInvariantViolation>
 ```
 
-### [`fixtureN`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L280)
+### [`fixtureN`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L279)
 
 _Function_
 
@@ -293,7 +293,7 @@ _Function_
 export function fixtureN(requested: number): number
 ```
 
-### [`moderateAs`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L713)
+### [`moderateAs`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L714)
 
 _Function_
 
@@ -318,7 +318,7 @@ notifications are agent broadcasts that CANNOT reach an `AppConnection`.
 The shared in-process `participantsRef` bridges the owner's subscriber to
 the app's forward-all callback.
 
-### [`ModeratedHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L677)
+### [`ModeratedHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L678)
 
 _Interface_
 
@@ -346,7 +346,7 @@ export interface ModeratedHandle {
 }
 ```
 
-### [`NotificationBuffer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L108)
+### [`NotificationBuffer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L107)
 
 _Interface_
 
@@ -371,7 +371,7 @@ set to true when the transport-side stream terminates (either via
 consumes it to surface "Connection closed" rather than masquerading
 a missing notification as a timeout.
 
-### [`notifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L92)
+### [`notifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L91)
 
 _Property_
 
@@ -457,7 +457,7 @@ export function registerTaskBoundaryIsolation(
 ): void
 ```
 
-### [`registerTaskCloseLifecycle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/task-close-lifecycle.ts#L36)
+### [`registerTaskCloseLifecycle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/task-close-lifecycle.ts#L35)
 
 _Function_
 
@@ -499,7 +499,7 @@ _Function_
 export function registerTaskRequestReject(ctx: ConformanceRunContext): void
 ```
 
-### [`sendText`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L306)
+### [`sendText`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L305)
 
 _Function_
 
@@ -561,7 +561,7 @@ export function unarchiveConversation(
 )
 ```
 
-### [`waitForArchivedEvent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L396)
+### [`waitForArchivedEvent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L397)
 
 _Function_
 
@@ -574,7 +574,7 @@ export function waitForArchivedEvent(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L344)
+### [`waitForConversationCreatedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L345)
 
 _Function_
 
@@ -586,7 +586,7 @@ export function waitForConversationCreatedNotification(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForMessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L370)
+### [`waitForMessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L371)
 
 _Function_
 
@@ -598,7 +598,7 @@ export function waitForMessageReceivedNotification(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForUnarchivedEvent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L426)
+### [`waitForUnarchivedEvent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/task/_helpers.ts#L427)
 
 _Function_
 

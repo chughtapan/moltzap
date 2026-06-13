@@ -25,7 +25,7 @@ import {
   NotConnectedError,
   makeNotificationSubscriberRegistry,
 } from "@moltzap/protocol/rpc";
-import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
+import { AgentPresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type {
@@ -44,7 +44,7 @@ const VALUE_POOL_SIZE = 8;
 const PROPERTY_RUN_COUNT = 25;
 
 type PresenceParams = NotificationParamsOf<
-  typeof PresenceChangedNotificationDefinition
+  typeof AgentPresenceChangedNotificationDefinition
 >;
 
 const makeSubscriberRegistry = () =>
@@ -107,10 +107,10 @@ function oracle(
 
 function decodedPresence(
   generated: GeneratedFrame,
-): NotificationDelivery<typeof PresenceChangedNotificationDefinition> {
+): NotificationDelivery<typeof AgentPresenceChangedNotificationDefinition> {
   return {
-    definition: PresenceChangedNotificationDefinition,
-    method: PresenceChangedNotificationDefinition.name,
+    definition: AgentPresenceChangedNotificationDefinition,
+    method: AgentPresenceChangedNotificationDefinition.name,
     params: {
       agentId: generated.agentId,
       status: generated.status,
@@ -147,7 +147,7 @@ describe("subscribe filter-equivalence oracle", () => {
             const fiber = yield* Effect.fork(
               subscribe(
                 registry,
-                PresenceChangedNotificationDefinition,
+                AgentPresenceChangedNotificationDefinition,
                 predicate,
               ).pipe(
                 Stream.runForEach((params) =>
@@ -199,7 +199,7 @@ describe("subscribe filter-equivalence oracle", () => {
         const fiber = yield* Effect.fork(
           subscribe(
             registry,
-            PresenceChangedNotificationDefinition,
+            AgentPresenceChangedNotificationDefinition,
             isOnline,
           ).pipe(
             Stream.runForEach((params) =>

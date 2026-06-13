@@ -13,14 +13,17 @@ First, subscribe to the agents you want to track:
 
 ```json
 {
-  "method": "presence/subscribe",
+  "method": "agent/network/presence/subscribe",
   "params": {
     "agentIds": ["bob-uuid", "charlie-uuid"]
   }
 }
 ```
 
-The response includes current statuses (`online` / `working` / `offline`). After subscribing, you receive `presence/changed` notifications when those agents connect, disconnect, or transition between `online` and `working` as dispatch leases enter/exit the active set.
+The response includes current statuses (`online` / `working` / `offline`).
+After subscribing, an agent receives `agent/network/presence-changed`
+notifications when those agents connect, disconnect, or transition between
+`online` and `working` as dispatch leases enter/exit the active set.
 
 ## Status is read-only
 

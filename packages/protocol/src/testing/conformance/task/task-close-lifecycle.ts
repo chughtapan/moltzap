@@ -7,9 +7,8 @@
 import { Effect } from "effect";
 import {
   TaskClosedNotificationDefinition,
-  TaskAddParticipant,
-  TaskClose,
   TaskRequest,
+  TaskUpdate,
 } from "../../../task/index.js";
 import { TaskConversationCreate } from "../../../conversation/index.js";
 import type { TaskId } from "../../../task/index.js";
@@ -59,16 +58,16 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
       // tasks/close heads its `requires` with `AppPrincipal` — drive it through
       // the moderator app principal, not the agent owner.
       const close = yield* fixture.moderatorClient
-        .sendRpc(TaskClose, { taskId: fixture.taskId })
+        .sendRpc(TaskUpdate, { action: "close", taskId: fixture.taskId })
         .pipe(Effect.either);
       const closed = yield* requireRight(close, (error) =>
         deliveryViolation(PROPERTY, `tasks/close failed: ${error._tag}`),
       );
-      if (closed.task.status !== "closed") {
+      if (closed.action !== "closed" || closed.task.status !== "closed") {
         return yield* Effect.fail(
           deliveryViolation(
             PROPERTY,
-            `tasks/close returned status ${closed.task.status}`,
+            `tasks/close returned ${JSON.stringify(closed)}`,
           ),
         );
       }
@@ -150,7 +149,8 @@ function createTaskAndAddParticipant(
       deliveryViolation(PROPERTY, `task/create failed: ${error._tag}`),
     );
     const addResult = yield* moderator.client
-      .sendRpc(TaskAddParticipant, {
+      .sendRpc(TaskUpdate, {
+        action: "add-participant",
         taskId: task.task.id,
         agentId: participant.agent.agentId,
       })

@@ -1,15 +1,12 @@
 import { Effect } from "effect";
 import {
-  TaskConversationAddParticipant,
-  TaskConversationArchive,
   TaskConversationArchivedNotificationDefinition,
   TaskConversationCreate,
   TaskConversationCreatedNotificationDefinition,
   TaskConversationList,
   TaskConversationParticipantsAddedNotificationDefinition,
   TaskConversationParticipantsRemovedNotificationDefinition,
-  TaskConversationRemoveParticipant,
-  TaskConversationUnarchive,
+  TaskConversationUpdate,
   TaskConversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import type {
@@ -26,6 +23,24 @@ import { authorizeConversationCreateCapacityOnly } from "#conversation/requireme
 import { broadcastNotificationToAgents } from "#network";
 import { assertCallerAppOwnsTask } from "#task/requirements";
 import { agentArm, appArm } from "#core";
+
+type TaskConversationUpdateParams = ParamsOf<typeof TaskConversationUpdate>;
+type ConversationArchiveParams = Extract<
+  TaskConversationUpdateParams,
+  { action: "archive" }
+>;
+type ConversationUnarchiveParams = Extract<
+  TaskConversationUpdateParams,
+  { action: "unarchive" }
+>;
+type ConversationAddParticipantParams = Extract<
+  TaskConversationUpdateParams,
+  { action: "add-participant" }
+>;
+type ConversationRemoveParticipantParams = Extract<
+  TaskConversationUpdateParams,
+  { action: "remove-participant" }
+>;
 
 function taskConversationCreateBody(
   appId: AppContext["appId"],
@@ -82,7 +97,7 @@ function fanoutTaskConversationCreate(input: TaskConversationCreateInput) {
 }
 
 interface ArchiveFanoutInput {
-  readonly taskId: ParamsOf<typeof TaskConversationArchive>["taskId"];
+  readonly taskId: ConversationArchiveParams["taskId"];
   readonly conversationId: ConversationId;
   readonly archivedAt: string;
 }
@@ -107,7 +122,7 @@ function fanoutArchive(input: ArchiveFanoutInput) {
 }
 
 interface UnarchiveFanoutInput {
-  readonly taskId: ParamsOf<typeof TaskConversationUnarchive>["taskId"];
+  readonly taskId: ConversationUnarchiveParams["taskId"];
   readonly conversationId: ConversationId;
 }
 
@@ -162,7 +177,7 @@ function taskConversationListBody(
 }
 
 function taskConversationArchiveBody(
-  params: ParamsOf<typeof TaskConversationArchive>,
+  params: ConversationArchiveParams,
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
@@ -182,7 +197,7 @@ function taskConversationArchiveBody(
 }
 
 function taskConversationUnarchiveBody(
-  params: ParamsOf<typeof TaskConversationUnarchive>,
+  params: ConversationUnarchiveParams,
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
@@ -201,7 +216,7 @@ function taskConversationUnarchiveBody(
 }
 
 function taskConversationAddParticipantBody(
-  params: ParamsOf<typeof TaskConversationAddParticipant>,
+  params: ConversationAddParticipantParams,
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
@@ -230,7 +245,7 @@ function taskConversationAddParticipantBody(
 }
 
 function taskConversationRemoveParticipantBody(
-  params: ParamsOf<typeof TaskConversationRemoveParticipant>,
+  params: ConversationRemoveParticipantParams,
   ctx: AppContext,
 ) {
   return Effect.gen(function* () {
@@ -257,6 +272,22 @@ function taskConversationRemoveParticipantBody(
   }).pipe(Effect.withSpan("task.conversation.participants.remove"));
 }
 
+function taskConversationUpdateBody(
+  params: TaskConversationUpdateParams,
+  ctx: AppContext,
+) {
+  switch (params.action) {
+    case "archive":
+      return taskConversationArchiveBody(params, ctx);
+    case "unarchive":
+      return taskConversationUnarchiveBody(params, ctx);
+    case "add-participant":
+      return taskConversationAddParticipantBody(params, ctx);
+    case "remove-participant":
+      return taskConversationRemoveParticipantBody(params, ctx);
+  }
+}
+
 export const taskConversationList: ServerHandler<
   typeof TaskConversationList
 > = (params) =>
@@ -271,30 +302,9 @@ export const taskConversationCreate: ServerHandler<
     return yield* taskConversationCreateBody((yield* appArm).appId, params);
   }).pipe(Effect.withSpan("taskConversationCreate"));
 
-export const taskConversationArchive: ServerHandler<
-  typeof TaskConversationArchive
+export const taskConversationUpdate: ServerHandler<
+  typeof TaskConversationUpdate
 > = (params) =>
   Effect.gen(function* () {
-    return yield* taskConversationArchiveBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskConversationArchive"));
-
-export const taskConversationUnarchive: ServerHandler<
-  typeof TaskConversationUnarchive
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskConversationUnarchiveBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskConversationUnarchive"));
-
-export const taskConversationAddParticipant: ServerHandler<
-  typeof TaskConversationAddParticipant
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskConversationAddParticipantBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskConversationAddParticipant"));
-
-export const taskConversationRemoveParticipant: ServerHandler<
-  typeof TaskConversationRemoveParticipant
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskConversationRemoveParticipantBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskConversationRemoveParticipant"));
+    return yield* taskConversationUpdateBody(params, yield* appArm);
+  }).pipe(Effect.withSpan("taskConversationUpdate"));
