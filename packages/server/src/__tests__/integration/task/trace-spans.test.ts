@@ -112,18 +112,18 @@ function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
 
 function blockingMessageHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    "dispatch/authorize": {
+    [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
     },
-    "messages/authorize": {
+    [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
       handle: () =>
         Effect.succeed({
           verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
         }),
     },
-    "task/create": {
+    [TaskCreate.name]: {
       definition: TaskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),

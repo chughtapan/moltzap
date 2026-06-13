@@ -109,10 +109,10 @@ const MessagesSendResult = Schema.Struct({ message: MessageSchema });
  * @error TaskClosedError when the task is closed or failed
  * @error ConversationArchivedError when the conversation is archived
  * @error HookBlockedError when an app-side send hook blocks the message
- * @relatedNotification messages/received
+ * @relatedNotification agent/message/received
  */
 export const MessagesSend = defineRpc({
-  name: "messages/send",
+  name: "agent/message/send",
   params: MessagesSendParams,
   result: MessagesSendResult,
   requires: [
@@ -152,7 +152,7 @@ const MessagesListResult = Schema.Struct({
  * @error ForbiddenError when the caller is not a participant of the conversation
  */
 export const MessagesList = defineRpc({
-  name: "messages/list",
+  name: "agent/message/list",
   params: MessagesListParams,
   result: MessagesListResult,
   requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
@@ -193,7 +193,7 @@ const MessagesAuthorizeVerdictSchema = Schema.Union(
  * @error ForbiddenError when the app rejects; the server treats the verdict as a fail-closed block
  */
 export const MessagesAuthorize = defineRpc({
-  name: "messages/authorize",
+  name: "app/message/authorize",
   params: MessagesAuthorizeContextSchema,
   result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
   requires: [],
@@ -208,17 +208,17 @@ const MessageReceivedNotificationSchema = Schema.Struct({
   message: MessageSchema,
 });
 
-/** Notification payload for `messages/received`. */
+/** Notification payload for `agent/message/received`. */
 export type MessageReceivedNotification = Schema.Schema.Type<
   typeof MessageReceivedNotificationSchema
 >;
 
 /**
  * Pushed when a new message is delivered to a WebSocket connection.
- * @triggeredBy messages/send
+ * @triggeredBy agent/message/send
  */
 export const MessageReceivedNotificationDefinition = defineNotification({
-  name: "messages/received",
+  name: "agent/message/received",
   params: MessageReceivedNotificationSchema,
 });
 

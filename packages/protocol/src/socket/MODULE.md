@@ -12,7 +12,7 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
-### [`AgentClientOptions`](./agent-client.ts#L38)
+### [`AgentClientOptions`](./agent-client.ts#L41)
 
 _Interface_
 
@@ -25,7 +25,7 @@ export interface AgentClientOptions {
 }
 ```
 
-### [`AppCallbackContext`](./app-client.ts#L32)
+### [`AppCallbackContext`](./app-client.ts#L35)
 
 _Interface_
 
@@ -50,7 +50,7 @@ Closed handler table for an app moderating one or more tasks. Every
 app callback member is required; vacuous-deny moderators still write the
 handler explicitly.
 
-### [`AppClientOptions`](./app-client.ts#L69)
+### [`AppClientOptions`](./app-client.ts#L72)
 
 _Interface_
 
@@ -74,7 +74,7 @@ export function classifyCloseCause(
 ): CloseKind
 ```
 
-### [`ClientConnectError`](./lifecycle.ts#L121)
+### [`ClientConnectError`](./lifecycle.ts#L122)
 
 _TypeAlias_
 
@@ -82,7 +82,7 @@ _TypeAlias_
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
 ```
 
-### [`ClientDefinitionError`](./lifecycle.ts#L110)
+### [`ClientDefinitionError`](./lifecycle.ts#L111)
 
 _TypeAlias_
 
@@ -90,7 +90,7 @@ _TypeAlias_
 export type ClientDefinitionError<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L106)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L107)
 
 _TypeAlias_
 
@@ -98,7 +98,7 @@ _TypeAlias_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L108)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L109)
 
 _TypeAlias_
 
@@ -106,7 +106,7 @@ _TypeAlias_
 export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L216)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L217)
 
 _Interface_
 
@@ -132,7 +132,7 @@ export interface ClientLifecycleOptions<
 }
 ```
 
-### [`clientRpc`](./lifecycle.ts#L104)
+### [`clientRpc`](./lifecycle.ts#L105)
 
 _Property_
 
@@ -142,7 +142,7 @@ _Property_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L103)
+### [`ClientRpcDefinition`](./lifecycle.ts#L104)
 
 _TypeAlias_
 
@@ -221,7 +221,7 @@ _Variable_
 export type ConnectionId = string & Brand.Brand<"ConnectionId">
 ```
 
-### [`ConnectResult`](./lifecycle.ts#L115)
+### [`ConnectResult`](./lifecycle.ts#L116)
 
 _TypeAlias_
 
@@ -272,7 +272,7 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
 Per-definition app-callback handler slot. `Ctx` is the per-frame context the
 client hands every handler.
 
-### [`MoltZapAgentClient`](./agent-client.ts#L45)
+### [`MoltZapAgentClient`](./agent-client.ts#L48)
 
 _Class_
 
@@ -312,7 +312,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapAppClient`](./app-client.ts#L77)
+### [`MoltZapAppClient`](./app-client.ts#L80)
 
 _Class_
 
@@ -517,7 +517,7 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L573)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L580)
 
 _Function_
 
@@ -531,7 +531,7 @@ export const openProtocolAgentClientSocket = (
 >
 ```
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L585)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L592)
 
 _Function_
 
@@ -545,7 +545,7 @@ export const openProtocolAppClientSocket = (
 >
 ```
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L654)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L661)
 
 _Class_
 
@@ -680,7 +680,7 @@ _TypeAlias_
 export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L263)
+### [`ReverseCallbackHandlers`](./lifecycle.ts#L264)
 
 _TypeAlias_
 
@@ -769,7 +769,7 @@ export interface ReverseClient {
 }
 ```
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L89)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L90)
 
 _Variable_
 
@@ -777,7 +777,7 @@ _Variable_
 export const RPC_TIMEOUT_MS = 30_000
 ```
 
-### [`RpcCallOptions`](./lifecycle.ts#L99)
+### [`RpcCallOptions`](./lifecycle.ts#L100)
 
 _Interface_
 

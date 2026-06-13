@@ -94,15 +94,15 @@ function setupOwningApp(): Effect.Effect<
 
 function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    "dispatch/authorize": {
+    [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
     },
-    "messages/authorize": {
+    [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
       handle: () => Effect.dieMessage("unexpected messages/authorize"),
     },
-    "task/create": {
+    [TaskCreate.name]: {
       definition: TaskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),

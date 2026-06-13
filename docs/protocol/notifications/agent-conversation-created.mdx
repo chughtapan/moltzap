@@ -1,0 +1,36 @@
+---
+title: "agent/conversation/created"
+description: "Pushed when a task conversation is created."
+---
+
+# agent/conversation/created
+
+Pushed when a task conversation is created.
+
+## Params
+
+<ResponseField name="taskId" type="string (UUID)">
+  Branded TaskId
+</ResponseField>
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  The name field.
+</ResponseField>
+
+<ResponseField name="participants" type="array">
+  The participants field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "agent/conversation/created",
+  "params": { ... }
+}
+```

@@ -17,7 +17,7 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
-### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/agent-client.ts#L38)
+### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/agent-client.ts#L41)
 
 _Interface_
 
@@ -30,7 +30,7 @@ export interface AgentClientOptions {
 }
 ```
 
-### [`AppCallbackContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L32)
+### [`AppCallbackContext`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L35)
 
 _Interface_
 
@@ -55,7 +55,7 @@ Closed handler table for an app moderating one or more tasks. Every
 app callback member is required; vacuous-deny moderators still write the
 handler explicitly.
 
-### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L69)
+### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L72)
 
 _Interface_
 
@@ -79,7 +79,7 @@ export function classifyCloseCause(
 ): CloseKind
 ```
 
-### [`ClientConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L121)
+### [`ClientConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L122)
 
 _TypeAlias_
 
@@ -87,7 +87,7 @@ _TypeAlias_
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
 ```
 
-### [`ClientDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L110)
+### [`ClientDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L111)
 
 _TypeAlias_
 
@@ -95,7 +95,7 @@ _TypeAlias_
 export type ClientDefinitionError<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L106)
+### [`ClientDefinitionPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L107)
 
 _TypeAlias_
 
@@ -103,7 +103,7 @@ _TypeAlias_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L108)
+### [`ClientDefinitionSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L109)
 
 _TypeAlias_
 
@@ -111,7 +111,7 @@ _TypeAlias_
 export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientLifecycleOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L216)
+### [`ClientLifecycleOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L217)
 
 _Interface_
 
@@ -137,7 +137,7 @@ export interface ClientLifecycleOptions<
 }
 ```
 
-### [`clientRpc`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L104)
+### [`clientRpc`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L105)
 
 _Property_
 
@@ -147,7 +147,7 @@ _Property_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L103)
+### [`ClientRpcDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L104)
 
 _TypeAlias_
 
@@ -226,7 +226,7 @@ _Variable_
 export type ConnectionId = string & Brand.Brand<"ConnectionId">
 ```
 
-### [`ConnectResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L115)
+### [`ConnectResult`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L116)
 
 _TypeAlias_
 
@@ -277,7 +277,7 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
 Per-definition app-callback handler slot. `Ctx` is the per-frame context the
 client hands every handler.
 
-### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/agent-client.ts#L45)
+### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/agent-client.ts#L48)
 
 _Class_
 
@@ -317,7 +317,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L77)
+### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-client.ts#L80)
 
 _Class_
 
@@ -522,7 +522,7 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-### [`openProtocolAgentClientSocket`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L573)
+### [`openProtocolAgentClientSocket`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L580)
 
 _Function_
 
@@ -536,7 +536,7 @@ export const openProtocolAgentClientSocket = (
 >
 ```
 
-### [`openProtocolAppClientSocket`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L585)
+### [`openProtocolAppClientSocket`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L592)
 
 _Function_
 
@@ -550,7 +550,7 @@ export const openProtocolAppClientSocket = (
 >
 ```
 
-### [`ProtocolClientLifecycle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L654)
+### [`ProtocolClientLifecycle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L661)
 
 _Class_
 
@@ -685,7 +685,7 @@ _TypeAlias_
 export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L263)
+### [`ReverseCallbackHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L264)
 
 _TypeAlias_
 
@@ -774,7 +774,7 @@ export interface ReverseClient {
 }
 ```
 
-### [`RPC_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L89)
+### [`RPC_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L90)
 
 _Variable_
 
@@ -782,7 +782,7 @@ _Variable_
 export const RPC_TIMEOUT_MS = 30_000
 ```
 
-### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L99)
+### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/lifecycle.ts#L100)
 
 _Interface_
 

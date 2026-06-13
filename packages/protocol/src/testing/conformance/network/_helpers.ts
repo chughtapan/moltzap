@@ -11,9 +11,9 @@ import {
   type Scope,
 } from "effect";
 
-import { PresenceChangedNotificationDefinition } from "../../../network/index.js";
+import { AgentPresenceChangedNotificationDefinition } from "../../../network/index.js";
 import type { NotificationDelivery } from "#transport";
-import { PresenceSubscribe } from "../../../network/index.js";
+import { AgentPresenceSubscribe } from "../../../network/index.js";
 import { AgentId } from "../../../identity/index.js";
 import {
   makeAgentTestClient,
@@ -118,7 +118,7 @@ function pullMatchingPresenceFromBuffer(
 ): Effect.Effect<true | null> {
   return Ref.modify(buffer.pending, (frames) => {
     const idx = frames.findIndex((frame) => {
-      if (frame.definition !== PresenceChangedNotificationDefinition) {
+      if (frame.definition !== AgentPresenceChangedNotificationDefinition) {
         return false;
       }
       const data = frame.params as PresenceChangedPayload | undefined;
@@ -259,15 +259,17 @@ export function subscribePresence(
   agentId: AgentId,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
-  return subscriber.sendRpc(PresenceSubscribe, { agentIds: [agentId] }).pipe(
-    Effect.mapError((e) =>
-      presenceViolation(
-        propertyName,
-        `presence/subscribe failed: ${String(e)}`,
+  return subscriber
+    .sendRpc(AgentPresenceSubscribe, { agentIds: [agentId] })
+    .pipe(
+      Effect.mapError((e) =>
+        presenceViolation(
+          propertyName,
+          `presence/subscribe failed: ${String(e)}`,
+        ),
       ),
-    ),
-    Effect.asVoid,
-  );
+      Effect.asVoid,
+    );
 }
 
 /**
@@ -328,7 +330,7 @@ export function presenceStatusesFor(
     const statuses: PresenceStatus[] = [];
     for (const frame of snap) {
       if (
-        frame.definition === PresenceChangedNotificationDefinition &&
+        frame.definition === AgentPresenceChangedNotificationDefinition &&
         (frame.params as PresenceChangedPayload).agentId === agentId
       ) {
         statuses.push((frame.params as PresenceChangedPayload).status);

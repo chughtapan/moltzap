@@ -25,23 +25,16 @@ import {
   contactsAdd,
   contactsAccept,
 } from "../identity/handlers/contacts.handlers.js";
-import { presenceSubscribe } from "../network/handlers/presence.handlers.js";
-import { messagesSend, messagesList } from "#message/handlers";
 import {
-  taskList,
-  taskLeave,
-  taskClose,
-  taskAddParticipant,
-  taskRemoveParticipant,
-  taskRequest,
-} from "#task/handlers";
+  agentPresenceSubscribe,
+  appPresenceSubscribe,
+} from "../network/handlers/presence.handlers.js";
+import { messagesSend, messagesList } from "#message/handlers";
+import { taskList, taskLeave, taskRequest, taskUpdate } from "#task/handlers";
 import {
   taskConversationCreate,
   taskConversationList,
-  taskConversationArchive,
-  taskConversationUnarchive,
-  taskConversationAddParticipant,
-  taskConversationRemoveParticipant,
+  taskConversationUpdate,
 } from "#conversation/handlers";
 import { dispatchRequest, dispatchesGet } from "#dispatch/handlers";
 import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
@@ -51,27 +44,23 @@ import type { ServerHandlers } from "@moltzap/protocol/socket/catalog";
  * method; values are the per-method handler bodies.
  */
 export const serverHandlers: ServerHandlers = {
-  "agent/connect": connectAgent,
-  "app/connect": connectApp,
-  "agents/list": agentsList,
-  "contacts/list": contactsList,
-  "contacts/add": contactsAdd,
-  "contacts/accept": contactsAccept,
-  "presence/subscribe": presenceSubscribe,
-  "messages/send": messagesSend,
-  "messages/list": messagesList,
-  "task/list": taskList,
-  "task/leave": taskLeave,
-  "task/request": taskRequest,
-  "task/close": taskClose,
-  "task/addParticipant": taskAddParticipant,
-  "task/removeParticipant": taskRemoveParticipant,
-  "task/conversation/create": taskConversationCreate,
-  "task/conversation/list": taskConversationList,
-  "task/conversation/archive": taskConversationArchive,
-  "task/conversation/unarchive": taskConversationUnarchive,
-  "task/conversation/participants/add": taskConversationAddParticipant,
-  "task/conversation/participants/remove": taskConversationRemoveParticipant,
-  "dispatch/request": dispatchRequest,
-  "dispatches/get": dispatchesGet,
+  "agent/network/connect": connectAgent,
+  "app/network/connect": connectApp,
+  "agent/identity/agents/list": agentsList,
+  "agent/identity/contacts/list": contactsList,
+  "agent/identity/contacts/add": contactsAdd,
+  "agent/identity/contacts/accept": contactsAccept,
+  "agent/network/presence/subscribe": agentPresenceSubscribe,
+  "app/network/presence/subscribe": appPresenceSubscribe,
+  "agent/message/send": messagesSend,
+  "agent/message/list": messagesList,
+  "agent/task/list": taskList,
+  "agent/task/leave": taskLeave,
+  "agent/task/request": taskRequest,
+  "app/task/update": taskUpdate,
+  "app/conversation/create": taskConversationCreate,
+  "agent/conversation/list": taskConversationList,
+  "app/conversation/update": taskConversationUpdate,
+  "agent/dispatch/request": dispatchRequest,
+  "app/dispatch/lease/get": dispatchesGet,
 } as const;

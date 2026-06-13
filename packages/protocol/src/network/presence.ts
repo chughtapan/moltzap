@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { AgentId } from "#identity/agents";
 import { stringEnum } from "#transport";
 import { defineNotification, defineRpc } from "#transport";
-import { AuthenticatedPrincipal } from "#identity/principals";
+import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { NotInContactsError } from "#identity/contacts";
 
 // Presence is server-derived from `LeaseRegistry` lifecycle: `online` =
@@ -24,12 +24,28 @@ const PresenceEntrySchema = Schema.Struct({
  * - **Result:** the current `statuses` of the subscribed agents.
  * @error NotInContactsError when an agent caller requests an id outside its contact-visible set
  */
-export const PresenceSubscribe = defineRpc({
-  name: "presence/subscribe",
-  params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
-  result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
-  requires: [AuthenticatedPrincipal],
+const PresenceSubscribeParamsSchema = Schema.Struct({
+  agentIds: Schema.Array(AgentId),
+});
+
+const PresenceSubscribeResultSchema = Schema.Struct({
+  statuses: Schema.Array(PresenceEntrySchema),
+});
+
+export const AgentPresenceSubscribe = defineRpc({
+  name: "agent/network/presence/subscribe",
+  params: PresenceSubscribeParamsSchema,
+  result: PresenceSubscribeResultSchema,
+  requires: [AgentPrincipal],
   errors: [NotInContactsError],
+});
+
+export const AppPresenceSubscribe = defineRpc({
+  name: "app/network/presence/subscribe",
+  params: PresenceSubscribeParamsSchema,
+  result: PresenceSubscribeResultSchema,
+  requires: [AppPrincipal],
+  errors: [],
 });
 
 const PresenceChangedNotificationSchema = Schema.Struct({
@@ -41,7 +57,15 @@ const PresenceChangedNotificationSchema = Schema.Struct({
  * Pushed when a subscribed participant's presence status changes. Triggered by
  * server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect.
  */
-export const PresenceChangedNotificationDefinition = defineNotification({
-  name: "presence/changed",
+export const AgentPresenceChangedNotificationDefinition = defineNotification({
+  name: "agent/network/presence-changed",
+  params: PresenceChangedNotificationSchema,
+});
+
+/**
+ * Pushed to app subscribers when a watched agent's presence status changes.
+ */
+export const AppPresenceChangedNotificationDefinition = defineNotification({
+  name: "app/network/presence-changed",
   params: PresenceChangedNotificationSchema,
 });

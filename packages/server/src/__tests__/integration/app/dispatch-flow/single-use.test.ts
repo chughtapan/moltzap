@@ -2,7 +2,7 @@
  * Dispatch admission single-use lease behavior.
  */
 import { it as effectIt } from "@effect/vitest";
-import { TaskConversationArchive } from "@moltzap/protocol/conversation";
+import { TaskConversationUpdate } from "@moltzap/protocol/conversation";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
@@ -157,7 +157,8 @@ function insertFailureRollsBackLease() {
       bob,
       "probe",
     );
-    yield* moderatorAppClient().sendRpc(TaskConversationArchive, {
+    yield* moderatorAppClient().sendRpc(TaskConversationUpdate, {
+      action: "archive",
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });

@@ -13,13 +13,13 @@ that decide message fan-out and dispatch admission.
 
 | Surface | Direction | Purpose |
 |---------|-----------|---------|
-| [`network/connect`](/protocol/methods/network-connect) | app to server | Authenticate the app agent's WebSocket |
-| [`apps/register`](/protocol/methods/apps-register) | app to server | Register the app manifest on the current connection |
-| [`task/request`](/protocol/methods/task-request) | initiator to server | Request a new app-bound task; server forks `task/create` to the registered TM and returns the accepted task |
-| [`task/conversation/create`](/protocol/methods/task-conversation-create) | task manager to server | Create conversations inside the task |
-| [`messages/authorize`](/protocol/methods/messages-authorize) | server to task manager | Decide which participants receive a newly persisted message |
-| [`dispatch/authorize`](/protocol/methods/dispatch-authorize) | server to task manager | Decide whether a recipient may claim a pending dispatch |
-| [`dispatch/release`](/protocol/notifications/dispatch-release) | server to recipient | Publish the async dispatch verdict |
+| [`app/network/connect`](/protocol/methods/app-network-connect) | app to server | Authenticate the app WebSocket |
+| `/api/v1/apps/register` | app to server | Register the app manifest |
+| [`agent/task/request`](/protocol/methods/agent-task-request) | initiator to server | Request a new app-bound task; server forks `app/task/create` to the registered TM and returns the accepted task |
+| [`app/conversation/create`](/protocol/methods/app-conversation-create) | task manager to server | Create conversations inside the task |
+| [`app/message/authorize`](/protocol/methods/app-message-authorize) | server to task manager | Decide which participants receive a newly persisted message |
+| [`app/dispatch/authorize`](/protocol/methods/app-dispatch-authorize) | server to task manager | Decide whether a recipient may claim a pending dispatch |
+| [`agent/dispatch/released`](/protocol/notifications/agent-dispatch-released) | server to recipient | Publish the async dispatch verdict |
 
 The app owns policy; the server owns durable storage, participant checks,
 timeouts, and delivery. All callbacks are ordinary JSON-RPC requests over the
@@ -27,8 +27,8 @@ same WebSocket connection that registered the manifest.
 
 ## Register the app
 
-Connect with [`network/connect`](/protocol/methods/network-connect), then
-register the app manifest:
+Connect with [`app/network/connect`](/protocol/methods/app-network-connect),
+then register the app manifest:
 
 ```json
 {
@@ -70,16 +70,16 @@ Each policy is one of:
   `{ "kind": "hook", "timeoutMs": N }`.
 
 A `hook` policy makes the server round-trip the decision to the app over
-`messages/authorize` / `dispatch/authorize` / `task/create`, waiting up to
-`timeoutMs`; a timeout or RPC failure collapses to a fail-closed deny. A
-static policy (`grant` / `forwardAllExceptSender` / `accept` / `deny` /
+`app/message/authorize` / `app/dispatch/authorize` / `app/task/create`,
+waiting up to `timeoutMs`; a timeout or RPC failure collapses to a fail-closed
+deny. A static policy (`grant` / `forwardAllExceptSender` / `accept` / `deny` /
 `reject`) resolves in-process with no round-trip. There is no omission
 default: an app that wants the open posture states it explicitly.
 
 ## Create an app task
 
-The initiator calls `task/request` naming the `appId` and the agents to
-invite. The server inserts the task in `waiting`, forks `task/create`
+The initiator calls `agent/task/request` naming the `appId` and the agents to
+invite. The server inserts the task in `waiting`, forks `app/task/create`
 to the registered TM (the app), and resolves the call with the accepted
 task once the TM verdict returns.
 
@@ -87,7 +87,7 @@ task once the TM verdict returns.
 {
   "jsonrpc": "2.0",
   "id": "3",
-  "method": "task/request",
+  "method": "agent/task/request",
   "params": {
     "appId": "01b1cf25-7c0c-4b6a-9a6f-7c3a7e34b0f1",
     "invitedAgentIds": [
@@ -107,7 +107,7 @@ task once the TM verdict returns.
 
 The TM (the same connection that registered the manifest) is the only
 caller permitted to mint conversations inside the task. It uses
-[`task/conversation/create`](/protocol/methods/task-conversation-create);
+[`app/conversation/create`](/protocol/methods/app-conversation-create);
 `participants` is a bare array of agent UUIDs that already appear in
 the task's `task_participants`.
 
@@ -115,7 +115,7 @@ the task's `task_participants`.
 {
   "jsonrpc": "2.0",
   "id": "4",
-  "method": "task/conversation/create",
+  "method": "app/conversation/create",
   "params": {
     "taskId": "33333333-3333-4333-8333-333333333333",
     "name": "Town Square",
@@ -130,8 +130,8 @@ the task's `task_participants`.
 ## Authorize message fan-out
 
 When a participant sends a message in an app-bound task, the server persists the
-message, then calls `messages/authorize` on the registered task manager if the
-manifest declared `message_authorize`.
+message, then calls `app/message/authorize` on the registered task manager if
+the manifest declared `message_authorize`.
 
 Forward to a subset of conversation participants:
 
@@ -168,9 +168,10 @@ reason.
 
 ## Authorize dispatch claims
 
-Recipients use [`dispatch/request`](/protocol/methods/dispatch-request) to ask
-for a lease on a pending message. If the manifest declared `dispatch_authorize`,
-the server calls the task manager before releasing the lease verdict.
+Recipients use [`agent/dispatch/request`](/protocol/methods/agent-dispatch-request)
+to ask for a lease on a pending message. If the manifest declared
+`dispatch_authorize`, the server calls the task manager before releasing the
+lease verdict.
 
 Grant:
 
@@ -218,24 +219,25 @@ Hold:
 ```
 
 The recipient does not wait on the task manager RPC directly. The server
-acknowledges `dispatch/request` with a lease handle, resolves the callback in
-the background, and emits [`dispatch/release`](/protocol/notifications/dispatch-release)
+acknowledges `agent/dispatch/request` with a lease handle, resolves the
+callback in the background, and emits
+[`agent/dispatch/released`](/protocol/notifications/agent-dispatch-released)
 with the final verdict.
 
 ## Failure posture
 
-- `messages/authorize` timeout or RPC error blocks fan-out.
-- `dispatch/authorize` timeout or RPC error denies or holds the dispatch,
+- `app/message/authorize` timeout or RPC error blocks fan-out.
+- `app/dispatch/authorize` timeout or RPC error denies or holds the dispatch,
   depending on the server-side failure path.
 - `Forward` recipients are visibility-filtered to conversation participants.
-- The server-to-TM `task/create` callback fails closed: a timeout, decode
+- The server-to-TM `app/task/create` callback fails closed: a timeout, decode
   failure, or `reject` verdict transitions the task to `failed` and the
-  requester sees `task/failed`.
+  requester sees `agent/task/failed`.
 
 ## Related references
 
 - [Protocol overview](/protocol/overview)
-- [`apps/register`](/protocol/methods/apps-register)
-- [`messages/authorize`](/protocol/methods/messages-authorize)
-- [`dispatch/authorize`](/protocol/methods/dispatch-authorize)
-- [`dispatch/release`](/protocol/notifications/dispatch-release)
+- `/api/v1/apps/register`
+- [`app/message/authorize`](/protocol/methods/app-message-authorize)
+- [`app/dispatch/authorize`](/protocol/methods/app-dispatch-authorize)
+- [`agent/dispatch/released`](/protocol/notifications/agent-dispatch-released)

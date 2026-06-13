@@ -21,7 +21,7 @@ import {
 } from "../helpers.js";
 import { agentId, userId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
-import { PresenceSubscribe } from "@moltzap/protocol/network";
+import { AgentPresenceSubscribe } from "@moltzap/protocol/network";
 
 const it = effectIt.live;
 
@@ -114,7 +114,7 @@ function rejectsInvisibleAgent() {
       ownerUserId: CAROL_USER_ID,
     });
     const exit = yield* Effect.exit(
-      alice.client.sendRpc(PresenceSubscribe, {
+      alice.client.sendRpc(AgentPresenceSubscribe, {
         agentIds: [agentId(carol.agentId)],
       }),
     );
@@ -141,7 +141,7 @@ function rejectsOnlyInvisibleSubset() {
       ownerUserId: CAROL_USER_ID,
     });
     const exit = yield* Effect.exit(
-      alice.client.sendRpc(PresenceSubscribe, {
+      alice.client.sendRpc(AgentPresenceSubscribe, {
         agentIds: [agentId(alice2.agentId), agentId(carol.agentId)],
       }),
     );

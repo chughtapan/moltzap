@@ -91,7 +91,7 @@ _Variable_
 
 ```ts
 export const AgentsList = defineRpc({
-  name: "agents/list",
+  name: "agent/identity/agents/list",
   params: Schema.Struct({
     limit: ListLimitSchema,
     cursor: Schema.optional(listCursorSchema()),
@@ -127,7 +127,7 @@ _Variable_
 
 ```ts
 export const Register = defineRpc({
-  name: "agents/register",
+  name: "agent/identity/register",
   params: Schema.Struct({
     name: Schema.String.pipe(
       Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),

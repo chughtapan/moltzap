@@ -55,7 +55,7 @@ import {
   makeNotificationSubscriberRegistry,
 } from "@moltzap/protocol/rpc";
 import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
+import { AgentPresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type {
   NotificationDelivery,
@@ -72,7 +72,7 @@ const PROP_TEST_FRAME_COUNT = 6;
 const PROP_TEST_CANCEL_AT = 3;
 
 type PresenceParams = NotificationParamsOf<
-  typeof PresenceChangedNotificationDefinition
+  typeof AgentPresenceChangedNotificationDefinition
 >;
 
 const presenceAgentIds = Array.from(
@@ -99,10 +99,10 @@ const makeSubscriberRegistry = () =>
 
 function presenceDelivery(
   seq: number,
-): NotificationDelivery<typeof PresenceChangedNotificationDefinition> {
+): NotificationDelivery<typeof AgentPresenceChangedNotificationDefinition> {
   return {
-    definition: PresenceChangedNotificationDefinition,
-    method: PresenceChangedNotificationDefinition.name,
+    definition: AgentPresenceChangedNotificationDefinition,
+    method: AgentPresenceChangedNotificationDefinition.name,
     params: {
       agentId: presenceAgentIds[seq] ?? testAgentId(`agent-${seq}`),
       status: seq % 2 === 0 ? "online" : "offline",
@@ -135,7 +135,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const targetSeen = yield* Ref.make<ReadonlyArray<number>>([]);
 
         const observerFiber = yield* Effect.fork(
-          subscribe(registry, PresenceChangedNotificationDefinition).pipe(
+          subscribe(registry, AgentPresenceChangedNotificationDefinition).pipe(
             Stream.runForEach((params) =>
               Ref.update(observerSeen, (xs) => [
                 ...xs,
@@ -148,7 +148,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         const targetStream = subscribe(
           registry,
-          PresenceChangedNotificationDefinition,
+          AgentPresenceChangedNotificationDefinition,
         );
         const targetFiber = yield* Effect.fork(
           targetStream.pipe(
@@ -211,13 +211,13 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const receivedByS2 = yield* Ref.make<ReadonlyArray<number>>([]);
 
         const s1Fiber = yield* Effect.fork(
-          subscribe(registry, PresenceChangedNotificationDefinition).pipe(
+          subscribe(registry, AgentPresenceChangedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
         );
         const s3Fiber = yield* Effect.fork(
-          subscribe(registry, PresenceChangedNotificationDefinition).pipe(
+          subscribe(registry, AgentPresenceChangedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
@@ -225,7 +225,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         const s2Stream = subscribe(
           registry,
-          PresenceChangedNotificationDefinition,
+          AgentPresenceChangedNotificationDefinition,
         );
         const s2Fiber = yield* Effect.fork(
           s2Stream.pipe(
@@ -289,7 +289,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const s2Received = yield* Ref.make<ReadonlyArray<number>>([]);
 
         yield* registry.register(
-          PresenceChangedNotificationDefinition,
+          AgentPresenceChangedNotificationDefinition,
           undefined,
           {
             onFrame: () =>
@@ -301,7 +301,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
           },
         );
         const s2Handle = yield* registry.register(
-          PresenceChangedNotificationDefinition,
+          AgentPresenceChangedNotificationDefinition,
           undefined,
           {
             onFrame: (params) =>
@@ -408,7 +408,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         const names = yield* Ref.get(observed);
         expect(names).toEqual([
-          PresenceChangedNotificationDefinition.name,
+          AgentPresenceChangedNotificationDefinition.name,
           MessageReceivedNotificationDefinition.name,
         ]);
       }),

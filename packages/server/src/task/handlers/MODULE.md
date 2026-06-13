@@ -8,25 +8,7 @@ Task-domain handler barrel.
 
 ## Public surface
 
-### [`taskAddParticipant`](./tasks.handlers.ts#L164)
-
-_Variable_
-
-```ts
-export const taskAddParticipant: ServerHandler<typeof TaskAddParticipant> = (
-  params,
-)
-```
-
-### [`taskClose`](./tasks.handlers.ts#L159)
-
-_Variable_
-
-```ts
-export const taskClose: ServerHandler<typeof TaskClose> = (params)
-```
-
-### [`taskLeave`](./tasks.handlers.ts#L154)
+### [`taskLeave`](./tasks.handlers.ts#L174)
 
 _Variable_
 
@@ -34,22 +16,12 @@ _Variable_
 export const taskLeave: ServerHandler<typeof TaskLeave> = (params)
 ```
 
-### [`taskList`](./tasks.handlers.ts#L149)
+### [`taskList`](./tasks.handlers.ts#L169)
 
 _Variable_
 
 ```ts
 export const taskList: ServerHandler<typeof TaskList> = (params)
-```
-
-### [`taskRemoveParticipant`](./tasks.handlers.ts#L171)
-
-_Variable_
-
-```ts
-export const taskRemoveParticipant: ServerHandler<
-  typeof TaskRemoveParticipant
-> = (params)
 ```
 
 ### [`taskRequest`](./task-request.handlers.ts#L195)
@@ -58,6 +30,14 @@ _Variable_
 
 ```ts
 export const taskRequest: ServerHandler<typeof TaskRequest> = (params)
+```
+
+### [`taskUpdate`](./tasks.handlers.ts#L179)
+
+_Variable_
+
+```ts
+export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params)
 ```
 
 ## Files

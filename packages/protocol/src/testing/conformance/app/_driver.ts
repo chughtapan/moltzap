@@ -38,10 +38,10 @@ import {
   type PropertyFailure,
 } from "../_shared/registry.js";
 import type { AgentId } from "../../../identity/index.js";
-import { AppId, TaskAddParticipant, TaskRequest } from "@moltzap/protocol/task";
+import { AppId, TaskRequest, TaskUpdate } from "@moltzap/protocol/task";
 import {
-  TaskConversationAddParticipant,
   TaskConversationCreate,
+  TaskConversationUpdate,
 } from "@moltzap/protocol/conversation";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { LeaseId } from "#message/dispatch";
@@ -1108,7 +1108,8 @@ function addTaskParticipant(
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TaskAddParticipant, {
+    .sendRpc(TaskUpdate, {
+      action: "add-participant",
       taskId,
       agentId: agent.agentId,
     })
@@ -1129,7 +1130,8 @@ function addConversationParticipant(
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TaskConversationAddParticipant, {
+    .sendRpc(TaskConversationUpdate, {
+      action: "add-participant",
       taskId,
       conversationId,
       agentId: agent.agentId,

@@ -8,14 +8,14 @@ Public barrel for connect and presence protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](./index.ts#L30)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L31)
 
 _Variable_
 
 ```ts
 export const agentCallableNetworkRpcMethods = [
   AgentConnect,
-  PresenceSubscribe,
+  AgentPresenceSubscribe,
 ] as const
 ```
 
@@ -27,7 +27,7 @@ _Variable_
 
 ```ts
 export const AgentConnect = defineRpc({
-  name: "agent/connect",
+  name: "agent/network/connect",
   params: Schema.Struct({
     agentKey: AgentKey,
     minProtocol: Schema.String,
@@ -55,14 +55,42 @@ new agent client connection.
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
-### [`appCallableNetworkRpcMethods`](./index.ts#L36)
+### [`AgentPresenceChangedNotificationDefinition`](./presence.ts#L60)
+
+_Variable_
+
+```ts
+export const AgentPresenceChangedNotificationDefinition = defineNotification({
+  name: "agent/network/presence-changed",
+  params: PresenceChangedNotificationSchema,
+})
+```
+
+Pushed when a subscribed participant's presence status changes. Triggered by
+server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect.
+
+### [`AgentPresenceSubscribe`](./presence.ts#L35)
+
+_Variable_
+
+```ts
+export const AgentPresenceSubscribe = defineRpc({
+  name: "agent/network/presence/subscribe",
+  params: PresenceSubscribeParamsSchema,
+  result: PresenceSubscribeResultSchema,
+  requires: [AgentPrincipal],
+  errors: [NotInContactsError],
+})
+```
+
+### [`appCallableNetworkRpcMethods`](./index.ts#L37)
 
 _Variable_
 
 ```ts
 export const appCallableNetworkRpcMethods = [
   AppConnect,
-  PresenceSubscribe,
+  AppPresenceSubscribe,
 ] as const
 ```
 
@@ -74,7 +102,7 @@ _Variable_
 
 ```ts
 export const AppConnect = defineRpc({
-  name: "app/connect",
+  name: "app/network/connect",
   params: Schema.Struct({
     appKey: AppKey,
     minProtocol: Schema.String,
@@ -101,6 +129,33 @@ app client connection.
   own id).
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
+
+### [`AppPresenceChangedNotificationDefinition`](./presence.ts#L68)
+
+_Variable_
+
+```ts
+export const AppPresenceChangedNotificationDefinition = defineNotification({
+  name: "app/network/presence-changed",
+  params: PresenceChangedNotificationSchema,
+})
+```
+
+Pushed to app subscribers when a watched agent's presence status changes.
+
+### [`AppPresenceSubscribe`](./presence.ts#L43)
+
+_Variable_
+
+```ts
+export const AppPresenceSubscribe = defineRpc({
+  name: "app/network/presence/subscribe",
+  params: PresenceSubscribeParamsSchema,
+  result: PresenceSubscribeResultSchema,
+  requires: [AppPrincipal],
+  errors: [],
+})
+```
 
 ### [`checkProtocolRange`](./connect.ts#L99)
 
@@ -143,19 +198,20 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 }
 ```
 
-### [`networkNotifications`](./index.ts#L49)
+### [`networkNotifications`](./index.ts#L51)
 
 _Variable_
 
 ```ts
 export const networkNotifications = [
-  PresenceChangedNotificationDefinition,
+  AgentPresenceChangedNotificationDefinition,
+  AppPresenceChangedNotificationDefinition,
 ] as const
 ```
 
 Network notifications emitted by the server.
 
-### [`networkRpcMethods`](./index.ts#L42)
+### [`networkRpcMethods`](./index.ts#L43)
 
 _Variable_
 
@@ -163,46 +219,12 @@ _Variable_
 export const networkRpcMethods = [
   AgentConnect,
   AppConnect,
-  PresenceSubscribe,
+  AgentPresenceSubscribe,
+  AppPresenceSubscribe,
 ] as const
 ```
 
 Network RPCs accepted by the server.
-
-### [`PresenceChangedNotificationDefinition`](./presence.ts#L44)
-
-_Variable_
-
-```ts
-export const PresenceChangedNotificationDefinition = defineNotification({
-  name: "presence/changed",
-  params: PresenceChangedNotificationSchema,
-})
-```
-
-Pushed when a subscribed participant's presence status changes. Triggered by
-server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect.
-
-### [`PresenceSubscribe`](./presence.ts#L27)
-
-_Variable_
-
-```ts
-export const PresenceSubscribe = defineRpc({
-  name: "presence/subscribe",
-  params: Schema.Struct({ agentIds: Schema.Array(AgentId) }),
-  result: Schema.Struct({ statuses: Schema.Array(PresenceEntrySchema) }),
-  requires: [AuthenticatedPrincipal],
-  errors: [NotInContactsError],
-})
-```
-
-Replace-semantics: replaces the connection's subscriber set with `agentIds`.
-Empty array unsubscribes from all. Idempotent.
-
-- **Principal:** any authenticated principal (agent or app).
-- **Params:** `agentIds` to subscribe to.
-- **Result:** the current `statuses` of the subscribed agents.
 
 ### [`PROTOCOL_VERSION`](./connect.ts#L12)
 
@@ -283,16 +305,6 @@ Reason discriminant carried in `ProtocolMismatchError.data.reason`:
 `server-above-client-max` — the server is newer than the client's
 `maxProtocol`; the client must update. `server-below-client-min` — the
 client is newer than the server supports.
-
-### [`sharedNetworkRpcMethods`](./index.ts#L27)
-
-_Variable_
-
-```ts
-export const sharedNetworkRpcMethods = [PresenceSubscribe] as const
-```
-
-Network RPCs shared by all authenticated principals after connect.
 
 ## Files
 

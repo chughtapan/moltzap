@@ -15,9 +15,7 @@ export {
   TaskRejectedError,
   HookBlockedError,
   TaskList,
-  TaskClose,
-  TaskAddParticipant,
-  TaskRemoveParticipant,
+  TaskUpdate,
   AppId,
   DEFAULT_APP_ID,
   TaskRequest,
@@ -32,14 +30,14 @@ export type {
   TaskStatus,
   Task,
   TaskParticipant,
+  TaskUpdateParams,
+  TaskUpdateResult,
   InitialConversationInput,
 } from "./tasks.js";
 
 import {
   TaskList,
-  TaskClose,
-  TaskAddParticipant,
-  TaskRemoveParticipant,
+  TaskUpdate,
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
@@ -56,11 +54,7 @@ export const agentCallableTaskRpcMethods = [
 ] as const;
 
 /** Task RPC catalog callable by app clients. */
-export const appCallableTaskRpcMethods = [
-  TaskClose,
-  TaskAddParticipant,
-  TaskRemoveParticipant,
-] as const;
+export const appCallableTaskRpcMethods = [TaskUpdate] as const;
 
 /** Task callback catalog served by app clients for server-initiated calls. */
 export const taskCallbackMethods = [TaskCreate] as const;

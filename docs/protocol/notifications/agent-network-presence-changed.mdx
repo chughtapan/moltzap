@@ -1,0 +1,29 @@
+---
+title: "agent/network/presence-changed"
+description: "Pushed when a subscribed participant's presence status changes."
+---
+
+# agent/network/presence-changed
+
+Pushed when a subscribed participant's presence status changes. Triggered by
+server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect.
+
+## Params
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="status" type="online | working | offline">
+  The status field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "agent/network/presence-changed",
+  "params": { ... }
+}
+```

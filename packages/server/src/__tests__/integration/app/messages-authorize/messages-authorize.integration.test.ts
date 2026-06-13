@@ -151,11 +151,11 @@ beforeEach(() =>
  */
 function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    "dispatch/authorize": {
+    [DispatchAuthorize.name]: {
       definition: DispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected dispatch/authorize"),
     },
-    "messages/authorize": {
+    [MessagesAuthorize.name]: {
       definition: MessagesAuthorize,
       handle: () =>
         Effect.gen(function* () {
@@ -167,7 +167,7 @@ function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
           return { verdict: verdict as MessageAuthorizeVerdict };
         }),
     },
-    "task/create": {
+    [TaskCreate.name]: {
       definition: TaskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),

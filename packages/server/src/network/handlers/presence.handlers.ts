@@ -1,18 +1,16 @@
 import type { AgentContext, AppContext } from "#socket";
-import { PresenceSubscribe } from "@moltzap/protocol/network";
+import {
+  AgentPresenceSubscribe,
+  AppPresenceSubscribe,
+} from "@moltzap/protocol/network";
 import { NotInContactsError } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
-import {
-  ConnectionManagerTag,
-  ConnectionTag,
-  DbTag,
-  PresenceServiceTag,
-} from "#core";
+import { ConnectionTag, DbTag, PresenceServiceTag } from "#core";
 import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
-import { peekLiveArm } from "#socket";
+import { agentArm, appArm } from "#core";
 
 /**
  * `presence/subscribe` registers fan-out interest via
@@ -25,7 +23,7 @@ import { peekLiveArm } from "#socket";
  * outside the caller's visibility set.
  */
 function presenceSubscribeBody(
-  params: ParamsOf<typeof PresenceSubscribe>,
+  params: ParamsOf<typeof AgentPresenceSubscribe>,
   ctx: AgentContext | AppContext,
 ) {
   return Effect.gen(function* () {
@@ -67,28 +65,16 @@ function presenceSubscribeBody(
 
 // ── @effect/rpc handler body ─────────────────────────────────────────
 
-const authenticatedArm: Effect.Effect<
-  AgentContext | AppContext,
-  never,
-  ConnectionTag | ConnectionManagerTag
-> = Effect.gen(function* () {
-  const snapshot = yield* ConnectionTag;
-  const manager = yield* ConnectionManagerTag;
-  const connection = yield* peekLiveArm(manager, snapshot.connId);
-  if (
-    connection._tag === "AgentConnection" ||
-    connection._tag === "AppConnection"
-  ) {
-    return connection.auth;
-  }
-  return yield* Effect.dieMessage(
-    `handler: authenticated method reached on ${connection._tag} arm`,
-  );
-}).pipe(Effect.withSpan("serverHandlers.authenticatedArm"));
-
-export const presenceSubscribe: ServerHandler<typeof PresenceSubscribe> = (
-  params,
-) =>
+export const agentPresenceSubscribe: ServerHandler<
+  typeof AgentPresenceSubscribe
+> = (params) =>
   Effect.gen(function* () {
-    return yield* presenceSubscribeBody(params, yield* authenticatedArm);
-  }).pipe(Effect.withSpan("presenceSubscribe"));
+    return yield* presenceSubscribeBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("agentPresenceSubscribe"));
+
+export const appPresenceSubscribe: ServerHandler<
+  typeof AppPresenceSubscribe
+> = (params) =>
+  Effect.gen(function* () {
+    return yield* presenceSubscribeBody(params, yield* appArm);
+  }).pipe(Effect.withSpan("appPresenceSubscribe"));

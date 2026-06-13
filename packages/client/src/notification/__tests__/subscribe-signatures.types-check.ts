@@ -44,13 +44,13 @@ type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
 // call sites. Validated by compilation of a concrete `subscribe(def,
 // type-guard)` call: the third-argument `params is R` shape must match the
 // overload in `stream.ts`.
-import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
+import { AgentPresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 declare const _canary1bRegistry: NotificationSubscriberRegistry<
   NotConnectedError,
   AnyNotificationDefinition
 >;
 type _Canary1bPresenceParams = NotificationParamsOf<
-  typeof PresenceChangedNotificationDefinition
+  typeof AgentPresenceChangedNotificationDefinition
 >;
 type _Canary1bOnlinePresence = _Canary1bPresenceParams & { status: "online" };
 declare const _canary1bIsOnline: (
@@ -58,7 +58,7 @@ declare const _canary1bIsOnline: (
 ) => params is _Canary1bOnlinePresence;
 const _canary1bStream = subscribe(
   _canary1bRegistry,
-  PresenceChangedNotificationDefinition,
+  AgentPresenceChangedNotificationDefinition,
   _canary1bIsOnline,
 );
 // The stream MUST carry the narrowed params shape.

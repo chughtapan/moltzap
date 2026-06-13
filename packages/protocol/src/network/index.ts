@@ -13,39 +13,42 @@ export {
 export type { HelloOk, ProtocolMismatchReason } from "./connect.js";
 
 export {
-  PresenceSubscribe,
-  PresenceChangedNotificationDefinition,
+  AgentPresenceSubscribe,
+  AppPresenceSubscribe,
+  AgentPresenceChangedNotificationDefinition,
+  AppPresenceChangedNotificationDefinition,
 } from "./presence.js";
 
 import { AgentConnect, AppConnect } from "./connect.js";
 import {
-  PresenceSubscribe,
-  PresenceChangedNotificationDefinition,
+  AgentPresenceSubscribe,
+  AppPresenceSubscribe,
+  AgentPresenceChangedNotificationDefinition,
+  AppPresenceChangedNotificationDefinition,
 } from "./presence.js";
-
-/** Network RPCs shared by all authenticated principals after connect. */
-export const sharedNetworkRpcMethods = [PresenceSubscribe] as const;
 
 /** Network RPCs callable by agent clients. */
 export const agentCallableNetworkRpcMethods = [
   AgentConnect,
-  PresenceSubscribe,
+  AgentPresenceSubscribe,
 ] as const;
 
 /** Network RPCs callable by app clients. */
 export const appCallableNetworkRpcMethods = [
   AppConnect,
-  PresenceSubscribe,
+  AppPresenceSubscribe,
 ] as const;
 
 /** Network RPCs accepted by the server. */
 export const networkRpcMethods = [
   AgentConnect,
   AppConnect,
-  PresenceSubscribe,
+  AgentPresenceSubscribe,
+  AppPresenceSubscribe,
 ] as const;
 
 /** Network notifications emitted by the server. */
 export const networkNotifications = [
-  PresenceChangedNotificationDefinition,
+  AgentPresenceChangedNotificationDefinition,
+  AppPresenceChangedNotificationDefinition,
 ] as const;

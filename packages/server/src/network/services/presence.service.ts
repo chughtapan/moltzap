@@ -1,12 +1,15 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Effect, Option, Ref } from "effect";
 
-import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
+import {
+  AgentPresenceChangedNotificationDefinition,
+  AppPresenceChangedNotificationDefinition,
+} from "@moltzap/protocol/network";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 
-import type { ConnectionManager, Originator } from "#socket";
+import type { Connection, ConnectionManager } from "#socket";
 import {
   type AgentPresenceEntry,
   deriveEntryStatus,
@@ -254,12 +257,17 @@ function statusForAgent(
  * once per fork so every log inside the forked fiber inherits it.
  */
 function fireOneNotification(
-  originator: Originator,
+  connection: Connection,
   params: { readonly agentId: AgentId; readonly status: DerivedPresenceStatus },
 ): void {
+  if (connection._tag === "UnauthenticatedConnection") return;
+  const definition =
+    connection._tag === "AgentConnection"
+      ? AgentPresenceChangedNotificationDefinition
+      : AppPresenceChangedNotificationDefinition;
   Effect.runFork(
-    originator
-      .notify(PresenceChangedNotificationDefinition, params)
+    connection.originator
+      .notify(definition, params)
       .pipe(
         Effect.catchAll((cause) =>
           Effect.logDebug("presence/changed fan-out fire failed").pipe(
@@ -288,7 +296,7 @@ function fanOut(
     for (const connId of subscriberConnIds) {
       const connOpt = yield* connections.peek(connId);
       if (Option.isSome(connOpt)) {
-        fireOneNotification(connOpt.value.originator, { agentId, status });
+        fireOneNotification(connOpt.value, { agentId, status });
       }
     }
   });

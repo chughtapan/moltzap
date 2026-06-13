@@ -14,7 +14,7 @@ _Variable_
 
 ```ts
 export const ContactAcceptedNotificationDefinition = defineNotification({
-  name: "contact/accepted",
+  name: "agent/identity/contact-accepted",
   params: ContactAcceptedNotificationSchema,
 })
 ```
@@ -54,7 +54,7 @@ _Variable_
 
 ```ts
 export const ContactRequestNotificationDefinition = defineNotification({
-  name: "contact/request",
+  name: "agent/identity/contact-requested",
   params: ContactRequestNotificationSchema,
 })
 ```
@@ -65,7 +65,7 @@ _Variable_
 
 ```ts
 export const ContactsAccept = defineRpc({
-  name: "contacts/accept",
+  name: "agent/identity/contacts/accept",
   params: Schema.Struct({ contactId: ContactId }),
   result: Schema.Struct({ contact: ContactSchema }),
   requires: [AgentPrincipal],
@@ -79,7 +79,7 @@ _Variable_
 
 ```ts
 export const ContactsAdd = defineRpc({
-  name: "contacts/add",
+  name: "agent/identity/contacts/add",
   params: Schema.Struct({
     contactUserId: UserId,
     relationship: Schema.optional(Schema.String),
@@ -96,7 +96,7 @@ _Variable_
 
 ```ts
 export const ContactsList = defineRpc({
-  name: "contacts/list",
+  name: "agent/identity/contacts/list",
   params: Schema.Struct({
     limit: ListLimitSchema,
     cursor: Schema.optional(listCursorSchema()),

@@ -8,12 +8,12 @@ Public barrel for network-layer conformance properties.
 
 Network-layer conformance properties.
 
-Connection / presence / subscription invariants — `Connect` lifecycle,
-server-derived presence (`PresenceSubscribe` fan-out + `presence/changed`
+Connection / presence / subscription invariants — connect lifecycle,
+server-derived presence (agent/app subscribe fan-out + presence-changed
 notifications), reconnect semantics, same-state collapse. Presence is
 server-derived from `LeaseRegistry` lifecycle plus WS connect/disconnect;
 `PresenceService` implements `LeaseTransitionObserver` and broadcasts
-`presence/changed` to subscribers. There is no client-driven
+presence-changed notifications to subscribers. There is no client-driven
 `presence/update` RPC.
 
 Each `register*` lives in its own file. This barrel re-exports them
@@ -51,7 +51,7 @@ export function acquireCloseableClient(
 >
 ```
 
-### [`countPresenceChangedFor`](./_helpers.ts#L341)
+### [`countPresenceChangedFor`](./_helpers.ts#L343)
 
 _Function_
 
@@ -163,7 +163,7 @@ export interface PresenceChangedPayload {
 }
 ```
 
-### [`presenceStatusesFor`](./_helpers.ts#L322)
+### [`presenceStatusesFor`](./_helpers.ts#L324)
 
 _Function_
 
@@ -253,7 +253,7 @@ export function subscribePresence(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForPresenceWithStatus`](./_helpers.ts#L285)
+### [`waitForPresenceWithStatus`](./_helpers.ts#L287)
 
 _Function_
 

@@ -24,7 +24,7 @@ const DateTimeString = dateTimeStringSchema();
 const ConversationSchema = conversationSchema();
 
 // ═══════════════════════════════════════════════════════════════════
-// task/conversation/create
+// app/conversation/create
 // ═══════════════════════════════════════════════════════════════════
 
 /**
@@ -45,7 +45,7 @@ const ConversationSchema = conversationSchema();
  * @error ConversationFullError when the conversation is at capacity
  */
 export const TaskConversationCreate = defineRpc({
-  name: "task/conversation/create",
+  name: "app/conversation/create",
   params: Schema.Struct({
     taskId: TaskId,
     name: Schema.optional(
@@ -65,7 +65,7 @@ export const TaskConversationCreate = defineRpc({
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// task/conversation/list
+// agent/conversation/list
 // ═══════════════════════════════════════════════════════════════════
 
 const TaskConversationListItemSchema = Schema.Struct({
@@ -74,7 +74,7 @@ const TaskConversationListItemSchema = Schema.Struct({
   participants: Schema.Array(AgentId),
 });
 
-/** Conversation list item returned by `task/conversation/list`. */
+/** Conversation list item returned by `agent/conversation/list`. */
 export type TaskConversationListItem = Schema.Schema.Type<
   typeof TaskConversationListItemSchema
 >;
@@ -89,7 +89,7 @@ export type TaskConversationListItem = Schema.Schema.Type<
  * @error ConversationNotFoundError when a listed conversation's row vanished mid-projection
  */
 export const TaskConversationList = defineRpc({
-  name: "task/conversation/list",
+  name: "agent/conversation/list",
   params: Schema.Struct({
     limit: ListLimitSchema,
     cursor: Schema.optional(Schema.String),
@@ -102,109 +102,60 @@ export const TaskConversationList = defineRpc({
   errors: [InvalidParamsError, ConversationNotFoundError],
 });
 
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/archive
-//
-// The four conversation-targeted descriptors below share the IDENTICAL
-// `[AppPrincipal, ConversationInTask]` requirement. App-ownership is gated in
-// the app-arm handlers; `ConversationInTask` resolves the conversation's task
-// membership. The wire descriptors here carry only their params/result shape.
-// ═══════════════════════════════════════════════════════════════════
+const TaskConversationUpdateParamsSchema = Schema.Union(
+  Schema.Struct({
+    action: Schema.Literal("archive"),
+    taskId: TaskId,
+    conversationId: ConversationId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("unarchive"),
+    taskId: TaskId,
+    conversationId: ConversationId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("add-participant"),
+    taskId: TaskId,
+    conversationId: ConversationId,
+    agentId: AgentId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("remove-participant"),
+    taskId: TaskId,
+    conversationId: ConversationId,
+    agentId: AgentId,
+  }),
+);
+
+export type TaskConversationUpdateParams = Schema.Schema.Type<
+  typeof TaskConversationUpdateParamsSchema
+>;
 
 /**
- * TM-only: archive one conversation. Task stays open.
+ * TM-only conversation mutation surface. `app/conversation/update` owns
+ * archive, unarchive, participant add, and participant remove semantics.
  *
- * - **Principal:** `AppPrincipal` head + `ConversationInTask` +
- *   `assertCallerAppOwnsTask` (see `task/close`).
+ * - **Principal:** `AppPrincipal` head + `ConversationInTask`.
  * @error ForbiddenError when the caller does not own the task
  * @error TaskNotFoundError when the task does not exist or is not open
  * @error ConversationNotFoundError when the conversation does not exist under the task
- */
-export const TaskConversationArchive = defineRpc({
-  name: "task/conversation/archive",
-  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/unarchive
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * TM-only: reverse of `task/conversation/archive`.
- *
- * - **Principal:** `AppPrincipal` head + `ConversationInTask` +
- *   `assertCallerAppOwnsTask` (see `task/close`).
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist or is not open
- * @error ConversationNotFoundError when the conversation does not exist under the task
- */
-export const TaskConversationUnarchive = defineRpc({
-  name: "task/conversation/unarchive",
-  params: Schema.Struct({ taskId: TaskId, conversationId: ConversationId }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError, ConversationNotFoundError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/participants/add
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * TM-only: add an agent to one conversation. The agent MUST already appear in
- * `task_participants` for `taskId`; otherwise `ParticipantNotAdmittedError`.
- *
- * - **Principal:** `AppPrincipal` head + `ConversationInTask`. App-ownership is
- *   gated by the app-arm handler's `assertCallerAppOwnsTask` BEFORE
- *   `requireAgentsAreInTaskParticipants` (so a non-owner sees `ForbiddenError`,
- *   not the participant-admitted state probe).
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist or is not open
  * @error ParticipantNotAdmittedError when the agent is not admitted to the task
  */
-export const TaskConversationAddParticipant = defineRpc({
-  name: "task/conversation/participants/add",
-  params: Schema.Struct({
-    taskId: TaskId,
-    conversationId: ConversationId,
-    agentId: AgentId,
-  }),
+export const TaskConversationUpdate = defineRpc({
+  name: "app/conversation/update",
+  params: TaskConversationUpdateParamsSchema,
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError, ParticipantNotAdmittedError],
+  errors: [
+    ForbiddenError,
+    TaskNotFoundError,
+    ConversationNotFoundError,
+    ParticipantNotAdmittedError,
+  ],
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// task/conversation/participants/remove
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * TM-only: remove an agent from one conversation. The agent stays in
- * `task_participants` (so they may still receive messages on other
- * conversations within the task).
- *
- * - **Principal:** `AppPrincipal` head + `ConversationInTask` +
- *   `assertCallerAppOwnsTask` (see `task/close`).
- * @error ForbiddenError when the caller does not own the task
- * @error TaskNotFoundError when the task does not exist or is not open
- */
-export const TaskConversationRemoveParticipant = defineRpc({
-  name: "task/conversation/participants/remove",
-  params: Schema.Struct({
-    taskId: TaskId,
-    conversationId: ConversationId,
-    agentId: AgentId,
-  }),
-  result: Schema.Struct({}),
-  requires: [AppPrincipal, ConversationInTask],
-  errors: [ForbiddenError, TaskNotFoundError],
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// task/conversation/* notifications
+// agent/conversation/* notifications
 //
 // Recipient fan-out:
 //   - `created` → initial `participants` list
@@ -245,27 +196,27 @@ const TaskConversationParticipantsRemovedNotificationSchema = Schema.Struct({
   reason: stringEnum(["app_remove", "task_leave"]),
 });
 
-/** Notification payload for `task/conversation/created`. */
+/** Notification payload for `agent/conversation/created`. */
 export type TaskConversationCreatedNotification = Schema.Schema.Type<
   typeof TaskConversationCreatedNotificationSchema
 >;
 
-/** Notification payload for `task/conversation/archived`. */
+/** Notification payload for `agent/conversation/archived`. */
 export type TaskConversationArchivedNotification = Schema.Schema.Type<
   typeof TaskConversationArchivedNotificationSchema
 >;
 
-/** Notification payload for `task/conversation/unarchived`. */
+/** Notification payload for `agent/conversation/unarchived`. */
 export type TaskConversationUnarchivedNotification = Schema.Schema.Type<
   typeof TaskConversationUnarchivedNotificationSchema
 >;
 
-/** Notification payload for `task/conversation/participants/added`. */
+/** Notification payload for `agent/conversation/participants-added`. */
 export type TaskConversationParticipantsAddedNotification = Schema.Schema.Type<
   typeof TaskConversationParticipantsAddedNotificationSchema
 >;
 
-/** Notification payload for `task/conversation/participants/removed`. */
+/** Notification payload for `agent/conversation/participants-removed`. */
 export type TaskConversationParticipantsRemovedNotification =
   Schema.Schema.Type<
     typeof TaskConversationParticipantsRemovedNotificationSchema
@@ -274,7 +225,7 @@ export type TaskConversationParticipantsRemovedNotification =
 /** Pushed when a task conversation is created. */
 export const TaskConversationCreatedNotificationDefinition = defineNotification(
   {
-    name: "task/conversation/created",
+    name: "agent/conversation/created",
     params: TaskConversationCreatedNotificationSchema,
   },
 );
@@ -282,28 +233,28 @@ export const TaskConversationCreatedNotificationDefinition = defineNotification(
 /** Pushed when a task conversation is archived. */
 export const TaskConversationArchivedNotificationDefinition =
   defineNotification({
-    name: "task/conversation/archived",
+    name: "agent/conversation/archived",
     params: TaskConversationArchivedNotificationSchema,
   });
 
 /** Pushed when a task conversation is unarchived. */
 export const TaskConversationUnarchivedNotificationDefinition =
   defineNotification({
-    name: "task/conversation/unarchived",
+    name: "agent/conversation/unarchived",
     params: TaskConversationUnarchivedNotificationSchema,
   });
 
 /** Pushed when a participant is added to a task conversation. */
 export const TaskConversationParticipantsAddedNotificationDefinition =
   defineNotification({
-    name: "task/conversation/participants/added",
+    name: "agent/conversation/participants-added",
     params: TaskConversationParticipantsAddedNotificationSchema,
   });
 
 /** Pushed when a participant is removed from a task conversation. */
 export const TaskConversationParticipantsRemovedNotificationDefinition =
   defineNotification({
-    name: "task/conversation/participants/removed",
+    name: "agent/conversation/participants-removed",
     params: TaskConversationParticipantsRemovedNotificationSchema,
   });
 
@@ -315,10 +266,7 @@ export const agentCallableConversationRpcMethods = [
 /** App-callable conversation RPC catalog. */
 export const appCallableConversationRpcMethods = [
   TaskConversationCreate,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
+  TaskConversationUpdate,
 ] as const;
 
 /** Conversation notification catalog. */

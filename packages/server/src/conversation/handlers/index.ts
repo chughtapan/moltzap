@@ -1,10 +1,7 @@
 /** @file Conversation-domain handler barrel. */
 
 export {
-  taskConversationAddParticipant,
-  taskConversationArchive,
   taskConversationCreate,
   taskConversationList,
-  taskConversationRemoveParticipant,
-  taskConversationUnarchive,
+  taskConversationUpdate,
 } from "./task-conversations.handlers.js";
