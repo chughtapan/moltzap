@@ -182,6 +182,26 @@ _TypeAlias_
 export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
 ```
 
+### [`dispatchLeaseGet`](./handlers.ts#L83)
+
+_Variable_
+
+```ts
+export const dispatchLeaseGet: ServerHandler<typeof DispatchLeaseGet> = (
+  params,
+)
+```
+
+### [`dispatchRequest`](./handlers.ts#L76)
+
+_Variable_
+
+```ts
+export const dispatchRequest: ServerHandler<typeof DispatchRequest> = (
+  params,
+)
+```
+
 ### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L52)
 
 _Interface_
@@ -576,4 +596,5 @@ Once recorded, the binding is immutable for the lease's lifetime.
 
 - `admission.service.ts`
 - `app-bound-conversation.ts`
+- `handlers.ts`
 - `lease-registry.ts`

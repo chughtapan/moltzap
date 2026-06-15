@@ -5,8 +5,8 @@
  * 10-second container cost the integration suite pays.
  *
  * Replaces the per-test-file copies of `async function freshDb()` that
- * had drifted across `services/{auth,contact,conversation,task}.service.test.ts`
- * and `db/schema-migration.test.ts`. One implementation, one place to fix.
+ * had drifted across service tests and `db/schema-migration.test.ts`. One
+ * implementation, one place to fix.
  *
  * Returns an Effect so test setup stays inside the same error/cleanup model
  * as the services under test.

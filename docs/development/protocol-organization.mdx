@@ -1,6 +1,6 @@
 ---
 title: Protocol And Server Organization Plan
-description: Target package layout, naming rules, and migration order for protocol and server-core
+description: Target package layout and naming rules for protocol and server-core
 ---
 
 # Protocol And Server Organization Plan
@@ -708,24 +708,19 @@ Target server-core source aliases:
 #test-utils
 ```
 
-### Server Migration Status
+### Server Layout Status
 
-Completed:
+Server-core follows the same domain split as protocol:
 
-1. Conversation and message services/handlers moved out of `task/`.
-2. Lease registry and dispatch handlers moved into `dispatch/`.
-3. Server-side requirement checks moved beside their domains.
-4. Handler catalog imports through domain handler barrels.
-5. The old `app/` folder was deleted; app endpoint registration now lives under
-   `identity/apps`.
-6. `identity/apps/host.ts` was reduced to the app endpoint registry/contact
-   policy surface; dispatch admission, message authorization, and task-create
-   authorization live in their domain services.
-7. Agent identity handlers/services, app auth, contacts, connect handlers, and
-   presence are now under their domain folders and imported through server
-   source aliases.
-
-Remaining:
-
-1. Continue narrowing server barrels as the domain services settle.
-2. Clean up conformance/socket teardown noise after the service split is stable.
+1. Identity owns agent/app/contact registration, auth, and contact policy.
+2. Network owns connect handlers, presence, and outbound notification send.
+3. Task, conversation, message, and dispatch each expose a flat
+   `domain/handlers.ts` entry point for RPC handlers.
+4. Domain services sit directly beside their handlers as
+   `domain/*.service.ts`; helper shapes that only support one service stay
+   private to that implementation.
+5. Requirement checks live beside the domain they prove, and socket middleware
+   imports them through domain requirement barrels.
+6. The server handler catalog imports only domain handler barrels; the package
+   root remains closed and the published `./test-utils` subpath is the only
+   secondary package surface.

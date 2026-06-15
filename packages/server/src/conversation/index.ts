@@ -1,3 +1,3 @@
 /** @file Conversation-domain service barrel. */
 
-export { ConversationService } from "./services/conversation.service.js";
+export { ConversationService } from "./conversation.service.js";

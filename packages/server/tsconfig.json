@@ -39,7 +39,7 @@
         "task/index.ts"
       ],
       "#task/handlers": [
-        "task/handlers/index.ts"
+        "task/handlers.ts"
       ],
       "#task/requirements": [
         "task/requirements/index.ts"
@@ -48,7 +48,7 @@
         "conversation/index.ts"
       ],
       "#conversation/handlers": [
-        "conversation/handlers/index.ts"
+        "conversation/handlers.ts"
       ],
       "#conversation/requirements": [
         "conversation/requirements/index.ts"
@@ -57,13 +57,13 @@
         "message/index.ts"
       ],
       "#message/handlers": [
-        "message/handlers/index.ts"
+        "message/handlers.ts"
       ],
       "#dispatch": [
         "dispatch/index.ts"
       ],
       "#dispatch/handlers": [
-        "dispatch/handlers/index.ts"
+        "dispatch/handlers.ts"
       ],
       "#test-utils": [
         "test-utils/index.ts"

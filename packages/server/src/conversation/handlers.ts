@@ -73,7 +73,7 @@ function conversationCreateBody(
       name: params.name,
     });
     return { conversation };
-  }).pipe(Effect.withSpan("task.conversation.create"));
+  }).pipe(Effect.withSpan("conversation.create"));
 }
 
 interface ConversationCreateInput {
@@ -93,7 +93,7 @@ function fanoutConversationCreate(input: ConversationCreateInput) {
       name: input.name,
       participants: [...input.participants],
     },
-  ).pipe(Effect.withSpan("task.conversation.create.fanout"));
+  ).pipe(Effect.withSpan("conversation.create.fanout"));
 }
 
 interface ArchiveFanoutInput {
@@ -118,7 +118,7 @@ function fanoutArchive(input: ArchiveFanoutInput) {
       },
       { forConversation: input.conversationId },
     );
-  }).pipe(Effect.withSpan("task.conversation.archive.fanout"));
+  }).pipe(Effect.withSpan("conversation.archive.fanout"));
 }
 
 interface UnarchiveFanoutInput {
@@ -141,7 +141,7 @@ function fanoutUnarchive(input: UnarchiveFanoutInput) {
       },
       { forConversation: input.conversationId },
     );
-  }).pipe(Effect.withSpan("task.conversation.unarchive.fanout"));
+  }).pipe(Effect.withSpan("conversation.unarchive.fanout"));
 }
 
 function conversationListBody(
@@ -173,7 +173,7 @@ function conversationListBody(
       });
     }
     return { items, ...(nextCursor !== undefined ? { nextCursor } : {}) };
-  }).pipe(Effect.withSpan("task.conversation.list"));
+  }).pipe(Effect.withSpan("conversation.list"));
 }
 
 function conversationArchiveBody(
@@ -193,7 +193,7 @@ function conversationArchiveBody(
       archivedAt,
     });
     return {};
-  }).pipe(Effect.withSpan("task.conversation.archive"));
+  }).pipe(Effect.withSpan("conversation.archive"));
 }
 
 function conversationUnarchiveBody(
@@ -212,7 +212,7 @@ function conversationUnarchiveBody(
       conversationId: params.conversationId,
     });
     return {};
-  }).pipe(Effect.withSpan("task.conversation.unarchive"));
+  }).pipe(Effect.withSpan("conversation.unarchive"));
 }
 
 function conversationAddParticipantBody(
@@ -241,7 +241,7 @@ function conversationAddParticipantBody(
       },
     );
     return {};
-  }).pipe(Effect.withSpan("task.conversation.participants.add"));
+  }).pipe(Effect.withSpan("conversation.participants.add"));
 }
 
 function conversationRemoveParticipantBody(
@@ -269,7 +269,7 @@ function conversationRemoveParticipantBody(
       },
     );
     return {};
-  }).pipe(Effect.withSpan("task.conversation.participants.remove"));
+  }).pipe(Effect.withSpan("conversation.participants.remove"));
 }
 
 function conversationUpdateBody(

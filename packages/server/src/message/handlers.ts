@@ -16,9 +16,9 @@ import {
   obtainConversationSendAccess,
 } from "#conversation/requirements";
 import { LeaseInvalidError } from "#dispatch";
-import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
 import type { LeaseRegistry } from "#dispatch";
-import type { MessageService } from "../services/message.service.js";
+import type { MessageService } from "./message.service.js";
 
 type MessagesSendParams = ParamsOf<typeof MessagesSend>;
 
