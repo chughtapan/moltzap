@@ -1,6 +1,7 @@
-import type { Db } from "../../db/client.js";
+import type { Db } from "../db/client.js";
 import type {
   Conversation,
+  ConversationParticipant,
   ConversationSummary,
 } from "@moltzap/protocol/conversation";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
@@ -23,33 +24,238 @@ import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
 import { broadcastNotificationToAgents } from "#network";
 import type { NetworkSendServiceTag } from "#core";
 import type { ConnectionManager } from "#socket";
-import { sql } from "../../db/sql.js";
+import { sql } from "../db/sql.js";
 import {
   catchSqlErrorAsDefect,
+  rawQuery,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
-} from "../../db/effect-kysely-toolkit.js";
-import { listConversations } from "./conversation-list-pagination.js";
-import type {
-  ContactEdgeInput,
-  ContactPolicyResolver,
-  ConversationArchiveFilter,
-  ConversationColumns,
-  CreateConversationOptions,
-  CreatorContactPolicyInput,
-} from "./conversation-service-types.js";
-
-export type {
-  ContactPolicyResolver,
-  CreateConversationOptions,
-} from "./conversation-service-types.js";
+} from "../db/effect-kysely-toolkit.js";
 
 const MAX_GROUP_PARTICIPANTS = 256;
 const GROUP_OVERFLOW_MSG = `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`;
 const PREVIEW_CACHE_MAX = 2000;
 const PREVIEW_CACHE_TEXT_CHARS = 80;
 const MSG_CONVERSATION_NOT_FOUND = "Conversation not found";
+
+type ContactPolicyCheck = (
+  ownerUserIdA: UserId,
+  ownerUserIdB: UserId,
+) => Effect.Effect<boolean, never>;
+
+type ContactPolicyResolver = () => ContactPolicyCheck | null;
+type ConversationArchiveFilter = "exclude" | "include" | "only";
+
+interface ConversationColumns {
+  readonly id: ConversationId;
+  readonly name: string | null;
+  readonly created_by_id: AgentId;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+  readonly archived_at: Date | null;
+}
+
+interface CreateConversationOptions<TaskMintError = never> {
+  readonly name: string | undefined;
+  readonly agentIds: ReadonlyArray<AgentId>;
+  readonly creatorAgentId: AgentId;
+  readonly seedCreatorAsParticipant?: boolean;
+  readonly mintTask: Effect.Effect<{ id: TaskId }, TaskMintError>;
+}
+
+interface CreatorContactPolicyInput {
+  readonly creatorAgentId: AgentId;
+  readonly targetAgentIds: ReadonlyArray<AgentId>;
+  readonly ownerByAgentId: ReadonlyMap<AgentId, UserId>;
+  readonly policy: ContactPolicyCheck;
+}
+
+interface ContactEdgeInput {
+  readonly requesterAgentId: AgentId;
+  readonly requesterOwnerUserId: UserId;
+  readonly targetAgentId: AgentId;
+  readonly targetOwnerUserId: UserId;
+  readonly policy: ContactPolicyCheck;
+}
+
+interface ListConversationsDeps {
+  readonly db: Db;
+  readonly previewCache: ReadonlyMap<ConversationId, string>;
+}
+
+interface ListConversationsInput {
+  readonly agentId: AgentId;
+  readonly limit: number;
+  readonly cursor?: string;
+  readonly archived: ConversationArchiveFilter;
+}
+
+const listConversations = (
+  deps: ListConversationsDeps,
+  input: ListConversationsInput,
+): Effect.Effect<
+  { conversations: ConversationSummary[]; cursor?: string },
+  InvalidParamsError
+> => {
+  const { db, previewCache } = deps;
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const cursorParam = yield* parseListCursor(input.cursor);
+      const rows = yield* queryConversationListRows(db, {
+        agentId: input.agentId,
+        limit: input.limit,
+        cursorParam,
+        archived: input.archived,
+      });
+      const hasMore = rows.length > input.limit;
+      const resultRows = hasMore ? rows.slice(0, input.limit) : rows;
+      const conversations = conversationSummariesFromRows(
+        resultRows,
+        previewCache,
+      );
+      yield* attachSummaryParticipants(db, conversations);
+      return {
+        conversations,
+        cursor: nextConversationListCursor(hasMore, resultRows),
+      };
+    }),
+  ).pipe(Effect.withSpan("listConversations"));
+};
+
+const parseListCursor = (
+  cursor: string | undefined,
+): Effect.Effect<string | null, InvalidParamsError> => {
+  if (cursor == null) return Effect.succeed(null);
+  const parsed = new Date(cursor);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== cursor) {
+    return Effect.fail(
+      new InvalidParamsError({
+        message: "Cursor must be an ISO-8601 timestamp",
+      }),
+    );
+  }
+  return Effect.succeed(cursor);
+};
+
+interface ListRowsInput {
+  readonly agentId: AgentId;
+  readonly limit: number;
+  readonly cursorParam: string | null;
+  readonly archived: ConversationArchiveFilter;
+}
+
+interface ListRow {
+  readonly id: ConversationId;
+  readonly name: string | null;
+  readonly updated_at: Date;
+  readonly has_last_message: boolean;
+  readonly last_message_at: Date | null;
+  readonly unread_count: number;
+}
+
+const queryConversationListRows = (
+  db: Db,
+  input: ListRowsInput,
+): Effect.Effect<ReadonlyArray<ListRow>, SqlError> =>
+  rawQuery(
+    db,
+    sql<ListRow>`
+      SELECT c.id, c.name, c.updated_at,
+             m.parts_encrypted IS NOT NULL as has_last_message,
+             m.created_at as last_message_at,
+             COALESCE(
+               (SELECT COUNT(*) FROM messages m2
+                WHERE m2.conversation_id = c.id
+                AND m2.seq > cp.last_read_seq
+                AND m2.is_deleted = false), 0
+             )::int as unread_count
+      FROM conversation_participants cp
+      JOIN conversations c ON c.id = cp.conversation_id
+      LEFT JOIN LATERAL (
+        SELECT parts_encrypted, created_at, seq FROM messages
+        WHERE conversation_id = c.id AND is_deleted = false
+        ORDER BY seq DESC LIMIT 1
+      ) m ON true
+      WHERE cp.agent_id = ${input.agentId}
+        ${archivedListFilter(input.archived)}
+        ${cursorListFilter(input.cursorParam)}
+      ORDER BY COALESCE(m.created_at, c.updated_at) DESC
+      LIMIT ${input.limit + 1}
+    `,
+  );
+
+const archivedListFilter = (archived: ConversationArchiveFilter) => {
+  switch (archived) {
+    case "only":
+      return sql`AND c.archived_at IS NOT NULL`;
+    case "include":
+      return sql``;
+    case "exclude":
+      return sql`AND c.archived_at IS NULL`;
+  }
+};
+
+const cursorListFilter = (cursorParam: string | null) => {
+  if (cursorParam === null) return sql``;
+  return sql`AND c.updated_at < ${cursorParam}`;
+};
+
+type MutableConversationSummary = Omit<ConversationSummary, "participants"> & {
+  participants?: ReadonlyArray<ConversationParticipant["participant"]>;
+};
+
+const conversationSummariesFromRows = (
+  rows: ReadonlyArray<ListRow>,
+  previewCache: ReadonlyMap<ConversationId, string>,
+): MutableConversationSummary[] =>
+  rows.map((row) => ({
+    id: row.id,
+    name: row.name ?? undefined,
+    lastMessagePreview: previewCache.get(row.id),
+    lastMessageTimestamp: row.last_message_at?.toISOString(),
+    unreadCount: row.unread_count,
+  }));
+
+const attachSummaryParticipants = (
+  db: Db,
+  conversations: MutableConversationSummary[],
+): Effect.Effect<void, SqlError> => {
+  if (conversations.length === 0) return Effect.void;
+  return Effect.gen(function* () {
+    const convIds = conversations.map((conversation) => conversation.id);
+    const rows = yield* db
+      .selectFrom("conversation_participants")
+      .select(["conversation_id", "agent_id"])
+      .where("conversation_id", "in", convIds);
+    const partsByConv = participantRefsByConversation(rows);
+    for (const conversation of conversations) {
+      conversation.participants = partsByConv.get(conversation.id) ?? [];
+    }
+  });
+};
+
+type ParticipantRef = ConversationParticipant["participant"];
+
+const participantRefsByConversation = (
+  rows: ReadonlyArray<{ conversation_id: ConversationId; agent_id: AgentId }>,
+): Map<ConversationId, Array<ParticipantRef>> => {
+  const partsByConv = new Map<ConversationId, Array<ParticipantRef>>();
+  for (const row of rows) {
+    const participants = partsByConv.get(row.conversation_id) ?? [];
+    participants.push({ type: "agent", id: row.agent_id });
+    partsByConv.set(row.conversation_id, participants);
+  }
+  return partsByConv;
+};
+
+const nextConversationListCursor = (
+  hasMore: boolean,
+  rows: ReadonlyArray<ListRow>,
+): string | undefined => {
+  if (!hasMore) return undefined;
+  return rows[rows.length - 1]?.updated_at.toISOString();
+};
 
 export class ConversationService {
   /** In-memory cache for last message previews — avoids decrypting on every list() call */

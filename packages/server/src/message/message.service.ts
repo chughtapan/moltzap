@@ -1,12 +1,17 @@
-import type { Db } from "../../db/client.js";
-import type { Message, Part } from "@moltzap/protocol/message";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { Db } from "../db/client.js";
+import type {
+  DispatchDecision,
+  Message,
+  Part,
+} from "@moltzap/protocol/message";
+import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import {
   MessageId as MessageIdSchema,
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
-import type { DispatchDecision } from "@moltzap/protocol/message";
+import type { TaskId, TaskStatus } from "@moltzap/protocol/task";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import {
   decodeMessageParts,
   decodeMessagePartsText,
@@ -24,40 +29,22 @@ import {
 } from "@moltzap/protocol/message";
 import { Cause, Effect, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
-import { nextSnowflakeId } from "../../db/snowflake.js";
+import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "#conversation";
-import type { MessageAuthorizationService } from "../authorization.js";
-import type { NetworkSendService } from "../../network/network-send.js";
-import { type EnvelopeEncryption, type Dek } from "../../db/crypto/envelope.js";
+import type { MessageAuthorizationService } from "./authorization.js";
+import type { NetworkSendService } from "../network/network-send.js";
+import { type EnvelopeEncryption, type Dek } from "../db/crypto/envelope.js";
 import {
   serializePayload,
   deserializePayload,
-} from "../../db/crypto/serialization.js";
-import { sql } from "../../db/sql.js";
-import type { MessageRow } from "../../db/database.js";
+} from "../db/crypto/serialization.js";
+import { sql } from "../db/sql.js";
+import type { MessageRow } from "../db/database.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
   takeFirstOrFail,
-} from "../../db/effect-kysely-toolkit.js";
-import type {
-  ActiveKekRow,
-  ConversationDek,
-  ConversationKeyMaterialRow,
-  EncryptedParts,
-  ResolveSendVerdictInput,
-  SendCommitInput,
-  SendConversationRow,
-  SendInsertInput,
-  SendInsertResult,
-  SendMessageInput,
-} from "./message-service-types.js";
-
-export type {
-  SendInsertInput,
-  SendInsertResult,
-  SendMessageInput,
-} from "./message-service-types.js";
+} from "../db/effect-kysely-toolkit.js";
 
 /** Postgres returns bytea as Buffer, while PGlite returns Uint8Array. Normalize so .toString("utf-8") works. */
 function toBuf(v: Buffer | Uint8Array): Buffer {
@@ -96,7 +83,72 @@ const COL_EK_ENCRYPTED_KEY = "ek.encrypted_key";
 const COL_CK_CONVERSATION_ID = "ck.conversation_id";
 const decodeMessageId = Schema.decodeUnknownSync(MessageIdSchema);
 
-export interface MessageServiceDeps {
+interface SendInsertResult {
+  readonly message: Message;
+  readonly parts: ReadonlyArray<Part>;
+  readonly conv: SendConversationRow;
+  readonly excludeConnectionId: ConnectionId | undefined;
+}
+
+interface SendMessageInput {
+  readonly conversationId: ConversationId;
+  readonly parts: ReadonlyArray<Part>;
+  readonly senderAgentId: AgentId;
+  readonly replyToId?: MessageId;
+  readonly excludeConnectionId?: ConnectionId;
+}
+
+type SendInsertInput = SendMessageInput;
+
+interface SendCommitInput {
+  readonly carrier: SendInsertResult;
+  readonly conversationId: ConversationId;
+  readonly senderAgentId: AgentId;
+}
+
+interface ResolveSendVerdictInput {
+  readonly messageId: MessageId;
+  readonly appId: AppId;
+  readonly conversationId: ConversationId;
+  readonly senderAgentId: AgentId;
+  readonly parts: ReadonlyArray<Part>;
+  readonly taskId: TaskId;
+}
+
+interface SendConversationRow {
+  readonly archived_at: Date | null;
+  readonly task_id: TaskId;
+  readonly app_id: AppId;
+  readonly task_status: TaskStatus;
+}
+
+interface EncryptedParts {
+  readonly encrypted: Buffer;
+  readonly iv: Buffer;
+  readonly tag: Buffer;
+  readonly dekVersion: number;
+  readonly kekVersion: number;
+}
+
+interface ConversationDek {
+  readonly dek: Dek;
+  readonly dekVersion: number;
+  readonly kekVersion: number;
+}
+
+interface ConversationKeyMaterialRow {
+  readonly wrapped_dek: string;
+  readonly dek_version: number;
+  readonly kek_version: number;
+  readonly encrypted_key: string;
+}
+
+interface ActiveKekRow {
+  readonly version: number;
+  readonly encrypted_key: string;
+}
+
+interface MessageServiceDeps {
   readonly db: Db;
   readonly conversations: ConversationService;
   readonly networkSend: NetworkSendService;

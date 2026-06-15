@@ -68,7 +68,7 @@ function dispatchLeaseGetBody(params: ParamsOf<typeof DispatchLeaseGet>) {
       );
     }
     return { lease: leaseRecordToWire(record) };
-  }).pipe(Effect.withSpan("dispatches.get"));
+  }).pipe(Effect.withSpan("dispatch.lease.get"));
 }
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────

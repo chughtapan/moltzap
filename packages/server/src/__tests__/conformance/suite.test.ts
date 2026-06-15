@@ -280,8 +280,12 @@ function conformanceRealServer() {
 function closeConformanceTestServer() {
   return Effect.tryPromise({
     try: () => stopCoreTestServer(),
-    catch: () => undefined,
-  }).pipe(Effect.orElseSucceed(() => undefined));
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.catchAll((cause) =>
+      Effect.logDebug("conformance test server teardown failed", cause),
+    ),
+  );
 }
 
 function usesUnassignedPort(url: string): boolean {

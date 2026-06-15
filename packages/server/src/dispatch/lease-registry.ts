@@ -1032,8 +1032,8 @@ function readLeaseByDispatchId(
   dispatchId: DispatchId,
 ): Effect.Effect<LeaseRecord, LeaseNotFoundError, never> {
   return Effect.gen(function* () {
-    const dispatches = yield* Ref.get(state.dispatchIndexRef);
-    const leaseId = dispatches.get(dispatchId);
+    const dispatchIndex = yield* Ref.get(state.dispatchIndexRef);
+    const leaseId = dispatchIndex.get(dispatchId);
     if (!leaseId) {
       return yield* Effect.fail(leaseNotFound(dispatchId, "dispatchId"));
     }

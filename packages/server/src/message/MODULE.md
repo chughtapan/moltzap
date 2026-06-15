@@ -141,6 +141,167 @@ export type MessageAuthorizeResult =
     }
 ```
 
+### [`MessageService`](./message.service.ts#L177)
+
+_Class_
+
+```ts
+export class MessageService {
+  private readonly db: Db;
+  private readonly conversations: ConversationService;
+  private readonly networkSendService: NetworkSendService;
+  private readonly encryption: EnvelopeEncryption | null;
+  private readonly messageAuthorization: MessageAuthorizationService;
+
+  constructor(deps: MessageServiceDeps) {
+    this.db = deps.db;
+    this.conversations = deps.conversations;
+    this.networkSendService = deps.networkSend;
+    this.encryption = deps.encryption;
+    this.messageAuthorization = deps.messageAuthorization;
+  }
+
+  close(): Effect.Effect<void, never> {
+    return Effect.void;
+  }
+
+  /**
+   * CAS-guarded UPDATE of `messages.dispatch_decision` after the
+   * `app/message/authorize` gate resolves.
+   *
+   * Each row inserts with `{tag: "pending"}` in {@link sendInsert};
+   * this method transitions to `{tag: "forward", recipients}` or
+   * `{tag: "block", reason}` exactly once.
+   *
+   * The CAS guard restricts the UPDATE to rows currently in the
+   * `pending` tag. Two concurrent transitions (real verdict racing a
+   * timeout-synthesized fallback) cannot both succeed: whichever
+   * commits first wins, the loser sees `committed: false` and
+   * skips the dependent broadcast.
+   */
+  recordDispatchDecision(
+    messageId: MessageId,
+    verdict: DispatchDecision,
+  ): Effect.Effect<{ committed: boolean }, never> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        // CAS predicate via JSONB containment (`@>`), which Postgres
+        // binds as a query parameter. The UPDATE returns one row iff the
+        // row was still `pending` at UPDATE time; concurrent transitions
+        // see committed=false and skip the dependent broadcast.
+        const result = yield* Effect.tryPromise({
+          try: () =>
+            this.db
+              .updateTable("messages")
+              .set({ dispatch_decision: verdict })
+              .where("id", "=", messageId)
+              .where(
+                "dispatch_decision",
+                "@>",
+                JSON.stringify({ tag: "pending" }),
+              )
+              .returning("id")
+              .execute(),
+          catch: (cause) =>
+            new SqlError({
+              cause,
+              message: "recordDispatchDecision UPDATE failed",
+            }),
+        });
+        return { committed: result.length === 1 };
+      }),
+    );
+  }
+
+  sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult, never> {
+    return catchSqlErrorAsDefect(this.sendInsertEffect(input));
+  }
+
+  private sendInsertEffect(
+    input: SendInsertInput,
+  ): Effect.Effect<SendInsertResult, SqlError | Cause.NoSuchElementException> {
+    return Effect.gen(this, function* () {
+      // `ConversationSendAccess` gates this method in the engine middleware
+      // stack before the handler runs, so `send` requires no permission token in
+      // its Env and trusts `input` (the handler's already-gated params).
+      const conv = yield* this.readSendConversation(input.conversationId);
+      const parts = [...input.parts];
+      const encrypted = yield* this.encryptParts(input.conversationId, parts);
+      const row = yield* this.insertMessageRow(input, conv, encrypted);
+      return {
+        message: this.mapMessage(row, parts),
+        parts,
+        conv,
+        excludeConnectionId: input.excludeConnectionId,
+      };
+    });
+  }
+
+  /**
+   * Send-conversation projection consumed by the `ConversationSendAccess`
+   * `obtain` AND
+   * `MessageService.sendCommit`'s `app/message/authorize` verdict route.
+   * Joins `conversations` ⋈ `tasks` and returns
+   * `(archived_at, task_id, app_id, task_status)`.
+   *
+   * `app_id` is read by the verdict-routing consumer to identify the
+   * authorizing app for the task.
+   * @internal
+   */
+  readSendConversation(
+    conversationId: ConversationId,
+  ): Effect.Effect<
+    SendConversationRow,
+    SqlError | Cause.NoSuchElementException
+  > {
+    return takeFirstOrFail(
+      this.db
+        .selectFrom("conversations as c")
+        .innerJoin("tasks as t", "t.id", "c.task_id")
+        .select([
+          "c.archived_at",
+          "c.task_id",
+          "t.app_id as app_id",
+          "t.status as task_status",
+        ])
+        .where("c.id", "=", conversationId),
+    );
+```
+
+`agent/message/send` server entry point. The `send` method runs the
+structural checks against `(conversations ⋈ tasks)`, persists the
+message, then resolves the dispatch-authorization verdict via the
+`app/message/authorize` round-trip and broadcasts per verdict.
+
+Branch over `task.status`:
+- `{closed, failed}` → fail closed with `TaskClosed`; no insert.
+- `{waiting, active}` → insert + `app/message/authorize` verdict +
+  verdict-scoped broadcast.
+
+The `app/message/authorize` round-trip is the authorization gate:
+`MessageAuthorizationService` fails closed (`Block { reason:
+"app_unreachable" }`) on timeout, handler error, or RPC failure. On
+Forward, `network.send` broadcasts to `verdict.recipients`; on Block, the
+call fails with `HookBlocked`.
+
+### [`messagesList`](./handlers.ts#L163)
+
+_Variable_
+
+```ts
+export const messagesList: ServerHandler<typeof MessagesList> = (params)
+```
+
+### [`messagesSend`](./handlers.ts#L154)
+
+_Variable_
+
+```ts
+export const messagesSend: ServerHandler<typeof MessagesSend> = (params)
+```
+
 ## Files
 
 - `authorization.ts`
+- `handlers.ts`
+- `message.service.ts`

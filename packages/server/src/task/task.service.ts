@@ -7,22 +7,22 @@ import type { ListCursor } from "@moltzap/protocol/rpc";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
-import type { Db } from "../../db/client.js";
-import type { Database } from "../../db/database.js";
+import type { Db } from "../db/client.js";
+import type { Database } from "../db/database.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
-} from "../../db/effect-kysely-toolkit.js";
+} from "../db/effect-kysely-toolkit.js";
 import {
   decodeListCursor,
   keysetWhere,
   paginate,
   sortKeyExpr,
   type InvalidCursorError,
-} from "../../db/list-cursor.js";
-import type { Transaction } from "../../db/kysely-vendor.js";
+} from "../db/list-cursor.js";
+import type { Transaction } from "../db/kysely-vendor.js";
 import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
 import { TaskNotFoundError } from "@moltzap/protocol/task";
 import {
@@ -82,22 +82,22 @@ function rowToParticipant(row: {
   };
 }
 
-export interface TaskCreateInput {
+interface TaskCreateInput {
   readonly appId: AppId;
   readonly invitedAgentIds?: readonly AgentId[];
 }
 
-export interface TaskListInput {
+interface TaskListInput {
   readonly limit?: number;
   readonly cursor?: string;
 }
 
-export interface TaskListPage {
+interface TaskListPage {
   readonly tasks: readonly Task[];
   readonly nextCursor?: ListCursor;
 }
 
-export interface TaskCloseLifecycle {
+interface TaskCloseLifecycle {
   readonly task: Task;
   readonly participantAgentIds: readonly AgentId[];
   readonly archivedConversations: readonly {
@@ -112,7 +112,7 @@ export interface TaskCloseLifecycle {
  * removal notification per `leftConversationIds`, plus
  * `TaskClosedNotificationDefinition` when `closedTask` is non-null.
  */
-export interface TaskLeaveResult {
+interface TaskLeaveResult {
   readonly leftConversationIds: ReadonlyArray<ConversationId>;
   readonly closedTask: Task | null;
 }

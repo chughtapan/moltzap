@@ -234,7 +234,7 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^#task\/handlers$/,
-    replacement: fromRoot("packages/server/src/task/handlers/index.ts"),
+    replacement: fromRoot("packages/server/src/task/handlers.ts"),
   },
   {
     find: /^#task\/requirements$/,
@@ -246,7 +246,7 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^#conversation\/handlers$/,
-    replacement: fromRoot("packages/server/src/conversation/handlers/index.ts"),
+    replacement: fromRoot("packages/server/src/conversation/handlers.ts"),
   },
   {
     find: /^#conversation\/requirements$/,
@@ -260,7 +260,7 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^#message\/handlers$/,
-    replacement: fromRoot("packages/server/src/message/handlers/index.ts"),
+    replacement: fromRoot("packages/server/src/message/handlers.ts"),
   },
   {
     find: /^#dispatch$/,
@@ -268,7 +268,7 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^#dispatch\/handlers$/,
-    replacement: fromRoot("packages/server/src/dispatch/handlers/index.ts"),
+    replacement: fromRoot("packages/server/src/dispatch/handlers.ts"),
   },
   {
     find: /^#test-utils$/,
