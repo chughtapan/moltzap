@@ -9,7 +9,7 @@ import {
   trackClient,
   connectTestClient,
   createTestUser,
-  registerClaimedAgent,
+  registerOwnedAgent,
 } from "../helpers.js";
 import type { AgentCard } from "@moltzap/protocol/identity";
 import { userId } from "@moltzap/protocol/testing";
@@ -70,13 +70,13 @@ beforeEach(() =>
   ),
 );
 
-function registerClaimed(
+function registerOwned(
   name: string,
   ownerUserId: UserId,
   description?: string,
 ) {
   const user = userForOwner(ownerUserId);
-  return registerClaimedAgent({
+  return registerOwnedAgent({
     baseUrl,
     inviteCode: REGISTRATION_SECRET,
     name,
@@ -111,7 +111,7 @@ function registerAndConnectOwned(opts: {
 }) {
   return Effect.gen(function* () {
     const idx = ++pairCounter;
-    const reg = yield* registerClaimed(
+    const reg = yield* registerOwned(
       `${opts.name}-${idx}`,
       opts.ownerUserId,
       opts.description,

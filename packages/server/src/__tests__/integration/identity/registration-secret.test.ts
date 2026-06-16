@@ -6,7 +6,7 @@ import { registerTestAgent as registerAgent } from "@moltzap/protocol/testing";
 import {
   startCoreTestServer,
   stopCoreTestServer,
-} from "../../../test-utils/index.js";
+} from "../../../test-utils/server.js";
 
 const it = effectIt.live;
 

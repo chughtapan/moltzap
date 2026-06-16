@@ -9,7 +9,7 @@ import {
   getCoreDb,
   getCoreEncryptionEnvelope,
   getBaseUrl,
-} from "../../test-utils/index.js";
+} from "../../test-utils/server.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { AgentKey } from "@moltzap/protocol/identity";
 import { UserId } from "@moltzap/protocol/identity";
@@ -117,14 +117,14 @@ export interface TestUser {
   readonly displayName: string;
 }
 
-export interface ClaimedAgentRegistration {
+export interface OwnedAgentRegistration {
   readonly agentId: AgentId;
   readonly apiKey: AgentKey;
   readonly ownerUserId: UserId;
   readonly user: TestUser;
 }
 
-interface RegisterClaimedAgentOptions {
+interface RegisterOwnedAgentOptions {
   readonly baseUrl: string;
   readonly inviteCode: string;
   readonly name: string;
@@ -214,7 +214,7 @@ export function resetTestDb() {
   return Effect.runPromise(resetTestDbEffect());
 }
 
-export function registerClaimedAgent(opts: RegisterClaimedAgentOptions) {
+export function registerOwnedAgent(opts: RegisterOwnedAgentOptions) {
   return Effect.gen(function* () {
     const reg = yield* createTestAgent(opts.name, {
       ownerUserId: opts.user.id,
@@ -226,7 +226,7 @@ export function registerClaimedAgent(opts: RegisterClaimedAgentOptions) {
       ownerUserId: opts.user.id,
       user: opts.user,
     };
-  }).pipe(Effect.withSpan("registerClaimedAgent"));
+  }).pipe(Effect.withSpan("registerOwnedAgent"));
 }
 
 export function getKyselyDb(): ReturnType<typeof getCoreDb> {

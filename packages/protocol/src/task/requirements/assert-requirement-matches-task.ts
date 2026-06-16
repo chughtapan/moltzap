@@ -38,14 +38,11 @@ export const assertTaskReadAccessMatchesTask = (
 ): Effect.Effect<void, ForbiddenError> =>
   assertTaskIdMatches(requirement.task.id, expectedTaskId);
 
-const ERR_NOT_TASK_APP =
-  "Caller is not the registered task manager for this task";
+const ERR_NOT_TASK_APP = "Caller is not the app that owns this task";
 
 /**
- * App-principal ownership gate. Asserts the calling app IS the app bound to
- * `task` — the app on whose behalf the task's TM acts. App task and
- * conversation mutation handlers load the open task and call this asserter
- * before the service mutation.
+ * App-principal ownership gate. App task and conversation mutation handlers
+ * load the open task and call this before the service mutation.
  *
  * `task.appId` rides as a wire `string`; the brand boundary is the type
  * system, so the equality check compares the branded `appId` argument to

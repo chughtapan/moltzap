@@ -53,7 +53,7 @@ const DispatchAuthorizePolicySchema = Schema.Union(
  * - `{ kind: "deny"; reason }` — the message reaches no one but the
  *   sender's transcript, with the stated reason.
  * - `{ kind: "hook"; timeoutMs }` — the server emits `app/message/authorize`
- *   to the bound TM for a `Forward { recipients } | Block { reason }`
+ *   to the bound app for a `Forward { recipients } | Block { reason }`
  *   verdict; timeout / RPC failure collapses to a fail-closed Block.
  */
 const MessageAuthorizePolicySchema = Schema.Union(
@@ -73,7 +73,7 @@ const MessageAuthorizePolicySchema = Schema.Union(
  * - `{ kind: "reject"; reason }` — every requested task is refused
  *   in-process, transitioning `waiting → failed` with the stated reason.
  * - `{ kind: "hook"; timeoutMs }` — the server emits `app/task/create` to
- *   the bound TM for the accept/reject verdict; timeout / RPC failure
+ *   the bound app for the accept/reject verdict; timeout / RPC failure
  *   collapses to a fail-closed reject.
  */
 const TaskCreatePolicySchema = Schema.Union(

@@ -67,7 +67,7 @@ packages/protocol/src/
       index.ts
 
     requirements/
-      agent-claimed.ts
+      active-agent.ts
       index.ts
 
     agents/
@@ -83,8 +83,6 @@ packages/protocol/src/
       ids.ts
       credentials.ts
       manifest.ts
-      registration.ts
-      types.ts
 
     users/
       index.ts
@@ -150,7 +148,7 @@ Examples:
 
 - app connect belongs in `network/connect.ts`
 - app key and app manifest belong in `identity/apps/`
-- `app/message/authorize` belongs in `message/callbacks.ts`
+- `app/message/authorize` belongs in `message/messages.ts`
 - `app/dispatch/authorize` belongs in `message/dispatch.ts`
 - `app/task/create` belongs in `task` because it is a task callback
 
@@ -202,7 +200,6 @@ mismatch errors because those are handshake concerns. Do not create a standalone
 
 ```text
 agent/identity/register               HTTP schema
-agent/identity/claim                  HTTP schema
 app/identity/register                 HTTP schema
 
 agent/identity/agents/list            RPC
@@ -295,7 +292,7 @@ Credentials live beside the identity they authenticate. There is no root
 identity/agents/credentials.ts        AgentKey
 identity/agents/registration.ts       InviteCode if agent registration owns it
 identity/apps/credentials.ts          AppKey
-identity/apps/registration.ts         app registration HTTP schemas
+identity/apps/manifest.ts             AppManifest and hook policy schemas
 ```
 
 Server-only secrets do not belong in protocol unless clients or protocol-owned
@@ -313,7 +310,7 @@ identity/principals/
   authenticated-principal.ts
 
 identity/requirements/
-  agent-claimed.ts
+  active-agent.ts
 ```
 
 Concrete requirements live beside the domain invariant they prove. If a domain

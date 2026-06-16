@@ -15,7 +15,7 @@ import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
-} from "../test-utils/index.js";
+} from "../test-utils/pglite-harness.js";
 
 // Lifecycle + authority methods never invoke these deps; the conversation
 // + message paths are covered by integration tests.

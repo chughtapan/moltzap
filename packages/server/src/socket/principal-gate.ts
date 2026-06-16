@@ -58,17 +58,17 @@ export const peekLiveArm = (
   );
 
 /**
- * Narrow the live arm to the agent principal. Rejects a non-agent arm and
- * (when `requireClaimed`) a not-yet-claimed agent.
+ * Narrow the live arm to the agent principal. Rejects a non-agent arm and,
+ * for `ActiveAgent` requirements, an inactive agent.
  */
 const narrowAgentArm = (
   connection: Connection,
-  requireClaimed: boolean,
+  requireActiveAgent: boolean,
 ): Effect.Effect<Principal, ForbiddenError> => {
   if (connection._tag !== "AgentConnection") {
     return Effect.fail(forbidden(FORBIDDEN_AGENT_ONLY));
   }
-  if (requireClaimed && connection.auth.agentStatus !== "active") {
+  if (requireActiveAgent && connection.auth.agentStatus !== "active") {
     return Effect.fail(forbidden(FORBIDDEN_INACTIVE));
   }
   return Effect.succeed(connection.auth);
@@ -98,11 +98,11 @@ const narrowAuthenticatedArm = (
  */
 export const narrowByPolicy = (
   principal: PrincipalRequirement | undefined,
-  requireClaimed: boolean,
+  requireActiveAgent: boolean,
   connection: Connection,
 ): Effect.Effect<Principal, ForbiddenError> => {
   if (principal === AgentPrincipal) {
-    return narrowAgentArm(connection, requireClaimed);
+    return narrowAgentArm(connection, requireActiveAgent);
   }
   if (principal === AppPrincipal) {
     return narrowAppArm(connection);

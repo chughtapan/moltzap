@@ -15,7 +15,7 @@ import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
-import { rotateKek } from "../../../db/crypto/key-rotation.js";
+import { rotateKek } from "#db/crypto";
 
 const it = effectIt.live;
 

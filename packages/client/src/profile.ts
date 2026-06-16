@@ -42,23 +42,9 @@ const ProfileRecordSchema = Schema.Struct({
 /** One profile's persisted auth record. */
 export type ProfileRecord = Schema.Schema.Type<typeof ProfileRecordSchema>;
 
-const StoredProfileRecordSchema = Schema.Struct({
-  agentId: AgentId,
-  apiKey: Schema.optional(AgentKey),
-  agentName: Schema.String,
-});
-
-/**
- * Profile records as stored on disk. CLI transport selection only needs
- * `agentId`; daemon startup requires `apiKey`.
- */
-export type StoredProfileRecord = Schema.Schema.Type<
-  typeof StoredProfileRecordSchema
->;
-
 const ProfileMapSchema = Schema.Record({
   key: ProfileName,
-  value: StoredProfileRecordSchema,
+  value: ProfileRecordSchema,
 });
 
 const ProfileFileSchema = Schema.Struct({
@@ -71,7 +57,7 @@ const ProfileFileTextSchema = Schema.parseJson(ProfileFileSchema, {
 
 /** Named profile view of config.json. */
 export interface LayeredConfig {
-  readonly profiles: ReadonlyMap<ProfileName, StoredProfileRecord>;
+  readonly profiles: ReadonlyMap<ProfileName, ProfileRecord>;
 }
 
 // ─── Errors ────────────────────────────────────────────────────────────────
@@ -209,13 +195,9 @@ const readProfileFile = (): Effect.Effect<
     return { file, existed: true };
   });
 
-function profilesFromFile(
-  file: ProfileFile,
-): Map<ProfileName, StoredProfileRecord> {
+function profilesFromFile(file: ProfileFile): Map<ProfileName, ProfileRecord> {
   return new Map(
-    Object.entries(file.profiles ?? {}) as Array<
-      [ProfileName, StoredProfileRecord]
-    >,
+    Object.entries(file.profiles ?? {}) as Array<[ProfileName, ProfileRecord]>,
   );
 }
 
@@ -238,14 +220,13 @@ export const loadLayeredConfig: Effect.Effect<
 }).pipe(Effect.withSpan("loadLayeredConfig"));
 
 /**
- * Resolve a named profile record without requiring credential material.
- * CLI daemon selection only needs the profile's `agentId` to find the
- * per-agent local socket; operational commands must not unwrap apiKeys.
+ * Resolve a named profile record. CLI transport selection uses only
+ * `agentId`; daemon startup consumes the redacted `apiKey`.
  */
 export const resolveProfileRecord = (
   name: ProfileName,
 ): Effect.Effect<
-  StoredProfileRecord,
+  ProfileRecord,
   ProfileNotFoundError | ProfileConfigReadError
 > =>
   Effect.gen(function* () {

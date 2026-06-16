@@ -299,7 +299,7 @@ _Function_
 ```ts
 export const narrowByPolicy = (
   principal: PrincipalRequirement | undefined,
-  requireClaimed: boolean,
+  requireActiveAgent: boolean,
   connection: Connection,
 ): Effect.Effect<Principal, ForbiddenError>
 ```

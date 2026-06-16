@@ -8,7 +8,7 @@ import {
   resetTestDbEffect,
   createTestAgent,
 } from "../helpers.js";
-import { getCoreDb } from "../../../test-utils/index.js";
+import { getCoreDb } from "../../../test-utils/server.js";
 import {
   agentId,
   agentKeyString,

@@ -9,10 +9,10 @@ import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
-} from "../../test-utils/index.js";
+} from "../../test-utils/pglite-harness.js";
 import { AppContext } from "#socket";
 import { AppAuthService } from "./auth.service.js";
-import { hashSecret, parseAppKey } from "../credential-keys.js";
+import { hashSecret, parseAppKey } from "#identity/credential-keys";
 
 let harness: PgliteHarness;
 

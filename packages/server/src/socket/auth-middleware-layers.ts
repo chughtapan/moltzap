@@ -20,7 +20,7 @@
 import { Context, Effect, Layer } from "effect";
 import type { RpcMiddleware } from "@effect/rpc";
 import {
-  AgentClaimed,
+  ActiveAgent,
   AgentPrincipal,
   AppPrincipal,
   ContactPolicyAllowsReach,
@@ -39,7 +39,7 @@ import {
   ConversationServiceTag,
   MessageServiceTag,
   TaskServiceTag,
-} from "../core/layers.js";
+} from "#core";
 import { obtainTaskReadAccess } from "#task/requirements";
 import { obtainConversationInTask } from "#conversation/requirements";
 import { obtainContactPolicyAllowsReach } from "#identity/contacts/requirements";
@@ -109,8 +109,8 @@ const makeAuthenticatedPrincipalLayer = (connId: ConnectionId) =>
     ),
   );
 
-const makeAgentClaimedLayer = (connId: ConnectionId) =>
-  principalLayer(AgentClaimed, connId, (manager) =>
+const makeActiveAgentLayer = (connId: ConnectionId) =>
+  principalLayer(ActiveAgent, connId, (manager) =>
     peekLiveArm(manager, connId).pipe(
       Effect.flatMap((connection) =>
         narrowByPolicy(AgentPrincipal, true, connection),
@@ -349,7 +349,7 @@ export const makeRequirementMiddlewareLayers = (connId: ConnectionId) =>
     makeAgentPrincipalLayer(connId),
     makeAppPrincipalLayer(connId),
     makeAuthenticatedPrincipalLayer(connId),
-    makeAgentClaimedLayer(connId),
+    makeActiveAgentLayer(connId),
     makeConversationInTaskLayer(),
     makeConversationSendAccessLayer(connId),
     makeTaskReadAccessLayer(connId),

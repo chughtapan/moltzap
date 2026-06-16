@@ -12,10 +12,10 @@ import {
 
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
-import { EnvelopeEncryption } from "../db/crypto/envelope.js";
+import { EnvelopeEncryption } from "#db/crypto";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
-import type { CoreConfig } from "../config.js";
+import type { CoreConfig } from "#config";
 import {
   AppHostTag,
   ConnectionHooksTag,
@@ -26,7 +26,7 @@ import {
 } from "./layers.js";
 import { installDefaultApp } from "#identity/apps";
 import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
-import { makeCoreSocketHandler } from "../socket/server-socket.js";
+import { makeCoreSocketHandler } from "#socket";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;

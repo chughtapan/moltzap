@@ -4,7 +4,7 @@ import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
 import { Cause, Effect, Exit, Option, Redacted, type Scope } from "effect";
-import { ConfigLoadError, loadStandaloneConfig } from "./config.js";
+import { ConfigLoadError, loadStandaloneConfig } from "#config";
 
 const it = effectIt.scoped;
 const eff = effectIt.effect;

@@ -240,7 +240,7 @@ export interface ConversationFixture {
 
   /**
    * The app-principal `AppConnection` bound as the conversation's
-   * moderator. TM-admin RPCs (archive, unarchive, addParticipant,
+   * moderator. App-admin RPCs (archive, unarchive, addParticipant,
    * removeParticipant, close) head their `requires` with `AppPrincipal`, so
    * they route through THIS client, not the agent `owner`. `owner` (an agent)
    * drives `agent/task/request` + `agent/message/send`.
@@ -337,7 +337,7 @@ export interface ModeratedHandle {
   readonly appId: Schema.Schema.Type<typeof AppIdSchema>;
 
   /**
-   * The app-principal `AppConnection` bound as moderator. TM-admin RPCs (their
+   * The app-principal `AppConnection` bound as moderator. App-admin RPCs (their
    * `requires` head is `AppPrincipal`) route through this client.
    */
   readonly client: AppTestClient;

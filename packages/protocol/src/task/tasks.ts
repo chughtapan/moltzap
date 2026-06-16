@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { stringEnum, dateTimeStringSchema } from "#transport";
 import { ListLimitSchema, listCursorSchema } from "#transport";
 import { AgentId, AgentNotFoundError } from "#identity/agents";
-import { AgentClaimed } from "#identity/requirements";
+import { ActiveAgent } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { ForbiddenError, InvalidParamsError } from "#transport";
 import { defineRpc, defineNotification } from "#transport";
@@ -24,19 +24,19 @@ export { AppId, DEFAULT_APP_ID } from "#identity/apps";
 // The tagged errors are the task surface's shared failure channels.
 //
 // A task is the unit of admission: every conversation under a task draws its
-// participant pool from `task_participants`, and the task's owning app's TM
-// (task manager) is the gatekeeper for membership changes.
+// participant pool from `task_participants`, and the owning app is the
+// gatekeeper for membership changes.
 //
 // Authority gates:
 //
 // | Method                              | Authority                                |
 // |-------------------------------------|------------------------------------------|
 // | agent/task/list                     | self only (own tasks)                    |
-// | agent/task/request                  | any claimed agent + contact-policy       |
+// | agent/task/request                  | active agent + contact-policy            |
 // | agent/task/leave                    | self only                                |
-// | app/task/update                     | TM only                                  |
+// | app/task/update                     | owning app only                          |
 //
-// TM authority: the app-callable task-admin RPCs head their `requires` with
+// App authority: the app-callable task-admin RPCs head their `requires` with
 // `AppPrincipal` and gate on `assertCallerAppOwnsTask` before any participant
 // probe.
 //
@@ -66,19 +66,19 @@ export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
 }
 
 /**
- * `agent/task/request` failed because the bound TM rejected the
+ * `agent/task/request` failed because the owning app rejected the
  * server-initiated `app/task/create` callback (or the fail-closed
  * envelope synthesized a reject on timeout / RPC error / decode
  * failure). The tag lets a requester distinguish "my task was
  * rejected by the moderator" — an expected, actionable outcome —
- * from an opaque internal error. The TM's reason rides in the
+ * from an opaque internal error. The app's reason rides in the
  * `data` arm when present.
  */
 export class TaskRejectedError extends Schema.TaggedError<TaskRejectedError>()(
   "TaskRejected",
   errorPayloadFields,
 ) {
-  static readonly message = "Task request was rejected by the task manager";
+  static readonly message = "Task request was rejected by the owning app";
 }
 
 export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
@@ -126,7 +126,7 @@ export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
 /**
  * List the caller's own tasks, cursor-paginated.
  *
- * - **Principal:** `AgentPrincipal` head (no claimed refinement).
+ * - **Principal:** `AgentPrincipal` head.
  * @error InvalidParamsError when the `cursor` does not decode
  */
 export const TaskList = defineRpc({
@@ -159,7 +159,7 @@ export type InitialConversationInput = Schema.Schema.Type<
 >;
 
 /**
- * Open to any claimed agent. Returns `{ task, conversation }` where
+ * Open to any active agent. Returns `{ task, conversation }` where
  * `conversation` is `null` when `initialConversation` is omitted.
  *
  * Dedup is a client-side concern: clients that want "one DM per
@@ -168,16 +168,16 @@ export type InitialConversationInput = Schema.Schema.Type<
  *
  * The agent-facing entry RPC is `agent/task/request`; the app-facing wire
  * callback `app/task/create` lives in this task domain. The server
- * forks `app/task/create` to the bound TM after inserting the task in
- * `waiting`; the TM's verdict drives the lifecycle (accept → active +
+ * forks `app/task/create` to the owning app after inserting the task in
+ * `waiting`; the app verdict drives the lifecycle (accept → active +
  * `agent/task/created`; reject → failed + `agent/task/failed`). The
  * synchronous `{ task, conversation }`
  * result is returned after the verdict resolves (the handler awaits it).
  *
- * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+ * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
  * - **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
  *   reach every `invitedAgentIds` target under the recipient's contact policy.
- * @error TaskRejectedError when the bound TM rejects the task
+ * @error TaskRejectedError when the owning app rejects the task
  * @error AgentNotFoundError when an `initialConversation` participant agent is missing
  * @error ConversationFullError when the `initialConversation` exceeds capacity
  */
@@ -192,7 +192,7 @@ export const TaskRequest = defineRpc({
     task: TaskSchema,
     conversation: Schema.Union(ConversationSchema, Schema.Null),
   }),
-  requires: [AgentPrincipal, AgentClaimed, ContactPolicyAllowsReach],
+  requires: [AgentPrincipal, ActiveAgent, ContactPolicyAllowsReach],
   errors: [TaskRejectedError, AgentNotFoundError, ConversationFullError],
 });
 
@@ -257,14 +257,14 @@ export const TaskCreate = defineRpc({
  * transitions to `status = 'closed'` and `TaskClosedNotificationDefinition`
  * fires alongside in the same transaction.
  *
- * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+ * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
  * @error TaskNotFoundError when the task does not exist or the caller is not in it
  */
 export const TaskLeave = defineRpc({
   name: "agent/task/leave",
   params: Schema.Struct({ taskId: TaskId }),
   result: Schema.Struct({}),
-  requires: [AgentPrincipal, AgentClaimed],
+  requires: [AgentPrincipal, ActiveAgent],
   errors: [TaskNotFoundError],
 });
 
@@ -307,7 +307,7 @@ export type TaskUpdateResult = Schema.Schema.Type<
 >;
 
 /**
- * TM-only task mutation surface. `app/task/update` owns task close,
+ * App-only task mutation surface. `app/task/update` owns task close,
  * participant admit, and participant remove semantics.
  *
  * - **Principal:** `AppPrincipal` head. The app-arm handler runs
@@ -352,7 +352,7 @@ export const TaskFailedNotificationDefinition = defineNotification({
 });
 
 /**
- * Pushed to the task initiator + invited participants after the TM accepts via
+ * Pushed to the task initiator + invited participants after the app accepts via
  * the `app/task/create` wire callback and the task transitions from `waiting`
  * to `active`. Carries the full Task row (matching `agent/task/closed`'s shape) so
  * subscribers don't need a second read to discover the post-transition state.

@@ -146,8 +146,7 @@ Detail JSDoc: `src/channel-base/index.ts` (file-level).
 - **Admission** — The handshake gate: every inbound message routes
   through `dispatch/request` → wait-for-`dispatch/release` → grant
   or deny, before the channel adapter sees it. Implements the
-  task-manager's "should this message be delivered to this agent?"
-  policy.
+  app's "should this message be delivered to this agent?" policy.
 - **Cross-conversation context** — `MoltZapService` enriches inbound
   messages with snippets from other conversations the agent
   participates in; `formatCrossConv` renders the block with

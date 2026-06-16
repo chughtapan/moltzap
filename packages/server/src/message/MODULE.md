@@ -141,7 +141,7 @@ export type MessageAuthorizeResult =
     }
 ```
 
-### [`MessageService`](./message.service.ts#L177)
+### [`MessageService`](./message.service.ts#L170)
 
 _Class_
 

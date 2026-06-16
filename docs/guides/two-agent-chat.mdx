@@ -60,9 +60,9 @@ const bob = await fetch(`http://localhost:41973/api/v1/auth/register`, {
 
 Messages live inside conversations under tasks. Alice requests a task
 naming Bob as an invited participant and declaring the initial
-conversation; the server forks `app/task/create` to the registered task
-manager for the chosen `appId` and returns the accepted `{ task,
-conversation }` once the TM accepts.
+conversation; the server forks `app/task/create` to the registered app
+for the chosen `appId` and returns the accepted `{ task,
+conversation }` once the app accepts.
 
 ```typescript
 const aliceWs = await connect(alice.apiKey, "alice");
@@ -118,8 +118,8 @@ bobWs.on("message", (data) => {
 ## What happens under the hood
 
 1. Alice's `agent/task/request` inserts a task in `waiting` and forks
-   `app/task/create` to the registered TM for `appId`.
-2. On TM `accept`, the server transitions the task to `active`, mints
+   `app/task/create` to the registered app for `appId`.
+2. On app `accept`, the server transitions the task to `active`, mints
    the initial conversation, and resolves the call with `{ task,
    conversation }`.
 3. Alice's `agent/message/send` writes the message into the conversation.

@@ -8,7 +8,7 @@ Dispatch-domain service barrel.
 
 ## Public surface
 
-### [`AppBoundConversationLookup`](./app-bound-conversation.ts#L11)
+### [`AppBoundConversationLookup`](./app-bound-conversation.ts#L8)
 
 _Interface_
 
@@ -20,7 +20,7 @@ export interface AppBoundConversationLookup {
 }
 ```
 
-### [`DispatchAdmissionConversations`](./admission.service.ts#L64)
+### [`DispatchAdmissionConversations`](./admission.service.ts#L61)
 
 _Interface_
 
@@ -33,7 +33,7 @@ export interface DispatchAdmissionConversations {
 }
 ```
 
-### [`DispatchAdmissionResult`](./admission.service.ts#L33)
+### [`DispatchAdmissionResult`](./admission.service.ts#L30)
 
 _TypeAlias_
 
@@ -47,7 +47,7 @@ export type DispatchAdmissionResult =
     }
 ```
 
-### [`DispatchAdmissionService`](./admission.service.ts#L112)
+### [`DispatchAdmissionService`](./admission.service.ts#L109)
 
 _Class_
 
@@ -174,7 +174,7 @@ export class DispatchAdmissionService {
     return Effect.gen(this, function* () {
 ```
 
-### [`DispatchAuthorizeContext`](./admission.service.ts#L31)
+### [`DispatchAuthorizeContext`](./admission.service.ts#L28)
 
 _TypeAlias_
 
@@ -202,7 +202,7 @@ export const dispatchRequest: ServerHandler<typeof DispatchRequest> = (
 )
 ```
 
-### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L52)
+### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L49)
 
 _Interface_
 
@@ -536,7 +536,7 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`lookupAppBoundForConversation`](./app-bound-conversation.ts#L22)
+### [`lookupAppBoundForConversation`](./app-bound-conversation.ts#L19)
 
 _Function_
 

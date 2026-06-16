@@ -155,7 +155,7 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](./server.ts#L66)
+### [`CoreTestRuntimeServerHandle`](./server.ts#L63)
 
 _Interface_
 
@@ -168,7 +168,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L121)
+### [`CoreTestServer`](./server.ts#L118)
 
 _Interface_
 
@@ -209,7 +209,7 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent, never>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L46)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L43)
 
 _Variable_
 
@@ -219,22 +219,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`expectRpcFailure`](./rpc-error.ts#L21)
-
-_Function_
-
-```ts
-export const expectRpcFailure = <A, R>(
-  effect: Effect.Effect<A, RpcTestError, R>,
-  expectedTag: string,
-): Effect.Effect<RpcResponseError, never, R>
-```
-
-Asserts the RPC effect fails with a wire `error` carrying `expectedTag` and
-returns the narrowed error for follow-up assertions. `catchTags` routes by
-tag name declaratively so callers never reach for `err._tag`.
-
-### [`getBaseUrl`](./server.ts#L400)
+### [`getBaseUrl`](./server.ts#L389)
 
 _Function_
 
@@ -242,15 +227,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](./server.ts#L392)
-
-_Function_
-
-```ts
-export function getCoreApp(): CoreApp
-```
-
-### [`getCoreDb`](./server.ts#L377)
+### [`getCoreDb`](./server.ts#L374)
 
 _Function_
 
@@ -258,7 +235,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L385)
+### [`getCoreEncryptionEnvelope`](./server.ts#L382)
 
 _Function_
 
@@ -266,7 +243,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L405)
+### [`getWsUrl`](./server.ts#L394)
 
 _Function_
 
@@ -329,7 +306,7 @@ arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
   - `originator.handle` / `originator.resolve` defect — an in-process
     endpoint never receives inbound frames; a call here is a wiring bug.
 
-### [`makePgliteHarness`](./pglite-harness.ts#L72)
+### [`makePgliteHarness`](./pglite-harness.ts#L69)
 
 _Function_
 
@@ -342,7 +319,7 @@ export function makePgliteHarness(): Effect.Effect<
 
 Spin up a fresh PGlite instance with the core schema loaded.
 
-### [`PGLITE_HOOK_TIMEOUT_MS`](./pglite-harness.ts#L27)
+### [`PGLITE_HOOK_TIMEOUT_MS`](./pglite-harness.ts#L24)
 
 _Variable_
 
@@ -352,7 +329,7 @@ export const PGLITE_HOOK_TIMEOUT_MS = 30_000
 
 Suggested timeout for pglite-backed beforeEach/afterEach hooks.
 
-### [`PgliteHarness`](./pglite-harness.ts#L57)
+### [`PgliteHarness`](./pglite-harness.ts#L54)
 
 _Interface_
 
@@ -372,7 +349,7 @@ export interface PgliteHarness {
 }
 ```
 
-### [`PgliteHarnessError`](./pglite-harness.ts#L45)
+### [`PgliteHarnessError`](./pglite-harness.ts#L42)
 
 _TypeAlias_
 
@@ -445,7 +422,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](./server.ts#L351)
+### [`resetCoreTestDb`](./server.ts#L348)
 
 _Function_
 
@@ -486,7 +463,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L312)
+### [`startCoreTestServer`](./server.ts#L309)
 
 _Function_
 
@@ -494,7 +471,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L325)
+### [`stopCoreTestServer`](./server.ts#L322)
 
 _Function_
 
@@ -517,5 +494,4 @@ export function trackClient(client: TestAgentClient | TestAppClient): void
 - `fakes.ts`
 - `helpers.ts`
 - `pglite-harness.ts`
-- `rpc-error.ts`
 - `server.ts`

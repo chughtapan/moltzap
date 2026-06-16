@@ -1,4 +1,4 @@
-import type { Db } from "../db/client.js";
+import type { Db } from "#db";
 import type {
   Conversation,
   ConversationParticipant,
@@ -24,14 +24,14 @@ import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
 import { broadcastNotificationToAgents } from "#network";
 import type { NetworkSendServiceTag } from "#core";
 import type { ConnectionManager } from "#socket";
-import { sql } from "../db/sql.js";
+import { sql } from "#db";
 import {
   catchSqlErrorAsDefect,
   rawQuery,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
-} from "../db/effect-kysely-toolkit.js";
+} from "#db";
 
 const MAX_GROUP_PARTICIPANTS = 256;
 const GROUP_OVERFLOW_MSG = `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`;

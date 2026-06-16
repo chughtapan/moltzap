@@ -33,7 +33,7 @@ import type {
   AppPrincipal,
   AuthenticatedPrincipal,
 } from "#identity/principals";
-import type { AgentClaimed } from "#identity/requirements";
+import type { ActiveAgent } from "#identity/requirements";
 import type { NotificationPayloadOf } from "#transport";
 import type {
   ConversationInTask,
@@ -86,7 +86,7 @@ type ServerRequirementMiddleware =
   | AgentPrincipal
   | AppPrincipal
   | AuthenticatedPrincipal
-  | AgentClaimed
+  | ActiveAgent
   | ConversationInTask
   | ConversationSendAccess
   | TaskReadAccess

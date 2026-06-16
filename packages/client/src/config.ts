@@ -7,7 +7,6 @@ import {
   ProfileConfigReadError,
   ProfileInvalidNameError,
   ProfileNotFoundError,
-  type StoredProfileRecord,
 } from "./profile.js";
 
 export interface MoltzapServiceConfig {
@@ -19,7 +18,6 @@ export interface MoltzapServiceConfig {
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
 
 export type ServiceConfigError =
-  | AuthNotConfiguredError
   | ConfigReadError
   | ProfileInvalidNameError
   | ProfileNotFoundError;
@@ -28,12 +26,6 @@ class ConfigReadError extends Data.TaggedError("ConfigReadError")<{
   readonly cause: unknown;
   readonly message: string;
   readonly path: string;
-}> {}
-
-class AuthNotConfiguredError extends Data.TaggedError(
-  "AuthNotConfiguredError",
-)<{
-  readonly message: string;
 }> {}
 
 function describeCause(cause: unknown): string {
@@ -56,26 +48,6 @@ function configReadErrorFromProfile(
   error: ProfileConfigReadError,
 ): ConfigReadError {
   return configReadError(error.path, error.cause, "read");
-}
-
-function requireProfileAuth(
-  profileName: string,
-  value: StoredProfileRecord,
-): Effect.Effect<
-  { readonly agentKey: AgentKey; readonly agentId: AgentId },
-  AuthNotConfiguredError
-> {
-  if (value.apiKey === undefined) {
-    return Effect.fail(
-      new AuthNotConfiguredError({
-        message: `Profile "${profileName}" is missing an apiKey. Run \`moltzap register --profile ${profileName}\` first.`,
-      }),
-    );
-  }
-  return Effect.succeed({
-    agentKey: value.apiKey,
-    agentId: value.agentId,
-  });
 }
 
 export const getServerUrl: Effect.Effect<string, never> = Config.option(
@@ -102,11 +74,10 @@ export const loadServiceConfig = (
     if (profile === undefined) {
       return yield* Effect.fail(new ProfileNotFoundError({ name }));
     }
-    const config = yield* requireProfileAuth(name, profile);
     const serverUrl = yield* getServerUrl;
     return {
       serverUrl,
-      agentKey: config.agentKey,
-      agentId: config.agentId,
+      agentKey: profile.apiKey,
+      agentId: profile.agentId,
     };
   }).pipe(Effect.withSpan("loadServiceConfig"));

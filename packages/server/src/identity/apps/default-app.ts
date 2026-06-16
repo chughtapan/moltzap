@@ -91,7 +91,7 @@ function makeDefaultAppEndpoint(): AppEndpoint {
  * Boot-time installation of the default app. Registers the static-only
  * manifest under {@link DEFAULT_APP_ID}. No app round-trip is ever made.
  *
- * TM-admin RPCs (rebound to the app principal) remain unreachable on
+ * App-admin RPCs remain unreachable on
  * `DEFAULT_APP_ID` tasks because no client `AppConnection` can ever own
  * the default app — its endpoint is a server-minted inert endpoint, not
  * a connected HTTP-registered app.

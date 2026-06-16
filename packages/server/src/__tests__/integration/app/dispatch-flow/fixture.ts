@@ -30,7 +30,7 @@ import {
   type ConnectedAgent,
   type TestAppClient,
 } from "../../helpers.js";
-import { getBaseUrl } from "../../../../test-utils/index.js";
+import { getBaseUrl } from "../../../../test-utils/server.js";
 
 type GrantVerdict = {
   readonly decision: "grant";

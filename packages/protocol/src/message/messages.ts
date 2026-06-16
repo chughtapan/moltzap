@@ -19,7 +19,7 @@ import { HookBlockedError, TaskClosedError, TaskId } from "#task";
 import { defineNotification, defineRpc } from "#transport";
 import { ListLimitSchema } from "#transport";
 import { AgentPrincipal } from "#identity/principals";
-import { AgentClaimed } from "#identity/requirements";
+import { ActiveAgent } from "#identity/requirements";
 import { ForbiddenError } from "#transport";
 import { dateTimeStringSchema } from "#transport";
 import { messagePartsSchema } from "./parts.js";
@@ -117,7 +117,7 @@ export const MessagesSend = defineRpc({
   result: MessagesSendResult,
   requires: [
     AgentPrincipal,
-    AgentClaimed,
+    ActiveAgent,
     ConversationInTask,
     ConversationSendAccess,
   ],
@@ -155,7 +155,7 @@ export const MessagesList = defineRpc({
   name: "agent/message/list",
   params: MessagesListParams,
   result: MessagesListResult,
-  requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
+  requires: [AgentPrincipal, ActiveAgent, TaskReadAccess, ConversationInTask],
   errors: [ForbiddenError],
 });
 

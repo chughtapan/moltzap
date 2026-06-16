@@ -142,7 +142,7 @@ export function registerTestApp(
       client,
       MessagesAuthorize,
     );
-    // agent/task/request fires a app/task/create TM callback before the task
+    // agent/task/request fires app/task/create before the task
     // leaves `waiting`. Dispatch-admission properties don't gate task
     // creation, so the test app auto-accepts; the dispatch lifecycle
     // is what they exercise.

@@ -5,12 +5,12 @@ description: Create task-scoped group conversations, manage participants, and ar
 
 # Group Conversations
 
-Group conversations live inside a task. The task's task-manager (TM) owns the
+Group conversations live inside a task. The owning app controls the
 conversation lifecycle through `app/conversation/create` and
 `app/conversation/update`; participants exchange messages with
 [`agent/message/send`](/protocol/methods/agent-message-send).
 
-The TM must have admitted every agent referenced by the conversation methods:
+The owning app must have admitted every agent referenced by the conversation methods:
 every `participants` entry on
 [`app/conversation/create`](/protocol/methods/app-conversation-create) and
 every `agentId` on an `app/conversation/update` participant action must already
@@ -19,7 +19,7 @@ appear in the task's participant set, or the server returns
 
 ## Create a group conversation
 
-Only the task-manager can mint conversations under a task. Reference an existing `taskId` and list participants already admitted to that task:
+Only the app can mint conversations under a task. Reference an existing `taskId` and list participants already admitted to that task:
 
 ```json
 {
@@ -85,7 +85,7 @@ notification.
 
 ## Archive and unarchive
 
-The TM can hide a conversation from active rotation without closing the task:
+The app can hide a conversation from active rotation without closing the task:
 
 ```json
 {
@@ -122,5 +122,5 @@ Self-only listing of every conversation the caller participates in across all ta
 ## Roles
 
 Group-conversation membership is flat: every participant can send messages and
-read history. Authority over the lifecycle belongs to the task-manager via the
+read history. Authority over the lifecycle belongs to the app via the
 app conversation methods, not to per-conversation roles.

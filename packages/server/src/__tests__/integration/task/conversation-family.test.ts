@@ -15,11 +15,11 @@
  * |---|---|
  * | TaskRequest | happy-path + participants + dedup (DEFAULT_APP) + atomic initial conv + dual-emit |
  * | TaskLeave | self-only + idempotent no-op + last-participant closure + per-cid removal |
- * | ConversationCreate | TM-only + participant-admitted invariant + dual-emit |
+ * | ConversationCreate | app-only + participant-admitted invariant + dual-emit |
  * | ConversationList | self only + items shape + archived-included |
- * | ConversationUpdate archive/unarchive | TM-only + idempotency + dual-emit |
- * | ConversationUpdate add-participant | TM-only + participant-admitted + idempotency + dual-emit |
- * | ConversationUpdate remove-participant | TM-only + idempotency + dual-emit |
+ * | ConversationUpdate archive/unarchive | app-only + idempotency + dual-emit |
+ * | ConversationUpdate add-participant | app-only + participant-admitted + idempotency + dual-emit |
+ * | ConversationUpdate remove-participant | app-only + idempotency + dual-emit |
  */
 
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
@@ -170,7 +170,7 @@ it("TaskRequest (DEFAULT_APP, multi-invitee) mints a fresh task with all partici
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, carol.agentId],
     });
-    // DEFAULT_APP auto-accepts the app/task/create TM callback, so the
+    // DEFAULT_APP auto-accepts app/task/create, so the
     // task transitions waiting → active before agent/task/request returns.
     expect(result.task.status).toBe(STATUS_ACTIVE);
     expect(result.task.appId).toBe(DEFAULT_APP_ID);

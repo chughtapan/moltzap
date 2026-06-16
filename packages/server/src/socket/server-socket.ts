@@ -6,11 +6,11 @@ import {
   type MoltZapServerSession,
 } from "@moltzap/protocol/socket";
 
-import type { ResolvedServices } from "../core/layers.js";
-import { ConnectionManagerTag, ConnectionTag } from "../core/layers.js";
-import type { DisconnectionHook } from "../core/types.js";
+import type { ResolvedServices } from "#core";
+import { ConnectionManagerTag, ConnectionTag } from "#core";
+import type { DisconnectionHook } from "#core";
 import type { AgentContext } from "./context.js";
-import { serverHandlers } from "../core/handler-catalog.js";
+import { serverHandlers } from "#core";
 import { makeRequirementMiddlewareLayers } from "./auth-middleware-layers.js";
 import { peekLiveArm } from "./principal-gate.js";
 

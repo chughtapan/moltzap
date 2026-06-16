@@ -25,7 +25,7 @@ import {
   connectAppClient,
   registerApp,
   createTestUser,
-  registerClaimedAgent,
+  registerOwnedAgent,
   type TestAgentClient,
 } from "../helpers.js";
 
@@ -85,13 +85,13 @@ function setupAliceAndBob(): Effect.Effect<
 > {
   return Effect.gen(function* () {
     const idx = ++pairCounter;
-    const aliceReg = yield* registerClaimedAgent({
+    const aliceReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `alice-tasks-${idx}`,
       user: ALICE_USER,
     });
-    const bobReg = yield* registerClaimedAgent({
+    const bobReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `bob-tasks-${idx}`,
@@ -143,17 +143,17 @@ it("agent/task/request returns an active task bound to the supplied appId", () =
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
-    // DEFAULT_APP auto-accepts the app/task/create TM callback → active.
+    // DEFAULT_APP auto-accepts app/task/create, so the task becomes active.
     expect(result.task.status).toBe(ACTIVE_STATUS);
     expect(result.task.initiatorAgentId).toBe(aliceAgentId);
     expect(result.task.appId).toBe(DEFAULT_APP_ID);
   }));
 
-it("TM authority: only the app principal may mutate task membership", () =>
+it("app authority: only the app principal may mutate task membership", () =>
   Effect.gen(function* () {
     const { aliceClient, bobAgentId } = yield* setupAliceAndBob();
-    // TM-admin RPC (`app/task/update`) heads its `requires` with `AppPrincipal`. The
-    // moderator is a SEPARATE app principal: it registers via HTTP, then
+    // `app/task/update` heads its `requires` with `AppPrincipal`. The
+    // app authority client registers via HTTP, then
     // `appKey`-Connects to bind its `AppConnection` as the app's endpoint.
     // Alice (agent) drives the agent-only `agent/task/request`; the app client
     // does the membership mutations. Neither agent (`alice` nor `bob`) can

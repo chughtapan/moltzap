@@ -2,11 +2,8 @@ import { Effect, Option } from "effect";
 import type { AppId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
-import type { Db } from "../db/client.js";
-import {
-  catchSqlErrorAsDefect,
-  takeFirstOption,
-} from "../db/effect-kysely-toolkit.js";
+import type { Db } from "#db";
+import { catchSqlErrorAsDefect, takeFirstOption } from "#db";
 
 export interface AppBoundConversationLookup {
   readonly _tag: "AppBound";

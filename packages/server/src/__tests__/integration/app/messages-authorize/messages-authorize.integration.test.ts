@@ -636,7 +636,7 @@ describe("app/message/authorize — block verdict paths", () => {
   );
 
   it(
-    "TM unreachable: envelope synthesizes Block and suppresses fan-out",
+    "app unreachable: envelope synthesizes Block and suppresses fan-out",
     tmUnreachableSynthesizesBlock,
     TEST_TIMEOUT_MS,
   );
@@ -649,7 +649,7 @@ describe("app/message/authorize — block verdict paths", () => {
 
 describe("app/message/authorize — forward verdict paths", () => {
   it(
-    "Forward subset: only TM-authorized recipients see messages/received",
+    "Forward subset: only app-authorized recipients see messages/received",
     forwardSubsetOnlyNotifiesAuthorizedRecipient,
     TEST_TIMEOUT_MS,
   );

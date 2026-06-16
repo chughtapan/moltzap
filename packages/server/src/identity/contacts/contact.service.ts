@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import type { Db } from "../../db/client.js";
-import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
-import type { ContactRow } from "../../db/database.js";
+import type { Db } from "#db";
+import { catchSqlErrorAsDefect } from "#db";
+import type { ContactRow } from "#db";
 import {
   ConflictError,
   DEFAULT_PAGE_LIMIT,
@@ -16,7 +16,7 @@ import {
   paginate,
   sortKeyExpr,
   type InvalidCursorError,
-} from "../../db/list-cursor.js";
+} from "#db";
 
 type Contact = ResultOf<typeof ContactsAdd>["contact"];
 

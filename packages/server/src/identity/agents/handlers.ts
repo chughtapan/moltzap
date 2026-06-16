@@ -8,7 +8,7 @@ import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentContext } from "#socket";
 import { agentArm } from "#core";
 import { DbTag } from "#core";
-import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "#db";
 import { visibleAgentIds } from "./visibility.service.js";
 import {
   decodeListCursor,
@@ -16,7 +16,7 @@ import {
   paginate,
   sortKeyExpr,
   type ListCursorPosition,
-} from "../../db/list-cursor.js";
+} from "#db";
 
 function toAgentCard(row: {
   id: AgentId;

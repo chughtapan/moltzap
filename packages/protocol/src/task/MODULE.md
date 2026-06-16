@@ -129,7 +129,7 @@ export const TaskCreatedNotificationDefinition = defineNotification({
 })
 ```
 
-Pushed to the task initiator + invited participants after the TM accepts via
+Pushed to the task initiator + invited participants after the app accepts via
 the `app/task/create` wire callback and the task transitions from `waiting`
 to `active`. Carries the full Task row (matching `agent/task/closed`'s shape) so
 subscribers don't need a second read to discover the post-transition state.
@@ -172,7 +172,7 @@ export const TaskLeave = defineRpc({
   name: "agent/task/leave",
   params: Schema.Struct({ taskId: TaskId }),
   result: Schema.Struct({}),
-  requires: [AgentPrincipal, AgentClaimed],
+  requires: [AgentPrincipal, ActiveAgent],
   errors: [TaskNotFoundError],
 })
 ```
@@ -186,7 +186,7 @@ Notification emission for each conversation the caller leaves uses
 transitions to `status = 'closed'` and `TaskClosedNotificationDefinition`
 fires alongside in the same transaction.
 
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+- **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
 
 ### [`TaskList`](./tasks.ts#L132)
 
@@ -210,7 +210,7 @@ export const TaskList = defineRpc({
 
 List the caller's own tasks, cursor-paginated.
 
-- **Principal:** `AgentPrincipal` head (no claimed refinement).
+- **Principal:** `AgentPrincipal` head.
 
 ### [`TaskNotFoundError`](./ids.ts#L15)
 
@@ -263,16 +263,16 @@ export class TaskRejectedError extends Schema.TaggedError<TaskRejectedError>()(
   "TaskRejected",
   errorPayloadFields,
 ) {
-  static readonly message = "Task request was rejected by the task manager";
+  static readonly message = "Task request was rejected by the owning app";
 }
 ```
 
-`agent/task/request` failed because the bound TM rejected the
+`agent/task/request` failed because the owning app rejected the
 server-initiated `app/task/create` callback (or the fail-closed
 envelope synthesized a reject on timeout / RPC error / decode
 failure). The tag lets a requester distinguish "my task was
 rejected by the moderator" — an expected, actionable outcome —
-from an opaque internal error. The TM's reason rides in the
+from an opaque internal error. The app's reason rides in the
 `data` arm when present.
 
 ### [`TaskRequest`](./tasks.ts#L184)
@@ -291,12 +291,12 @@ export const TaskRequest = defineRpc({
     task: TaskSchema,
     conversation: Schema.Union(ConversationSchema, Schema.Null),
   }),
-  requires: [AgentPrincipal, AgentClaimed, ContactPolicyAllowsReach],
+  requires: [AgentPrincipal, ActiveAgent, ContactPolicyAllowsReach],
   errors: [TaskRejectedError, AgentNotFoundError, ConversationFullError],
 })
 ```
 
-Open to any claimed agent. Returns `{ task, conversation }` where
+Open to any active agent. Returns `{ task, conversation }` where
 `conversation` is `null` when `initialConversation` is omitted.
 
 Dedup is a client-side concern: clients that want "one DM per
@@ -305,13 +305,13 @@ before creating a new one.
 
 The agent-facing entry RPC is `agent/task/request`; the app-facing wire
 callback `app/task/create` lives in this task domain. The server
-forks `app/task/create` to the bound TM after inserting the task in
-`waiting`; the TM's verdict drives the lifecycle (accept → active +
+forks `app/task/create` to the owning app after inserting the task in
+`waiting`; the app verdict drives the lifecycle (accept → active +
 `agent/task/created`; reject → failed + `agent/task/failed`). The
 synchronous `{ task, conversation }`
 result is returned after the verdict resolves (the handler awaits it).
 
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+- **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
 - **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
   reach every `invitedAgentIds` target under the recipient's contact policy.
 
@@ -337,7 +337,7 @@ export const TaskUpdate = defineRpc({
 })
 ```
 
-TM-only task mutation surface. `app/task/update` owns task close,
+App-only task mutation surface. `app/task/update` owns task close,
 participant admit, and participant remove semantics.
 
 - **Principal:** `AppPrincipal` head. The app-arm handler runs

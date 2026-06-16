@@ -107,7 +107,7 @@ export const ConversationCreate = defineRpc({
 })
 ```
 
-TM-only: mint a new conversation under an existing task. Every
+App-only: mint a new conversation under an existing task. Every
 entry in `participants` MUST already appear in `task_participants`
 for `taskId`; violations return `ParticipantNotAdmittedError`.
 
@@ -191,7 +191,7 @@ export const ConversationList = defineRpc({
     items: Schema.Array(ConversationListItemSchema),
     nextCursor: Schema.optional(Schema.String),
   }),
-  requires: [AgentPrincipal, AgentClaimed],
+  requires: [AgentPrincipal, ActiveAgent],
   errors: [InvalidParamsError, ConversationNotFoundError],
 })
 ```
@@ -200,7 +200,7 @@ Self-only listing of every conversation the caller participates in (across
 all tasks). No filter params; archived rows are included; callers filter
 `archivedAt` locally.
 
-- **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+- **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
 
 ### [`ConversationListItem`](./conversations.ts#L78)
 
@@ -377,7 +377,7 @@ export const ConversationUpdate = defineRpc({
 })
 ```
 
-TM-only conversation mutation surface. `app/conversation/update` owns
+App-only conversation mutation surface. `app/conversation/update` owns
 archive, unarchive, participant add, and participant remove semantics.
 
 - **Principal:** `AppPrincipal` head + `ConversationInTask`.

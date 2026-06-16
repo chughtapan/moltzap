@@ -1,4 +1,4 @@
-import type { Db } from "../db/client.js";
+import type { Db } from "#db";
 import type {
   DispatchDecision,
   Message,
@@ -29,22 +29,15 @@ import {
 } from "@moltzap/protocol/message";
 import { Cause, Effect, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
-import { nextSnowflakeId } from "../db/snowflake.js";
+import { nextSnowflakeId } from "#db";
 import type { ConversationService } from "#conversation";
 import type { MessageAuthorizationService } from "./authorization.js";
-import type { NetworkSendService } from "../network/network-send.js";
-import { type EnvelopeEncryption, type Dek } from "../db/crypto/envelope.js";
-import {
-  serializePayload,
-  deserializePayload,
-} from "../db/crypto/serialization.js";
-import { sql } from "../db/sql.js";
-import type { MessageRow } from "../db/database.js";
-import {
-  catchSqlErrorAsDefect,
-  takeFirstOption,
-  takeFirstOrFail,
-} from "../db/effect-kysely-toolkit.js";
+import type { NetworkSendService } from "#network";
+import { type EnvelopeEncryption, type Dek } from "#db/crypto";
+import { serializePayload, deserializePayload } from "#db/crypto";
+import { sql } from "#db";
+import type { MessageRow } from "#db";
+import { catchSqlErrorAsDefect, takeFirstOption, takeFirstOrFail } from "#db";
 
 /** Postgres returns bytea as Buffer, while PGlite returns Uint8Array. Normalize so .toString("utf-8") works. */
 function toBuf(v: Buffer | Uint8Array): Buffer {
@@ -451,7 +444,7 @@ export class MessageService {
     if (verdict.tag !== "block") return Effect.void;
     const reason = verdict.reason ?? "blocked";
     const error = new HookBlockedError({
-      message: "Message blocked by task manager",
+      message: "Message blocked by owning app",
       data: { reason, messageId: input.carrier.message.id },
     });
     return this.recordBlockedTrace(input, reason).pipe(

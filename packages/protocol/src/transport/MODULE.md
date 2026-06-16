@@ -831,7 +831,7 @@ export interface RpcDefinition<
   /**
    * The ordered authority list. The FIRST element is exactly one principal
    * requirement (`AgentPrincipal` | `AppPrincipal` |
-   * `AuthenticatedPrincipal`); an optional `AgentClaimed` refinement
+   * `AuthenticatedPrincipal`); an optional `ActiveAgent` refinement
    * (agent-only) follows; the rest are requirement tags, in run order. Empty for
    * the unauthenticated connect methods (`agent/network/connect`, `app/network/connect`). The
    * server stacks each requirement middleware; each element's `failure` folds

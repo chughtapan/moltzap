@@ -32,10 +32,10 @@ import { TreeFormatter } from "effect/ParseResult";
 import {
   RegistrationSecret,
   ServerEncryptionMasterSecret,
-} from "./config/secrets.js";
+} from "#config/secrets";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { UserId } from "@moltzap/protocol/identity";
-import type { Db } from "./db/client.js";
+import type { Db } from "#db";
 
 // ─────────────────────────────────────────────────────────────────────
 // Public: CoreConfig — `createCoreApp` boot input
@@ -445,17 +445,9 @@ function parseCorsOriginsRaw(raw: string | undefined): string[] {
 }
 
 function loadProcessEnvSnapshot(): Effect.Effect<ProcessEnvSnapshot, never> {
-  // ENCRYPTION_MASTER_SECRET reads as Redacted; we unwrap into the snapshot
-  // immediately, but the Effect log/error path that fires during config-read
-  // never sees the raw value because Redacted intercepts string coercion.
   return Config.all({
     CORS_ORIGINS: opt(Config.string("CORS_ORIGINS")),
     DATABASE_URL: opt(Config.string("DATABASE_URL")),
-    ENCRYPTION_MASTER_SECRET: opt(
-      Config.redacted("ENCRYPTION_MASTER_SECRET"),
-    ).pipe(
-      Config.map((r) => (r === undefined ? undefined : Redacted.value(r))),
-    ),
     MOLTZAP_ADMIN_USER_ID: opt(Config.string("MOLTZAP_ADMIN_USER_ID")),
     MOLTZAP_CONFIG: opt(Config.string("MOLTZAP_CONFIG")),
     MOLTZAP_DEV_MODE: opt(Config.string("MOLTZAP_DEV_MODE")),
@@ -489,6 +481,9 @@ interface BootPlanInputs {
   readonly configDirectory: string;
   readonly processEnv: ProcessEnvSnapshot;
   readonly configPath: string;
+  readonly encryptionMasterSecretFromEnv:
+    | ServerEncryptionMasterSecret
+    | undefined;
 }
 
 function decodeEnvSecret<A, I>(
@@ -506,6 +501,32 @@ function decodeEnvSecret<A, I>(
         configPath,
         `${envKey} is invalid: ${TreeFormatter.formatErrorSync(cause)}`,
       ),
+    ),
+  );
+}
+
+function loadEncryptionMasterSecretFromEnv(
+  configPath: string,
+): Effect.Effect<ServerEncryptionMasterSecret | undefined, ConfigLoadError> {
+  return Config.option(Config.redacted("ENCRYPTION_MASTER_SECRET")).pipe(
+    Effect.withConfigProvider(ConfigProvider.fromEnv()),
+    Effect.mapError((cause) =>
+      makeInvalidEnvError(
+        configPath,
+        `ENCRYPTION_MASTER_SECRET is invalid: ${String(cause)}`,
+      ),
+    ),
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(undefined),
+        onSome: (secret) =>
+          decodeEnvSecret(
+            ServerEncryptionMasterSecret,
+            Redacted.value(secret),
+            "ENCRYPTION_MASTER_SECRET",
+            configPath,
+          ),
+      }),
     ),
   );
 }
@@ -681,12 +702,6 @@ function buildBootPlan(
       configPath,
     );
     const adminUserId = yield* resolveAdminUserId(processEnv, yaml, configPath);
-    const encryptionFromEnv = yield* decodeEnvSecret(
-      ServerEncryptionMasterSecret,
-      processEnv["ENCRYPTION_MASTER_SECRET"],
-      "ENCRYPTION_MASTER_SECRET",
-      configPath,
-    );
     return assembleBootPlan(
       inputs,
       {
@@ -696,7 +711,7 @@ function buildBootPlan(
         databaseUrl,
         adminUserId,
       },
-      encryptionFromEnv,
+      inputs.encryptionMasterSecretFromEnv,
     );
   });
 }
@@ -729,12 +744,22 @@ export function loadStandaloneConfig(
       processEnv,
       explicit,
     ).pipe(Effect.provide(NodeContext.layer));
+    const encryptionMasterSecretFromEnv =
+      input.processEnv === undefined
+        ? yield* loadEncryptionMasterSecretFromEnv(configPath)
+        : yield* decodeEnvSecret(
+            ServerEncryptionMasterSecret,
+            input.processEnv["ENCRYPTION_MASTER_SECRET"],
+            "ENCRYPTION_MASTER_SECRET",
+            configPath,
+          );
 
     return yield* buildBootPlan({
       yaml,
       configDirectory,
       processEnv,
       configPath,
+      encryptionMasterSecretFromEnv,
     });
   }).pipe(Effect.withSpan("loadStandaloneConfig"));
 }
