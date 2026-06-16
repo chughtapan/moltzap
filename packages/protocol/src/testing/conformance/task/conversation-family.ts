@@ -100,7 +100,7 @@ const assertTaskCreateShape = (payload: {
   task: { status: string };
   conversation: Conversation | null;
 }): Effect.Effect<void, FixtureError> => {
-  // The conformance moderator auto-accepts the app/task/create TM
+  // The conformance app client auto-accepts app/task/create
   // callback, so agent/task/request returns an `active` task (waiting →
   // active transition completes before the RPC resolves).
   if (payload.task.status !== "active") {
@@ -127,7 +127,7 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     TASK_CREATE_PROPERTY,
-    "agent/task/request under an accepting TM transitions waiting → active and fires agent/task/created to the initiator",
+    "agent/task/request under an accepting app transitions waiting -> active and fires agent/task/created to the initiator",
     Effect.scoped(
       Effect.gen(function* () {
         const alice = yield* acquireActor(
@@ -171,20 +171,20 @@ const awaitTaskCreated = (actor: Actor, property: string) =>
     ),
   );
 
-// ─── TaskRequest — TM reject path ────────────────────────────────────
+// ─── TaskRequest — app reject path ───────────────────────────────────
 
-const TASK_REQUEST_REJECT_PROPERTY = "task-request-tm-reject";
+const TASK_REQUEST_REJECT_PROPERTY = "task-request-app-reject";
 const REJECT_REASON = "app_policy";
 
 // Register a SEPARATE app principal (HTTP + `appKey` Connect) whose
 // `app/task/create` callback always rejects. Returns the server-minted appId
 // that the requesting agent targets in `agent/task/request`.
-const registerRejectingTm = (ctx: ConformanceRunContext) =>
+const registerRejectingApp = (ctx: ConformanceRunContext) =>
   registerTestApp({
     baseUrl: ctx.realServer.baseUrl,
     wsUrl: ctx.realServer.wsUrl,
     appId: crypto.randomUUID(),
-    name: "rejecting-tm",
+    name: "rejecting-app",
     // `task_create` becomes a `kind: "hook"` policy so the server
     // round-trips the task-admission decision to the app; a static
     // `accept` policy would resolve in-process and never reach the
@@ -215,7 +215,7 @@ const assertTaskRequestFailed = (
     // generic internal error — that is the contract a requester
     // discriminates on. Asserting the specific `_tag` keeps this
     // non-vacuous: any-Left would also pass for an unrelated transport
-    // failure, which would not prove the TM-reject path.
+    // failure, which would not prove the app-reject path.
     onLeft: (error) => {
       const tag = (error as { readonly tag?: unknown }).tag;
       return tag === "TaskRejected"
@@ -231,7 +231,7 @@ const assertTaskRequestFailed = (
       Effect.fail(
         deliveryViolation(
           TASK_REQUEST_REJECT_PROPERTY,
-          "agent/task/request resolved OK; expected an RPC error on TM reject",
+          "agent/task/request resolved OK; expected an RPC error on app reject",
         ),
       ),
   });
@@ -265,7 +265,7 @@ export function registerTaskRequestReject(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     TASK_REQUEST_REJECT_PROPERTY,
-    "agent/task/request fails and fires task/failed when the bound TM rejects via the app/task/create callback",
+    "agent/task/request fails and fires task/failed when the owning app rejects via the app/task/create callback",
     Effect.scoped(
       Effect.gen(function* () {
         const alice = yield* acquireActor(
@@ -278,7 +278,7 @@ export function registerTaskRequestReject(ctx: ConformanceRunContext): void {
           TASK_REQUEST_REJECT_PROPERTY,
           "tcf-rej-b",
         );
-        const appId = yield* registerRejectingTm(ctx);
+        const appId = yield* registerRejectingApp(ctx);
         const outcome = yield* alice.client
           .sendRpc(TaskRequest, {
             appId,
@@ -287,7 +287,7 @@ export function registerTaskRequestReject(ctx: ConformanceRunContext): void {
           .pipe(Effect.either);
         yield* assertTaskRequestFailed(outcome);
         // The initiator observes `task/failed` on the waiting → failed
-        // transition, carrying the TM's reject reason.
+        // transition, carrying the app's reject reason.
         yield* assertTaskFailedReason(alice);
       }),
     ).pipe(Effect.withSpan("registerTaskRequestReject")),

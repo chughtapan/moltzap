@@ -7,9 +7,9 @@
  *     `ownerUserId`.
  */
 import { Effect } from "effect";
-import type { Db } from "../../db/client.js";
+import type { Db } from "#db";
 import type { AgentId, UserId } from "#core";
-import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "#db";
 
 export interface VisibleAgentIdsRequest {
   readonly db: Db;

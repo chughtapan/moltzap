@@ -5,7 +5,10 @@ import {
   createHash,
 } from "node:crypto";
 import { Redacted } from "effect";
-import type { ServerEncryptionMasterSecret } from "../../config/secrets.js";
+import type { ServerEncryptionMasterSecret } from "#config/secrets";
+import { Dek } from "./dek.js";
+import { Kek } from "./kek.js";
+import { MasterKey } from "./master-key.js";
 
 /**
  * Envelope encryption layer:
@@ -23,22 +26,6 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const KEY_LENGTH = 32;
 
-declare const kekBrand: unique symbol;
-declare const dekBrand: unique symbol;
-declare const masterKeyBrand: unique symbol;
-
-export type Kek = Buffer & {
-  readonly [kekBrand]: never;
-};
-
-export type Dek = Buffer & {
-  readonly [dekBrand]: never;
-};
-
-type MasterKey = Buffer & {
-  readonly [masterKeyBrand]: never;
-};
-
 export interface EncryptedPayload {
   ciphertext: Buffer;
   iv: Buffer;
@@ -46,19 +33,7 @@ export interface EncryptedPayload {
 }
 
 function keyBytes(key: Kek | Dek | MasterKey): Buffer {
-  return key;
-}
-
-function kek(bytes: Buffer): Kek {
-  return bytes as Kek;
-}
-
-function dek(bytes: Buffer): Dek {
-  return bytes as Dek;
-}
-
-function masterKey(bytes: Buffer): MasterKey {
-  return bytes as MasterKey;
+  return key.bytes;
 }
 
 function encryptBytes(plaintext: Buffer, key: Buffer): EncryptedPayload {
@@ -78,7 +53,7 @@ function decryptBytes(payload: EncryptedPayload, key: Buffer): Buffer {
 function deriveKeyFromSecret(
   masterSecret: ServerEncryptionMasterSecret,
 ): MasterKey {
-  return masterKey(
+  return MasterKey.fromBytes(
     createHash("sha256")
       .update(Buffer.from(Redacted.value(masterSecret), "base64"))
       .digest(),
@@ -97,11 +72,11 @@ export class EnvelopeEncryption {
   }
 
   generateKek(): Kek {
-    return kek(generateKeyMaterial());
+    return Kek.fromBytes(generateKeyMaterial());
   }
 
   generateDek(): Dek {
-    return dek(generateKeyMaterial());
+    return Dek.fromBytes(generateKeyMaterial());
   }
 
   encryptKek(key: Kek): EncryptedPayload {
@@ -109,7 +84,7 @@ export class EnvelopeEncryption {
   }
 
   decryptKek(wrapped: EncryptedPayload): Kek {
-    return kek(decryptBytes(wrapped, keyBytes(this.masterKey)));
+    return Kek.fromBytes(decryptBytes(wrapped, keyBytes(this.masterKey)));
   }
 
   wrapDek(key: Dek, wrappingKey: Kek): EncryptedPayload {
@@ -117,7 +92,7 @@ export class EnvelopeEncryption {
   }
 
   unwrapDek(wrapped: EncryptedPayload, wrappingKey: Kek): Dek {
-    return dek(decryptBytes(wrapped, keyBytes(wrappingKey)));
+    return Dek.fromBytes(decryptBytes(wrapped, keyBytes(wrappingKey)));
   }
 
   rewrapDek(

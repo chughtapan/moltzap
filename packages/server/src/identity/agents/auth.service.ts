@@ -1,17 +1,17 @@
 import { Effect, Option } from "effect";
-import type { Db } from "../../db/client.js";
+import type { Db } from "#db";
 import type { AgentKey } from "@moltzap/protocol/identity";
 import type { Register } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, UserId } from "#core";
 
 type RegisterParams = ParamsOf<typeof Register>;
-import { generateApiKey, parseApiKey, hashSecret } from "../credential-keys.js";
 import {
-  catchSqlErrorAsDefect,
-  takeFirstOption,
-  takeFirstOrFail,
-} from "../../db/effect-kysely-toolkit.js";
+  generateApiKey,
+  parseApiKey,
+  hashSecret,
+} from "#identity/credential-keys";
+import { catchSqlErrorAsDefect, takeFirstOption, takeFirstOrFail } from "#db";
 
 export class AuthService {
   constructor(private db: Db) {}

@@ -13,11 +13,8 @@ import {
   type AppHost,
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
-import type { Db } from "../db/client.js";
-import {
-  catchSqlErrorAsDefect,
-  takeFirstOption,
-} from "../db/effect-kysely-toolkit.js";
+import type { Db } from "#db";
+import { catchSqlErrorAsDefect, takeFirstOption } from "#db";
 import {
   lookupAppBoundForConversation,
   type AppBoundConversationLookup,

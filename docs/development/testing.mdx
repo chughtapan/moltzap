@@ -38,23 +38,19 @@ import {
   startCoreTestServer,
   stopCoreTestServer,
   resetCoreTestDb,
-  getCoreApp,
-  getCoreDb,
   getBaseUrl,
   getWsUrl,
-  expectRpcFailure,
-  makePgliteHarness,
-  type PgliteHarness,
+  createTestAgent,
+  type CoreTestServer,
 } from "@moltzap/server-core/test-utils";
 ```
 
 The published `@moltzap/server-core/test-utils` surface includes the
 server-bring-up harness (`startCoreTestServer`, `stopCoreTestServer`,
-`resetCoreTestDb`, `getCoreApp`, `getCoreDb`, `getBaseUrl`, `getWsUrl`),
-`createTestAgent`, `expectRpcFailure`, and the PGlite harness. Client-side
-multi-agent scaffolding (`closeAllClients`, group/pair builders) remains
-internal test infrastructure under `packages/server/src/test-utils/helpers.ts`;
-tests inside `packages/server` import it relatively.
+`resetCoreTestDb`, `getBaseUrl`, `getWsUrl`), `createTestAgent`, and the
+`CoreTestServer` handle type. Deeper DB/PGlite helpers remain internal server
+test infrastructure under `packages/server/src/test-utils/`; tests inside
+`packages/server` import those concrete helper modules directly.
 
 Public-surface helpers:
 

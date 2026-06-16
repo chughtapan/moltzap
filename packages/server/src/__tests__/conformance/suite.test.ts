@@ -34,7 +34,7 @@ import {
 import {
   startCoreTestServer,
   stopCoreTestServer,
-} from "../../test-utils/index.js";
+} from "../../test-utils/server.js";
 
 const ENABLED_ENV_VALUE = "1";
 const DEFAULT_TOXIPROXY_URL = "http://127.0.0.1:8474";

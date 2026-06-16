@@ -1,11 +1,8 @@
 import type { Db } from "../client.js";
 import type { ConversationKeyRow, Database } from "../database.js";
 import type { Transaction } from "../kysely-vendor.js";
-import {
-  EnvelopeEncryption,
-  type EncryptedPayload,
-  type Kek,
-} from "./envelope.js";
+import { EnvelopeEncryption, type EncryptedPayload } from "./envelope.js";
+import type { Kek } from "./kek.js";
 import { serializePayload, deserializePayload } from "./serialization.js";
 import { Data, Effect } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";

@@ -4,7 +4,7 @@
 
 import { Schema } from "effect";
 import { AgentId, AgentNotFoundError } from "#identity/agents";
-import { AgentClaimed } from "#identity/requirements";
+import { ActiveAgent } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { ListLimitSchema } from "#transport";
 import { defineNotification, defineRpc } from "#transport";
@@ -28,7 +28,7 @@ const ConversationSchema = conversationSchema();
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * TM-only: mint a new conversation under an existing task. Every
+ * App-only: mint a new conversation under an existing task. Every
  * entry in `participants` MUST already appear in `task_participants`
  * for `taskId`; violations return `ParticipantNotAdmittedError`.
  *
@@ -84,7 +84,7 @@ export type ConversationListItem = Schema.Schema.Type<
  * all tasks). No filter params; archived rows are included; callers filter
  * `archivedAt` locally.
  *
- * - **Principal:** `AgentPrincipal` head + `AgentClaimed` (claimed/active agent).
+ * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
  * @error InvalidParamsError when the `cursor` does not decode
  * @error ConversationNotFoundError when a listed conversation's row vanished mid-projection
  */
@@ -98,7 +98,7 @@ export const ConversationList = defineRpc({
     items: Schema.Array(ConversationListItemSchema),
     nextCursor: Schema.optional(Schema.String),
   }),
-  requires: [AgentPrincipal, AgentClaimed],
+  requires: [AgentPrincipal, ActiveAgent],
   errors: [InvalidParamsError, ConversationNotFoundError],
 });
 
@@ -132,7 +132,7 @@ export type ConversationUpdateParams = Schema.Schema.Type<
 >;
 
 /**
- * TM-only conversation mutation surface. `app/conversation/update` owns
+ * App-only conversation mutation surface. `app/conversation/update` owns
  * archive, unarchive, participant add, and participant remove semantics.
  *
  * - **Principal:** `AppPrincipal` head + `ConversationInTask`.

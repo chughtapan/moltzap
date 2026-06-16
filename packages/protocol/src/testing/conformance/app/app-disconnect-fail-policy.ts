@@ -18,9 +18,9 @@
  * The tasks/* layer creates a task without bootstrapping the
  * manifest-declared conversation map, so this property cannot assemble
  * the dispatch precondition (a non-empty conversation attached to the
- * task) without a TM-registration step that is out of scope for the
+ * task) without an app-registration step that is out of scope for the
  * conformance fixture. Property reports `PropertyUnavailable` until a
- * follow-up issue wires the TM-topology dispatch precondition. Property
+ * follow-up issue wires the app-topology dispatch precondition. Property
  * ID stays `boundary/app-disconnect-fail-policy`.
  */
 import { Effect, type Scope } from "effect";
@@ -123,7 +123,7 @@ function missingTopologyUnavailable() {
     new PropertyUnavailable({
       category: CATEGORY,
       name: PROPERTY,
-      reason: `${TaskRequest.name} does not bootstrap session conversations; needs TM-topology dispatch precondition`,
+      reason: `${TaskRequest.name} does not bootstrap session conversations; needs app-topology dispatch precondition`,
     }),
   );
 }

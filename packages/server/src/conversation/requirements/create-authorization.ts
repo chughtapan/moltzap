@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConversationServiceTag } from "#core";
-import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "#db";
 import type {
   AgentNotFoundError,
   NotInContactsError,
@@ -37,7 +37,7 @@ export const authorizeConversationCreate = (
 
 /**
  * Capacity-only authorization for the app-originated
- * `app/conversation/create`. A TM minting a conversation on the task's
+ * `app/conversation/create`. An app minting a conversation on the task's
  * behalf has no agent contact-edges of its own; the targets
  * are already gated by `requireAgentsAreInTaskParticipants` in the
  * handler, so the creator contact-policy basis does NOT apply. Only the

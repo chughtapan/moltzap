@@ -31,7 +31,7 @@ import type { AppAuthService } from "#identity/apps";
 import type { PresenceService } from "#network/presence";
 import type { ConversationService } from "#conversation";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
-import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "#db";
 import type { Connection, ConnectionManager, Originator } from "#socket";
 import type { AppHost } from "#identity/apps";
 

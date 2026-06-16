@@ -70,7 +70,7 @@ source. Update the descriptor, schema, or JSDoc, then run
 
    `requires` is required. The first element is one principal requirement
    (`AgentPrincipal`, `AppPrincipal`, or `AuthenticatedPrincipal`), optionally
-   followed by `AgentClaimed`, then domain requirements in run order.
+   followed by `ActiveAgent`, then domain requirements in run order.
    `agent/connect`, `app/connect`, and server-to-client callbacks use
    `requires: []`.
 
@@ -144,7 +144,7 @@ Type checks:
 - **Domain Requirement** — A requirement that proves domain authority, such as
   `ConversationInTask` or `TaskReadAccess`.
 - **Principal Requirement** — `AgentPrincipal`, `AppPrincipal`,
-  `AuthenticatedPrincipal`, or `AgentClaimed`.
+  `AuthenticatedPrincipal`, or `ActiveAgent`.
 - **Reverse RPC Group** — The server-to-client group containing app callbacks
   and notifications.
 - **Conformance Suite** — Property-based tests under `src/testing/conformance/`

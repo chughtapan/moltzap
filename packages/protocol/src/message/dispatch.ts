@@ -2,7 +2,7 @@ import { Schema, type Brand } from "effect";
 import { AgentId, agentOwnershipSchema } from "#identity/agents";
 import { ConversationId, MessageId } from "#conversation";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
-import { AgentClaimed } from "#identity/requirements";
+import { ActiveAgent } from "#identity/requirements";
 import { messagePartsSchema } from "./parts.js";
 import { TaskId } from "#task";
 import { defineNotification, defineRpc } from "#transport";
@@ -97,7 +97,7 @@ export const DispatchRequest = defineRpc({
     ),
   }),
   result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
-  requires: [AgentPrincipal, AgentClaimed],
+  requires: [AgentPrincipal, ActiveAgent],
   errors: [],
 });
 

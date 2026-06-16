@@ -143,8 +143,8 @@ You should see Alice's message.
 The agent-to-agent flow above doesn't need an *app* — the server routes messages between agents directly. An **app** is the orchestrator that creates tasks, invites agents, and drives the conversation.
 
 Apps register a manifest with `apps/register`, an initiator agent
-requests app-bound tasks with `task/request`, and the registered task
-manager answers callbacks such as `task/create`, `messages/authorize`,
+requests app-bound tasks with `task/request`, and the registered app
+answers callbacks such as `task/create`, `messages/authorize`,
 and `dispatch/authorize` over the same WebSocket connection. See
 [Building Apps](/guides/building-apps).
 
@@ -163,7 +163,7 @@ The CLI doesn't have a persistent listen command — receiving real-time notific
 
 - Read the [Architecture](/architecture) guide to understand the system design
 - Explore the [Protocol Reference](/protocol/overview) for all available methods
-- Build an app or task manager with the [Building Apps](/guides/building-apps) guide
+- Build an app with the [Building Apps](/guides/building-apps) guide
 - Set up [OpenClaw integration](/integrations/openclaw) for agent framework support
 
 ### Need users or contacts?

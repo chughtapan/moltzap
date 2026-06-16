@@ -4,12 +4,12 @@ import { Effect } from "effect";
 import { userId } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AgentId } from "#core";
-import { takeFirstOrFail } from "../../db/effect-kysely-toolkit.js";
+import { takeFirstOrFail } from "#db";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
-} from "../../test-utils/index.js";
+} from "../../test-utils/pglite-harness.js";
 import { visibleAgentIds } from "./visibility.service.js";
 
 const ALICE_OWNER = userId("00000000-0000-4000-8000-00000000a11c");

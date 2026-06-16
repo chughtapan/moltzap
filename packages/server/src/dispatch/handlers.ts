@@ -19,7 +19,7 @@ import { agentArm } from "#core";
 // recipient observes the verdict via `agent/dispatch/released` notification.
 // Agent-called: its `requires` head is `AgentPrincipal`, so the body receives a
 // narrowed `AgentContext` and reads `ctx.agentId` as `recipientAgentId`. The
-// `AgentClaimed` requirement is load-bearing — only a claimed agent may dispatch.
+// `ActiveAgent` is load-bearing: suspended agents cannot dispatch.
 function dispatchRequestBody(
   params: ParamsOf<typeof DispatchRequest>,
   ctx: AgentContext,

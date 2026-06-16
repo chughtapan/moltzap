@@ -8,20 +8,19 @@ Identity-owned refinement requirement tags.
 
 ## Public surface
 
-### [`AgentClaimed`](./agent-claimed.ts#L11)
+### [`ActiveAgent`](./active-agent.ts#L10)
 
 _Class_
 
 ```ts
-export class AgentClaimed extends RpcMiddleware.Tag<AgentClaimed>()(
-  "@moltzap/protocol/requirement/AgentClaimed",
-  { failure: agentClaimedFailure },
+export class ActiveAgent extends RpcMiddleware.Tag<ActiveAgent>()(
+  "@moltzap/protocol/requirement/ActiveAgent",
+  { failure: activeAgentFailure },
 ) {}
 ```
 
-Refinement requirement: the agent arm must be claimed/active. Type-paired
-with `AgentPrincipal`; the server reads the live agent connection status.
+Agent-principal refinement: the connected agent must be active.
 
 ## Files
 
-- `agent-claimed.ts`
+- `active-agent.ts`

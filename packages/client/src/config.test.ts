@@ -21,7 +21,6 @@ const PROFILE_AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440029");
 const TEST_PROFILE_NAME = "test-profile";
 const TEST_PROFILE_AGENT_NAME = "profile-agent";
 const TEST_SERVER_URL = "wss://test.moltzap.local";
-const MISSING_API_KEY_MESSAGE = "missing an apiKey";
 const PROFILE_NOT_FOUND_ERROR = "ProfileNotFoundError";
 
 const ConfigFixtureSchema = Schema.parseJson(
@@ -31,7 +30,7 @@ const ConfigFixtureSchema = Schema.parseJson(
         key: Schema.String,
         value: Schema.Struct({
           agentId: AgentId,
-          apiKey: Schema.optional(AgentKey),
+          apiKey: AgentKey,
           agentName: Schema.String,
         }),
       }),
@@ -46,15 +45,6 @@ const profileAuthConfig = (): ConfigFixture => ({
     [TEST_PROFILE_NAME]: {
       agentId: PROFILE_AGENT_ID,
       apiKey: redactedAgentKey(PROFILE_AGENT_KEY),
-      agentName: TEST_PROFILE_AGENT_NAME,
-    },
-  },
-});
-
-const profileWithoutCredentialConfig = (): ConfigFixture => ({
-  profiles: {
-    [TEST_PROFILE_NAME]: {
-      agentId: PROFILE_AGENT_ID,
       agentName: TEST_PROFILE_AGENT_NAME,
     },
   },
@@ -109,18 +99,6 @@ function missingProfileFails() {
   );
 }
 
-function profileWithoutApiKeyFails() {
-  return withNodeContext(
-    Effect.gen(function* () {
-      yield* writeConfigFile(profileWithoutCredentialConfig());
-
-      const exit = yield* Effect.exit(loadServiceConfig(TEST_PROFILE_NAME));
-      expect(Exit.isFailure(exit)).toBe(true);
-      expect(String(exit)).toContain(MISSING_API_KEY_MESSAGE);
-    }),
-  );
-}
-
 describe("loadServiceConfig", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
@@ -136,6 +114,4 @@ describe("loadServiceConfig", () => {
   );
 
   it("fails when the named profile does not exist", missingProfileFails);
-
-  it("fails when the named profile has no apiKey", profileWithoutApiKeyFails);
 });

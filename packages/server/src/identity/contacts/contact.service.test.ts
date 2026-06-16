@@ -6,7 +6,7 @@ import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
-} from "../../test-utils/index.js";
+} from "../../test-utils/pglite-harness.js";
 import { ContactsService } from "./contact.service.js";
 
 const ALICE = userId("00000000-0000-4000-8000-00000000a11c");

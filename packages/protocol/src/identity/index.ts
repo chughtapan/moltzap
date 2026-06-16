@@ -32,7 +32,7 @@ export {
   AuthenticatedPrincipal,
 } from "./principals/index.js";
 export type { PrincipalRequirement } from "./principals/index.js";
-export { AgentClaimed } from "./requirements/index.js";
+export { ActiveAgent } from "./requirements/index.js";
 
 export {
   ContactId,

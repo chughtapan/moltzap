@@ -8,7 +8,7 @@ import {
   resetTestDbEffect,
   registerAgent,
 } from "../helpers.js";
-import { getCoreDb } from "../../../test-utils/index.js";
+import { getCoreDb } from "../../../test-utils/server.js";
 import type { AgentId } from "@moltzap/protocol/identity";
 
 import { ConversationList } from "@moltzap/protocol/conversation";

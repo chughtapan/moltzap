@@ -16,7 +16,7 @@ import {
   obtainConversationSendAccess,
 } from "#conversation/requirements";
 import { LeaseInvalidError } from "#dispatch";
-import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "#db";
 import type { LeaseRegistry } from "#dispatch";
 import type { MessageService } from "./message.service.js";
 

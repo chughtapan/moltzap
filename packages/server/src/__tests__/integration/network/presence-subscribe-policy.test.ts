@@ -17,7 +17,7 @@ import {
   trackClient,
   connectTestClient,
   createTestUser,
-  registerClaimedAgent,
+  registerOwnedAgent,
 } from "../helpers.js";
 import { agentId, userId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
@@ -65,8 +65,8 @@ beforeEach(() =>
   ),
 );
 
-function registerClaimed(name: string, ownerUserId: UserId) {
-  return registerClaimedAgent({
+function registerOwned(name: string, ownerUserId: UserId) {
+  return registerOwnedAgent({
     baseUrl,
     inviteCode: REGISTRATION_SECRET,
     name,
@@ -77,7 +77,7 @@ function registerClaimed(name: string, ownerUserId: UserId) {
 function registerAndConnectOwned(opts: { name: string; ownerUserId: UserId }) {
   return Effect.gen(function* () {
     const idx = ++agentCounter;
-    const reg = yield* registerClaimed(`${opts.name}-${idx}`, opts.ownerUserId);
+    const reg = yield* registerOwned(`${opts.name}-${idx}`, opts.ownerUserId);
     const client = yield* connectTestClient({
       wsUrl,
       agentId: reg.agentId,

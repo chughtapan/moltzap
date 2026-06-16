@@ -1,5 +1,6 @@
 /** @file Server WebSocket/session runtime boundary. */
 
+export { makeCoreSocketHandler } from "./server-socket.js";
 export {
   ConnectionManager,
   sendRpcToClient,

@@ -6,10 +6,10 @@
  */
 import { Context, Effect, Layer } from "effect";
 
-import type { Db } from "../db/client.js";
+import type { Db } from "#db";
 import { ConnectionManager, type Connection } from "#socket";
-import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
-import { NetworkSendService } from "../network/network-send.js";
+import { AgentEndpointResolver } from "#network";
+import { NetworkSendService } from "#network";
 import { AuthService } from "#identity/agents";
 import { AppAuthService } from "#identity/apps";
 import { ContactsService } from "#identity/contacts";
@@ -23,7 +23,7 @@ import {
   makeLeaseRegistry,
   type LeaseRegistry,
 } from "#dispatch";
-import type { EnvelopeEncryption } from "../db/crypto/envelope.js";
+import type { EnvelopeEncryption } from "#db/crypto";
 import type { ConnectionHook, DisconnectionHook } from "./types.js";
 
 /** Default retention window for terminal lease records: 5 minutes. */

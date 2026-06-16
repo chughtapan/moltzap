@@ -2,27 +2,27 @@
 
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { sql } from "./db/sql.js";
+import { sql } from "#db";
 import { Data, Effect, Layer } from "effect";
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
-import { createCoreApp } from "./core/app.js";
+import { createCoreApp } from "#core";
 import { applyOutboundWebhookCap } from "#network";
 import {
   loadStandaloneConfig,
   type CoreConfig,
   type ConfigLoadError,
   type StandaloneBootPlan,
-} from "./config.js";
-import type { ServerEncryptionMasterSecret } from "./config/secrets.js";
-import { seedInitialKek } from "./db/crypto/key-rotation.js";
-import { EnvelopeEncryption } from "./db/crypto/envelope.js";
-import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
+} from "#config";
+import type { ServerEncryptionMasterSecret } from "#config/secrets";
+import { seedInitialKek } from "#db/crypto";
+import { EnvelopeEncryption } from "#db/crypto";
+import { makeEffectKysely } from "#db";
 import { WebhookContactService } from "#identity/contacts";
 import type { CoreApp } from "#core";
-import type { Database } from "./db/database.js";
-import type { Db } from "./db/client.js";
-import { PostgresDialect } from "./db/postgres-dialect.js";
+import type { Database } from "#db";
+import type { Db } from "#db";
+import { PostgresDialect } from "#db";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
@@ -304,9 +304,9 @@ function startServerEffect(
       ),
     );
     const httpClient = applyOutboundWebhookCap(rawHttpClient);
-    yield* Effect.logWarning(
-      "Boot admin user configured; registered agents will be auto-owned until the app registration flow claims them",
-    ).pipe(Effect.annotateLogs({ adminUserId: bootPlan.adminUserId }));
+    yield* Effect.logWarning("Boot admin user configured").pipe(
+      Effect.annotateLogs({ adminUserId: bootPlan.adminUserId }),
+    );
     const coreConfig = makeCoreConfig({
       bootPlan,
       handle: database.handle,

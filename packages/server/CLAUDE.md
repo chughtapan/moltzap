@@ -74,8 +74,8 @@ returns the in-memory variant. Handlers and services never branch on
 `db.kind`.
 
 `tasks.app_id` is `TEXT NOT NULL` — every task binds to a registered
-app, and TM authority is proved per-frame via app-ownership of the
-  bound task (`assertAppOwnsTask`, see
+app, and app authority is proved per-frame via app ownership of the
+bound task (`assertAppOwnsTask`, see
 `packages/protocol/src/task/requirements/assert-requirement-matches-task.ts`):
 the 8 task-admin RPCs load the task and assert the calling
 `AppConnection`'s `appId` equals `tasks.app_id`. The schema does not
@@ -98,10 +98,10 @@ derived from `app_id` at routing time.
   `AppId`. Dispatch, message, and task callback behavior lives in the
   matching domain services; they look up registered app endpoints through
   AppHost.
-- **TM (Task Manager)** — Authority for a task's conversation set.
+- **App authority** — Authority for a task's conversation set.
   The default-app UUID (`DEFAULT_APP_ID`) covers ordinary DMs/groups
   (no moderator); a registered app's UUID covers app-moderated
-  tasks. `tasks.app_id` is the routing key; per-frame TM-authority
+  tasks. `tasks.app_id` is the routing key; per-frame app-authority
   checks run through `assertAppOwnsTask` on the calling `AppConnection`.
 - **Dispatch lease** — Single-use token gating inbound message
   processing. In-memory state in `LeaseRegistry`; states PENDING →

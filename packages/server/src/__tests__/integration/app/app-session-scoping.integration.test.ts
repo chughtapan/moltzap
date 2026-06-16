@@ -1,12 +1,12 @@
 /**
- * App-session-scoping: TM authority belongs to the app principal that owns the
+ * App-session-scoping: app authority belongs to the app principal that owns the
  * task. An app authenticates via `appKey` as an `AppConnection`, and
  * task-admin RPCs (`app/conversation/create`, etc.) are gated by
  * `assertAppOwnsTask(connection.auth.appId, task)`. The requesting agent is a
  * separate principal.
  *
  * Coverage:
- * 1. The owning app's `AppConnection` passes the TM gate.
+ * 1. The owning app's `AppConnection` passes the app ownership gate.
  * 2. An agent connection does not pass (only an `AppConnection` is an app
  *    principal; `assertCallerAppOwnsTask` rejects non-app callers).
  * 3. A different app (different `appKey` -> different DB appId) does not own
@@ -127,7 +127,7 @@ function owningAppConnPassesTmGate() {
   });
 }
 
-function nonOwningAppFailsTmGate() {
+function nonOwningAppFailsAppOwnershipGate() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-3");
     const bob = yield* registerAndConnect("bob-3");
@@ -157,11 +157,15 @@ function nonOwningAppFailsTmGate() {
   });
 }
 
-describe("app-session-scoping — TM authority via owning app principal", () => {
+describe("app-session-scoping — app authority via owning app principal", () => {
   it(
-    "the owning app connection passes the TM gate",
+    "the owning app connection passes the app ownership gate",
     owningAppConnPassesTmGate,
     20_000,
   );
-  it("a non-owning app fails the TM gate", nonOwningAppFailsTmGate, 20_000);
+  it(
+    "a non-owning app fails the app ownership gate",
+    nonOwningAppFailsAppOwnershipGate,
+    20_000,
+  );
 });

@@ -2,7 +2,7 @@ import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ContactService } from "#identity/contacts";
 import type { ConnectionManager } from "#socket";
-import type { NetworkSendService } from "../network/network-send.js";
+import type { NetworkSendService } from "#network";
 import type { LeaseRegistry } from "#dispatch";
 
 export type { UserId, AgentId };

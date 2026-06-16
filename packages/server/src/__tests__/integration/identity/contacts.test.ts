@@ -16,7 +16,7 @@ import {
   trackClient,
   connectTestClient,
   createTestUser,
-  registerClaimedAgent,
+  registerOwnedAgent,
   expectEitherLeft,
   type TestAgentClient,
 } from "../helpers.js";
@@ -65,13 +65,13 @@ function setupAliceAndBob(): Effect.Effect<
 > {
   return Effect.gen(function* () {
     const idx = ++pairCounter;
-    const aliceReg = yield* registerClaimedAgent({
+    const aliceReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `alice-contacts-${idx}`,
       user: ALICE_USER,
     });
-    const bobReg = yield* registerClaimedAgent({
+    const bobReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `bob-contacts-${idx}`,
@@ -203,7 +203,7 @@ it("agent/identity/contacts/list returns both accepted rows", () =>
 
 it("agent/identity/contacts/add rejects self-add", () =>
   Effect.gen(function* () {
-    const aliceReg = yield* registerClaimedAgent({
+    const aliceReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: "alice-contacts-self",

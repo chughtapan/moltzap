@@ -14,14 +14,26 @@
       "#http": [
         "http/index.ts"
       ],
+      "#config": [
+        "config.ts"
+      ],
+      "#config/secrets": [
+        "config/secrets.ts"
+      ],
       "#db": [
-        "db/client.ts"
+        "db/barrel.ts"
+      ],
+      "#db/crypto": [
+        "db/crypto/barrel.ts"
       ],
       "#identity/agents": [
         "identity/agents/index.ts"
       ],
       "#identity/apps": [
         "identity/apps/index.ts"
+      ],
+      "#identity/credential-keys": [
+        "identity/credential-keys.ts"
       ],
       "#identity/contacts/requirements": [
         "identity/contacts/requirements/index.ts"

@@ -5,7 +5,7 @@ import { Effect, pipe, Schema } from "effect";
 import {
   RegistrationSecret,
   ServerEncryptionMasterSecret,
-} from "../config/secrets.js";
+} from "#config/secrets";
 import type {
   AgentId,
   UserId as UserIdValue,
@@ -16,18 +16,15 @@ import {
   SimpleSpanProcessor,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { createCoreApp } from "../core/app.js";
-import { seedInitialKek } from "../db/crypto/key-rotation.js";
-import { EnvelopeEncryption } from "../db/crypto/envelope.js";
+import { createCoreApp } from "#core";
+import { seedInitialKek } from "#db/crypto";
+import { EnvelopeEncryption } from "#db/crypto";
 import type { CoreApp } from "#core";
-import type { Database } from "../db/database.js";
-import {
-  makeEffectKysely,
-  type EffectKysely,
-} from "../db/effect-kysely-toolkit.js";
+import type { Database } from "#db";
+import { makeEffectKysely, type EffectKysely } from "#db";
 import { loadCoreSchemaSql } from "./core-schema-sql.js";
 
-export type { Database } from "../db/database.js";
+export type { Database } from "#db";
 export type { CoreApp } from "#core";
 
 class CoreTestServerError extends Error {
@@ -387,14 +384,6 @@ export function getCoreEncryptionEnvelope(): EnvelopeEncryption {
     throw new CoreTestServerError("Test server encryption not enabled.");
   }
   return new EnvelopeEncryption(_masterSecret);
-}
-
-export function getCoreApp(): CoreApp {
-  if (!coreApp)
-    throw new CoreTestServerError(
-      "Test server not running. Call startCoreTestServer() first.",
-    );
-  return coreApp;
 }
 
 export function getBaseUrl(): string {

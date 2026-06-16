@@ -199,8 +199,20 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/server/src/http/index.ts"),
   },
   {
+    find: /^#config$/,
+    replacement: fromRoot("packages/server/src/config.ts"),
+  },
+  {
+    find: /^#config\/secrets$/,
+    replacement: fromRoot("packages/server/src/config/secrets.ts"),
+  },
+  {
     find: /^#db$/,
-    replacement: fromRoot("packages/server/src/db/client.ts"),
+    replacement: fromRoot("packages/server/src/db/barrel.ts"),
+  },
+  {
+    find: /^#db\/crypto$/,
+    replacement: fromRoot("packages/server/src/db/crypto/barrel.ts"),
   },
   {
     find: /^#identity\/agents$/,
@@ -209,6 +221,10 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   {
     find: /^#identity\/apps$/,
     replacement: fromRoot("packages/server/src/identity/apps/index.ts"),
+  },
+  {
+    find: /^#identity\/credential-keys$/,
+    replacement: fromRoot("packages/server/src/identity/credential-keys.ts"),
   },
   {
     find: /^#identity\/contacts$/,

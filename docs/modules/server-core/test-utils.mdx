@@ -160,7 +160,7 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L66)
+### [`CoreTestRuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L63)
 
 _Interface_
 
@@ -173,7 +173,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L121)
+### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L118)
 
 _Interface_
 
@@ -214,7 +214,7 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent, never>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L46)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L43)
 
 _Variable_
 
@@ -224,22 +224,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`expectRpcFailure`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/rpc-error.ts#L21)
-
-_Function_
-
-```ts
-export const expectRpcFailure = <A, R>(
-  effect: Effect.Effect<A, RpcTestError, R>,
-  expectedTag: string,
-): Effect.Effect<RpcResponseError, never, R>
-```
-
-Asserts the RPC effect fails with a wire `error` carrying `expectedTag` and
-returns the narrowed error for follow-up assertions. `catchTags` routes by
-tag name declaratively so callers never reach for `err._tag`.
-
-### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L400)
+### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L389)
 
 _Function_
 
@@ -247,15 +232,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L392)
-
-_Function_
-
-```ts
-export function getCoreApp(): CoreApp
-```
-
-### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L377)
+### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L374)
 
 _Function_
 
@@ -263,7 +240,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L385)
+### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L382)
 
 _Function_
 
@@ -271,7 +248,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L405)
+### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L394)
 
 _Function_
 
@@ -334,7 +311,7 @@ arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
   - `originator.handle` / `originator.resolve` defect — an in-process
     endpoint never receives inbound frames; a call here is a wiring bug.
 
-### [`makePgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L72)
+### [`makePgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L69)
 
 _Function_
 
@@ -347,7 +324,7 @@ export function makePgliteHarness(): Effect.Effect<
 
 Spin up a fresh PGlite instance with the core schema loaded.
 
-### [`PGLITE_HOOK_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L27)
+### [`PGLITE_HOOK_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L24)
 
 _Variable_
 
@@ -357,7 +334,7 @@ export const PGLITE_HOOK_TIMEOUT_MS = 30_000
 
 Suggested timeout for pglite-backed beforeEach/afterEach hooks.
 
-### [`PgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L57)
+### [`PgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L54)
 
 _Interface_
 
@@ -377,7 +354,7 @@ export interface PgliteHarness {
 }
 ```
 
-### [`PgliteHarnessError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L45)
+### [`PgliteHarnessError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L42)
 
 _TypeAlias_
 
@@ -450,7 +427,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L351)
+### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L348)
 
 _Function_
 
@@ -491,7 +468,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L312)
+### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L309)
 
 _Function_
 
@@ -499,7 +476,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L325)
+### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L322)
 
 _Function_
 
@@ -522,5 +499,4 @@ export function trackClient(client: TestAgentClient | TestAppClient): void
 - `fakes.ts`
 - `helpers.ts`
 - `pglite-harness.ts`
-- `rpc-error.ts`
 - `server.ts`

@@ -4,7 +4,7 @@ import type {
   ContactPolicyAllowsReachValue,
 } from "@moltzap/protocol/identity";
 import { ConversationServiceTag } from "#core";
-import { catchSqlErrorAsDefect } from "../../../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "#db";
 
 export interface CreatorAndTargets {
   readonly creatorAgentId: AgentId;

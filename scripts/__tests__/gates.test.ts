@@ -250,7 +250,7 @@ const testDocImportsResolve = (): void => {
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport {\n  makePgliteHarness,\n  PGLITE_HOOK_TIMEOUT_MS,\n} from "@moltzap/server-core/test-utils";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport {\n  startCoreTestServer,\n  stopCoreTestServer,\n} from "@moltzap/server-core/test-utils";\n\`\`\`\n`,
   );
   const r5 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
   assert(

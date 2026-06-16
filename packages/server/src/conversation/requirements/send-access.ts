@@ -8,7 +8,7 @@ import type { MessageNotFoundError } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConversationServiceTag, MessageServiceTag } from "#core";
-import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import { catchSqlErrorAsDefect } from "#db";
 
 /**
  * `ConversationSendAccess` obtain: prove the caller participates in the

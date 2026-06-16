@@ -271,11 +271,7 @@ function namedProfilesPopulateMap() {
       expect(record).toBeDefined();
       if (record !== undefined) {
         expect(record.agentId).toBe(ALICE_AGENT_ID);
-        const apiKey = record.apiKey;
-        expect(apiKey).toBeDefined();
-        if (apiKey !== undefined) {
-          expect(Redacted.value(apiKey)).toBe(ALICE_API_KEY);
-        }
+        expect(Redacted.value(record.apiKey)).toBe(ALICE_API_KEY);
       }
     }),
   );

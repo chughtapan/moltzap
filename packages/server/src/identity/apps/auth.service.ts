@@ -4,18 +4,15 @@ import { UnauthorizedError } from "@moltzap/protocol/rpc";
 import { validateAppManifest } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { AppId } from "@moltzap/protocol/task";
-import type { Db } from "../../db/client.js";
-import {
-  catchSqlErrorAsDefect,
-  takeFirstOrFail,
-} from "../../db/effect-kysely-toolkit.js";
+import type { Db } from "#db";
+import { catchSqlErrorAsDefect, takeFirstOrFail } from "#db";
 import { AppContext } from "#socket";
 import {
   generateAppKey,
   hashSecret,
   parseAppKey,
   safeEqual,
-} from "../credential-keys.js";
+} from "#identity/credential-keys";
 
 /**
  * SQL-backed app authentication — the App-principal sibling of

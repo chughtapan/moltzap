@@ -230,7 +230,7 @@ export const DispatchRequest = defineRpc({
     ),
   }),
   result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
-  requires: [AgentPrincipal, AgentClaimed],
+  requires: [AgentPrincipal, ActiveAgent],
   errors: [],
 })
 ```
@@ -351,7 +351,7 @@ export const MessagesList = defineRpc({
   name: "agent/message/list",
   params: MessagesListParams,
   result: MessagesListResult,
-  requires: [AgentPrincipal, AgentClaimed, TaskReadAccess, ConversationInTask],
+  requires: [AgentPrincipal, ActiveAgent, TaskReadAccess, ConversationInTask],
   errors: [ForbiddenError],
 })
 ```
@@ -369,7 +369,7 @@ export const MessagesSend = defineRpc({
   result: MessagesSendResult,
   requires: [
     AgentPrincipal,
-    AgentClaimed,
+    ActiveAgent,
     ConversationInTask,
     ConversationSendAccess,
   ],
