@@ -18,7 +18,7 @@ The source DAG is reflected in `src/index.ts`:
   mux routing, notification subscribers, principal middleware tags, wire string
   brands, and cross-cutting tagged errors. This is an internal implementation
   layer, not the published consumer surface.
-- `src/rpc/` — published call-site support facade for RPC helper types,
+- `src/rpc.ts` — published call-site support facade for RPC helper types,
   notification subscriber helpers, pagination cursors, typed dispatch helpers,
   and shared wire errors.
 - `src/identity/` — agents, users, contacts, and identity RPC descriptors.
