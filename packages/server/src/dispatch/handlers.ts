@@ -13,7 +13,7 @@ import {
   LeaseRegistryTag,
 } from "#core";
 import { leaseRecordToWire } from "#dispatch";
-import { agentArm } from "#moltzap";
+import { agentArm } from "#moltzap/runtime";
 
 // `agent/dispatch/request` — returns ack immediately, forks the moderator round-trip,
 // recipient observes the verdict via `agent/dispatch/released` notification.

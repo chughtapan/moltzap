@@ -11,6 +11,9 @@
       "#moltzap": [
         "moltzap/index.ts"
       ],
+      "#moltzap/runtime": [
+        "moltzap/runtime.ts"
+      ],
       "#socket": [
         "socket/index.ts"
       ],
