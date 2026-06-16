@@ -220,7 +220,7 @@ a normal string-keyed dispatch map.
 Sibling: defineNotification; same pipeline minus the
 result schema and the error union.
 
-### [`dispatchCall`](./typed-dispatch.ts#L62)
+### [`dispatchCall`](./typed-dispatch.ts#L61)
 
 _Function_
 
@@ -264,7 +264,7 @@ middleware's failure schema (in `requires` order) then the handler-domain
 errors. This is the single source the wire `errorSchema`, the server gate,
 and the typed client all read.
 
-### [`ErrorForTag`](./typed-dispatch.ts#L38)
+### [`ErrorForTag`](./typed-dispatch.ts#L37)
 
 _TypeAlias_
 
@@ -433,7 +433,7 @@ the bare wire string. The sink's `inject` feeds decoded inbound
 `FromClientEncoded` frames into the engine via `write`. Socket close is
 surfaced through the shared `disconnects` Mailbox.
 
-### [`makeTypedTransportCall`](./typed-dispatch.ts#L82)
+### [`makeTypedTransportCall`](./typed-dispatch.ts#L81)
 
 _Function_
 
@@ -689,7 +689,7 @@ export type ParamsOf<D extends RpcDefinitionAny> = Schema.Schema.Type<
 
 Type-only accessor for a definition's params payload.
 
-### [`PayloadForTag`](./typed-dispatch.ts#L26)
+### [`PayloadForTag`](./typed-dispatch.ts#L25)
 
 _TypeAlias_
 
@@ -929,7 +929,7 @@ export interface RpcErrorPayload {
 The supplemental-payload type a tagged-error instance accepts at construction:
 an optional overriding message and optional `data`.
 
-### [`RpcForTag`](./typed-dispatch.ts#L20)
+### [`RpcForTag`](./typed-dispatch.ts#L19)
 
 _TypeAlias_
 
@@ -1018,7 +1018,7 @@ wire shape, simpler schema. `JSONSchema.make` renders a literal union as
 `{ "enum": [...] }` (string-valued), which the docs walker reads off
 `.enum`.
 
-### [`SuccessForTag`](./typed-dispatch.ts#L32)
+### [`SuccessForTag`](./typed-dispatch.ts#L31)
 
 _TypeAlias_
 
@@ -1031,7 +1031,7 @@ export type SuccessForTag<
 
 The success type one tag returns.
 
-### [`TypedDispatchMap`](./typed-dispatch.ts#L49)
+### [`TypedDispatchMap`](./typed-dispatch.ts#L48)
 
 _TypeAlias_
 

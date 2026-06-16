@@ -82,15 +82,14 @@ export class AppAuthServiceTag extends Context.Tag("moltzap/AppAuthService")<
 >() {}
 ```
 
-### [`AppHostTag`](./layers.ts#L132)
+### [`AppEndpointRegistryTag`](./layers.ts#L132)
 
 _Class_
 
 ```ts
-export class AppHostTag extends Context.Tag("moltzap/AppHost")<
-  AppHostTag,
-  AppHost
->() {}
+export class AppEndpointRegistryTag extends Context.Tag(
+  "moltzap/AppEndpointRegistry",
+)<AppEndpointRegistryTag, AppEndpointRegistry>() {}
 ```
 
 ### [`AuthServiceTag`](./layers.ts#L103)
@@ -282,7 +281,7 @@ export type DisconnectionHook = (params: {
 }) => PromiseLike<void> | void;
 ```
 
-### [`DispatchAdmissionServiceTag`](./layers.ts#L148)
+### [`DispatchAdmissionServiceTag`](./layers.ts#L147)
 
 _Class_
 
@@ -305,7 +304,7 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 
 Optional envelope-encryption helper. null when encryption is disabled.
 
-### [`LeaseRegistryTag`](./layers.ts#L143)
+### [`LeaseRegistryTag`](./layers.ts#L142)
 
 _Class_
 
@@ -333,7 +332,7 @@ Build a tracing Layer that wires the OTel SDK with the given span
 processor. The processor controls how spans get exported (OTLP batch
 in production; in-memory simple processor in tests).
 
-### [`MessageServiceTag`](./layers.ts#L160)
+### [`MessageServiceTag`](./layers.ts#L159)
 
 _Class_
 
@@ -357,7 +356,7 @@ export class NetworkSendServiceTag extends Context.Tag(
 Single outbound surface: `send` (directed) and `broadcast`
 (fan-out).
 
-### [`PresenceServiceLive`](./layers.ts#L259)
+### [`PresenceServiceLive`](./layers.ts#L258)
 
 _Variable_
 
@@ -430,7 +429,7 @@ precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
 returns `null` — the caller falls through to a no-op tracing Layer (spans
 stay in Effect's fiber context but are not exported).
 
-### [`ResolvedServices`](./layers.ts#L448)
+### [`ResolvedServices`](./layers.ts#L450)
 
 _Interface_
 
@@ -445,7 +444,7 @@ export interface ResolvedServices {
   readonly conversationService: ConversationService;
   readonly contactService: ContactsService;
   readonly presenceService: PresenceService;
-  readonly appHost: AppHost;
+  readonly appEndpointRegistry: AppEndpointRegistry;
   readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
   readonly taskService: TaskService;
@@ -456,7 +455,7 @@ export interface ResolvedServices {
 Shape of the fully-resolved services. Handler factories consume this
 plain-object view rather than reading each tag individually.
 
-### [`resolveServices`](./layers.ts#L470)
+### [`resolveServices`](./layers.ts#L472)
 
 _Variable_
 
@@ -472,7 +471,7 @@ export const resolveServices = Effect.all({
   conversationService: ConversationServiceTag,
   contactService: ContactsServiceTag,
   presenceService: PresenceServiceTag,
-  appHost: AppHostTag,
+  appEndpointRegistry: AppEndpointRegistryTag,
   leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
   taskService: TaskServiceTag,
@@ -529,7 +528,7 @@ export const serverHandlers: ServerHandlers =
 The handler map. Keys are the wire method names of every WS-dispatched
 method; values are the per-method handler bodies.
 
-### [`ServicesLive`](./layers.ts#L442)
+### [`ServicesLive`](./layers.ts#L444)
 
 _Variable_
 
@@ -540,7 +539,7 @@ export const ServicesLive = Tier7
 All service Layers merged, with cross-layer deps resolved. Still requires
 `DbTag | EncryptionTag` from a base Layer.
 
-### [`TaskAuthorizationServiceTag`](./layers.ts#L156)
+### [`TaskAuthorizationServiceTag`](./layers.ts#L155)
 
 _Class_
 
@@ -550,7 +549,7 @@ export class TaskAuthorizationServiceTag extends Context.Tag(
 )<TaskAuthorizationServiceTag, TaskAuthorizationService>() {}
 ```
 
-### [`TaskServiceTag`](./layers.ts#L165)
+### [`TaskServiceTag`](./layers.ts#L164)
 
 _Class_
 

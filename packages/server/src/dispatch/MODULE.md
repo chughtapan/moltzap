@@ -55,7 +55,7 @@ _Class_
 export class DispatchAdmissionService {
   constructor(
     private readonly db: Db,
-    private readonly apps: AppHost,
+    private readonly apps: AppEndpointRegistry,
     private readonly registry: LeaseRegistry,
     private readonly conversations: DispatchAdmissionConversations,
   ) {}

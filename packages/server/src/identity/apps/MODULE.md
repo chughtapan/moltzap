@@ -173,12 +173,12 @@ The boot-installed default app carries an inert endpoint
 manifest declares only static policies, so domain callback services never
 invoke that endpoint.
 
-### [`AppHost`](./host.ts#L11)
+### [`AppEndpointRegistry`](./endpoint-registry.ts#L11)
 
 _Class_
 
 ```ts
-export class AppHost {
+export class AppEndpointRegistry {
   private readonly apps = new AppRegistry();
   private contactService: ContactService | null = null;
 
@@ -248,7 +248,7 @@ minted from the `AppConnection` arm their `app/network/connect` call arrived on;
 the default app holds an inert endpoint (see
 `default-app.ts -> makeDefaultAppEndpoint`) and declares only static
 policies. Domain callback services only call the endpoint for a
-`kind: "hook"` policy. AppHost sees one registration shape regardless.
+`kind: "hook"` policy. AppEndpointRegistry sees one registration shape regardless.
 
 ### [`AppRegistry`](./registry.ts#L46)
 
@@ -337,7 +337,9 @@ export function callAppRpc(
 _Function_
 
 ```ts
-export function installDefaultApp(appHost: AppHost): void
+export function installDefaultApp(
+  appEndpointRegistry: AppEndpointRegistry,
+): void
 ```
 
 Boot-time installation of the default app. Registers the static-only
@@ -370,5 +372,5 @@ export function wrapHookEffectWithEnvelope<Verdict, E = never>(opts: {
 - `auth.service.ts`
 - `callback-rpc.ts`
 - `default-app.ts`
-- `host.ts`
+- `endpoint-registry.ts`
 - `registry.ts`

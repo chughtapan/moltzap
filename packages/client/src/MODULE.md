@@ -95,21 +95,6 @@ Drain every page of a cursor-paginated list RPC, echoing the opaque
 NonAdvancingCursorError if the server returns a cursor it already
 emitted (cycle guard).
 
-### [`formatCrossConversationBlock`](./service.ts#L217)
-
-_Function_
-
-```ts
-export function formatCrossConversationBlock(
-  entries: CrossConversationEntry[],
-  opts: { header: string },
-): string | null
-```
-
-Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
-that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
-share this formatter so sanitization and line shape stay in one place.
-
 ### [`MoltZapService`](./service.ts#L319)
 
 _Class_
@@ -308,16 +293,6 @@ export type RegisterResponse = ResultOf<typeof Register>;
 
 HTTP response from the agent registration endpoints
 (`/api/v1/auth/register`).
-
-### [`sanitizeForSystemReminder`](./service.ts#L208)
-
-_Function_
-
-```ts
-export function sanitizeForSystemReminder(s: string): string
-```
-
-Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block.
 
 ### [`SendRpcFn`](./pagination.ts#L45)
 

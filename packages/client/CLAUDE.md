@@ -1,8 +1,8 @@
 # @moltzap/client
 
 Client SDK for MoltZap: WebSocket transport, RPC service object, channel-core
-inbound handling, runtime utilities, CLI binary (`moltzap`). Plus the
-`@moltzap/client/channel-base` subpath for shared channel-adapter scaffolding.
+inbound handling, runtime utilities, and CLI binary (`moltzap`). The
+`@moltzap/client/channel-base` subpath is the channel-adapter surface.
 
 Three layered entry points; pick the lowest level that meets your need:
 
@@ -24,19 +24,12 @@ Three layered entry points; pick the lowest level that meets your need:
 - `src/channel-base/` — `@moltzap/client/channel-base` subpath (see below)
 - `src/cli/` — `moltzap` CLI binary + per-command files
 
-Subpath modules:
+Package subpaths:
 
-- `src/runtime/` — internal runtime utilities: `subscribers` (notification
-  registry), `frame` (decode helpers), `errors` (`AgentNotFoundError` +
-  re-exports the protocol-side `MalformedFrameError`), `close-info`,
-  `local-socket-server`, `local-history`. Bundled with the main entry.
-- `src/test/` — `@moltzap/client/test` subpath. Exports helpers
-  consumed by channel and arena tests: `registerAgent`,
-  `registerAndConnect`, `stripWsPath`.
-- `src/test-utils/` — `@moltzap/client/test-utils` subpath. The
-  conformance-suite glue: `createMoltZapRealClientFactory` that wraps
-  a `MoltZapAppClient` into the shape `runClientConformanceSuite`
-  expects.
+- `@moltzap/client/channel-base` — channel-adapter primitives shared by the
+  first-party adapters.
+- `@moltzap/client/test-utils` — test fixtures and fakes used by client and
+  channel package tests.
 
 ## First call
 
@@ -48,7 +41,7 @@ import { MoltZapService, registerAgent } from "@moltzap/client";
 
 // 1. Register (one-time bootstrap; mints agentId + apiKey).
 const { agentId, apiKey } = await Effect.runPromise(
-  registerAgent("alice", { baseUrl: "http://localhost:41973" }),
+  registerAgent("http://localhost:41973", "alice"),
 );
 
 // 2. Connect.
@@ -87,8 +80,8 @@ Exports from `@moltzap/client/channel-base`:
 
 - `LeaseAlreadyConsumed` — canonical TaggedError; one definition site across
   all three channels.
-- `projectLeaseInvalid` / `catchLeaseInvalid` — wire-error projection (server's
-  `data.reason === "LeaseInvalid"` or forward-compat `data._tag` discriminant).
+- `projectLeaseInvalid` / `catchLeaseInvalid` — wire-error projection from the
+  server's lease-invalid error shape.
 - `LeaseStore<HostKey, T>` — generic per-key lease tracker (nanoclaw uses
   `LeaseStore<string, string>` keyed by JID, peek-style for stale-entry-on-retry).
 - `LeaseGuard` — per-dispatch single-shot dup-reply detection (openclaw uses
@@ -114,13 +107,11 @@ Detail JSDoc: `src/channel-base/index.ts` (file-level).
 | `src/__tests__/channel-base/lease-store.test.ts` | Unit | `LeaseStore<HostKey, T>` peek/take per-host semantics |
 | `src/__tests__/channel-base/format-cross-conv.test.ts` | Unit | Markup-parameterized cross-conv formatter (`"json-header"` + `"xml-system-reminder"`) |
 | `src/__tests__/channel-base/format-group-block.test.ts` | Unit | Group-block formatter + `getGroupFields` predicate |
-| `src/__tests__/conformance/suite.test.ts` | Conformance | Channel-base cross-channel invariants (shared with openclaw/nanoclaw/claude-code conformance) |
 | `src/channel-core.test.ts`, `src/channel-core-context.test.ts`, `src/channel-core-dispatch.test.ts` | Unit | `MoltZapChannelCore` inbound dispatch + admission |
-| `src/service.test.ts`, `src/ws-client.test.ts`, `src/auth.test.ts` | Unit | RPC service, WS transport, agent registration |
-| `src/runtime/*.test.ts` | Unit | Runtime utilities (frame parsing, subscribers, close-info, errors) |
+| `src/service.test.ts`, `src/service-socket-path.test.ts`, `src/auth.test.ts` | Unit | RPC service, local socket path, agent registration |
+| `src/notification/**/*.test.ts` | Unit | Notification stream and subscriber behavior |
 | `src/cli/**/*.test.ts` | Unit | CLI binary commands (`register`, `send`, `messages`, `conversations`, config, profile, transport) |
 | `src/__tests__/service/**/*.integration.test.ts` | Integration | PGlite-backed service flows (context, core, dedup, history, socket lifecycle/rendering/validation) |
-| `src/cli/__tests__/cli-multi-agent.int.test.ts` | Integration | Multi-agent CLI scenarios |
 
 ## Glossary
 

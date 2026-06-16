@@ -69,7 +69,7 @@ function profileInputUsesProfileAgentSocket() {
       yield* writeProfile(profileName, profileRecord);
 
       const options = yield* resolveTransportInputs({
-        profileName: PROFILE_NAME,
+        profileName,
       });
 
       expect(options).toEqual({

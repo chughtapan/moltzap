@@ -15,7 +15,7 @@ import {
   messageId,
   taskId,
 } from "@moltzap/protocol/testing";
-import { AppHost } from "#identity/apps";
+import { AppEndpointRegistry } from "#identity/apps";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { makeHandlerAppEndpoint } from "../test-utils/app-endpoint.js";
 import {
@@ -64,16 +64,16 @@ function messageAuthorizeContext(
 }
 
 function makeAuthorizationService(): {
-  readonly host: AppHost;
+  readonly registry: AppEndpointRegistry;
   readonly authorization: MessageAuthorizationService;
 } {
-  const host = new AppHost();
+  const registry = new AppEndpointRegistry();
   const conversations = makeFakeService<MessageAuthorizationConversations>({
     getParticipantAgentIds: () => Effect.succeed([SENDER, RECIPIENT]),
   });
   return {
-    host,
-    authorization: new MessageAuthorizationService(host, conversations),
+    registry,
+    authorization: new MessageAuthorizationService(registry, conversations),
   };
 }
 
@@ -81,8 +81,8 @@ describe("MessageAuthorizationService", () => {
   it("forwards all participants except the sender for static policy", () =>
     Effect.runPromise(
       Effect.gen(function* () {
-        const { host, authorization } = makeAuthorizationService();
-        host.registerApp(
+        const { registry, authorization } = makeAuthorizationService();
+        registry.registerApp(
           APP_ID,
           {
             ...APP_MANIFEST,
@@ -131,7 +131,7 @@ describe("MessageAuthorizationService", () => {
 
 function runRegisteredMessageAuthorize() {
   return Effect.gen(function* () {
-    const { host, authorization } = makeAuthorizationService();
+    const { registry, authorization } = makeAuthorizationService();
     const connection = makeHandlerAppEndpoint({
       id: CONN_ID,
       handlers: {
@@ -153,7 +153,7 @@ function runRegisteredMessageAuthorize() {
           Effect.succeed({ verdict: { decision: "accept" } }),
       },
     });
-    host.registerApp(APP_ID, APP_MANIFEST, connection);
+    registry.registerApp(APP_ID, APP_MANIFEST, connection);
     const result = yield* authorization.authorize(
       APP_ID,
       messageAuthorizeContext(),

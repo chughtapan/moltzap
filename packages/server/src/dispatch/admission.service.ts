@@ -10,7 +10,7 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { NetworkSendServiceTag } from "#core";
 import {
   callAppRpc,
-  type AppHost,
+  type AppEndpointRegistry,
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
 import type { Db } from "#db";
@@ -109,7 +109,7 @@ function dispatchVerdictToLeaseVerdict(
 export class DispatchAdmissionService {
   constructor(
     private readonly db: Db,
-    private readonly apps: AppHost,
+    private readonly apps: AppEndpointRegistry,
     private readonly registry: LeaseRegistry,
     private readonly conversations: DispatchAdmissionConversations,
   ) {}

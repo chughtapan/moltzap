@@ -94,10 +94,10 @@ derived from `app_id` at routing time.
 
 ## Glossary
 
-- **AppHost** — Live app endpoint registry keyed by server-minted
+- **AppEndpointRegistry** — Live app endpoint registry keyed by server-minted
   `AppId`. Dispatch, message, and task callback behavior lives in the
   matching domain services; they look up registered app endpoints through
-  AppHost.
+  AppEndpointRegistry.
 - **App authority** — Authority for a task's conversation set.
   The default-app UUID (`DEFAULT_APP_ID`) covers ordinary DMs/groups
   (no moderator); a registered app's UUID covers app-moderated

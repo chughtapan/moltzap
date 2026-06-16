@@ -4,14 +4,14 @@ import type { AppId } from "@moltzap/protocol/identity";
 import type { ParamsOf, ResultOf } from "@moltzap/protocol/rpc";
 import {
   callAppRpc,
-  type AppHost,
+  type AppEndpointRegistry,
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
 
 export type TaskCreateVerdict = ResultOf<typeof TaskCreate>["verdict"];
 
 export class TaskAuthorizationService {
-  constructor(private readonly apps: AppHost) {}
+  constructor(private readonly apps: AppEndpointRegistry) {}
 
   authorizeCreate(
     appId: AppId,

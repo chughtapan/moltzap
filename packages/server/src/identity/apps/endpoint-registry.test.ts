@@ -6,7 +6,7 @@ import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize } from "@moltzap/protocol/message";
 import { TaskCreate } from "@moltzap/protocol/task";
 import { appId as makeAppId } from "@moltzap/protocol/testing";
-import { AppHost } from "./host.js";
+import { AppEndpointRegistry } from "./endpoint-registry.js";
 import { makeHandlerAppEndpoint } from "../../test-utils/app-endpoint.js";
 
 const APP_ID = makeAppId("00000000-0000-4000-8000-000000000560");
@@ -24,9 +24,9 @@ const APP_MANIFEST = {
   },
 } satisfies AppManifest;
 
-describe("AppHost.registerApp", () => {
+describe("AppEndpointRegistry.registerApp", () => {
   it("registers the app, keying the registration by the bound conn", () => {
-    const host = new AppHost();
+    const registry = new AppEndpointRegistry();
     const connection = makeHandlerAppEndpoint({
       id: CONN_ID,
       handlers: {
@@ -43,7 +43,7 @@ describe("AppHost.registerApp", () => {
           Effect.succeed({ verdict: { decision: "accept" } }),
       },
     });
-    host.registerApp(APP_ID, APP_MANIFEST, connection);
-    expect(host.lookupApp(APP_ID)?.endpoint.connId).toBe(CONN_ID);
+    registry.registerApp(APP_ID, APP_MANIFEST, connection);
+    expect(registry.lookupApp(APP_ID)?.endpoint.connId).toBe(CONN_ID);
   });
 });

@@ -5,7 +5,7 @@ import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
   callAppRpc,
-  type AppHost,
+  type AppEndpointRegistry,
   type AppRegistration,
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
@@ -27,7 +27,7 @@ export interface MessageAuthorizationConversations {
 
 export class MessageAuthorizationService {
   constructor(
-    private readonly apps: AppHost,
+    private readonly apps: AppEndpointRegistry,
     private readonly conversations: MessageAuthorizationConversations,
   ) {}
 

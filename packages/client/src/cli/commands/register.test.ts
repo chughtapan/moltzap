@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { registerCommand } from "./register.js";
 import type { AgentKey } from "@moltzap/protocol/identity";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
-import { parseProfileName } from "../../profile.js";
+import { parseProfileName, type ProfileName } from "../../profile.js";
 
 const it = effectIt.effect;
 const AGENT_NAME = Effect.runSync(parseProfileName("my-agent"));
@@ -53,7 +53,7 @@ function registerHandlerInput(description: Option.Option<string>) {
     name: AGENT_NAME,
     inviteCode: INVITE_CODE,
     description,
-    profile: Option.none<string>(),
+    profile: Option.none<ProfileName>(),
     noPersist: true,
   };
 }

@@ -14,6 +14,8 @@ import { getMoltZapConfigDir, getMoltZapConfigPath } from "./local-paths.js";
 // ─── Branded names ─────────────────────────────────────────────────────────
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
+const PROFILE_NAME_REASON =
+  "must be 3-32 chars, lowercase alphanumeric and hyphens, cannot start or end with a hyphen";
 
 const CONFIG_FILE_MODE = 0o600;
 const JSON_INDENT_SPACES = 2;
@@ -105,34 +107,14 @@ export class ProfileConfigWriteError extends Data.TaggedError(
 export const parseProfileName = (
   raw: string,
 ): Effect.Effect<ProfileName, ProfileInvalidNameError> => {
-  if (raw.length === 0) {
-    return Effect.fail(
-      new ProfileInvalidNameError({ name: raw, reason: "empty string" }),
-    );
-  }
-  if (!NAME_PATTERN.test(raw)) {
-    return Effect.fail(
-      new ProfileInvalidNameError({
-        name: raw,
-        reason:
-          "must be 3-32 chars, lowercase alphanumeric and hyphens, cannot start or end with a hyphen",
-      }),
-    );
-  }
   return Schema.decodeUnknown(ProfileName)(raw).pipe(
-    Effect.either,
-    Effect.flatMap(
-      Either.match({
-        onLeft: () =>
-          Effect.fail(
-            new ProfileInvalidNameError({
-              name: raw,
-              reason:
-                "must be 3-32 chars, lowercase alphanumeric and hyphens, cannot start or end with a hyphen",
-            }),
-          ),
-        onRight: Effect.succeed,
-      }),
+    Effect.catchTag("ParseError", () =>
+      Effect.fail(
+        new ProfileInvalidNameError({
+          name: raw,
+          reason: raw.length === 0 ? "empty string" : PROFILE_NAME_REASON,
+        }),
+      ),
     ),
   );
 };

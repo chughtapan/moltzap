@@ -27,7 +27,7 @@ _Class_
 ```ts
 export class MessageAuthorizationService {
   constructor(
-    private readonly apps: AppHost,
+    private readonly apps: AppEndpointRegistry,
     private readonly conversations: MessageAuthorizationConversations,
   ) {}
 

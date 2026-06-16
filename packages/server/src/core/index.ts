@@ -5,7 +5,7 @@ export { serverHandlers } from "./handler-catalog.js";
 export {
   AgentEndpointResolverTag,
   AppAuthServiceTag,
-  AppHostTag,
+  AppEndpointRegistryTag,
   AuthServiceTag,
   ConnectionHooksTag,
   ConnectionManagerTag,

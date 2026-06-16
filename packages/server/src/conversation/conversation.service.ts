@@ -349,7 +349,7 @@ export class ConversationService {
 
   /**
    * Reduced-surface participant removal: NO authority gate. Used by
-   * `AppHost.removeDeniedParticipant` for dispatch-deny eviction
+   * `AppEndpointRegistry.removeDeniedParticipant` for dispatch-deny eviction
    * (runs server-internally, not via a wire RPC). Broadcasts
    * `ConversationParticipantsRemoved` with `reason: "app_remove"`
    * so the evicted agent and the remaining participants observe the

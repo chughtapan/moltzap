@@ -48,8 +48,8 @@ request and response frames; MoltZap does not carry a custom
 
 App-callback RPCs are how app hooks (admission and lifecycle) reach apps
 connected as WebSocket clients — no separate HTTPS endpoint needed. If a
-connection drops while the AppHost is awaiting a hook verdict, the
+connection drops while a domain callback service is awaiting a hook verdict, the
 connection finalizer fails the pending app-callback request with
-`AppDisconnected`, and the AppHost applies fail-closed verdicts for
+`AppDisconnected`, and the callback service applies fail-closed verdicts for
 admission hooks. See [Frames](/protocol/frames) for the request,
 response, and notification schemas.

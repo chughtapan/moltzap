@@ -214,7 +214,7 @@ export function sanitizeForSystemReminder(s: string): string {
  * that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
  * share this formatter so sanitization and line shape stay in one place.
  */
-export function formatCrossConversationBlock(
+function formatCrossConversationBlock(
   entries: CrossConversationEntry[],
   opts: { header: string },
 ): string | null {

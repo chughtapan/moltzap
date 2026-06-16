@@ -114,7 +114,10 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 _TypeAlias_
 
 ```ts
-export type AppTags = TaskTags | AppHostTag | DispatchAdmissionServiceTag;
+export type AppTags =
+  | TaskTags
+  | AppEndpointRegistryTag
+  | DispatchAdmissionServiceTag;
 ```
 
 App-layer allowlist: dispatch admission and connected app registration.

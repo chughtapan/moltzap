@@ -191,7 +191,7 @@ describe("AppManifestSchema hook policies", () => {
 
   it("accepts hook timeouts above 30s (no upper cap)", () => {
     // A 900_000ms (15 min) moderator timeout for a player-input waiter
-    // pattern is legal; AppHost enforces it via `Effect.timeout(timeoutMs)`.
+    // pattern is legal; hook execution enforces it via `Effect.timeout(timeoutMs)`.
     const hooks = withDispatch({ kind: "hook", timeoutMs: 900_000 });
     expect(manifestIsValid(manifestWithHooks(hooks))).toBe(true);
   });

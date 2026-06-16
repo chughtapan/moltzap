@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect";
 import type { RpcSerialization } from "@effect/rpc";
 import { DEFAULT_APP_ID, type AppManifest } from "@moltzap/protocol/identity";
 import { ConnectionId } from "@moltzap/protocol/socket";
-import type { AppHost } from "./host.js";
+import type { AppEndpointRegistry } from "./endpoint-registry.js";
 import type { AppEndpoint } from "./registry.js";
 import type { Originator } from "#socket";
 
@@ -97,8 +97,10 @@ function makeDefaultAppEndpoint(): AppEndpoint {
  * a connected HTTP-registered app.
  *
  */
-export function installDefaultApp(appHost: AppHost): void {
-  appHost.registerApp(
+export function installDefaultApp(
+  appEndpointRegistry: AppEndpointRegistry,
+): void {
+  appEndpointRegistry.registerApp(
     DEFAULT_APP_ID,
     DEFAULT_APP_MANIFEST,
     makeDefaultAppEndpoint(),

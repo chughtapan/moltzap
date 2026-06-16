@@ -15,7 +15,7 @@ import { agentContextFrom, AgentContext, AppContext } from "#socket";
 import {
   AgentEndpointResolverTag,
   AppAuthServiceTag,
-  AppHostTag,
+  AppEndpointRegistryTag,
   AuthServiceTag,
   ConnectionHooksTag,
   ConnectionTag,
@@ -33,7 +33,7 @@ import type { ConversationService } from "#conversation";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import { catchSqlErrorAsDefect } from "#db";
 import type { Connection, ConnectionManager, Originator } from "#socket";
-import type { AppHost } from "#identity/apps";
+import type { AppEndpointRegistry } from "#identity/apps";
 
 type AgentConnectParams = ParamsOf<typeof AgentConnect>;
 type AppConnectParams = ParamsOf<typeof AppConnect>;
@@ -109,10 +109,10 @@ function authenticateAppKey(
 
 /**
  * Register the freshly minted `AppConnection`'s `AppEndpoint` into
- * `AppHost`/`AppRegistry`, then re-peek for a close race.
+ * `AppEndpointRegistry`/`AppRegistry`, then re-peek for a close race.
  *
  *   1. Register `{ connId, originator }` off the live arm via
- *      `AppHost.registerApp`. A `false` return (the registry rejects an
+ *      `AppEndpointRegistry.registerApp`. A `false` return (the registry rejects an
  *      overwrite — another live connection already owns this appId) rolls
  *      the arm back + surfaces the uniform `UnauthorizedError` (the appKey
  *      resolved but its slot is occupied).
@@ -122,7 +122,7 @@ function authenticateAppKey(
  */
 function registerAppEndpoint(args: {
   readonly connections: ConnectionManager;
-  readonly appHost: AppHost;
+  readonly appEndpointRegistry: AppEndpointRegistry;
   readonly appId: AppContext["appId"];
   readonly manifest: AppManifest;
   readonly authed: {
@@ -130,13 +130,13 @@ function registerAppEndpoint(args: {
     readonly originator: Originator;
   };
 }): Effect.Effect<void, UnauthorizedError | NotConnectedError> {
-  const { connections, appHost, appId, manifest, authed } = args;
+  const { connections, appEndpointRegistry, appId, manifest, authed } = args;
   const connId = authed.connId;
   return Effect.gen(function* () {
     // Register under the SERVER-MINTED `appId` (the authenticated
     // principal), NOT `manifest.appId`. `agent/task/request` routes to the appId the
     // registrant received from `/api/v1/apps/register` = this identity.
-    const ok = appHost.registerApp(appId, manifest, {
+    const ok = appEndpointRegistry.registerApp(appId, manifest, {
       connId,
       originator: authed.originator,
     });
@@ -150,7 +150,7 @@ function registerAppEndpoint(args: {
     }
     const postCheck = yield* connections.peek(connId);
     if (Option.isNone(postCheck) || postCheck.value._tag !== "AppConnection") {
-      appHost.unregisterAppsForConnection(connId);
+      appEndpointRegistry.unregisterAppsForConnection(connId);
       return yield* Effect.fail(
         new NotConnectedError({
           message: "connection closed during Connect's app-arm registration",
@@ -162,7 +162,7 @@ function registerAppEndpoint(args: {
 
 /**
  * Mint the `AppConnection` arm via the immutable transition AND
- * implicitly register its `AppEndpoint` into `AppHost`/`AppRegistry`. An
+ * implicitly register its `AppEndpoint` into `AppEndpointRegistry`/`AppRegistry`. An
  * app's routing surface is minted from the live `AppConnection` arm on
  * appKey Connect. Mirrors
  * {@link mirrorAgentArmTransition}
@@ -174,19 +174,19 @@ function registerAppEndpoint(args: {
  */
 function registerAppArmTransition(args: {
   readonly connections: ConnectionManager;
-  readonly appHost: AppHost;
+  readonly appEndpointRegistry: AppEndpointRegistry;
   readonly connId: ConnectionId;
   readonly auth: AppContext;
   readonly manifest: AppManifest;
 }): Effect.Effect<void, UnauthorizedError | NotConnectedError> {
-  const { connections, appHost, connId, auth, manifest } = args;
+  const { connections, appEndpointRegistry, connId, auth, manifest } = args;
   return connections.authenticate(connId, auth).pipe(
     Effect.flatMap((outcome) =>
       Match.value(outcome).pipe(
         Match.when({ kind: "ok-app" }, ({ authed }) =>
           registerAppEndpoint({
             connections,
-            appHost,
+            appEndpointRegistry,
             appId: auth.appId,
             manifest,
             authed,
@@ -421,14 +421,14 @@ function handleAppConnect(params: AppConnectParams) {
 
       const connections = yield* ConnectionManagerTag;
       const appAuthService = yield* AppAuthServiceTag;
-      const appHost = yield* AppHostTag;
+      const appEndpointRegistry = yield* AppEndpointRegistryTag;
       const { auth: appAuth, manifest } = yield* authenticateAppKey(
         params.appKey,
         appAuthService,
       );
       yield* registerAppArmTransition({
         connections,
-        appHost,
+        appEndpointRegistry,
         connId: conn.connId,
         auth: appAuth,
         manifest,

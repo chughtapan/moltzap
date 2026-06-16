@@ -8,7 +8,7 @@ import {
   type AppRegistration,
 } from "./registry.js";
 
-export class AppHost {
+export class AppEndpointRegistry {
   private readonly apps = new AppRegistry();
   private contactService: ContactService | null = null;
 

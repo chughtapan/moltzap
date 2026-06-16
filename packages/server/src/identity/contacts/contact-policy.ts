@@ -1,8 +1,8 @@
 /**
- * @file Contact-policy contract consumed by `AppHost` to gate cross-user
+ * @file Contact-policy contract consumed by `AppEndpointRegistry` to gate cross-user
  * actions (e.g., `TaskCreate.invitedAgentIds` must be in contact with the
  * creator). Distinct from `ContactsService` (the contacts-CRUD class in
- * `contact.service.ts`) — this is the predicate AppHost asks at runtime,
+ * `contact.service.ts`) — this is the predicate AppEndpointRegistry asks at runtime,
  * and external embedders provide the implementation via
  * `CoreApp.setContactService(...)`.
  *

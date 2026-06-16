@@ -1,5 +1,5 @@
 /**
- * @file Test-only {@link AppEndpoint} builders for AppHost unit tests.
+ * @file Test-only {@link AppEndpoint} builders for AppEndpointRegistry unit tests.
  *
  * These builders let domain authorization tests exercise manifests that choose
  * `kind: "hook"`, which need a concrete originator to dispatch into.
@@ -104,7 +104,7 @@ function makeInertParser(
  * Build an {@link AppEndpoint} whose outbound `originator.call` dispatches to
  * in-process handlers instead of going over a WebSocket. The endpoint
  * satisfies the same `{ connId, originator }` shape a connected app's
- * arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
+ * arm carries so `AppEndpointRegistry`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
  *
  *   - `originator.callback({ definition, params })` indexes `handlers` by
  *     `definition.name`. The
