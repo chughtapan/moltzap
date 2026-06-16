@@ -393,7 +393,14 @@ reference docs. Do not re-export those catalog symbols from `./socket`.
 
 Imports should go through barrels, and source files should use absolute import
 specifiers. Relative imports are only for barrels that assemble their own local
-folder surface and for files importing private helpers from the same folder.
+folder surface, files importing private helpers from the same folder, and
+same-domain implementation files that would create an initialization cycle by
+importing through the domain barrel. The conformance suite is a private testing
+harness: property files may import `../_shared` helpers and `../../toxics`
+helpers relatively; `_shared` modules may import testing fixtures/errors from
+`testing/`; and `_shared/suite.ts` may assemble sibling property groups.
+Conformance code still imports protocol domains through aliases such as
+`#identity`, `#network`, `#task`, `#conversation`, `#message`, and `#socket`.
 
 Allowed:
 
@@ -419,6 +426,12 @@ Rules:
 - Implementation files import from package-local absolute aliases such as
   `#identity/agents`, `#task`, `#message`, or `#socket`.
 - Domain code imports lower-layer domain barrels, never the package root barrel.
+- Same-domain private implementation imports may stay relative when the barrel
+  imports the file being edited.
+- Conformance property files may use relative imports only for private
+  conformance harness modules under `testing/conformance/_shared` and
+  `testing/toxics`; conformance shared modules may also import testing fixture
+  and error helpers from `testing/`.
 - Cross-package consumers import public package subpaths such as
   `@moltzap/protocol/identity`, `@moltzap/protocol/task`, or
   `@moltzap/protocol/socket`.
@@ -619,9 +632,10 @@ the invariant. For example:
 
 ### Server Barrel Rules
 
-Server-core root exports should stay narrow. Production users should consume
-the server through the public `CoreApp`/factory/bin surface, not internal
-services. Domain barrels are primarily internal import boundaries.
+Server-core root exports are intentionally empty. Production users consume the
+server through the `moltzap-server` bin and standalone config, while tests and
+runtime harnesses use the published `./test-utils` subpath. Domain barrels are
+internal import boundaries.
 
 Use:
 
@@ -699,5 +713,5 @@ Server-core follows the same domain split as protocol:
 5. Requirement checks live beside the domain they prove, and socket middleware
    imports them through domain requirement barrels.
 6. The server handler catalog imports only domain handler barrels; the package
-   root remains closed and the published `./test-utils` subpath is the only
+   root remains empty and the published `./test-utils` subpath is the only
    secondary package surface.

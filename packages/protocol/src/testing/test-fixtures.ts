@@ -15,19 +15,12 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import { Data, Effect, Either, FastCheck, Schema } from "effect";
-import {
-  AgentId,
-  AgentKey,
-  AppId,
-  AppKey,
-  ContactId,
-  UserId,
-} from "../identity/index.js";
-import { connectionId as decodeConnectionId } from "../socket/connection.js";
+import { AgentId, AgentKey, AppId, AppKey, ContactId, UserId } from "#identity";
+import { connectionId as decodeConnectionId } from "#socket";
 import type { AppManifest } from "#identity/apps";
-import { ConversationId, MessageId } from "../conversation/index.js";
+import { ConversationId, MessageId } from "#conversation";
 import { LeaseId } from "#message/dispatch";
-import { TaskId } from "../task/index.js";
+import { TaskId } from "#task";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;

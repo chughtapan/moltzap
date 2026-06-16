@@ -12,10 +12,7 @@
  * re-open with the same apiKey/agentId via `Effect.scoped`.
  */
 import { Effect } from "effect";
-import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
-} from "../../../message/index.js";
+import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
 import type { NotificationDelivery } from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {

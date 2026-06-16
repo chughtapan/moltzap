@@ -6,10 +6,7 @@
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
-import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
-} from "../../../message/index.js";
+import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
 import type { NotificationDelivery } from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";

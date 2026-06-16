@@ -18,7 +18,7 @@
  *     `awaitOneNotification` in the integration suite).
  */
 import { Effect, Either } from "effect";
-import type { AgentId } from "../../../identity/index.js";
+import type { AgentId } from "#identity";
 import {
   DEFAULT_APP_ID,
   TaskCreatedNotificationDefinition,
@@ -28,12 +28,12 @@ import {
   TaskCreate,
   type Task,
   type TaskId,
-} from "../../../task/index.js";
+} from "#task";
 import {
   ConversationList,
   type Conversation,
   type ConversationListItem,
-} from "../../../conversation/index.js";
+} from "#conversation";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
 import { type TestAgent } from "../_shared/test-fixtures.js";
 import { registerTestApp } from "../_shared/test-app.js";

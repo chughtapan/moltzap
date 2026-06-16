@@ -443,7 +443,7 @@ export function registerConversationLifecycle(
 ): void
 ```
 
-### [`registerFanOutCardinality`](./fan-out-cardinality.ts#L31)
+### [`registerFanOutCardinality`](./fan-out-cardinality.ts#L28)
 
 _Function_
 
@@ -451,7 +451,7 @@ _Function_
 export function registerFanOutCardinality(ctx: ConformanceRunContext): void
 ```
 
-### [`registerPayloadOpacity`](./payload-opacity.ts#L24)
+### [`registerPayloadOpacity`](./payload-opacity.ts#L21)
 
 _Function_
 
@@ -459,7 +459,7 @@ _Function_
 export function registerPayloadOpacity(ctx: ConformanceRunContext): void
 ```
 
-### [`registerStoreAndReplay`](./store-and-replay.ts#L34)
+### [`registerStoreAndReplay`](./store-and-replay.ts#L31)
 
 _Function_
 
