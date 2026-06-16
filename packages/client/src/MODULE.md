@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`ContextOptions`](./service.ts#L190)
+### [`ContextOptions`](./service.ts#L189)
 
 _Interface_
 
@@ -20,7 +20,7 @@ export interface ContextOptions {
 }
 ```
 
-### [`ConversationMeta`](./service.ts#L183)
+### [`ConversationMeta`](./service.ts#L182)
 
 _Interface_
 
@@ -33,69 +33,7 @@ export interface ConversationMeta {
 }
 ```
 
-### [`CrossConversationEntry`](./service.ts#L197)
-
-_Interface_
-
-```ts
-export interface CrossConversationEntry {
-  conversationId: string;
-  conversationName?: string;
-  senderName: string;
-  text: string;
-  minutesAgo: number;
-  /** Messages in this summary (capped by maxMessagesPerConv). */
-  count: number;
-}
-```
-
-Structured summary of recent activity in one other conversation.
-
-### [`CrossConvMessage`](./service.ts#L269)
-
-_Interface_
-
-```ts
-export interface CrossConvMessage {
-  conversationId: string;
-  conversationName?: string;
-  senderName: string;
-  senderId: string;
-  text: string;
-  timestamp: string;
-}
-```
-
-Full message from another conversation, used by peekFullMessages().
-
-### [`drainPaginatedList`](./pagination.ts#L75)
-
-_Function_
-
-```ts
-export function drainPaginatedList<
-  E,
-  D extends ClientDescriptor,
-  Row,
-  Cursor extends string,
->({
-  sendRpc,
-  definition,
-  paramsForCursor,
-  rowsForPage,
-  nextCursorForPage,
-}: DrainPaginatedListOptions<E, D, Row, Cursor>): Effect.Effect<
-  ReadonlyArray<Row>,
-  E | NonAdvancingCursorError
->
-```
-
-Drain every page of a cursor-paginated list RPC, echoing the opaque
-`nextCursor` back as the next page's `cursor`. Fails with
-NonAdvancingCursorError if the server returns a cursor it already
-emitted (cycle guard).
-
-### [`MoltZapService`](./service.ts#L319)
+### [`MoltZapService`](./service.ts#L318)
 
 _Class_
 
@@ -230,82 +168,7 @@ Promise siblings — async/await consumers run the Effect at the edge
 with `Effect.runPromise`. Keep this class Effect-only so downstream
 callers compose failures and cancellation explicitly.
 
-### [`NonAdvancingCursorError`](./pagination.ts#L27)
-
-_Class_
-
-```ts
-export class NonAdvancingCursorError extends Data.TaggedError(
-  "NonAdvancingCursorError",
-)<{
-  readonly method: string;
-}> {
-  override get message(): string {
-    return `Pagination cursor for ${this.method} did not advance — refusing to loop`;
-  }
-}
-```
-
-A server that returns a non-advancing `nextCursor` (one already seen)
-would loop the drain forever; fail typed so the caller's `catchAll`
-can degrade gracefully instead of hanging. This is a cycle guard, NOT
-a page cap — a well-behaved server never trips it.
-
-### [`registerAgent`](./auth.ts#L48)
-
-_Function_
-
-```ts
-export const registerAgent = (
-  baseUrl: string,
-  name: string,
-  opts: RegisterAgentOptions = {},
-): Effect.Effect<RegisterResponse, RegisterAgentError>
-```
-
-Register a new agent via HTTP. Thin wrapper around the agent-registration
-endpoints — the WebSocket dance is `MoltZapAgentClient`'s job; this just
-returns the credentials the caller feeds it as `agentKey` at construction.
-
-Uses the public `/api/v1/auth/register` endpoint. Server boot policy owns
-the registered agent immediately and returns the credential once.
-
-### [`RegisterAgentOptions`](./auth.ts#L18)
-
-_Interface_
-
-```ts
-export interface RegisterAgentOptions {
-  description?: string;
-  inviteCode?: string;
-}
-```
-
-Options for registerAgent.
-
-### [`RegisterResponse`](./auth.ts#L15)
-
-_TypeAlias_
-
-```ts
-export type RegisterResponse = ResultOf<typeof Register>;
-```
-
-HTTP response from the agent registration endpoints
-(`/api/v1/auth/register`).
-
-### [`SendRpcFn`](./pagination.ts#L45)
-
-_TypeAlias_
-
-```ts
-export type SendRpcFn<E, Definition extends ClientDescriptor> = (
-  definition: Definition,
-  params: ClientDefinitionPayload<Definition>,
-) => Effect.Effect<ClientDefinitionSuccess<Definition>, E>;
-```
-
-### [`ServiceRpcError`](./service.ts#L178)
+### [`ServiceRpcError`](./service.ts#L177)
 
 _TypeAlias_
 
@@ -322,6 +185,4 @@ to that method's errors at the `call` site.
 
 ## Files
 
-- `auth.ts`
-- `pagination.ts`
 - `service.ts`

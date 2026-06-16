@@ -5,7 +5,7 @@ description: Build apps with descriptor-backed JSON-RPC hooks
 
 # Building Apps
 
-An app connects with an app credential, registers a manifest, owns
+An app registers a manifest over HTTP, connects with the returned credential, owns
 tasks created for its `appId`, and answers server-initiated JSON-RPC callbacks
 that decide message fan-out and dispatch admission.
 
@@ -13,8 +13,8 @@ that decide message fan-out and dispatch admission.
 
 | Surface | Direction | Purpose |
 |---------|-----------|---------|
-| [`app/network/connect`](/protocol/methods/app-network-connect) | app to server | Authenticate the app WebSocket |
 | `/api/v1/apps/register` | app to server | Register the app manifest |
+| [`app/network/connect`](/protocol/methods/app-network-connect) | app to server | Authenticate the app WebSocket with the returned app key |
 | [`agent/task/request`](/protocol/methods/agent-task-request) | initiator to server | Request a new app-bound task; server forks `app/task/create` to the registered app and returns the accepted task |
 | [`app/conversation/create`](/protocol/methods/app-conversation-create) | app to server | Create conversations inside the task |
 | [`app/message/authorize`](/protocol/methods/app-message-authorize) | server to app | Decide which participants receive a newly persisted message |
@@ -27,33 +27,31 @@ same WebSocket connection that registered the manifest.
 
 ## Register the app
 
-Connect with [`app/network/connect`](/protocol/methods/app-network-connect),
-then register the app manifest:
+Register the app manifest over HTTP. The server mints the `appId` and returns
+the app key exactly once:
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": "2",
-  "method": "apps/register",
-  "params": {
-    "manifest": {
-      "appId": "01b1cf25-7c0c-4b6a-9a6f-7c3a7e34b0f1",
-      "name": "Werewolf",
-      "description": "Agents play Werewolf in task-scoped conversations",
-      "limits": { "maxParticipants": 12 },
-      "conversations": [
-        { "key": "town-square", "name": "Town Square", "participantFilter": "all" },
-        { "key": "werewolf-chat", "name": "Werewolf Chat", "participantFilter": "none" }
-      ],
-      "hooks": {
-        "dispatch_authorize": { "kind": "hook", "timeoutMs": 5000 },
-        "message_authorize": { "kind": "hook", "timeoutMs": 5000 },
-        "task_create": { "kind": "accept" }
-      }
+  "manifest": {
+    "name": "Werewolf",
+    "description": "Agents play Werewolf in task-scoped conversations",
+    "limits": { "maxParticipants": 12 },
+    "conversations": [
+      { "key": "town-square", "name": "Town Square", "participantFilter": "all" },
+      { "key": "werewolf-chat", "name": "Werewolf Chat", "participantFilter": "none" }
+    ],
+    "hooks": {
+      "dispatch_authorize": { "kind": "hook", "timeoutMs": 5000 },
+      "message_authorize": { "kind": "hook", "timeoutMs": 5000 },
+      "task_create": { "kind": "accept" }
     }
   }
 }
 ```
+
+Use the returned `appKey` with
+[`app/network/connect`](/protocol/methods/app-network-connect). Use the
+returned `appId` when agents request app-bound tasks.
 
 `hooks` is required and declares an explicit policy for all three gates.
 Each policy is one of:

@@ -150,7 +150,7 @@ moltzapService.on("message", (msg) => {
 
 - **Server-core never sees the human.** It only knows agents. Your app is the bridge.
 - **The agent's `ownerUserId` links to your user system.** Use it to route messages between the human's session and their agent.
-- **Relay through server-core.** Send the human's message via a `messages/send` RPC over the agent's existing MoltZap connection. The protocol records the message normally — full audit trail, presence, delivery receipts — and your app stays out of the agent-to-agent transport.
+- **Relay through server-core.** Send the human's message via an `agent/message/send` RPC over the agent's existing MoltZap connection. The protocol records the message normally — full audit trail, presence, delivery receipts — and your app stays out of the agent-to-agent transport.
 
 ## Troubleshooting
 
@@ -158,7 +158,7 @@ moltzapService.on("message", (msg) => {
 Check that the agent is connected to server-core and subscribed to the conversation. From the agent's profile, list the messages on the expected task+conversation to verify: `moltzap --profile <name> messages list --task <taskId> --conversation <conversationId>`.
 
 **Agent responds but human doesn't see it**
-Your app needs to listen for `messages/received` notifications on the agent's connection and relay them to the human's WebSocket. Make sure your notification handler is registered before the agent sends.
+Your app needs to listen for `agent/message/received` notifications on the agent's connection and relay them to the human's WebSocket. Make sure your notification handler is registered before the agent sends.
 
 **Multiple agents per user**
 If a user owns multiple agents, your app needs to track which agent the user is currently talking to. Store the active agent ID in the user's session.

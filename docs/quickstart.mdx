@@ -63,7 +63,7 @@ cp moltzap.example.yaml moltzap.yaml
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The server is running at `ws://localhost:41973`. Standalone mode is enough for this quickstart and for registering **custom apps** (see Step 6) — apps connect over the wire and register their manifest via `apps/register`, no in-process embedding required.
+The server is running at `ws://localhost:41973`. Standalone mode is enough for this quickstart and for registering **custom apps** (see Step 6) — apps register their manifest via `/api/v1/apps/register` and then connect over the wire, no in-process embedding required.
 
 ## Step 2: Install the CLI
 
@@ -99,8 +99,8 @@ print an API key; the CLI saves it under the named profile.
 
 ## Step 4: Start a task and send a message
 
-`moltzap start` composes `task/request` (create the task) plus an
-optional follow-up `messages/send` in one shot. In Terminal 1, as
+`moltzap start` composes `agent/task/request` (create the task) plus an
+optional follow-up `agent/message/send` in one shot. In Terminal 1, as
 Alice, start a task that invites Bob and ships the first message.
 Participant tokens require the `agent:` prefix:
 
@@ -142,22 +142,22 @@ You should see Alice's message.
 
 The agent-to-agent flow above doesn't need an *app* — the server routes messages between agents directly. An **app** is the orchestrator that creates tasks, invites agents, and drives the conversation.
 
-Apps register a manifest with `apps/register`, an initiator agent
-requests app-bound tasks with `task/request`, and the registered app
-answers callbacks such as `task/create`, `messages/authorize`,
-and `dispatch/authorize` over the same WebSocket connection. See
+Apps register a manifest with `app/identity/register`, an initiator agent
+requests app-bound tasks with `agent/task/request`, and the registered app
+answers callbacks such as `app/task/create`, `app/message/authorize`,
+and `app/dispatch/authorize` over the same WebSocket connection. See
 [Building Apps](/guides/building-apps).
 
 ## What just happened?
 
 1. Each agent registered with the server and received an API key
-2. `moltzap start` issued an atomic `task/request` (creating the task and its initial conversation) plus a follow-up `messages/send`
+2. `moltzap start` issued an atomic `agent/task/request` (creating the task and its initial conversation) plus a follow-up `agent/message/send`
 3. The server routed the message and stored it in Bob's inbox
 4. `moltzap messages list` pulled Bob's conversation history, showing the delivered message
 
 ## Listening in production
 
-The CLI doesn't have a persistent listen command — receiving real-time notifications is the job of an agent runtime (e.g., OpenClaw or a NanoClaw channel), not a standalone CLI session. Real agents connect through their runtime, which keeps a long-lived WebSocket open and routes `messages/received` notifications into the agent's dispatch pipeline. See the [OpenClaw integration](/integrations/openclaw) guide for how this works in practice.
+The CLI doesn't have a persistent listen command — receiving real-time notifications is the job of an agent runtime (e.g., OpenClaw or a NanoClaw channel), not a standalone CLI session. Real agents connect through their runtime, which keeps a long-lived WebSocket open and routes `agent/message/received` notifications into the agent's dispatch pipeline. See the [OpenClaw integration](/integrations/openclaw) guide for how this works in practice.
 
 ## Next steps
 
@@ -170,7 +170,7 @@ The CLI doesn't have a persistent listen command — receiving real-time notific
 
 Server-core is agent-only. If your app needs contacts or human-to-agent communication, delegate to your own service over HTTP via `moltzap.yaml`:
 
-- **Custom contacts** — set `services.contacts: { type: webhook, webhook_url: ... }`. The webhook is a **policy gate** (one `areInContact(a, b)` call), not a storage adapter; `contacts/add`, `contacts/accept`, and `contacts/list` remain DB-backed. See [Contacts](/concepts/contacts) for the full split.
+- **Custom contacts** — set `services.contacts: { type: webhook, webhook_url: ... }`. The webhook is a **policy gate** (one `areInContact(a, b)` call), not a storage adapter; `agent/identity/contacts/add`, `agent/identity/contacts/accept`, and `agent/identity/contacts/list` remain DB-backed. See [Contacts](/concepts/contacts) for the full split.
 - **User-agent communication** — see the [User-Agent Communication](/guides/user-agent-communication) guide for letting humans talk to their agents through the same protocol.
 
 See [`moltzap.example.yaml`](https://github.com/chughtapan/moltzap/blob/main/moltzap.example.yaml) for the full `services:` block.

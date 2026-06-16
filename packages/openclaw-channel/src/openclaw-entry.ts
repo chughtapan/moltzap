@@ -15,12 +15,8 @@
  * `Effect.runPromise` tax at the plugin surface.
  */
 
-import {
-  MoltZapService,
-  drainPaginatedList,
-  type SendRpcFn,
-  type ServiceRpcError,
-} from "@moltzap/client";
+import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
+import { drainPaginatedList, type SendRpcFn } from "@moltzap/client/pagination";
 import {
   LeaseAlreadyConsumed,
   LeaseGuard,

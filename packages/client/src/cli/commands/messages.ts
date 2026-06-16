@@ -1,7 +1,7 @@
 /**
  * `moltzap messages &lt;subcommand>` — subcommand group.
  *
- *   messages list → messages/list
+ *   messages list → agent/message/list
  *
  * `messages` is a subcommand group (distinct from the one-shot top-level
  * `send` command). `--cursor` is absent: it has no server backing in the
@@ -40,7 +40,7 @@ export interface MessagesListArgs {
 // ─── Handlers ──────────────────────────────────────────────────────────────
 
 /**
- * Wraps `messages/list` and emits the full daemon result as JSON.
+ * Wraps `agent/message/list` and emits the full daemon result as JSON.
  */
 export const messagesListHandler = (
   args: MessagesListArgs,

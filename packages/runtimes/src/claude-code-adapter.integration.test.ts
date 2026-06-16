@@ -28,7 +28,7 @@ import {
   stopCoreTestServer,
   type CoreTestServer,
 } from "@moltzap/server-core/test-utils";
-import { registerAgent } from "@moltzap/client";
+import { registerAgent } from "@moltzap/client/auth";
 import { stripWsPath } from "@moltzap/client/test-utils";
 
 import { createWorkspaceClaudeCodeAdapter } from "./claude-code-adapter.js";

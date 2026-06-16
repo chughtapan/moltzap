@@ -1,5 +1,3 @@
-/* eslint-disable jsdoc/text-escaping -- the JSDoc literally cites `Effect<void, never, never>` as a type expression in prose; escaping the angle brackets would render them as escape codes in rendered docs. */
-
 import { Effect, Option } from "effect";
 
 import type { AgentId } from "@moltzap/protocol/identity";
@@ -28,10 +26,10 @@ export interface PresenceEmission {
  * full set of live connections + the active leases keyed by which
  * connection holds them.
  *
- * - `liveConns: ReadonlySet<ConnectionId>` — every WS connection the
+ * - `liveConns` — every WS connection the
  *   agent is currently authenticated on.
- * - `leasesByConn: ReadonlyMap<ConnectionId, ReadonlySet<LeaseId>>`
- *   — per-connection breakdown of active leases (GRANTED or CLAIMED).
+ * - `leasesByConn` — per-connection breakdown of active leases
+ *   (GRANTED or CLAIMED), keyed by connection.
  *   When a connection disconnects, its bucket is dropped wholesale so
  *   the leases bound to the dead conn don't keep the agent in
  *   `working` forever.

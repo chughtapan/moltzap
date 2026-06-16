@@ -1,4 +1,3 @@
-/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect, Fiber, Option, Ref, Schema } from "effect";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
@@ -260,7 +259,7 @@ interface Claim {
  *   AH->>Recv: agent/dispatch/released {verdict}
  *   Recv->>MS: agent/message/send with dispatchLeaseId
  *   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
- *   Note over MS: Effect.acquireUseRelease<br>use sendInsert returns carrier<br>release Exit success → claim.finalize CLAIMED → CONSUMED<br>release Exit failure → claim.rollback CLAIMED → GRANTED
+ *   Note over MS: Effect.acquireUseRelease; use sendInsert returns carrier; release Exit success → claim.finalize CLAIMED → CONSUMED; release Exit failure → claim.rollback CLAIMED → GRANTED
  *   MS->>MS: sendCommit — post-insert side effects
  * ```
  *

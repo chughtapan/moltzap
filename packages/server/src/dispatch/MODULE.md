@@ -220,7 +220,7 @@ export interface EnqueueDispatchRequestArgs {
 }
 ```
 
-### [`LeaseInvalidError`](./lease-registry.ts#L163)
+### [`LeaseInvalidError`](./lease-registry.ts#L162)
 
 _Class_
 
@@ -243,7 +243,7 @@ surface a precise wire-error code, e.g. typed-CONSUMED /
 typed-EXPIRED) and `expected` carries the set of states the
 operation would have accepted.
 
-### [`LeaseRecord`](./lease-registry.ts#L132)
+### [`LeaseRecord`](./lease-registry.ts#L131)
 
 _Interface_
 
@@ -267,7 +267,7 @@ Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L488)
+### [`leaseRecordToWire`](./lease-registry.ts#L487)
 
 _Function_
 
@@ -278,7 +278,7 @@ export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire
 Translation point between the in-process nested `LeaseRecord` and the wire
 `LeaseRecordSchema` shape.
 
-### [`LeaseRegistry`](./lease-registry.ts#L282)
+### [`LeaseRegistry`](./lease-registry.ts#L281)
 
 _Interface_
 
@@ -452,7 +452,7 @@ sequenceDiagram
   AH->>Recv: agent/dispatch/released {verdict}
   Recv->>MS: agent/message/send with dispatchLeaseId
   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
-  Note over MS: Effect.acquireUseRelease<br>use sendInsert returns carrier<br>release Exit success → claim.finalize CLAIMED → CONSUMED<br>release Exit failure → claim.rollback CLAIMED → GRANTED
+  Note over MS: Effect.acquireUseRelease; use sendInsert returns carrier; release Exit success → claim.finalize CLAIMED → CONSUMED; release Exit failure → claim.rollback CLAIMED → GRANTED
   MS->>MS: sendCommit — post-insert side effects
 ```
 
@@ -471,7 +471,7 @@ scheduler fibers are forbidden. Manifest TTLs come from the
 `dispatch_authorize` `{ kind: "hook", timeoutMs }` policy (moderator
 response) and the verdict's `leaseTimeoutMs` (post-grant lease).
 
-### [`LeaseRegistryDeps`](./lease-registry.ts#L431)
+### [`LeaseRegistryDeps`](./lease-registry.ts#L430)
 
 _Interface_
 
@@ -501,7 +501,7 @@ Constructor dependencies for the lease registry.
   `network/presence → LeaseTransitionObserver` for the call shape; the
   per-transition contract lives in `network/presence → PresenceService`.
 
-### [`LeaseState`](./lease-registry.ts#L111)
+### [`LeaseState`](./lease-registry.ts#L110)
 
 _TypeAlias_
 
@@ -525,7 +525,7 @@ Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
 
-### [`LeaseVerdict`](./lease-registry.ts#L122)
+### [`LeaseVerdict`](./lease-registry.ts#L121)
 
 _TypeAlias_
 
@@ -551,7 +551,7 @@ Dispatch admission is only defined for app-bound, non-archived
 conversations. The success type deliberately has no non-app-bound arm, so
 downstream lease minting cannot accidentally handle one as a lease binding.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1227)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1226)
 
 _Function_
 
@@ -572,7 +572,7 @@ cancel). The side-effects run AFTER the predicate commits — so the
 state change is visible to concurrent readers before the
 notification fires, satisfying the "first writer wins" invariant.
 
-### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L96)
+### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L95)
 
 _Interface_
 

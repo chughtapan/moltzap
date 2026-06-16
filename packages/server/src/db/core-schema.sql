@@ -40,7 +40,7 @@ CREATE UNIQUE INDEX idx_agents_api_key_id ON agents(api_key_id);
 CREATE TRIGGER agents_updated_at BEFORE UPDATE ON agents
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- Apps (first-class auth principal; mirrors `agents` minus owner/claim/status)
+-- Apps (first-class auth principal; mirrors `agents` minus owner/status)
 -- Auth: Key ID + Secret format (moltzap_app_<keyId>_<secret>)
 -- app_id is the public principal identity (server-issued UUID); the
 -- manifest's `name` field carries the human label. manifest_json is decoded
