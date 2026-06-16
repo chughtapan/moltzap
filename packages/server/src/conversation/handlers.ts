@@ -19,10 +19,10 @@ import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AppContext, AgentContext } from "#socket";
 import type { AgentId } from "#core";
 import { ConversationServiceTag, TaskServiceTag } from "#core";
+import { agentArm, appArm } from "#moltzap";
 import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 import { assertCallerAppOwnsTask } from "#task/requirements";
-import { agentArm, appArm } from "#core";
 
 type ConversationUpdateParams = ParamsOf<typeof ConversationUpdate>;
 type ConversationArchiveParams = Extract<

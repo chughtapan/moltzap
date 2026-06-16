@@ -1,6 +1,5 @@
-/** @file Server WebSocket/session runtime boundary. */
+/** @file Server WebSocket connection/session runtime primitives. */
 
-export { makeCoreSocketHandler } from "./server-socket.js";
 export {
   ConnectionManager,
   sendRpcToClient,
@@ -10,7 +9,3 @@ export {
 } from "./connection.js";
 
 export { AgentContext, AppContext, agentContextFrom } from "./context.js";
-
-export { peekLiveArm } from "./principal-gate.js";
-
-export type { AppTags } from "./layer-tags.js";

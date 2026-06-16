@@ -17,8 +17,8 @@
  * the engine's `ResponseDefect`.
  */
 import { Effect } from "effect";
-import { ConnectionManagerTag, ConnectionTag } from "./layers.js";
-import { peekLiveArm } from "#socket";
+import { ConnectionManagerTag, ConnectionTag } from "#core";
+import { peekLiveArm } from "./principal-gate.js";
 import type { AgentContext, AppContext } from "#socket";
 
 /**

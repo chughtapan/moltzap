@@ -5,7 +5,7 @@ import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
-import { agentArm } from "#core";
+import { agentArm } from "#moltzap";
 import { Effect, Exit } from "effect";
 import type { AgentContext } from "#socket";
 import { ConnectionTag, LeaseRegistryTag, MessageServiceTag } from "#core";

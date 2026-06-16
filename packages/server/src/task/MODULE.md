@@ -71,7 +71,7 @@ _TypeAlias_
 export type TaskCreateVerdict = ResultOf<typeof TaskCreate>["verdict"];
 ```
 
-### [`taskLeave`](./handlers.ts#L366)
+### [`taskLeave`](./handlers.ts#L365)
 
 _Variable_
 
@@ -79,7 +79,7 @@ _Variable_
 export const taskLeave: ServerHandler<typeof TaskLeave> = (params)
 ```
 
-### [`taskList`](./handlers.ts#L361)
+### [`taskList`](./handlers.ts#L360)
 
 _Variable_
 
@@ -87,7 +87,7 @@ _Variable_
 export const taskList: ServerHandler<typeof TaskList> = (params)
 ```
 
-### [`taskRequest`](./handlers.ts#L209)
+### [`taskRequest`](./handlers.ts#L208)
 
 _Variable_
 
@@ -222,7 +222,7 @@ export class TaskService {
       return yield* catchSqlErrorAsDefect(
 ```
 
-### [`taskUpdate`](./handlers.ts#L371)
+### [`taskUpdate`](./handlers.ts#L370)
 
 _Variable_
 

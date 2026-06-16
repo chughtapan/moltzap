@@ -8,6 +8,9 @@
       "#core": [
         "core/index.ts"
       ],
+      "#moltzap": [
+        "moltzap/index.ts"
+      ],
       "#socket": [
         "socket/index.ts"
       ],

@@ -4,7 +4,7 @@ _`packages/server/src/socket`_
 
 ## Purpose
 
-Server WebSocket/session runtime boundary.
+Server WebSocket connection/session runtime primitives.
 
 ## Public surface
 
@@ -108,19 +108,6 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
   readonly appId: AppId;
 }> {}
 ```
-
-### [`AppTags`](./layer-tags.ts#L97)
-
-_TypeAlias_
-
-```ts
-export type AppTags =
-  | TaskTags
-  | AppEndpointRegistryTag
-  | DispatchAdmissionServiceTag;
-```
-
-App-layer allowlist: dispatch admission and connected app registration.
 
 ### [`Connection`](./connection.ts#L141)
 
@@ -271,47 +258,6 @@ export class ConnectionManager {
         );
 ```
 
-### [`makeCoreSocketHandler`](./server-socket.ts#L17)
-
-_Function_
-
-```ts
-export function makeCoreSocketHandler(options: {
-  readonly services: ResolvedServices;
-  readonly disconnectionHooks: readonly DisconnectionHook[];
-})
-```
-
-### [`makeRequirementMiddlewareLayers`](./auth-middleware-layers.ts#L347)
-
-_Function_
-
-```ts
-export const makeRequirementMiddlewareLayers = (connId: ConnectionId)
-```
-
-Every per-socket requirement impl Layer, merged. The engine stacks each
-requirement on the methods that declare it. `ConversationInTask` reads no
-caller (pure params — it gates app-principal methods too); the rest peek the
-caller's agent id.
-
-### [`narrowByPolicy`](./principal-gate.ts#L99)
-
-_Function_
-
-```ts
-export const narrowByPolicy = (
-  principal: PrincipalRequirement | undefined,
-  requireActiveAgent: boolean,
-  connection: Connection,
-): Effect.Effect<Principal, ForbiddenError>
-```
-
-Narrow the live arm to the principal a gated method's `requires` head demands.
-A gated method always has a principal head: the empty-`requires` Connect path
-carries no policy and never reaches this gate, so an `undefined` head here is a
-wiring defect, not a caller-actionable error.
-
 ### [`Originator`](./connection.ts#L76)
 
 _TypeAlias_
@@ -337,22 +283,6 @@ The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires
 callbacks/notifications through. Constructed by protocol `MoltZapServer`
 during socket accept and passed to
 `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
-
-### [`peekLiveArm`](./principal-gate.ts#L44)
-
-_Function_
-
-```ts
-export const peekLiveArm = (
-  manager: ConnectionManager,
-  connId: ConnectionId,
-): Effect.Effect<Connection>
-```
-
-Peek the live arm by `connId` off the shared manager. A missing entry is an
-impossible-state defect: the socket-open path inserts the unauthenticated arm
-before any resolver Layer is built in the same scope, and the close finalizer
-removes it only as that scope tears down.
 
 ### [`sendRpcToClient`](./connection.ts#L26)
 
@@ -425,9 +355,5 @@ The per-connection socket handle registered with `ConnectionManager`.
 
 ## Files
 
-- `auth-middleware-layers.ts`
 - `connection.ts`
 - `context.ts`
-- `layer-tags.ts`
-- `principal-gate.ts`
-- `server-socket.ts`

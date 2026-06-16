@@ -43,12 +43,11 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "#core";
 import {
-  agentArm,
-  appArm,
   ConversationServiceTag,
   TaskAuthorizationServiceTag,
   TaskServiceTag,
 } from "#core";
+import { agentArm, appArm } from "#moltzap";
 import { authorizeConversationCreate } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 import type { AgentContext, AppContext } from "#socket";

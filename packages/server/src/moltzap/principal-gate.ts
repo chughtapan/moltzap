@@ -19,8 +19,8 @@ import {
 } from "@moltzap/protocol/identity";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ConnectionManager, Connection } from "./connection.js";
-import type { AgentContext, AppContext } from "./context.js";
+import type { ConnectionManager, Connection } from "#socket";
+import type { AgentContext, AppContext } from "#socket";
 
 type Principal = AgentContext | AppContext;
 

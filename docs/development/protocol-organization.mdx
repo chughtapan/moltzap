@@ -492,6 +492,7 @@ infrastructure concerns out of domain folders.
 Server folders describe either:
 
 - runtime infrastructure (`core`, `socket`, `http`, `db`)
+- the server-side protocol adapter (`moltzap`)
 - a protocol domain (`identity`, `network`, `task`, `conversation`, `message`,
   `dispatch`)
 - tests and published test utilities
@@ -508,16 +509,19 @@ packages/server/src/
     app.ts                  # CoreApp API shape and createCoreApp implementation
     layers.ts               # Effect service graph
     tags.ts                 # Context tags only, if split from layers
-    handler-catalog.ts      # RPC handler map composition
-    handler-runtime.ts      # principal arm helpers / request-scoped context
     tracing.ts
 
-  socket/
-    server-socket.ts
-    connection.ts
-    context.ts
+  moltzap/
+    handler-catalog.ts      # RPC handler map composition
+    handler-runtime.ts      # principal arm helpers / request-scoped context
+    server-socket.ts        # MoltZapServer adapter
     principal-gate.ts
     auth-middleware-layers.ts
+    layer-tags.ts
+
+  socket/
+    connection.ts           # live connection registry and outbound reverse-client
+    context.ts              # AgentContext/AppContext values
 
   http/
     routes.ts
@@ -658,10 +662,11 @@ Allowed:
 
 ```ts
 import { CoreApp } from "#core";
+import { makeMoltzapSocketHandler } from "#moltzap";
 import { AgentAuthService } from "#identity/agents";
 import { ConversationService } from "#conversation";
 import { LeaseRegistry } from "#dispatch";
-import { ServerSocket } from "#socket";
+import { ConnectionManager } from "#socket";
 ```
 
 Not allowed:
@@ -677,6 +682,7 @@ Server-core source aliases:
 
 ```text
 #core
+#moltzap
 #socket
 #http
 #db

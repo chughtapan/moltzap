@@ -9,12 +9,12 @@ import {
 import type { ResolvedServices } from "#core";
 import { ConnectionManagerTag, ConnectionTag } from "#core";
 import type { DisconnectionHook } from "#core";
-import type { AgentContext } from "./context.js";
-import { serverHandlers } from "#core";
+import type { AgentContext } from "#socket";
+import { serverHandlers } from "./handler-catalog.js";
 import { makeRequirementMiddlewareLayers } from "./auth-middleware-layers.js";
 import { peekLiveArm } from "./principal-gate.js";
 
-export function makeCoreSocketHandler(options: {
+export function makeMoltzapSocketHandler(options: {
   readonly services: ResolvedServices;
   readonly disconnectionHooks: readonly DisconnectionHook[];
 }) {
