@@ -8,31 +8,6 @@ Narrow core wiring barrel for server-core internals.
 
 ## Public surface
 
-### [`agentArm`](./handler-runtime.ts#L44)
-
-_Variable_
-
-```ts
-export const agentArm: Effect.Effect<
-  AgentContext,
-  never,
-  ConnectionTag | ConnectionManagerTag
-> = Effect.gen(function* () {
-  const connection = yield* liveArm;
-  if (connection._tag !== "AgentConnection") {
-    return yield* Effect.dieMessage(
-      `handler: agent-gated method reached on ${connection._tag} arm`,
-    );
-  }
-  return connection.auth;
-}).pipe(Effect.withSpan("serverHandlers.agentArm"))
-```
-
-Read the request-scoped agent context for a handler whose principal
-gate narrowed the arm to `"agent"`. A non-agent arm is an impossible-state
-defect: the gate runs before the handler, so reaching here off a non-agent arm
-means the engine ran a handler whose middleware should have rejected the frame.
-
 ### [`AgentEndpointResolverTag`](./layers.ts#L91)
 
 _Class_
@@ -46,30 +21,6 @@ export class AgentEndpointResolverTag extends Context.Tag(
 `AgentId → HashSet&lt;ConnectionId>` multimap maintained by the
 `agent/network/connect` success path and the WS disconnect finalizer. Read by
 NetworkSendServiceTag for O(1) outbound routing.
-
-### [`appArm`](./handler-runtime.ts#L63)
-
-_Variable_
-
-```ts
-export const appArm: Effect.Effect<
-  AppContext,
-  never,
-  ConnectionTag | ConnectionManagerTag
-> = Effect.gen(function* () {
-  const connection = yield* liveArm;
-  if (connection._tag !== "AppConnection") {
-    return yield* Effect.dieMessage(
-      `handler: app-gated method reached on ${connection._tag} arm`,
-    );
-  }
-  return connection.auth;
-}).pipe(Effect.withSpan("serverHandlers.appArm"))
-```
-
-Read the request-scoped app context for a handler whose principal gate
-narrowed the arm to `"app"`. A non-app arm is an impossible-state defect for
-the same reason as agentArm.
 
 ### [`AppAuthServiceTag`](./layers.ts#L113)
 
@@ -517,17 +468,6 @@ Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
 and flow through the boot-failure `catchAllCause` envelope without a phase
 tag.
 
-### [`serverHandlers`](./handler-catalog.ts#L39)
-
-_Variable_
-
-```ts
-export const serverHandlers: ServerHandlers =
-```
-
-The handler map. Keys are the wire method names of every WS-dispatched
-method; values are the per-method handler bodies.
-
 ### [`ServicesLive`](./layers.ts#L444)
 
 _Variable_
@@ -563,8 +503,6 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 ## Files
 
 - `app.ts`
-- `handler-catalog.ts`
-- `handler-runtime.ts`
 - `layers.ts`
 - `tracing.ts`
 - `types.ts`

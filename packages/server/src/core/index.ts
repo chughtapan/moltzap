@@ -1,7 +1,6 @@
 /** @file Narrow core wiring barrel for server-core internals. */
 
 export { createCoreApp, ServerBootFailedError } from "./app.js";
-export { serverHandlers } from "./handler-catalog.js";
 export {
   AgentEndpointResolverTag,
   AppAuthServiceTag,
@@ -26,7 +25,5 @@ export {
   resolveServices,
 } from "./layers.js";
 export type { ResolvedServices } from "./layers.js";
-
-export { agentArm, appArm } from "./handler-runtime.js";
 
 export type { AgentId, CoreApp, DisconnectionHook, UserId } from "./types.js";

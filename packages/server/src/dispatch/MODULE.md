@@ -394,7 +394,7 @@ export interface LeaseRegistry {
    *
    * Closing the app scope interrupts every per-connection WebSocket fiber.
    * Each interrupted fiber runs its disconnect cleanup
-   * (`MoltZapServer`/`socket/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
+   * (`MoltZapServer`/`moltzap/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
    * `onExit` region, and that cleanup calls {@link abandon}. For a recipient
    * connection holding a GRANTED lease, `abandon` emits a `app/dispatch/lease-expired`
    * frame to the MODERATOR connection via {@link fireNotification}. When the

@@ -16,8 +16,9 @@ inherited).
 
 ```
 packages/server/src/
-├── core/               # createCoreApp, Layer composition, handler catalog
-├── socket/             # WS connection lifecycle, principal gates, requirement layers
+├── core/               # createCoreApp, Layer composition, service runtime
+├── moltzap/            # server-side MoltZap protocol adapter and requirements
+├── socket/             # WS connection/session primitives
 ├── http/               # HTTP routes and Node HTTP server construction
 ├── identity/           # Agents, apps, contacts, auth services
 ├── network/            # Presence, connection liveness, send routing, outbound caps
@@ -39,7 +40,7 @@ packages/server/src/
 Protocol descriptors list their authority requirements in `requires`. Each
 requirement is an `@effect/rpc` middleware tag owned by `@moltzap/protocol`;
 server-core supplies the per-socket implementation layer in
-`src/socket/auth-middleware-layers.ts`.
+`src/moltzap/auth-middleware-layers.ts`.
 
 Principal requirements narrow the live connection arm. Domain requirements
 resolve additional proof from server services: for example,
@@ -57,7 +58,7 @@ the loaded row directly.
 
 When you add a new domain requirement, declare the tag class + value type in
 the owning protocol domain folder and implement its server layer in
-`src/socket/auth-middleware-layers.ts`.
+`src/moltzap/auth-middleware-layers.ts`.
 
 ## Data stores
 
@@ -109,9 +110,8 @@ derived from `app_id` at routing time.
   ABANDONED. Atomic transitions via `Ref.modify`. CLAIMED rollback
   restores GRANTED on insert failure.
 - **CoreApp** — The composed runtime: services + Kysely + Layers,
-  returned by `createCoreApp` for embedding in a host process. The
-  static RPC handler table is baked at `createCoreApp` time —
-  post-construction method registration is not supported.
+  returned by `createCoreApp` for embedding in a host process. Protocol
+  handler catalog and requirement composition live under `src/moltzap/`.
 - **Layer-tag hierarchy** — TypeScript-enforced constraint on which
   Effect Tags a handler may pull (`TransportTags ⊂ IdentityTags ⊂
   NetworkTags ⊂ TaskTags ⊂ AppTags`); prevents low-layer code from
@@ -137,4 +137,4 @@ derived from `app_id` at routing time.
 - **Domain requirement** — Protocol-owned `RpcMiddleware.Tag` whose
   implementation resolves runtime IDs or already-fetched payload rows needed
   by a handler. Implemented per socket by
-  `src/socket/auth-middleware-layers.ts`.
+  `src/moltzap/auth-middleware-layers.ts`.

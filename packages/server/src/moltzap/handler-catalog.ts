@@ -1,5 +1,5 @@
 /**
- * @file The server RPC handler map.
+ * @file The server-side MoltZap RPC handler map.
  *
  * One entry per WS-dispatched method, keyed by its wire tag, valued by the
  * method's handler body (a `*.handlers.ts` export). Each handler is
