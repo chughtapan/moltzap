@@ -17,8 +17,11 @@ import type { RpcGroup } from "@effect/rpc";
 import { getMoltZapAgentServiceSocketPath } from "../local-paths.js";
 import { requestDaemonCommand, SocketRequestError } from "./socket-client.js";
 import { type LocalDaemonError, LocalDaemonRpcs } from "../local-daemon-rpc.js";
-import type { ProfileError } from "../profile.js";
-import { parseProfileName, resolveProfileRecord } from "../profile.js";
+import {
+  resolveProfileRecord,
+  type ProfileError,
+  type ProfileName,
+} from "../profile.js";
 import type { PayloadForTag, SuccessForTag } from "@moltzap/protocol/rpc";
 
 /** The local daemon command group's member `Rpc`s. */
@@ -35,7 +38,6 @@ export type TransportError =
   | TransportTimeoutError
   | TransportRpcError
   | TransportDecodeError
-  | TransportConfigError
   | LocalDaemonError;
 
 /**
@@ -71,13 +73,6 @@ export class TransportRpcError extends Data.TaggedError("TransportRpcError")<{
 class TransportDecodeError extends Data.TaggedError("TransportDecodeError")<{
   readonly method: string;
   readonly cause: unknown;
-}> {}
-
-/** Transport inputs were self-inconsistent. Surfaces at Layer construction. */
-export class TransportConfigError extends Data.TaggedError(
-  "TransportConfigError",
-)<{
-  readonly reason: string;
 }> {}
 
 // ─── Transport surface ─────────────────────────────────────────────────────
@@ -200,13 +195,12 @@ export const runHandler = <
  * daemon socket.
  */
 export const resolveTransportInputs = (parsed: {
-  readonly profileName?: string;
+  readonly profileName?: ProfileName;
 }): Effect.Effect<TransportOptions, ProfileError> =>
   Effect.gen(function* () {
     // ─── Branch A: profile ─────────────────────────────────────────────────
     if (parsed.profileName !== undefined) {
-      const name = yield* parseProfileName(parsed.profileName);
-      const record = yield* resolveProfileRecord(name);
+      const record = yield* resolveProfileRecord(parsed.profileName);
       return {
         socketPath: getMoltZapAgentServiceSocketPath(record.agentId),
       };

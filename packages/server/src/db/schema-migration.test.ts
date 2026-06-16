@@ -30,13 +30,13 @@ const STATUS_WAITING = "waiting";
 const WEREWOLF_APP_ID = "werewolf";
 const DEFAULT_APP_ID = "default";
 const MESSAGE_SEQ = "1";
-const LEGACY_TABLES = [
+const REMOVED_TASK_SCHEMA_TABLES = [
   "app_sessions",
   "app_session_participants",
   "app_session_conversations",
   "message_delivery",
 ] as const;
-const LEGACY_ENUMS = [
+const REMOVED_TASK_SCHEMA_ENUMS = [
   "app_session_status",
   "app_participant_status",
   "delivery_status",
@@ -97,9 +97,17 @@ describe("apps schema constraints", () => {
 });
 
 describe("tasks schema destructive migration guard", () => {
-  it("legacy tables are gone", legacyTablesAreGone, PGLITE_HOOK_TIMEOUT_MS);
+  it(
+    "removed tables are absent",
+    removedTablesAreAbsent,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
 
-  it("legacy enums are gone", legacyEnumsAreGone, PGLITE_HOOK_TIMEOUT_MS);
+  it(
+    "removed enums are reusable",
+    removedEnumsAreReusable,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
 
   it(
     "tasks and task_participants survive",
@@ -237,28 +245,28 @@ function rejectsDuplicateAppApiKeyId() {
   );
 }
 
-function legacyTablesAreGone() {
+function removedTablesAreAbsent() {
   return withTaskSchemaHarness((harness) =>
     Effect.gen(function* () {
-      for (const tableName of LEGACY_TABLES) {
+      for (const tableName of REMOVED_TASK_SCHEMA_TABLES) {
         const exit = yield* Effect.exit(
           harness.exec(`SELECT 1 FROM ${tableName} LIMIT 1`),
         );
         expect(Exit.isFailure(exit)).toBe(true);
       }
-      expect(LEGACY_TABLES.length).toBeGreaterThan(0);
+      expect(REMOVED_TASK_SCHEMA_TABLES.length).toBeGreaterThan(0);
     }),
   );
 }
 
-function legacyEnumsAreGone() {
+function removedEnumsAreReusable() {
   return withTaskSchemaHarness((harness) =>
     Effect.gen(function* () {
-      for (const typeName of LEGACY_ENUMS) {
+      for (const typeName of REMOVED_TASK_SCHEMA_ENUMS) {
         yield* harness.exec(`CREATE TYPE ${typeName} AS ENUM ('probe')`);
         yield* harness.exec(`DROP TYPE ${typeName}`);
       }
-      expect(LEGACY_ENUMS.length).toBeGreaterThan(0);
+      expect(REMOVED_TASK_SCHEMA_ENUMS.length).toBeGreaterThan(0);
     }),
   );
 }

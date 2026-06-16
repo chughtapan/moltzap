@@ -53,8 +53,8 @@ services:
 ```
 
 On boot, `installContactService` in `standalone.ts` wires the
-webhook adapter into AppHost. The `ConversationServiceLive` layer in
-`app/layers.ts` issues `areInContact(a, b)` checks during session and
+webhook adapter into AppEndpointRegistry. The `ConversationServiceLive` layer in
+`core/layers.ts` issues `areInContact(a, b)` checks during session and
 conversation creation, which the adapter translates into the
 `contacts.check` HTTP call your endpoint serves. That is the only
 call your endpoint owns.

@@ -12,7 +12,7 @@ import {
 } from "@moltzap/protocol/testing";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { registerCommand } from "./register.js";
-import { parseProfileName } from "../../profile.js";
+import { parseProfileName, type ProfileName } from "../../profile.js";
 
 const it = effectIt.scoped;
 
@@ -87,7 +87,7 @@ function registerInput() {
     name: AGENT_NAME,
     inviteCode: INVITE_CODE,
     description: Option.none<string>(),
-    profile: Option.none<string>(),
+    profile: Option.none<ProfileName>(),
     noPersist: false,
   };
 }

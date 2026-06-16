@@ -68,7 +68,9 @@ function closeSocketSession(
     }
     yield* options.services.leaseRegistry.abandon(session.connId);
     options.services.presenceService.removeConnection(session.connId);
-    options.services.appHost.unregisterAppsForConnection(session.connId);
+    options.services.appEndpointRegistry.unregisterAppsForConnection(
+      session.connId,
+    );
   }).pipe(Effect.withSpan("socket.closeSession"));
 }
 

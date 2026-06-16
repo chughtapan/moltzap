@@ -14,7 +14,7 @@ _Class_
 
 ```ts
 export class TaskAuthorizationService {
-  constructor(private readonly apps: AppHost) {}
+  constructor(private readonly apps: AppEndpointRegistry) {}
 
   authorizeCreate(
     appId: AppId,

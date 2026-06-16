@@ -5,9 +5,9 @@ import { getHttpUrl, getServerUrl } from "../../config.js";
 import { registerAgent } from "../../auth.js";
 import {
   emitNoPersist,
-  parseProfileName,
   ProfileName,
   writeProfile,
+  type ProfileName as ProfileNameType,
   type ProfileRecord,
 } from "../../profile.js";
 import { logLines } from "../output.js";
@@ -32,6 +32,7 @@ const descriptionOption = Options.text("description").pipe(
 // for transport selection, and would reject the new profile before this
 // command could create it.
 const profileOption = Options.text("profile").pipe(
+  Options.withSchema(ProfileName),
   Options.withDescription(
     "Named profile to register under. Writes the new apiKey to " +
       "`profiles.<name>` in ~/.moltzap/config.json. Omit to use the " +
@@ -57,13 +58,13 @@ type NoPersistEmission = Effect.Effect.Success<
 >;
 
 interface PersistRegistrationInput {
-  readonly profile: Option.Option<string>;
+  readonly profile: Option.Option<ProfileNameType>;
   readonly record: ProfileRecord;
-  readonly name: string;
+  readonly name: ProfileNameType;
 }
 
 function profileRecordFrom(
-  name: string,
+  name: ProfileNameType,
   result: RegistrationResult,
 ): ProfileRecord {
   return {
@@ -74,7 +75,7 @@ function profileRecordFrom(
 }
 
 function printNoPersistRegistration(
-  name: string,
+  name: ProfileNameType,
   result: RegistrationResult,
   _emitted: NoPersistEmission,
   serverUrl: string,
@@ -87,7 +88,7 @@ function printNoPersistRegistration(
 }
 
 function printPersistedRegistration(
-  name: string,
+  name: ProfileNameType,
   result: RegistrationResult,
   serverUrl: string,
 ): Effect.Effect<void> {
@@ -103,8 +104,9 @@ function persistRegistration({
   record,
   name,
 }: PersistRegistrationInput): Effect.Effect<void, unknown> {
-  return parseProfileName(Option.getOrElse(profile, () => name)).pipe(
-    Effect.flatMap((profileName) => writeProfile(profileName, record)),
+  return writeProfile(
+    Option.getOrElse(profile, () => name),
+    record,
   );
 }
 

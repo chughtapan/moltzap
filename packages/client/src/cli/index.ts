@@ -19,19 +19,21 @@ import { LoggerLive, minLogLevel } from "./runtime.js";
 import {
   makeTransportLayer,
   resolveTransportInputs,
-  TransportConfigError,
   type TransportOptions,
 } from "./transport.js";
 import {
   ProfileConfigReadError,
   ProfileInvalidNameError,
   ProfileNotFoundError,
+  ProfileName,
+  type ProfileName as ProfileNameType,
 } from "../profile.js";
 import { currentArgv } from "./process-argv.js";
 
 const { version } = packageJson;
 
 const globalProfileOption = Options.text("profile").pipe(
+  Options.withSchema(ProfileName),
   Options.withDescription(
     "Load an existing named profile from ~/.moltzap/config.json for this invocation.",
   ),
@@ -39,11 +41,11 @@ const globalProfileOption = Options.text("profile").pipe(
 );
 
 interface GlobalTransportConfig {
-  readonly profile: Option.Option<string>;
+  readonly profile: Option.Option<ProfileNameType>;
 }
 
 function resolverInputFromConfig(config: GlobalTransportConfig): {
-  profileName?: string;
+  profileName?: ProfileNameType;
 } {
   const profileName = Option.getOrUndefined(config.profile);
   if (profileName === undefined) return {};
@@ -62,14 +64,11 @@ function transportResolutionMessage(err: unknown): string {
       err.cause instanceof Error ? err.cause.message : String(err.cause);
     return `config read error at ${err.path}: ${cause}`;
   }
-  if (err instanceof TransportConfigError) {
-    return `transport config: ${err.reason}`;
-  }
   return err instanceof Error ? err.message : String(err);
 }
 
 function resolveTransportOptionsOrExit(input: {
-  profileName?: string;
+  profileName?: ProfileNameType;
 }): Effect.Effect<TransportOptions> {
   return resolveTransportInputs(input).pipe(
     Effect.catchAll((err) =>

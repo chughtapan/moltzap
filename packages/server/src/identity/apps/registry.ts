@@ -26,7 +26,7 @@ export interface AppEndpoint {
  * the default app holds an inert endpoint (see
  * `default-app.ts -> makeDefaultAppEndpoint`) and declares only static
  * policies. Domain callback services only call the endpoint for a
- * `kind: "hook"` policy. AppHost sees one registration shape regardless.
+ * `kind: "hook"` policy. AppEndpointRegistry sees one registration shape regardless.
  */
 export interface AppRegistration {
   readonly appId: AppId;

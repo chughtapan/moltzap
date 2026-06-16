@@ -26,7 +26,7 @@ export default [
           name: "app",
           folders: ["app"],
           reason:
-            "Composition layer: AppHost RPCs composed over task, network, identity, transport descriptors.",
+            "Composition layer: app RPCs composed over task, network, identity, transport descriptors.",
         },
         {
           name: "task",

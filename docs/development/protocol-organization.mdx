@@ -1,9 +1,9 @@
 ---
-title: Protocol And Server Organization Plan
-description: Target package layout and naming rules for protocol and server-core
+title: Protocol And Server Organization
+description: Package layout and naming rules for protocol and server-core
 ---
 
-# Protocol And Server Organization Plan
+# Protocol And Server Organization
 
 This document is the source of truth for the protocol and server-core
 organization. Update this document first when the package layout or wire
@@ -36,7 +36,7 @@ conversation, and message are peer domains. Dispatch is message moderation, so
 it stays under the message domain. `socket` owns the runtime factories that
 open agent/app clients and the server.
 
-## Target Tree
+## Protocol Tree
 
 ```text
 packages/protocol/src/
@@ -177,7 +177,7 @@ Rules:
   `released`, `consumed`, or `expired`.
 - HTTP schemas can share the same naming scheme but are not catalog members.
 
-## Target Wire Surface
+## Wire Surface
 
 ### Network
 
@@ -375,7 +375,7 @@ types, typed dispatch helpers, pagination cursor schemas, and shared wire error
 classes. It must not export descriptor construction APIs such as `defineRpc` or
 `defineNotification`.
 
-The root export should become a small runtime surface:
+The root export is a small runtime surface:
 
 ```text
 MoltZapServer
@@ -431,7 +431,7 @@ Rules:
   `tsc-alias` fixes emitted output; it does not by itself make source-mode
   Vitest or `tsx` runs resolve aliases.
 
-Target protocol source aliases:
+Protocol source aliases:
 
 ```text
 #transport
@@ -454,46 +454,36 @@ Target protocol source aliases:
 #testing
 ```
 
-## Migration Order
+## Rebalance Order
 
-1. Freeze this document as the target shape.
-2. Add `tsc-alias`, package-local TypeScript `paths`, and matching test/source
-   runner alias resolution for the target domain barrels.
-3. Add new folders and narrow domain barrels without changing wire names.
-4. Rewrite imports to absolute barrel imports as each folder is created.
-5. Move credentials and branded ids to their owning identity/domain folders.
-6. Move principals to `identity/principals` and concrete requirements to domain
-   `requirements/` folders.
-7. Move descriptors into task, conversation, message/dispatch, identity, and
-   network domain files.
-8. Move socket lifecycle factories into `socket/`.
-9. Build socket composition from domain barrels.
-10. Narrow package exports and remove public `requirements` and
-   `rpc-method-groups` subpaths.
-11. Rename wire methods to the principal-prefixed naming scheme.
-12. Regenerate protocol reference docs from the new descriptors.
+Use this order when a package needs another domain rebalance:
 
-Those steps are complete for the protocol package. Follow the same order for
-future package rebalances: establish aliases and barrels first, then move code,
-then update wire names and generated docs together when a compatibility break is
-intentional.
+1. Document the desired tree and public package exports.
+2. Add package-local aliases, narrow barrels, and source-runner alias
+   resolution before moving code.
+3. Move code domain by domain while imports go through the new barrels.
+4. Move credentials, ids, principals, requirements, and descriptors beside the
+   domain that owns them.
+5. Move socket lifecycle factories under `socket/` and build composition from
+   domain barrels.
+6. Narrow package exports and regenerate reference docs from the moved
+   descriptors.
+
+The protocol package is already in this shape.
 
 ## Server-Core Organization
 
-`@moltzap/server-core` should mirror the protocol domains, while keeping
-runtime and infrastructure concerns out of domain folders. The current
-`app/` folder is overloaded: it contains HTTP boot, Effect layers, server
-handler catalogs, app endpoint registration, default app wiring, tracing, and
-domain callback routing. That folder should dissolve.
+`@moltzap/server-core` mirrors the protocol domains while keeping runtime and
+infrastructure concerns out of domain folders.
 
-Server folders should describe either:
+Server folders describe either:
 
 - runtime infrastructure (`core`, `socket`, `http`, `db`)
 - a protocol domain (`identity`, `network`, `task`, `conversation`, `message`,
   `dispatch`)
 - tests and published test utilities
 
-### Target Server Tree
+### Server Tree
 
 ```text
 packages/server/src/
@@ -538,7 +528,7 @@ packages/server/src/
       callback-rpc.ts
       registry.ts
       default-app.ts
-      host.ts
+      endpoint-registry.ts
       index.ts
     contacts/
       handlers.ts
@@ -564,31 +554,30 @@ packages/server/src/
 
   task/
     handlers.ts
+    authorization.ts       # app/task/create callback runner
     task.service.ts
     requirements/
-      task-read-access.ts
-      app-owns-task.ts
+      read-access.ts
+      app-ownership.ts
 
   conversation/
     handlers.ts
     conversation.service.ts
-    create-authorization.ts
     requirements/
-      conversation-in-task.ts
-      conversation-send-access.ts
+      create-authorization.ts
+      in-task.ts
+      send-access.ts
 
   message/
     handlers.ts
     message.service.ts
-    send-permissions.ts
     authorization.ts        # app/message/authorize callback runner
-    notification-broadcast.ts
 
   dispatch/
     handlers.ts             # agent/dispatch/request, app/dispatch/lease/get
     lease-registry.ts
     admission.service.ts    # mint/resolve dispatch admission leases
-    authorization.ts        # app/dispatch/authorize callback runner
+    app-bound-conversation.ts
 
   test-utils/
   __tests__/
@@ -596,9 +585,8 @@ packages/server/src/
 
 ### Server Domain Rules
 
-`core/` owns server boot and wiring. Files previously named `app/layers.ts`,
-`app/server-handlers.ts`, `app/server-handlers-runtime.ts`, `app/tracing.ts`,
-and `core-server.ts` belong under `core/`.
+`core/` owns server boot and wiring: the `CoreApp` API, Effect service graph,
+handler catalog, request-scoped runtime helpers, and tracing.
 
 `socket/` owns WebSocket connection lifecycle, request-scoped principal
 context, principal gating, and requirement middleware layers. Keep `transport`
@@ -609,21 +597,13 @@ sockets.
 `http/` owns HTTP routing and Node HTTP server construction. Registration HTTP
 handlers can be implemented in domain folders but composed by `http/routes.ts`.
 
-`identity/apps/` owns app identity and live app endpoint registration. It does
-not own dispatch/message/task authorization behavior. The current `AppHost`
-should be split instead of moved whole:
+`identity/apps/` owns app identity and live app endpoint registration:
+`auth.service.ts`, `default-app.ts`, `registry.ts`, and
+`endpoint-registry.ts`. Domain callback behavior lives with the domain that
+uses it: `message/authorization.ts`, `task/authorization.ts`, and
+`dispatch/admission.service.ts`.
 
-- app endpoint registry -> `identity/apps/registry.ts`
-- app auth -> `identity/apps/auth.service.ts`
-- default app -> `identity/apps/default-app.ts`
-- dispatch callback runner -> `dispatch/authorization.ts`
-- dispatch admission mint/resolve flow -> `dispatch/admission.service.ts`
-- message callback runner -> `message/authorization.ts`
-- task create callback runner -> `task` or `task/authorization.ts`
-
-`task/`, `conversation/`, `message/`, and `dispatch/` should be peer folders.
-Do not keep conversation and message services under `task/` once the protocol
-domains are split.
+`task/`, `conversation/`, `message`, and `dispatch/` are peer folders.
 
 Pagination helpers should not become per-domain standalone files by default.
 The protocol `transport/pagination.ts` owns shared cursor/page schemas,
@@ -679,7 +659,7 @@ import { LeaseRegistry } from "#dispatch/lease-registry";
 // Do not import internal service types from "@moltzap/server-core".
 ```
 
-Target server-core source aliases:
+Server-core source aliases:
 
 ```text
 #core

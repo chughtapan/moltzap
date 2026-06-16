@@ -7,10 +7,9 @@
  * mapped type, and {@link dispatchCall} indexes it at a concrete tag `K` so the
  * result and the method's `errorSchema` error union flow with no cast.
  *
- * This is the cast-free bridge the redesign turns on: a literal-keyed total map.
- * A caller that has a generic tag `K extends Rpcs["_tag"]` dispatches through it
- * without the flat-client value-boundary erasure the old descriptor-driven call
- * needed.
+ * The bridge is a literal-keyed total map. A caller that has a generic tag
+ * `K extends Rpcs["_tag"]` dispatches through it while preserving the tag,
+ * payload, result, and error correlation.
  */
 import type { Rpc } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";

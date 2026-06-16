@@ -10,7 +10,7 @@ import { ContactsService } from "#identity/contacts";
 import { ConversationService } from "#conversation";
 import { MessageService } from "#message";
 import { PresenceService } from "#network/presence";
-import { AppHost } from "#identity/apps";
+import { AppEndpointRegistry } from "#identity/apps";
 import { DbTag, EncryptionTag, ServicesLive, resolveServices } from "#core";
 
 const it = effectIt.effect;
@@ -52,7 +52,7 @@ it("ServicesLive resolves every service via resolveServices", () =>
     expect(services.conversationService).toBeInstanceOf(ConversationService);
     expect(services.contactService).toBeInstanceOf(ContactsService);
     expect(services.presenceService).toBeInstanceOf(PresenceService);
-    expect(services.appHost).toBeInstanceOf(AppHost);
+    expect(services.appEndpointRegistry).toBeInstanceOf(AppEndpointRegistry);
     expect(services.messageService).toBeInstanceOf(MessageService);
 
     // Every slot is populated — `null` counts for encryption.

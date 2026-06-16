@@ -3,15 +3,12 @@
  */
 export {
   MoltZapService,
-  formatCrossConversationBlock,
-  sanitizeForSystemReminder,
   type ConversationMeta,
   type ContextOptions,
   type CrossConvMessage,
   type CrossConversationEntry,
   type ServiceRpcError,
 } from "./service.js";
-export { AgentNotFoundError } from "@moltzap/protocol/identity";
 export { MoltZapAgentClient, type AgentClientOptions } from "./agent-client.js";
 export {
   MoltZapAppClient,

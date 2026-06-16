@@ -197,7 +197,7 @@ export interface CoreTestServer {
    * The auto-wired `InMemorySpanExporter`, or `null` when the caller
    * supplied a custom `spanProcessor`. Tests that want to inspect OTel
    * spans call `getFinishedSpans()` on this exporter and map them via
-   * their own shim (see `runtimes/` for arena's mapping).
+   * their own package-specific projection.
    */
   readonly spanExporter: InMemorySpanExporter | null;
 }
@@ -301,7 +301,7 @@ export function makeHandlerAppEndpoint(args: {
 Build an AppEndpoint whose outbound `originator.call` dispatches to
 in-process handlers instead of going over a WebSocket. The endpoint
 satisfies the same `{ connId, originator }` shape a connected app's
-arm carries so `AppHost`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
+arm carries so `AppEndpointRegistry`, `AppRegistry`, and `sendRpcToClient` see ONE shape.
 
   - `originator.callback({ definition, params })` indexes `handlers` by
     `definition.name`. The

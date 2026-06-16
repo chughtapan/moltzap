@@ -134,7 +134,7 @@ export interface CoreTestServer {
    * The auto-wired `InMemorySpanExporter`, or `null` when the caller
    * supplied a custom `spanProcessor`. Tests that want to inspect OTel
    * spans call `getFinishedSpans()` on this exporter and map them via
-   * their own shim (see `runtimes/` for arena's mapping).
+   * their own package-specific projection.
    */
   readonly spanExporter: InMemorySpanExporter | null;
 }

@@ -18,7 +18,6 @@
 import {
   MoltZapService,
   drainPaginatedList,
-  type CrossConvMessage,
   type SendRpcFn,
   type ServiceRpcError,
 } from "@moltzap/client";
@@ -30,6 +29,7 @@ import {
   formatCrossConv,
   getGroupFields,
   type ChannelService,
+  type CrossConvMessage,
   type EnrichedInboundMessage,
   type GroupFields,
 } from "@moltzap/client/channel-base";

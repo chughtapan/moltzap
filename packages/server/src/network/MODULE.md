@@ -128,7 +128,7 @@ reverse views never disagree, even under concurrent add /
 remove calls from independent `agent/network/connect` and disconnect
 fibers.
 
-### [`applyOutboundWebhookCap`](./outbound-webhook-cap.ts#L50)
+### [`applyOutboundWebhookCap`](./outbound-webhook-cap.ts#L44)
 
 _Function_
 

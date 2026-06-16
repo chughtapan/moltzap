@@ -8,7 +8,7 @@
  *
  * Outbound routing is strictly per-agent ({@link send}) or
  * per-agent-set ({@link broadcast}). App callbacks write over the app's
- * own `AppEndpoint` originator inside `AppHost`, not through here.
+ * own `AppEndpoint` originator inside `AppEndpointRegistry`, not through here.
  */
 import { Brand, Data, Effect, Either, HashSet, Option } from "effect";
 import type { NotificationParamsOf } from "@moltzap/protocol/rpc";

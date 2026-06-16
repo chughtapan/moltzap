@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
 import { Data, Effect } from "effect";
-import type { CrossConvMessage } from "@moltzap/client";
+import type { CrossConvMessage } from "@moltzap/client/channel-base";
 import {
   createFakeChannelService,
   flushDispatchChainEffect,

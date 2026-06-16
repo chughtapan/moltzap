@@ -1,7 +1,7 @@
 import { FileSystem, Path } from "@effect/platform";
 import { NodeFileSystem, NodePath } from "@effect/platform-node";
 import { Config, ConfigProvider, Effect, Option } from "effect";
-import type { CrossConvMessage } from "@moltzap/client";
+import type { CrossConvMessage } from "@moltzap/client/channel-base";
 
 interface OpenClawContextLogEntry {
   readonly schemaVersion: 1;
