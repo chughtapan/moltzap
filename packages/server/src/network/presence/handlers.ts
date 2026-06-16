@@ -10,7 +10,7 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
 import { ConnectionTag, DbTag, PresenceServiceTag } from "#core";
 import { visibleAgentIds } from "#identity/agents";
-import { agentArm, appArm } from "#moltzap";
+import { agentArm, appArm } from "#moltzap/runtime";
 
 /**
  * `network/presence/subscribe` registers fan-out interest via

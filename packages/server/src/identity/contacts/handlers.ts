@@ -18,7 +18,7 @@ import {
   ContactsServiceTag,
   NetworkSendServiceTag,
 } from "#core";
-import { agentArm } from "#moltzap";
+import { agentArm } from "#moltzap/runtime";
 
 const fanOut = <D extends AnyNotificationDefinition>(
   target: UserId,

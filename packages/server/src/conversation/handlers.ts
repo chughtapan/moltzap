@@ -19,7 +19,7 @@ import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AppContext, AgentContext } from "#socket";
 import type { AgentId } from "#core";
 import { ConversationServiceTag, TaskServiceTag } from "#core";
-import { agentArm, appArm } from "#moltzap";
+import { agentArm, appArm } from "#moltzap/runtime";
 import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 import { assertCallerAppOwnsTask } from "#task/requirements";

@@ -47,7 +47,7 @@ import {
   TaskAuthorizationServiceTag,
   TaskServiceTag,
 } from "#core";
-import { agentArm, appArm } from "#moltzap";
+import { agentArm, appArm } from "#moltzap/runtime";
 import { authorizeConversationCreate } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 import type { AgentContext, AppContext } from "#socket";

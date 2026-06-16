@@ -56,7 +56,7 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^#rpc$/,
-    replacement: fromRoot("packages/protocol/src/rpc/index.ts"),
+    replacement: fromRoot("packages/protocol/src/rpc.ts"),
   },
   {
     find: /^#identity$/,
@@ -138,7 +138,7 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   },
   {
     find: /^@moltzap\/protocol\/rpc$/,
-    replacement: fromRoot("packages/protocol/src/rpc/index.ts"),
+    replacement: fromRoot("packages/protocol/src/rpc.ts"),
   },
   {
     find: /^@moltzap\/protocol\/identity$/,
@@ -189,6 +189,14 @@ export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   {
     find: /^#core$/,
     replacement: fromRoot("packages/server/src/core/index.ts"),
+  },
+  {
+    find: /^#moltzap$/,
+    replacement: fromRoot("packages/server/src/moltzap/index.ts"),
+  },
+  {
+    find: /^#moltzap\/runtime$/,
+    replacement: fromRoot("packages/server/src/moltzap/runtime.ts"),
   },
   {
     find: /^#socket$/,

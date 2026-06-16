@@ -7,7 +7,7 @@ import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentContext } from "#socket";
 import { DbTag } from "#core";
-import { agentArm } from "#moltzap";
+import { agentArm } from "#moltzap/runtime";
 import { catchSqlErrorAsDefect } from "#db";
 import { visibleAgentIds } from "./visibility.service.js";
 import {
