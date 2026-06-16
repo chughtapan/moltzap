@@ -23,7 +23,7 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import { type RegisterResponse } from "@moltzap/client";
+import { type RegisterResponse } from "@moltzap/client/auth";
 import { registerStandaloneAgentPair } from "@moltzap/client/test-utils";
 import {
   Config,

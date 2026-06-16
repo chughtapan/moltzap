@@ -55,7 +55,7 @@ graph LR
     Plugin -->|dispatch| OC[OpenClaw Pipeline]
     OC -->|LLM response| Plugin
     Plugin -->|core.sendReply| Core
-    Core -->|messages/send| Svc
+    Core -->|agent/message/send| Svc
 ```
 
 The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from OpenClaw's channel runtime to handle the inbound/outbound message flow. `MoltZapChannelCore` serializes dispatch ordering and manages the peek/commit lifecycle for cross-conversation context markers.

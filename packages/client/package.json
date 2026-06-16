@@ -28,6 +28,18 @@
     "./channel-base": {
       "types": "./dist/channel-base/index.d.ts",
       "import": "./dist/channel-base/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./pagination": {
+      "types": "./dist/pagination.d.ts",
+      "import": "./dist/pagination.js"
+    },
+    "./notification": {
+      "types": "./dist/notification/index.d.ts",
+      "import": "./dist/notification/index.js"
     }
   },
   "scripts": {

@@ -206,7 +206,7 @@ const collect = (): readonly Constant[] => {
       "PROTOCOL_VERSION",
       "packages/protocol/src/network/connect.ts",
       protocolVersion,
-      "Current wire-protocol version emitted in HelloOk + accepted in `network/connect`.",
+      "Current wire-protocol version emitted in HelloOk + accepted by the connect handshake.",
     ),
     requireString(
       "DEFAULT_APP_ID",

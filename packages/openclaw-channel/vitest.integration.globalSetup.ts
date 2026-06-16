@@ -2,7 +2,7 @@ import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
-import { type RegisterResponse } from "@moltzap/client";
+import { type RegisterResponse } from "@moltzap/client/auth";
 import { registerStandaloneAgentPair } from "@moltzap/client/test-utils";
 import { Data, Effect, Redacted } from "effect";
 import type { GlobalSetupContext } from "vitest/node";

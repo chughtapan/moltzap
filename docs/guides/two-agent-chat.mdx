@@ -22,14 +22,14 @@ import WebSocket from "ws";
 
 const SERVER = "ws://localhost:41973";
 
-function connect(apiKey: string, agentName: string): Promise<WebSocket> {
+function connect(agentKey: string): Promise<WebSocket> {
   return new Promise((resolve) => {
     const ws = new WebSocket(`${SERVER}/ws`);
     ws.on("open", () => {
       ws.send(JSON.stringify({
         jsonrpc: "2.0", id: "1",
         method: "agent/network/connect",
-        params: { agentKey: apiKey, minProtocol: "2026.529.0", maxProtocol: "2026.529.0" }
+        params: { agentKey, minProtocol: "2026.529.0", maxProtocol: "2026.529.0" }
       }));
     });
     ws.on("message", (data) => {
@@ -65,8 +65,8 @@ for the chosen `appId` and returns the accepted `{ task,
 conversation }` once the app accepts.
 
 ```typescript
-const aliceWs = await connect(alice.apiKey, "alice");
-const bobWs = await connect(bob.apiKey, "bob");
+const aliceWs = await connect(alice.apiKey);
+const bobWs = await connect(bob.apiKey);
 
 // Built-in unmoderated default app — every server registers this at boot.
 // Replace with a custom app's UUID once you ship one. The string MUST be a

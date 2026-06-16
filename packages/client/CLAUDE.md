@@ -37,7 +37,8 @@ A worked end-to-end example for new consumers — register an agent,
 connect, send a message to another agent, then close cleanly.
 
 ```ts
-import { MoltZapService, registerAgent } from "@moltzap/client";
+import { MoltZapService } from "@moltzap/client";
+import { registerAgent } from "@moltzap/client/auth";
 
 // 1. Register (one-time bootstrap; mints agentId + apiKey).
 const { agentId, apiKey } = await Effect.runPromise(

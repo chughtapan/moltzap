@@ -8,7 +8,7 @@ Presence server internals.
 
 ## Public surface
 
-### [`AgentPresenceEntry`](./presence-types.ts#L57)
+### [`AgentPresenceEntry`](./presence-types.ts#L55)
 
 _Interface_
 
@@ -25,10 +25,10 @@ WebSocket connections (web tab + CLI + mobile — see
 full set of live connections + the active leases keyed by which
 connection holds them.
 
-- `liveConns: ReadonlySet<ConnectionId>` — every WS connection the
+- `liveConns` — every WS connection the
   agent is currently authenticated on.
-- `leasesByConn: ReadonlyMap<ConnectionId, ReadonlySet<LeaseId>>`
-  — per-connection breakdown of active leases (GRANTED or CLAIMED).
+- `leasesByConn` — per-connection breakdown of active leases
+  (GRANTED or CLAIMED), keyed by connection.
   When a connection disconnects, its bucket is dropped wholesale so
   the leases bound to the dead conn don't keep the agent in
   `working` forever.
@@ -71,7 +71,7 @@ export const appPresenceSubscribe: ServerHandler<
 > = (params)
 ```
 
-### [`dedupePresenceStatus`](./presence-types.ts#L94)
+### [`dedupePresenceStatus`](./presence-types.ts#L92)
 
 _Function_
 
@@ -98,7 +98,7 @@ at the emission site, which is how concurrent GRANTED leases stop
 producing duplicate `working` notifications: the second GRANT sees
 `previous = working` and elides the emission.
 
-### [`DerivedPresenceStatus`](./presence-types.ts#L16)
+### [`DerivedPresenceStatus`](./presence-types.ts#L14)
 
 _TypeAlias_
 
@@ -118,7 +118,7 @@ Derived presence status. Three-state set:
 - `working`  — connected, ≥1 lease in GRANTED or CLAIMED.
 - `offline`  — WS closed (no entry in presence state).
 
-### [`deriveEntryStatus`](./presence-types.ts#L68)
+### [`deriveEntryStatus`](./presence-types.ts#L66)
 
 _Function_
 
@@ -133,7 +133,7 @@ connections. Single source of truth for the lease-count-to-status
 mapping; walks `leasesByConn` and returns `working` for any non-zero
 count, else `online`.
 
-### [`LeaseTransitionObserver`](./presence-types.ts#L194)
+### [`LeaseTransitionObserver`](./presence-types.ts#L192)
 
 _Interface_
 
@@ -185,7 +185,7 @@ ghost callbacks. The fast-reconnect race: agent A disconnects on
 threading, those callbacks would mutate against the surviving
 connection; the check makes them no-op audits instead.
 
-### [`noopLeaseTransitionObserver`](./presence-types.ts#L216)
+### [`noopLeaseTransitionObserver`](./presence-types.ts#L214)
 
 _Variable_
 
@@ -201,7 +201,7 @@ The default discipline (Principle 4) is to have a value that does the
 right thing rather than a `null` branch every call site has to
 remember to guard.
 
-### [`PresenceAuditEvent`](./presence-types.ts#L137)
+### [`PresenceAuditEvent`](./presence-types.ts#L135)
 
 _TypeAlias_
 
@@ -249,7 +249,7 @@ Audit events are emitted via `Effect.logDebug`. They do NOT go
 through `Effect.die`; the `never` E channel is preserved by
 construction.
 
-### [`PresenceEmission`](./presence-types.ts#L19)
+### [`PresenceEmission`](./presence-types.ts#L17)
 
 _Interface_
 
@@ -402,11 +402,12 @@ and registers fan-out interest via `subscribe`.
 **State.** Two in-memory stores, both lost on restart (agents
 repopulate on reconnect):
 
-- subscriber registry — `subscribers: agentId → Set<connId>` (which
+- subscriber registry — `subscribers` maps each agent ID to the connection
+  IDs watching it (which
   connections want fan-out for which agent) plus the reverse
-  `connSubscriptions: connId → Set<agentId>` so `subscribe` can
+  `connSubscriptions` map so `subscribe` can
   replace a connection's watch set without scanning every agent.
-- status map — `Ref<ReadonlyMap<AgentId, AgentPresenceEntry>>`. Each
+- status map — a `Ref` of agent ID to presence entry. Each
   entry carries `liveConns` (every WS conn the agent is authed on) +
   `leasesByConn` (per-conn active-lease buckets). Multi-connection
   shaped: a second simultaneous connect ADDS to `liveConns` rather
@@ -442,7 +443,7 @@ sequenceDiagram
   LR->>PS: onLeaseActiveBegin(leaseId, agentId, recipientConnId)
   PS->>PS: Ref.modify computes BOTH new entry AND emission decision in one CAS
   alt agent has entry AND recipientConnId ∈ entry.liveConns
-    PS->>PS: prev = deriveEntryStatus(entry)<br>leasesByConn[recipientConnId] ∪= {leaseId}<br>next = any bucket non-empty ? "working" : "online"
+    PS->>PS: prev = deriveEntryStatus(entry); leasesByConn[recipientConnId] ∪= {leaseId}; next = any bucket non-empty ? "working" : "online"
     PS->>PS: dedupePresenceStatus(prev, next) — dedup
     alt decision = some(status)
       PS->>PS: snapshot = new Set(getSubscribers(agentId))

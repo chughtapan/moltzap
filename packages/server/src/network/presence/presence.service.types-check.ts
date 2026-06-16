@@ -1,5 +1,4 @@
 /* eslint-disable sonarjs/void-use -- type-canary uses `void X;` to mark const-asserted shapes consumed (mirrors message-send-permission.types-check.ts convention). */
-/* eslint-disable jsdoc/text-escaping -- the canary doc literally cites `Effect<void, never, never>` as a type expression in prose; escaping the angle brackets would render them as escape codes in rendered docs. */
 
 /**
  * Type-canary for the consolidated `PresenceService` contract. Asserts:
@@ -14,8 +13,8 @@
  *
  *    - `DerivedPresenceStatus` is the three-state union.
  *    - `LeaseTransitionObserver` carries the two boundary methods
- *      (begin, end), each producing `Effect<void, never, never>`, with
- *      a third `recipientConnId: ConnectionId` parameter (the
+ *      (begin, end), each producing an Effect that cannot fail and
+ *      needs no environment, with a third `recipientConnId` parameter (the
  *      fast-reconnect-race guard).
  *    - `noopLeaseTransitionObserver` is a default-shaped observer.
  *    - `PresenceService` IS-A `LeaseTransitionObserver` and adds
@@ -29,7 +28,8 @@
  *    - `PresenceAuditEvent` is the discriminated union for "expected
  *      during teardown" lease callbacks.
  *    - `PresenceService.make` returns
- *      `Effect<PresenceService, never, never>`.
+ *      an Effect that yields `PresenceService`, cannot fail, and needs no
+ *      environment.
  *
  * 2. **Module-privacy seal at `presence.service.ts`** — three
  *    `@ts-expect-error` assertions guarantee the wire-emission

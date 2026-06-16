@@ -1,30 +1,4 @@
-/* eslint-disable jsdoc/text-escaping, jsdoc/require-description-complete-sentence -- mermaid sequenceDiagram blocks need literal `<br>` and non-sentence labels for renderer compatibility. */
-
-/**
- * @file Shared channel-adapter primitives for `@moltzap/client/channel-base`.
- *
- * ```mermaid
- * sequenceDiagram
- *   participant Host
- *   participant Channel
- *   participant Core as MoltZapChannelCore
- *   participant Server
- *
- *   Host->>Channel: reply / sendMessage
- *   Channel->>Core: sendReply(conv, text, {dispatchLeaseId})
- *   Core->>Server: agent/message/send
- *   Server-->>Core: ForbiddenError data.reason LeaseInvalid
- *   Note over Channel,Core: catchLeaseInvalid reads Clock.currentTimeMillis<br>then projectLeaseInvalid stamps LeaseAlreadyConsumed
- *   Core-->>Channel: Effect.fail(LeaseAlreadyConsumed)
- *   alt claude-code
- *     Channel->>Host: toolErrorResult
- *   else openclaw
- *     Channel->>Host: onLeaseConsumed callback, deliver returns false
- *   else nanoclaw
- *     Channel->>Host: Effect raises LeaseAlreadyConsumed
- *   end
- * ```
- */
+/** @file Shared channel-adapter primitives for `@moltzap/client/channel-base`. */
 
 export {
   LeaseAlreadyConsumed,

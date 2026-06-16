@@ -10,7 +10,7 @@ import type {
   Message,
   MessageReceivedNotification,
 } from "@moltzap/protocol/message";
-import { registerAgent } from "@moltzap/client";
+import { registerAgent } from "@moltzap/client/auth";
 import { Effect } from "effect";
 
 const WAIT_FOR_POLL_INTERVAL_MS = 50;

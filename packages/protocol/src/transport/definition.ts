@@ -1,4 +1,3 @@
-/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect, Schema } from "effect";
 import { Rpc, type RpcMiddleware } from "@effect/rpc";
 import { closedStructGuard } from "./strict-decode.js";
@@ -218,9 +217,9 @@ function makeErrorSchema(
  *
  * ```mermaid
  * flowchart TD
- *   A["domain layer call site:<br>defineRpc{ name, params, result }"]
- *   A --> B["closedStructGuard(params)<br>to validateParams (strict decode)"]
- *   A --> C["closedStructGuard(result)<br>to validateResult (strict decode)"]
+ *   A["domain layer call site:; defineRpc{ name, params, result }"]
+ *   A --> B["closedStructGuard(params); to validateParams (strict decode)"]
+ *   A --> C["closedStructGuard(result); to validateResult (strict decode)"]
  *   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
  *   C --> D
  *   D --> E["pushed into per-layer *RpcMethods const"]
@@ -453,7 +452,7 @@ export type NotificationParamsOf<D extends NotificationDefinitionAny> =
 /**
  * Descriptor-tagged notification delivery after native Effect RPC/Schema
  * decode. This is the broad-subscription shape; typed subscriptions consume
- * `NotificationParamsOf<D>` directly.
+ * the definition-specific params directly.
  */
 export interface NotificationDelivery<
   D extends NotificationDefinitionAny = NotificationDefinitionAny,

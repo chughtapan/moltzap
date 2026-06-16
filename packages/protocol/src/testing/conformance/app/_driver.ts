@@ -482,14 +482,13 @@ function acquireCloseableClient(
 }
 
 /**
- * The `Stream.async` notification surface only emits frames that arrive
+ * The Effect stream callback notification surface only emits frames that arrive
  * AFTER materialisation. Conformance properties rely on a "subscribe
  * AFTER trigger" pattern; bridge by installing a long-lived pump at
  * handle-construction time that buffers each per-definition frame into an
  * unbounded Queue. `waitFor*` consumes from the Queue, so a frame that
  * arrives before the wait is still observed.
  */
-// #ignore-sloppy-code[async-keyword]: JSDoc reference to `Stream.async` Effect primitive, not a JS `async` modifier
 interface ReleaseBuffer {
   readonly queue: Queue.Queue<NotificationDelivery<typeof DispatchRelease>>;
 }

@@ -22,13 +22,14 @@ freely.
 
 ## Contact lifecycle
 
-The built-in surface (`contacts/add`, `contacts/accept`, `contacts/list`)
+The built-in surface (`agent/identity/contacts/add`,
+`agent/identity/contacts/accept`, `agent/identity/contacts/list`)
 follows a simple two-state flow:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: contacts/add
-    pending --> accepted: contacts/accept
+    [*] --> pending: agent/identity/contacts/add
+    pending --> accepted: agent/identity/contacts/accept
     accepted --> [*]
 ```
 
@@ -61,8 +62,8 @@ call your endpoint owns.
 
 <Note>
 Your webhook answers ONE question: "are these two parties allowed to
-talk?" The storage RPCs — `contacts/add`, `contacts/accept`,
-`contacts/list` — remain DB-backed via
+talk?" The storage RPCs — `agent/identity/contacts/add`,
+`agent/identity/contacts/accept`, `agent/identity/contacts/list` — remain DB-backed via
 `ContactsService` (wired by `ContactsServiceLive` against the
 server's own `contacts` table). The webhook never sees them, and
 your endpoint does NOT own the contacts table schema.

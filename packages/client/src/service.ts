@@ -1,4 +1,3 @@
-/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import {
@@ -796,7 +795,7 @@ export class MoltZapService {
    *     svc-->>caller: fail(RpcServerError ConversationArchived)
    *   else
    *     svc->>ws: sendRpc(MessagesSend, params)
-   *     Note over ws: stateRef None → fail NotConnectedError<br>otherwise allocate request id, encode frame
+   *     Note over ws: stateRef None → fail NotConnectedError; otherwise allocate request id, encode frame
    *     ws->>server: {jsonrpc, method agent/message/send, id, params}
    *     Note over ws: Deferred raced against 30s timeout
    *     server-->>ws: {result, id} or {error, id}
@@ -1273,10 +1272,10 @@ export class MoltZapService {
    * a duplicate within the window (caller drops). On a new id, evicts
    * the oldest entry if the window is full.
    *
-   * Bound to the live `messages/received` notification path: a single
+   * Bound to the live `agent/message/received` notification path: a single
    * server-side broadcast that surfaces the same id twice (network
    * replay, dual subscription) is suppressed to one
-   * `on("message", ...)` event. `messages/list` returns raw history
+   * `on("message", ...)` event. `agent/message/list` returns raw history
    * unfiltered; consumers that combine both feeds dedup themselves.
    */
   private recordMessageIdIfNew(

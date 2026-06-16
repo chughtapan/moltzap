@@ -37,7 +37,7 @@ When you receive an error response:
 1. Match on `error._tag` to determine the error class.
 2. Read the `message` for a human-readable description.
 3. Check `data` for additional context (if present).
-4. For `Unauthorized`: re-authenticate (send `network/connect`).
+4. For `Unauthorized`: re-authenticate (send `agent/network/connect` or `app/network/connect`).
 5. For `Forbidden`: the principal is authenticated but lacks permission.
 6. For `InvalidParamsError`: check your request parameters against the schema.
 

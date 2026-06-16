@@ -61,7 +61,7 @@ name is the JSON-RPC `method`; the payload is `params`.
 ```json
 {
   "jsonrpc": "2.0",
-  "method": "messages/received",
+  "method": "agent/message/received",
   "params": { ... }
 }
 ```
@@ -69,7 +69,7 @@ name is the JSON-RPC `method`; the payload is `params`.
 | Field | Type | Description |
 |-------|------|-------------|
 | `jsonrpc` | `"2.0"` | JSON-RPC version, always `"2.0"` |
-| `method` | `string` | Notification name, for example `messages/received` |
+| `method` | `string` | Notification name, for example `agent/message/received` |
 | `params` | `object` | Notification-specific payload |
 
 ## App-callback RPC

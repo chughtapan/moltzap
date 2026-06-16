@@ -1,4 +1,3 @@
-/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Effect, Option, Ref } from "effect";
 
 import {
@@ -316,11 +315,12 @@ function fanOut(
  * **State.** Two in-memory stores, both lost on restart (agents
  * repopulate on reconnect):
  *
- * - subscriber registry — `subscribers: agentId → Set<connId>` (which
+ * - subscriber registry — `subscribers` maps each agent ID to the connection
+ *   IDs watching it (which
  *   connections want fan-out for which agent) plus the reverse
- *   `connSubscriptions: connId → Set<agentId>` so `subscribe` can
+ *   `connSubscriptions` map so `subscribe` can
  *   replace a connection's watch set without scanning every agent.
- * - status map — `Ref<ReadonlyMap<AgentId, AgentPresenceEntry>>`. Each
+ * - status map — a `Ref` of agent ID to presence entry. Each
  *   entry carries `liveConns` (every WS conn the agent is authed on) +
  *   `leasesByConn` (per-conn active-lease buckets). Multi-connection
  *   shaped: a second simultaneous connect ADDS to `liveConns` rather
@@ -356,7 +356,7 @@ function fanOut(
  *   LR->>PS: onLeaseActiveBegin(leaseId, agentId, recipientConnId)
  *   PS->>PS: Ref.modify computes BOTH new entry AND emission decision in one CAS
  *   alt agent has entry AND recipientConnId ∈ entry.liveConns
- *     PS->>PS: prev = deriveEntryStatus(entry)<br>leasesByConn[recipientConnId] ∪= {leaseId}<br>next = any bucket non-empty ? "working" : "online"
+ *     PS->>PS: prev = deriveEntryStatus(entry); leasesByConn[recipientConnId] ∪= {leaseId}; next = any bucket non-empty ? "working" : "online"
  *     PS->>PS: dedupePresenceStatus(prev, next) — dedup
  *     alt decision = some(status)
  *       PS->>PS: snapshot = new Set(getSubscribers(agentId))

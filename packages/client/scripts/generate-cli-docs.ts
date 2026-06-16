@@ -10,7 +10,7 @@
  *   - `docs/cli/reference.mdx` — per-command reference page.
  *   - `docs/snippets/cli-commands-table.mdx` — table for `cli/overview.mdx`.
  *   - `docs/snippets/cli-global-flags.mdx` — root-command global flags block.
- *   - `docs/snippets/ws-connect-example.mdx` — `network/connect` request +
+ *   - `docs/snippets/ws-connect-example.mdx` — `agent/network/connect` request +
  *     HelloOk response, baked from the live `PROTOCOL_VERSION` and
  *     `API_KEY_PREFIX` constants.
  *
@@ -452,7 +452,7 @@ const renderCommandsTable = (commands: readonly CommandHelp[]): string => {
 const renderGlobalFlagsSnippet = (rootHelp: CommandHelp): string =>
   [AUTO_GEN_NOTE, "", rootHelp.description, ""].join("\n");
 
-// ─── network/connect example snippet ─────────────────────────────────────
+// ─── agent/network/connect example snippet ───────────────────────────────
 
 /**
  * Read `PROTOCOL_VERSION` from `packages/protocol/src/network/connect.ts` so
@@ -522,7 +522,7 @@ const renderWsConnectSnippet = ({
     {
       jsonrpc: "2.0",
       id: "1",
-      method: "network/connect",
+      method: "agent/network/connect",
       params: {
         credential: `${apiKeyPrefix}abc123...`,
         minProtocol: protocolVersion,

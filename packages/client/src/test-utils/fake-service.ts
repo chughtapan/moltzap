@@ -31,8 +31,8 @@ import type { RpcGroup } from "@effect/rpc";
 import { NotFoundError } from "@moltzap/protocol/rpc";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
-import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
-import type { RpcCallOptions } from "@moltzap/client";
+import { MoltZapService, type ServiceRpcError } from "../service.js";
+import type { RpcCallOptions } from "../agent-client.js";
 import { testAgentId } from "./ids.js";
 
 const TEST_AGENT_KEY = redactedAgentKey(agentKeyString(0));

@@ -25,7 +25,7 @@ export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
 A principal (agent or app) already holds an active connection. The
 `principal` discriminator names which arm the conflict is on.
 
-### [`CallErrorsOf`](./definition.ts#L174)
+### [`CallErrorsOf`](./definition.ts#L173)
 
 _TypeAlias_
 
@@ -116,7 +116,7 @@ export function dateTimeStringSchema(): typeof DateTimeStringSchema
 Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
 can keep `as const` references stable while the schema body is owned here.
 
-### [`decodeRpcResult`](./definition.ts#L509)
+### [`decodeRpcResult`](./definition.ts#L508)
 
 _Function_
 
@@ -152,7 +152,7 @@ _Variable_
 export const DEFAULT_PAGE_LIMIT = 50
 ```
 
-### [`defineNotification`](./definition.ts#L481)
+### [`defineNotification`](./definition.ts#L480)
 
 _Function_
 
@@ -170,7 +170,7 @@ Sibling of defineRpc for server-to-client notifications.
 Same pipeline minus the result schema; notifications are
 fire-and-forget, no `id` field, no `result`.
 
-### [`defineRpc`](./definition.ts#L244)
+### [`defineRpc`](./definition.ts#L243)
 
 _Function_
 
@@ -197,9 +197,9 @@ re-derives them.
 
 ```mermaid
 flowchart TD
-  A["domain layer call site:<br>defineRpc{ name, params, result }"]
-  A --> B["closedStructGuard(params)<br>to validateParams (strict decode)"]
-  A --> C["closedStructGuard(result)<br>to validateResult (strict decode)"]
+  A["domain layer call site:; defineRpc{ name, params, result }"]
+  A --> B["closedStructGuard(params); to validateParams (strict decode)"]
+  A --> C["closedStructGuard(result); to validateResult (strict decode)"]
   B --> D["RpcDefinition&lt;Name, P, R&gt;"]
   C --> D
   D --> E["pushed into per-layer *RpcMethods const"]
@@ -238,7 +238,7 @@ error. Leaf call sites pass a literal tag and recover the precise types; a
 caller generic over `K` keeps the correlation because the map is keyed on the
 literal tag, not on a widened def union.
 
-### [`DomainErrorsOf`](./definition.ts#L162)
+### [`DomainErrorsOf`](./definition.ts#L161)
 
 _TypeAlias_
 
@@ -248,7 +248,7 @@ export type DomainErrorsOf<D extends RpcDefinitionAny> =
 
 The handler-domain error instance union a descriptor declares.
 
-### [`effectiveErrorClasses`](./definition.ts#L185)
+### [`effectiveErrorClasses`](./definition.ts#L184)
 
 _Function_
 
@@ -321,7 +321,7 @@ export class InvalidParamsError extends Schema.TaggedError<InvalidParamsError>()
 
 Boundary validation error — params failed schema validation.
 
-### [`isNotificationDeliveryFor`](./definition.ts#L466)
+### [`isNotificationDeliveryFor`](./definition.ts#L465)
 
 _Function_
 
@@ -332,7 +332,7 @@ export function isNotificationDeliveryFor<D extends NotificationDefinitionAny>(
 ): delivery is NotificationDelivery<D>
 ```
 
-### [`jsonRpcMethod`](./definition.ts#L12)
+### [`jsonRpcMethod`](./definition.ts#L11)
 
 _Function_
 
@@ -494,7 +494,7 @@ export class NotFoundError extends Schema.TaggedError<NotFoundError>()(
 
 Resource not found (cross-cutting; domain-specific NotFound errors live with their domain).
 
-### [`NotificationDefinition`](./definition.ts#L423)
+### [`NotificationDefinition`](./definition.ts#L422)
 
 _Interface_
 
@@ -537,7 +537,7 @@ Descriptor role at the transport layer: the wire `name` + params schema +
 strict decode-time validator. Routing semantics live in consumers (e.g.
 `@moltzap/client/runtime/subscribers.ts`).
 
-### [`NotificationDefinitionAny`](./definition.ts#L439)
+### [`NotificationDefinitionAny`](./definition.ts#L438)
 
 _TypeAlias_
 
@@ -549,7 +549,7 @@ export type NotificationDefinitionAny = NotificationDefinition<
 >;
 ```
 
-### [`NotificationDelivery`](./definition.ts#L458)
+### [`NotificationDelivery`](./definition.ts#L457)
 
 _Interface_
 
@@ -565,9 +565,9 @@ export interface NotificationDelivery<
 
 Descriptor-tagged notification delivery after native Effect RPC/Schema
 decode. This is the broad-subscription shape; typed subscriptions consume
-`NotificationParamsOf<D>` directly.
+the definition-specific params directly.
 
-### [`NotificationParamsOf`](./definition.ts#L450)
+### [`NotificationParamsOf`](./definition.ts#L449)
 
 _TypeAlias_
 
@@ -577,7 +577,7 @@ export type NotificationParamsOf<D extends NotificationDefinitionAny> =
 
 Type-only accessor for a decoded notification delivery payload.
 
-### [`NotificationPayloadOf`](./definition.ts#L446)
+### [`NotificationPayloadOf`](./definition.ts#L445)
 
 _TypeAlias_
 
@@ -677,7 +677,7 @@ export interface NotificationSubscriptionHandle {
 }
 ```
 
-### [`ParamsOf`](./definition.ts#L130)
+### [`ParamsOf`](./definition.ts#L129)
 
 _TypeAlias_
 
@@ -715,7 +715,7 @@ export const principalGateErrorClasses = [
 
 The principal-gate error classes every authenticated method's gate can fail with.
 
-### [`RequirementErrorsOf`](./definition.ts#L152)
+### [`RequirementErrorsOf`](./definition.ts#L151)
 
 _TypeAlias_
 
@@ -728,7 +728,7 @@ export type RequirementErrorsOf<
 The union of every requirement middleware's failure type for a `requires`
 tuple. Empty `requires` yields `never`.
 
-### [`RequirementShape`](./definition.ts#L31)
+### [`RequirementShape`](./definition.ts#L30)
 
 _TypeAlias_
 
@@ -743,7 +743,7 @@ The structural shape of one `requires` entry: the requirement IS the
 schema for wire-error aggregation and treats the tag itself as the authority
 marker the engine stacks.
 
-### [`ResponseErrorsOf`](./definition.ts#L146)
+### [`ResponseErrorsOf`](./definition.ts#L145)
 
 _TypeAlias_
 
@@ -765,7 +765,7 @@ arrived. They originate at the client transport, not the handler, so they are
 NOT in a descriptor's effective error union; the typed client adds them to
 every per-method call's error channel.
 
-### [`ResultOf`](./definition.ts#L135)
+### [`ResultOf`](./definition.ts#L134)
 
 _TypeAlias_
 
@@ -798,7 +798,7 @@ on the shared connection. When `reply` is omitted the chunk is dropped after
 a warning. The engine's Parser may yield zero or more decoded frames per wire
 string; every frame is injected in order.
 
-### [`RpcDefinition`](./definition.ts#L56)
+### [`RpcDefinition`](./definition.ts#L55)
 
 _Interface_
 
@@ -892,7 +892,7 @@ guards wrap a `Schema.decodeUnknownEither(schema)(value, { onExcessProperty:
 and the descriptor folds each requirement's `failure` into the effective wire
 error union.
 
-### [`RpcDefinitionAny`](./definition.ts#L127)
+### [`RpcDefinitionAny`](./definition.ts#L126)
 
 _TypeAlias_
 
@@ -900,7 +900,7 @@ _TypeAlias_
 export type RpcDefinitionAny = RpcDefinition<any, any, any, any, any>;
 ```
 
-### [`RpcErrorClass`](./definition.ts#L22)
+### [`RpcErrorClass`](./definition.ts#L21)
 
 _TypeAlias_
 

@@ -33,7 +33,7 @@ export interface EncryptedPayload {
 }
 
 function keyBytes(key: Kek | Dek | MasterKey): Buffer {
-  return key.bytes;
+  return key.toBuffer();
 }
 
 function encryptBytes(plaintext: Buffer, key: Buffer): EncryptedPayload {

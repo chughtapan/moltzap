@@ -342,7 +342,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L899)
+### [`makeDispatchTestDriver`](./_driver.ts#L898)
 
 _Function_
 
