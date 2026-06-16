@@ -24,27 +24,21 @@ import type {
   AnyNotificationDefinition,
 } from "#socket/catalog";
 import { MessagesAuthorize } from "#message";
-import { TaskCreate } from "../../../../task/index.js";
+import { TaskCreate } from "#task";
 import { DispatchAuthorize } from "#message/dispatch";
-import { MoltZapAgentClient } from "../../../../socket/agent-client.js";
-import {
-  MoltZapAppClient,
-  type AppCallbackContext,
-} from "../../../../socket/app-client.js";
-import type { AppCallbackHandlers } from "../../../../socket/app-callbacks.js";
-import type {
-  ClientDefinitionPayload,
-  ClientDefinitionSuccess,
-} from "../../../../socket/lifecycle.js";
-import type { CloseInfo } from "../../../../socket/close-info.js";
+import { MoltZapAgentClient } from "#socket";
+import { MoltZapAppClient, type AppCallbackContext } from "#socket";
+import type { AppCallbackHandlers } from "#socket";
+import type { ClientDefinitionPayload, ClientDefinitionSuccess } from "#socket";
+import type { CloseInfo } from "#socket";
 import {
   NotConnectedError,
   type NotificationDelivery,
   type ParamsOf,
   type ResultOf,
-} from "../../../../transport/index.js";
-import { AgentKey, AppKey } from "../../../../identity/index.js";
-import { RpcTimeoutError as ProtocolRpcTimeoutError } from "../../../../transport/index.js";
+} from "#transport";
+import { AgentKey, AppKey } from "#identity";
+import { RpcTimeoutError as ProtocolRpcTimeoutError } from "#transport";
 import {
   RpcResponseError,
   RpcTimeoutError,

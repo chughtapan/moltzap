@@ -1,10 +1,7 @@
 /** Payload opacity — sent text appears byte-for-byte in delivered events. */
 import * as fc from "fast-check";
 import { Effect } from "effect";
-import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
-} from "../../../message/index.js";
+import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
 import {
   isNotificationDeliveryFor,
   type NotificationDelivery,

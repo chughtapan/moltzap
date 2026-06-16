@@ -11,7 +11,7 @@ arbitrary derivation, and Toxiproxy adversity helpers.
 
 ## Public surface
 
-### [`agentId`](./test-fixtures.ts#L78)
+### [`agentId`](./test-fixtures.ts#L71)
 
 _Function_
 
@@ -19,7 +19,7 @@ _Function_
 export const agentId = (value: string): Schema.Schema.Type<typeof AgentId>
 ```
 
-### [`agentKeyArbitrary`](./test-fixtures.ts#L112)
+### [`agentKeyArbitrary`](./test-fixtures.ts#L105)
 
 _Variable_
 
@@ -28,7 +28,7 @@ export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
   agentKeyStringArbitrary.map(redactedAgentKey)
 ```
 
-### [`agentKeyString`](./test-fixtures.ts#L114)
+### [`agentKeyString`](./test-fixtures.ts#L107)
 
 _Function_
 
@@ -36,7 +36,7 @@ _Function_
 export const agentKeyString = (seed: number): string
 ```
 
-### [`agentKeyStringArbitrary`](./test-fixtures.ts#L107)
+### [`agentKeyStringArbitrary`](./test-fixtures.ts#L100)
 
 _Variable_
 
@@ -48,7 +48,7 @@ export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
   ).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`)
 ```
 
-### [`AgentRegistrationError`](./test-fixtures.ts#L154)
+### [`AgentRegistrationError`](./test-fixtures.ts#L147)
 
 _Class_
 
@@ -65,7 +65,7 @@ export class AgentRegistrationError extends Data.TaggedError(
 
 HTTP registration failed (network, non-2xx, malformed response).
 
-### [`appId`](./test-fixtures.ts#L96)
+### [`appId`](./test-fixtures.ts#L89)
 
 _Function_
 
@@ -73,7 +73,7 @@ _Function_
 export const appId = (value: string): Schema.Schema.Type<typeof AppId>
 ```
 
-### [`connectionId`](./test-fixtures.ts#L121)
+### [`connectionId`](./test-fixtures.ts#L114)
 
 _Variable_
 
@@ -81,7 +81,7 @@ _Variable_
 export const connectionId = decodeConnectionId
 ```
 
-### [`contactId`](./test-fixtures.ts#L80)
+### [`contactId`](./test-fixtures.ts#L73)
 
 _Function_
 
@@ -91,7 +91,7 @@ export const contactId = (
 ): Schema.Schema.Type<typeof ContactId>
 ```
 
-### [`conversationId`](./test-fixtures.ts#L84)
+### [`conversationId`](./test-fixtures.ts#L77)
 
 _Function_
 
@@ -101,7 +101,7 @@ export const conversationId = (
 ): Schema.Schema.Type<typeof ConversationId>
 ```
 
-### [`leaseId`](./test-fixtures.ts#L94)
+### [`leaseId`](./test-fixtures.ts#L87)
 
 _Function_
 
@@ -109,7 +109,7 @@ _Function_
 export const leaseId = (value: string): Schema.Schema.Type<typeof LeaseId>
 ```
 
-### [`makeTestAgentClient`](./lifecycle.ts#L232)
+### [`makeTestAgentClient`](./lifecycle.ts#L226)
 
 _Function_
 
@@ -120,7 +120,7 @@ export function makeTestAgentClient(
 ): Effect.Effect<TestAgentClient, unknown>
 ```
 
-### [`makeTestAppClient`](./lifecycle.ts#L256)
+### [`makeTestAppClient`](./lifecycle.ts#L250)
 
 _Function_
 
@@ -131,7 +131,7 @@ export function makeTestAppClient(
 ): Effect.Effect<TestAppClient, unknown>
 ```
 
-### [`messageId`](./test-fixtures.ts#L88)
+### [`messageId`](./test-fixtures.ts#L81)
 
 _Function_
 
@@ -141,7 +141,7 @@ export const messageId = (
 ): Schema.Schema.Type<typeof MessageId>
 ```
 
-### [`mintTestAppCredential`](./test-fixtures.ts#L300)
+### [`mintTestAppCredential`](./test-fixtures.ts#L293)
 
 _Function_
 
@@ -178,7 +178,7 @@ export class RealServerAcquireError extends Data.TaggedError(
 
 Consumer-supplied real-server factory threw or returned an unusable handle.
 
-### [`redactedAgentKey`](./test-fixtures.ts#L98)
+### [`redactedAgentKey`](./test-fixtures.ts#L91)
 
 _Function_
 
@@ -186,7 +186,7 @@ _Function_
 export const redactedAgentKey = (value: string): AgentKey
 ```
 
-### [`redactedAppKey`](./test-fixtures.ts#L100)
+### [`redactedAppKey`](./test-fixtures.ts#L93)
 
 _Function_
 
@@ -194,7 +194,7 @@ _Function_
 export const redactedAppKey = (value: string): AppKey
 ```
 
-### [`registerTestAgent`](./test-fixtures.ts#L347)
+### [`registerTestAgent`](./test-fixtures.ts#L340)
 
 _Function_
 
@@ -238,7 +238,7 @@ export class RpcTimeoutError extends Data.TaggedError(
 
 Wall-clock deadline for a request expired before a response.
 
-### [`taskId`](./test-fixtures.ts#L92)
+### [`taskId`](./test-fixtures.ts#L85)
 
 _Function_
 
@@ -246,7 +246,7 @@ _Function_
 export const taskId = (value: string): Schema.Schema.Type<typeof TaskId>
 ```
 
-### [`TestAgent`](./test-fixtures.ts#L130)
+### [`TestAgent`](./test-fixtures.ts#L123)
 
 _Interface_
 
@@ -258,7 +258,7 @@ export interface TestAgent {
 }
 ```
 
-### [`TestAgentClient`](./lifecycle.ts#L49)
+### [`TestAgentClient`](./lifecycle.ts#L43)
 
 _Interface_
 
@@ -292,7 +292,7 @@ export interface TestAgentClient {
 }
 ```
 
-### [`TestAppClient`](./lifecycle.ts#L77)
+### [`TestAppClient`](./lifecycle.ts#L71)
 
 _Interface_
 
@@ -326,7 +326,7 @@ export interface TestAppClient {
 }
 ```
 
-### [`TestAppCredential`](./test-fixtures.ts#L242)
+### [`TestAppCredential`](./test-fixtures.ts#L235)
 
 _Interface_
 
@@ -339,7 +339,7 @@ export interface TestAppCredential {
 
 Server-minted app principal credentials.
 
-### [`TestAppHttpRegistrationError`](./test-fixtures.ts#L266)
+### [`TestAppHttpRegistrationError`](./test-fixtures.ts#L259)
 
 _Class_
 
@@ -369,7 +369,7 @@ export type TestingError =
   | RealServerAcquireError;
 ```
 
-### [`TestServer`](./lifecycle.ts#L43)
+### [`TestServer`](./lifecycle.ts#L37)
 
 _Interface_
 
@@ -412,7 +412,7 @@ export class TransportIoError extends Data.TaggedError(
 
 Underlying transport raised (socket error, DNS, TLS, etc.).
 
-### [`userId`](./test-fixtures.ts#L76)
+### [`userId`](./test-fixtures.ts#L69)
 
 _Function_
 

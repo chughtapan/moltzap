@@ -17,7 +17,7 @@ import {
 import type { AnyNotificationDefinition } from "#socket/catalog";
 import type { NotificationDelivery, NotificationParamsOf } from "#transport";
 import { isNotificationDeliveryFor } from "#transport";
-import { TaskCreate, TaskId, TaskRequest } from "../../../task/index.js";
+import { TaskCreate, TaskId, TaskRequest } from "#task";
 import {
   ConversationId,
   ConversationArchivedNotificationDefinition,
@@ -26,15 +26,15 @@ import {
   ConversationParticipantsRemovedNotificationDefinition,
   ConversationUpdate,
   ConversationUnarchivedNotificationDefinition,
-} from "../../../conversation/index.js";
+} from "#conversation";
 import {
   MessageReceivedNotificationDefinition,
   MessagesAuthorize,
   MessagesSend,
 } from "#message";
 import { DispatchAuthorize } from "#message/dispatch";
-import { AppId as AppIdSchema } from "../../../task/index.js";
-import { AgentId } from "../../../identity/index.js";
+import { AppId as AppIdSchema } from "#task";
+import { AgentId } from "#identity";
 import {
   conversationId as makeConversationId,
   taskId as makeTaskId,

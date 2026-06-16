@@ -96,7 +96,7 @@ _Function_
 export function proxyName(prefix: string, seed: number): string
 ```
 
-### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L27)
+### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L24)
 
 _Function_
 

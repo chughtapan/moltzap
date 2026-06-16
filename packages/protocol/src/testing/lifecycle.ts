@@ -7,20 +7,14 @@ import type {
   AppCallableGroup,
 } from "#socket/catalog";
 import type { NotificationDelivery, NotificationParamsOf } from "#transport";
-import {
-  MoltZapAgentClient,
-  type AgentClientOptions,
-} from "../socket/agent-client.js";
-import {
-  MoltZapAppClient,
-  type AppClientOptions,
-} from "../socket/app-client.js";
+import { MoltZapAgentClient, type AgentClientOptions } from "#socket";
+import { MoltZapAppClient, type AppClientOptions } from "#socket";
 import {
   type ClientDefinitionError,
   type ClientDefinitionPayload,
   type ClientDefinitionSuccess,
   type RpcCallOptions,
-} from "../socket/lifecycle.js";
+} from "#socket";
 import type { AgentId } from "#identity/agents";
 import type { AppId } from "#identity/apps";
 import type { RpcGroup } from "@effect/rpc";

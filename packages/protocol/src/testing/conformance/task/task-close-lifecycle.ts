@@ -9,9 +9,9 @@ import {
   TaskClosedNotificationDefinition,
   TaskRequest,
   TaskUpdate,
-} from "../../../task/index.js";
-import { ConversationCreate } from "../../../conversation/index.js";
-import type { TaskId } from "../../../task/index.js";
+} from "#task";
+import { ConversationCreate } from "#conversation";
+import type { TaskId } from "#task";
 import type { ModeratedHandle } from "./_helpers.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";

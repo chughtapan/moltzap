@@ -37,7 +37,7 @@ import {
   PropertyInvariantViolation,
   type PropertyFailure,
 } from "../_shared/registry.js";
-import type { AgentId } from "../../../identity/index.js";
+import type { AgentId } from "#identity";
 import { AppId, TaskRequest, TaskUpdate } from "@moltzap/protocol/task";
 import {
   ConversationCreate,
@@ -46,7 +46,7 @@ import {
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { LeaseId } from "#message/dispatch";
 import { MessagesSend } from "@moltzap/protocol/message";
-import type { TaskId } from "../../../task/index.js";
+import type { TaskId } from "#task";
 import {
   DispatchAuthorize,
   DispatchRelease,

@@ -50,7 +50,7 @@ import {
 import { conformanceArtifactDirFromEnv } from "./env.js";
 import type { ToxiproxyNetworkConfig } from "../../toxics/client.js";
 
-import { TaskRequest } from "../../../task/index.js";
+import { TaskRequest } from "#task";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";

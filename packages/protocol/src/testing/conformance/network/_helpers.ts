@@ -11,10 +11,10 @@ import {
   type Scope,
 } from "effect";
 
-import { AgentPresenceChangedNotificationDefinition } from "../../../network/index.js";
+import { AgentPresenceChangedNotificationDefinition } from "#network";
 import type { NotificationDelivery } from "#transport";
-import { AgentPresenceSubscribe } from "../../../network/index.js";
-import { AgentId } from "../../../identity/index.js";
+import { AgentPresenceSubscribe } from "#network";
+import { AgentId } from "#identity";
 import {
   makeAgentTestClient,
   makeCloseableAgentTestClient,

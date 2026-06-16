@@ -29,7 +29,7 @@ export {
 // Effect RPC owns frame encoding/decoding. The testing surface exposes
 // descriptor-level helpers only.
 export { decodeRpcResult } from "#transport";
-export { TaskFailedNotificationDefinition } from "../task/index.js";
+export { TaskFailedNotificationDefinition } from "#task";
 export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
 
 // Starvation-immune async-wait primitives. Shared by every package's tests so
