@@ -31,7 +31,7 @@ export interface ContactCreateInput {
 }
 ```
 
-### [`contactsAccept`](./handlers.ts#L108)
+### [`contactsAccept`](./handlers.ts#L105)
 
 _Variable_
 
@@ -39,7 +39,7 @@ _Variable_
 export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params)
 ```
 
-### [`contactsAdd`](./handlers.ts#L103)
+### [`contactsAdd`](./handlers.ts#L100)
 
 _Variable_
 
@@ -57,7 +57,7 @@ export interface ContactService {
 }
 ```
 
-### [`contactsList`](./handlers.ts#L98)
+### [`contactsList`](./handlers.ts#L95)
 
 _Variable_
 
@@ -214,6 +214,31 @@ export class ContactsService {
       }
 ```
 
+### [`ContactsServiceLive`](./layer.ts#L14)
+
+_Variable_
+
+```ts
+export const ContactsServiceLive = Layer.effect(
+  ContactsServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new ContactsService(db);
+  }).pipe(Effect.withSpan("ContactsServiceLive")),
+)
+```
+
+### [`ContactsServiceTag`](./layer.ts#L9)
+
+_Class_
+
+```ts
+export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
+  ContactsServiceTag,
+  ContactsService
+>() {}
+```
+
 ### [`WebhookContactService`](./webhook-contact-service.ts#L26)
 
 _Class_
@@ -268,4 +293,5 @@ export class WebhookContactService implements ContactService {
 - `contact-policy.ts`
 - `contact.service.ts`
 - `handlers.ts`
+- `layer.ts`
 - `webhook-contact-service.ts`

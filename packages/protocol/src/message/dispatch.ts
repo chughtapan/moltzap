@@ -5,7 +5,7 @@ import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { messagePartsSchema } from "./parts.js";
 import { TaskId } from "#task";
-import { defineNotification, defineRpc } from "#transport";
+import { defineNotification, defineRpc } from "#transport/descriptor";
 import { ForbiddenError } from "#transport";
 import { dateTimeStringSchema, formatString, stringEnum } from "#transport";
 

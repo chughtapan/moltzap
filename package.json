@@ -6,7 +6,7 @@
     "build": "nx run-many -t build",
     "test": "nx run-many -t test",
     "test:integration": "nx run-many -t test:integration",
-    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0 && nx run-many -t lint && oxlint . --deny-warnings",
+    "lint": "node scripts/check-architecture-boundaries.js && agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0 && nx run-many -t lint && oxlint . --deny-warnings",
     "lint:root": "agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",

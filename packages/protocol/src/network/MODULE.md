@@ -8,7 +8,7 @@ Public barrel for connect and presence protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](./index.ts#L31)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L21)
 
 _Variable_
 
@@ -55,20 +55,6 @@ new agent client connection.
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
 
-### [`AgentPresenceChangedNotificationDefinition`](./presence.ts#L60)
-
-_Variable_
-
-```ts
-export const AgentPresenceChangedNotificationDefinition = defineNotification({
-  name: "agent/network/presence-changed",
-  params: PresenceChangedNotificationSchema,
-})
-```
-
-Pushed when a subscribed participant's presence status changes. Triggered by
-server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect.
-
 ### [`AgentPresenceSubscribe`](./presence.ts#L35)
 
 _Variable_
@@ -83,7 +69,7 @@ export const AgentPresenceSubscribe = defineRpc({
 })
 ```
 
-### [`appCallableNetworkRpcMethods`](./index.ts#L37)
+### [`appCallableNetworkRpcMethods`](./index.ts#L27)
 
 _Variable_
 
@@ -129,19 +115,6 @@ app client connection.
   own id).
 
 **Returns:** An empty HelloOk; success is the signal (the client holds its own id).
-
-### [`AppPresenceChangedNotificationDefinition`](./presence.ts#L68)
-
-_Variable_
-
-```ts
-export const AppPresenceChangedNotificationDefinition = defineNotification({
-  name: "app/network/presence-changed",
-  params: PresenceChangedNotificationSchema,
-})
-```
-
-Pushed to app subscribers when a watched agent's presence status changes.
 
 ### [`AppPresenceSubscribe`](./presence.ts#L43)
 
@@ -198,20 +171,17 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 }
 ```
 
-### [`networkNotifications`](./index.ts#L51)
+### [`networkNotifications`](./index.ts#L41)
 
 _Variable_
 
 ```ts
-export const networkNotifications = [
-  AgentPresenceChangedNotificationDefinition,
-  AppPresenceChangedNotificationDefinition,
-] as const
+export const networkNotifications = [] as const
 ```
 
 Network notifications emitted by the server.
 
-### [`networkRpcMethods`](./index.ts#L43)
+### [`networkRpcMethods`](./index.ts#L33)
 
 _Variable_
 

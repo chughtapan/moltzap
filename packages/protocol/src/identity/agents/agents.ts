@@ -2,7 +2,7 @@ import { Schema } from "effect";
 
 import { AgentPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
-import { defineRpc } from "#transport";
+import { defineRpc } from "#transport/descriptor";
 import { ListLimitSchema, listCursorSchema } from "#transport";
 import { InvalidParamsError } from "#transport";
 import { AgentCardSchema } from "./types.js";

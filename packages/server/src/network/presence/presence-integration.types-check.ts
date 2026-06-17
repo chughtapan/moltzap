@@ -12,43 +12,28 @@
  * these integration symbols changes shape in a way that would break the
  * wiring:
  *
- * 1. **`PresenceService` IS the subscriber registry** — `getSubscribers`
- *    + `subscribe` + `removeConnection` live on the same instance the
- *    fan-out reads.
- * 2. **`ConnectionManager.get(connId)`** — the surface the fan-out uses
- *    to write `network/presence-changed` frames.
- * 3. **`LeaseRegistryDeps.transitionObserver`** is assignable from
+ * 1. **`LeaseRegistryDeps.transitionObserver`** is assignable from
  *    `LeaseTransitionObserver` (and `noopLeaseTransitionObserver`
  *    satisfies it); the sibling fields (`connections`,
  *    `leaseRetentionMs`) stay on the type so a future refactor that
  *    drops one without updating the wiring surfaces here.
- * 4. **`PresenceServiceLive`** is a Layer whose output is
- *    `PresenceServiceTag` and whose RIn channel consumes
- *    `ConnectionManagerTag` (the service's sole construction dep). The
+ * 2. **`PresenceServiceLive`** is a Layer whose output is
+ *    `PresenceServiceTag` and whose RIn channel is closed. The
  *    registry consumes `PresenceServiceTag` as its `transitionObserver`,
- *    so the Tier graph stays sound.
+ *    so the service graph stays sound.
  *
  * No test-runner involvement; `tsc --noEmit` is the canary.
  */
 
 import type { PresenceService } from "./presence.service.js";
-import type { ConnectionManager } from "#socket";
 import type { LeaseRegistryDeps } from "#dispatch";
 
 import type { LeaseTransitionObserver } from "./presence-types.js";
 import { noopLeaseTransitionObserver } from "./presence-types.js";
 
-// ── 1. PresenceService owns the subscriber registry ─────────────────
 declare const presenceService: PresenceService;
-void presenceService.getSubscribers;
-void presenceService.subscribe;
-void presenceService.removeConnection;
 
-// ── 2. ConnectionManager.peek ───────────────────────────────────────
-declare const connections: ConnectionManager;
-void connections.peek;
-
-// ── 3. LeaseRegistryDeps shape ──────────────────────────────────────
+// ── 1. LeaseRegistryDeps shape ──────────────────────────────────────
 //
 // `transitionObserver: LeaseTransitionObserver` is a REQUIRED field on
 // `LeaseRegistryDeps`. The service satisfies it (it IS-A observer); the
@@ -65,23 +50,18 @@ const _noopSatisfiesField: LeaseTransitionObserver =
   noopLeaseTransitionObserver;
 void _noopSatisfiesField;
 
-// ── 4. PresenceServiceLive integration ──────────────────────────────
+// ── 2. PresenceServiceLive integration ──────────────────────────────
 //
-// `PresenceServiceLive` outputs `PresenceServiceTag` and consumes only
-// `ConnectionManagerTag`. If the construction dep set changes, the
-// assignment fails TS2322.
+// `PresenceServiceLive` outputs `PresenceServiceTag` and is fully closed. If
+// the construction dep set changes, the assignment fails TS2322.
 
 import {
   PresenceServiceLive,
   type PresenceServiceTag,
-  type ConnectionManagerTag,
-} from "#core";
+} from "#network/presence";
 import type { Layer } from "effect";
 
 declare const presenceServiceLive: typeof PresenceServiceLive;
-const _presenceServiceLiveShape: Layer.Layer<
-  PresenceServiceTag,
-  never,
-  ConnectionManagerTag
-> = presenceServiceLive;
+const _presenceServiceLiveShape: Layer.Layer<PresenceServiceTag, never, never> =
+  presenceServiceLive;
 void _presenceServiceLiveShape;

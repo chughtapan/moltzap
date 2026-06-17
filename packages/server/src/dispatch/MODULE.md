@@ -174,6 +174,38 @@ export class DispatchAdmissionService {
     return Effect.gen(this, function* () {
 ```
 
+### [`DispatchAdmissionServiceLive`](./layer.ts#L42)
+
+_Variable_
+
+```ts
+export const DispatchAdmissionServiceLive = Layer.effect(
+  DispatchAdmissionServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const appEndpointRegistry = yield* AppEndpointRegistryTag;
+    const leaseRegistry = yield* LeaseRegistryTag;
+    const conversations = yield* ConversationServiceTag;
+    return new DispatchAdmissionService(
+      db,
+      appEndpointRegistry,
+      leaseRegistry,
+      conversations,
+    );
+  }).pipe(Effect.withSpan("DispatchAdmissionServiceLive")),
+)
+```
+
+### [`DispatchAdmissionServiceTag`](./layer.ts#L25)
+
+_Class_
+
+```ts
+export class DispatchAdmissionServiceTag extends Context.Tag(
+  "moltzap/DispatchAdmissionService",
+)<DispatchAdmissionServiceTag, DispatchAdmissionService>() {}
+```
+
 ### [`DispatchAuthorizeContext`](./admission.service.ts#L28)
 
 _TypeAlias_
@@ -501,6 +533,36 @@ Constructor dependencies for the lease registry.
   `network/presence → LeaseTransitionObserver` for the call shape; the
   per-transition contract lives in `network/presence → PresenceService`.
 
+### [`LeaseRegistryLive`](./layer.ts#L29)
+
+_Variable_
+
+```ts
+export const LeaseRegistryLive = Layer.effect(
+  LeaseRegistryTag,
+  Effect.gen(function* () {
+    const connections = yield* ConnectionManagerTag;
+    const transitionObserver = yield* PresenceServiceTag;
+    return yield* makeLeaseRegistry({
+      connections,
+      leaseRetentionMs: DEFAULT_LEASE_RETENTION_MS,
+      transitionObserver,
+    });
+  }).pipe(Effect.withSpan("LeaseRegistryLive")),
+)
+```
+
+### [`LeaseRegistryTag`](./layer.ts#L20)
+
+_Class_
+
+```ts
+export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
+  LeaseRegistryTag,
+  LeaseRegistry
+>() {}
+```
+
 ### [`LeaseState`](./lease-registry.ts#L110)
 
 _TypeAlias_
@@ -597,4 +659,5 @@ Once recorded, the binding is immutable for the lease's lifetime.
 - `admission.service.ts`
 - `app-bound-conversation.ts`
 - `handlers.ts`
+- `layer.ts`
 - `lease-registry.ts`

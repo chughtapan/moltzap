@@ -8,7 +8,7 @@ Presence server internals.
 
 ## Public surface
 
-### [`AgentPresenceEntry`](./presence-types.ts#L55)
+### [`AgentPresenceEntry`](./presence-types.ts#L49)
 
 _Interface_
 
@@ -51,7 +51,7 @@ accounted-for.
 "offline" is represented by entry absence; presence state NEVER
 holds an entry whose `liveConns` is empty.
 
-### [`agentPresenceSubscribe`](./handlers.ts#L68)
+### [`agentPresenceSubscribe`](./handlers.ts#L64)
 
 _Variable_
 
@@ -61,7 +61,7 @@ export const agentPresenceSubscribe: ServerHandler<
 > = (params)
 ```
 
-### [`appPresenceSubscribe`](./handlers.ts#L75)
+### [`appPresenceSubscribe`](./handlers.ts#L71)
 
 _Variable_
 
@@ -71,33 +71,6 @@ export const appPresenceSubscribe: ServerHandler<
 > = (params)
 ```
 
-### [`dedupePresenceStatus`](./presence-types.ts#L92)
-
-_Function_
-
-```ts
-export function dedupePresenceStatus(
-  previous: DerivedPresenceStatus,
-  next: DerivedPresenceStatus,
-): Option.Option<DerivedPresenceStatus>
-```
-
-Pure algebraic dedup rule.
-
-| previous | next    | emit             |
-|----------|---------|------------------|
-| online   | online  | `none`           |
-| online   | working | `some(working)`  |
-| working  | working | `none` (dedup)   |
-| working  | online  | `some(online)`   |
-| online   | offline | `some(offline)`  |
-| working  | offline | `some(offline)`  |
-
-The two-arg discipline forces the caller to NAME the previous status
-at the emission site, which is how concurrent GRANTED leases stop
-producing duplicate `working` notifications: the second GRANT sees
-`previous = working` and elides the emission.
-
 ### [`DerivedPresenceStatus`](./presence-types.ts#L14)
 
 _TypeAlias_
@@ -105,10 +78,42 @@ _TypeAlias_
 ```ts
 export type DerivedPresenceStatus = "online" | "working" | "offline";
 
-/** Wire event computed from a presence transition. */
-export interface PresenceEmission {
-  readonly agentId: AgentId;
-  readonly status: DerivedPresenceStatus;
+/**
+ * Per-agent presence entry. An agent may hold multiple simultaneous
+ * WebSocket connections (web tab + CLI + mobile — see
+ * `AgentEndpointResolver`'s module JSDoc), so the entry tracks the
+ * full set of live connections + the active leases keyed by which
+ * connection holds them.
+ *
+ * - `liveConns` — every WS connection the
+ *   agent is currently authenticated on.
+ * - `leasesByConn` — per-connection breakdown of active leases
+ *   (GRANTED or CLAIMED), keyed by connection.
+ *   When a connection disconnects, its bucket is dropped wholesale so
+ *   the leases bound to the dead conn don't keep the agent in
+ *   `working` forever.
+ *
+ * Invariant: every key in `leasesByConn` MUST be present in
+ * `liveConns`. A lease callback that arrives bound to a
+ * `recipientConnId` not in `liveConns` is a fast-reconnect race ghost
+ * and no-ops (audited as `LeaseCallbackFromStaleConnection`).
+ *
+ * Status derivation: `working` if any live connection holds at least
+ * one active lease; `online` if the entry exists but holds no active
+ * leases anywhere; `offline` if the entry is absent. See
+ * {@link deriveEntryStatus}.
+ *
+ * The multi-connection shape is correctness-by-construction: a second
+ * simultaneous connection ADDS to `liveConns` rather than clobbering
+ * the agent's lease set, so the original conn's active leases stay
+ * accounted-for.
+ *
+ * "offline" is represented by entry absence; presence state NEVER
+ * holds an entry whose `liveConns` is empty.
+ */
+export interface AgentPresenceEntry {
+  readonly liveConns: ReadonlySet<ConnectionId>;
+  readonly leasesByConn: ReadonlyMap<ConnectionId, ReadonlySet<LeaseId>>;
 }
 ```
 
@@ -118,7 +123,7 @@ Derived presence status. Three-state set:
 - `working`  — connected, ≥1 lease in GRANTED or CLAIMED.
 - `offline`  — WS closed (no entry in presence state).
 
-### [`deriveEntryStatus`](./presence-types.ts#L66)
+### [`deriveEntryStatus`](./presence-types.ts#L60)
 
 _Function_
 
@@ -133,7 +138,7 @@ connections. Single source of truth for the lease-count-to-status
 mapping; walks `leasesByConn` and returns `working` for any non-zero
 count, else `online`.
 
-### [`LeaseTransitionObserver`](./presence-types.ts#L192)
+### [`LeaseTransitionObserver`](./presence-types.ts#L162)
 
 _Interface_
 
@@ -185,7 +190,7 @@ ghost callbacks. The fast-reconnect race: agent A disconnects on
 threading, those callbacks would mutate against the surviving
 connection; the check makes them no-op audits instead.
 
-### [`noopLeaseTransitionObserver`](./presence-types.ts#L214)
+### [`noopLeaseTransitionObserver`](./presence-types.ts#L184)
 
 _Variable_
 
@@ -201,7 +206,7 @@ The default discipline (Principle 4) is to have a value that does the
 right thing rather than a `null` branch every call site has to
 remember to guard.
 
-### [`PresenceAuditEvent`](./presence-types.ts#L135)
+### [`PresenceAuditEvent`](./presence-types.ts#L105)
 
 _TypeAlias_
 
@@ -249,217 +254,208 @@ Audit events are emitted via `Effect.logDebug`. They do NOT go
 through `Effect.die`; the `never` E channel is preserved by
 construction.
 
-### [`PresenceEmission`](./presence-types.ts#L17)
-
-_Interface_
-
-```ts
-export interface PresenceEmission {
-  readonly agentId: AgentId;
-  readonly status: DerivedPresenceStatus;
-}
-```
-
-Wire event computed from a presence transition.
-
-### [`PresenceService`](./presence.service.ts#L374)
+### [`PresenceService`](./presence.service.ts#L253)
 
 _Class_
 
 ```ts
 export class PresenceService implements LeaseTransitionObserver {
-  private subscribers = new Map<string, Set<ConnectionId>>();
-  // Per-connection record of which agentIds the connection is
-  // subscribed to. Tracked so `subscribe()` can replace the prior
-  // subscription set atomically without scanning every agent's
-  // subscriber set.
-  private connSubscriptions = new Map<ConnectionId, Set<string>>();
-
-  private constructor(
-    private readonly connections: ConnectionManager,
-    private readonly entries: Ref.Ref<EntryMap>,
-  ) {}
+  private constructor(private readonly entries: Ref.Ref<EntryMap>) {}
 
   /**
    * Construct the service. One instance per server lifetime; wired into
    * `LeaseRegistryDeps.transitionObserver` at composition root.
-   * `connections` is the {@link ConnectionManager} the fan-out reads to
-   * resolve each subscriber's socket.
    */
-  static make(
-    connections: ConnectionManager,
-  ): Effect.Effect<PresenceService, never, never> {
+  static make(): Effect.Effect<PresenceService, never, never> {
     return Effect.gen(function* () {
       const entries = yield* Ref.make<EntryMap>(new Map());
-      return new PresenceService(connections, entries);
+      return new PresenceService(entries);
     }).pipe(Effect.withSpan("PresenceService.make"));
-  }
-
-  // ── Subscriber registry ───────────────────────────────────────────
-
-  /**
-   * Replace the connection's subscriber set with `agentIds`.
-   *
-   * Replace-semantics: after this call, `connId` appears in the
-   * subscriber set for EXACTLY the agents in `agentIds`, and ONLY
-   * those. Any agent `connId` was previously subscribed to but absent
-   * from `agentIds` has `connId` removed from its subscriber set. Pass
-   * an empty array to unsubscribe from all. Long-running clients that
-   * re-evaluate their watch set per iteration can call this
-   * idempotently without leaking fan-out across the union of past sets.
-   */
-  subscribe(connId: ConnectionId, agentIds: ReadonlyArray<string>): void {
-    const next = new Set(agentIds);
-    const prev = this.connSubscriptions.get(connId);
-    this.removeStaleSubscriptions(connId, next, prev);
-    this.addSubscriptions(connId, next);
-    this.rememberSubscriptionSet(connId, next);
-  }
-
-  private removeStaleSubscriptions(
-    connId: ConnectionId,
-    next: ReadonlySet<string>,
-    prev: ReadonlySet<string> | undefined,
-  ): void {
-    if (prev) {
-      for (const agentId of prev) {
-        if (!next.has(agentId)) {
-          this.subscribers.get(agentId)?.delete(connId);
-        }
-      }
-    }
-  }
-
-  private addSubscriptions(
-    connId: ConnectionId,
-    next: ReadonlySet<string>,
-  ): void {
-    for (const agentId of next) {
-      let subs = this.subscribers.get(agentId);
-      if (!subs) {
-        subs = new Set();
-        this.subscribers.set(agentId, subs);
-      }
-      subs.add(connId);
-    }
-  }
-
-  private rememberSubscriptionSet(
-    connId: ConnectionId,
-    next: ReadonlySet<string>,
-  ): void {
-    if (next.size === 0) {
-      this.connSubscriptions.delete(connId);
-    } else {
-      this.connSubscriptions.set(connId, new Set(next));
-    }
-  }
-
-  getSubscribers(agentId: string): ReadonlySet<ConnectionId> {
-    return this.subscribers.get(agentId) ?? EMPTY_SUBSCRIBERS;
-  }
-
-  removeConnection(connId: ConnectionId): void {
-    for (const subs of this.subscribers.values()) {
-      subs.delete(connId);
-    }
-    this.connSubscriptions.delete(connId);
   }
 
   // ── Status engine ─────────────────────────────────────────────────
 
   /**
-   * Snapshot the live subscriber set BEFORE fan-out iterates, then
-   * publish iff the dedup decision is `Some`. The two-arg dedup
-   * (`dedupePresenceStatus`) is the sole gate; this is the only path
-   * from in-memory state to wire publish.
+   * WS connect: add `connId` to the agent's `liveConns`. A second
+   * simultaneous connect ADDS to the set rather than replacing it.
+   * Public error channel is `never` — runs inside the connect handler.
    */
-  private emit(
-    previous: DerivedPresenceStatus,
-    next: DerivedPresenceStatus,
+  onAgentConnect(
     agentId: AgentId,
+    connId: ConnectionId,
   ): Effect.Effect<void, never, never> {
-    return Effect.gen(this, function* () {
-      const decision = dedupePresenceStatus(previous, next);
-      if (Option.isNone(decision)) return;
-      const subscriberConnIds = new Set(this.getSubscribers(agentId));
-      yield* fanOut(
-        this.connections,
-        agentId,
-        decision.value,
+    return Ref.update(this.entries, (entries) =>
+      computeConnectTransition(entries, agentId, connId),
+    );
+  }
+
+  /**
+   * WS disconnect: remove `connId` from the agent's `liveConns` and
+   * drop its `leasesByConn[connId]` bucket. Called BEFORE
+   * `LeaseRegistry.abandon(connId)` from the WS-close finalizer, so the
+   * subsequent abandon's `onLeaseActiveEnd` callbacks find `connId`
+   * absent from `liveConns` and audit. Public error channel is `never`.
+   */
+  onAgentDisconnect(
+    agentId: AgentId,
+    connId: ConnectionId,
+  ): Effect.Effect<void, never, never> {
+    return Ref.update(this.entries, (entries) =>
+      computeDisconnectTransition(entries, agentId, connId),
+    );
+  }
+
+  onLeaseActiveBegin(
+    leaseId: LeaseId,
+    recipientAgentId: AgentId,
+    recipientConnId: ConnectionId,
+  ): Effect.Effect<void, never, never> {
+    return this.handleObserverTransition({
+      kind: "begin",
+      leaseId,
+      recipientAgentId,
+      recipientConnId,
+    });
+  }
+
+  onLeaseActiveEnd(
+    leaseId: LeaseId,
+    recipientAgentId: AgentId,
+    recipientConnId: ConnectionId,
+  ): Effect.Effect<void, never, never> {
+    return this.handleObserverTransition({
+      kind: "end",
+      leaseId,
+      recipientAgentId,
+      recipientConnId,
+    });
+  }
+
+  private handleObserverTransition(
+    cb: ObserverCallback,
+  ): Effect.Effect<void, never, never> {
+    return Ref.modify(this.entries, (entries) =>
+      computeObserverTransition(entries, cb),
+    ).pipe(
+      Effect.flatMap((outcome) =>
+        outcome._tag === "audit"
+          ? Effect.logDebug("presence audit", outcome.event)
+          : Effect.void,
+      ),
+    );
+  }
+
+  /**
+   * Read the agent's current status. Returns `"offline"` for an unknown
+   * agent. Each call reads the `Ref` once; the result is a
+   * point-in-time snapshot.
+   */
+  statusOf(
+    agentId: AgentId,
+  ): Effect.Effect<DerivedPresenceStatus, never, never> {
+    return Ref.get(this.entries).pipe(
+      Effect.map((entries) => statusForAgent(entries, agentId)),
+    );
+  }
+
+  /**
+   * Bulk read for the `network/presence/subscribe` handler. Returns one entry
+   * per requested `agentId` in input order; unknown agents resolve to
+   * `"offline"`. One `Ref.get` at the start of the call; all entries
+   * are read from the same snapshot.
+   */
+  statusMany(agentIds: ReadonlyArray<AgentId>): Effect.Effect<
+    ReadonlyArray<{
+      readonly agentId: AgentId;
+      readonly status: DerivedPresenceStatus;
+    }>,
+    never,
+    never
+  > {
+    return Ref.get(this.entries).pipe(
+      Effect.map((entries) =>
+        agentIds.map((agentId) => ({
+          agentId,
+          status: statusForAgent(entries, agentId),
+        })),
+      ),
 ```
 
-Presence service: subscriber registry + lease-derived status engine
-+ `network/presence-changed` fan-out.
+Presence service: lease-derived status engine.
 
 Implements LeaseTransitionObserver so the `LeaseRegistry`
 can drive lease transitions through it — the registry depends on the
 narrow observer contract, not on this whole surface. The WS-lifecycle
 hooks (`onAgentConnect` / `onAgentDisconnect`) feed connection
-transitions, and `network/presence/subscribe` reads status via `statusMany`
-and registers fan-out interest via `subscribe`.
+transitions, and `network/presence/subscribe` reads status via `statusMany`.
 
-**State.** Two in-memory stores, both lost on restart (agents
-repopulate on reconnect):
+**State.** One in-memory status map, lost on restart. Agents repopulate
+it on reconnect. Each entry carries `liveConns` (every WS conn the agent
+is authed on) + `leasesByConn` (per-conn active-lease buckets).
+Multi-connection shaped: a second simultaneous connect ADDS to
+`liveConns` rather than clobbering it.
 
-- subscriber registry — `subscribers` maps each agent ID to the connection
-  IDs watching it (which
-  connections want fan-out for which agent) plus the reverse
-  `connSubscriptions` map so `subscribe` can
-  replace a connection's watch set without scanning every agent.
-- status map — a `Ref` of agent ID to presence entry. Each
-  entry carries `liveConns` (every WS conn the agent is authed on) +
-  `leasesByConn` (per-conn active-lease buckets). Multi-connection
-  shaped: a second simultaneous connect ADDS to `liveConns` rather
-  than clobbering it.
-
-**One `Ref.modify` per transition, linearizing both state AND
-emission decision.** Every observer/lifecycle method computes its
-result inside a single `Ref.modify` predicate, then publishes the
-dedup-gated emission AFTER the CAS commits. The dedup rule
-(dedupePresenceStatus) NAMES the previous status at the
-emission site, so concurrent GRANTED leases elide duplicate
-`working` notifications.
+**One Ref update per transition.** Every observer/lifecycle method
+computes its result inside one Ref operation so status updates remain
+linearized across connect, disconnect, and lease callbacks.
 
 **Entry-creation invariant (load-bearing).** Entries are created
 EXCLUSIVELY in `onAgentConnect` (first connection). Subsequent
 connects add to `liveConns`; the entry is never re-created while any
 conn survives. A lease callback on an unknown agent NEVER allocates
 an entry; instead it audits (PresenceAuditEvent) and no-ops.
-Combined with the `recipientConnId ∈ liveConns` check, every full
-disconnect (last conn) produces exactly one `offline` emission, and
-stale lease callbacks across reconnect / partial-disconnect
-boundaries neither mutate state nor emit.
+Combined with the `recipientConnId ∈ liveConns` check, stale lease
+callbacks across reconnect / partial-disconnect boundaries neither mutate
+state nor re-create disconnected agents.
 
-Emission flow (lease-observer path; the lifecycle path is the same
-dispatch minus the audit arms):
+Lease observer flow:
 
 ```mermaid
 sequenceDiagram
   participant LR as LeaseRegistry
   participant PS as PresenceService
-  participant Subs as Subscribers (WS clients)
-
   LR->>PS: onLeaseActiveBegin(leaseId, agentId, recipientConnId)
-  PS->>PS: Ref.modify computes BOTH new entry AND emission decision in one CAS
+  PS->>PS: Ref.modify computes the updated entry in one CAS
   alt agent has entry AND recipientConnId ∈ entry.liveConns
-    PS->>PS: prev = deriveEntryStatus(entry); leasesByConn[recipientConnId] ∪= {leaseId}; next = any bucket non-empty ? "working" : "online"
-    PS->>PS: dedupePresenceStatus(prev, next) — dedup
-    alt decision = some(status)
-      PS->>PS: snapshot = new Set(getSubscribers(agentId))
-      PS->>Subs: network/presence-changed { agentId, status }
-    else decision = none
-      Note over PS: dedup — concurrent GRANTED, no fan-out
-    end
+    PS->>PS: leasesByConn[recipientConnId] ∪= {leaseId}; status derives from the updated entry
   else entry exists but recipientConnId ∉ liveConns (fast-reconnect race)
-    Note over PS: audit LeaseCallbackFromStaleConnection — Effect.logDebug, no emission
+    Note over PS: audit LeaseCallbackFromStaleConnection — Effect.logDebug
   else agent has no entry (disconnected)
-    Note over PS: audit LeaseBeginAfterDisconnect — Effect.logDebug, no emission
+    Note over PS: audit LeaseBeginAfterDisconnect — Effect.logDebug
   end
+```
+
+### [`PresenceServiceLive`](./layer.ts#L12)
+
+_Variable_
+
+```ts
+export const PresenceServiceLive: Layer.Layer<
+  PresenceServiceTag,
+  never,
+  never
+> = Layer.effect(
+  PresenceServiceTag,
+  Effect.gen(function* () {
+    return yield* PresenceService.make();
+  }).pipe(Effect.withSpan("PresenceServiceLive")),
+)
+```
+
+### [`PresenceServiceTag`](./layer.ts#L7)
+
+_Class_
+
+```ts
+export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
+  PresenceServiceTag,
+  PresenceService
+>() {}
 ```
 
 ## Files
 
 - `handlers.ts`
+- `layer.ts`
 - `presence-types.ts`
 - `presence.service.ts`

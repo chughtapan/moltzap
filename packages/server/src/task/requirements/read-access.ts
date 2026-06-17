@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId, TaskReadAccessValue } from "@moltzap/protocol/task";
-import { TaskServiceTag } from "#core";
+import { TaskServiceTag } from "#task";
 
 export interface TaskAndAgent {
   readonly taskId: TaskId;

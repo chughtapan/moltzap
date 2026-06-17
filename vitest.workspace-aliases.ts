@@ -55,6 +55,10 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     replacement: fromRoot("packages/protocol/src/transport/index.ts"),
   },
   {
+    find: /^#transport\/descriptor$/,
+    replacement: fromRoot("packages/protocol/src/transport/descriptor.ts"),
+  },
+  {
     find: /^#rpc$/,
     replacement: fromRoot("packages/protocol/src/rpc.ts"),
   },

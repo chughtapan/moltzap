@@ -28,7 +28,7 @@ export {
 
 // Effect RPC owns frame encoding/decoding. The testing surface exposes
 // descriptor-level helpers only.
-export { decodeRpcResult } from "#transport";
+export { decodeRpcResult } from "#transport/descriptor";
 export { TaskFailedNotificationDefinition } from "#task";
 export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
 

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { defineRpc, defineNotification } from "#transport";
+import { defineRpc, defineNotification } from "#transport/descriptor";
 import { ListLimitSchema, listCursorSchema } from "#transport";
 import { AgentPrincipal } from "#identity/principals";
 import {

@@ -7,12 +7,12 @@ import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { Effect } from "effect";
+import { ConnectionTag } from "#socket";
 import {
-  ConnectionTag,
   DispatchAdmissionServiceTag,
   LeaseRegistryTag,
-} from "#core";
-import { leaseRecordToWire } from "#dispatch";
+  leaseRecordToWire,
+} from "#dispatch";
 import { agentArm } from "#moltzap/runtime";
 
 // `agent/dispatch/request` — returns ack immediately, forks the moderator round-trip,

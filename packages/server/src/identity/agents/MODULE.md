@@ -114,6 +114,31 @@ export class AuthService {
 }
 ```
 
+### [`AuthServiceLive`](./layer.ts#L14)
+
+_Variable_
+
+```ts
+export const AuthServiceLive = Layer.effect(
+  AuthServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new AuthService(db);
+  }).pipe(Effect.withSpan("AuthServiceLive")),
+)
+```
+
+### [`AuthServiceTag`](./layer.ts#L9)
+
+_Class_
+
+```ts
+export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
+  AuthServiceTag,
+  AuthService
+>() {}
+```
+
 ### [`visibleAgentIds`](./visibility.service.ts#L22)
 
 _Function_
@@ -142,4 +167,5 @@ export interface VisibleAgentIdsRequest {
 
 - `auth.service.ts`
 - `handlers.ts`
+- `layer.ts`
 - `visibility.service.ts`

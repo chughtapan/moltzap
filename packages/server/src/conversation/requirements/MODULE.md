@@ -44,7 +44,7 @@ handler, so the creator contact-policy basis does NOT apply. Only the
 group-capacity check runs. Loading owners still validates every target
 exists.
 
-### [`guardConversationNotArchived`](./send-access.ts#L93)
+### [`guardConversationNotArchived`](./send-access.ts#L94)
 
 _Function_
 
@@ -56,7 +56,7 @@ export const guardConversationNotArchived = (
 
 Refine the conversation is open (`archived_at IS NULL`).
 
-### [`guardReplyTarget`](./send-access.ts#L105)
+### [`guardReplyTarget`](./send-access.ts#L106)
 
 _Function_
 
@@ -71,7 +71,7 @@ Refine the reply target: when the send names a `replyToId`, verify the
 referenced message exists in the conversation (fails `MessageNotFound` if
 absent); a send with no reply target passes with no DB read.
 
-### [`guardTaskActive`](./send-access.ts#L76)
+### [`guardTaskActive`](./send-access.ts#L77)
 
 _Function_
 
@@ -95,7 +95,7 @@ export const obtainConversationInTask = (
 ): Effect.Effect<ConversationInTaskValue, unknown, TaskServiceTag>
 ```
 
-### [`obtainConversationSendAccess`](./send-access.ts#L21)
+### [`obtainConversationSendAccess`](./send-access.ts#L22)
 
 _Function_
 

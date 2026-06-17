@@ -8,16 +8,16 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
-import { ConnectionTag, DbTag, PresenceServiceTag } from "#core";
+import { DbTag } from "#db";
+import { PresenceServiceTag } from "#network/presence";
 import { visibleAgentIds } from "#identity/agents";
 import { agentArm, appArm } from "#moltzap/runtime";
 
 /**
- * `network/presence/subscribe` registers fan-out interest via
- * `PresenceService.subscribe` and reads the current status snapshot via
- * `PresenceService.statusMany`. Presence is server-derived from `LeaseRegistry`
- * lifecycle + WS connect/disconnect; there is no client-driven
- * `presence/update`.
+ * `network/presence/subscribe` reads the current status snapshot via
+ * `PresenceService.statusMany`. Presence is server-derived from
+ * `LeaseRegistry` lifecycle + WS connect/disconnect; there is no
+ * client-driven `presence/update`.
  *
  * Contact-scoped: throw NotInContactsError when any requested agentId falls
  * outside the caller's visibility set.
@@ -28,7 +28,6 @@ function presenceSubscribeBody(
 ) {
   return Effect.gen(function* () {
     const presenceService = yield* PresenceServiceTag;
-    const connection = yield* ConnectionTag;
     const requested = params.agentIds;
 
     let subscribedIds: ReadonlyArray<AgentId>;
@@ -51,9 +50,6 @@ function presenceSubscribeBody(
     } else {
       subscribedIds = requested;
     }
-    presenceService.subscribe(connection.connId, subscribedIds);
-    // The status snapshot is a ReadonlyArray; the wire schema expects a mutable
-    // Array, so map to a fresh array (point-in-time copy).
     const projected = yield* presenceService.statusMany(subscribedIds);
     const statuses = projected.map((entry) => ({
       agentId: entry.agentId,

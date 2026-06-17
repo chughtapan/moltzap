@@ -11,13 +11,10 @@ import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import type { AuthService } from "#identity/agents";
+import { AuthServiceTag, type AuthService } from "#identity/agents";
 import type { AgentContext } from "#socket";
-import {
-  AuthServiceTag,
-  ContactsServiceTag,
-  NetworkSendServiceTag,
-} from "#core";
+import { ContactsServiceTag } from "#identity/contacts";
+import { NetworkSendServiceTag } from "#network";
 import { agentArm } from "#moltzap/runtime";
 
 const fanOut = <D extends AnyNotificationDefinition>(

@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
@@ -12,12 +12,6 @@ import type { ConnectionId } from "@moltzap/protocol/socket";
  * - `offline`  — WS closed (no entry in presence state).
  */
 export type DerivedPresenceStatus = "online" | "working" | "offline";
-
-/** Wire event computed from a presence transition. */
-export interface PresenceEmission {
-  readonly agentId: AgentId;
-  readonly status: DerivedPresenceStatus;
-}
 
 /**
  * Per-agent presence entry. An agent may hold multiple simultaneous
@@ -70,30 +64,6 @@ export function deriveEntryStatus(
     if (leases.size > 0) return "working";
   }
   return "online";
-}
-
-/**
- * Pure algebraic dedup rule.
- *
- * | previous | next    | emit             |
- * |----------|---------|------------------|
- * | online   | online  | `none`           |
- * | online   | working | `some(working)`  |
- * | working  | working | `none` (dedup)   |
- * | working  | online  | `some(online)`   |
- * | online   | offline | `some(offline)`  |
- * | working  | offline | `some(offline)`  |
- *
- * The two-arg discipline forces the caller to NAME the previous status
- * at the emission site, which is how concurrent GRANTED leases stop
- * producing duplicate `working` notifications: the second GRANT sees
- * `previous = working` and elides the emission.
- */
-export function dedupePresenceStatus(
-  previous: DerivedPresenceStatus,
-  next: DerivedPresenceStatus,
-): Option.Option<DerivedPresenceStatus> {
-  return previous === next ? Option.none() : Option.some(next);
 }
 
 /**

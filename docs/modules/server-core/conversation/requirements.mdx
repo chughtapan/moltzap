@@ -49,7 +49,7 @@ handler, so the creator contact-policy basis does NOT apply. Only the
 group-capacity check runs. Loading owners still validates every target
 exists.
 
-### [`guardConversationNotArchived`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L93)
+### [`guardConversationNotArchived`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L94)
 
 _Function_
 
@@ -61,7 +61,7 @@ export const guardConversationNotArchived = (
 
 Refine the conversation is open (`archived_at IS NULL`).
 
-### [`guardReplyTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L105)
+### [`guardReplyTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L106)
 
 _Function_
 
@@ -76,7 +76,7 @@ Refine the reply target: when the send names a `replyToId`, verify the
 referenced message exists in the conversation (fails `MessageNotFound` if
 absent); a send with no reply target passes with no DB read.
 
-### [`guardTaskActive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L76)
+### [`guardTaskActive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L77)
 
 _Function_
 
@@ -100,7 +100,7 @@ export const obtainConversationInTask = (
 ): Effect.Effect<ConversationInTaskValue, unknown, TaskServiceTag>
 ```
 
-### [`obtainConversationSendAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L21)
+### [`obtainConversationSendAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/requirements/send-access.ts#L22)
 
 _Function_
 

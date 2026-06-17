@@ -7,8 +7,9 @@ import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { agentArm } from "#moltzap/runtime";
 import { Effect, Exit } from "effect";
-import type { AgentContext } from "#socket";
-import { ConnectionTag, LeaseRegistryTag, MessageServiceTag } from "#core";
+import { ConnectionTag, type AgentContext } from "#socket";
+import { LeaseRegistryTag } from "#dispatch";
+import { MessageServiceTag } from "#message";
 import {
   guardTaskActive,
   guardConversationNotArchived,

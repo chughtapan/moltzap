@@ -8,6 +8,9 @@
       "#transport": [
         "transport/index.ts"
       ],
+      "#transport/descriptor": [
+        "transport/descriptor.ts"
+      ],
       "#rpc": [
         "rpc.ts"
       ],

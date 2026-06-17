@@ -11,7 +11,7 @@ import {
   acquireCloseableClient,
   presenceViolation,
   registerAgent,
-  type PresenceChangedPayload,
+  type PresenceStatusEntry,
 } from "./_helpers.js";
 
 export function registerSubscribeAfterConnect(
@@ -39,11 +39,7 @@ export function registerSubscribeAfterConnect(
               ),
             ),
           );
-        const statuses = (
-          result as {
-            statuses: ReadonlyArray<PresenceChangedPayload>;
-          }
-        ).statuses;
+        const statuses: ReadonlyArray<PresenceStatusEntry> = result.statuses;
         if (statuses.length !== 1) {
           return yield* Effect.fail(
             presenceViolation(

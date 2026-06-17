@@ -61,6 +61,7 @@
   },
   "imports": {
     "#transport": "./src/transport/index.ts",
+    "#transport/descriptor": "./src/transport/descriptor.ts",
     "#rpc": "./src/rpc.ts",
     "#identity": "./src/identity/index.ts",
     "#identity/agents": "./src/identity/agents/index.ts",

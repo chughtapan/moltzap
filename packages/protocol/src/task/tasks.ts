@@ -5,7 +5,7 @@ import { AgentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { ForbiddenError, InvalidParamsError } from "#transport";
-import { defineRpc, defineNotification } from "#transport";
+import { defineRpc, defineNotification } from "#transport/descriptor";
 import { conversationSchema, ConversationFullError } from "#conversation";
 import { AppId } from "#identity/apps";
 import { ContactPolicyAllowsReach } from "#identity/contacts/requirements";

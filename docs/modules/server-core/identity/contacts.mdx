@@ -36,7 +36,7 @@ export interface ContactCreateInput {
 }
 ```
 
-### [`contactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L108)
+### [`contactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L105)
 
 _Variable_
 
@@ -44,7 +44,7 @@ _Variable_
 export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params)
 ```
 
-### [`contactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L103)
+### [`contactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L100)
 
 _Variable_
 
@@ -62,7 +62,7 @@ export interface ContactService {
 }
 ```
 
-### [`contactsList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L98)
+### [`contactsList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L95)
 
 _Variable_
 
@@ -219,6 +219,31 @@ export class ContactsService {
       }
 ```
 
+### [`ContactsServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/layer.ts#L14)
+
+_Variable_
+
+```ts
+export const ContactsServiceLive = Layer.effect(
+  ContactsServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new ContactsService(db);
+  }).pipe(Effect.withSpan("ContactsServiceLive")),
+)
+```
+
+### [`ContactsServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/layer.ts#L9)
+
+_Class_
+
+```ts
+export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
+  ContactsServiceTag,
+  ContactsService
+>() {}
+```
+
 ### [`WebhookContactService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/webhook-contact-service.ts#L26)
 
 _Class_
@@ -273,4 +298,5 @@ export class WebhookContactService implements ContactService {
 - `contact-policy.ts`
 - `contact.service.ts`
 - `handlers.ts`
+- `layer.ts`
 - `webhook-contact-service.ts`

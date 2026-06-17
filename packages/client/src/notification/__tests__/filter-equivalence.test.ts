@@ -25,26 +25,22 @@ import {
   NotConnectedError,
   makeNotificationSubscriberRegistry,
 } from "@moltzap/protocol/rpc";
-import { AgentPresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import { TaskFailedNotificationDefinition } from "@moltzap/protocol/task";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
 } from "@moltzap/protocol/rpc";
 import { subscribe } from "../stream.js";
-import {
-  buildMessage,
-  testAgentId,
-  testTaskId,
-} from "../../test-utils/index.js";
+import { buildMessage, testTaskId } from "../../test-utils/index.js";
 
 const MAX_SEQUENCE_LENGTH = 32;
 const VALUE_POOL_SIZE = 8;
 const PROPERTY_RUN_COUNT = 25;
 
-type PresenceParams = NotificationParamsOf<
-  typeof AgentPresenceChangedNotificationDefinition
+type TaskFailedParams = NotificationParamsOf<
+  typeof TaskFailedNotificationDefinition
 >;
 
 const makeSubscriberRegistry = () =>
@@ -57,21 +53,24 @@ const makeSubscriberRegistry = () =>
   });
 
 interface GeneratedFrame {
-  readonly definitionTag: "presence" | "other";
-  readonly agentId: PresenceParams["agentId"];
-  readonly status: "online" | "offline";
+  readonly definitionTag: "taskFailed" | "other";
+  readonly taskId: TaskFailedParams["taskId"];
+  readonly reason: "retryable" | "blocked";
 }
 
-const arbAgentId = fc
+const arbTaskId = fc
   .integer({ min: 0, max: VALUE_POOL_SIZE - 1 })
-  .map((n) => testAgentId(`agent-${n}`));
+  .map((n) => testTaskId(`task-${n}`));
 
-const arbStatus = fc.constantFrom<"online" | "offline">("online", "offline");
+const arbReason = fc.constantFrom<"retryable" | "blocked">(
+  "retryable",
+  "blocked",
+);
 
 const arbGeneratedFrame: fc.Arbitrary<GeneratedFrame> = fc.record({
-  definitionTag: fc.constantFrom<"presence" | "other">("presence", "other"),
-  agentId: arbAgentId,
-  status: arbStatus,
+  definitionTag: fc.constantFrom<"taskFailed" | "other">("taskFailed", "other"),
+  taskId: arbTaskId,
+  reason: arbReason,
 });
 
 const arbSequence = fc.array(arbGeneratedFrame, {
@@ -82,11 +81,11 @@ const arbSequence = fc.array(arbGeneratedFrame, {
 // Property-generated predicate pool: each entry is deterministic and
 // total (no closure over external state — closing over an outer counter
 // would invalidate the oracle equivalence). `fc.constantFrom` picks one
-// per run so the property varies the filter across the status enum rather
+// per run so the property varies the filter across the reason enum rather
 // than pinning a single hardcoded predicate.
-const predicatePool: ReadonlyArray<(params: PresenceParams) => boolean> = [
-  (params) => params.status === "online",
-  (params) => params.status === "offline",
+const predicatePool: ReadonlyArray<(params: TaskFailedParams) => boolean> = [
+  (params) => params.reason === "retryable",
+  (params) => params.reason === "blocked",
   () => true,
   () => false,
 ];
@@ -95,25 +94,25 @@ const arbPredicate = fc.constantFrom(...predicatePool);
 /** Pure-JS reference oracle. Filters by definition identity + predicate. */
 function oracle(
   frames: ReadonlyArray<GeneratedFrame>,
-  predicate: (params: PresenceParams) => boolean,
-): ReadonlyArray<PresenceParams> {
-  const presenceOnly = frames.filter((f) => f.definitionTag === "presence");
-  const presenceParams = presenceOnly.map((f) => ({
-    agentId: f.agentId,
-    status: f.status,
+  predicate: (params: TaskFailedParams) => boolean,
+): ReadonlyArray<TaskFailedParams> {
+  const targetOnly = frames.filter((f) => f.definitionTag === "taskFailed");
+  const targetParams = targetOnly.map((f) => ({
+    taskId: f.taskId,
+    reason: f.reason,
   }));
-  return presenceParams.filter(predicate);
+  return targetParams.filter(predicate);
 }
 
-function decodedPresence(
+function decodedTaskFailure(
   generated: GeneratedFrame,
-): NotificationDelivery<typeof AgentPresenceChangedNotificationDefinition> {
+): NotificationDelivery<typeof TaskFailedNotificationDefinition> {
   return {
-    definition: AgentPresenceChangedNotificationDefinition,
-    method: AgentPresenceChangedNotificationDefinition.name,
+    definition: TaskFailedNotificationDefinition,
+    method: TaskFailedNotificationDefinition.name,
     params: {
-      agentId: generated.agentId,
-      status: generated.status,
+      taskId: generated.taskId,
+      reason: generated.reason,
     },
   };
 }
@@ -142,12 +141,12 @@ describe("subscribe filter-equivalence oracle", () => {
         const collected = await Effect.runPromise(
           Effect.gen(function* () {
             const registry = yield* makeSubscriberRegistry();
-            const seen = yield* Ref.make<ReadonlyArray<PresenceParams>>([]);
+            const seen = yield* Ref.make<ReadonlyArray<TaskFailedParams>>([]);
 
             const fiber = yield* Effect.fork(
               subscribe(
                 registry,
-                AgentPresenceChangedNotificationDefinition,
+                TaskFailedNotificationDefinition,
                 predicate,
               ).pipe(
                 Stream.runForEach((params) =>
@@ -163,8 +162,8 @@ describe("subscribe filter-equivalence oracle", () => {
 
             for (const f of frames) {
               const decoded =
-                f.definitionTag === "presence"
-                  ? decodedPresence(f)
+                f.definitionTag === "taskFailed"
+                  ? decodedTaskFailure(f)
                   : otherFrame();
               yield* registry.dispatch(decoded);
             }
@@ -187,20 +186,22 @@ describe("subscribe filter-equivalence oracle", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const registry = yield* makeSubscriberRegistry();
-        const seen = yield* Ref.make<ReadonlyArray<PresenceParams>>([]);
+        const seen = yield* Ref.make<ReadonlyArray<TaskFailedParams>>([]);
 
-        // Type guard form. The Stream's payload is now `OnlinePresence` at
-        // compile-time; the runtime expectation is that no `offline` params
-        // arrive.
-        type OnlinePresence = PresenceParams & { status: "online" };
-        const isOnline = (params: PresenceParams): params is OnlinePresence =>
-          params.status === "online";
+        // Type guard form. The Stream's payload is now narrowed at compile-time;
+        // the runtime expectation is that no non-matching params arrive.
+        type RetryableTaskFailure = TaskFailedParams & {
+          readonly reason: "retryable";
+        };
+        const isRetryable = (
+          params: TaskFailedParams,
+        ): params is RetryableTaskFailure => params.reason === "retryable";
 
         const fiber = yield* Effect.fork(
           subscribe(
             registry,
-            AgentPresenceChangedNotificationDefinition,
-            isOnline,
+            TaskFailedNotificationDefinition,
+            isRetryable,
           ).pipe(
             Stream.runForEach((params) =>
               Ref.update(seen, (xs) => [...xs, params]),
@@ -211,17 +212,17 @@ describe("subscribe filter-equivalence oracle", () => {
         yield* Effect.yieldNow();
 
         yield* registry.dispatch(
-          decodedPresence({
-            definitionTag: "presence",
-            agentId: testAgentId("agent-0"),
-            status: "online",
+          decodedTaskFailure({
+            definitionTag: "taskFailed",
+            taskId: testTaskId("task-0"),
+            reason: "retryable",
           }),
         );
         yield* registry.dispatch(
-          decodedPresence({
-            definitionTag: "presence",
-            agentId: testAgentId("agent-1"),
-            status: "offline",
+          decodedTaskFailure({
+            definitionTag: "taskFailed",
+            taskId: testTaskId("task-1"),
+            reason: "blocked",
           }),
         );
 
@@ -231,7 +232,7 @@ describe("subscribe filter-equivalence oracle", () => {
 
         const observed = yield* Ref.get(seen);
         expect(observed).toEqual([
-          { agentId: testAgentId("agent-0"), status: "online" },
+          { taskId: testTaskId("task-0"), reason: "retryable" },
         ]);
       }),
     ));

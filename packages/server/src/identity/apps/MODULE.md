@@ -153,6 +153,31 @@ every body — a bare `never` channel would be a type lie while Kysely's
 `SqlError` can propagate, so the conversion is applied at each method's
 edge rather than implied by the signature.
 
+### [`AppAuthServiceLive`](./layer.ts#L19)
+
+_Variable_
+
+```ts
+export const AppAuthServiceLive = Layer.effect(
+  AppAuthServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new AppAuthService(db);
+  }).pipe(Effect.withSpan("AppAuthServiceLive")),
+)
+```
+
+### [`AppAuthServiceTag`](./layer.ts#L10)
+
+_Class_
+
+```ts
+export class AppAuthServiceTag extends Context.Tag("moltzap/AppAuthService")<
+  AppAuthServiceTag,
+  AppAuthService
+>() {}
+```
+
 ### [`AppEndpoint`](./registry.ts#L16)
 
 _Interface_
@@ -227,6 +252,27 @@ export class AppEndpointRegistry {
 
   destroy(): void {}
 }
+```
+
+### [`AppEndpointRegistryLive`](./layer.ts#L27)
+
+_Variable_
+
+```ts
+export const AppEndpointRegistryLive = Layer.sync(
+  AppEndpointRegistryTag,
+  () => new AppEndpointRegistry(),
+)
+```
+
+### [`AppEndpointRegistryTag`](./layer.ts#L15)
+
+_Class_
+
+```ts
+export class AppEndpointRegistryTag extends Context.Tag(
+  "moltzap/AppEndpointRegistry",
+)<AppEndpointRegistryTag, AppEndpointRegistry>() {}
 ```
 
 ### [`AppRegistration`](./registry.ts#L31)
@@ -373,4 +419,5 @@ export function wrapHookEffectWithEnvelope<Verdict, E = never>(opts: {
 - `callback-rpc.ts`
 - `default-app.ts`
 - `endpoint-registry.ts`
+- `layer.ts`
 - `registry.ts`

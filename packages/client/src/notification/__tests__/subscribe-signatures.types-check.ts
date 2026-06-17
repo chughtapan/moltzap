@@ -44,27 +44,29 @@ type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
 // call sites. Validated by compilation of a concrete `subscribe(def,
 // type-guard)` call: the third-argument `params is R` shape must match the
 // overload in `stream.ts`.
-import { AgentPresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
+import { TaskFailedNotificationDefinition } from "@moltzap/protocol/task";
 declare const _canary1bRegistry: NotificationSubscriberRegistry<
   NotConnectedError,
   AnyNotificationDefinition
 >;
-type _Canary1bPresenceParams = NotificationParamsOf<
-  typeof AgentPresenceChangedNotificationDefinition
+type _Canary1bTaskFailedParams = NotificationParamsOf<
+  typeof TaskFailedNotificationDefinition
 >;
-type _Canary1bOnlinePresence = _Canary1bPresenceParams & { status: "online" };
-declare const _canary1bIsOnline: (
-  params: _Canary1bPresenceParams,
-) => params is _Canary1bOnlinePresence;
+type _Canary1bRetryableTaskFailure = _Canary1bTaskFailedParams & {
+  readonly reason: "retryable";
+};
+declare const _canary1bIsRetryable: (
+  params: _Canary1bTaskFailedParams,
+) => params is _Canary1bRetryableTaskFailure;
 const _canary1bStream = subscribe(
   _canary1bRegistry,
-  AgentPresenceChangedNotificationDefinition,
-  _canary1bIsOnline,
+  TaskFailedNotificationDefinition,
+  _canary1bIsRetryable,
 );
 // The stream MUST carry the narrowed params shape.
 type Canary1b_SubscribeOverloadResolves =
   typeof _canary1bStream extends Stream.Stream<
-    _Canary1bOnlinePresence,
+    _Canary1bRetryableTaskFailure,
     NotConnectedError,
     never
   >
@@ -77,7 +79,7 @@ type Canary1b_SubscribeOverloadResolves =
 type _Canary1bElement = Stream.Stream.Success<typeof _canary1bStream>;
 type Canary1b_ElementIsExactParams = Equal<
   _Canary1bElement,
-  _Canary1bOnlinePresence
+  _Canary1bRetryableTaskFailure
 >;
 
 // Canary #2 — `subscribeAll()` returns the broad-union Stream with R=never.

@@ -26,24 +26,17 @@
  * The two-source-of-truth shape is intentional: it keeps the structural lint
  * and the type system in agreement without a codegen pipeline.
  */
-import type {
-  ConnectionTag,
-  DbTag,
-  AuthServiceTag,
-  AppAuthServiceTag,
-  AgentEndpointResolverTag,
-  ConnectionManagerTag,
-  NetworkSendServiceTag,
-  PresenceServiceTag,
-  ContactsServiceTag,
-  DispatchAdmissionServiceTag,
-  TaskAuthorizationServiceTag,
-  MessageServiceTag,
-  ConversationServiceTag,
-  TaskServiceTag,
-  LeaseRegistryTag,
-  AppEndpointRegistryTag,
-} from "#core";
+import type { ConnectionTag, ConnectionManagerTag } from "#socket";
+import type { DbTag } from "#db";
+import type { AuthServiceTag } from "#identity/agents";
+import type { AppAuthServiceTag, AppEndpointRegistryTag } from "#identity/apps";
+import type { ContactsServiceTag } from "#identity/contacts";
+import type { AgentEndpointResolverTag, NetworkSendServiceTag } from "#network";
+import type { PresenceServiceTag } from "#network/presence";
+import type { ConversationServiceTag } from "#conversation";
+import type { DispatchAdmissionServiceTag, LeaseRegistryTag } from "#dispatch";
+import type { MessageServiceTag } from "#message";
+import type { TaskAuthorizationServiceTag, TaskServiceTag } from "#task";
 
 /**
  * Bottom kernel — per-request connection id plus the database handle.
@@ -62,10 +55,10 @@ type TransportTags = ConnectionTag | DbTag;
 type IdentityTags = TransportTags | AuthServiceTag;
 
 /**
- * Network-layer allowlist: Connect, presence, outbound routing. The
+ * Network-layer allowlist: connect, presence, and outbound routing. The
  * `agentEndpointResolver` is the `AgentId → ConnectionId` multimap
  * maintained by network connect/disconnect paths. Presence owns the
- * subscription registry and the status fan-out.
+ * lease-derived status engine.
  */
 type NetworkTags =
   | IdentityTags
@@ -79,7 +72,7 @@ type NetworkTags =
  * Includes `LeaseRegistryTag` for message dispatch leases and
  * `AppAuthServiceTag` for the app connect arm. The connect handler runs at
  * this tier because it pulls cross-cutting services spanning network
- * connections/presence and conversation resolution for presence fan-out.
+ * connections/presence and conversation resolution.
  */
 type TaskTags =
   | NetworkTags

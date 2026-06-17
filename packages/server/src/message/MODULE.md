@@ -121,6 +121,31 @@ export class MessageAuthorizationService {
 }
 ```
 
+### [`MessageAuthorizationServiceLive`](./layer.ts#L23)
+
+_Variable_
+
+```ts
+export const MessageAuthorizationServiceLive = Layer.effect(
+  MessageAuthorizationServiceTag,
+  Effect.gen(function* () {
+    const appEndpointRegistry = yield* AppEndpointRegistryTag;
+    const conversations = yield* ConversationServiceTag;
+    return new MessageAuthorizationService(appEndpointRegistry, conversations);
+  }).pipe(Effect.withSpan("MessageAuthorizationServiceLive")),
+)
+```
+
+### [`MessageAuthorizationServiceTag`](./layer.ts#L14)
+
+_Class_
+
+```ts
+export class MessageAuthorizationServiceTag extends Context.Tag(
+  "moltzap/MessageAuthorizationService",
+)<MessageAuthorizationServiceTag, MessageAuthorizationService>() {}
+```
+
 ### [`MessageAuthorizeContext`](./authorization.ts#L13)
 
 _TypeAlias_
@@ -284,7 +309,42 @@ The `app/message/authorize` round-trip is the authorization gate:
 Forward, `network.send` broadcasts to `verdict.recipients`; on Block, the
 call fails with `HookBlocked`.
 
-### [`messagesList`](./handlers.ts#L163)
+### [`MessageServiceLive`](./layer.ts#L32)
+
+_Variable_
+
+```ts
+export const MessageServiceLive = Layer.effect(
+  MessageServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const conversations = yield* ConversationServiceTag;
+    const networkSend = yield* NetworkSendServiceTag;
+    const encryption = yield* EncryptionTag;
+    const messageAuthorization = yield* MessageAuthorizationServiceTag;
+    return new MessageService({
+      db,
+      conversations,
+      networkSend,
+      encryption,
+      messageAuthorization,
+    });
+  }).pipe(Effect.withSpan("MessageServiceLive")),
+)
+```
+
+### [`MessageServiceTag`](./layer.ts#L18)
+
+_Class_
+
+```ts
+export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
+  MessageServiceTag,
+  MessageService
+>() {}
+```
+
+### [`messagesList`](./handlers.ts#L164)
 
 _Variable_
 
@@ -292,7 +352,7 @@ _Variable_
 export const messagesList: ServerHandler<typeof MessagesList> = (params)
 ```
 
-### [`messagesSend`](./handlers.ts#L154)
+### [`messagesSend`](./handlers.ts#L155)
 
 _Variable_
 
@@ -304,4 +364,5 @@ export const messagesSend: ServerHandler<typeof MessagesSend> = (params)
 
 - `authorization.ts`
 - `handlers.ts`
+- `layer.ts`
 - `message.service.ts`
