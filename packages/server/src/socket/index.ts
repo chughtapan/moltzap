@@ -7,5 +7,10 @@ export {
   type Connection,
   type Originator,
 } from "./connection.js";
+export {
+  ConnectionManagerLive,
+  ConnectionManagerTag,
+  ConnectionTag,
+} from "./layer.js";
 
 export { AgentContext, AppContext, agentContextFrom } from "./context.js";

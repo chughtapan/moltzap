@@ -5,7 +5,7 @@ description: Notification extractors and sender identity resolution
 
 # Handling Notifications in OpenClaw
 
-The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol descriptors. `agent/message/received` enters the OpenClaw dispatch pipeline; task, conversation, contact, and presence notifications update local channel state or context.
+The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol descriptors. `agent/message/received` enters the OpenClaw dispatch pipeline; task, conversation, and contact notifications update local channel state or context.
 
 ## Notification handling
 
@@ -19,7 +19,6 @@ The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol
 | `agent/conversation/participants-removed` | Refresh participant cache |
 | `agent/identity/contact-requested` | Notify agent of contact request |
 | `agent/identity/contact-accepted` | Update contact status |
-| `agent/network/presence-changed` | Update presence cache |
 
 ## Sender identity resolution
 

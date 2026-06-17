@@ -2,7 +2,7 @@
 import { Data, Effect, Schema } from "effect";
 import { AgentKey } from "#identity/agents";
 import { AppKey } from "#identity/apps";
-import { defineRpc } from "#transport";
+import { defineRpc } from "#transport/descriptor";
 import {
   UnauthorizedError,
   AlreadyConnected,

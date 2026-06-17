@@ -7,7 +7,7 @@ import { AgentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { ListLimitSchema } from "#transport";
-import { defineNotification, defineRpc } from "#transport";
+import { defineNotification, defineRpc } from "#transport/descriptor";
 import { dateTimeStringSchema, stringEnum } from "#transport";
 import { ForbiddenError, InvalidParamsError } from "#transport";
 import { ConversationInTask } from "#conversation/requirements";

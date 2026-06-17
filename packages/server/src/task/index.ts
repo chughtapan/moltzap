@@ -1,4 +1,9 @@
 /** @file Task-domain service barrel. */
 
-export { TaskAuthorizationService } from "./authorization.js";
+export {
+  TaskAuthorizationServiceLive,
+  TaskAuthorizationServiceTag,
+  TaskServiceLive,
+  TaskServiceTag,
+} from "./layer.js";
 export { TaskService } from "./task.service.js";

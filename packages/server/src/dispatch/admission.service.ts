@@ -7,7 +7,7 @@ import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { NetworkSendServiceTag } from "#core";
+import type { NetworkSendServiceTag } from "#network";
 import {
   callAppRpc,
   type AppEndpointRegistry,

@@ -34,12 +34,10 @@ import { TaskReadAccess, type TaskId } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import {
-  ConnectionManagerTag,
-  ConversationServiceTag,
-  MessageServiceTag,
-  TaskServiceTag,
-} from "#core";
+import { ConnectionManagerTag } from "#socket";
+import { ConversationServiceTag } from "#conversation";
+import { MessageServiceTag } from "#message";
+import { TaskServiceTag } from "#task";
 import { obtainTaskReadAccess } from "#task/requirements";
 import { obtainConversationInTask } from "#conversation/requirements";
 import { obtainContactPolicyAllowsReach } from "#identity/contacts/requirements";

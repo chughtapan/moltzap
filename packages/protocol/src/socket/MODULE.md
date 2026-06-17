@@ -74,7 +74,7 @@ export function classifyCloseCause(
 ): CloseKind
 ```
 
-### [`ClientConnectError`](./lifecycle.ts#L122)
+### [`ClientConnectError`](./lifecycle.ts#L117)
 
 _TypeAlias_
 
@@ -82,7 +82,7 @@ _TypeAlias_
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
 ```
 
-### [`ClientDefinitionError`](./lifecycle.ts#L111)
+### [`ClientDefinitionError`](./lifecycle.ts#L106)
 
 _TypeAlias_
 
@@ -90,7 +90,7 @@ _TypeAlias_
 export type ClientDefinitionError<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L107)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L102)
 
 _TypeAlias_
 
@@ -98,7 +98,7 @@ _TypeAlias_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L109)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L104)
 
 _TypeAlias_
 
@@ -106,7 +106,7 @@ _TypeAlias_
 export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L217)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L212)
 
 _Interface_
 
@@ -132,7 +132,7 @@ export interface ClientLifecycleOptions<
 }
 ```
 
-### [`clientRpc`](./lifecycle.ts#L105)
+### [`clientRpc`](./lifecycle.ts#L100)
 
 _Property_
 
@@ -142,7 +142,7 @@ _Property_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L104)
+### [`ClientRpcDefinition`](./lifecycle.ts#L99)
 
 _TypeAlias_
 
@@ -221,7 +221,7 @@ _Variable_
 export type ConnectionId = string & Brand.Brand<"ConnectionId">
 ```
 
-### [`ConnectResult`](./lifecycle.ts#L116)
+### [`ConnectResult`](./lifecycle.ts#L111)
 
 _TypeAlias_
 
@@ -517,7 +517,7 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L586)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L561)
 
 _Function_
 
@@ -531,7 +531,7 @@ export const openProtocolAgentClientSocket = (
 >
 ```
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L598)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L573)
 
 _Function_
 
@@ -545,7 +545,7 @@ export const openProtocolAppClientSocket = (
 >
 ```
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L667)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L642)
 
 _Class_
 
@@ -680,7 +680,7 @@ _TypeAlias_
 export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L264)
+### [`ReverseCallbackHandlers`](./lifecycle.ts#L259)
 
 _TypeAlias_
 
@@ -769,7 +769,7 @@ export interface ReverseClient {
 }
 ```
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L90)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L85)
 
 _Variable_
 
@@ -777,7 +777,7 @@ _Variable_
 export const RPC_TIMEOUT_MS = 30_000
 ```
 
-### [`RpcCallOptions`](./lifecycle.ts#L100)
+### [`RpcCallOptions`](./lifecycle.ts#L95)
 
 _Interface_
 

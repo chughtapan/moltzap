@@ -4,7 +4,7 @@ import type {
   ConversationInTaskValue,
 } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
-import { TaskServiceTag } from "#core";
+import { TaskServiceTag } from "#task";
 
 export interface TaskAndConversation {
   readonly taskId: TaskId;

@@ -1,6 +1,7 @@
 /** @file Internal DB/query helper barrel for server-core source aliases. */
 
 export type { Db } from "./client.js";
+export { DbTag } from "./layer.js";
 export type { ContactRow, Database, MessageRow } from "./database.js";
 export {
   catchSqlErrorAsDefect,

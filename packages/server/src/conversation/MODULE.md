@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`conversationCreate`](./handlers.ts#L298)
+### [`conversationCreate`](./handlers.ts#L299)
 
 _Variable_
 
@@ -18,7 +18,7 @@ export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
 )
 ```
 
-### [`conversationList`](./handlers.ts#L291)
+### [`conversationList`](./handlers.ts#L292)
 
 _Variable_
 
@@ -60,7 +60,37 @@ export class ConversationService {
   }
 ```
 
-### [`conversationUpdate`](./handlers.ts#L305)
+### [`ConversationServiceLive`](./layer.ts#L15)
+
+_Variable_
+
+```ts
+export const ConversationServiceLive = Layer.effect(
+  ConversationServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const connections = yield* ConnectionManagerTag;
+    const appEndpointRegistry = yield* AppEndpointRegistryTag;
+    return new ConversationService(db, connections, () => {
+      const contacts = appEndpointRegistry.getContactService();
+      if (!contacts) return null;
+      return (a, b) => contacts.areInContact(a, b);
+    });
+  }).pipe(Effect.withSpan("ConversationServiceLive")),
+)
+```
+
+### [`ConversationServiceTag`](./layer.ts#L11)
+
+_Class_
+
+```ts
+export class ConversationServiceTag extends Context.Tag(
+  "moltzap/ConversationService",
+)<ConversationServiceTag, ConversationService>() {}
+```
+
+### [`conversationUpdate`](./handlers.ts#L306)
 
 _Variable_
 
@@ -74,3 +104,4 @@ export const conversationUpdate: ServerHandler<typeof ConversationUpdate> = (
 
 - `conversation.service.ts`
 - `handlers.ts`
+- `layer.ts`

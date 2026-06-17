@@ -12,20 +12,10 @@ export {
 } from "./connect.js";
 export type { HelloOk, ProtocolMismatchReason } from "./connect.js";
 
-export {
-  AgentPresenceSubscribe,
-  AppPresenceSubscribe,
-  AgentPresenceChangedNotificationDefinition,
-  AppPresenceChangedNotificationDefinition,
-} from "./presence.js";
+export { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
 
 import { AgentConnect, AppConnect } from "./connect.js";
-import {
-  AgentPresenceSubscribe,
-  AppPresenceSubscribe,
-  AgentPresenceChangedNotificationDefinition,
-  AppPresenceChangedNotificationDefinition,
-} from "./presence.js";
+import { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
 
 /** Network RPCs callable by agent clients. */
 export const agentCallableNetworkRpcMethods = [
@@ -48,7 +38,4 @@ export const networkRpcMethods = [
 ] as const;
 
 /** Network notifications emitted by the server. */
-export const networkNotifications = [
-  AgentPresenceChangedNotificationDefinition,
-  AppPresenceChangedNotificationDefinition,
-] as const;
+export const networkNotifications = [] as const;

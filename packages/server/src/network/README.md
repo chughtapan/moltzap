@@ -21,15 +21,13 @@ Connect handlers, presence, agent-endpoint resolution, outbound `send` and
 - `presence/handlers.ts` — agent/app presence subscribe RPCs
   handler. Presence is server-derived from `LeaseRegistry` lifecycle +
   WS connect/disconnect; there is no client-driven `presence/update`.
-- `presence/presence.service.ts` — `PresenceService`. One service that
-  owns the subscriber registry, the lease-derived status engine, and
-  the agent/app presence-changed fan-out. Implements `LeaseTransitionObserver`,
-  so `LeaseRegistry` drives lease transitions through it.
+- `presence/presence.service.ts` — `PresenceService`. Owns the
+  lease-derived status engine. Implements `LeaseTransitionObserver`, so
+  `LeaseRegistry` drives lease transitions through it.
 - `presence/presence-types.ts` — pure helpers + types shared by the
   service and its consumers: `DerivedPresenceStatus`,
-  `AgentPresenceEntry`, `deriveEntryStatus`, `dedupePresenceStatus`,
-  the narrow `LeaseTransitionObserver` contract that `LeaseRegistry`
-  depends on.
+  `AgentPresenceEntry`, `deriveEntryStatus`, and the narrow
+  `LeaseTransitionObserver` contract that `LeaseRegistry` depends on.
 
 ## Handler shape
 

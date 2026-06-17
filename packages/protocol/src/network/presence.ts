@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { AgentId } from "#identity/agents";
 import { stringEnum } from "#transport";
-import { defineNotification, defineRpc } from "#transport";
+import { defineRpc } from "#transport/descriptor";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { NotInContactsError } from "#identity/contacts";
 
@@ -46,26 +46,4 @@ export const AppPresenceSubscribe = defineRpc({
   result: PresenceSubscribeResultSchema,
   requires: [AppPrincipal],
   errors: [],
-});
-
-const PresenceChangedNotificationSchema = Schema.Struct({
-  agentId: AgentId,
-  status: PresenceStatusEnum,
-});
-
-/**
- * Pushed when a subscribed participant's presence status changes. Triggered by
- * server-side `LeaseRegistry` lifecycle transitions + WS connect/disconnect.
- */
-export const AgentPresenceChangedNotificationDefinition = defineNotification({
-  name: "agent/network/presence-changed",
-  params: PresenceChangedNotificationSchema,
-});
-
-/**
- * Pushed to app subscribers when a watched agent's presence status changes.
- */
-export const AppPresenceChangedNotificationDefinition = defineNotification({
-  name: "app/network/presence-changed",
-  params: PresenceChangedNotificationSchema,
 });

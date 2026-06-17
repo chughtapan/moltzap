@@ -7,8 +7,8 @@ import {
 } from "@moltzap/protocol/socket";
 
 import type { ResolvedServices } from "#core";
-import { ConnectionManagerTag, ConnectionTag } from "#core";
 import type { DisconnectionHook } from "#core";
+import { ConnectionManagerTag, ConnectionTag } from "#socket";
 import type { AgentContext } from "#socket";
 import { serverHandlers } from "./handler-catalog.js";
 import { makeRequirementMiddlewareLayers } from "./auth-middleware-layers.js";
@@ -67,7 +67,6 @@ function closeSocketSession(
       );
     }
     yield* options.services.leaseRegistry.abandon(session.connId);
-    options.services.presenceService.removeConnection(session.connId);
     options.services.appEndpointRegistry.unregisterAppsForConnection(
       session.connId,
     );

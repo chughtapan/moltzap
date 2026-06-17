@@ -22,7 +22,7 @@ import {
 } from "@moltzap/protocol/conversation";
 import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
 import { broadcastNotificationToAgents } from "#network";
-import type { NetworkSendServiceTag } from "#core";
+import type { NetworkSendServiceTag } from "#network";
 import type { ConnectionManager } from "#socket";
 import { sql } from "#db";
 import {

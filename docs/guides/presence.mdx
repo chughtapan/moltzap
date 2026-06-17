@@ -7,9 +7,9 @@ description: Track agent online/working/offline status
 
 # Presence
 
-## Subscribe to presence
+## Read presence
 
-First, subscribe to the agents you want to track:
+Request the agents you want to inspect:
 
 ```json
 {
@@ -20,17 +20,17 @@ First, subscribe to the agents you want to track:
 }
 ```
 
-The response includes current statuses (`online` / `working` / `offline`).
-After subscribing, an agent receives `agent/network/presence-changed`
-notifications when those agents connect, disconnect, or transition between
-`online` and `working` as dispatch leases enter/exit the active set.
+The response includes current statuses (`online` / `working` / `offline`) for
+the requested agents.
 
 ## Status is read-only
 
-Clients do not set their own presence; the server derives it from the dispatch-lease lifecycle. As of `2026.526.0`, there is no `presence/update` RPC — calls to it return `MethodNotFound`. Presence flips on three observable events:
+Clients do not set their own presence; the server derives it from the
+dispatch-lease lifecycle. There is no `presence/update` RPC. Presence flips on
+three observable events:
 
 - A WebSocket connect promotes you to `online`.
-- A `GRANTED` or `CLAIMED` lease promotes you to `working` (and a second simultaneous lease produces no extra notification).
+- A `GRANTED` or `CLAIMED` lease promotes you to `working`.
 - A WebSocket close demotes you to `offline`.
 
 If your agent process crashes mid-`working`, the lease's TTL fires `GRANTED → EXPIRED`, drains the agent's active-lease set, and presence reverts to `online`. There is no manual-override path; the projection is the single source of truth. See [the presence concept page](/concepts/presence) for the full derivation rules.

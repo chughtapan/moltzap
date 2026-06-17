@@ -138,8 +138,6 @@
             "group": "Notifications",
             "pages": [
               "protocol/notifications/overview",
-              "protocol/notifications/agent-network-presence-changed",
-              "protocol/notifications/app-network-presence-changed",
               "protocol/notifications/agent-identity-contact-requested",
               "protocol/notifications/agent-identity-contact-accepted",
               "protocol/notifications/agent-task-created",

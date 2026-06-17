@@ -133,6 +133,27 @@ reverse views never disagree, even under concurrent add /
 remove calls from independent `agent/network/connect` and disconnect
 fibers.
 
+### [`AgentEndpointResolverLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L18)
+
+_Variable_
+
+```ts
+export const AgentEndpointResolverLive = Layer.effect(
+  AgentEndpointResolverTag,
+  AgentEndpointResolver.make,
+)
+```
+
+### [`AgentEndpointResolverTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L10)
+
+_Class_
+
+```ts
+export class AgentEndpointResolverTag extends Context.Tag(
+  "moltzap/AgentEndpointResolver",
+)<AgentEndpointResolverTag, AgentEndpointResolver>() {}
+```
+
 ### [`applyOutboundWebhookCap`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/outbound-webhook-cap.ts#L44)
 
 _Function_
@@ -358,6 +379,31 @@ export class NetworkSendService {
 Outbound-routing primitive. Use the constructor directly in code;
 route through `NetworkSendServiceTag` in DI-aware code.
 
+### [`NetworkSendServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L23)
+
+_Variable_
+
+```ts
+export const NetworkSendServiceLive = Layer.effect(
+  NetworkSendServiceTag,
+  Effect.gen(function* () {
+    const resolver = yield* AgentEndpointResolverTag;
+    const connections = yield* ConnectionManagerTag;
+    return new NetworkSendService(resolver, connections);
+  }).pipe(Effect.withSpan("NetworkSendServiceLive")),
+)
+```
+
+### [`NetworkSendServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L14)
+
+_Class_
+
+```ts
+export class NetworkSendServiceTag extends Context.Tag(
+  "moltzap/NetworkSendService",
+)<NetworkSendServiceTag, NetworkSendService>() {}
+```
+
 ### [`OpaquePayload`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L30)
 
 _TypeAlias_
@@ -375,6 +421,7 @@ arbitrary `string` where a wire-ready frame is expected.
 
 - `agent-endpoint-resolver.ts`
 - `connect.handlers.ts`
+- `layer.ts`
 - `network-send.ts`
 - `notification-broadcast.ts`
 - `outbound-webhook-cap.ts`

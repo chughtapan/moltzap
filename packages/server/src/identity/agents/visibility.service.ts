@@ -8,7 +8,7 @@
  */
 import { Effect } from "effect";
 import type { Db } from "#db";
-import type { AgentId, UserId } from "#core";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import { catchSqlErrorAsDefect } from "#db";
 
 export interface VisibleAgentIdsRequest {

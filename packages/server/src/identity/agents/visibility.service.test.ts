@@ -2,8 +2,7 @@ import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
 import { Effect } from "effect";
 import { userId } from "@moltzap/protocol/testing";
-import type { UserId } from "@moltzap/protocol/identity";
-import type { AgentId } from "#core";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import { takeFirstOrFail } from "#db";
 import {
   makePgliteHarness,

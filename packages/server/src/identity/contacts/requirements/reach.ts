@@ -3,7 +3,7 @@ import type {
   AgentId,
   ContactPolicyAllowsReachValue,
 } from "@moltzap/protocol/identity";
-import { ConversationServiceTag } from "#core";
+import { ConversationServiceTag } from "#conversation";
 import { catchSqlErrorAsDefect } from "#db";
 
 export interface CreatorAndTargets {

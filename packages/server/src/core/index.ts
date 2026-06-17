@@ -1,29 +1,8 @@
 /** @file Narrow core wiring barrel for server-core internals. */
 
 export { createCoreApp, ServerBootFailedError } from "./app.js";
-export {
-  AgentEndpointResolverTag,
-  AppAuthServiceTag,
-  AppEndpointRegistryTag,
-  AuthServiceTag,
-  ConnectionHooksTag,
-  ConnectionManagerTag,
-  ConnectionTag,
-  ContactsServiceTag,
-  ConversationServiceTag,
-  DbTag,
-  DispatchAdmissionServiceTag,
-  EncryptionTag,
-  LeaseRegistryTag,
-  MessageServiceTag,
-  NetworkSendServiceTag,
-  PresenceServiceLive,
-  PresenceServiceTag,
-  ServicesLive,
-  TaskAuthorizationServiceTag,
-  TaskServiceTag,
-  resolveServices,
-} from "./layers.js";
+export { ConnectionHooksTag } from "./hooks.js";
+export { ServicesLive, resolveServices } from "./layers.js";
 export type { ResolvedServices } from "./layers.js";
 
-export type { AgentId, CoreApp, DisconnectionHook, UserId } from "./types.js";
+export type { CoreApp, DisconnectionHook } from "./types.js";

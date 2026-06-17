@@ -1,5 +1,6 @@
 /**
- * @file Public barrel for JSON-RPC transport descriptors and runtime helpers.
+ * @file Internal barrel for protocol transport runtime helpers.
+ * @internal
  */
 // RPC + notification descriptor types. Effect RPC owns frame decoding; these
 // descriptors own per-method payload/result schemas and the client subscription
@@ -19,13 +20,6 @@ export type {
   DomainErrorsOf,
   RequirementErrorsOf,
   ResponseErrorsOf,
-} from "./definition.js";
-export {
-  decodeRpcResult,
-  defineNotification,
-  defineRpc,
-  effectiveErrorClasses,
-  jsonRpcMethod,
 } from "./definition.js";
 export { isNotificationDeliveryFor } from "./definition.js";
 

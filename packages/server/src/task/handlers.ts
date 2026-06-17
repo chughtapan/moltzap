@@ -33,7 +33,7 @@ import {
   TaskRequest,
   TaskUpdate,
 } from "@moltzap/protocol/task";
-import type { AppId } from "@moltzap/protocol/identity";
+import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { Task } from "@moltzap/protocol/task";
 import type { Conversation } from "@moltzap/protocol/conversation";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
@@ -41,12 +41,8 @@ import type { TaskId } from "@moltzap/protocol/task";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { AgentId } from "#core";
-import {
-  ConversationServiceTag,
-  TaskAuthorizationServiceTag,
-  TaskServiceTag,
-} from "#core";
+import { ConversationServiceTag } from "#conversation";
+import { TaskAuthorizationServiceTag, TaskServiceTag } from "#task";
 import { agentArm, appArm } from "#moltzap/runtime";
 import { authorizeConversationCreate } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";

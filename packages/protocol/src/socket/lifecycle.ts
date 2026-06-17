@@ -20,12 +20,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import {
-  AgentConnect,
-  AppConnect,
-  AgentPresenceChangedNotificationDefinition,
-  AppPresenceChangedNotificationDefinition,
-} from "#network";
+import { AgentConnect, AppConnect } from "#network";
 import {
   AgentCallableGroup,
   AppCallableGroup,
@@ -295,10 +290,6 @@ type DispatchNotificationDefinition =
   | typeof DispatchLeaseConsumed
   | typeof DispatchLeaseExpired;
 
-type NetworkNotificationHandlers = NotificationHandlersFor<
-  | typeof AgentPresenceChangedNotificationDefinition
-  | typeof AppPresenceChangedNotificationDefinition
->;
 type IdentityNotificationHandlers =
   NotificationHandlersFor<IdentityNotificationDefinition>;
 type TaskNotificationHandlers =
@@ -307,8 +298,6 @@ type DispatchNotificationHandlers =
   NotificationHandlersFor<DispatchNotificationDefinition>;
 
 type NotificationHandlerDefinition =
-  | typeof AgentPresenceChangedNotificationDefinition
-  | typeof AppPresenceChangedNotificationDefinition
   | IdentityNotificationDefinition
   | TaskNotificationDefinition
   | DispatchNotificationDefinition;
@@ -422,19 +411,6 @@ const buildReverseHandlers = (options: {
   ...buildNotificationHandlers(options.registry),
 });
 
-const buildNetworkNotificationHandlers = (
-  registry: SubscriberRegistry,
-): NetworkNotificationHandlers => ({
-  [AgentPresenceChangedNotificationDefinition.name]: notificationHandler(
-    registry,
-    AgentPresenceChangedNotificationDefinition,
-  ),
-  [AppPresenceChangedNotificationDefinition.name]: notificationHandler(
-    registry,
-    AppPresenceChangedNotificationDefinition,
-  ),
-});
-
 const buildIdentityNotificationHandlers = (
   registry: SubscriberRegistry,
 ): IdentityNotificationHandlers => ({
@@ -508,7 +484,6 @@ const buildDispatchNotificationHandlers = (
 const buildNotificationHandlers = (
   registry: SubscriberRegistry,
 ): ReverseNotificationHandlers => ({
-  ...buildNetworkNotificationHandlers(registry),
   ...buildIdentityNotificationHandlers(registry),
   ...buildTaskNotificationHandlers(registry),
   ...buildDispatchNotificationHandlers(registry),

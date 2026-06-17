@@ -195,10 +195,11 @@ const discoverFolders = (
         .exists(indexPath)
         .pipe(Effect.catchAll(() => Effect.succeed(false)));
       if (!hasIndex) continue;
+      const indexSource = yield* fs
+        .readFileString(indexPath)
+        .pipe(Effect.catchAll(() => Effect.succeed("")));
+      if (isInternalModuleSource(indexSource)) continue;
       if (isPackageRoot(folder, path)) {
-        const indexSource = yield* fs
-          .readFileString(indexPath)
-          .pipe(Effect.catchAll(() => Effect.succeed("")));
         if (isEmptyBarrelSource(indexSource)) continue;
       }
       seen.add(folder);
@@ -227,6 +228,11 @@ function isEmptyBarrelSource(source: string): boolean {
     .replace(/export\s*\{\s*\}\s*;?/g, "")
     .trim();
   return cleaned.length === 0;
+}
+
+function isInternalModuleSource(source: string): boolean {
+  const purpose = readLeadingJsDoc(source);
+  return purpose !== null && /(^|\s)@internal(\s|$)/.test(purpose);
 }
 
 const renderFolder = (

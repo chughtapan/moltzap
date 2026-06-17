@@ -5,8 +5,6 @@ import type { ConnectionManager } from "#socket";
 import type { NetworkSendService } from "#network";
 import type { LeaseRegistry } from "#dispatch";
 
-export type { UserId, AgentId };
-
 export type ConnectionHook = (params: {
   agentId: AgentId;
   agentName: string;

@@ -11,7 +11,9 @@ import { ConversationService } from "#conversation";
 import { MessageService } from "#message";
 import { PresenceService } from "#network/presence";
 import { AppEndpointRegistry } from "#identity/apps";
-import { DbTag, EncryptionTag, ServicesLive, resolveServices } from "#core";
+import { DbTag } from "#db";
+import { EncryptionTag } from "#db/crypto";
+import { ServicesLive, resolveServices } from "#core";
 
 const it = effectIt.effect;
 

@@ -11,19 +11,20 @@ import type { AppManifest } from "@moltzap/protocol/identity";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
-import { agentContextFrom, AgentContext, AppContext } from "#socket";
 import {
-  AgentEndpointResolverTag,
-  AppAuthServiceTag,
-  AppEndpointRegistryTag,
-  AuthServiceTag,
-  ConnectionHooksTag,
-  ConnectionTag,
+  agentContextFrom,
+  AgentContext,
+  AppContext,
   ConnectionManagerTag,
-  ConversationServiceTag,
-  DbTag,
-  PresenceServiceTag,
-} from "#core";
+  ConnectionTag,
+} from "#socket";
+import { ConnectionHooksTag } from "#core";
+import { DbTag } from "#db";
+import { AuthServiceTag } from "#identity/agents";
+import { AppAuthServiceTag, AppEndpointRegistryTag } from "#identity/apps";
+import { ConversationServiceTag } from "#conversation";
+import { AgentEndpointResolverTag } from "#network";
+import { PresenceServiceTag } from "#network/presence";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 import type { AuthService } from "#identity/agents";
@@ -215,9 +216,8 @@ function hydrateConnectionState(
 ) {
   return Effect.gen(function* () {
     const convIds = yield* conversationService.getConversationIds(auth.agentId);
-    // Seed the agent arm's `connectionsRef` subscription set (the fan-out
-    // gate reads it). The arm was minted by `mirrorAgentArmTransition` just
-    // above, so it exists for this connId.
+    // Seed the agent arm's conversation membership cache. The arm was minted
+    // by `mirrorAgentArmTransition` just above, so it exists for this connId.
     yield* connections.hydrateConversationIds(connId, convIds);
   }).pipe(Effect.withSpan("connect.hydrateConnectionState"));
 }

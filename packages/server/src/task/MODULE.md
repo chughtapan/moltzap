@@ -63,6 +63,30 @@ export class TaskAuthorizationService {
 }
 ```
 
+### [`TaskAuthorizationServiceLive`](./layer.ts#L22)
+
+_Variable_
+
+```ts
+export const TaskAuthorizationServiceLive = Layer.effect(
+  TaskAuthorizationServiceTag,
+  Effect.gen(function* () {
+    const appEndpointRegistry = yield* AppEndpointRegistryTag;
+    return new TaskAuthorizationService(appEndpointRegistry);
+  }).pipe(Effect.withSpan("TaskAuthorizationServiceLive")),
+)
+```
+
+### [`TaskAuthorizationServiceTag`](./layer.ts#L13)
+
+_Class_
+
+```ts
+export class TaskAuthorizationServiceTag extends Context.Tag(
+  "moltzap/TaskAuthorizationService",
+)<TaskAuthorizationServiceTag, TaskAuthorizationService>() {}
+```
+
 ### [`TaskCreateVerdict`](./authorization.ts#L11)
 
 _TypeAlias_
@@ -71,7 +95,7 @@ _TypeAlias_
 export type TaskCreateVerdict = ResultOf<typeof TaskCreate>["verdict"];
 ```
 
-### [`taskLeave`](./handlers.ts#L365)
+### [`taskLeave`](./handlers.ts#L361)
 
 _Variable_
 
@@ -79,7 +103,7 @@ _Variable_
 export const taskLeave: ServerHandler<typeof TaskLeave> = (params)
 ```
 
-### [`taskList`](./handlers.ts#L360)
+### [`taskList`](./handlers.ts#L356)
 
 _Variable_
 
@@ -87,7 +111,7 @@ _Variable_
 export const taskList: ServerHandler<typeof TaskList> = (params)
 ```
 
-### [`taskRequest`](./handlers.ts#L208)
+### [`taskRequest`](./handlers.ts#L204)
 
 _Variable_
 
@@ -222,7 +246,34 @@ export class TaskService {
       return yield* catchSqlErrorAsDefect(
 ```
 
-### [`taskUpdate`](./handlers.ts#L370)
+### [`TaskServiceLive`](./layer.ts#L30)
+
+_Variable_
+
+```ts
+export const TaskServiceLive = Layer.effect(
+  TaskServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const conversations = yield* ConversationServiceTag;
+    const messages = yield* MessageServiceTag;
+    return new TaskService(db, conversations, messages);
+  }).pipe(Effect.withSpan("TaskServiceLive")),
+)
+```
+
+### [`TaskServiceTag`](./layer.ts#L17)
+
+_Class_
+
+```ts
+export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
+  TaskServiceTag,
+  TaskService
+>() {}
+```
+
+### [`taskUpdate`](./handlers.ts#L366)
 
 _Variable_
 
@@ -234,4 +285,5 @@ export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params)
 
 - `authorization.ts`
 - `handlers.ts`
+- `layer.ts`
 - `task.service.ts`

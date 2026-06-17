@@ -15,7 +15,8 @@ import {
 } from "@moltzap/protocol/identity";
 
 import type { AppTags } from "#moltzap";
-import type { ConnectionTag, ResolvedServices } from "#core";
+import type { ResolvedServices } from "#core";
+import type { ConnectionTag } from "#socket";
 import { safeEqual } from "#identity/credential-keys";
 import type { CoreConfig } from "#config";
 import type { RegistrationSecret } from "#config/secrets";

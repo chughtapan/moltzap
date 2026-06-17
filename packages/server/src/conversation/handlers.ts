@@ -14,11 +14,12 @@ import type {
   ConversationId,
   ConversationListItem,
 } from "@moltzap/protocol/conversation";
+import type { AgentId } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AppContext, AgentContext } from "#socket";
-import type { AgentId } from "#core";
-import { ConversationServiceTag, TaskServiceTag } from "#core";
+import { ConversationServiceTag } from "#conversation";
+import { TaskServiceTag } from "#task";
 import { agentArm, appArm } from "#moltzap/runtime";
 import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";

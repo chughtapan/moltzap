@@ -12,18 +12,14 @@ import {
 
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { makeTracingLayer, readDefaultSpanProcessor } from "./tracing.js";
-import { EnvelopeEncryption } from "#db/crypto";
+import { DbTag } from "#db";
+import { EncryptionTag, EnvelopeEncryption } from "#db/crypto";
 
 import type { CoreApp, ConnectionHook, DisconnectionHook } from "./types.js";
 import type { CoreConfig } from "#config";
-import {
-  AppEndpointRegistryTag,
-  ConnectionHooksTag,
-  DbTag,
-  EncryptionTag,
-  ServicesLive,
-  resolveServices,
-} from "./layers.js";
+import { AppEndpointRegistryTag } from "#identity/apps";
+import { ConnectionHooksTag } from "./hooks.js";
+import { ServicesLive, resolveServices } from "./layers.js";
 import { installDefaultApp } from "#identity/apps";
 import { makeNodeHttpServer, makeCoreHttpApp } from "#http";
 import { makeMoltzapSocketHandler } from "#moltzap";

@@ -258,6 +258,38 @@ export class ConnectionManager {
         );
 ```
 
+### [`ConnectionManagerLive`](./layer.ts#L16)
+
+_Variable_
+
+```ts
+export const ConnectionManagerLive = Layer.sync(
+  ConnectionManagerTag,
+  () => new ConnectionManager(),
+)
+```
+
+### [`ConnectionManagerTag`](./layer.ts#L12)
+
+_Class_
+
+```ts
+export class ConnectionManagerTag extends Context.Tag(
+  "moltzap/ConnectionManager",
+)<ConnectionManagerTag, ConnectionManager>() {}
+```
+
+### [`ConnectionTag`](./layer.ts#L7)
+
+_Class_
+
+```ts
+export class ConnectionTag extends Context.Tag("moltzap/Connection")<
+  ConnectionTag,
+  Connection
+>() {}
+```
+
 ### [`Originator`](./connection.ts#L76)
 
 _TypeAlias_
@@ -357,3 +389,4 @@ The per-connection socket handle registered with `ConnectionManager`.
 
 - `connection.ts`
 - `context.ts`
+- `layer.ts`
