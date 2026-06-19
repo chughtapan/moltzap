@@ -1,7 +1,11 @@
 import { Schema } from "effect";
 
 import { defineRpc, defineNotification } from "#transport/descriptor";
-import { ListLimitSchema, listCursorSchema } from "#transport";
+import {
+  ListLimitSchema,
+  listCursorSchema,
+  errorPayloadFields,
+} from "#transport";
 import { AgentPrincipal } from "#identity/principals";
 import {
   ConflictError,
@@ -11,11 +15,6 @@ import {
 } from "#transport";
 import { UserId } from "#identity/users";
 import { ContactId } from "./ids.js";
-
-const errorPayloadFields = {
-  message: Schema.optional(Schema.String),
-  data: Schema.optional(Schema.Unknown),
-} as const;
 
 export class NotInContactsError extends Schema.TaggedError<NotInContactsError>()(
   "NotInContacts",

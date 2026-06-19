@@ -8,7 +8,7 @@ Contact identity descriptors, RPC descriptors, and notifications.
 
 ## Public surface
 
-### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L97)
+### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L96)
 
 _Variable_
 
@@ -35,7 +35,7 @@ _Variable_
 export type ContactId = string & Brand.Brand<"ContactId">
 ```
 
-### [`ContactNotFoundError`](./contacts.ts#L27)
+### [`ContactNotFoundError`](./contacts.ts#L26)
 
 _Class_
 
@@ -48,7 +48,7 @@ export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundErro
 }
 ```
 
-### [`ContactRequestNotificationDefinition`](./contacts.ts#L92)
+### [`ContactRequestNotificationDefinition`](./contacts.ts#L91)
 
 _Variable_
 
@@ -59,7 +59,7 @@ export const ContactRequestNotificationDefinition = defineNotification({
 })
 ```
 
-### [`ContactsAccept`](./contacts.ts#L76)
+### [`ContactsAccept`](./contacts.ts#L75)
 
 _Variable_
 
@@ -73,7 +73,7 @@ export const ContactsAccept = defineRpc({
 })
 ```
 
-### [`ContactsAdd`](./contacts.ts#L65)
+### [`ContactsAdd`](./contacts.ts#L64)
 
 _Variable_
 
@@ -90,7 +90,7 @@ export const ContactsAdd = defineRpc({
 })
 ```
 
-### [`ContactsList`](./contacts.ts#L51)
+### [`ContactsList`](./contacts.ts#L50)
 
 _Variable_
 
@@ -110,7 +110,7 @@ export const ContactsList = defineRpc({
 })
 ```
 
-### [`NotInContactsError`](./contacts.ts#L20)
+### [`NotInContactsError`](./contacts.ts#L19)
 
 _Class_
 

@@ -31,7 +31,7 @@ export const appCallableConversationRpcMethods = [
 
 App-callable conversation RPC catalog.
 
-### [`Conversation`](./types.ts#L131)
+### [`Conversation`](./types.ts#L129)
 
 _TypeAlias_
 
@@ -41,7 +41,7 @@ export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
 
 Conversation row visible on task conversation surfaces.
 
-### [`ConversationArchivedError`](./types.ts#L57)
+### [`ConversationArchivedError`](./types.ts#L55)
 
 _Class_
 
@@ -143,7 +143,7 @@ export const ConversationCreatedNotificationDefinition = defineNotification({
 
 Pushed when a task conversation is created.
 
-### [`ConversationFullError`](./types.ts#L65)
+### [`ConversationFullError`](./types.ts#L63)
 
 _Class_
 
@@ -158,7 +158,7 @@ export class ConversationFullError extends Schema.TaggedError<ConversationFullEr
 
 The conversation has reached its participant capacity.
 
-### [`ConversationId`](./types.ts#L18)
+### [`ConversationId`](./types.ts#L16)
 
 _TypeAlias_
 
@@ -168,7 +168,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`ConversationId`](./types.ts#L18)
+### [`ConversationId`](./types.ts#L16)
 
 _Variable_
 
@@ -214,7 +214,7 @@ export type ConversationListItem = Schema.Schema.Type<
 
 Conversation list item returned by `agent/conversation/list`.
 
-### [`ConversationNotFoundError`](./types.ts#L41)
+### [`ConversationNotFoundError`](./types.ts#L39)
 
 _Class_
 
@@ -245,7 +245,7 @@ export const conversationNotifications = [
 
 Conversation notification catalog.
 
-### [`ConversationParticipant`](./types.ts#L134)
+### [`ConversationParticipant`](./types.ts#L132)
 
 _TypeAlias_
 
@@ -309,7 +309,7 @@ export const ConversationParticipantsRemovedNotificationDefinition =
 
 Pushed when a participant is removed from a task conversation.
 
-### [`conversationSchema`](./types.ts#L147)
+### [`conversationSchema`](./types.ts#L145)
 
 _Function_
 
@@ -321,7 +321,7 @@ Return the canonical conversation schema.
 
 **Returns:** The canonical conversation schema.
 
-### [`ConversationSummary`](./types.ts#L139)
+### [`ConversationSummary`](./types.ts#L137)
 
 _TypeAlias_
 
@@ -392,7 +392,7 @@ export type ConversationUpdateParams = Schema.Schema.Type<
 >;
 ```
 
-### [`MessageId`](./types.ts#L32)
+### [`MessageId`](./types.ts#L30)
 
 _TypeAlias_
 
@@ -406,7 +406,7 @@ This lives in the conversation module to keep the message module downstream:
 conversation participant state references the last-read message, and message
 rows reference their conversation.
 
-### [`MessageId`](./types.ts#L32)
+### [`MessageId`](./types.ts#L30)
 
 _Variable_
 
@@ -414,7 +414,7 @@ _Variable_
 export type MessageId = string & Brand.Brand<"MessageId">
 ```
 
-### [`NotAParticipantError`](./types.ts#L49)
+### [`NotAParticipantError`](./types.ts#L47)
 
 _Class_
 
@@ -429,7 +429,7 @@ export class NotAParticipantError extends Schema.TaggedError<NotAParticipantErro
 
 The caller is not a participant in the conversation it is acting on.
 
-### [`ParticipantNotAdmittedError`](./types.ts#L76)
+### [`ParticipantNotAdmittedError`](./types.ts#L74)
 
 _Class_
 

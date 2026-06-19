@@ -382,20 +382,28 @@ function reemitHelloIfAuthenticated(
   }).pipe(Effect.withSpan("connect.reemitHelloIfAuthenticated"));
 }
 
+/**
+ * Shared Connect preamble for both principal paths: gate the protocol range,
+ * then re-emit `HelloOk` for an already-authenticated arm (idempotent re-auth).
+ * Returns the live connection plus `Some(helloOk)` when the caller short-
+ * circuits, `None` when it should run its principal-specific auth.
+ */
+function connectPreamble(params: ConnectParams) {
+  return Effect.gen(function* () {
+    yield* checkConnectProtocol(params);
+    const presenceService = yield* PresenceServiceTag;
+    const conn = yield* ConnectionTag;
+    const reemitted = yield* reemitHelloIfAuthenticated(conn, presenceService);
+    return { conn, reemitted };
+  });
+}
+
 function handleAgentConnect(params: AgentConnectParams) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
-      yield* checkConnectProtocol(params);
-
-      const presenceService = yield* PresenceServiceTag;
-      const conn = yield* ConnectionTag;
-
-      const existingHello = yield* reemitHelloIfAuthenticated(
-        conn,
-        presenceService,
-      );
-      if (Option.isSome(existingHello)) {
-        return existingHello.value;
+      const { conn, reemitted } = yield* connectPreamble(params);
+      if (Option.isSome(reemitted)) {
+        return reemitted.value;
       }
 
       return yield* completeAgentConnect(params.agentKey, conn.connId);
@@ -406,17 +414,9 @@ function handleAgentConnect(params: AgentConnectParams) {
 function handleAppConnect(params: AppConnectParams) {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
-      yield* checkConnectProtocol(params);
-
-      const presenceService = yield* PresenceServiceTag;
-      const conn = yield* ConnectionTag;
-
-      const existingHello = yield* reemitHelloIfAuthenticated(
-        conn,
-        presenceService,
-      );
-      if (Option.isSome(existingHello)) {
-        return existingHello.value;
+      const { conn, reemitted } = yield* connectPreamble(params);
+      if (Option.isSome(reemitted)) {
+        return reemitted.value;
       }
 
       const connections = yield* ConnectionManagerTag;

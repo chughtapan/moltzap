@@ -160,13 +160,14 @@ function conversationListBody(
       );
     const items: ConversationListItem[] = [];
     for (const summary of conversations) {
-      const conversation = yield* conversationService.loadById(summary.id);
-      const participants = yield* conversationService
-        .getParticipantAgentIds(summary.id)
-        .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
-      const linkedTaskId = yield* conversationService.taskIdForConversation(
-        summary.id,
-      );
+      // The three per-conversation reads are independent; run them together.
+      const { conversation, participants, linkedTaskId } = yield* Effect.all({
+        conversation: conversationService.loadById(summary.id),
+        participants: conversationService
+          .getParticipantAgentIds(summary.id)
+          .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[])),
+        linkedTaskId: conversationService.taskIdForConversation(summary.id),
+      });
       items.push({
         taskId: linkedTaskId,
         conversation,

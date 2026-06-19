@@ -250,6 +250,17 @@ _Variable_
 export const DEFAULT_GRACEFUL_CLOSE: CloseInfo =
 ```
 
+### [`DispatchAuthorizeRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/reverse-callbacks.ts#L14)
+
+_TypeAlias_
+
+```ts
+export type DispatchAuthorizeRequest = Extract<
+  ReverseCallbackRequest,
+  { readonly definition: typeof DispatchAuthorize }
+>;
+```
+
 ### [`extractCloseInfo`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/close-info.ts#L79)
 
 _Function_
@@ -276,6 +287,47 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
 
 Per-definition app-callback handler slot. `Ctx` is the per-frame context the
 client hands every handler.
+
+### [`isDispatchAuthorizeRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/reverse-callbacks.ts#L27)
+
+_Function_
+
+```ts
+export const isDispatchAuthorizeRequest = (
+  request: ReverseCallbackRequest,
+): request is DispatchAuthorizeRequest
+```
+
+### [`isMessagesAuthorizeRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/reverse-callbacks.ts#L32)
+
+_Function_
+
+```ts
+export const isMessagesAuthorizeRequest = (
+  request: ReverseCallbackRequest,
+): request is MessagesAuthorizeRequest
+```
+
+### [`isTaskCreateRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/reverse-callbacks.ts#L37)
+
+_Function_
+
+```ts
+export const isTaskCreateRequest = (
+  request: ReverseCallbackRequest,
+): request is TaskCreateRequest
+```
+
+### [`MessagesAuthorizeRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/reverse-callbacks.ts#L18)
+
+_TypeAlias_
+
+```ts
+export type MessagesAuthorizeRequest = Extract<
+  ReverseCallbackRequest,
+  { readonly definition: typeof MessagesAuthorize }
+>;
+```
 
 ### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/agent-client.ts#L48)
 
@@ -357,7 +409,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapServer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L321)
+### [`MoltZapServer`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L300)
 
 _Class_
 
@@ -472,7 +524,7 @@ export class MoltZapServer<
 }
 ```
 
-### [`MoltZapServerOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L63)
+### [`MoltZapServerOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L68)
 
 _Interface_
 
@@ -500,7 +552,7 @@ export interface MoltZapServerOptions<
 }
 ```
 
-### [`MoltZapServerSession`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L49)
+### [`MoltZapServerSession`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L54)
 
 _Interface_
 
@@ -677,7 +729,7 @@ export class ProtocolClientLifecycle<
     });
 ```
 
-### [`ReverseCallbackError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L151)
+### [`ReverseCallbackError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L156)
 
 _TypeAlias_
 
@@ -698,7 +750,7 @@ export type ReverseCallbackHandlers = {
 };
 ```
 
-### [`ReverseCallbackPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L147)
+### [`ReverseCallbackPayload`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L152)
 
 _TypeAlias_
 
@@ -706,7 +758,7 @@ _TypeAlias_
 export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L153)
+### [`ReverseCallbackRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L158)
 
 _TypeAlias_
 
@@ -718,7 +770,7 @@ export type ReverseCallbackRequest =
     }
 ```
 
-### [`ReverseCallbackSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L149)
+### [`ReverseCallbackSuccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L154)
 
 _TypeAlias_
 
@@ -726,7 +778,7 @@ _TypeAlias_
 export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L143)
+### [`ReverseCallbackTag`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L148)
 
 _TypeAlias_
 
@@ -737,7 +789,7 @@ export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
 >;
 ```
 
-### [`ReverseCallError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L139)
+### [`ReverseCallError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L144)
 
 _TypeAlias_
 
@@ -747,7 +799,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 type ReverseRpcs = RpcGroup.Rpcs<typeof ReverseRpcGroup>;
 ```
 
-### [`ReverseClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L225)
+### [`ReverseClient`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L204)
 
 _Interface_
 
@@ -792,7 +844,7 @@ export interface RpcCallOptions {
 }
 ```
 
-### [`ServerSocketWrite`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L45)
+### [`ServerSocketWrite`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/server.ts#L50)
 
 _TypeAlias_
 
@@ -800,6 +852,17 @@ _TypeAlias_
 export type ServerSocketWrite = (
   raw: string,
 ) => Effect.Effect<void, Socket.SocketError>;
+```
+
+### [`TaskCreateRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/reverse-callbacks.ts#L22)
+
+_TypeAlias_
+
+```ts
+export type TaskCreateRequest = Extract<
+  ReverseCallbackRequest,
+  { readonly definition: typeof TaskCreate }
+>;
 ```
 
 ## Files
@@ -810,4 +873,5 @@ export type ServerSocketWrite = (
 - `close-info.ts`
 - `connection.ts`
 - `lifecycle.ts`
+- `reverse-callbacks.ts`
 - `server.ts`

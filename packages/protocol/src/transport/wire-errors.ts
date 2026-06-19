@@ -15,7 +15,7 @@ import { Schema } from "effect";
  * decodes against, so a method's `Schema.Union(...errors)` picks the exact class
  * by `_tag` with no lookup and no global registry. There is no numeric code.
  */
-const errorPayloadFields = {
+export const errorPayloadFields = {
   message: Schema.optional(Schema.String),
   data: Schema.optional(Schema.Unknown),
 } as const;

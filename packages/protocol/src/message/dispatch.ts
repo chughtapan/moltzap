@@ -6,7 +6,7 @@ import { ActiveAgent } from "#identity/requirements";
 import { messagePartsSchema } from "./parts.js";
 import { TaskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
-import { ForbiddenError } from "#transport";
+import { ForbiddenError, errorPayloadFields } from "#transport";
 import { dateTimeStringSchema, formatString, stringEnum } from "#transport";
 
 export type LeaseId = string & Brand.Brand<"LeaseId">;
@@ -26,11 +26,6 @@ export const DispatchId: Schema.Schema<DispatchId, string> = formatString(
   Schema.brand("DispatchId"),
   Schema.annotations({ description: "Branded DispatchId" }),
 );
-
-const errorPayloadFields = {
-  message: Schema.optional(Schema.String),
-  data: Schema.optional(Schema.Unknown),
-} as const;
 
 export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
   "DispatchNotFound",

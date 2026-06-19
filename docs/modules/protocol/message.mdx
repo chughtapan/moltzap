@@ -13,7 +13,7 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableDispatchRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L200)
+### [`agentCallableDispatchRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L195)
 
 _Variable_
 
@@ -21,7 +21,7 @@ _Variable_
 export const agentCallableDispatchRpcMethods = [DispatchRequest] as const
 ```
 
-### [`agentCallableMessageRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L163)
+### [`agentCallableMessageRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L158)
 
 _Variable_
 
@@ -34,7 +34,7 @@ export const agentCallableMessageRpcMethods = [
 
 Agent-callable message RPC catalog.
 
-### [`appCallableDispatchRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L202)
+### [`appCallableDispatchRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L197)
 
 _Variable_
 
@@ -66,7 +66,7 @@ export function decodeMessagePartsText(
 
 Decode persisted plaintext message parts and die on malformed persisted data.
 
-### [`DispatchAdmissionDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L65)
+### [`DispatchAdmissionDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L60)
 
 _TypeAlias_
 
@@ -76,7 +76,7 @@ export type DispatchAdmissionDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`DispatchAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L119)
+### [`DispatchAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L114)
 
 _Variable_
 
@@ -90,7 +90,7 @@ export const DispatchAuthorize = defineRpc({
 })
 ```
 
-### [`dispatchCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L204)
+### [`dispatchCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L199)
 
 _Variable_
 
@@ -98,7 +98,7 @@ _Variable_
 export const dispatchCallbackMethods = [DispatchAuthorize] as const
 ```
 
-### [`DispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L87)
+### [`DispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L82)
 
 _TypeAlias_
 
@@ -126,7 +126,7 @@ _Variable_
 export type DispatchId = string & Brand.Brand<"DispatchId">
 ```
 
-### [`DispatchLeaseConsumed`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L139)
+### [`DispatchLeaseConsumed`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L134)
 
 _Variable_
 
@@ -143,7 +143,7 @@ export const DispatchLeaseConsumed = defineNotification({
 })
 ```
 
-### [`DispatchLeaseExpired`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L150)
+### [`DispatchLeaseExpired`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L145)
 
 _Variable_
 
@@ -159,7 +159,7 @@ export const DispatchLeaseExpired = defineNotification({
 })
 ```
 
-### [`DispatchLeaseGet`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L192)
+### [`DispatchLeaseGet`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L187)
 
 _Variable_
 
@@ -173,7 +173,7 @@ export const DispatchLeaseGet = defineRpc({
 })
 ```
 
-### [`DispatchNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L35)
+### [`DispatchNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L30)
 
 _Class_
 
@@ -186,7 +186,7 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
 }
 ```
 
-### [`dispatchNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L206)
+### [`dispatchNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L201)
 
 _Variable_
 
@@ -198,7 +198,7 @@ export const dispatchNotifications = [
 ] as const
 ```
 
-### [`DispatchRelease`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L127)
+### [`DispatchRelease`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L122)
 
 _Variable_
 
@@ -216,7 +216,7 @@ export const DispatchRelease = defineNotification({
 })
 ```
 
-### [`DispatchRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L86)
+### [`DispatchRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/dispatch.ts#L81)
 
 _Variable_
 
@@ -259,7 +259,7 @@ _Variable_
 export type LeaseId = string & Brand.Brand<"LeaseId">
 ```
 
-### [`Message`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L61)
+### [`Message`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L56)
 
 _TypeAlias_
 
@@ -269,7 +269,7 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L204)
+### [`messageCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L199)
 
 _Variable_
 
@@ -279,7 +279,7 @@ export const messageCallbackMethods = [MessagesAuthorize] as const
 
 Message callback RPC catalog.
 
-### [`MessageNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L42)
+### [`MessageNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L37)
 
 _Class_
 
@@ -294,7 +294,7 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
 
 The referenced message does not exist, such as a missing reply target.
 
-### [`messageNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L226)
+### [`messageNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L221)
 
 _Variable_
 
@@ -306,7 +306,7 @@ export const messageNotifications = [
 
 Message notification catalog.
 
-### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L212)
+### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L207)
 
 _TypeAlias_
 
@@ -318,7 +318,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L220)
+### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L215)
 
 _Variable_
 
@@ -331,7 +331,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`MessagesAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L195)
+### [`MessagesAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L190)
 
 _Variable_
 
@@ -347,7 +347,7 @@ export const MessagesAuthorize = defineRpc({
 
 Server callback asking an app for the per-message fan-out verdict.
 
-### [`MessagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L154)
+### [`MessagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L149)
 
 _Variable_
 
@@ -363,7 +363,7 @@ export const MessagesList = defineRpc({
 
 List messages in a conversation with cursor-based pagination.
 
-### [`MessagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L114)
+### [`MessagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L109)
 
 _Variable_
 
@@ -401,7 +401,7 @@ export type Part = Schema.Schema.Type<typeof PartSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L92)
+### [`validateDispatchDecision`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L87)
 
 _Variable_
 
@@ -411,7 +411,7 @@ export const validateDispatchDecision = closedGuard(DispatchDecisionSchema)
 
 Return true when a value is a closed dispatch decision.
 
-### [`validateMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L72)
+### [`validateMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L67)
 
 _Variable_
 

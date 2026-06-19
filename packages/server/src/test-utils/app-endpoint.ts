@@ -17,6 +17,11 @@ import type {
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
 } from "@moltzap/protocol/socket";
+import {
+  isDispatchAuthorizeRequest,
+  isMessagesAuthorizeRequest,
+  isTaskCreateRequest,
+} from "@moltzap/protocol/socket";
 import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import { MessagesAuthorize } from "@moltzap/protocol/message";
 import { TaskCreate } from "@moltzap/protocol/task";
@@ -48,33 +53,6 @@ type AppEndpointHandler<D extends AnyAppCallbackRpcDefinition> = (
 export type AppEndpointHandlers = {
   readonly [D in AnyAppCallbackRpcDefinition as D["name"]]: AppEndpointHandler<D>;
 };
-
-type DispatchAuthorizeRequest = Extract<
-  ReverseCallbackRequest,
-  { readonly definition: typeof DispatchAuthorize }
->;
-type MessagesAuthorizeRequest = Extract<
-  ReverseCallbackRequest,
-  { readonly definition: typeof MessagesAuthorize }
->;
-type TaskCreateRequest = Extract<
-  ReverseCallbackRequest,
-  { readonly definition: typeof TaskCreate }
->;
-
-const isDispatchAuthorizeRequest = (
-  request: ReverseCallbackRequest,
-): request is DispatchAuthorizeRequest =>
-  request.definition === DispatchAuthorize;
-
-const isMessagesAuthorizeRequest = (
-  request: ReverseCallbackRequest,
-): request is MessagesAuthorizeRequest =>
-  request.definition === MessagesAuthorize;
-
-const isTaskCreateRequest = (
-  request: ReverseCallbackRequest,
-): request is TaskCreateRequest => request.definition === TaskCreate;
 
 function defectingOp(id: ConnectionId, label: string, op: string) {
   return Effect.die(

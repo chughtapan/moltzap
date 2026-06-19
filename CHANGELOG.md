@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: post-cutover simplification + incremental-build robustness
+
+A `/simplify` quality pass over the cutover surface plus a fix for a `tsc -b`
+incremental-build footgun.
+
+- **Shared wire-error payload.** The identical `errorPayloadFields`
+  (`message?`/`data?`) schema fragment was hand-redefined in seven protocol
+  domain files; it now lives once on `transport/wire-errors.ts` and is consumed
+  through the `#transport` barrel.
+- **Reverse-callback guards deduped.** `isDispatchAuthorizeRequest` /
+  `isMessagesAuthorizeRequest` / `isTaskCreateRequest` (and their request type
+  aliases) moved into `protocol/src/socket/reverse-callbacks.ts`, shared by the
+  server socket dispatch and the test endpoint builders instead of being copied
+  in both.
+- **Connect handlers.** The duplicated protocol-gate + reemit-if-authenticated
+  preamble in `connect.handlers.ts` folds into one `connectPreamble` helper used
+  by both the agent and app paths.
+- **Conversation list latency.** `conversationListBody` now issues its three
+  independent per-conversation reads (`loadById`, `getParticipantAgentIds`,
+  `taskIdForConversation`) concurrently via `Effect.all` instead of serially.
+- **Build-info co-located with `dist`.** Every package's `tsBuildInfoFile` moves
+  into `./dist` so removing `dist` always forces a correct rebuild. Previously a
+  stale root-level `tsconfig.tsbuildinfo` made `tsc -b` skip declaration emit and
+  exit 0 with a broken `dist`, surfacing as spurious "Could not find a
+  declaration file for '@moltzap/...'" errors downstream.
+
 ### Changed: pre-stamina cleanup — dead-code deletion, naming alignment, and comment cold-reader pass
 
 A mechanical cleanup sweep across the protocol/server/client surface.

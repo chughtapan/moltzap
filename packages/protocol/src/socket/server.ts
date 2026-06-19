@@ -4,6 +4,11 @@ import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Cause, Deferred, Effect, Exit, Layer, Mailbox, Scope } from "effect";
 import { ConnectionId, newConnectionId } from "./connection.js";
 import {
+  isDispatchAuthorizeRequest,
+  isMessagesAuthorizeRequest,
+  isTaskCreateRequest,
+} from "./reverse-callbacks.js";
+import {
   ReverseRpcGroup,
   ServerInboundGroup,
   type AnyAppCallbackRpcDefinition,
@@ -168,18 +173,6 @@ type ReverseCallbackRequestSuccess =
   ReverseCallbackSuccess<ReverseCallbackRequestDefinition>;
 type ReverseCallbackRequestError =
   ReverseCallbackError<ReverseCallbackRequestDefinition>;
-type DispatchAuthorizeRequest = Extract<
-  ReverseCallbackRequest,
-  { readonly definition: typeof DispatchAuthorize }
->;
-type MessagesAuthorizeRequest = Extract<
-  ReverseCallbackRequest,
-  { readonly definition: typeof MessagesAuthorize }
->;
-type TaskCreateRequest = Extract<
-  ReverseCallbackRequest,
-  { readonly definition: typeof TaskCreate }
->;
 type ReverseTransportCall = <Tag extends ReverseTag>(
   tag: Tag,
   payload: PayloadForTag<ReverseRpcs, Tag>,
@@ -187,20 +180,6 @@ type ReverseTransportCall = <Tag extends ReverseTag>(
   SuccessForTag<ReverseRpcs, Tag>,
   ErrorForTag<ReverseRpcs, Tag> | ReverseCallError
 >;
-
-const isDispatchAuthorizeRequest = (
-  request: ReverseCallbackRequest,
-): request is DispatchAuthorizeRequest =>
-  request.definition === DispatchAuthorize;
-
-const isMessagesAuthorizeRequest = (
-  request: ReverseCallbackRequest,
-): request is MessagesAuthorizeRequest =>
-  request.definition === MessagesAuthorize;
-
-const isTaskCreateRequest = (
-  request: ReverseCallbackRequest,
-): request is TaskCreateRequest => request.definition === TaskCreate;
 
 const makeReverseNotify =
   (call: ReverseTransportCall): ReverseClient["notify"] =>

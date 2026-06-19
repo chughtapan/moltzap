@@ -245,6 +245,17 @@ _Variable_
 export const DEFAULT_GRACEFUL_CLOSE: CloseInfo =
 ```
 
+### [`DispatchAuthorizeRequest`](./reverse-callbacks.ts#L14)
+
+_TypeAlias_
+
+```ts
+export type DispatchAuthorizeRequest = Extract<
+  ReverseCallbackRequest,
+  { readonly definition: typeof DispatchAuthorize }
+>;
+```
+
 ### [`extractCloseInfo`](./close-info.ts#L79)
 
 _Function_
@@ -271,6 +282,47 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
 
 Per-definition app-callback handler slot. `Ctx` is the per-frame context the
 client hands every handler.
+
+### [`isDispatchAuthorizeRequest`](./reverse-callbacks.ts#L27)
+
+_Function_
+
+```ts
+export const isDispatchAuthorizeRequest = (
+  request: ReverseCallbackRequest,
+): request is DispatchAuthorizeRequest
+```
+
+### [`isMessagesAuthorizeRequest`](./reverse-callbacks.ts#L32)
+
+_Function_
+
+```ts
+export const isMessagesAuthorizeRequest = (
+  request: ReverseCallbackRequest,
+): request is MessagesAuthorizeRequest
+```
+
+### [`isTaskCreateRequest`](./reverse-callbacks.ts#L37)
+
+_Function_
+
+```ts
+export const isTaskCreateRequest = (
+  request: ReverseCallbackRequest,
+): request is TaskCreateRequest
+```
+
+### [`MessagesAuthorizeRequest`](./reverse-callbacks.ts#L18)
+
+_TypeAlias_
+
+```ts
+export type MessagesAuthorizeRequest = Extract<
+  ReverseCallbackRequest,
+  { readonly definition: typeof MessagesAuthorize }
+>;
+```
 
 ### [`MoltZapAgentClient`](./agent-client.ts#L48)
 
@@ -352,7 +404,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapServer`](./server.ts#L321)
+### [`MoltZapServer`](./server.ts#L300)
 
 _Class_
 
@@ -467,7 +519,7 @@ export class MoltZapServer<
 }
 ```
 
-### [`MoltZapServerOptions`](./server.ts#L63)
+### [`MoltZapServerOptions`](./server.ts#L68)
 
 _Interface_
 
@@ -495,7 +547,7 @@ export interface MoltZapServerOptions<
 }
 ```
 
-### [`MoltZapServerSession`](./server.ts#L49)
+### [`MoltZapServerSession`](./server.ts#L54)
 
 _Interface_
 
@@ -672,7 +724,7 @@ export class ProtocolClientLifecycle<
     });
 ```
 
-### [`ReverseCallbackError`](./server.ts#L151)
+### [`ReverseCallbackError`](./server.ts#L156)
 
 _TypeAlias_
 
@@ -693,7 +745,7 @@ export type ReverseCallbackHandlers = {
 };
 ```
 
-### [`ReverseCallbackPayload`](./server.ts#L147)
+### [`ReverseCallbackPayload`](./server.ts#L152)
 
 _TypeAlias_
 
@@ -701,7 +753,7 @@ _TypeAlias_
 export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackRequest`](./server.ts#L153)
+### [`ReverseCallbackRequest`](./server.ts#L158)
 
 _TypeAlias_
 
@@ -713,7 +765,7 @@ export type ReverseCallbackRequest =
     }
 ```
 
-### [`ReverseCallbackSuccess`](./server.ts#L149)
+### [`ReverseCallbackSuccess`](./server.ts#L154)
 
 _TypeAlias_
 
@@ -721,7 +773,7 @@ _TypeAlias_
 export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackTag`](./server.ts#L143)
+### [`ReverseCallbackTag`](./server.ts#L148)
 
 _TypeAlias_
 
@@ -732,7 +784,7 @@ export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
 >;
 ```
 
-### [`ReverseCallError`](./server.ts#L139)
+### [`ReverseCallError`](./server.ts#L144)
 
 _TypeAlias_
 
@@ -742,7 +794,7 @@ export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 type ReverseRpcs = RpcGroup.Rpcs<typeof ReverseRpcGroup>;
 ```
 
-### [`ReverseClient`](./server.ts#L225)
+### [`ReverseClient`](./server.ts#L204)
 
 _Interface_
 
@@ -787,7 +839,7 @@ export interface RpcCallOptions {
 }
 ```
 
-### [`ServerSocketWrite`](./server.ts#L45)
+### [`ServerSocketWrite`](./server.ts#L50)
 
 _TypeAlias_
 
@@ -795,6 +847,17 @@ _TypeAlias_
 export type ServerSocketWrite = (
   raw: string,
 ) => Effect.Effect<void, Socket.SocketError>;
+```
+
+### [`TaskCreateRequest`](./reverse-callbacks.ts#L22)
+
+_TypeAlias_
+
+```ts
+export type TaskCreateRequest = Extract<
+  ReverseCallbackRequest,
+  { readonly definition: typeof TaskCreate }
+>;
 ```
 
 ## Files
@@ -805,4 +868,5 @@ export type ServerSocketWrite = (
 - `close-info.ts`
 - `connection.ts`
 - `lifecycle.ts`
+- `reverse-callbacks.ts`
 - `server.ts`
