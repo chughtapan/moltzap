@@ -80,6 +80,8 @@ export {
   // Connect-handler wire error.
   AlreadyConnected,
   principalGateErrorClasses,
+  // Shared optional `message`/`data` fields every wire tagged-error carries.
+  errorPayloadFields,
 } from "./wire-errors.js";
 export type { RpcErrorPayload } from "./wire-errors.js";
 

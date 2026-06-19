@@ -8,7 +8,7 @@ Conversation-domain service barrel.
 
 ## Public surface
 
-### [`conversationCreate`](./handlers.ts#L299)
+### [`conversationCreate`](./handlers.ts#L300)
 
 _Variable_
 
@@ -18,7 +18,7 @@ export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
 )
 ```
 
-### [`conversationList`](./handlers.ts#L292)
+### [`conversationList`](./handlers.ts#L293)
 
 _Variable_
 
@@ -90,7 +90,7 @@ export class ConversationServiceTag extends Context.Tag(
 )<ConversationServiceTag, ConversationService>() {}
 ```
 
-### [`conversationUpdate`](./handlers.ts#L306)
+### [`conversationUpdate`](./handlers.ts#L307)
 
 _Variable_
 

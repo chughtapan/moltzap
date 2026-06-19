@@ -36,7 +36,7 @@ export const appCallableConversationRpcMethods = [
 
 App-callable conversation RPC catalog.
 
-### [`Conversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L131)
+### [`Conversation`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L129)
 
 _TypeAlias_
 
@@ -46,7 +46,7 @@ export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
 
 Conversation row visible on task conversation surfaces.
 
-### [`ConversationArchivedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L57)
+### [`ConversationArchivedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L55)
 
 _Class_
 
@@ -148,7 +148,7 @@ export const ConversationCreatedNotificationDefinition = defineNotification({
 
 Pushed when a task conversation is created.
 
-### [`ConversationFullError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L65)
+### [`ConversationFullError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L63)
 
 _Class_
 
@@ -163,7 +163,7 @@ export class ConversationFullError extends Schema.TaggedError<ConversationFullEr
 
 The conversation has reached its participant capacity.
 
-### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L18)
+### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L16)
 
 _TypeAlias_
 
@@ -173,7 +173,7 @@ export type ConversationId = string & Brand.Brand<"ConversationId">;
 
 Branded conversation identifier.
 
-### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L18)
+### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L16)
 
 _Variable_
 
@@ -219,7 +219,7 @@ export type ConversationListItem = Schema.Schema.Type<
 
 Conversation list item returned by `agent/conversation/list`.
 
-### [`ConversationNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L41)
+### [`ConversationNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L39)
 
 _Class_
 
@@ -250,7 +250,7 @@ export const conversationNotifications = [
 
 Conversation notification catalog.
 
-### [`ConversationParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L134)
+### [`ConversationParticipant`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L132)
 
 _TypeAlias_
 
@@ -314,7 +314,7 @@ export const ConversationParticipantsRemovedNotificationDefinition =
 
 Pushed when a participant is removed from a task conversation.
 
-### [`conversationSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L147)
+### [`conversationSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L145)
 
 _Function_
 
@@ -326,7 +326,7 @@ Return the canonical conversation schema.
 
 **Returns:** The canonical conversation schema.
 
-### [`ConversationSummary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L139)
+### [`ConversationSummary`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L137)
 
 _TypeAlias_
 
@@ -397,7 +397,7 @@ export type ConversationUpdateParams = Schema.Schema.Type<
 >;
 ```
 
-### [`MessageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L32)
+### [`MessageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L30)
 
 _TypeAlias_
 
@@ -411,7 +411,7 @@ This lives in the conversation module to keep the message module downstream:
 conversation participant state references the last-read message, and message
 rows reference their conversation.
 
-### [`MessageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L32)
+### [`MessageId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L30)
 
 _Variable_
 
@@ -419,7 +419,7 @@ _Variable_
 export type MessageId = string & Brand.Brand<"MessageId">
 ```
 
-### [`NotAParticipantError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L49)
+### [`NotAParticipantError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L47)
 
 _Class_
 
@@ -434,7 +434,7 @@ export class NotAParticipantError extends Schema.TaggedError<NotAParticipantErro
 
 The caller is not a participant in the conversation it is acting on.
 
-### [`ParticipantNotAdmittedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L76)
+### [`ParticipantNotAdmittedError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/types.ts#L74)
 
 _Class_
 

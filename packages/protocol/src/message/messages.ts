@@ -17,7 +17,7 @@ import { TaskReadAccess } from "#task/requirements";
 import { DispatchNotFoundError, LeaseId } from "#message/dispatch";
 import { HookBlockedError, TaskClosedError, TaskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
-import { ListLimitSchema } from "#transport";
+import { ListLimitSchema, errorPayloadFields } from "#transport";
 import { AgentPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { ForbiddenError } from "#transport";
@@ -32,11 +32,6 @@ export type { Part } from "./parts.js";
 
 const DateTimeString = dateTimeStringSchema();
 const MessageParts = messagePartsSchema();
-
-const errorPayloadFields = {
-  message: Schema.optional(Schema.String),
-  data: Schema.optional(Schema.Unknown),
-} as const;
 
 /** The referenced message does not exist, such as a missing reply target. */
 export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundError>()(

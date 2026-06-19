@@ -53,3 +53,9 @@ export {
 export type { CloseInfo, CloseKind } from "./close-info.js";
 
 export { ConnectionId, connectionId, newConnectionId } from "./connection.js";
+
+export {
+  isDispatchAuthorizeRequest,
+  isMessagesAuthorizeRequest,
+  isTaskCreateRequest,
+} from "./reverse-callbacks.js";

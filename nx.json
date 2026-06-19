@@ -28,8 +28,7 @@
         "^production"
       ],
       "outputs": [
-        "{projectRoot}/dist",
-        "{projectRoot}/tsconfig.tsbuildinfo"
+        "{projectRoot}/dist"
       ],
       "cache": true
     },

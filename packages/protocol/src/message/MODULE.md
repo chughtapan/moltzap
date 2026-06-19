@@ -8,7 +8,7 @@ Public message-domain barrel.
 
 ## Public surface
 
-### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L200)
+### [`agentCallableDispatchRpcMethods`](./dispatch.ts#L195)
 
 _Variable_
 
@@ -16,7 +16,7 @@ _Variable_
 export const agentCallableDispatchRpcMethods = [DispatchRequest] as const
 ```
 
-### [`agentCallableMessageRpcMethods`](./messages.ts#L163)
+### [`agentCallableMessageRpcMethods`](./messages.ts#L158)
 
 _Variable_
 
@@ -29,7 +29,7 @@ export const agentCallableMessageRpcMethods = [
 
 Agent-callable message RPC catalog.
 
-### [`appCallableDispatchRpcMethods`](./dispatch.ts#L202)
+### [`appCallableDispatchRpcMethods`](./dispatch.ts#L197)
 
 _Variable_
 
@@ -61,7 +61,7 @@ export function decodeMessagePartsText(
 
 Decode persisted plaintext message parts and die on malformed persisted data.
 
-### [`DispatchAdmissionDecision`](./dispatch.ts#L65)
+### [`DispatchAdmissionDecision`](./dispatch.ts#L60)
 
 _TypeAlias_
 
@@ -71,7 +71,7 @@ export type DispatchAdmissionDecision = Schema.Schema.Type<
 >;
 ```
 
-### [`DispatchAuthorize`](./dispatch.ts#L119)
+### [`DispatchAuthorize`](./dispatch.ts#L114)
 
 _Variable_
 
@@ -85,7 +85,7 @@ export const DispatchAuthorize = defineRpc({
 })
 ```
 
-### [`dispatchCallbackMethods`](./dispatch.ts#L204)
+### [`dispatchCallbackMethods`](./dispatch.ts#L199)
 
 _Variable_
 
@@ -93,7 +93,7 @@ _Variable_
 export const dispatchCallbackMethods = [DispatchAuthorize] as const
 ```
 
-### [`DispatchDecision`](./messages.ts#L87)
+### [`DispatchDecision`](./messages.ts#L82)
 
 _TypeAlias_
 
@@ -121,7 +121,7 @@ _Variable_
 export type DispatchId = string & Brand.Brand<"DispatchId">
 ```
 
-### [`DispatchLeaseConsumed`](./dispatch.ts#L139)
+### [`DispatchLeaseConsumed`](./dispatch.ts#L134)
 
 _Variable_
 
@@ -138,7 +138,7 @@ export const DispatchLeaseConsumed = defineNotification({
 })
 ```
 
-### [`DispatchLeaseExpired`](./dispatch.ts#L150)
+### [`DispatchLeaseExpired`](./dispatch.ts#L145)
 
 _Variable_
 
@@ -154,7 +154,7 @@ export const DispatchLeaseExpired = defineNotification({
 })
 ```
 
-### [`DispatchLeaseGet`](./dispatch.ts#L192)
+### [`DispatchLeaseGet`](./dispatch.ts#L187)
 
 _Variable_
 
@@ -168,7 +168,7 @@ export const DispatchLeaseGet = defineRpc({
 })
 ```
 
-### [`DispatchNotFoundError`](./dispatch.ts#L35)
+### [`DispatchNotFoundError`](./dispatch.ts#L30)
 
 _Class_
 
@@ -181,7 +181,7 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
 }
 ```
 
-### [`dispatchNotifications`](./dispatch.ts#L206)
+### [`dispatchNotifications`](./dispatch.ts#L201)
 
 _Variable_
 
@@ -193,7 +193,7 @@ export const dispatchNotifications = [
 ] as const
 ```
 
-### [`DispatchRelease`](./dispatch.ts#L127)
+### [`DispatchRelease`](./dispatch.ts#L122)
 
 _Variable_
 
@@ -211,7 +211,7 @@ export const DispatchRelease = defineNotification({
 })
 ```
 
-### [`DispatchRequest`](./dispatch.ts#L86)
+### [`DispatchRequest`](./dispatch.ts#L81)
 
 _Variable_
 
@@ -254,7 +254,7 @@ _Variable_
 export type LeaseId = string & Brand.Brand<"LeaseId">
 ```
 
-### [`Message`](./messages.ts#L61)
+### [`Message`](./messages.ts#L56)
 
 _TypeAlias_
 
@@ -264,7 +264,7 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](./messages.ts#L204)
+### [`messageCallbackMethods`](./messages.ts#L199)
 
 _Variable_
 
@@ -274,7 +274,7 @@ export const messageCallbackMethods = [MessagesAuthorize] as const
 
 Message callback RPC catalog.
 
-### [`MessageNotFoundError`](./messages.ts#L42)
+### [`MessageNotFoundError`](./messages.ts#L37)
 
 _Class_
 
@@ -289,7 +289,7 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
 
 The referenced message does not exist, such as a missing reply target.
 
-### [`messageNotifications`](./messages.ts#L226)
+### [`messageNotifications`](./messages.ts#L221)
 
 _Variable_
 
@@ -301,7 +301,7 @@ export const messageNotifications = [
 
 Message notification catalog.
 
-### [`MessageReceivedNotification`](./messages.ts#L212)
+### [`MessageReceivedNotification`](./messages.ts#L207)
 
 _TypeAlias_
 
@@ -313,7 +313,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L220)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L215)
 
 _Variable_
 
@@ -326,7 +326,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`MessagesAuthorize`](./messages.ts#L195)
+### [`MessagesAuthorize`](./messages.ts#L190)
 
 _Variable_
 
@@ -342,7 +342,7 @@ export const MessagesAuthorize = defineRpc({
 
 Server callback asking an app for the per-message fan-out verdict.
 
-### [`MessagesList`](./messages.ts#L154)
+### [`MessagesList`](./messages.ts#L149)
 
 _Variable_
 
@@ -358,7 +358,7 @@ export const MessagesList = defineRpc({
 
 List messages in a conversation with cursor-based pagination.
 
-### [`MessagesSend`](./messages.ts#L114)
+### [`MessagesSend`](./messages.ts#L109)
 
 _Variable_
 
@@ -396,7 +396,7 @@ export type Part = Schema.Schema.Type<typeof PartSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](./messages.ts#L92)
+### [`validateDispatchDecision`](./messages.ts#L87)
 
 _Variable_
 
@@ -406,7 +406,7 @@ export const validateDispatchDecision = closedGuard(DispatchDecisionSchema)
 
 Return true when a value is a closed dispatch decision.
 
-### [`validateMessage`](./messages.ts#L72)
+### [`validateMessage`](./messages.ts#L67)
 
 _Variable_
 

@@ -3,16 +3,14 @@
  */
 
 import { Schema, type Brand } from "effect";
-import { dateTimeStringSchema, formatString } from "#transport";
+import {
+  dateTimeStringSchema,
+  formatString,
+  errorPayloadFields,
+} from "#transport";
 import { AgentId } from "#identity/agents";
 
 const DateTimeString = dateTimeStringSchema();
-
-/** Optional supplemental wire fields every domain tagged-error carries. */
-const errorPayloadFields = {
-  message: Schema.optional(Schema.String),
-  data: Schema.optional(Schema.Unknown),
-} as const;
 
 /** Branded conversation identifier. */
 export type ConversationId = string & Brand.Brand<"ConversationId">;

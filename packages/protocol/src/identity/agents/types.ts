@@ -1,15 +1,14 @@
 import { Either, Schema } from "effect";
 
-import { dateTimeStringSchema, stringEnum } from "#transport";
+import {
+  dateTimeStringSchema,
+  stringEnum,
+  errorPayloadFields,
+} from "#transport";
 import { AgentId } from "./ids.js";
 import { UserId } from "#identity/users";
 
 const DateTimeString = dateTimeStringSchema();
-
-const errorPayloadFields = {
-  message: Schema.optional(Schema.String),
-  data: Schema.optional(Schema.Unknown),
-} as const;
 
 export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()(
   "AgentNotFound",

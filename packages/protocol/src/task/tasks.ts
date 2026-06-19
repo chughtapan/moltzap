@@ -1,5 +1,9 @@
 import { Schema } from "effect";
-import { stringEnum, dateTimeStringSchema } from "#transport";
+import {
+  stringEnum,
+  dateTimeStringSchema,
+  errorPayloadFields,
+} from "#transport";
 import { ListLimitSchema, listCursorSchema } from "#transport";
 import { AgentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
@@ -47,16 +51,6 @@ export { AppId, DEFAULT_APP_ID } from "#identity/apps";
 
 const DateTimeString = dateTimeStringSchema();
 const ConversationSchema = conversationSchema();
-
-/**
- * Optional supplemental wire fields every domain tagged-error carries: an
- * overriding `message` and a free-form `data` payload, round-tripped by the
- * engine when it encodes/decodes the error against a method's error union.
- */
-const errorPayloadFields = {
-  message: Schema.optional(Schema.String),
-  data: Schema.optional(Schema.Unknown),
-} as const;
 
 export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
   "TaskClosed",
