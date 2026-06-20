@@ -105,6 +105,24 @@ const PARSE_ERROR_REPLY = JSON.stringify({
 /** A no-op writer: the default when a caller wires no parse-error reply path. */
 const dropWrite: WireWrite = () => Effect.void;
 
+/**
+ * Encode one engine frame through `encode` and write it to the wire, demoting a
+ * socket write failure to a warning so one failed send does not fault the
+ * engine. Shared by both channel protocols' `send`.
+ */
+const sendFrame = (
+  encode: (frame: unknown) => Effect.Effect<string>,
+  write: WireWrite,
+  failureMessage: string,
+  frame: unknown,
+): Effect.Effect<void> =>
+  encode(frame).pipe(
+    Effect.flatMap(write),
+    Effect.catchAll((err) =>
+      Effect.logWarning(failureMessage).pipe(Effect.annotateLogs({ err })),
+    ),
+  );
+
 /** Log + write the `-32700` parse-error frame through the resolved writer. */
 const replyMalformed =
   (reply: WireWrite) =>
@@ -288,14 +306,7 @@ export function makeServerChannelProtocol(options: {
       impl: {
         disconnects: options.disconnects,
         send: (_clientId, response) =>
-          encode(response).pipe(
-            Effect.flatMap(options.write),
-            Effect.catchAll((err) =>
-              Effect.logWarning("mux: server send failed").pipe(
-                Effect.annotateLogs({ err }),
-              ),
-            ),
-          ),
+          sendFrame(encode, options.write, "mux: server send failed", response),
         end: () => Effect.void,
         clientIds: Effect.succeed(new Set([MUX_CLIENT_ID])),
         initialMessage: Effect.succeedNone,
@@ -337,14 +348,7 @@ export function makeClientChannelProtocol(options: {
     Effect.succeed({
       impl: {
         send: (request) =>
-          encode(request).pipe(
-            Effect.flatMap(options.write),
-            Effect.catchAll((err) =>
-              Effect.logWarning("mux: client send failed").pipe(
-                Effect.annotateLogs({ err }),
-              ),
-            ),
-          ),
+          sendFrame(encode, options.write, "mux: client send failed", request),
         // Acks off — see {@link makeServerChannelProtocol}: the peer's `Ack`
         // is a method-bearing frame the family split would misroute, and unary
         // RPCs never need it.

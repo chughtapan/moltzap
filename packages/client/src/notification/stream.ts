@@ -116,7 +116,7 @@ export function subscribeAll(
   if (refinement === undefined) {
     return notificationSubscribeAll(registry);
   }
-  return notificationSubscribeAll(registry, (delivery) => {
-    return refinement(delivery.definition, delivery.params);
-  });
+  return notificationSubscribeAll(registry, (delivery) =>
+    refinement(delivery.definition, delivery.params),
+  );
 }

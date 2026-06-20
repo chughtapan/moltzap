@@ -1,17 +1,7 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
 import type { Process, Signal } from "@effect/platform/CommandExecutor";
-import {
-  Data,
-  Effect,
-  Exit,
-  Fiber,
-  Option,
-  Redacted,
-  Scope,
-  Stream,
-  pipe,
-} from "effect";
+import { Data, Effect, Exit, Fiber, Option, Scope, Stream, pipe } from "effect";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
@@ -31,6 +21,7 @@ import {
   installChannelPlugin as installSharedChannelPlugin,
   resolveChannelDependency,
   seedWorkspaceFiles as seedSharedWorkspaceFiles,
+  serializeMoltZapProfileConfig,
 } from "./channel-plugin-install.js";
 import { resolveWorkspaceOpenClawBin } from "./package-resolution.js";
 
@@ -531,19 +522,7 @@ function writeOpenClawConfig(opts: {
       ),
       fileSystem.writeFileString(
         path.join(opts.stateDir, ".moltzap", "config.json"),
-        JSON.stringify(
-          {
-            profiles: {
-              [opts.agentName]: {
-                agentId: opts.agentId,
-                apiKey: Redacted.value(opts.apiKey),
-                agentName: opts.agentName,
-              },
-            },
-          },
-          null,
-          JSON_INDENT_SPACES,
-        ),
+        serializeMoltZapProfileConfig(opts),
       ),
     ]);
   });

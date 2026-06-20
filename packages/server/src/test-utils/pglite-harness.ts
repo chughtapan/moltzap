@@ -13,8 +13,7 @@
  */
 import { Data, Effect } from "effect";
 import { KyselyPGlite } from "kysely-pglite";
-import { makeEffectKysely, type EffectKysely } from "#db";
-import type { Database } from "#db";
+import { makeEffectKysely, type Database, type EffectKysely } from "#db";
 import {
   loadCoreSchemaSql,
   type CoreSchemaSqlLoadError,

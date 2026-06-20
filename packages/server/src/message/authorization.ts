@@ -25,6 +25,12 @@ export interface MessageAuthorizationConversations {
   ): Effect.Effect<readonly AgentId[]>;
 }
 
+/** Fail-closed verdict when the owning app cannot be reached. */
+const APP_UNREACHABLE_BLOCK: MessageAuthorizeResult = {
+  decision: "Block",
+  reason: "app_unreachable",
+};
+
 export class MessageAuthorizationService {
   constructor(
     private readonly apps: AppEndpointRegistry,
@@ -37,10 +43,7 @@ export class MessageAuthorizationService {
   ): Effect.Effect<MessageAuthorizeResult, never> {
     const entry = this.apps.lookupApp(appId);
     if (entry === undefined) {
-      return Effect.succeed({
-        decision: "Block",
-        reason: "app_unreachable",
-      });
+      return Effect.succeed(APP_UNREACHABLE_BLOCK);
     }
 
     const policy = entry.manifest.hooks.message_authorize;
@@ -90,14 +93,8 @@ export class MessageAuthorizationService {
       timeoutLogContext: { taskId, appId, timeoutMs },
       errorLogMessage: "app/message/authorize error",
       errorLogContext: { taskId, appId },
-      onTimeout: () => ({
-        decision: "Block",
-        reason: "app_unreachable",
-      }),
-      onError: () => ({
-        decision: "Block",
-        reason: "app_unreachable",
-      }),
+      onTimeout: () => APP_UNREACHABLE_BLOCK,
+      onError: () => APP_UNREACHABLE_BLOCK,
     });
   }
 

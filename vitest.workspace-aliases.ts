@@ -12,294 +12,144 @@ function fromRoot(...segments: string[]): string {
   return path.join(repoRoot, ...segments);
 }
 
+function alias(specifier: string, ...segments: string[]): WorkspaceSourceAlias {
+  return {
+    find: new RegExp(`^${specifier}$`),
+    replacement: fromRoot(...segments),
+  };
+}
+
+// Specific subpath matchers must precede each package's root matcher.
 export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
-  {
-    find: /^@moltzap\/server-core\/test-utils$/,
-    replacement: fromRoot("packages/server/src/test-utils/index.ts"),
-  },
-  // Specific subpath matchers must precede each package's root matcher.
-  {
-    find: /^@moltzap\/server-core\/identity$/,
-    replacement: fromRoot("packages/server/src/identity/index.ts"),
-  },
-  {
-    find: /^@moltzap\/server-core\/network$/,
-    replacement: fromRoot("packages/server/src/network/index.ts"),
-  },
-  {
-    find: /^@moltzap\/server-core\/task$/,
-    replacement: fromRoot("packages/server/src/task/index.ts"),
-  },
-  {
-    find: /^@moltzap\/server-core$/,
-    replacement: fromRoot("packages/server/src/index.ts"),
-  },
-  {
-    find: /^@moltzap\/client\/test-utils$/,
-    replacement: fromRoot("packages/client/src/test-utils/index.ts"),
-  },
-  {
-    find: /^@moltzap\/client\/test$/,
-    replacement: fromRoot("packages/client/src/test/index.ts"),
-  },
-  {
-    find: /^@moltzap\/client\/runtime$/,
-    replacement: fromRoot("packages/client/src/runtime/index.ts"),
-  },
-  {
-    find: /^@moltzap\/client$/,
-    replacement: fromRoot("packages/client/src/index.ts"),
-  },
-  {
-    find: /^#transport$/,
-    replacement: fromRoot("packages/protocol/src/transport/index.ts"),
-  },
-  {
-    find: /^#transport\/descriptor$/,
-    replacement: fromRoot("packages/protocol/src/transport/descriptor.ts"),
-  },
-  {
-    find: /^#rpc$/,
-    replacement: fromRoot("packages/protocol/src/rpc.ts"),
-  },
-  {
-    find: /^#identity$/,
-    replacement: fromRoot("packages/protocol/src/identity/index.ts"),
-  },
-  {
-    find: /^#identity\/agents$/,
-    replacement: fromRoot("packages/protocol/src/identity/agents/index.ts"),
-  },
-  {
-    find: /^#identity\/apps$/,
-    replacement: fromRoot("packages/protocol/src/identity/apps/index.ts"),
-  },
-  {
-    find: /^#identity\/users$/,
-    replacement: fromRoot("packages/protocol/src/identity/users/index.ts"),
-  },
-  {
-    find: /^#identity\/contacts$/,
-    replacement: fromRoot("packages/protocol/src/identity/contacts/index.ts"),
-  },
-  {
-    find: /^#identity\/contacts\/requirements$/,
-    replacement: fromRoot(
-      "packages/protocol/src/identity/contacts/requirements/index.ts",
-    ),
-  },
-  {
-    find: /^#identity\/principals$/,
-    replacement: fromRoot("packages/protocol/src/identity/principals/index.ts"),
-  },
-  {
-    find: /^#identity\/requirements$/,
-    replacement: fromRoot(
-      "packages/protocol/src/identity/requirements/index.ts",
-    ),
-  },
-  {
-    find: /^#network$/,
-    replacement: fromRoot("packages/protocol/src/network/index.ts"),
-  },
-  {
-    find: /^#task$/,
-    replacement: fromRoot("packages/protocol/src/task/index.ts"),
-  },
-  {
-    find: /^#task\/requirements$/,
-    replacement: fromRoot("packages/protocol/src/task/requirements/index.ts"),
-  },
-  {
-    find: /^#conversation$/,
-    replacement: fromRoot("packages/protocol/src/conversation/index.ts"),
-  },
-  {
-    find: /^#conversation\/requirements$/,
-    replacement: fromRoot(
-      "packages/protocol/src/conversation/requirements/index.ts",
-    ),
-  },
-  {
-    find: /^#message$/,
-    replacement: fromRoot("packages/protocol/src/message/index.ts"),
-  },
-  {
-    find: /^#message\/dispatch$/,
-    replacement: fromRoot("packages/protocol/src/message/dispatch.ts"),
-  },
-  {
-    find: /^#socket$/,
-    replacement: fromRoot("packages/protocol/src/socket/index.ts"),
-  },
-  {
-    find: /^#testing$/,
-    replacement: fromRoot("packages/protocol/src/testing/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/testing$/,
-    replacement: fromRoot("packages/protocol/src/testing/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/rpc$/,
-    replacement: fromRoot("packages/protocol/src/rpc.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/identity$/,
-    replacement: fromRoot("packages/protocol/src/identity/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/network$/,
-    replacement: fromRoot("packages/protocol/src/network/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/task$/,
-    replacement: fromRoot("packages/protocol/src/task/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/conversation$/,
-    replacement: fromRoot("packages/protocol/src/conversation/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/message$/,
-    replacement: fromRoot("packages/protocol/src/message/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/message\/dispatch$/,
-    replacement: fromRoot("packages/protocol/src/message/dispatch.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol\/socket$/,
-    replacement: fromRoot("packages/protocol/src/socket/index.ts"),
-  },
-  {
-    find: /^@moltzap\/protocol$/,
-    replacement: fromRoot("packages/protocol/src/index.ts"),
-  },
-  {
-    find: /^@moltzap\/openclaw-channel$/,
-    replacement: fromRoot("packages/openclaw-channel/src/openclaw-entry.ts"),
-  },
+  alias(
+    "@moltzap/server-core/test-utils",
+    "packages/server/src/test-utils/index.ts",
+  ),
+  alias(
+    "@moltzap/server-core/identity",
+    "packages/server/src/identity/index.ts",
+  ),
+  alias("@moltzap/server-core/network", "packages/server/src/network/index.ts"),
+  alias("@moltzap/server-core/task", "packages/server/src/task/index.ts"),
+  alias("@moltzap/server-core", "packages/server/src/index.ts"),
+  alias(
+    "@moltzap/client/test-utils",
+    "packages/client/src/test-utils/index.ts",
+  ),
+  alias("@moltzap/client/test", "packages/client/src/test/index.ts"),
+  alias("@moltzap/client/runtime", "packages/client/src/runtime/index.ts"),
+  alias("@moltzap/client", "packages/client/src/index.ts"),
+  alias("#transport", "packages/protocol/src/transport/index.ts"),
+  alias(
+    "#transport/descriptor",
+    "packages/protocol/src/transport/descriptor.ts",
+  ),
+  alias("#rpc", "packages/protocol/src/rpc.ts"),
+  alias("#identity", "packages/protocol/src/identity/index.ts"),
+  alias("#identity/agents", "packages/protocol/src/identity/agents/index.ts"),
+  alias("#identity/apps", "packages/protocol/src/identity/apps/index.ts"),
+  alias("#identity/users", "packages/protocol/src/identity/users/index.ts"),
+  alias(
+    "#identity/contacts",
+    "packages/protocol/src/identity/contacts/index.ts",
+  ),
+  alias(
+    "#identity/contacts/requirements",
+    "packages/protocol/src/identity/contacts/requirements/index.ts",
+  ),
+  alias(
+    "#identity/principals",
+    "packages/protocol/src/identity/principals/index.ts",
+  ),
+  alias(
+    "#identity/requirements",
+    "packages/protocol/src/identity/requirements/index.ts",
+  ),
+  alias("#network", "packages/protocol/src/network/index.ts"),
+  alias("#task", "packages/protocol/src/task/index.ts"),
+  alias(
+    "#task/requirements",
+    "packages/protocol/src/task/requirements/index.ts",
+  ),
+  alias("#conversation", "packages/protocol/src/conversation/index.ts"),
+  alias(
+    "#conversation/requirements",
+    "packages/protocol/src/conversation/requirements/index.ts",
+  ),
+  alias("#message", "packages/protocol/src/message/index.ts"),
+  alias("#message/dispatch", "packages/protocol/src/message/dispatch.ts"),
+  alias("#socket", "packages/protocol/src/socket/index.ts"),
+  alias("#testing", "packages/protocol/src/testing/index.ts"),
+  alias("@moltzap/protocol/testing", "packages/protocol/src/testing/index.ts"),
+  alias("@moltzap/protocol/rpc", "packages/protocol/src/rpc.ts"),
+  alias(
+    "@moltzap/protocol/identity",
+    "packages/protocol/src/identity/index.ts",
+  ),
+  alias("@moltzap/protocol/network", "packages/protocol/src/network/index.ts"),
+  alias("@moltzap/protocol/task", "packages/protocol/src/task/index.ts"),
+  alias(
+    "@moltzap/protocol/conversation",
+    "packages/protocol/src/conversation/index.ts",
+  ),
+  alias("@moltzap/protocol/message", "packages/protocol/src/message/index.ts"),
+  alias(
+    "@moltzap/protocol/message/dispatch",
+    "packages/protocol/src/message/dispatch.ts",
+  ),
+  alias("@moltzap/protocol/socket", "packages/protocol/src/socket/index.ts"),
+  alias("@moltzap/protocol", "packages/protocol/src/index.ts"),
+  alias(
+    "@moltzap/openclaw-channel",
+    "packages/openclaw-channel/src/openclaw-entry.ts",
+  ),
 ];
 
 const protocolSourceRoot = fromRoot("packages/protocol/src");
 
 export const workspaceSourceAliasesWithoutProtocol: WorkspaceSourceAlias[] =
   workspaceSourceAliases.filter(
-    (alias) => !alias.replacement.startsWith(protocolSourceRoot),
+    (entry) => !entry.replacement.startsWith(protocolSourceRoot),
   );
 
 export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
-  {
-    find: /^#core$/,
-    replacement: fromRoot("packages/server/src/core/index.ts"),
-  },
-  {
-    find: /^#moltzap$/,
-    replacement: fromRoot("packages/server/src/moltzap/index.ts"),
-  },
-  {
-    find: /^#moltzap\/runtime$/,
-    replacement: fromRoot("packages/server/src/moltzap/runtime.ts"),
-  },
-  {
-    find: /^#socket$/,
-    replacement: fromRoot("packages/server/src/socket/index.ts"),
-  },
-  {
-    find: /^#http$/,
-    replacement: fromRoot("packages/server/src/http/index.ts"),
-  },
-  {
-    find: /^#config$/,
-    replacement: fromRoot("packages/server/src/config.ts"),
-  },
-  {
-    find: /^#config\/secrets$/,
-    replacement: fromRoot("packages/server/src/config/secrets.ts"),
-  },
-  {
-    find: /^#db$/,
-    replacement: fromRoot("packages/server/src/db/barrel.ts"),
-  },
-  {
-    find: /^#db\/crypto$/,
-    replacement: fromRoot("packages/server/src/db/crypto/barrel.ts"),
-  },
-  {
-    find: /^#identity\/agents$/,
-    replacement: fromRoot("packages/server/src/identity/agents/index.ts"),
-  },
-  {
-    find: /^#identity\/apps$/,
-    replacement: fromRoot("packages/server/src/identity/apps/index.ts"),
-  },
-  {
-    find: /^#identity\/credential-keys$/,
-    replacement: fromRoot("packages/server/src/identity/credential-keys.ts"),
-  },
-  {
-    find: /^#identity\/contacts$/,
-    replacement: fromRoot("packages/server/src/identity/contacts/index.ts"),
-  },
-  {
-    find: /^#identity\/contacts\/requirements$/,
-    replacement: fromRoot(
-      "packages/server/src/identity/contacts/requirements/index.ts",
-    ),
-  },
-  {
-    find: /^#network$/,
-    replacement: fromRoot("packages/server/src/network/index.ts"),
-  },
-  {
-    find: /^#network\/presence$/,
-    replacement: fromRoot("packages/server/src/network/presence/index.ts"),
-  },
-  {
-    find: /^#task$/,
-    replacement: fromRoot("packages/server/src/task/index.ts"),
-  },
-  {
-    find: /^#task\/handlers$/,
-    replacement: fromRoot("packages/server/src/task/handlers.ts"),
-  },
-  {
-    find: /^#task\/requirements$/,
-    replacement: fromRoot("packages/server/src/task/requirements/index.ts"),
-  },
-  {
-    find: /^#conversation$/,
-    replacement: fromRoot("packages/server/src/conversation/index.ts"),
-  },
-  {
-    find: /^#conversation\/handlers$/,
-    replacement: fromRoot("packages/server/src/conversation/handlers.ts"),
-  },
-  {
-    find: /^#conversation\/requirements$/,
-    replacement: fromRoot(
-      "packages/server/src/conversation/requirements/index.ts",
-    ),
-  },
-  {
-    find: /^#message$/,
-    replacement: fromRoot("packages/server/src/message/index.ts"),
-  },
-  {
-    find: /^#message\/handlers$/,
-    replacement: fromRoot("packages/server/src/message/handlers.ts"),
-  },
-  {
-    find: /^#dispatch$/,
-    replacement: fromRoot("packages/server/src/dispatch/index.ts"),
-  },
-  {
-    find: /^#dispatch\/handlers$/,
-    replacement: fromRoot("packages/server/src/dispatch/handlers.ts"),
-  },
-  {
-    find: /^#test-utils$/,
-    replacement: fromRoot("packages/server/src/test-utils/index.ts"),
-  },
+  alias("#core", "packages/server/src/core/index.ts"),
+  alias("#moltzap", "packages/server/src/moltzap/index.ts"),
+  alias("#moltzap/runtime", "packages/server/src/moltzap/runtime.ts"),
+  alias("#socket", "packages/server/src/socket/index.ts"),
+  alias("#http", "packages/server/src/http/index.ts"),
+  alias("#config", "packages/server/src/config.ts"),
+  alias("#config/secrets", "packages/server/src/config/secrets.ts"),
+  alias("#db", "packages/server/src/db/barrel.ts"),
+  alias("#db/crypto", "packages/server/src/db/crypto/barrel.ts"),
+  alias("#identity/agents", "packages/server/src/identity/agents/index.ts"),
+  alias("#identity/apps", "packages/server/src/identity/apps/index.ts"),
+  alias(
+    "#identity/credential-keys",
+    "packages/server/src/identity/credential-keys.ts",
+  ),
+  alias("#identity/contacts", "packages/server/src/identity/contacts/index.ts"),
+  alias(
+    "#identity/contacts/requirements",
+    "packages/server/src/identity/contacts/requirements/index.ts",
+  ),
+  alias("#network", "packages/server/src/network/index.ts"),
+  alias("#network/presence", "packages/server/src/network/presence/index.ts"),
+  alias("#task", "packages/server/src/task/index.ts"),
+  alias("#task/handlers", "packages/server/src/task/handlers.ts"),
+  alias("#task/requirements", "packages/server/src/task/requirements/index.ts"),
+  alias("#conversation", "packages/server/src/conversation/index.ts"),
+  alias(
+    "#conversation/handlers",
+    "packages/server/src/conversation/handlers.ts",
+  ),
+  alias(
+    "#conversation/requirements",
+    "packages/server/src/conversation/requirements/index.ts",
+  ),
+  alias("#message", "packages/server/src/message/index.ts"),
+  alias("#message/handlers", "packages/server/src/message/handlers.ts"),
+  alias("#dispatch", "packages/server/src/dispatch/index.ts"),
+  alias("#dispatch/handlers", "packages/server/src/dispatch/handlers.ts"),
+  alias("#test-utils", "packages/server/src/test-utils/index.ts"),
 ];

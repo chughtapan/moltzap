@@ -1,5 +1,5 @@
-import { Effect, Either, Schema } from "effect";
-import { formatString } from "#transport";
+import { Effect, Schema } from "effect";
+import { closedStructGuard, formatString } from "#transport";
 
 const TextPartSchema = Schema.Struct({
   type: Schema.Literal("text"),
@@ -70,13 +70,5 @@ export function decodeMessagePartsText(
   }).pipe(Effect.orDie);
 }
 
-const closedGuard =
-  <A, I>(schema: Schema.Schema<A, I>) =>
-  (value: unknown): value is A =>
-    Either.match(
-      Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" }),
-      { onLeft: () => false, onRight: () => true },
-    );
-
 /** Return true when the value is a closed text part. */
-export const validateTextPart = closedGuard(TextPartSchema);
+export const validateTextPart = closedStructGuard(TextPartSchema);

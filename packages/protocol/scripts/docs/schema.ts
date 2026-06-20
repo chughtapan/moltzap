@@ -14,10 +14,10 @@ type RpcDefinitionField = readonly [
 ];
 
 // Duck-type predicate for an RPC descriptor in the module namespace. Keyed on
-// the runtime descriptor field set (post-#723: `paramsSchema`/`resultSchema`
-// are Effect `Schema` values, `validateParams`/`validateResult` strict decode
-// guards). Dropping `validateParams`/`validateResult` from the descriptor
-// would zero the docs silently, so they stay in the predicate.
+// the runtime descriptor field set: `paramsSchema`/`resultSchema` are Effect
+// `Schema` values, `validateParams`/`validateResult` strict decode guards.
+// Dropping `validateParams`/`validateResult` from the descriptor would zero the
+// docs silently, so they stay in the predicate.
 const RPC_DEFINITION_FIELDS: readonly RpcDefinitionField[] = [
   ["name", isString],
   ["paramsSchema", isSchema],
@@ -91,12 +91,11 @@ function methodSortKey(method: string): string {
 
 // ── Schema Introspection ─────────────────────────────────────────────────
 //
-// Post-#723 the source is `JSONSchema.make(schema)` (draft-07), NOT the live
-// TypeBox AST. The draft-07 shape contract is preserved, so the readers below
-// branch on `.type` / `.anyOf` / `.const` / `.enum` / `.format` rather than a
-// `TypeBox.Kind` symbol. `Schema.Int` would hoist a `$defs`/`$ref`, but the
-// wire schemas use the inline `Schema.Number.pipe(Schema.int(), …)` form
-// (renders inline `{"type":"integer"}`), so no `$ref` dereference is needed.
+// The source is `JSONSchema.make(schema)` (draft-07), so the readers below
+// branch on `.type` / `.anyOf` / `.const` / `.enum` / `.format`. The wire
+// schemas use the inline `Schema.Number.pipe(Schema.int(), …)` form (renders
+// inline `{"type":"integer"}`) rather than `Schema.Int` (which would hoist a
+// `$defs`/`$ref`), so no `$ref` dereference is needed.
 
 function getStringTypeName(node: JsonSchemaNode): string {
   if (node.format === "uuid") return "string (UUID)";
@@ -119,8 +118,8 @@ function getTypeName(node: JsonSchemaNode): string {
   if (type === "null") return "null";
   if (type === "object") {
     // A `Schema.Record` renders `{ type: "object", additionalProperties: V }`
-    // with no `properties`; a struct renders with `properties`. Mirror the
-    // former walker's "object" / "object (map)" split.
+    // with no `properties`; a struct renders with `properties`. Split those as
+    // "object (map)" / "object".
     return node.properties === undefined ? "object (map)" : "object";
   }
   return typeof type === "string" ? type : "unknown";

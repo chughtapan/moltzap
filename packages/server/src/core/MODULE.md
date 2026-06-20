@@ -98,7 +98,7 @@ export interface CoreApp {
 }
 ```
 
-### [`createCoreApp`](./app.ts#L123)
+### [`createCoreApp`](./app.ts#L133)
 
 _Function_
 

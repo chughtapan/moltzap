@@ -8,7 +8,7 @@ Agent identity descriptors, schemas, and credentials.
 
 ## Public surface
 
-### [`Agent`](./types.ts#L51)
+### [`Agent`](./types.ts#L52)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](./types.ts#L52)
+### [`AgentCard`](./types.ts#L53)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ _TypeAlias_
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentCardSchema`](./types.ts#L44)
+### [`AgentCardSchema`](./types.ts#L45)
 
 _Variable_
 
@@ -64,7 +64,7 @@ _Variable_
 export type AgentKey = Redacted.Redacted<AgentKeyValue>
 ```
 
-### [`AgentNotFoundError`](./types.ts#L13)
+### [`AgentNotFoundError`](./types.ts#L14)
 
 _Class_
 
@@ -77,7 +77,7 @@ export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()
 }
 ```
 
-### [`agentOwnershipSchema`](./types.ts#L65)
+### [`agentOwnershipSchema`](./types.ts#L58)
 
 _Function_
 
@@ -85,7 +85,7 @@ _Function_
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema
 ```
 
-### [`AgentsList`](./agents.ts#L10)
+### [`AgentsList`](./agents.ts#L13)
 
 _Variable_
 
@@ -144,20 +144,20 @@ export const Register = defineRpc({
 })
 ```
 
-### [`validateAgent`](./types.ts#L62)
+### [`validateAgent`](./types.ts#L55)
 
 _Variable_
 
 ```ts
-export const validateAgent = closedGuard(AgentSchema)
+export const validateAgent = closedStructGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](./types.ts#L63)
+### [`validateAgentCard`](./types.ts#L56)
 
 _Variable_
 
 ```ts
-export const validateAgentCard = closedGuard(AgentCardSchema)
+export const validateAgentCard = closedStructGuard(AgentCardSchema)
 ```
 
 ## Files

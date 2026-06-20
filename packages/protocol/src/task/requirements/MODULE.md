@@ -12,7 +12,7 @@ against server-side services live in `@moltzap/server-core`.
 
 ## Public surface
 
-### [`assertAppOwnsTask`](./assert-requirement-matches-task.ts#L52)
+### [`assertAppOwnsTask`](./assert-requirement-matches-task.ts#L37)
 
 _Function_
 
@@ -31,7 +31,7 @@ system, so the equality check compares the branded `appId` argument to
 the row value directly. Fails with `ForbiddenError` (wire -32001) when
 the app does not own the task.
 
-### [`assertTaskReadAccessMatchesTask`](./assert-requirement-matches-task.ts#L35)
+### [`assertTaskReadAccessMatchesTask`](./assert-requirement-matches-task.ts#L14)
 
 _Function_
 
@@ -42,8 +42,10 @@ export const assertTaskReadAccessMatchesTask = (
 ): Effect.Effect<void, ForbiddenError>
 ```
 
-Verifies `requirement.task.id === expectedTaskId` for `TaskReadAccess`. A
-separate overload keeps the type narrowed at the call site.
+Verifies `requirement.task.id === expectedTaskId` for `TaskReadAccess`.
+One-line guard at the start of every service method that consumes the
+requirement plus a separate `taskId` handler-input — catches the "handler
+obtained requirement for task A but passed task B" bug for one comparison.
 
 ### [`TaskReadAccess`](./task-read-access.ts#L22)
 

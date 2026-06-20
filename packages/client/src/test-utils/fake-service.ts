@@ -13,8 +13,7 @@
  * every test that uses the fake.
  */
 
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   AgentCallableGroup,
   type AnyAgentCallableRpcDefinition,

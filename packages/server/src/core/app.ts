@@ -71,6 +71,16 @@ const logAndSwallowCause =
       Effect.asVoid,
     );
 
+/** Run a best-effort cleanup promise, logging and swallowing any failure. */
+const runCleanupStep = (
+  run: () => PromiseLike<unknown>,
+  label: string,
+): Effect.Effect<void> =>
+  Effect.tryPromise({
+    try: run,
+    catch: (cause) => new ServerCloseError({ cause }),
+  }).pipe(logAndSwallowCause(label));
+
 function resolveSpanProcessor(
   configured: SpanProcessor | undefined,
 ): SpanProcessor | null {
@@ -254,21 +264,15 @@ function closeCoreAppEffect(options: CoreAppApiOptions) {
     // shared defect-safe envelope so a failing finalizer never propagates out
     // of `close()`. `catchAllCause` also covers a sync throw inside the
     // promise-resolution path that a bare `catchAll` would miss.
-    yield* Effect.tryPromise({
-      try: () => options.dispatchRuntime.dispose(),
-      catch: (cause) => new ServerCloseError({ cause }),
-    }).pipe(
-      logAndSwallowCause(
-        "CoreApp.close: dispatchRuntime.dispose failed (continuing)",
-      ),
+    yield* runCleanupStep(
+      () => options.dispatchRuntime.dispose(),
+      "CoreApp.close: dispatchRuntime.dispose failed (continuing)",
     );
     const dbCleanup = options.config.dbCleanup;
     if (dbCleanup !== undefined) {
-      yield* Effect.tryPromise({
-        try: () => dbCleanup(),
-        catch: (cause) => new ServerCloseError({ cause }),
-      }).pipe(
-        logAndSwallowCause("CoreApp.close: dbCleanup failed (continuing)"),
+      yield* runCleanupStep(
+        dbCleanup,
+        "CoreApp.close: dbCleanup failed (continuing)",
       );
     }
   }).pipe(Effect.withSpan("CoreApp.close"));

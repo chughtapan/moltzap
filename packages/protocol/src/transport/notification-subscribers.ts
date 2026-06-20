@@ -133,15 +133,27 @@ function safePredicate<P>(
   }
 }
 
+/**
+ * Run one subscriber callback, demoting any defect it throws to a warning so a
+ * single misbehaving subscriber cannot tear down the dispatch loop.
+ */
+function guardCallback(
+  run: () => Effect.Effect<void>,
+  logMessage: string,
+): Effect.Effect<void> {
+  return Effect.suspend(run).pipe(
+    Effect.catchAllDefect((err) => Effect.logWarning(logMessage, err)),
+  );
+}
+
 function dispatchToSubscriber<CloseError>(
   sub: LiveSubscription<CloseError>,
   delivery: NotificationDelivery,
   logPrefix: string,
 ): Effect.Effect<void> {
-  return Effect.suspend(() => sub.onFrame(delivery)).pipe(
-    Effect.catchAllDefect((err) =>
-      Effect.logWarning(`${logPrefix} onFrame callback threw`, err),
-    ),
+  return guardCallback(
+    () => sub.onFrame(delivery),
+    `${logPrefix} onFrame callback threw`,
   );
 }
 
@@ -153,13 +165,9 @@ function dispatchToBroadSubscriber<
   delivery: DeliveryOf<Definitions>,
   logPrefix: string,
 ): Effect.Effect<void> {
-  return Effect.suspend(() => sub.onFrame(delivery)).pipe(
-    Effect.catchAllDefect((err) =>
-      Effect.logWarning(
-        `${logPrefix} subscribeAll onFrame callback threw`,
-        err,
-      ),
-    ),
+  return guardCallback(
+    () => sub.onFrame(delivery),
+    `${logPrefix} subscribeAll onFrame callback threw`,
   );
 }
 
@@ -173,18 +181,10 @@ function closeSubscriber<
   cause: CloseError,
   logPrefix: string,
 ): Effect.Effect<void> {
-  return Effect.suspend(() => sub.onClose(cause)).pipe(
-    Effect.catchAllDefect((err) =>
-      Effect.logWarning(`${logPrefix} onClose callback threw`, err),
-    ),
+  return guardCallback(
+    () => sub.onClose(cause),
+    `${logPrefix} onClose callback threw`,
   );
-}
-
-function subAcceptsDelivery<CloseError>(
-  sub: LiveSubscription<CloseError>,
-  delivery: NotificationDelivery,
-): boolean {
-  return sub.accepts(delivery);
 }
 
 function broadAcceptsDelivery<
@@ -282,7 +282,7 @@ function dispatchDelivery<
     const snapshot = yield* Ref.get(state.subsRef);
     const broadSnapshot = yield* Ref.get(state.subsAllRef);
     for (const sub of snapshot) {
-      if (subAcceptsDelivery(sub, delivery)) {
+      if (sub.accepts(delivery)) {
         yield* dispatchToSubscriber(sub, delivery, state.logPrefix);
       }
     }
@@ -313,26 +313,6 @@ function closeSubscriptions<
   });
 }
 
-function makeRegister<
-  CloseError,
-  Definitions extends AnyNotificationDescriptor,
->(
-  state: NotificationSubscriberRegistryState<CloseError, Definitions>,
-): NotificationSubscriberRegistry<CloseError, Definitions>["register"] {
-  return (definition, refinement, callbacks) =>
-    registerSubscription(state, definition, refinement, callbacks);
-}
-
-function makeRegisterAll<
-  CloseError,
-  Definitions extends AnyNotificationDescriptor,
->(
-  state: NotificationSubscriberRegistryState<CloseError, Definitions>,
-): NotificationSubscriberRegistry<CloseError, Definitions>["registerAll"] {
-  return (refinement, callbacks) =>
-    registerBroadSubscription(state, refinement, callbacks);
-}
-
 export function makeNotificationSubscriberRegistry<
   CloseError,
   Definitions extends AnyNotificationDescriptor = AnyNotificationDescriptor,
@@ -360,13 +340,16 @@ export function makeNotificationSubscriberRegistry<
         closeCause: options.closeCause,
       };
 
-    return {
-      register: makeRegister(state),
-      registerAll: makeRegisterAll(state),
+    const registry: NotificationSubscriberRegistry<CloseError, Definitions> = {
+      register: (definition, refinement, callbacks) =>
+        registerSubscription(state, definition, refinement, callbacks),
+      registerAll: (refinement, callbacks) =>
+        registerBroadSubscription(state, refinement, callbacks),
       dispatch: (delivery: DeliveryOf<Definitions>) =>
         dispatchDelivery(state, delivery),
       closeAll: closeSubscriptions(state),
     };
+    return registry;
   }).pipe(
     Effect.withSpan(options.spanName ?? "makeNotificationSubscriberRegistry"),
   );

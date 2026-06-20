@@ -16,7 +16,7 @@
  */
 
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
-import { drainPaginatedList, type SendRpcFn } from "@moltzap/client/pagination";
+import { drainPaginatedList } from "@moltzap/client/pagination";
 import {
   LeaseAlreadyConsumed,
   LeaseGuard,
@@ -35,10 +35,12 @@ import {
   type OpenClawContextLogInput,
 } from "./context-log.js";
 import { AgentsList } from "@moltzap/protocol/identity";
-import { ConversationList } from "@moltzap/protocol/conversation";
-import type { AnyAgentCallableRpcDefinition } from "@moltzap/protocol/socket/catalog";
+import {
+  ConversationId,
+  ConversationList,
+  MessageId,
+} from "@moltzap/protocol/conversation";
 import type { ResultOf } from "@moltzap/protocol/rpc";
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import { TaskClosedError, TaskId } from "@moltzap/protocol/task";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 
@@ -613,20 +615,6 @@ function getActiveService(
     : { accountId: first[0], service: first[1] };
 }
 
-/**
- * Bridge an agent service's descriptor-based `callDefinition` to the
- * `SendRpcFn` the pagination drainer speaks. The descriptor union is the
- * authored agent-callable catalog, so list RPCs stay typed from descriptor
- * through result.
- */
-function callAsSendRpc<
-  Definition extends AnyAgentCallableRpcDefinition,
->(service: {
-  readonly callDefinition: MoltZapService["callDefinition"];
-}): SendRpcFn<ServiceRpcError, Definition> {
-  return (definition, params) => service.callDefinition(definition, params);
-}
-
 function listPeersEffect(
   activeClients: Map<string, OpenClawClientService>,
   params: OpenClawDirectoryParams,
@@ -637,14 +625,9 @@ function listPeersEffect(
     // `service.callDefinition` is a prototype method reading `this.client` inside
     // `Effect.suspend`; passed as a bare reference its receiver is stripped,
     // so the suspend thunk dies with a `this`-undefined TypeError that
-    // `catchAll` (a failure-channel handler) cannot absorb. Bind once so both
-    // drain consumers keep the service receiver.
-    const boundCallDefinition = active.service.callDefinition.bind(
-      active.service,
-    );
-    const sendRpc = callAsSendRpc<typeof AgentsList>({
-      callDefinition: boundCallDefinition,
-    });
+    // `catchAll` (a failure-channel handler) cannot absorb. Bind so the drain
+    // consumer keeps the service receiver.
+    const sendRpc = active.service.callDefinition.bind(active.service);
     // Drain ALL visible-agent pages so every peer in the directory resolves.
     const agents = yield* drainPaginatedList<
       ServiceRpcError,

@@ -8,7 +8,7 @@ HTTP server construction barrel.
 
 ## Public surface
 
-### [`makeCoreHttpApp`](./routes.ts#L86)
+### [`makeCoreHttpApp`](./routes.ts#L84)
 
 _Function_
 

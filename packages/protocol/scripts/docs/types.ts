@@ -5,10 +5,9 @@ export const JSON_INDENT = 2;
 
 /**
  * Draft-07 JSON-Schema node shape, as emitted by Effect's `JSONSchema.make`.
- * The docs walker reads this projection of a wire `Schema` (post-#723: the
- * source moved from the TypeBox AST to `JSONSchema.make` output, but the
+ * The docs walker reads this projection of a wire `Schema`, branching on the
  * draft-07 shape contract — `type` / `properties` / `required` / `anyOf` /
- * `format` / `enum` / `const` — is preserved).
+ * `format` / `enum` / `const`.
  */
 export interface JsonSchemaNode {
   readonly anyOf?: readonly JsonSchemaNode[];

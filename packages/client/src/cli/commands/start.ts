@@ -10,6 +10,8 @@ import {
   type StartTaskCommandResult,
 } from "../../local-daemon-rpc.js";
 import { command, type Transport, type TransportError } from "../transport.js";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 
 const EXIT_CODES = {
   SUCCESS: 0,
@@ -34,10 +36,14 @@ type StartCommandParsed = {
   readonly appId: Option.Option<AppIdV4>;
 };
 
-const startMessage = (result: StartTaskCommandResult): string =>
-  result.reusedConversation
-    ? `Task started: ${result.taskId} (reusing existing conversation: ${result.conversationId})`
-    : `Task started: ${result.taskId} (conversation: ${result.conversationId})`;
+const startMessage = (outcome: {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly reusedConversation: boolean;
+}): string =>
+  outcome.reusedConversation
+    ? `Task started: ${outcome.taskId} (reusing existing conversation: ${outcome.conversationId})`
+    : `Task started: ${outcome.taskId} (conversation: ${outcome.conversationId})`;
 
 const logStartResult = (result: StartTaskCommandResult): Effect.Effect<void> =>
   Effect.zipRight(
@@ -73,11 +79,7 @@ const runStartCommand = (
     ),
     Effect.catchTag("StartTaskPartialFailure", (err: StartTaskPartialFailure) =>
       Effect.zipRight(
-        Effect.log(
-          err.reusedConversation
-            ? `Task started: ${err.taskId} (reusing existing conversation: ${err.conversationId})`
-            : `Task started: ${err.taskId} (conversation: ${err.conversationId})`,
-        ),
+        Effect.log(startMessage(err)),
         Effect.logError(`Error sending message: ${err.message}`).pipe(
           Effect.zipRight(
             Effect.sync(() => process.exit(EXIT_CODES.PARTIAL_SUCCESS)),

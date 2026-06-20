@@ -1,5 +1,4 @@
-import { Data } from "effect";
-import type { Effect } from "effect";
+import { Data, type Effect } from "effect";
 import type { MoltZapService, ServiceRpcError } from "@moltzap/client";
 import { LeaseAlreadyConsumed } from "@moltzap/client/channel-base";
 

@@ -188,7 +188,7 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-### [`CONVERSATION_FAMILY_PROPERTIES`](./conversation-family.ts#L479)
+### [`CONVERSATION_FAMILY_PROPERTIES`](./conversation-family.ts#L453)
 
 _Variable_
 
@@ -423,7 +423,7 @@ _Function_
 export function registerArchiveLifecycle(ctx: ConformanceRunContext): void
 ```
 
-### [`registerConversationCreateAndList`](./conversation-family.ts#L433)
+### [`registerConversationCreateAndList`](./conversation-family.ts#L407)
 
 _Function_
 
@@ -485,7 +485,7 @@ _Function_
 export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskCreate`](./conversation-family.ts#L125)
+### [`registerTaskCreate`](./conversation-family.ts#L127)
 
 _Function_
 
@@ -493,7 +493,7 @@ _Function_
 export function registerTaskCreate(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskLeave`](./conversation-family.ts#L338)
+### [`registerTaskLeave`](./conversation-family.ts#L327)
 
 _Function_
 
@@ -501,7 +501,7 @@ _Function_
 export function registerTaskLeave(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskRequestReject`](./conversation-family.ts#L263)
+### [`registerTaskRequestReject`](./conversation-family.ts#L265)
 
 _Function_
 

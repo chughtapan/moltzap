@@ -46,26 +46,19 @@ function dispatchRequestBody(
 // moderator-bound and the calling connection MUST match that binding. Otherwise
 // typed `ForbiddenError`.
 function dispatchLeaseGetBody(params: ParamsOf<typeof DispatchLeaseGet>) {
+  const notAuthorized = new ForbiddenError({
+    message: "app/dispatch/lease/get not authorized for this lease",
+  });
   return Effect.gen(function* () {
     const connection = yield* ConnectionTag;
     const registry = yield* LeaseRegistryTag;
     const record = yield* registry
       .read({ _tag: "dispatchId", value: params.dispatchId })
       .pipe(
-        Effect.catchTag("LeaseNotFoundError", () =>
-          Effect.fail(
-            new ForbiddenError({
-              message: "app/dispatch/lease/get not authorized for this lease",
-            }),
-          ),
-        ),
+        Effect.catchTag("LeaseNotFoundError", () => Effect.fail(notAuthorized)),
       );
     if (record.binding.moderatorConnectionId !== connection.connId) {
-      return yield* Effect.fail(
-        new ForbiddenError({
-          message: "app/dispatch/lease/get not authorized for this lease",
-        }),
-      );
+      return yield* Effect.fail(notAuthorized);
     }
     return { lease: leaseRecordToWire(record) };
   }).pipe(Effect.withSpan("dispatch.lease.get"));

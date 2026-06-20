@@ -25,6 +25,7 @@ import {
   AppPrincipal,
   ContactPolicyAllowsReach,
   AuthenticatedPrincipal,
+  type PrincipalRequirement,
 } from "@moltzap/protocol/identity";
 import {
   ConversationInTask,
@@ -63,59 +64,43 @@ type ConnectionManagerService = Parameters<typeof peekLiveArm>[0];
 
 // ── Principal requirements ───────────────────────────────────────────────────
 
+/**
+ * Build a principal requirement impl Layer: peek the live arm and narrow it to
+ * `narrowAs` (with `requireActiveAgent` for the `ActiveAgent` arm). The layer
+ * provides nothing — it gates only, failing `Forbidden` on the wrong arm.
+ */
 const principalLayer = <Mw extends RpcMiddleware.TagClassAny>(
   mw: Mw,
   connId: ConnectionId,
-  check: (manager: ConnectionManagerService) => Effect.Effect<void, unknown>,
+  narrowAs: PrincipalRequirement,
+  requireActiveAgent: boolean,
 ): Layer.Layer<Context.Tag.Identifier<Mw>, never, ConnectionManagerTag> =>
   Layer.effect(
     mw,
     Effect.gen(function* () {
       const manager = yield* ConnectionManagerTag;
       return () =>
-        check(manager).pipe(Effect.withSpan(`requirement.${mw.key}`));
+        peekLiveArm(manager, connId).pipe(
+          Effect.flatMap((connection) =>
+            narrowByPolicy(narrowAs, requireActiveAgent, connection),
+          ),
+          Effect.asVoid,
+          Effect.withSpan(`requirement.${mw.key}`),
+        );
     }),
   );
 
 const makeAgentPrincipalLayer = (connId: ConnectionId) =>
-  principalLayer(AgentPrincipal, connId, (manager) =>
-    peekLiveArm(manager, connId).pipe(
-      Effect.flatMap((connection) =>
-        narrowByPolicy(AgentPrincipal, false, connection),
-      ),
-      Effect.asVoid,
-    ),
-  );
+  principalLayer(AgentPrincipal, connId, AgentPrincipal, false);
 
 const makeAppPrincipalLayer = (connId: ConnectionId) =>
-  principalLayer(AppPrincipal, connId, (manager) =>
-    peekLiveArm(manager, connId).pipe(
-      Effect.flatMap((connection) =>
-        narrowByPolicy(AppPrincipal, false, connection),
-      ),
-      Effect.asVoid,
-    ),
-  );
+  principalLayer(AppPrincipal, connId, AppPrincipal, false);
 
 const makeAuthenticatedPrincipalLayer = (connId: ConnectionId) =>
-  principalLayer(AuthenticatedPrincipal, connId, (manager) =>
-    peekLiveArm(manager, connId).pipe(
-      Effect.flatMap((connection) =>
-        narrowByPolicy(AuthenticatedPrincipal, false, connection),
-      ),
-      Effect.asVoid,
-    ),
-  );
+  principalLayer(AuthenticatedPrincipal, connId, AuthenticatedPrincipal, false);
 
 const makeActiveAgentLayer = (connId: ConnectionId) =>
-  principalLayer(ActiveAgent, connId, (manager) =>
-    peekLiveArm(manager, connId).pipe(
-      Effect.flatMap((connection) =>
-        narrowByPolicy(AgentPrincipal, true, connection),
-      ),
-      Effect.asVoid,
-    ),
-  );
+  principalLayer(ActiveAgent, connId, AgentPrincipal, true);
 
 // ── Domain requirements ──────────────────────────────────────────────────────
 

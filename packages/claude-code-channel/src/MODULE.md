@@ -10,7 +10,7 @@ Only names listed here are part of the public surface.
 
 ## Public surface
 
-### [`AllowlistError`](./errors.ts#L51)
+### [`AllowlistError`](./errors.ts#L50)
 
 _TypeAlias_
 
@@ -71,7 +71,7 @@ tool.
 - `McpTransportFailed` — MCP server init or stdio connect rejects (step 6)
 - `ServiceRpcError` — WS connect / auth rejects (step 8)
 
-### [`BootError`](./errors.ts#L23)
+### [`BootError`](./errors.ts#L22)
 
 _TypeAlias_
 
@@ -234,7 +234,7 @@ Branded conversation id — corresponds to MoltZap's `conversationId` on the
 wire, rendered to Claude Code as the contract-meta key `chat_id`. The brand
 prevents accidental confusion with `MessageId` at call sites.
 
-### [`EventShapeError`](./errors.ts#L83)
+### [`EventShapeError`](./errors.ts#L82)
 
 _TypeAlias_
 
@@ -365,7 +365,7 @@ export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
 Branded message id — corresponds to MoltZap's `id`, rendered as
 contract-meta `message_id`.
 
-### [`PushError`](./errors.ts#L37)
+### [`PushError`](./errors.ts#L36)
 
 _TypeAlias_
 
@@ -378,7 +378,7 @@ class SenderNotAllowed extends Data.TaggedError("SenderNotAllowed")<{
 }> {}
 ```
 
-### [`ReplyError`](./errors.ts#L69)
+### [`ReplyError`](./errors.ts#L68)
 
 _TypeAlias_
 

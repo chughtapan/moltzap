@@ -18,17 +18,24 @@ import {
 import { DEFAULT_TEST_ADMIN_USER_ID, getCoreDb, getWsUrl } from "./server.js";
 import { AuthService } from "#identity/agents";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import {
+  DEFAULT_APP_ID,
+  TaskRequest,
+  type AppId,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { UserId } from "@moltzap/protocol/identity";
-import type { AppManifest } from "@moltzap/protocol/identity";
+import type {
+  AgentId,
+  AgentKey,
+  AppKey,
+  AppManifest,
+  UserId,
+} from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { AppId, TaskId } from "@moltzap/protocol/task";
 
 /** Default ceiling for `awaitOneNotification`. */
 const DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS = 5_000;

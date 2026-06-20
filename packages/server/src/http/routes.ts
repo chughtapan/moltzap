@@ -6,11 +6,11 @@ import {
 } from "@effect/platform";
 import * as Socket from "@effect/platform/Socket";
 import { Cause, Data, Effect, Either, Exit, Redacted, Schema } from "effect";
-import type { AgentKey } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import { Register } from "@moltzap/protocol/identity";
 import {
+  Register,
   validateAppManifest,
+  type AgentKey,
   type AppManifest,
 } from "@moltzap/protocol/identity";
 
@@ -28,8 +28,6 @@ const HTTP_INTERNAL_SERVER_ERROR = 500;
 
 const ERROR_INVALID_JSON = "Invalid JSON";
 const ERROR_INVALID_PARAMETERS = "Invalid parameters";
-
-const INVALID_JSON_BODY = Symbol("InvalidJsonBody");
 
 type RegisterParams = ParamsOf<typeof Register>;
 
@@ -88,21 +86,15 @@ export function makeCoreHttpApp(options: CoreHttpAppOptions) {
   const registerRoute = makeRegisterRoute(options);
   const appsRegisterRoute = makeAppsRegisterRoute(options);
   const wsRoute = makeWsRoute(options.handleSocket);
-  if (options.config.skipDefaultRegisterRoute) {
-    return withCors(
-      HttpRouter.empty.pipe(healthRoute, wsRoute),
-      options.config.corsOrigins,
-    );
-  }
-  return withCors(
-    HttpRouter.empty.pipe(
-      healthRoute,
-      registerRoute,
-      appsRegisterRoute,
-      wsRoute,
-    ),
-    options.config.corsOrigins,
-  );
+  const router = options.config.skipDefaultRegisterRoute
+    ? HttpRouter.empty.pipe(healthRoute, wsRoute)
+    : HttpRouter.empty.pipe(
+        healthRoute,
+        registerRoute,
+        appsRegisterRoute,
+        wsRoute,
+      );
+  return withCors(router, options.config.corsOrigins);
 }
 
 function makeHealthRoute(connections: ResolvedServices["connections"]) {
@@ -235,14 +227,7 @@ function readJsonRecord(
   request: HttpServerRequest.HttpServerRequest,
 ): Effect.Effect<Record<string, unknown>, HttpEarlyResponse> {
   return Effect.gen(function* () {
-    const body = yield* request.json.pipe(
-      Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
-    );
-    if (body === INVALID_JSON_BODY) {
-      return yield* failResponse<Record<string, unknown>>(
-        invalidJsonResponse(),
-      );
-    }
+    const body = yield* readJsonBody(request);
     if (!isStringKeyedRecord(body)) {
       return yield* failResponse<Record<string, unknown>>(
         invalidParametersResponse(),

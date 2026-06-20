@@ -6,37 +6,22 @@ import type { AppId } from "#identity/apps";
 import type { TaskReadAccessValue } from "./task-read-access.js";
 
 /**
- * Runtime equality check: the requirement's carried `taskId` matches
- * the caller-passed `expectedTaskId`. One-line guard at the start of
- * every service method that consumes a requirement + a separate `taskId`
- * handler-input — catches the "handler obtained requirement for task A
- * but passed task B" bug at a token cost (one comparison).
- *
- * Variants below mirror each requirement's carried-ID shape.
- */
-
-const ERR_REQUIREMENT_TASK_MISMATCH = "requirement/task mismatch";
-const assertTaskIdMatches = (
-  requirementTaskId: TaskId,
-  expectedTaskId: TaskId,
-): Effect.Effect<void, ForbiddenError> => {
-  if (requirementTaskId !== expectedTaskId) {
-    return Effect.fail(
-      new ForbiddenError({ message: ERR_REQUIREMENT_TASK_MISMATCH }),
-    );
-  }
-  return Effect.void;
-};
-
-/**
- * Verifies `requirement.task.id === expectedTaskId` for `TaskReadAccess`. A
- * separate overload keeps the type narrowed at the call site.
+ * Verifies `requirement.task.id === expectedTaskId` for `TaskReadAccess`.
+ * One-line guard at the start of every service method that consumes the
+ * requirement plus a separate `taskId` handler-input — catches the "handler
+ * obtained requirement for task A but passed task B" bug for one comparison.
  */
 export const assertTaskReadAccessMatchesTask = (
   requirement: TaskReadAccessValue,
   expectedTaskId: TaskId,
-): Effect.Effect<void, ForbiddenError> =>
-  assertTaskIdMatches(requirement.task.id, expectedTaskId);
+): Effect.Effect<void, ForbiddenError> => {
+  if (requirement.task.id !== expectedTaskId) {
+    return Effect.fail(
+      new ForbiddenError({ message: "requirement/task mismatch" }),
+    );
+  }
+  return Effect.void;
+};
 
 const ERR_NOT_TASK_APP = "Caller is not the app that owns this task";
 

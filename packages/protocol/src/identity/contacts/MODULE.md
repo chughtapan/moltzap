@@ -8,14 +8,14 @@ Contact identity descriptors, RPC descriptors, and notifications.
 
 ## Public surface
 
-### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L96)
+### [`ContactAcceptedNotificationDefinition`](./contacts.ts#L86)
 
 _Variable_
 
 ```ts
 export const ContactAcceptedNotificationDefinition = defineNotification({
   name: "agent/identity/contact-accepted",
-  params: ContactAcceptedNotificationSchema,
+  params: Schema.Struct({ contact: ContactSchema }),
 })
 ```
 
@@ -35,7 +35,7 @@ _Variable_
 export type ContactId = string & Brand.Brand<"ContactId">
 ```
 
-### [`ContactNotFoundError`](./contacts.ts#L26)
+### [`ContactNotFoundError`](./contacts.ts#L24)
 
 _Class_
 
@@ -48,18 +48,18 @@ export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundErro
 }
 ```
 
-### [`ContactRequestNotificationDefinition`](./contacts.ts#L91)
+### [`ContactRequestNotificationDefinition`](./contacts.ts#L81)
 
 _Variable_
 
 ```ts
 export const ContactRequestNotificationDefinition = defineNotification({
   name: "agent/identity/contact-requested",
-  params: ContactRequestNotificationSchema,
+  params: Schema.Struct({ contact: ContactSchema }),
 })
 ```
 
-### [`ContactsAccept`](./contacts.ts#L75)
+### [`ContactsAccept`](./contacts.ts#L73)
 
 _Variable_
 
@@ -73,7 +73,7 @@ export const ContactsAccept = defineRpc({
 })
 ```
 
-### [`ContactsAdd`](./contacts.ts#L64)
+### [`ContactsAdd`](./contacts.ts#L62)
 
 _Variable_
 
@@ -82,7 +82,7 @@ export const ContactsAdd = defineRpc({
   name: "agent/identity/contacts/add",
   params: Schema.Struct({
     contactUserId: UserId,
-    relationship: Schema.optional(Schema.String),
+    relationship: Schema.optional(RelationshipType),
   }),
   result: Schema.Struct({ contact: ContactSchema }),
   requires: [AgentPrincipal],
@@ -90,7 +90,7 @@ export const ContactsAdd = defineRpc({
 })
 ```
 
-### [`ContactsList`](./contacts.ts#L50)
+### [`ContactsList`](./contacts.ts#L48)
 
 _Variable_
 
@@ -110,7 +110,7 @@ export const ContactsList = defineRpc({
 })
 ```
 
-### [`NotInContactsError`](./contacts.ts#L19)
+### [`NotInContactsError`](./contacts.ts#L17)
 
 _Class_
 

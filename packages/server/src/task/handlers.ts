@@ -289,9 +289,8 @@ type TaskUpdateRemoveParticipantParams = Extract<
   { action: "remove-participant" }
 >;
 
-function taskCloseBody(params: TaskUpdateCloseParams, ctx: AppContext) {
+function taskCloseBody(params: TaskUpdateCloseParams) {
   return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
     const taskService = yield* TaskServiceTag;
     const closed = yield* taskService.closeWithLifecycle(params.taskId);
     for (const conversation of closed.archivedConversations) {
@@ -315,12 +314,8 @@ function taskCloseBody(params: TaskUpdateCloseParams, ctx: AppContext) {
   }).pipe(Effect.withSpan("task.close"));
 }
 
-function taskAddParticipantBody(
-  params: TaskUpdateAddParticipantParams,
-  ctx: AppContext,
-) {
+function taskAddParticipantBody(params: TaskUpdateAddParticipantParams) {
   return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
     const taskService = yield* TaskServiceTag;
     const participant = yield* taskService.addParticipant(
       params.taskId,
@@ -330,12 +325,8 @@ function taskAddParticipantBody(
   }).pipe(Effect.withSpan("task.addParticipant"));
 }
 
-function taskRemoveParticipantBody(
-  params: TaskUpdateRemoveParticipantParams,
-  ctx: AppContext,
-) {
+function taskRemoveParticipantBody(params: TaskUpdateRemoveParticipantParams) {
   return Effect.gen(function* () {
-    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
     const taskService = yield* TaskServiceTag;
     yield* taskService.removeParticipant(params.taskId, params.agentId);
     return { action: "participant-removed" as const };
@@ -343,14 +334,17 @@ function taskRemoveParticipantBody(
 }
 
 function taskUpdateBody(params: TaskUpdateParams, ctx: AppContext) {
-  switch (params.action) {
-    case "close":
-      return taskCloseBody(params, ctx);
-    case "add-participant":
-      return taskAddParticipantBody(params, ctx);
-    case "remove-participant":
-      return taskRemoveParticipantBody(params, ctx);
-  }
+  return Effect.gen(function* () {
+    yield* assertCallerAppOwnsTask(ctx.appId, params.taskId);
+    switch (params.action) {
+      case "close":
+        return yield* taskCloseBody(params);
+      case "add-participant":
+        return yield* taskAddParticipantBody(params);
+      case "remove-participant":
+        return yield* taskRemoveParticipantBody(params);
+    }
+  });
 }
 
 export const taskList: ServerHandler<typeof TaskList> = (params) =>
