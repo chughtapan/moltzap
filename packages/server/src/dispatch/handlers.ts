@@ -8,11 +8,8 @@ import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { Effect } from "effect";
 import { ConnectionTag } from "#socket";
-import {
-  DispatchAdmissionServiceTag,
-  LeaseRegistryTag,
-  leaseRecordToWire,
-} from "#dispatch";
+import { DispatchAdmissionServiceTag, LeaseRegistryTag } from "./layer.js";
+import { leaseRecordToWire } from "./lease-registry.js";
 import { agentArm } from "#moltzap/runtime";
 
 // `agent/dispatch/request` — returns ack immediately, forks the moderator round-trip,

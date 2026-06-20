@@ -6,5 +6,5 @@ export {
   LeaseRegistryLive,
   LeaseRegistryTag,
 } from "./layer.js";
-export { LeaseInvalidError, leaseRecordToWire } from "./lease-registry.js";
+export { LeaseInvalidError } from "./lease-registry.js";
 export type { LeaseRegistry, LeaseRegistryDeps } from "./lease-registry.js";

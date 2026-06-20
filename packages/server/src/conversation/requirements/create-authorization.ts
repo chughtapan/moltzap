@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { ConversationServiceTag } from "#conversation";
+import { ConversationServiceTag } from "../layer.js";
 import { catchSqlErrorAsDefect } from "#db";
 import type {
   AgentNotFoundError,

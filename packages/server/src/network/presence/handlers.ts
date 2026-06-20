@@ -9,7 +9,7 @@ import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
 import { DbTag } from "#db";
-import { PresenceServiceTag } from "#network/presence";
+import { PresenceServiceTag } from "./layer.js";
 import { visibleAgentIds } from "#identity/agents";
 import { agentArm, appArm } from "#moltzap/runtime";
 

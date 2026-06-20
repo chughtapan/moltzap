@@ -7,7 +7,7 @@ import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { MessageNotFoundError } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { ConversationServiceTag } from "#conversation";
+import { ConversationServiceTag } from "../layer.js";
 import { MessageServiceTag } from "#message";
 import { catchSqlErrorAsDefect } from "#db";
 
