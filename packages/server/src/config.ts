@@ -131,8 +131,8 @@ export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
 // unknown keys and requires `master_secret`, so a camelCase typo
 // (`masterSecret`) or `encryption: {}` cannot pass and silently disable
 // at-rest encryption (plaintext storage). The same decode pins the port
-// range, the webhook URI, the `timeout_ms` floor, the `log_level` enum,
-// and every `minLength` rule, and produces the typed `YamlConfig` value
+// range, the webhook URI, the `timeout_ms` floor, and every `minLength`
+// rule, and produces the typed `YamlConfig` value
 // the boot-plan build reads — one pass for both validation and shape.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -201,9 +201,6 @@ const MoltZapConfigShape = Schema.Struct({
     }),
   ),
   apps: Schema.optional(Schema.Array(AppRefShape)),
-  // `log_level` is validated here but read nowhere downstream — operators
-  // get a typo rejection, the boot plan ignores the field.
-  log_level: Schema.optional(Schema.Literal("debug", "info", "warn", "error")),
 });
 
 type YamlConfig = Schema.Schema.Type<typeof MoltZapConfigShape>;

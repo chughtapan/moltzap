@@ -55,7 +55,6 @@ const RETIRED_SEED_YAML = `database:\n  url: ${PG_URL}\nseed:\n  agents:\n    - 
 const UNKNOWN_NESTED_YAML = `server:\n  port: 3000\n  extra: nope\n`;
 const BAD_WEBHOOK_URL_YAML = `services:\n  contacts:\n    type: webhook\n    webhook_url: not-a-url\n`;
 const SMALL_TIMEOUT_YAML = `services:\n  contacts:\n    type: webhook\n    webhook_url: ${CONTACT_URL}\n    timeout_ms: 50\n`;
-const BAD_LOG_LEVEL_YAML = `log_level: verbose\n`;
 const BAD_SERVICE_TYPE_YAML = `services:\n  contacts:\n    type: grpc\n`;
 // Empty database.url must FAIL (minLength: 1) rather than be read as a
 // blank URL — main's Ajv rejected it; an empty string here is a typo, not
@@ -350,8 +349,6 @@ describe("loadStandaloneConfig validation parity", () => {
     expectValidationRejection(BAD_WEBHOOK_URL_YAML));
   it("rejects timeout_ms below the 100ms minimum", () =>
     expectValidationRejection(SMALL_TIMEOUT_YAML));
-  it("rejects an invalid log_level enum value", () =>
-    expectValidationRejection(BAD_LOG_LEVEL_YAML));
   it("rejects an unknown service type", () =>
     expectValidationRejection(BAD_SERVICE_TYPE_YAML));
   it("rejects an empty database.url string", () =>
