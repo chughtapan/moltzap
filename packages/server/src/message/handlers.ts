@@ -9,7 +9,7 @@ import { agentArm } from "#moltzap/runtime";
 import { Effect, Exit } from "effect";
 import { ConnectionTag, type AgentContext } from "#socket";
 import { LeaseRegistryTag } from "#dispatch";
-import { MessageServiceTag } from "#message";
+import { MessageServiceTag } from "./layer.js";
 import {
   guardTaskActive,
   guardConversationNotArchived,

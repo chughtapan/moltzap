@@ -42,7 +42,7 @@ import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { ConversationServiceTag } from "#conversation";
-import { TaskAuthorizationServiceTag, TaskServiceTag } from "#task";
+import { TaskAuthorizationServiceTag, TaskServiceTag } from "./layer.js";
 import { agentArm, appArm } from "#moltzap/runtime";
 import { authorizeConversationCreate } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";

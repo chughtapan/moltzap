@@ -23,7 +23,7 @@ import { DbTag } from "#db";
 import { AuthServiceTag } from "#identity/agents";
 import { AppAuthServiceTag, AppEndpointRegistryTag } from "#identity/apps";
 import { ConversationServiceTag } from "#conversation";
-import { AgentEndpointResolverTag } from "#network";
+import { AgentEndpointResolverTag } from "./layer.js";
 import { PresenceServiceTag } from "#network/presence";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentEndpointResolver } from "./agent-endpoint-resolver.js";

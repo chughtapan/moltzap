@@ -3,7 +3,7 @@ import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import { type NetworkSendService } from "./network-send.js";
-import { NetworkSendServiceTag } from "#network";
+import { NetworkSendServiceTag } from "./layer.js";
 
 type BroadcastOptions = NonNullable<
   Parameters<NetworkSendService["broadcastNotification"]>[3]

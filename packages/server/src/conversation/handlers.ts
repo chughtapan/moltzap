@@ -21,7 +21,7 @@ import type {
   ServerHandler,
 } from "@moltzap/protocol/socket/catalog";
 import type { AppContext, AgentContext } from "#socket";
-import { ConversationServiceTag } from "#conversation";
+import { ConversationServiceTag } from "./layer.js";
 import { TaskServiceTag } from "#task";
 import { agentArm, appArm } from "#moltzap/runtime";
 import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";

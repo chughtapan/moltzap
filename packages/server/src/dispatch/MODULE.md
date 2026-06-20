@@ -214,7 +214,7 @@ _TypeAlias_
 export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
 ```
 
-### [`dispatchLeaseGet`](./handlers.ts#L76)
+### [`dispatchLeaseGet`](./handlers.ts#L73)
 
 _Variable_
 
@@ -224,7 +224,7 @@ export const dispatchLeaseGet: ServerHandler<typeof DispatchLeaseGet> = (
 )
 ```
 
-### [`dispatchRequest`](./handlers.ts#L69)
+### [`dispatchRequest`](./handlers.ts#L66)
 
 _Variable_
 

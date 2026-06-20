@@ -13,7 +13,7 @@ import type { UserId } from "@moltzap/protocol/identity";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import { AuthServiceTag, type AuthService } from "#identity/agents";
 import type { AgentContext } from "#socket";
-import { ContactsServiceTag } from "#identity/contacts";
+import { ContactsServiceTag } from "./layer.js";
 import { NetworkSendServiceTag } from "#network";
 import { agentArm } from "#moltzap/runtime";
 
