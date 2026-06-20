@@ -659,8 +659,22 @@ function listGroupsEffect(
   return Effect.gen(function* () {
     const active = getActiveService(activeClients, params.accountId);
     if (!active?.service.callDefinition) return [];
-    const result = yield* active.service.callDefinition(ConversationList, {});
-    return result.items
+    // Bind so the drain consumer keeps the service receiver (see listPeersEffect).
+    const sendRpc = active.service.callDefinition.bind(active.service);
+    // Drain ALL conversation pages so named groups past the first page resolve.
+    const items = yield* drainPaginatedList<
+      ServiceRpcError,
+      typeof ConversationList,
+      ResultOf<typeof ConversationList>["items"][number],
+      NonNullable<ResultOf<typeof ConversationList>["nextCursor"]>
+    >({
+      sendRpc,
+      definition: ConversationList,
+      paramsForCursor: (cursor) => (cursor === undefined ? {} : { cursor }),
+      rowsForPage: (page) => page.items,
+      nextCursorForPage: (page) => page.nextCursor,
+    });
+    return items
       .filter((item) => isNamedGroup(item.conversation))
       .map((item) => ({
         id: `task:${item.taskId}:${item.conversation.id}`,
