@@ -145,7 +145,7 @@ interface ListRowsInput {
   readonly archived: ConversationArchiveFilter;
 }
 
-interface ListRow {
+interface ConversationListRow {
   readonly id: ConversationId;
   readonly name: string | null;
   readonly updated_at: Date;
@@ -157,10 +157,10 @@ interface ListRow {
 const queryConversationListRows = (
   db: Db,
   input: ListRowsInput,
-): Effect.Effect<ReadonlyArray<ListRow>, SqlError> =>
+): Effect.Effect<ReadonlyArray<ConversationListRow>, SqlError> =>
   rawQuery(
     db,
-    sql<ListRow>`
+    sql<ConversationListRow>`
       SELECT c.id, c.name, c.updated_at,
              m.parts_encrypted IS NOT NULL as has_last_message,
              m.created_at as last_message_at,
@@ -206,7 +206,7 @@ type MutableConversationSummary = Omit<ConversationSummary, "participants"> & {
 };
 
 const conversationSummariesFromRows = (
-  rows: ReadonlyArray<ListRow>,
+  rows: ReadonlyArray<ConversationListRow>,
   previewCache: ReadonlyMap<ConversationId, string>,
 ): MutableConversationSummary[] =>
   rows.map((row) => ({
@@ -251,7 +251,7 @@ const participantRefsByConversation = (
 
 const nextConversationListCursor = (
   hasMore: boolean,
-  rows: ReadonlyArray<ListRow>,
+  rows: ReadonlyArray<ConversationListRow>,
 ): string | undefined => {
   if (!hasMore) return undefined;
   return rows[rows.length - 1]?.updated_at.toISOString();
