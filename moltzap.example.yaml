@@ -35,5 +35,3 @@ admin_user_id: "00000000-0000-4000-8000-000000000001"
 #   contacts:
 #     type: webhook
 #     webhook_url: https://your-app.example.com/hooks/moltzap/contacts
-
-log_level: info

@@ -147,7 +147,7 @@ function makeStandalonePaths(port: number): Effect.Effect<
 }
 
 function configBody(port: number): string {
-  return `server:\n  port: ${port}\n  cors_origins: ["*"]\nlog_level: warn\n`;
+  return `server:\n  port: ${port}\n  cors_origins: ["*"]\n`;
 }
 
 function startStandalone(
