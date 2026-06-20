@@ -7,7 +7,7 @@
  * ChannelPlugin shape expected by OpenClaw's api.registerChannel().
  *
  * Installed via: openclaw plugin install `@moltzap/openclaw-channel`
- * Config:        channels.moltzap.accounts[].{apiKey, serverUrl, agentName}
+ * Config:        channels.moltzap.accounts[].{id, agentName}
  *
  * OpenClaw's plugin interface imposes Promise-based contracts at the boundary
  * (`startAccount`, `sendText`, `deliver`, `listPeers`, `listGroups`, etc.) —
@@ -15,47 +15,35 @@
  * `Effect.runPromise` tax at the plugin surface.
  */
 
-import {
-  MoltZapChannelCore,
-  MoltZapService,
-  drainPaginatedList,
-  type ChannelService,
-  type CrossConvMessage,
-  type EnrichedInboundMessage,
-  type ServiceRpcError,
-} from "@moltzap/client";
+import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
+import { drainPaginatedList } from "@moltzap/client/pagination";
 import {
   LeaseAlreadyConsumed,
   LeaseGuard,
+  MoltZapChannelCore,
   catchLeaseInvalid,
   formatCrossConv,
   getGroupFields,
+  type ChannelService,
+  type CrossConvMessage,
+  type EnrichedInboundMessage,
   type GroupFields,
 } from "@moltzap/client/channel-base";
-import { Config, ConfigProvider, Data, Effect, Option } from "effect";
+import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
 import {
   writeOpenClawContextLog,
   type OpenClawContextLogInput,
 } from "./context-log.js";
-import {
-  AgentsLookup,
-  ContactsList,
-  TaskConversationList,
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
-} from "@moltzap/protocol";
+import { AgentsList } from "@moltzap/protocol/identity";
 import {
   ConversationId,
+  ConversationList,
   MessageId,
-  TaskClosedError,
-  TaskId,
-  type LeaseId,
-} from "@moltzap/protocol/task";
-import { Value } from "@sinclair/typebox/value";
-import { RpcServerError } from "@moltzap/protocol/transport";
+} from "@moltzap/protocol/conversation";
+import type { ResultOf } from "@moltzap/protocol/rpc";
+import { TaskClosedError, TaskId } from "@moltzap/protocol/task";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 
-const DEFAULT_ACCOUNT_ID = "default";
 const CHANNEL_ID = "moltzap" as const;
 const TARGET_PREFIX_AGENT = "agent:";
 const TARGET_PREFIX_TASK = "task:";
@@ -99,6 +87,14 @@ class MoltZapAgentTargetUnsupportedError extends Data.TaggedError(
 }> {
   override get message(): string {
     return `MoltZap client for account ${this.accountId} cannot resolve agent targets`;
+  }
+}
+
+class MoltZapAccountProfileMissingError extends Data.TaggedError(
+  "MoltZapAccountProfileMissingError",
+)<{}> {
+  override get message(): string {
+    return "MoltZap OpenClaw account id is required and must name a MoltZap profile";
   }
 }
 
@@ -158,9 +154,7 @@ function writeContextLogOrWarn(
 
 type MoltZapAccount = {
   id: string;
-  apiKey: string;
-  serverUrl: string;
-  agentName: string;
+  agentName?: string;
   enabled?: boolean;
 };
 
@@ -209,25 +203,6 @@ type OpenClawStopAccountContext = {
   log?: Pick<OpenClawLogger, "info">;
 };
 
-interface ContactDirectoryEntry {
-  readonly id: string;
-  readonly agents?: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-  }>;
-}
-
-interface AgentDirectoryEntry {
-  readonly id: string;
-  readonly name: string;
-  readonly displayName?: string;
-}
-
-interface ConversationDirectoryEntry {
-  readonly id: string;
-  readonly name?: string;
-}
-
 interface InboundDispatchInput {
   readonly accountId: string;
   readonly account: MoltZapAccount;
@@ -241,10 +216,11 @@ interface InboundDispatchInput {
 }
 
 interface OpenClawClientService extends ChannelService {
-  sendRpc?<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
-  ): Effect.Effect<ResultOf<D>, ServiceRpcError>;
+  /**
+   * The agent service's descriptor-based call. Optional because the fake
+   * channel service used in tests may omit it.
+   */
+  callDefinition?: MoltZapService["callDefinition"];
   sendToAgent?(
     agentName: string,
     text: string,
@@ -253,7 +229,10 @@ interface OpenClawClientService extends ChannelService {
 }
 
 interface MoltzapChannelPluginDeps {
-  readonly createService?: (account: MoltZapAccount) => OpenClawClientService;
+  readonly createService?: (
+    profileName: string,
+    account: MoltZapAccount,
+  ) => OpenClawClientService;
   readonly createCore?: (service: ChannelService) => MoltZapChannelCore;
 
   /**
@@ -264,7 +243,7 @@ interface MoltzapChannelPluginDeps {
    * error without violating that contract. Threaded from
    * `createMoltzapChannelPlugin` deps through `createGatewaySection` and
    * `registerInboundHandler` into the `createLeaseConsumingDeliver`
-   * closure. See spec C (#597) AC and arch sub-issue #605 §5.6.
+   * closure.
    */
   readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
 }
@@ -314,18 +293,21 @@ function resolveAccount(
   accountId?: string | null,
 ): MoltZapAccount {
   const accounts = resolveAccountList(cfg);
-  const id = accountId ?? DEFAULT_ACCOUNT_ID;
+  if (accountId === undefined || accountId === null) {
+    return { id: "", enabled: false };
+  }
   return (
-    accounts.find((a) => a.id === id) ??
-    accounts[0] ?? { id, apiKey: "", serverUrl: "", agentName: "" }
+    accounts.find((a) => a.id === accountId) ?? {
+      id: accountId,
+      enabled: false,
+    }
   );
 }
 
 /**
  * Wait for an AbortSignal to fire, as an Effect. Completes synchronously if
  * the signal is already aborted; otherwise registers a one-shot `abort`
- * listener and resolves when it fires. Replaces the ad-hoc
- * `new Promise((resolve) => signal.addEventListener("abort", resolve))`.
+ * listener and resolves when it fires.
  */
 const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
   Effect.async<void>((resume) => {
@@ -335,12 +317,6 @@ const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
     }
     signal.addEventListener("abort", () => resume(Effect.void), { once: true });
   });
-
-function contactAgentIds(
-  contact: ContactDirectoryEntry,
-): ReadonlyArray<string> {
-  return (contact.agents ?? []).map((agent) => agent.id);
-}
 
 function logOutboundReply(
   log: OpenClawLogger | undefined,
@@ -354,8 +330,8 @@ function logOutboundReply(
   });
 }
 
-function isTaskClosedRpcError(err: unknown): err is RpcServerError {
-  return err instanceof RpcServerError && err.code === TaskClosedError.code;
+function isTaskClosedRpcError(err: unknown): err is TaskClosedError {
+  return err instanceof TaskClosedError;
 }
 
 function handleReplyFailure(
@@ -368,7 +344,7 @@ function handleReplyFailure(
       log?.warn?.(
         {
           conversationId,
-          code: err.code,
+          tag: err._tag,
           msg: err.message,
         },
         "MoltZap: send rejected; task closed, dropping without retry",
@@ -403,12 +379,9 @@ function sendDeliveredReply(params: {
       catchLeaseInvalid(
         params.leaseId !== undefined ? { leaseId: params.leaseId } : undefined,
       ),
-      // Stamp the guard only on a successful `core.sendReply` (matches the
-      // pre-refactor `markConsumed` ordering). Transient send failures fall
-      // through to `Effect.catchAll` below WITHOUT stamping, so a retried
-      // deliver call still exercises the lease — see
-      // `openclaw-entry.delivery.test.ts → "lease guard stays unconsumed on
-      // transient send failure"` regression test.
+      // Stamp the guard only on a successful `core.sendReply`. Transient send
+      // failures fall through to `Effect.catchAll` below WITHOUT stamping, so a
+      // retried deliver call still exercises the lease.
       Effect.tap(() => params.guard.consume()),
       Effect.tap(() =>
         logOutboundReply(params.log, params.conversationId, params.text),
@@ -457,15 +430,13 @@ function createLeaseConsumingDeliver(params: {
   readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
 }): OpenClawDeliver {
   // One LeaseGuard per inbound message: stamped exactly once, on the FIRST
-  // successful `core.sendReply`. Replaces the pre-refactor
-  // `consumedLeaseAt: number | null` closure.
+  // successful `core.sendReply`.
   //
   // Ordering matters: pre-check `guard.consumedAt` BEFORE sending so duplicate
   // delivers are short-circuited; the actual stamp happens inside
   // `sendDeliveredReply` via `Effect.tap(() => guard.consume())` AFTER
   // `core.sendReply` succeeds. A transient send failure therefore leaves the
-  // guard unconsumed, and a retried deliver call still exercises the lease —
-  // matching pre-refactor behavior (`markConsumed` in the success tap).
+  // guard unconsumed, and a retried deliver call still exercises the lease.
   const guard = new LeaseGuard();
   return (payload, info) => {
     if (info?.kind !== "final") return Promise.resolve(true);
@@ -619,32 +590,29 @@ function createDirectorySection(
   };
 }
 
+interface ActiveServiceResolution {
+  readonly accountId: string;
+  readonly service: OpenClawClientService;
+}
+
 function getActiveService(
   activeClients: Map<string, OpenClawClientService>,
   accountId?: string | null,
-) {
-  return activeClients.get(accountId ?? DEFAULT_ACCOUNT_ID);
-}
-
-// `agents/lookup` caps `agentIds` at `maxItems: 100`, so resolve a larger
-// id set in <=100-id chunks to stay under the wire cap.
-const AGENTS_LOOKUP_MAX_IDS = 100;
-
-function lookupAgentsInChunks(
-  sendRpc: NonNullable<OpenClawClientService["sendRpc"]>,
-  agentIds: ReadonlyArray<string>,
-): Effect.Effect<ReadonlyArray<AgentDirectoryEntry>, ServiceRpcError> {
-  return Effect.gen(function* () {
-    const out: AgentDirectoryEntry[] = [];
-    for (let i = 0; i < agentIds.length; i += AGENTS_LOOKUP_MAX_IDS) {
-      const chunk = agentIds.slice(i, i + AGENTS_LOOKUP_MAX_IDS);
-      const { agents } = (yield* sendRpc(AgentsLookup, {
-        agentIds: chunk,
-      })) as { agents: AgentDirectoryEntry[] };
-      out.push(...agents);
-    }
-    return out;
-  });
+): ActiveServiceResolution | undefined {
+  const requested = accountId?.trim();
+  if (requested) {
+    const service = activeClients.get(requested);
+    return service === undefined
+      ? undefined
+      : { accountId: requested, service };
+  }
+  if (activeClients.size !== 1) return undefined;
+  const first = activeClients.entries().next().value as
+    | [string, OpenClawClientService]
+    | undefined;
+  return first === undefined
+    ? undefined
+    : { accountId: first[0], service: first[1] };
 }
 
 function listPeersEffect(
@@ -652,23 +620,27 @@ function listPeersEffect(
   params: OpenClawDirectoryParams,
 ) {
   return Effect.gen(function* () {
-    const service = getActiveService(activeClients, params.accountId);
-    if (!service?.sendRpc) return [];
-    // `service.sendRpc` is a prototype method reading `this.client` inside
+    const active = getActiveService(activeClients, params.accountId);
+    if (!active?.service.callDefinition) return [];
+    // `service.callDefinition` is a prototype method reading `this.client` inside
     // `Effect.suspend`; passed as a bare reference its receiver is stripped,
     // so the suspend thunk dies with a `this`-undefined TypeError that
-    // `catchAll` (a failure-channel handler) cannot absorb. Bind once so both
-    // drain consumers keep the service receiver.
-    const sendRpc = service.sendRpc.bind(service);
-    // Drain ALL contact pages so every peer in the directory resolves.
-    const contacts = (yield* drainPaginatedList(
+    // `catchAll` (a failure-channel handler) cannot absorb. Bind so the drain
+    // consumer keeps the service receiver.
+    const sendRpc = active.service.callDefinition.bind(active.service);
+    // Drain ALL visible-agent pages so every peer in the directory resolves.
+    const agents = yield* drainPaginatedList<
+      ServiceRpcError,
+      typeof AgentsList,
+      ResultOf<typeof AgentsList>["agents"][number],
+      NonNullable<ResultOf<typeof AgentsList>["nextCursor"]>
+    >({
       sendRpc,
-      ContactsList,
-      "contacts",
-    )) as ReadonlyArray<ContactDirectoryEntry>;
-    const agentIds = contacts.flatMap(contactAgentIds);
-    if (agentIds.length === 0) return [];
-    const agents = yield* lookupAgentsInChunks(sendRpc, agentIds);
+      definition: AgentsList,
+      paramsForCursor: (cursor) => (cursor === undefined ? {} : { cursor }),
+      rowsForPage: (page) => page.agents,
+      nextCursorForPage: (page) => page.nextCursor,
+    });
     return agents.map((agent) => ({
       id: `agent:${agent.name}`,
       name: agent.displayName ?? agent.name,
@@ -685,15 +657,24 @@ function listGroupsEffect(
   params: OpenClawDirectoryParams,
 ) {
   return Effect.gen(function* () {
-    const service = getActiveService(activeClients, params.accountId);
-    if (!service?.sendRpc) return [];
-    const result = (yield* service.sendRpc(TaskConversationList, {})) as {
-      items: Array<{
-        taskId: string;
-        conversation: ConversationDirectoryEntry;
-      }>;
-    };
-    return result.items
+    const active = getActiveService(activeClients, params.accountId);
+    if (!active?.service.callDefinition) return [];
+    // Bind so the drain consumer keeps the service receiver (see listPeersEffect).
+    const sendRpc = active.service.callDefinition.bind(active.service);
+    // Drain ALL conversation pages so named groups past the first page resolve.
+    const items = yield* drainPaginatedList<
+      ServiceRpcError,
+      typeof ConversationList,
+      ResultOf<typeof ConversationList>["items"][number],
+      NonNullable<ResultOf<typeof ConversationList>["nextCursor"]>
+    >({
+      sendRpc,
+      definition: ConversationList,
+      paramsForCursor: (cursor) => (cursor === undefined ? {} : { cursor }),
+      rowsForPage: (page) => page.items,
+      nextCursorForPage: (page) => page.nextCursor,
+    });
+    return items
       .filter((item) => isNamedGroup(item.conversation))
       .map((item) => ({
         id: `task:${item.taskId}:${item.conversation.id}`,
@@ -706,28 +687,29 @@ function listGroupsEffect(
   );
 }
 
-function isNamedGroup(
-  conversation: ConversationDirectoryEntry,
-): conversation is ConversationDirectoryEntry & { readonly name: string } {
-  return conversation.name !== undefined;
+function isNamedGroup(conversation: {
+  readonly name?: string;
+}): conversation is { readonly name: string } {
+  return typeof conversation.name === "string" && conversation.name.length > 0;
 }
 
 function createConfigSection() {
   return {
     listAccountIds(cfg: OpenClawConfig): string[] {
       const accounts = resolveAccountList(cfg);
-      return accounts.length > 0
-        ? accounts.map((account) => account.id || DEFAULT_ACCOUNT_ID)
-        : [];
+      return accounts.map((account) => account.id).filter((id) => id !== "");
     },
     resolveAccount(cfg: OpenClawConfig, accountId?: string | null) {
-      return resolveAccount(cfg, accountId ?? DEFAULT_ACCOUNT_ID);
+      if (accountId === undefined || accountId === null) {
+        return resolveAccount(cfg);
+      }
+      return resolveAccount(cfg, accountId);
     },
     isConfigured(account: MoltZapAccount): boolean {
-      return Boolean(account.apiKey && account.serverUrl);
+      return account.enabled !== false && account.id.trim().length > 0;
     },
     unconfiguredReason(): string {
-      return "missing apiKey or serverUrl";
+      return "MoltZap account id must match a configured MoltZap profile";
     },
     isEnabled(account: MoltZapAccount): boolean {
       return account.enabled !== false;
@@ -754,52 +736,54 @@ function startGatewayAccount(
   activeClients: Map<string, OpenClawClientService>,
   deps: MoltzapChannelPluginDeps,
 ) {
-  const { accountId, account, abortSignal, log, setStatus } = ctx;
-  const contextLogDir = readOpenClawContextLogDir();
-  if (isMissingAccountConfig(account)) {
-    log?.error?.("MoltZap: missing apiKey or serverUrl");
-    return Promise.resolve();
-  }
-  log?.info?.(
-    `MoltZap: connecting as ${account.agentName} to ${account.serverUrl}`,
-  );
-  const service = createGatewayService(account, deps);
-  const core = createGatewayCore(service, deps);
-  registerInboundHandler({
-    core,
-    ctx,
-    service,
-    contextLogDir,
-    onLeaseConsumed: deps.onLeaseConsumed,
-  });
-  registerConnectionStatus(core, ctx);
-  activeClients.set(accountId, service);
-  if (abortSignal.aborted) {
-    return Effect.runPromise(
-      disconnectAndRemove(core, activeClients, accountId),
-    );
-  }
-  abortSignal.addEventListener(
-    "abort",
-    () => disconnectCoreOnAbort(core, activeClients, accountId),
-    { once: true },
-  );
-  return Effect.runPromise(connectGatewayCore(core, service, ctx, setStatus));
+  return Effect.runPromise(startGatewayAccountEffect(ctx, activeClients, deps));
 }
 
-function isMissingAccountConfig(account: MoltZapAccount): boolean {
-  return !account.apiKey || !account.serverUrl;
+function startGatewayAccountEffect(
+  ctx: OpenClawStartAccountContext,
+  activeClients: Map<string, OpenClawClientService>,
+  deps: MoltzapChannelPluginDeps,
+): Effect.Effect<void, unknown> {
+  const { accountId, account, abortSignal, log, setStatus } = ctx;
+  const profileName = accountId.trim();
+  const contextLogDir = readOpenClawContextLogDir();
+  log?.info?.(`MoltZap: connecting as ${account.agentName ?? accountId}`);
+  return Effect.gen(function* () {
+    if (profileName.length === 0) {
+      return yield* Effect.fail(new MoltZapAccountProfileMissingError());
+    }
+    const service = yield* createGatewayService(profileName, account, deps);
+    const core = createGatewayCore(service, deps);
+    registerInboundHandler({
+      core,
+      ctx,
+      service,
+      contextLogDir,
+      onLeaseConsumed: deps.onLeaseConsumed,
+    });
+    registerConnectionStatus(core, ctx);
+    activeClients.set(accountId, service);
+    if (abortSignal.aborted) {
+      return yield* disconnectAndRemove(core, activeClients, accountId);
+    }
+    abortSignal.addEventListener(
+      "abort",
+      () => disconnectCoreOnAbort(core, activeClients, accountId),
+      { once: true },
+    );
+    yield* connectGatewayCore(core, service, ctx, setStatus);
+  });
 }
 
 function createGatewayService(
+  profileName: string,
   account: MoltZapAccount,
   deps: MoltzapChannelPluginDeps,
-): OpenClawClientService {
-  if (deps.createService) return deps.createService(account);
-  return new MoltZapService({
-    serverUrl: account.serverUrl,
-    agentKey: account.apiKey,
-  });
+): Effect.Effect<OpenClawClientService, unknown> {
+  if (deps.createService) {
+    return Effect.succeed(deps.createService(profileName, account));
+  }
+  return MoltZapService.make(profileName);
 }
 
 function createGatewayCore(
@@ -898,10 +882,10 @@ function bodyForAgent(text: string, crossConvBlock: string | null): string {
   return crossConvBlock ? `${crossConvBlock}\n\n${text}` : text;
 }
 
-// P3 #608 resolution: `groupMembersFor` stays openclaw-local because the
-// comma-joined string format is openclaw-specific (the `GroupMembers`
-// dispatch-context field shape). Channel-base's `getGroupFields` provides
-// the narrowing; this helper does the openclaw-side join.
+// `groupMembersFor` stays openclaw-local because the comma-joined string
+// format is openclaw-specific (the `GroupMembers` dispatch-context field
+// shape). Channel-base's `getGroupFields` provides the narrowing; this helper
+// does the openclaw-side join.
 function groupMembersFor(fields: GroupFields | null): string | undefined {
   if (fields === null) return undefined;
   return fields.participants.join(",");
@@ -1137,8 +1121,10 @@ function parseTaskTarget(
   }
   return Effect.try({
     try: () => ({
-      taskId: Value.Decode(TaskId, body.slice(0, sep)),
-      conversationId: Value.Decode(ConversationId, body.slice(sep + 1)),
+      taskId: Schema.decodeUnknownSync(TaskId)(body.slice(0, sep)),
+      conversationId: Schema.decodeUnknownSync(ConversationId)(
+        body.slice(sep + 1),
+      ),
     }),
     catch: () => new MoltZapTargetMalformedError({ target: to }),
   });
@@ -1172,7 +1158,7 @@ function dispatchOutbound(
       parsed.conversationId,
       ctx.text,
       ctx.replyToId !== undefined
-        ? { replyTo: Value.Decode(MessageId, ctx.replyToId) }
+        ? { replyTo: Schema.decodeUnknownSync(MessageId)(ctx.replyToId) }
         : {},
     );
   });
@@ -1188,15 +1174,15 @@ function sendTextEffect(
     replyToId?: string;
   },
 ) {
-  const accountId = ctx.accountId ?? DEFAULT_ACCOUNT_ID;
+  const requestedAccountId = ctx.accountId ?? "(unspecified)";
   return Effect.gen(function* () {
-    const service = activeClients.get(accountId);
-    if (!service) {
+    const active = getActiveService(activeClients, ctx.accountId);
+    if (active === undefined) {
       return yield* Effect.fail(
-        new MoltZapClientNotConnectedError({ accountId }),
+        new MoltZapClientNotConnectedError({ accountId: requestedAccountId }),
       );
     }
-    yield* dispatchOutbound(service, accountId, ctx);
+    yield* dispatchOutbound(active.service, active.accountId, ctx);
     return new OpenClawSendTextSuccess();
   }).pipe(
     Effect.withSpan("createMoltzapChannelPlugin.sendText"),
@@ -1252,8 +1238,8 @@ function sendTextEffect(
  * a throw.
  *
  * `resolveTarget` accepts `agent:&lt;name>` (DM with named agent) and
- * `conv:&lt;id>` (existing conversation). Plain conversation IDs are
- * accepted for backward compatibility.
+ * `task:&lt;taskId>:&lt;conversationId>` (existing conversation). A target
+ * containing `:` in any other shape is rejected.
  */
 export function createMoltzapChannelPlugin(
   deps: MoltzapChannelPluginDeps = {},

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateAgent, validateAgentCard } from "./methods.js";
+import { validateAgent, validateAgentCard } from "./agents/index.js";
 
 const VALID_AGENT = {
   id: "550e8400-e29b-41d4-a716-446655440000",

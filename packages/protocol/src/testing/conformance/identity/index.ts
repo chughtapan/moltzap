@@ -13,14 +13,12 @@
 import type { ConformanceRunContext } from "../_shared/runner.js";
 
 import { registerAuthorityPositive } from "./authority-positive.js";
-import { registerAuthorityNegative } from "./authority-negative.js";
 
-export { registerAuthorityPositive, registerAuthorityNegative };
+export { registerAuthorityPositive };
 
 /**
- * All identity-layer property registrars in legacy walk order
- * (authority-positive → authority-negative).
+ * All identity-layer property registrars, in suite walk order.
  */
 export const IDENTITY_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
-> = [registerAuthorityPositive, registerAuthorityNegative];
+> = [registerAuthorityPositive];

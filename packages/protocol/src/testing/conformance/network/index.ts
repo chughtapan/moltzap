@@ -3,12 +3,9 @@
  *
  * Network-layer conformance properties.
  *
- * Connection / presence / subscription invariants — `Connect` lifecycle,
- * server-derived presence (`PresenceSubscribe` fan-out + `presence/changed`
- * notifications), reconnect semantics, same-state collapse. Presence is
- * server-derived from `LeaseRegistry` lifecycle plus WS connect/disconnect;
- * `PresenceService` implements `LeaseTransitionObserver` and broadcasts
- * `presence/changed` to subscribers. There is no client-driven
+ * Connection / presence / subscription invariants. Presence is server-derived
+ * from `LeaseRegistry` lifecycle plus WS connect/disconnect; `presence/subscribe`
+ * returns the current status snapshot. There is no client-driven
  * `presence/update` RPC.
  *
  * Each `register*` lives in its own file. This barrel re-exports them
@@ -17,33 +14,13 @@
  */
 import type { ConformanceRunContext } from "../_shared/runner.js";
 
-import { registerConnectBroadcast } from "./presence-connect-broadcast.js";
-import { registerDisconnectBroadcast } from "./presence-disconnect-broadcast.js";
-import { registerReconnectStorm } from "./presence-reconnect-storm.js";
-import { registerSameStateNoDoubleFire } from "./presence-same-state-no-double-fire.js";
-import { registerMultiSubscriberFanOut } from "./presence-multi-subscriber-fan-out.js";
 import { registerSubscribeAfterConnect } from "./presence-subscribe-after-connect.js";
 
-export {
-  registerConnectBroadcast,
-  registerDisconnectBroadcast,
-  registerReconnectStorm,
-  registerSameStateNoDoubleFire,
-  registerMultiSubscriberFanOut,
-  registerSubscribeAfterConnect,
-};
+export { registerSubscribeAfterConnect };
 
 /**
- * All network-layer property registrars in legacy walk order
- * (mirroring legacy `presence.ts` registration sequence).
+ * All network-layer property registrars, in suite walk order.
  */
 export const NETWORK_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
-> = [
-  registerConnectBroadcast,
-  registerDisconnectBroadcast,
-  registerReconnectStorm,
-  registerSameStateNoDoubleFire,
-  registerMultiSubscriberFanOut,
-  registerSubscribeAfterConnect,
-];
+> = [registerSubscribeAfterConnect];

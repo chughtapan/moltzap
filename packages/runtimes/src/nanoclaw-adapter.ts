@@ -96,6 +96,8 @@ export class NanoclawAdapter implements Runtime {
       yield* ensureNanoclawRuntimeInstalledEffect();
 
       const handle = yield* startNanoclawRuntimeEffect({
+        agentName: input.agentName,
+        agentId: input.agentId,
         apiKey: input.apiKey,
         serverUrl: input.serverUrl,
         workspaceFiles: input.workspaceFiles,

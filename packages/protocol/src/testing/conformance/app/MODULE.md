@@ -8,21 +8,18 @@ Public barrel for app-layer conformance properties.
 
 App-layer conformance properties.
 
-Dispatch / lease / app-callback invariants — the 15
+Dispatch / lease / app-callback invariants — the 14
 `dispatch-admission` properties (request / authorize / release /
-dispatches-consumed / dispatches-expired / dispatches-get / slow-first
+dispatch-lease-consumed / dispatch-lease-expired / dispatch-lease-get / slow-first
 / same-conv-concurrent / release-for-one-lease) plus app-disconnect
-fail-policy, hook-gated delivery (executable since #560), multi-app FIFO
-(tombstoned), spurious app-callback frame handling (tombstoned), and
-idempotence.
+fail-policy and idempotence.
 
-Each `register*` lives in its own file. The per-`dispatch-admission`
-properties draw on the cross-impl driver in `app/_driver.ts` (carved
-from legacy `conformance/test-server-driver.ts`).
+Each `register*` lives in its own file. The `dispatch-admission`
+properties draw on the cross-impl driver in `app/_driver.ts`.
 
 ## Public surface
 
-### [`ABANDON_OBSERVATION_BUFFER_MS`](./_helpers.ts#L24)
+### [`ABANDON_OBSERVATION_BUFFER_MS`](./_helpers.ts#L20)
 
 _Variable_
 
@@ -30,7 +27,7 @@ _Variable_
 export const ABANDON_OBSERVATION_BUFFER_MS = 1_000
 ```
 
-### [`ABANDON_POLL_EXTRA_MS`](./_helpers.ts#L31)
+### [`ABANDON_POLL_EXTRA_MS`](./_helpers.ts#L27)
 
 _Variable_
 
@@ -38,7 +35,7 @@ _Variable_
 export const ABANDON_POLL_EXTRA_MS = 2_000
 ```
 
-### [`APP_PROPERTIES`](./index.ts#L70)
+### [`APP_PROPERTIES`](./index.ts#L58)
 
 _Variable_
 
@@ -52,29 +49,24 @@ export const APP_PROPERTIES: ReadonlyArray<
   registerDispatchAuthorizeTimeoutSynthesizesDeny,
   registerDispatchReleaseFiresAfterResolve,
   registerDispatchReleaseSkippedOnAbandoned,
-  registerDispatchesConsumedFiresOnFirstSend,
-  registerDispatchesConsumedSuppressedOnSecondSend,
-  registerDispatchesExpiredFiresOnTtl,
-  registerDispatchesExpiredSuppressedOnConsumeBeforeTtl,
-  registerDispatchesGetModeratorSeesRecord,
-  registerDispatchesGetNonModeratorRejected,
-  registerSameConversationDispatchesConcurrent,
+  registerDispatchLeaseConsumedFiresOnFirstSend,
+  registerDispatchLeaseConsumedSuppressedOnSecondSend,
+  registerDispatchLeaseExpiredFiresOnTtl,
+  registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl,
+  registerDispatchLeaseGetModeratorSeesRecord,
+  registerSameConversationDispatchRequestsConcurrent,
   registerSlowFirstDoesNotDelaySecondAck,
   registerReleaseForOneLeaseDoesNotWaitOnAnother,
-  registerHookGatedDelivery,
-  registerMultiAppFifoShortCircuit,
   registerAppDisconnectFailPolicy,
-  registerSpuriousAppCallbackFrameHandling,
   registerIdempotence,
 ]
 ```
 
-All app-layer property registrars, ordered per architect plan §2:
-15 dispatch-admission registrars first, then the 5 cross-category
-registrars (delivery tombstones, boundary unavailable, rpc-semantics
-spurious-callback tombstone, rpc-semantics idempotence).
+All app-layer property registrars: dispatch-admission registrars first,
+then the cross-category registrars (boundary unavailable,
+rpc-semantics idempotence).
 
-### [`ConsumedFrameView`](./_helpers.ts#L71)
+### [`ConsumedFrameView`](./_helpers.ts#L67)
 
 _TypeAlias_
 
@@ -85,7 +77,7 @@ export type ConsumedFrameView = {
 };
 ```
 
-### [`DISPATCH_ADMISSION_CATEGORY`](./_helpers.ts#L19)
+### [`DISPATCH_ADMISSION_CATEGORY`](./_helpers.ts#L15)
 
 _Variable_
 
@@ -93,7 +85,7 @@ _Variable_
 export const DISPATCH_ADMISSION_CATEGORY = "dispatch-admission" as const
 ```
 
-### [`dispatchAdmissionViolation`](./_helpers.ts#L53)
+### [`dispatchAdmissionViolation`](./_helpers.ts#L49)
 
 _Function_
 
@@ -104,7 +96,7 @@ export function dispatchAdmissionViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`DispatchTestDriver`](./_driver.ts#L269)
+### [`DispatchTestDriver`](./_driver.ts#L263)
 
 _Interface_
 
@@ -113,14 +105,14 @@ export interface DispatchTestDriver {
   readonly recipient: RecipientHandle;
   readonly moderator: ModeratorHandle;
   readonly fixtures: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
   };
 
   /**
    * Spin up an additional recipient client under a fresh agent identity.
-   * Used by `same-conversation-dispatches-reach-moderator-concurrently`
-   * (two recipients in the same conversation issue `dispatch/request`
+   * Used by `same-conversation-dispatch-requests-reach-moderator-concurrently`
+   * (two recipients in the same conversation issue `agent/dispatch/request`
    * back-to-back).
    */
   readonly addRecipient: (opts: {
@@ -128,34 +120,22 @@ export interface DispatchTestDriver {
   }) => Effect.Effect<RecipientHandle, PropertyFailure, Scope.Scope>;
 
   /**
-   * Issue `dispatches/get` from a NON-moderator connection (the
-   * recipient or a third-party client). Used by the negative scope
-   * property `dispatches-get-non-moderator-rejected`. Returns the
-   * server's typed error rather than the lease record.
-   */
-  readonly getLeaseFromNonModerator: (
-    dispatchId: Static<typeof DispatchId>,
-  ) => Effect.Effect<{ readonly errorCode: number }, PropertyFailure>;
-
-  /**
-   * Poll `dispatches/get` until the lease reaches `expected` or the
+   * Poll `app/dispatch/lease/get` until the lease reaches `expected` or the
    * bound elapses. Returns the final record. Used by every property
    * that asserts a state transition (PENDING→GRANTED, GRANTED→EXPIRED,
    * CLAIMED→CONSUMED, etc.). Implementation polls every 25 ms; bound
    * defaults to 5 s.
    */
   readonly assertLeaseState: (
-    dispatchId: Static<typeof DispatchId>,
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
     expected: LeaseState,
     opts?: { readonly timeoutMs?: number },
   ) => Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Advance the test clock by `durationMs`. If the conformance harness
-   * is running against `TestClock`, this fast-forwards TTLs; otherwise
-   * (real-time mode) it is a `Effect.sleep`. Property authors call this
-   * for `dispatches-expired-fires-on-ttl` and the moderator-response
-   * timeout property.
+   * Sleep `durationMs` against the real clock to let server-side TTLs elapse.
+   * Property authors call this for `dispatch-lease-expired-fires-on-ttl` and the
+   * moderator-response timeout property, which both run against a live server.
    */
   readonly advanceTime: (durationMs: number) => Effect.Effect<void>;
 }
@@ -166,29 +146,7 @@ acquired under the property's `Scope`. Wires up the real server,
 recipient + moderator clients, and shared task / conversation
 fixtures.
 
-### [`DispatchTestDriverConfig`](./_driver.ts#L333)
-
-_Interface_
-
-```ts
-export interface DispatchTestDriverConfig {
-  readonly taskAppId?: string | null;
-  readonly moderatorTimeoutMs?: number;
-  readonly leaseTimeoutMs?: number;
-}
-```
-
-Driver options. `taskAppId` controls whether the server-side path is
-app-bound (moderated, default) or default-grant. Default: app-bound
-via `taskAppId: "conformance-test-app"`. The `default-grant` properties
-(none today; reserved for future) pass `taskAppId: null`.
-
-`moderatorTimeoutMs` is propagated to the manifest's
-`hooks.dispatch_authorize.timeout_ms`. Properties that exercise the
-moderator-response TTL pass a small value (e.g., 200 ms); properties
-that don't care pass the default 5_000 ms.
-
-### [`DispatchVerdict`](./_driver.ts#L94)
+### [`DispatchVerdict`](./_driver.ts#L84)
 
 _TypeAlias_
 
@@ -202,7 +160,7 @@ Properties that need to script a moderator's reply pass a
 `DispatchVerdict` value to `recipient.expectAuthorize` /
 `respondWith`; the driver encodes it to the wire shape internally.
 
-### [`FAST_ACK_THRESHOLD_MS`](./_helpers.ts#L44)
+### [`FAST_ACK_THRESHOLD_MS`](./_helpers.ts#L40)
 
 _Variable_
 
@@ -210,23 +168,23 @@ _Variable_
 export const FAST_ACK_THRESHOLD_MS = 1_000
 ```
 
-### [`FORBIDDEN_ERROR_CODE`](./_helpers.ts#L26)
+### [`FORBIDDEN_ERROR_TAG`](./_helpers.ts#L22)
 
 _Variable_
 
 ```ts
-export const FORBIDDEN_ERROR_CODE = -32001
+export const FORBIDDEN_ERROR_TAG = "Forbidden"
 ```
 
-### [`freshMessageId`](./_helpers.ts#L76)
+### [`freshMessageId`](./_helpers.ts#L72)
 
 _Function_
 
 ```ts
-export function freshMessageId(): Static<typeof MessageId>
+export function freshMessageId(): Schema.Schema.Type<typeof MessageId>
 ```
 
-### [`HOLD_DRAIN_BUFFER_MS`](./_helpers.ts#L51)
+### [`HOLD_DRAIN_BUFFER_MS`](./_helpers.ts#L47)
 
 _Variable_
 
@@ -234,7 +192,7 @@ _Variable_
 export const HOLD_DRAIN_BUFFER_MS = 2_000
 ```
 
-### [`HOLD_RELEASE_MARGIN_MS`](./_helpers.ts#L48)
+### [`HOLD_RELEASE_MARGIN_MS`](./_helpers.ts#L44)
 
 _Variable_
 
@@ -242,7 +200,7 @@ _Variable_
 export const HOLD_RELEASE_MARGIN_MS = 500
 ```
 
-### [`isUuidV4`](./_helpers.ts#L85)
+### [`isUuidV4`](./_helpers.ts#L81)
 
 _Function_
 
@@ -250,7 +208,7 @@ _Function_
 export function isUuidV4(s: string): boolean
 ```
 
-### [`leaseId`](./_helpers.ts#L73)
+### [`leaseId`](./_helpers.ts#L69)
 
 _Property_
 
@@ -258,10 +216,10 @@ _Property_
   readonly leaseId: string;
 };
 
-export function freshMessageId(): Static<typeof MessageId> {
+export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
 ```
 
-### [`leaseId`](./_helpers.ts#L70)
+### [`leaseId`](./_helpers.ts#L66)
 
 _Property_
 
@@ -269,7 +227,7 @@ _Property_
 export type LeaseIdOnlyView = { readonly leaseId: string };
 ```
 
-### [`leaseId`](./_helpers.ts#L67)
+### [`leaseId`](./_helpers.ts#L63)
 
 _Property_
 
@@ -278,7 +236,7 @@ _Property_
   readonly verdict: { decision: string; reason?: string };
 ```
 
-### [`LeaseIdOnlyView`](./_helpers.ts#L70)
+### [`LeaseIdOnlyView`](./_helpers.ts#L66)
 
 _TypeAlias_
 
@@ -286,7 +244,7 @@ _TypeAlias_
 export type LeaseIdOnlyView = { readonly leaseId: string };
 ```
 
-### [`LeaseState`](./_driver.ts#L105)
+### [`LeaseState`](./_driver.ts#L95)
 
 _TypeAlias_
 
@@ -304,63 +262,65 @@ export type LeaseState =
 // ── Recipient handle ──────────────────────────────────────────────────
 
 /**
- * Recipient-side surface. Owns one TestClient connected to the real
+ * Recipient-side surface. Owns one `AgentTestClient` connected to the real
  * server under a recipient agent identity. All methods return Effects
  * scoped to the surrounding `Scope`; releasing the scope closes the
- * underlying TestClient.
+ * underlying agent client.
  */
 export interface RecipientHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
 
   /**
-   * Issue `dispatch/request` for the given inbound. Returns the ack
+   * Issue `agent/dispatch/request` for the given inbound. Returns the ack
    * payload `{leaseId, dispatchId}`. Single recipient may issue many
    * concurrent requests; the property is responsible for ordering its
    * own assertions.
    */
   readonly requestDispatch: (params: {
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly messageId: Static<typeof MessageId>;
-    readonly senderAgentId: Static<typeof AgentId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly messageId: Schema.Schema.Type<typeof MessageId>;
+    readonly senderAgentId: Schema.Schema.Type<typeof AgentId>;
     readonly attempt?: number;
   }) => Effect.Effect<
     {
-      readonly leaseId: Static<typeof LeaseId>;
-      readonly dispatchId: Static<typeof DispatchId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
+      readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
     },
     PropertyFailure
   >;
 
   /**
-   * Park until a `dispatch/release` notification arrives that matches
+   * Park until a `agent/dispatch/released` notification arrives that matches
    * `predicate` (default: any). Used by every property in the
    * `DispatchRelease` group + every property that asserts a verdict
    * delivery.
    */
   readonly waitForRelease: (
-    predicate?: (frame: DecodedNotification<typeof DispatchRelease>) => boolean,
+    predicate?: (
+      frame: NotificationDelivery<typeof DispatchRelease>,
+    ) => boolean,
     timeoutMs?: number,
   ) => Effect.Effect<
-    DecodedNotification<typeof DispatchRelease>,
+    NotificationDelivery<typeof DispatchRelease>,
     PropertyFailure
   >;
 
   /**
-   * Send `messages/send` carrying `dispatchLeaseId`. Used to consume a
+   * Send `agent/message/send` carrying `dispatchLeaseId`. Used to consume a
    * GRANTED lease + assert the consumed/duplicate behavior. Returns the
    * minted message id on success; on the lease-already-CONSUMED path,
    * fails with a `PropertyInvariantViolation` whose `reason` carries
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly leaseId: Static<typeof LeaseId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     readonly text: string;
   }) => Effect.Effect<
     {
-      readonly messageId: Static<typeof MessageId>;
-      readonly errorCode?: number;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
+      readonly errorTag?: string;
       readonly errorState?: string;
     },
     PropertyFailure
@@ -378,29 +338,29 @@ export interface RecipientHandle {
 ```
 
 Closed lease-state union mirroring `LeaseStateSchema`. The driver's
-`assertLeaseState` polls `dispatches/get` until the registry settles
-to the named state or the bound elapses (impl-staff picks the bound
-per-property; default 5 s).
+`assertLeaseState` polls `app/dispatch/lease/get` until the registry settles
+to the named state or the bound elapses (the bound is per-property;
+default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L941)
+### [`makeDispatchTestDriver`](./_driver.ts#L898)
 
 _Function_
 
 ```ts
 export function makeDispatchTestDriver(
   ctx: ConformanceRunContext,
-  config?: DispatchTestDriverConfig,
+  config?: { readonly moderatorTimeoutMs?: number },
 ): Effect.Effect<DispatchTestDriver, PropertyFailure, Scope.Scope>
 ```
 
 Acquire a fully-wired driver under the surrounding `Scope`. Releases
-close every TestClient + drop the `apps/register` registration.
+close every lifecycle client + drop the connected app registration.
 
 Property authors call this from inside their property body; the driver
 is per-property, never shared. Cross-property state leakage is the
 exact failure mode the per-property scope prevents.
 
-### [`messageId`](./_helpers.ts#L72)
+### [`messageId`](./_helpers.ts#L68)
 
 _Property_
 
@@ -409,22 +369,22 @@ _Property_
   readonly leaseId: string;
 };
 
-export function freshMessageId(): Static<typeof MessageId> {
+export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
 ```
 
-### [`ModeratorHandle`](./_driver.ts#L198)
+### [`ModeratorHandle`](./_driver.ts#L190)
 
 _Interface_
 
 ```ts
 export interface ModeratorHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
   readonly appId: string;
 
   /**
-   * Park until a `dispatch/authorize` S→C request arrives that matches
+   * Park until a `app/dispatch/authorize` S→C request arrives that matches
    * `predicate` (default: any), then reply with `respondWith`. Internally
-   * uses `TestClient.onAppCallback` to register the reply and
+   * uses `AppTestClient.onAppCallback` to register the reply and
    * `awaitServerRequest` to observe the params.
    *
    * `holdResponseFor` is for the timeout-synthesizes-deny property:
@@ -434,59 +394,61 @@ export interface ModeratorHandle {
   readonly handleAuthorize: (opts: {
     readonly respondWith: DispatchVerdict;
     readonly predicate?: (params: {
-      readonly taskId: Static<typeof TaskId>;
-      readonly conversationId: Static<typeof ConversationId>;
-      readonly messageId: Static<typeof MessageId>;
+      readonly taskId: Schema.Schema.Type<typeof TaskId>;
+      readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
     }) => boolean;
     readonly holdResponseFor?: number;
   }) => Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Drop the next inbound `dispatch/authorize` S→C request — install no
+   * Drop the next inbound `app/dispatch/authorize` S→C request — install no
    * handler. Forces moderator-response TTL elapse. Used by
    * `dispatch-authorize-timeout-synthesizes-deny`.
    */
   readonly silenceAuthorize: Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Park until a `dispatches/consumed` or `dispatches/expired`
+   * Park until a `app/dispatch/lease-consumed` or `app/dispatch/lease-expired`
    * notification arrives matching `kind` and (optionally) `dispatchId`.
    */
   readonly waitForObservability: <K extends "consumed" | "expired">(
     kind: K,
     opts: {
-      readonly dispatchId?: Static<typeof DispatchId>;
+      readonly dispatchId?: Schema.Schema.Type<typeof DispatchId>;
       readonly timeoutMs?: number;
     },
   ) => Effect.Effect<
     K extends "consumed"
-      ? DecodedNotification<typeof DispatchesConsumed>
-      : DecodedNotification<typeof DispatchesExpired>,
+      ? NotificationDelivery<typeof DispatchLeaseConsumed>
+      : NotificationDelivery<typeof DispatchLeaseExpired>,
     PropertyFailure
   >;
 
   /**
-   * Issue `dispatches/get` from the moderator's connection. Used by the
-   * positive `dispatches-get-moderator-sees-record` property + every
+   * Issue `app/dispatch/lease/get` from the moderator's connection. Used by the
+   * positive `dispatch-lease-get-moderator-sees-record` property + every
    * `assertLeaseState` poll.
    */
-  readonly getLease: (dispatchId: Static<typeof DispatchId>) => Effect.Effect<
+  readonly getLease: (
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
+  ) => Effect.Effect<
     {
       readonly state: LeaseState;
       readonly verdict: DispatchVerdict | null;
-      readonly leaseId: Static<typeof LeaseId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     },
     PropertyFailure
   >;
 }
 ```
 
-Moderator-side surface. Owns one TestClient connected to the real
-server under a moderator agent identity, with `apps/register` already
-driven to install a `dispatch_authorize` hook for the test app. Holds
-the registered `appId` for `dispatches/get` scope assertions.
+Moderator-side surface. Owns one `AppTestClient` connected to the real
+server under a moderator app identity, with HTTP registration plus
+`app/network/connect` already driven to install a `dispatch_authorize` hook. Holds
+the registered `appId` for `app/dispatch/lease/get` scope assertions.
 
-### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](./_helpers.ts#L25)
+### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](./_helpers.ts#L21)
 
 _Variable_
 
@@ -494,7 +456,7 @@ _Variable_
 export const NEGATIVE_OBSERVABILITY_WINDOW_MS = 750
 ```
 
-### [`NO_SECOND_RELEASE_WINDOW_MS`](./_helpers.ts#L40)
+### [`NO_SECOND_RELEASE_WINDOW_MS`](./_helpers.ts#L36)
 
 _Variable_
 
@@ -502,63 +464,65 @@ _Variable_
 export const NO_SECOND_RELEASE_WINDOW_MS = 250
 ```
 
-### [`RecipientHandle`](./_driver.ts#L123)
+### [`RecipientHandle`](./_driver.ts#L113)
 
 _Interface_
 
 ```ts
 export interface RecipientHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
 
   /**
-   * Issue `dispatch/request` for the given inbound. Returns the ack
+   * Issue `agent/dispatch/request` for the given inbound. Returns the ack
    * payload `{leaseId, dispatchId}`. Single recipient may issue many
    * concurrent requests; the property is responsible for ordering its
    * own assertions.
    */
   readonly requestDispatch: (params: {
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly messageId: Static<typeof MessageId>;
-    readonly senderAgentId: Static<typeof AgentId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly messageId: Schema.Schema.Type<typeof MessageId>;
+    readonly senderAgentId: Schema.Schema.Type<typeof AgentId>;
     readonly attempt?: number;
   }) => Effect.Effect<
     {
-      readonly leaseId: Static<typeof LeaseId>;
-      readonly dispatchId: Static<typeof DispatchId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
+      readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
     },
     PropertyFailure
   >;
 
   /**
-   * Park until a `dispatch/release` notification arrives that matches
+   * Park until a `agent/dispatch/released` notification arrives that matches
    * `predicate` (default: any). Used by every property in the
    * `DispatchRelease` group + every property that asserts a verdict
    * delivery.
    */
   readonly waitForRelease: (
-    predicate?: (frame: DecodedNotification<typeof DispatchRelease>) => boolean,
+    predicate?: (
+      frame: NotificationDelivery<typeof DispatchRelease>,
+    ) => boolean,
     timeoutMs?: number,
   ) => Effect.Effect<
-    DecodedNotification<typeof DispatchRelease>,
+    NotificationDelivery<typeof DispatchRelease>,
     PropertyFailure
   >;
 
   /**
-   * Send `messages/send` carrying `dispatchLeaseId`. Used to consume a
+   * Send `agent/message/send` carrying `dispatchLeaseId`. Used to consume a
    * GRANTED lease + assert the consumed/duplicate behavior. Returns the
    * minted message id on success; on the lease-already-CONSUMED path,
    * fails with a `PropertyInvariantViolation` whose `reason` carries
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly leaseId: Static<typeof LeaseId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     readonly text: string;
   }) => Effect.Effect<
     {
-      readonly messageId: Static<typeof MessageId>;
-      readonly errorCode?: number;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
+      readonly errorTag?: string;
       readonly errorState?: string;
     },
     PropertyFailure
@@ -575,12 +539,12 @@ export interface RecipientHandle {
 }
 ```
 
-Recipient-side surface. Owns one TestClient connected to the real
+Recipient-side surface. Owns one `AgentTestClient` connected to the real
 server under a recipient agent identity. All methods return Effects
 scoped to the surrounding `Scope`; releasing the scope closes the
-underlying TestClient.
+underlying agent client.
 
-### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L56)
+### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L45)
 
 _Function_
 
@@ -610,62 +574,52 @@ export function registerDispatchAuthorizeVerdictResolves(
 ): void
 ```
 
-### [`registerDispatchesConsumedFiresOnFirstSend`](./dispatches-consumed-fires-on-first-send.ts#L14)
+### [`registerDispatchLeaseConsumedFiresOnFirstSend`](./dispatch-lease-consumed-fires-on-first-send.ts#L14)
 
 _Function_
 
 ```ts
-export function registerDispatchesConsumedFiresOnFirstSend(
+export function registerDispatchLeaseConsumedFiresOnFirstSend(
   ctx: ConformanceRunContext,
 ): void
 ```
 
-### [`registerDispatchesConsumedSuppressedOnSecondSend`](./dispatches-consumed-suppressed-on-second.ts#L14)
+### [`registerDispatchLeaseConsumedSuppressedOnSecondSend`](./dispatch-lease-consumed-suppressed-on-second.ts#L14)
 
 _Function_
 
 ```ts
-export function registerDispatchesConsumedSuppressedOnSecondSend(
+export function registerDispatchLeaseConsumedSuppressedOnSecondSend(
   ctx: ConformanceRunContext,
 ): void
 ```
 
-### [`registerDispatchesExpiredFiresOnTtl`](./dispatches-expired-fires-on-ttl.ts#L14)
+### [`registerDispatchLeaseExpiredFiresOnTtl`](./dispatch-lease-expired-fires-on-ttl.ts#L14)
 
 _Function_
 
 ```ts
-export function registerDispatchesExpiredFiresOnTtl(
+export function registerDispatchLeaseExpiredFiresOnTtl(
   ctx: ConformanceRunContext,
 ): void
 ```
 
-### [`registerDispatchesExpiredSuppressedOnConsumeBeforeTtl`](./dispatches-expired-suppressed-on-consume.ts#L15)
+### [`registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl`](./dispatch-lease-expired-suppressed-on-consume.ts#L15)
 
 _Function_
 
 ```ts
-export function registerDispatchesExpiredSuppressedOnConsumeBeforeTtl(
+export function registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl(
   ctx: ConformanceRunContext,
 ): void
 ```
 
-### [`registerDispatchesGetModeratorSeesRecord`](./dispatches-get-moderator-sees.ts#L15)
+### [`registerDispatchLeaseGetModeratorSeesRecord`](./dispatch-lease-get-moderator-sees.ts#L13)
 
 _Function_
 
 ```ts
-export function registerDispatchesGetModeratorSeesRecord(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerDispatchesGetNonModeratorRejected`](./dispatches-get-non-moderator-rejected.ts#L12)
-
-_Function_
-
-```ts
-export function registerDispatchesGetNonModeratorRejected(
+export function registerDispatchLeaseGetModeratorSeesRecord(
   ctx: ConformanceRunContext,
 ): void
 ```
@@ -710,30 +664,12 @@ export function registerDispatchRequestRecipientDisconnectAbandons(
 ): void
 ```
 
-### [`registerHookGatedDelivery`](./hook-gated-delivery.ts#L21)
-
-_Function_
-
-```ts
-export function registerHookGatedDelivery(ctx: ConformanceRunContext): void
-```
-
-### [`registerIdempotence`](./idempotence.ts#L56)
+### [`registerIdempotence`](./idempotence.ts#L51)
 
 _Function_
 
 ```ts
 export function registerIdempotence(ctx: ConformanceRunContext): void
-```
-
-### [`registerMultiAppFifoShortCircuit`](./multi-app-fifo-short-circuit.ts#L18)
-
-_Function_
-
-```ts
-export function registerMultiAppFifoShortCircuit(
-  ctx: ConformanceRunContext,
-): void
 ```
 
 ### [`registerReleaseForOneLeaseDoesNotWaitOnAnother`](./release-for-one-lease-does-not-wait.ts#L17)
@@ -746,12 +682,12 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
 ): void
 ```
 
-### [`registerSameConversationDispatchesConcurrent`](./same-conv-dispatches-concurrent.ts#L15)
+### [`registerSameConversationDispatchRequestsConcurrent`](./same-conv-dispatch-requests-concurrent.ts#L13)
 
 _Function_
 
 ```ts
-export function registerSameConversationDispatchesConcurrent(
+export function registerSameConversationDispatchRequestsConcurrent(
   ctx: ConformanceRunContext,
 ): void
 ```
@@ -766,17 +702,7 @@ export function registerSlowFirstDoesNotDelaySecondAck(
 ): void
 ```
 
-### [`registerSpuriousAppCallbackFrameHandling`](./spurious-app-callback-frame.ts#L27)
-
-_Function_
-
-```ts
-export function registerSpuriousAppCallbackFrameHandling(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`ReleaseFrameView`](./_helpers.ts#L66)
+### [`ReleaseFrameView`](./_helpers.ts#L62)
 
 _TypeAlias_
 
@@ -787,7 +713,7 @@ export type ReleaseFrameView = {
 };
 ```
 
-### [`SHORT_LEASE_TIMEOUT_MS`](./_helpers.ts#L21)
+### [`SHORT_LEASE_TIMEOUT_MS`](./_helpers.ts#L17)
 
 _Variable_
 
@@ -795,7 +721,7 @@ _Variable_
 export const SHORT_LEASE_TIMEOUT_MS = 250
 ```
 
-### [`TIMEOUT_RELEASE_WAIT_MS`](./_helpers.ts#L36)
+### [`TIMEOUT_RELEASE_WAIT_MS`](./_helpers.ts#L32)
 
 _Variable_
 
@@ -803,7 +729,7 @@ _Variable_
 export const TIMEOUT_RELEASE_WAIT_MS = 3_000
 ```
 
-### [`TINY_MODERATOR_TIMEOUT_MS`](./_helpers.ts#L22)
+### [`TINY_MODERATOR_TIMEOUT_MS`](./_helpers.ts#L18)
 
 _Variable_
 
@@ -811,7 +737,7 @@ _Variable_
 export const TINY_MODERATOR_TIMEOUT_MS = 200
 ```
 
-### [`TTL_OBSERVATION_BUFFER_MS`](./_helpers.ts#L23)
+### [`TTL_OBSERVATION_BUFFER_MS`](./_helpers.ts#L19)
 
 _Variable_
 
@@ -819,7 +745,7 @@ _Variable_
 export const TTL_OBSERVATION_BUFFER_MS = 1_500
 ```
 
-### [`verdict`](./_helpers.ts#L68)
+### [`verdict`](./_helpers.ts#L64)
 
 _Property_
 
@@ -827,7 +753,7 @@ _Property_
   readonly verdict: { decision: string; reason?: string };
 ```
 
-### [`withDriver`](./_helpers.ts#L93)
+### [`withDriver`](./_helpers.ts#L89)
 
 _Function_
 
@@ -851,21 +777,17 @@ driver, runs `body`, releases on completion.
 - `app-disconnect-fail-policy.ts`
 - `dispatch-authorize-timeout.ts`
 - `dispatch-authorize-verdict.ts`
+- `dispatch-lease-consumed-fires-on-first-send.ts`
+- `dispatch-lease-consumed-suppressed-on-second.ts`
+- `dispatch-lease-expired-fires-on-ttl.ts`
+- `dispatch-lease-expired-suppressed-on-consume.ts`
+- `dispatch-lease-get-moderator-sees.ts`
 - `dispatch-release-after-resolve.ts`
 - `dispatch-release-skipped-on-abandoned.ts`
 - `dispatch-request-ack.ts`
 - `dispatch-request-recipient-disconnect.ts`
-- `dispatches-consumed-fires-on-first-send.ts`
-- `dispatches-consumed-suppressed-on-second.ts`
-- `dispatches-expired-fires-on-ttl.ts`
-- `dispatches-expired-suppressed-on-consume.ts`
-- `dispatches-get-moderator-sees.ts`
-- `dispatches-get-non-moderator-rejected.ts`
-- `hook-gated-delivery.ts`
 - `idempotence.ts`
 - `index.ts`
-- `multi-app-fifo-short-circuit.ts`
 - `release-for-one-lease-does-not-wait.ts`
-- `same-conv-dispatches-concurrent.ts`
+- `same-conv-dispatch-requests-concurrent.ts`
 - `slow-first-does-not-delay-second-ack.ts`
-- `spurious-app-callback-frame.ts`

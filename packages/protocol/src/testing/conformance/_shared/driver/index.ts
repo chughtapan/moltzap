@@ -1,32 +1,22 @@
 /**
- * @file Wire-driver harness barrel for the `_shared/driver/` sub-folder.
- *
- * The `driver/` folder contains test-time JSON-RPC wire harnesses.
- *
- * These harnesses act as a counterparty for property tests.
- *
- * The folder currently contains `test-client.ts` and `test-server.ts`.
- * Future wire-driver helpers belong here. Other helpers belong elsewhere.
- *
- * Re-exporting keeps external consumers on the public testing entrypoint.
+ * @file Lifecycle-backed conformance client barrel.
  */
 
 export {
-  type CloseableTestClient,
+  type AgentTestClient,
+  type AgentTestClientConfig,
+  type AppTestClient,
+  type AppTestClientConfig,
+  type CloseableAgentTestClient,
+  type CloseableAppTestClient,
+  type NotificationClient,
   ServerRequestWaitError,
   type ServerRpcContext,
   type ServerRpcDefinition,
   type ServerRpcParams,
   type ServerRpcResult,
-  type TestClient,
-  type TestClientConfig,
-  makeCloseableTestClient,
-  makeTestClient,
+  makeAgentTestClient,
+  makeAppTestClient,
+  makeCloseableAgentTestClient,
+  makeCloseableAppTestClient,
 } from "./test-client.js";
-
-export {
-  type TestServer,
-  type TestServerConfig,
-  type TestServerConnection,
-  makeTestServer,
-} from "./test-server.js";

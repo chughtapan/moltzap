@@ -1,34 +1,32 @@
 /**
- * #529 reshape additive — `dispatch/{request, authorize, release}` +
- * `dispatches/{consumed, expired, get}` admission surface.
+ * `agent/dispatch/request`, `app/dispatch/authorize`,
+ * `agent/dispatch/released`, and `app/dispatch/lease-*` admission surface.
  *
- * Bucket file: `concurrency` group. Split from `dispatch-flow.integration.test.ts`
- * (Phase 2B reorg, #543). Each split file owns its own server-fixture
- * `beforeAll`/`afterAll`/`beforeEach` so vitest's `fileParallelism: true`
- * runner can execute buckets concurrently without sharing state.
+ * Bucket file: `concurrency` group. Each bucket owns its own server fixture so
+ * vitest can execute buckets concurrently without sharing state.
  *
- * See parent dispatch-flow architecture comment in the original file
- * (now replaced by these 6 bucket files): the recipient calls
- * `dispatch/request` over WS; server mints a lease, returns ack
+ * The recipient calls `agent/dispatch/request` over WS; server mints a lease, returns ack
  * synchronously, forks the moderator round-trip; recipient observes
- * the verdict via `dispatch/release` notification. `messages/send(
+ * the verdict via `agent/dispatch/released` notification. `agent/message/send(
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import type { AppManifest, ConversationId } from "@moltzap/protocol";
-import { Effect, Fiber } from "effect";
+import { DispatchRelease } from "@moltzap/protocol/message/dispatch";
+import type { AppManifest } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_REQUEST_CONCURRENCY,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
+  createConversationOnApp,
   createDispatchFlowFixture,
+  MODERATED_HOOKS,
   requestDispatch,
   startDispatchFlowServer,
   stopDispatchFlowServer,
-  waitForDispatchRelease,
 } from "./fixture.js";
 import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
 
@@ -41,6 +39,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+  hooks: MODERATED_HOOKS,
 };
 
 const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
@@ -65,48 +64,35 @@ function requestDispatchesInParallel(
   );
 }
 
-function forkTwoReleaseFibers(recipient: ConnectedAgent) {
-  return Effect.gen(function* () {
-    // Fork-before-trigger (Spec B #596 r2 fix): each fiber subscribes to
-    // its own `dispatch/release` Stream BEFORE the parallel dispatch RPCs
-    // fire, so neither release notification can arrive in the gap before
-    // the subscription registers.
-    const fiber1 = yield* waitForDispatchRelease(
-      recipient,
-      DISPATCH_RELEASE_TIMEOUT_MS,
-    );
-    const fiber2 = yield* waitForDispatchRelease(
-      recipient,
-      DISPATCH_RELEASE_TIMEOUT_MS,
-    );
-    return [fiber1, fiber2] as const;
-  });
+function forkTwoReleaseCollector(recipient: ConnectedAgent) {
+  return recipient.client.subscribe(DispatchRelease).pipe(
+    Stream.take(2),
+    Stream.runCollect,
+    Effect.map(Chunk.toReadonlyArray),
+    Effect.timeoutFail({
+      duration: Duration.millis(DISPATCH_RELEASE_TIMEOUT_MS),
+      onTimeout: () => new Error("timed out waiting for dispatch releases"),
+    }),
+    Effect.fork,
+  );
 }
 
 function crossConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const conv1 = yield* createTaskConversationOnApp(
-      alice,
-      bob,
-      TEST_APP_MANIFEST,
-    );
-    const conv2 = yield* createTaskConversationOnApp(
-      alice,
-      bob,
-      TEST_APP_MANIFEST,
-    );
-    const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
+    const conv1 = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
+    const conv2 = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
+    const releasesFiber = yield* forkTwoReleaseCollector(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv1.conversationId,
       conv2.conversationId,
     ]);
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);
-    const release1 = yield* Fiber.join(fiber1);
-    const release2 = yield* Fiber.join(fiber2);
-    const seen = new Set([release1.leaseId, release2.leaseId]);
+    const releases = yield* Fiber.join(releasesFiber);
+    expect(releases).toHaveLength(EXPECTED_HOOK_CALLS);
+    const seen = new Set(releases.map((release) => release.leaseId));
     expect(seen.has(ack1.leaseId)).toBe(true);
     expect(seen.has(ack2.leaseId)).toBe(true);
     expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
@@ -117,12 +103,8 @@ function sameConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const conv = yield* createTaskConversationOnApp(
-      alice,
-      bob,
-      TEST_APP_MANIFEST,
-    );
-    const [fiber1, fiber2] = yield* forkTwoReleaseFibers(bob);
+    const conv = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
+    const releasesFiber = yield* forkTwoReleaseCollector(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
       conv.conversationId,
       conv.conversationId,
@@ -130,21 +112,20 @@ function sameConversationRequestsRunConcurrently() {
 
     expect(ack1.leaseId).not.toBe(ack2.leaseId);
     expect(ack1.dispatchId).not.toBe(ack2.dispatchId);
-    yield* Fiber.join(fiber1);
-    yield* Fiber.join(fiber2);
+    expect(yield* Fiber.join(releasesFiber)).toHaveLength(EXPECTED_HOOK_CALLS);
     expect(fixture.hookCalls()).toBe(EXPECTED_HOOK_CALLS);
   });
 }
 
-describe("dispatch/* — concurrency (#529 reshape additive)", () => {
+describe("dispatch/* — concurrency", () => {
   it(
-    "cross-conversation concurrency: two dispatch/request in different (taskId, conversationId) run concurrently",
+    "cross-conversation concurrency: two agent/dispatch/request in different (taskId, conversationId) run concurrently",
     crossConversationRequestsRunConcurrently,
     25_000,
   );
 
   it(
-    "same-conversation concurrency: two dispatch/request in same (taskId, conversationId) run concurrently",
+    "same-conversation concurrency: two agent/dispatch/request in same (taskId, conversationId) run concurrently",
     sameConversationRequestsRunConcurrently,
     25_000,
   );

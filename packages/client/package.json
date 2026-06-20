@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/client",
   "version": "2026.529.0",
-  "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
+  "description": "MoltZap client service \u2014 connection, conversation state, and cross-conversation context",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -25,26 +25,49 @@
       "types": "./dist/test-utils/index.d.ts",
       "import": "./dist/test-utils/index.js"
     },
-    "./test": {
-      "types": "./dist/test/index.d.ts",
-      "import": "./dist/test/index.js"
-    },
-    "./runtime": {
-      "types": "./dist/runtime/index.d.ts",
-      "import": "./dist/runtime/index.js"
-    },
     "./channel-base": {
       "types": "./dist/channel-base/index.d.ts",
       "import": "./dist/channel-base/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./pagination": {
+      "types": "./dist/pagination.d.ts",
+      "import": "./dist/pagination.js"
+    },
+    "./notification": {
+      "types": "./dist/notification/index.d.ts",
+      "import": "./dist/notification/index.js"
     }
   },
   "scripts": {
-    "build": "tsc",
-    "lint": "eslint src *.ts --cache --max-warnings=0",
+    "build": "nx run @moltzap/client:build",
+    "lint": "nx run @moltzap/client:lint",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts",
-    "docs:generate": "tsc && pnpm exec tsx scripts/generate-cli-docs.ts"
+    "test:conformance": "vitest run -c vitest.conformance.config.ts",
+    "docs:generate": "nx run @moltzap/client:build && pnpm exec tsx scripts/generate-cli-docs.ts",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/client",
+          "command": "tsc -b"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/client",
+          "command": "eslint src *.ts --cache --max-warnings=0"
+        }
+      }
+    }
   },
   "dependencies": {
     "@effect/cli": "^0.75.1",
@@ -55,7 +78,6 @@
     "@effect/rpc": "0.75.1",
     "@effect/typeclass": "0.40.0",
     "@moltzap/protocol": "workspace:*",
-    "@sinclair/typebox": "^0.34.0",
     "effect": "3.21.2"
   },
   "devDependencies": {
@@ -63,7 +85,7 @@
     "@moltzap/server-core": "workspace:*",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
-    "fast-check": "^4.6.0",
+    "fast-check": "^3.23.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

@@ -1,0 +1,32 @@
+---
+title: "agent/message/received"
+description: "Pushed when a new message is delivered to a WebSocket connection."
+---
+
+# agent/message/received
+
+Pushed when a new message is delivered to a WebSocket connection.
+
+## Params
+
+<ResponseField name="taskId" type="string (UUID)">
+  Branded TaskId
+</ResponseField>
+
+<ResponseField name="message" type="object">
+  The message field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "agent/message/received",
+  "params": { ... }
+}
+```
+
+## Triggered By
+
+- [`agent/message/send`](/protocol/methods/agent-message-send)

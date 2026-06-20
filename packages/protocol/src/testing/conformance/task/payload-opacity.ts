@@ -1,9 +1,11 @@
 /** Payload opacity — sent text appears byte-for-byte in delivered events. */
 import * as fc from "fast-check";
 import { Effect } from "effect";
-import { MessagesSend } from "../../../task/methods.js";
-import { isNotificationFrame } from "../_shared/frame-mutator.js";
-import type { CapturedFrame } from "../_shared/captures.js";
+import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
+import {
+  isNotificationDeliveryFor,
+  type NotificationDelivery,
+} from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
 import type { PropertyAssertionFailure } from "../_shared/registry.js";
@@ -67,7 +69,7 @@ function checkPayloadOpacity(ctx: ConformanceRunContext, text: string) {
         parts: [{ type: "text", text }],
       });
       yield* Effect.sleep("250 millis");
-      const snap = yield* participant.client.snapshot;
+      const snap = yield* participant.notifications.snapshot;
       return snap.some((frame) => containsDeliveredText(frame, text));
     }),
   ).pipe(Effect.catchAll(() => Effect.succeed(false)));
@@ -79,11 +81,15 @@ function acquirePayloadFixture(ctx: ConformanceRunContext) {
   );
 }
 
-function containsDeliveredText(frame: CapturedFrame, text: string): boolean {
-  return (
-    frame.kind === "inbound" &&
-    frame.frame !== null &&
-    isNotificationFrame(frame.frame) &&
-    frame.raw.includes(text)
-  );
+function containsDeliveredText(
+  frame: NotificationDelivery,
+  text: string,
+): boolean {
+  if (
+    !isNotificationDeliveryFor(frame, MessageReceivedNotificationDefinition)
+  ) {
+    return false;
+  }
+  const part = frame.params.message?.parts?.[0];
+  return part?.type === "text" && part.text === text;
 }

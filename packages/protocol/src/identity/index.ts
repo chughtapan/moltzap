@@ -1,30 +1,86 @@
 /**
- * @file Public barrel for identity, agent, contact, and invite protocol descriptors.
+ * @file Public barrel for identity, agent, and contact protocol descriptors.
  */
 
-// Runtime TypeBox schemas for the branded id types. Matches the
-// convention `@moltzap/protocol/task` uses for `AppId` /
-// `ConversationId` etc., so consumers that need to call
-// `Value.Decode(AgentId, raw)` to attach the brand at runtime have a
-// supported import path. The same names also re-export as types
-// below for callers that only need the static `BrandedString` view.
-export { AgentId, ContactId, UserId } from "./methods.js";
+import {
+  AgentId,
+  AgentKey,
+  InviteCode,
+  Register,
+  AgentCardSchema,
+  AgentsList,
+  AgentNotFoundError,
+  validateAgent,
+  validateAgentCard,
+  agentOwnershipSchema,
+} from "./agents/index.js";
+import {
+  ContactId,
+  ContactsList,
+  ContactsAdd,
+  ContactsAccept,
+  ContactRequestNotificationDefinition,
+  ContactAcceptedNotificationDefinition,
+  NotInContactsError,
+  ContactNotFoundError,
+  ContactPolicyAllowsReach,
+} from "./contacts/index.js";
 
 export {
+  AgentId,
+  AgentKey,
+  InviteCode,
   Register,
-  Claim,
-  InviteAgent,
-  AgentsLookup,
-  AgentsLookupByName,
+  AgentCardSchema,
+  AgentsList,
+  AgentNotFoundError,
+  validateAgent,
+  validateAgentCard,
+  agentOwnershipSchema,
+};
+export type { Agent, AgentCard } from "./agents/index.js";
+
+export {
+  AppId,
+  DEFAULT_APP_ID,
+  AppKey,
+  validateAppManifest,
+} from "./apps/index.js";
+export type { AppManifest, AppManifestValidationResult } from "./apps/index.js";
+
+export { UserId } from "./users/index.js";
+
+export {
+  AgentPrincipal,
+  AppPrincipal,
+  AuthenticatedPrincipal,
+} from "./principals/index.js";
+export type { PrincipalRequirement } from "./principals/index.js";
+export { ActiveAgent } from "./requirements/index.js";
+
+export {
+  ContactId,
+  ContactsList,
+  ContactsAdd,
+  ContactsAccept,
+  ContactRequestNotificationDefinition,
+  ContactAcceptedNotificationDefinition,
+  NotInContactsError,
+  ContactNotFoundError,
+  ContactPolicyAllowsReach,
+};
+export type { ContactPolicyAllowsReachValue } from "./contacts/index.js";
+
+/** Identity RPC catalog accepted by agent clients. */
+export const identityRpcMethods = [
   AgentsList,
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactsById,
-  InvitesCreateAgent,
+] as const;
+
+/** Identity notification catalog emitted by the server. */
+export const identityNotifications = [
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
-  NotInContactsError,
-} from "./methods.js";
-
-export type { AgentCard, Contact } from "./methods.js";
+] as const;

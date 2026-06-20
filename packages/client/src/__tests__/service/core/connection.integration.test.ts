@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -9,7 +9,7 @@ H.setupServiceIntegration();
 it("connect() returns HelloOk with agentId", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("svc-agent");
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
 
     expect(service.ownAgentId).toBe(reg.agentId);
     expect(service.connected).toBe(true);
@@ -18,27 +18,25 @@ it("connect() returns HelloOk with agentId", () =>
     yield* reg.client.close();
   }));
 
-it("task/conversation/list returns existing conversations after connect", () =>
+it("agent/conversation/list returns existing conversations after connect", () =>
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("agent-a");
     const regB = yield* H.registerAgent("agent-b");
 
     // Connect agent-a and create a conversation before agent-b connects as service
     yield* regA.client.connect();
-    const conv = yield* regA.client.sendRpc(TaskRequest, {
+    const conv = yield* regA.client.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regB.agentId],
       initialConversation: { participants: [regB.agentId] },
     });
 
-    // Phase 12: HelloOk no longer carries task-layer state (no eager
-    // conversations payload). The service cache populates from
-    // notifications going forward; existing conversations are fetched
-    // explicitly via `task/conversation/list`.
-    const service = yield* H.connectService(regB.apiKey);
+    // The handshake carries no task-layer state. Existing conversations are
+    // fetched explicitly via `agent/conversation/list`.
+    const service = yield* H.connectService(regB.apiKey, regB.agentId);
     expect(service.getConversation(conv.conversation!.id)).toBeUndefined();
 
-    const list = yield* service.sendRpc(H.TaskConversationList, {});
+    const list = yield* service.call(H.ConversationList.name, {});
     const found = list.items.find(
       (c) => c.conversation.id === conv.conversation!.id,
     );
@@ -55,9 +53,12 @@ it("on('message') fires for incoming message from another agent", () =>
     const regReceiver = yield* H.registerAgent("receiver");
 
     yield* regSender.client.connect();
-    const service = yield* H.connectService(regReceiver.apiKey);
+    const service = yield* H.connectService(
+      regReceiver.apiKey,
+      regReceiver.agentId,
+    );
 
-    const conv = yield* regSender.client.sendRpc(TaskRequest, {
+    const conv = yield* regSender.client.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regReceiver.agentId],
       initialConversation: { participants: [regReceiver.agentId] },

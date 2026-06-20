@@ -3,15 +3,15 @@
 /**
  * types — public types for `@moltzap/claude-code-channel`.
  *
- * Principle 2: the values that cross the channel boundary have declared
- * shapes. Principle 3: error channels are typed unions, not thrown strings.
- * Principle 4: every union discriminates on `_tag`.
+ * Values that cross the channel boundary have declared shapes; error
+ * channels are typed unions, not thrown strings; every union
+ * discriminates on `_tag`.
  *
  * Public interfaces and branded boundary values only.
  */
 
 import type { Brand, Effect } from "effect";
-import type { EnrichedInboundMessage } from "@moltzap/client";
+import type { EnrichedInboundMessage } from "@moltzap/client/channel-base";
 import {
   agentId,
   conversationId,
@@ -22,8 +22,8 @@ import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
 import type {
   ConversationId as ProtocolConversationId,
   MessageId as ProtocolMessageId,
-  TaskId as ProtocolTaskId,
-} from "@moltzap/protocol/task";
+} from "@moltzap/protocol/conversation";
+import type { TaskId as ProtocolTaskId } from "@moltzap/protocol/task";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { AllowlistError, PushError } from "./errors.js";
 
@@ -32,8 +32,8 @@ export const CLAUDE_CHANNEL_NOTIFICATION_METHOD =
 
 /**
  * Branded conversation id — corresponds to MoltZap's `conversationId` on the
- * wire, rendered to Claude Code as the contract-meta key `chat_id`.
- * Principle 1: preventing accidental confusion with `MessageId` at call sites.
+ * wire, rendered to Claude Code as the contract-meta key `chat_id`. The brand
+ * prevents accidental confusion with `MessageId` at call sites.
  */
 export type ConversationId = ProtocolConversationId;
 export const ConversationId = conversationId;
@@ -64,9 +64,8 @@ export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
 /**
  * Claude Code channel notification shape.
  *
- * The meta keys are FIXED by Anthropic's channel contract (fakechat
- * reference, server.ts:135-148). Divergence breaks the `&lt;channel&gt;` tag
- * renderer inside Claude Code.
+ * The meta keys are FIXED by Anthropic's channel contract. Divergence
+ * breaks the `&lt;channel&gt;` tag renderer inside Claude Code.
  */
 export interface ClaudeChannelNotification {
   readonly method: typeof CLAUDE_CHANNEL_NOTIFICATION_METHOD;
@@ -83,7 +82,7 @@ export interface ClaudeChannelNotification {
 }
 
 /**
- * `gateInbound` hook — zapbot-parity allowlist seam.
+ * `gateInbound` hook — allowlist seam.
  *
  * Must be pure and synchronous. Returning a failure drops the event;
  * no downstream notification is emitted. No I/O, no mutation.
@@ -122,8 +121,7 @@ export type GateInbound = (
  * logger layers at process boundaries.
  */
 export interface BootOptions {
-  readonly serverUrl: string;
-  readonly agentKey: string;
+  readonly profileName: string;
   readonly gateInbound?: GateInbound;
 
   /**
@@ -147,7 +145,7 @@ export interface BootOptions {
    *
    * Field is prefixed `_` and explicitly tagged "tests-only" because no
    * production caller has reason to override the transport — production
-   * always uses stdio. Reviewer #256: keep this seam narrow.
+   * always uses stdio.
    */
   readonly _testTransportFactory?: () => Transport;
 }
@@ -155,10 +153,10 @@ export interface BootOptions {
 /**
  * Lifecycle handle returned by `bootClaudeCodeChannel`.
  *
- * Principle 3: every operation has a typed error channel. `push` uses
+ * Every operation has a typed error channel. `push` uses
  * `Effect&lt;void, PushError&gt;` so the MCP emit failure surfaces as a tag, not a
- * rejected Promise. `stop` is infallible-by-design (teardown swallows
- * downstream errors into logs per spec I8).
+ * rejected Promise. `stop` is infallible-by-design: teardown swallows
+ * downstream errors into logs.
  */
 export interface Handle {
   readonly push: (

@@ -1,18 +1,21 @@
 import { it as effectIt } from "@effect/vitest";
-import { RpcServerError, type Message } from "@moltzap/protocol";
-import type { LeaseId } from "@moltzap/protocol/task";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
+import type { Message } from "@moltzap/protocol/message";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 
 import {
   MoltZapChannelCore,
   type ChannelService,
-  type CrossConversationEntry,
   type DispatchAdmissionDecision,
   type DispatchAdmissionRequest,
   type DispatchReleaseFrame,
   type EnrichedInboundMessage,
-  type ServiceRpcError,
-} from "./index.js";
+} from "./channel-core.js";
+import type { CrossConversationEntry, ServiceRpcError } from "./service.js";
 import {
   buildMessage,
   createFakeChannelService,
@@ -27,7 +30,7 @@ import {
 
 export {
   MoltZapChannelCore,
-  RpcServerError,
+  ForbiddenError,
   buildMessage,
   createFakeChannelService,
   flushDispatchChainEffect,
@@ -62,15 +65,15 @@ export class TestInboundHandlerError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-type LegacyAdmissionRequest = DispatchAdmissionRequest;
+type AdmissionRequest = DispatchAdmissionRequest;
 
 const FALLBACK_RECEIVED_AT = "1970-01-01T00:00:00.000Z";
 const LEASE_MOCK_PREFIX = "lease-mock";
 const DISPATCH_MOCK_PREFIX = "dispatch-mock";
 
-const legacyAdmissionRequest = (
+const admissionRequest = (
   params: Parameters<NonNullable<ChannelService["requestDispatch"]>>[0],
-): LegacyAdmissionRequest => ({
+): AdmissionRequest => ({
   message: {
     id: params.messageId as Message["id"],
     conversationId: params.conversationId as Message["conversationId"],
@@ -82,8 +85,7 @@ const legacyAdmissionRequest = (
   senderAgentId: params.senderAgentId,
   attempt: params.attempt ?? 0,
   receivedAt: params.receivedAt ?? FALLBACK_RECEIVED_AT,
-  clock: params.clock as LegacyAdmissionRequest["clock"],
-  pending: (params.pending ?? []) as LegacyAdmissionRequest["pending"],
+  pending: (params.pending ?? []) as AdmissionRequest["pending"],
 });
 
 const grantVerdict = (
@@ -148,12 +150,12 @@ const dispatchIdForCounter = (counter: number): string =>
 export function installAdmission(
   fake: FakeChannelService,
   decide: (
-    request: LegacyAdmissionRequest,
+    request: AdmissionRequest,
   ) => Effect.Effect<DispatchAdmissionDecision, ServiceRpcError>,
 ): void {
   let counter = 0;
   fake.service.requestDispatch = (params) =>
-    decide(legacyAdmissionRequest(params)).pipe(
+    decide(admissionRequest(params)).pipe(
       Effect.map((decision) => {
         counter += 1;
         const leaseId = leaseIdForDecision(decision, counter);
@@ -168,10 +170,11 @@ export function installAdmission(
     );
 }
 
-export const agent = testAgentId;
-export const conversation = testConversationId;
-export const message = testMessageId;
-export const task = testTaskId;
+export const agent: (agentLabel: string) => AgentId = testAgentId;
+export const conversation: (conversationLabel: string) => ConversationId =
+  testConversationId;
+export const message: (messageLabel: string) => MessageId = testMessageId;
+export const task: (taskLabel: string) => TaskId = testTaskId;
 export { testLeaseId };
 export const participant = (agentLabel: string): string =>
   "agent:" + agent(agentLabel);

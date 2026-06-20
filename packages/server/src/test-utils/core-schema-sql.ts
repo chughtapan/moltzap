@@ -91,8 +91,8 @@ export function loadCoreSchemaSql(): Effect.Effect<
 > {
   if (cachedSchemaSql !== null) return Effect.succeed(cachedSchemaSql);
 
-  const srcPath = join(__dirname, "..", "app", "core-schema.sql");
-  const distPath = join(__dirname, "..", "..", "src", "app", "core-schema.sql");
+  const srcPath = join(__dirname, "..", "db", "core-schema.sql");
+  const distPath = join(__dirname, "..", "..", "src", "db", "core-schema.sql");
   const attemptedPaths = [srcPath, distPath] as const;
 
   return FileSystem.FileSystem.pipe(

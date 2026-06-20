@@ -28,8 +28,35 @@ const packageIgnores = {
   ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts"],
 };
 
+// The `max-non-trivial-classes-per-file` default exemption list covers
+// Effect's own tag-class factories (`Context.Tag`, `Data.TaggedError`, ...) but
+// not `@effect/rpc`'s `RpcMiddleware.Tag`, which is the same kind of factory:
+// `class X extends RpcMiddleware.Tag<X>()(name, opts) {}` declares a zero-body
+// Tag, not a real implementation. The per-method `AuthMiddleware` descriptors
+// are one such Tag per method, co-located by design, so the factory is added to
+// the exemption list workspace-wide.
+const TAG_CLASS_FACTORIES = [
+  "Data.TaggedError",
+  "Data.TaggedClass",
+  "Data.Class",
+  "Data.Error",
+  "Schema.Class",
+  "Schema.TaggedClass",
+  "Schema.TaggedError",
+  "Schema.TaggedRequest",
+  "Context.Tag",
+  "Context.Reference",
+  "Effect.Service",
+  "Effect.Tag",
+  "RpcMiddleware.Tag",
+];
+
 const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   ...guard.configs.strict.rules,
+  "agent-code-guard/max-non-trivial-classes-per-file": [
+    "error",
+    { max: 1, factories: TAG_CLASS_FACTORIES },
+  ],
   "max-lines": [
     "error",
     { max: maxLines, skipBlankLines: true, skipComments: true },
@@ -133,6 +160,11 @@ const architectureSettings = {
         {
           subpath: "./test-support",
           reason: "Channel test support exposed for integration tests",
+        },
+        {
+          subpath: "./testing",
+          reason:
+            "Conformance + driver surface for cross-package integration testing; consumed by moltzap-arena. The 5 protocol domain subpaths (./transport ./identity ./network ./task ./app) mirror the enforced layer DAG; ./testing is the one sanctioned test-only public subpath.",
         },
       ],
     },

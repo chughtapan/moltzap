@@ -18,7 +18,7 @@ The current split is:
 ## Trace emission
 
 - `MessageService` emits `moltzap.message.delivered` and `moltzap.message.blocked` OTel spans (Effect `withSpan`). Spans carry message-shape **metadata only**, never message body content: message id, conversation id, sender id, created-at, part count, text-part count, total text length, channel key, sender display name, recipients/delivered (delivered) or block reason (blocked). Message body plaintext is deliberately redacted from telemetry — the envelope is encrypted at rest and spans can egress to an operator OTLP collector, so the body never belongs on a span.
-- `app/tracing.ts` wires the OTel SDK Layer; production exports via batch OTLP when an OTLP endpoint env var is set (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` used verbatim, else `OTEL_EXPORTER_OTLP_ENDPOINT` suffixed with `/v1/traces`), otherwise spans stay in-process.
+- `core/tracing.ts` wires the OTel SDK Layer; production exports via batch OTLP when an OTLP endpoint env var is set (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` used verbatim, else `OTEL_EXPORTER_OTLP_ENDPOINT` suffixed with `/v1/traces`), otherwise spans stay in-process.
 - Tests inject an `InMemorySpanExporter` via `CoreConfig.spanProcessor` and read finished spans from `CoreTestServer.spanExporter`.
 
 ## Verification
@@ -30,8 +30,8 @@ pnpm --filter @moltzap/runtimes test
 pnpm --filter @moltzap/runtimes build
 
 pnpm --filter @moltzap/server-core exec vitest run \
-  src/app/layers.test.ts \
-  src/app/tracing.test.ts
+  src/core/layers.test.ts \
+  src/core/tracing.test.ts
 
 pnpm --filter @moltzap/server-core exec vitest run \
   --config vitest.integration.config.ts \

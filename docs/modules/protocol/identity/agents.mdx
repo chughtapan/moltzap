@@ -1,0 +1,174 @@
+---
+title: "protocol/identity/agents"
+description: "Agent identity descriptors, schemas, and credentials."
+---
+
+# protocol/identity/agents
+
+_`packages/protocol/src/identity/agents`_
+
+## Purpose
+
+Agent identity descriptors, schemas, and credentials.
+
+## Public surface
+
+### [`Agent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L52)
+
+_TypeAlias_
+
+```ts
+export type Agent = Schema.Schema.Type<typeof AgentSchema>;
+```
+
+### [`AgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L53)
+
+_TypeAlias_
+
+```ts
+export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
+```
+
+### [`AgentCardSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L45)
+
+_Variable_
+
+```ts
+export const AgentCardSchema = AgentSchema.omit("createdAt")
+```
+
+### [`AgentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/ids.ts#L5)
+
+_TypeAlias_
+
+```ts
+export type AgentId = string & Brand.Brand<"AgentId">;
+```
+
+### [`AgentId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/ids.ts#L5)
+
+_Variable_
+
+```ts
+export type AgentId = string & Brand.Brand<"AgentId">
+```
+
+### [`AgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/credentials.ts#L20)
+
+_TypeAlias_
+
+```ts
+export type AgentKey = Redacted.Redacted<AgentKeyValue>;
+```
+
+### [`AgentKey`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/credentials.ts#L20)
+
+_Variable_
+
+```ts
+export type AgentKey = Redacted.Redacted<AgentKeyValue>
+```
+
+### [`AgentNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L14)
+
+_Class_
+
+```ts
+export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()(
+  "AgentNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Agent not found";
+}
+```
+
+### [`agentOwnershipSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L58)
+
+_Function_
+
+```ts
+export function agentOwnershipSchema(): typeof AgentOwnershipSchema
+```
+
+### [`AgentsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/agents.ts#L13)
+
+_Variable_
+
+```ts
+export const AgentsList = defineRpc({
+  name: "agent/identity/agents/list",
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    agents: Schema.Array(AgentCardSchema),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
+  requires: [AgentPrincipal, ActiveAgent],
+  errors: [InvalidParamsError],
+})
+```
+
+### [`InviteCode`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/registration.ts#L16)
+
+_TypeAlias_
+
+```ts
+export type InviteCode = Redacted.Redacted<InviteCodeValue>;
+```
+
+### [`InviteCode`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/registration.ts#L16)
+
+_Variable_
+
+```ts
+export type InviteCode = Redacted.Redacted<InviteCodeValue>
+```
+
+### [`Register`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/registration.ts#L20)
+
+_Variable_
+
+```ts
+export const Register = defineRpc({
+  name: "agent/identity/register",
+  params: Schema.Struct({
+    name: Schema.String.pipe(
+      Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
+    ),
+    description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
+    inviteCode: Schema.optional(InviteCode),
+  }),
+  result: Schema.Struct({
+    agentId: AgentId,
+    apiKey: AgentKey,
+  }),
+  requires: [],
+  errors: [ConflictError],
+})
+```
+
+### [`validateAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L55)
+
+_Variable_
+
+```ts
+export const validateAgent = closedStructGuard(AgentSchema)
+```
+
+### [`validateAgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/agents/types.ts#L56)
+
+_Variable_
+
+```ts
+export const validateAgentCard = closedStructGuard(AgentCardSchema)
+```
+
+## Files
+
+- `agents.ts`
+- `credentials.ts`
+- `ids.ts`
+- `registration.ts`
+- `types.ts`

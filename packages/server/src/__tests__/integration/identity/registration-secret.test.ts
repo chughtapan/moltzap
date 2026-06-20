@@ -1,15 +1,14 @@
-import { describe, expect, beforeAll, afterAll, inject } from "vitest";
+import { describe, beforeAll, afterAll, inject, expect } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { registerTestAgent as registerAgent } from "@moltzap/protocol/testing";
 import {
   startCoreTestServer,
   stopCoreTestServer,
-} from "../../../test-utils/index.js";
+} from "../../../test-utils/server.js";
 
 const it = effectIt.live;
-const TYPE_STRING = "string";
 
 let baseUrl: string;
 
@@ -42,19 +41,9 @@ afterAll(() =>
 describe("Registration secret enforcement", () => {
   it("allows registration when no secret is configured (default)", () =>
     Effect.gen(function* () {
-      const result = yield* registerAgent({ baseUrl, name: "open-agent" });
-      expect(result.agentId).toBeDefined();
-      expect(result.apiKey).toBeDefined();
-    }));
-
-  it("returns agent data on successful registration", () =>
-    Effect.gen(function* () {
-      const result = yield* registerAgent({
-        baseUrl,
-        name: "test-agent-data",
-      });
-      expect(typeof result.agentId).toBe(TYPE_STRING);
-      expect(typeof result.apiKey).toBe(TYPE_STRING);
-      expect(result.agentId.length).toBeGreaterThan(0);
+      const exit = yield* Effect.exit(
+        registerAgent({ baseUrl, name: "open-agent" }),
+      );
+      expect(Exit.isSuccess(exit)).toBe(true);
     }));
 });

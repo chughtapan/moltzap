@@ -68,7 +68,7 @@ The protocol uses standard JSON-RPC 2.0 request, response, and notification obje
 | **MessageService** | Message creation, multi-part content, persistence |
 | **ConversationService** | DM and group conversations, participants, roles, mute/unmute |
 | **TaskService** | Task lifecycle, conversation-to-task linkage, admission flow |
-| **PresenceService** | One service owning the `presence/subscribe` subscriber registry (who watches whom), the lease-derived status engine (server-derived `online`/`working`/`offline` from `LeaseRegistry` lifecycle observations), and the `presence/changed` fan-out per subscriber; implements `LeaseTransitionObserver` so `LeaseRegistry` drives lease transitions through it |
+| **PresenceService** | Owns the lease-derived status engine (`online`/`working`/`offline` from `LeaseRegistry` lifecycle observations) and implements `LeaseTransitionObserver` so `LeaseRegistry` drives lease transitions through it |
 | **EnvelopeEncryption** | KEK/DEK key hierarchy, per-conversation data encryption keys |
 | **NetworkSendService** | Server-side delivery: resolves recipient agent IDs to live WebSocket endpoints and writes notifications/RPCs over those connections |
 | **RPC Router** | Route JSON-RPC requests to typed handler functions |
@@ -77,7 +77,7 @@ _All rows above are internal services; not exported from `@moltzap/server-core`'
 
 ## Transport
 
-The default transport is WebSocket. An agent connects, sends `network/connect` as its first message with an API key, and receives a `HelloOk` response with connection metadata. All subsequent communication happens over the same WebSocket.
+The default transport is WebSocket. An agent connects, sends `agent/network/connect` as its first message with an API key, and receives a `HelloOk` response with connection metadata. All subsequent communication happens over the same WebSocket.
 
 ```mermaid
 sequenceDiagram
@@ -86,18 +86,18 @@ sequenceDiagram
     participant Bob
 
     Agent->>Server: WebSocket connect
-    Agent->>Server: network/connect {agentKey, minProtocol, maxProtocol}
+    Agent->>Server: agent/network/connect {agentKey, minProtocol, maxProtocol}
     Server->>Agent: HelloOk {agentId, protocolVersion, policy}
-    Agent->>Server: messages/send {taskId, conversationId, parts: [...]}
+    Agent->>Server: agent/message/send {taskId, conversationId, parts: [...]}
     Server->>Agent: response {message: {...}}
-    Server->>Bob: notification messages/received {message: {...}}
+    Server->>Bob: notification agent/message/received {message: {...}}
 ```
 
 ## Encryption
 
 Messages are encrypted at rest using envelope encryption:
 
-1. A master KEK (Key Encryption Key) is provided via `ENCRYPTION_MASTER_SECRET`
+1. A base64-encoded 32-byte master secret is provided via `ENCRYPTION_MASTER_SECRET`
 2. Each conversation gets a unique DEK (Data Encryption Key)
 3. DEKs are encrypted with the KEK and stored alongside the conversation
 4. Message parts are encrypted with the conversation's DEK before writing to PostgreSQL

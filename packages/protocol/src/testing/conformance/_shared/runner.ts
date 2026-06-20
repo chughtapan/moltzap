@@ -1,21 +1,19 @@
 /**
- * Conformance-suite runner.
+ * Conformance run-context acquisition.
  *
- * Orchestrates tiers A → E under one entrypoint so
- * the protocol package's `test:conformance` script is the only command a
- * CI job needs (AC11).
- *
- * Responsibilities:
- *   - receive a real MoltZap server handle (built externally to preserve
- *     AC13 one-way imports);
+ * `acquireRunContext` assembles the per-run dependencies under one Scope:
+ *   - receive a real MoltZap server handle (built externally so the
+ *     protocol package keeps its one-way import direction — no
+ *     compile-time dependency on `packages/server`);
  *   - build a Toxiproxy client when Tier D is in scope;
- *   - pin fast-check seeds and export them on failure (AC10);
- *   - tear everything down in reverse order.
+ *   - pin the fast-check seed so a failing run can be replayed;
+ *   - tear everything down in reverse order via the Scope's finalizers.
  */
-import { Config, ConfigProvider, Effect, Ref, type Scope } from "effect";
+import { Config, ConfigProvider, Effect, type Scope } from "effect";
 import {
   makeToxiproxyClient,
   type ToxiproxyClient,
+  type ToxiproxyNetworkConfig,
 } from "../../toxics/client.js";
 import { RealServerAcquireError } from "./errors.js";
 import { ToxicControlError } from "../../toxics/errors.js";
@@ -55,6 +53,7 @@ export interface ConformanceRunOptions {
   readonly manageToxiproxy?: boolean;
   /** Toxiproxy control URL — defaults to `http://127.0.0.1:8474`. */
   readonly toxiproxyUrl?: string;
+  readonly toxiproxyNetwork?: ToxiproxyNetworkConfig;
   /** Output directory for seed + toxic-config dump on failure. */
   readonly artifactDir?: string;
 }
@@ -65,22 +64,6 @@ export interface ConformanceRunContext {
   readonly opts: ConformanceRunOptions;
   /** Seed to pin every property to. Exported on failure for replay. */
   readonly seed: number;
-
-  /**
-   * Per-property artifact sink. The tier modules call `record` to stash a
-   * seed + toxic profile when a property fails; the suite post-process
-   * writes to `opts.artifactDir`.
-   */
-  readonly artifacts: Ref.Ref<ReadonlyArray<ConformanceArtifact>>;
-}
-
-export interface ConformanceArtifact {
-  readonly tierId: string;
-  readonly propId: string;
-  readonly seed: number;
-  readonly toxicProfile?: string;
-  readonly commandSequence?: ReadonlyArray<unknown>;
-  readonly captures?: ReadonlyArray<unknown>;
 }
 
 /**
@@ -100,7 +83,6 @@ export function acquireRunContext(
       numRuns: opts.numRuns ?? conformanceNumRunsFromEnv(),
     };
     const seed = effectiveOpts.replaySeed ?? (yield* loadFastCheckSeed);
-    const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
 
     const realServer = yield* opts.realServer;
     yield* Effect.addFinalizer(() =>
@@ -110,7 +92,10 @@ export function acquireRunContext(
     let toxiproxy: ToxiproxyClient | null = null;
     if (effectiveOpts.tiers.includes("D")) {
       const url = effectiveOpts.toxiproxyUrl ?? "http://127.0.0.1:8474";
-      toxiproxy = yield* makeToxiproxyClient({ apiUrl: url });
+      toxiproxy = yield* makeToxiproxyClient({
+        apiUrl: url,
+        network: effectiveOpts.toxiproxyNetwork,
+      });
       yield* toxiproxy.ping.pipe(Effect.retry({ times: 10 }));
     }
 
@@ -119,21 +104,6 @@ export function acquireRunContext(
       toxiproxy,
       opts: effectiveOpts,
       seed,
-      artifacts,
     } satisfies ConformanceRunContext;
   }).pipe(Effect.withSpan("acquireRunContext"));
-}
-
-/**
- * Entry point the runner script calls. Iterates `opts.tiers` and writes a
- * summary line per tier; the actual properties register themselves with
- * Vitest via each tier module's `register*` functions — so this only
- * orchestrates output + seed plumbing.
- */
-export function runConformance(
-  ctx: ConformanceRunContext,
-): Effect.Effect<void> {
-  return Effect.logInfo(
-    `[conformance] seed=${ctx.seed} tiers=${ctx.opts.tiers.join(",")} toxiproxy=${ctx.toxiproxy !== null}`,
-  );
 }

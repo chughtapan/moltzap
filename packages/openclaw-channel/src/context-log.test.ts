@@ -1,7 +1,8 @@
 import { FileSystem, Path } from "@effect/platform";
+import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, ParseResult, Schema } from "effect";
 import { afterEach, describe, expect, vi } from "vitest";
 
 import { writeOpenClawContextLog } from "./context-log.js";
@@ -127,7 +128,7 @@ function readSingleContextLogEntry(
   logDir: string,
 ): Effect.Effect<
   ContextLogEntry,
-  ContextLogTestError | Schema.Schema.TypeError<typeof ContextLogEntrySchema>,
+  ContextLogTestError | ParseResult.ParseError | PlatformError,
   FileSystem.FileSystem | Path.Path
 > {
   return Effect.gen(function* () {
@@ -162,6 +163,6 @@ function readSingleContextLogEntry(
 
 function withNodeContext<A, E, R>(
   effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, Exclude<R, FileSystem.FileSystem | Path.Path>> {
+): Effect.Effect<A, E, Exclude<R, NodeContext.NodeContext>> {
   return effect.pipe(Effect.provide(NodeContext.layer));
 }

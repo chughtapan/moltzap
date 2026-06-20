@@ -1,5 +1,5 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import {
   awaitOneNotification,
   it,
@@ -10,11 +10,8 @@ import {
 } from "../helpers.js";
 import type { ConnectedAgent } from "../helpers.js";
 
-import {
-  DEFAULT_APP_ID,
-  TaskConversationCreatedNotificationDefinition,
-  TaskRequest,
-} from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { ConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
 
 const GROUP_NAME = "Eval Group";
 
@@ -24,7 +21,7 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-it("group creation notifies all participants with task/conversation/created event", () =>
+it("group creation notifies all participants with app/conversation/created event", () =>
   Effect.gen(function* () {
     const { agents } = yield* setupAgentGroup(3);
     const [alice, bob, eve] = agents as [
@@ -33,7 +30,18 @@ it("group creation notifies all participants with task/conversation/created even
       ConnectedAgent,
     ];
 
-    // Set up event waiters on Bob and Eve BEFORE creating the group
+    const bobCreatedFiber = yield* Effect.fork(
+      awaitOneNotification(
+        bob.client,
+        ConversationCreatedNotificationDefinition,
+      ),
+    );
+    const eveCreatedFiber = yield* Effect.fork(
+      awaitOneNotification(
+        eve.client,
+        ConversationCreatedNotificationDefinition,
+      ),
+    );
 
     const conv = yield* alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
@@ -46,14 +54,8 @@ it("group creation notifies all participants with task/conversation/created even
 
     expect(conv.conversation!.name).toBe(GROUP_NAME);
 
-    const bobCreated = yield* awaitOneNotification(
-      bob.client,
-      TaskConversationCreatedNotificationDefinition,
-    );
-    const eveCreated = yield* awaitOneNotification(
-      eve.client,
-      TaskConversationCreatedNotificationDefinition,
-    );
+    const bobCreated = yield* Fiber.join(bobCreatedFiber);
+    const eveCreated = yield* Fiber.join(eveCreatedFiber);
 
     expect(bobCreated.params.conversationId).toBe(conv.conversation!.id);
     expect(eveCreated.params.conversationId).toBe(conv.conversation!.id);

@@ -15,15 +15,19 @@
 
 import { afterAll, beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Data, Effect } from "effect";
-import { MoltZapChannelCore, MoltZapService } from "@moltzap/client";
-import { type Message } from "@moltzap/protocol";
+import { Data, Effect, Schema } from "effect";
+import { MoltZapService } from "@moltzap/client";
+import { withTestServiceConfig } from "@moltzap/client/test-utils";
+import { AgentKey } from "@moltzap/protocol/identity";
+import type { Message } from "@moltzap/protocol/message";
 import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
-import { MoltZapChannel } from "../channels/moltzap.js";
+import { makeMoltZapChannel, MoltZapChannel } from "../channels/moltzap.js";
+import type { ChannelOpts } from "../channels/registry.js";
 import type { NewMessage, RegisteredGroup } from "../types.js";
 
 class EchoIntegrationError extends Data.TaggedError("EchoIntegrationError")<{
@@ -33,8 +37,8 @@ class EchoIntegrationError extends Data.TaggedError("EchoIntegrationError")<{
 
 interface InjectedConfig {
   readonly wsUrl: string;
-  readonly channelApiKey: string;
-  readonly peerApiKey: string;
+  readonly channelApiKey: AgentKey;
+  readonly peerApiKey: AgentKey;
   readonly channelAgentId: AgentId;
   readonly peerAgentId: AgentId;
 }
@@ -66,6 +70,7 @@ const PING_ONE = "ping-one";
 const PING_TWO = "ping-two";
 const TEXT_TYPE = "text";
 const ECHO_PREFIX = "echo-";
+const CHANNEL_PROFILE_NAME = "channel-agent";
 
 let h: Harness;
 
@@ -76,11 +81,15 @@ function injectString(key: string): string {
 function injectedConfig(): InjectedConfig {
   return {
     wsUrl: injectString("moltzapWsUrl"),
-    channelApiKey: injectString("agentAApiKey"),
-    peerApiKey: injectString("agentBApiKey"),
+    channelApiKey: decodeInjectedAgentKey("agentAApiKey"),
+    peerApiKey: decodeInjectedAgentKey("agentBApiKey"),
     channelAgentId: makeAgentId(injectString("agentAAgentId")),
     peerAgentId: makeAgentId(injectString("agentBAgentId")),
   };
+}
+
+function decodeInjectedAgentKey(key: string): AgentKey {
+  return Schema.decodeUnknownSync(AgentKey)(injectString(key));
 }
 
 function tryPromise<A>(
@@ -131,14 +140,10 @@ function makeChannel(
   config: InjectedConfig,
   inboundMessages: NewMessage[],
   chatMetadata: ChatMetadataCapture[],
-): MoltZapChannel {
-  const channelService = new MoltZapService({
-    serverUrl: config.wsUrl,
-    agentKey: config.channelApiKey,
-  });
-  const core = new MoltZapChannelCore({ service: channelService });
-  const channel = new MoltZapChannel(
-    {
+): Effect.Effect<MoltZapChannel, unknown> {
+  return Effect.gen(function* () {
+    let channel: MoltZapChannel;
+    const opts: ChannelOpts = {
       onMessage: (chatJid, msg) => {
         inboundMessages.push(msg);
         autoEcho(channel, chatJid, msg.content);
@@ -147,12 +152,19 @@ function makeChannel(
         chatMetadata.push(meta);
       },
       registeredGroups: emptyRegisteredGroups,
-    },
-    core,
-    config.channelAgentId,
-    false,
-  );
-  return channel;
+    };
+    channel = yield* withTestServiceConfig(
+      {
+        agentId: config.channelAgentId,
+        agentKey: config.channelApiKey,
+        serverUrl: config.wsUrl,
+        profileName: CHANNEL_PROFILE_NAME,
+        agentName: CHANNEL_PROFILE_NAME,
+      },
+      makeMoltZapChannel({ ...opts, profileName: CHANNEL_PROFILE_NAME }, false),
+    );
+    return channel;
+  });
 }
 
 function autoEcho(
@@ -183,15 +195,22 @@ function emptyRegisteredGroups(): Record<string, RegisteredGroup> {
 function bootPeerService(
   config: InjectedConfig,
   peerInbox: Message[],
-): MoltZapService {
-  const peerService = new MoltZapService({
-    serverUrl: config.wsUrl,
-    agentKey: config.peerApiKey,
-  });
-  peerService.on("message", ({ message: msg }) => {
-    peerInbox.push(msg);
-  });
-  return peerService;
+): Effect.Effect<MoltZapService, unknown> {
+  return Effect.succeed(
+    MoltZapService.fromConfig({
+      agentId: config.peerAgentId,
+      agentKey: config.peerApiKey,
+      serverUrl: config.wsUrl,
+    }),
+  ).pipe(
+    Effect.tap((peerService) =>
+      Effect.sync(() => {
+        peerService.on("message", ({ message: msg }) => {
+          peerInbox.push(msg);
+        });
+      }),
+    ),
+  );
 }
 
 function createDm(
@@ -202,7 +221,7 @@ function createDm(
   EchoIntegrationError
 > {
   return peerService
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },
@@ -224,6 +243,20 @@ function createDm(
     );
 }
 
+function connectPeerService(
+  peerService: MoltZapService,
+): Effect.Effect<void, EchoIntegrationError> {
+  return peerService.connect().pipe(
+    Effect.mapError(
+      (cause) =>
+        new EchoIntegrationError({
+          operation: "peerService.connect",
+          cause,
+        }),
+    ),
+  );
+}
+
 function makeHarness(
   config: InjectedConfig,
 ): Effect.Effect<Harness, EchoIntegrationError> {
@@ -231,18 +264,24 @@ function makeHarness(
     const inboundMessages: NewMessage[] = [];
     const chatMetadata: ChatMetadataCapture[] = [];
     const peerInbox: Message[] = [];
-    const channel = makeChannel(config, inboundMessages, chatMetadata);
-    yield* tryPromise("channel.connect", () => channel.connect());
-    const peerService = bootPeerService(config, peerInbox);
-    yield* peerService.connect().pipe(
+    const channel = yield* makeChannel(
+      config,
+      inboundMessages,
+      chatMetadata,
+    ).pipe(
       Effect.mapError(
         (cause) =>
-          new EchoIntegrationError({
-            operation: "peerService.connect",
-            cause,
-          }),
+          new EchoIntegrationError({ operation: "makeChannel", cause }),
       ),
     );
+    yield* tryPromise("channel.connect", () => channel.connect());
+    const peerService = yield* bootPeerService(config, peerInbox).pipe(
+      Effect.mapError(
+        (cause) =>
+          new EchoIntegrationError({ operation: "bootPeerService", cause }),
+      ),
+    );
+    yield* connectPeerService(peerService);
     const { taskId, conversationId } = yield* createDm(
       peerService,
       config.channelAgentId,

@@ -4,37 +4,27 @@
  * Stdio MCP-server entry — what Claude Code (`claude --mcp-config ...`)
  * subprocess-spawns to bring this channel online.
  *
- * Reads the moltzap connection config from environment variables (the
- * MCP config's `env:` block sets these), calls `bootClaudeCodeChannel`,
+ * Lets the MoltZap client load its connection config, calls
+ * `bootClaudeCodeChannel`,
  * and holds the process open. stdin/stdout speak MCP JSON-RPC for the
  * `claude` parent; stderr carries diagnostic logs so the parent's stdout
  * isn't corrupted.
  *
  * Environment contract:
- *   MOLTZAP_API_KEY    — agent api key (required)
- *   MOLTZAP_SERVER_URL — moltzap server url (required, http(s)://host[:port] form)
+ *   MOLTZAP_PROFILE — named MoltZap profile to load (required)
  *   MOLTZAP_SERVER_NAME — optional MCP server name override (defaults to package default)
  *
  * Failure modes exit with code 1 and a diagnostic line on stderr.
  */
 import { bootClaudeCodeChannel } from "./entry.js";
-import {
-  Config,
-  ConfigError,
-  Data,
-  Effect,
-  Logger,
-  Option,
-  Redacted,
-} from "effect";
+import { Config, ConfigError, Data, Effect, Logger, Option } from "effect";
 
 class ChannelMainError extends Data.TaggedError("ChannelMainError")<{
   readonly cause: unknown;
 }> {}
 
 interface RuntimeConfig {
-  readonly apiKey: string;
-  readonly serverUrl: string;
+  readonly profileName: string;
   readonly serverName?: string;
 }
 
@@ -43,25 +33,12 @@ function loadRuntimeConfig(): Effect.Effect<
   ConfigError.ConfigError
 > {
   return Effect.gen(function* () {
-    const redactedApiKey = yield* Config.redacted("MOLTZAP_API_KEY").pipe(
-      Config.validate({
-        message: "MOLTZAP_API_KEY env var is required",
-        validation: (value) => Redacted.value(value).length > 0,
-      }),
-    );
-    const apiKey = Redacted.value(redactedApiKey);
-    const serverUrl = yield* Config.string("MOLTZAP_SERVER_URL").pipe(
-      Config.validate({
-        message: "MOLTZAP_SERVER_URL env var is required",
-        validation: (value) => value.length > 0,
-      }),
-    );
+    const profileName = yield* Config.string("MOLTZAP_PROFILE");
     const serverName = Option.getOrUndefined(
       yield* Config.option(Config.string("MOLTZAP_SERVER_NAME")),
     );
     return {
-      apiKey,
-      serverUrl,
+      profileName,
       ...(serverName === undefined || serverName.length === 0
         ? {}
         : { serverName }),
@@ -80,12 +57,11 @@ function main(): Effect.Effect<
   never
 > {
   return Effect.gen(function* () {
-    const { apiKey, serverUrl, serverName } = yield* loadRuntimeConfig();
+    const { profileName, serverName } = yield* loadRuntimeConfig();
     const result = yield* Effect.tryPromise({
       try: () =>
         bootClaudeCodeChannel({
-          serverUrl,
-          agentKey: apiKey,
+          profileName,
           ...(serverName === undefined ? {} : { serverName }),
         }),
       catch: (cause) => new ChannelMainError({ cause }),
@@ -109,7 +85,8 @@ function main(): Effect.Effect<
 function startupFailureCause(
   err: ChannelMainError | ConfigError.ConfigError,
 ): string {
-  return err instanceof ChannelMainError ? String(err.cause) : String(err);
+  if (err instanceof ChannelMainError) return String(err.cause);
+  return String(err);
 }
 
 function logStartupFailure(

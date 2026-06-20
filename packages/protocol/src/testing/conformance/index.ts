@@ -1,13 +1,16 @@
 /**
  * @file Public barrel for the protocol conformance framework.
  */
+import * as transport from "./transport/index.js";
+import * as identity from "./identity/index.js";
+import * as network from "./network/index.js";
+import * as task from "./task/index.js";
+import * as app from "./app/index.js";
+
 export {
-  type ConformanceArtifact,
   type ConformanceRunContext,
   type ConformanceRunOptions,
   type RealServerHandle,
-  acquireRunContext,
-  runConformance,
 } from "./_shared/runner.js";
 export {
   type PropertyCategory,
@@ -15,18 +18,12 @@ export {
   type PropertyRun,
   type RegisteredProperty,
   PropertyAssertionFailure,
-  PropertyDeferred,
   PropertyInvariantViolation,
   PropertyUnavailable,
   assertProperty,
   collectProperties,
   registerProperty,
 } from "./_shared/registry.js";
-export * as transport from "./transport/index.js";
-export * as identity from "./identity/index.js";
-export * as network from "./network/index.js";
-export * as task from "./task/index.js";
-export * as app from "./app/index.js";
 export {
   type ConformanceSuiteOptions,
   type SuiteResult,
@@ -34,3 +31,4 @@ export {
   runAllProperties,
   runConformanceSuite,
 } from "./_shared/suite.js";
+export { transport, identity, network, task, app };

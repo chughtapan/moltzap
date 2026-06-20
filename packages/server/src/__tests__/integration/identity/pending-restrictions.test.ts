@@ -1,6 +1,5 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect, Exit } from "effect";
-import { PROTOCOL_VERSION } from "@moltzap/protocol";
 import {
   it,
   startTestServerEffect,
@@ -8,23 +7,21 @@ import {
   resetTestDbEffect,
   registerAndConnect,
   getKyselyDb,
-  registerAgent,
+  createTestAgent,
   connectTestClient,
 } from "../helpers.js";
 
-import { Connect, TaskConversationList } from "@moltzap/protocol";
+import { ConversationList } from "@moltzap/protocol/conversation";
 
 const SUSPENDED_STATUS = "suspended";
 const AUTHENTICATION_FAILED_MESSAGE = "Authentication failed";
 
-let baseUrl: string;
 let wsUrl: string;
 
 beforeAll(() =>
   Effect.runPromise(
     Effect.gen(function* () {
       const server = yield* startTestServerEffect();
-      baseUrl = server.baseUrl;
       wsUrl = server.wsUrl;
     }),
   ),
@@ -36,7 +33,7 @@ beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 it("suspended agent cannot connect", () =>
   Effect.gen(function* () {
-    const reg = yield* registerAgent(baseUrl, "suspend-agent");
+    const reg = yield* createTestAgent("suspend-agent");
 
     // Suspend the agent via DB
     const db = getKyselyDb();
@@ -48,23 +45,14 @@ it("suspended agent cannot connect", () =>
         .execute(),
     );
 
-    // Cannot connect
-    const client = yield* connectTestClient({
-      wsUrl,
-      agentId: reg.agentId,
-      apiKey: reg.apiKey,
-      autoConnect: false,
-    });
     const result = yield* Effect.exit(
-      client.sendRpc(Connect, {
-        agentKey: reg.apiKey,
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
+      connectTestClient({
+        wsUrl,
+        agentId: reg.agentId,
+        apiKey: reg.apiKey,
       }),
     );
     expectFailureCauseContains(result, AUTHENTICATION_FAILED_MESSAGE);
-
-    yield* client.close();
   }));
 
 it("active agent works normally after registration", () =>
@@ -72,7 +60,7 @@ it("active agent works normally after registration", () =>
     const { client } = yield* registerAndConnect("active-agent");
 
     // Should work immediately — agents are active on registration in core
-    const result = yield* client.sendRpc(TaskConversationList, {});
+    const result = yield* client.sendRpc(ConversationList, {});
     expect(result.items).toEqual([]);
 
     yield* client.close();

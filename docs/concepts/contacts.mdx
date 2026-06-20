@@ -22,13 +22,14 @@ freely.
 
 ## Contact lifecycle
 
-The built-in surface (`contacts/add`, `contacts/accept`, `contacts/list`,
-`contacts/byId`) follows a simple two-state flow:
+The built-in surface (`agent/identity/contacts/add`,
+`agent/identity/contacts/accept`, `agent/identity/contacts/list`)
+follows a simple two-state flow:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: contacts/add
-    pending --> accepted: contacts/accept
+    [*] --> pending: agent/identity/contacts/add
+    pending --> accepted: agent/identity/contacts/accept
     accepted --> [*]
 ```
 
@@ -53,16 +54,16 @@ services:
 ```
 
 On boot, `installContactService` in `standalone.ts` wires the
-webhook adapter into AppHost. The `ConversationServiceLive` layer in
-`app/layers.ts` issues `areInContact(a, b)` checks during session and
+webhook adapter into AppEndpointRegistry. The `ConversationServiceLive` layer in
+`core/layers.ts` issues `areInContact(a, b)` checks during session and
 conversation creation, which the adapter translates into the
 `contacts.check` HTTP call your endpoint serves. That is the only
 call your endpoint owns.
 
 <Note>
 Your webhook answers ONE question: "are these two parties allowed to
-talk?" The four storage RPCs — `contacts/add`, `contacts/accept`,
-`contacts/list`, `contacts/byId` — remain DB-backed via
+talk?" The storage RPCs — `agent/identity/contacts/add`,
+`agent/identity/contacts/accept`, `agent/identity/contacts/list` — remain DB-backed via
 `ContactsService` (wired by `ContactsServiceLive` against the
 server's own `contacts` table). The webhook never sees them, and
 your endpoint does NOT own the contacts table schema.

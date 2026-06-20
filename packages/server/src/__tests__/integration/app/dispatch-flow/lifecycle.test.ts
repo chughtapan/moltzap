@@ -1,8 +1,6 @@
-/**
- * #529 reshape additive: dispatch admission lease lifecycle behavior.
- */
+/** Integration coverage for dispatch admission lease lifecycle behavior. */
 import { it as effectIt } from "@effect/vitest";
-import { type AppManifest } from "@moltzap/protocol";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
@@ -11,9 +9,9 @@ import {
   DISPATCH_STATE_EXPIRED,
   DISPATCH_STATE_GRANTED,
   createDispatchFlowFixture,
+  MODERATED_HOOKS,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
-  createUnmoderatedDm,
+  createConversationOnApp,
   readLeaseByDispatchId,
   readLeaseByLeaseId,
   requestDispatch,
@@ -39,6 +37,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+  hooks: MODERATED_HOOKS,
 };
 
 const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
@@ -57,7 +56,7 @@ function requestModeratedDispatch(
 ) {
   return Effect.gen(function* () {
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const binding = yield* createTaskConversationOnApp(alice, bob, manifest);
+    const binding = yield* createConversationOnApp(alice, bob, manifest);
     const ack = yield* requestDispatch(
       bob,
       binding.conversationId,
@@ -66,23 +65,6 @@ function requestModeratedDispatch(
     );
     return { ack, binding, conversationId: binding.conversationId };
   }).pipe(Effect.withSpan("requestModeratedLifecycleDispatch"));
-}
-
-function requestUnmoderatedDispatch(
-  alice: ConnectedAgent,
-  bob: ConnectedAgent,
-  text: string,
-) {
-  return Effect.gen(function* () {
-    const binding = yield* createUnmoderatedDm(alice, bob);
-    const ack = yield* requestDispatch(
-      bob,
-      binding.conversationId,
-      alice,
-      text,
-    );
-    return { ack, binding, conversationId: binding.conversationId };
-  }).pipe(Effect.withSpan("requestUnmoderatedLifecycleDispatch"));
 }
 
 function grantedLeaseExpiresAfterTtl() {
@@ -130,8 +112,14 @@ function pendingDisconnectAbandonsLease() {
 function grantedDisconnectExpiresLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
+    fixture.setNextHookVerdict({ decision: "grant" });
     const releaseFiber = yield* waitForDispatchRelease(bob);
-    const { ack } = yield* requestUnmoderatedDispatch(alice, bob, "probe");
+    const { ack } = yield* requestModeratedDispatch(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+      "probe",
+    );
     yield* Fiber.join(releaseFiber);
 
     const granted = yield* readLeaseByLeaseId(ack.leaseId);
@@ -148,10 +136,12 @@ function grantedDisconnectExpiresLease() {
 function consumedDisconnectKeepsLeaseConsumed() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
+    fixture.setNextHookVerdict({ decision: "grant" });
     const releaseFiber = yield* waitForDispatchRelease(bob);
-    const { ack, binding } = yield* requestUnmoderatedDispatch(
+    const { ack, binding } = yield* requestModeratedDispatch(
       alice,
       bob,
+      TEST_APP_MANIFEST,
       "first",
     );
     yield* Fiber.join(releaseFiber);

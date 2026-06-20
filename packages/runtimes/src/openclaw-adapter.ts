@@ -21,6 +21,7 @@ import {
   installChannelPlugin as installSharedChannelPlugin,
   resolveChannelDependency,
   seedWorkspaceFiles as seedSharedWorkspaceFiles,
+  serializeMoltZapProfileConfig,
 } from "./channel-plugin-install.js";
 import { resolveWorkspaceOpenClawBin } from "./package-resolution.js";
 
@@ -206,9 +207,9 @@ function prepareOpenClawStateDir(
       Effect.all([
         writeOpenClawConfig({
           stateDir,
-          serverUrl: input.serverUrl,
-          apiKey: input.apiKey,
           agentName: input.agentName,
+          agentId: input.agentId,
+          apiKey: input.apiKey,
           modelId: input.modelId,
         }),
         seedWorkspaceFiles(stateDir, input.workspaceFiles),
@@ -220,23 +221,32 @@ function prepareOpenClawStateDir(
   );
 }
 
-function spawnConfiguredOpenClaw(
-  deps: OpenClawAdapterDeps,
-  stateDir: string,
-  port: number,
-  logBuffer: { value: string },
-): Effect.Effect<SpawnedProcess, Error, Path.Path> {
+function spawnConfiguredOpenClaw(options: {
+  readonly deps: OpenClawAdapterDeps;
+  readonly stateDir: string;
+  readonly input: SpawnInput;
+  readonly port: number;
+  readonly logBuffer: { value: string };
+}): Effect.Effect<SpawnedProcess, Error, Path.Path> {
   return Path.Path.pipe(
     Effect.flatMap((platformPath) => {
-      const plan = buildOpenClawProcessPlan(deps.openclawBin, port);
+      const plan = buildOpenClawProcessPlan(
+        options.deps.openclawBin,
+        options.port,
+      );
       return spawnOpenClawProcess({
         ...plan,
-        cwd: stateDir,
+        cwd: options.stateDir,
         env: {
-          OPENCLAW_STATE_DIR: stateDir,
-          OPENCLAW_CONFIG_PATH: platformPath.join(stateDir, "openclaw.json"),
+          OPENCLAW_STATE_DIR: options.stateDir,
+          OPENCLAW_CONFIG_PATH: platformPath.join(
+            options.stateDir,
+            "openclaw.json",
+          ),
+          MOLTZAP_CONFIG_HOME: platformPath.join(options.stateDir, ".moltzap"),
+          MOLTZAP_SERVER_URL: options.input.serverUrl,
         },
-        logBuffer,
+        logBuffer: options.logBuffer,
       });
     }),
   );
@@ -285,12 +295,13 @@ export class OpenClawAdapter implements Runtime {
       const { deps } = this;
       const stateDir = yield* prepareOpenClawStateDir(deps, input);
       const logBuffer = { value: "" };
-      const child = yield* spawnConfiguredOpenClaw(
+      const child = yield* spawnConfiguredOpenClaw({
         deps,
         stateDir,
+        input,
         port,
         logBuffer,
-      );
+      });
 
       const st: AdapterState = {
         process: child,
@@ -484,9 +495,9 @@ function allocateFreePort(): Effect.Effect<
 
 function writeOpenClawConfig(opts: {
   stateDir: string;
-  serverUrl: string;
-  apiKey: string;
   agentName: string;
+  agentId: SpawnInput["agentId"];
+  apiKey: SpawnInput["apiKey"];
   modelId?: string;
 }): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   return Effect.gen(function* () {
@@ -502,9 +513,16 @@ function writeOpenClawConfig(opts: {
       fileSystem.makeDirectory(path.join(opts.stateDir, "logs"), {
         recursive: true,
       }),
+      fileSystem.makeDirectory(path.join(opts.stateDir, ".moltzap"), {
+        recursive: true,
+      }),
       fileSystem.writeFileString(
         path.join(opts.stateDir, "openclaw.json"),
         JSON.stringify(config, null, JSON_INDENT_SPACES),
+      ),
+      fileSystem.writeFileString(
+        path.join(opts.stateDir, ".moltzap", "config.json"),
+        serializeMoltZapProfileConfig(opts),
       ),
     ]);
   });
@@ -512,8 +530,6 @@ function writeOpenClawConfig(opts: {
 
 function buildOpenClawConfig(
   opts: {
-    readonly serverUrl: string;
-    readonly apiKey: string;
     readonly agentName: string;
     readonly modelId?: string;
   },
@@ -535,9 +551,7 @@ function buildOpenClawConfig(
       moltzap: {
         accounts: [
           {
-            id: "default",
-            apiKey: opts.apiKey,
-            serverUrl: normalizeOpenClawServerUrl(opts.serverUrl),
+            id: opts.agentName,
             agentName: opts.agentName,
           },
         ],
@@ -553,10 +567,6 @@ function buildOpenClawConfig(
   };
 }
 
-function normalizeOpenClawServerUrl(serverUrl: string): string {
-  return serverUrl.replace(/\/ws$/, "").replace(/^ws:/, "http:");
-}
-
 function seedWorkspaceFiles(
   stateDir: string,
   workspaceFiles: SpawnInput["workspaceFiles"],
@@ -570,7 +580,7 @@ function installChannelPlugin(
   repoRoot: string,
 ): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   // OpenClaw's plugin imports `effect` at load time. Resolve it the way
-  // Node would when the channel package itself imported it (#285) — that
+  // Node would when the channel package itself imported it — that
   // walks parent `node_modules` directories, so it handles both per-pkg
   // installs (`<pkg>/node_modules/effect`) and workspace hoists
   // (`<repoRoot>/node_modules/effect`). The legacy `dist/node_modules`

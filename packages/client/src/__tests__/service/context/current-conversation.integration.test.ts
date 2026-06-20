@@ -11,7 +11,7 @@ it("excludes current conversation's messages", () =>
     const regB = yield* H.registerAgent("excl-b");
 
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const conv = yield* H.createDm(service, regB.agentId);
 
@@ -39,7 +39,7 @@ it("shows resolved agent name, not UUID", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     yield* service.resolveAgentName(regC.agentId);
 
@@ -71,7 +71,7 @@ it("new message between calls produces new context", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const convB = yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);

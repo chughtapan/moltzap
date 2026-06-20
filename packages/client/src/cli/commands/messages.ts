@@ -1,47 +1,35 @@
 /**
- * `moltzap messages &lt;subcommand>` — handler for spec sbd#177 rev 3 §5.5.
+ * `moltzap messages &lt;subcommand>` — subcommand group.
  *
- * One subcommand in v1:
+ *   messages list → agent/message/list
  *
- *   messages list → messages/list
- *
- * Architect pick (spec §"Architect picks"): new file, not an extension of
- * `commands/send.ts`. `send` is a one-shot top-level command; `messages`
- * is a subcommand group whose future v1.1 member (`messages tail`, deferred
- * per Non-goal §3.1) lands in the same file.
- *
- * Open question Q-M-1 (see design doc §8): `--cursor` has no server
- * backing in the current protocol; ESCALATED to spec rev 4. The flag is
- * deliberately absent from this interface until resolved.
+ * `messages` is a subcommand group (distinct from the one-shot top-level
+ * `send` command). `--cursor` is absent: it has no server backing in the
+ * current protocol.
  */
-import { Command, HelpDoc, Options } from "@effect/cli";
-import { Data, Effect, Option } from "effect";
+import { Command, Options } from "@effect/cli";
+import { Effect, Option } from "effect";
 import {
-  rpc,
+  command,
   runHandler,
   type Transport,
   type TransportError,
 } from "../transport.js";
+import { logJson, logLines } from "../output.js";
 
-import { MessagesList } from "@moltzap/protocol";
-import { ConversationId, TaskId } from "@moltzap/protocol/task";
-import { Value } from "@sinclair/typebox/value";
+import { ConversationId } from "@moltzap/protocol/conversation";
+import { TaskId } from "@moltzap/protocol/task";
+import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
-export type MessagesCommandError = TransportError | MessagesInputError;
-
-class MessagesInputError extends Data.TaggedError("MessagesInputError")<{
-  readonly message: string;
-  readonly reason: string;
-}> {}
+export type MessagesCommandError = TransportError;
 
 // ─── Input shapes ──────────────────────────────────────────────────────────
 
 /**
- * `moltzap messages list --conversation &lt;id> [--limit N]` — spec §5.5.
- * `cursor` deliberately absent from this interface until the open
- * question is resolved.
+ * `moltzap messages list --conversation &lt;id> [--limit N]`. `cursor` is
+ * absent: no server backing in the current protocol.
  */
 export interface MessagesListArgs {
   readonly taskId: TaskId;
@@ -52,13 +40,7 @@ export interface MessagesListArgs {
 // ─── Handlers ──────────────────────────────────────────────────────────────
 
 /**
- * Wraps `messages/list`. Emits one message per line, tab-separated:
- * `&lt;createdAt>\t&lt;senderName ?? senderId>\t&lt;text>`. `seq` was removed
- * from the wire shape in PR #379 — only `id`, `senderId`, optional
- * `senderName`, `createdAt`, and `parts` survive.
- *
- * `--json` is a stretch flag added by impl if consistent with
- * `conversations list` output style (not fixed by spec).
+ * Wraps `agent/message/list` and emits the full daemon result as JSON.
  */
 export const messagesListHandler = (
   args: MessagesListArgs,
@@ -72,37 +54,19 @@ export const messagesListHandler = (
             conversationId: args.conversationId,
             limit: args.limit,
           };
-    const result = yield* rpc(MessagesList, params);
-    yield* Effect.sync(() => {
-      for (const m of result.messages) {
-        const text = m.parts.find((p) => p.type === "text")?.text ?? "";
-        const sender =
-          "senderName" in m && typeof m.senderName === "string"
-            ? m.senderName
-            : m.senderId;
-        console.log(`${m.createdAt}\t${sender}\t${text}`);
-      }
-      if (result.hasMore) {
-        console.log("... more messages available");
-      }
-    });
+    const result = yield* command(LocalDaemonCommands.MessagesList, params);
+    yield* logJson(result);
   }).pipe(Effect.withSpan("messagesListHandler"));
 
 // ─── CLI commands ──────────────────────────────────────────────────────────
 
 const taskOption = Options.text("task").pipe(
+  Options.withSchema(TaskId),
   Options.withDescription("Task id"),
-  Options.mapTryCatch(
-    (raw) => Value.Decode(TaskId, raw),
-    (err) => HelpDoc.p(`invalid --task: ${String(err)}`),
-  ),
 );
 const conversationOption = Options.text("conversation").pipe(
+  Options.withSchema(ConversationId),
   Options.withDescription("Conversation id"),
-  Options.mapTryCatch(
-    (raw) => Value.Decode(ConversationId, raw),
-    (err) => HelpDoc.p(`invalid --conversation: ${String(err)}`),
-  ),
 );
 const msgLimitOption = Options.integer("limit").pipe(Options.optional);
 
@@ -121,15 +85,13 @@ const messagesListCommand = Command.make(
 
 /** `moltzap messages [list]` subcommand group. */
 export const messagesCommand = Command.make("messages", {}, () =>
-  Effect.sync(() => {
-    console.log(
-      "Usage: moltzap messages list --task <id> --conversation <id> [--limit N]",
-    );
-  }),
+  logLines([
+    "Usage: moltzap messages list --task <id> --conversation <id> [--limit N]",
+  ]),
 ).pipe(
   Command.withDescription(
     "Query message history. Runs as the identity selected by the global " +
-      "--as / --profile flags (see `moltzap --help`); visibility is scoped " +
+      "--profile flag (see `moltzap --help`); visibility is scoped " +
       "to conversations that caller participates in.",
   ),
   Command.withSubcommands([messagesListCommand]),

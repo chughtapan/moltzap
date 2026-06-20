@@ -26,36 +26,25 @@ cat > tsconfig.json << 'TSCONF'
 }
 TSCONF
 
-# Install the tarball + peer deps
-npm install "$TARBALL" @moltzap/protocol@latest kysely@latest pg@latest hono@latest @hono/node-server@latest @hono/node-ws@latest pino@latest @types/pg@latest typescript@latest 2>&1 | tail -3
+# Install the tarball and the compiler used by the consumer smoke test.
+npm install "$TARBALL" @moltzap/protocol@latest typescript@latest 2>&1 | tail -3
 
-# Write a consumer that imports key building blocks
+# Write a consumer that verifies the intentional public surface.
 cat > consumer.ts << 'CONSUMER'
+import * as serverCore from "@moltzap/server-core";
 import {
-  AuthService,
-  ConversationService,
-  MessageService,
-  PresenceService,
-  createRpcRouter,
-  RpcError,
-  ConnectionManager,
-  NetworkSendService,
-  EnvelopeEncryption,
-  seedInitialKek,
-  generateApiKey,
-  logger,
-  defineMethod,
-  createDb,
-  nextSnowflakeId,
-  snowflakeToTimestamp,
-} from "@moltzap/server-core";
-import type { Database, Db, AuthenticatedContext, RpcMethodDef } from "@moltzap/server-core";
+  startCoreTestServer,
+  stopCoreTestServer,
+  type CoreTestServer,
+} from "@moltzap/server-core/test-utils";
 
-// Verify classes are constructable (type-level only)
-type _check1 = ConstructorParameters<typeof AuthService>;
-type _check2 = ConstructorParameters<typeof PresenceService>;
-type _check3 = typeof createRpcRouter;
-type _check4 = typeof generateApiKey;
+type _emptyRoot = keyof typeof serverCore extends never ? true : never;
+type _testServer = CoreTestServer;
+type _start = typeof startCoreTestServer;
+type _stop = typeof stopCoreTestServer;
+
+const rootIsEmpty: _emptyRoot = true;
+void rootIsEmpty;
 
 console.log("All imports resolved successfully");
 CONSUMER

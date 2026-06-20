@@ -1,14 +1,12 @@
 /**
- * #529 reshape additive — `dispatch/{request, authorize, release}` +
- * `dispatches/{consumed, expired, get}` admission surface.
+ * `agent/dispatch/request`, `app/dispatch/authorize`,
+ * `agent/dispatch/released`, and `app/dispatch/lease-*` admission surface.
  *
- * Bucket file: `verdicts` group. Split from `dispatch-flow.integration.test.ts`
- * (Phase 2B reorg, #543). Each split file owns its own server-fixture
- * `beforeAll`/`afterAll`/`beforeEach` so vitest's `fileParallelism: true`
- * runner can execute buckets concurrently without sharing state.
+ * Bucket file: `verdicts` group. Each bucket owns its own server fixture so
+ * vitest can execute buckets concurrently without sharing state.
  */
 import { it as effectIt } from "@effect/vitest";
-import type { AppManifest } from "@moltzap/protocol";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
@@ -17,8 +15,9 @@ import {
   DISPATCH_VERDICT_HOLD,
   MODERATOR_TIMEOUT_REASON,
   createDispatchFlowFixture,
+  MODERATED_HOOKS,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
+  createConversationOnApp,
   requestDispatch,
   startDispatchFlowServer,
   stopDispatchFlowServer,
@@ -38,6 +37,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+  hooks: MODERATED_HOOKS,
 };
 
 const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
@@ -51,7 +51,7 @@ beforeEach(() => Effect.runPromise(fixture.reset));
 function requestModeratedDispatch(alice: ConnectedAgent, bob: ConnectedAgent) {
   return Effect.gen(function* () {
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const { conversationId } = yield* createTaskConversationOnApp(
+    const { conversationId } = yield* createConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
@@ -91,8 +91,7 @@ function moderatorDenyReleasesDeny() {
       decision: "deny",
       reason: DENIAL_REASON,
     });
-    // Fork-before-trigger (Spec B #596 r2 fix): subscribe BEFORE the
-    // requestDispatch RPC fires so the release notification can't arrive
+    // Subscribe before requestDispatch so the release notification can't arrive
     // in the gap before subscription.
     const releaseFiber = yield* waitForDispatchRelease(bob);
     const { ack } = yield* requestModeratedDispatch(alice, bob);
@@ -128,10 +127,9 @@ function moderatorTimeoutRemovesRecipient() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ kind: "never-reply" });
-    // Fork BOTH subscribers before trigger (Spec B #596 r2 fix). With
-    // fork-before-trigger, the participants/removed timer starts at fork
-    // time, NOT after release — so it must cover the full
-    // moderator-timeout (release fires at +10s) + the release→removed gap
+    // Subscribe to both notifications before triggering the RPC. The
+    // participants/removed timeout starts at fork time, so it must cover the
+    // moderator timeout plus the release-to-removed gap.
     // (the server emits removed only after the timeout-induced deny).
     const releaseFiber = yield* waitForDispatchRelease(
       bob,
@@ -175,12 +173,12 @@ function explicitDenyRemovesRecipient() {
   });
 }
 
-describe("dispatch/* — release verdicts (#529 reshape additive)", () => {
+describe("dispatch/* — release verdicts", () => {
   it("moderator deny releases deny", moderatorDenyReleasesDeny, 20_000);
   it("moderator hold releases hold", moderatorHoldReleasesHold, 20_000);
 });
 
-describe("dispatch/* — deny removes recipient (#529 reshape additive)", () => {
+describe("dispatch/* — deny removes recipient", () => {
   it(
     "moderator timeout releases deny and removes the recipient",
     moderatorTimeoutRemovesRecipient,

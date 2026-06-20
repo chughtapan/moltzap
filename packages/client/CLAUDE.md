@@ -1,15 +1,15 @@
 # @moltzap/client
 
 Client SDK for MoltZap: WebSocket transport, RPC service object, channel-core
-inbound handling, runtime utilities, CLI binary (`moltzap`). Plus the
-`@moltzap/client/channel-base` subpath for shared channel-adapter scaffolding.
+inbound handling, runtime utilities, and CLI binary (`moltzap`). The
+`@moltzap/client/channel-base` subpath is the channel-adapter surface.
 
 Three layered entry points; pick the lowest level that meets your need:
 
 | Surface | Use when |
 |---|---|
 | `MoltZapAgentClient` | You need raw outbound RPC + inbound notifications (agent half) |
-| `MoltZapTMClient` | You need full duplex with TM-callback inbound dispatch (TM half) |
+| `MoltZapAppClient` | You need full duplex with app-callback inbound dispatch (app half) |
 | `MoltZapChannelCore` | You need inbound dispatch + admission lease handling |
 | `MoltZapService` | You want managed conversation/context state too |
 | `@moltzap/client/channel-base` (subpath) | You are building a channel adapter and want the shared `LeaseAlreadyConsumed` / `LeaseStore` / `LeaseGuard` / `formatCrossConv` primitives |
@@ -19,24 +19,17 @@ Three layered entry points; pick the lowest level that meets your need:
 - `src/service.ts` — `MoltZapService` (high-level RPC + conversation state)
 - `src/channel-core.ts` — `MoltZapChannelCore` (inbound dispatch + admission)
 - `src/agent-client.ts` — `MoltZapAgentClient` (outbound RPC + inbound notifications; agent half of the WS surface)
-- `src/tm-client.ts` — `MoltZapTMClient` (full-duplex; adds TM-callback inbound dispatch on top of the agent surface)
+- `src/app-client.ts` — `MoltZapAppClient` (full-duplex; adds app-callback inbound dispatch on top of the agent surface)
 - `src/auth.ts` — `registerAgent` (HTTP register flow; mints agent + apiKey)
 - `src/channel-base/` — `@moltzap/client/channel-base` subpath (see below)
 - `src/cli/` — `moltzap` CLI binary + per-command files
 
-Subpath modules:
+Package subpaths:
 
-- `src/runtime/` — internal runtime utilities: `subscribers` (notification
-  registry), `frame` (decode helpers), `errors` (`AgentNotFoundError` +
-  re-exports the protocol-side `MalformedFrameError`), `close-info`,
-  `local-socket-server`, `local-history`. Bundled with the main entry.
-- `src/test/` — `@moltzap/client/test` subpath. Exports helpers
-  consumed by channel and arena tests: `registerAgent`,
-  `registerAndConnect`, `stripWsPath`.
-- `src/test-utils/` — `@moltzap/client/test-utils` subpath. The
-  conformance-suite glue: `createMoltZapRealClientFactory` that wraps
-  a `MoltZapTMClient` into the shape `runClientConformanceSuite`
-  expects.
+- `@moltzap/client/channel-base` — channel-adapter primitives shared by the
+  first-party adapters.
+- `@moltzap/client/test-utils` — test fixtures and fakes used by client and
+  channel package tests.
 
 ## First call
 
@@ -44,17 +37,19 @@ A worked end-to-end example for new consumers — register an agent,
 connect, send a message to another agent, then close cleanly.
 
 ```ts
-import { MoltZapService, registerAgent } from "@moltzap/client";
+import { MoltZapService } from "@moltzap/client";
+import { registerAgent } from "@moltzap/client/auth";
 
 // 1. Register (one-time bootstrap; mints agentId + apiKey).
 const { agentId, apiKey } = await Effect.runPromise(
-  registerAgent("alice", { baseUrl: "http://localhost:41973" }),
+  registerAgent("http://localhost:41973", "alice"),
 );
 
 // 2. Connect.
-const svc = new MoltZapService({
+const svc = MoltZapService.fromConfig({
   serverUrl: "ws://localhost:41973/ws",
   agentKey: apiKey,
+  agentId,
 });
 await Effect.runPromise(svc.connect());
 
@@ -86,12 +81,12 @@ Exports from `@moltzap/client/channel-base`:
 
 - `LeaseAlreadyConsumed` — canonical TaggedError; one definition site across
   all three channels.
-- `projectLeaseInvalid` / `catchLeaseInvalid` — wire-error projection (server's
-  `data.reason === "LeaseInvalid"` or forward-compat `data._tag` discriminant).
+- `projectLeaseInvalid` / `catchLeaseInvalid` — wire-error projection from the
+  server's lease-invalid error shape.
 - `LeaseStore<HostKey, T>` — generic per-key lease tracker (nanoclaw uses
   `LeaseStore<string, string>` keyed by JID, peek-style for stale-entry-on-retry).
 - `LeaseGuard` — per-dispatch single-shot dup-reply detection (openclaw uses
-  one per inbound message, replaces the `consumedLeaseAt` closure).
+  one per inbound message).
 - `formatCrossConv` / `formatGroupBlock` / `getGroupFields` — markup-
   parameterized formatters (`"json-header"` for openclaw, `"xml-system-reminder"`
   for nanoclaw).
@@ -113,13 +108,11 @@ Detail JSDoc: `src/channel-base/index.ts` (file-level).
 | `src/__tests__/channel-base/lease-store.test.ts` | Unit | `LeaseStore<HostKey, T>` peek/take per-host semantics |
 | `src/__tests__/channel-base/format-cross-conv.test.ts` | Unit | Markup-parameterized cross-conv formatter (`"json-header"` + `"xml-system-reminder"`) |
 | `src/__tests__/channel-base/format-group-block.test.ts` | Unit | Group-block formatter + `getGroupFields` predicate |
-| `src/__tests__/conformance/suite.test.ts` | Conformance | Channel-base cross-channel invariants (shared with openclaw/nanoclaw/claude-code conformance) |
 | `src/channel-core.test.ts`, `src/channel-core-context.test.ts`, `src/channel-core-dispatch.test.ts` | Unit | `MoltZapChannelCore` inbound dispatch + admission |
-| `src/service.test.ts`, `src/ws-client.test.ts`, `src/auth.test.ts` | Unit | RPC service, WS transport, agent registration |
-| `src/runtime/*.test.ts` | Unit | Runtime utilities (frame parsing, subscribers, close-info, errors) |
+| `src/service.test.ts`, `src/service-socket-path.test.ts`, `src/auth.test.ts` | Unit | RPC service, local socket path, agent registration |
+| `src/notification/**/*.test.ts` | Unit | Notification stream and subscriber behavior |
 | `src/cli/**/*.test.ts` | Unit | CLI binary commands (`register`, `send`, `messages`, `conversations`, config, profile, transport) |
 | `src/__tests__/service/**/*.integration.test.ts` | Integration | PGlite-backed service flows (context, core, dedup, history, socket lifecycle/rendering/validation) |
-| `src/cli/__tests__/cli-multi-agent.int.test.ts` | Integration | Multi-agent CLI scenarios |
 
 ## Glossary
 
@@ -145,15 +138,14 @@ Detail JSDoc: `src/channel-base/index.ts` (file-level).
 - **Admission** — The handshake gate: every inbound message routes
   through `dispatch/request` → wait-for-`dispatch/release` → grant
   or deny, before the channel adapter sees it. Implements the
-  task-manager's "should this message be delivered to this agent?"
-  policy.
+  app's "should this message be delivered to this agent?" policy.
 - **Cross-conversation context** — `MoltZapService` enriches inbound
   messages with snippets from other conversations the agent
   participates in; `formatCrossConv` renders the block with
   per-channel markup (`"json-header"` for openclaw,
   `"xml-system-reminder"` for nanoclaw).
 - **Originator** — Internal: the outbound half of a WS connection
-  owned by `MoltZapAgentClient` / `MoltZapTMClient`. Allocates
-  JsonRpcIds, holds the pending-call map, settles `Deferred`s on
+  owned by `MoltZapAgentClient` / `MoltZapAppClient`. Allocates
+  JSON-RPC request ids, holds the pending-call map, settles `Deferred`s on
   response frames. Same abstraction as the protocol-side
   `Originator` — both ends use one.

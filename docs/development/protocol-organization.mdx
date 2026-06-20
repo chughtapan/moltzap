@@ -1,0 +1,721 @@
+---
+title: Protocol And Server Organization
+description: Package layout and naming rules for protocol and server-core
+---
+
+# Protocol And Server Organization
+
+This document is the source of truth for the protocol and server-core
+organization. Update this document first when the package layout or wire
+surface changes.
+
+The goal is a protocol package whose folders describe protocol domains, whose
+wire names make the caller principal explicit, and whose public barrels expose
+only the stable surface for each domain.
+
+## Layering
+
+`transport` is the lowest layer. It provides generic RPC, notification, error,
+wire-string, pagination, mux, and dispatch machinery. It must not import
+identity, network, task, conversation, message, socket, or testing.
+
+Protocol layers build upward:
+
+```text
+transport
+  -> identity
+  -> network
+  -> task / conversation / message
+  -> socket
+  -> testing
+```
+
+`identity` owns principals, identities, credentials, and principal
+requirements. `network` owns socket handshake and presence protocol. Task,
+conversation, and message are peer domains. Dispatch is message moderation, so
+it stays under the message domain. `socket` owns the runtime factories that
+open agent/app clients and the server.
+
+## Protocol Tree
+
+```text
+packages/protocol/src/
+  index.ts
+
+  transport/
+    index.ts
+    definition.ts
+    typed-dispatch.ts
+    mux.ts
+    notification-subscribers.ts
+    pagination.ts
+    rpc-errors.ts
+    strict-decode.ts
+    wire-errors.ts
+    wire-string.ts
+
+  rpc/
+    index.ts                  # public call-site helpers and shared wire errors
+
+  identity/
+    index.ts
+
+    principals/
+      agent-principal.ts
+      app-principal.ts
+      authenticated-principal.ts
+      index.ts
+
+    requirements/
+      active-agent.ts
+      index.ts
+
+    agents/
+      index.ts
+      ids.ts
+      credentials.ts
+      registration.ts
+      agents.ts
+      types.ts
+
+    apps/
+      index.ts
+      ids.ts
+      credentials.ts
+      manifest.ts
+
+    users/
+      index.ts
+      ids.ts
+
+    contacts/
+      index.ts
+      ids.ts
+      contacts.ts
+
+  network/
+    index.ts
+    connect.ts
+    presence.ts
+
+  task/
+    index.ts
+    ids.ts
+    requirements/
+      task-read-access.ts
+      app-owns-task.ts
+      index.ts
+    tasks.ts
+
+  conversation/
+    index.ts
+    requirements/
+      conversation-in-task.ts
+      conversation-send-access.ts
+      index.ts
+    conversations.ts
+    types.ts
+
+  message/
+    index.ts
+    messages.ts
+    dispatch.ts
+    parts.ts
+
+  socket/
+    index.ts
+    agent-client.ts
+    app-callbacks.ts
+    app-client.ts
+    server.ts
+    lifecycle.ts
+    connection.ts
+    close-info.ts
+    internal/
+      protocol-layer.ts
+
+  testing/
+```
+
+## Domain Rules
+
+Top-level domain folders are protocol concepts, not principals. `app` is not a
+top-level domain folder because app is a principal. App-specific identity data
+belongs under `identity/apps`; app callbacks belong beside the domain they
+authorize.
+
+Examples:
+
+- app connect belongs in `network/connect.ts`
+- app key and app manifest belong in `identity/apps/`
+- `app/message/authorize` belongs in `message/messages.ts`
+- `app/dispatch/authorize` belongs in `message/dispatch.ts`
+- `app/task/create` belongs in `task` because it is a task callback
+
+Task, conversation, and message are peer domains. Dispatch is the message
+moderation lifecycle, so its ids, methods, callbacks, notifications, and
+decisions live under `message/dispatch.ts`. Do not nest conversation or message
+under task just because their requirements include `taskId`.
+
+## Wire Naming
+
+Wire method names use this shape:
+
+```text
+<principal>/<domain>/<resource?>/<action>
+```
+
+Rules:
+
+- Principal is explicit: `agent` or `app`.
+- Domain is the primary resource domain.
+- Requirements do not appear in the namespace.
+- Use kebab-case, not camelCase.
+- RPC names end with an action such as `connect`, `list`, `request`, `send`,
+  `update`, `authorize`, or `get`.
+- Notifications use past-tense event names such as `received`, `changed`,
+  `released`, `consumed`, or `expired`.
+- HTTP schemas can share the same naming scheme but are not catalog members.
+
+## Wire Surface
+
+### Network
+
+```text
+agent/network/connect                 RPC
+app/network/connect                   RPC
+
+agent/network/presence/subscribe      RPC
+app/network/presence/subscribe        RPC
+```
+
+`network/connect.ts` also owns `PROTOCOL_VERSION`, range checks, and protocol
+mismatch errors because those are handshake concerns. Do not create a standalone
+`version.ts`.
+
+### Identity
+
+```text
+agent/identity/register               HTTP schema
+app/identity/register                 HTTP schema
+
+agent/identity/agents/list            RPC
+
+agent/identity/contacts/list          RPC
+agent/identity/contacts/add           RPC
+agent/identity/contacts/accept        RPC
+
+agent/identity/contact-requested      notification
+agent/identity/contact-accepted       notification
+```
+
+`agent/identity/agents/list` is the discovery surface. Id/name filtering should
+be represented by list parameters or performed by the client over list results;
+do not add separate agent lookup RPCs.
+
+`agent/identity/contacts/list` is the contacts read surface. Do not add a
+separate contact-by-id/get RPC unless there is a server-side authorization or
+consistency boundary that list cannot represent.
+
+### Task
+
+```text
+agent/task/request                    RPC
+agent/task/list                       RPC
+agent/task/leave                      RPC
+
+app/task/update                       RPC
+
+agent/task/created                    notification
+agent/task/closed                     notification
+agent/task/failed                     notification
+```
+
+`app/task/update` owns task participant changes and task close semantics. Its
+schema owns validation for which changes are allowed together.
+
+### Conversation
+
+```text
+app/conversation/create               RPC
+agent/conversation/list               RPC
+app/conversation/update               RPC
+
+agent/conversation/created            notification
+agent/conversation/archived           notification
+agent/conversation/unarchived         notification
+agent/conversation/participants-added notification
+agent/conversation/participants-removed notification
+```
+
+`app/conversation/update` owns archive, unarchive, participant add, and
+participant remove semantics. Requirements still enforce task ownership and
+conversation membership.
+
+### Message
+
+```text
+agent/message/send                    RPC
+agent/message/list                    RPC
+
+agent/message/received                notification
+
+app/message/authorize                 callback RPC
+```
+
+### Message Dispatch
+
+```text
+agent/dispatch/request                RPC
+agent/dispatch/released               notification
+
+app/dispatch/authorize                callback RPC
+app/dispatch/lease/get                RPC
+
+app/dispatch/lease-consumed           notification
+app/dispatch/lease-expired            notification
+```
+
+Only `app/dispatch/lease/get` is a method. Lease consumed and expired are
+server-pushed events, not method siblings. These descriptors live under
+`message/dispatch`; there is no top-level `dispatch` package export.
+
+## Credentials
+
+Credentials live beside the identity they authenticate. There is no root
+`credentials.ts`.
+
+```text
+identity/agents/credentials.ts        AgentKey
+identity/agents/registration.ts       InviteCode if agent registration owns it
+identity/apps/credentials.ts          AppKey
+identity/apps/manifest.ts             AppManifest and hook policy schemas
+```
+
+Server-only secrets do not belong in protocol unless clients or protocol-owned
+schemas decode them. For example, server encryption master secrets should live
+in server config or server DB crypto unless protocol truly owns that boundary.
+
+## Principals And Requirements
+
+Principals are identity concepts, not transport concepts.
+
+```text
+identity/principals/
+  agent-principal.ts
+  app-principal.ts
+  authenticated-principal.ts
+
+identity/requirements/
+  active-agent.ts
+```
+
+Concrete requirements live beside the domain invariant they prove. If a domain
+has requirements, it uses a `requirements/` folder even if there is only one
+requirement.
+
+```text
+identity/contacts/requirements/contact-policy-allows-reach.ts
+task/requirements/task-read-access.ts
+task/requirements/app-owns-task.ts
+conversation/requirements/conversation-in-task.ts
+conversation/requirements/conversation-send-access.ts
+```
+
+Each requirement is the single source of truth for:
+
+- its name
+- the middleware it maps to
+- the error classes it can raise
+- the requirement value referenced by RPC descriptors
+
+RPC descriptors import requirements from the owning domain. They do not import
+from a protocol-root `requirements.ts`.
+
+## Barrels And Public Surface
+
+Each domain gets a narrow `index.ts` barrel. Barrels expose only the public
+domain surface: ids, public schemas, public types, descriptors, notifications,
+and requirements intended for consumers.
+
+Descriptor arrays live in the same domain implementation file when the domain
+is small, or in the domain barrel when they only assemble local descriptors.
+Do not create catalog files just to avoid a few imports.
+
+Public package exports should be limited to:
+
+```json
+{
+  ".": "./dist/index.js",
+  "./rpc": "./dist/rpc.js",
+  "./identity": "./dist/identity/index.js",
+  "./network": "./dist/network/index.js",
+  "./task": "./dist/task/index.js",
+  "./conversation": "./dist/conversation/index.js",
+  "./message": "./dist/message/index.js",
+  "./message/dispatch": "./dist/message/dispatch.js",
+  "./socket": "./dist/socket/index.js",
+  "./socket/catalog": "./dist/socket/catalog/index.js",
+  "./testing": "./dist/testing/index.js"
+}
+```
+
+Do not publish:
+
+- `./requirements`
+- `./rpc-method-groups`
+- `./transport`, unless we explicitly support third-party protocol extensions
+
+`./rpc` is the deliberate public replacement for `./transport`. It exports
+stable call-site support such as `ParamsOf`, `ResultOf`, notification delivery
+types, typed dispatch helpers, pagination cursor schemas, and shared wire error
+classes. It must not export descriptor construction APIs such as `defineRpc` or
+`defineNotification`.
+
+The root export is a small runtime surface:
+
+```text
+MoltZapServer
+MoltZapAgentClient
+MoltZapAppClient
+their option/result types
+```
+
+`./socket/catalog` is the explicit first-party integration surface for closed
+RPC catalogs, Effect RPC groups, and the derived handler/definition union types
+used by `@moltzap/client`, `@moltzap/server-core`, conformance, and generated
+reference docs. Do not re-export those catalog symbols from `./socket`.
+
+## Import Rules
+
+Imports should go through barrels, and source files should use absolute import
+specifiers. Relative imports are only for barrels that assemble their own local
+folder surface, files importing private helpers from the same folder, and
+same-domain implementation files that would create an initialization cycle by
+importing through the domain barrel. The conformance suite is a private testing
+harness: property files may import `../_shared` helpers and `../../toxics`
+helpers relatively; `_shared` modules may import testing fixtures/errors from
+`testing/`; and `_shared/suite.ts` may assemble sibling property groups.
+Conformance code still imports protocol domains through aliases such as
+`#identity`, `#network`, `#task`, `#conversation`, `#message`, and `#socket`.
+
+Allowed:
+
+```ts
+import { AgentId } from "#identity/agents";
+import { AgentPrincipal } from "#identity/principals";
+import { TaskReadAccess } from "#task/requirements";
+import { MessagesSend } from "#message";
+import { MoltZapAgentClient } from "#socket";
+```
+
+Not allowed:
+
+```ts
+import { AgentId } from "../identity/agents/ids";
+import { AgentId } from "#identity/agents/ids";
+import { TaskReadAccess } from "#task/requirements/task-read-access";
+// importing domain symbols from the @moltzap/protocol root
+```
+
+Rules:
+
+- Implementation files import from package-local absolute aliases such as
+  `#identity/agents`, `#task`, `#message`, or `#socket`.
+- Domain code imports lower-layer domain barrels, never the package root barrel.
+- Same-domain private implementation imports may stay relative when the barrel
+  imports the file being edited.
+- Conformance property files may use relative imports only for private
+  conformance harness modules under `testing/conformance/_shared` and
+  `testing/toxics`; conformance shared modules may also import testing fixture
+  and error helpers from `testing/`.
+- Cross-package consumers import public package subpaths such as
+  `@moltzap/protocol/identity`, `@moltzap/protocol/task`, or
+  `@moltzap/protocol/socket`.
+- Do not deep-import implementation files across folder boundaries.
+- Do not use `export *`; barrels must list the symbols they expose.
+- Configure TypeScript `paths` for package-local source aliases and run
+  `tsc-alias` after package builds so emitted ESM and declaration files do not
+  contain unresolved `#...` specifiers.
+- Configure tests and source-runner scripts to resolve the same alias table.
+  `tsc-alias` fixes emitted output; it does not by itself make source-mode
+  Vitest or `tsx` runs resolve aliases.
+
+Protocol source aliases:
+
+```text
+#transport
+#identity
+#identity/principals
+#identity/requirements
+#identity/agents
+#identity/apps
+#identity/users
+#identity/contacts
+#identity/contacts/requirements
+#network
+#task
+#task/requirements
+#conversation
+#conversation/requirements
+#message
+#message/dispatch
+#socket
+#testing
+```
+
+## Rebalance Order
+
+Use this order when a package needs another domain rebalance:
+
+1. Document the desired tree and public package exports.
+2. Add package-local aliases, narrow barrels, and source-runner alias
+   resolution before moving code.
+3. Move code domain by domain while imports go through the new barrels.
+4. Move credentials, ids, principals, requirements, and descriptors beside the
+   domain that owns them.
+5. Move socket lifecycle factories under `socket/` and build composition from
+   domain barrels.
+6. Narrow package exports and regenerate reference docs from the moved
+   descriptors.
+
+The protocol package is already in this shape.
+
+## Server-Core Organization
+
+`@moltzap/server-core` mirrors the protocol domains while keeping runtime and
+infrastructure concerns out of domain folders.
+
+Server folders describe either:
+
+- runtime infrastructure (`core`, `socket`, `http`, `db`)
+- the server-side protocol adapter (`moltzap`)
+- a protocol domain (`identity`, `network`, `task`, `conversation`, `message`,
+  `dispatch`)
+- tests and published test utilities
+
+### Server Tree
+
+```text
+packages/server/src/
+  index.ts
+  standalone.ts
+  config.ts
+
+  core/
+    app.ts                  # CoreApp API shape and createCoreApp implementation
+    layers.ts               # Effect service graph
+    tags.ts                 # Context tags only, if split from layers
+    tracing.ts
+
+  moltzap/
+    handler-catalog.ts      # RPC handler map composition
+    handler-runtime.ts      # principal arm helpers / request-scoped context
+    server-socket.ts        # MoltZapServer adapter
+    principal-gate.ts
+    auth-middleware-layers.ts
+    layer-tags.ts
+
+  socket/
+    connection.ts           # live connection registry and outbound reverse-client
+    context.ts              # AgentContext/AppContext values
+
+  http/
+    routes.ts
+    node-http-server.ts
+
+  db/
+    client.ts
+    database.ts
+    database.generated.ts
+    sql.ts
+    list-cursor.ts
+    crypto/
+
+  identity/
+    agents/
+      handlers.ts
+      auth.service.ts
+      visibility.service.ts
+    apps/
+      auth.service.ts
+      callback-rpc.ts
+      registry.ts
+      default-app.ts
+      endpoint-registry.ts
+      index.ts
+    contacts/
+      handlers.ts
+      contact.service.ts
+      contact-policy.ts
+      webhook-contact-service.ts
+      requirements/
+        reach.ts
+        index.ts
+    credential-keys.ts
+
+  network/
+    connect.handlers.ts
+    presence/
+      handlers.ts
+      presence.service.ts
+      presence-types.ts
+    agent-endpoint-resolver.ts
+    index.ts
+    network-send.ts
+    notification-broadcast.ts
+    outbound-webhook-cap.ts
+
+  task/
+    handlers.ts
+    authorization.ts       # app/task/create callback runner
+    task.service.ts
+    requirements/
+      read-access.ts
+      app-ownership.ts
+
+  conversation/
+    handlers.ts
+    conversation.service.ts
+    requirements/
+      create-authorization.ts
+      in-task.ts
+      send-access.ts
+
+  message/
+    handlers.ts
+    message.service.ts
+    authorization.ts        # app/message/authorize callback runner
+
+  dispatch/
+    handlers.ts             # agent/dispatch/request, app/dispatch/lease/get
+    lease-registry.ts
+    admission.service.ts    # mint/resolve dispatch admission leases
+    app-bound-conversation.ts
+
+  test-utils/
+  __tests__/
+```
+
+### Server Domain Rules
+
+`core/` owns server boot and wiring: the `CoreApp` API, Effect service graph,
+handler catalog, request-scoped runtime helpers, and tracing.
+
+`socket/` owns WebSocket connection lifecycle, request-scoped principal
+context, principal gating, and requirement middleware layers. Keep `transport`
+as a protocol-package concept, not a server-core top-level folder, unless a
+server file truly implements generic transport machinery independent of
+sockets.
+
+`http/` owns HTTP routing and Node HTTP server construction. Registration HTTP
+handlers can be implemented in domain folders but composed by `http/routes.ts`.
+
+`identity/apps/` owns app identity and live app endpoint registration:
+`auth.service.ts`, `default-app.ts`, `registry.ts`, and
+`endpoint-registry.ts`. Domain callback behavior lives with the domain that
+uses it: `message/authorization.ts`, `task/authorization.ts`, and
+`dispatch/admission.service.ts`.
+
+`task/`, `conversation/`, `message`, and `dispatch/` are peer folders.
+
+Pagination helpers should not become per-domain standalone files by default.
+The protocol `transport/pagination.ts` owns shared cursor/page schemas,
+`db/list-cursor.ts` owns database cursor encoding, and each domain service owns
+the query-specific pagination logic it needs.
+
+Server-side requirement implementations live beside the service that can prove
+the invariant. For example:
+
+- task read/app ownership checks -> `task/requirements/`
+- conversation membership/send access -> `conversation/requirements/`
+- contact reachability -> `identity/contacts/requirements/` if needed
+
+### Server Barrel Rules
+
+Server-core root exports are intentionally empty. Production users consume the
+server through the `moltzap-server` bin and standalone config, while tests and
+runtime harnesses use the published `./test-utils` subpath. Domain barrels are
+internal import boundaries.
+
+Use:
+
+```text
+domain/index.ts       narrow internal/public surface for that domain
+domain/handlers.ts    RPC handlers for that domain
+domain/*.service.ts   domain service implementation
+domain/requirements/  server middleware/check implementations
+```
+
+Avoid barrels that export every file in a folder. Avoid `export *`.
+
+### Server Import Rules
+
+Server-core uses the same import discipline as protocol: implementation files
+import absolute package-local barrels, and relative imports are limited to
+barrels/catalogs that assemble their own folder.
+
+Allowed:
+
+```ts
+import { CoreApp } from "#core";
+import { makeMoltzapSocketHandler } from "#moltzap";
+import { AgentAuthService } from "#identity/agents";
+import { ConversationService } from "#conversation";
+import { LeaseRegistry } from "#dispatch";
+import { ConnectionManager } from "#socket";
+```
+
+Not allowed:
+
+```ts
+import { CoreApp } from "../core/app";
+import { AgentAuthService } from "#identity/agents/auth.service";
+import { LeaseRegistry } from "#dispatch/lease-registry";
+// Do not import internal service types from "@moltzap/server-core".
+```
+
+Server-core source aliases:
+
+```text
+#core
+#moltzap
+#moltzap/runtime
+#socket
+#http
+#db
+#identity/agents
+#identity/apps
+#identity/contacts
+#identity/contacts/requirements
+#network
+#network/presence
+#task
+#task/handlers
+#task/requirements
+#conversation
+#conversation/handlers
+#conversation/requirements
+#message
+#message/handlers
+#dispatch
+#dispatch/handlers
+#test-utils
+```
+
+### Server Layout Status
+
+Server-core follows the same domain split as protocol:
+
+1. Identity owns agent/app/contact registration, auth, and contact policy.
+2. Network owns connect handlers, presence, and outbound notification send.
+3. Task, conversation, message, and dispatch each expose a flat
+   `domain/handlers.ts` entry point for RPC handlers.
+4. Domain services sit directly beside their handlers as
+   `domain/*.service.ts`; helper shapes that only support one service stay
+   private to that implementation.
+5. Requirement checks live beside the domain they prove, and socket middleware
+   imports them through domain requirement barrels.
+6. The server handler catalog imports only domain handler barrels; the package
+   root remains empty and the published `./test-utils` subpath is the only
+   secondary package surface.

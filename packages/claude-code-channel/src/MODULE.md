@@ -6,13 +6,11 @@ _`packages/claude-code-channel/src`_
 
 Public entry barrel for `@moltzap/claude-code-channel`.
 
-Public entry barrel for `@moltzap/claude-code-channel`.
-
 Only names listed here are part of the public surface.
 
 ## Public surface
 
-### [`AllowlistError`](./errors.ts#L53)
+### [`AllowlistError`](./errors.ts#L50)
 
 _TypeAlias_
 
@@ -24,7 +22,7 @@ class NoActiveConversation extends Data.TaggedError("NoActiveConversation")<{
 }> {}
 ```
 
-### [`bootClaudeCodeChannel`](./entry.ts#L326)
+### [`bootClaudeCodeChannel`](./entry.ts#L294)
 
 _Function_
 
@@ -32,9 +30,12 @@ _Function_
 export function bootClaudeCodeChannel(opts: BootOptions)
 ```
 
-Single public entry point. In production the CLI binary
-(`cli.ts`) calls this; tests call it directly with an injected
-in-memory MCP transport.
+Boot a Claude Code channel. Single public entry point of the package.
+In production the CLI binary (`cli.ts`) calls this; tests call it
+directly with an injected in-memory MCP transport.
+
+The error channel is tagged; internals run on Effect, and the `Promise`
+wrapper lives only at this boundary.
 
 ```mermaid
 sequenceDiagram
@@ -43,8 +44,7 @@ sequenceDiagram
   participant server as server.ts
   participant client as moltzap-client
   Caller->>entry: bootClaudeCodeChannel(opts)
-  note over entry: [1] validateBootOptions (agentKey, serverUrl)
-  entry->>client: [2] new MoltZapService
+  entry->>client: [1] MoltZapService.make(profileName)
   entry->>client: [3] new MoltZapChannelCore
   note over entry: [4] createRoutingState
   note over entry: [5] makeSendReply(core)
@@ -67,19 +67,19 @@ tool.
 
 **Fails with:**
 
-- `AgentKeyInvalid` — opts.agentKey or opts.serverUrl is blank
+- `client config error` — MoltZap config is missing or invalid
 - `McpTransportFailed` — MCP server init or stdio connect rejects (step 6)
 - `ServiceRpcError` — WS connect / auth rejects (step 8)
 
-### [`BootError`](./errors.ts#L25)
+### [`BootError`](./errors.ts#L22)
 
 _TypeAlias_
 
 ```ts
 export type BootError =
+  | ClientBootConfigError
   | ServiceRpcError
   | McpTransportFailed
-  | AgentKeyInvalid
   | SchemaDecodeFailed;
 
 export class EmitFailed extends Data.TaggedError("EmitFailed")<{
@@ -87,14 +87,13 @@ export class EmitFailed extends Data.TaggedError("EmitFailed")<{
 }> {}
 ```
 
-### [`BootOptions`](./types.ts#L124)
+### [`BootOptions`](./types.ts#L123)
 
 _Interface_
 
 ```ts
 export interface BootOptions {
-  readonly serverUrl: string;
-  readonly agentKey: string;
+  readonly profileName: string;
   readonly gateInbound?: GateInbound;
 
   /**
@@ -118,7 +117,7 @@ export interface BootOptions {
    *
    * Field is prefixed `_` and explicitly tagged "tests-only" because no
    * production caller has reason to override the transport — production
-   * always uses stdio. Reviewer #256: keep this seam narrow.
+   * always uses stdio.
    */
   readonly _testTransportFactory?: () => Transport;
 }
@@ -129,7 +128,7 @@ Boot options — one struct per caller.
 No `Record&lt;string, unknown&gt;`, no `any`. Logging is provided through Effect
 logger layers at process boundaries.
 
-### [`BootResult`](./entry.ts#L38)
+### [`BootResult`](./entry.ts#L35)
 
 _TypeAlias_
 
@@ -138,7 +137,7 @@ export type BootResult =
   | { readonly _tag: "Ok"; readonly value: Handle }
 ```
 
-### [`ClaudeChannelNotification`](./types.ts#L71)
+### [`ClaudeChannelNotification`](./types.ts#L70)
 
 _Interface_
 
@@ -160,9 +159,8 @@ export interface ClaudeChannelNotification {
 
 Claude Code channel notification shape.
 
-The meta keys are FIXED by Anthropic's channel contract (fakechat
-reference, server.ts:135-148). Divergence breaks the `&lt;channel&gt;` tag
-renderer inside Claude Code.
+The meta keys are FIXED by Anthropic's channel contract. Divergence
+breaks the `&lt;channel&gt;` tag renderer inside Claude Code.
 
 ### [`ConversationId`](./types.ts#L38)
 
@@ -197,8 +195,8 @@ export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
 ```
 
 Branded conversation id — corresponds to MoltZap's `conversationId` on the
-wire, rendered to Claude Code as the contract-meta key `chat_id`.
-Principle 1: preventing accidental confusion with `MessageId` at call sites.
+wire, rendered to Claude Code as the contract-meta key `chat_id`. The brand
+prevents accidental confusion with `MessageId` at call sites.
 
 ### [`ConversationId`](./types.ts#L38)
 
@@ -233,10 +231,10 @@ export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
 ```
 
 Branded conversation id — corresponds to MoltZap's `conversationId` on the
-wire, rendered to Claude Code as the contract-meta key `chat_id`.
-Principle 1: preventing accidental confusion with `MessageId` at call sites.
+wire, rendered to Claude Code as the contract-meta key `chat_id`. The brand
+prevents accidental confusion with `MessageId` at call sites.
 
-### [`EventShapeError`](./errors.ts#L85)
+### [`EventShapeError`](./errors.ts#L82)
 
 _TypeAlias_
 
@@ -244,7 +242,7 @@ _TypeAlias_
 export type EventShapeError = ContentEmpty | MetaInvalid;
 ```
 
-### [`GateInbound`](./types.ts#L112)
+### [`GateInbound`](./types.ts#L111)
 
 _TypeAlias_
 
@@ -254,7 +252,7 @@ export type GateInbound = (
 ) =>
 ```
 
-`gateInbound` hook — zapbot-parity allowlist seam.
+`gateInbound` hook — allowlist seam.
 
 Must be pure and synchronous. Returning a failure drops the event;
 no downstream notification is emitted. No I/O, no mutation.
@@ -280,7 +278,7 @@ targeted by `reply_to`.
 Failure error variants live in `errors.ts → AllowlistError`
 (`SenderNotAllowed` / `ConversationNotAllowed`).
 
-### [`Handle`](./types.ts#L163)
+### [`Handle`](./types.ts#L161)
 
 _Interface_
 
@@ -295,10 +293,10 @@ export interface Handle {
 
 Lifecycle handle returned by `bootClaudeCodeChannel`.
 
-Principle 3: every operation has a typed error channel. `push` uses
+Every operation has a typed error channel. `push` uses
 `Effect&lt;void, PushError&gt;` so the MCP emit failure surfaces as a tag, not a
-rejected Promise. `stop` is infallible-by-design (teardown swallows
-downstream errors into logs per spec I8).
+rejected Promise. `stop` is infallible-by-design: teardown swallows
+downstream errors into logs.
 
 ### [`IsoTimestamp`](./types.ts#L62)
 
@@ -367,7 +365,7 @@ export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
 Branded message id — corresponds to MoltZap's `id`, rendered as
 contract-meta `message_id`.
 
-### [`PushError`](./errors.ts#L39)
+### [`PushError`](./errors.ts#L36)
 
 _TypeAlias_
 
@@ -380,7 +378,7 @@ class SenderNotAllowed extends Data.TaggedError("SenderNotAllowed")<{
 }> {}
 ```
 
-### [`ReplyError`](./errors.ts#L71)
+### [`ReplyError`](./errors.ts#L68)
 
 _TypeAlias_
 

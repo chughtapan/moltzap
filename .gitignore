@@ -148,3 +148,7 @@ vite.config.ts.timestamp-*
 /.moltzap/
 .codex
 /.tmp/
+
+.nx/cache
+.nx/workspace-data
+.nx/polygraph

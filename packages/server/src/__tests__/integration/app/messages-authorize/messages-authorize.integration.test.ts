@@ -1,37 +1,42 @@
-/**
- * #560 — `messages/authorize` send-side gate.
- *
- * Validates the verdict-path, race-safety, default-flow regression,
- * and per-caller visibility filter from architect plan §8.
- */
+/** Integration coverage for the `app/message/authorize` send-side gate. */
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
 import {
-  AppsRegister,
-  TaskCreate,
-  HookBlockedError,
+  MessageReceivedNotificationDefinition,
   MessagesAuthorize,
   MessagesList,
   MessagesSend,
-  MessageReceivedNotificationDefinition,
-  TaskConversationCreate,
-  TaskRequest,
-  type AgentId,
-  type AppId,
-  type AppManifest,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
+import { ConversationCreate } from "@moltzap/protocol/conversation";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
+import type { AppManifest } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
   registerAndConnect,
   setupAgentPair,
+  registerApp,
+  connectAppClient,
   getKyselyDb,
+  getBaseUrl,
   type ConnectedAgent,
+  type TestAppClient,
 } from "../../helpers.js";
+import {
+  conversationId as toConversationId,
+  messageId as toMessageId,
+  WIRE_ERROR_TAG,
+} from "@moltzap/protocol/testing";
 
 const it = effectIt.live;
 
@@ -40,7 +45,9 @@ const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Messages-Authorize Test App",
   hooks: {
-    message_authorize: { timeout_ms: 5_000 },
+    dispatch_authorize: { kind: "grant" },
+    message_authorize: { kind: "hook", timeoutMs: 5_000 },
+    task_create: { kind: "accept" },
   },
 };
 
@@ -91,6 +98,22 @@ let appHookState: VerdictState = {
   calls: 0,
 };
 
+/**
+ * Per-test moderator app principal. Its callbacks and app-owned RPCs run on
+ * the app connection; the requesting agent drives `agent/task/request` and
+ * `agent/message/send`.
+ *
+ * `sender` is the requesting agent. The app creates conversations with
+ * `seedCreatorAsParticipant: false`, so the sender must be listed as a
+ * participant for `agent/message/send` to reach `app/message/authorize`.
+ */
+interface ModeratorApp {
+  readonly client: TestAppClient;
+  readonly sender: ConnectedAgent;
+}
+
+let moderatorApp: ModeratorApp | null = null;
+
 beforeAll(() => Effect.runPromise(startTestServerEffect()), START_TIMEOUT_MS);
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 beforeEach(() =>
@@ -102,6 +125,7 @@ beforeEach(() =>
             next: { decision: DECISION_FORWARD, recipients: [] },
             calls: 0,
           };
+          moderatorApp = null;
         }),
       ),
     ),
@@ -109,40 +133,60 @@ beforeEach(() =>
 );
 
 /**
- * Attach the wire callback handling server→client `messages/authorize`
- * for `alice`. MUST be called BEFORE `createAppManagedTask`'s
- * `AppsRegister` so the callback is live when the first
- * `messages/send` fires.
+ * Server→client callbacks served by the moderator app principal.
+ * `app/task/create` auto-accepts; the scenarios exercise `app/message/authorize`.
  */
-function attachMessageAuthorizeHook(alice: ConnectedAgent) {
-  return alice.client.onAppCallback(MessagesAuthorize, () =>
-    Effect.gen(function* () {
-      appHookState.calls += 1;
-      const verdict = appHookState.next;
-      if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
-        return yield* Effect.never;
-      }
-      return { verdict: verdict as MessageAuthorizeVerdict };
-    }),
-  );
+function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    [DispatchAuthorize.name]: {
+      definition: DispatchAuthorize,
+      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
+    },
+    [MessagesAuthorize.name]: {
+      definition: MessagesAuthorize,
+      handle: () =>
+        Effect.gen(function* () {
+          appHookState.calls += 1;
+          const verdict = appHookState.next;
+          if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
+            return yield* Effect.never;
+          }
+          return { verdict: verdict as MessageAuthorizeVerdict };
+        }),
+    },
+    [TaskCreate.name]: {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
+    },
+  };
+}
+
+function currentModeratorApp(): ModeratorApp {
+  if (moderatorApp === null) {
+    throw new Error(
+      "moderatorApp: not minted — call createAppManagedTask first",
+    );
+  }
+  return moderatorApp;
 }
 
 function dbError(message: string, cause: unknown) {
   return new MessagesAuthorizeDbError({ message, cause });
 }
 
-function readTmDecision(
+function readDispatchDecision(
   messageId: string,
 ): Effect.Effect<unknown, MessagesAuthorizeDbError> {
   return Effect.tryPromise({
     try: () =>
       getKyselyDb()
         .selectFrom("messages")
-        .select("tm_decision")
-        .where("id", "=", messageId)
+        .select("dispatch_decision")
+        .where("id", "=", toMessageId(messageId))
         .executeTakeFirstOrThrow(),
-    catch: (cause) => dbError("Unable to read tm_decision", cause),
-  }).pipe(Effect.map((row) => row.tm_decision));
+    catch: (cause) => dbError("Unable to read dispatch_decision", cause),
+  }).pipe(Effect.map((row) => row.dispatch_decision));
 }
 
 function readAllMessageIdsForConversation(
@@ -153,7 +197,7 @@ function readAllMessageIdsForConversation(
       getKyselyDb()
         .selectFrom("messages")
         .select("id")
-        .where("conversation_id", "=", conversationId)
+        .where("conversation_id", "=", toConversationId(conversationId))
         .execute(),
     catch: (cause) => dbError("Unable to read conversation messages", cause),
   }).pipe(Effect.map((rows) => rows.map((row) => row.id)));
@@ -165,11 +209,14 @@ function attemptPendingCasBlock(messageId: string) {
       getKyselyDb()
         .updateTable("messages")
         .set({
-          tm_decision: { tag: VERDICT_TAG_BLOCK, reason: RACE_LOSER_REASON },
+          dispatch_decision: {
+            tag: VERDICT_TAG_BLOCK,
+            reason: RACE_LOSER_REASON,
+          },
         })
-        .where("id", "=", messageId)
+        .where("id", "=", toMessageId(messageId))
         .where(
-          "tm_decision",
+          "dispatch_decision",
           "@>",
           JSON.stringify({ tag: VERDICT_TAG_PENDING }),
         )
@@ -226,8 +273,8 @@ function expectHookBlocked(
 ): void {
   Either.match(outcome, {
     onLeft: (error) => {
-      const wire = error as { code?: number; message?: string };
-      expect(wire.code).toBe(HookBlockedError.code);
+      const wire = error as { _tag?: string; message?: string };
+      expect(wire._tag).toBe(WIRE_ERROR_TAG.HookBlocked);
       if (messagePattern !== undefined) {
         expect(String(wire.message)).toMatch(messagePattern);
       }
@@ -253,51 +300,55 @@ function expectDecisionRecipients(
   ).toEqual(recipients);
 }
 
+/**
+ * Mint the moderator app principal (HTTP register → `appKey` Connect),
+ * wire its callbacks, then have the requesting `agent` drive the
+ * agent-only `agent/task/request` against the DB-minted `appId`. The
+ * server-minted `appId` (NOT `TEST_APP_MANIFEST.appId`) is what
+ * `agent/task/request` targets so the app's `AppConnection` is the resolved
+ * moderator endpoint. Memoizes the app client for the rest of the test so
+ * subsequent conversation creates reuse one app principal.
+ */
 function createAppManagedTask(
   agent: ConnectedAgent,
   invited: ReadonlyArray<ConnectedAgent>,
 ) {
-  // `agent` must be the registered remote-app connection for
-  // TEST_APP_ID so TM authority is provable on subsequent admin RPCs
-  // (task/conversation/create etc.). `apps/register` overwrites any
-  // prior entry for the same appId.
   return Effect.gen(function* () {
-    yield* agent.client.sendRpc(AppsRegister, {
-      manifest: TEST_APP_MANIFEST,
-    });
-    // task/request fires a task/create TM callback before the task
-    // leaves `waiting`; this test's app auto-accepts.
-    yield* agent.client.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    const registered = yield* registerApp(getBaseUrl(), TEST_APP_MANIFEST);
+    const client = yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      moderatorHandlers(),
     );
+    moderatorApp = { client, sender: agent };
     return yield* agent.client.sendRpc(TaskRequest, {
-      appId: TEST_APP_ID,
+      appId: registered.appId,
       invitedAgentIds: invited.map((a) => a.agentId),
     });
   });
 }
 
+// The app creates conversations off its own `AppConnection`
+// (`seedCreatorAsParticipant: false`); the sender agent is added
+// explicitly so its `agent/message/send` passes the participant gate.
 function createManagedGroup(
-  agent: ConnectedAgent,
   taskId: TaskId,
   name: string,
   participants: ReadonlyArray<ConnectedAgent>,
 ) {
-  return agent.client.sendRpc(TaskConversationCreate, {
+  const app = currentModeratorApp();
+  return app.client.sendRpc(ConversationCreate, {
     taskId,
     name,
-    participants: participants.map((p) => p.agentId),
+    participants: [app.sender.agentId, ...participants.map((p) => p.agentId)],
   });
 }
 
-function createManagedDm(
-  agent: ConnectedAgent,
-  taskId: TaskId,
-  participant: ConnectedAgent,
-) {
-  return agent.client.sendRpc(TaskConversationCreate, {
+function createManagedDm(taskId: TaskId, participant: ConnectedAgent) {
+  const app = currentModeratorApp();
+  return app.client.sendRpc(ConversationCreate, {
     taskId,
-    participants: [participant.agentId],
+    participants: [app.sender.agentId, participant.agentId],
   });
 }
 
@@ -333,16 +384,12 @@ function sendTextWithTimeout(
 function blockVerdictPreventsFanoutAndPersistsBlock() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    yield* attachMessageAuthorizeHook(alice);
     appHookState.next = { decision: DECISION_BLOCK, reason: BLOCK_REASON };
 
     const task = yield* createAppManagedTask(alice, [bob]);
-    const conv = yield* createManagedGroup(
-      alice,
-      task.task.id,
-      CONV_NAME_BLOCK,
-      [bob],
-    );
+    const conv = yield* createManagedGroup(task.task.id, CONV_NAME_BLOCK, [
+      bob,
+    ]);
     const binding: ConversationBinding = {
       taskId: task.task.id,
       conversationId: conv.conversation.id,
@@ -358,7 +405,7 @@ function blockVerdictPreventsFanoutAndPersistsBlock() {
 
     const ids = yield* readAllMessageIdsForConversation(binding.conversationId);
     expect(ids.length).toBe(1);
-    const decision = yield* readTmDecision(ids[0]!);
+    const decision = yield* readDispatchDecision(ids[0]!);
     expectDecisionTag(decision, VERDICT_TAG_BLOCK);
     expectDecisionReason(decision, BLOCK_REASON);
   });
@@ -367,11 +414,10 @@ function blockVerdictPreventsFanoutAndPersistsBlock() {
 function tmUnreachableSynthesizesBlock() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    yield* attachMessageAuthorizeHook(alice);
     appHookState.next = { kind: NEVER_REPLY };
 
     const task = yield* createAppManagedTask(alice, [bob]);
-    const conv = yield* createManagedDm(alice, task.task.id, bob);
+    const conv = yield* createManagedDm(task.task.id, bob);
     const binding: ConversationBinding = {
       taskId: task.task.id,
       conversationId: conv.conversation.id,
@@ -397,15 +443,13 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
     const bob = yield* registerAndConnect("bob-sub");
     const carol = yield* registerAndConnect("carol-sub");
     const dave = yield* registerAndConnect("dave-sub");
-    yield* attachMessageAuthorizeHook(alice);
 
     const task = yield* createAppManagedTask(alice, [bob, carol, dave]);
-    const conv = yield* createManagedGroup(
-      alice,
-      task.task.id,
-      CONV_NAME_SUBSET,
-      [bob, carol, dave],
-    );
+    const conv = yield* createManagedGroup(task.task.id, CONV_NAME_SUBSET, [
+      bob,
+      carol,
+      dave,
+    ]);
     const binding: ConversationBinding = {
       taskId: task.task.id,
       conversationId: conv.conversation.id,
@@ -431,7 +475,7 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
     yield* assertNoMessageReceived(bobCollector);
     yield* assertNoMessageReceived(daveCollector);
 
-    const decision = yield* readTmDecision(messageId);
+    const decision = yield* readDispatchDecision(messageId);
     expectDecisionTag(decision, VERDICT_TAG_FORWARD);
     expectDecisionRecipients(decision, [carol.agentId]);
   });
@@ -440,11 +484,10 @@ function forwardSubsetOnlyNotifiesAuthorizedRecipient() {
 function forwardEmptySendsNoFanout() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    yield* attachMessageAuthorizeHook(alice);
     appHookState.next = { decision: DECISION_FORWARD, recipients: [] };
 
     const task = yield* createAppManagedTask(alice, [bob]);
-    const conv = yield* createManagedDm(alice, task.task.id, bob);
+    const conv = yield* createManagedDm(task.task.id, bob);
     const binding: ConversationBinding = {
       taskId: task.task.id,
       conversationId: conv.conversation.id,
@@ -454,7 +497,7 @@ function forwardEmptySendsNoFanout() {
     const messageId = sent.message.id;
 
     yield* assertNoMessageReceived(bobCollector);
-    const decision = yield* readTmDecision(messageId);
+    const decision = yield* readDispatchDecision(messageId);
     expectDecisionTag(decision, VERDICT_TAG_FORWARD);
     expectDecisionRecipients(decision, []);
   });
@@ -530,14 +573,11 @@ function senderAndRecipientsSeeOnlyAuthorizedRows() {
     const alice = yield* registerAndConnect("alice-vis");
     const bob = yield* registerAndConnect("bob-vis");
     const carol = yield* registerAndConnect("carol-vis");
-    yield* attachMessageAuthorizeHook(alice);
     const task = yield* createAppManagedTask(alice, [bob, carol]);
-    const conv = yield* createManagedGroup(
-      alice,
-      task.task.id,
-      CONV_NAME_VISIBILITY,
-      [bob, carol],
-    );
+    const conv = yield* createManagedGroup(task.task.id, CONV_NAME_VISIBILITY, [
+      bob,
+      carol,
+    ]);
     const binding: ConversationBinding = {
       taskId: task.task.id,
       conversationId: conv.conversation.id,
@@ -561,9 +601,8 @@ function senderAndRecipientsSeeOnlyAuthorizedRows() {
 function casGuardPreservesCommittedVerdict() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    yield* attachMessageAuthorizeHook(alice);
     const task = yield* createAppManagedTask(alice, [bob]);
-    const conv = yield* createManagedDm(alice, task.task.id, bob);
+    const conv = yield* createManagedDm(task.task.id, bob);
     const binding: ConversationBinding = {
       taskId: task.task.id,
       conversationId: conv.conversation.id,
@@ -576,14 +615,20 @@ function casGuardPreservesCommittedVerdict() {
     const sent = yield* sendText(alice, binding, TEXT_RACE);
     const messageId = sent.message.id;
 
-    expectDecisionTag(yield* readTmDecision(messageId), VERDICT_TAG_FORWARD);
+    expectDecisionTag(
+      yield* readDispatchDecision(messageId),
+      VERDICT_TAG_FORWARD,
+    );
     const updated = yield* attemptPendingCasBlock(messageId);
     expect(updated.length).toBe(0);
-    expectDecisionTag(yield* readTmDecision(messageId), VERDICT_TAG_FORWARD);
+    expectDecisionTag(
+      yield* readDispatchDecision(messageId),
+      VERDICT_TAG_FORWARD,
+    );
   });
 }
 
-describe("messages/authorize — block verdict paths", () => {
+describe("app/message/authorize — block verdict paths", () => {
   it(
     "Block: sender fails, recipient receives no message, DB row records block",
     blockVerdictPreventsFanoutAndPersistsBlock,
@@ -591,20 +636,20 @@ describe("messages/authorize — block verdict paths", () => {
   );
 
   it(
-    "TM unreachable: envelope synthesizes Block and suppresses fan-out",
+    "app unreachable: envelope synthesizes Block and suppresses fan-out",
     tmUnreachableSynthesizesBlock,
     TEST_TIMEOUT_MS,
   );
 
-  // DEFAULT_APP_ID is boot-installed in-process; a wire-app
-  // AppsRegister against it is rejected. The messages/authorize
+  // DEFAULT_APP_ID is boot-installed in-process; no connected app can
+  // register over it. The app/message/authorize
   // verdict for DEFAULT_APP_ID tasks is fixed to the default Forward
   // policy and cannot be overridden.
 });
 
-describe("messages/authorize — forward verdict paths", () => {
+describe("app/message/authorize — forward verdict paths", () => {
   it(
-    "Forward subset: only TM-authorized recipients see messages/received",
+    "Forward subset: only app-authorized recipients see messages/received",
     forwardSubsetOnlyNotifiesAuthorizedRecipient,
     TEST_TIMEOUT_MS,
   );
@@ -616,7 +661,7 @@ describe("messages/authorize — forward verdict paths", () => {
   );
 });
 
-describe("messages/authorize — visibility filter", () => {
+describe("app/message/authorize — visibility filter", () => {
   it(
     "Sender sees own forward + own block; recipient sees only forwards-containing-self",
     senderAndRecipientsSeeOnlyAuthorizedRows,
@@ -624,7 +669,7 @@ describe("messages/authorize — visibility filter", () => {
   );
 });
 
-describe("messages/authorize — CAS race", () => {
+describe("app/message/authorize — CAS race", () => {
   it(
     "CAS guard: second pending-predicate update matches no rows and preserves committed state",
     casGuardPreservesCommittedVerdict,

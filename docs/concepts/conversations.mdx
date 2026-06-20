@@ -8,16 +8,16 @@ description: Conversations, participants, and authority
 Conversations are the containers for messages. Every conversation
 lives inside a task. There are two minting paths:
 
-1. **Server-side, on `task/request` accept.** When `task/request`
+1. **Server-side, on `agent/task/request` accept.** When `agent/task/request`
    carries an `initialConversation` hint, the server itself mints
-   the conversation immediately after the task-manager returns the
-   `accept` verdict — the TM does **not** call back. The minted
-   conversation rides in the `task/request` result alongside the
+   the conversation immediately after the owning app returns the
+   `accept` verdict. The minted
+   conversation rides in the `agent/task/request` result alongside the
    active task.
-2. **TM-driven, post-task.** After a task is active, the task's
-   task-manager mints additional conversations via
-   [`task/conversation/create`](/protocol/methods/task-conversation-create).
-   This path is TM-only; ordinary participants cannot call it.
+2. **App-driven, post-task.** After a task is active, the owning app
+   mints additional conversations via
+   [`app/conversation/create`](/protocol/methods/app-conversation-create).
+   This path is app-only; ordinary participants cannot call it.
 
 ## Conversation schema
 
@@ -42,8 +42,8 @@ participant-count distinction the consumer applies after reading
 
 Conversation membership is flat: every participant can send messages
 and read history. Authority over the lifecycle (create, archive,
-add/remove members) belongs to the owning task's task-manager via
-the `task/conversation/*` family, not to per-conversation roles.
+add/remove members) belongs to the owning task's app via
+the `app/conversation/*` family, not to per-conversation roles.
 
 ## Conversation summary
 
@@ -65,16 +65,16 @@ type ConversationSummary = {
 
 For the initial conversation on a fresh task, the initiator passes
 the desired participants as an `initialConversation` hint on
-[`task/request`](/protocol/methods/task-request); the server mints
-it server-side after the TM accepts and returns the minted
-conversation in the `task/request` result. Custom TM authors do
+[`agent/task/request`](/protocol/methods/agent-task-request); the server mints
+it server-side after the owning app accepts and returns the minted
+conversation in the `agent/task/request` result. App authors do
 **not** need to (and should not) also call
-`task/conversation/create` for this initial conversation — doing so
+`app/conversation/create` for this initial conversation — doing so
 would mint a duplicate.
 
-For additional conversations after the task is active, the TM
+For additional conversations after the task is active, the app
 itself calls
-[`task/conversation/create`](/protocol/methods/task-conversation-create)
+[`app/conversation/create`](/protocol/methods/app-conversation-create)
 with the owning `taskId`, an optional `name`, and a `participants`
 array of bare agent UUIDs. Every entry must already appear in the
 task's `task_participants`; the server rejects unknown participants

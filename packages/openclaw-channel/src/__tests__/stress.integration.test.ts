@@ -6,26 +6,26 @@
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Data, Effect } from "effect";
-import { MoltZapAgentClient } from "@moltzap/client";
-import { stripWsPath } from "@moltzap/client/test";
+import { MoltZapAgentClient, type ServiceRpcError } from "@moltzap/client";
+import { stripWsPath } from "@moltzap/client/test-utils";
 import { getLogs } from "../test-utils/container-core.js";
 import {
-  registerAndClaim,
+  registerTestAgent,
   extractTaskBinding,
   extractText,
   type TaskBinding,
 } from "./test-helpers.js";
-import type { Message } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentKey } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { Message } from "@moltzap/protocol/message";
+import { agentId, waitForValue } from "@moltzap/protocol/testing";
 
-import {
-  DEFAULT_APP_ID,
-  MessagesList,
-  MessagesSend,
-  TaskRequest,
-} from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 
 interface StressAgent {
-  readonly apiKey: string;
+  readonly apiKey: AgentKey;
 }
 
 interface StressClients {
@@ -78,7 +78,7 @@ describe.skipIf(inject("containerAId") === "")(
 );
 
 function defineStressSuite() {
-  const receiverAgentId = inject("containerAAgentId");
+  const receiverAgentId = agentId(inject("containerAAgentId"));
   const containerAId = inject("containerAId");
   it(
     "10 concurrent messages from 3 agents all get echo replies",
@@ -87,7 +87,7 @@ function defineStressSuite() {
   );
 }
 
-function runStressScenario(receiverAgentId: string, containerAId: string) {
+function runStressScenario(receiverAgentId: AgentId, containerAId: string) {
   return Effect.gen(function* () {
     const agents = yield* registerStressAgents;
     const clients = yield* stressClients(agents);
@@ -118,7 +118,7 @@ const registerStressAgents = Effect.all(
 
 function registerAgent(name: string) {
   return Effect.tryPromise({
-    try: () => registerAndClaim(name),
+    try: () => registerTestAgent(name),
     catch: (cause) =>
       new StressTestError({
         message: `Registration failed for ${name}`,
@@ -145,7 +145,7 @@ function stressClients(
   });
 }
 
-function stressClient(agentKey: string) {
+function stressClient(agentKey: AgentKey) {
   return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,
@@ -165,7 +165,7 @@ function connectStressClients(clients: StressClients) {
 
 function createStressConversations(
   clients: StressClients,
-  receiverAgentId: string,
+  receiverAgentId: AgentId,
 ): Effect.Effect<StressConversationIds, unknown> {
   return Effect.all(
     [
@@ -179,10 +179,10 @@ function createStressConversations(
 
 function createConversation(
   client: MoltZapAgentClient,
-  receiverAgentId: string,
+  receiverAgentId: AgentId,
 ) {
   return client
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [receiverAgentId],
       initialConversation: { participants: [receiverAgentId] },
@@ -211,7 +211,7 @@ function sendBatch(
   count: number,
 ) {
   return Array.from({ length: count }, (_, i) =>
-    client.sendRpc(MessagesSend, {
+    client.call(MessagesSend.name, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
       parts: [{ type: TEXT_PART_TYPE, text: `${prefix}-msg-${i}` }],
@@ -222,8 +222,8 @@ function sendBatch(
 function waitForStressReplies(
   clients: StressClients,
   conversations: StressConversationIds,
-  receiverAgentId: string,
-): Effect.Effect<StressReplies, StressTestError> {
+  receiverAgentId: AgentId,
+): Effect.Effect<StressReplies, ServiceRpcError> {
   return Effect.all(
     [
       waitForRepliesByList({
@@ -261,34 +261,29 @@ function waitForStressReplies(
 function waitForRepliesByList(params: {
   readonly client: MoltZapAgentClient;
   readonly binding: TaskBinding;
-  readonly receiverAgentId: string;
+  readonly receiverAgentId: AgentId;
   readonly expectedCount: number;
   readonly timeoutMs: number;
-}): Effect.Effect<readonly Message[], StressTestError> {
-  return Effect.gen(function* () {
-    const deadline = Date.now() + params.timeoutMs;
-    while (Date.now() < deadline) {
-      const replies = yield* listMatchingReplies(params);
-      if (replies.length >= params.expectedCount) {
-        return replies.slice(0, params.expectedCount);
-      }
-      yield* Effect.sleep(`${REPLY_POLL_INTERVAL_MS} millis`);
-    }
-    return yield* Effect.fail(
-      new StressTestError({
-        message: `Timed out waiting for replies in ${params.binding.conversationId}`,
-      }),
-    );
-  });
+}): Effect.Effect<readonly Message[], ServiceRpcError> {
+  return waitForValue(
+    listMatchingReplies(params).pipe(
+      Effect.map((replies) =>
+        replies.length >= params.expectedCount
+          ? replies.slice(0, params.expectedCount)
+          : undefined,
+      ),
+    ),
+    { pollMillis: REPLY_POLL_INTERVAL_MS },
+  );
 }
 
 function listMatchingReplies(params: {
   readonly client: MoltZapAgentClient;
   readonly binding: TaskBinding;
-  readonly receiverAgentId: string;
+  readonly receiverAgentId: AgentId;
 }) {
   return params.client
-    .sendRpc(MessagesList, {
+    .call(MessagesList.name, {
       taskId: params.binding.taskId,
       conversationId: params.binding.conversationId,
       limit: TOTAL_STRESS_MESSAGE_COUNT,
@@ -307,7 +302,7 @@ function listMatchingReplies(params: {
 function expectStressReplies(
   replies: StressReplies,
   conversations: StressConversationIds,
-  receiverAgentId: string,
+  receiverAgentId: AgentId,
 ) {
   expect(replies.repliesA).toHaveLength(MESSAGES_FROM_A);
   expect(replies.repliesB).toHaveLength(MESSAGES_FROM_B);
@@ -332,8 +327,8 @@ function expectStressReplies(
 
 function expectReplyBatch(
   replies: readonly Message[],
-  conversationId: string,
-  receiverAgentId: string,
+  conversationId: ConversationId,
+  receiverAgentId: AgentId,
 ) {
   for (const reply of replies) {
     expect(reply.senderId).toBe(receiverAgentId);

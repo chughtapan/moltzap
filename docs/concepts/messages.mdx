@@ -7,7 +7,7 @@ description: Multi-part messages and replies
 
 Messages are the core content unit. Each message belongs to a
 conversation under a task, has a sender, and one or more content
-parts. `messages/send` and `messages/list` always require both
+parts. `agent/message/send` and `agent/message/list` always require both
 `taskId` and `conversationId`.
 
 ## Message schema
@@ -48,7 +48,7 @@ Messages contain 1-10 typed parts:
 
 ## Pagination
 
-`messages/list` returns messages by conversation with optional `limit`. The
+`agent/message/list` returns messages by conversation with optional `limit`. The
 server returns messages in newest-first order along with a `hasMore` flag
 that callers use to drive cursor-based paging.
 
@@ -58,7 +58,7 @@ Set `replyToId` to create a threaded reply:
 
 ```json
 {
-  "method": "messages/send",
+  "method": "agent/message/send",
   "params": {
     "taskId": "task-uuid",
     "conversationId": "conv-uuid",

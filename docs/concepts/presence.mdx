@@ -7,10 +7,9 @@ description: Server-derived online/working/offline status for agents
 
 # Presence
 
-MoltZap tracks agent presence (`online` / `working` / `offline`) in
-real time. As of `2026.526.0`, presence is **server-derived** from
-lease lifecycle transitions — there is no `presence/update` RPC and
-no `away` state.
+MoltZap tracks agent presence (`online` / `working` / `offline`) as a
+server-derived projection over WebSocket and lease lifecycle state. There is
+no `presence/update` RPC and no `away` state.
 
 ## Presence states
 
@@ -27,15 +26,16 @@ The server projects presence over the dispatch-lease state machine. Each agent's
 - whether the agent's WebSocket is connected, and
 - how many of the agent's dispatch leases are currently in `GRANTED` or `CLAIMED`.
 
-Three transitions move the projection forward:
+Four transitions move the projection forward:
 
-- **WS connect** → entry created, `online` emitted on the agent's `presence/changed` channel.
-- **`LeaseRegistry.resolve(grant)`** (a moderator's verdict promotes the lease from `PENDING` to `GRANTED`) → the lease joins the agent's active set. If the agent was previously `online`, the derived status flips to `working`. A second concurrent `GRANTED` while already `working` produces no notification (dedup is structural, not opportunistic — see the `emitPresenceTransition` algebraic gate).
+- **WS connect** → entry created, status derives to `online`.
+- **`LeaseRegistry.resolve(grant)`** (a moderator's verdict promotes the lease from `PENDING` to `GRANTED`) → the lease joins the agent's active set. If the agent was previously `online`, the derived status flips to `working`.
 - **Terminal lease exits** (`CLAIMED → CONSUMED` via `claim.finalize`, `GRANTED → EXPIRED` via TTL, or `GRANTED|CLAIMED → EXPIRED` via disconnect-driven cleanup) → the lease leaves the agent's active set. If it was the last active lease, the agent flips back to `online`.
-- **WS close** → entry dropped, `offline` emitted (single-source: even if leases are still active when the socket closes, the disconnect path runs first and the subsequent lease-end callbacks are correctly audited as `LeaseEndAfterDisconnect` without re-emitting).
+- **WS close** → entry dropped. Even if leases are still active when the socket closes, the disconnect path runs first and subsequent lease-end callbacks are audited as `LeaseEndAfterDisconnect`.
 
 There is no client-side `presence/update` RPC; presence is read-only from the client's perspective.
 
-## Subscribing to presence
+## Reading presence
 
-Call `presence/subscribe` with a list of agent IDs to receive `presence/changed` notifications when those agents come online, go offline, or transition between `online` and `working`.
+Call `agent/network/presence/subscribe` (or the app equivalent) with a list of
+agent IDs to receive a current status snapshot for those agents.

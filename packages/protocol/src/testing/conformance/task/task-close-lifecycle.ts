@@ -7,13 +7,11 @@
 import { Effect } from "effect";
 import {
   TaskClosedNotificationDefinition,
-  TaskClosedError,
-  TaskAddParticipant,
-  TaskClose,
-  TaskConversationCreate,
   TaskRequest,
-} from "../../../task/methods.js";
-import type { TaskId } from "../../../task/methods.js";
+  TaskUpdate,
+} from "#task";
+import { ConversationCreate } from "#conversation";
+import type { TaskId } from "#task";
 import type { ModeratedHandle } from "./_helpers.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
@@ -29,9 +27,8 @@ import {
   type ConversationActor,
 } from "./_helpers.js";
 
-// Property ID stays at `delivery/task-close-lifecycle` to preserve the
-// pre/post conformance baseline (#546 §7). Architect §7: "registry
-// `category` derived from the call-site, not file path."
+// Property ID stays `delivery/task-close-lifecycle`: the registry
+// `category` derives from the call-site, not the file path.
 const CATEGORY = "delivery" as const;
 const PROPERTY = "task-close-lifecycle";
 
@@ -58,17 +55,19 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
   return Effect.scoped(
     Effect.gen(function* () {
       const fixture = yield* acquireTaskCloseFixture(ctx);
-      const close = yield* fixture.owner.client
-        .sendRpc(TaskClose, { taskId: fixture.taskId })
+      // tasks/close heads its `requires` with `AppPrincipal` — drive it through
+      // the moderator app principal, not the agent owner.
+      const close = yield* fixture.moderatorClient
+        .sendRpc(TaskUpdate, { action: "close", taskId: fixture.taskId })
         .pipe(Effect.either);
       const closed = yield* requireRight(close, (error) =>
         deliveryViolation(PROPERTY, `tasks/close failed: ${error._tag}`),
       );
-      if (closed.task.status !== "closed") {
+      if (closed.action !== "closed" || closed.task.status !== "closed") {
         return yield* Effect.fail(
           deliveryViolation(
             PROPERTY,
-            `tasks/close returned status ${closed.task.status}`,
+            `tasks/close returned ${JSON.stringify(closed)}`,
           ),
         );
       }
@@ -88,7 +87,7 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
         taskId: fixture.taskId,
         conversationId: fixture.conversationId,
         propertyName: PROPERTY,
-        expectedError: { code: TaskClosedError.code, label: "TaskClosed" },
+        expectedError: { tag: "TaskClosed" },
       });
     }),
   );
@@ -102,77 +101,89 @@ function acquireTaskCloseFixture(ctx: ConformanceRunContext) {
     const participant = yield* acquireClient(ctx, "tc-participant").pipe(
       Effect.mapError((e) => deliveryViolation(PROPERTY, `participant: ${e}`)),
     );
-    const moderator = yield* moderateAs(owner, "tc").pipe(
+    const moderator = yield* moderateAs(ctx, owner, "tc").pipe(
       Effect.mapError((message) => deliveryViolation(PROPERTY, message)),
     );
     const task = yield* createTaskAndAddParticipant(
       owner,
       participant,
-      moderator.appId,
+      moderator,
     );
     const conversation = yield* createTaskCloseConversation(
-      owner,
+      moderator,
       task.task.id,
+      owner,
       participant,
     );
     yield* moderator
       .awaitConversationReady(conversation.conversation.id, [
+        owner.agent.agentId,
         participant.agent.agentId,
       ])
       .pipe(Effect.mapError((message) => deliveryViolation(PROPERTY, message)));
     return {
       owner,
       participant,
+      moderatorClient: moderator.client,
       taskId: task.task.id,
       conversationId: conversation.conversation.id,
     };
   });
 }
 
+// `agent/task/request` is agent-called by `owner`; participant mutation routes
+// through the moderator app principal.
 function createTaskAndAddParticipant(
   owner: ConversationActor,
   participant: ConversationActor,
-  appId: ModeratedHandle["appId"],
+  moderator: ModeratedHandle,
 ) {
   return Effect.gen(function* () {
     const taskResult = yield* owner.client
       .sendRpc(TaskRequest, {
-        appId,
+        appId: moderator.appId,
         invitedAgentIds: [participant.agent.agentId],
       })
       .pipe(Effect.either);
     const task = yield* requireRight(taskResult, (error) =>
-      deliveryViolation(PROPERTY, `task/create failed: ${error._tag}`),
+      deliveryViolation(PROPERTY, `agent/task/request failed: ${error._tag}`),
     );
-    const addResult = yield* owner.client
-      .sendRpc(TaskAddParticipant, {
+    const addResult = yield* moderator.client
+      .sendRpc(TaskUpdate, {
+        action: "add-participant",
         taskId: task.task.id,
         agentId: participant.agent.agentId,
       })
       .pipe(Effect.either);
     yield* requireRight(addResult, (error) =>
-      deliveryViolation(PROPERTY, `task/addParticipant failed: ${error._tag}`),
+      deliveryViolation(PROPERTY, `app/task/update failed: ${error._tag}`),
     );
     return task;
   });
 }
 
+// `app/conversation/create` heads its `requires` with `AppPrincipal` — the
+// moderator app creates it. `owner` is included as a participant so its subscriber
+// observes the `app/conversation/created` event (`awaitConversationReady`
+// polls a map fed by the owner's agent-broadcast stream; an `AppConnection`
+// cannot receive that broadcast).
 function createTaskCloseConversation(
-  owner: ConversationActor,
+  moderator: ModeratedHandle,
   taskId: TaskId,
+  owner: ConversationActor,
   participant: ConversationActor,
 ) {
   return Effect.gen(function* () {
-    const conversationResult = yield* owner.client
-      .sendRpc(TaskConversationCreate, {
+    const conversationResult = yield* moderator.client
+      .sendRpc(ConversationCreate, {
         taskId,
-        participants: [participant.agent.agentId],
+        participants: [owner.agent.agentId, participant.agent.agentId],
       })
       .pipe(Effect.either);
     return yield* requireRight(conversationResult, (error) =>
       deliveryViolation(
         PROPERTY,
-        `task/conversation/create failed: ${error._tag}`,
+        `app/conversation/create failed: ${error._tag}`,
       ),
     );
   });

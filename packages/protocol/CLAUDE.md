@@ -1,263 +1,151 @@
 # @moltzap/protocol
 
-TypeBox schema definitions, descriptor-backed RPC/notification
-definitions, and AJV validators for the MoltZap JSON-RPC protocol.
-Source of truth for all wire message types. Leaf of the workspace
-dependency DAG.
+Effect `Schema` definitions, descriptor-backed RPC/notification
+definitions, lifecycle socket adapters, and test fixtures for the MoltZap
+protocol. This package is the workspace leaf: it owns the wire contracts and
+the server/client RPC catalogs, while implementation packages provide handler
+maps, middleware Layers, storage, and runtime policy.
+
+The socket payload is still bare JSON-RPC, but serialization is owned by
+`@effect/rpc`. Protocol code declares RPC members and channel routing; it does
+not hand-maintain request/response/notification frame schemas.
 
 ## Key Files
 
-Five protocol layers, organized DAG-style (transport at the bottom,
-app at the top — see `src/index.ts` file-level JSDoc for the diagram):
+The source DAG is reflected in `src/index.ts`:
 
-- `src/transport/` — wire frames, JSON-RPC encode/decode, the typed
-  dispatcher, tagged-error registry, per-connection `Originator`.
-  Bottom of the DAG.
-- `src/identity/` — agents, users, sessions, contact policy.
-- `src/network/` — `network/connect`, ping, presence, endpoint
-  actor-model types (`tm:agent:<uuid>`, `tm:app:<uuid>`).
-- `src/task/` — singular `task/*` + `task/conversation/*` namespace:
-  `TaskCreate`, `TaskLeave`, `TaskList`, `TaskClose`,
-  `TaskAddParticipant`, `TaskRemoveParticipant`, the six
-  `TaskConversation*` admin methods, the `Messages*` family
-  (`MessagesSend` / `MessagesList` — both require `taskId`),
-  dispatch lease wire surface, `AppId` brand, `DEFAULT_APP_ID`
-  constant, `ParticipantNotAdmittedError`. Branded `TaskId` /
-  `LeaseId` ids live in `src/task/ids.ts`. Family overview lives
-  in the header block above the descriptors in `src/task/tasks.ts`.
-  Type canaries: `src/task/task-conversation-family.types-check.ts`
-  + `src/task/task-d3-cutover.types-check.ts`.
-- `src/app/` — app registration + task-callback RPCs (server-initiated
-  calls into the client). Top of the DAG.
-
-Aggregates and entry points:
-
-- `src/index.ts` — public barrel; re-exports the layers in DAG order.
-- `src/rpc-registry.ts` — canonical `rpcMethods` +
-  `notificationDefinitions` arrays + `taskCallbackMethods` group +
-  per-kind partitions (`agentClientRpcMethods`,
-  `taskMasterRpcMethods`, `serverRpcMethods`); exposes
-  `decodeServerInbound` / `decodeClientInbound`.
-- `src/schema-primitives.ts` — `stringEnum`, `brandedId`,
-  `brandedString`, `brandedNumber`, `DateTimeString`.
-- `src/version.ts` — `PROTOCOL_VERSION` constant.
-- `src/transport/wire-errors.ts` — cross-cutting tagged errors
-  (`UnauthorizedError`, `ForbiddenError`, `NotFoundError`,
-  `ConflictError`, `InvalidParamsError`, `MalformedFrameError`).
-  Domain-specific tagged errors live in the owning layer's file.
-
-Testing and tooling:
-
-- `src/testing/conformance/` — property-based conformance suite
-  (consumed by server, client, and external repos like
-  moltzap-arena).
-- `src/testing/arbitraries/` — fast-check generators for fuzzing.
-- `src/testing/models/` — reference state machines used by
-  conformance properties.
-- `src/testing/toxics/` — Toxiproxy fault-injection adapters for
-  adversity-tier conformance properties.
-- `scripts/generate-docs.ts` + `scripts/docs/` — Mintlify generator
-  for the protocol reference pages under root `docs/protocol/`.
+- `src/transport/` — descriptor factory, strict decode helpers, typed dispatch,
+  mux routing, notification subscribers, principal middleware tags, wire string
+  brands, and cross-cutting tagged errors. This is an internal implementation
+  layer, not the published consumer surface.
+- `src/rpc.ts` — published call-site support facade for RPC helper types,
+  notification subscriber helpers, pagination cursors, typed dispatch helpers,
+  and shared wire errors.
+- `src/identity/` — agents, users, contacts, and identity RPC descriptors.
+- `src/network/` — `agent/connect`, `app/connect`, and presence RPCs.
+- `src/task/` — task RPCs, task identifiers, and task requirement descriptors.
+- `src/conversation/` — conversation RPCs, identifiers, notifications, and
+  conversation requirement descriptors.
+- `src/message/` — message RPCs, message parts, app callbacks, notifications,
+  and dispatch RPCs/callbacks.
+- `src/socket/` — `MoltZapAgentClient`, `MoltZapAppClient`, `MoltZapServer`,
+  shared lifecycle helpers, close info, `ConnectionId`, and the socket-owned
+  AgentCallable, AppCallable, AppCallback, server-inbound, and reverse RPC
+  groups.
+- `src/testing/` — lifecycle fixtures, conformance suites, arbitraries, and
+  toxics.
 
 ## Commands
-- `pnpm build` — `tsc` (MUST build before any other package)
-- `pnpm docs:generate` — regenerate root `docs/protocol/**` from protocol descriptors
-- `pnpm test` — vitest unit tests
 
-## Documentation pipeline
+- `pnpm build` — `tsc -b && tsc-alias -p tsconfig.json`
+- `pnpm test` — Vitest unit tests
+- `pnpm docs:generate` — regenerate protocol reference docs and module pages
 
-Published protocol reference docs live under root `docs/protocol/**`
-(Mintlify reads from the repository docs tree). The generated method
-and notification pages are output, not source. The source of truth is
-the descriptor graph in `src/**/methods.ts`, `src/rpc-registry.ts`,
-and per-symbol JSDoc on each `defineRpc` / `defineNotification` call
-site. Do not hand-edit generated method or notification MDX; update
-the schema/descriptor or JSDoc, then run `pnpm docs:generate` from
-the package or repository root. Root CI runs `pnpm docs:check:drift`.
+## Documentation Pipeline
 
-## Adding a new RPC method
+Published protocol reference docs live under root `docs/protocol/**` and
+`docs/modules/**`. Generated method and notification pages are output, not
+source. Update the descriptor, schema, or JSDoc, then run
+`pnpm --filter @moltzap/protocol docs:generate`.
 
-The recipe; every new RPC follows it:
+## Adding An RPC Method
 
-1. **Pick the layer.** Per the DAG: `transport` < `identity` <
-   `network` < `task` < `app`. A method may reference types from
-   layers at-or-below; never above. Put it in the lowest layer that
-   covers it.
-2. **Declare schemas** in the layer's `methods.ts` (or
-   `tasks.ts` / `messages.ts` for task subfamilies). Use TypeBox:
-   `Type.Object({ ... }, { additionalProperties: false })`. Branded
-   ids via `brandedId("FooId")`. Enums via `stringEnum(["a", "b"])`.
-3. **Define the descriptor** with `defineRpc({ name, params, result,
-   capabilities? })`. Add it to the layer's
-   `<layer>RpcMethods` array (e.g., `taskRpcMethods` in
-   `task/methods.ts`). The root `rpc-registry.ts` re-aggregates.
-4. **Add JSDoc above the `defineRpc` call** describing the method
-   semantics, parameters, and failure modes. Use `@error
-   ClassName when ...` for documented failure types — the Mintlify
-   generator reads these. The JSDoc IS the source of truth for the
-   protocol reference page.
-5. **Declare tagged errors** the handler will raise. Each error
-   class extends `Data.TaggedError`, carries
-   `static readonly code` and `static readonly message`, and
-   self-registers via `registerErrorClass` at module load. Wire
-   codes outside `JSON_RPC_RESERVED_CODES` (-32700..-32603) come
-   from the per-layer ranges documented near the registry call
-   sites.
-6. **Run `pnpm docs:generate`** from the package root. The
-   generator produces `docs/protocol/methods/<name>.mdx` from the
-   descriptor + JSDoc. CI runs `pnpm docs:check:drift` to verify
-   no hand edits to generated files.
-7. **Implement the handler** in `@moltzap/server-core`. The
-   server's `defineXMethod` wrappers enforce the layer-tag
-   allowlist; capability tags declared on the descriptor are
-   auto-provisioned by the dispatcher (see
-   `packages/server/src/app/capability-providers.ts`).
+1. Pick the owning layer by dependency order: `transport` < `identity` <
+   `network` < `task` < `app`. Put the descriptor in the lowest layer that owns
+   the domain language.
 
-## Notification methods
+2. Declare params/result schemas in the method block with Effect `Schema`.
+   Domain branded strings are declared where the domain type lives with
+   `Brand.Brand<...>` and `Schema.brand(...)`. Use shared pagination from
+   `transport/pagination.ts`, and strict guards from
+   `transport/strict-decode.ts`.
 
-Same recipe with `defineNotification({ name, params })` instead of
-`defineRpc`. Notifications are fire-and-forget — no `id`, no
-response. Server-emitted notifications live in the task / network /
-app layer files. Add to the layer's `<layer>Notifications` array.
+3. Declare handler-domain error classes with `Schema.TaggedError`. The class is
+   both constructor and wire schema. There is no numeric error-code registry.
+   Only list errors the handler raises; requirement failures are added from the
+   requirement middleware tags.
+
+4. Define the descriptor with `defineRpc({ name, params, result, requires,
+   errors })`.
+
+   `requires` is required. The first element is one principal requirement
+   (`AgentPrincipal`, `AppPrincipal`, or `AuthenticatedPrincipal`), optionally
+   followed by `ActiveAgent`, then domain requirements in run order.
+   `agent/connect`, `app/connect`, and server-to-client callbacks use
+   `requires: []`.
+
+   `errors` is required. Use `[]` when the handler has no domain-specific
+   failure.
+
+5. Add focused JSDoc above the descriptor. The docs generator reads `@error`
+   lines and the method summary.
+
+6. Add the descriptor to the domain catalog and the correct callable partition.
+   `src/socket/catalog/index.ts` derives server-inbound and client groups from
+   those authored catalogs.
+
+7. For a new domain requirement, declare the protocol tag as an
+   `RpcMiddleware.Tag` in the owning domain folder and include its `failure`
+   schema, then implement the server Layer in
+   `@moltzap/server-core/src/socket/auth-middleware-layers.ts`.
+
+8. Implement the server handler in `@moltzap/server-core` and add it to
+   `serverHandlers`. The `MoltZapServer` constructor type-checks the handler
+   map against the derived server group.
+
+9. Run `pnpm --filter @moltzap/protocol docs:generate` when method docs should
+   change.
+
+10. Add a type canary only for a compile-time invariant the runtime cannot
+    check. Use a normal `*.test.ts` for membership, cardinality, or runtime
+    value assertions.
+
+## Notifications
+
+Use `defineNotification({ name, params })`. Notifications are served on the
+reverse RPC group as fire-and-forget `void` RPCs, so subscribers still consume
+typed payloads without a hand-written notification frame layer.
 
 ## Conventions
 
-Schema authoring:
-- All `Type.Object()` calls use `{ additionalProperties: false }`.
-- Use `stringEnum(["a", "b"])` instead of
-  `Type.Union([Type.Literal("a"), Type.Literal("b")])` — same wire
-  shape, simpler validator output.
-- Use `brandedId("FooId")` for UUID string fields. Use
-  `brandedString` / `brandedNumber` for non-UUID branded primitives.
+Schemas:
 
-Wire frames:
-- Request / response / notification frames are standard JSON-RPC
-  objects. Do not add custom `type`, `direction`, `event`, or
-  `data` envelope fields.
-- Canonical decode entry points: `decodeServerInbound(json)`
-  (client-side; expects responses, server-initiated callbacks, and
-  notifications) and `decodeClientInbound(json)` (server-side;
-  expects client requests, responses, and notifications). Both
-  fail closed with `MalformedFrameError`.
-- Encode via per-definition methods on each `RpcDefinition` /
-  `NotificationDefinition`: `def.encodeRequest(id, params)`,
-  `def.encodeResponse(id, result)`, `def.encode(params)`.
-  Method-agnostic error responses go through
-  `encodeErrorResponse(id, error)`.
-
-Handlers (consumed from `@moltzap/server-core`):
-- Bind a server handler with the `handler(definition, fn)` factory.
-  One handler type, one factory — no per-method type parameter.
-- Type-only payload accessors: `ParamsOf<D>`, `ResultOf<D>`,
-  `NotificationParamsOf<D>` (conditional types over the descriptor).
-  There is no runtime `Params` / `Result` property.
+- Prefer `Schema.Struct({ ... })`.
+- Excess-key rejection happens at decode with
+  `{ onExcessProperty: "error" }`; `closedStructGuard` wraps that as a boolean
+  type guard.
+- Use `Schema.brand(...)` in the owning domain file for branded value types.
+  Use `stringEnum`, `formatString`, and `dateTimeStringSchema` from
+  `transport/wire-string.ts` only for their unbranded wire-format helpers.
+- Keep unique params/result schemas in the method block. Extract only when a
+  second method needs the same shape.
 
 Errors:
-- Tagged errors carry `static readonly code` + `static readonly
-  message` and self-register via `registerErrorClass` at module
-  load. The client reconstructs typed errors from wire codes via
-  the registry (`Effect.catchTag("Foo", ...)` works).
-- Cross-cutting errors (`UnauthorizedError`, `ForbiddenError`,
-  `NotFoundError`, `ConflictError`, `InvalidParamsError`,
-  `MalformedFrameError`) live in
-  `src/transport/wire-errors.ts`. Domain-specific tagged errors
-  live in the owning layer's `methods.ts` (e.g.
-  `TaskClosedError` in `src/task/tasks.ts`).
-- `JSON_RPC_RESERVED_CODES` covers the five JSON-RPC 2.0 reserved
-  codes (-32700, -32600, -32601, -32602, -32603) only. Every
-  other code lives in the runtime registry; there is no central
-  `ErrorCodes` table.
 
-## Dependencies
-- None on other workspace packages (this is the leaf dependency)
+- Cross-cutting errors live in `src/transport/wire-errors.ts`.
+- Domain errors live in the owning layer file.
+- Per-method wire errors are the union of handler-domain errors plus every
+  requirement tag's `failure` schema.
 
-## Client-side conformance wrapper template (AC22)
+Type checks:
 
-External consumers (e.g. `moltzap-arena`) that want to run the
-client-side conformance suite against their real MoltZap WS client
-drop a ~20-line wrapper matching this shape. The only package-specific
-line is the factory import.
-
-```ts
-// packages/<your-pkg>/src/__tests__/conformance/suite.test.ts
-import { describe, it, expect } from "vitest";
-import { Effect, Exit } from "effect";
-import { clientConformance } from "@moltzap/protocol/testing";
-// In-repo consumers: @moltzap/client/test-utils
-// or @moltzap/openclaw-channel/test-support
-// or @moltzap/nanoclaw-channel/test-support
-import { createMoltZapRealClientFactory } from "@moltzap/client/test-utils";
-
-describe("my-package client-side conformance", () => {
-  it("passes", async () => {
-    const factory = createMoltZapRealClientFactory({
-      agentKey: "test-key",
-      agentId: "test-id",
-    });
-    const exit = await Effect.runPromiseExit(
-      clientConformance.runClientConformanceSuite({
-        realClient: factory,
-        toxiproxyUrl: process.env.TOXIPROXY_URL ?? null,
-      }),
-    );
-    expect(Exit.isSuccess(exit)).toBe(true);
-    if (Exit.isSuccess(exit) && exit.value.failed.length > 0) {
-      throw new Error(`${exit.value.failed.length} properties failed`);
-    }
-  }, 600_000);
-});
-```
-
-Arena (v2 per spec amendment #200 N8) copies this template directly.
+- `*.types-check.ts` files are compiler-only assertions. Positive canaries use
+  `Expect<Equal<A, B>>`; negative canaries use `@ts-expect-error`.
+- Delete canaries that merely duplicate runtime tests or hardcode stale
+  implementation details.
 
 ## Glossary
 
-- **TypeBox** — `@sinclair/typebox` runtime schema library. Schemas
-  are values, not types — `Type.Object({...})` builds a JSON Schema
-  object you can pass to AJV and read the static type off of via
-  `Static<typeof Schema>`.
-- **AJV** — `ajv` JSON Schema validator. Every descriptor compiles
-  its TypeBox params/result schema to an AJV validator at module
-  load; the validator is the runtime gate.
-- **Descriptor** — A frozen `RpcDefinition` or
-  `NotificationDefinition` produced by `defineRpc` /
-  `defineNotification`. Carries the schema, validators, encoders,
-  and optional `capabilities` array for one wire method. Every
-  RPC slot is required; the dispatcher fails closed when no
-  handler is bound.
-- **Capability tag** — A `Context.Tag` declared on a descriptor's
-  `capabilities` array. The server dispatcher auto-provisions each
-  tag per frame so handler bodies just `yield* TagName` instead of
-  hand-piping `Effect.provideServiceEffect`. Pattern documented in
-  `@moltzap/server-core/src/app/capability-providers.ts`.
-- **Originator** — The outbound half of a `Connection`. Owns the
-  per-connection pending-request map and the request-id counter for
-  outbound `call(...)` invocations. Used in both directions — for
-  client → server RPCs and for server → client task-callbacks.
-- **Conformance suite** — Property-based tests over the wire
-  protocol. Lives in `src/testing/conformance/`; consumed by
-  server, client, and external repos. Properties exercise
-  invariants any compliant client/server pair must satisfy.
-- **Divergence proof** — Executable test that asserts a conformance
-  property *would fail* if the implementation intentionally
-  regressed. Proves the property has teeth.
-- **Arbitrary** — A fast-check generator (`fc.Arbitrary<T>`) that
-  produces a stream of random values for property tests. Lives in
-  `src/testing/arbitraries/`. Generators here cover frames, params,
-  IDs, and structured protocol shapes.
-- **Model** — A reference state machine in `src/testing/models/`.
-  Conformance properties compare the implementation's observable
-  behavior against the model's prediction.
-- **Toxics** — Toxiproxy fault-injection adapters in
-  `src/testing/toxics/`. Drive adversity-tier conformance
-  properties (latency, slow-close, reset-peer, slicer-framing) by
-  shaping the wire between TestClient and TestServer.
-- **Task-callback method** — An RPC the *server* calls *into* a
-  client. A restricted subset of `rpcMethods` (e.g.
-  `dispatch/authorize`, `messages/authorize`); the client's
-  `decodeServerInbound` rejects any other method shape as
-  `MalformedFrameError`.
-- **Registered tagged error** — A `Data.TaggedError` class with a
-  `static readonly code` self-registered via `registerErrorClass`
-  at module load. Lets the client reconstruct a typed error
-  instance from a wire `code` for `Effect.catchTag(...)` use.
+- **Descriptor** — A frozen `RpcDefinition` or `NotificationDefinition` from
+  `defineRpc` / `defineNotification`. Carries schemas, strict validators, and
+  requirement metadata.
+- **Requirement** — A protocol-owned `RpcMiddleware.Tag`. The descriptor lists
+  it; the server supplies a per-socket Layer that implements it.
+- **Domain Requirement** — A requirement that proves domain authority, such as
+  `ConversationInTask` or `TaskReadAccess`.
+- **Principal Requirement** — `AgentPrincipal`, `AppPrincipal`,
+  `AuthenticatedPrincipal`, or `ActiveAgent`.
+- **Reverse RPC Group** — The server-to-client group containing app callbacks
+  and notifications.
+- **Conformance Suite** — Property-based tests under `src/testing/conformance/`
+  consumed by protocol, server, client, and external implementations.

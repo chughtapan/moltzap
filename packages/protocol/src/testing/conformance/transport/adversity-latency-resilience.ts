@@ -1,14 +1,14 @@
 /**
  * Latency — owner + participant route through a latency proxy. Owner
- * sends `messages/send`; participant observes ≥1 inbound message
+ * sends `agent/message/send`; participant observes ≥1 inbound message
  * event. Latency merely slows delivery; it must not drop events.
  */
-import { Effect } from "effect";
+import { Effect, Exit, Fiber, Stream } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
-import { isNotificationFrame } from "../_shared/frame-mutator.js";
-import type { CapturedFrame } from "../_shared/captures.js";
-import type { TestClient } from "../_shared/driver/test-client.js";
-import { ConversationId, MessagesSend, TaskId } from "../../../task/methods.js";
+import type { AgentTestClient } from "../_shared/driver/test-client.js";
+import { TaskId } from "#task";
+import { ConversationId } from "#conversation";
+import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
@@ -47,14 +47,18 @@ function runLatencyResilience(
       participant,
       "latency-resilience",
     );
+    const observed = yield* waitForLatencyDelivery(
+      participant.client,
+      conversationId,
+    ).pipe(Effect.fork);
     yield* sendLatencyProbe(
       params.attachToxic,
       owner.client,
       taskId,
       conversationId,
     );
-    const snap = yield* participant.client.snapshot;
-    if (snap.filter(isMessageNotification).length === 0) {
+    const delivered = yield* Fiber.await(observed);
+    if (Exit.isFailure(delivered)) {
       return yield* Effect.fail(
         adversityViolation(
           "latency-resilience",
@@ -81,7 +85,7 @@ function acquireLatencyClient(
 
 function sendLatencyProbe(
   attachToxic: ToxicBodyParams["attachToxic"],
-  client: TestClient,
+  client: AgentTestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
@@ -100,11 +104,18 @@ function sendLatencyProbe(
   );
 }
 
-function isMessageNotification(frame: CapturedFrame): boolean {
-  return (
-    frame.kind === "inbound" &&
-    frame.frame !== null &&
-    isNotificationFrame(frame.frame) &&
-    frame.frame.method.includes("message")
+function waitForLatencyDelivery(
+  client: AgentTestClient,
+  conversationId: ConversationId,
+) {
+  return client.subscribe(MessageReceivedNotificationDefinition).pipe(
+    Stream.filter(
+      (frame) => frame.params.message.conversationId === conversationId,
+    ),
+    Stream.runHead,
+    Effect.timeoutFail({
+      duration: "2 seconds",
+      onTimeout: () => "timeout" as const,
+    }),
   );
 }

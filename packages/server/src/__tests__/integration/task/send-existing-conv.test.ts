@@ -1,7 +1,8 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import {
   awaitOneNotification,
+  firstTextPart,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -9,12 +10,11 @@ import {
   setupAgentPair,
 } from "../helpers.js";
 
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
-  MessagesSend,
   MessageReceivedNotificationDefinition,
-  TaskRequest,
-} from "@moltzap/protocol";
+  MessagesSend,
+} from "@moltzap/protocol/message";
 
 const FIRST_MESSAGE_TEXT = "First message";
 const SECOND_MESSAGE_TEXT = "Second message";
@@ -37,17 +37,20 @@ it("second message to existing DM delivers correctly with same conversationId", 
     const taskId = conv.task.id;
     const conversationId = conv.conversation!.id;
 
+    const firstBobEvent = yield* Effect.fork(
+      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+    );
     yield* alice.client.sendRpc(MessagesSend, {
       taskId,
       conversationId,
       parts: [{ type: "text", text: FIRST_MESSAGE_TEXT }],
     });
-    yield* awaitOneNotification(
-      bob.client,
-      MessageReceivedNotificationDefinition,
-    );
+    yield* Fiber.join(firstBobEvent);
 
     // Send second message using conversationId
+    const secondBobEvent = yield* Effect.fork(
+      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+    );
     const send2 = yield* alice.client.sendRpc(MessagesSend, {
       taskId,
       conversationId,
@@ -57,18 +60,8 @@ it("second message to existing DM delivers correctly with same conversationId", 
     expect(send2.message.conversationId).toBe(conversationId);
     expect(send2.message.senderId).toBe(alice.agentId);
 
-    const bobEvent2 = yield* awaitOneNotification(
-      bob.client,
-      MessageReceivedNotificationDefinition,
-    );
-    const received = (
-      bobEvent2.params as {
-        message: {
-          conversationId: string;
-          parts: Array<{ text: string }>;
-        };
-      }
-    ).message;
+    const bobEvent2 = yield* Fiber.join(secondBobEvent);
+    const received = bobEvent2.params.message;
     expect(received.conversationId).toBe(conversationId);
-    expect(received.parts[0]!.text).toBe(SECOND_MESSAGE_TEXT);
+    expect(firstTextPart(received.parts)).toBe(SECOND_MESSAGE_TEXT);
   }));

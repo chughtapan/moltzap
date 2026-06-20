@@ -1,22 +1,18 @@
 /**
- * #529 reshape additive — `dispatch/{request, authorize, release}` +
- * `dispatches/{consumed, expired, get}` admission surface.
+ * `agent/dispatch/request`, `app/dispatch/authorize`,
+ * `agent/dispatch/released`, and `app/dispatch/lease-*` admission surface.
  *
- * Bucket file: `happy-paths` group. Split from `dispatch-flow.integration.test.ts`
- * (Phase 2B reorg, #543). Each split file owns its own server-fixture
- * `beforeAll`/`afterAll`/`beforeEach` so vitest's `fileParallelism: true`
- * runner can execute buckets concurrently without sharing state.
+ * Bucket file: `happy-paths` group. Each bucket owns its own server fixture so
+ * vitest can execute buckets concurrently without sharing state.
  *
- * See parent dispatch-flow architecture comment in the original file
- * (now replaced by these 6 bucket files): the recipient calls
- * `dispatch/request` over WS; server mints a lease, returns ack
+ * The recipient calls `agent/dispatch/request` over WS; server mints a lease, returns ack
  * synchronously, forks the moderator round-trip; recipient observes
- * the verdict via `dispatch/release` notification. `messages/send(
+ * the verdict via `agent/dispatch/released` notification. `agent/message/send(
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import type { AppManifest } from "@moltzap/protocol";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
@@ -24,9 +20,9 @@ import {
   DISPATCH_VERDICT_GRANT,
   EXPECTED_TYPE_STRING,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
-  createUnmoderatedDm,
+  createConversationOnApp,
   createDispatchFlowFixture,
+  MODERATED_HOOKS,
   requestDispatch,
   startDispatchFlowServer,
   stopDispatchFlowServer,
@@ -38,12 +34,12 @@ const it = effectIt.live;
 
 const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const EXPECTED_MODERATED_HOOK_CALLS = 1;
-const EXPECTED_UNMODERATED_HOOK_CALLS = 0;
 
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+  hooks: MODERATED_HOOKS,
 };
 
 const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
@@ -73,12 +69,12 @@ function moderatedDispatchReleasesGrant() {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const { conversationId } = yield* createTaskConversationOnApp(
+    const { conversationId } = yield* createConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
     );
-    // Fork-before-trigger (Spec B #596 r2 fix).
+    // Subscribe before the trigger RPC so the release notification is observed.
     const releaseFiber = yield* waitForDispatchRelease(
       bob,
       DISPATCH_RELEASE_TIMEOUT_MS,
@@ -92,48 +88,10 @@ function moderatedDispatchReleasesGrant() {
   });
 }
 
-function unmoderatedDispatchDefaultGrants() {
-  return Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
-    const releaseFiber = yield* waitForDispatchRelease(
-      bob,
-      DISPATCH_RELEASE_TIMEOUT_MS,
-    );
-    const ack = yield* requestDispatch(bob, conversationId, alice);
-    const release = yield* Fiber.join(releaseFiber);
-
-    expectGrantRelease(release, ack.leaseId);
-    expect(fixture.hookCalls()).toBe(EXPECTED_UNMODERATED_HOOK_CALLS);
-  });
-}
-
-function dispatchRequestDescriptorIsRegistered() {
-  return Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-    const { conversationId } = yield* createUnmoderatedDm(alice, bob);
-    const ack = yield* requestDispatch(bob, conversationId, alice, "canary");
-
-    expectAckShape(ack);
-  });
-}
-
-describe("dispatch/* — happy paths (#529 reshape additive)", () => {
+describe("dispatch/* — happy paths", () => {
   it(
-    "happy path moderated: dispatch/request then moderator grant releases grant",
+    "happy path moderated: agent/dispatch/request then moderator grant releases grant",
     moderatedDispatchReleasesGrant,
-    20_000,
-  );
-
-  it(
-    "happy path default-grant: unmoderated task releases grant immediately",
-    unmoderatedDispatchDefaultGrants,
-    20_000,
-  );
-
-  it(
-    "wire surface canary: dispatch/request descriptor is registered",
-    dispatchRequestDescriptorIsRegistered,
     20_000,
   );
 });

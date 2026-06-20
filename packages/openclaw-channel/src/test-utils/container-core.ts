@@ -13,7 +13,8 @@ import path from "node:path";
 import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { Effect } from "effect";
+import { Effect, Redacted } from "effect";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 
 const CONTROL_UI_PORT = 18789;
 const OPENCLAW_TOKEN_RADIX = 36;
@@ -21,15 +22,13 @@ const DEFAULT_PORT_RANGE_START = 19000;
 const DEFAULT_PORT_RANGE_END = 19999;
 const JSON_INDENT_SPACES = 2;
 const MS_PER_SECOND = 1000;
-const DEFAULT_GATEWAY_TIMEOUT_MS = 30_000;
-const DEFAULT_CHANNEL_TIMEOUT_MS = 180_000;
 const DEFAULT_READY_TIMEOUT_MS = 180_000;
 const GATEWAY_READY_PATTERN = "[gateway]";
 const CHANNEL_READY_PATTERNS = ["[moltzap]", "connected as"] as const;
 const DOCKER_BIN = "/usr/bin/docker";
 
-export const IMAGE_NAME = "moltzap-eval-agent:local";
-export const OPENCLAW_STATE_DIR = "/home/node/.openclaw";
+const IMAGE_NAME = "moltzap-eval-agent:local";
+const OPENCLAW_STATE_DIR = "/home/node/.openclaw";
 
 class OpenClawContainerError extends Error {
   override readonly name = "OpenClawContainerError";
@@ -38,6 +37,10 @@ class OpenClawContainerError extends Error {
 interface StartContainerOptions {
   readonly name: string;
   readonly agentName: string;
+  readonly moltzapProfile?: {
+    readonly agentId: AgentId;
+    readonly apiKey: AgentKey;
+  };
   readonly envVars?: Record<string, string>;
   readonly portRange?: [number, number];
 }
@@ -72,7 +75,7 @@ export type ContainerModelConfig = {
     modelId: string;
     baseUrl: string;
     api: string;
-    apiKey: string;
+    apiKey: Redacted.Redacted<string>;
   };
 };
 
@@ -96,12 +99,10 @@ export function isImageAvailable(): boolean {
 
 interface BuildOpenClawConfigOptions {
   model: ContainerModelConfig;
-  serverUrl: string;
-  agentApiKey: string;
   agentName: string;
 }
 
-function normalizeServerUrl(serverUrl: string): string {
+export function normalizeContainerServerUrl(serverUrl: string): string {
   return serverUrl
     .replace(/\/ws$/, "")
     .replace(/^ws:/, "http:")
@@ -111,7 +112,6 @@ function normalizeServerUrl(serverUrl: string): string {
 
 function baseOpenClawConfig(
   opts: BuildOpenClawConfigOptions,
-  serverUrl: string,
 ): Record<string, unknown> {
   return {
     agents: {
@@ -135,9 +135,7 @@ function baseOpenClawConfig(
       moltzap: {
         accounts: [
           {
-            id: "default",
-            apiKey: opts.agentApiKey,
-            serverUrl,
+            id: opts.agentName,
             agentName: opts.agentName,
           },
         ],
@@ -170,7 +168,7 @@ function providerModelsConfig(
         [providerConfig.provider]: {
           baseUrl: providerConfig.baseUrl,
           api: providerConfig.api,
-          apiKey: providerConfig.apiKey,
+          apiKey: Redacted.value(providerConfig.apiKey),
           models: [
             { id: providerConfig.modelId, name: providerConfig.modelId },
           ],
@@ -184,7 +182,7 @@ function providerModelsConfig(
 export function buildOpenClawConfig(
   opts: BuildOpenClawConfigOptions,
 ): Record<string, unknown> {
-  const config = baseOpenClawConfig(opts, normalizeServerUrl(opts.serverUrl));
+  const config = baseOpenClawConfig(opts);
   return opts.model.providerConfig
     ? { ...config, ...providerModelsConfig(opts.model.providerConfig) }
     : config;
@@ -226,6 +224,7 @@ function createContainerFiles(
       JSON.stringify(config, null, JSON_INDENT_SPACES),
     );
     yield* createContainerSubdirectories(fileSystem, tmpDir);
+    yield* writeContainerMoltZapConfig(fileSystem, tmpDir, opts);
     yield* fileSystem.writeFileString(
       path.join(tmpDir, "workspace", "IDENTITY.md"),
       `---\nName: ${opts.agentName}\nCreature: AI agent\nVibe: helpful\n---\n`,
@@ -239,10 +238,34 @@ function createContainerSubdirectories(
   tmpDir: string,
 ) {
   return Effect.all(
-    ["workspace", "logs"].map((sub) =>
+    ["workspace", "logs", ".moltzap"].map((sub) =>
       fileSystem.makeDirectory(path.join(tmpDir, sub), { recursive: true }),
     ),
     { concurrency: 2 },
+  );
+}
+
+function writeContainerMoltZapConfig(
+  fileSystem: FileSystem.FileSystem,
+  tmpDir: string,
+  opts: StartContainerOptions,
+) {
+  if (opts.moltzapProfile === undefined) return Effect.void;
+  return fileSystem.writeFileString(
+    path.join(tmpDir, ".moltzap", "config.json"),
+    JSON.stringify(
+      {
+        profiles: {
+          [opts.agentName]: {
+            agentId: opts.moltzapProfile.agentId,
+            apiKey: Redacted.value(opts.moltzapProfile.apiKey),
+            agentName: opts.agentName,
+          },
+        },
+      },
+      null,
+      JSON_INDENT_SPACES,
+    ),
   );
 }
 
@@ -255,7 +278,12 @@ function allocateControlPort(opts: StartContainerOptions): number {
 }
 
 function containerEnvArgs(envVars: Record<string, string> | undefined) {
-  const envParts = ["-e", `OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`];
+  const envParts = [
+    "-e",
+    `OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`,
+    "-e",
+    `MOLTZAP_CONFIG_HOME=${OPENCLAW_STATE_DIR}/.moltzap`,
+  ];
   for (const [key, value] of Object.entries(envVars ?? {})) {
     envParts.push("-e", `${key}=${value}`);
   }
@@ -332,6 +360,7 @@ function chownContainerState(containerId: string): void {
     "node:node",
     `${OPENCLAW_STATE_DIR}/workspace`,
     `${OPENCLAW_STATE_DIR}/logs`,
+    `${OPENCLAW_STATE_DIR}/.moltzap`,
   ]);
 }
 
@@ -347,7 +376,7 @@ export function getLogs(containerId: string): string {
 }
 
 /** Stream `docker logs -f` and resolve when all patterns appear. */
-export function waitForLogMatch(
+function waitForLogMatch(
   containerId: string,
   patterns: string | string[],
   timeoutMs: number,
@@ -508,22 +537,6 @@ function logMatchStateSummary(state: LogWaitState): string {
     `Missing: [${missingPatterns(state).join(", ")}]\n` +
     `Logs:\n${getLogs(state.containerId)}`
   );
-}
-
-/** Wait for the OpenClaw gateway process to start. */
-export function waitForGateway(
-  containerId: string,
-  timeoutMs = DEFAULT_GATEWAY_TIMEOUT_MS,
-) {
-  return waitForLogMatch(containerId, GATEWAY_READY_PATTERN, timeoutMs);
-}
-
-/** Wait for the MoltZap channel to connect within the container. */
-export function waitForChannel(
-  containerId: string,
-  timeoutMs = DEFAULT_CHANNEL_TIMEOUT_MS,
-) {
-  return waitForLogMatch(containerId, [...CHANNEL_READY_PATTERNS], timeoutMs);
 }
 
 /** Wait for both gateway and channel to be ready (single log stream). */

@@ -1,0 +1,272 @@
+---
+title: "server-core/core"
+description: "Narrow core wiring barrel for server-core internals."
+---
+
+# server-core/core
+
+_`packages/server/src/core`_
+
+## Purpose
+
+Narrow core wiring barrel for server-core internals.
+
+## Public surface
+
+### [`ConnectionHook`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/types.ts#L8)
+
+_TypeAlias_
+
+```ts
+export type ConnectionHook = (params: {
+  agentId: AgentId;
+  agentName: string;
+  /** Owner user ID resolved at agent/network/connect time. */
+  ownerUserId: UserId;
+  connId: ConnectionId;
+}) => PromiseLike<void> | void;
+```
+
+### [`ConnectionHooks`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/hooks.ts#L7)
+
+_Interface_
+
+```ts
+export interface ConnectionHooks {
+  readonly connectionHooks: readonly ConnectionHook[];
+  readonly disconnectionHooks: readonly DisconnectionHook[];
+}
+```
+
+### [`ConnectionHooksTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/hooks.ts#L12)
+
+_Class_
+
+```ts
+export class ConnectionHooksTag extends Context.Tag("moltzap/ConnectionHooks")<
+  ConnectionHooksTag,
+  ConnectionHooks
+>() {}
+```
+
+### [`CoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/types.ts#L22)
+
+_Interface_
+
+```ts
+export interface CoreApp {
+  readonly port: number;
+  onConnection: (hook: ConnectionHook) => void;
+
+  /**
+   * Fires when a WebSocket closes, after auth was established. Use for
+   * per-user cleanup (e.g., `last_seen_at` updates). Does not fire for
+   * connections that never authenticated.
+   */
+  onDisconnection: (hook: DisconnectionHook) => void;
+
+  /**
+   * Outbound-routing primitive. Apps emit events out-of-band via
+   * `networkSendService.send(to, payload)` (directed) or
+   * `networkSendService.broadcast(agentIds, payload, opts?)` (fan-out
+   * across participants). Stable identity across the server lifetime.
+   *
+   * The backing `AgentEndpointResolver` is intentionally not exposed —
+   * its mutable add/remove surface is server-internal lifecycle, not a
+   * CoreApp consumer concern. Tests assert resolver state indirectly
+   * via `networkSendService.send` outcomes.
+   */
+  readonly networkSendService: NetworkSendService;
+
+  /**
+   * Live ConnectionManager instance. Apps can query `getByParticipant` to
+   * check whether an agent has any live connections (for presence-gated
+   * push decisions, etc.). Stable identity.
+   */
+  readonly connections: ConnectionManager;
+
+  /**
+   * Wire a contact-policy gate for app-session admission and
+   * conversation-creation paths. Absence of a checker means "allow all";
+   * operators that need real policy decisions inject their resolver here.
+   */
+  setContactService: (checker: ContactService) => void;
+
+  /**
+   * Server-local lease registry for the
+   * `dispatch/{request, authorize, release}` admission surface.
+   * Stable identity across the server lifetime. Tests + advanced
+   * consumers can read lease state directly via this handle.
+   */
+  readonly leaseRegistry: LeaseRegistry;
+  close: () => PromiseLike<void>;
+}
+```
+
+### [`createCoreApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/app.ts#L133)
+
+_Function_
+
+```ts
+export function createCoreApp(config: CoreConfig): CoreApp
+```
+
+### [`DisconnectionHook`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/types.ts#L16)
+
+_TypeAlias_
+
+```ts
+export type DisconnectionHook = (params: {
+  agentId: AgentId;
+  ownerUserId: UserId;
+  connId: ConnectionId;
+}) => PromiseLike<void> | void;
+```
+
+### [`makeTracingLayer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/tracing.ts#L41)
+
+_Function_
+
+```ts
+export function makeTracingLayer(input: TracingLayerInput): Layer.Layer<never>
+```
+
+Build a tracing Layer that wires the OTel SDK with the given span
+processor. The processor controls how spans get exported (OTLP batch
+in production; in-memory simple processor in tests).
+
+### [`readDefaultSpanProcessor`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/tracing.ts#L86)
+
+_Variable_
+
+```ts
+export const readDefaultSpanProcessor: Effect.Effect<
+  SpanProcessor | null,
+  never
+> = Effect.all({
+  tracesEndpoint: Config.option(
+    Config.string("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+  ),
+  baseEndpoint: Config.option(Config.string("OTEL_EXPORTER_OTLP_ENDPOINT")),
+}).pipe(
+  Effect.map(({ tracesEndpoint, baseEndpoint }) => {
+    const url = resolveTracesEndpoint(
+      Option.getOrUndefined(tracesEndpoint),
+      Option.getOrUndefined(baseEndpoint),
+    );
+    return url === null
+      ? null
+      : new BatchSpanProcessor(new OTLPTraceExporter({ url }));
+  }),
+  Effect.orElseSucceed(() => null),
+)
+```
+
+Default span-processor factory for production boot.
+
+Reads the OTLP endpoint env vars. If either is set, returns a
+`BatchSpanProcessor` wrapping an `OTLPTraceExporter` pointed at the resolved
+traces URL. The trace-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` takes
+precedence over the base `OTEL_EXPORTER_OTLP_ENDPOINT`. If neither is set,
+returns `null` — the caller falls through to a no-op tracing Layer (spans
+stay in Effect's fiber context but are not exported).
+
+### [`ResolvedServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L120)
+
+_Interface_
+
+```ts
+export interface ResolvedServices {
+  readonly db: Db;
+  readonly connections: ConnectionManager;
+  readonly agentEndpointResolver: AgentEndpointResolver;
+  readonly networkSendService: NetworkSendService;
+  readonly authService: AuthService;
+  readonly appAuthService: AppAuthService;
+  readonly conversationService: ConversationService;
+  readonly contactService: ContactsService;
+  readonly presenceService: PresenceService;
+  readonly appEndpointRegistry: AppEndpointRegistry;
+  readonly leaseRegistry: LeaseRegistry;
+  readonly messageService: MessageService;
+  readonly taskService: TaskService;
+  readonly encryption: EnvelopeEncryption | null;
+}
+```
+
+### [`resolveServices`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L137)
+
+_Variable_
+
+```ts
+export const resolveServices = Effect.all({
+  db: DbTag,
+  encryption: EncryptionTag,
+  connections: ConnectionManagerTag,
+  agentEndpointResolver: AgentEndpointResolverTag,
+  networkSendService: NetworkSendServiceTag,
+  authService: AuthServiceTag,
+  appAuthService: AppAuthServiceTag,
+  conversationService: ConversationServiceTag,
+  contactService: ContactsServiceTag,
+  presenceService: PresenceServiceTag,
+  appEndpointRegistry: AppEndpointRegistryTag,
+  leaseRegistry: LeaseRegistryTag,
+  messageService: MessageServiceTag,
+  taskService: TaskServiceTag,
+}) satisfies Effect.Effect<ResolvedServices, never, unknown>
+```
+
+### [`resolveTracesEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/tracing.ts#L65)
+
+_Function_
+
+```ts
+export function resolveTracesEndpoint(
+  tracesEndpoint: string | undefined,
+  baseEndpoint: string | undefined,
+): string | null
+```
+
+### [`ServerBootFailedError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/app.ts#L46)
+
+_Class_
+
+```ts
+export class ServerBootFailedError extends Data.TaggedError(
+  "ServerBootFailedError",
+)<{
+  readonly phase: "http-listen" | "default-app-connect";
+  readonly cause: unknown;
+}> {}
+```
+
+Typed fatal for boot failure. The `phase` discriminator names
+which boot step failed:
+- `"http-listen"` — step 5a's `NodeHttpServer.make` / `serverSvc.serve`
+  typed `ServeError` (EADDRINUSE, EACCES, ...).
+- `"default-app-connect"` — step 5c's `startDefaultApp` `BootDefaultAppError`
+  (wrapping `client.connect()`'s `ConnectError`).
+
+Step 5b's `installDefaultApp` has error channel `never`; SQL faults defect
+and flow through the boot-failure `catchAllCause` envelope without a phase
+tag.
+
+### [`ServicesLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/core/layers.ts#L115)
+
+_Variable_
+
+```ts
+export const ServicesLive = Layer.provideMerge(
+  TaskServiceLive,
+  MessageDomainLive,
+)
+```
+
+## Files
+
+- `app.ts`
+- `hooks.ts`
+- `layers.ts`
+- `tracing.ts`
+- `types.ts`

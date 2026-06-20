@@ -1,0 +1,33 @@
+---
+title: "agent/task/leave"
+description: "Self-only: caller removes themselves from `task_participants` AND every `conversation_participants` row under the task."
+---
+
+# agent/task/leave
+
+Self-only: caller removes themselves from `task_participants` AND
+every `conversation_participants` row under the task.
+
+Notification emission for each conversation the caller leaves uses
+`ConversationParticipantsRemovedNotificationDefinition` with
+`reason: "task_leave"`. If removal empties `task_participants` the task
+transitions to `status = 'closed'` and `TaskClosedNotificationDefinition`
+fires alongside in the same transaction.
+
+- **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
+
+## Parameters
+
+<ParamField path="taskId" type="string (UUID)" required>
+  Branded TaskId
+</ParamField>
+
+## Response
+
+This method returns an empty object.
+
+## Errors
+
+| Type | When |
+|------|------|
+| `TaskNotFoundError` | the task does not exist or the caller is not in it |

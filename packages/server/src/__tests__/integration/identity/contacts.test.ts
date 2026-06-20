@@ -1,13 +1,13 @@
 import * as fc from "fast-check";
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
+  ContactAcceptedNotificationDefinition,
+  ContactRequestNotificationDefinition,
   ContactsAccept,
   ContactsAdd,
   ContactsList,
-  type Contact,
-  type NotificationFrame,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/identity";
 import {
   it,
   startTestServerEffect,
@@ -15,18 +15,22 @@ import {
   resetTestDbEffect,
   trackClient,
   connectTestClient,
-  adminRegisterAgent,
+  createTestUser,
+  registerOwnedAgent,
   expectEitherLeft,
-  type ServerTestClient,
+  type TestAgentClient,
 } from "../helpers.js";
 
 const REGISTRATION_SECRET = "contacts-test-secret-zxcv";
-const ALICE_USER_ID = "00000000-0000-4000-8000-00000000a11c";
-const BOB_USER_ID = "00000000-0000-4000-8000-00000000b0b0";
+const ALICE_USER = createTestUser(
+  "alice",
+  "00000000-0000-4000-8000-00000000a11c",
+);
+const BOB_USER = createTestUser("bob", "00000000-0000-4000-8000-00000000b0b0");
+const ALICE_USER_ID = ALICE_USER.id;
+const BOB_USER_ID = BOB_USER.id;
 const FRAME_SETTLE_MS = 200;
 const PROPERTY_RUNS = 25;
-const CONTACT_REQUEST_METHOD = "contact/request";
-const CONTACT_ACCEPTED_METHOD = "contact/accepted";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -56,22 +60,22 @@ beforeEach(() =>
 );
 
 function setupAliceAndBob(): Effect.Effect<
-  { aliceClient: ServerTestClient; bobClient: ServerTestClient },
+  { aliceClient: TestAgentClient; bobClient: TestAgentClient },
   Error
 > {
   return Effect.gen(function* () {
     const idx = ++pairCounter;
-    const aliceReg = yield* adminRegisterAgent({
+    const aliceReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `alice-contacts-${idx}`,
-      ownerUserId: ALICE_USER_ID,
+      user: ALICE_USER,
     });
-    const bobReg = yield* adminRegisterAgent({
+    const bobReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `bob-contacts-${idx}`,
-      ownerUserId: BOB_USER_ID,
+      user: BOB_USER,
     });
     const aliceClient = yield* connectTestClient({
       wsUrl,
@@ -89,20 +93,26 @@ function setupAliceAndBob(): Effect.Effect<
   });
 }
 
-function notificationsByMethod(
-  client: { snapshot: Effect.Effect<unknown, never> },
-  method: string,
-): Effect.Effect<NotificationFrame[], never> {
-  return Effect.gen(function* () {
-    const snap = (yield* client.snapshot) as ReadonlyArray<{
-      kind: string;
-      frame: NotificationFrame | null;
-    }>;
-    return snap
-      .filter((s) => s.kind === "inbound" && s.frame !== null)
-      .map((s) => s.frame!)
-      .filter((f) => "method" in f && f.method === method);
-  });
+function collectContactRequests(client: TestAgentClient) {
+  return client
+    .subscribe(ContactRequestNotificationDefinition)
+    .pipe(
+      Stream.interruptAfter(Duration.millis(FRAME_SETTLE_MS)),
+      Stream.runCollect,
+      Effect.map(Chunk.toReadonlyArray),
+      Effect.fork,
+    );
+}
+
+function collectContactAccepted(client: TestAgentClient) {
+  return client
+    .subscribe(ContactAcceptedNotificationDefinition)
+    .pipe(
+      Stream.interruptAfter(Duration.millis(FRAME_SETTLE_MS)),
+      Stream.runCollect,
+      Effect.map(Chunk.toReadonlyArray),
+      Effect.fork,
+    );
 }
 
 it("property: notification method matcher is exact", () =>
@@ -118,78 +128,64 @@ it("property: notification method matcher is exact", () =>
     );
   }));
 
-it("contacts/add fans contact/request to the recipient", () =>
+it("agent/identity/contacts/add fans contact/request to the recipient", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
+    const bobRequestsFiber = yield* collectContactRequests(bobClient);
+    const aliceRequestsFiber = yield* collectContactRequests(aliceClient);
     const result = yield* aliceClient.sendRpc(ContactsAdd, {
-      contactUserId: BOB_USER_ID as Contact["contactUserId"],
+      contactUserId: BOB_USER_ID,
     });
     expect(result.contact.contactUserId).toBe(BOB_USER_ID);
-    yield* Effect.sleep(`${FRAME_SETTLE_MS} millis`);
 
-    const bobRequests = yield* notificationsByMethod(
-      bobClient,
-      CONTACT_REQUEST_METHOD,
-    );
-    const aliceRequests = yield* notificationsByMethod(
-      aliceClient,
-      CONTACT_REQUEST_METHOD,
-    );
+    const bobRequests = yield* Fiber.join(bobRequestsFiber);
+    const aliceRequests = yield* Fiber.join(aliceRequestsFiber);
     expect(bobRequests).toHaveLength(1);
     expect(aliceRequests).toHaveLength(0);
   }));
 
-it("contacts/accept fans contact/accepted to the requester", () =>
+it("agent/identity/contacts/accept fans contact/accepted to the requester", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
     const added = yield* aliceClient.sendRpc(ContactsAdd, {
-      contactUserId: BOB_USER_ID as Contact["contactUserId"],
+      contactUserId: BOB_USER_ID,
     });
+    const aliceAcceptedFiber = yield* collectContactAccepted(aliceClient);
+    const bobAcceptedFiber = yield* collectContactAccepted(bobClient);
     yield* bobClient.sendRpc(ContactsAccept, {
       contactId: added.contact.id,
     });
-    yield* Effect.sleep(`${FRAME_SETTLE_MS} millis`);
 
-    const aliceAccepted = yield* notificationsByMethod(
-      aliceClient,
-      CONTACT_ACCEPTED_METHOD,
-    );
-    const bobAccepted = yield* notificationsByMethod(
-      bobClient,
-      CONTACT_ACCEPTED_METHOD,
-    );
+    const aliceAccepted = yield* Fiber.join(aliceAcceptedFiber);
+    const bobAccepted = yield* Fiber.join(bobAcceptedFiber);
     expect(aliceAccepted).toHaveLength(1);
     expect(bobAccepted).toHaveLength(0);
-    const params = aliceAccepted[0]!.params as { contact: Contact };
-    expect(params.contact.contactUserId).toBe(BOB_USER_ID);
+    expect(aliceAccepted[0]!.contact.contactUserId).toBe(BOB_USER_ID);
   }));
 
-it("contacts/accept is idempotent", () =>
+it("agent/identity/contacts/accept is idempotent", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
     const added = yield* aliceClient.sendRpc(ContactsAdd, {
-      contactUserId: BOB_USER_ID as Contact["contactUserId"],
+      contactUserId: BOB_USER_ID,
     });
+    const aliceAcceptedFiber = yield* collectContactAccepted(aliceClient);
     yield* bobClient.sendRpc(ContactsAccept, {
       contactId: added.contact.id,
     });
     yield* bobClient.sendRpc(ContactsAccept, {
       contactId: added.contact.id,
     });
-    yield* Effect.sleep(`${FRAME_SETTLE_MS} millis`);
 
-    const aliceAccepted = yield* notificationsByMethod(
-      aliceClient,
-      CONTACT_ACCEPTED_METHOD,
-    );
+    const aliceAccepted = yield* Fiber.join(aliceAcceptedFiber);
     expect(aliceAccepted).toHaveLength(1);
   }));
 
-it("contacts/list returns both accepted rows", () =>
+it("agent/identity/contacts/list returns both accepted rows", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
     const added = yield* aliceClient.sendRpc(ContactsAdd, {
-      contactUserId: BOB_USER_ID as Contact["contactUserId"],
+      contactUserId: BOB_USER_ID,
     });
     yield* bobClient.sendRpc(ContactsAccept, {
       contactId: added.contact.id,
@@ -205,13 +201,13 @@ it("contacts/list returns both accepted rows", () =>
     );
   }));
 
-it("contacts/add rejects self-add", () =>
+it("agent/identity/contacts/add rejects self-add", () =>
   Effect.gen(function* () {
-    const aliceReg = yield* adminRegisterAgent({
+    const aliceReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: "alice-contacts-self",
-      ownerUserId: ALICE_USER_ID,
+      user: ALICE_USER,
     });
     const aliceClient = yield* connectTestClient({
       wsUrl,
@@ -221,7 +217,7 @@ it("contacts/add rejects self-add", () =>
     trackClient(aliceClient);
     const exit = yield* Effect.either(
       aliceClient.sendRpc(ContactsAdd, {
-        contactUserId: ALICE_USER_ID as Contact["contactUserId"],
+        contactUserId: ALICE_USER_ID,
       }),
     );
     expect(expectEitherLeft(exit)).toBeDefined();

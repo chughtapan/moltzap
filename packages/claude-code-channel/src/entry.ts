@@ -4,18 +4,12 @@
  * entry — public boot entry point for `@moltzap/claude-code-channel`.
  *
  * Wires `MoltZapService` + `MoltZapChannelCore` + the MCP stdio server into
- * a single `Handle`. Mirrors `~/moltzap/packages/openclaw-channel/src/openclaw-entry.ts`
- * as the precedent for "wrap client primitives + host plugin shape."
- *
- * Spec A2: `bootClaudeCodeChannel` returns a `BootResult` wrapped in a promise.
+ * a single `Handle`. `bootClaudeCodeChannel` returns a `BootResult` wrapped
+ * in a promise.
  */
 
-import {
-  MoltZapChannelCore,
-  MoltZapService,
-  type EnrichedInboundMessage,
-} from "@moltzap/client";
-import { Effect, Either } from "effect";
+import { MoltZapService } from "@moltzap/client";
+import { Effect } from "effect";
 import { toClaudeChannelNotification } from "./event.js";
 import { createRoutingState, type RoutingTarget } from "./routing.js";
 import {
@@ -25,14 +19,17 @@ import {
 } from "./server.js";
 import type { BootOptions, Handle } from "./types.js";
 import {
-  AgentKeyInvalid,
   LeaseAlreadyConsumed,
   McpTransportFailed,
   SendFailed,
   type BootError,
   type ReplyError,
 } from "./errors.js";
-import { catchLeaseInvalid } from "@moltzap/client/channel-base";
+import {
+  MoltZapChannelCore,
+  catchLeaseInvalid,
+  type EnrichedInboundMessage,
+} from "@moltzap/client/channel-base";
 import { stringifyCause } from "./utils.js";
 
 export type BootResult =
@@ -48,37 +45,15 @@ function bootErrorResult(error: BootError): BootResult {
   return { _tag: "Err", error };
 }
 
-function validateBootOptions(opts: BootOptions): BootError | null {
-  if (typeof opts.agentKey !== "string" || opts.agentKey.trim().length === 0) {
-    return new AgentKeyInvalid({
-      cause: "agentKey must be a non-empty string",
-    });
-  }
-  if (
-    typeof opts.serverUrl !== "string" ||
-    opts.serverUrl.trim().length === 0
-  ) {
-    return new AgentKeyInvalid({
-      cause: "serverUrl must be a non-empty string",
-    });
-  }
-  return null;
-}
-
 function makeSendReply(core: MoltZapChannelCore) {
   return (target: RoutingTarget, text: string) =>
     core.sendReply(target.taskId, target.conversationId, text).pipe(
-      // Cutover #533 single-use lease semantics: the server returns
-      // a typed `RpcServerError` whose `data.reason === "LeaseInvalid"`
-      // when the recipient tries to consume an already-consumed lease
-      // (multi-turn agent calls reply twice in one dispatch). The
-      // channel-base `catchLeaseInvalid` reads `Clock.currentTimeMillis`
-      // and projects onto `LeaseAlreadyConsumed` BEFORE the generic
-      // `mapError` collapses everything else into `SendFailed`. Server.ts
-      // surfaces the typed error as `toolErrorResult("LeaseAlreadyConsumed: ...")`.
-      //
-      // No `leaseId` ctx is supplied here; the wire payload does not carry
-      // one, so the projected error falls back to "(unknown)".
+      // `catchLeaseInvalid` projects the server's single-use-lease rejection
+      // (`RpcServerError` with `data.reason === "LeaseInvalid"`, raised when an
+      // agent calls reply twice in one dispatch) onto `LeaseAlreadyConsumed`
+      // before the generic `mapError` collapses everything else into
+      // `SendFailed`. No `leaseId` ctx is supplied: the wire payload carries
+      // none, so the projected error's `leaseId` falls back to "(unknown)".
       catchLeaseInvalid(),
       Effect.mapError(
         (cause): ReplyError =>
@@ -171,9 +146,8 @@ function bootMcpServerHandle(
 
 /**
  * Inbound MoltZap message → Claude push pipeline. Registered as a
- * `MoltZapChannelCore.onInbound` callback at boot step 7. Drops
- * silently on allowlist failure, schema decode failure, or MCP push
- * failure (per Spec I5).
+ * `MoltZapChannelCore.onInbound` callback. Drops silently on allowlist
+ * failure, schema decode failure, or MCP push failure.
  *
  * ```mermaid
  * sequenceDiagram
@@ -258,12 +232,11 @@ function connectCore(
  * `serverHandle.stop()` called via `Effect.tapError`, BootResult Err
  * returned before any Handle is issued.
  *
- * CLI SIGTERM path: no explicit signal handler in v1. Node default
- * kills the process; stdio transport closes via process exit; the
- * server observes the WS disconnect and expires the agent's
- * session. Pending notifications in `state.pending[]` are lost if
- * MCP handshake hadn't completed — acceptable because Claude is
- * closing too.
+ * CLI SIGTERM path: no explicit signal handler. Node's default kills
+ * the process; the stdio transport closes via process exit; the server
+ * observes the WS disconnect and expires the agent's session. Pending
+ * notifications in `state.pending[]` are lost if the MCP handshake had
+ * not completed, which is acceptable because Claude is closing too.
  */
 function makeHandle(
   core: MoltZapChannelCore,
@@ -281,15 +254,11 @@ function makeHandle(
 
 /**
  * Boot a Claude Code channel. Single public entry point of the package.
+ * In production the CLI binary (`cli.ts`) calls this; tests call it
+ * directly with an injected in-memory MCP transport.
  *
- * Error channel is tagged (Principle 3). Internals run on Effect; the
- * `Promise` wrapper lives only at this boundary.
- */
-
-/**
- * Single public entry point. In production the CLI binary
- * (`cli.ts`) calls this; tests call it directly with an injected
- * in-memory MCP transport.
+ * The error channel is tagged; internals run on Effect, and the `Promise`
+ * wrapper lives only at this boundary.
  *
  * ```mermaid
  * sequenceDiagram
@@ -298,8 +267,7 @@ function makeHandle(
  *   participant server as server.ts
  *   participant client as moltzap-client
  *   Caller->>entry: bootClaudeCodeChannel(opts)
- *   note over entry: [1] validateBootOptions (agentKey, serverUrl)
- *   entry->>client: [2] new MoltZapService
+ *   entry->>client: [1] MoltZapService.make(profileName)
  *   entry->>client: [3] new MoltZapChannelCore
  *   note over entry: [4] createRoutingState
  *   note over entry: [5] makeSendReply(core)
@@ -319,7 +287,7 @@ function makeHandle(
  * channels — MCP stdio (outbound to Claude) and MoltZap WS (inbound
  * from server). They meet inside the inbound handler and the reply
  * tool.
- * @failure AgentKeyInvalid when opts.agentKey or opts.serverUrl is blank
+ * @failure client config error when MoltZap config is missing or invalid
  * @failure McpTransportFailed when MCP server init or stdio connect rejects (step 6)
  * @failure ServiceRpcError when WS connect / auth rejects (step 8)
  */
@@ -331,45 +299,23 @@ function bootClaudeCodeChannelEffect(
   opts: BootOptions,
 ): Effect.Effect<BootResult, never, never> {
   return Effect.gen(function* () {
-    const validationError = validateBootOptions(opts);
-    if (validationError !== null) return bootErrorResult(validationError);
-
-    const service = new MoltZapService({
-      serverUrl: opts.serverUrl,
-      agentKey: opts.agentKey,
-    });
-
-    const core = new MoltZapChannelCore({
-      service,
-    });
+    const service = yield* MoltZapService.make(opts.profileName);
+    const core = new MoltZapChannelCore({ service });
     const routing = createRoutingState();
     const sendReply = makeSendReply(core);
-    const serverBoot = yield* bootMcpServerHandle(
-      opts,
-      sendReply,
-      routing,
-    ).pipe(
-      Effect.match({
-        onFailure: bootErrorResult,
-        onSuccess: (value) => ({ _tag: "Ok" as const, value }),
-      }),
-    );
-    if (serverBoot._tag === "Err") return serverBoot;
-    const serverHandle = serverBoot.value;
+    const serverHandle = yield* bootMcpServerHandle(opts, sendReply, routing);
 
-    // Inbound: gate → translate → record → push. Failures log and drop —
-    // spec I5 (pure, drop on failure) + A3.
+    // Inbound: gate → translate → record → push. Failures log and drop.
     core.onInbound((enriched: EnrichedInboundMessage) =>
       handleInboundMessage(opts, routing, serverHandle, enriched),
     );
 
-    const connectResult = yield* Effect.either(connectCore(core, serverHandle));
-    const connectFailure = Either.match(connectResult, {
-      onLeft: bootErrorResult,
-      onRight: () => null,
-    });
-    if (connectFailure !== null) return connectFailure;
-
-    return { _tag: "Ok", value: makeHandle(core, serverHandle) };
-  });
+    yield* connectCore(core, serverHandle);
+    return makeHandle(core, serverHandle);
+  }).pipe(
+    Effect.match({
+      onFailure: bootErrorResult,
+      onSuccess: (value): BootResult => ({ _tag: "Ok", value }),
+    }),
+  );
 }

@@ -1,19 +1,13 @@
 /**
- * Fan-out cardinality — spec §5 C1: messages/send ⇒ **exactly** N
- * inbound events (one per connection). Architect §4.4: tightened from
- * `>=1` to `===1`; a server that duplicates events now fails.
- *
- * Empty-counts side channel replaced with an explicit
+ * Fan-out cardinality — agent/message/send ⇒ **exactly** N inbound events
+ * (one per connection). The check is `=== N`, not `>= 1`, so a server
+ * that duplicates events fails. Empty counts surface as an explicit
  * `PropertyInvariantViolation`.
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
-import { MessagesSend } from "../../../task/methods.js";
-import {
-  isNotificationFrame,
-  type AnyFrame,
-} from "../_shared/frame-mutator.js";
-import type { CapturedFrame } from "../_shared/captures.js";
+import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
+import type { NotificationDelivery } from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
 import type { PropertyAssertionFailure } from "../_shared/registry.js";
@@ -27,21 +21,8 @@ import {
   fixtureN,
 } from "./_helpers.js";
 
-function isInboundMessageNotification(snapshotEntry: {
-  readonly kind: string;
-  readonly frame: unknown;
-}): boolean {
-  const frame = snapshotEntry.frame;
-  return (
-    snapshotEntry.kind === "inbound" &&
-    isFrameCandidate(frame) &&
-    isNotificationFrame(frame) &&
-    frame.method.includes("message")
-  );
-}
-
-function isFrameCandidate(frame: unknown): frame is AnyFrame {
-  return typeof frame === "object" && frame !== null;
+function isMessageNotification(frame: NotificationDelivery): boolean {
+  return frame.definition === MessageReceivedNotificationDefinition;
 }
 
 export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
@@ -49,7 +30,7 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
     ctx,
     DELIVERY_CATEGORY,
     "fan-out-cardinality",
-    "messages/send ⇒ exactly N inbound message events (one per connection)",
+    "agent/message/send ⇒ exactly N inbound message events (one per connection)",
     assertProperty(DELIVERY_CATEGORY, "fan-out-cardinality", (onFailure) =>
       runFanOutCardinalityProperty(ctx, onFailure),
     ).pipe(Effect.withSpan("registerFanOutCardinality")),
@@ -119,26 +100,26 @@ function sendFanOutMessage(fixture: ConversationFixture) {
 
 function participantSnapshots(
   fixture: ConversationFixture,
-): Effect.Effect<ReadonlyArray<ReadonlyArray<CapturedFrame>>> {
+): Effect.Effect<ReadonlyArray<ReadonlyArray<NotificationDelivery>>> {
   return Effect.forEach(
     fixture.participants,
-    (participant) => participant.client.snapshot,
+    (participant) => participant.notifications.snapshot,
     { concurrency: 1 },
   );
 }
 
 function messageNotificationCounts(
-  snapshots: ReadonlyArray<ReadonlyArray<CapturedFrame>>,
+  snapshots: ReadonlyArray<ReadonlyArray<NotificationDelivery>>,
 ): ReadonlyArray<number> {
   return snapshots.map(countInboundMessageNotifications);
 }
 
 function countInboundMessageNotifications(
-  snapshot: ReadonlyArray<CapturedFrame>,
+  snapshot: ReadonlyArray<NotificationDelivery>,
 ): number {
   let count = 0;
   for (const entry of snapshot) {
-    if (isInboundMessageNotification(entry)) count += 1;
+    if (isMessageNotification(entry)) count += 1;
   }
   return count;
 }

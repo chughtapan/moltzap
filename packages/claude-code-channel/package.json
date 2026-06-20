@@ -18,18 +18,36 @@
     "moltzap-claude-code-channel": "./dist/cli.js"
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./test-support": {
-      "import": "./dist/test-support.js",
-      "types": "./dist/test-support.d.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "scripts": {
-    "build": "tsc",
-    "lint": "eslint src *.ts --cache --max-warnings=0",
+    "build": "nx run @moltzap/claude-code-channel:build",
+    "lint": "nx run @moltzap/claude-code-channel:lint",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
+    "test:conformance": "vitest run -c vitest.conformance.config.ts",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/claude-code-channel",
+          "command": "tsc -b"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/claude-code-channel",
+          "command": "eslint src *.ts --cache --max-warnings=0"
+        }
+      }
+    }
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.2",
@@ -41,6 +59,7 @@
     "@effect/platform": "^0.96.1",
     "@effect/platform-node": "^0.106.0",
     "@effect/vitest": "^0.29.0",
+    "@types/node": "^25.5.0",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
     "typescript": "^5.7.0",

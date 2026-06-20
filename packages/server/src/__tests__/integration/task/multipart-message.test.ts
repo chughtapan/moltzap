@@ -1,5 +1,5 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import {
   awaitOneNotification,
   it,
@@ -7,15 +7,15 @@ import {
   stopTestServerEffect,
   resetTestDbEffect,
   setupAgentPair,
+  textOfPart,
 } from "../helpers.js";
 
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
+  MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  MessageReceivedNotificationDefinition,
-  TaskRequest,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
 
 const PART_ONE_TEXT = "Part 1: Introduction";
 const PART_TWO_TEXT = "Part 2: Main content";
@@ -45,7 +45,9 @@ it("message with multiple text parts preserves all parts in order", () =>
       { type: "text" as const, text: PART_THREE_TEXT },
     ];
 
-    // Set up Bob's event waiter BEFORE send
+    const bobEventFiber = yield* Effect.fork(
+      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+    );
 
     const sendResult = yield* alice.client.sendRpc(MessagesSend, {
       taskId,
@@ -56,20 +58,13 @@ it("message with multiple text parts preserves all parts in order", () =>
     expect(sendResult.message.parts).toHaveLength(3);
     expect(sendResult.message.parts).toEqual(parts);
 
-    const bobEvent = yield* awaitOneNotification(
-      bob.client,
-      MessageReceivedNotificationDefinition,
-    );
-    const received = (
-      bobEvent.params as {
-        message: { parts: Array<{ type: string; text: string }> };
-      }
-    ).message;
+    const bobEvent = yield* Fiber.join(bobEventFiber);
+    const received = bobEvent.params.message;
 
     expect(received.parts).toHaveLength(3);
-    expect(received.parts[0]!.text).toBe(PART_ONE_TEXT);
-    expect(received.parts[1]!.text).toBe(PART_TWO_TEXT);
-    expect(received.parts[2]!.text).toBe(PART_THREE_TEXT);
+    expect(textOfPart(received.parts[0])).toBe(PART_ONE_TEXT);
+    expect(textOfPart(received.parts[1])).toBe(PART_TWO_TEXT);
+    expect(textOfPart(received.parts[2])).toBe(PART_THREE_TEXT);
 
     // Verify via message listing
     const history = yield* bob.client.sendRpc(MessagesList, {

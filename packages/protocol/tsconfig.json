@@ -2,12 +2,89 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "rootDir": "./src",
+    "baseUrl": "./src",
+    "paths": {
+      "#transport": [
+        "transport/index.ts"
+      ],
+      "#transport/descriptor": [
+        "transport/descriptor.ts"
+      ],
+      "#rpc": [
+        "rpc.ts"
+      ],
+      "#identity": [
+        "identity/index.ts"
+      ],
+      "#identity/agents": [
+        "identity/agents/index.ts"
+      ],
+      "#identity/apps": [
+        "identity/apps/index.ts"
+      ],
+      "#identity/users": [
+        "identity/users/index.ts"
+      ],
+      "#identity/contacts": [
+        "identity/contacts/index.ts"
+      ],
+      "#identity/contacts/requirements": [
+        "identity/contacts/requirements/index.ts"
+      ],
+      "#identity/principals": [
+        "identity/principals/index.ts"
+      ],
+      "#identity/requirements": [
+        "identity/requirements/index.ts"
+      ],
+      "#network": [
+        "network/index.ts"
+      ],
+      "#task": [
+        "task/index.ts"
+      ],
+      "#task/requirements": [
+        "task/requirements/index.ts"
+      ],
+      "#conversation": [
+        "conversation/index.ts"
+      ],
+      "#conversation/requirements": [
+        "conversation/requirements/index.ts"
+      ],
+      "#message": [
+        "message/index.ts"
+      ],
+      "#message/dispatch": [
+        "message/dispatch.ts"
+      ],
+      "#socket": [
+        "socket/index.ts"
+      ],
+      "#socket/catalog": [
+        "socket/catalog/index.ts"
+      ],
+      "#testing": [
+        "testing/index.ts"
+      ]
+    },
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "lib": ["ES2022", "DOM"]
+    "lib": [
+      "ES2022",
+      "DOM"
+    ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "dist"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/__tests__",
+    "dist"
+  ],
+  "references": []
 }

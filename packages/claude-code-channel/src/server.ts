@@ -109,9 +109,9 @@ export const CHANNEL_CAPABILITIES = {
 } as const;
 
 // The MCP SDK's ListTools `inputSchema` field wants a mutable `required:
-// string[]`. `as const` on the literal above would narrow it to `readonly`
-// and break assignment. `REPLY_TOOL_INPUT_SCHEMA_MUTABLE` is the handler
-// copy; tests assert deep equality against the frozen literal.
+// string[]`, so this builder returns a fresh mutable copy. The frozen
+// `REPLY_TOOL_INPUT_SCHEMA` literal above is `readonly` and cannot satisfy
+// that field directly; tests assert deep equality between the two.
 function buildReplyInputSchema(): {
   type: "object";
   properties: {
@@ -309,20 +309,20 @@ function handleDecodedReplyCall(
  *   srv-->>mcp: name != reply → toolErrorResult
  *   srv->>srv: decodeReplyArgs (text non-empty)
  *   srv-->>mcp: ReplyArgsInvalid → toolErrorResult
- *   srv->>srv: decoded.files non-empty → filesUnsupportedResult (v1)
+ *   srv->>srv: decoded.files non-empty → filesUnsupportedResult
  *   srv->>srv: routing.resolveTarget(reply_to)
  *   srv-->>mcp: NoActiveConversation | ReplyToUnknown → toolErrorResult
  *   srv->>ent: deps.sendReply(conversationId, text)
- *   ent->>cli: messages/send with lease
+ *   ent->>cli: agent/message/send with lease
  *   alt LeaseInvalid wire error
  *     cli-->>ent: LeaseAlreadyConsumed (via catchLeaseInvalid)
  *   end
  * ```
  *
- * Files attachments unsupported in v1 — open follow-up.
- * `LeaseAlreadyConsumed` is surfaced via the host's
- * `onLeaseConsumed` callback (channel-base contract); the tool itself
- * returns `toolErrorResult` so Claude's run continues.
+ * File attachments are unsupported: a non-empty `files` array returns
+ * `filesUnsupportedResult`. `LeaseAlreadyConsumed` is surfaced via the
+ * host's `onLeaseConsumed` callback (channel-base contract); the tool
+ * itself returns `toolErrorResult` so Claude's run continues.
  */
 function handleCallToolRequest(
   request: CallToolRequest,
@@ -494,7 +494,7 @@ function makeServerHandle(
 }
 
 function logMcpCloseFailure(err: unknown): Effect.Effect<void> {
-  const message = "claude-code-channel: MCP close failed (swallowed per I8)";
+  const message = "claude-code-channel: MCP close failed (swallowed)";
   return Effect.logError(message).pipe(
     Effect.annotateLogs({ err: stringifyCause(err) }),
   );

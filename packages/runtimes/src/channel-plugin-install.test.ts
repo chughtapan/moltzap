@@ -113,7 +113,7 @@ function resolvesOwnNodeModules() {
         EFFECT_PACKAGE,
       );
 
-      expect(resolved).toBe(depPkg);
+      yield* expectSamePath(resolved, depPkg);
       expect(resolved).not.toContain(LEGACY_DIST_NODE_MODULES);
     }),
   );
@@ -136,7 +136,7 @@ function resolvesHoistedDependency() {
         EFFECT_PACKAGE,
       );
 
-      expect(resolved).toBe(hoistedDep);
+      yield* expectSamePath(resolved, hoistedDep);
     }),
   );
 }
@@ -194,7 +194,7 @@ function resolvesPackageRoot() {
         FANCY_DEP_PACKAGE,
       );
 
-      expect(resolved).toBe(depPkg);
+      yield* expectSamePath(resolved, depPkg);
     }),
   );
 }
@@ -247,7 +247,7 @@ function symlinksWorkspaceDependency() {
         fixture.channelPkg,
         EFFECT_PACKAGE,
       );
-      expect(effectResolved).toBe(fixture.channelDepDir);
+      yield* expectSamePath(effectResolved, fixture.channelDepDir);
 
       const extDir = yield* installPluginUsingEffectDependency(
         fixture,
@@ -317,7 +317,18 @@ function assertEffectSymlinkTarget(extDir: string, expectedTarget: string) {
     const path = yield* Path.Path;
     const symlinkPath = path.join(extDir, "node_modules", EFFECT_PACKAGE);
     const linkTarget = yield* readLink(symlinkPath);
-    expect(linkTarget).toBe(expectedTarget);
+    yield* expectSamePath(linkTarget, expectedTarget);
+  });
+}
+
+function expectSamePath(actual: string | null, expected: string) {
+  return Effect.gen(function* () {
+    expect(actual).not.toBeNull();
+    const [actualReal, expectedReal] = yield* Effect.all([
+      realPath(actual ?? expected),
+      realPath(expected),
+    ]);
+    expect(actualReal).toBe(expectedReal);
   });
 }
 
@@ -354,6 +365,12 @@ function writeTextFile(filePath: string, content: string) {
 function readLink(filePath: string) {
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fileSystem) => fileSystem.readLink(filePath)),
+  );
+}
+
+function realPath(filePath: string) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) => fileSystem.realPath(filePath)),
   );
 }
 

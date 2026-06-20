@@ -1,30 +1,24 @@
 /**
- * Cross-impl `dispatch-admission` test driver — implementation for the
- * row 13 reshape cutover (#533).
+ * Cross-impl `dispatch-admission` test driver.
  *
- * The 15 `dispatch-admission` properties registered in `dispatch-admission.ts`
- * cannot execute against a single TestClient: the round-trip needs TWO
- * TestClients scripted in lockstep against the same real server — a
- * recipient that issues `dispatch/request`, and a moderator that
- * receives `dispatch/authorize` and replies. The driver is the
- * conformance-tier helper that wires both ends.
+ * The 15 `dispatch-admission` properties cannot execute against a single
+ * one client: the round-trip needs agent and app clients scripted in lockstep
+ * against the same real server — a recipient that issues
+ * `agent/dispatch/request`, and a moderator that receives `app/dispatch/authorize`
+ * and replies. The driver is the conformance-tier helper that wires both
+ * ends.
  *
- * It does NOT subclass / wrap `TestServer` — TestServer is the byte-level
- * harness for fault-injection and stays untouched. The driver composes
- * existing `TestClient` primitives (`sendRpc`, `onAppCallback`,
- * `awaitServerRequest`, `waitForNotification`, scope-controlled close)
- * against an injected `RealServerHandle` (already present on every
- * conformance run via `runner.ts:35`).
+ * It composes existing lifecycle-backed client primitives (`sendRpc`,
+ * `onAppCallback`,
+ * `awaitServerRequest`, `subscribe`, scope-controlled close) against an
+ * injected `RealServerHandle` (already present on every conformance run
+ * via the conformance `runner`).
  *
- * Architect plan #533 §3 + §7 + Revisions r1 (correction 2 dropped
- * `connectionId` from both handles).
- *
- * Principle 3 — every method's error channel is named
- * (`PropertyFailure` for property-level outcomes; tagged transport
- * errors otherwise).
- * Principle 4 — verdict shape and lease state are closed string-literal
- * unions; the driver re-exports the wire types so property authors
- * never re-construct them by hand.
+ * Every method's error channel is named (`PropertyFailure` for
+ * property-level outcomes; tagged transport errors otherwise). Verdict
+ * shape and lease state are closed string-literal unions; the driver
+ * re-exports the wire types so property authors never re-construct them
+ * by hand.
  */
 import {
   Cause,
@@ -35,47 +29,43 @@ import {
   Queue,
   Scope,
   Stream,
+  Schema,
 } from "effect";
 import { RpcResponseError } from "../_shared/errors.js";
-import type { Static } from "@sinclair/typebox";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,
   type PropertyFailure,
 } from "../_shared/registry.js";
-import type { AgentId } from "../../../identity/agents.js";
-import { Value } from "@sinclair/typebox/value";
+import type { AgentId } from "#identity";
+import { AppId, TaskRequest, TaskUpdate } from "@moltzap/protocol/task";
 import {
-  type ConversationId,
-  type MessageId,
-  AppId,
-  DEFAULT_APP_ID,
-  TaskAddParticipant,
-  TaskConversationAddParticipant,
-  TaskConversationCreate,
-  TaskRequest,
-  MessagesSend,
-} from "@moltzap/protocol/task";
-import type { TaskId } from "../../../task/tasks.js";
+  ConversationCreate,
+  ConversationUpdate,
+} from "@moltzap/protocol/conversation";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { LeaseId } from "#message/dispatch";
+import { MessagesSend } from "@moltzap/protocol/message";
+import type { TaskId } from "#task";
 import {
   DispatchAuthorize,
   DispatchRelease,
   DispatchRequest,
-  DispatchesConsumed,
-  DispatchesExpired,
-  DispatchesGet,
+  DispatchLeaseConsumed,
+  DispatchLeaseExpired,
+  DispatchLeaseGet,
   type DispatchId,
-} from "../../../app/index.js";
-import type { LeaseId } from "../../../task/index.js";
-import type { DecodedNotification } from "../../../transport/rpc-groups.js";
+} from "#message/dispatch";
+import type { NotificationDelivery } from "#transport";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
-  makeCloseableTestClient,
-  makeTestClient,
-  type CloseableTestClient,
+  makeAgentTestClient,
+  makeCloseableAgentTestClient,
+  type AgentTestClient,
+  type AppTestClient,
+  type CloseableAgentTestClient,
   type ServerRpcParams,
   type ServerRpcResult,
-  type TestClient,
 } from "../_shared/driver/test-client.js";
 import {
   makeTestAppManifest,
@@ -98,9 +88,9 @@ export type DispatchVerdict =
 
 /**
  * Closed lease-state union mirroring `LeaseStateSchema`. The driver's
- * `assertLeaseState` polls `dispatches/get` until the registry settles
- * to the named state or the bound elapses (impl-staff picks the bound
- * per-property; default 5 s).
+ * `assertLeaseState` polls `app/dispatch/lease/get` until the registry settles
+ * to the named state or the bound elapses (the bound is per-property;
+ * default 5 s).
  */
 export type LeaseState =
   | "PENDING"
@@ -115,63 +105,65 @@ export type LeaseState =
 // ── Recipient handle ──────────────────────────────────────────────────
 
 /**
- * Recipient-side surface. Owns one TestClient connected to the real
+ * Recipient-side surface. Owns one `AgentTestClient` connected to the real
  * server under a recipient agent identity. All methods return Effects
  * scoped to the surrounding `Scope`; releasing the scope closes the
- * underlying TestClient.
+ * underlying agent client.
  */
 export interface RecipientHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
 
   /**
-   * Issue `dispatch/request` for the given inbound. Returns the ack
+   * Issue `agent/dispatch/request` for the given inbound. Returns the ack
    * payload `{leaseId, dispatchId}`. Single recipient may issue many
    * concurrent requests; the property is responsible for ordering its
    * own assertions.
    */
   readonly requestDispatch: (params: {
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly messageId: Static<typeof MessageId>;
-    readonly senderAgentId: Static<typeof AgentId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly messageId: Schema.Schema.Type<typeof MessageId>;
+    readonly senderAgentId: Schema.Schema.Type<typeof AgentId>;
     readonly attempt?: number;
   }) => Effect.Effect<
     {
-      readonly leaseId: Static<typeof LeaseId>;
-      readonly dispatchId: Static<typeof DispatchId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
+      readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
     },
     PropertyFailure
   >;
 
   /**
-   * Park until a `dispatch/release` notification arrives that matches
+   * Park until a `agent/dispatch/released` notification arrives that matches
    * `predicate` (default: any). Used by every property in the
    * `DispatchRelease` group + every property that asserts a verdict
    * delivery.
    */
   readonly waitForRelease: (
-    predicate?: (frame: DecodedNotification<typeof DispatchRelease>) => boolean,
+    predicate?: (
+      frame: NotificationDelivery<typeof DispatchRelease>,
+    ) => boolean,
     timeoutMs?: number,
   ) => Effect.Effect<
-    DecodedNotification<typeof DispatchRelease>,
+    NotificationDelivery<typeof DispatchRelease>,
     PropertyFailure
   >;
 
   /**
-   * Send `messages/send` carrying `dispatchLeaseId`. Used to consume a
+   * Send `agent/message/send` carrying `dispatchLeaseId`. Used to consume a
    * GRANTED lease + assert the consumed/duplicate behavior. Returns the
    * minted message id on success; on the lease-already-CONSUMED path,
    * fails with a `PropertyInvariantViolation` whose `reason` carries
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly leaseId: Static<typeof LeaseId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     readonly text: string;
   }) => Effect.Effect<
     {
-      readonly messageId: Static<typeof MessageId>;
-      readonly errorCode?: number;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
+      readonly errorTag?: string;
       readonly errorState?: string;
     },
     PropertyFailure
@@ -190,19 +182,19 @@ export interface RecipientHandle {
 // ── Moderator handle ──────────────────────────────────────────────────
 
 /**
- * Moderator-side surface. Owns one TestClient connected to the real
- * server under a moderator agent identity, with `apps/register` already
- * driven to install a `dispatch_authorize` hook for the test app. Holds
- * the registered `appId` for `dispatches/get` scope assertions.
+ * Moderator-side surface. Owns one `AppTestClient` connected to the real
+ * server under a moderator app identity, with HTTP registration plus
+ * `app/network/connect` already driven to install a `dispatch_authorize` hook. Holds
+ * the registered `appId` for `app/dispatch/lease/get` scope assertions.
  */
 export interface ModeratorHandle {
-  readonly agentId: Static<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof AgentId>;
   readonly appId: string;
 
   /**
-   * Park until a `dispatch/authorize` S→C request arrives that matches
+   * Park until a `app/dispatch/authorize` S→C request arrives that matches
    * `predicate` (default: any), then reply with `respondWith`. Internally
-   * uses `TestClient.onAppCallback` to register the reply and
+   * uses `AppTestClient.onAppCallback` to register the reply and
    * `awaitServerRequest` to observe the params.
    *
    * `holdResponseFor` is for the timeout-synthesizes-deny property:
@@ -212,47 +204,49 @@ export interface ModeratorHandle {
   readonly handleAuthorize: (opts: {
     readonly respondWith: DispatchVerdict;
     readonly predicate?: (params: {
-      readonly taskId: Static<typeof TaskId>;
-      readonly conversationId: Static<typeof ConversationId>;
-      readonly messageId: Static<typeof MessageId>;
+      readonly taskId: Schema.Schema.Type<typeof TaskId>;
+      readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+      readonly messageId: Schema.Schema.Type<typeof MessageId>;
     }) => boolean;
     readonly holdResponseFor?: number;
   }) => Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Drop the next inbound `dispatch/authorize` S→C request — install no
+   * Drop the next inbound `app/dispatch/authorize` S→C request — install no
    * handler. Forces moderator-response TTL elapse. Used by
    * `dispatch-authorize-timeout-synthesizes-deny`.
    */
   readonly silenceAuthorize: Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Park until a `dispatches/consumed` or `dispatches/expired`
+   * Park until a `app/dispatch/lease-consumed` or `app/dispatch/lease-expired`
    * notification arrives matching `kind` and (optionally) `dispatchId`.
    */
   readonly waitForObservability: <K extends "consumed" | "expired">(
     kind: K,
     opts: {
-      readonly dispatchId?: Static<typeof DispatchId>;
+      readonly dispatchId?: Schema.Schema.Type<typeof DispatchId>;
       readonly timeoutMs?: number;
     },
   ) => Effect.Effect<
     K extends "consumed"
-      ? DecodedNotification<typeof DispatchesConsumed>
-      : DecodedNotification<typeof DispatchesExpired>,
+      ? NotificationDelivery<typeof DispatchLeaseConsumed>
+      : NotificationDelivery<typeof DispatchLeaseExpired>,
     PropertyFailure
   >;
 
   /**
-   * Issue `dispatches/get` from the moderator's connection. Used by the
-   * positive `dispatches-get-moderator-sees-record` property + every
+   * Issue `app/dispatch/lease/get` from the moderator's connection. Used by the
+   * positive `dispatch-lease-get-moderator-sees-record` property + every
    * `assertLeaseState` poll.
    */
-  readonly getLease: (dispatchId: Static<typeof DispatchId>) => Effect.Effect<
+  readonly getLease: (
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
+  ) => Effect.Effect<
     {
       readonly state: LeaseState;
       readonly verdict: DispatchVerdict | null;
-      readonly leaseId: Static<typeof LeaseId>;
+      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
     },
     PropertyFailure
   >;
@@ -270,14 +264,14 @@ export interface DispatchTestDriver {
   readonly recipient: RecipientHandle;
   readonly moderator: ModeratorHandle;
   readonly fixtures: {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
+    readonly taskId: Schema.Schema.Type<typeof TaskId>;
+    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
   };
 
   /**
    * Spin up an additional recipient client under a fresh agent identity.
-   * Used by `same-conversation-dispatches-reach-moderator-concurrently`
-   * (two recipients in the same conversation issue `dispatch/request`
+   * Used by `same-conversation-dispatch-requests-reach-moderator-concurrently`
+   * (two recipients in the same conversation issue `agent/dispatch/request`
    * back-to-back).
    */
   readonly addRecipient: (opts: {
@@ -285,60 +279,30 @@ export interface DispatchTestDriver {
   }) => Effect.Effect<RecipientHandle, PropertyFailure, Scope.Scope>;
 
   /**
-   * Issue `dispatches/get` from a NON-moderator connection (the
-   * recipient or a third-party client). Used by the negative scope
-   * property `dispatches-get-non-moderator-rejected`. Returns the
-   * server's typed error rather than the lease record.
-   */
-  readonly getLeaseFromNonModerator: (
-    dispatchId: Static<typeof DispatchId>,
-  ) => Effect.Effect<{ readonly errorCode: number }, PropertyFailure>;
-
-  /**
-   * Poll `dispatches/get` until the lease reaches `expected` or the
+   * Poll `app/dispatch/lease/get` until the lease reaches `expected` or the
    * bound elapses. Returns the final record. Used by every property
    * that asserts a state transition (PENDING→GRANTED, GRANTED→EXPIRED,
    * CLAIMED→CONSUMED, etc.). Implementation polls every 25 ms; bound
    * defaults to 5 s.
    */
   readonly assertLeaseState: (
-    dispatchId: Static<typeof DispatchId>,
+    dispatchId: Schema.Schema.Type<typeof DispatchId>,
     expected: LeaseState,
     opts?: { readonly timeoutMs?: number },
   ) => Effect.Effect<void, PropertyFailure>;
 
   /**
-   * Advance the test clock by `durationMs`. If the conformance harness
-   * is running against `TestClock`, this fast-forwards TTLs; otherwise
-   * (real-time mode) it is a `Effect.sleep`. Property authors call this
-   * for `dispatches-expired-fires-on-ttl` and the moderator-response
-   * timeout property.
+   * Sleep `durationMs` against the real clock to let server-side TTLs elapse.
+   * Property authors call this for `dispatch-lease-expired-fires-on-ttl` and the
+   * moderator-response timeout property, which both run against a live server.
    */
   readonly advanceTime: (durationMs: number) => Effect.Effect<void>;
 }
 
 // ── Constructor ──────────────────────────────────────────────────────
 
-/**
- * Driver options. `taskAppId` controls whether the server-side path is
- * app-bound (moderated, default) or default-grant. Default: app-bound
- * via `taskAppId: "conformance-test-app"`. The `default-grant` properties
- * (none today; reserved for future) pass `taskAppId: null`.
- *
- * `moderatorTimeoutMs` is propagated to the manifest's
- * `hooks.dispatch_authorize.timeout_ms`. Properties that exercise the
- * moderator-response TTL pass a small value (e.g., 200 ms); properties
- * that don't care pass the default 5_000 ms.
- */
-export interface DispatchTestDriverConfig {
-  readonly taskAppId?: string | null;
-  readonly moderatorTimeoutMs?: number;
-  readonly leaseTimeoutMs?: number;
-}
-
 const CATEGORY = "dispatch-admission" as const;
 const DEFAULT_TIMEOUT_MS = 5_000;
-const DEFAULT_CAPTURE_CAPACITY = 256;
 const DEFAULT_ASSERT_LEASE_STATE_BOUND_MS = 5_000;
 const ASSERT_LEASE_STATE_POLL_MS = 25;
 const DEFAULT_MODERATOR_TIMEOUT_MS = 5_000;
@@ -365,7 +329,7 @@ function unwrapError<E>(err: E): string {
 
 /**
  * Pull the first typed `RpcResponseError` out of an `Exit`'s `Cause`.
- * The TestClient's `sendRpc` channel is `RpcResponseError | …`; this
+ * The conformance client's `sendRpc` channel is `RpcResponseError | ...`; this
  * helper isolates the typed error so callers don't have to parse
  * `String(cause)`.
  */
@@ -438,7 +402,9 @@ function reasonVerdictFromWire(
   return typeof reason === "string" ? { _tag: tag, reason } : { _tag: tag };
 }
 
-type DispatchIdParamsView = { readonly dispatchId?: Static<typeof DispatchId> };
+type DispatchIdParamsView = {
+  readonly dispatchId?: Schema.Schema.Type<typeof DispatchId>;
+};
 type WireVerdictView = {
   readonly decision?: unknown;
   readonly reason?: unknown;
@@ -446,12 +412,12 @@ type WireVerdictView = {
 };
 type ObservabilityNotification<K extends "consumed" | "expired"> =
   K extends "consumed"
-    ? DecodedNotification<typeof DispatchesConsumed>
-    : DecodedNotification<typeof DispatchesExpired>;
+    ? NotificationDelivery<typeof DispatchLeaseConsumed>
+    : NotificationDelivery<typeof DispatchLeaseExpired>;
 
 interface AcquiredCloseableClient {
   readonly agent: TestAgent;
-  readonly client: CloseableTestClient;
+  readonly client: CloseableAgentTestClient;
 }
 
 function acquireAgent(
@@ -471,18 +437,16 @@ function acquireAgent(
 function acquireSharedClient(
   ctx: ConformanceRunContext,
   agent: TestAgent,
-): Effect.Effect<TestClient, PropertyInvariantViolation, Scope.Scope> {
-  return makeTestClient({
+): Effect.Effect<AgentTestClient, PropertyInvariantViolation, Scope.Scope> {
+  return makeAgentTestClient({
     serverUrl: ctx.realServer.wsUrl,
     agentKey: agent.apiKey,
-    agentId: agent.agentId,
     defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-    captureCapacity: DEFAULT_CAPTURE_CAPACITY,
   }).pipe(
     Effect.mapError((e) =>
       violation(
         SETUP_FAILURE_PROPERTY,
-        `makeTestClient(${agent.name}) failed: ${unwrapError(e)}`,
+        `makeAgentTestClient(${agent.name}) failed: ${unwrapError(e)}`,
       ),
     ),
   );
@@ -497,17 +461,15 @@ function acquireCloseableClient(
   Scope.Scope
 > {
   return Effect.gen(function* () {
-    const client = yield* makeCloseableTestClient({
+    const client = yield* makeCloseableAgentTestClient({
       serverUrl: ctx.realServer.wsUrl,
       agentKey: agent.apiKey,
-      agentId: agent.agentId,
       defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
     }).pipe(
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,
-          `makeCloseableTestClient(${agent.name}) failed: ${unwrapError(e)}`,
+          `makeCloseableAgentTestClient(${agent.name}) failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -520,17 +482,15 @@ function acquireCloseableClient(
 }
 
 /**
- * #645: Spec B's `Stream.async` surface only emits frames that arrive
- * AFTER materialisation. Conformance properties rely on a polling-shape
- * "subscribe AFTER trigger" pattern; bridge by installing a long-lived
- * pump at handle-construction time that buffers each per-definition
- * frame into an unbounded Queue. `waitFor*` consumes from the Queue,
- * which preserves historical buffering semantics without leaking back
- * into the deleted polling shape.
+ * The Effect stream callback notification surface only emits frames that arrive
+ * AFTER materialisation. Conformance properties rely on a "subscribe
+ * AFTER trigger" pattern; bridge by installing a long-lived pump at
+ * handle-construction time that buffers each per-definition frame into an
+ * unbounded Queue. `waitFor*` consumes from the Queue, so a frame that
+ * arrives before the wait is still observed.
  */
-// #ignore-sloppy-code[async-keyword]: JSDoc reference to `Stream.async` Effect primitive, not a JS `async` modifier
 interface ReleaseBuffer {
-  readonly queue: Queue.Queue<DecodedNotification<typeof DispatchRelease>>;
+  readonly queue: Queue.Queue<NotificationDelivery<typeof DispatchRelease>>;
 }
 
 function buildRecipientHandle(
@@ -538,7 +498,7 @@ function buildRecipientHandle(
 ): Effect.Effect<RecipientHandle, never, Scope.Scope> {
   return Effect.gen(function* () {
     const queue =
-      yield* Queue.unbounded<DecodedNotification<typeof DispatchRelease>>();
+      yield* Queue.unbounded<NotificationDelivery<typeof DispatchRelease>>();
     yield* Effect.forkScoped(
       acquired.client.subscribe(DispatchRelease).pipe(
         Stream.runForEach((frame) => Queue.offer(queue, frame)),
@@ -573,7 +533,7 @@ function requestDispatch(
       Effect.mapError((e) =>
         violation(
           "recipient.requestDispatch",
-          `dispatch/request failed: ${unwrapError(e)}`,
+          `agent/dispatch/request failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -585,18 +545,17 @@ function waitForRelease(
   predicate?: Parameters<RecipientHandle["waitForRelease"]>[0],
   timeoutMs = DEFAULT_WAIT_FOR_RELEASE_MS,
 ): ReturnType<RecipientHandle["waitForRelease"]> {
-  // #645: pull from the per-handle Queue populated by the long-lived
+  // Pull from the per-handle Queue populated by the long-lived
   // `subscribe(DispatchRelease)` pump installed in `buildRecipientHandle`.
-  // The pump preserves historical buffering semantics that the legacy
-  // polling shape provided implicitly; properties continue to call
-  // `waitForRelease` AFTER the triggering RPC without races.
+  // The Queue buffers frames that arrive before the wait, so properties
+  // call `waitForRelease` AFTER the triggering RPC without races.
   return takeMatchingFromQueue(buffer.queue, predicate, timeoutMs).pipe(
     Effect.mapError((reason) =>
       reason === "timeout"
         ? releaseWaitTimeoutFailure(timeoutMs)
         : violation(
             "recipient.waitForRelease",
-            `dispatch/release wait failed: ${reason}`,
+            `agent/dispatch/released wait failed: ${reason}`,
           ),
     ),
   );
@@ -652,18 +611,19 @@ function sendWithLease(
 }
 
 function messageSendSuccess(result: unknown): {
-  readonly messageId: Static<typeof MessageId>;
+  readonly messageId: Schema.Schema.Type<typeof MessageId>;
 } {
   return {
-    messageId: (result as { message: { id: Static<typeof MessageId> } }).message
-      .id,
+    messageId: (
+      result as { message: { id: Schema.Schema.Type<typeof MessageId> } }
+    ).message.id,
   };
 }
 
 function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
   {
-    readonly messageId: Static<typeof MessageId>;
-    readonly errorCode: number;
+    readonly messageId: Schema.Schema.Type<typeof MessageId>;
+    readonly errorTag: string;
     readonly errorState?: string;
   },
   PropertyFailure
@@ -673,14 +633,17 @@ function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
     return Effect.fail(
       violation(
         "recipient.sendWithLease",
-        `messages/send failed without RpcResponseError: ${exitCauseSummary(exit)}`,
+        `agent/message/send failed without RpcResponseError: ${exitCauseSummary(exit)}`,
       ),
     );
   }
   const errorState = rpcErrorState(rpcErr);
   return Effect.succeed({
-    messageId: "" as Static<typeof MessageId>,
-    errorCode: rpcErr.code,
+    // Sentinel placeholder on the error path — no message was created, so
+    // there is no real id to decode.
+    // eslint-disable-next-line agent-code-guard/no-schema-type-cast -- sentinel empty-string id on an error path, not a wire decode
+    messageId: "" as Schema.Schema.Type<typeof MessageId>,
+    errorTag: rpcErr.tag,
     ...(errorState !== undefined ? { errorState } : {}),
   });
 }
@@ -693,21 +656,16 @@ function rpcErrorState(error: RpcResponseError): string | undefined {
 }
 
 type DispatchAuthorizePredicateInput = {
-  readonly taskId: Static<typeof TaskId>;
-  readonly conversationId: Static<typeof ConversationId>;
-  readonly messageId: Static<typeof MessageId>;
+  readonly taskId: Schema.Schema.Type<typeof TaskId>;
+  readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+  readonly messageId: Schema.Schema.Type<typeof MessageId>;
 };
 
 interface ModeratorHandleOptions {
   readonly agent: TestAgent;
-  readonly client: TestClient;
+  readonly client: AppTestClient;
   readonly appId: string;
-  readonly app: TestApp | null;
-}
-
-interface ResolvedDriverConfig {
-  readonly moderatorTimeoutMs: number;
-  readonly appId: string | null;
+  readonly app: TestApp;
 }
 
 interface DriverAgents {
@@ -716,13 +674,21 @@ interface DriverAgents {
 }
 
 interface DriverClients {
-  readonly moderatorClient: TestClient;
+  /** Agent connection — drives the agent-called `agent/task/request`. */
+  readonly moderatorClient: AgentTestClient;
+
+  /**
+   * App-principal `AppConnection` — hosts the moderator callbacks and
+   * the app-only RPCs (app/conversation/create, add-participant,
+   * app/dispatch/lease/get).
+   */
+  readonly appClient: AppTestClient;
   readonly recipientAcquired: AcquiredCloseableClient;
 }
 
 interface DriverFixtures {
-  readonly taskId: Static<typeof TaskId>;
-  readonly conversationId: Static<typeof ConversationId>;
+  readonly taskId: Schema.Schema.Type<typeof TaskId>;
+  readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
 }
 
 interface DriverBuildParts {
@@ -735,14 +701,14 @@ interface DriverBuildParts {
 
 interface AddRecipientInput {
   readonly ctx: ConformanceRunContext;
-  readonly moderatorClient: TestClient;
-  readonly taskId: Static<typeof TaskId>;
-  readonly conversationId: Static<typeof ConversationId>;
+  readonly moderatorClient: AppTestClient;
+  readonly taskId: Schema.Schema.Type<typeof TaskId>;
+  readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
   readonly opts: Parameters<DispatchTestDriver["addRecipient"]>[0];
 }
 
 interface LeaseStateTimeoutInput {
-  readonly dispatchId: Static<typeof DispatchId>;
+  readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
   readonly expected: LeaseState;
   readonly bound: number;
   readonly last: LeaseState | null;
@@ -751,15 +717,17 @@ interface LeaseStateTimeoutInput {
 
 /**
  * Per-`ModeratorHandle` Queue buffers for the two observability
- * notification kinds (#645). Long-lived pumps subscribe to each
- * definition at handle-construction time and offer arrivals; the
+ * notification kinds. Long-lived pumps subscribe to each definition at
+ * handle-construction time and offer arrivals; the
  * `waitForObservability` API consumes the matching queue.
  */
 interface ObservabilityBuffers {
   readonly consumed: Queue.Queue<
-    DecodedNotification<typeof DispatchesConsumed>
+    NotificationDelivery<typeof DispatchLeaseConsumed>
   >;
-  readonly expired: Queue.Queue<DecodedNotification<typeof DispatchesExpired>>;
+  readonly expired: Queue.Queue<
+    NotificationDelivery<typeof DispatchLeaseExpired>
+  >;
 }
 
 function buildModeratorHandle(
@@ -767,17 +735,21 @@ function buildModeratorHandle(
 ): Effect.Effect<ModeratorHandle, never, Scope.Scope> {
   return Effect.gen(function* () {
     const consumed =
-      yield* Queue.unbounded<DecodedNotification<typeof DispatchesConsumed>>();
+      yield* Queue.unbounded<
+        NotificationDelivery<typeof DispatchLeaseConsumed>
+      >();
     const expired =
-      yield* Queue.unbounded<DecodedNotification<typeof DispatchesExpired>>();
+      yield* Queue.unbounded<
+        NotificationDelivery<typeof DispatchLeaseExpired>
+      >();
     yield* Effect.forkScoped(
-      opts.client.subscribe(DispatchesConsumed).pipe(
+      opts.client.subscribe(DispatchLeaseConsumed).pipe(
         Stream.runForEach((frame) => Queue.offer(consumed, frame)),
         Effect.catchAll(() => Effect.void),
       ),
     );
     yield* Effect.forkScoped(
-      opts.client.subscribe(DispatchesExpired).pipe(
+      opts.client.subscribe(DispatchLeaseExpired).pipe(
         Stream.runForEach((frame) => Queue.offer(expired, frame)),
         Effect.catchAll(() => Effect.void),
       ),
@@ -796,42 +768,25 @@ function buildModeratorHandle(
 }
 
 function handleAuthorize(
-  app: TestApp | null,
+  app: TestApp,
   cfg: Parameters<ModeratorHandle["handleAuthorize"]>[0],
 ): Effect.Effect<void, PropertyFailure> {
-  return app === null
-    ? missingModeratorApp("handleAuthorize")
-    : app.dispatchAuthorize.handle({
-        respondWith: verdictToWire(cfg.respondWith),
-        ...(cfg.predicate === undefined
-          ? {}
-          : {
-              predicate: (params) =>
-                cfg.predicate?.(authorizePredicateInput(params)) ?? false,
-            }),
-        ...(cfg.holdResponseFor === undefined
-          ? {}
-          : { holdResponseFor: cfg.holdResponseFor }),
-      });
+  return app.dispatchAuthorize.handle({
+    respondWith: verdictToWire(cfg.respondWith),
+    ...(cfg.predicate === undefined
+      ? {}
+      : {
+          predicate: (params) =>
+            cfg.predicate?.(authorizePredicateInput(params)) ?? false,
+        }),
+    ...(cfg.holdResponseFor === undefined
+      ? {}
+      : { holdResponseFor: cfg.holdResponseFor }),
+  });
 }
 
-function silenceAuthorize(
-  app: TestApp | null,
-): Effect.Effect<void, PropertyFailure> {
-  return app === null
-    ? missingModeratorApp("silenceAuthorize")
-    : app.dispatchAuthorize.silence;
-}
-
-function missingModeratorApp(
-  method: "handleAuthorize" | "silenceAuthorize",
-): Effect.Effect<never, PropertyFailure> {
-  return Effect.fail(
-    violation(
-      `moderator.${method}`,
-      "driver was configured without an app-bound dispatch_authorize hook",
-    ),
-  );
+function silenceAuthorize(app: TestApp): Effect.Effect<void, PropertyFailure> {
+  return app.dispatchAuthorize.silence;
 }
 
 function authorizePredicateInput(
@@ -850,10 +805,10 @@ function waitForObservability<K extends "consumed" | "expired">(
   opts: Parameters<ModeratorHandle["waitForObservability"]>[1],
 ): Effect.Effect<ObservabilityNotification<K>, PropertyFailure> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_OBSERVABILITY_TIMEOUT_MS;
-  // #645: pull from the per-handle Queue populated by the long-lived
-  // `subscribe(DispatchesConsumed|Expired)` pumps installed in
-  // `buildModeratorHandle`. The pump preserves historical-buffer
-  // semantics so properties can call `waitForObservability` after the
+  // Pull from the per-handle Queue populated by the long-lived
+  // `subscribe(DispatchLeaseConsumed|Expired)` pumps installed in
+  // `buildModeratorHandle`. The Queue buffers frames that arrive before
+  // the wait, so properties call `waitForObservability` after the
   // triggering action (e.g. `advanceTime`) without races.
   const queue =
     kind === "consumed"
@@ -884,8 +839,8 @@ function observabilityTimeoutFailure(
 }
 
 type ObservabilityFrame =
-  | DecodedNotification<typeof DispatchesConsumed>
-  | DecodedNotification<typeof DispatchesExpired>;
+  | NotificationDelivery<typeof DispatchLeaseConsumed>
+  | NotificationDelivery<typeof DispatchLeaseExpired>;
 
 function observabilityViolation(
   kind: "consumed" | "expired",
@@ -896,22 +851,22 @@ function observabilityViolation(
 
 function matchesDispatchId(
   params: unknown,
-  dispatchId: Static<typeof DispatchId> | undefined,
+  dispatchId: Schema.Schema.Type<typeof DispatchId> | undefined,
 ): boolean {
   if (dispatchId === undefined) return true;
   return (params as DispatchIdParamsView).dispatchId === dispatchId;
 }
 
 function getLease(
-  client: TestClient,
-  dispatchId: Static<typeof DispatchId>,
+  client: AppTestClient,
+  dispatchId: Schema.Schema.Type<typeof DispatchId>,
 ): ReturnType<ModeratorHandle["getLease"]> {
-  return client.sendRpc(DispatchesGet, { dispatchId }).pipe(
+  return client.sendRpc(DispatchLeaseGet, { dispatchId }).pipe(
     Effect.map(leaseResultFromWire),
     Effect.mapError((e) =>
       violation(
         "moderator.getLease",
-        `dispatches/get failed: ${unwrapError(e)}`,
+        `app/dispatch/lease/get failed: ${unwrapError(e)}`,
       ),
     ),
   );
@@ -920,19 +875,21 @@ function getLease(
 function leaseResultFromWire(result: unknown): {
   readonly state: LeaseState;
   readonly verdict: DispatchVerdict | null;
-  readonly leaseId: Static<typeof LeaseId>;
+  readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
 } {
   const lease = (result as { lease: Record<string, unknown> }).lease;
   return {
     state: lease["state"] as LeaseState,
     verdict: verdictFromWire(lease["verdict"]),
-    leaseId: lease["leaseId"] as Static<typeof LeaseId>,
+    // The wire `leaseId` is a server-minted UUID; decode it through the brand
+    // schema rather than a bare cast (the brand is an Effect `Schema`).
+    leaseId: Schema.decodeUnknownSync(LeaseId)(lease["leaseId"]),
   };
 }
 
 /**
  * Acquire a fully-wired driver under the surrounding `Scope`. Releases
- * close every TestClient + drop the `apps/register` registration.
+ * close every lifecycle client + drop the connected app registration.
  *
  * Property authors call this from inside their property body; the driver
  * is per-property, never shared. Cross-property state leakage is the
@@ -940,27 +897,29 @@ function leaseResultFromWire(result: unknown): {
  */
 export function makeDispatchTestDriver(
   ctx: ConformanceRunContext,
-  config?: DispatchTestDriverConfig,
+  config?: { readonly moderatorTimeoutMs?: number },
 ): Effect.Effect<DispatchTestDriver, PropertyFailure, Scope.Scope> {
-  const resolved = resolveDriverConfig(config ?? {});
+  const moderatorTimeoutMs =
+    config?.moderatorTimeoutMs ?? DEFAULT_MODERATOR_TIMEOUT_MS;
   return Effect.gen(function* () {
     const agents = yield* acquireDriverAgents(ctx);
-    const clients = yield* acquireDriverClients(ctx, agents);
-    const app = yield* registerDriverApp(clients.moderatorClient, resolved);
-    const taskAppId =
-      resolved.appId === null
-        ? DEFAULT_APP_ID
-        : Value.Decode(AppId, resolved.appId);
+    // Register the moderator app FIRST (HTTP + `appKey` Connect → an
+    // `AppConnection`); `agent/task/request` then targets the server-minted
+    // `appId`. App-only RPCs + moderator callbacks + `app/dispatch/lease/get`
+    // route through `app.client`; the agent `moderatorClient` only drives
+    // the agent-called `agent/task/request`.
+    const app = yield* registerDriverApp(ctx, moderatorTimeoutMs);
+    const clients = yield* acquireDriverClients(ctx, agents, app);
     const fixtures = yield* createDriverFixtures(
-      clients.moderatorClient,
-      taskAppId,
+      clients,
+      app.appId,
       agents.recipientAgent,
     );
     const recipient = yield* buildRecipientHandle(clients.recipientAcquired);
     const moderator = yield* buildModeratorHandle({
       agent: agents.moderatorAgent,
-      client: clients.moderatorClient,
-      appId: resolved.appId ?? "",
+      client: clients.appClient,
+      appId: app.appId,
       app,
     });
     return buildDispatchDriver({
@@ -971,22 +930,6 @@ export function makeDispatchTestDriver(
       moderator,
     });
   }).pipe(Effect.withSpan("makeDispatchTestDriver"));
-}
-
-function resolveDriverConfig(
-  config: DispatchTestDriverConfig,
-): ResolvedDriverConfig {
-  const taskAppId = config?.taskAppId;
-  return {
-    moderatorTimeoutMs:
-      config?.moderatorTimeoutMs ?? DEFAULT_MODERATOR_TIMEOUT_MS,
-    appId:
-      taskAppId === null
-        ? null
-        : // AppId is a `brandedId("AppId")` (UUID format); use a real UUID
-          // here so the dispatcher's `Value.Decode(AppId, …)` succeeds.
-          (taskAppId ?? globalThis.crypto.randomUUID()),
-  };
 }
 
 function acquireDriverAgents(
@@ -1003,10 +946,12 @@ function acquireDriverAgents(
 function acquireDriverClients(
   ctx: ConformanceRunContext,
   agents: DriverAgents,
+  app: TestApp,
 ): Effect.Effect<DriverClients, PropertyFailure, Scope.Scope> {
   return Effect.gen(function* () {
     return {
       moderatorClient: yield* acquireSharedClient(ctx, agents.moderatorAgent),
+      appClient: app.client,
       recipientAcquired: yield* acquireCloseableClient(
         ctx,
         agents.recipientAgent,
@@ -1016,27 +961,26 @@ function acquireDriverClients(
 }
 
 function registerDriverApp(
-  moderatorClient: TestClient,
-  config: ResolvedDriverConfig,
-): Effect.Effect<TestApp | null, PropertyFailure> {
-  if (config.appId === null) return Effect.succeed(null);
-  const appId = config.appId;
+  ctx: ConformanceRunContext,
+  moderatorTimeoutMs: number,
+): Effect.Effect<TestApp, PropertyFailure, Scope.Scope> {
   return Effect.gen(function* () {
     const app = yield* registerTestApp({
-      client: moderatorClient,
+      baseUrl: ctx.realServer.baseUrl,
+      wsUrl: ctx.realServer.wsUrl,
       manifest: makeTestAppManifest({
-        appId,
+        appId: globalThis.crypto.randomUUID(),
         name: "Conformance Dispatch Test App",
-        dispatchAuthorizeTimeoutMs: config.moderatorTimeoutMs,
+        dispatchAuthorizeTimeoutMs: moderatorTimeoutMs,
       }),
     }).pipe(
       Effect.mapError((e) =>
-        violation(SETUP_FAILURE_PROPERTY, `apps/register failed: ${e.message}`),
+        violation(SETUP_FAILURE_PROPERTY, `app registration failed: ${e._tag}`),
       ),
     );
-    // Remote apps must answer `messages/authorize` or the server's
+    // Remote apps must answer `app/message/authorize` or the server's
     // wire-callback round-trip times out (fail-closed Block). The
-    // dispatch-admission properties assert lease / dispatches/* events,
+    // dispatch-admission properties assert lease lifecycle events,
     // not message routing — `Forward { recipients: [] }` is sufficient
     // and matches the "store, don't fan out" intent.
     yield* app.messagesAuthorize.handle({
@@ -1049,18 +993,20 @@ function registerDriverApp(
 }
 
 function createDriverFixtures(
-  moderatorClient: TestClient,
-  appId: Static<typeof AppId>,
+  clients: DriverClients,
+  appId: Schema.Schema.Type<typeof AppId>,
   recipientAgent: TestAgent,
 ): Effect.Effect<DriverFixtures, PropertyFailure> {
+  // `agent/task/request` is agent-called (the moderator agent); the app-only
+  // `app/conversation/create` routes through the app principal.
   return Effect.gen(function* () {
     const taskId = yield* createDriverTask(
-      moderatorClient,
+      clients.moderatorClient,
       appId,
       recipientAgent,
     );
     const conversationId = yield* createDriverConversation(
-      moderatorClient,
+      clients.appClient,
       taskId,
       recipientAgent,
     );
@@ -1069,10 +1015,10 @@ function createDriverFixtures(
 }
 
 function createDriverTask(
-  moderatorClient: TestClient,
-  appId: Static<typeof AppId>,
+  moderatorClient: AgentTestClient,
+  appId: Schema.Schema.Type<typeof AppId>,
   recipientAgent: TestAgent,
-): Effect.Effect<Static<typeof TaskId>, PropertyFailure> {
+): Effect.Effect<Schema.Schema.Type<typeof TaskId>, PropertyFailure> {
   return moderatorClient
     .sendRpc(TaskRequest, {
       appId,
@@ -1080,24 +1026,26 @@ function createDriverTask(
     })
     .pipe(
       Effect.map(
-        (result) => (result as { task: { id: Static<typeof TaskId> } }).task.id,
+        (result) =>
+          (result as { task: { id: Schema.Schema.Type<typeof TaskId> } }).task
+            .id,
       ),
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,
-          `task/create failed: ${unwrapError(e)}`,
+          `app/task/create failed: ${unwrapError(e)}`,
         ),
       ),
     );
 }
 
 function createDriverConversation(
-  moderatorClient: TestClient,
-  taskId: Static<typeof TaskId>,
+  moderatorClient: AppTestClient,
+  taskId: Schema.Schema.Type<typeof TaskId>,
   recipientAgent: TestAgent,
-): Effect.Effect<Static<typeof ConversationId>, PropertyFailure> {
+): Effect.Effect<Schema.Schema.Type<typeof ConversationId>, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TaskConversationCreate, {
+    .sendRpc(ConversationCreate, {
       taskId,
       name: "conformance-dispatch-conv",
       participants: [recipientAgent.agentId],
@@ -1107,14 +1055,14 @@ function createDriverConversation(
         (result) =>
           (
             result as {
-              conversation: { id: Static<typeof ConversationId> };
+              conversation: { id: Schema.Schema.Type<typeof ConversationId> };
             }
           ).conversation.id,
       ),
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,
-          `task/conversation/create failed: ${unwrapError(e)}`,
+          `app/conversation/create failed: ${unwrapError(e)}`,
         ),
       ),
     );
@@ -1128,16 +1076,13 @@ function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
     addRecipient: (opts) =>
       addRecipient({
         ctx: parts.ctx,
-        moderatorClient: parts.clients.moderatorClient,
+        // Task and conversation mutations are app-called; route through the app
+        // principal.
+        moderatorClient: parts.clients.appClient,
         taskId: parts.fixtures.taskId,
         conversationId: parts.fixtures.conversationId,
         opts,
       }),
-    getLeaseFromNonModerator: (dispatchId) =>
-      getLeaseFromNonModerator(
-        parts.clients.recipientAcquired.client,
-        dispatchId,
-      ),
     assertLeaseState: (dispatchId, expected, opts) =>
       assertLeaseState(parts.moderator, dispatchId, expected, opts),
     advanceTime,
@@ -1163,12 +1108,13 @@ function addRecipient(
 }
 
 function addTaskParticipant(
-  moderatorClient: TestClient,
-  taskId: Static<typeof TaskId>,
+  moderatorClient: AppTestClient,
+  taskId: Schema.Schema.Type<typeof TaskId>,
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TaskAddParticipant, {
+    .sendRpc(TaskUpdate, {
+      action: "add-participant",
       taskId,
       agentId: agent.agentId,
     })
@@ -1176,20 +1122,21 @@ function addTaskParticipant(
       Effect.mapError((e) =>
         violation(
           "driver.addRecipient",
-          `task/addParticipant failed: ${unwrapError(e)}`,
+          `app/task/update failed: ${unwrapError(e)}`,
         ),
       ),
     );
 }
 
 function addConversationParticipant(
-  moderatorClient: TestClient,
-  taskId: Static<typeof TaskId>,
-  conversationId: Static<typeof ConversationId>,
+  moderatorClient: AppTestClient,
+  taskId: Schema.Schema.Type<typeof TaskId>,
+  conversationId: Schema.Schema.Type<typeof ConversationId>,
   agent: TestAgent,
 ): Effect.Effect<void, PropertyFailure> {
   return moderatorClient
-    .sendRpc(TaskConversationAddParticipant, {
+    .sendRpc(ConversationUpdate, {
+      action: "add-participant",
       taskId,
       conversationId,
       agentId: agent.agentId,
@@ -1198,43 +1145,10 @@ function addConversationParticipant(
       Effect.mapError((e) =>
         violation(
           "driver.addRecipient",
-          `task/conversation/participants/add failed: ${unwrapError(e)}`,
+          `app/conversation/update failed: ${unwrapError(e)}`,
         ),
       ),
     );
-}
-
-function getLeaseFromNonModerator(
-  client: CloseableTestClient,
-  dispatchId: Static<typeof DispatchId>,
-): ReturnType<DispatchTestDriver["getLeaseFromNonModerator"]> {
-  return Effect.gen(function* () {
-    const exit = yield* Effect.exit(
-      client.sendRpc(DispatchesGet, { dispatchId }),
-    );
-    if (Exit.isSuccess(exit)) {
-      return yield* Effect.fail(
-        violation(
-          "driver.getLeaseFromNonModerator",
-          "dispatches/get unexpectedly succeeded for non-moderator caller",
-        ),
-      );
-    }
-    const rpcErr = firstRpcResponseError(exit);
-    if (rpcErr === null) return yield* nonModeratorLeaseMissingRpcError(exit);
-    return { errorCode: rpcErr.code };
-  });
-}
-
-function nonModeratorLeaseMissingRpcError(
-  exit: Exit.Exit<unknown, unknown>,
-): Effect.Effect<never, PropertyFailure> {
-  return Effect.fail(
-    violation(
-      "driver.getLeaseFromNonModerator",
-      `dispatches/get failed without RpcResponseError: ${exitCauseSummary(exit)}`,
-    ),
-  );
 }
 
 function exitCauseSummary(exit: Exit.Exit<unknown, unknown>): string {
@@ -1245,7 +1159,7 @@ function exitCauseSummary(exit: Exit.Exit<unknown, unknown>): string {
 
 function assertLeaseState(
   moderator: ModeratorHandle,
-  dispatchId: Static<typeof DispatchId>,
+  dispatchId: Schema.Schema.Type<typeof DispatchId>,
   expected: LeaseState,
   opts?: Parameters<DispatchTestDriver["assertLeaseState"]>[2],
 ): ReturnType<DispatchTestDriver["assertLeaseState"]> {
@@ -1293,6 +1207,6 @@ function advanceTime(durationMs: number): Effect.Effect<void> {
 
 export type {
   DispatchRelease,
-  DispatchesConsumed,
-  DispatchesExpired,
-} from "../../../app/index.js";
+  DispatchLeaseConsumed,
+  DispatchLeaseExpired,
+} from "#message/dispatch";

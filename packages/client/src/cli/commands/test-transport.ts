@@ -1,58 +1,62 @@
 import { Effect } from "effect";
-import {
-  JSON_RPC_RESERVED_CODES,
-  UnauthorizedError,
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
-} from "@moltzap/protocol";
+import type { RpcGroup } from "@effect/rpc";
 import {
   TransportRpcError,
   type Transport as TransportSurface,
   type TransportError,
 } from "../transport.js";
+import { LocalDaemonRpcs } from "../../local-daemon-rpc.js";
+import type { PayloadForTag, SuccessForTag } from "@moltzap/protocol/rpc";
 
-export interface TestTransportCall {
-  readonly method: string;
-  readonly params: unknown;
+type DaemonRpcs = RpcGroup.Rpcs<typeof LocalDaemonRpcs>;
+type DaemonCommand = DaemonRpcs["_tag"];
+
+export interface TestTransportCall<Tag extends DaemonCommand = DaemonCommand> {
+  readonly method: Tag;
+  readonly params: PayloadForTag<DaemonRpcs, Tag>;
 }
 
+export type TestTransportResponder = <Tag extends DaemonCommand>(
+  call: TestTransportCall<Tag>,
+) => SuccessForTag<DaemonRpcs, Tag> | TransportError | Error;
+
+const isTransportError = (value: unknown): value is TransportError =>
+  typeof value === "object" &&
+  value !== null &&
+  "_tag" in value &&
+  "message" in value;
+
+const isError = (value: unknown): value is Error => value instanceof Error;
+const errorMessage = (error: Error): string => error.message;
+
 export const makeFakeTransport = (
-  respond: (call: TestTransportCall) => unknown | Error,
+  respond: TestTransportResponder,
 ): {
   readonly calls: TestTransportCall[];
   readonly transport: TransportSurface;
 } => {
   const calls: TestTransportCall[] = [];
   const transport: TransportSurface = {
-    kind: "test",
-    rpc: <D extends RpcDefinition<string, any, any>>(
-      definition: D,
-      params: ParamsOf<D>,
-    ): Effect.Effect<ResultOf<D>, TransportError> => {
-      const call = { method: definition.name, params };
+    command: <Tag extends DaemonCommand>(
+      tag: Tag,
+      payload: PayloadForTag<DaemonRpcs, Tag>,
+    ): Effect.Effect<SuccessForTag<DaemonRpcs, Tag>, TransportError> => {
+      const call: TestTransportCall<Tag> = { method: tag, params: payload };
       calls.push(call);
       const out = respond(call);
-      if (out instanceof Error) {
+      if (isTransportError(out)) {
+        return Effect.fail(out);
+      }
+      if (isError(out)) {
         return Effect.fail(
           new TransportRpcError({
-            method: definition.name,
-            code: UnauthorizedError.code,
-            message: out.message,
+            method: tag,
+            tag: "Unauthorized",
+            message: errorMessage(out),
           }),
         );
       }
-      if (!definition.validateResult(out)) {
-        return Effect.fail(
-          new TransportRpcError({
-            method: definition.name,
-            code: JSON_RPC_RESERVED_CODES.InternalError,
-            message: `Invalid fake response for ${definition.name}`,
-            data: out,
-          }),
-        );
-      }
-      return Effect.succeed(out as ResultOf<D>);
+      return Effect.succeed(out);
     },
   };
   return { calls, transport };

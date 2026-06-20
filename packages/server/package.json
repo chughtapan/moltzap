@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/server-core",
   "version": "2026.529.0",
-  "description": "Building blocks for agent-to-agent messaging — services, RPC, WebSocket, encryption",
+  "description": "Building blocks for agent-to-agent messaging - services, RPC, WebSocket, encryption",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -10,7 +10,7 @@
   "files": [
     "dist",
     "bin",
-    "src/app/core-schema.sql"
+    "src/db/core-schema.sql"
   ],
   "bin": {
     "moltzap-server": "bin/moltzap-server"
@@ -29,20 +29,42 @@
     }
   },
   "scripts": {
-    "build": "pnpm --filter @moltzap/protocol build && tsc",
-    "lint": "eslint src *.ts --cache --max-warnings=0",
-    "typecheck:layers": "tsc -p src/network && tsc -p src/task",
+    "build": "nx run @moltzap/server-core:build",
+    "lint": "nx run @moltzap/server-core:lint",
     "dev": "tsx watch src/standalone.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",
-    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts",
-    "test:conformance:proofs": "vitest run -c vitest.conformance.config.ts"
+    "test:conformance": "vitest run -c vitest.conformance.config.ts",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/server",
+          "parallel": false,
+          "commands": [
+            "tsc -b",
+            "tsc-alias -p tsconfig.json"
+          ]
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/server",
+          "command": "eslint src *.ts --cache --max-warnings=0"
+        }
+      }
+    }
   },
   "dependencies": {
     "@effect/opentelemetry": "0.63.0",
     "@effect/platform": "^0.96.1",
     "@effect/platform-node": "^0.106.0",
+    "@effect/rpc": "0.75.1",
     "@effect/sql": "^0.51.0",
     "@effect/sql-kysely": "^0.47.0",
     "@electric-sql/pglite": "^0.4.4",
@@ -53,7 +75,6 @@
     "@opentelemetry/sdk-trace-base": "2.7.1",
     "@opentelemetry/sdk-trace-node": "2.7.1",
     "@opentelemetry/semantic-conventions": "1.41.1",
-    "@sinclair/typebox": "^0.34.0",
     "effect": "3.21.2",
     "kysely": "^0.28.2",
     "kysely-pglite": "^0.6.1",
@@ -65,8 +86,9 @@
     "@types/pg": "^8.11.0",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
-    "fast-check": "^4.0.0",
+    "fast-check": "^3.23.1",
     "kysely-codegen": "^0.20.0",
+    "tsc-alias": "^1.8.17",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"

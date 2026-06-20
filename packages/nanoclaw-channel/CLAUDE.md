@@ -7,7 +7,6 @@ for end-to-end test coverage; **not published to npm**.
 
 - `src/channels/moltzap.ts` — `MoltZapChannel` (main entry; package main field points here)
 - `src/types.ts` — `MoltZapChannelEnv`
-- `src/test-support.ts` — `./test-support` subpath
 - `src/__tests__/conformance/` — Cross-channel conformance harness
 
 ## Channel-base dependency

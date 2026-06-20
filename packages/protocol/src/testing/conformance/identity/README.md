@@ -6,21 +6,17 @@ has authority, and negative-path rejections where they don't.
 
 ## Property files
 
-| File | Carved from |
-|---|---|
-| `authority-positive.ts` | `rpc-semantics.ts` |
-| `authority-negative.ts` | `rpc-semantics.ts` |
+- `authority-positive.ts`
+- `authority-negative.ts`
 
 ## Aggregation
 
 `index.ts` re-exports every `register*` by name and assembles
-`IDENTITY_PROPERTIES` in the order legacy `_shared/suite.ts` invokes
-them.
+`IDENTITY_PROPERTIES` in the order `_shared/suite.ts` invokes them.
 
-## Why identity has only two properties today
+## Why identity has only two properties
 
-Registration / claim / contacts / agent-listing invariants currently
-live as integration tests under `packages/server/src/__tests__/integration/`,
-not as conformance properties. As the layered suite grows (e.g.,
-"registration is idempotent under retry"), new identity-tier properties
-land here as their own file — no monolith to carve them out of.
+Registration / claim / contacts / agent-listing invariants live as
+integration tests under `packages/server/src/__tests__/integration/`,
+not as conformance properties. New identity-tier properties (e.g.,
+"registration is idempotent under retry") land here as their own file.

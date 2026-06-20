@@ -1,17 +1,19 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Exit } from "effect";
-import type { Message, ResultOf } from "@moltzap/protocol";
+import type { Message } from "@moltzap/protocol/message";
+import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
-  TaskConversationList,
-  ConversationArchivedError,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationUnarchivedNotificationDefinition,
-  DispatchRequest,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationList,
+  ConversationUnarchivedNotificationDefinition,
+} from "@moltzap/protocol/conversation";
+import { DispatchRequest } from "@moltzap/protocol/message/dispatch";
+import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
 import {
@@ -22,7 +24,7 @@ import {
   testTaskId,
 } from "./test-utils/index.js";
 
-import { AgentsLookupByName } from "@moltzap/protocol";
+import { AgentsList } from "@moltzap/protocol/identity";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 
 const effectTest = effectIt.effect;
@@ -69,12 +71,19 @@ const HELLO_BOB_TEXT = "hello bob";
 const ALICE_AGAIN_TEXT = "alice again";
 const BOB_AGAIN_TEXT = "bob again";
 const PLACEHOLDER_TEXT = "placeholder";
-const AGENT_NOT_FOUND_TAG = "AgentNotFoundError";
+const AGENT_NOT_FOUND_TAG = "AgentNotFound";
 const NOBODY_AGENT_NAME = "nobody";
-const LOOKUP_MISSING_RESPONSE_MESSAGE =
-  /no canned response for agents\/lookupByName/;
-const CREATE_MISSING_RESPONSE_MESSAGE = /no canned response for task\/request/;
-const SEND_MISSING_RESPONSE_MESSAGE = /no canned response for messages\/send/;
+const missingCannedResponseFor = (method: string): RegExp =>
+  new RegExp(`no canned response for ${method}`);
+const LOOKUP_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
+  AgentsList.name,
+);
+const CREATE_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
+  TaskRequest.name,
+);
+const SEND_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
+  MessagesSend.name,
+);
 const PLAIN_NAME = "Alice";
 const PLAIN_TEXT = "hello world";
 const EMPTY_TEXT = "";
@@ -156,7 +165,7 @@ function seedAgentLookup(
   id = AGENT_ALICE_ID,
   name = SEND_TO_AGENT_NAME,
 ): void {
-  service.setResponse(AgentsLookupByName, {
+  service.setResponse(AgentsList, {
     agents: [{ id, name, status: "active" }],
   });
 }
@@ -181,8 +190,8 @@ function sendToAgentCreatesConversation() {
 
     expect(service.calls).toEqual([
       {
-        method: AgentsLookupByName.name,
-        params: { names: [SEND_TO_AGENT_NAME] },
+        method: AgentsList.name,
+        params: { limit: 100 },
       },
       {
         method: TaskRequest.name,
@@ -279,7 +288,7 @@ function sendToAgentCachesPerAgentName() {
 function sendToAgentMissingAgentFails() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.setResponse(AgentsLookupByName, { agents: [] });
+    service.setResponse(AgentsList, { agents: [] });
 
     const exit = yield* Effect.exit(
       service.sendToAgent(NOBODY_AGENT_NAME, HI_TEXT),
@@ -293,7 +302,7 @@ function sendToAgentMissingAgentFails() {
 function sendToAgentLookupFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(AgentsLookupByName);
+    service.deleteResponse(AgentsList);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
@@ -341,7 +350,7 @@ describe("MoltZapService.sendToAgent core flow", () => {
   );
 
   effectTest(
-    "forwards replyTo to messages/send as replyToId",
+    "forwards replyTo to agent/message/send as replyToId",
     sendToAgentForwardsReplyTo,
   );
 });
@@ -360,19 +369,19 @@ describe("MoltZapService.sendToAgent lookup failures", () => {
   );
 
   effectTest(
-    "propagates errors from agents/lookupByName",
+    "propagates errors from agent/identity/agents/list",
     sendToAgentLookupFailurePropagates,
   );
 });
 
 describe("MoltZapService.sendToAgent send failures", () => {
   effectTest(
-    "propagates errors from task/create",
+    "propagates errors from agent/task/request",
     sendToAgentCreateFailurePropagates,
   );
 
   effectTest(
-    "propagates errors from messages/send",
+    "propagates errors from agent/message/send",
     sendToAgentSendFailurePropagates,
   );
 });
@@ -439,7 +448,7 @@ function dispatchRequestAck(): ResultOf<typeof DispatchRequest> {
     dispatchId: DISPATCH_ID,
   };
   if (!DispatchRequest.validateResult(value)) {
-    expect.fail("invalid dispatch/request ack fixture");
+    expect.fail("invalid agent/dispatch/request ack fixture");
   }
   return value;
 }
@@ -456,11 +465,6 @@ function requestDispatchReturnsAck() {
       senderAgentId: AGENT_GM_ID,
       attempt: 0,
       receivedAt: DISPATCH_RECEIVED_AT,
-      clock: {
-        domainId: CONVERSATION_ALICE_ID,
-        epoch: 1,
-        vector: { [AGENT_GM_ID]: 1 },
-      },
       pending: [],
       parts: [{ type: "text", text: "Time to vote!" }],
     });
@@ -477,7 +481,7 @@ function requestDispatchReturnsAck() {
 
 describe("MoltZapService.requestDispatch", () => {
   effectTest(
-    "issues dispatch/request and returns the {leaseId, dispatchId} ack",
+    "issues agent/dispatch/request and returns the {leaseId, dispatchId} ack",
     requestDispatchReturnsAck,
   );
 });
@@ -1030,7 +1034,7 @@ const archivedConversation = () => ({
 });
 
 function seedArchivedConversation(service: FakeMoltZapService): void {
-  service.setResponse(TaskConversationList, {
+  service.setResponse(ConversationList, {
     items: [
       {
         taskId: TASK_ARCHIVED_ID,
@@ -1048,14 +1052,12 @@ function seedArchivedConversation(service: FakeMoltZapService): void {
       createdAt: ARCHIVED_TIMESTAMP,
     }),
   });
-  service.emitEvent(
-    TaskConversationCreatedNotificationDefinition.encode({
-      taskId: TASK_ARCHIVED_ID,
-      conversationId: CONVERSATION_ARCHIVED_ID,
-      name: ARCHIVED_DISPLAY_NAME,
-      participants: [],
-    }),
-  );
+  service.emitEvent(ConversationCreatedNotificationDefinition, {
+    taskId: TASK_ARCHIVED_ID,
+    conversationId: CONVERSATION_ARCHIVED_ID,
+    name: ARCHIVED_DISPLAY_NAME,
+    participants: [],
+  });
   service.addMessage(
     CONVERSATION_ARCHIVED_ID,
     buildMessage({
@@ -1074,7 +1076,7 @@ function expectArchivedSendFailure(
   Either.match(result, {
     onLeft: (error) =>
       expect(error).toMatchObject({
-        code: ConversationArchivedError.code,
+        _tag: "ConversationArchived",
         message: CONVERSATION_ARCHIVED_MESSAGE,
       }),
     onRight: () =>
@@ -1092,19 +1094,20 @@ function archiveLifecyclePurgesAndRejectsSends() {
     service.on("conversationArchived", (data) => archivedEvents.push(data));
     service.on("conversationUnarchived", (data) => unarchivedEvents.push(data));
 
-    const archivedEvent = TaskConversationArchivedNotificationDefinition.encode(
-      {
-        taskId: TASK_ARCHIVED_ID,
-        conversationId: CONVERSATION_ARCHIVED_ID,
-        archivedAt: ARCHIVED_AT,
-      },
+    const archivedParams = {
+      taskId: TASK_ARCHIVED_ID,
+      conversationId: CONVERSATION_ARCHIVED_ID,
+      archivedAt: ARCHIVED_AT,
+    };
+    service.emitEvent(
+      ConversationArchivedNotificationDefinition,
+      archivedParams,
     );
-    service.emitEvent(archivedEvent);
 
     expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(true);
     expect(service.getConversation(CONVERSATION_ARCHIVED_ID)).toBeUndefined();
     expect(service.getHistory(CONVERSATION_ARCHIVED_ID)).toEqual([]);
-    expect(archivedEvents).toEqual([archivedEvent.params]);
+    expect(archivedEvents).toEqual([archivedParams]);
 
     const lateSend = yield* Effect.either(
       service.send(
@@ -1118,17 +1121,19 @@ function archiveLifecyclePurgesAndRejectsSends() {
       service.calls.filter((call) => call.method === MessagesSend.name),
     ).toEqual([]);
 
-    const unarchivedEvent =
-      TaskConversationUnarchivedNotificationDefinition.encode({
-        taskId: TASK_ARCHIVED_ID,
-        conversationId: CONVERSATION_ARCHIVED_ID,
-      });
-    service.emitEvent(unarchivedEvent);
+    const unarchivedParams = {
+      taskId: TASK_ARCHIVED_ID,
+      conversationId: CONVERSATION_ARCHIVED_ID,
+    };
+    service.emitEvent(
+      ConversationUnarchivedNotificationDefinition,
+      unarchivedParams,
+    );
 
     expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(
       false,
     );
-    expect(unarchivedEvents).toEqual([unarchivedEvent.params]);
+    expect(unarchivedEvents).toEqual([unarchivedParams]);
   });
 }
 
@@ -1158,12 +1163,12 @@ describe("MoltZapService.fanout — message handlers", () => {
       parts: [{ type: "text", text: "hi" }],
       createdAt: "2026-04-16T00:00:00.000Z",
     });
-    const event = MessageReceivedNotificationDefinition.encode({
+    const event = {
       taskId: TASK_ALICE_ID,
       message: msg,
-    });
+    };
 
-    service.emitEvent(event);
+    service.emitEvent(MessageReceivedNotificationDefinition, event);
 
     // Second handler still fired despite first handler throwing.
     expect(seen).toEqual([msg]);

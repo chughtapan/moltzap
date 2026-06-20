@@ -4,253 +4,238 @@ _`packages/protocol/src/network`_
 
 ## Purpose
 
-Public barrel for network and presence protocol descriptors.
+Public barrel for connect and presence protocol descriptors.
 
 ## Public surface
 
-### [`agentId`](./actor-model.ts#L41)
-
-_Property_
-
-```ts
-  readonly agentId: AgentId;
-```
-
-### [`AuthenticatedIdentity`](./actor-model.ts#L40)
-
-_TypeAlias_
-
-```ts
-export type AuthenticatedIdentity = {
-  readonly agentId: AgentId;
-  readonly userId: UserId;
-};
-```
-
-The principal behind a connected agent — the post-`network/connect` view.
-
-Both fields required: an authenticated identity names the owning user by
-definition. The wire-layer `AgentSchema.ownerUserId` is `Optional` to
-accommodate the un-claimed `pending_claim` storage state; the actor-model
-layer only sees identities that have already passed authentication, so the
-optionality is collapsed here.
-
-### [`Connect`](./methods.ts#L63)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L21)
 
 _Variable_
 
 ```ts
-export const Connect = defineRpc({
-  name: "network/connect",
-  params: Type.Union([
-    Type.Object(
-      {
-        agentKey: Type.String(),
-        minProtocol: Type.String(),
-        maxProtocol: Type.String(),
-      },
-      { additionalProperties: false },
-    ),
-    Type.Object(
-      {
-        sessionToken: Type.String(),
-        minProtocol: Type.String(),
-        maxProtocol: Type.String(),
-      },
-      { additionalProperties: false },
-    ),
-  ]),
-  result: HelloOkSchema,
-})
-```
-
-Authenticate a WebSocket connection. Must be the first message on a new connection.
-
-**Returns:** Connection metadata including agent ID, protocol version, conversations, and server policy.
-
-### [`ConnectionId`](./actor-model.ts#L28)
-
-_TypeAlias_
-
-```ts
-export const ConnectionId = brandedString("ConnectionId");
-```
-
-Server-internal WebSocket connection identifier. Minted at WS accept
-(`crypto.randomUUID()`); not on the wire. Branded so it cannot be
-confused with `AgentId`, `AppId`, or other ids in service signatures.
-
-Boundary: a single `as ConnectionId` cast at the WS-accept site is the
-only acceptable construction in production code; downstream is brand-
-typed end-to-end. Test fixtures use the `connectionId(raw)` constructor
-exported from `@moltzap/protocol/testing`.
-
-Schema-level format: `brandedString` (no UUID predicate). The mint
-site happens to use UUIDs, but conformance-test fixtures sometimes
-pass synthetic strings; the brand boundary is the type system, not
-a format check.
-
-### [`ConnectionId`](./actor-model.ts#L28)
-
-_Variable_
-
-```ts
-export const ConnectionId = brandedString("ConnectionId")
-```
-
-Server-internal WebSocket connection identifier. Minted at WS accept
-(`crypto.randomUUID()`); not on the wire. Branded so it cannot be
-confused with `AgentId`, `AppId`, or other ids in service signatures.
-
-Boundary: a single `as ConnectionId` cast at the WS-accept site is the
-only acceptable construction in production code; downstream is brand-
-typed end-to-end. Test fixtures use the `connectionId(raw)` constructor
-exported from `@moltzap/protocol/testing`.
-
-Schema-level format: `brandedString` (no UUID predicate). The mint
-site happens to use UUIDs, but conformance-test fixtures sometimes
-pass synthetic strings; the brand boundary is the type system, not
-a format check.
-
-### [`HelloOk`](./methods.ts#L86)
-
-_TypeAlias_
-
-```ts
-export type HelloOk = Static<typeof HelloOkSchema>;
-```
-
-### [`networkNotifications`](./methods.ts#L210)
-
-_Variable_
-
-```ts
-export const networkNotifications = [
-  PresenceChangedNotificationDefinition,
+export const agentCallableNetworkRpcMethods = [
+  AgentConnect,
+  AgentPresenceSubscribe,
 ] as const
 ```
 
-### [`NetworkPing`](./methods.ts#L155)
+Network RPCs callable by agent clients.
+
+### [`AgentConnect`](./connect.ts#L171)
 
 _Variable_
 
 ```ts
-export const NetworkPing = defineRpc({
-  name: "network/ping",
-  params: Type.Object({}, { additionalProperties: false }),
-  result: Type.Object({ ts: DateTimeString }, { additionalProperties: false }),
+export const AgentConnect = defineRpc({
+  name: "agent/network/connect",
+  params: Schema.Struct({
+    agentKey: AgentKey,
+    minProtocol: Schema.String,
+    maxProtocol: Schema.String,
+  }),
+  result: HelloOkSchema,
+  requires: [],
+  errors: [
+    InvalidParamsError,
+    UnauthorizedError,
+    ProtocolMismatchError,
+    AlreadyConnected,
+  ],
 })
 ```
 
-Liveness probe. Returns server timestamp.
+Authenticate an agent WebSocket connection. Must be the first message on a
+new agent client connection.
 
-### [`networkRpcMethods`](./methods.ts#L204)
+- **Principal:** none — the unauthenticated handshake. No principal exists
+  pre-auth, so `requires` is empty and no gate runs before it.
+- **Params:** `agentKey`, `minProtocol`, `maxProtocol`.
+- **Result:** an empty HelloOk; success is the signal (the client holds its
+  own id).
+
+**Returns:** An empty HelloOk; success is the signal (the client holds its own id).
+
+### [`AgentPresenceSubscribe`](./presence.ts#L35)
+
+_Variable_
+
+```ts
+export const AgentPresenceSubscribe = defineRpc({
+  name: "agent/network/presence/subscribe",
+  params: PresenceSubscribeParamsSchema,
+  result: PresenceSubscribeResultSchema,
+  requires: [AgentPrincipal],
+  errors: [NotInContactsError],
+})
+```
+
+### [`appCallableNetworkRpcMethods`](./index.ts#L27)
+
+_Variable_
+
+```ts
+export const appCallableNetworkRpcMethods = [
+  AppConnect,
+  AppPresenceSubscribe,
+] as const
+```
+
+Network RPCs callable by app clients.
+
+### [`AppConnect`](./connect.ts#L203)
+
+_Variable_
+
+```ts
+export const AppConnect = defineRpc({
+  name: "app/network/connect",
+  params: Schema.Struct({
+    appKey: AppKey,
+    minProtocol: Schema.String,
+    maxProtocol: Schema.String,
+  }),
+  result: HelloOkSchema,
+  requires: [],
+  errors: [
+    InvalidParamsError,
+    UnauthorizedError,
+    ProtocolMismatchError,
+    AlreadyConnected,
+  ],
+})
+```
+
+Authenticate an app WebSocket connection. Must be the first message on a new
+app client connection.
+
+- **Principal:** none — the unauthenticated handshake. No principal exists
+  pre-auth, so `requires` is empty and no gate runs before it.
+- **Params:** `appKey`, `minProtocol`, `maxProtocol`.
+- **Result:** an empty HelloOk; success is the signal (the client holds its
+  own id).
+
+**Returns:** An empty HelloOk; success is the signal (the client holds its own id).
+
+### [`AppPresenceSubscribe`](./presence.ts#L43)
+
+_Variable_
+
+```ts
+export const AppPresenceSubscribe = defineRpc({
+  name: "app/network/presence/subscribe",
+  params: PresenceSubscribeParamsSchema,
+  result: PresenceSubscribeResultSchema,
+  requires: [AppPrincipal],
+  errors: [],
+})
+```
+
+### [`checkProtocolRange`](./connect.ts#L99)
+
+_Function_
+
+```ts
+export function checkProtocolRange(
+  params: { readonly minProtocol: string; readonly maxProtocol: string },
+  serverVersion: string,
+): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError>
+```
+
+### [`compareProtocolVersion`](./connect.ts#L86)
+
+_Function_
+
+```ts
+export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1
+```
+
+### [`HelloOk`](./connect.ts#L26)
+
+_TypeAlias_
+
+```ts
+export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
+```
+
+### [`InvalidProtocolVersionError`](./connect.ts#L64)
+
+_Class_
+
+```ts
+export class InvalidProtocolVersionError extends Data.TaggedError(
+  "InvalidProtocolVersionError",
+)<{ readonly version: string; readonly segment: string }> {
+  override get message(): string {
+    return `compareProtocolVersion: invalid segment ${JSON.stringify(this.segment)} in ${JSON.stringify(this.version)}`;
+  }
+}
+```
+
+### [`networkNotifications`](./index.ts#L41)
+
+_Variable_
+
+```ts
+export const networkNotifications = [] as const
+```
+
+Network notifications emitted by the server.
+
+### [`networkRpcMethods`](./index.ts#L33)
 
 _Variable_
 
 ```ts
 export const networkRpcMethods = [
-  Connect,
-  NetworkPing,
-  PresenceSubscribe,
+  AgentConnect,
+  AppConnect,
+  AgentPresenceSubscribe,
+  AppPresenceSubscribe,
 ] as const
 ```
 
-### [`PresenceChangedNotificationDefinition`](./methods.ts#L199)
+Network RPCs accepted by the server.
+
+### [`PROTOCOL_VERSION`](./connect.ts#L12)
 
 _Variable_
 
 ```ts
-export const PresenceChangedNotificationDefinition = defineNotification({
-  name: "presence/changed",
-  params: PresenceChangedNotificationSchema,
-})
+export const PROTOCOL_VERSION = "2026.529.0"
 ```
 
-Pushed when a subscribed participant's presence status changes.
-Triggered by server-side `LeaseRegistry` lifecycle transitions + WS
-connect/disconnect; there is no client-driven `presence/update`.
-
-### [`PresenceSubscribe`](./methods.ts#L174)
-
-_Variable_
-
-```ts
-export const PresenceSubscribe = defineRpc({
-  name: "presence/subscribe",
-  params: Type.Object(
-    { agentIds: Type.Array(AgentId) },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { statuses: Type.Array(PresenceEntrySchema) },
-    { additionalProperties: false },
-  ),
-})
-```
-
-Replace-semantics: replaces the connection's subscriber set with
-`agentIds`. Empty array unsubscribes from all. Idempotent.
-
-### [`ProtocolMismatchError`](./methods.ts#L135)
+### [`ProtocolMismatchError`](./connect.ts#L46)
 
 _Class_
 
 ```ts
-export class ProtocolMismatchError extends Data.TaggedError(
+export class ProtocolMismatchError extends Schema.TaggedError<ProtocolMismatchError>()(
   "ProtocolMismatchError",
-)<{
-  readonly data: {
-    readonly reason: ProtocolMismatchReason;
-    readonly serverVersion: string;
-    readonly clientMinProtocol: string;
-    readonly clientMaxProtocol: string;
-  };
-}> {
-  static readonly code = -32006;
+  {
+    message: Schema.optional(Schema.String),
+    data: Schema.Struct({
+      reason: Schema.Literal(
+        "server-above-client-max",
+        "server-below-client-min",
+      ),
+      serverVersion: Schema.String,
+      clientMinProtocol: Schema.String,
+      clientMaxProtocol: Schema.String,
+    }),
+  },
+) {
   static readonly message = "Client protocol version not supported";
 }
 ```
 
-Raised by `network/connect` when the client's `[minProtocol,
-maxProtocol]` range does not bracket the server's `PROTOCOL_VERSION`.
+Raised by connect methods when the client's `[minProtocol, maxProtocol]`
+range does not bracket the server's `PROTOCOL_VERSION`. The server's connect
+handlers raise it BEFORE auth resolution
+so old clients are rejected at the version gate. `data` carries the
+diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
+concretely typed so `error.data.reason` narrows at every reader.
 
-Architect plan #706 v4 named the error in the `Connect` descriptor's
-`@error` JSDoc; v8 (codex r7 P2 #1) lands the actual typed class so
-the JSDoc claim is backed by a registered wire error. The
-server-side handler (`@moltzap/server-core/identity/handlers/connect.handlers.ts
-→ checkProtocolRange`) raises this BEFORE auth resolution so old
-clients are rejected at the version gate rather than after a
-partial credential exchange.
-
-The `data` field carries the diagnostic triple
-`{ clientMinProtocol, clientMaxProtocol, serverVersion, reason }`:
-
-- `reason: "server-above-client-max"` — `compareProtocolVersion(
-  clientMaxProtocol, serverVersion) < 0`. The server is newer than
-  the client knows how to talk to; the client must update.
-- `reason: "server-below-client-min"` — `compareProtocolVersion(
-  clientMinProtocol, serverVersion) > 0`. The client is newer than
-  the server supports; the client must accept the legacy version
-  or refuse to connect.
-
-Wire code `-32006` (next unclaimed in the registry; verified
-against `-32000..-32024` at v8 architect-stub time per
-`packages/protocol/CLAUDE.md` recipe step 5).
-
-Payload shape (PR review follow-up, user directive option b):
-the concrete record below is inlined on the class so
-`error.data.reason` / `error.data.serverVersion` etc. typecheck at
-every reader. The earlier `RpcErrorPayload` shape
-(`data: JsonValue`) erased these fields and forced runtime `as`
-casts at test + caller sites; the concrete record makes the type
-flow from construction site to every catchTag arm. Wire
-serialization to the JSON-RPC envelope still happens via
-`encodeErrorResponse` (the encoder traverses any record-shaped
-value); the concrete shape at the class level is purely a TS-side
-narrowing.
-
-### [`ProtocolMismatchReason`](./methods.ts#L92)
+### [`ProtocolMismatchReason`](./connect.ts#L34)
 
 _TypeAlias_
 
@@ -260,71 +245,39 @@ export type ProtocolMismatchReason =
   | "server-below-client-min";
 
 /**
- * Raised by `network/connect` when the client's `[minProtocol,
- * maxProtocol]` range does not bracket the server's `PROTOCOL_VERSION`.
- *
- * Architect plan #706 v4 named the error in the `Connect` descriptor's
- * `@error` JSDoc; v8 (codex r7 P2 #1) lands the actual typed class so
- * the JSDoc claim is backed by a registered wire error. The
- * server-side handler (`@moltzap/server-core/identity/handlers/connect.handlers.ts
- * → checkProtocolRange`) raises this BEFORE auth resolution so old
- * clients are rejected at the version gate rather than after a
- * partial credential exchange.
- *
- * The `data` field carries the diagnostic triple
- * `{ clientMinProtocol, clientMaxProtocol, serverVersion, reason }`:
- *
- * - `reason: "server-above-client-max"` — `compareProtocolVersion(
- *   clientMaxProtocol, serverVersion) < 0`. The server is newer than
- *   the client knows how to talk to; the client must update.
- * - `reason: "server-below-client-min"` — `compareProtocolVersion(
- *   clientMinProtocol, serverVersion) > 0`. The client is newer than
- *   the server supports; the client must accept the legacy version
- *   or refuse to connect.
- *
- * Wire code `-32006` (next unclaimed in the registry; verified
- * against `-32000..-32024` at v8 architect-stub time per
- * `packages/protocol/CLAUDE.md` recipe step 5).
- *
- * Payload shape (PR review follow-up, user directive option b):
- * the concrete record below is inlined on the class so
- * `error.data.reason` / `error.data.serverVersion` etc. typecheck at
- * every reader. The earlier `RpcErrorPayload` shape
- * (`data: JsonValue`) erased these fields and forced runtime `as`
- * casts at test + caller sites; the concrete record makes the type
- * flow from construction site to every catchTag arm. Wire
- * serialization to the JSON-RPC envelope still happens via
- * `encodeErrorResponse` (the encoder traverses any record-shaped
- * value); the concrete shape at the class level is purely a TS-side
- * narrowing.
+ * Raised by connect methods when the client's `[minProtocol, maxProtocol]`
+ * range does not bracket the server's `PROTOCOL_VERSION`. The server's connect
+ * handlers raise it BEFORE auth resolution
+ * so old clients are rejected at the version gate. `data` carries the
+ * diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
+ * concretely typed so `error.data.reason` narrows at every reader.
  */
-export class ProtocolMismatchError extends Data.TaggedError(
+export class ProtocolMismatchError extends Schema.TaggedError<ProtocolMismatchError>()(
   "ProtocolMismatchError",
-)<{
-  readonly data: {
-    readonly reason: ProtocolMismatchReason;
-    readonly serverVersion: string;
-    readonly clientMinProtocol: string;
-    readonly clientMaxProtocol: string;
-  };
-}> {
-  static readonly code = -32006;
+  {
+    message: Schema.optional(Schema.String),
+    data: Schema.Struct({
+      reason: Schema.Literal(
+        "server-above-client-max",
+        "server-below-client-min",
+      ),
+      serverVersion: Schema.String,
+      clientMinProtocol: Schema.String,
+      clientMaxProtocol: Schema.String,
+    }),
+  },
+) {
   static readonly message = "Client protocol version not supported";
 }
 ```
 
-Reason discriminant carried in `ProtocolMismatchError.data.reason`.
-Architect plan #706 v8 (codex r7 P2 #1).
-
-### [`userId`](./actor-model.ts#L42)
-
-_Property_
-
-```ts
-  readonly userId: UserId;
-```
+Reason discriminant carried in `ProtocolMismatchError.data.reason`:
+`server-above-client-max` — the server is newer than the client's
+`maxProtocol`; the client must update. `server-below-client-min` — the
+client is newer than the server supports.
 
 ## Files
 
-- `actor-model.ts`
-- `methods.ts`
+- `connect.ts`
+- `index.ts`
+- `presence.ts`

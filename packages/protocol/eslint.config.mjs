@@ -1,7 +1,7 @@
 import { packageEslintConfig } from "../../eslint.shared.mjs";
 
 // Protocol's strict layer stack (top → bottom):
-//   app → task → network → identity → transport
+//   engine → app → task → network → identity → transport
 //
 // Each folder is its own layer. Imports flow downward only: a layer
 // may import from any layer below it; the reverse fires
@@ -17,10 +17,16 @@ export default [
     architecture: {
       layers: [
         {
+          name: "engine",
+          folders: ["engine"],
+          reason:
+            "RpcServer engine + descriptor-aggregate: the genuine Requirement union, capability middlewares, server/client engine groups, CurrentPrincipal. Couples to the full rpc-registry catalog + the task-layer capability tags, so it sits ABOVE the domains.",
+        },
+        {
           name: "app",
           folders: ["app"],
           reason:
-            "Composition layer: AppHost RPCs composed over task, network, identity, transport descriptors.",
+            "Composition layer: app RPCs composed over task, network, identity, transport descriptors.",
         },
         {
           name: "task",

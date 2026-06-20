@@ -1,73 +1,40 @@
 /**
- * @file Public barrel for task, conversation, message, and task-manager protocol descriptors.
+ * @file Public barrel for task protocol descriptors.
  */
-export { ConversationId, LeaseId, MessageId, TaskId } from "./methods.js";
+export { TaskId, TaskNotFoundError } from "./ids.js";
 
-export * from "./capabilities/index.js";
+export {
+  TaskReadAccess,
+  assertAppOwnsTask,
+  assertTaskReadAccessMatchesTask,
+} from "./requirements/index.js";
+export type { TaskReadAccessValue } from "./requirements/index.js";
 
 export {
   TaskClosedError,
   TaskRejectedError,
-  ConversationArchivedError,
-  ConversationFullError,
   HookBlockedError,
-  // Spec D1 (#598) — new tagged error for `task/conversation/*`
-  // participant invariant.
-  ParticipantNotAdmittedError,
-  MessagesSend,
-  MessagesList,
   TaskList,
-  TaskClose,
-  TaskAddParticipant,
-  TaskRemoveParticipant,
-  // Spec D1 — `task/*` + `task/conversation/*` family.
+  TaskUpdate,
   AppId,
   DEFAULT_APP_ID,
   TaskRequest,
+  TaskCreate,
   TaskLeave,
-  TaskConversationCreate,
-  TaskConversationList,
-  TaskConversationArchive,
-  TaskConversationUnarchive,
-  TaskConversationAddParticipant,
-  TaskConversationRemoveParticipant,
-  MessageReceivedNotificationDefinition,
   TaskClosedNotificationDefinition,
   TaskCreatedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  // Spec D1 — `task/conversation/*` notifications.
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationUnarchivedNotificationDefinition,
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
-  validateTmDecision,
-  tmDecisionSchema,
-  messageWithTmDecisionSchema,
-  // Spec D3 R11 — per-kind catalog subsets.
-  nonTmAuthorityTaskRpcMethods,
-  tmOnlyTaskRpcMethods,
-} from "./methods.js";
+  agentCallableTaskRpcMethods,
+  appCallableTaskRpcMethods,
+  taskCallbackMethods,
+  taskNotifications,
+} from "./tasks.js";
 
 export type {
-  LogicalClock,
-  Part,
-  Message,
-  Conversation,
-  ConversationParticipant,
-  ConversationSummary,
   TaskStatus,
   Task,
   TaskParticipant,
-  MessageReceivedNotification,
-  TmDecision,
-  MessageWithTmDecision,
-  // Spec D1 surface types.
+  TaskUpdateParams,
+  TaskUpdateResult,
   InitialConversationInput,
-  TaskConversationListItem,
-  TaskConversationCreatedNotification,
-  TaskConversationArchivedNotification,
-  TaskConversationUnarchivedNotification,
-  TaskConversationParticipantsAddedNotification,
-  TaskConversationParticipantsRemovedNotification,
-} from "./methods.js";
+} from "./tasks.js";

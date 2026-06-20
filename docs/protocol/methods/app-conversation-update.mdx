@@ -1,0 +1,42 @@
+---
+title: "app/conversation/update"
+description: "App-only conversation mutation surface."
+---
+
+# app/conversation/update
+
+App-only conversation mutation surface. `app/conversation/update` owns
+archive, unarchive, participant add, and participant remove semantics.
+
+- **Principal:** `AppPrincipal` head + `ConversationInTask`.
+
+## Parameters
+
+<ParamField path="action" type="archive">
+  The action field.
+</ParamField>
+
+<ParamField path="taskId" type="string (UUID)">
+  Branded TaskId
+</ParamField>
+
+<ParamField path="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="agentId" type="string (UUID)">
+  Branded AgentId
+</ParamField>
+
+## Response
+
+This method returns an empty object.
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the caller does not own the task |
+| `TaskNotFoundError` | the task does not exist or is not open |
+| `ConversationNotFoundError` | the conversation does not exist under the task |
+| `ParticipantNotAdmittedError` | the agent is not admitted to the task |

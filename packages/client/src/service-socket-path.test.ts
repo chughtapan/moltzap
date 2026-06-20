@@ -75,6 +75,10 @@ function socketPathRejectsPunctuation() {
 
 function socketPathDefaultsBeforeAgentAssignment() {
   const service = new FakeMoltZapService();
+  // The fake seeds a constructor `agentId`; clear it to model the genuine
+  // pre-registration state where `ownAgentId` is still undefined, so the path
+  // falls back to `default`.
+  Reflect.set(service, "_ownAgentId", undefined);
   expect(service.socketPath).toBe(EXPECTED_DEFAULT_SOCKET_PATH);
 }
 

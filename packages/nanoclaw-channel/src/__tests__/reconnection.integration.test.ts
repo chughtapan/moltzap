@@ -25,15 +25,17 @@
 
 import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
-import { MessagesList, MessagesSend, type Message } from "@moltzap/protocol";
+import { AgentKey } from "@moltzap/protocol/identity";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import type { Message } from "@moltzap/protocol/message";
 import {
   TaskRequest,
   DEFAULT_APP_ID,
-  type ConversationId,
   type TaskId,
 } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
@@ -46,8 +48,8 @@ class ReconnectionIntegrationError extends Data.TaggedError(
 
 interface InjectedConfig {
   readonly wsUrl: string;
-  readonly channelApiKey: string;
-  readonly peerApiKey: string;
+  readonly channelApiKey: AgentKey;
+  readonly peerApiKey: AgentKey;
   readonly channelAgentId: AgentId;
 }
 
@@ -68,14 +70,14 @@ function injectString(key: string): string {
 beforeAll(() => {
   config = {
     wsUrl: injectString("moltzapWsUrl"),
-    channelApiKey: injectString("agentAApiKey"),
-    peerApiKey: injectString("agentBApiKey"),
+    channelApiKey: decodeInjectedAgentKey("agentAApiKey"),
+    peerApiKey: decodeInjectedAgentKey("agentBApiKey"),
     channelAgentId: makeAgentId(injectString("agentAAgentId")),
   };
 });
 
 function createClient(
-  agentKey: string,
+  agentKey: AgentKey,
   hooks: { onDisconnect?: () => void; onReconnect?: () => void },
 ): MoltZapAgentClient {
   return new MoltZapAgentClient({
@@ -83,6 +85,10 @@ function createClient(
     agentKey,
     ...hooks,
   });
+}
+
+function decodeInjectedAgentKey(key: string): AgentKey {
+  return Schema.decodeUnknownSync(AgentKey)(injectString(key));
 }
 
 function waitFor(
@@ -127,7 +133,7 @@ function listMessageTexts(
   taskId: TaskId,
   conversationId: ConversationId,
 ): Effect.Effect<readonly string[], ReconnectionIntegrationError> {
-  return client.sendRpc(MessagesList, { taskId, conversationId }).pipe(
+  return client.call(MessagesList.name, { taskId, conversationId }).pipe(
     Effect.map((result) => messageTexts(result.messages)),
     Effect.mapError(
       (cause) =>
@@ -156,7 +162,7 @@ function peerSendText(
   text: string,
 ): Effect.Effect<void, ReconnectionIntegrationError> {
   return peerClient
-    .sendRpc(MessagesSend, {
+    .call(MessagesSend.name, {
       taskId,
       conversationId,
       parts: [{ type: TEXT_PART_TYPE, text }],
@@ -190,7 +196,7 @@ function createDm(
   ReconnectionIntegrationError
 > {
   return peerClient
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },

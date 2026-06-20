@@ -17,7 +17,7 @@ export function registerDispatchRequestAckMintsLease(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "dispatch/request ack returns {leaseId, dispatchId}, both well-formed UUIDv4 (>=122 bits entropy) and distinct from each other",
+    "agent/dispatch/request ack returns {leaseId, dispatchId}, both well-formed UUIDv4 (>=122 bits entropy) and distinct from each other",
     withDriver(ctx, (driver) =>
       Effect.gen(function* () {
         // Use a high-grant verdict so the lease resolves quickly and the

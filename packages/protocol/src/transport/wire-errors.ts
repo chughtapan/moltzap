@@ -1,151 +1,89 @@
-/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Data } from "effect";
-import type { JsonValue } from "../schema-primitives.js";
+import { Schema } from "effect";
 
-/** JSON-RPC 2.0 reserved codes. Emitted by TypedDispatcher; never raised by handlers. */
-export const JSON_RPC_RESERVED_CODES = {
-  ParseError: -32700,
-  InvalidRequest: -32600,
-  MethodNotFound: -32601,
-  InvalidParams: -32602,
-  InternalError: -32603,
+/**
+ * Optional supplemental fields every wire tagged-error carries: an overriding
+ * `message` (the class's static `message` is the default) and a free-form `data`
+ * payload. Both are part of the error's wire Schema, so the engine round-trips
+ * them when it encodes/decodes the error against a method's per-method error
+ * union.
+ *
+ * Each wire error class is declared inline (extending `Schema.TaggedError`
+ * directly) rather than through a factory: a factory return type leaks the
+ * Schema's private `TypeId`/`RefineSchemaId` and is not a nameable base class.
+ * The class is BOTH the runtime constructor AND a `Schema` for the wire `error`
+ * union — its `_tag` literal is the union discriminant the `@effect/rpc` engine
+ * decodes against, so a method's `Schema.Union(...errors)` picks the exact class
+ * by `_tag` with no lookup and no global registry. There is no numeric code.
+ */
+export const errorPayloadFields = {
+  message: Schema.optional(Schema.String),
+  data: Schema.optional(Schema.Unknown),
 } as const;
 
 /**
- * A `Data.TaggedError`-derived class with static wire metadata
- * (`code` + `message`). The typed dispatcher reads
- * `err.constructor.code` to encode outbound error responses; the
- * originator looks up the class by code via `errorClassFor` for inbound
- * response decode.
- */
-export type RpcErrorClass = (new (
-  ...args: never[]
-) => {
-  readonly _tag: string;
-}) & {
-  readonly code: number;
-  readonly message: string;
-};
-
-const codeToClass = new Map<number, RpcErrorClass>();
-const registeredClasses = new Set<RpcErrorClass>();
-
-class DuplicateErrorCodeError extends Error {
-  override readonly name = "DuplicateErrorCodeError";
-}
-
-/**
- * Register a tagged-error class so the originator can resurrect it
- * from a wire `error` payload by code. Each registered class carries
- * `static readonly code: number` and `static readonly message:
- * string`; both are read at registration time. Throws
- * `DuplicateErrorCodeError` at module-load if two classes claim the
- * same code.
- *
- * ```mermaid
- * flowchart LR
- *   A["domain module load:<br>class FooError extends Data.TaggedError(...)<br>static code = -32019<br>registerErrorClass(FooError)"]
- *   A --> B["codeToClass.set(-32019, FooError)"]
- *   B --> C["client side: errorClassFor(code)<br>→ FooError instance | undefined"]
- *   C --> D["caller: Effect.catchTag('Foo', ...)"]
- *   B --> E["server side: wireErrorFromInstance<br>→ wire 'error' sub-object"]
- * ```
- *
- * `JSON_RPC_RESERVED_CODES` covers only the five JSON-RPC 2.0 spec
- * codes (-32700, -32600, -32601, -32602, -32603). Every other code
- * lives in the runtime registry, not in a central table. The
- * `RegisteredTaggedError` union in `rpc-registry.ts` mirrors the
- * registered classes and must be hand-kept in sync — the TS type
- * system cannot enumerate the static-side registry into a union.
- */
-export function registerErrorClass(cls: RpcErrorClass): void {
-  const existing = codeToClass.get(cls.code);
-  if (existing !== undefined && existing !== cls) {
-    throw new DuplicateErrorCodeError(
-      `Duplicate wire error code ${cls.code}: ${cls.name} conflicts with ${existing.name}`,
-    );
-  }
-  codeToClass.set(cls.code, cls);
-  registeredClasses.add(cls);
-}
-
-/** Returns the registered class for a wire code, or `undefined`. */
-export function errorClassFor(code: number): RpcErrorClass | undefined {
-  return codeToClass.get(code);
-}
-
-/** Returns true iff `value`'s constructor is in the registered class set. */
-export function isRegisteredErrorInstance(value: object): boolean {
-  return registeredClasses.has(value.constructor as RpcErrorClass);
-}
-
-/**
- * Optional per-instance overrides for tagged-error classes. The static
- * `message` on the class is the default; instances may carry a more
- * specific message and/or supplemental `data` payload that TypedDispatcher
- * forwards to the wire response.
+ * The supplemental-payload type a tagged-error instance accepts at construction:
+ * an optional overriding message and optional `data`.
  */
 export interface RpcErrorPayload {
   readonly message?: string;
-  readonly data?: JsonValue;
+  readonly data?: unknown;
 }
 
-// Transport-layer cross-cutting tagged errors. Domain errors live in their
-// owning layer's `errors.ts`.
-
-export class UnauthorizedError extends Data.TaggedError(
+/** Not authenticated — `agent/network/connect` or `app/network/connect` has not run on this socket. */
+export class UnauthorizedError extends Schema.TaggedError<UnauthorizedError>()(
   "Unauthorized",
-)<RpcErrorPayload> {
-  static readonly code = -32000;
-  static readonly message = "Not authenticated. Send network/connect first.";
+  errorPayloadFields,
+) {
+  static readonly message =
+    "Not authenticated. Send agent/network/connect or app/network/connect first.";
 }
-registerErrorClass(UnauthorizedError);
 
 /** Authenticated but not authorized for this resource. */
-export class ForbiddenError extends Data.TaggedError(
+export class ForbiddenError extends Schema.TaggedError<ForbiddenError>()(
   "Forbidden",
-)<RpcErrorPayload> {
-  static readonly code = -32001;
+  errorPayloadFields,
+) {
   static readonly message = "Forbidden";
 }
-registerErrorClass(ForbiddenError);
 
-/** Resource not found (cross-cutting variant; domain-specific NotFound errors live with their domain). */
-export class NotFoundError extends Data.TaggedError(
+/** Resource not found (cross-cutting; domain-specific NotFound errors live with their domain). */
+export class NotFoundError extends Schema.TaggedError<NotFoundError>()(
   "NotFound",
-)<RpcErrorPayload> {
-  static readonly code = -32002;
+  errorPayloadFields,
+) {
   static readonly message = "Not found";
 }
-registerErrorClass(NotFoundError);
 
 /** Conflict on a resource (cross-cutting; e.g., duplicate registration). */
-export class ConflictError extends Data.TaggedError(
+export class ConflictError extends Schema.TaggedError<ConflictError>()(
   "Conflict",
-)<RpcErrorPayload> {
-  static readonly code = -32003;
+  errorPayloadFields,
+) {
   static readonly message = "Conflict";
 }
-registerErrorClass(ConflictError);
 
-/**
- * Boundary validation error — JSON-RPC reserved code -32602. Raised by
- * protocol- and server-layer handlers when params fail schema validation;
- * registered with the wire-error registry so handler-raised instances map
- * to a `-32602 InvalidParams` wire response via `wireErrorFromInstance`.
- */
-export class InvalidParamsError extends Data.TaggedError("InvalidParamsError")<{
-  readonly message: string;
-}> {
-  static readonly code = JSON_RPC_RESERVED_CODES.InvalidParams;
+/** Boundary validation error — params failed schema validation. */
+export class InvalidParamsError extends Schema.TaggedError<InvalidParamsError>()(
+  "InvalidParamsError",
+  errorPayloadFields,
+) {
   static readonly message = "Invalid params";
 }
-registerErrorClass(InvalidParamsError);
 
-/** Inbound frame failed to parse as JSON or did not match the expected shape. */
-export class MalformedFrameError extends Data.TaggedError(
-  "MalformedFrameError",
-)<{
-  readonly raw: string;
-  readonly cause?: unknown;
-}> {}
+/**
+ * A principal (agent or app) already holds an active connection. The
+ * `principal` discriminator names which arm the conflict is on.
+ */
+export class AlreadyConnected extends Schema.TaggedError<AlreadyConnected>()(
+  "AlreadyConnected",
+  { ...errorPayloadFields, principal: Schema.Literal("agent", "app") },
+) {
+  static readonly message =
+    "Principal already has an active connection. Disconnect the prior session first.";
+}
+
+/** The principal-gate error classes every authenticated method's gate can fail with. */
+export const principalGateErrorClasses = [
+  UnauthorizedError,
+  ForbiddenError,
+] as const;

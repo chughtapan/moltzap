@@ -1,30 +1,32 @@
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import { RpcClient, RpcClientError, RpcSerialization } from "@effect/rpc";
-import { Data, Effect, Layer, ParseResult } from "effect";
+import type { RpcGroup } from "@effect/rpc";
+import { Data, Effect, Layer } from "effect";
 import {
+  isLocalDaemonError,
+  type LocalDaemonError,
+  LocalDaemonCommands,
   LocalDaemonRpcs,
-  normalizeLocalDaemonParams,
 } from "../local-daemon-rpc.js";
 import { MoltZapService } from "../service.js";
 import {
-  decodeLocalServiceResult,
-  LocalServiceCommands,
-  type LocalServiceCommand,
-  type LocalServiceParams,
-  type LocalServiceResults,
-} from "../runtime/local-service-commands.js";
+  dispatchCall,
+  type TypedDispatchMap,
+  type PayloadForTag,
+  type SuccessForTag,
+} from "@moltzap/protocol/rpc";
 
-import {
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
-} from "@moltzap/protocol";
+type DaemonRpcs = RpcGroup.Rpcs<typeof LocalDaemonRpcs>;
+export type DaemonCommand = DaemonRpcs["_tag"];
+type DaemonClientDispatch = TypedDispatchMap<
+  DaemonRpcs,
+  RpcClientError.RpcClientError
+>;
 
 const SOCKET_REQUEST_TIMEOUT_MS = 10_000;
 
-export { LocalServiceCommands };
-export type { LocalServiceCommand };
+export { LocalDaemonCommands };
 
 export class SocketRequestError extends Data.TaggedError("SocketRequestError")<{
   readonly method: string;
@@ -65,107 +67,64 @@ const fromSocketError = (
   return socketRequestError(method, err.message, err);
 };
 
-const fromRpcClientError = (
-  method: string,
-  err: RpcClientError.RpcClientError,
-): SocketRequestError => socketRequestError(method, err.message, err);
-
-const fromLocalDaemonCallError = (
-  method: string,
-  err: string | RpcClientError.RpcClientError | SocketRequestError,
-): SocketRequestError => {
-  if (err instanceof SocketRequestError) return err;
-  if (typeof err === "string") return socketRequestError(method, err);
-  return fromRpcClientError(method, err);
-};
-
-const fromParseError = (
-  method: string,
-  err: ParseResult.ParseError,
-): SocketRequestError =>
+const fromRpcClientError = (method: string, err: unknown): SocketRequestError =>
   socketRequestError(
     method,
-    `Malformed local service response for ${method}: ${ParseResult.TreeFormatter.formatErrorSync(err)}`,
+    err instanceof Error ? err.message : String(err),
     err,
   );
 
-/**
- * Send a request to the MoltZapService via the local daemon RPC socket. Typed failures:
- *   - "service not running" when the socket path doesn't exist / ECONNREFUSED
- *   - "timeout" when the 10s deadline elapses
- *   - remote validation/RPC errors from the daemon
- *   - protocol errors from `@effect/rpc`
- */
-export const request = <D extends RpcDefinition<string, any, any>>(
-  definition: D,
-  params: ParamsOf<D>,
-  socketPath?: string,
-): Effect.Effect<ResultOf<D>, SocketRequestError> =>
-  Effect.suspend(() => {
-    const resolvedSocketPath = socketPath ?? MoltZapService.SOCKET_PATH;
-    return sendSocketRequest(definition.name, params, resolvedSocketPath).pipe(
-      Effect.flatMap((result) =>
-        definition.validateResult(result)
-          ? Effect.succeed(result as ResultOf<D>)
-          : Effect.fail(
-              socketRequestError(
-                definition.name,
-                `Malformed result for method: ${definition.name}`,
-                result,
-              ),
-            ),
-      ),
-    );
-  });
-
-export const requestLocalService = <C extends LocalServiceCommand>(
-  command: C,
-  params?: LocalServiceParams<C>,
-  socketPath?: string,
-): Effect.Effect<LocalServiceResults[C], SocketRequestError> =>
-  Effect.suspend(() => {
-    const resolvedParams = params ?? {};
-    const resolvedSocketPath = socketPath ?? MoltZapService.SOCKET_PATH;
-    return sendSocketRequest(command, resolvedParams, resolvedSocketPath).pipe(
-      Effect.flatMap((result) =>
-        decodeLocalServiceResult(command, result).pipe(
-          Effect.mapError((err) => fromParseError(command, err)),
-        ),
-      ),
-    );
-  });
-
-export const sendSocketRequest = (
+const fromDaemonCommandError = (
   method: string,
-  params: unknown,
+  err: unknown,
+): SocketRequestError | LocalDaemonError => {
+  if (err instanceof SocketRequestError) return err;
+  if (isLocalDaemonError(err)) return err;
+  return fromRpcClientError(method, err);
+};
+
+const callDaemonClient = <Tag extends DaemonCommand>(
+  client: DaemonClientDispatch,
+  command: Tag,
+  payload: PayloadForTag<DaemonRpcs, Tag>,
+): Effect.Effect<SuccessForTag<DaemonRpcs, Tag>, unknown> =>
+  dispatchCall<DaemonRpcs, RpcClientError.RpcClientError, Tag>(
+    client,
+    command,
+    payload,
+  );
+
+export const requestDaemonCommand = <Tag extends DaemonCommand>(
+  command: Tag,
+  payload: PayloadForTag<DaemonRpcs, Tag>,
   socketPath?: string,
-): Effect.Effect<unknown, SocketRequestError> =>
+): Effect.Effect<
+  SuccessForTag<DaemonRpcs, Tag>,
+  SocketRequestError | LocalDaemonError
+> =>
   Effect.scoped(
     Effect.gen(function* () {
       const sockPath = socketPath ?? MoltZapService.SOCKET_PATH;
       const socket = yield* NodeSocket.makeNet({
         path: sockPath,
         openTimeout: `${SOCKET_REQUEST_TIMEOUT_MS} millis`,
-      }).pipe(Effect.mapError((err) => fromSocketError(method, err)));
-      const localParams = yield* normalizeLocalDaemonParams(params);
+      }).pipe(Effect.mapError((err) => fromSocketError(command, err)));
       const protocolLayer = RpcClient.layerProtocolSocket().pipe(
         Layer.provide(RpcSerialization.layerNdjson),
         Layer.provide(Layer.succeed(Socket.Socket, socket)),
       );
       return yield* Effect.gen(function* () {
-        const client = yield* RpcClient.make(LocalDaemonRpcs);
-        return yield* client.LocalDaemonCall({
-          method,
-          params: localParams,
-        });
+        const client: DaemonClientDispatch =
+          yield* RpcClient.make(LocalDaemonRpcs);
+        return yield* callDaemonClient(client, command, payload);
       }).pipe(
         Effect.provide(protocolLayer),
         Effect.timeoutFail({
           duration: `${SOCKET_REQUEST_TIMEOUT_MS} millis`,
           onTimeout: () =>
-            socketRequestError(method, "Socket request timed out"),
+            socketRequestError(command, "Socket request timed out"),
         }),
-        Effect.mapError((err) => fromLocalDaemonCallError(method, err)),
+        Effect.mapError((err) => fromDaemonCommandError(command, err)),
       );
     }),
-  ).pipe(Effect.withSpan("sendSocketRequest"));
+  ).pipe(Effect.withSpan("requestDaemonCommand"));

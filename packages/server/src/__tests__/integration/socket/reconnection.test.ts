@@ -1,0 +1,119 @@
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { Effect, Fiber } from "effect";
+import {
+  awaitOneNotification,
+  firstTextPart,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
+  setupAgentPair,
+  connectTestClient,
+  trackClient,
+  type TestAgentClient,
+} from "../helpers.js";
+
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import {
+  MessageReceivedNotificationDefinition,
+  MessagesList,
+  MessagesSend,
+} from "@moltzap/protocol/message";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
+
+const PRE_DISCONNECT_TEXT = "Pre-disconnect";
+const OFFLINE_TEXT = "Sent while you were away";
+const BACK_ONLINE_TEXT = "I am back online";
+
+let wsUrl: string;
+
+beforeAll(() =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const urls = yield* startTestServerEffect();
+      wsUrl = urls.wsUrl;
+    }),
+  ),
+);
+
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
+
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
+
+interface DmBinding {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+}
+
+it("agent reconnects and retrieves messages sent while disconnected", () =>
+  Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+
+    const binding = yield* createDm(alice.client, bob.agentId);
+    const preDisconnectFiber = yield* Effect.fork(
+      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+    );
+    yield* sendText(alice.client, binding, PRE_DISCONNECT_TEXT);
+    yield* Fiber.join(preDisconnectFiber);
+
+    yield* bob.client.close();
+    yield* sendText(alice.client, binding, OFFLINE_TEXT);
+
+    const bobClient2 = yield* connectTestClient({
+      wsUrl,
+      agentId: bob.agentId,
+      apiKey: bob.apiKey,
+    });
+    trackClient(bobClient2);
+
+    yield* expectReconnectedHistory(bobClient2, binding);
+    const aliceEventFiber = yield* Effect.fork(
+      awaitOneNotification(alice.client, MessageReceivedNotificationDefinition),
+    );
+    yield* sendText(bobClient2, binding, BACK_ONLINE_TEXT);
+
+    const aliceEvent = yield* Fiber.join(aliceEventFiber);
+    expect(messageText(aliceEvent.params)).toBe(BACK_ONLINE_TEXT);
+  }));
+
+function createDm(
+  client: TestAgentClient,
+  participantAgentId: AgentId,
+): Effect.Effect<DmBinding, unknown> {
+  return Effect.gen(function* () {
+    const conv = yield* client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [participantAgentId],
+      initialConversation: { participants: [participantAgentId] },
+    });
+    return { taskId: conv.task.id, conversationId: conv.conversation!.id };
+  });
+}
+
+function sendText(client: TestAgentClient, binding: DmBinding, text: string) {
+  return client.sendRpc(MessagesSend, {
+    taskId: binding.taskId,
+    conversationId: binding.conversationId,
+    parts: [{ type: "text", text }],
+  });
+}
+
+function expectReconnectedHistory(client: TestAgentClient, binding: DmBinding) {
+  return Effect.gen(function* () {
+    const msgs = yield* client.sendRpc(MessagesList, {
+      taskId: binding.taskId,
+      conversationId: binding.conversationId,
+    });
+
+    expect(msgs.messages).toHaveLength(2);
+    expect(firstTextPart(msgs.messages[0]!.parts)).toBe(PRE_DISCONNECT_TEXT);
+    expect(firstTextPart(msgs.messages[1]!.parts)).toBe(OFFLINE_TEXT);
+  });
+}
+
+function messageText(params: unknown): string {
+  return (params as { message: { parts: Array<{ text: string }> } }).message
+    .parts[0]!.text;
+}

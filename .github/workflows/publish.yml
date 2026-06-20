@@ -117,7 +117,7 @@ jobs:
           pnpm install --no-frozen-lockfile --ignore-scripts
 
           # Build all packages so pre-commit typecheck passes
-          pnpm -r build
+          pnpm build
 
           # Regenerate docs after version bump. PROTOCOL_VERSION change re-bakes
           # `docs/snippets/constants/values.{mdx,json}` plus the CLI reference +
@@ -142,7 +142,7 @@ jobs:
           fi
 
       - name: Build all packages
-        run: pnpm -r build
+        run: pnpm build
 
       - name: Publish packages
         run: |

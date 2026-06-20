@@ -1,12 +1,10 @@
 /**
- * #529 reshape additive: dispatch admission single-use lease behavior.
+ * Dispatch admission single-use lease behavior.
  */
 import { it as effectIt } from "@effect/vitest";
-import {
-  TaskConversationArchive,
-  type AppManifest,
-  type LeaseId,
-} from "@moltzap/protocol";
+import { ConversationUpdate } from "@moltzap/protocol/conversation";
+import type { AppManifest } from "@moltzap/protocol/identity";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
@@ -14,9 +12,10 @@ import {
   DISPATCH_STATE_GRANTED,
   EXPECTED_TYPE_STRING,
   createDispatchFlowFixture,
+  MODERATED_HOOKS,
   attachDispatchAuthorizeHook,
-  createTaskConversationOnApp,
-  createUnmoderatedDm,
+  createConversationOnApp,
+  moderatorAppClient,
   readLeaseByLeaseId,
   requestDispatch,
   sendMessageWithLease,
@@ -39,6 +38,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Moderator Dispatch Test App",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+  hooks: MODERATED_HOOKS,
 };
 
 const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
@@ -56,7 +56,7 @@ function requestPendingModeratedDispatch(
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ kind: "never-reply" });
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const binding = yield* createTaskConversationOnApp(
+    const binding = yield* createConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
@@ -79,12 +79,12 @@ function requestGrantedModeratedDispatch(
   return Effect.gen(function* () {
     fixture.setNextHookVerdict({ decision: "grant" });
     yield* attachDispatchAuthorizeHook(alice, fixture);
-    const binding = yield* createTaskConversationOnApp(
+    const binding = yield* createConversationOnApp(
       alice,
       bob,
       TEST_APP_MANIFEST,
     );
-    // Fork-before-trigger (Spec B #596 r2 fix).
+    // Subscribe before the trigger RPC so the release notification is observed.
     const releaseFiber = yield* waitForDispatchRelease(bob);
     const ack = yield* requestDispatch(
       bob,
@@ -95,26 +95,6 @@ function requestGrantedModeratedDispatch(
     yield* Fiber.join(releaseFiber);
     return { ack, binding };
   }).pipe(Effect.withSpan("requestGrantedModeratedDispatch"));
-}
-
-function requestGrantedUnmoderatedDispatch(
-  alice: ConnectedAgent,
-  bob: ConnectedAgent,
-  text: string,
-) {
-  return Effect.gen(function* () {
-    const binding = yield* createUnmoderatedDm(alice, bob);
-    // Fork-before-trigger (Spec B #596 r2 fix).
-    const releaseFiber = yield* waitForDispatchRelease(bob);
-    const ack = yield* requestDispatch(
-      bob,
-      binding.conversationId,
-      alice,
-      text,
-    );
-    yield* Fiber.join(releaseFiber);
-    return { ack, binding };
-  }).pipe(Effect.withSpan("requestGrantedUnmoderatedDispatch"));
 }
 
 function sendWithLeaseRejected(
@@ -143,7 +123,7 @@ function pendingLeaseRejectsSend() {
 function grantedLeaseIsSingleUse() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, binding } = yield* requestGrantedUnmoderatedDispatch(
+    const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "first",
@@ -169,15 +149,16 @@ function grantedLeaseIsSingleUse() {
 function insertFailureRollsBackLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    // Moderated path so alice (as the AppsRegister'd app) has
-    // TaskConversationArchive authority; archiving forces the
-    // subsequent messages/send to fail at insert time.
+    // The moderated path binds the task to the fixture's app connection.
+    // Archiving from that app client forces the subsequent agent/message/send to
+    // fail at insert time.
     const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "probe",
     );
-    yield* alice.client.sendRpc(TaskConversationArchive, {
+    yield* moderatorAppClient().sendRpc(ConversationUpdate, {
+      action: "archive",
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
@@ -198,7 +179,7 @@ function insertFailureRollsBackLease() {
 function postInsertDurabilityHappyPath() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    const { ack, binding } = yield* requestGrantedUnmoderatedDispatch(
+    const { ack, binding } = yield* requestGrantedModeratedDispatch(
       alice,
       bob,
       "first",
@@ -233,7 +214,9 @@ function postInsertFailureKeepsLeaseConsumed() {
       "first",
     );
 
-    yield* alice.client.close();
+    // Drop the moderator app connection so the post-finalize side effect fails
+    // while the committed lease remains consumed.
+    yield* moderatorAppClient().close();
     yield* Effect.sleep("300 millis");
 
     const sendResult = yield* sendWithLeaseRejected(
@@ -260,13 +243,13 @@ function postInsertFailureKeepsLeaseConsumed() {
 
 describe("dispatch/* - single-use lease preconditions", () => {
   it(
-    "rejects messages/send while dispatch lease is still pending",
+    "rejects agent/message/send while dispatch lease is still pending",
     pendingLeaseRejectsSend,
     25_000,
   );
 
   it(
-    "rejects a second messages/send for a consumed lease",
+    "rejects a second agent/message/send for a consumed lease",
     grantedLeaseIsSingleUse,
     20_000,
   );

@@ -9,6 +9,7 @@ import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit, Ref } from "effect";
 import { describe, expect } from "vitest";
 import { registerAgent } from "./auth.js";
+import { agentKeyString } from "@moltzap/protocol/testing";
 
 const it = effectIt.scoped;
 
@@ -26,9 +27,7 @@ interface StubResponse {
 
 type StubResponder = (path: string) => StubResponse;
 
-const ADMIN_REGISTER_PATH = "/api/v1/admin/register-agent";
 const PUBLIC_REGISTER_PATH = "/api/v1/auth/register";
-const POST_METHOD = "POST";
 const CREATED_STATUS = 201;
 const FORBIDDEN_STATUS = 403;
 const SINGLE_CALL_COUNT = 1;
@@ -38,11 +37,8 @@ const JSON_CONTENT_TYPE = "application/json";
 const TEXT_CONTENT_TYPE = "text/plain";
 const TEST_AGENT_NAME = "test";
 const INVITE_CODE = "secret";
-const OWNER_USER_ID = "00000000-0000-4000-8000-000000000001";
-const AGENT_ID = "agent-id";
-const API_KEY = "api-key";
-const CLAIM_URL = "https://example.test/claim";
-const CLAIM_TOKEN = "claim-token";
+const AGENT_ID = "00000000-0000-4000-8000-0000000000a1";
+const API_KEY = agentKeyString(0);
 const INVITE_REQUIRED_BODY = "invite required";
 
 const defaultRegisterResponse = (): StubResponse => ({
@@ -51,8 +47,6 @@ const defaultRegisterResponse = (): StubResponse => ({
   body: JSON.stringify({
     agentId: AGENT_ID,
     apiKey: API_KEY,
-    claimUrl: CLAIM_URL,
-    claimToken: CLAIM_TOKEN,
   }),
 });
 
@@ -100,18 +94,12 @@ const makeRegisterServer = (
 ) =>
   Effect.gen(function* () {
     const calls = yield* Ref.make<ReadonlyArray<CapturedCall>>([]);
-    const adminRoute = HttpRouter.post(
-      ADMIN_REGISTER_PATH,
-      routeHandler(ADMIN_REGISTER_PATH, calls, responder),
-    );
     const publicRoute = HttpRouter.post(
       PUBLIC_REGISTER_PATH,
       routeHandler(PUBLIC_REGISTER_PATH, calls, responder),
     );
 
-    yield* HttpServer.serveEffect(
-      HttpRouter.empty.pipe(adminRoute, publicRoute),
-    );
+    yield* HttpServer.serveEffect(HttpRouter.empty.pipe(publicRoute));
     const address = yield* HttpServer.addressWith((serverAddress) =>
       Effect.succeed(serverAddress),
     );
@@ -128,27 +116,7 @@ const expectSingleCall = (calls: ReadonlyArray<CapturedCall>): CapturedCall => {
   return call ?? { path: "", method: "", body: undefined };
 };
 
-function postsOwnerUserIdToAdminEndpoint() {
-  return Effect.gen(function* () {
-    const server = yield* makeRegisterServer();
-    const result = yield* registerAgent(server.baseUrl, TEST_AGENT_NAME, {
-      inviteCode: INVITE_CODE,
-      ownerUserId: OWNER_USER_ID,
-    });
-
-    const call = expectSingleCall(yield* Ref.get(server.calls));
-    expect(call.path).toBe(ADMIN_REGISTER_PATH);
-    expect(call.method).toBe(POST_METHOD);
-    expect(call.body).toEqual({
-      name: TEST_AGENT_NAME,
-      inviteCode: INVITE_CODE,
-      ownerUserId: OWNER_USER_ID,
-    });
-    expect(result.agentId).toBe(AGENT_ID);
-  }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.orDie);
-}
-
-function postsToPublicEndpointWithoutOwnerUserId() {
+function postsToPublicEndpoint() {
   return Effect.gen(function* () {
     const server = yield* makeRegisterServer();
 
@@ -170,9 +138,7 @@ function nonSuccessResponseFails() {
     const server = yield* makeRegisterServer(() => forbiddenResponse());
 
     const exit = yield* Effect.exit(
-      registerAgent(server.baseUrl, TEST_AGENT_NAME, {
-        ownerUserId: OWNER_USER_ID,
-      }),
+      registerAgent(server.baseUrl, TEST_AGENT_NAME),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -180,15 +146,7 @@ function nonSuccessResponseFails() {
 }
 
 describe("registerAgent", () => {
-  it(
-    "posts ownerUserId in the body to the admin endpoint",
-    postsOwnerUserIdToAdminEndpoint,
-  );
-
-  it(
-    "posts to the public endpoint without ownerUserId when absent",
-    postsToPublicEndpointWithoutOwnerUserId,
-  );
+  it("posts to the public endpoint", postsToPublicEndpoint);
 
   it(
     "fails when the server returns a non-2xx response",

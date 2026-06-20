@@ -1,10 +1,9 @@
 /**
  * routing — internal tracker for the `reply` tool's routing decision.
  *
- * OQ5 resolution (spec OQ5 default A): the contract's `reply` tool takes
- * `{text, reply_to?, files?}` with no `chat_id`. MoltZap sessions can span
- * multiple conversations, so the package must resolve which (task, conv)
- * pair a `reply` call targets.
+ * The `reply` tool takes `{text, reply_to?, files?}` with no `chat_id`.
+ * MoltZap sessions can span multiple conversations, so the package must
+ * resolve which (task, conversation) pair a `reply` call targets.
  */
 
 import { Data } from "effect";
@@ -39,7 +38,7 @@ const DEFAULT_CAPACITY = 256;
  *
  * Tracks message-id → `RoutingTarget` (task + conversation pair) for
  * `reply_to` resolution. Does NOT track dispatch lease tokens — the
- * lease FSM lives on the MoltZap server (see `messages/send`
+ * lease FSM lives on the MoltZap server (see `agent/message/send`
  * rejection projection via `catchLeaseInvalid` in the channel-base
  * library).
  *

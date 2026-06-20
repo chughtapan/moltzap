@@ -8,15 +8,16 @@ export {
   type CreateFakeChannelServiceOptions,
   type FakeChannelService,
 } from "./channel-service-fixture.js";
+export {
+  registerStandaloneAgentPair,
+  type StandaloneAgentPair,
+  type StandaloneAgentPairNames,
+} from "./standalone-provisioning.js";
 
 export { FakeMoltZapService, type RecordedCall } from "./fake-service.js";
+export { withTestServiceConfig } from "../config.test-utils.js";
 
-export {
-  createMoltZapRealClientFactory,
-  type RealClientFactoryOptions,
-} from "./conformance-adapter.js";
-
-import type { Message } from "@moltzap/protocol";
+import type { Message } from "@moltzap/protocol/message";
 import { Data, Effect } from "effect";
 import { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
@@ -29,6 +30,14 @@ export {
 } from "./ids.js";
 
 const FLUSH_DISPATCH_TURNS = 20;
+
+/**
+ * Strip the WebSocket route suffix from a test server URL.
+ * @param wsUrl Test server WebSocket URL.
+ * @returns Base URL without the `/ws` suffix.
+ */
+export const stripWsPath = (wsUrl: string): string =>
+  wsUrl.replace(/\/ws\/?$/, "");
 
 class FlushDispatchChainError extends Data.TaggedError(
   "FlushDispatchChainError",

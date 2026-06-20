@@ -3,8 +3,7 @@
  *
  * Nanoclaw uses a string-keyed, string-valued store (keyed by JID, payload
  * is the dispatchLeaseId string). The deliberate "keep stale entry to trigger
- * server CONSUMED rejection on retry" semantic is preserved via `peek`
- * (read-only) — see arch sub-issue #605 §3.3 and §6.3.
+ * server CONSUMED rejection on retry" semantic uses `peek` (read-only).
  *
  * The class wraps a private `Map`; Effect wrappers are for caller-side
  * composition. Single-threaded by construction — one instance lives per
@@ -16,7 +15,7 @@ import { Effect, Option } from "effect";
 export class LeaseStore<HostKey, T> {
   readonly #entries = new Map<HostKey, T>();
 
-  /** Overwrite-on-newer-inbound. Last-write-wins per spec table. */
+  /** Overwrite-on-newer-inbound. Last-write-wins. */
   remember(key: HostKey, payload: T): Effect.Effect<void, never, never> {
     return Effect.sync(() => {
       this.#entries.set(key, payload);

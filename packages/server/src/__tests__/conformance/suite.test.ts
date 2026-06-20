@@ -1,7 +1,7 @@
 /**
  * Server-core conformance entry. The protocol package owns property
- * registration, seeds, artifacts, and divergence proof logic; this file
- * supplies the real server factory and optional Toxiproxy lifecycle.
+ * registration, seeds, artifacts, and suite execution; this file supplies the
+ * real server factory and optional Toxiproxy lifecycle.
  */
 import {
   Command,
@@ -13,27 +13,45 @@ import {
 } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
-import { Config, ConfigProvider, Data, Duration, Effect, Exit } from "effect";
+import {
+  Cause,
+  Config,
+  ConfigProvider,
+  Data,
+  Duration,
+  Effect,
+  Exit,
+  Schema,
+} from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { UserId } from "@moltzap/protocol/identity";
 import {
   RealServerAcquireError,
   runConformanceSuite,
   type SuiteResult,
+  type ToxiproxyNetworkConfig,
 } from "@moltzap/protocol/testing";
 import {
   startCoreTestServer,
   stopCoreTestServer,
-} from "../../test-utils/index.js";
+} from "../../test-utils/server.js";
 
 const ENABLED_ENV_VALUE = "1";
 const DEFAULT_TOXIPROXY_URL = "http://127.0.0.1:8474";
 const COMPOSE_FILE_NAME = "docker-compose.conformance.yml";
-const CONFORMANCE_DEV_MODE_USER_ID = "00000000-0000-4000-8000-000000000340";
+const CONFORMANCE_ADMIN_USER_ID = Schema.decodeUnknownSync(UserId)(
+  "00000000-0000-4000-8000-000000000340",
+);
 const TOXIPROXY_PROBE_INTERVAL = "500 millis";
 const TOXIPROXY_BOOT_TIMEOUT_MS = 30_000;
 const TOXIPROXY_REUSE_TIMEOUT_MS = 5_000;
 const TOXIPROXY_BEFORE_ALL_TIMEOUT_MS = 60_000;
 const CONFORMANCE_SUITE_TIMEOUT_MS = 600_000;
+const TOXIPROXY_BRIDGE_UPSTREAM_HOST = "host.docker.internal";
+const TOXIPROXY_BRIDGE_LISTEN_HOST = "0.0.0.0";
+const TOXIPROXY_BRIDGE_CONNECT_HOST = "127.0.0.1";
+const TOXIPROXY_BRIDGE_PORT_MIN = 47_000;
+const TOXIPROXY_BRIDGE_PORT_MAX = 47_099;
 const DOCKER_COMMAND = "docker";
 const COMPOSE_SUBCOMMAND = "compose";
 const DOCKER_UP_COMMAND = "docker compose up";
@@ -213,39 +231,66 @@ function probeToxiproxy(url: string) {
 }
 
 function setupToxiproxy(env: ConformanceEnv) {
-  if (env.skipToxiproxy) {
-    return Effect.succeed({ compose: null, url: null });
-  }
-  if (env.skipDocker) {
-    return waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_REUSE_TIMEOUT_MS).pipe(
-      Effect.as({ compose: null, url: env.toxiproxyUrl }),
-    );
-  }
-  return bringUpToxiproxy().pipe(
-    Effect.tap(() =>
-      waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_BOOT_TIMEOUT_MS),
-    ),
-    Effect.map((compose) => ({ compose, url: env.toxiproxyUrl })),
-  );
+  return Effect.gen(function* () {
+    if (env.skipToxiproxy) {
+      return { compose: null, url: null } satisfies ToxiproxySetup;
+    }
+    if (env.skipDocker) {
+      yield* waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_REUSE_TIMEOUT_MS);
+      return { compose: null, url: env.toxiproxyUrl };
+    }
+    const compose = yield* bringUpToxiproxy();
+    yield* waitForToxiproxy(env.toxiproxyUrl, TOXIPROXY_BOOT_TIMEOUT_MS);
+    return { compose, url: env.toxiproxyUrl };
+  });
 }
 
 function conformanceRealServer() {
   return Effect.tryPromise({
     try: () =>
       startCoreTestServer({
-        devModeUserId: CONFORMANCE_DEV_MODE_USER_ID,
+        adminUserId: CONFORMANCE_ADMIN_USER_ID,
       }),
     catch: (cause) => new RealServerAcquireError({ cause }),
   }).pipe(
-    Effect.map((handle) => ({
-      wsUrl: handle.wsUrl,
-      baseUrl: handle.baseUrl,
-      close: Effect.tryPromise({
-        try: () => stopCoreTestServer(),
-        catch: () => undefined,
-      }).pipe(Effect.orElseSucceed(() => undefined)),
-    })),
+    Effect.flatMap((handle) =>
+      Effect.gen(function* () {
+        if (
+          usesUnassignedPort(handle.baseUrl) ||
+          usesUnassignedPort(handle.wsUrl)
+        ) {
+          return yield* Effect.fail(
+            new RealServerAcquireError({
+              cause: new Error(
+                `core test server did not acquire a listening port: baseUrl=${handle.baseUrl} wsUrl=${handle.wsUrl}`,
+              ),
+            }),
+          ).pipe(Effect.ensuring(closeConformanceTestServer()));
+        }
+        return {
+          wsUrl: handle.wsUrl,
+          baseUrl: handle.baseUrl,
+          close: closeConformanceTestServer(),
+        };
+      }),
+    ),
   );
+}
+
+function closeConformanceTestServer() {
+  return Effect.tryPromise({
+    try: () => stopCoreTestServer(),
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.catchAll((cause) =>
+      Effect.logDebug("conformance test server teardown failed", cause),
+    ),
+  );
+}
+
+function usesUnassignedPort(url: string): boolean {
+  if (!URL.canParse(url)) return true;
+  return new URL(url).port === "0";
 }
 
 function runConformanceAssertion(toxiproxyUrl: string | null) {
@@ -254,9 +299,16 @@ function runConformanceAssertion(toxiproxyUrl: string | null) {
       runConformanceSuite({
         realServer: conformanceRealServer(),
         toxiproxyUrl,
+        toxiproxyNetwork:
+          toxiproxyUrl === null ? undefined : bridgeToxiproxyNetwork,
       }),
     );
-    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(
+      Exit.isSuccess(exit),
+      Exit.isSuccess(exit)
+        ? "conformance suite succeeded"
+        : Cause.pretty(exit.cause),
+    ).toBe(true);
     if (!Exit.isSuccess(exit)) return;
 
     const result: SuiteResult = exit.value;
@@ -271,6 +323,16 @@ function runConformanceAssertion(toxiproxyUrl: string | null) {
   });
 }
 
+const bridgeToxiproxyNetwork: ToxiproxyNetworkConfig = {
+  upstreamHost: TOXIPROXY_BRIDGE_UPSTREAM_HOST,
+  listenHost: TOXIPROXY_BRIDGE_LISTEN_HOST,
+  connectHost: TOXIPROXY_BRIDGE_CONNECT_HOST,
+  listenPortRange: {
+    min: TOXIPROXY_BRIDGE_PORT_MIN,
+    max: TOXIPROXY_BRIDGE_PORT_MAX,
+  },
+};
+
 function logSuiteResult(result: SuiteResult) {
   return Effect.gen(function* () {
     yield* Effect.logInfo(conformanceSummary(result));
@@ -281,7 +343,7 @@ function logSuiteResult(result: SuiteResult) {
 }
 
 function conformanceSummary(result: SuiteResult) {
-  return `[conformance] seed=${result.seed} passed=${result.passed.length} deferred=${result.deferred.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`;
+  return `[conformance] seed=${result.seed} passed=${result.passed.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`;
 }
 
 function unavailableSummary(result: SuiteResult) {
@@ -295,10 +357,7 @@ function formatUnavailable(unavailable: { name: string; reason: string }) {
 function failedSummary(result: SuiteResult) {
   const failed = result.failed.map(formatFailure).join("; ");
   const total =
-    result.failed.length +
-    result.passed.length +
-    result.deferred.length +
-    result.unavailable.length;
+    result.failed.length + result.passed.length + result.unavailable.length;
   return `${result.failed.length}/${total} failed: ${failed}`;
 }
 

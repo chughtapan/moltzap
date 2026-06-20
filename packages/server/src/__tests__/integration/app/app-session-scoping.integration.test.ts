@@ -1,70 +1,125 @@
 /**
- * App-session-scoping: the calling WS connection IS the registered
- * remote-app connection for `tasks.app_id`. `#673` made this the proof
- * that drives TM-authority — this suite asserts it end-to-end.
+ * App-session-scoping: app authority belongs to the app principal that owns the
+ * task. An app authenticates via `appKey` as an `AppConnection`, and
+ * task-admin RPCs (`app/conversation/create`, etc.) are gated by
+ * `assertAppOwnsTask(connection.auth.appId, task)`. The requesting agent is a
+ * separate principal.
  *
  * Coverage:
- * 1. Registered remote-app connection passes the TM gate.
- * 2. A peer WS connection (different conn, different agent) does NOT.
- * 3. Closing the moderator connection drops the registration; a
- *    follow-up call from a fresh connection without re-registering fails.
- * 4. Re-registering the same app on a NEW connection replaces the
- *    binding; the new connection passes the gate, the prior one no
- *    longer does.
+ * 1. The owning app's `AppConnection` passes the app ownership gate.
+ * 2. An agent connection does not pass (only an `AppConnection` is an app
+ *    principal; `assertCallerAppOwnsTask` rejects non-app callers).
+ * 3. A different app (different `appKey` -> different DB appId) does not own
+ *    the task and is rejected.
+ *
+ * The hijack rejection (a second connection cannot steal a live app's
+ * moderator-endpoint binding) is covered at the unit level by
+ * `app-host.remote.test.ts` — the registry's strict no-overwrite invariant.
+ * At the integration level the Connect rejection is swallowed by the test
+ * client's auto-connect, so a meaningful assertion there is not available
+ * without a raw Connect-frame driver; the unit test is the canonical proof.
  */
+import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { it as effectIt } from "@effect/vitest";
-import {
-  AppsRegister,
-  TaskCreate,
-  TaskConversationCreate,
-  TaskRequest,
-  type AppId,
-  type AppManifest,
-  ForbiddenError,
-} from "@moltzap/protocol";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
+import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
+import { ConversationCreate } from "@moltzap/protocol/conversation";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
+import type { AppId } from "@moltzap/protocol/task";
+import type { AppManifest } from "@moltzap/protocol/identity";
 import { Cause, Effect, Exit } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
+  connectAppClient,
+  getBaseUrl,
   registerAndConnect,
+  registerApp,
   resetTestDbEffect,
   startTestServerEffect,
   stopTestServerEffect,
+  type TestAppClient,
 } from "../helpers.js";
 
 const it = effectIt.live;
 
-const APP_ID = "00000000-0000-4000-8000-000000010004" as AppId;
+// `manifest.appId` does not route (the DB mints `app_id`); the manifest
+// supplies name / conversations / hooks. `task_create` is `kind: "hook"`
+// so the app's `TaskCreate` callback is consulted; the other two policies
+// take their open static verdict in-process.
 const APP_MANIFEST: AppManifest = {
-  appId: APP_ID,
   name: "App Session Scoping Test App",
+  appId: "00000000-0000-4000-8000-000000010004",
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
+  hooks: {
+    dispatch_authorize: { kind: "grant" },
+    message_authorize: { kind: "forwardAllExceptSender" },
+    task_create: { kind: "hook", timeoutMs: 5_000 },
+  },
 };
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()), 60_000);
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): number | null {
+function rpcErrorCode(exit: Exit.Exit<unknown, unknown>): string | null {
   if (Exit.isSuccess(exit)) return null;
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
-  const err = failure.value as { readonly code?: unknown };
-  return typeof err.code === "number" ? err.code : null;
+  const err = failure.value as { readonly _tag?: string };
+  return typeof err._tag === "string" ? err._tag : null;
 }
 
-function registeredAppConnPassesTmGate() {
+/**
+ * Register an app (HTTP), open its `AppConnection`, wire an auto-accept
+ * `app/task/create` callback, and return the live app client + DB-minted appId.
+ */
+function setupOwningApp(): Effect.Effect<
+  { appClient: TestAppClient; appId: AppId },
+  unknown
+> {
+  return Effect.gen(function* () {
+    const registered = yield* registerApp(getBaseUrl(), APP_MANIFEST);
+    const appClient = yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      acceptTaskCreateHandlers(),
+    );
+    return { appClient, appId: registered.appId };
+  });
+}
+
+function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    [DispatchAuthorize.name]: {
+      definition: DispatchAuthorize,
+      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
+    },
+    [MessagesAuthorize.name]: {
+      definition: MessagesAuthorize,
+      handle: () => Effect.dieMessage("unexpected app/message/authorize"),
+    },
+    [TaskCreate.name]: {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
+    },
+  };
+}
+
+function owningAppConnPassesTmGate() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice");
     const bob = yield* registerAndConnect("bob");
-    yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
-    yield* alice.client.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
-    );
+    const { appClient, appId } = yield* setupOwningApp();
     const task = yield* alice.client.sendRpc(TaskRequest, {
-      appId: APP_ID,
+      appId,
       invitedAgentIds: [bob.agentId],
     });
-    const conv = yield* alice.client.sendRpc(TaskConversationCreate, {
+    const conv = yield* appClient.sendRpc(ConversationCreate, {
       taskId: task.task.id,
       participants: [bob.agentId],
     });
@@ -72,85 +127,45 @@ function registeredAppConnPassesTmGate() {
   });
 }
 
-function peerConnFailsTmGate() {
-  return Effect.gen(function* () {
-    const alice = yield* registerAndConnect("alice-2");
-    const bob = yield* registerAndConnect("bob-2");
-    yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
-    yield* alice.client.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
-    );
-    const task = yield* alice.client.sendRpc(TaskRequest, {
-      appId: APP_ID,
-      invitedAgentIds: [bob.agentId],
-    });
-    const exit = yield* Effect.exit(
-      bob.client.sendRpc(TaskConversationCreate, {
-        taskId: task.task.id,
-        participants: [bob.agentId],
-      }),
-    );
-    expect(rpcErrorCode(exit)).toBe(ForbiddenError.code);
-  });
-}
-
-function disconnectDropsRegistration() {
+function nonOwningAppFailsAppOwnershipGate() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-3");
     const bob = yield* registerAndConnect("bob-3");
-    yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
-    yield* alice.client.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
-    );
+    const { appId } = yield* setupOwningApp();
     const task = yield* alice.client.sendRpc(TaskRequest, {
-      appId: APP_ID,
+      appId,
       invitedAgentIds: [bob.agentId],
     });
-    yield* alice.client.close();
-    // Alice's registration is gone; a fresh connection (without
-    // re-registering) cannot pass the TM gate.
-    const alice2 = yield* registerAndConnect("alice-3b");
+    // A DIFFERENT app (fresh appKey → different DB appId) does not own the
+    // task; `assertAppOwnsTask` rejects it with the same ForbiddenError.
+    const other = yield* registerApp(getBaseUrl(), {
+      ...APP_MANIFEST,
+      name: "Other App",
+    });
+    const otherClient = yield* connectAppClient(
+      other.appId,
+      other.appKey,
+      acceptTaskCreateHandlers(),
+    );
     const exit = yield* Effect.exit(
-      alice2.client.sendRpc(TaskConversationCreate, {
+      otherClient.sendRpc(ConversationCreate, {
         taskId: task.task.id,
         participants: [bob.agentId],
       }),
     );
-    expect(rpcErrorCode(exit)).toBe(ForbiddenError.code);
+    expect(rpcErrorCode(exit)).toBe(WIRE_ERROR_TAG.Forbidden);
   });
 }
 
-function reregisterRejectedWhileOldConnectionAlive() {
-  return Effect.gen(function* () {
-    const alice = yield* registerAndConnect("alice-4");
-    yield* alice.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST });
-    yield* alice.client.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
-    );
-    // A second connection trying to register the same app while the
-    // first connection is still alive is a hijack attempt — the
-    // server MUST reject it. (Pre-#677 the handler silently overwrote
-    // the binding, which let any client steal another's app by
-    // knowing its appId. That was a bug.)
-    const alice2 = yield* registerAndConnect("alice-4b");
-    const exit = yield* Effect.exit(
-      alice2.client.sendRpc(AppsRegister, { manifest: APP_MANIFEST }),
-    );
-    expect(rpcErrorCode(exit)).toBe(ForbiddenError.code);
-  });
-}
-
-describe("app-session-scoping — TM authority via remote-app connection", () => {
+describe("app-session-scoping — app authority via owning app principal", () => {
   it(
-    "registered app connection passes the TM gate",
-    registeredAppConnPassesTmGate,
+    "the owning app connection passes the app ownership gate",
+    owningAppConnPassesTmGate,
     20_000,
   );
-  it("peer connection fails the TM gate", peerConnFailsTmGate, 20_000);
-  it("disconnect drops the registration", disconnectDropsRegistration, 20_000);
   it(
-    "rejects hijack: re-register from a different connection while the old one is alive",
-    reregisterRejectedWhileOldConnectionAlive,
+    "a non-owning app fails the app ownership gate",
+    nonOwningAppFailsAppOwnershipGate,
     20_000,
   );
 });
