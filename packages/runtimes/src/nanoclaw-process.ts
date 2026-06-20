@@ -16,7 +16,7 @@ import {
 import type { Process, Signal } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   Config,
   ConfigProvider,
@@ -25,11 +25,10 @@ import {
   Effect,
   Exit,
   Fiber,
-  Redacted,
   Scope,
   Stream,
 } from "effect";
-import type { AgentKey } from "@moltzap/protocol/identity";
+import { serializeMoltZapProfileConfig } from "./channel-plugin-install.js";
 
 // OneCLI gateway — nanoclaw's container-runner calls this for per-container
 // credential injection. Running locally from ~/.onecli/docker-compose.yml,
@@ -831,19 +830,7 @@ function writeNanoclawMoltZapProfileConfig(
             `write moltzap profile config ${configPath}`,
             fileSystem.writeFileString(
               configPath,
-              JSON.stringify(
-                {
-                  profiles: {
-                    [opts.agentName]: {
-                      agentId: opts.agentId,
-                      apiKey: Redacted.value(opts.apiKey),
-                      agentName: opts.agentName,
-                    },
-                  },
-                },
-                null,
-                2,
-              ),
+              serializeMoltZapProfileConfig(opts),
             ),
           ),
         ],

@@ -631,13 +631,6 @@ export class ConversationService {
         }
         const creatorOwner = creatorOpt.value.owner_user_id;
         for (const targetAgentId of input.targetAgentIds) {
-          if (!input.ownerByAgentId.has(targetAgentId)) {
-            return yield* Effect.fail(
-              new AgentNotFoundError({
-                message: `Agent ${targetAgentId} not found`,
-              }),
-            );
-          }
           const targetOwner = input.ownerByAgentId.get(targetAgentId);
           if (targetOwner === undefined) {
             return yield* Effect.fail(

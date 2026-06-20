@@ -17,7 +17,7 @@ by name AND aggregates them into `IDENTITY_PROPERTIES` for the
 
 ## Public surface
 
-### [`IDENTITY_PROPERTIES`](./index.ts#L23)
+### [`IDENTITY_PROPERTIES`](./index.ts#L22)
 
 _Variable_
 
@@ -27,8 +27,7 @@ export const IDENTITY_PROPERTIES: ReadonlyArray<
 > = [registerAuthorityPositive]
 ```
 
-All identity-layer property registrars, in suite walk order
-(authority-positive → authority-negative).
+All identity-layer property registrars, in suite walk order.
 
 ### [`registerAuthorityPositive`](./authority-positive.ts#L29)
 

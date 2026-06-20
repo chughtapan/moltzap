@@ -2,7 +2,7 @@
  * @file Public barrel for identity, agent, and contact protocol descriptors.
  */
 
-export {
+import {
   AgentId,
   AgentKey,
   InviteCode,
@@ -14,6 +14,30 @@ export {
   validateAgentCard,
   agentOwnershipSchema,
 } from "./agents/index.js";
+import {
+  ContactId,
+  ContactsList,
+  ContactsAdd,
+  ContactsAccept,
+  ContactRequestNotificationDefinition,
+  ContactAcceptedNotificationDefinition,
+  NotInContactsError,
+  ContactNotFoundError,
+  ContactPolicyAllowsReach,
+} from "./contacts/index.js";
+
+export {
+  AgentId,
+  AgentKey,
+  InviteCode,
+  Register,
+  AgentCardSchema,
+  AgentsList,
+  AgentNotFoundError,
+  validateAgent,
+  validateAgentCard,
+  agentOwnershipSchema,
+};
 export type { Agent, AgentCard } from "./agents/index.js";
 
 export {
@@ -44,17 +68,8 @@ export {
   NotInContactsError,
   ContactNotFoundError,
   ContactPolicyAllowsReach,
-} from "./contacts/index.js";
+};
 export type { ContactPolicyAllowsReachValue } from "./contacts/index.js";
-
-import { AgentsList } from "./agents/index.js";
-import {
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactRequestNotificationDefinition,
-  ContactAcceptedNotificationDefinition,
-} from "./contacts/index.js";
 
 /** Identity RPC catalog accepted by agent clients. */
 export const identityRpcMethods = [

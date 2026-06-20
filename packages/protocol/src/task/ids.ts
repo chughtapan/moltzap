@@ -1,5 +1,5 @@
 import { Schema, type Brand } from "effect";
-import { formatString } from "#transport";
+import { formatString, errorPayloadFields } from "#transport";
 
 export type TaskId = string & Brand.Brand<"TaskId">;
 export const TaskId: Schema.Schema<TaskId, string> = formatString("uuid").pipe(
@@ -14,10 +14,7 @@ export const TaskId: Schema.Schema<TaskId, string> = formatString("uuid").pipe(
  */
 export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
   "TaskNotFound",
-  {
-    message: Schema.optional(Schema.String),
-    data: Schema.optional(Schema.Unknown),
-  },
+  errorPayloadFields,
 ) {
   static readonly message = "Task not found";
 }

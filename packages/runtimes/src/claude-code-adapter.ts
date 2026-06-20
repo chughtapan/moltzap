@@ -31,17 +31,7 @@
 import { Command, FileSystem, Path } from "@effect/platform";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import { NodeContext } from "@effect/platform-node";
-import {
-  Data,
-  Effect,
-  Exit,
-  Fiber,
-  Option,
-  Redacted,
-  Scope,
-  Stream,
-  pipe,
-} from "effect";
+import { Data, Effect, Exit, Fiber, Option, Scope, Stream, pipe } from "effect";
 
 import type {
   Runtime,
@@ -59,6 +49,7 @@ import {
   installChannelPlugin,
   resolveChannelDependency,
   seedWorkspaceFiles,
+  serializeMoltZapProfileConfig,
 } from "./channel-plugin-install.js";
 import {
   resolveClaudeCodeChannelDistDir,
@@ -129,7 +120,6 @@ interface AdapterState {
 }
 
 const TERM_WAIT_MS = 10_000;
-const JSON_INDENT_SPACES = 2;
 const UTF8_DECODER = new TextDecoder("utf-8");
 
 function consumeProcessStream(
@@ -294,19 +284,7 @@ function writeMoltZapProfileConfig(
     yield* fileSystem.makeDirectory(configDir, { recursive: true });
     yield* fileSystem.writeFileString(
       path.join(configDir, "config.json"),
-      JSON.stringify(
-        {
-          profiles: {
-            [input.agentName]: {
-              agentId: input.agentId,
-              apiKey: Redacted.value(input.apiKey),
-              agentName: input.agentName,
-            },
-          },
-        },
-        null,
-        JSON_INDENT_SPACES,
-      ),
+      serializeMoltZapProfileConfig(input),
     );
   });
 }
@@ -408,7 +386,6 @@ function spawnConfiguredClaude(input: {
   readonly deps: ClaudeCodeAdapterDeps;
   readonly stateDir: string;
   readonly mcpConfigPath: string;
-  readonly spawnInput: SpawnInput;
   readonly logBuffer: { value: string };
 }): Effect.Effect<SpawnedProcess, Error, Path.Path> {
   return Path.Path.pipe(
@@ -417,9 +394,7 @@ function spawnConfiguredClaude(input: {
         claudeBin: input.deps.claudeBin,
         args: buildClaudeArgs(path, input.stateDir, input.mcpConfigPath),
         cwd: input.stateDir,
-        env: {
-          CLAUDE_CODE_HOME: input.stateDir,
-        },
+        env: { CLAUDE_CODE_HOME: input.stateDir },
         logBuffer: input.logBuffer,
       }),
     ),
@@ -493,7 +468,6 @@ export class ClaudeCodeAdapter implements Runtime {
         deps: this.deps,
         stateDir,
         mcpConfigPath,
-        spawnInput: input,
         logBuffer,
       });
 

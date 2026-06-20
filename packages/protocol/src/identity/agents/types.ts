@@ -1,6 +1,7 @@
-import { Either, Schema } from "effect";
+import { Schema } from "effect";
 
 import {
+  closedStructGuard,
   dateTimeStringSchema,
   stringEnum,
   errorPayloadFields,
@@ -51,16 +52,8 @@ const AgentOwnershipSchema = Schema.Struct({
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 
-const closedGuard =
-  <A, I>(schema: Schema.Schema<A, I>) =>
-  (value: unknown): value is A =>
-    Either.match(
-      Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" }),
-      { onLeft: () => false, onRight: () => true },
-    );
-
-export const validateAgent = closedGuard(AgentSchema);
-export const validateAgentCard = closedGuard(AgentCardSchema);
+export const validateAgent = closedStructGuard(AgentSchema);
+export const validateAgentCard = closedStructGuard(AgentCardSchema);
 
 export function agentOwnershipSchema(): typeof AgentOwnershipSchema {
   return AgentOwnershipSchema;

@@ -96,6 +96,7 @@ export function makeHandlerAppEndpoint(args: {
   readonly id: ConnectionId;
   readonly handlers: AppEndpointHandlers;
 }): AppEndpoint {
+  const defect = (op: string) => defectingOp(args.id, "handler-endpoint", op);
   const callback = (
     request: ReverseCallbackRequest,
   ): ReturnType<Originator["callback"]> => {
@@ -108,16 +109,15 @@ export function makeHandlerAppEndpoint(args: {
     if (isTaskCreateRequest(request)) {
       return args.handlers[TaskCreate.name](request.params);
     }
-    return defectingOp(args.id, "handler-endpoint", "originator.callback");
+    return defect("originator.callback");
   };
   const originator: Originator = {
-    call: () => defectingOp(args.id, "handler-endpoint", "originator.call"),
+    call: () => defect("originator.call"),
     callback,
-    notify: () => defectingOp(args.id, "handler-endpoint", "originator.notify"),
+    notify: () => defect("originator.notify"),
     sink: {
       parser: makeInertParser(args.id, "handler-endpoint"),
-      inject: () =>
-        defectingOp(args.id, "handler-endpoint", "originator.sink.inject"),
+      inject: () => defect("originator.sink.inject"),
     },
   };
 

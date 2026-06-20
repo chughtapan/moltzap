@@ -5,14 +5,12 @@ import {
   ListLimitSchema,
   listCursorSchema,
   errorPayloadFields,
-} from "#transport";
-import { AgentPrincipal } from "#identity/principals";
-import {
   ConflictError,
   ForbiddenError,
   InvalidParamsError,
   UnauthorizedError,
 } from "#transport";
+import { AgentPrincipal } from "#identity/principals";
 import { UserId } from "#identity/users";
 import { ContactId } from "./ids.js";
 
@@ -65,7 +63,7 @@ export const ContactsAdd = defineRpc({
   name: "agent/identity/contacts/add",
   params: Schema.Struct({
     contactUserId: UserId,
-    relationship: Schema.optional(Schema.String),
+    relationship: Schema.optional(RelationshipType),
   }),
   result: Schema.Struct({ contact: ContactSchema }),
   requires: [AgentPrincipal],
@@ -80,20 +78,12 @@ export const ContactsAccept = defineRpc({
   errors: [ContactNotFoundError, ForbiddenError, UnauthorizedError],
 });
 
-const ContactRequestNotificationSchema = Schema.Struct({
-  contact: ContactSchema,
-});
-
-const ContactAcceptedNotificationSchema = Schema.Struct({
-  contact: ContactSchema,
-});
-
 export const ContactRequestNotificationDefinition = defineNotification({
   name: "agent/identity/contact-requested",
-  params: ContactRequestNotificationSchema,
+  params: Schema.Struct({ contact: ContactSchema }),
 });
 
 export const ContactAcceptedNotificationDefinition = defineNotification({
   name: "agent/identity/contact-accepted",
-  params: ContactAcceptedNotificationSchema,
+  params: Schema.Struct({ contact: ContactSchema }),
 });

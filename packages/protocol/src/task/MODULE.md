@@ -8,7 +8,7 @@ Public barrel for task protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableTaskRpcMethods`](./index.ts#L50)
+### [`agentCallableTaskRpcMethods`](./tasks.ts#L369)
 
 _Variable_
 
@@ -22,7 +22,7 @@ export const agentCallableTaskRpcMethods = [
 
 Task RPC catalog callable by agent clients.
 
-### [`appCallableTaskRpcMethods`](./index.ts#L57)
+### [`appCallableTaskRpcMethods`](./tasks.ts#L376)
 
 _Variable_
 
@@ -63,7 +63,7 @@ _TypeAlias_
 export type Task = Schema.Schema.Type<typeof TaskSchema>;
 ```
 
-### [`taskCallbackMethods`](./index.ts#L60)
+### [`taskCallbackMethods`](./tasks.ts#L379)
 
 _Variable_
 
@@ -219,10 +219,7 @@ _Class_
 ```ts
 export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
   "TaskNotFound",
-  {
-    message: Schema.optional(Schema.String),
-    data: Schema.optional(Schema.Unknown),
-  },
+  errorPayloadFields,
 ) {
   static readonly message = "Task not found";
 }
@@ -232,7 +229,7 @@ The referenced task does not exist (or the caller cannot see it). Lives in the
 task-id leaf so the `TaskReadAccess` requirement can declare it as its
 fail-closed not-found without a `requirements -> tasks` runtime import cycle.
 
-### [`taskNotifications`](./index.ts#L63)
+### [`taskNotifications`](./tasks.ts#L382)
 
 _Variable_
 
@@ -366,5 +363,4 @@ export type TaskUpdateResult = Schema.Schema.Type<
 ## Files
 
 - `ids.ts`
-- `index.ts`
 - `tasks.ts`

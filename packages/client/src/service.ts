@@ -179,6 +179,12 @@ export type ServiceRpcError =
   | RpcTimeoutError
   | NotConnectedError;
 
+const agentNotFound = (agentName: string): AgentNotFoundError =>
+  new AgentNotFoundError({
+    message: `Agent not found: ${agentName}`,
+    data: { agentName },
+  });
+
 export interface ConversationMeta {
   id: string;
   type: string;
@@ -856,12 +862,7 @@ export class MoltZapService {
       if (entry === undefined) {
         const agent = yield* this.findVisibleAgentByName(agentName);
         if (!agent) {
-          return yield* Effect.fail(
-            new AgentNotFoundError({
-              message: `Agent not found: ${agentName}`,
-              data: { agentName },
-            }),
-          );
+          return yield* Effect.fail(agentNotFound(agentName));
         }
         const createResult = yield* this.call(TaskRequest.name, {
           appId: DEFAULT_APP_ID,
@@ -914,12 +915,7 @@ export class MoltZapService {
         if (result.nextCursor === undefined) break;
         cursor = result.nextCursor;
       }
-      return yield* Effect.fail(
-        new AgentNotFoundError({
-          message: `Agent not found: ${agentName}`,
-          data: { agentName },
-        }),
-      );
+      return yield* Effect.fail(agentNotFound(agentName));
     });
   }
 
@@ -936,6 +932,14 @@ export class MoltZapService {
     });
   }
 
+  private agentListParams(
+    cursor: ListCursor | undefined,
+  ): ParamsOf<typeof AgentsList> {
+    return cursor === undefined
+      ? { limit: AGENT_LOOKUP_PAGE_SIZE }
+      : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
+  }
+
   private cacheVisibleAgentNamesForIds(
     agentIds: ReadonlySet<string>,
   ): Effect.Effect<void, ServiceRpcError> {
@@ -943,10 +947,7 @@ export class MoltZapService {
       const missing = new Set(agentIds);
       let cursor: ListCursor | undefined = undefined;
       for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
-        const params: ParamsOf<typeof AgentsList> =
-          cursor === undefined
-            ? { limit: AGENT_LOOKUP_PAGE_SIZE }
-            : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
+        const params = this.agentListParams(cursor);
         const result = yield* this.call(AgentsList.name, params);
         yield* this.cacheAgentNames(result.agents);
         for (const agent of result.agents) missing.delete(agent.id);
@@ -962,10 +963,7 @@ export class MoltZapService {
     return Effect.gen(this, function* () {
       let cursor: ListCursor | undefined = undefined;
       for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
-        const params: ParamsOf<typeof AgentsList> =
-          cursor === undefined
-            ? { limit: AGENT_LOOKUP_PAGE_SIZE }
-            : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
+        const params = this.agentListParams(cursor);
         const result = yield* this.call(AgentsList.name, params);
         yield* this.cacheAgentNames(result.agents);
         const hit = result.agents.find((agent) => agent.name === agentName);

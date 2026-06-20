@@ -15,8 +15,11 @@ import type {
   ConversationListItem,
 } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
+import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
+import type {
+  AnyNotificationDefinition,
+  ServerHandler,
+} from "@moltzap/protocol/socket/catalog";
 import type { AppContext, AgentContext } from "#socket";
 import { ConversationServiceTag } from "#conversation";
 import { TaskServiceTag } from "#task";
@@ -103,23 +106,42 @@ interface ArchiveFanoutInput {
   readonly archivedAt: string;
 }
 
-function fanoutArchive(input: ArchiveFanoutInput) {
+/**
+ * Broadcast a conversation-scoped notification to the current participant
+ * set, tolerating a participant-lookup failure (empty fan-out) so the
+ * mutation result is still returned to the caller.
+ */
+function fanoutToConversationParticipants<D extends AnyNotificationDefinition>(
+  conversationId: ConversationId,
+  definition: D,
+  params: NotificationParamsOf<D>,
+) {
   return Effect.gen(function* () {
     const conversationService = yield* ConversationServiceTag;
     const recipientAgentIds = yield* conversationService
-      .getParticipantAgentIds(input.conversationId)
+      .getParticipantAgentIds(conversationId)
       .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
-      ConversationArchivedNotificationDefinition,
+      definition,
+      params,
       {
-        taskId: input.taskId,
-        conversationId: input.conversationId,
-        archivedAt: input.archivedAt,
+        forConversation: conversationId,
       },
-      { forConversation: input.conversationId },
     );
-  }).pipe(Effect.withSpan("conversation.archive.fanout"));
+  });
+}
+
+function fanoutArchive(input: ArchiveFanoutInput) {
+  return fanoutToConversationParticipants(
+    input.conversationId,
+    ConversationArchivedNotificationDefinition,
+    {
+      taskId: input.taskId,
+      conversationId: input.conversationId,
+      archivedAt: input.archivedAt,
+    },
+  ).pipe(Effect.withSpan("conversation.archive.fanout"));
 }
 
 interface UnarchiveFanoutInput {
@@ -128,21 +150,14 @@ interface UnarchiveFanoutInput {
 }
 
 function fanoutUnarchive(input: UnarchiveFanoutInput) {
-  return Effect.gen(function* () {
-    const conversationService = yield* ConversationServiceTag;
-    const recipientAgentIds = yield* conversationService
-      .getParticipantAgentIds(input.conversationId)
-      .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
-    yield* broadcastNotificationToAgents(
-      recipientAgentIds,
-      ConversationUnarchivedNotificationDefinition,
-      {
-        taskId: input.taskId,
-        conversationId: input.conversationId,
-      },
-      { forConversation: input.conversationId },
-    );
-  }).pipe(Effect.withSpan("conversation.unarchive.fanout"));
+  return fanoutToConversationParticipants(
+    input.conversationId,
+    ConversationUnarchivedNotificationDefinition,
+    {
+      taskId: input.taskId,
+      conversationId: input.conversationId,
+    },
+  ).pipe(Effect.withSpan("conversation.unarchive.fanout"));
 }
 
 function conversationListBody(

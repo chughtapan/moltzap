@@ -18,8 +18,7 @@ import {
 } from "./trace-capture-bundle.js";
 
 import type { AnyServerRpcDefinition } from "@moltzap/protocol/socket/catalog";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,

@@ -17,8 +17,7 @@ import { registerAuthorityPositive } from "./authority-positive.js";
 export { registerAuthorityPositive };
 
 /**
- * All identity-layer property registrars, in suite walk order
- * (authority-positive → authority-negative).
+ * All identity-layer property registrars, in suite walk order.
  */
 export const IDENTITY_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void

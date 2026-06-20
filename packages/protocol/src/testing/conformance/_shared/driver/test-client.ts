@@ -26,19 +26,23 @@ import type {
 import { MessagesAuthorize } from "#message";
 import { TaskCreate } from "#task";
 import { DispatchAuthorize } from "#message/dispatch";
-import { MoltZapAgentClient } from "#socket";
-import { MoltZapAppClient, type AppCallbackContext } from "#socket";
-import type { AppCallbackHandlers } from "#socket";
-import type { ClientDefinitionPayload, ClientDefinitionSuccess } from "#socket";
-import type { CloseInfo } from "#socket";
+import {
+  MoltZapAgentClient,
+  MoltZapAppClient,
+  type AppCallbackContext,
+  type AppCallbackHandlers,
+  type ClientDefinitionPayload,
+  type ClientDefinitionSuccess,
+  type CloseInfo,
+} from "#socket";
 import {
   NotConnectedError,
+  RpcTimeoutError as ProtocolRpcTimeoutError,
   type NotificationDelivery,
   type ParamsOf,
   type ResultOf,
 } from "#transport";
 import { AgentKey, AppKey } from "#identity";
-import { RpcTimeoutError as ProtocolRpcTimeoutError } from "#transport";
 import {
   RpcResponseError,
   RpcTimeoutError,
@@ -303,10 +307,7 @@ function rpcCallOptions(
   defaultTimeoutMs: number,
   opts?: { readonly timeoutMs?: number },
 ): { readonly timeoutMs: number } {
-  if (opts !== undefined && opts.timeoutMs !== undefined) {
-    return { timeoutMs: opts.timeoutMs };
-  }
-  return { timeoutMs: defaultTimeoutMs };
+  return { timeoutMs: opts?.timeoutMs ?? defaultTimeoutMs };
 }
 
 function clientBaseUrl(url: string): string {

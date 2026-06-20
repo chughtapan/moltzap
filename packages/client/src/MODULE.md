@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`ContextOptions`](./service.ts#L189)
+### [`ContextOptions`](./service.ts#L195)
 
 _Interface_
 
@@ -20,7 +20,7 @@ export interface ContextOptions {
 }
 ```
 
-### [`ConversationMeta`](./service.ts#L182)
+### [`ConversationMeta`](./service.ts#L188)
 
 _Interface_
 
@@ -33,7 +33,7 @@ export interface ConversationMeta {
 }
 ```
 
-### [`MoltZapService`](./service.ts#L318)
+### [`MoltZapService`](./service.ts#L324)
 
 _Class_
 

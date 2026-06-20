@@ -1,9 +1,7 @@
 import { Effect, Either } from "effect";
-import { AppKey } from "@moltzap/protocol/identity";
+import { AppKey, validateAppManifest } from "@moltzap/protocol/identity";
+import type { AppId, AppManifest } from "@moltzap/protocol/identity";
 import { UnauthorizedError } from "@moltzap/protocol/rpc";
-import { validateAppManifest } from "@moltzap/protocol/identity";
-import type { AppManifest } from "@moltzap/protocol/identity";
-import type { AppId } from "@moltzap/protocol/task";
 import type { Db } from "#db";
 import { catchSqlErrorAsDefect, takeFirstOrFail } from "#db";
 import { AppContext } from "#socket";

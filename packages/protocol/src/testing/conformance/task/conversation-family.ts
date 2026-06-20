@@ -34,8 +34,6 @@ import {
   type Conversation,
   type ConversationListItem,
 } from "#conversation";
-import type { AgentTestClient } from "../_shared/driver/test-client.js";
-import { type TestAgent } from "../_shared/test-fixtures.js";
 import { registerTestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
@@ -46,16 +44,12 @@ import {
   acquireClient,
   awaitOneNotification,
   deliveryViolation,
-  type NotificationBuffer,
+  type ConversationActor,
 } from "./_helpers.js";
 
 const CATEGORY = DELIVERY_CATEGORY;
 type FixtureError = ReturnType<typeof deliveryViolation>;
-interface Actor {
-  readonly agent: TestAgent;
-  readonly client: AgentTestClient;
-  readonly notifications: NotificationBuffer;
-}
+type Actor = ConversationActor;
 
 const fixtureMap =
   (property: string) =>
@@ -68,6 +62,22 @@ const acquireActor = (
   name: string,
 ) => acquireClient(ctx, name).pipe(Effect.mapError(fixtureMap(property)));
 
+// Run an RPC effect, mapping any failure (wire error or transport fault)
+// into a `deliveryViolation` tagged `${label}: <error tag>`.
+const sendOrViolate = <A>(
+  property: string,
+  label: string,
+  effect: Effect.Effect<A, { readonly _tag?: string }>,
+): Effect.Effect<A, FixtureError> =>
+  effect.pipe(
+    Effect.either,
+    Effect.flatMap((res) =>
+      requireRight(res, (e) =>
+        deliveryViolation(property, `${label}: ${e._tag ?? String(e)}`),
+      ),
+    ),
+  );
+
 // ─── TaskRequest ──────────────────────────────────────────────────────
 
 const TASK_CREATE_PROPERTY = "task-create";
@@ -79,22 +89,14 @@ const createTaskCreate = (
   { task: Task; conversation: Conversation | null },
   FixtureError
 > =>
-  alice.client
-    .sendRpc(TaskRequest, {
+  sendOrViolate(
+    TASK_CREATE_PROPERTY,
+    "app/task/create",
+    alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agent.agentId as AgentId],
-    })
-    .pipe(
-      Effect.either,
-      Effect.flatMap((res) =>
-        requireRight(res, (e) =>
-          deliveryViolation(
-            TASK_CREATE_PROPERTY,
-            `app/task/create: ${e._tag ?? String(e)}`,
-          ),
-        ),
-      ),
-    );
+    }),
+  );
 
 const assertTaskCreateShape = (payload: {
   task: { status: string };
@@ -303,37 +305,24 @@ const sendTaskLeave = (
   taskId: TaskId,
   context: string,
 ): Effect.Effect<void, FixtureError> =>
-  alice.client.sendRpc(TaskLeave, { taskId }).pipe(
-    Effect.either,
-    Effect.flatMap((res) =>
-      requireRight(res, (e) =>
-        deliveryViolation(
-          TASK_LEAVE_PROPERTY,
-          `${context}: ${e._tag ?? String(e)}`,
-        ),
-      ),
-    ),
-    Effect.asVoid,
-  );
+  sendOrViolate(
+    TASK_LEAVE_PROPERTY,
+    context,
+    alice.client.sendRpc(TaskLeave, { taskId }),
+  ).pipe(Effect.asVoid);
 
 const createSelfOnlyTask = (
   alice: Actor,
   property: string,
 ): Effect.Effect<Task, FixtureError> =>
-  alice.client
-    .sendRpc(TaskRequest, { appId: DEFAULT_APP_ID, invitedAgentIds: [] })
-    .pipe(
-      Effect.either,
-      Effect.flatMap((res) =>
-        requireRight(res, (e) =>
-          deliveryViolation(
-            property,
-            `app/task/create: ${e._tag ?? String(e)}`,
-          ),
-        ),
-      ),
-      Effect.map((r) => r.task),
-    );
+  sendOrViolate(
+    property,
+    "app/task/create",
+    alice.client.sendRpc(TaskRequest, {
+      appId: DEFAULT_APP_ID,
+      invitedAgentIds: [],
+    }),
+  ).pipe(Effect.map((r) => r.task));
 
 export function registerTaskLeave(ctx: ConformanceRunContext): void {
   registerProperty(
@@ -367,43 +356,28 @@ const createTaskWithInitialConversation = (
   { task: Task; conversation: Conversation | null },
   FixtureError
 > =>
-  alice.client
-    .sendRpc(TaskRequest, {
+  sendOrViolate(
+    property,
+    "app/task/create",
+    alice.client.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agent.agentId as AgentId],
       initialConversation: {
         name,
         participants: [bob.agent.agentId as AgentId],
       },
-    })
-    .pipe(
-      Effect.either,
-      Effect.flatMap((res) =>
-        requireRight(res, (e) =>
-          deliveryViolation(
-            property,
-            `app/task/create: ${e._tag ?? String(e)}`,
-          ),
-        ),
-      ),
-    );
+    }),
+  );
 
 const listConversations = (
   alice: Actor,
   property: string,
 ): Effect.Effect<readonly ConversationListItem[], FixtureError> =>
-  alice.client.sendRpc(ConversationList, {}).pipe(
-    Effect.either,
-    Effect.flatMap((res) =>
-      requireRight(res, (e) =>
-        deliveryViolation(
-          property,
-          `agent/conversation/list: ${e._tag ?? String(e)}`,
-        ),
-      ),
-    ),
-    Effect.map((r) => r.items),
-  );
+  sendOrViolate(
+    property,
+    "agent/conversation/list",
+    alice.client.sendRpc(ConversationList, {}),
+  ).pipe(Effect.map((r) => r.items));
 
 const assertItemMatches = (
   items: readonly ConversationListItem[],

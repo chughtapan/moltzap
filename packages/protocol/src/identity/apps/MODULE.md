@@ -40,7 +40,7 @@ _Variable_
 export type AppKey = Redacted.Redacted<AppKeyValue>
 ```
 
-### [`AppManifest`](./manifest.ts#L125)
+### [`AppManifest`](./manifest.ts#L129)
 
 _TypeAlias_
 
@@ -48,7 +48,7 @@ _TypeAlias_
 export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
 ```
 
-### [`AppManifestValidationResult`](./manifest.ts#L134)
+### [`AppManifestValidationResult`](./manifest.ts#L138)
 
 _TypeAlias_
 
@@ -79,7 +79,7 @@ export const manifestPolicyCanaries =
 
 Aggregate so each binding is referenced (no unused-variable lint).
 
-### [`validateAppManifest`](./manifest.ts#L146)
+### [`validateAppManifest`](./manifest.ts#L150)
 
 _Function_
 

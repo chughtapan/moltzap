@@ -145,37 +145,40 @@ export class NetworkSendService {
     payload: OpaquePayload,
     opts: BroadcastOptions = {},
   ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
+    return this.fanOut(agentIds, opts, (conn, cid, target) =>
+      this.forkBroadcastWrite({ cid, conn, target, payload, options: opts }),
+    );
+  }
+
+  /**
+   * Shared per-agent / per-connection fan-out driver. For every agent in
+   * `agentIds`, resolves its live connections, runs the `connectionCanReceive`
+   * gate, and invokes `fire` on each gate-passing connection. An agent lands in
+   * `delivered` when at least one of its connections passed the gate.
+   */
+  private fanOut(
+    agentIds: readonly AgentId[],
+    options: BroadcastOptions,
+    fire: (
+      conn: AgentConnection,
+      cid: ConnectionId,
+      target: AgentId,
+    ) => Effect.Effect<void>,
+  ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
     return Effect.gen(this, function* () {
       const delivered: AgentId[] = [];
       for (const target of agentIds) {
-        const reached = yield* this.broadcastToAgent(target, payload, opts);
+        const connIds = yield* this.resolver.resolveAll(target);
+        let reached = false;
+        for (const cid of HashSet.values(connIds)) {
+          const connOpt = yield* this.connectionCanReceive(cid, options);
+          if (Option.isNone(connOpt)) continue;
+          yield* fire(connOpt.value, cid, target);
+          reached = true;
+        }
         if (reached) delivered.push(target);
       }
       return { delivered };
-    });
-  }
-
-  private broadcastToAgent(
-    target: AgentId,
-    payload: OpaquePayload,
-    options: BroadcastOptions,
-  ): Effect.Effect<boolean, never, never> {
-    return Effect.gen(this, function* () {
-      const connIds = yield* this.resolver.resolveAll(target);
-      let agentReached = false;
-      for (const cid of HashSet.values(connIds)) {
-        const connOpt = yield* this.connectionCanReceive(cid, options);
-        if (Option.isNone(connOpt)) continue;
-        yield* this.forkBroadcastWrite({
-          cid,
-          conn: connOpt.value,
-          target,
-          payload,
-          options,
-        });
-        agentReached = true;
-      }
-      return agentReached;
     });
   }
 
@@ -250,21 +253,11 @@ export class NetworkSendService {
     params: NotificationParamsOf<D>,
     options: BroadcastOptions = {},
   ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
-    return Effect.gen(this, function* () {
-      const delivered: AgentId[] = [];
-      for (const target of agentIds) {
-        const connIds = yield* this.resolver.resolveAll(target);
-        let reached = false;
-        for (const cid of HashSet.values(connIds)) {
-          const connOpt = yield* this.connectionCanReceive(cid, options);
-          if (Option.isNone(connOpt)) continue;
-          this.forkNotificationFire(connOpt.value, cid, definition, params);
-          reached = true;
-        }
-        if (reached) delivered.push(target);
-      }
-      return { delivered };
-    });
+    return this.fanOut(agentIds, options, (conn, cid) =>
+      Effect.sync(() =>
+        this.forkNotificationFire(conn, cid, definition, params),
+      ),
+    );
   }
 
   private forkNotificationFire<D extends AnyNotificationDefinition>(

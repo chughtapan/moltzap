@@ -66,21 +66,14 @@ export const SendTarget = Schema.transformOrFail(
   {
     strict: true,
     decode: (raw, _options, ast) => {
+      const expected = `expected ${SEND_TARGET_PREFIX}<taskId>:<conversationId>`;
       if (!raw.startsWith(SEND_TARGET_PREFIX)) {
-        return parseStringIssue(
-          ast,
-          raw,
-          `expected ${SEND_TARGET_PREFIX}<taskId>:<conversationId>`,
-        );
+        return parseStringIssue(ast, raw, expected);
       }
       const rest = raw.slice(SEND_TARGET_PREFIX.length);
       const parts = rest.split(":");
       if (parts.length !== 2 || parts[0] === "" || parts[1] === "") {
-        return parseStringIssue(
-          ast,
-          raw,
-          `expected ${SEND_TARGET_PREFIX}<taskId>:<conversationId>`,
-        );
+        return parseStringIssue(ast, raw, expected);
       }
       return Effect.succeed({
         taskId: parts[0]!,
@@ -117,32 +110,18 @@ export const StartParticipant = Schema.transformOrFail(
   {
     strict: true,
     decode: (raw, _options, ast) => {
+      const expected = `expected ${PARTICIPANT_PREFIX}<name-or-agent-id>`;
       if (!raw.startsWith(PARTICIPANT_PREFIX)) {
-        return parseStringIssue(
-          ast,
-          raw,
-          `expected ${PARTICIPANT_PREFIX}<name-or-agent-id>`,
-        );
+        return parseStringIssue(ast, raw, expected);
       }
       const rest = raw.slice(PARTICIPANT_PREFIX.length);
       if (rest.length === 0) {
-        return parseStringIssue(
-          ast,
-          raw,
-          `expected ${PARTICIPANT_PREFIX}<name-or-agent-id>`,
-        );
+        return parseStringIssue(ast, raw, expected);
       }
       if (UUID_V4_RE.test(rest)) {
         return Schema.decodeUnknown(AgentId)(rest).pipe(
           Effect.map((id) => ({ kind: "id" as const, id })),
-          Effect.mapError(
-            () =>
-              new ParseResult.Type(
-                ast,
-                raw,
-                `expected ${PARTICIPANT_PREFIX}<name-or-agent-id>`,
-              ),
-          ),
+          Effect.mapError(() => new ParseResult.Type(ast, raw, expected)),
         );
       }
       return Schema.decodeUnknown(AgentName)(rest).pipe(
@@ -151,14 +130,7 @@ export const StartParticipant = Schema.transformOrFail(
           token: raw,
           name,
         })),
-        Effect.mapError(
-          () =>
-            new ParseResult.Type(
-              ast,
-              raw,
-              `expected ${PARTICIPANT_PREFIX}<name-or-agent-id>`,
-            ),
-        ),
+        Effect.mapError(() => new ParseResult.Type(ast, raw, expected)),
       );
     },
     encode: (participant) =>

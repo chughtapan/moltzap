@@ -55,11 +55,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
         const failure = leftOrNull(outcome);
         if (failure !== null) {
           return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `authorized agent/task/list failed: ${failure._tag}`,
-            }),
+            invariant(`authorized agent/task/list failed: ${failure._tag}`),
           );
         }
       }).pipe(Effect.withSpan("registerAuthorityPositive")),

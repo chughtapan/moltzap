@@ -16,7 +16,7 @@ _Variable_
 export const agentCallableDispatchRpcMethods = [DispatchRequest] as const
 ```
 
-### [`agentCallableMessageRpcMethods`](./messages.ts#L158)
+### [`agentCallableMessageRpcMethods`](./messages.ts#L156)
 
 _Variable_
 
@@ -93,7 +93,7 @@ _Variable_
 export const dispatchCallbackMethods = [DispatchAuthorize] as const
 ```
 
-### [`DispatchDecision`](./messages.ts#L82)
+### [`DispatchDecision`](./messages.ts#L78)
 
 _TypeAlias_
 
@@ -254,7 +254,7 @@ _Variable_
 export type LeaseId = string & Brand.Brand<"LeaseId">
 ```
 
-### [`Message`](./messages.ts#L56)
+### [`Message`](./messages.ts#L60)
 
 _TypeAlias_
 
@@ -264,7 +264,7 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](./messages.ts#L199)
+### [`messageCallbackMethods`](./messages.ts#L197)
 
 _Variable_
 
@@ -274,7 +274,7 @@ export const messageCallbackMethods = [MessagesAuthorize] as const
 
 Message callback RPC catalog.
 
-### [`MessageNotFoundError`](./messages.ts#L37)
+### [`MessageNotFoundError`](./messages.ts#L41)
 
 _Class_
 
@@ -289,7 +289,7 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
 
 The referenced message does not exist, such as a missing reply target.
 
-### [`messageNotifications`](./messages.ts#L221)
+### [`messageNotifications`](./messages.ts#L219)
 
 _Variable_
 
@@ -301,7 +301,7 @@ export const messageNotifications = [
 
 Message notification catalog.
 
-### [`MessageReceivedNotification`](./messages.ts#L207)
+### [`MessageReceivedNotification`](./messages.ts#L205)
 
 _TypeAlias_
 
@@ -313,7 +313,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L215)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L213)
 
 _Variable_
 
@@ -326,7 +326,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`MessagesAuthorize`](./messages.ts#L190)
+### [`MessagesAuthorize`](./messages.ts#L188)
 
 _Variable_
 
@@ -342,7 +342,7 @@ export const MessagesAuthorize = defineRpc({
 
 Server callback asking an app for the per-message fan-out verdict.
 
-### [`MessagesList`](./messages.ts#L149)
+### [`MessagesList`](./messages.ts#L147)
 
 _Variable_
 
@@ -358,7 +358,7 @@ export const MessagesList = defineRpc({
 
 List messages in a conversation with cursor-based pagination.
 
-### [`MessagesSend`](./messages.ts#L109)
+### [`MessagesSend`](./messages.ts#L107)
 
 _Variable_
 
@@ -396,32 +396,34 @@ export type Part = Schema.Schema.Type<typeof PartSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](./messages.ts#L87)
+### [`validateDispatchDecision`](./messages.ts#L83)
 
 _Variable_
 
 ```ts
-export const validateDispatchDecision = closedGuard(DispatchDecisionSchema)
+export const validateDispatchDecision = closedStructGuard(
+  DispatchDecisionSchema,
+)
 ```
 
 Return true when a value is a closed dispatch decision.
 
-### [`validateMessage`](./messages.ts#L67)
+### [`validateMessage`](./messages.ts#L63)
 
 _Variable_
 
 ```ts
-export const validateMessage = closedGuard(MessageSchema)
+export const validateMessage = closedStructGuard(MessageSchema)
 ```
 
 Return true when the value is a closed message row.
 
-### [`validateTextPart`](./parts.ts#L82)
+### [`validateTextPart`](./parts.ts#L74)
 
 _Variable_
 
 ```ts
-export const validateTextPart = closedGuard(TextPartSchema)
+export const validateTextPart = closedStructGuard(TextPartSchema)
 ```
 
 Return true when the value is a closed text part.

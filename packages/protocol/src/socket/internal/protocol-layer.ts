@@ -12,15 +12,13 @@ export const makeServerProtocolLayer = (options: {
   readonly disconnects: Mailbox.Mailbox<number>;
   readonly sinkReady: Deferred.Deferred<ChannelSink>;
 }): Layer.Layer<RpcServer.Protocol> => {
-  const builder = makeServerChannelProtocol({
-    write: options.write,
-    disconnects: options.disconnects,
-  });
+  const { write, disconnects, sinkReady } = options;
+  const builder = makeServerChannelProtocol({ write, disconnects });
   return Layer.scoped(
     RpcServer.Protocol,
     RpcServer.Protocol.make((write) =>
       builder(write).pipe(
-        Effect.tap((built) => Deferred.succeed(options.sinkReady, built.sink)),
+        Effect.tap((built) => Deferred.succeed(sinkReady, built.sink)),
         Effect.map((built) => built.impl),
       ),
     ),

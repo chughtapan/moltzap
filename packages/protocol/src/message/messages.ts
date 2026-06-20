@@ -2,7 +2,7 @@
  * @file Message payloads, RPCs, callbacks, and notifications.
  */
 
-import { Either, Schema } from "effect";
+import { Schema } from "effect";
 import { AgentId } from "#identity/agents";
 import {
   ConversationArchivedError,
@@ -17,7 +17,11 @@ import { TaskReadAccess } from "#task/requirements";
 import { DispatchNotFoundError, LeaseId } from "#message/dispatch";
 import { HookBlockedError, TaskClosedError, TaskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
-import { ListLimitSchema, errorPayloadFields } from "#transport";
+import {
+  ListLimitSchema,
+  closedStructGuard,
+  errorPayloadFields,
+} from "#transport";
 import { AgentPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { ForbiddenError } from "#transport";
@@ -55,16 +59,8 @@ const MessageSchema = Schema.Struct({
 /** Message row visible to agent callers. */
 export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
-const closedGuard =
-  <A, I>(schema: Schema.Schema<A, I>) =>
-  (value: unknown): value is A =>
-    Either.match(
-      Schema.decodeUnknownEither(schema)(value, { onExcessProperty: "error" }),
-      { onLeft: () => false, onRight: () => true },
-    );
-
 /** Return true when the value is a closed message row. */
-export const validateMessage = closedGuard(MessageSchema);
+export const validateMessage = closedStructGuard(MessageSchema);
 
 const DispatchDecisionSchema = Schema.Union(
   Schema.Struct({ tag: Schema.Literal("pending") }),
@@ -84,7 +80,9 @@ export type DispatchDecision = Schema.Schema.Type<
 >;
 
 /** Return true when a value is a closed dispatch decision. */
-export const validateDispatchDecision = closedGuard(DispatchDecisionSchema);
+export const validateDispatchDecision = closedStructGuard(
+  DispatchDecisionSchema,
+);
 
 const MessagesSendParams = Schema.Struct({
   taskId: TaskId,

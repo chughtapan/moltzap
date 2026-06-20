@@ -8,7 +8,7 @@ Public barrel for identity, agent, and contact protocol descriptors.
 
 ## Public surface
 
-### [`identityNotifications`](./index.ts#L68)
+### [`identityNotifications`](./index.ts#L83)
 
 _Variable_
 
@@ -21,7 +21,7 @@ export const identityNotifications = [
 
 Identity notification catalog emitted by the server.
 
-### [`identityRpcMethods`](./index.ts#L60)
+### [`identityRpcMethods`](./index.ts#L75)
 
 _Variable_
 

@@ -52,9 +52,6 @@ const noPersistFlag = Options.boolean("no-persist").pipe(
 type RegistrationResult = Effect.Effect.Success<
   ReturnType<typeof registerAgent>
 >;
-type NoPersistEmission = Effect.Effect.Success<
-  ReturnType<typeof emitNoPersist>
->;
 
 interface PersistRegistrationInput {
   readonly profile: Option.Option<ProfileNameType>;
@@ -73,26 +70,13 @@ function profileRecordFrom(
   };
 }
 
-function printNoPersistRegistration(
-  name: ProfileNameType,
-  result: RegistrationResult,
-  _emitted: NoPersistEmission,
-  serverUrl: string,
-): Effect.Effect<void> {
-  return logLines([
-    `Agent "${name}" registered (not persisted).`,
-    `  Agent ID:   ${result.agentId}`,
-    `  Server URL: ${serverUrl}`,
-  ]);
-}
-
-function printPersistedRegistration(
-  name: ProfileNameType,
+function printRegistration(
+  headline: string,
   result: RegistrationResult,
   serverUrl: string,
 ): Effect.Effect<void> {
   return logLines([
-    `Agent "${name}" registered and profile saved.`,
+    headline,
     `  Agent ID:   ${result.agentId}`,
     `  Server URL: ${serverUrl}`,
   ]);
@@ -167,13 +151,21 @@ export const registerCommand = Command.make(
 
       if (noPersist) {
         // No writes to ~/.moltzap/.
-        const emitted = yield* emitNoPersist(record);
-        yield* printNoPersistRegistration(name, result, emitted, serverUrl);
+        yield* emitNoPersist(record);
+        yield* printRegistration(
+          `Agent "${name}" registered (not persisted).`,
+          result,
+          serverUrl,
+        );
         return;
       }
 
       yield* persistRegistration({ profile, record, name });
-      yield* printPersistedRegistration(name, result, serverUrl);
+      yield* printRegistration(
+        `Agent "${name}" registered and profile saved.`,
+        result,
+        serverUrl,
+      );
     }).pipe(
       Effect.withSpan("registerCommand"),
       Effect.catchAll((err) => {

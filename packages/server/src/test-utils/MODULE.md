@@ -24,7 +24,7 @@ task-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L49)
+### [`AwaitNotificationError`](./helpers.ts#L56)
 
 _TypeAlias_
 
@@ -80,7 +80,7 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
 }
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L60)
+### [`awaitOneNotification`](./helpers.ts#L67)
 
 _Function_
 
@@ -98,7 +98,7 @@ and `AwaitNotificationClosedError` when the transport closed before a
 matching frame arrived. Distinguishing close from timeout keeps a dead
 connection from masquerading as a missing notification.
 
-### [`closeAllClients`](./helpers.ts#L163)
+### [`closeAllClients`](./helpers.ts#L170)
 
 _Function_
 
@@ -106,7 +106,7 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`connectAppClient`](./helpers.ts#L271)
+### [`connectAppClient`](./helpers.ts#L278)
 
 _Function_
 
@@ -118,7 +118,7 @@ export function connectAppClient(
 ): Effect.Effect<TestAppClient, Error>
 ```
 
-### [`ConnectedAgent`](./helpers.ts#L99)
+### [`ConnectedAgent`](./helpers.ts#L106)
 
 _Interface_
 
@@ -131,7 +131,7 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L212)
+### [`connectTestClient`](./helpers.ts#L219)
 
 _Function_
 
@@ -155,7 +155,7 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](./server.ts#L63)
+### [`CoreTestRuntimeServerHandle`](./server.ts#L60)
 
 _Interface_
 
@@ -168,7 +168,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L118)
+### [`CoreTestServer`](./server.ts#L115)
 
 _Interface_
 
@@ -198,7 +198,7 @@ export interface CoreTestServer {
 }
 ```
 
-### [`createTestAgent`](./helpers.ts#L189)
+### [`createTestAgent`](./helpers.ts#L196)
 
 _Function_
 
@@ -209,7 +209,7 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent, never>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L43)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L40)
 
 _Variable_
 
@@ -219,7 +219,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](./server.ts#L389)
+### [`getBaseUrl`](./server.ts#L386)
 
 _Function_
 
@@ -227,7 +227,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](./server.ts#L374)
+### [`getCoreDb`](./server.ts#L371)
 
 _Function_
 
@@ -235,7 +235,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L382)
+### [`getCoreEncryptionEnvelope`](./server.ts#L379)
 
 _Function_
 
@@ -243,7 +243,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L394)
+### [`getWsUrl`](./server.ts#L391)
 
 _Function_
 
@@ -306,7 +306,7 @@ arm carries so `AppEndpointRegistry`, `AppRegistry`, and `sendRpcToClient` see O
   - `originator.handle` / `originator.resolve` defect — an in-process
     endpoint never receives inbound frames; a call here is a wiring bug.
 
-### [`makePgliteHarness`](./pglite-harness.ts#L69)
+### [`makePgliteHarness`](./pglite-harness.ts#L68)
 
 _Function_
 
@@ -319,7 +319,7 @@ export function makePgliteHarness(): Effect.Effect<
 
 Spin up a fresh PGlite instance with the core schema loaded.
 
-### [`PGLITE_HOOK_TIMEOUT_MS`](./pglite-harness.ts#L24)
+### [`PGLITE_HOOK_TIMEOUT_MS`](./pglite-harness.ts#L23)
 
 _Variable_
 
@@ -329,7 +329,7 @@ export const PGLITE_HOOK_TIMEOUT_MS = 30_000
 
 Suggested timeout for pglite-backed beforeEach/afterEach hooks.
 
-### [`PgliteHarness`](./pglite-harness.ts#L54)
+### [`PgliteHarness`](./pglite-harness.ts#L53)
 
 _Interface_
 
@@ -349,7 +349,7 @@ export interface PgliteHarness {
 }
 ```
 
-### [`PgliteHarnessError`](./pglite-harness.ts#L42)
+### [`PgliteHarnessError`](./pglite-harness.ts#L41)
 
 _TypeAlias_
 
@@ -367,7 +367,7 @@ function sqlPreview(sql: string): string {
 }
 ```
 
-### [`postJson`](./helpers.ts#L304)
+### [`postJson`](./helpers.ts#L311)
 
 _Function_
 
@@ -383,7 +383,7 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 `{status, json}`. HTTP integration tests import this helper to avoid
 repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L170)
+### [`registerAgent`](./helpers.ts#L177)
 
 _Function_
 
@@ -395,7 +395,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L288)
+### [`registerAndConnect`](./helpers.ts#L295)
 
 _Function_
 
@@ -407,7 +407,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L246)
+### [`registerApp`](./helpers.ts#L253)
 
 _Function_
 
@@ -422,7 +422,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](./server.ts#L348)
+### [`resetCoreTestDb`](./server.ts#L345)
 
 _Function_
 
@@ -430,7 +430,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`setupAgentGroup`](./helpers.ts#L404)
+### [`setupAgentGroup`](./helpers.ts#L411)
 
 _Function_
 
@@ -450,7 +450,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L392)
+### [`setupAgentPair`](./helpers.ts#L399)
 
 _Function_
 
@@ -463,7 +463,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L309)
+### [`startCoreTestServer`](./server.ts#L306)
 
 _Function_
 
@@ -471,7 +471,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L322)
+### [`stopCoreTestServer`](./server.ts#L319)
 
 _Function_
 
@@ -479,7 +479,7 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L159)
+### [`trackClient`](./helpers.ts#L166)
 
 _Function_
 

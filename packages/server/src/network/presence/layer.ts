@@ -15,7 +15,5 @@ export const PresenceServiceLive: Layer.Layer<
   never
 > = Layer.effect(
   PresenceServiceTag,
-  Effect.gen(function* () {
-    return yield* PresenceService.make();
-  }).pipe(Effect.withSpan("PresenceServiceLive")),
+  PresenceService.make().pipe(Effect.withSpan("PresenceServiceLive")),
 );

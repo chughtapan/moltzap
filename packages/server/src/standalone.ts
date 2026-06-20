@@ -2,11 +2,10 @@
 
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { sql } from "#db";
 import { Data, Effect, Layer } from "effect";
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
-import { createCoreApp } from "#core";
+import { createCoreApp, type CoreApp } from "#core";
 import { applyOutboundWebhookCap } from "#network";
 import {
   loadStandaloneConfig,
@@ -15,14 +14,10 @@ import {
   type StandaloneBootPlan,
 } from "#config";
 import type { ServerEncryptionMasterSecret } from "#config/secrets";
-import { seedInitialKek } from "#db/crypto";
-import { EnvelopeEncryption } from "#db/crypto";
-import { makeEffectKysely } from "#db";
+import { seedInitialKek, EnvelopeEncryption } from "#db/crypto";
+import { sql, makeEffectKysely, PostgresDialect } from "#db";
+import type { Database, Db } from "#db";
 import { WebhookContactService } from "#identity/contacts";
-import type { CoreApp } from "#core";
-import type { Database } from "#db";
-import type { Db } from "#db";
-import { PostgresDialect } from "#db";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;

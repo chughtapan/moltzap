@@ -131,7 +131,7 @@ export type TransitionOutcome =
 
 The three-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L188)
+### [`ConnectionManager`](./connection.ts#L202)
 
 _Class_
 

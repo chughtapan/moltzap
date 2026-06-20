@@ -13,14 +13,14 @@ Contact identity descriptors, RPC descriptors, and notifications.
 
 ## Public surface
 
-### [`ContactAcceptedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L96)
+### [`ContactAcceptedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L86)
 
 _Variable_
 
 ```ts
 export const ContactAcceptedNotificationDefinition = defineNotification({
   name: "agent/identity/contact-accepted",
-  params: ContactAcceptedNotificationSchema,
+  params: Schema.Struct({ contact: ContactSchema }),
 })
 ```
 
@@ -40,7 +40,7 @@ _Variable_
 export type ContactId = string & Brand.Brand<"ContactId">
 ```
 
-### [`ContactNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L26)
+### [`ContactNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L24)
 
 _Class_
 
@@ -53,18 +53,18 @@ export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundErro
 }
 ```
 
-### [`ContactRequestNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L91)
+### [`ContactRequestNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L81)
 
 _Variable_
 
 ```ts
 export const ContactRequestNotificationDefinition = defineNotification({
   name: "agent/identity/contact-requested",
-  params: ContactRequestNotificationSchema,
+  params: Schema.Struct({ contact: ContactSchema }),
 })
 ```
 
-### [`ContactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L75)
+### [`ContactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L73)
 
 _Variable_
 
@@ -78,7 +78,7 @@ export const ContactsAccept = defineRpc({
 })
 ```
 
-### [`ContactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L64)
+### [`ContactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L62)
 
 _Variable_
 
@@ -87,7 +87,7 @@ export const ContactsAdd = defineRpc({
   name: "agent/identity/contacts/add",
   params: Schema.Struct({
     contactUserId: UserId,
-    relationship: Schema.optional(Schema.String),
+    relationship: Schema.optional(RelationshipType),
   }),
   result: Schema.Struct({ contact: ContactSchema }),
   requires: [AgentPrincipal],
@@ -95,7 +95,7 @@ export const ContactsAdd = defineRpc({
 })
 ```
 
-### [`ContactsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L50)
+### [`ContactsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L48)
 
 _Variable_
 
@@ -115,7 +115,7 @@ export const ContactsList = defineRpc({
 })
 ```
 
-### [`NotInContactsError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L19)
+### [`NotInContactsError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L17)
 
 _Class_
 

@@ -8,7 +8,7 @@ Public exports for runtime adapter orchestration.
 
 ## Public surface
 
-### [`AgentName`](./runtime.ts#L8)
+### [`AgentName`](./runtime.ts#L7)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type AgentName = string & Brand.Brand<"AgentName">;
 ```
 
-### [`AgentName`](./runtime.ts#L8)
+### [`AgentName`](./runtime.ts#L7)
 
 _Variable_
 
@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`ClaudeCodeAdapter`](./claude-code-adapter.ts#L463)
+### [`ClaudeCodeAdapter`](./claude-code-adapter.ts#L438)
 
 _Class_
 
@@ -75,7 +75,6 @@ export class ClaudeCodeAdapter implements Runtime {
         deps: this.deps,
         stateDir,
         mcpConfigPath,
-        spawnInput: input,
         logBuffer,
       });
 
@@ -162,6 +161,7 @@ export class ClaudeCodeAdapter implements Runtime {
 
     // SIGTERM with a timeout; escalate to SIGKILL if SIGTERM doesn't
     // reap. Closing `proc.scope` afterward runs Command.start's kill
+    // finalizer + the stream-consumer fiber finalizers.
 ```
 
 Claude Code runtime adapter. Spawns the `claude` CLI as the host
@@ -184,7 +184,7 @@ is visible in claude's `--verbose` stream-json output. Shutdown
 via SIGTERM on the claude process propagates to the MCP stdio
 child naturally — no process-group kill needed (unlike OpenClaw).
 
-### [`ClaudeCodeAdapterDeps`](./claude-code-adapter.ts#L73)
+### [`ClaudeCodeAdapterDeps`](./claude-code-adapter.ts#L64)
 
 _Interface_
 
@@ -215,7 +215,7 @@ export interface ClaudeCodeAdapterDeps {
 }
 ```
 
-### [`createWorkspaceClaudeCodeAdapter`](./claude-code-adapter.ts#L619)
+### [`createWorkspaceClaudeCodeAdapter`](./claude-code-adapter.ts#L593)
 
 _Function_
 
@@ -242,7 +242,7 @@ flowchart TD
   CCCH --> CCCHFALL
 ```
 
-### [`createWorkspaceOpenClawAdapter`](./openclaw-adapter.ts#L427)
+### [`createWorkspaceOpenClawAdapter`](./openclaw-adapter.ts#L418)
 
 _Function_
 
@@ -272,7 +272,7 @@ Non-workspace usage: pass explicit `openclawBin` /
 `channelDistDir` to OpenClawAdapter's constructor
 directly. This factory is a convenience for monorepo callers.
 
-### [`launchRuntimeFleet`](./fleet.ts#L337)
+### [`launchRuntimeFleet`](./fleet.ts#L336)
 
 _Function_
 
@@ -297,7 +297,7 @@ Sibling: launchRuntimeFleetWithProcessSignals adds SIGINT
 / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
 `RuntimeFleetStartupInterrupted`.
 
-### [`launchRuntimeFleetWithProcessSignals`](./fleet.ts#L438)
+### [`launchRuntimeFleetWithProcessSignals`](./fleet.ts#L437)
 
 _Function_
 
@@ -330,7 +330,7 @@ flowchart TD
 
 - `RuntimeFleetStartupInterrupted` — a signal arrives during fleet startup
 
-### [`LogSlice`](./runtime.ts#L50)
+### [`LogSlice`](./runtime.ts#L49)
 
 _Interface_
 
@@ -486,7 +486,7 @@ export interface NanoclawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L287)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L278)
 
 _Class_
 
@@ -633,7 +633,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L155)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L146)
 
 _Interface_
 
@@ -646,7 +646,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`ReadyOutcome`](./runtime.ts#L57)
+### [`ReadyOutcome`](./runtime.ts#L56)
 
 _TypeAlias_
 
@@ -655,7 +655,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](./runtime.ts#L76)
+### [`Runtime`](./runtime.ts#L75)
 
 _Interface_
 
@@ -691,7 +691,7 @@ getLogs returns accumulated output from a byte offset.
 getInboundMarker returns a substring that proves an inbound message
 was received by the runtime's channel plugin.
 
-### [`RuntimeAgentSpec`](./fleet.ts#L36)
+### [`RuntimeAgentSpec`](./fleet.ts#L35)
 
 _Interface_
 
@@ -728,7 +728,7 @@ Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
 `exitCode` is `null` only if the process exited via signal.
 Caller action: inspect `stderr`; check binary auth config.
 
-### [`RuntimeFleet`](./fleet.ts#L76)
+### [`RuntimeFleet`](./fleet.ts#L75)
 
 _Interface_
 
@@ -740,7 +740,7 @@ export interface RuntimeFleet {
 }
 ```
 
-### [`RuntimeFleetAgent`](./fleet.ts#L71)
+### [`RuntimeFleetAgent`](./fleet.ts#L70)
 
 _Interface_
 
@@ -751,7 +751,7 @@ export interface RuntimeFleetAgent {
 }
 ```
 
-### [`RuntimeFleetLaunchOptions`](./fleet.ts#L55)
+### [`RuntimeFleetLaunchOptions`](./fleet.ts#L54)
 
 _Interface_
 
@@ -768,7 +768,7 @@ export interface RuntimeFleetLaunchOptions {
 }
 ```
 
-### [`RuntimeFleetProcessSignalOptions`](./fleet.ts#L66)
+### [`RuntimeFleetProcessSignalOptions`](./fleet.ts#L65)
 
 _Interface_
 
@@ -779,7 +779,7 @@ export interface RuntimeFleetProcessSignalOptions
 }
 ```
 
-### [`RuntimeFleetStartupInterrupted`](./fleet.ts#L82)
+### [`RuntimeFleetStartupInterrupted`](./fleet.ts#L81)
 
 _Class_
 
@@ -792,7 +792,7 @@ export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
 }> {}
 ```
 
-### [`RuntimeKind`](./fleet.ts#L32)
+### [`RuntimeKind`](./fleet.ts#L31)
 
 _TypeAlias_
 
@@ -851,7 +851,7 @@ within `timeoutMs`.
 Caller action: increase `readyTimeoutMs`, or inspect
 `runtime.getLogs(0)` to see what the subprocess is doing.
 
-### [`RuntimeServerHandle`](./runtime.ts#L21)
+### [`RuntimeServerHandle`](./runtime.ts#L20)
 
 _Interface_
 
@@ -877,7 +877,7 @@ export interface RuntimeServerHandle {
 }
 ```
 
-### [`RuntimeStartOptions`](./fleet.ts#L45)
+### [`RuntimeStartOptions`](./fleet.ts#L44)
 
 _Interface_
 
@@ -893,7 +893,7 @@ export interface RuntimeStartOptions {
 }
 ```
 
-### [`ServerUrl`](./runtime.ts#L9)
+### [`ServerUrl`](./runtime.ts#L8)
 
 _TypeAlias_
 
@@ -901,7 +901,7 @@ _TypeAlias_
 export type ServerUrl = string & Brand.Brand<"ServerUrl">;
 ```
 
-### [`ServerUrl`](./runtime.ts#L9)
+### [`ServerUrl`](./runtime.ts#L8)
 
 _Variable_
 
@@ -928,7 +928,7 @@ failure, state-dir creation failure.
 `cause` carries the underlying Error.
 Caller action: surface to user. No retry — binary or config is wrong.
 
-### [`SpawnInput`](./runtime.ts#L41)
+### [`SpawnInput`](./runtime.ts#L40)
 
 _Interface_
 
@@ -943,7 +943,7 @@ export interface SpawnInput {
 }
 ```
 
-### [`startRuntimeAgent`](./fleet.ts#L309)
+### [`startRuntimeAgent`](./fleet.ts#L308)
 
 _Function_
 
@@ -977,7 +977,7 @@ coordinated startup.
 - `RuntimeReadyTimedOut` — `waitUntilReady` exceeds `readyTimeoutMs`
 - `RuntimeExitedBeforeReady` — the process exits before signaling ready (inspect `stderr`)
 
-### [`WorkspaceClaudeCodeAdapterInput`](./claude-code-adapter.ts#L98)
+### [`WorkspaceClaudeCodeAdapterInput`](./claude-code-adapter.ts#L89)
 
 _Interface_
 
@@ -990,7 +990,7 @@ export interface WorkspaceClaudeCodeAdapterInput {
 }
 ```
 
-### [`WorkspaceFile`](./runtime.ts#L16)
+### [`WorkspaceFile`](./runtime.ts#L15)
 
 _Interface_
 
@@ -1001,7 +1001,7 @@ export interface WorkspaceFile {
 }
 ```
 
-### [`WorkspaceOpenClawAdapterInput`](./openclaw-adapter.ts#L162)
+### [`WorkspaceOpenClawAdapterInput`](./openclaw-adapter.ts#L153)
 
 _Interface_
 

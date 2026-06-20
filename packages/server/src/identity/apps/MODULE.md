@@ -8,7 +8,7 @@ App identity and endpoint registration barrel.
 
 ## Public surface
 
-### [`AppAuthService`](./auth.service.ts#L36)
+### [`AppAuthService`](./auth.service.ts#L34)
 
 _Class_
 

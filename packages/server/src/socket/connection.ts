@@ -185,6 +185,20 @@ const mintAuthedArm = (
     Match.exhaustive,
   );
 
+/**
+ * Visit every agent-arm connection in `map`. Centralizes the
+ * `_tag === "AgentConnection"` structural narrowing that every agent-scoped
+ * reader/mutator shares.
+ */
+const eachAgentArm = (
+  map: HashMap.HashMap<ConnectionId, Connection>,
+  visit: (conn: AgentConnection) => void,
+): void => {
+  for (const conn of HashMap.values(map)) {
+    if (conn._tag === "AgentConnection") visit(conn);
+  }
+};
+
 export class ConnectionManager {
   /**
    * The three-arm connections map. Module-private; the only mutators are
@@ -341,15 +355,11 @@ export class ConnectionManager {
   ): Effect.Effect<AgentConnection | null> {
     return Ref.get(this.connectionsRef).pipe(
       Effect.map((map) => {
-        for (const conn of HashMap.values(map)) {
-          if (
-            conn._tag === "AgentConnection" &&
-            conn.auth.agentId === agentId
-          ) {
-            return conn;
-          }
-        }
-        return null;
+        let found: AgentConnection | null = null;
+        eachAgentArm(map, (conn) => {
+          if (found === null && conn.auth.agentId === agentId) found = conn;
+        });
+        return found;
       }),
     );
   }
@@ -366,14 +376,9 @@ export class ConnectionManager {
     return Ref.get(this.connectionsRef).pipe(
       Effect.map((map) => {
         const out: AgentConnection[] = [];
-        for (const conn of HashMap.values(map)) {
-          if (
-            conn._tag === "AgentConnection" &&
-            conn.auth.agentId === agentId
-          ) {
-            out.push(conn);
-          }
-        }
+        eachAgentArm(map, (conn) => {
+          if (conn.auth.agentId === agentId) out.push(conn);
+        });
         return out;
       }),
     );
@@ -394,15 +399,12 @@ export class ConnectionManager {
       Effect.map((map) => {
         const agentSet = new Set<AgentId>(agentIds);
         const subscribed: ConnectionId[] = [];
-        for (const conn of HashMap.values(map)) {
-          if (
-            conn._tag === "AgentConnection" &&
-            agentSet.has(conn.auth.agentId)
-          ) {
+        eachAgentArm(map, (conn) => {
+          if (agentSet.has(conn.auth.agentId)) {
             conn.conversationIds.add(conversationId);
             subscribed.push(conn.connId);
           }
-        }
+        });
         return subscribed;
       }),
     );
@@ -439,14 +441,11 @@ export class ConnectionManager {
   ): Effect.Effect<void> {
     return Ref.get(this.connectionsRef).pipe(
       Effect.map((map) => {
-        for (const conn of HashMap.values(map)) {
-          if (
-            conn._tag === "AgentConnection" &&
-            conn.auth.agentId === agentId
-          ) {
+        eachAgentArm(map, (conn) => {
+          if (conn.auth.agentId === agentId) {
             conn.conversationIds.delete(conversationId);
           }
-        }
+        });
       }),
     );
   }

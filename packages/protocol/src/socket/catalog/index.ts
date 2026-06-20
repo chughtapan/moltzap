@@ -116,17 +116,16 @@ export type AnyAppCallbackRpcDefinition = (typeof appCallbackMethods)[number];
 export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 
-type ServerRpcDescriptor = { readonly serverRpc: Rpc.Any };
-
-const makeServerRpcGroup = <const Defs extends readonly ServerRpcDescriptor[]>(
-  defs: Defs,
-): RpcGroup.RpcGroup<Defs[number]["serverRpc"]> =>
-  RpcGroup.make(...defs.map((definition) => definition.serverRpc));
+const makeRpcGroup = <const R extends Rpc.Any>(
+  rpcs: readonly R[],
+): RpcGroup.RpcGroup<R> => RpcGroup.make(...rpcs);
 
 /**
  * Effect RPC group for all client-to-server calls accepted by the server.
  */
-export const ServerInboundGroup = makeServerRpcGroup(serverInboundMethods);
+export const ServerInboundGroup = makeRpcGroup(
+  serverInboundMethods.map((definition) => definition.serverRpc),
+);
 
 /**
  * Complete server handler table keyed by every inbound RPC tag.
@@ -139,41 +138,15 @@ export type ServerHandlers = RpcGroup.HandlersFrom<
 export type ServerHandler<D extends AnyServerRpcDefinition> =
   ServerHandlers[Extract<D["name"], keyof ServerHandlers>];
 
-type ClientRpcDescriptor = { readonly clientRpc: Rpc.Any };
-
-const makeClientRpcGroup = <const Defs extends readonly ClientRpcDescriptor[]>(
-  defs: Defs,
-): RpcGroup.RpcGroup<Defs[number]["clientRpc"]> =>
-  RpcGroup.make(...defs.map((definition) => definition.clientRpc));
-
 /** Effect RPC group for all agent-callable methods. */
-export const AgentCallableGroup = makeClientRpcGroup(agentCallableMethods);
+export const AgentCallableGroup = makeRpcGroup(
+  agentCallableMethods.map((definition) => definition.clientRpc),
+);
 
 /** Effect RPC group for all app-callable methods. */
-export const AppCallableGroup = makeClientRpcGroup(appCallableMethods);
-
-type NotificationRpcDescriptor = { readonly notificationRpc: Rpc.Any };
-
-const makeNotificationRpcGroup = <
-  const Defs extends readonly NotificationRpcDescriptor[],
->(
-  defs: Defs,
-): RpcGroup.RpcGroup<Defs[number]["notificationRpc"]> =>
-  RpcGroup.make(...defs.map((definition) => definition.notificationRpc));
-
-const makeReverseRpcGroup = <
-  const Callbacks extends readonly ClientRpcDescriptor[],
-  const Notifications extends readonly NotificationRpcDescriptor[],
->(
-  callbacks: Callbacks,
-  notifications: Notifications,
-): RpcGroup.RpcGroup<
-  Callbacks[number]["clientRpc"] | Notifications[number]["notificationRpc"]
-> =>
-  RpcGroup.make(
-    ...callbacks.map((definition) => definition.clientRpc),
-    ...notifications.map((definition) => definition.notificationRpc),
-  );
+export const AppCallableGroup = makeRpcGroup(
+  appCallableMethods.map((definition) => definition.clientRpc),
+);
 
 /**
  * Server-to-client reverse notification group. The server fires each notification
@@ -181,8 +154,8 @@ const makeReverseRpcGroup = <
  * channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
  * each payload into the `SubscriberRegistry`.
  */
-export const NotificationRpcGroup = makeNotificationRpcGroup(
-  notificationDefinitions,
+export const NotificationRpcGroup = makeRpcGroup(
+  notificationDefinitions.map((definition) => definition.notificationRpc),
 );
 
 /**
@@ -196,7 +169,7 @@ export const NotificationRpcGroup = makeNotificationRpcGroup(
  * are never invoked; an agent is not a moderator), but it serves the whole
  * group so the s2c engine binds one handler map.
  */
-export const ReverseRpcGroup = makeReverseRpcGroup(
-  appCallbackMethods,
-  notificationDefinitions,
-);
+export const ReverseRpcGroup = makeRpcGroup([
+  ...appCallbackMethods.map((definition) => definition.clientRpc),
+  ...notificationDefinitions.map((definition) => definition.notificationRpc),
+]);

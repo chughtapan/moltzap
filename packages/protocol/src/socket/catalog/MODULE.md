@@ -12,12 +12,14 @@ server-core, conformance, and generated protocol reference docs.
 
 ## Public surface
 
-### [`AgentCallableGroup`](./index.ts#L150)
+### [`AgentCallableGroup`](./index.ts#L142)
 
 _Variable_
 
 ```ts
-export const AgentCallableGroup = makeClientRpcGroup(agentCallableMethods)
+export const AgentCallableGroup = makeRpcGroup(
+  agentCallableMethods.map((definition) => definition.clientRpc),
+)
 ```
 
 Effect RPC group for all agent-callable methods.
@@ -91,12 +93,14 @@ export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 
 Any client-to-server descriptor the server handles.
 
-### [`AppCallableGroup`](./index.ts#L153)
+### [`AppCallableGroup`](./index.ts#L147)
 
 _Variable_
 
 ```ts
-export const AppCallableGroup = makeClientRpcGroup(appCallableMethods)
+export const AppCallableGroup = makeRpcGroup(
+  appCallableMethods.map((definition) => definition.clientRpc),
+)
 ```
 
 Effect RPC group for all app-callable methods.
@@ -145,13 +149,13 @@ export const notificationDefinitions = [
 
 Every server-to-client notification descriptor.
 
-### [`NotificationRpcGroup`](./index.ts#L184)
+### [`NotificationRpcGroup`](./index.ts#L157)
 
 _Variable_
 
 ```ts
-export const NotificationRpcGroup = makeNotificationRpcGroup(
-  notificationDefinitions,
+export const NotificationRpcGroup = makeRpcGroup(
+  notificationDefinitions.map((definition) => definition.notificationRpc),
 )
 ```
 
@@ -160,15 +164,15 @@ as a fire-and-forget `void`-result RPC on a target connection's reverse
 channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`.
 
-### [`ReverseRpcGroup`](./index.ts#L199)
+### [`ReverseRpcGroup`](./index.ts#L172)
 
 _Variable_
 
 ```ts
-export const ReverseRpcGroup = makeReverseRpcGroup(
-  appCallbackMethods,
-  notificationDefinitions,
-)
+export const ReverseRpcGroup = makeRpcGroup([
+  ...appCallbackMethods.map((definition) => definition.clientRpc),
+  ...notificationDefinitions.map((definition) => definition.notificationRpc),
+])
 ```
 
 The full server-to-client reverse group: the moderator callbacks
@@ -181,7 +185,7 @@ only ever receives notifications (its handlers for the three callback methods
 are never invoked; an agent is not a moderator), but it serves the whole
 group so the s2c engine binds one handler map.
 
-### [`ServerHandler`](./index.ts#L139)
+### [`ServerHandler`](./index.ts#L138)
 
 _TypeAlias_
 
@@ -191,7 +195,7 @@ export type ServerHandler<D extends AnyServerRpcDefinition> =
 
 Handler type for one inbound RPC descriptor.
 
-### [`ServerHandlers`](./index.ts#L134)
+### [`ServerHandlers`](./index.ts#L133)
 
 _TypeAlias_
 
@@ -203,12 +207,14 @@ export type ServerHandlers = RpcGroup.HandlersFrom<
 
 Complete server handler table keyed by every inbound RPC tag.
 
-### [`ServerInboundGroup`](./index.ts#L129)
+### [`ServerInboundGroup`](./index.ts#L126)
 
 _Variable_
 
 ```ts
-export const ServerInboundGroup = makeServerRpcGroup(serverInboundMethods)
+export const ServerInboundGroup = makeRpcGroup(
+  serverInboundMethods.map((definition) => definition.serverRpc),
+)
 ```
 
 Effect RPC group for all client-to-server calls accepted by the server.

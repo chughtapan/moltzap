@@ -21,6 +21,19 @@ const HookTimeoutMsSchema = Schema.Number.pipe(
 );
 
 /**
+ * `hook` arm shared by every gate policy: defer the verdict to the bound
+ * app/moderator, carrying the per-policy TTL. Timeout / RPC failure collapses
+ * to that gate's fail-closed verdict.
+ */
+const HookPolicyArmSchema = Schema.Struct({
+  kind: Schema.Literal("hook"),
+  timeoutMs: HookTimeoutMsSchema,
+});
+
+const refusalArm = <Kind extends string>(kind: Kind) =>
+  Schema.Struct({ kind: Schema.Literal(kind), reason: Schema.String });
+
+/**
  * Receive-side admission policy. The app states ONE of:
  *
  * - `{ kind: "grant" }` — every recipient is admitted in-process, no
@@ -37,11 +50,8 @@ const HookTimeoutMsSchema = Schema.Number.pipe(
  */
 const DispatchAuthorizePolicySchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("grant") }),
-  Schema.Struct({ kind: Schema.Literal("deny"), reason: Schema.String }),
-  Schema.Struct({
-    kind: Schema.Literal("hook"),
-    timeoutMs: HookTimeoutMsSchema,
-  }),
+  refusalArm("deny"),
+  HookPolicyArmSchema,
 );
 
 /**
@@ -58,11 +68,8 @@ const DispatchAuthorizePolicySchema = Schema.Union(
  */
 const MessageAuthorizePolicySchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("forwardAllExceptSender") }),
-  Schema.Struct({ kind: Schema.Literal("deny"), reason: Schema.String }),
-  Schema.Struct({
-    kind: Schema.Literal("hook"),
-    timeoutMs: HookTimeoutMsSchema,
-  }),
+  refusalArm("deny"),
+  HookPolicyArmSchema,
 );
 
 /**
@@ -78,11 +85,8 @@ const MessageAuthorizePolicySchema = Schema.Union(
  */
 const TaskCreatePolicySchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("accept") }),
-  Schema.Struct({ kind: Schema.Literal("reject"), reason: Schema.String }),
-  Schema.Struct({
-    kind: Schema.Literal("hook"),
-    timeoutMs: HookTimeoutMsSchema,
-  }),
+  refusalArm("reject"),
+  HookPolicyArmSchema,
 );
 
 /**

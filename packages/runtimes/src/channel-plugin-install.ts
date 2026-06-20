@@ -21,8 +21,36 @@
 import { createRequire } from "node:module";
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
-import { Data, Effect } from "effect";
+import { Data, Effect, Redacted } from "effect";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import type { SpawnInput } from "./runtime.js";
+
+const PROFILE_CONFIG_INDENT_SPACES = 2;
+
+/**
+ * Serializes the per-agent MoltZap profile config that every runtime
+ * adapter drops at the agent state dir's `.moltzap/config.json`; the spawned
+ * channel loads it via `MOLTZAP_PROFILE` + `MOLTZAP_CONFIG_HOME`.
+ */
+export function serializeMoltZapProfileConfig(profile: {
+  readonly agentName: string;
+  readonly agentId: AgentId;
+  readonly apiKey: AgentKey;
+}): string {
+  return JSON.stringify(
+    {
+      profiles: {
+        [profile.agentName]: {
+          agentId: profile.agentId,
+          apiKey: Redacted.value(profile.apiKey),
+          agentName: profile.agentName,
+        },
+      },
+    },
+    null,
+    PROFILE_CONFIG_INDENT_SPACES,
+  );
+}
 
 class ChannelPluginInstallError extends Data.TaggedError(
   "ChannelPluginInstallError",

@@ -13,7 +13,7 @@ Public exports for runtime adapter orchestration.
 
 ## Public surface
 
-### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L8)
+### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L7)
 
 _TypeAlias_
 
@@ -21,7 +21,7 @@ _TypeAlias_
 export type AgentName = string & Brand.Brand<"AgentName">;
 ```
 
-### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L8)
+### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L7)
 
 _Variable_
 
@@ -42,7 +42,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`ClaudeCodeAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L463)
+### [`ClaudeCodeAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L438)
 
 _Class_
 
@@ -80,7 +80,6 @@ export class ClaudeCodeAdapter implements Runtime {
         deps: this.deps,
         stateDir,
         mcpConfigPath,
-        spawnInput: input,
         logBuffer,
       });
 
@@ -167,6 +166,7 @@ export class ClaudeCodeAdapter implements Runtime {
 
     // SIGTERM with a timeout; escalate to SIGKILL if SIGTERM doesn't
     // reap. Closing `proc.scope` afterward runs Command.start's kill
+    // finalizer + the stream-consumer fiber finalizers.
 ```
 
 Claude Code runtime adapter. Spawns the `claude` CLI as the host
@@ -189,7 +189,7 @@ is visible in claude's `--verbose` stream-json output. Shutdown
 via SIGTERM on the claude process propagates to the MCP stdio
 child naturally — no process-group kill needed (unlike OpenClaw).
 
-### [`ClaudeCodeAdapterDeps`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L73)
+### [`ClaudeCodeAdapterDeps`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L64)
 
 _Interface_
 
@@ -220,7 +220,7 @@ export interface ClaudeCodeAdapterDeps {
 }
 ```
 
-### [`createWorkspaceClaudeCodeAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L619)
+### [`createWorkspaceClaudeCodeAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L593)
 
 _Function_
 
@@ -247,7 +247,7 @@ flowchart TD
   CCCH --> CCCHFALL
 ```
 
-### [`createWorkspaceOpenClawAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/openclaw-adapter.ts#L427)
+### [`createWorkspaceOpenClawAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/openclaw-adapter.ts#L418)
 
 _Function_
 
@@ -277,7 +277,7 @@ Non-workspace usage: pass explicit `openclawBin` /
 `channelDistDir` to OpenClawAdapter's constructor
 directly. This factory is a convenience for monorepo callers.
 
-### [`launchRuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L337)
+### [`launchRuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L336)
 
 _Function_
 
@@ -302,7 +302,7 @@ Sibling: launchRuntimeFleetWithProcessSignals adds SIGINT
 / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
 `RuntimeFleetStartupInterrupted`.
 
-### [`launchRuntimeFleetWithProcessSignals`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L438)
+### [`launchRuntimeFleetWithProcessSignals`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L437)
 
 _Function_
 
@@ -335,7 +335,7 @@ flowchart TD
 
 - `RuntimeFleetStartupInterrupted` — a signal arrives during fleet startup
 
-### [`LogSlice`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L50)
+### [`LogSlice`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L49)
 
 _Interface_
 
@@ -491,7 +491,7 @@ export interface NanoclawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/openclaw-adapter.ts#L287)
+### [`OpenClawAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/openclaw-adapter.ts#L278)
 
 _Class_
 
@@ -638,7 +638,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/openclaw-adapter.ts#L155)
+### [`OpenClawAdapterDeps`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/openclaw-adapter.ts#L146)
 
 _Interface_
 
@@ -651,7 +651,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`ReadyOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L57)
+### [`ReadyOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L56)
 
 _TypeAlias_
 
@@ -660,7 +660,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L76)
+### [`Runtime`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L75)
 
 _Interface_
 
@@ -696,7 +696,7 @@ getLogs returns accumulated output from a byte offset.
 getInboundMarker returns a substring that proves an inbound message
 was received by the runtime's channel plugin.
 
-### [`RuntimeAgentSpec`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L36)
+### [`RuntimeAgentSpec`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L35)
 
 _Interface_
 
@@ -733,7 +733,7 @@ Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
 `exitCode` is `null` only if the process exited via signal.
 Caller action: inspect `stderr`; check binary auth config.
 
-### [`RuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L76)
+### [`RuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L75)
 
 _Interface_
 
@@ -745,7 +745,7 @@ export interface RuntimeFleet {
 }
 ```
 
-### [`RuntimeFleetAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L71)
+### [`RuntimeFleetAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L70)
 
 _Interface_
 
@@ -756,7 +756,7 @@ export interface RuntimeFleetAgent {
 }
 ```
 
-### [`RuntimeFleetLaunchOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L55)
+### [`RuntimeFleetLaunchOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L54)
 
 _Interface_
 
@@ -773,7 +773,7 @@ export interface RuntimeFleetLaunchOptions {
 }
 ```
 
-### [`RuntimeFleetProcessSignalOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L66)
+### [`RuntimeFleetProcessSignalOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L65)
 
 _Interface_
 
@@ -784,7 +784,7 @@ export interface RuntimeFleetProcessSignalOptions
 }
 ```
 
-### [`RuntimeFleetStartupInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L82)
+### [`RuntimeFleetStartupInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L81)
 
 _Class_
 
@@ -797,7 +797,7 @@ export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
 }> {}
 ```
 
-### [`RuntimeKind`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L32)
+### [`RuntimeKind`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L31)
 
 _TypeAlias_
 
@@ -856,7 +856,7 @@ within `timeoutMs`.
 Caller action: increase `readyTimeoutMs`, or inspect
 `runtime.getLogs(0)` to see what the subprocess is doing.
 
-### [`RuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L21)
+### [`RuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L20)
 
 _Interface_
 
@@ -882,7 +882,7 @@ export interface RuntimeServerHandle {
 }
 ```
 
-### [`RuntimeStartOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L45)
+### [`RuntimeStartOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L44)
 
 _Interface_
 
@@ -898,7 +898,7 @@ export interface RuntimeStartOptions {
 }
 ```
 
-### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L9)
+### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L8)
 
 _TypeAlias_
 
@@ -906,7 +906,7 @@ _TypeAlias_
 export type ServerUrl = string & Brand.Brand<"ServerUrl">;
 ```
 
-### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L9)
+### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L8)
 
 _Variable_
 
@@ -933,7 +933,7 @@ failure, state-dir creation failure.
 `cause` carries the underlying Error.
 Caller action: surface to user. No retry — binary or config is wrong.
 
-### [`SpawnInput`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L41)
+### [`SpawnInput`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L40)
 
 _Interface_
 
@@ -948,7 +948,7 @@ export interface SpawnInput {
 }
 ```
 
-### [`startRuntimeAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L309)
+### [`startRuntimeAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L308)
 
 _Function_
 
@@ -982,7 +982,7 @@ coordinated startup.
 - `RuntimeReadyTimedOut` — `waitUntilReady` exceeds `readyTimeoutMs`
 - `RuntimeExitedBeforeReady` — the process exits before signaling ready (inspect `stderr`)
 
-### [`WorkspaceClaudeCodeAdapterInput`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L98)
+### [`WorkspaceClaudeCodeAdapterInput`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L89)
 
 _Interface_
 
@@ -995,7 +995,7 @@ export interface WorkspaceClaudeCodeAdapterInput {
 }
 ```
 
-### [`WorkspaceFile`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L16)
+### [`WorkspaceFile`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L15)
 
 _Interface_
 
@@ -1006,7 +1006,7 @@ export interface WorkspaceFile {
 }
 ```
 
-### [`WorkspaceOpenClawAdapterInput`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/openclaw-adapter.ts#L162)
+### [`WorkspaceOpenClawAdapterInput`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/openclaw-adapter.ts#L153)
 
 _Interface_
 

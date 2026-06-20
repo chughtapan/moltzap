@@ -11,21 +11,21 @@
 import { Duration, Effect, Ref, type Scope, Schema } from "effect";
 import type { AppManifest } from "#identity/apps";
 import { MessagesAuthorize } from "#message";
-import { TaskCreate } from "#task";
+import { AppId, TaskCreate } from "#task";
 import { DispatchAuthorize } from "#message/dispatch";
-import { AppId } from "#task";
-import { makeAppTestClient, type AppTestClient } from "./driver/test-client.js";
-import type {
-  ServerRpcDefinition,
-  ServerRpcParams,
-  ServerRpcResult,
+import {
+  makeAppTestClient,
+  type AppTestClient,
+  type ServerRpcDefinition,
+  type ServerRpcParams,
+  type ServerRpcResult,
 } from "./driver/test-client.js";
-import type { RpcResponseError } from "./errors.js";
 import {
   mintTestAppCredential,
   type TestAppHttpRegistrationError,
 } from "./test-fixtures.js";
 import type {
+  RpcResponseError,
   RpcTimeoutError,
   TransportClosedError,
   TransportIoError,
