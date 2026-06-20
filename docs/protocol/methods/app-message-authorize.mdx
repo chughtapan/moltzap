@@ -1,0 +1,42 @@
+---
+title: "app/message/authorize"
+description: "Server callback asking an app for the per-message fan-out verdict."
+---
+
+# app/message/authorize
+
+Server callback asking an app for the per-message fan-out verdict.
+
+## Parameters
+
+<ParamField path="taskId" type="string (UUID)" required>
+  Branded TaskId
+</ParamField>
+
+<ParamField path="appId" type="string" required>
+  The appId field.
+</ParamField>
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="message" type="object" required>
+  The message field.
+</ParamField>
+
+<ParamField path="receivedAt" type="string (ISO 8601)">
+  The receivedAt field.
+</ParamField>
+
+## Response
+
+<ResponseField name="verdict" type="union">
+  The verdict field.
+</ResponseField>
+
+## Errors
+
+| Type | When |
+|------|------|
+| `ForbiddenError` | the app rejects; the server treats the verdict as a fail-closed block |

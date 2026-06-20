@@ -20,7 +20,6 @@
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.integration.test.ts",
-        "src/**/*.int.test.ts",
         "src/**/*.types-check.ts",
         "src/**/__tests__/**/*.ts",
         "vitest*.config.ts"

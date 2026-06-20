@@ -1,11 +1,7 @@
 /**
  * App-layer helpers shared across the 15 dispatch-admission properties.
- *
- * Carved verbatim from `conformance/dispatch-admission.ts@961a5c8`.
- * Body unchanged; import paths shift to the new layer location.
  */
-import { Effect, type Scope } from "effect";
-import type { Static } from "@sinclair/typebox";
+import { Effect, type Scope, Schema } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,
@@ -13,7 +9,7 @@ import {
   type PropertyRun,
 } from "../_shared/registry.js";
 import { makeDispatchTestDriver, type DispatchTestDriver } from "./_driver.js";
-import type { MessageId } from "@moltzap/protocol/task";
+import type { MessageId } from "@moltzap/protocol/conversation";
 import { messageId as makeMessageId } from "../_shared/test-fixtures.js";
 
 export const DISPATCH_ADMISSION_CATEGORY = "dispatch-admission" as const;
@@ -23,18 +19,18 @@ export const TINY_MODERATOR_TIMEOUT_MS = 200;
 export const TTL_OBSERVATION_BUFFER_MS = 1_500;
 export const ABANDON_OBSERVATION_BUFFER_MS = 1_000;
 export const NEGATIVE_OBSERVABILITY_WINDOW_MS = 750;
-export const FORBIDDEN_ERROR_CODE = -32001;
+export const FORBIDDEN_ERROR_TAG = "Forbidden";
 // Buffer added to ABANDON_OBSERVATION_BUFFER_MS when polling for the
 // finalizer-driven ABANDONED transition: the finalizer runs on a
 // fiber-scoped scope-close, so the poll bound must outlast both the
 // observation window and the connection-close round-trip.
 export const ABANDON_POLL_EXTRA_MS = 2_000;
-// Window for waiting on a synthesized timeout `dispatch/release`. Must
+// Window for waiting on a synthesized timeout `agent/dispatch/released`. Must
 // be greater than `TINY_MODERATOR_TIMEOUT_MS` (the server-side
 // moderator-response TTL) by enough margin to absorb scheduling jitter
 // in CI.
 export const TIMEOUT_RELEASE_WAIT_MS = 3_000;
-// Tight window asserting that NO second `dispatch/release` arrives for
+// Tight window asserting that NO second `agent/dispatch/released` arrives for
 // a single lease. Short enough to keep property runtime bounded; long
 // enough to catch a duplicate emit race.
 export const NO_SECOND_RELEASE_WINDOW_MS = 250;
@@ -62,7 +58,7 @@ export function dispatchAdmissionViolation(
 }
 
 // Frame-payload narrowings used across the property bodies. The narrow
-// surfaces match the wire schemas in `protocol/src/app/methods.ts`.
+// surfaces match the dispatch wire schemas.
 export type ReleaseFrameView = {
   readonly leaseId: string;
   readonly verdict: { decision: string; reason?: string };
@@ -73,7 +69,7 @@ export type ConsumedFrameView = {
   readonly leaseId: string;
 };
 
-export function freshMessageId(): Static<typeof MessageId> {
+export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
   // UUIDv4 from the runtime; the brand-decoder accepts a well-formed
   // UUID4 string. `crypto.randomUUID` is in Node 18+.
   return makeMessageId(globalThis.crypto.randomUUID());

@@ -58,39 +58,3 @@ export const allToxicTags = [
 ] as const;
 
 export type ToxicTag = (typeof allToxicTags)[number];
-
-/**
- * Every delivery-layer property one toxic is expected to re-exercise.
- * Keyed by the property's semantic name (matches the register-function
- * names in `conformance/task/{fan-out-cardinality,store-and-replay,
- * payload-opacity,task-boundary-isolation}.ts`).
- */
-export type DeliveryInvariantName =
-  | "fan-out-cardinality"
-  | "store-and-replay"
-  | "payload-opacity"
-  | "task-boundary-isolation";
-
-/** Selects the delivery invariant for a toxic profile. */
-export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName {
-  switch (toxic) {
-    case "latency":
-    case "bandwidth":
-    case "timeout":
-      return "fan-out-cardinality";
-    case "reset_peer":
-      return "store-and-replay";
-    case "slicer":
-      return "payload-opacity";
-    case "slow_close":
-      return "task-boundary-isolation";
-    default: {
-      const _exhaustive: never = toxic;
-      return absurdToxicTag(_exhaustive);
-    }
-  }
-}
-
-function absurdToxicTag(toxic: never): never {
-  throw new Error(`deliveryInvariantFor: unexpected toxic ${String(toxic)}`);
-}

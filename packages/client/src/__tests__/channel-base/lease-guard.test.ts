@@ -1,6 +1,6 @@
 /**
- * Unit tests for `LeaseGuard` — initial state, first-consume, second-consume
- * (per spec C #597 AC).
+ * Unit tests for `LeaseGuard` initial state, first consume, and repeated
+ * consume behavior.
  *
  * Uses Effect's TestClock so the timestamp on first consume is deterministic.
  */
@@ -14,10 +14,8 @@ const FIXED_TS = 1_700_000_000_500;
 const LATER_TS = FIXED_TS + 999;
 const PROPERTY_ATTEMPT_MIN = 1;
 const PROPERTY_ATTEMPT_MAX = 8;
-// fast-check's default `numRuns` is 100; under parallel-suite load each
-// `Effect.runPromise(TestClock + 1-8 consumes)` invocation borders the 5000ms
-// vitest timeout. 20 runs over the 1-8 attempt range still covers the
-// boundary cases (1, 2, 8) with multiple shuffles; see #623.
+// Keep the property run count low enough for parallel-suite load while still
+// exercising the attempt-range boundaries with multiple shuffles.
 const PROPERTY_NUM_RUNS = 20;
 
 describe("LeaseGuard", () => {

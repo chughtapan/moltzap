@@ -3,22 +3,22 @@ import { it as effectIt } from "@effect/vitest";
 import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
   awaitOneNotification,
+  firstTextPart,
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
   registerAndConnect,
   type ConnectedAgent,
 } from "../helpers.js";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
+  MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  MessageReceivedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskRequest,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
+import { ConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 
 const it = effectIt.live;
 
@@ -114,14 +114,13 @@ function messageTextsFor(
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return agent.client.sendRpc(MessagesList, { taskId, conversationId }).pipe(
-    Effect.map(
-      (result) =>
-        (result as { messages: Array<{ parts: Array<{ text: string }> }> })
-          .messages,
-    ),
-    Effect.map((messages) => messages.map((message) => message.parts[0]!.text)),
-  );
+  return agent.client
+    .sendRpc(MessagesList, { taskId, conversationId })
+    .pipe(
+      Effect.map((result) =>
+        result.messages.map((message) => firstTextPart(message.parts)),
+      ),
+    );
 }
 
 const NO_ECHO_SETTLE_MS = 500;
@@ -142,11 +141,13 @@ function fullDmFlow() {
     const taskId = conv.task.id;
     const conversationId = conv.conversation.id;
 
+    const bobHello = yield* Effect.fork(waitForMessageText(bob));
     yield* sendText(alice, taskId, conversationId, HELLO_BOB);
-    expect(yield* waitForMessageText(bob)).toBe(HELLO_BOB);
+    expect(yield* Fiber.join(bobHello)).toBe(HELLO_BOB);
 
+    const aliceReply = yield* Effect.fork(waitForMessageText(alice));
     yield* sendText(bob, taskId, conversationId, HEY_ALICE);
-    expect(yield* waitForMessageText(alice)).toBe(HEY_ALICE);
+    expect(yield* Fiber.join(aliceReply)).toBe(HEY_ALICE);
 
     expect(yield* messageTextsFor(alice, taskId, conversationId)).toEqual([
       HELLO_BOB,
@@ -165,13 +166,17 @@ function groupChatFansOut() {
     const taskId = conv.task.id;
     const conversationId = conv.conversation.id;
 
+    const bobStandup = yield* Effect.fork(waitForMessageText(bob));
+    const eveStandup = yield* Effect.fork(waitForMessageText(eve));
     yield* sendText(alice, taskId, conversationId, TEAM_STANDUP);
-    expect(yield* waitForMessageText(bob)).toBe(TEAM_STANDUP);
-    expect(yield* waitForMessageText(eve)).toBe(TEAM_STANDUP);
+    expect(yield* Fiber.join(bobStandup)).toBe(TEAM_STANDUP);
+    expect(yield* Fiber.join(eveStandup)).toBe(TEAM_STANDUP);
 
+    const aliceAllClear = yield* Effect.fork(waitForMessageText(alice));
+    const eveAllClear = yield* Effect.fork(waitForMessageText(eve));
     yield* sendText(bob, taskId, conversationId, ALL_CLEAR);
-    expect(yield* waitForMessageText(alice)).toBe(ALL_CLEAR);
-    expect(yield* waitForMessageText(eve)).toBe(ALL_CLEAR);
+    expect(yield* Fiber.join(aliceAllClear)).toBe(ALL_CLEAR);
+    expect(yield* Fiber.join(eveAllClear)).toBe(ALL_CLEAR);
     yield* closeAgents([alice, bob, eve]);
   });
 }
@@ -180,36 +185,50 @@ function connectedParticipantReceivesWithoutReconnect() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-sub");
     const bob = yield* registerAndConnect("bob-sub");
+    const createdEventFiber = yield* Effect.fork(
+      awaitOneNotification(
+        bob.client,
+        ConversationCreatedNotificationDefinition,
+      ),
+    );
     const conv = yield* createDm(alice, bob);
 
-    const createdEvent = yield* awaitOneNotification(
-      bob.client,
-      TaskConversationCreatedNotificationDefinition,
-    );
+    const createdEvent = yield* Fiber.join(createdEventFiber);
     expect(createdEvent).toBeDefined();
 
+    const bobMessage = yield* Effect.fork(waitForMessageText(bob));
     yield* sendText(
       alice,
       conv.task.id,
       conv.conversation.id,
       NO_RECONNECT_NEEDED,
     );
-    expect(yield* waitForMessageText(bob)).toBe(NO_RECONNECT_NEEDED);
+    expect(yield* Fiber.join(bobMessage)).toBe(NO_RECONNECT_NEEDED);
     yield* closeAgents([alice, bob]);
   });
 }
 
-function bufferedNotificationsAreConsumedOnce() {
+function liveSubscriptionDeliversSequentialEvents() {
   return Effect.gen(function* () {
     const alice = yield* registerAndConnect("alice-buf");
     const bob = yield* registerAndConnect("bob-buf");
     const conv = yield* createDm(alice, bob);
 
+    const messages = yield* bob.client
+      .subscribe(MessageReceivedNotificationDefinition)
+      .pipe(
+        Stream.take(2),
+        Stream.map((params) => firstTextPart(params.message.parts)),
+        Stream.runCollect,
+        Effect.map(Chunk.toReadonlyArray),
+        Effect.fork,
+      );
     yield* sendText(alice, conv.task.id, conv.conversation.id, FIRST_MESSAGE);
-    expect(yield* waitForMessageText(bob)).toBe(FIRST_MESSAGE);
-
     yield* sendText(alice, conv.task.id, conv.conversation.id, SECOND_MESSAGE);
-    expect(yield* waitForMessageText(bob)).toBe(SECOND_MESSAGE);
+    expect(yield* Fiber.join(messages)).toEqual([
+      FIRST_MESSAGE,
+      SECOND_MESSAGE,
+    ]);
     yield* closeAgents([alice, bob]);
   });
 }
@@ -220,9 +239,9 @@ function senderDoesNotReceiveOwnMessage() {
     const bob = yield* registerAndConnect("bob-noecho");
     const conv = yield* createDm(alice, bob);
 
-    // #645: subscribe Alice BEFORE the send so the Stream observes
-    // any echo frame that would otherwise have arrived in flight.
-    // `Stream.interruptAfter` bounds the collection window.
+    // Subscribe Alice before the send so the stream observes any echo frame
+    // that arrives in flight. `Stream.interruptAfter` bounds the collection
+    // window.
     const aliceEcho = yield* alice.client
       .subscribe(MessageReceivedNotificationDefinition)
       .pipe(
@@ -231,13 +250,12 @@ function senderDoesNotReceiveOwnMessage() {
         Effect.fork,
       );
 
+    const bobEvent = yield* Effect.fork(
+      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+    );
+
     yield* sendText(alice, conv.task.id, conv.conversation.id, NO_ECHO_MESSAGE);
-    expect(
-      yield* awaitOneNotification(
-        bob.client,
-        MessageReceivedNotificationDefinition,
-      ),
-    ).toBeDefined();
+    expect(yield* Fiber.join(bobEvent)).toBeDefined();
     const echoEvents = Chunk.toReadonlyArray(yield* Fiber.join(aliceEcho));
     expect(echoEvents).toHaveLength(0);
     yield* closeAgents([alice, bob]);
@@ -255,21 +273,21 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
   it("messages fan out to all group participants", groupChatFansOut);
 });
 
-describe("Regression: task/conversation/create subscribes connected participants", () => {
+describe("Regression: app/conversation/create subscribes connected participants", () => {
   it(
     "participant connected before conversation creation receives messages without reconnecting",
     connectedParticipantReceivesWithoutReconnect,
   );
 });
 
-describe("Regression: subscribe Stream does not double-consume buffered events", () => {
+describe("Regression: subscribe Stream delivers sequential live events", () => {
   it(
-    "sequential subscribe pulls return distinct events, not duplicates",
-    bufferedNotificationsAreConsumedOnce,
+    "a single subscription returns distinct events, not duplicates",
+    liveSubscriptionDeliversSequentialEvents,
   );
 });
 
-describe("Regression: messages/send excludes sender from broadcast", () => {
+describe("Regression: agent/message/send excludes sender from broadcast", () => {
   it(
     "sender does not receive their own message as an event",
     senderDoesNotReceiveOwnMessage,

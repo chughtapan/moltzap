@@ -8,14 +8,21 @@
 
 import { afterAll, beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { MoltZapService } from "@moltzap/client";
-import type { Message } from "@moltzap/protocol";
+import type { ServiceRpcError } from "@moltzap/client";
+import { withTestServiceConfig } from "@moltzap/client/test-utils";
+import { AgentKey } from "@moltzap/protocol/identity";
+import type { Message } from "@moltzap/protocol/message";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
+import { agentId, waitUntil } from "@moltzap/protocol/testing";
 import { bootClaudeCodeChannel } from "../entry.js";
 import type { Handle } from "../types.js";
 import { CLAUDE_CHANNEL_NOTIFICATION_METHOD } from "../types.js";
@@ -27,28 +34,25 @@ class EchoIntegrationError extends Data.TaggedError("EchoIntegrationError")<{
 
 interface InjectedConfig {
   readonly wsUrl: string;
-  readonly agentAApiKey: string;
-  readonly agentBApiKey: string;
-  readonly channelAgentId: string;
-  readonly peerAgentId: string;
+  readonly agentAApiKey: AgentKey;
+  readonly agentBApiKey: AgentKey;
+  readonly channelAgentId: AgentId;
+  readonly peerAgentId: AgentId;
 }
 
 interface Harness {
   readonly channelHandle: Handle;
   readonly peerService: MoltZapService;
   readonly mcpClient: Client;
-  readonly channelAgentId: string;
-  readonly peerAgentId: string;
+  readonly channelAgentId: AgentId;
+  readonly peerAgentId: AgentId;
   readonly notifications: Notification[];
   readonly peerInbox: Message[];
-  readonly taskId: string;
-  readonly conversationId: string;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
 }
 
-const WAIT_FOR_TIMEOUT_MS = 10_000;
-const WAIT_FOR_TICK_MS = 25;
 const HARNESS_BOOT_TIMEOUT_MS = 120_000;
-const INBOUND_NOTIFICATION_TIMEOUT_MS = 15_000;
 const TEXT_TYPE = "text";
 const STRING_TYPE = "string";
 const PING_ONE = "ping-one";
@@ -59,6 +63,7 @@ const SHOULD_ERROR_TEXT = "should-error";
 const REPLY_TOOL_NAME = "reply";
 const SERVER_NAME = "test-claude-code-channel";
 const SERVER_INSTRUCTIONS = "integration test";
+const CHANNEL_PROFILE_NAME = "channel-agent";
 const MCP_CLIENT_NAME = "integration-test";
 const MCP_CLIENT_VERSION = "0.1.0";
 const REQUIRED_META_KEYS = ["chat_id", "message_id", "ts", "user"].sort();
@@ -77,41 +82,58 @@ const tryPromise = <A>(
 function injectedConfig(): InjectedConfig {
   return {
     wsUrl: injectString("moltzapWsUrl"),
-    agentAApiKey: injectString("agentAApiKey"),
-    agentBApiKey: injectString("agentBApiKey"),
-    channelAgentId: injectString("agentAAgentId"),
-    peerAgentId: injectString("agentBAgentId"),
+    agentAApiKey: decodeInjectedAgentKey("agentAApiKey"),
+    agentBApiKey: decodeInjectedAgentKey("agentBApiKey"),
+    channelAgentId: agentId(injectString("agentAAgentId")),
+    peerAgentId: agentId(injectString("agentBAgentId")),
   };
 }
 
-function injectString(key: string): string {
-  return inject(key) as string;
+function injectString(key: keyof import("vitest").ProvidedContext): string {
+  return inject(key);
+}
+
+function decodeInjectedAgentKey(
+  key: keyof import("vitest").ProvidedContext,
+): AgentKey {
+  return Schema.decodeUnknownSync(AgentKey)(injectString(key));
 }
 
 function bootChannelHandle(
   config: InjectedConfig,
   serverTransport: ReturnType<typeof InMemoryTransport.createLinkedPair>[0],
 ): Effect.Effect<Handle, EchoIntegrationError> {
-  return Effect.gen(function* () {
-    const boot = yield* tryPromise("bootClaudeCodeChannel", () =>
-      bootClaudeCodeChannel({
-        serverUrl: config.wsUrl,
-        agentKey: config.agentAApiKey,
-        serverName: SERVER_NAME,
-        instructions: SERVER_INSTRUCTIONS,
-        _testTransportFactory: () => serverTransport,
-      }),
-    );
-    if (boot._tag === "Err") {
-      return yield* Effect.fail(
-        new EchoIntegrationError({
-          operation: "bootClaudeCodeChannel",
-          cause: boot.error,
+  return withTestServiceConfig(
+    {
+      agentId: config.channelAgentId,
+      agentKey: config.agentAApiKey,
+      serverUrl: config.wsUrl,
+      profileName: CHANNEL_PROFILE_NAME,
+      agentName: CHANNEL_PROFILE_NAME,
+    },
+    Effect.tryPromise({
+      try: () =>
+        bootClaudeCodeChannel({
+          profileName: CHANNEL_PROFILE_NAME,
+          serverName: SERVER_NAME,
+          instructions: SERVER_INSTRUCTIONS,
+          _testTransportFactory: () => serverTransport,
         }),
-      );
-    }
-    return boot.value;
-  });
+      catch: (cause) =>
+        new EchoIntegrationError({ operation: "bootClaudeCodeChannel", cause }),
+    }).pipe(
+      Effect.flatMap((boot) =>
+        boot._tag === "Err"
+          ? Effect.fail(
+              new EchoIntegrationError({
+                operation: "bootClaudeCodeChannel",
+                cause: boot.error,
+              }),
+            )
+          : Effect.succeed(boot.value),
+      ),
+    ),
+  );
 }
 
 function makeMcpClient(notifications: Notification[]): Client {
@@ -129,26 +151,33 @@ function makeMcpClient(notifications: Notification[]): Client {
 function makePeerService(
   config: InjectedConfig,
   peerInbox: Message[],
-): MoltZapService {
-  const peerService = new MoltZapService({
-    serverUrl: config.wsUrl,
-    agentKey: config.agentBApiKey,
-  });
-  peerService.on("message", ({ message }) => {
-    peerInbox.push(message);
-  });
-  return peerService;
+): Effect.Effect<MoltZapService, unknown> {
+  return Effect.succeed(
+    MoltZapService.fromConfig({
+      agentId: config.peerAgentId,
+      agentKey: config.agentBApiKey,
+      serverUrl: config.wsUrl,
+    }),
+  ).pipe(
+    Effect.tap((peerService) =>
+      Effect.sync(() => {
+        peerService.on("message", ({ message }) => {
+          peerInbox.push(message);
+        });
+      }),
+    ),
+  );
 }
 
 function createPeerConversation(
   peerService: MoltZapService,
-  channelAgentId: string,
+  channelAgentId: AgentId,
 ): Effect.Effect<
-  { readonly taskId: string; readonly conversationId: string },
-  EchoIntegrationError
+  { readonly taskId: TaskId; readonly conversationId: ConversationId },
+  ServiceRpcError
 > {
   return Effect.gen(function* () {
-    const response = yield* peerService.sendRpc(TaskRequest, {
+    const response = yield* peerService.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },
@@ -160,7 +189,10 @@ function createPeerConversation(
   });
 }
 
-function bootHarness(): Effect.Effect<Harness, EchoIntegrationError> {
+function bootHarness(): Effect.Effect<
+  Harness,
+  EchoIntegrationError | ServiceRpcError
+> {
   return Effect.gen(function* () {
     const config = injectedConfig();
     const notifications: Notification[] = [];
@@ -174,7 +206,7 @@ function bootHarness(): Effect.Effect<Harness, EchoIntegrationError> {
       mcpClient.connect(clientTransport),
     );
 
-    const peerService = makePeerService(config, peerInbox);
+    const peerService = yield* makePeerService(config, peerInbox);
     yield* peerService.connect();
     const { taskId, conversationId } = yield* createPeerConversation(
       peerService,
@@ -218,26 +250,6 @@ function stopHarness(harness: Harness): Effect.Effect<void> {
   });
 }
 
-function waitFor(
-  condition: () => boolean,
-  timeoutMs = WAIT_FOR_TIMEOUT_MS,
-  tickMs = WAIT_FOR_TICK_MS,
-): Effect.Effect<void, EchoIntegrationError> {
-  return Effect.gen(function* () {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (condition()) return;
-      yield* Effect.sleep(tickMs);
-    }
-    return yield* Effect.fail(
-      new EchoIntegrationError({
-        operation: "waitFor",
-        cause: "condition not met within timeout",
-      }),
-    );
-  });
-}
-
 const textPart = (
   part: Message["parts"][number],
 ): part is { readonly type: "text"; readonly text: string } =>
@@ -254,10 +266,7 @@ function findNotificationByContent(content: string): Notification | undefined {
 function peerSendsPingEmitsNotification() {
   return Effect.gen(function* () {
     yield* h.peerService.send(h.taskId, h.conversationId, PING_ONE);
-    yield* waitFor(
-      () => h.notifications.some(isChannelContent(PING_ONE)),
-      INBOUND_NOTIFICATION_TIMEOUT_MS,
-    );
+    yield* waitUntil(() => h.notifications.some(isChannelContent(PING_ONE)));
     const notification = findNotificationByContent(PING_ONE);
     expect(notification).toBeDefined();
     const meta = (notification!.params as { meta: Record<string, unknown> })
@@ -290,7 +299,7 @@ function replyWithoutReplyToRoutesToLastActiveChat() {
       }),
     );
     expect(result.isError).not.toBe(true);
-    yield* waitFor(() => h.peerInbox.length > inboxBefore);
+    yield* waitUntil(() => h.peerInbox.length > inboxBefore);
     const newMsg = h.peerInbox[h.peerInbox.length - 1];
     expect(newMsg?.conversationId).toBe(h.conversationId);
     expect(newMsg?.parts.find(textPart)?.text).toBe(PONG_ONE);
@@ -314,7 +323,7 @@ function replyWithKnownReplyToRoutesToThatChat() {
       }),
     );
     expect(result.isError).not.toBe(true);
-    yield* waitFor(() => h.peerInbox.length > inboxBefore);
+    yield* waitUntil(() => h.peerInbox.length > inboxBefore);
     const newMsg = h.peerInbox[h.peerInbox.length - 1];
     expect(newMsg?.parts.find(textPart)?.text).toBe(PONG_TWO);
   });

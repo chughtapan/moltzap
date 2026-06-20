@@ -6,19 +6,16 @@ import {
   stopTestServerEffect,
   resetTestDbEffect,
   registerAndConnect,
+  firstTextPart,
   getKyselyDb,
   getEncryptionEnvelope,
   type ConnectedAgent,
 } from "../helpers.js";
-import {
-  DEFAULT_APP_ID,
-  MessagesList,
-  MessagesSend,
-  TaskRequest,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol";
-import { rotateKek } from "../../../crypto/key-rotation.js";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
+import { rotateKek } from "#db/crypto";
 
 const it = effectIt.live;
 
@@ -93,7 +90,7 @@ function sendEncryptedProbe(
   });
 }
 
-function readMessageCryptoRow(messageId: string) {
+function readMessageCryptoRow(messageId: MessageId) {
   const db = getKyselyDb();
   return Effect.tryPromise(() =>
     db
@@ -137,13 +134,8 @@ function readMessageTexts(fixture: EncryptedFixture) {
       conversationId: fixture.conversationId,
     })
     .pipe(
-      Effect.map(
-        (result) =>
-          (result as { messages: Array<{ parts: Array<{ text: string }> }> })
-            .messages,
-      ),
-      Effect.map((messages) =>
-        messages.map((message) => message.parts[0]!.text),
+      Effect.map((result) =>
+        result.messages.map((message) => firstTextPart(message.parts)),
       ),
     );
 }

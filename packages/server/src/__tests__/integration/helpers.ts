@@ -7,28 +7,31 @@ import {
   stopCoreTestServer,
   resetCoreTestDb,
   getCoreDb,
-  getCoreApp,
   getCoreEncryptionEnvelope,
-} from "../../test-utils/index.js";
-import type { SessionValidator } from "../../identity/services/session-validator.js";
+  getBaseUrl,
+} from "../../test-utils/server.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
-import type { NotificationFrame } from "@moltzap/protocol";
-import type { JsonRpcMethod } from "@moltzap/protocol/testing";
+import type { AgentKey } from "@moltzap/protocol/identity";
+import { UserId } from "@moltzap/protocol/identity";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { Part } from "@moltzap/protocol/message";
+import type { TestAgentClient, TestAppClient } from "@moltzap/protocol/testing";
 import {
   awaitOneNotification,
   registerAndConnect,
-  registerOnly,
   setupAgentPair,
   setupAgentGroup,
   closeAllClients,
+  createTestAgent,
   trackClient,
   registerAgent,
+  registerApp,
+  connectAppClient,
   connectTestClient,
   postJson,
-  type ServerTestClient,
 } from "../../test-utils/helpers.js";
-import type { CoreApp } from "../../app/types.js";
-import { Data, Effect, Either } from "effect";
+import type { CoreApp } from "#core";
+import { Effect, Either, Schema } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { inject } from "vitest";
 
@@ -44,25 +47,34 @@ export const it = effectIt.live;
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export {
   awaitOneNotification,
+  connectAppClient,
   connectTestClient,
+  createTestAgent,
+  getBaseUrl,
   postJson,
   registerAgent,
+  registerApp,
   registerAndConnect,
-  registerOnly,
   setupAgentPair,
   setupAgentGroup,
   trackClient,
 };
-export type { ServerTestClient };
+export type { TestAgentClient, TestAppClient };
 
-export function notificationParams<T>(notification: NotificationFrame): T {
-  return notification.params as T;
+/**
+ * Read the text of a `text` part. Throws on a non-text variant — callers
+ * assert on text payloads they just sent.
+ */
+export function textOfPart(part: Part | undefined): string {
+  if (part === undefined || part.type !== "text") {
+    throw new IntegrationTestHelperError("Expected a text part in message.");
+  }
+  return part.text;
 }
 
-export function notificationMatches(
-  method: JsonRpcMethod,
-): (notification: NotificationFrame) => boolean {
-  return (notification) => notification.method === method;
+/** Text of the first part. See {@link textOfPart}. */
+export function firstTextPart(parts: ReadonlyArray<Part>): string {
+  return textOfPart(parts[0]);
 }
 
 export function expectEitherLeft<A, E>(value: Either.Either<A, E>): E {
@@ -79,20 +91,12 @@ let _coreApp: CoreApp | null = null;
 type StartTestServerOptions = {
   devMode?: boolean;
   encryption?: boolean;
-  /** Optional validator forwarded to `startCoreTestServer` — see its docs. */
-  sessionValidator?: SessionValidator;
 
   /** Optional secret forwarded to `startCoreTestServer` — see its docs. */
   registrationSecret?: string;
 
-  /**
-   * Optional dev-mode owner id. When set, every agent registered via the
-   * public `/api/v1/auth/register` endpoint is implicitly owned by this
-   * UserId. Tests that exercise contact-scoped surface (#481) on a
-   * single-owner cohort use this to avoid an admin-register dance just to
-   * bind owners.
-   */
-  devModeUserId?: string;
+  /** Boot admin owner id used by the default registration route. */
+  adminUserId?: UserId;
   spanProcessor?: SpanProcessor;
 };
 
@@ -107,31 +111,25 @@ class IntegrationTestHelperError extends Error {
   }
 }
 
-export interface AdminRegisterResponse {
-  agentId: string;
-  apiKey: string;
+export interface TestUser {
+  readonly id: UserId;
+  readonly supabaseUid: string;
+  readonly displayName: string;
 }
 
-class AdminRegisterDecodeError extends Data.TaggedError(
-  "AdminRegisterDecodeError",
-)<{
-  readonly message: string;
-  readonly json: unknown;
-}> {}
+export interface OwnedAgentRegistration {
+  readonly agentId: AgentId;
+  readonly apiKey: AgentKey;
+  readonly ownerUserId: UserId;
+  readonly user: TestUser;
+}
 
-class AdminRegisterStatusError extends Data.TaggedError(
-  "AdminRegisterStatusError",
-)<{
-  readonly message: string;
-  readonly status: number;
-  readonly json: unknown;
-}> {}
-
-function isAdminRegisterResponse(json: unknown): json is AdminRegisterResponse {
-  if (typeof json !== "object" || json === null) return false;
-  if (!("agentId" in json) || typeof json.agentId !== "string") return false;
-  if (!("apiKey" in json) || typeof json.apiKey !== "string") return false;
-  return true;
+interface RegisterOwnedAgentOptions {
+  readonly baseUrl: string;
+  readonly inviteCode: string;
+  readonly name: string;
+  readonly user: TestUser;
+  readonly description?: string;
 }
 
 /**
@@ -149,9 +147,8 @@ export function startTestServerEffect(_opts?: StartTestServerOptions) {
         pgHost,
         pgPort,
         encryption: opts.encryption,
-        sessionValidator: opts.sessionValidator,
         registrationSecret: opts.registrationSecret,
-        devModeUserId: opts.devModeUserId,
+        adminUserId: opts.adminUserId,
         spanProcessor: opts.spanProcessor,
       }),
     catch: (cause) =>
@@ -217,41 +214,19 @@ export function resetTestDb() {
   return Effect.runPromise(resetTestDbEffect());
 }
 
-export function adminRegisterAgent(opts: {
-  baseUrl: string;
-  inviteCode: string;
-  name: string;
-  ownerUserId: string;
-  description?: string;
-}) {
-  const body: Record<string, unknown> = {
-    name: opts.name,
-    inviteCode: opts.inviteCode,
-    ownerUserId: opts.ownerUserId,
-  };
-  if (opts.description !== undefined) body.description = opts.description;
-
-  return postJson(opts.baseUrl, "/api/v1/admin/register-agent", body).pipe(
-    Effect.flatMap(({ status, json }) => {
-      if (status !== HTTP_CREATED && status !== HTTP_OK) {
-        return Effect.fail(
-          new AdminRegisterStatusError({
-            message: `admin register failed: ${status}`,
-            status,
-            json,
-          }),
-        );
-      }
-      return isAdminRegisterResponse(json)
-        ? Effect.succeed(json)
-        : Effect.fail(
-            new AdminRegisterDecodeError({
-              message: "admin register response did not match expected shape",
-              json,
-            }),
-          );
-    }),
-  );
+export function registerOwnedAgent(opts: RegisterOwnedAgentOptions) {
+  return Effect.gen(function* () {
+    const reg = yield* createTestAgent(opts.name, {
+      ownerUserId: opts.user.id,
+      description: opts.description,
+    });
+    return {
+      agentId: reg.agentId,
+      apiKey: reg.apiKey,
+      ownerUserId: opts.user.id,
+      user: opts.user,
+    };
+  }).pipe(Effect.withSpan("registerOwnedAgent"));
 }
 
 export function getKyselyDb(): ReturnType<typeof getCoreDb> {
@@ -266,9 +241,12 @@ export function getEncryptionEnvelope() {
   return getCoreEncryptionEnvelope();
 }
 
-export function createTestUser(displayName: string) {
+export function createTestUser(
+  displayName: string,
+  id: string = crypto.randomUUID(),
+) {
   return {
-    id: crypto.randomUUID(),
+    id: Schema.decodeUnknownSync(UserId)(id),
     supabaseUid: crypto.randomUUID(),
     displayName,
   };
@@ -280,9 +258,4 @@ export function createAgentInvite(inviterId: string) {
     inviteId: crypto.randomUUID(),
     inviterId,
   };
-}
-
-export function claimTestAgent(claimToken: string, userId: string): void {
-  if (claimToken.length === 0 || userId.length === 0) return;
-  // No-op — agents are active immediately in core
 }

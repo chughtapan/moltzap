@@ -7,7 +7,7 @@
 # network, task, app). Same-folder siblings (`./foo.js`), within-folder upward
 # (`../foo.js` where the parent is the same logical group, e.g.
 # `packages/X/src/cli/commands/x.ts -> ../config.js` while still inside
-# `cli/`), and **same-package kernel imports** (`../db/X.js`, `../crypto/X.js`,
+# `cli/`), and **same-package kernel imports** (`../db/X.js`,
 # etc.) are out of scope per parent epic #538 §Phase 3, #544 plan v2 §5, and
 # #542 plan-approved §3 ("Kernels do not get subpath exports; they're imported
 # relatively.").
@@ -151,7 +151,6 @@ SOURCE_PATH_IGNORES=(
   # Protocol testing trees that stay relative (everything EXCEPT the per-
   # layer conformance subdirs, which Phase 3 already migrated).
   '^packages/protocol/src/testing/arbitraries/'
-  '^packages/protocol/src/testing/models/'
   '^packages/protocol/src/testing/toxics/'
   '^packages/protocol/src/testing/__tests__/'
   '^packages/protocol/src/testing/index\.ts:'

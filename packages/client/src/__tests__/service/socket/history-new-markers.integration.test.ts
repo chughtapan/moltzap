@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -11,16 +11,16 @@ it("history via socket returns messages with isOwn labels", () =>
     const regA = yield* H.registerAgent("sock-hist-a");
     const regB = yield* H.registerAgent(H.SOCK_HIST_B_NAME);
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(TaskRequest, {
+      const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
       });
 
-      yield* H.socketRpcRequest(H.MessagesSend, {
+      yield* service.call(H.MessagesSend.name, {
         taskId: conv.task.id,
         conversationId: conv.conversation!.id,
         parts: [{ type: "text", text: "Hello from A" }],
@@ -59,7 +59,7 @@ it("messages stay *NEW* after getContext notification until history is read", ()
     const regC = yield* H.registerAgent("wm-c");
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
       const convB = yield* H.createDm(service, regB.agentId);
@@ -116,7 +116,7 @@ it("new messages after history read are marked *NEW*", () =>
     const regB = yield* H.registerAgent("wm2-b");
     const regC = yield* H.registerAgent("wm2-c");
     yield* H.connectClients(regB.client, regC.client);
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
       const convB = yield* H.createDm(service, regB.agentId);

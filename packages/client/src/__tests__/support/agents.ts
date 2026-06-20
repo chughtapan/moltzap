@@ -1,40 +1,37 @@
 import { Effect } from "effect";
-import {
-  DEFAULT_APP_ID,
-  MessagesSend,
-  TaskRequest,
-  type AgentId,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol";
-import { agentId as brandAgentId } from "@moltzap/protocol/testing";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { MessagesSend } from "@moltzap/protocol/message";
+import type { AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
+import { createTestAgent } from "@moltzap/server-core/test-utils";
 import { MoltZapAgentClient } from "@moltzap/client";
-import {
-  registerAgent as registerAgentHttp,
-  stripWsPath,
-} from "@moltzap/client/test";
+import { stripWsPath } from "../../test-utils/index.js";
 import { MoltZapService } from "../../service.js";
 import { MESSAGE_SETTLE_MS } from "./constants.js";
 import { coreBaseUrl, coreWsUrl } from "./server.js";
 
 export function registerAgent(name: string) {
   return Effect.gen(function* () {
-    const reg = yield* registerAgentHttp(coreBaseUrl(), name);
+    const reg = yield* createTestAgent(name);
     const client = new MoltZapAgentClient({
       serverUrl: stripWsPath(coreWsUrl()),
       agentKey: reg.apiKey,
     });
-    return { ...reg, agentId: brandAgentId(reg.agentId), client };
+    return { ...reg, client };
   }).pipe(Effect.withSpan("registerAgent"));
 }
 
 export function connectService(
-  apiKey: string,
+  apiKey: AgentKey,
+  agentId: AgentId,
 ): Effect.Effect<MoltZapService, Error> {
   return Effect.gen(function* () {
-    const service = new MoltZapService({
-      serverUrl: coreBaseUrl(),
+    const service = MoltZapService.fromConfig({
+      agentId,
       agentKey: apiKey,
+      serverUrl: coreBaseUrl(),
     });
     yield* service.connect();
     return service;
@@ -48,7 +45,7 @@ export function sendAndSettle(
   text: string,
 ) {
   return Effect.gen(function* () {
-    yield* client.sendRpc(MessagesSend, {
+    yield* client.call(MessagesSend.name, {
       taskId,
       conversationId,
       parts: [{ type: "text", text }],
@@ -66,7 +63,7 @@ type TestClient = Effect.Effect.Success<
 
 export const createDm = (service: ConnectedService, agentId: AgentId) =>
   service
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agentId],
       initialConversation: { participants: [agentId] },

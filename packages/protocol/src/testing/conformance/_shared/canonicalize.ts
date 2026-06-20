@@ -2,15 +2,14 @@
  * Canonicalization primitives — narrow, composable building blocks for
  * body-compare property assertions.
  *
- * Per architect #197 §3: properties that compare response bodies route
- * through a named canonical-projection function that normalizes order
- * **only where the protocol spec marks it unordered**. These primitives
- * let the property author that projection without reaching for a
- * blanket deep-sort that would hide real re-ordering regressions inside
- * nested arrays.
+ * Properties that compare response bodies route through a named
+ * canonical-projection function that normalizes order **only where the
+ * protocol spec marks it unordered**. These primitives let the property
+ * author that projection without reaching for a blanket deep-sort that
+ * would hide real re-ordering regressions inside nested arrays.
  *
  * Callers cite the spec clause for each array they sort, in JSDoc on
- * the projection. Reviewer spot-checks during stamina pass.
+ * the projection.
  *
  * No blanket `canonicalizeUnordered` helper: picking which arrays to
  * sort is a spec decision, not an ergonomic default.

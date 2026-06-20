@@ -2,6 +2,7 @@ import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
   awaitOneNotification,
+  firstTextPart,
   it,
   startTestServerEffect,
   stopTestServerEffect,
@@ -10,14 +11,13 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
-  MessagesSend,
   MessageReceivedNotificationDefinition,
-  TaskRequest,
-  type ConversationId,
-  type TaskId,
-} from "@moltzap/protocol";
+  MessagesSend,
+} from "@moltzap/protocol/message";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 
 let _baseUrl: string;
 let _wsUrl: string;
@@ -37,12 +37,7 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-/**
- * Fork a "drop the first frame, then collect any extras" collector
- * (#645): the legacy `drainNotifications` historical queue is gone,
- * so the no-extra-event assertion must subscribe BEFORE the
- * triggering send.
- */
+/** Fork a "drop the first frame, then collect any extras" collector. */
 function forkExtraCollector(receiver: ConnectedAgent) {
   return receiver.client
     .subscribe(MessageReceivedNotificationDefinition)
@@ -113,29 +108,30 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
       receivers.map((receiver) => forkExtraCollector(receiver)),
       { concurrency: receivers.length },
     );
-
-    yield* sendToAll(sender, conversations);
-
-    const events = yield* Effect.all(
-      receivers.map((r) =>
-        awaitOneNotification(r.client, MessageReceivedNotificationDefinition),
+    const eventFibers = yield* Effect.all(
+      receivers.map((receiver) =>
+        Effect.fork(
+          awaitOneNotification(
+            receiver.client,
+            MessageReceivedNotificationDefinition,
+          ),
+        ),
       ),
       { concurrency: receivers.length },
     );
 
-    for (let i = 0; i < events.length; i++) {
-      const event = events[i]!;
-      const data = event.params as {
-        message: {
-          conversationId: string;
-          parts: Array<{ text: string }>;
-        };
-      };
+    yield* sendToAll(sender, conversations);
 
-      expect(data.message.conversationId).toBe(
-        conversations[i]!.conversationId,
-      );
-      expect(data.message.parts[0]!.text).toBe(`Hello receiver-${i + 1}`);
+    const events = yield* Effect.all(
+      eventFibers.map((fiber) => Fiber.join(fiber)),
+      { concurrency: receivers.length },
+    );
+
+    for (let i = 0; i < events.length; i++) {
+      const message = events[i]!.params.message;
+
+      expect(message.conversationId).toBe(conversations[i]!.conversationId);
+      expect(firstTextPart(message.parts)).toBe(`Hello receiver-${i + 1}`);
     }
 
     // No extra events: settle-window collector forked before sends;

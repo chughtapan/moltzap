@@ -6,19 +6,23 @@
 import { describe, expect, it } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Either } from "effect";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 
 import {
   CHANNEL_CAPABILITIES,
   decodeReplyArgs,
   REPLY_TOOL_INPUT_SCHEMA,
 } from "../server.js";
+import { brandIsoTimestamp } from "../event.js";
 import type { ClaudeChannelNotification } from "../types.js";
 import {
   CLAUDE_CHANNEL_NOTIFICATION_METHOD,
   ConversationId,
   MessageId,
+  TaskId,
   UserId,
 } from "../types.js";
+import type { RoutingTarget } from "../routing.js";
 import {
   LeaseAlreadyConsumed,
   SendFailed,
@@ -46,6 +50,7 @@ const MESSAGE_KNOWN = "00000000-0000-4000-8000-0000000001a3";
 const MESSAGE_MISSING = "00000000-0000-4000-8000-0000000001a4";
 const MESSAGE_X = "00000000-0000-4000-8000-0000000001a5";
 const USER_PEER = "00000000-0000-4000-8000-0000000002a1";
+const TASK_ID = "00000000-0000-4000-8000-0000000003a1";
 const REPLY_TOOL_NAME = "reply";
 const REPLY_TEXT = "hi";
 const SECOND_REPLY_TEXT = "second reply attempt";
@@ -57,6 +62,8 @@ const TIMESTAMP = "2026-04-24T00:00:00Z";
 const FILE_A = "a.png";
 const FILE_B = "b.png";
 const LEASE_ID = "lease-cc-test";
+const LEASE_CONSUMED_AT = 1_700_000_000_000;
+const LEASE_FORBIDDEN_MESSAGE = "lease consumed";
 
 const EXPECTED_CHANNEL_CAPABILITIES = {
   tools: {},
@@ -85,7 +92,7 @@ function makeNotification(
         chat_id: ConversationId(conversationId),
         message_id: MessageId(messageId),
         user: UserId(USER_PEER),
-        ts: TIMESTAMP,
+        ts: brandIsoTimestamp(TIMESTAMP),
       },
     },
   };
@@ -113,16 +120,19 @@ function recordInboundPair(
   messageId: string,
   conversationId: string,
 ): void {
-  harness.routing.recordInbound(
-    MessageId(messageId),
-    ConversationId(conversationId),
-  );
+  harness.routing.recordInbound(MessageId(messageId), {
+    taskId: TaskId(TASK_ID),
+    conversationId: ConversationId(conversationId),
+  });
 }
 
 function sentRecorder(sent: SentReply[]) {
-  return (conversationId: string, text: string) =>
+  return (
+    target: RoutingTarget,
+    text: string,
+  ): Effect.Effect<void, ReplyError> =>
     Effect.sync(() => {
-      sent.push({ conversationId, text });
+      sent.push({ conversationId: target.conversationId, text });
     });
 }
 
@@ -362,7 +372,17 @@ function assertSendFailed(harness: ServerHarness) {
 function surfacesLeaseAlreadyConsumedAsStructuredToolError() {
   return withHarness(assertLeaseAlreadyConsumed, {
     onSendReply: () =>
-      Effect.fail<ReplyError>(new LeaseAlreadyConsumed({ leaseId: LEASE_ID })),
+      Effect.fail<ReplyError>(
+        new LeaseAlreadyConsumed({
+          leaseId: LEASE_ID,
+          consumedAt: LEASE_CONSUMED_AT,
+          cause: new ForbiddenError({
+            message: LEASE_FORBIDDEN_MESSAGE,
+            data: { reason: "LeaseInvalid" },
+          }),
+          message: LEASE_FORBIDDEN_MESSAGE,
+        }),
+      ),
   });
 }
 

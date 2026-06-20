@@ -1,4 +1,4 @@
-import { expect, beforeAll, afterAll, beforeEach, it as vit } from "vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
   it,
@@ -8,12 +8,8 @@ import {
   registerAndConnect,
 } from "../helpers.js";
 
-import {
-  DEFAULT_APP_ID,
-  MessagesList,
-  MessagesSend,
-  TaskRequest,
-} from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 
 const TEST_GROUP_NAME = "Test Group";
 const FIRST_MESSAGE_TEXT = "Message 1";
@@ -86,9 +82,3 @@ it("create group, send messages, verify seq monotonicity", () =>
     yield* bob.client.close();
     yield* eve.client.close();
   }));
-
-// TaskConversationAddParticipant is TM-only. DEFAULT_APP_ID tasks have
-// no registered TM (#677); re-add coverage when the test fixture
-// rewires to AppsRegister + a custom app OR a future invitation-accept
-// RPC adds a non-TM path.
-vit.todo("addParticipant adds an agent — needs AppsRegister fixture");

@@ -1,41 +1,13 @@
-/**
- * D3 cutover: only `history` survives; legacy list/create/archive/etc.
- * subcommands ship in the D3 ADD slice once typed `Task*` CLI helpers
- * land at the transport boundary.
- */
-import { Args, Command, HelpDoc, Options } from "@effect/cli";
+import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
-import { Value } from "@sinclair/typebox/value";
-import { ConversationId, TaskId } from "@moltzap/protocol/task";
-import { LocalServiceCommands, requestLocalService } from "../socket-client.js";
-import type {
-  HistoryRequestInput,
-  HistoryMessageSummary,
-  HistoryResponse,
-} from "../../runtime/local-history.js";
-
-const jsonOption = Options.boolean("json").pipe(
-  Options.withDescription("Output as JSON"),
-);
+import { ConversationId } from "@moltzap/protocol/conversation";
+import { TaskId } from "@moltzap/protocol/task";
+import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
+import { command, runHandler } from "../transport.js";
+import { logJson, logLines } from "../output.js";
+import type { HistoryRequest } from "../../local-history.js";
 
 const DEFAULT_HISTORY_LIMIT = 50;
-const JSON_INDENT_SPACES = 2;
-const MILLISECONDS_PER_MINUTE = 60_000;
-
-const wrap = <A>(
-  effect: Effect.Effect<A, Error>,
-  onSuccess: (value: A) => void,
-): Effect.Effect<void> =>
-  effect.pipe(
-    Effect.tap((value) => Effect.sync(() => onSuccess(value))),
-    Effect.asVoid,
-    Effect.catchAll((err) =>
-      Effect.sync(() => {
-        console.error(`Failed: ${err.message}`);
-        process.exit(1);
-      }),
-    ),
-  );
 
 const historyLimitOption = Options.integer("limit").pipe(
   Options.withDefault(DEFAULT_HISTORY_LIMIT),
@@ -48,95 +20,34 @@ const sessionKeyOption = Options.text("session-key").pipe(
 );
 
 const taskIdArg = Args.text({ name: "taskId" }).pipe(
+  Args.withSchema(TaskId),
   Args.withDescription("Task ID"),
-  Args.mapTryCatch(
-    (raw) => Value.Decode(TaskId, raw),
-    (err) => HelpDoc.p(`invalid taskId: ${String(err)}`),
-  ),
 );
 
 const conversationIdArg = Args.text({ name: "conversationId" }).pipe(
+  Args.withSchema(ConversationId),
   Args.withDescription("Conversation ID"),
-  Args.mapTryCatch(
-    (raw) => Value.Decode(ConversationId, raw),
-    (err) => HelpDoc.p(`invalid conversationId: ${String(err)}`),
-  ),
 );
-
-function renderHistoryHeader(
-  conversationId: string,
-  sessionKey: Option.Option<string>,
-  result: HistoryResponse,
-): void {
-  if (!Option.isSome(sessionKey) || !result.conversationMeta) return;
-  const label = result.conversationMeta.name ?? "conversation";
-  console.log(
-    `Conversation: ${label} (${conversationId}) | ${result.newCount} new`,
-  );
-  console.log("");
-}
-
-function messageAgeMinutes(createdAt: string): number {
-  return Math.max(
-    0,
-    Math.round(
-      (Date.now() - new Date(createdAt).getTime()) / MILLISECONDS_PER_MINUTE,
-    ),
-  );
-}
-
-function renderHistoryMessage(message: HistoryMessageSummary): void {
-  const ago = messageAgeMinutes(message.createdAt);
-  const newMarker = message.isNew ? " *" : "";
-  console.log(
-    `  [${ago}m ago] ${message.senderName}: ${message.text}${newMarker}`,
-  );
-}
-
-const renderHistory = (
-  conversationId: string,
-  sessionKey: Option.Option<string>,
-  result: HistoryResponse,
-  json: boolean,
-): void => {
-  if (json) {
-    console.log(JSON.stringify(result, null, JSON_INDENT_SPACES));
-    return;
-  }
-  if (result.messages.length === 0) {
-    console.log("No messages.");
-    return;
-  }
-  renderHistoryHeader(conversationId, sessionKey, result);
-  for (const message of result.messages) {
-    renderHistoryMessage(message);
-  }
-  if (result.hasMore) {
-    console.log("  ... more messages available");
-  }
-};
 
 const historyHandler = ({
   taskId,
   conversationId,
   limit,
-  json,
   sessionKey,
 }: {
-  taskId: string;
-  conversationId: string;
+  taskId: TaskId;
+  conversationId: ConversationId;
   limit: number;
-  json: boolean;
   sessionKey: Option.Option<string>;
-}): Effect.Effect<void> => {
-  const params: HistoryRequestInput = Option.isSome(sessionKey)
+}) => {
+  const params: HistoryRequest = Option.isSome(sessionKey)
     ? { taskId, conversationId, limit, sessionKey: sessionKey.value }
     : { taskId, conversationId, limit };
-  return wrap(
-    requestLocalService(LocalServiceCommands.History, params),
-    (result) => {
-      renderHistory(conversationId, sessionKey, result, json);
-    },
+  return runHandler(
+    command(LocalDaemonCommands.History, params).pipe(
+      Effect.flatMap(logJson),
+      Effect.asVoid,
+    ),
   );
 };
 
@@ -146,24 +57,16 @@ const historySubcommand = Command.make(
     taskId: taskIdArg,
     conversationId: conversationIdArg,
     limit: historyLimitOption,
-    json: jsonOption,
     sessionKey: sessionKeyOption,
   },
   historyHandler,
 ).pipe(Command.withDescription("Show message history for a conversation"));
 
-/**
- * `moltzap conversations [history]` — the legacy CRUD subcommands
- * retire with the `Conversations*` wire surface; restructure to
- * `Task*` / `TaskConversation*` ships in the D3 ADD slice.
- */
 export const conversationsCommand = Command.make("conversations", {}, () =>
-  Effect.sync(() => {
-    console.log(
-      "moltzap conversations: only `history` is supported in this release.",
-    );
-    console.log("See `moltzap conversations history --help`.");
-  }),
+  logLines([
+    "moltzap conversations: only `history` is supported in this release.",
+    "See `moltzap conversations history --help`.",
+  ]),
 ).pipe(
   Command.withDescription("Show conversation history"),
   Command.withSubcommands([historySubcommand]),
@@ -176,7 +79,6 @@ export const historyCommand = Command.make(
     taskId: taskIdArg,
     conversationId: conversationIdArg,
     limit: historyLimitOption,
-    json: jsonOption,
     sessionKey: sessionKeyOption,
   },
   historyHandler,

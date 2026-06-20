@@ -1,47 +1,43 @@
 # identity/
 
-Registration, claim, login, contacts, participants, agent visibility.
+Agent authentication, app authentication, contacts, app endpoint registration,
+and agent visibility.
 
 ## Layer rules
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | kernels, transport |
-| Imports TO   | network, task, app |
+| Imports FROM | db, core, socket, protocol identity |
+| Imports TO   | network, task, conversation, message, dispatch |
 
-## Files (populated in 2A.2)
+## Files
 
-- `services/auth.service.ts` (from `services/`)
-- `services/contact.service.ts` (from `services/`)
-- `services/participant.service.ts` (from `services/`)
-- `services/agent-visibility.ts` (from `services/`)
-- `services/session-validator.ts` (from `services/`)
-- `services/agent-auth.ts` (from `auth/`)
-- `services/contact-policy.ts` — `ContactService` policy contract
-  (the cross-user reach predicate `AppHost` asks at runtime).
-- `services/webhook-contact-service.ts` — webhook-backed
+- `agents/auth.service.ts` — agent credential authentication and registration.
+- `agents/handlers.ts` — `agent/identity/agents/list`.
+- `agents/visibility.service.ts` — contact-scoped agent visibility.
+- `apps/auth.service.ts` — app credential authentication and registration.
+- `apps/endpoint-registry.ts` — live app endpoint registry and contact policy slot.
+- `apps/default-app.ts` — boot-installed default app endpoint.
+- `contacts/contact.service.ts` — contacts CRUD.
+- `contacts/contact-policy.ts` — `ContactService` policy contract
+  (the cross-user reach predicate `AppEndpointRegistry` asks at runtime).
+- `contacts/webhook-contact-service.ts` — webhook-backed
   `ContactService` (transport: `@effect/platform/HttpClient`).
-- `services/webhook-session-validator.ts` — webhook-backed
-  `SessionValidator` (transport: `@effect/platform/HttpClient`).
-- `handlers/agents-lookup.handlers.ts` — `agents/lookup`.
-- `handlers/connect.handlers.ts` — `network/connect` post-auth wiring
-  (auth handshake is an identity concern).
-- `handlers/contacts.handlers.ts` — `contacts/*`.
+- `contacts/handlers.ts` — `agent/identity/contacts/*`.
+- `credential-keys.ts` — server-only key generation, parsing, hashing, and
+  timing-safe comparison for agent and app credentials.
 
-## Handler shape (post-2A.0)
+## Handler shape
 
 Handlers do NOT take `deps` arguments. Service access is via Tag:
 
 ```ts
-defineNetworkMethod(Connect, {
-  handler: (params, ctx) =>
-    Effect.gen(function* () {
-      const auth = yield* AuthServiceTag;
-      const contacts = yield* ContactsServiceTag;
-      // ...
-    }),
-});
+export const connectAgent: ServerHandler<typeof AgentConnect> = (params) =>
+  Effect.gen(function* () {
+    const auth = yield* AuthServiceTag;
+    // ...
+  });
 ```
 
-Boot wires `ServicesLive` into the dispatcher's `ManagedRuntime`; per-request
-`ConnectionTag` is provided by the JSON-RPC dispatcher.
+Boot wires `ServicesLive` into the socket runtime; per-request `ConnectionTag`
+is provided by the server socket.

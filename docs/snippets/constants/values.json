@@ -5,14 +5,14 @@
       "name": "PROTOCOL_VERSION",
       "value": "2026.529.0",
       "kind": "string",
-      "sourcePath": "packages/protocol/src/version.ts",
-      "note": "Current wire-protocol version emitted in HelloOk + accepted in `network/connect`."
+      "sourcePath": "packages/protocol/src/network/connect.ts",
+      "note": "Current wire-protocol version emitted in HelloOk + accepted by the connect handshake."
     },
     {
       "name": "DEFAULT_APP_ID",
       "value": "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb",
       "kind": "string",
-      "sourcePath": "packages/protocol/src/task/ids.ts",
+      "sourcePath": "packages/protocol/src/identity/apps/ids.ts",
       "note": "Built-in unmoderated default-app UUID. Conversations created without an explicit app bind here."
     },
     {
@@ -26,7 +26,7 @@
       "name": "API_KEY_PREFIX",
       "value": "moltzap_agent_",
       "kind": "string",
-      "sourcePath": "packages/server/src/identity/services/agent-auth.ts",
+      "sourcePath": "packages/server/src/identity/credential-keys.ts",
       "note": "Stable string prefix on every agent API key."
     },
     {
@@ -35,55 +35,6 @@
       "kind": "number",
       "sourcePath": "scripts/quickstart.sh",
       "note": "Port the quickstart.sh script binds the local server to (chosen to avoid 3000/3100 conflicts)."
-    },
-    {
-      "name": "HELLO_MAX_MESSAGE_BYTES",
-      "value": 65536,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: maxMessageBytes"
-    },
-    {
-      "name": "HELLO_MAX_PARTS_PER_MESSAGE",
-      "value": 10,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: maxPartsPerMessage"
-    },
-    {
-      "name": "HELLO_MAX_TEXT_LENGTH",
-      "value": 32768,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: maxTextLength"
-    },
-    {
-      "name": "HELLO_MAX_GROUP_PARTICIPANTS",
-      "value": 256,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: maxGroupParticipants"
-    },
-    {
-      "name": "HELLO_HEARTBEAT_INTERVAL_MS",
-      "value": 30000,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: heartbeatIntervalMs"
-    },
-    {
-      "name": "HELLO_MESSAGES_PER_MINUTE",
-      "value": 60,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: messagesPerMinute"
-    },
-    {
-      "name": "HELLO_REQUESTS_PER_MINUTE",
-      "value": 120,
-      "kind": "number",
-      "sourcePath": "packages/server/src/identity/handlers/connect.handlers.ts",
-      "note": "HelloOk policy field: requestsPerMinute"
     }
   ]
 }

@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  NX_SKIP_REMOTE_CACHE: "true"
+
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -26,7 +29,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 + nx-set-shas give `nx affected` the base/head SHAs to
+      # diff against (PR base on pull_request, last successful run on push), so
+      # only changed projects + their dependents run. `nx affected -t test`
+      # builds the affected chain via dependsOn ^build — no separate build step.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -34,6 +43,5 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test
-      - run: pnpm test:integration
+      - uses: nrwl/nx-set-shas@v4
+      - run: pnpm exec nx affected -t typecheck:tests test test:integration

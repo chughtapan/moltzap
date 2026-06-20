@@ -120,10 +120,10 @@ export function cleanupHarness(harness: ServerHarness): Effect.Effect<void> {
   }).pipe(Effect.withSpan("cleanupHarness"));
 }
 
-export function withHarness<A>(
-  use: (harness: ServerHarness) => Effect.Effect<A, ServerHarnessError>,
+export function withHarness<A, E = never>(
+  use: (harness: ServerHarness) => Effect.Effect<A, E>,
   opts?: ServerHarnessOptions,
-): Effect.Effect<A, ServerHarnessError> {
+): Effect.Effect<A, E | ServerHarnessError> {
   const resolvedOpts = opts ?? {};
   return Effect.gen(function* () {
     const harness = yield* setupHarness(resolvedOpts);

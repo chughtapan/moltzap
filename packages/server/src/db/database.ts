@@ -1,12 +1,14 @@
 // @generated — thin wrapper over kysely-codegen output for core schema.
-// Run `pnpm db:generate` after changing src/app/core-schema.sql.
+// Run `pnpm db:generate` after changing src/db/core-schema.sql.
 
 import type { ColumnType, Selectable } from "kysely";
 import type { AgentId, ContactId, UserId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { AppId, TaskId } from "@moltzap/protocol/task";
 
 import type {
   Agents as RawAgents,
+  Apps as RawApps,
   Contacts as RawContacts,
   ConversationKeys as RawConversationKeys,
   ConversationParticipants as RawConversationParticipants,
@@ -31,7 +33,11 @@ type GeneratedBranded<T extends string> = ColumnType<
 
 interface Agents extends Omit<RawAgents, "id" | "owner_user_id"> {
   id: GeneratedBranded<AgentId>;
-  owner_user_id: BrandedNullable<UserId>;
+  owner_user_id: Branded<UserId>;
+}
+
+interface Apps extends Omit<RawApps, "app_id"> {
+  app_id: GeneratedBranded<AppId>;
 }
 
 interface Contacts
@@ -79,7 +85,8 @@ interface TaskParticipants
   task_id: Branded<TaskId>;
 }
 
-interface Tasks extends Omit<RawTasks, "id" | "initiator_agent_id"> {
+interface Tasks extends Omit<RawTasks, "app_id" | "id" | "initiator_agent_id"> {
+  app_id: Branded<AppId>;
   id: GeneratedBranded<TaskId>;
   initiator_agent_id: Branded<AgentId>;
 }
@@ -90,6 +97,7 @@ export type ConversationKeyRow = Selectable<ConversationKeys>;
 
 export interface Database {
   agents: Agents;
+  apps: Apps;
   conversations: Conversations;
   conversation_participants: ConversationParticipants;
   messages: Messages;

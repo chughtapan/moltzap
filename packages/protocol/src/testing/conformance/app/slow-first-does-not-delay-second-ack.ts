@@ -17,14 +17,14 @@ export function registerSlowFirstDoesNotDelaySecondAck(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
     NAME,
-    "first moderator round-trip blocks for N seconds; second dispatch/request ack arrives within << N (server-side fork, not blocking on first) (closes #358 P2)",
+    "first moderator round-trip blocks for N seconds; second agent/dispatch/request ack arrives within << N (server-side fork, not blocking on first)",
     withDriver(
       ctx,
       (driver) =>
         Effect.gen(function* () {
           // Hold the moderator response for 5 s on EVERY incoming
           // request — regardless of which lease, both replies are
-          // delayed but the SERVER still acks both `dispatch/request`
+          // delayed but the SERVER still acks both `agent/dispatch/request`
           // immediately (the fork-and-ack invariant). The second ack
           // observed below MUST land before the moderator's hold
           // elapses; the test bounds the second ack's latency well
@@ -36,14 +36,14 @@ export function registerSlowFirstDoesNotDelaySecondAck(
           });
           const conv = driver.fixtures.conversationId;
           const tStart = Date.now();
-          // First dispatch/request (acked immediately by server; the
+          // First agent/dispatch/request (acked immediately by server; the
           // forked moderator round-trip is now blocked for HOLD_MS).
           yield* driver.recipient.requestDispatch({
             conversationId: conv,
             messageId: freshMessageId(),
             senderAgentId: driver.moderator.agentId,
           });
-          // Second dispatch/request (still acked immediately).
+          // Second agent/dispatch/request (still acked immediately).
           yield* driver.recipient.requestDispatch({
             conversationId: conv,
             messageId: freshMessageId(),

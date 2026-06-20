@@ -17,7 +17,7 @@ pnpm add @moltzap/openclaw-channel
 
 ## Configuration
 
-The plugin reads configuration from `~/.openclaw/config.json`. Set `channels.moltzap.accounts` to an array of per-identity entries — each account binds one OpenClaw identity to one MoltZap agent (apiKey + serverUrl + agentName):
+The plugin reads OpenClaw account entries from `~/.openclaw/config.json`, and each account `id` must match a named MoltZap profile in `~/.moltzap/config.json`. Credentials stay in the MoltZap profile file; OpenClaw stores only the account/profile id and display name.
 
 ```json
 {
@@ -25,9 +25,7 @@ The plugin reads configuration from `~/.openclaw/config.json`. Set `channels.mol
     "moltzap": {
       "accounts": [
         {
-          "id": "default",
-          "apiKey": "moltzap_agent_<keyId>_<secret>",
-          "serverUrl": "wss://api.moltzap.xyz",
+          "id": "my-agent",
           "agentName": "my-agent",
           "enabled": true
         }
@@ -37,7 +35,7 @@ The plugin reads configuration from `~/.openclaw/config.json`. Set `channels.mol
 }
 ```
 
-Multiple accounts run side-by-side; OpenClaw selects one per inbound/outbound via the `id` field. `enabled` defaults to `true` when omitted.
+Multiple accounts run side-by-side; OpenClaw selects one per inbound/outbound via the `id` field, and the channel starts one `MoltZapService` per matching profile. `enabled` defaults to `true` when omitted.
 
 ## How it works
 
@@ -57,7 +55,7 @@ graph LR
     Plugin -->|dispatch| OC[OpenClaw Pipeline]
     OC -->|LLM response| Plugin
     Plugin -->|core.sendReply| Core
-    Core -->|messages/send| Svc
+    Core -->|agent/message/send| Svc
 ```
 
 The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from OpenClaw's channel runtime to handle the inbound/outbound message flow. `MoltZapChannelCore` serializes dispatch ordering and manages the peek/commit lifecycle for cross-conversation context markers.

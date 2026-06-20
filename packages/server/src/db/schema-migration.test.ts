@@ -1,7 +1,12 @@
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import { describe, expect } from "vitest";
-import { agentId, conversationId, taskId } from "@moltzap/protocol/testing";
+import {
+  agentId,
+  conversationId,
+  taskId,
+  userId,
+} from "@moltzap/protocol/testing";
 import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
@@ -12,21 +17,26 @@ import { takeFirstOrFail } from "./effect-kysely-toolkit.js";
 const it = effectIt.scoped;
 
 const AGENT_ID = agentId("00000000-0000-4000-8000-0000000a9e47");
+const OWNER_USER_ID = userId("00000000-0000-4000-8000-00000000a9e0");
 const TASK_ID = taskId("00000000-0000-4000-8000-0000000fa5c0");
 const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
 const ORPHAN_TASK_ID = taskId("00000000-0000-4000-8000-0000000d3ad0");
 const API_KEY_SECRET_HASH_LENGTH = 64;
+const APP_KEY_ID = "fedcba9876543210";
+const APP_MANIFEST_JSON = { name: "schema-fixture-app" };
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUS_WAITING = "waiting";
 const WEREWOLF_APP_ID = "werewolf";
 const DEFAULT_APP_ID = "default";
 const MESSAGE_SEQ = "1";
-const LEGACY_TABLES = [
+const REMOVED_TASK_SCHEMA_TABLES = [
   "app_sessions",
   "app_session_participants",
   "app_session_conversations",
   "message_delivery",
 ] as const;
-const LEGACY_ENUMS = [
+const REMOVED_TASK_SCHEMA_ENUMS = [
   "app_session_status",
   "app_participant_status",
   "delivery_status",
@@ -66,10 +76,38 @@ describe("tasks schema conversation constraints", () => {
   );
 });
 
-describe("tasks schema destructive migration guard", () => {
-  it("legacy tables are gone", legacyTablesAreGone, PGLITE_HOOK_TIMEOUT_MS);
+describe("apps schema constraints", () => {
+  it(
+    "inserts an app with server-issued app_id + id",
+    insertsAppWithServerIssuedIds,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
 
-  it("legacy enums are gone", legacyEnumsAreGone, PGLITE_HOOK_TIMEOUT_MS);
+  it(
+    "rejects an app insert that omits manifest_json",
+    rejectsAppWithoutManifest,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects a duplicate api_key_id",
+    rejectsDuplicateAppApiKeyId,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+});
+
+describe("tasks schema destructive migration guard", () => {
+  it(
+    "removed tables are absent",
+    removedTablesAreAbsent,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
+    "removed enums are reusable",
+    removedEnumsAreReusable,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
 
   it(
     "tasks and task_participants survive",
@@ -150,28 +188,85 @@ function rejectsConversationWithOrphanTask() {
   );
 }
 
-function legacyTablesAreGone() {
+function insertsAppWithServerIssuedIds() {
   return withTaskSchemaHarness((harness) =>
     Effect.gen(function* () {
-      for (const tableName of LEGACY_TABLES) {
+      yield* harness.db.insertInto("apps").values({
+        manifest_json: APP_MANIFEST_JSON,
+        api_key_id: APP_KEY_ID,
+        api_key_secret_hash: "y".repeat(API_KEY_SECRET_HASH_LENGTH),
+      });
+
+      const app = yield* takeFirstOrFail(
+        harness.db
+          .selectFrom("apps")
+          .select(["app_id", "api_key_id", "manifest_json"])
+          .where("api_key_id", "=", APP_KEY_ID),
+      );
+      expect(app.app_id).toMatch(UUID_RE);
+      expect(app.api_key_id).toBe(APP_KEY_ID);
+      expect(app.manifest_json).toEqual(APP_MANIFEST_JSON);
+    }),
+  );
+}
+
+function rejectsAppWithoutManifest() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        harness.exec(
+          `INSERT INTO apps (api_key_id, api_key_secret_hash)
+           VALUES ('${APP_KEY_ID}', '${"y".repeat(API_KEY_SECRET_HASH_LENGTH)}')`,
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+}
+
+function rejectsDuplicateAppApiKeyId() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      yield* harness.db.insertInto("apps").values({
+        manifest_json: APP_MANIFEST_JSON,
+        api_key_id: APP_KEY_ID,
+        api_key_secret_hash: "y".repeat(API_KEY_SECRET_HASH_LENGTH),
+      });
+
+      const exit = yield* Effect.exit(
+        harness.db.insertInto("apps").values({
+          manifest_json: APP_MANIFEST_JSON,
+          api_key_id: APP_KEY_ID,
+          api_key_secret_hash: "z".repeat(API_KEY_SECRET_HASH_LENGTH),
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+}
+
+function removedTablesAreAbsent() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      for (const tableName of REMOVED_TASK_SCHEMA_TABLES) {
         const exit = yield* Effect.exit(
           harness.exec(`SELECT 1 FROM ${tableName} LIMIT 1`),
         );
         expect(Exit.isFailure(exit)).toBe(true);
       }
-      expect(LEGACY_TABLES.length).toBeGreaterThan(0);
+      expect(REMOVED_TASK_SCHEMA_TABLES.length).toBeGreaterThan(0);
     }),
   );
 }
 
-function legacyEnumsAreGone() {
+function removedEnumsAreReusable() {
   return withTaskSchemaHarness((harness) =>
     Effect.gen(function* () {
-      for (const typeName of LEGACY_ENUMS) {
+      for (const typeName of REMOVED_TASK_SCHEMA_ENUMS) {
         yield* harness.exec(`CREATE TYPE ${typeName} AS ENUM ('probe')`);
         yield* harness.exec(`DROP TYPE ${typeName}`);
       }
-      expect(LEGACY_ENUMS.length).toBeGreaterThan(0);
+      expect(REMOVED_TASK_SCHEMA_ENUMS.length).toBeGreaterThan(0);
     }),
   );
 }
@@ -221,18 +316,18 @@ function seedTaskSchemaHarness(
 
     INSERT INTO agents (
       id,
+      owner_user_id,
       name,
       api_key_id,
       api_key_secret_hash,
-      claim_token,
       status
     )
     VALUES (
       '${AGENT_ID}',
+      '${OWNER_USER_ID}',
       'task-fixture',
       '0123456789abcdef',
       '${"x".repeat(API_KEY_SECRET_HASH_LENGTH)}',
-      'claim-task-fixture',
       'active'
     );
   `);

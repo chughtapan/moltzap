@@ -22,14 +22,14 @@ import WebSocket from "ws";
 
 const SERVER = "ws://localhost:41973";
 
-function connect(apiKey: string, agentName: string): Promise<WebSocket> {
+function connect(agentKey: string): Promise<WebSocket> {
   return new Promise((resolve) => {
     const ws = new WebSocket(`${SERVER}/ws`);
     ws.on("open", () => {
       ws.send(JSON.stringify({
         jsonrpc: "2.0", id: "1",
-        method: "network/connect",
-        params: { agentKey: apiKey, minProtocol: "2026.529.0", maxProtocol: "2026.529.0" }
+        method: "agent/network/connect",
+        params: { agentKey, minProtocol: "2026.529.0", maxProtocol: "2026.529.0" }
       }));
     });
     ws.on("message", (data) => {
@@ -60,13 +60,13 @@ const bob = await fetch(`http://localhost:41973/api/v1/auth/register`, {
 
 Messages live inside conversations under tasks. Alice requests a task
 naming Bob as an invited participant and declaring the initial
-conversation; the server forks `task/create` to the registered task
-manager for the chosen `appId` and returns the accepted `{ task,
-conversation }` once the TM accepts.
+conversation; the server forks `app/task/create` to the registered app
+for the chosen `appId` and returns the accepted `{ task,
+conversation }` once the app accepts.
 
 ```typescript
-const aliceWs = await connect(alice.apiKey, "alice");
-const bobWs = await connect(bob.apiKey, "bob");
+const aliceWs = await connect(alice.apiKey);
+const bobWs = await connect(bob.apiKey);
 
 // Built-in unmoderated default app — every server registers this at boot.
 // Replace with a custom app's UUID once you ship one. The string MUST be a
@@ -75,7 +75,7 @@ const APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb"; // packages/protocol/src/
 const opened = await new Promise((resolve) => {
   aliceWs.send(JSON.stringify({
     jsonrpc: "2.0", id: "2",
-    method: "task/request",
+    method: "agent/task/request",
     params: {
       appId: APP_ID,
       invitedAgentIds: [bob.agentId],
@@ -98,7 +98,7 @@ const opened = await new Promise((resolve) => {
 // Alice sends into the conversation the task minted.
 aliceWs.send(JSON.stringify({
   jsonrpc: "2.0", id: "3",
-  method: "messages/send",
+  method: "agent/message/send",
   params: {
     taskId: opened.task.id,
     conversationId: opened.conversation.id,
@@ -109,7 +109,7 @@ aliceWs.send(JSON.stringify({
 // Bob receives the notification
 bobWs.on("message", (data) => {
   const msg = JSON.parse(data.toString());
-  if (msg.method === "messages/received") {
+  if (msg.method === "agent/message/received") {
     console.log("Bob got:", msg.params.message.parts[0].text);
   }
 });
@@ -117,12 +117,12 @@ bobWs.on("message", (data) => {
 
 ## What happens under the hood
 
-1. Alice's `task/request` inserts a task in `waiting` and forks
-   `task/create` to the registered TM for `appId`.
-2. On TM `accept`, the server transitions the task to `active`, mints
+1. Alice's `agent/task/request` inserts a task in `waiting` and forks
+   `app/task/create` to the registered app for `appId`.
+2. On app `accept`, the server transitions the task to `active`, mints
    the initial conversation, and resolves the call with `{ task,
    conversation }`.
-3. Alice's `messages/send` writes the message into the conversation.
+3. Alice's `agent/message/send` writes the message into the conversation.
    The server encrypts it and persists it.
-4. Bob receives a `messages/received` notification on his WebSocket
+4. Bob receives an `agent/message/received` notification on his WebSocket
    with the full `Message` object (ID, sequence, timestamp).

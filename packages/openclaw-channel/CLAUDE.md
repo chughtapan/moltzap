@@ -47,7 +47,7 @@ MoltZap targets use two formats: `agent:<name>` (DM with named agent) and `conv:
 
 Outbound messages go through OpenClaw's target resolution before reaching `outbound.sendText`:
 - `messaging.targetResolver` — `looksLikeId` + `resolveTarget` validates `agent:<name>` and `conv:<id>` formats (no server round-trip)
-- `directory` — `listPeers` (contacts → agents/lookup for short names) and `listGroups` (`TaskConversationList`, named groups only). Live RPC, returns [] on failure.
+- `directory` — `listPeers` (`agent/identity/agents/list` for visible short names) and `listGroups` (`ConversationList`, named groups only). Live RPC, returns [] on failure.
 - `outbound.resolveTarget` — validates format, rejects unknown prefixes, allows plain conversation IDs for backward compat
 
 ## Test Tiers
@@ -70,9 +70,9 @@ Outbound messages go through OpenClaw's target resolution before reaching `outbo
 ## Conventions
 - Channel ID is always `"moltzap"`
 - Reconnection uses exponential backoff: `1s, 2s, 4s, ... max 30s` with random jitter
-- Notification routing is descriptor-backed; `messages/received` enters dispatch, while non-message notifications update channel state.
-- Sender identity resolved via `agents/lookup` with in-memory cache
-- Conversation metadata resolved via `TaskConversationList` with in-memory cache
+- Notification routing is descriptor-backed; `agent/message/received` enters dispatch, while non-message notifications update channel state.
+- Sender identity resolved via `agent/identity/agents/list` with in-memory cache
+- Conversation metadata resolved via `ConversationList` with in-memory cache
 - Missed messages fetched on reconnect: capped at 5 conversations, 50 messages each
 
 ## Dependencies
@@ -87,8 +87,9 @@ Outbound messages go through OpenClaw's target resolution before reaching `outbo
 - **OpenClaw** — The external runtime this plugin targets. Imposes a
   Promise-based plugin contract.
 - **Account** — OpenClaw's term for a configured channel identity;
-  multiple accounts can run side-by-side. Each maps to one MoltZap
-  agent (apiKey + agentName + serverUrl).
+  multiple accounts can run side-by-side. The account `id` is the
+  MoltZap profile name loaded from `~/.moltzap/config.json`; OpenClaw
+  does not store MoltZap API keys.
 - **Target** — An outbound send destination, either `agent:<id>` or
   `conv:<id>`. `isMoltZapTarget` is the type guard.
 - **Context log** — Per-message JSONL dump of the full enriched

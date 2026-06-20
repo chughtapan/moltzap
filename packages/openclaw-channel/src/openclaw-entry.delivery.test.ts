@@ -10,23 +10,20 @@ import {
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
-import {
-  AgentsLookup,
-  MessagesSend,
-  type ParamsOf,
-  type ResultOf,
-  type RpcDefinition,
-} from "@moltzap/protocol";
+import { AgentsList } from "@moltzap/protocol/identity";
+import { MessagesSend } from "@moltzap/protocol/message";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
+import type { ParamsOf, ResultOf, RpcDefinition } from "@moltzap/protocol/rpc";
+import type { TaskId } from "@moltzap/protocol/task";
 import { TaskClosedError } from "@moltzap/protocol/task";
-import { RpcServerError } from "@moltzap/protocol/transport";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import { Data, Effect } from "effect";
 import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
 
 const ACCOUNT_ID = "delivery-test";
-const ACCOUNT_KEY = "moltzap_agent_delivery";
-const SERVER_URL = "ws://localhost:9999";
 const ACCOUNT_AGENT_NAME = "bob-delivery";
 const SELF_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440401");
 const SENDER_AGENT_ID = testAgentId("550e8400-e29b-41d4-a716-446655440402");
@@ -78,7 +75,6 @@ const PARENT_MESSAGE_ID = testMessageId("550e8400-e29b-41d4-a716-446655440410");
 const LOOKUP_FAILED_MESSAGE = "lookup failed";
 const SERVER_REJECTED_MESSAGE = "Server rejected";
 const INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error";
-const NON_TASK_CLOSED_CODE = -32001;
 const TEXT_PART_TYPE = "text";
 const FINAL_KIND = "final";
 const TOOL_KIND = "tool";
@@ -113,10 +109,10 @@ type DispatchCallWithContext = DispatchCall & {
   };
 };
 type SendFn = (
-  taskId: string,
-  conversationId: string,
+  taskId: TaskId,
+  conversationId: ConversationId,
   text: string,
-  opts?: { readonly replyTo?: string; readonly dispatchLeaseId?: string },
+  opts?: { readonly replyTo?: MessageId; readonly dispatchLeaseId?: LeaseId },
 ) => Effect.Effect<void, ServiceRpcError>;
 type SendToAgentFn = (
   agentName: string,
@@ -150,7 +146,6 @@ class SendToAgentTestFailure extends Data.TaggedError(
 
 const mockSend = vi.fn<SendFn>();
 const mockSendToAgent = vi.fn<SendToAgentFn>();
-const mockSendRpc = vi.fn<SendRpcFn>();
 
 let started: {
   readonly fixture: FakeChannelService;
@@ -228,11 +223,10 @@ function startGateway() {
 function createTestService(fixture: FakeChannelService): TestService {
   mockSend.mockImplementation(fixture.service.send);
   mockSendToAgent.mockReturnValue(Effect.void);
-  mockSendRpc.mockImplementation(sendRpcDefault);
   return {
     ...fixture.service,
     send: mockSend,
-    sendRpc: mockSendRpc,
+    sendRpc: sendRpcDefault,
     sendToAgent: mockSendToAgent,
   };
 }
@@ -240,12 +234,12 @@ function createTestService(fixture: FakeChannelService): TestService {
 function sendRpcDefault<D extends RpcDefinition<string, any, any>>(
   definition: D,
 ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
-  if (definition === AgentsLookup) {
+  if (definition.name === AgentsList.name) {
     return Effect.succeed({
       agents: [{ id: SENDER_AGENT_ID, name: "Atlas" }],
     } as ResultOf<D>);
   }
-  if (definition === MessagesSend) {
+  if (definition.name === MessagesSend.name) {
     return Effect.succeed({ message: { id: "sent-1" } } as ResultOf<D>);
   }
   return Effect.succeed({} as ResultOf<D>);
@@ -254,8 +248,6 @@ function sendRpcDefault<D extends RpcDefinition<string, any, any>>(
 function makeAccount() {
   return {
     id: ACCOUNT_ID,
-    apiKey: ACCOUNT_KEY,
-    serverUrl: SERVER_URL,
     agentName: ACCOUNT_AGENT_NAME,
   };
 }
@@ -613,8 +605,7 @@ function reportsSendFailure() {
 
 function serverRejected(): Effect.Effect<void, ServiceRpcError> {
   return Effect.fail(
-    new RpcServerError({
-      code: NON_TASK_CLOSED_CODE,
+    new ForbiddenError({
       message: SERVER_REJECTED_MESSAGE,
     }),
   );
@@ -632,8 +623,7 @@ function taskClosedIsConsumed() {
 
 function taskClosed(): Effect.Effect<void, ServiceRpcError> {
   return Effect.fail(
-    new RpcServerError({
-      code: TaskClosedError.code,
+    new TaskClosedError({
       message: TaskClosedError.message,
     }),
   );
@@ -643,8 +633,7 @@ function nonTaskClosedFails() {
   return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
       Effect.fail(
-        new RpcServerError({
-          code: NON_TASK_CLOSED_CODE,
+        new ForbiddenError({
           message: INTERNAL_SERVER_ERROR_MESSAGE,
         }),
       ),
@@ -674,8 +663,7 @@ function leaseGuardUnconsumedOnTransientFailure() {
   return Effect.gen(function* () {
     mockSend.mockReturnValueOnce(
       Effect.fail(
-        new RpcServerError({
-          code: NON_TASK_CLOSED_CODE,
+        new ForbiddenError({
           message: INTERNAL_SERVER_ERROR_MESSAGE,
         }),
       ),

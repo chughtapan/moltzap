@@ -5,7 +5,7 @@
 
 import type { ColumnType } from "kysely";
 
-type AgentStatus = "active" | "pending_claim" | "suspended";
+type AgentStatus = "active" | "suspended";
 
 type ContactStatus = "accepted" | "pending";
 
@@ -24,8 +24,9 @@ type Int8 = ColumnType<
 
 /**
  * jsonb column type. Server code decodes the column into the typed
- * union (e.g. `TmDecision`) at the boundary; the generated type stays
- * `unknown` so a Principle-2 schema decode happens at every read site.
+ * union (e.g. `DispatchDecision`) at the boundary; the generated type
+ * stays `unknown` so a Principle-2 schema decode happens at every read
+ * site.
  */
 type Json = ColumnType<unknown, unknown, unknown>;
 
@@ -36,14 +37,30 @@ type Timestamp = ColumnType<Date, Date | string, Date | string>;
 export interface Agents {
   api_key_id: string;
   api_key_secret_hash: string;
-  claim_token: string;
   created_at: Generated<Timestamp>;
   description: string | null;
   display_name: string | null;
   id: Generated<string>;
   name: string;
-  owner_user_id: string | null;
+  owner_user_id: string;
   status: Generated<AgentStatus>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface Apps {
+  api_key_id: string;
+  api_key_secret_hash: string;
+  app_id: Generated<string>;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+
+  /**
+   * jsonb column holding the app's `AppManifest`. Decoded via
+   * `AppManifestSchema` at every read site (Principle 2: schemas at
+   * boundaries); the generated type stays `unknown` via the `Json`
+   * alias so no read path trusts the persisted shape unchecked.
+   */
+  manifest_json: Json;
   updated_at: Generated<Timestamp>;
 }
 
@@ -106,13 +123,14 @@ export interface Messages {
   task_id: string | null;
 
   /**
-   * #560: TM fan-out verdict, written by `MessageService.sendInsert`
-   * as `{tag: "pending"}` and updated by `recordTmDecision` to
-   * `{tag: "forward", recipients: [...]}` or `{tag: "block",
-   * reason: "..."}`. Decoded via `TmDecisionSchema` at every read
-   * site (Principle 2: schemas at boundaries).
+   * Per-message dispatch-authorization verdict, written by
+   * `MessageService.sendInsert` as `{tag: "pending"}` and updated by
+   * `recordDispatchDecision` to `{tag: "forward", recipients: [...]}`
+   * or `{tag: "block", reason: "..."}`. Decoded via
+   * `DispatchDecisionSchema` at every read site (Principle 2: schemas
+   * at boundaries).
    */
-  tm_decision: Generated<Json>;
+  dispatch_decision: Generated<Json>;
 }
 
 export interface TaskParticipants {

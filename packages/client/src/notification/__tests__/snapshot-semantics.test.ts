@@ -1,50 +1,43 @@
-/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests -- vitest + Effect.gen + Stream.runForEach nest by construction; AD1 properties are scenario-shaped (snapshot semantics + lifecycle); generative coverage lives in filter-equivalence.test.ts */
+/* eslint-disable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests -- vitest + Effect.gen + Stream.runForEach nest by construction; these properties are scenario-shaped (snapshot semantics + lifecycle); generative coverage lives in filter-equivalence.test.ts */
 
 /**
- * Snapshot-semantics property test (validates AD1 via spec #222 §5.3 OQ-3
- * acceptance criterion). Spec B (#596).
+ * Snapshot-semantics property test for `subscribe` Stream cancellation.
  *
- * Four architect-named properties (see `snapshot-semantics.types-check.ts`
- * for the compile-time AD1 canaries):
+ * `SubscriberRegistry.dispatch` iterates a snapshot of the subscriber list,
+ * so registrations and unregistrations that happen during a dispatch do not
+ * change which subscribers receive that frame. These tests exercise the
+ * registry through the public `notification/stream.ts` factories (not the
+ * registry alone); the compile-time signature canaries live in
+ * `subscribe-signatures.types-check.ts`.
  *
- *   1. "No notification with arrival time > T_cancel is delivered through s."
- *      — verified via two subscriptions (`s_observer` + `s_target`) racing
- *      against a series of dispatched frames. After `s_target` cancels at
- *      frame index K, only `s_observer` keeps receiving frames K+1…N.
- *   2. "Unregister between frames doesn't affect prior dispatches." —
- *      verified by registering three subscribers, running `dispatch(frameN)`
- *      once; *after* the dispatch returns, interrupt `s2`, then
- *      `dispatch(frameN+1)` — assert s2 received frameN but not frameN+1.
- *      (Renamed in r1 cleanup per P2-3: this test does NOT exercise true
- *      mid-dispatch interleaving; the standalone "mid-dispatch" test below
- *      does.)
- *   3. "In-flight dispatch of frame N is NOT interrupted by an unregister
- *      that commits during frame N." — verified by forking a dispatch whose
- *      first invoked subscriber suspends on a `Deferred`. While the
- *      dispatch fiber is parked mid-handler, interrupt a SIBLING
- *      subscriber's consumer fiber (which calls `handle.unregister`
- *      via the Stream finalizer); release the dispatch fiber and assert
- *      the interrupted sibling STILL received the frame — proving the
- *      dispatch is iterating a snapshot, not the live list.
- *   4. "Closed client terminates all in-flight Streams with `NotConnectedError`."
- *      — verified by forking a `Stream.runForEach` consumer, calling
- *      `closeAll`, then asserting the fiber's exit is a typed
- *      `NotConnectedError` failure.
+ *   1. No notification with arrival index > T_cancel is delivered through a
+ *      cancelled subscription. Two subscriptions (`observer` + `target`)
+ *      race a series of dispatched frames; after `target` cancels at frame
+ *      index K, only `observer` keeps receiving frames K+1…N.
+ *   2. Unregister between frames does not affect prior dispatches. Three
+ *      subscribers run `dispatch(frameN)`; *after* it returns, `s2` is
+ *      interrupted, then `dispatch(frameN+1)` runs — s2 received frameN but
+ *      not frameN+1. (This case does not exercise mid-dispatch interleaving;
+ *      the standalone mid-dispatch test below does.)
+ *   3. An in-flight dispatch of frame N is NOT interrupted by an unregister
+ *      that commits during frame N. A dispatch whose first subscriber
+ *      suspends on a `Deferred` is forked; while it is parked mid-handler, a
+ *      SIBLING subscriber's consumer fiber is interrupted (its Stream
+ *      finalizer calls `handle.unregister`); after the dispatch fiber is
+ *      released the interrupted sibling STILL received the frame — proof the
+ *      dispatch iterates a snapshot, not the live list.
+ *   4. A closed client terminates all in-flight Streams with
+ *      `NotConnectedError`. A `Stream.runForEach` consumer is forked,
+ *      `closeAll` runs, and the fiber's exit is a typed `NotConnectedError`.
  *
- * The tests intentionally exercise `SubscriberRegistry` + the
- * `notification/stream.ts` Stream factories together (the public API
- * surface), not the registry alone — Canary #3's "internal Scope, no
- * leakage" contract is what we are validating end-to-end.
+ * Each `expect` asserts a value computed by the system under test, never the
+ * test's own input — no tautological "X === X" checks.
  *
- * Per P3 #612 fix (architect revision): each `expect` here asserts a
- * value computed by the system under test rather than the test's own
- * input — no tautological "X === X" patterns.
- *
- * Determinism (r1 cleanup, P2-2): readiness between forked consumers and
- * the dispatch path uses `Effect.yieldNow()` (deterministic single-tick
- * scheduling) rather than `Effect.sleep(...)` (wall-clock dependent).
- * Mid-dispatch suspension uses `Deferred` so the dispatch fiber is parked
- * at a known point inside the handler, independent of any timer.
+ * Determinism: readiness between forked consumers and the dispatch path uses
+ * `Effect.yieldNow()` (deterministic single-tick scheduling), not
+ * `Effect.sleep(...)` (wall-clock dependent). Mid-dispatch suspension uses a
+ * `Deferred` so the dispatch fiber parks at a known point in the handler,
+ * independent of any timer.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -59,54 +52,74 @@ import {
 } from "effect";
 import {
   NotConnectedError,
-  type AnyNotificationDefinition,
-  type DecodedNotification,
-} from "@moltzap/protocol";
-import {
-  PresenceChangedNotificationDefinition,
-  MessageReceivedNotificationDefinition,
-} from "@moltzap/protocol";
-import { makeSubscriberRegistry } from "../../runtime/subscribers.js";
+  makeNotificationSubscriberRegistry,
+} from "@moltzap/protocol/rpc";
+import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import { TaskFailedNotificationDefinition } from "@moltzap/protocol/task";
+import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
+import type {
+  NotificationDelivery,
+  NotificationParamsOf,
+} from "@moltzap/protocol/rpc";
+import { buildMessage, testTaskId } from "../../test-utils/index.js";
 import { subscribe, subscribeAll } from "../stream.js";
 
 const PROP_TEST_FRAME_COUNT = 6;
 const PROP_TEST_CANCEL_AT = 3;
 
-function decodedPresence(
-  seq: number,
-): DecodedNotification<typeof PresenceChangedNotificationDefinition> {
-  return {
-    _tag: "Notification" as const,
-    jsonrpc: "2.0",
-    definition: PresenceChangedNotificationDefinition,
-    method: PresenceChangedNotificationDefinition.name,
-    params: {
-      agentId: `agent-${seq}`,
-      status: seq % 2 === 0 ? "online" : "offline",
-    },
-  } as DecodedNotification<typeof PresenceChangedNotificationDefinition>;
+type TaskFailedParams = NotificationParamsOf<
+  typeof TaskFailedNotificationDefinition
+>;
+
+const taskIds = Array.from({ length: PROP_TEST_FRAME_COUNT }, (_, seq) =>
+  testTaskId(`task-${seq}`),
+);
+
+const taskIndex = new Map(taskIds.map((taskId, seq) => [taskId, seq] as const));
+
+function sequenceForTaskFailure(params: TaskFailedParams): number {
+  return taskIndex.get(params.taskId) ?? Number.NaN;
 }
 
-function decodedMessageReceived(): DecodedNotification<
+const makeSubscriberRegistry = () =>
+  makeNotificationSubscriberRegistry<
+    NotConnectedError,
+    AnyNotificationDefinition
+  >({
+    closeCause: () =>
+      new NotConnectedError({ message: "WebSocket not connected" }),
+  });
+
+function taskFailedDelivery(
+  seq: number,
+): NotificationDelivery<typeof TaskFailedNotificationDefinition> {
+  return {
+    definition: TaskFailedNotificationDefinition,
+    method: TaskFailedNotificationDefinition.name,
+    params: {
+      taskId: taskIds[seq] ?? testTaskId(`task-${seq}`),
+      reason: seq % 2 === 0 ? "even" : "odd",
+    },
+  };
+}
+
+function messageReceivedDelivery(): NotificationDelivery<
   typeof MessageReceivedNotificationDefinition
 > {
   return {
-    _tag: "Notification" as const,
-    jsonrpc: "2.0",
     definition: MessageReceivedNotificationDefinition,
     method: MessageReceivedNotificationDefinition.name,
     params: {
-      message: {
+      taskId: testTaskId("task-1"),
+      message: buildMessage({
         id: "m1",
-        conversationId: "c1",
-        senderId: "agent-0",
         parts: [{ type: "text", text: "hi" }],
-      },
+      }),
     },
-  } as DecodedNotification<typeof MessageReceivedNotificationDefinition>;
+  };
 }
 
-describe("AD1 snapshot semantics — Stream cancellation", () => {
+describe("subscribe snapshot semantics — Stream cancellation", () => {
   it("no notification with index > T_cancel is delivered through s_target", () =>
     Effect.runPromise(
       Effect.gen(function* () {
@@ -115,15 +128,11 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         const targetSeen = yield* Ref.make<ReadonlyArray<number>>([]);
 
         const observerFiber = yield* Effect.fork(
-          subscribe(registry, PresenceChangedNotificationDefinition).pipe(
-            Stream.runForEach((frame) =>
+          subscribe(registry, TaskFailedNotificationDefinition).pipe(
+            Stream.runForEach((params) =>
               Ref.update(observerSeen, (xs) => [
                 ...xs,
-                Number(
-                  (frame.params as { agentId: string }).agentId.slice(
-                    "agent-".length,
-                  ),
-                ),
+                sequenceForTaskFailure(params),
               ]),
             ),
             Effect.catchAll(() => Effect.void),
@@ -132,19 +141,15 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
 
         const targetStream = subscribe(
           registry,
-          PresenceChangedNotificationDefinition,
+          TaskFailedNotificationDefinition,
         );
         const targetFiber = yield* Effect.fork(
           targetStream.pipe(
             Stream.take(PROP_TEST_CANCEL_AT),
-            Stream.runForEach((frame) =>
+            Stream.runForEach((params) =>
               Ref.update(targetSeen, (xs) => [
                 ...xs,
-                Number(
-                  (frame.params as { agentId: string }).agentId.slice(
-                    "agent-".length,
-                  ),
-                ),
+                sequenceForTaskFailure(params),
               ]),
             ),
             Effect.catchAll(() => Effect.void),
@@ -154,13 +159,11 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         // Yield once so each forked consumer's Stream.async register
         // callback commits its subscription into `subsRef` before the
         // dispatch loop reads the snapshot. `Effect.yieldNow()` is
-        // deterministic (single-tick scheduling) — replaces the prior
-        // `Effect.sleep("10 millis")` which was wall-clock dependent
-        // (P2-2 r1 cleanup).
+        // deterministic (single-tick scheduling), not wall-clock dependent.
         yield* Effect.yieldNow();
 
         for (let i = 0; i < PROP_TEST_FRAME_COUNT; i++) {
-          yield* registry.dispatch(decodedPresence(i));
+          yield* registry.dispatch(taskFailedDelivery(i));
         }
         yield* Effect.yieldNow();
 
@@ -201,32 +204,25 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         const receivedByS2 = yield* Ref.make<ReadonlyArray<number>>([]);
 
         const s1Fiber = yield* Effect.fork(
-          subscribe(registry, PresenceChangedNotificationDefinition).pipe(
+          subscribe(registry, TaskFailedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
         );
         const s3Fiber = yield* Effect.fork(
-          subscribe(registry, PresenceChangedNotificationDefinition).pipe(
+          subscribe(registry, TaskFailedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
         );
 
-        const s2Stream = subscribe(
-          registry,
-          PresenceChangedNotificationDefinition,
-        );
+        const s2Stream = subscribe(registry, TaskFailedNotificationDefinition);
         const s2Fiber = yield* Effect.fork(
           s2Stream.pipe(
-            Stream.runForEach((frame) =>
+            Stream.runForEach((params) =>
               Ref.update(receivedByS2, (xs) => [
                 ...xs,
-                Number(
-                  (frame.params as { agentId: string }).agentId.slice(
-                    "agent-".length,
-                  ),
-                ),
+                sequenceForTaskFailure(params),
               ]),
             ),
             Effect.catchAll(() => Effect.void),
@@ -235,9 +231,9 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
 
         // Single-tick yield so every forked consumer's Stream.async
         // register callback commits before the first dispatch reads
-        // the snapshot. Deterministic — see file header (P2-2 r1).
+        // the snapshot. Deterministic — see file header.
         yield* Effect.yieldNow();
-        yield* registry.dispatch(decodedPresence(0));
+        yield* registry.dispatch(taskFailedDelivery(0));
         // Drain s2's onFrame Effect into receivedByS2 deterministically.
         yield* Effect.yieldNow();
 
@@ -245,7 +241,7 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         // synchronously. Subsequent dispatch's snapshot must exclude s2.
         yield* Fiber.interrupt(s2Fiber);
 
-        yield* registry.dispatch(decodedPresence(1));
+        yield* registry.dispatch(taskFailedDelivery(1));
         yield* Effect.yieldNow();
 
         const seen = yield* Ref.get(receivedByS2);
@@ -274,38 +270,29 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         // dispatcher iterated the LIVE list, s2 would have been skipped
         // and `s2Received` would still be empty.
         //
-        // (Stream-API end-to-end coverage is exercised by tests #1 and
-        // the closeAll lifecycle test #4; here we need the registry's
-        // direct API to control dispatch ordering deterministically.)
+        // Stream API tests cover end-to-end subscription behavior; this case
+        // uses the registry directly to control dispatch ordering.
         const registry = yield* makeSubscriberRegistry();
         const enteredS1 = yield* Deferred.make<void>();
         const releaseS1 = yield* Deferred.make<void>();
         const s2Received = yield* Ref.make<ReadonlyArray<number>>([]);
 
-        yield* registry.register(
-          PresenceChangedNotificationDefinition,
-          undefined,
-          {
-            onFrame: () =>
-              Effect.gen(function* () {
-                yield* Deferred.succeed(enteredS1, void 0);
-                yield* Deferred.await(releaseS1);
-              }),
-            onClose: () => Effect.void,
-          },
-        );
+        yield* registry.register(TaskFailedNotificationDefinition, undefined, {
+          onFrame: () =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(enteredS1, void 0);
+              yield* Deferred.await(releaseS1);
+            }),
+          onClose: () => Effect.void,
+        });
         const s2Handle = yield* registry.register(
-          PresenceChangedNotificationDefinition,
+          TaskFailedNotificationDefinition,
           undefined,
           {
-            onFrame: (frame) =>
+            onFrame: (params) =>
               Ref.update(s2Received, (xs) => [
                 ...xs,
-                Number(
-                  (frame.params as { agentId: string }).agentId.slice(
-                    "agent-".length,
-                  ),
-                ),
+                sequenceForTaskFailure(params),
               ]),
             onClose: () => Effect.void,
           },
@@ -313,7 +300,7 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
 
         // Fork dispatch. Snapshot at fork time has both s1 and s2.
         const dispatchFiber = yield* Effect.fork(
-          registry.dispatch(decodedPresence(0)),
+          registry.dispatch(taskFailedDelivery(0)),
         );
 
         // Wait until s1's handler enters (dispatch is parked mid-flight).
@@ -334,7 +321,7 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
 
         // Sanity: confirm s2's unregister DID commit to subsRef — a
         // subsequent dispatch must NOT deliver to s2.
-        yield* registry.dispatch(decodedPresence(1));
+        yield* registry.dispatch(taskFailedDelivery(1));
         expect(yield* Ref.get(s2Received)).toEqual([0]);
 
         yield* registry.closeAll;
@@ -356,7 +343,7 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         // Deterministic single-tick yield so the Stream materialises its
         // subscription (Stream.async register callback runs synchronously
         // inside Stream.runDrain's setup on the forked fiber's first turn)
-        // before we call closeAll. P2-2 r1 cleanup.
+        // before we call closeAll.
         yield* Effect.yieldNow();
 
         yield* registry.closeAll;
@@ -393,13 +380,10 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
         );
 
         // Single-tick yield ensures the forked subscribeAll consumer's
-        // register callback commits before dispatch reads the snapshot
-        // (P2-2 r1).
+        // register callback commits before dispatch reads the snapshot.
         yield* Effect.yieldNow();
-        yield* registry.dispatch(decodedPresence(0));
-        yield* registry.dispatch(
-          decodedMessageReceived() as DecodedNotification<AnyNotificationDefinition>,
-        );
+        yield* registry.dispatch(taskFailedDelivery(0));
+        yield* registry.dispatch(messageReceivedDelivery());
 
         // Drain the consumer's onFrame Effect into `observed` before
         // closing — deterministic single-tick.
@@ -409,7 +393,7 @@ describe("AD1 snapshot semantics — Stream cancellation", () => {
 
         const names = yield* Ref.get(observed);
         expect(names).toEqual([
-          PresenceChangedNotificationDefinition.name,
+          TaskFailedNotificationDefinition.name,
           MessageReceivedNotificationDefinition.name,
         ]);
       }),

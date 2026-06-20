@@ -1,0 +1,31 @@
+---
+title: "protocol/identity/requirements"
+description: "Identity-owned refinement requirement tags."
+---
+
+# protocol/identity/requirements
+
+_`packages/protocol/src/identity/requirements`_
+
+## Purpose
+
+Identity-owned refinement requirement tags.
+
+## Public surface
+
+### [`ActiveAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/requirements/active-agent.ts#L10)
+
+_Class_
+
+```ts
+export class ActiveAgent extends RpcMiddleware.Tag<ActiveAgent>()(
+  "@moltzap/protocol/requirement/ActiveAgent",
+  { failure: activeAgentFailure },
+) {}
+```
+
+Agent-principal refinement: the connected agent must be active.
+
+## Files
+
+- `active-agent.ts`

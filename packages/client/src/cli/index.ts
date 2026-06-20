@@ -10,41 +10,30 @@ import {
   conversationsCommand,
   historyCommand,
 } from "./commands/conversations.js";
-import { inviteCommand } from "./commands/invite.js";
 import { messagesCommand } from "./commands/messages.js";
-import { pingCommand } from "./commands/ping.js";
-// v7 (architect plan #706): `presence` CLI command deleted. Presence
-// is server-derived from LeaseRegistry; clients cannot set status
-// manually.
 import { registerCommand } from "./commands/register.js";
 import { sendCommand } from "./commands/send.js";
 import { startCommand } from "./commands/start.js";
 import { statusCommand } from "./commands/status.js";
-import { whoamiCommand } from "./commands/whoami.js";
 import { LoggerLive, minLogLevel } from "./runtime.js";
 import {
   makeTransportLayer,
   resolveTransportInputs,
-  TransportConfigError,
   type TransportOptions,
 } from "./transport.js";
 import {
   ProfileConfigReadError,
   ProfileInvalidNameError,
   ProfileNotFoundError,
-} from "./profile.js";
+  ProfileName,
+  type ProfileName as ProfileNameType,
+} from "../profile.js";
 import { currentArgv } from "./process-argv.js";
 
 const { version } = packageJson;
 
-const asOption = Options.text("as").pipe(
-  Options.withDescription(
-    "Dial the server as the agent owning this API key, bypassing the local daemon.",
-  ),
-  Options.optional,
-);
-
 const globalProfileOption = Options.text("profile").pipe(
+  Options.withSchema(ProfileName),
   Options.withDescription(
     "Load an existing named profile from ~/.moltzap/config.json for this invocation.",
   ),
@@ -52,25 +41,15 @@ const globalProfileOption = Options.text("profile").pipe(
 );
 
 interface GlobalTransportConfig {
-  readonly as: Option.Option<string>;
-  readonly profile: Option.Option<string>;
+  readonly profile: Option.Option<ProfileNameType>;
 }
 
 function resolverInputFromConfig(config: GlobalTransportConfig): {
-  impersonateKey?: string;
-  profileName?: string;
+  profileName?: ProfileNameType;
 } {
-  const impersonateKey = Option.getOrUndefined(config.as);
   const profileName = Option.getOrUndefined(config.profile);
-  return {
-    ...(impersonateKey !== undefined ? { impersonateKey } : {}),
-    ...(profileName !== undefined ? { profileName } : {}),
-  };
-}
-
-function exitWithCliError(message: string): never {
-  console.error(`moltzap: ${message}`);
-  process.exit(1);
+  if (profileName === undefined) return {};
+  return { profileName };
 }
 
 function transportResolutionMessage(err: unknown): string {
@@ -85,19 +64,17 @@ function transportResolutionMessage(err: unknown): string {
       err.cause instanceof Error ? err.cause.message : String(err.cause);
     return `config read error at ${err.path}: ${cause}`;
   }
-  if (err instanceof TransportConfigError) {
-    return `transport config: ${err.reason}`;
-  }
   return err instanceof Error ? err.message : String(err);
 }
 
 function resolveTransportOptionsOrExit(input: {
-  impersonateKey?: string;
-  profileName?: string;
+  profileName?: ProfileNameType;
 }): Effect.Effect<TransportOptions> {
   return resolveTransportInputs(input).pipe(
     Effect.catchAll((err) =>
-      Effect.sync(() => exitWithCliError(transportResolutionMessage(err))),
+      Effect.logError(`moltzap: ${transportResolutionMessage(err)}`).pipe(
+        Effect.zipRight(Effect.sync(() => process.exit(1))),
+      ),
     ),
   );
 }
@@ -114,12 +91,11 @@ const transportLayerFromConfig = <A extends GlobalTransportConfig>(config: A) =>
  * each handler returns an Effect. The single `NodeRuntime.runMain` below is
  * the ONLY bridge from the Effect graph to Node; no per-command runPromise.
  *
- * Parent options (`--as`, `--profile`) are parsed by `@effect/cli` and
+ * Parent options (`--profile`) are parsed by `@effect/cli` and
  * provided to subcommand handlers via the `Transport` Layer (see
  * `transport.ts`).
  */
 const moltzapBase = Command.make("moltzap", {
-  as: asOption,
   profile: globalProfileOption,
 }).pipe(
   Command.withDescription(
@@ -127,36 +103,26 @@ const moltzapBase = Command.make("moltzap", {
       "\n" +
       "Global flags (parsed by @effect/cli before the selected subcommand " +
       "runs):\n" +
-      "  --as <apiKey>     Dial the server as the agent owning the given " +
-      "API key, bypassing the local daemon. Useful for multi-agent hosts " +
-      "where one operator drives multiple registered agents.\n" +
       "  --profile <name>  Load the named profile from ~/.moltzap/config.json " +
-      "(written by `moltzap register --profile <name>`). Equivalent to " +
-      "looking up that profile's apiKey and passing it as --as.\n" +
+      "(written by `moltzap register --profile <name>`) and send commands " +
+      "through that agent's local daemon socket.\n" +
       "\n" +
-      "Precedence: --as wins over --profile; --profile wins over the " +
-      "top-level default profile. `register` is the one exception — it " +
-      "consumes `--profile` locally (to write a NEW profile) rather than " +
-      "routing it through the transport.\n" +
+      "Without --profile, commands use the local daemon transport. `register` " +
+      "is the one exception: it consumes `--profile` locally to write a new " +
+      "profile instead of routing through the transport.\n" +
       "\n" +
       "See packages/client/src/cli/README.md for an end-to-end multi-agent " +
       "walkthrough.",
   ),
   Command.withSubcommands([
     registerCommand,
-    whoamiCommand,
     sendCommand,
     contactsCommand,
     conversationsCommand,
     historyCommand,
-    inviteCommand,
-    // v7: presenceCommand deleted (architect plan #706).
-    pingCommand,
     statusCommand,
     agentsCommand,
-    // sbd#177 v2 additions:
     messagesCommand,
-    // Spec D2 (#599) — architect stub; impl-staff fills the handler body:
     startCommand,
   ]),
 );

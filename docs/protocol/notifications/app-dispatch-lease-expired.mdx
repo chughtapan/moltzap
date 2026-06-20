@@ -1,0 +1,36 @@
+---
+title: "app/dispatch/lease-expired"
+description: "Pushed as the `app/dispatch/lease-expired` notification."
+---
+
+# app/dispatch/lease-expired
+
+Pushed as the `app/dispatch/lease-expired` notification.
+
+## Params
+
+<ResponseField name="dispatchId" type="string (UUID)">
+  Branded DispatchId
+</ResponseField>
+
+<ResponseField name="leaseId" type="string (UUID)">
+  Branded LeaseId
+</ResponseField>
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="expiredAt" type="string (ISO 8601)">
+  The expiredAt field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "app/dispatch/lease-expired",
+  "params": { ... }
+}
+```

@@ -1,6 +1,6 @@
 /**
  * Task-layer helpers shared by delivery / lifecycle / isolation
- * properties. Carved verbatim from `conformance/delivery.ts@961a5c8`.
+ * properties.
  */
 import {
   Chunk,
@@ -12,54 +12,48 @@ import {
   Ref,
   Stream,
   Scope,
+  Schema,
 } from "effect";
-import type { AnyNotificationDefinition } from "../../../rpc-registry.js";
-import type { NotificationParamsOf } from "../../../transport/method.js";
-import type { DecodedNotification } from "../../../transport/rpc-groups.js";
+import type { AnyNotificationDefinition } from "#socket/catalog";
+import type { NotificationDelivery, NotificationParamsOf } from "#transport";
+import { isNotificationDeliveryFor } from "#transport";
+import { TaskCreate, TaskId, TaskRequest } from "#task";
 import {
-  ConversationArchivedError,
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
   ConversationId,
-  TaskConversationArchive,
-  TaskConversationArchivedNotificationDefinition,
-  TaskConversationCreatedNotificationDefinition,
-  TaskConversationUnarchive,
-  TaskConversationUnarchivedNotificationDefinition,
-  TaskRequest,
-  TaskId,
-} from "../../../task/methods.js";
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationParticipantsAddedNotificationDefinition,
+  ConversationParticipantsRemovedNotificationDefinition,
+  ConversationUpdate,
+  ConversationUnarchivedNotificationDefinition,
+} from "#conversation";
 import {
-  AppsRegister,
-  DispatchAuthorize,
+  MessageReceivedNotificationDefinition,
   MessagesAuthorize,
-  TaskCreate,
-} from "../../../app/methods.js";
-import {
-  TaskConversationParticipantsAddedNotificationDefinition,
-  TaskConversationParticipantsRemovedNotificationDefinition,
-} from "../../../task/methods.js";
-import { AppId as AppIdSchema } from "../../../task/ids.js";
-import type { Static } from "@sinclair/typebox";
-import { appId as makeAppId } from "../_shared/test-fixtures.js";
-import { AgentId } from "../../../identity/methods.js";
+  MessagesSend,
+} from "#message";
+import { DispatchAuthorize } from "#message/dispatch";
+import { AppId as AppIdSchema } from "#task";
+import { AgentId } from "#identity";
 import {
   conversationId as makeConversationId,
   taskId as makeTaskId,
 } from "../_shared/test-fixtures.js";
 import { RpcResponseError } from "../_shared/errors.js";
 import {
-  makeTestClient,
-  type TestClient,
+  makeAgentTestClient,
+  type AgentTestClient,
+  type AppTestClient,
+  type NotificationClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
+import { registerTestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyInvariantViolation } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
 
 export const DELIVERY_CATEGORY = "delivery" as const;
 export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000;
-export const DELIVERY_DEFAULT_CAPTURE_CAPACITY = 256;
 export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3;
 const MAX_N = 4;
 
@@ -68,17 +62,26 @@ export interface ConversationFixture {
   readonly participants: ReadonlyArray<ConversationActor>;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
+
+  /**
+   * The app-principal `AppConnection` bound as the conversation's
+   * moderator. App-admin RPCs (archive, unarchive, addParticipant,
+   * removeParticipant, close) head their `requires` with `AppPrincipal`, so
+   * they route through THIS client, not the agent `owner`. `owner` (an agent)
+   * drives `agent/task/request` + `agent/message/send`.
+   */
+  readonly moderatorClient: AppTestClient;
 }
 
 export type ConversationActor = {
   readonly agent: TestAgent;
-  readonly client: TestClient;
+  readonly client: AgentTestClient;
 
   /**
-   * Per-client historical notification buffer (#645): the consolidated
-   * `TestClient.subscribe` only emits frames arriving AFTER
-   * materialisation, so a sequential `send → awaitOneNotification` races
-   * the response frame. The buffer is fed by a long-lived
+   * Per-client historical notification buffer: `subscribe`
+   * only emits frames arriving AFTER materialisation, so a sequential
+   * `send → awaitOneNotification` races the response frame. The buffer
+   * is fed by a long-lived
    * `subscribeAll()` pump installed at `acquireClient` time;
    * `awaitOneNotification` consumes the buffer so frames that arrived
    * between the triggering RPC and the wait are still observable. This
@@ -90,7 +93,7 @@ export type ConversationActor = {
 
 /**
  * Historical notification buffer used by `awaitOneNotification`. Holds
- * every inbound notification arriving on a single `TestClient`'s
+ * every inbound notification arriving on a single client's
  * `subscribeAll()` Stream until a consumer pulls a matching frame.
  *
  * The `snapshot` and `closed` fields are the only public surfaces;
@@ -103,7 +106,7 @@ export type ConversationActor = {
  */
 export interface NotificationBuffer {
   readonly snapshot: Ref.Ref<
-    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+    ReadonlyArray<NotificationDelivery<AnyNotificationDefinition>>
   >;
   readonly closed: Ref.Ref<boolean>;
 }
@@ -135,11 +138,11 @@ const PUMP_POLL_INTERVAL_MS = 5;
  * `Stream.runHead`.
  */
 function makeNotificationBuffer(
-  client: TestClient,
+  client: NotificationClient,
 ): Effect.Effect<NotificationBuffer, never, Scope.Scope> {
   return Effect.gen(function* () {
     const snapshot = yield* Ref.make<
-      ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+      ReadonlyArray<NotificationDelivery<AnyNotificationDefinition>>
     >([]);
     const closed = yield* Ref.make<boolean>(false);
     const pumpFiber = yield* Effect.fork(
@@ -164,11 +167,17 @@ function makeNotificationBuffer(
 function pullMatchingFromBuffer<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
-): Effect.Effect<DecodedNotification<D> | null> {
+): Effect.Effect<NotificationDelivery<D> | null> {
   return Ref.modify(buffer.snapshot, (frames) => {
     const idx = frames.findIndex((frame) => frame.definition === definition);
     if (idx < 0) return [null, frames];
-    const matched = frames[idx] as DecodedNotification<D>;
+    const matched = frames[idx];
+    if (
+      matched === undefined ||
+      !isNotificationDeliveryFor(matched, definition)
+    ) {
+      return [null, frames];
+    }
     const rest = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
     return [matched, rest];
   });
@@ -196,7 +205,7 @@ type BufferedStreamClosed = typeof BUFFERED_STREAM_CLOSED;
 function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
-): Stream.Stream<DecodedNotification<D>, BufferedStreamClosed> {
+): Stream.Stream<NotificationDelivery<D>, BufferedStreamClosed> {
   return Stream.repeatEffectChunk(
     pullMatchingFromBuffer(buffer, definition).pipe(
       Effect.flatMap((maybe) => {
@@ -206,7 +215,7 @@ function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
             isClosed
               ? Effect.fail(BUFFERED_STREAM_CLOSED)
               : Effect.sleep(Duration.millis(PUMP_POLL_INTERVAL_MS)).pipe(
-                  Effect.as(Chunk.empty<DecodedNotification<D>>()),
+                  Effect.as(Chunk.empty<NotificationDelivery<D>>()),
                 ),
           ),
         );
@@ -214,12 +223,6 @@ function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
     ),
   );
 }
-
-type MessageEventData = {
-  readonly message?: {
-    readonly conversationId?: unknown;
-  };
-};
 
 export function deliveryViolation(
   name: string,
@@ -234,26 +237,22 @@ export function deliveryViolation(
 
 /**
  * Stream-based one-shot waiter for protocol-side conformance helpers.
- * Replaces the deleted `TestClient.waitForNotification(def, timeoutMs)`
- * polling shape (#645).
  *
  * Consumes the per-client historical `NotificationBuffer` populated by
  * the `subscribeAll()` pump installed at `acquireClient` time, so
- * sequential `send → awaitOneNotification` patterns observe frames
- * that arrived between the triggering RPC and the wait — the legacy
- * polling semantic preserved without resurrecting the deleted
- * per-definition dedup ring. Mirrors
+ * sequential `send → awaitOneNotification` patterns observe frames that
+ * arrived between the triggering RPC and the wait. Mirrors
  * `@moltzap/server-core/test-utils → awaitOneNotification`.
  *
  * Surfaces a single string message on either timeout or stream
- * exhaustion so call sites preserve the legacy `e.message`-style error
- * mapper without re-deriving a tagged error type per definition.
+ * exhaustion, so call sites use an `e.message`-style error mapper without
+ * a tagged error type per definition.
  */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
   timeoutMs: number,
-): Effect.Effect<DecodedNotification<D>, string> {
+): Effect.Effect<NotificationDelivery<D>, string> {
   return bufferedSubscribeStream(buffer, definition).pipe(
     Stream.runHead,
     Effect.timeoutFail({
@@ -316,23 +315,28 @@ export function sendText(
   });
 }
 
+// App-admin conversation updates head their `requires` with `AppPrincipal`;
+// callers pass the fixture's `moderatorClient` (the app principal), NOT the
+// agent owner.
 export function archiveConversation(
-  actor: ConversationActor,
+  moderatorClient: AppTestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return actor.client.sendRpc(TaskConversationArchive, {
+  return moderatorClient.sendRpc(ConversationUpdate, {
+    action: "archive",
     taskId,
     conversationId,
   });
 }
 
 export function unarchiveConversation(
-  actor: ConversationActor,
+  moderatorClient: AppTestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 ) {
-  return actor.client.sendRpc(TaskConversationUnarchive, {
+  return moderatorClient.sendRpc(ConversationUpdate, {
+    action: "unarchive",
     taskId,
     conversationId,
   });
@@ -346,16 +350,14 @@ export function waitForConversationCreatedNotification(
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      TaskConversationCreatedNotificationDefinition,
+      ConversationCreatedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
         deliveryViolation(propertyName, `created event missing: ${reason}`),
       ),
     );
-    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
-    const data = event.params as { conversationId?: unknown } | undefined;
-    if (data?.conversationId !== conversationId) {
+    if (event.params.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,
@@ -381,8 +383,7 @@ export function waitForMessageReceivedNotification(
         deliveryViolation(propertyName, `message event missing: ${reason}`),
       ),
     );
-    const data = event.params as MessageEventData | undefined;
-    if (data?.message?.conversationId !== conversationId) {
+    if (event.params.message.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,
@@ -402,23 +403,16 @@ export function waitForArchivedEvent(
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      TaskConversationArchivedNotificationDefinition,
+      ConversationArchivedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
         deliveryViolation(propertyName, `archive event missing: ${reason}`),
       ),
     );
-    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
-    const data = event.params as
-      | {
-          conversationId?: unknown;
-          archivedAt?: unknown;
-        }
-      | undefined;
     if (
-      data?.conversationId !== conversationId ||
-      typeof data.archivedAt !== "string"
+      event.params.conversationId !== conversationId ||
+      typeof event.params.archivedAt !== "string"
     ) {
       return yield* Effect.fail(
         deliveryViolation(
@@ -439,16 +433,14 @@ export function waitForUnarchivedEvent(
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      TaskConversationUnarchivedNotificationDefinition,
+      ConversationUnarchivedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>
         deliveryViolation(propertyName, `unarchive event missing: ${reason}`),
       ),
     );
-    // #ignore-sloppy-code-next-line[params-cast]: assertion shape — event.params is `unknown` from the type-erased subscriber stream; narrow at observation site
-    const data = event.params as { conversationId?: unknown } | undefined;
-    if (data?.conversationId !== conversationId) {
+    if (event.params.conversationId !== conversationId) {
       return yield* Effect.fail(
         deliveryViolation(
           propertyName,
@@ -464,15 +456,14 @@ export interface AssertConversationRejectsMessagesInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly propertyName: string;
-  readonly expectedError?: { readonly code: number; readonly label: string };
+  readonly expectedError?: { readonly tag: string };
 }
 
 export function assertConversationRejectsMessages(
   input: AssertConversationRejectsMessagesInput,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   const expectedError = input.expectedError ?? {
-    code: ConversationArchivedError.code,
-    label: "ConversationArchived",
+    tag: "ConversationArchived",
   };
   const { actor, taskId, conversationId, propertyName } = input;
   return Effect.gen(function* () {
@@ -486,22 +477,20 @@ export function assertConversationRejectsMessages(
       onRight: () =>
         deliveryViolation(
           propertyName,
-          "messages/send succeeded while archived",
+          "agent/message/send succeeded while archived",
         ),
       onLeft: (error) => {
         if (
           error instanceof RpcResponseError &&
-          error.code === expectedError.code
+          error.tag === expectedError.tag
         ) {
           return null;
         }
         const errorLabel =
-          error instanceof RpcResponseError
-            ? `${error._tag}/${error.code}`
-            : error._tag;
+          error instanceof RpcResponseError ? error.tag : error._tag;
         return deliveryViolation(
           propertyName,
-          `messages/send returned ${errorLabel}, expected ${expectedError.label}`,
+          `agent/message/send returned ${errorLabel}, expected ${expectedError.tag}`,
         );
       },
     });
@@ -520,60 +509,44 @@ export function acquireClient(
       baseUrl: ctx.realServer.baseUrl,
       name,
     }).pipe(Effect.mapError((e) => `register(${name}): ${e.body}`));
-    const client = yield* makeTestClient({
+    const client = yield* makeAgentTestClient({
       serverUrl: ctx.realServer.wsUrl,
       agentKey: agent.apiKey,
-      agentId: agent.agentId,
       defaultTimeoutMs: DELIVERY_DEFAULT_TIMEOUT_MS,
-      captureCapacity: DELIVERY_DEFAULT_CAPTURE_CAPACITY,
-    }).pipe(Effect.mapError((e) => `makeTestClient(${name}): ${String(e)}`));
+    }).pipe(
+      Effect.mapError((e) => `makeAgentTestClient(${name}): ${String(e)}`),
+    );
     const notifications = yield* makeNotificationBuffer(client);
     return { agent, client, notifications };
   }).pipe(Effect.withSpan("acquireClient"));
 }
 
-/**
- * Wire `owner` as moderator for a fresh app id: AppsRegister + attach
- * grant-all `DispatchAuthorize` + forward-all `MessagesAuthorize` wire
- * callbacks. Required for properties that drive TM-only RPCs
- * (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
- *
- * Participant tracking is auto-discovered — the moderator subscribes
- * to `task/conversation/participants/added` and
- * `task/conversation/participants/removed` notifications (which the
- * server delivers to every conversation participant including the
- * moderator) and maintains a per-fixture conversation-id keyed
- * mutable map of agent-id sets from those events. The forward-all
- * callback reads from that map.
- *
- * Tests get a deterministic-readiness helper
- * (`awaitConversationReady`) to bridge the inherent observation gap
- * between `TaskRequest`/`TaskConversationCreate` returning and the
- * matching notification arriving at the moderator's subscriber. Use
- * it once per conversation, immediately after the create RPC
- * resolves, before any `messages/send` triggers
- * `MessagesAuthorize`.
- */
+/** Fresh UUID manifest appId for a per-fixture conformance app. */
 function freshConformanceAppId(): string {
   return crypto.randomUUID();
 }
 
-function attachGrantDispatchAuthorize(client: TestClient): Effect.Effect<void> {
+function attachGrantDispatchAuthorize(
+  client: AppTestClient,
+): Effect.Effect<void> {
   return client.onAppCallback(DispatchAuthorize, () =>
     Effect.succeed({ admission: { decision: "grant" as const } }),
   );
 }
 
-function attachAcceptTaskCreate(client: TestClient): Effect.Effect<void> {
+function attachAcceptTaskCreate(client: AppTestClient): Effect.Effect<void> {
   return client.onAppCallback(TaskCreate, () =>
     Effect.succeed({ verdict: { decision: "accept" as const } }),
   );
 }
 
-type ParticipantMap = Map<ConversationId, Set<Static<typeof AgentId>>>;
+type ParticipantMap = Map<
+  ConversationId,
+  Set<Schema.Schema.Type<typeof AgentId>>
+>;
 
 function attachForwardAllMessagesAuthorize(
-  client: TestClient,
+  client: AppTestClient,
   participantsRef: Ref.Ref<ParticipantMap>,
 ): Effect.Effect<void> {
   return client.onAppCallback(MessagesAuthorize, (params) =>
@@ -591,16 +564,16 @@ function attachForwardAllMessagesAuthorize(
   );
 }
 
-// Initial-conversation snapshot. `task/conversation/created` is the
+// Initial-conversation snapshot. `app/conversation/created` is the
 // bulk event the server emits when a conversation is born (typically
-// as the initialConversation hint folded into task/request); seed
+// as the initialConversation hint folded into agent/task/request); seed
 // participantsRef from its `participants` field so
 // awaitConversationReady doesn't time out waiting for per-participant
 // added events that the server never sent.
 function applyConversationCreated(
   prev: ParticipantMap,
   params: NotificationParamsOf<
-    typeof TaskConversationCreatedNotificationDefinition
+    typeof ConversationCreatedNotificationDefinition
   >,
 ): ParticipantMap {
   const convId = makeConversationId(params.conversationId);
@@ -612,7 +585,7 @@ function applyConversationCreated(
 function applyParticipantsAdded(
   prev: ParticipantMap,
   params: NotificationParamsOf<
-    typeof TaskConversationParticipantsAddedNotificationDefinition
+    typeof ConversationParticipantsAddedNotificationDefinition
   >,
 ): ParticipantMap {
   const convId = makeConversationId(params.conversationId);
@@ -627,7 +600,7 @@ function applyParticipantsAdded(
 function applyParticipantsRemoved(
   prev: ParticipantMap,
   params: NotificationParamsOf<
-    typeof TaskConversationParticipantsRemovedNotificationDefinition
+    typeof ConversationParticipantsRemovedNotificationDefinition
   >,
 ): ParticipantMap {
   const convId = makeConversationId(params.conversationId);
@@ -641,7 +614,7 @@ function applyParticipantsRemoved(
 }
 
 function subscribeParticipantNotifications(
-  client: TestClient,
+  client: AgentTestClient,
   participantsRef: Ref.Ref<ParticipantMap>,
 ): Effect.Effect<void, never, Scope.Scope> {
   const pump = <D extends AnyNotificationDefinition>(
@@ -664,15 +637,15 @@ function subscribeParticipantNotifications(
 
   return Effect.gen(function* () {
     yield* pump(
-      TaskConversationCreatedNotificationDefinition,
+      ConversationCreatedNotificationDefinition,
       applyConversationCreated,
     );
     yield* pump(
-      TaskConversationParticipantsAddedNotificationDefinition,
+      ConversationParticipantsAddedNotificationDefinition,
       applyParticipantsAdded,
     );
     yield* pump(
-      TaskConversationParticipantsRemovedNotificationDefinition,
+      ConversationParticipantsRemovedNotificationDefinition,
       applyParticipantsRemoved,
     );
   });
@@ -684,7 +657,7 @@ const PARTICIPANT_READY_POLL_MS = 10;
 function awaitParticipantsForConversation(
   participantsRef: Ref.Ref<ParticipantMap>,
   conversationId: ConversationId,
-  expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+  expectedAgentIds: ReadonlyArray<Schema.Schema.Type<typeof AgentId>>,
 ): Effect.Effect<void, string> {
   const wanted = new Set(expectedAgentIds);
   return Effect.gen(function* () {
@@ -703,43 +676,61 @@ function awaitParticipantsForConversation(
 }
 
 export interface ModeratedHandle {
-  readonly appId: Static<typeof AppIdSchema>;
+  readonly appId: Schema.Schema.Type<typeof AppIdSchema>;
+
+  /**
+   * The app-principal `AppConnection` bound as moderator. App-admin RPCs (their
+   * `requires` head is `AppPrincipal`) route through this client.
+   */
+  readonly client: AppTestClient;
 
   /**
    * Block until the moderator has observed `expectedAgentIds` as
    * participants of `conversationId` via
-   * `task/conversation/participants/added` notifications. Bridges
+   * `app/conversation/updateed` notifications. Bridges
    * the gap between the create RPC returning and the notification
    * arriving on the moderator's subscriber.
    */
   readonly awaitConversationReady: (
     conversationId: ConversationId,
-    expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+    expectedAgentIds: ReadonlyArray<Schema.Schema.Type<typeof AgentId>>,
   ) => Effect.Effect<void, string>;
 }
 
+/**
+ * Wire a SEPARATE app principal as moderator: HTTP-register the manifest
+ * + `appKey`-Connect an `AppTestClient` whose implicit registration binds it
+ * as the app's moderator endpoint. The grant-all `DispatchAuthorize` +
+ * accept `TaskCreate` + forward-all `MessagesAuthorize` callbacks run on
+ * THAT app connection (all are server-initiated, app-principal
+ * round-trips). The agent `owner` drives `agent/task/request` + `agent/message/send`.
+ *
+ * Participant tracking stays on `owner.client` (an agent + conversation
+ * participant): the `app/conversation/created` + participants/added/removed
+ * notifications are agent broadcasts that CANNOT reach an `AppConnection`.
+ * The shared in-process `participantsRef` bridges the owner's subscriber to
+ * the app's forward-all callback.
+ */
 export function moderateAs(
+  ctx: ConformanceRunContext,
   owner: ConversationActor,
   namePrefix: string,
 ): Effect.Effect<ModeratedHandle, string, Scope.Scope> {
   return Effect.gen(function* () {
-    const fixtureAppId = makeAppId(freshConformanceAppId());
     const participantsRef = yield* Ref.make<ParticipantMap>(new Map());
     yield* subscribeParticipantNotifications(owner.client, participantsRef);
-    yield* attachGrantDispatchAuthorize(owner.client);
-    yield* attachAcceptTaskCreate(owner.client);
-    yield* attachForwardAllMessagesAuthorize(owner.client, participantsRef);
-    const registerResult = yield* owner.client
-      .sendRpc(AppsRegister, {
-        manifest: { appId: fixtureAppId, name: `${namePrefix}-app` },
-      })
-      .pipe(Effect.either);
-    yield* requireRight(
-      registerResult,
-      (error) => `apps/register failed: ${error._tag}`,
-    );
+    const app = yield* registerTestApp({
+      baseUrl: ctx.realServer.baseUrl,
+      wsUrl: ctx.realServer.wsUrl,
+      appId: freshConformanceAppId(),
+      name: `${namePrefix}-app`,
+    }).pipe(Effect.mapError((e) => `app registration failed: ${e._tag}`));
+    yield* attachGrantDispatchAuthorize(app.client);
+    yield* attachAcceptTaskCreate(app.client);
+    yield* attachForwardAllMessagesAuthorize(app.client, participantsRef);
     const handle: ModeratedHandle = {
-      appId: fixtureAppId,
+      appId: app.appId,
+      client: app.client,
       awaitConversationReady: (conversationId, expectedAgentIds) =>
         awaitParticipantsForConversation(
           participantsRef,
@@ -764,9 +755,10 @@ export function acquireConversation(
       (i) => acquireClient(ctx, `${namePrefix}-p${i}`),
       { concurrency: clamped },
     );
-    // Spec D3 + #677: owner needs TM authority for TM-only RPCs
-    // (archive, addParticipant, close); DEFAULT_APP_ID has no TM.
-    const moderator = yield* moderateAs(owner, namePrefix);
+    // A separate app principal holds authority for app-only RPCs
+    // (archive, addParticipant, close); DEFAULT_APP_ID has no app connection. `owner`
+    // (agent) drives agent/task/request below.
+    const moderator = yield* moderateAs(ctx, owner, namePrefix);
     const createResult = yield* owner.client
       .sendRpc(TaskRequest, {
         appId: moderator.appId,
@@ -779,14 +771,14 @@ export function acquireConversation(
       .pipe(Effect.either);
     const created = (yield* requireRight(
       createResult,
-      (error) => `task/create failed: ${error._tag}`,
+      (error) => `app/task/create failed: ${error._tag}`,
     )) as {
       task: { id: string };
       conversation: { id: string } | null;
     };
     const conversationId = created.conversation?.id;
     if (typeof conversationId !== "string" || conversationId.length === 0) {
-      return yield* Effect.fail(`task/create returned no conversation.id`);
+      return yield* Effect.fail(`app/task/create returned no conversation.id`);
     }
     const branded = makeConversationId(conversationId);
     yield* moderator.awaitConversationReady(
@@ -798,6 +790,7 @@ export function acquireConversation(
       participants,
       taskId: makeTaskId(created.task.id),
       conversationId: branded,
+      moderatorClient: moderator.client,
     };
   }).pipe(Effect.withSpan("acquireConversation"));
 }

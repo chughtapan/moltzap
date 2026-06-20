@@ -1,27 +1,24 @@
 /**
  * Idempotent RPCs yield equivalent responses on replay. For every
- * list-shaped method where empty params are valid and `isIdempotent`
- * says replay is safe, sends the same params twice and asserts both
- * succeed with **identical results** (not just identical tags).
+ * list-shaped method where empty params are valid and replay is safe,
+ * sends the same params twice and asserts both succeed with **identical
+ * results** (not just identical tags).
  *
- * Architect §4.4: removed `.pipe(Effect.orElseSucceed(["skip","skip"]))`
- * masking. Transport failures now surface as `PropertyUnavailable` so
- * the runner reports them explicitly instead of folding them into a
- * silent pass. Predicate compares response bodies via canonical JSON
- * — spec B5 says "identical results", not "identical outcome kinds".
+ * Transport failures surface as `PropertyUnavailable` so the runner
+ * reports them explicitly instead of folding them into a silent pass.
+ * The predicate compares response bodies via canonical JSON: the spec
+ * requires "identical results", not "identical outcome kinds".
  */
 import { Effect, Either } from "effect";
-import { AgentsList } from "../../../identity/methods.js";
-import { TaskList } from "../../../task/methods.js";
-import { isIdempotent } from "../../models/dispatch.js";
+import { AgentsList } from "#identity";
+import { TaskList } from "#task";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
 import {
-  makeTestClient,
-  type TestClient,
+  makeAgentTestClient,
+  type AgentTestClient,
 } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type {
-  FrameSchemaError,
   RpcResponseError,
   RpcTimeoutError,
   TransportClosedError,
@@ -38,7 +35,6 @@ import { eitherTag } from "../_shared/_helpers.js";
 const CATEGORY = "rpc-semantics" as const;
 const PROPERTY = "idempotence";
 const DEFAULT_TIMEOUT_MS = 3000;
-const DEFAULT_CAPTURE_CAPACITY = 64;
 const EMPTY_PARAM_IDEMPOTENTS = [AgentsList, TaskList] as const;
 
 type EmptyParamIdempotentDefinition = (typeof EMPTY_PARAM_IDEMPOTENTS)[number];
@@ -46,8 +42,7 @@ type ReplayError =
   | RpcResponseError
   | RpcTimeoutError
   | TransportClosedError
-  | TransportIoError
-  | FrameSchemaError;
+  | TransportIoError;
 type ReplayPair = {
   readonly a: Either.Either<unknown, ReplayError>;
   readonly b: Either.Either<unknown, ReplayError>;
@@ -58,7 +53,7 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     PROPERTY,
-    "isIdempotent methods: two sends yield identical response bodies",
+    "idempotent methods: two sends yield identical response bodies",
     assertIdempotence(ctx).pipe(Effect.withSpan("registerIdempotence")),
   );
 }
@@ -79,6 +74,8 @@ function assertIdempotence(ctx: ConformanceRunContext) {
         Effect.fail(unavailable(`transport io: ${String(e.cause)}`)),
       TestingTransportClosedError: (e) =>
         Effect.fail(unavailable(`transport closed: ${e.reason}`)),
+      TestingRpcTimeoutError: (e) =>
+        Effect.fail(unavailable(`rpc timeout: ${e.method}`)),
       TestingRpcResponseError: (e) =>
         Effect.fail(unavailable(`rpc response error: ${e.message}`)),
     }),
@@ -86,30 +83,15 @@ function assertIdempotence(ctx: ConformanceRunContext) {
 }
 
 function assertDefinitionIdempotent(
-  client: TestClient,
+  client: AgentTestClient,
   definition: EmptyParamIdempotentDefinition,
 ) {
   return Effect.gen(function* () {
     const method = definition.name;
-    yield* assertOracleAgrees(method);
     const pair = yield* sendReplayPair(client, definition);
     yield* assertReplayOutcomeTags(method, pair);
     yield* assertReplayBodies(method, pair);
   });
-}
-
-function assertOracleAgrees(
-  method: typeof AgentsList.name | typeof TaskList.name,
-) {
-  return isIdempotent(method)
-    ? Effect.void
-    : Effect.fail(
-        new PropertyInvariantViolation({
-          category: CATEGORY,
-          name: PROPERTY,
-          reason: `isIdempotent(${method}) is false — oracle disagreement`,
-        }),
-      );
 }
 
 function acquireReplayClient(ctx: ConformanceRunContext) {
@@ -118,18 +100,16 @@ function acquireReplayClient(ctx: ConformanceRunContext) {
       baseUrl: ctx.realServer.baseUrl,
       name: "id",
     });
-    return yield* makeTestClient({
+    return yield* makeAgentTestClient({
       serverUrl: ctx.realServer.wsUrl,
       agentKey: agent.apiKey,
-      agentId: agent.agentId,
       defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
     });
   });
 }
 
 function sendReplayPair(
-  client: TestClient,
+  client: AgentTestClient,
   definition: EmptyParamIdempotentDefinition,
 ) {
   return Effect.gen(function* () {
@@ -195,13 +175,12 @@ function successPairOrNull(pair: ReplayPair) {
 }
 
 /**
- * Idempotence canonical projection — architect #197 §3.3.
+ * Idempotence canonical projection.
  *
- * Spec B5: agents/list.agents and conversations/list.conversations are
- * unordered row sets across replays. Every OTHER array (including any
- * nested `participants`, future nested message lists, and every
- * payload field that is not one of the two named arrays) remains
- * order-sensitive.
+ * `agent/identity/agents/list.agents` and `agent/task/list.tasks` are
+ * unordered row sets across replays. Every OTHER array
+ * (including any nested `participants` and every payload field that is
+ * not one of the two named arrays) remains order-sensitive.
  *
  * The projection sorts ONLY the specific top-level array the spec
  * marks unordered, then finalizes via `canonicalJson` (which
@@ -220,11 +199,9 @@ function canonIdempotenceResult(
       agents: Array.isArray(r.agents) ? sortJsonArray(r.agents) : r.agents,
     });
   }
-  const r = result as { conversations?: unknown[]; cursor?: string };
+  const r = result as { tasks?: unknown[]; cursor?: string };
   return canonicalJson({
     ...r,
-    conversations: Array.isArray(r.conversations)
-      ? sortJsonArray(r.conversations)
-      : r.conversations,
+    tasks: Array.isArray(r.tasks) ? sortJsonArray(r.tasks) : r.tasks,
   });
 }

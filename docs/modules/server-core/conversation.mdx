@@ -1,0 +1,112 @@
+---
+title: "server-core/conversation"
+description: "Conversation-domain service barrel."
+---
+
+# server-core/conversation
+
+_`packages/server/src/conversation`_
+
+## Purpose
+
+Conversation-domain service barrel.
+
+## Public surface
+
+### [`conversationCreate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L315)
+
+_Variable_
+
+```ts
+export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
+  params,
+)
+```
+
+### [`conversationList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L308)
+
+_Variable_
+
+```ts
+export const conversationList: ServerHandler<typeof ConversationList> = (
+  params,
+)
+```
+
+### [`ConversationService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/conversation.service.ts#L260)
+
+_Class_
+
+```ts
+export class ConversationService {
+  /** In-memory cache for last message previews — avoids decrypting on every list() call */
+  private previewCache = new Map<ConversationId, string>();
+
+  constructor(
+    private db: Db,
+    private connections: ConnectionManager,
+    private resolveContactPolicy: ContactPolicyResolver = () => null,
+  ) {}
+
+  /** Writes the plaintext preview before message-part encryption. */
+  updatePreviewCache(
+    conversationId: ConversationId,
+    firstPartText: string,
+  ): void {
+    this.previewCache.delete(conversationId);
+    this.previewCache.set(
+      conversationId,
+      firstPartText.slice(0, PREVIEW_CACHE_TEXT_CHARS),
+    );
+    if (this.previewCache.size > PREVIEW_CACHE_MAX) {
+      const oldest = this.previewCache.keys().next().value!;
+      this.previewCache.delete(oldest);
+    }
+  }
+```
+
+### [`ConversationServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/layer.ts#L15)
+
+_Variable_
+
+```ts
+export const ConversationServiceLive = Layer.effect(
+  ConversationServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const connections = yield* ConnectionManagerTag;
+    const appEndpointRegistry = yield* AppEndpointRegistryTag;
+    return new ConversationService(db, connections, () => {
+      const contacts = appEndpointRegistry.getContactService();
+      if (!contacts) return null;
+      return (a, b) => contacts.areInContact(a, b);
+    });
+  }).pipe(Effect.withSpan("ConversationServiceLive")),
+)
+```
+
+### [`ConversationServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/layer.ts#L11)
+
+_Class_
+
+```ts
+export class ConversationServiceTag extends Context.Tag(
+  "moltzap/ConversationService",
+)<ConversationServiceTag, ConversationService>() {}
+```
+
+### [`conversationUpdate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/conversation/handlers.ts#L322)
+
+_Variable_
+
+```ts
+export const conversationUpdate: ServerHandler<typeof ConversationUpdate> = (
+  params,
+)
+```
+
+## Files
+
+- `conversation.service.ts`
+- `handlers.ts`
+- `layer.ts`

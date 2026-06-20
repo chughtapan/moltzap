@@ -13,13 +13,13 @@ it("buffer stores all messages without eviction", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);
 
     for (let i = 0; i < H.HISTORY_MESSAGE_COUNT; i++) {
-      yield* regC.client.sendRpc(H.MessagesSend, {
+      yield* regC.client.call(H.MessagesSend.name, {
         taskId: convC.task.id,
         conversationId: convC.conversation!.id,
         parts: [{ type: "text", text: `msg-${i}` }],

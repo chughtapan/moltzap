@@ -1,7 +1,16 @@
 /**
  * @file Public exports for runtime adapter orchestration.
  */
-export * from "./runtime.js";
+export {
+  AgentName,
+  ServerUrl,
+  type WorkspaceFile,
+  type RuntimeServerHandle,
+  type SpawnInput,
+  type LogSlice,
+  type ReadyOutcome,
+  type Runtime,
+} from "./runtime.js";
 
 export { awaitAgentReadyByPolling } from "./await-agent-ready.js";
 

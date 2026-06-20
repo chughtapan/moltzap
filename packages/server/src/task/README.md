@@ -1,51 +1,38 @@
 # task/
 
-Conversations, messages, tasks, task-manager dispatch.
+Task lifecycle and task-owned RPC handlers.
 
 ## Layer rules
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | kernels (db, crypto, runtime), transport, identity, network |
-| Imports TO   | app |
+| Imports FROM | kernels (db, crypto, runtime), socket, identity, network |
+| Imports TO   | conversation, message, dispatch, identity/apps |
 
 ## Files
 
 ### Handlers
-- `handlers/messages.handlers.ts` — `messages/send`, `messages/get`,
-  `messages/list`.
-- `handlers/tasks.handlers.ts` — `task/*` + `task/conversation/*`
-  admin family. `task/request` lives in
-  `app/handlers/task-request.handler.ts` because its handler binds
-  via `defineAppMethod`.
-- `handlers/notification-broadcast.ts` — shared best-effort fan-out
-  helper (forks socket writes via `Effect.runFork`).
+- `handlers.ts` — `agent/task/request`, `agent/task/list`,
+  `agent/task/leave`, and `app/task/update`.
 
 ### Services
-- `services/conversation.service.ts` + `conversation-service-types.ts`
-  — conversation CRUD, participant membership, archive.
-- `services/message.service.ts` + `message-service-types.ts` —
-  message insert (`sendInsert` + `sendCommit`), delivery webhook
-  fan-out, trace capture wiring.
-- `services/task.service.ts` — task lifecycle plus the
-  `TaskConversation*` administrative methods.
-- `services/conversation/list-pagination.ts` — shared cursor +
-  page-shape helpers consumed by `conversation.service.ts`.
+- `task.service.ts` — task lifecycle and task participant updates.
+
+### Requirements
+- `requirements/read-access.ts` — `TaskReadAccess` obtain.
+- `requirements/app-ownership.ts` — app ownership checks for app-owned task
+  mutations.
 
 ## Handler shape
 
 ```ts
-defineTaskMethod(MessagesSend, {
-  requiresActive: true,
-  handler: (params, ctx) =>
-    Effect.gen(function* () {
-      const messages = yield* MessageServiceTag;
-      const conversations = yield* ConversationServiceTag;
-      // ...
-    }),
-});
+export const messagesSend: ServerHandler<typeof MessagesSend> = (params) =>
+  Effect.gen(function* () {
+    const messages = yield* MessageServiceTag;
+    // ...
+  });
 ```
 
-No `createMessageHandlers({deps})` factory. The handler binding's `R`
-channel holds every Tag the body pulls; the dispatcher's
-`ManagedRuntime` provides them.
+Handlers are collected in `moltzap/handler-catalog.ts`. The handler body's `R`
+channel holds every Tag it pulls; the socket runtime provides the services and
+per-request `ConnectionTag`.

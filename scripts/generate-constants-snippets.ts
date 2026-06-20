@@ -61,10 +61,26 @@ const parseSource = (filePath: string): ts.SourceFile => {
   return ts.createSourceFile(filePath, text, ts.ScriptTarget.Latest, true);
 };
 
+const literalFromInitializer = (
+  init: ts.Expression,
+): string | number | null => {
+  const inner = ts.isAsExpression(init) ? init.expression : init;
+  if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) {
+    return inner.text;
+  }
+  if (ts.isNumericLiteral(inner)) return Number(inner.text);
+  if (ts.isCallExpression(inner) && inner.arguments.length === 1) {
+    const arg = inner.arguments[0];
+    if (arg !== undefined) return literalFromInitializer(arg);
+  }
+  return null;
+};
+
 /**
- * Find a top-level `const NAME = <Literal>` declaration whose initializer
- * is a string or numeric literal (optionally with a trailing
- * `as <TypeReference>`).
+ * Find a top-level `const NAME = <Literal>` declaration whose initializer is a
+ * string or numeric literal (optionally with a trailing `as <TypeReference>`),
+ * or a one-argument constructor wrapping that literal, e.g.
+ * `Schema.decodeSync(AppId)("...")`.
  */
 const readTopLevelLiteral = (
   filePath: string,
@@ -79,16 +95,7 @@ const readTopLevelLiteral = (
         continue;
       const init = decl.initializer;
       if (init === undefined) continue;
-      // Unwrap `<literal> as <TypeRef>`.
-      const inner = ts.isAsExpression(init) ? init.expression : init;
-      if (
-        ts.isStringLiteral(inner) ||
-        ts.isNoSubstitutionTemplateLiteral(inner)
-      ) {
-        found = inner.text;
-      } else if (ts.isNumericLiteral(inner)) {
-        found = Number(inner.text);
-      }
+      found = literalFromInitializer(init);
     }
   }
   return found === null
@@ -96,45 +103,6 @@ const readTopLevelLiteral = (
         `identifier '${identifier}' not found as a top-level literal in ${filePath}`,
       )
     : ok(found);
-};
-
-/**
- * Walk an object literal initializer + collect numeric-literal fields
- * keyed by property name. Used for `buildHelloOk`'s policy block —
- * the AST is `Effect.sync(() => { ... return { policy: { ... } }; })`,
- * so we recurse into the function body and pick out the `policy: { ... }`
- * property assignment.
- */
-const readHelloPolicyNumbers = (
-  filePath: string,
-): ReadResult<Record<string, number>> => {
-  const src = parseSource(filePath);
-  const want = new Set([
-    "maxMessageBytes",
-    "maxPartsPerMessage",
-    "maxTextLength",
-    "maxGroupParticipants",
-    "heartbeatIntervalMs",
-    "messagesPerMinute",
-    "requestsPerMinute",
-  ]);
-  const out: Record<string, number> = {};
-  const visit = (node: ts.Node): void => {
-    if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name)) {
-      const key = node.name.text;
-      if (want.has(key) && ts.isNumericLiteral(node.initializer)) {
-        out[key] = Number(node.initializer.text);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(src);
-  const missing = [...want].filter((k) => !(k in out));
-  return missing.length === 0
-    ? ok(out)
-    : err(
-        `buildHelloOk: missing numeric fields in ${filePath}: ${missing.join(", ")}`,
-      );
 };
 
 /**
@@ -176,11 +144,11 @@ type Constant = StringConstant | NumberConstant;
 
 const collect = (): readonly Constant[] => {
   const protocolVersion = readTopLevelLiteral(
-    resolve(workspaceRoot, "packages/protocol/src/version.ts"),
+    resolve(workspaceRoot, "packages/protocol/src/network/connect.ts"),
     "PROTOCOL_VERSION",
   );
   const defaultAppId = readTopLevelLiteral(
-    resolve(workspaceRoot, "packages/protocol/src/task/ids.ts"),
+    resolve(workspaceRoot, "packages/protocol/src/identity/apps/ids.ts"),
     "DEFAULT_APP_ID",
   );
   const defaultServerPort = readTopLevelLiteral(
@@ -188,10 +156,7 @@ const collect = (): readonly Constant[] => {
     "DEFAULT_SERVER_PORT",
   );
   const apiKeyPrefix = readTopLevelLiteral(
-    resolve(
-      workspaceRoot,
-      "packages/server/src/identity/services/agent-auth.ts",
-    ),
+    resolve(workspaceRoot, "packages/server/src/identity/credential-keys.ts"),
     "API_KEY_PREFIX",
   );
   const quickstartPort = readQuickstartPort(
@@ -239,13 +204,13 @@ const collect = (): readonly Constant[] => {
   const constants: ReadonlyArray<Constant | null> = [
     requireString(
       "PROTOCOL_VERSION",
-      "packages/protocol/src/version.ts",
+      "packages/protocol/src/network/connect.ts",
       protocolVersion,
-      "Current wire-protocol version emitted in HelloOk + accepted in `network/connect`.",
+      "Current wire-protocol version emitted in HelloOk + accepted by the connect handshake.",
     ),
     requireString(
       "DEFAULT_APP_ID",
-      "packages/protocol/src/task/ids.ts",
+      "packages/protocol/src/identity/apps/ids.ts",
       defaultAppId,
       "Built-in unmoderated default-app UUID. Conversations created without an explicit app bind here.",
     ),
@@ -257,7 +222,7 @@ const collect = (): readonly Constant[] => {
     ),
     requireString(
       "API_KEY_PREFIX",
-      "packages/server/src/identity/services/agent-auth.ts",
+      "packages/server/src/identity/credential-keys.ts",
       apiKeyPrefix,
       "Stable string prefix on every agent API key.",
     ),
@@ -278,31 +243,7 @@ const collect = (): readonly Constant[] => {
     process.exit(1);
   }
 
-  const helloPolicy = readHelloPolicyNumbers(
-    resolve(
-      workspaceRoot,
-      "packages/server/src/identity/handlers/connect.handlers.ts",
-    ),
-  );
-  if (helloPolicy._tag === "err") {
-    console.error(`generate-constants-snippets: ${helloPolicy.reason}`);
-    process.exit(1);
-  }
-
-  const helloEntries = Object.entries(helloPolicy.value).map(
-    ([key, value]): NumberConstant => ({
-      kind: "number",
-      name: `HELLO_${key.replace(/([A-Z])/g, "_$1").toUpperCase()}`,
-      value,
-      sourcePath: "packages/server/src/identity/handlers/connect.handlers.ts",
-      note: `HelloOk policy field: ${key}`,
-    }),
-  );
-
-  return [
-    ...constants.filter((c): c is Constant => c !== null),
-    ...helloEntries,
-  ];
+  return constants.filter((c): c is Constant => c !== null);
 };
 
 // ─── Render ──────────────────────────────────────────────────────────────

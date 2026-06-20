@@ -1,8 +1,7 @@
 import { describe, expect, it as vitestIt } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { RpcServerError } from "@moltzap/protocol";
-import { MoltZapChannelCore } from "@moltzap/client";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import {
   buildMessage,
   createFakeChannelService,
@@ -37,7 +36,6 @@ interface RecordedChannelOpts extends ChannelOpts {
 
 interface Harness {
   readonly fake: FakeChannelService;
-  readonly core: MoltZapChannelCore;
   readonly opts: RecordedChannelOpts;
   readonly channel: MoltZapChannel;
 }
@@ -146,10 +144,9 @@ function createRecordedOpts(): RecordedChannelOpts {
 
 function createHarness(evalMode = false): Harness {
   const fake = createFakeChannelService({ ownAgentId: AGENT_SELF });
-  const core = new MoltZapChannelCore({ service: fake.service });
   const opts = createRecordedOpts();
-  const channel = new MoltZapChannel(opts, core, AGENT_SELF, evalMode);
-  return { fake, core, opts, channel };
+  const channel = MoltZapChannel.fromService(opts, fake.service, evalMode);
+  return { fake, opts, channel };
 }
 
 function asJid(conversationId: string): string {
@@ -346,9 +343,11 @@ function rejectsSecondSendForSameDispatch() {
       Effect.suspend(() => {
         sendCount += 1;
         if (sendCount <= 1) return Effect.void;
+        // Mirror the server's `claimDispatchLease`: a CONSUMED lease surfaces
+        // as `ForbiddenError(data.reason: "LeaseInvalid")`, which channel-base's
+        // `catchLeaseInvalid` projects to `LeaseAlreadyConsumed`.
         return Effect.fail(
-          new RpcServerError({
-            code: -32007,
+          new ForbiddenError({
             message: `lease ${opts?.dispatchLeaseId ?? "(none)"} not claimable: state=CONSUMED`,
             data: {
               reason: "LeaseInvalid",

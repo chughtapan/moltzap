@@ -1,15 +1,20 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
+import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
-  AppsRegister,
-  TaskCreate,
   DEFAULT_APP_ID,
-  TaskAddParticipant,
-  TaskClose,
-  TaskRequest,
+  TaskCreate,
   TaskList,
-  TaskRemoveParticipant,
-} from "@moltzap/protocol";
+  TaskRequest,
+  TaskUpdate,
+} from "@moltzap/protocol/task";
+import { MessagesAuthorize } from "@moltzap/protocol/message";
+import type {
+  AppCallbackContext,
+  AppCallbackHandlers,
+} from "@moltzap/protocol/socket";
+import type { AppManifest } from "@moltzap/protocol/identity";
+import { agentId } from "@moltzap/protocol/testing";
 import {
   it,
   startTestServerEffect,
@@ -17,16 +22,30 @@ import {
   resetTestDbEffect,
   trackClient,
   connectTestClient,
-  adminRegisterAgent,
-  expectEitherLeft,
-  type ServerTestClient,
+  connectAppClient,
+  registerApp,
+  createTestUser,
+  registerOwnedAgent,
+  type TestAgentClient,
 } from "../helpers.js";
 
 const REGISTRATION_SECRET = "tasks-test-secret-mnop";
-const ALICE_USER_ID = "00000000-0000-4000-8000-00000000a11d";
-const BOB_USER_ID = "00000000-0000-4000-8000-00000000b0b1";
+const ALICE_USER = createTestUser(
+  "alice",
+  "00000000-0000-4000-8000-00000000a11d",
+);
+const BOB_USER = createTestUser("bob", "00000000-0000-4000-8000-00000000b0b1");
 const ACTIVE_STATUS = "active";
 const CLOSED_STATUS = "closed";
+const TASK_MANAGER_MANIFEST = {
+  appId: "00000000-0000-4000-8000-000000010007",
+  name: "tm-test-app",
+  hooks: {
+    dispatch_authorize: { kind: "grant" },
+    message_authorize: { kind: "forwardAllExceptSender" },
+    task_create: { kind: "hook", timeoutMs: 5_000 },
+  },
+} satisfies AppManifest;
 
 let baseUrl: string;
 let wsUrl: string;
@@ -57,8 +76,8 @@ beforeEach(() =>
 
 function setupAliceAndBob(): Effect.Effect<
   {
-    aliceClient: ServerTestClient;
-    bobClient: ServerTestClient;
+    aliceClient: TestAgentClient;
+    bobClient: TestAgentClient;
     aliceAgentId: string;
     bobAgentId: string;
   },
@@ -66,17 +85,17 @@ function setupAliceAndBob(): Effect.Effect<
 > {
   return Effect.gen(function* () {
     const idx = ++pairCounter;
-    const aliceReg = yield* adminRegisterAgent({
+    const aliceReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `alice-tasks-${idx}`,
-      ownerUserId: ALICE_USER_ID,
+      user: ALICE_USER,
     });
-    const bobReg = yield* adminRegisterAgent({
+    const bobReg = yield* registerOwnedAgent({
       baseUrl,
       inviteCode: REGISTRATION_SECRET,
       name: `bob-tasks-${idx}`,
-      ownerUserId: BOB_USER_ID,
+      user: BOB_USER,
     });
     const aliceClient = yield* connectTestClient({
       wsUrl,
@@ -99,73 +118,87 @@ function setupAliceAndBob(): Effect.Effect<
   });
 }
 
-it("task/request returns an active task bound to the supplied appId", () =>
+function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
+  return {
+    [DispatchAuthorize.name]: {
+      definition: DispatchAuthorize,
+      handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
+    },
+    [MessagesAuthorize.name]: {
+      definition: MessagesAuthorize,
+      handle: () => Effect.dieMessage("unexpected app/message/authorize"),
+    },
+    [TaskCreate.name]: {
+      definition: TaskCreate,
+      handle: () =>
+        Effect.succeed({ verdict: { decision: "accept" as const } }),
+    },
+  };
+}
+
+it("agent/task/request returns an active task bound to the supplied appId", () =>
   Effect.gen(function* () {
     const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
     const result = yield* aliceClient.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
-    // DEFAULT_APP auto-accepts the task/create TM callback → active.
+    // DEFAULT_APP auto-accepts app/task/create, so the task becomes active.
     expect(result.task.status).toBe(ACTIVE_STATUS);
     expect(result.task.initiatorAgentId).toBe(aliceAgentId);
     expect(result.task.appId).toBe(DEFAULT_APP_ID);
   }));
 
-it("TM authority: only the registered app connection may mutate task membership", () =>
+it("app authority: only the app principal may mutate task membership", () =>
   Effect.gen(function* () {
-    const { aliceClient, bobClient, bobAgentId } = yield* setupAliceAndBob();
-    // TM authority is proved via app-ownership of the calling WS
-    // connection. Alice AppsRegisters a custom app; her connection
-    // becomes the remote-app entry for TM_TEST_APP_ID. Bob does not
-    // register, so his connection cannot pass TM-authority. (A
-    // DEFAULT_APP_ID AppsRegister would return ForbiddenError — that
-    // app is boot-installed and unhijackable.)
-    const TM_TEST_APP_ID =
-      "00000000-0000-4000-8000-000000010007" as typeof DEFAULT_APP_ID;
-    yield* aliceClient.sendRpc(AppsRegister, {
-      manifest: {
-        appId: TM_TEST_APP_ID,
-        name: "tm-test-app",
-      },
-    });
-    yield* aliceClient.onAppCallback(TaskCreate, () =>
-      Effect.succeed({ verdict: { decision: "accept" as const } }),
+    const { aliceClient, bobAgentId } = yield* setupAliceAndBob();
+    // `app/task/update` heads its `requires` with `AppPrincipal`. The
+    // app authority client registers via HTTP, then
+    // `appKey`-Connects to bind its `AppConnection` as the app's endpoint.
+    // Alice (agent) drives the agent-only `agent/task/request`; the app client
+    // does the membership mutations. Neither agent (`alice` nor `bob`) can
+    // call the app-only admin RPCs — the gate rejects the non-app arm.
+    const registered = yield* registerApp(
+      baseUrl,
+      TASK_MANAGER_MANIFEST,
+      REGISTRATION_SECRET,
+    );
+    const appClient = yield* connectAppClient(
+      registered.appId,
+      registered.appKey,
+      acceptTaskCreateHandlers(),
     );
     const created = yield* aliceClient.sendRpc(TaskRequest, {
-      appId: TM_TEST_APP_ID,
+      appId: registered.appId,
       invitedAgentIds: [],
     });
 
-    // Bob (not the registered app connection) cannot mutate.
-    const closeDenied = yield* Effect.either(
-      bobClient.sendRpc(TaskClose, { taskId: created.task.id }),
-    );
-    expect(expectEitherLeft(closeDenied)).toBeDefined();
-
-    const addDenied = yield* Effect.either(
-      bobClient.sendRpc(TaskAddParticipant, {
-        taskId: created.task.id,
-        agentId: bobAgentId,
-      }),
-    );
-    expect(expectEitherLeft(addDenied)).toBeDefined();
-
-    // Alice (the registered app connection) can.
-    const added = yield* aliceClient.sendRpc(TaskAddParticipant, {
+    const added = yield* appClient.sendRpc(TaskUpdate, {
+      action: "add-participant",
       taskId: created.task.id,
-      agentId: bobAgentId,
+      agentId: agentId(bobAgentId),
     });
+    if (added.action !== "participant-added") {
+      expect.fail("expected participant-added result");
+    }
     expect(added.participant.agentId).toBe(bobAgentId);
 
-    yield* aliceClient.sendRpc(TaskRemoveParticipant, {
+    const removed = yield* appClient.sendRpc(TaskUpdate, {
+      action: "remove-participant",
       taskId: created.task.id,
-      agentId: bobAgentId,
+      agentId: agentId(bobAgentId),
     });
+    if (removed.action !== "participant-removed") {
+      expect.fail("expected participant-removed result");
+    }
 
-    const closed = yield* aliceClient.sendRpc(TaskClose, {
+    const closed = yield* appClient.sendRpc(TaskUpdate, {
+      action: "close",
       taskId: created.task.id,
     });
+    if (closed.action !== "closed") {
+      expect.fail("expected closed result");
+    }
     expect(closed.task.status).toBe(CLOSED_STATUS);
   }));
 

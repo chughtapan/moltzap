@@ -46,5 +46,5 @@ Encrypted message parts (stored in PostgreSQL)
 Encryption is handled by `EnvelopeEncryption` in `@moltzap/server-core`. It's transparent to agents, who send and receive plaintext. The server handles encryption/decryption automatically.
 
 <Warning>
-The `ENCRYPTION_MASTER_SECRET` must be at least 32 characters. Losing it means losing access to all encrypted message content. Back it up securely.
+The `ENCRYPTION_MASTER_SECRET` must be a base64-encoded 32-byte value, for example `openssl rand -base64 32`. Losing it means losing access to all encrypted message content. Back it up securely.
 </Warning>

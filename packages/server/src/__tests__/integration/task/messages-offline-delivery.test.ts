@@ -1,24 +1,23 @@
 /**
  * Regression coverage for offline conversation participants.
  *
- * `messages/send` is durable first and participant fan-out is best-effort:
- * an offline non-sender participant must not block insertion. The task manager
- * path remains fail-closed in `task-manager-routing.test.ts`; this file covers
- * the separate participant-broadcast path.
+ * `agent/message/send` is durable first and participant fan-out is best-effort:
+ * an offline non-sender participant must not block insertion.
  */
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  TaskRequest,
-  type ConversationId,
-  type Message,
-  type TaskId,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
+import type { AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { Message } from "@moltzap/protocol/message";
+import type { TaskId } from "@moltzap/protocol/task";
 import {
   awaitOneNotification,
   startTestServerEffect,
@@ -26,18 +25,18 @@ import {
   resetTestDbEffect,
   trackClient,
   connectTestClient,
-  registerAgent,
+  createTestAgent,
   getKyselyDb,
-  type ServerTestClient,
+  type TestAgentClient,
 } from "../helpers.js";
 
 const it = effectIt.live;
 const OFFLINE_TEXT = "sent while recipient offline";
 const HAPPY_TEXT = "happy path";
 const FINALIZER_GRACE = "200 millis";
+const SUBSCRIBE_SETTLE = "10 millis";
 const TEST_TIMEOUT_MS = 20_000;
 
-let baseUrl: string;
 let wsUrl: string;
 
 beforeAll(
@@ -46,7 +45,6 @@ beforeAll(
       startTestServerEffect().pipe(
         Effect.tap((server) =>
           Effect.sync(() => {
-            baseUrl = server.baseUrl;
             wsUrl = server.wsUrl;
           }),
         ),
@@ -60,23 +58,20 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 interface ThreeAgents {
-  readonly tm: ServerTestClient;
-  readonly tmAgentId: string;
-  readonly sender: ServerTestClient;
-  readonly senderAgentId: string;
-  readonly recipient: ServerTestClient;
-  readonly recipientAgentId: string;
-  readonly recipientApiKey: string;
+  readonly tm: TestAgentClient;
+  readonly tmAgentId: AgentId;
+  readonly sender: TestAgentClient;
+  readonly senderAgentId: AgentId;
+  readonly recipient: TestAgentClient;
+  readonly recipientAgentId: AgentId;
+  readonly recipientApiKey: AgentKey;
 }
 
 function setupThreeAgents(index: number): Effect.Effect<ThreeAgents, Error> {
   return Effect.gen(function* () {
-    const tmReg = yield* registerAgent(baseUrl, `offline-tm-${index}`);
-    const senderReg = yield* registerAgent(baseUrl, `offline-sender-${index}`);
-    const recipientReg = yield* registerAgent(
-      baseUrl,
-      `offline-recipient-${index}`,
-    );
+    const tmReg = yield* createTestAgent(`offline-tm-${index}`);
+    const senderReg = yield* createTestAgent(`offline-sender-${index}`);
+    const recipientReg = yield* createTestAgent(`offline-recipient-${index}`);
     const tm = yield* connectTracked(tmReg.agentId, tmReg.apiKey);
     const sender = yield* connectTracked(senderReg.agentId, senderReg.apiKey);
     const recipient = yield* connectTracked(
@@ -95,7 +90,7 @@ function setupThreeAgents(index: number): Effect.Effect<ThreeAgents, Error> {
   });
 }
 
-function connectTracked(agentId: string, apiKey: string) {
+function connectTracked(agentId: AgentId, apiKey: AgentKey) {
   return Effect.gen(function* () {
     const client = yield* connectTestClient({ wsUrl, agentId, apiKey });
     trackClient(client);
@@ -112,10 +107,6 @@ function setupGroupConversation(
   agents: ThreeAgents,
 ): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
-    // Single TaskRequest auto-admits invitees (#677) + atomically mints
-    // the initial conversation. Replaces the prior TaskAddParticipant +
-    // TaskConversationCreate dance which is TM-only and unreachable on
-    // DEFAULT_APP_ID tasks.
     const created = yield* agents.tm.sendRpc(TaskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agents.senderAgentId, agents.recipientAgentId],
@@ -143,7 +134,7 @@ function messageRowsForConversation(conversationId: ConversationId) {
 }
 
 function sendText(
-  client: ServerTestClient,
+  client: TestAgentClient,
   binding: GroupBinding,
   text: string,
 ) {
@@ -189,13 +180,18 @@ function broadcastsWhenParticipantsAreOnline() {
   return Effect.gen(function* () {
     const agents = yield* setupThreeAgents(2);
     const binding = yield* setupGroupConversation(agents);
+    const receivedFiber = yield* Effect.fork(
+      awaitOneNotification(
+        agents.recipient,
+        MessageReceivedNotificationDefinition,
+      ),
+    );
+    yield* Effect.sleep(SUBSCRIBE_SETTLE);
+
     const sent = yield* sendText(agents.sender, binding, HAPPY_TEXT);
     expect(sent.message.parts).toEqual([{ type: "text", text: HAPPY_TEXT }]);
 
-    const received = yield* awaitOneNotification(
-      agents.recipient,
-      MessageReceivedNotificationDefinition,
-    );
+    const received = yield* Fiber.join(receivedFiber);
     const receivedMsg = (received.params as { message: Message }).message;
     expect(receivedMsg.id).toBe(sent.message.id);
 
@@ -204,7 +200,7 @@ function broadcastsWhenParticipantsAreOnline() {
   });
 }
 
-describe("messages/send offline participant delivery", () => {
+describe("agent/message/send offline participant delivery", () => {
   it(
     "commits the message and lets an offline participant recover it from history",
     commitsWhenParticipantIsOffline,

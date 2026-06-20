@@ -1,10 +1,20 @@
-import { type Static } from "@sinclair/typebox";
-import { brandedId } from "../schema-primitives.js";
+import { Schema, type Brand } from "effect";
+import { formatString, errorPayloadFields } from "#transport";
 
-export const TaskId = brandedId("TaskId");
-export type TaskId = Static<typeof TaskId>;
+export type TaskId = string & Brand.Brand<"TaskId">;
+export const TaskId: Schema.Schema<TaskId, string> = formatString("uuid").pipe(
+  Schema.brand("TaskId"),
+  Schema.annotations({ description: "Branded TaskId" }),
+);
 
-export const AppId = brandedId("AppId");
-export type AppId = Static<typeof AppId>;
-
-export const DEFAULT_APP_ID = "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb" as AppId;
+/**
+ * The referenced task does not exist (or the caller cannot see it). Lives in the
+ * task-id leaf so the `TaskReadAccess` requirement can declare it as its
+ * fail-closed not-found without a `requirements -> tasks` runtime import cycle.
+ */
+export class TaskNotFoundError extends Schema.TaggedError<TaskNotFoundError>()(
+  "TaskNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Task not found";
+}

@@ -25,6 +25,30 @@ const TOXIC_NAME_SUFFIX_LEN = 8;
 export interface ToxiproxyConfig {
   /** Control-plane URL, e.g. `http://localhost:8474`. */
   readonly apiUrl: string;
+  readonly network?: ToxiproxyNetworkConfig;
+}
+
+export interface ToxiproxyNetworkConfig {
+  /** Hostname Toxiproxy should use when dialing the real server upstream. */
+  readonly upstreamHost?: string;
+  /** Address Toxiproxy should bind inside its own process/container. */
+  readonly listenHost?: string;
+  /** Hostname conformance clients should use when dialing a Toxiproxy listener. */
+  readonly connectHost?: string;
+  /** Fixed listener port range for Docker bridge mode. Omit for `:0`. */
+  readonly listenPortRange?: ToxiproxyListenPortRange;
+}
+
+interface ToxiproxyListenPortRange {
+  readonly min: number;
+  readonly max: number;
+}
+
+interface ResolvedToxiproxyNetworkConfig {
+  readonly upstreamHost?: string;
+  readonly listenHost: string;
+  readonly connectHost?: string;
+  readonly listenPortRange?: ToxiproxyListenPortRange;
 }
 
 /**
@@ -173,7 +197,7 @@ function parseJsonBody(
   return body.length === 0
     ? Effect.succeed(null)
     : Effect.try({
-        try: () => JSON.parse(body) as unknown,
+        try: (): unknown => JSON.parse(body),
         catch: toToxicError,
       });
 }
@@ -232,8 +256,15 @@ export function makeToxiproxyClient(
   config: ToxiproxyConfig,
 ): Effect.Effect<ToxiproxyClient, ToxicControlError> {
   const base = config.apiUrl.replace(/\/$/, "");
+  const network = {
+    upstreamHost: config.network?.upstreamHost,
+    listenHost: config.network?.listenHost ?? "127.0.0.1",
+    connectHost: config.network?.connectHost,
+    listenPortRange: config.network?.listenPortRange,
+  } satisfies ResolvedToxiproxyNetworkConfig;
+  const nextListenPort = makeListenPortAllocator(network);
   return Effect.succeed({
-    proxy: (opts) => createProxy(base, opts),
+    proxy: (opts) => createProxy(base, network, nextListenPort, opts),
     ping: pingToxiproxy(base),
   });
 }
@@ -246,33 +277,77 @@ function pingToxiproxy(base: string): Effect.Effect<void, ToxicControlError> {
 
 function createProxy(
   base: string,
+  network: ResolvedToxiproxyNetworkConfig,
+  nextListenPort: () => number | null,
   opts: Parameters<ToxiproxyClient["proxy"]>[0],
 ): ReturnType<ToxiproxyClient["proxy"]> {
   return Effect.gen(function* () {
     const raw = (yield* httpJson("create-proxy", `${base}/proxies`, {
       method: "POST",
-      body: proxyBody(opts),
+      body: proxyBody(opts, network, nextListenPort),
     })) as RawProxy;
     yield* Effect.addFinalizer(deleteProxyFinalizer(base, opts.name));
     return {
       upstream: raw.upstream,
-      listenUrl: proxyListenUrl(raw),
+      listenUrl: proxyListenUrl(raw, network.connectHost),
       withToxic: (profile) => addToxic(base, opts.name, profile),
     } satisfies ToxiproxyProxy;
   }).pipe(Effect.withSpan("makeToxiproxyClient"));
 }
 
-function proxyBody(opts: Parameters<ToxiproxyClient["proxy"]>[0]) {
+function proxyBody(
+  opts: Parameters<ToxiproxyClient["proxy"]>[0],
+  network: ResolvedToxiproxyNetworkConfig,
+  nextListenPort: () => number | null,
+) {
+  const upstreamPort = opts.upstream.slice(opts.upstream.lastIndexOf(":") + 1);
+  const upstream =
+    network.upstreamHost === undefined
+      ? opts.upstream
+      : `${network.upstreamHost}:${upstreamPort}`;
   return {
     name: opts.name,
-    upstream: opts.upstream,
-    listen: "127.0.0.1:0",
+    upstream,
+    listen: listenAddress(network, nextListenPort),
     enabled: true,
   };
 }
 
-function proxyListenUrl(raw: RawProxy): string {
-  return raw.listen.startsWith("ws://") ? raw.listen : `ws://${raw.listen}`;
+function listenAddress(
+  network: ResolvedToxiproxyNetworkConfig,
+  nextListenPort: () => number | null,
+): string {
+  const port = nextListenPort();
+  return `${network.listenHost}:${port ?? 0}`;
+}
+
+function proxyListenUrl(
+  raw: RawProxy,
+  connectHost: string | undefined,
+): string {
+  if (raw.listen.startsWith("ws://")) return raw.listen;
+  const lastColon = raw.listen.lastIndexOf(":");
+  const listenHost = raw.listen.slice(0, lastColon);
+  const listenPort = raw.listen.slice(lastColon + 1);
+  const host =
+    connectHost ??
+    (listenHost === "0.0.0.0" || listenHost === "[::]"
+      ? "127.0.0.1"
+      : listenHost);
+  return `ws://${host}:${listenPort}`;
+}
+
+function makeListenPortAllocator(
+  network: ResolvedToxiproxyNetworkConfig,
+): () => number | null {
+  const range = network.listenPortRange;
+  if (range === undefined) return () => null;
+  let next = range.min;
+  return () => {
+    const port = next;
+    next = next >= range.max ? range.min : next + 1;
+    return port;
+  };
 }
 
 function deleteProxyFinalizer(

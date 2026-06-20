@@ -3,14 +3,15 @@
  *
  * Covers:
  * - `LeaseAlreadyConsumed` shape + tag narrowing + structural equality.
- * - `projectLeaseInvalid` predicate (4 cases per spec C #597 AC).
+ * - `projectLeaseInvalid` predicate.
  * - `catchLeaseInvalid` Effect-pipe wrapper (typed branch + pass-through).
  */
 
+import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Equal, Match, TestClock, TestContext } from "effect";
-import { RpcServerError } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol/rpc";
 import {
   LeaseAlreadyConsumed,
   catchLeaseInvalid,
@@ -21,41 +22,23 @@ const FIXED_TS = 1_700_000_000_000;
 const SAMPLE_LEASE_ID = "lease-abc-123";
 const NON_LEASE_ERROR_MESSAGE = "boom";
 const LEASE_MESSAGE = "lease consumed";
-const FORBIDDEN_ERROR_CODE = -32001;
-const FORWARD_COMPAT_TAG_CODE = -32099;
-const INTERNAL_ERROR_CODE = -32603;
 const LEASE_ID_FALLBACK = "(unknown)";
-// Forward-compat: server may later emit the canonical lease-error tag inside
-// the wire payload's `data._tag`. The predicate accepts that shape too.
-const FORWARD_COMPAT_LEASE_TAG = "LeaseAlreadyConsumed";
-
-function leaseInvalidWire(): RpcServerError {
-  return new RpcServerError({
-    code: FORBIDDEN_ERROR_CODE,
+function leaseInvalidWire(): ForbiddenError {
+  return new ForbiddenError({
     message: LEASE_MESSAGE,
     data: { reason: "LeaseInvalid", state: "CONSUMED", expected: "OPEN" },
   });
 }
 
-function leaseTagInvalidWire(): RpcServerError {
-  return new RpcServerError({
-    code: FORWARD_COMPAT_TAG_CODE,
-    message: LEASE_MESSAGE,
-    // eslint-disable-next-line agent-code-guard/manual-tagged-error -- simulating wire payload shape; this is the literal predicate input the projector must accept
-    data: { _tag: FORWARD_COMPAT_LEASE_TAG, leaseId: SAMPLE_LEASE_ID },
-  });
-}
-
-function genericWire(): RpcServerError {
-  return new RpcServerError({
-    code: INTERNAL_ERROR_CODE,
+function genericWire(): ForbiddenError {
+  return new ForbiddenError({
     message: NON_LEASE_ERROR_MESSAGE,
     data: { reason: "InternalError" },
   });
 }
 
 function projectedToTyped(
-  err: LeaseAlreadyConsumed | RpcServerError,
+  err: LeaseAlreadyConsumed | ForbiddenError,
 ): LeaseAlreadyConsumed {
   if (!(err instanceof LeaseAlreadyConsumed)) {
     throw new Error("expected typed LeaseAlreadyConsumed projection");
@@ -74,19 +57,19 @@ describe("LeaseAlreadyConsumed canonical shape", () => {
     structuralEqualityHolds,
   );
   it(
-    "preserves the original RpcServerError on cause for host inspection",
+    "preserves the original ForbiddenError on cause for host inspection",
     preservesCauseForHosts,
   );
 });
 
 describe("projectLeaseInvalid predicate", () => {
   it(
-    "property: every RpcServerError with data.reason='LeaseInvalid' projects",
+    "property: every ForbiddenError with data.reason='LeaseInvalid' projects",
     propertyReasonArmProjects,
   );
   it(
-    "projects when data._tag matches the forward-compat tag",
-    projectsOnForwardCompatTag,
+    "passes the original error through when only a tag discriminant is present",
+    passesThroughTagOnlyError,
   );
   it(
     "passes the original error through when neither discriminant matches",
@@ -102,7 +85,7 @@ describe("catchLeaseInvalid Effect-pipe wrapper", () => {
         yield* TestClock.setTime(FIXED_TS);
         const wire = leaseInvalidWire();
         const result = yield* Effect.either(
-          Effect.fail<RpcServerError>(wire).pipe(
+          Effect.fail<ForbiddenError>(wire).pipe(
             catchLeaseInvalid({ leaseId: SAMPLE_LEASE_ID }),
           ),
         );
@@ -121,12 +104,12 @@ describe("catchLeaseInvalid Effect-pipe wrapper", () => {
         });
       }).pipe(Effect.provide(TestContext.TestContext)),
     ));
-  it("re-raises non-matching RpcServerError unchanged (pass-through)", () =>
+  it("re-raises non-matching ForbiddenError unchanged (pass-through)", () =>
     Effect.runPromise(
       Effect.gen(function* () {
         const wire = genericWire();
         const result = yield* Effect.either(
-          Effect.fail<RpcServerError>(wire).pipe(
+          Effect.fail<ForbiddenError>(wire).pipe(
             catchLeaseInvalid({ leaseId: SAMPLE_LEASE_ID }),
           ),
         );
@@ -174,7 +157,7 @@ function narrowsViaMatchTag(): void {
   });
   const branch = Match.value(projected).pipe(
     Match.tag("LeaseAlreadyConsumed", (e) => `typed:${e.leaseId}`),
-    Match.tag("RpcServerError", () => "rpc"),
+    Match.tag("Forbidden", () => "rpc"),
     Match.exhaustive,
   );
   expect(branch).toBe(`typed:${SAMPLE_LEASE_ID}`);
@@ -205,7 +188,7 @@ function preservesCauseForHosts(): void {
       consumedAt: FIXED_TS,
     }),
   );
-  expect(typed.cause.code).toBe(FORBIDDEN_ERROR_CODE);
+  expect(typed.cause._tag).toBe(WIRE_ERROR_TAG.Forbidden);
   expect(typed.cause.data).toEqual({
     reason: "LeaseInvalid",
     state: "CONSUMED",
@@ -227,13 +210,20 @@ function propertyReasonArmProjects(): void {
   );
 }
 
-function projectsOnForwardCompatTag(): void {
-  const wire = leaseTagInvalidWire();
+function passesThroughTagOnlyError(): void {
+  const wire = new ForbiddenError({
+    message: LEASE_MESSAGE,
+    data: Object.fromEntries([
+      ["_tag", "LeaseAlreadyConsumed"],
+      ["leaseId", SAMPLE_LEASE_ID],
+    ]),
+  });
   const out = projectLeaseInvalid(wire, {
     leaseId: SAMPLE_LEASE_ID,
     consumedAt: FIXED_TS,
   });
-  expect(out).toBeInstanceOf(LeaseAlreadyConsumed);
+  expect(out).toBe(wire);
+  expect(out).not.toBeInstanceOf(LeaseAlreadyConsumed);
 }
 
 function passesThroughGenericError(): void {

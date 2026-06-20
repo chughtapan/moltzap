@@ -1,7 +1,7 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 
 /**
- * Claude Code runtime adapter (issue #255).
+ * Claude Code runtime adapter.
  *
  * Mirrors `openclaw-adapter.ts`'s shape: the agent runtime binary is
  * Anthropic's `claude` CLI; the channel plugin is `@moltzap/claude-code-
@@ -20,8 +20,9 @@
  * unlike openclaw whose gateway children sit outside the openclaw bin's
  * own process tree.
  *
- * Auth gate: cc-channel needs only the moltzap api key (env-injected via
- * the MCP config). Claude Code itself authenticates against Anthropic via
+ * Auth gate: cc-channel loads a MoltZap profile from the per-agent state dir.
+ * Claude Code itself
+ * authenticates against Anthropic via
  * whichever path the host has set up — `ANTHROPIC_API_KEY`, OAuth, or a
  * keychain credential. We do not pin the strategy; if auth fails the
  * subprocess exits with an error and `waitUntilReady` surfaces it as a
@@ -48,6 +49,7 @@ import {
   installChannelPlugin,
   resolveChannelDependency,
   seedWorkspaceFiles,
+  serializeMoltZapProfileConfig,
 } from "./channel-plugin-install.js";
 import {
   resolveClaudeCodeChannelDistDir,
@@ -265,8 +267,25 @@ function prepareClaudeCodeStateDir(
       prefix: `claude-code-${input.agentName}-`,
     });
     yield* seedWorkspaceFiles(stateDir, input.workspaceFiles);
+    yield* writeMoltZapProfileConfig(stateDir, input);
     const extDir = yield* installClaudeCodeChannelPlugin(deps, stateDir);
     return { stateDir, extDir };
+  });
+}
+
+function writeMoltZapProfileConfig(
+  stateDir: string,
+  input: SpawnInput,
+): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const configDir = path.join(stateDir, ".moltzap");
+    yield* fileSystem.makeDirectory(configDir, { recursive: true });
+    yield* fileSystem.writeFileString(
+      path.join(configDir, "config.json"),
+      serializeMoltZapProfileConfig(input),
+    );
   });
 }
 
@@ -403,7 +422,7 @@ function pollClaudeExitCode(
  * flowchart TD
  *   CCS["ClaudeCodeAdapter.spawn(input)"]
  *   CC1["1. prepareClaudeCodeStateDir<br>makeTempDirectory, seedWorkspaceFiles,<br>installClaudeCodeChannelPlugin<br>(resolves modelcontextprotocol/sdk + effect)"]
- *   CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_API_KEY, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
+ *   CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_PROFILE, MOLTZAP_CONFIG_HOME, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
  *   CC3["3. spawnConfiguredClaude<br>buildClaudeArgs:<br>--strict-mcp-config --mcp-config<br>--print --input-format stream-json<br>--output-format stream-json --verbose<br>--dangerously-skip-permissions<br>--add-dir stateDir/workspace<br>env: CLAUDE_CODE_HOME=stateDir"]
  *   CC4["4. state = { process, stateDir, logBuffer, ... }"]
  *   CCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>(cc-channel MCP stdio server authenticates on start)"]
@@ -441,7 +460,6 @@ export class ClaudeCodeAdapter implements Runtime {
         stateDir,
         extDir,
         serverUrl: input.serverUrl,
-        apiKey: input.apiKey,
         agentName: input.agentName,
       });
 

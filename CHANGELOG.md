@@ -7,6 +7,361 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: post-cutover simplification + incremental-build robustness
+
+A `/simplify` quality pass over the cutover surface plus a fix for a `tsc -b`
+incremental-build footgun.
+
+- **Shared wire-error payload.** The identical `errorPayloadFields`
+  (`message?`/`data?`) schema fragment was hand-redefined in seven protocol
+  domain files; it now lives once on `transport/wire-errors.ts` and is consumed
+  through the `#transport` barrel.
+- **Reverse-callback guards deduped.** `isDispatchAuthorizeRequest` /
+  `isMessagesAuthorizeRequest` / `isTaskCreateRequest` (and their request type
+  aliases) moved into `protocol/src/socket/reverse-callbacks.ts`, shared by the
+  server socket dispatch and the test endpoint builders instead of being copied
+  in both.
+- **Connect handlers.** The duplicated protocol-gate + reemit-if-authenticated
+  preamble in `connect.handlers.ts` folds into one `connectPreamble` helper used
+  by both the agent and app paths.
+- **Conversation list latency.** `conversationListBody` now issues its three
+  independent per-conversation reads (`loadById`, `getParticipantAgentIds`,
+  `taskIdForConversation`) concurrently via `Effect.all` instead of serially.
+- **Build-info co-located with `dist`.** Every package's `tsBuildInfoFile` moves
+  into `./dist` so removing `dist` always forces a correct rebuild. Previously a
+  stale root-level `tsconfig.tsbuildinfo` made `tsc -b` skip declaration emit and
+  exit 0 with a broken `dist`, surfacing as spurious "Could not find a
+  declaration file for '@moltzap/...'" errors downstream.
+
+### Changed: pre-stamina cleanup — dead-code deletion, naming alignment, and comment cold-reader pass
+
+A mechanical cleanup sweep across the protocol/server/client surface.
+
+- **Dead code deleted.** The three never-bound capability shells
+  (`AgentExists`, `AgentInTaskParticipants`, `GroupCapacityForCreate`),
+  `brandedNumber` / `BrandedNumber`, the `decodeClientInbound` /
+  `DecodedClientInbound` pair, and `AnyAppCallableRpcDefinition` had zero live
+  consumers and are removed.
+- **Naming + file alignment.** `arbitraries/from-typebox.ts` →
+  `schema-arbitrary.ts`, `identity/services/agent-auth.ts` →
+  `credential-keys.ts` (it mints both agent and app keys),
+  `app/handlers/task-request.handler.ts` → `.handlers.ts`,
+  `transport/server-method-bindings.ts` → `principal-kind-registry-error.ts`.
+  The pure presence-dedup helper `emitPresenceTransition` is renamed
+  `dedupePresenceStatus` (the `emit` verb promised a side effect it never had),
+  and `arbitraryForParams` folds into `arbitraryFromSchema`.
+- **Doc generation.** The module + CLI doc generators now MDX-escape JSDoc prose
+  (a bare `<` / `{` parsed as JSX on the Mintlify pages), skipping fenced and
+  indented code blocks. `typedoc.json` drops the redundant `packageOptions`
+  output and maps the Effect/platform external symbols that JSDoc `{@link}`s
+  reference.
+- **Comments.** Migration-history breadcrumbs (issue / spec / phase / decision
+  labels, `formerly` / `no longer` / `replaces` narration) are stripped from
+  long-lived comments and canary headers and rewritten to present tense;
+  phantom `{@link}` citations are repointed to real symbols
+  (`writeFrame` → `fireNotification`, cross-file links to backticked names).
+
+### Changed: transport-surface cleanup — drop the `native-` prefix, dead groups, and vestigial HTTP-only descriptors (#728)
+
+The transport layer carried scaffolding names and dead surface from the
+`@effect/rpc` cutover. This pass strips them so a cold reader meets the
+shipped shape, not its migration history.
+
+- **`native-` prefix removed.** The transport files (`native-mux.ts` →
+  `mux.ts`, `native-server-engine.ts` → `server-engine.ts`,
+  `native-mux-client.ts` → `mux-client.ts`, `native-handlers.ts` →
+  `server-handlers.ts`, `native-handlers-runtime.ts` →
+  `server-handlers-runtime.ts`, `native-server-wiring.ts` →
+  `server-wiring.ts`) and their symbols (`serverNativeHandlers` →
+  `serverHandlers`, `buildNativeClient` → `buildClient`, every `nativeXxx`
+  handler const → `xxx`) drop the `native` qualifier. `mux`/`channel`/`engine`/
+  `wiring` stay — they are load-bearing.
+- **Dead RPC groups deleted.** `ServerRpcGroup`, `AppCallbackRpcGroup`,
+  `AgentClientRpcGroup`, and `AppCallableRpcGroup` had zero live consumers (the
+  live surface is `WsServerEngineRpcGroup`, `ReverseRpcGroup`,
+  `AgentCallableGroup`, `AppCallableGroup`); they and the `groupFromCatalog`
+  helper are gone. The two type-only canaries repoint to the live groups.
+- **Vestigial HTTP-only descriptors removed.** `agents/invite` and
+  `invites/createAgent` are deleted outright. `agents/register` and
+  `agents/claim` stay as `defineRpc` descriptors (their `paramsSchema` is the
+  HTTP body schema in `http-routes.ts`) but leave the `serverRpcMethods`
+  catalog — they were never WS-dispatched. With no HTTP-only methods left, the
+  three-arm engine-gating partition (gated / unauthenticated / HTTP-only)
+  collapses to two arms (gated / unauthenticated), and `WsServerEngineRpcGroup`
+  is now the full catalog group.
+
+### Changed: per-method typed error channels + cast-free non-flat clients (#705)
+
+Every RPC method now declares its own typed error channel and the wire
+decodes errors by `_tag`, so a call's failure type is exactly that method's
+errors — not the whole catalog. The global numeric-code error registry is
+gone, and all three clients (agent, app, the server's reverse client) share
+one cast-free `@effect/rpc` dispatch bridge.
+
+- **Wire (`@moltzap/protocol`):** each wire error is a `Schema.TaggedError`
+  discriminated by `_tag` (`Unauthorized`, `Forbidden`, `NotFound`,
+  `TaskRejected`, …); there is no numeric `code` anywhere. `defineRpc` takes a
+  required `errors` list, and the method's `errorSchema` is the
+  `_tag`-discriminated `Schema.Union` of its effective errors (principal-gate
+  errors for authenticated methods ∪ each capability's declared errors ∪ the
+  handler's). The engine encodes/decodes a failure against that union
+  directly. The wire `error` envelope is `{ _tag, message?, data? }`.
+- **Removed:** the global error registry (`codeToClass`, `registerErrorClass`,
+  `errorClassFor`, `isRegisteredErrorInstance`, `RegisteredTaggedError`) and
+  the numeric JSON-RPC error codes it keyed on. Errors are now resolved
+  structurally by class identity, not by a code lookup.
+- **Clients:** the production clients use the NON-FLAT `RpcClient.make` — a
+  per-method record keyed by wire tag. A typed `client.call(tag, payload)`
+  returns `Effect<thatMethod'sResult, thatMethod'sErrors | NotConnected |
+  Timeout>` with ZERO casts. The generic `sendRpc` wrapper and the flat client
+  are deleted. The agent client, app client, and the server's reverse client
+  all dispatch through one shared `makeTypedTransportCall` bridge.
+- **Connection-close + timeout semantics:** a value RPC in flight when the
+  socket drops (server close, `disconnect()`, or `close()`) now fails with
+  `NotConnectedError` instead of vanishing as an interrupt — the reader-exit
+  path closes the connection scope, which clears the engine's pending requests.
+  A per-call timeout stays LOCAL: it fails the caller with `RpcTimeoutError`
+  without writing an `@effect/rpc/Interrupt` frame or dropping the shared
+  socket.
+- **Reverse-handler error wire shape:** a reverse callback handler that rejects
+  with a tagged error (e.g. `ForbiddenError`) now serializes the FLAT tagged
+  error `{error:{_tag:"Forbidden", …}}`, matching the forward path, rather than
+  the raw `@effect/rpc` `{_tag:"Cause"}` envelope. The moderator callbacks
+  (`dispatch/authorize`, `messages/authorize`, `task/create`) declare
+  `ForbiddenError` in their error channel so the engine can encode a handler
+  rejection instead of emitting an un-encodable defect.
+
+### Changed: manifest hook policies are required — close the fail-open `dispatch_authorize` hole (#735)
+
+The receive-side dispatch authorization gate was fail-open on hook omission:
+an app manifest that omitted `dispatch_authorize` (or the whole `hooks` block)
+was silently granted admission for every recipient, reachable by any
+wire-registered app. Each manifest hook policy is now a required discriminated
+union, so "no policy" is unrepresentable — a compile error for in-code
+manifests and a decode rejection at the wire boundary.
+
+- **Wire (`@moltzap/protocol`):** `AppManifestSchema.hooks` and each of its
+  three slots are required. Each slot is one of three policies:
+  - `dispatch_authorize`: `{ kind: "grant" }` | `{ kind: "deny"; reason }` |
+    `{ kind: "hook"; timeoutMs }`.
+  - `message_authorize`: `{ kind: "forwardAllExceptSender" }` |
+    `{ kind: "deny"; reason }` | `{ kind: "hook"; timeoutMs }`.
+  - `task_create`: `{ kind: "accept" }` | `{ kind: "reject"; reason }` |
+    `{ kind: "hook"; timeoutMs }`.
+  The per-hook `{ timeout_ms }` entry is replaced by `timeoutMs` on the
+  `hook` arm; `HookEntrySchema` is deleted. A static policy resolves the
+  verdict in-process with no app round-trip; only `kind: "hook"` reaches the
+  app over the wire under the fail-closed timeout envelope.
+- **Server (`@moltzap/server-core`):** each hook runner switches exhaustively
+  on `policy.kind` (no `default`, trailing `never` assertion). The
+  unknown-app fail-closed arms are unchanged. The boot-installed default app
+  declares the three open policies (`grant` / `forwardAllExceptSender` /
+  `accept`) explicitly; its endpoint stays inert. The synthesized
+  omission-default timeout fallback is removed.
+- **Docs:** the app-building guide drops the omission-default prose and the
+  `timeout_ms` field; every example declares all three policies explicitly.
+
+**Migration:** there is no back-compat shim. An app row persisted under the
+old schema (omitting policies) fails decode on read and must be re-registered.
+The default-app row self-heals via the boot upsert; for dev/ephemeral
+databases a fresh boot resets the rows. Any environment with persisted
+non-default app rows must re-register those apps with explicit policies.
+
+### Removed: external-bearer / webhook-session auth path (#725)
+
+The `sessionToken` connect credential and its webhook-backed validator are
+removed. `network/connect` now authenticates exactly two credentials:
+`agentKey` (agent principals) and `appKey` (app principals). There is no
+external-bearer token arm and no `services.sessions` config block.
+
+- **Wire (`@moltzap/protocol`):** the `network/connect` params union drops its
+  `{ sessionToken }` arm — only `{ agentKey }` and `{ appKey }` remain.
+- **Server (`@moltzap/server-core`):** deletes the `SessionValidator`
+  interface, the `WebhookSessionValidator` adapter, `SessionValidatorTag`,
+  `CoreConfig.sessionValidator`, the connect handler's `authenticateSession`
+  branch, and the `StandaloneBootPlan.sessionWebhook` boot-plan field +
+  `standalone.ts → makeSessionValidator` wiring.
+- **Config:** the YAML `services.sessions` arm is removed. `services.contacts`
+  and the shared webhook parser (`WebhookServiceBinding` / `YamlServiceBlock`)
+  are unchanged — contacts still delegate over HTTP.
+- **Docs / example:** the `services.sessions` / bearer-token claims are
+  dropped from the README, quickstart, introduction, the generated
+  `network/connect` reference, and `moltzap.example.yaml`.
+
+This is a deliberate feature removal: an external auth provider integrates by
+minting `agentKey` / `appKey` credentials, not by validating bearer tokens at
+connect time.
+
+### Changed: wire validation engine TypeBox + AJV → Effect `Schema` (Half-2 slice 3, #723)
+
+The wire-validation ENGINE moves off TypeBox + AJV onto Effect `Schema` —
+the same decode engine the rest of the runtime already uses. Both `Ajv`
+instances and every `ajv.compile` validator are deleted; `@sinclair/typebox`,
+`ajv`, and `ajv-formats` are removed from `@moltzap/protocol`'s dependencies.
+The JSON-RPC-2.0 wire DIALECT is unchanged — the exact same bytes flow on the
+socket (`{jsonrpc:"2.0", id, method, params}` / `-32xxx` codes); only HOW
+frames are validated/decoded changed.
+
+- **Engine swap:** descriptor `paramsSchema` / `resultSchema` are Effect
+  `Schema` values (`P`/`R extends Schema.Schema.AnyNoContext`);
+  `validateParams` / `validateResult` are strict, excess-rejecting type
+  guards (`closedStructGuard`) that decode via `Schema.decodeUnknownEither(…,
+  { onExcessProperty: "error" })`. `decodeFrame` discriminates the three
+  JSON-RPC frame shapes (Request / Response / Notification) through strict
+  `Schema.decodeUnknownEither`; `validateAppManifest` maps the `ParseError`
+  to `AppManifestInvalid` via `ParseResult.ArrayFormatter`.
+- **AJV-strict parity (load-bearing):** `Schema.Struct` STRIPS excess keys by
+  default, but `new Ajv({strict:true})` + `additionalProperties:false`
+  REJECTED them. A shared `STRICT_DECODE` (`{ onExcessProperty: "error" }`) +
+  the `closedStructGuard` factory restore that rejection at every wire decode,
+  so the conformance malformed-frame, excess-property, and
+  schema-exhaustive-fuzz proofs (`registerMalformedFrameHandling`,
+  `registerRequestWellFormedness`, `registerSchemaExhaustiveFuzz`) still fire.
+  The three former AJV `FormatRegistry` checkers (`uuid` / `uri` /
+  `date-time`, including the `Date.parse` finiteness cliff) are now
+  `Schema.pattern` / `Schema.filter` refinements on `brandedString` /
+  `formatString`.
+- **Branded ids** are `Schema.brand` (`brandedId` / `brandedString`); their
+  decoded type (`string & Brand.Brand<…>`) is identical to the former
+  `BrandedString`, so the ~16 cross-package `Value.Decode(<Brand>, raw)`
+  brand-attach sites (server / client / openclaw-channel / nanoclaw-channel)
+  become `Schema.decodeUnknownSync(<Brand>)(raw)`. Wire result types are now
+  deeply `readonly` (Effect `Schema`'s `Schema.Array` yields `readonly T[]`).
+- **Introspection rewired:** the docs walker (`scripts/docs/schema.ts`) reads
+  `JSONSchema.make(schema)` draft-07 output instead of the TypeBox AST
+  (generated RPC-reference docs are byte-identical); the conformance
+  arbitrary walker delegates to Effect's native `Arbitrary.make`.
+- **Out of scope (intentional):** `@moltzap/server-core`'s YAML-config
+  validator (`config.ts → MoltZapConfigShape`) is a self-contained, non-wire
+  TypeBox schema and is untouched — `@sinclair/typebox` stays a `server-core`
+  dependency for it.
+
+### Changed: cast-free capability middleware + principal-as-service (Half-2 slice 1, #723)
+
+The dispatcher's capability layer gains its cast-free, principal-as-service
+form on the two `messages/*` methods as an integration proof ahead of the
+full port. A capability is now a first-class `CapabilityMiddleware`
+(`provides` tag + typed payload-only `derivePayload` + typed `obtain`)
+rather than an `argsOf(unknown, unknown): unknown` descriptor, and the
+authenticated principal is read as an Effect service (`CurrentPrincipal`)
+rather than threaded as a context parameter. `messages/send` and
+`messages/list` now dispatch through this path with ZERO `as unknown as`
+and no per-provider `args as Shape` cast.
+
+- **New (protocol):** `CurrentPrincipal` — a protocol-owned `Context.Tag`
+  carrying the request's authenticated `Principal` (the 2-arm `agent | app`
+  union), `yield*`'d by `derivePayload`; `callerAgentId` reads the agent
+  arm by discriminant. `CapabilityMiddleware<Params, Provides, Input, Env,
+  Fail>` + `MiddlewaresOf` + the per-step `provideMiddleware` composition
+  helper. `makeMiddlewareSlot` — the cast-free successor to `makeErasedSlot`
+  for converted methods; it produces the SAME `ErasedSlot` shape so a
+  middleware slot stores in the SAME slot table without a widening cast.
+- **New (`@moltzap/server-core`):** `defineMiddlewareMethod` /
+  `defineTaskMiddlewareMethod` weave each method's capabilities as a STATIC
+  hand-expanded `provideServiceEffect` chain (declaration order preserved
+  for Forbidden-before-state-probe) and provide `CurrentPrincipal` from the
+  #720-narrowed arm — replacing the `dischargeCaps` runtime fold +
+  `narrowToDispatchContext` for these methods. The per-arm totality lockstep
+  is compiler-native and non-vacuous (pinned from the declared middleware
+  tuple, so it bites even for caps the handler consumes only as an
+  authorization side-effect, e.g. `messages/list`).
+- **Behavior preserved:** the wire decode, the `-32xxx`
+  `wireErrorFromInstance` projection, the #720 principal-kind gate, and the
+  conversation-before-permission ordering on `messages/send` are unchanged
+  (conformance + integration green). The remaining ~7 cap-bearing methods
+  stay on the legacy `dischargeCaps` path until the full port.
+
+### Changed: `MoltZapTMClient` SDK surface renamed to `MoltZapAppClient` (#705 §4.1)
+
+The moderating-client SDK now matches the principal it speaks for: an **app**.
+Every `TaskMaster`/`TM` identifier on the client + protocol-transport surface is
+renamed to `App`, so the type you reach for is named after what it is. This is a
+pure rename — the wire dialect and JSON-RPC method names (`dispatch/*`,
+`messages/*`, `task/*`, `apps/register`) are byte-identical; no behavior changed.
+The residual `tm_*` DB column and synthesized-value/reason literals
+(`messages.tm_decision` column + its `idx_messages_tm_decision_tag` index, the
+fail-closed `tm_unreachable` verdict reason, the `tm_remove` participant-removal
+reason, and the `tm_policy` conformance reject reason) are likewise renamed to
+their `app_*` form, and the speculative single-value `byAgentOrTm` enum field on
+`task/conversation/participants/added` (zero readers) is deleted. Pre-launch
+fresh-schema: `core-schema.sql` carries the renamed column directly and
+`database.generated.ts` reflects `app_decision` — no migration shim.
+
+- **BREAKING (`@moltzap/client`):** import `MoltZapAppClient` (was
+  `MoltZapTMClient`) from `app-client.ts` (was `tm-client.ts`);
+  `AppClientOptions` (was `TMClientOptions`) carries an
+  `AppCallbackHandlers`-typed (was `TMHandlers`) `handlers` table.
+- **BREAKING (`@moltzap/protocol/transport`):** `makeAppClientConnection` (was
+  `makeTaskMasterConnection`) returns `AppClientConnection` (was
+  `TaskMasterConnection`); callbacks run in an `AppCallbackContext` (was
+  `TaskCallbackContext`). The `appCallbackMethods` group + `appCallableRpcMethods`
+  partition replace `taskCallbackMethods` / `taskMasterRpcMethods`. The
+  server-side `AppConnection` runtime class is unchanged (the renamed protocol
+  type is `AppClientConnection`, kept distinct to avoid colliding with it).
+
+### Fixed: `CoreApp.close()` teardown deadlock with live dispatch leases (#729)
+
+- **Fixed (`@moltzap/server-core`):** `CoreApp.close()` could deadlock
+  inside `Scope.close(appScope)` when a connection held a GRANTED dispatch
+  lease at shutdown. Closing the app scope interrupts each WebSocket fiber,
+  whose uninterruptible disconnect cleanup emits a `dispatches/expired`
+  notification to the moderator connection; if that peer's socket was
+  closing concurrently the cross-connection write parked forever on its
+  closed write-latch, blocking scope teardown. `LeaseRegistry` now exposes
+  `shutdown()`, which `closeCoreAppEffect` drains BEFORE `Scope.close` —
+  fail-closing the registry so shutdown-time lease notifications drop
+  instead of parking, and interrupting the live TTL/round-trip fibers.
+
+
+
+Apps (task managers) now authenticate as their OWN principal over the
+wire, the same way agents do. An app registers once over HTTP, gets a
+server-minted `{appId, appKey}`, then opens a WebSocket and authenticates
+with that `appKey` — the server mints a dedicated app-principal connection
+that carries no agent identity. This replaces the in-process loopback the
+default app used to ride on, so a task manager can now run as a separate
+process (or a third party) instead of being wired into the server.
+
+- **New (`@moltzap/server-core`):** `POST /api/v1/apps/register` accepts
+  `{ manifest, inviteCode? }` and returns `201 { appId, appKey }` exactly
+  once. `app_id` is server-issued via `gen_random_uuid()` — never
+  client-controlled. Gated by the same constant-time `inviteCode` check as
+  agent registration. Backed by a new `apps` table (mirrors `agents` minus
+  owner/claim/status).
+- **New (protocol):** the `network/connect` params union gains an `appKey`
+  arm (`{ appKey, minProtocol, maxProtocol }`), disjoint from the
+  `agentKey` arm. A successful `appKey` handshake returns
+  a `HelloOk` with NO `agentId` (apps have no agent identity). The wire app
+  client selects the arm by setting `TMClientOptions.appKey`.
+- **Changed (`@moltzap/server-core`):** the connections map is now a
+  three-arm discriminated union — `UnauthenticatedConnection` (pre-Connect)
+  promotes in place to `AgentConnection` or `AppConnection` via one atomic
+  `authenticate` transition. The single `auth._tag` runtime check that
+  mints the arm is the only place principal kind is decided; handlers read
+  the live arm and never re-derive it.
+- **Removed (protocol):** the `TmAuthority` capability is dissolved
+  (`packages/protocol/src/task/capabilities/tm-authority.ts` deleted, with
+  its `nonTmAuthorityTaskRpcMethods` export). TM authority for the 8
+  task-admin RPCs (`task/close`, `task/{add,remove}Participant`,
+  `task/conversation/{create,archive,unarchive,addParticipant,removeParticipant}`)
+  is now proved at request time by `assertAppOwnsTask` — the calling
+  `AppConnection`'s `appId` must equal the bound task's `app_id`. The
+  pre-cutover "not the registered task manager" `ForbiddenError` (-32001)
+  surface is preserved.
+- **Removed (`@moltzap/server-core`):** the in-process loopback
+  (`app/loopback-connection.ts`) and the legacy single-shape
+  `MoltZapConnection` connections map. Every app — including the
+  boot-installed default — now carries one uniform `AppEndpoint`
+  (`{ connId, originator }`); the default app holds an inert endpoint and
+  is served by AppHost's manifest-default fast-path.
+- **Renamed (protocol):** `nonTmAuthorityTaskRpcMethods` splits into
+  `agentCallableTaskRpcMethods` and `appCallableTaskRpcMethods` to name the
+  calling principal explicitly rather than by the dissolved capability.
+- **Internal:** `PrincipalResolver`, `isAppConnection`,
+  `isTmForAppBoundTask`, and the `CallerConnIdCtx` dispatch cast are all
+  removed — the live connection arm carries the principal directly, so
+  these resolver/cast shims no longer have a reader.
+
 ### Presence projection over `LeaseRegistry` — `presence/update` RPC + `away` state deleted (#706)
 
 - **Breaking**: `presence/update` RPC removed and `away` state no
@@ -87,9 +442,7 @@ the project's Effect-native transport convention.
   `identity/services/webhook-contact-service.test.ts` (7 cases —
   wire shape, success branches, every fail-closed branch, plus a
   `fast-check` property asserting fail-closed across the full
-  remote-failure space) and
-  `identity/services/webhook-session-validator.test.ts` (9 cases,
-  same shape with the discriminated-union response schema). A new
+  remote-failure space). A new
   `task/services/message-service-delivery-hmac.test.ts` pins the
   HMAC-byte-exactness contract: the `X-MoltZap-Signature` header
   equals `signWebhookPayload(secret, captured_body_bytes)` for the
@@ -101,32 +454,12 @@ the project's Effect-native transport convention.
   `Effect.cached`, so the subsequent `schemaBodyJson` reuses the
   buffer on 2xx; on non-2xx the socket buffer no longer waits for
   the FinalizationRegistry to reap it.
-- **Changed (`@moltzap/server-core`):** `webhook-session-validator.ts`
-  no longer reaches the `as AgentId` / `as UserId` escape hatches
-  that the original cut carried over from main. The validator now
-  runs the response `agentId` / `ownerUserId` strings through
-  `Value.Decode(AgentId, ...)` / `Value.Decode(UserId, ...)` from
-  the canonical TypeBox schemas in `@moltzap/protocol/identity`,
-  attaching the brand at runtime via the same `format: "uuid"` check
-  the wire types are defined under. A malformed id (empty string,
-  non-UUID, etc.) raises a typed
-  `SessionValidationBrandDecodeFailed` that flows into the existing
-  `catchAllCause` fail-closed handler and collapses to
-  `{ valid: false }`, matching the rest of the validator's
-  fail-closed posture. Three new tests pin the contract: empty
-  `agentId`, non-UUID `agentId`, non-UUID `ownerUserId` all return
-  `{ valid: false }`. The 5 other `as AgentId` casts in
-  `app-host.ts`, `agent-visibility.ts`, `presence.service.ts`, and
-  `message.service.ts` are unchanged here; they have their own
-  contexts and are tracked for a separate follow-up.
 - **Changed (`@moltzap/protocol`):** `@moltzap/protocol/identity`
   now also re-exports the runtime TypeBox schemas for `AgentId` /
   `UserId` / `ContactId` (previously the barrel exposed only the
   static types). Matches the convention `@moltzap/protocol/task`
   already uses for `AppId` / `ConversationId` / etc.; existing
-  `import type` consumers are unaffected. Required so consumers like
-  the session validator above can `Value.Decode(AgentId, ...)`
-  without reaching for the implementation module directly.
+  `import type` consumers are unaffected.
 
 ### Documentation restructure — JSDoc as canonical home for flow diagrams
 
@@ -253,8 +586,8 @@ their concept-owning folders. No logic, wire, or config change; the
 - **Internal (`@moltzap/server-core`):** Three RPC handlers move out of
   `task/handlers/` into the folder that owns their concept — `presence`
   to `network/handlers/`, `contacts` and `connect` to
-  `identity/handlers/` (the Connect handshake validates `agentKey` /
-  `sessionToken`, an identity concern). Every importer is repointed
+  `identity/handlers/` (the Connect handshake validates the connect
+  credential, an identity concern). Every importer is repointed
   (`app/server.ts` handler barrel, `transport/layer-tags.ts` doc
   citations) and the docs constants generators (`generate-cli-docs.ts`,
   `generate-constants-snippets.ts`) that read HELLO-policy numbers from
@@ -265,12 +598,6 @@ their concept-owning folders. No logic, wire, or config change; the
   `adapters/webhook-contact-service.ts` now reaches into identity (a
   lower layer) instead of back into `app/`, removing an adapters→app
   reverse-layer edge.
-- **Internal (`@moltzap/server-core`):** The `WebhookSessionValidator`
-  implementation moves from `identity/services/session-validator.ts` to
-  `adapters/webhook-session-validator.ts` (it depends on `WebhookClient`,
-  an adapter dep). The `SessionValidator` interface + `SessionValidation`
-  result type stay in identity as the contract; the adapter imports
-  `AgentId` / `UserId` from `@moltzap/protocol/identity` directly.
 - **Changed:** Per-folder server READMEs
   (`src/{task,network,identity}/README.md`) updated to list each
   handler under its new owning folder.
@@ -550,8 +877,11 @@ delta. The `pnpm dev` script is the only operator-visible change.
   payload to `DecodedNotification<D, R>`.
 - **BREAKING (`@moltzap/client`):** Public barrel drops
   `SubscriptionFilter`, `SubscriberHandler`, `NotificationSubscription`,
-  `SubscriptionId`. Adds `TimeoutError`, `StreamClosedError`, and the
-  `NotificationConsumerError` union from `./notification/errors`.
+  `SubscriptionId`. Adds `NotificationTimeoutError`,
+  `NotificationStreamClosedError` (with its `StreamCloseReason`
+  discriminant — `"client-closed"` | `"stream-completed"` |
+  `"transport-disconnected"`), and the `NotificationConsumerError` union
+  from `./notification/errors`.
 - **Behavior:** `MoltZapWsClient.close()` propagates `NotConnectedError`
   to every in-flight Stream via the registry's `closeAll` →
   per-subscription `onClose` callback → `Stream.async`'s `emit.fail`
@@ -608,6 +938,39 @@ delta. The `pnpm dev` script is the only operator-visible change.
   exercising mid-dispatch register/unregister, predicate throws, and
   broad-union vs per-def fan-out invariants. Uses `Effect.yieldNow` to
   deterministically interleave register/unregister with dispatch.
+
+### Spec C (#597) — `channel-base` extraction + lease-lifecycle consolidation
+
+- **Added (`@moltzap/client`):** New `@moltzap/client/channel-base`
+  subpath export collecting the channel-plugin scaffolding shared
+  across the first-party channels (replaces the per-channel copy-paste
+  of lease projection + formatter helpers).
+- **Added (`@moltzap/client/channel-base`):** Canonical
+  `LeaseAlreadyConsumed` `TaggedError` plus the
+  `projectLeaseInvalid(error)` predicate, the `catchLeaseInvalid(self)`
+  wrapper, and the `LeaseInvalidProjectionError<E>` type alias — one
+  shared lease-invalid projection surface instead of each channel
+  re-deriving the "lease already consumed" case.
+- **Added (`@moltzap/client/channel-base`):** `LeaseStore<HostKey, T>`
+  and `LeaseGuard` primitives for channel-local lease bookkeeping.
+- **Added (`@moltzap/client/channel-base`):** Consolidated
+  `formatCrossConv` / `formatGroupBlock` formatters plus the
+  `getGroupFields(meta)` narrowing helper (returns `null` when the
+  conversation is not a group, so callers skip the block entirely;
+  the `json-header` markup variant returns an empty string by design,
+  since openclaw consumes `getGroupFields` directly rather than
+  rendering a block).
+- **Added (`@moltzap/openclaw-channel`):** `onLeaseConsumed` callback
+  on the openclaw channel's `MoltzapChannelPluginDeps`, fired when the
+  server reports a lease as already consumed so the channel can drop
+  local state.
+- **Behavior:** Deterministic reconnection is now triggered via
+  `MoltZapWsClient.disconnect()` (replacing the toxiproxy
+  `reset_peer` fault-injection path) — reconnection tests drive the
+  client API directly instead of the proxy.
+- **Wire-code correction:** lease-invalid rejections surface as
+  `-32001 ForbiddenError` (corrected from `-32011`) with
+  `data.reason === "LeaseInvalid"`.
 
 ### Spec E (#601) — R-channel capability primitives + TaskService cutover
 

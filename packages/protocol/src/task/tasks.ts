@@ -1,132 +1,103 @@
-import { Data } from "effect";
-import { Type, type Static } from "@sinclair/typebox";
+import { Schema } from "effect";
 import {
   stringEnum,
   dateTimeStringSchema,
-  listCursorSchema,
-} from "../schema-primitives.js";
-import { ListLimitSchema } from "../pagination.js";
-import { AgentId } from "../identity/agents.js";
-import { defineRpc, defineNotification } from "../transport/method.js";
-import {
-  registerErrorClass,
-  type RpcErrorPayload,
-} from "../transport/wire-errors.js";
-import { ConversationId, conversationSchema } from "./conversations.js";
-import { AppId, TaskId } from "./ids.js";
-import type { ConnectionId } from "../network/actor-model.js";
-// Structural alias for the dispatcher ctx shape consumed by argsOf
-// resolvers — the brand keeps it type-safe end to end. The
-// dispatcher provides a full `MoltZapConnection` per request; argsOf
-// reads `.id` for capability obtain helpers that take a
-// `ConnectionId`.
-type CallerConnIdCtx = {
-  readonly connection: { readonly id: ConnectionId };
-  readonly auth: { readonly agentId: AgentId };
-};
-// Direct per-file imports (NOT via the capabilities barrel) to keep the
-// runtime dep graph one-way; see conversations.ts for the rationale.
-import { ContactPolicyAllowsReach } from "./capabilities/contact-policy-allows-reach.js";
-import {
-  ConversationCreateAuthorization,
-  type ObtainConversationCreateAuthorizationInput,
-} from "./capabilities/conversation-create-authorization.js";
-import { ConversationInTask } from "./capabilities/conversation-in-task.js";
-import { TmAuthority } from "./capabilities/tm-authority.js";
+  errorPayloadFields,
+} from "#transport";
+import { ListLimitSchema, listCursorSchema } from "#transport";
+import { AgentId, AgentNotFoundError } from "#identity/agents";
+import { ActiveAgent } from "#identity/requirements";
+import { AgentPrincipal, AppPrincipal } from "#identity/principals";
+import { ForbiddenError, InvalidParamsError } from "#transport";
+import { defineRpc, defineNotification } from "#transport/descriptor";
+import { conversationSchema, ConversationFullError } from "#conversation";
+import { AppId } from "#identity/apps";
+import { ContactPolicyAllowsReach } from "#identity/contacts/requirements";
+import { TaskId, TaskNotFoundError } from "./ids.js";
 
-// `AppId` / `DEFAULT_APP_ID` / `TaskId` are defined in `./ids.ts` and
-// re-exported here for backward compatibility of import paths.
-export { AppId, DEFAULT_APP_ID, TaskId } from "./ids.js";
+export { AppId, DEFAULT_APP_ID } from "#identity/apps";
+
+// ═══════════════════════════════════════════════════════════════════
+// SHARED — task value types + errors used by 2+ blocks in this file.
+//
+// `TaskSchema` is the task-row shape returned by `agent/task/list`,
+// `app/task/update` close results, `agent/task/request`, and pushed by the
+// `agent/task/created` / `agent/task/closed`
+// notifications; `TaskParticipantSchema` is the membership row;
+// `ConversationSchema` the conversation row that `agent/task/request` may return.
+// The tagged errors are the task surface's shared failure channels.
+//
+// A task is the unit of admission: every conversation under a task draws its
+// participant pool from `task_participants`, and the owning app is the
+// gatekeeper for membership changes.
+//
+// Authority gates:
+//
+// | Method                              | Authority                                |
+// |-------------------------------------|------------------------------------------|
+// | agent/task/list                     | self only (own tasks)                    |
+// | agent/task/request                  | active agent + contact-policy            |
+// | agent/task/leave                    | self only                                |
+// | app/task/update                     | owning app only                          |
+//
+// App authority: the app-callable task-admin RPCs head their `requires` with
+// `AppPrincipal` and gate on `assertCallerAppOwnsTask` before any participant
+// probe.
+//
+// Notification emission: each mutating op enqueues notifications AFTER the row
+// mutation returns. Broadcast is best-effort: socket writes fork via
+// `Effect.runFork` and do not roll back the DB write on delivery failure.
+// ═══════════════════════════════════════════════════════════════════
 
 const DateTimeString = dateTimeStringSchema();
 const ConversationSchema = conversationSchema();
 
-export class TaskClosedError extends Data.TaggedError(
+export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
   "TaskClosed",
-)<RpcErrorPayload> {
-  static readonly code = -32020;
+  errorPayloadFields,
+) {
   static readonly message = "Task is closed";
 }
-registerErrorClass(TaskClosedError);
 
 /**
- * `task/request` failed because the bound TM rejected the
- * server-initiated `task/create` callback (or the fail-closed
+ * `agent/task/request` failed because the owning app rejected the
+ * server-initiated `app/task/create` callback (or the fail-closed
  * envelope synthesized a reject on timeout / RPC error / decode
  * failure). The tag lets a requester distinguish "my task was
  * rejected by the moderator" — an expected, actionable outcome —
- * from an opaque internal error. The TM's reason rides in the
+ * from an opaque internal error. The app's reason rides in the
  * `data` arm when present.
  */
-export class TaskRejectedError extends Data.TaggedError(
+export class TaskRejectedError extends Schema.TaggedError<TaskRejectedError>()(
   "TaskRejected",
-)<RpcErrorPayload> {
-  static readonly code = -32024;
-  static readonly message = "Task request was rejected by the task manager";
+  errorPayloadFields,
+) {
+  static readonly message = "Task request was rejected by the owning app";
 }
-registerErrorClass(TaskRejectedError);
 
-export class HookBlockedError extends Data.TaggedError(
+export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
   "HookBlocked",
-)<RpcErrorPayload> {
-  static readonly code = -32019;
+  errorPayloadFields,
+) {
   static readonly message = "Hook blocked the dispatch";
-}
-registerErrorClass(HookBlockedError);
-
-/**
- * `task/conversation/create` and `task/conversation/participants/add`
- * reject agents who are not already in `task_participants`. The error
- * tag lets clients distinguish "wrong agentId shape" (InvalidParams)
- * from "agent exists but is not admitted to this task" (this tag)
- * without parsing message strings.
- */
-export class ParticipantNotAdmittedError extends Data.TaggedError(
-  "ParticipantNotAdmitted",
-)<RpcErrorPayload> {
-  static readonly code = -32023;
-  static readonly message = "Agent is not admitted to the task";
-}
-registerErrorClass(ParticipantNotAdmittedError);
-
-/**
- * Logical time frontier per delivery domain (usually a conversation):
- * monotonic `epoch` + per-participant observed counts in `vector`.
- */
-const LogicalClockSchema = Type.Object(
-  {
-    domainId: Type.String({ minLength: 1 }),
-    epoch: Type.Integer({ minimum: 0 }),
-    vector: Type.Record(Type.String(), Type.Integer({ minimum: 0 })),
-  },
-  { additionalProperties: false },
-);
-
-export type LogicalClock = Static<typeof LogicalClockSchema>;
-
-export function logicalClockSchema(): typeof LogicalClockSchema {
-  return LogicalClockSchema;
 }
 
 // Mirrors the `task_status` DB enum.
 const TaskStatusEnum = stringEnum(["waiting", "active", "failed", "closed"]);
 
-export type TaskStatus = Static<typeof TaskStatusEnum>;
+export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
 
-const TaskSchema = Type.Object(
-  {
-    id: TaskId,
-    appId: Type.String(),
-    initiatorAgentId: AgentId,
-    status: TaskStatusEnum,
-    startedAt: Type.Union([DateTimeString, Type.Null()]),
-    endedAt: Type.Union([DateTimeString, Type.Null()]),
-    createdAt: DateTimeString,
-  },
-  { additionalProperties: false },
-);
+const TaskSchema = Schema.Struct({
+  id: TaskId,
+  appId: Schema.String,
+  initiatorAgentId: AgentId,
+  status: TaskStatusEnum,
+  startedAt: Schema.Union(DateTimeString, Schema.Null),
+  endedAt: Schema.Union(DateTimeString, Schema.Null),
+  createdAt: DateTimeString,
+});
 
-export type Task = Static<typeof TaskSchema>;
+export type Task = Schema.Schema.Type<typeof TaskSchema>;
 
 // `admittedAt = null` is reserved for a future "pending invitation"
 // flow. Today the server auto-admits every invitee at TaskRequest, so
@@ -134,605 +105,282 @@ export type Task = Static<typeof TaskSchema>;
 // nullable + the `WHERE admitted_at IS NOT NULL` filters in read
 // paths stay in place so the future flow drops in without
 // re-engineering the gating.
-const TaskParticipantSchema = Type.Object(
-  {
-    taskId: TaskId,
-    agentId: AgentId,
-    admittedAt: Type.Union([DateTimeString, Type.Null()]),
-  },
-  { additionalProperties: false },
-);
+const TaskParticipantSchema = Schema.Struct({
+  taskId: TaskId,
+  agentId: AgentId,
+  admittedAt: Schema.Union(DateTimeString, Schema.Null),
+});
 
-export type TaskParticipant = Static<typeof TaskParticipantSchema>;
+export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
 
+// ═══════════════════════════════════════════════════════════════════
+// agent/task/list
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * List the caller's own tasks, cursor-paginated.
+ *
+ * - **Principal:** `AgentPrincipal` head.
+ * @error InvalidParamsError when the `cursor` does not decode
+ */
 export const TaskList = defineRpc({
-  name: "task/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
+  name: "agent/task/list",
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    tasks: Schema.Array(TaskSchema),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
+  requires: [AgentPrincipal],
+  errors: [InvalidParamsError],
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// agent/task/request
+// ═══════════════════════════════════════════════════════════════════
+
+const InitialConversationSchema = Schema.Struct({
+  name: Schema.optional(
+    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
   ),
-  result: Type.Object(
-    {
-      tasks: Type.Array(TaskSchema),
-      nextCursor: Type.Optional(listCursorSchema()),
-    },
-    { additionalProperties: false },
-  ),
+  participants: Schema.optional(Schema.Array(AgentId).pipe(Schema.minItems(1))),
 });
 
-export const TaskClose = defineRpc({
-  name: "task/close",
-  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
-  result: Type.Object({ task: TaskSchema }, { additionalProperties: false }),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as CallerConnIdCtx;
-        return {
-          taskId: p.taskId,
-          callerConnId: c.connection.id,
-        };
-      },
-    },
-  ] as const,
-});
-
-export const TaskAddParticipant = defineRpc({
-  name: "task/addParticipant",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { participant: TaskParticipantSchema },
-    { additionalProperties: false },
-  ),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as CallerConnIdCtx;
-        return {
-          taskId: p.taskId,
-          callerConnId: c.connection.id,
-        };
-      },
-    },
-  ] as const,
-});
-
-export const TaskRemoveParticipant = defineRpc({
-  name: "task/removeParticipant",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as CallerConnIdCtx;
-        return {
-          taskId: p.taskId,
-          callerConnId: c.connection.id,
-        };
-      },
-    },
-  ] as const,
-});
-
-const TaskFailedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    // Free-form one-liner. The task/create TM-callback verdict's
-    // `reject.reason`, the synthesized `"tm_unreachable"` /
-    // `"timeout"` strings from the fail-closed envelope, and any
-    // future caller-supplied failure reason all flow through here.
-    reason: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
-  },
-  { additionalProperties: false },
-);
-
-const TaskCreatedNotificationSchema = Type.Object(
-  { task: TaskSchema },
-  { additionalProperties: false },
-);
-
-const TaskClosedNotificationSchema = Type.Object(
-  { task: TaskSchema },
-  { additionalProperties: false },
-);
-
-/**
- * Pushed when a task fails before becoming ready.
- * @triggeredBy task/create
- */
-export const TaskFailedNotificationDefinition = defineNotification({
-  name: "task/failed",
-  params: TaskFailedNotificationSchema,
-});
-
-/**
- * Pushed to the task initiator + invited participants after the TM
- * accepts via the `task/create` wire callback and the task
- * transitions from `waiting` to `active`. Carries the full Task row
- * (matching `task/closed`'s shape) so subscribers don't need a
- * second read to discover the post-transition state.
- */
-export const TaskCreatedNotificationDefinition = defineNotification({
-  name: "task/created",
-  params: TaskCreatedNotificationSchema,
-});
-
-/**
- * Pushed when a task closes.
- * @triggeredBy task/close
- */
-export const TaskClosedNotificationDefinition = defineNotification({
-  name: "task/closed",
-  params: TaskClosedNotificationSchema,
-});
-
-// ─────────────────────────────────────────────────────────────────────
-// `task/*` + `task/conversation/*` — the task-scoped admin surface.
-//
-// A task is the unit of admission: every conversation under a task
-// draws its participant pool from `task_participants`, and the task's
-// owning app's TM (task manager) is the gatekeeper for membership
-// changes.
-//
-// Layout:
-//   - `task/create` / `task/leave` — task-level lifecycle.
-//   - `task/conversation/*` — conversation lifecycle under a task.
-//   - `task/conversation/participants/*` — membership inside a
-//     specific conversation.
-//
-// Authority gates:
-//
-// | Method                                  | Authority                                |
-// |-----------------------------------------|------------------------------------------|
-// | TaskCreate                              | any authenticated agent + contact-policy |
-// | TaskLeave                               | self only                                |
-// | TaskConversationCreate                  | TM + participant-admitted invariant      |
-// | TaskConversationList                    | self only (caller in conversation)       |
-// | TaskConversationArchive / Unarchive     | TM only                                  |
-// | TaskConversationAddParticipant          | TM + participant-admitted invariant      |
-// | TaskConversationRemoveParticipant       | TM only                                  |
-//
-// Participant-admitted invariant (`TaskConversationCreate`,
-// `TaskConversationAddParticipant`): every agent listed in
-// `participants` MUST already appear in `task_participants` for
-// `taskId`. Conversations are scoped strictly within their task's
-// admission set; missing rows fail with `ParticipantNotAdmittedError`.
-//
-// Capability tags on the four TM-gated admin methods declare
-// `TmAuthority` first so the lazy `provideServiceEffect` runs the TM
-// check ahead of any participant probe. A non-TM caller sees
-// `ForbiddenError` rather than leaking task-membership existence
-// through `ParticipantNotAdmittedError`. The shared `argsOf` builders
-// (`tmAuthorityArgsOfTask`, `conversationInTaskArgsOfPair`) keep the
-// four descriptors' capability shapes from drifting.
-//
-// Atomicity: `task/create` with `initialConversation` commits the
-// task row, then opens a separate transaction for the conversation
-// insert. A conversation failure leaves the task row in place. Strict
-// cross-call atomicity (single commit covering both rows) is not
-// guaranteed.
-//
-// Notification emission: each mutating op enqueues notifications
-// AFTER the row mutation returns. `task/create` with
-// `initialConversation` emits one `task/conversation/created`.
-// `task/leave` emits one
-// `task/conversation/participants/removed { reason: "task_leave" }`
-// per conversation the leaver was in, plus `task/closed` if the leave
-// empties `task_participants`. Broadcast is best-effort: socket
-// writes fork via `Effect.runFork` and do not roll back the DB write
-// on delivery failure.
-// ─────────────────────────────────────────────────────────────────────
-
-const InitialConversationSchema = Type.Object(
-  {
-    name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-    participants: Type.Optional(Type.Array(AgentId, { minItems: 1 })),
-  },
-  { additionalProperties: false },
-);
-
-export type InitialConversationInput = Static<typeof InitialConversationSchema>;
-
-const TaskConversationListItemSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversation: ConversationSchema,
-    participants: Type.Array(AgentId),
-  },
-  { additionalProperties: false },
-);
-
-export type TaskConversationListItem = Static<
-  typeof TaskConversationListItemSchema
+export type InitialConversationInput = Schema.Schema.Type<
+  typeof InitialConversationSchema
 >;
 
 /**
- * Open to any authenticated agent. Returns `{ task, conversation }`
- * where `conversation` is `null` when `initialConversation` is omitted.
+ * Open to any active agent. Returns `{ task, conversation }` where
+ * `conversation` is `null` when `initialConversation` is omitted.
  *
  * Dedup is a client-side concern: clients that want "one DM per
  * participant set" semantics list their tasks and filter locally
  * before creating a new one.
  *
- * NOTE (#683): the agent-facing entry RPC is `task/request`; the
- * TM-facing wire callback `task/create` lives in
- * `packages/protocol/src/app/methods.ts`. The server forks
- * `task/create` to the bound TM after inserting the task in
- * `waiting`; the TM's verdict drives the lifecycle (accept → active
- * + `task/created`; reject → failed + `task/failed`). The synchronous
- * `{ task, conversation }` result is returned after the verdict
- * resolves (the handler awaits it). A future ack-then-notify variant
- * could return `{ taskId }` immediately and let `task/created` /
- * `task/failed` carry the outcome; that is not the current shape.
+ * The agent-facing entry RPC is `agent/task/request`; the app-facing wire
+ * callback `app/task/create` lives in this task domain. The server
+ * forks `app/task/create` to the owning app after inserting the task in
+ * `waiting`; the app verdict drives the lifecycle (accept → active +
+ * `agent/task/created`; reject → failed + `agent/task/failed`). The
+ * synchronous `{ task, conversation }`
+ * result is returned after the verdict resolves (the handler awaits it).
+ *
+ * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
+ * - **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
+ *   reach every `invitedAgentIds` target under the recipient's contact policy.
+ * @error TaskRejectedError when the owning app rejects the task
+ * @error AgentNotFoundError when an `initialConversation` participant agent is missing
+ * @error ConversationFullError when the `initialConversation` exceeds capacity
  */
 export const TaskRequest = defineRpc({
-  name: "task/request",
-  params: Type.Object(
-    {
-      appId: AppId,
-      invitedAgentIds: Type.Array(AgentId),
-      initialConversation: Type.Optional(InitialConversationSchema),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      task: TaskSchema,
-      conversation: Type.Union([ConversationSchema, Type.Null()]),
-    },
-    { additionalProperties: false },
-  ),
-  // Contact-policy gate. The dispatcher auto-provisions this before the
-  // app-layer handler runs; the handler drains it as a precondition of
-  // creating the task. Empty `invitedAgentIds` provisions a no-op proof
-  // (zero targets short-circuit the obtain helper). The descriptor
-  // declares the gate so the wire surface reflects the authorization
-  // need even though `task/request` is bound via `defineAppMethod`.
-  capabilities: [
-    {
-      tag: ContactPolicyAllowsReach,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly invitedAgentIds: ReadonlyArray<AgentId>;
-        };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return {
-          creatorAgentId: c.auth.agentId,
-          targetAgentIds: [...p.invitedAgentIds],
-        };
-      },
-    },
-  ] as const,
+  name: "agent/task/request",
+  params: Schema.Struct({
+    appId: AppId,
+    invitedAgentIds: Schema.Array(AgentId),
+    initialConversation: Schema.optional(InitialConversationSchema),
+  }),
+  result: Schema.Struct({
+    task: TaskSchema,
+    conversation: Schema.Union(ConversationSchema, Schema.Null),
+  }),
+  requires: [AgentPrincipal, ActiveAgent, ContactPolicyAllowsReach],
+  errors: [TaskRejectedError, AgentNotFoundError, ConversationFullError],
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// app/task/create (reverse callback)
+//
+// Agent-driven `agent/task/request` creates a task in `"waiting"` state and forks
+// this wire callback to the registered app. The app responds with an
+// accept/reject verdict; on accept the task transitions to `"active"`.
+// ═══════════════════════════════════════════════════════════════════
+
+const TaskCreateContextSchema = Schema.Struct({
+  taskId: TaskId,
+  initiatorAgentId: AgentId,
+  invitedAgentIds: Schema.Array(AgentId),
+  initialConversation: Schema.optional(
+    Schema.Struct({
+      name: Schema.optional(Schema.String),
+      participants: Schema.optional(Schema.Array(AgentId)),
+    }),
+  ),
+  receivedAt: Schema.optional(DateTimeString),
+});
+
+const TaskCreateVerdictSchema = Schema.Union(
+  Schema.Struct({ decision: Schema.Literal("accept") }),
+  Schema.Struct({
+    decision: Schema.Literal("reject"),
+    // Bound matches `TaskFailedNotificationDefinition.reason`.
+    reason: Schema.optional(
+      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
+    ),
+  }),
+);
+
+/**
+ * Server → app round-trip asking whether the app accepts a newly requested
+ * task.
+ *
+ * - **Principal:** none — a server→client reverse callback.
+ * @error ForbiddenError when the app rejects; the server treats the verdict as a fail-closed reject
+ */
+export const TaskCreate = defineRpc({
+  name: "app/task/create",
+  params: TaskCreateContextSchema,
+  result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
+  requires: [],
+  errors: [ForbiddenError],
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// agent/task/leave
+// ═══════════════════════════════════════════════════════════════════
 
 /**
  * Self-only: caller removes themselves from `task_participants` AND
- * every `conversation_participants` row under the task. See spec
- * body Goal 2 for the atomicity, idempotency, and
- * last-participant-task-closure contract.
+ * every `conversation_participants` row under the task.
  *
  * Notification emission for each conversation the caller leaves uses
- * `TaskConversationParticipantsRemovedNotificationDefinition` with
- * `reason: "task_leave"`. If removal empties `task_participants`
- * the task transitions to `status = 'closed'` and
- * `TaskClosedNotificationDefinition` fires alongside in the same
- * transaction.
+ * `ConversationParticipantsRemovedNotificationDefinition` with
+ * `reason: "task_leave"`. If removal empties `task_participants` the task
+ * transitions to `status = 'closed'` and `TaskClosedNotificationDefinition`
+ * fires alongside in the same transaction.
+ *
+ * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
+ * @error TaskNotFoundError when the task does not exist or the caller is not in it
  */
 export const TaskLeave = defineRpc({
-  name: "task/leave",
-  params: Type.Object({ taskId: TaskId }, { additionalProperties: false }),
-  result: Type.Object({}, { additionalProperties: false }),
+  name: "agent/task/leave",
+  params: Schema.Struct({ taskId: TaskId }),
+  result: Schema.Struct({}),
+  requires: [AgentPrincipal, ActiveAgent],
+  errors: [TaskNotFoundError],
+});
+
+const TaskUpdateParamsSchema = Schema.Union(
+  Schema.Struct({
+    action: Schema.Literal("close"),
+    taskId: TaskId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("add-participant"),
+    taskId: TaskId,
+    agentId: AgentId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("remove-participant"),
+    taskId: TaskId,
+    agentId: AgentId,
+  }),
+);
+
+const TaskUpdateResultSchema = Schema.Union(
+  Schema.Struct({
+    action: Schema.Literal("closed"),
+    task: TaskSchema,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("participant-added"),
+    participant: TaskParticipantSchema,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("participant-removed"),
+  }),
+);
+
+export type TaskUpdateParams = Schema.Schema.Type<
+  typeof TaskUpdateParamsSchema
+>;
+export type TaskUpdateResult = Schema.Schema.Type<
+  typeof TaskUpdateResultSchema
+>;
+
+/**
+ * App-only task mutation surface. `app/task/update` owns task close,
+ * participant admit, and participant remove semantics.
+ *
+ * - **Principal:** `AppPrincipal` head. The app-arm handler runs
+ *   `assertCallerAppOwnsTask` before dispatching the selected action.
+ * @error ForbiddenError when the caller does not own the task
+ * @error TaskNotFoundError when the task does not exist
+ */
+export const TaskUpdate = defineRpc({
+  name: "app/task/update",
+  params: TaskUpdateParamsSchema,
+  result: TaskUpdateResultSchema,
+  requires: [AppPrincipal],
+  errors: [ForbiddenError, TaskNotFoundError],
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// task/* lifecycle notifications
+// ═══════════════════════════════════════════════════════════════════
+
+const TaskFailedNotificationSchema = Schema.Struct({
+  taskId: TaskId,
+  // Free-form one-liner. The app/task/create callback verdict's
+  // `reject.reason`, the synthesized `"app_unreachable"` / `"timeout"`
+  // strings from the fail-closed envelope, and any future caller-supplied
+  // failure reason all flow through here.
+  reason: Schema.optional(
+    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
+  ),
+});
+
+const TaskCreatedNotificationSchema = Schema.Struct({ task: TaskSchema });
+
+const TaskClosedNotificationSchema = Schema.Struct({ task: TaskSchema });
+
+/**
+ * Pushed when a task fails before becoming ready.
+ * @triggeredBy app/task/create
+ */
+export const TaskFailedNotificationDefinition = defineNotification({
+  name: "agent/task/failed",
+  params: TaskFailedNotificationSchema,
 });
 
 /**
- * TM-only: mint a new conversation under an existing task. Every
- * entry in `participants` MUST already appear in `task_participants`
- * for `taskId`; violations return `ParticipantNotAdmittedError`.
+ * Pushed to the task initiator + invited participants after the app accepts via
+ * the `app/task/create` wire callback and the task transitions from `waiting`
+ * to `active`. Carries the full Task row (matching `agent/task/closed`'s shape) so
+ * subscribers don't need a second read to discover the post-transition state.
  */
-export const TaskConversationCreate = defineRpc({
-  name: "task/conversation/create",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-      participants: Type.Array(AgentId, { minItems: 1 }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { conversation: ConversationSchema },
-    { additionalProperties: false },
-  ),
-  // Tags are declared in auth-first order. The handler must explicitly
-  // `yield* TmAuthority` before `requireAgentsAreInTaskParticipants` —
-  // the dispatcher provisions tags lazily, so a non-TM caller would
-  // otherwise see `ParticipantNotAdmittedError` (a state probe) instead
-  // of `ForbiddenError`.
-  capabilities: [
-    {
-      tag: TmAuthority,
-      argsOf: (params: unknown, ctx: unknown) => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as { readonly taskId: TaskId };
-        const c = ctx as CallerConnIdCtx;
-        return {
-          taskId: p.taskId,
-          callerConnId: c.connection.id,
-        };
-      },
-    },
-    {
-      tag: ConversationCreateAuthorization,
-      argsOf: (
-        params: unknown,
-        ctx: unknown,
-      ): ObtainConversationCreateAuthorizationInput => {
-        // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-        const p = params as {
-          readonly participants: ReadonlyArray<AgentId>;
-        };
-        const c = ctx as { readonly auth: { readonly agentId: AgentId } };
-        return {
-          agentIds: [...p.participants],
-          creatorAgentId: c.auth.agentId,
-        };
-      },
-    },
-  ] as const,
+export const TaskCreatedNotificationDefinition = defineNotification({
+  name: "agent/task/created",
+  params: TaskCreatedNotificationSchema,
 });
 
 /**
- * Self-only listing of every conversation the caller participates
- * in (across all tasks). No filter params; archived rows are
- * included; callers filter `archivedAt` locally. See spec body
- * Goal 1 for the full pagination + visibility contract.
+ * Pushed when a task closes.
+ * @triggeredBy app/task/update
  */
-export const TaskConversationList = defineRpc({
-  name: "task/conversation/list",
-  params: Type.Object(
-    {
-      limit: ListLimitSchema,
-      cursor: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      items: Type.Array(TaskConversationListItemSchema),
-      nextCursor: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
+export const TaskClosedNotificationDefinition = defineNotification({
+  name: "agent/task/closed",
+  params: TaskClosedNotificationSchema,
 });
 
-// Shared `argsOf` builders for the four TM-and-conversation-in-task
-// descriptors below — the four bodies use IDENTICAL capability arrays
-// `[TmAuthority, ConversationInTask]`. Inline the shape locally (not
-// exported) to keep the descriptor definitions terse and avoid
-// drift between siblings.
-const tmAuthorityArgsOfTask = (params: unknown, ctx: unknown) => {
-  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-  const p = params as { readonly taskId: TaskId };
-  const c = ctx as CallerConnIdCtx;
-  return {
-    taskId: p.taskId,
-    callerConnId: c.connection.id,
-  };
-};
-const conversationInTaskArgsOfPair = (params: unknown) => {
-  // #ignore-sloppy-code-next-line[params-cast]: descriptor argsOf re-imposes per-method param type (dispatcher-boundary erasure carve-out — params arrives as `unknown` from the type-erased dispatcher)
-  const p = params as {
-    readonly taskId: TaskId;
-    readonly conversationId: ConversationId;
-  };
-  return { taskId: p.taskId, conversationId: p.conversationId };
-};
+/** Task RPC catalog callable by agent clients. */
+export const agentCallableTaskRpcMethods = [
+  TaskRequest,
+  TaskList,
+  TaskLeave,
+] as const;
 
-/** TM-only: archive one conversation. Task stays open. */
-export const TaskConversationArchive = defineRpc({
-  name: "task/conversation/archive",
-  params: Type.Object(
-    { taskId: TaskId, conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
-    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
-  ] as const,
-});
+/** Task RPC catalog callable by app clients. */
+export const appCallableTaskRpcMethods = [TaskUpdate] as const;
 
-/** TM-only: reverse of `task/conversation/archive`. */
-export const TaskConversationUnarchive = defineRpc({
-  name: "task/conversation/unarchive",
-  params: Type.Object(
-    { taskId: TaskId, conversationId: ConversationId },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
-    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
-  ] as const,
-});
+/** Task callback catalog served by app clients for server-initiated calls. */
+export const taskCallbackMethods = [TaskCreate] as const;
 
-/**
- * TM-only: add an agent to one conversation. The agent MUST already
- * appear in `task_participants` for `taskId`; otherwise
- * `ParticipantNotAdmittedError`. Spec body Goal 1.
- */
-export const TaskConversationAddParticipant = defineRpc({
-  name: "task/conversation/participants/add",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-  // Auth-first per per-flow doc §"Participant invariant" — the handler
-  // also `yield* TmAuthority`s explicitly BEFORE
-  // `requireAgentsAreInTaskParticipants` to force the obtain helper to
-  // run early (lazy provideServiceEffect would otherwise defer it past
-  // the participant-admitted probe).
-  capabilities: [
-    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
-    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
-  ] as const,
-});
-
-/**
- * TM-only: remove an agent from one conversation. The agent stays
- * in `task_participants` (so they may still receive messages on
- * other conversations within the task).
- */
-export const TaskConversationRemoveParticipant = defineRpc({
-  name: "task/conversation/participants/remove",
-  params: Type.Object(
-    {
-      taskId: TaskId,
-      conversationId: ConversationId,
-      agentId: AgentId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-  capabilities: [
-    { tag: TmAuthority, argsOf: tmAuthorityArgsOfTask },
-    { tag: ConversationInTask, argsOf: conversationInTaskArgsOfPair },
-  ] as const,
-});
-
-// ─── task/conversation/* notifications ──────────────────────────────
-//
-// Five events (spec body Goal 5; the `task/conversation/updated`
-// entry in the dispatch brief is stale relative to the spec body —
-// `TaskConversationUpdate` is explicitly NOT included per Goal 1).
-//
-// Recipient fan-out:
-//   - `created` → initial `participants` list
-//   - `archived` / `unarchived` → post-mutation `conversation_participants`
-//   - `participants/added` → post-mutation membership (newcomer included)
-//   - `participants/removed` → pre-mutation membership (so the removed
-//     agent still receives the notification)
-// ────────────────────────────────────────────────────────────────────
-
-const TaskConversationCreatedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversationId: ConversationId,
-    name: Type.Optional(Type.String()),
-    participants: Type.Array(AgentId),
-  },
-  { additionalProperties: false },
-);
-
-const TaskConversationArchivedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversationId: ConversationId,
-    archivedAt: DateTimeString,
-  },
-  { additionalProperties: false },
-);
-
-const TaskConversationUnarchivedNotificationSchema = Type.Object(
-  { taskId: TaskId, conversationId: ConversationId },
-  { additionalProperties: false },
-);
-
-const TaskConversationParticipantsAddedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversationId: ConversationId,
-    addedAgentId: AgentId,
-    // Authority is TM-only today; the enum is single-valued but kept
-    // open-shaped so the wire can widen without a schema rev.
-    byAgentOrTm: stringEnum(["tm"]),
-  },
-  { additionalProperties: false },
-);
-
-const TaskConversationParticipantsRemovedNotificationSchema = Type.Object(
-  {
-    taskId: TaskId,
-    conversationId: ConversationId,
-    removedAgentId: AgentId,
-    reason: stringEnum(["tm_remove", "task_leave"]),
-  },
-  { additionalProperties: false },
-);
-
-export type TaskConversationCreatedNotification = Static<
-  typeof TaskConversationCreatedNotificationSchema
->;
-export type TaskConversationArchivedNotification = Static<
-  typeof TaskConversationArchivedNotificationSchema
->;
-export type TaskConversationUnarchivedNotification = Static<
-  typeof TaskConversationUnarchivedNotificationSchema
->;
-export type TaskConversationParticipantsAddedNotification = Static<
-  typeof TaskConversationParticipantsAddedNotificationSchema
->;
-export type TaskConversationParticipantsRemovedNotification = Static<
-  typeof TaskConversationParticipantsRemovedNotificationSchema
->;
-
-export const TaskConversationCreatedNotificationDefinition = defineNotification(
-  {
-    name: "task/conversation/created",
-    params: TaskConversationCreatedNotificationSchema,
-  },
-);
-
-export const TaskConversationArchivedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/archived",
-    params: TaskConversationArchivedNotificationSchema,
-  });
-
-export const TaskConversationUnarchivedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/unarchived",
-    params: TaskConversationUnarchivedNotificationSchema,
-  });
-
-export const TaskConversationParticipantsAddedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/participants/added",
-    params: TaskConversationParticipantsAddedNotificationSchema,
-  });
-
-export const TaskConversationParticipantsRemovedNotificationDefinition =
-  defineNotification({
-    name: "task/conversation/participants/removed",
-    params: TaskConversationParticipantsRemovedNotificationSchema,
-  });
+/** Task notification catalog emitted by the server. */
+export const taskNotifications = [
+  TaskClosedNotificationDefinition,
+  TaskCreatedNotificationDefinition,
+  TaskFailedNotificationDefinition,
+] as const;

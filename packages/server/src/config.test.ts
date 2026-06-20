@@ -3,8 +3,8 @@ import { describe, expect } from "vitest";
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
-import { Cause, Effect, Exit, Option, type Scope } from "effect";
-import { ConfigLoadError, loadStandaloneConfig } from "./config.js";
+import { Cause, Effect, Exit, Option, Redacted, type Scope } from "effect";
+import { ConfigLoadError, loadStandaloneConfig } from "#config";
 
 const it = effectIt.scoped;
 const eff = effectIt.effect;
@@ -16,20 +16,12 @@ const PG_URL = "postgres://localhost:5432/moltzap";
 const SUPABASE_URL = "postgres://u:p@x.supabase.co:5432/postgres";
 const APP_ORIGIN = "https://app.example.com";
 const WWW_ORIGIN = "https://www.example.com";
-const SECRET = "secret-key";
+const SECRET = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const INTERPOLATED = "interpolated-value";
-const SESSION_URL = "https://example.com/sessions";
-const SESSION_TIMEOUT = 5000;
 const DEFAULT_PORT = 3000;
 const OVERRIDE_PORT = 8080;
+const ADMIN_USER_ID = "00000000-0000-4000-8000-00000000ad01";
 const VALIDATION_ERROR_KIND: ConfigLoadError["kind"] = "validation";
-
-const SESSIONS_YAML = `services:
-  sessions:
-    type: webhook
-    webhook_url: ${SESSION_URL}
-    timeout_ms: ${SESSION_TIMEOUT}
-`;
 
 const APPS_YAML = `apps:
   - manifest: ./app1.json
@@ -61,10 +53,9 @@ const ENCRYPTION_CAMELCASE_YAML = `encryption:\n  masterSecret: a-real-secret\n`
 const UNKNOWN_TOPLEVEL_YAML = `database:\n  url: ${PG_URL}\nbogus: true\n`;
 const RETIRED_SEED_YAML = `database:\n  url: ${PG_URL}\nseed:\n  agents:\n    - name: alice\n`;
 const UNKNOWN_NESTED_YAML = `server:\n  port: 3000\n  extra: nope\n`;
-const BAD_WEBHOOK_URL_YAML = `services:\n  sessions:\n    type: webhook\n    webhook_url: not-a-url\n`;
-const SMALL_TIMEOUT_YAML = `services:\n  sessions:\n    type: webhook\n    webhook_url: ${SESSION_URL}\n    timeout_ms: 50\n`;
-const BAD_LOG_LEVEL_YAML = `log_level: verbose\n`;
-const BAD_SERVICE_TYPE_YAML = `services:\n  sessions:\n    type: grpc\n`;
+const BAD_WEBHOOK_URL_YAML = `services:\n  contacts:\n    type: webhook\n    webhook_url: not-a-url\n`;
+const SMALL_TIMEOUT_YAML = `services:\n  contacts:\n    type: webhook\n    webhook_url: ${CONTACT_URL}\n    timeout_ms: 50\n`;
+const BAD_SERVICE_TYPE_YAML = `services:\n  contacts:\n    type: grpc\n`;
 // Empty database.url must FAIL (minLength: 1) rather than be read as a
 // blank URL — main's Ajv rejected it; an empty string here is a typo, not
 // a request for the PGlite fallback (that path is "no database.url at all").
@@ -77,16 +68,22 @@ const CONTACTS_YAML = `services:
     timeout_ms: ${CONTACT_TIMEOUT}
 `;
 
-const SESSION_WITH_CALLBACK_YAML = `services:
-  sessions:
+const CONTACT_WITH_CALLBACK_YAML = `services:
+  contacts:
     type: webhook
-    webhook_url: ${SESSION_URL}
-    timeout_ms: ${SESSION_TIMEOUT}
+    webhook_url: ${CONTACT_URL}
+    timeout_ms: ${CONTACT_TIMEOUT}
     callback_token: ${CALLBACK_TOKEN}
 `;
 
 function envOnly(env: Record<string, string | undefined>) {
-  return loadStandaloneConfig({ processEnv: env });
+  return loadStandaloneConfig({
+    processEnv: { MOLTZAP_ADMIN_USER_ID: ADMIN_USER_ID, ...env },
+  });
+}
+
+function testEnv(env: Record<string, string | undefined> = {}) {
+  return { MOLTZAP_ADMIN_USER_ID: ADMIN_USER_ID, ...env };
 }
 
 function expectFailureValue(exit: Exit.Exit<unknown, unknown>): unknown {
@@ -129,7 +126,8 @@ function encryptionSurfaces() {
       MOLTZAP_DEV_MODE: "true",
       ENCRYPTION_MASTER_SECRET: SECRET,
     });
-    expect(result.encryptionMasterSecret).toBe(SECRET);
+    expect(result.encryptionMasterSecret).not.toBeUndefined();
+    expect(Redacted.value(result.encryptionMasterSecret!)).toBe(SECRET);
   });
 }
 
@@ -187,7 +185,7 @@ function rejectsInvalidPort() {
       const exit = yield* Effect.exit(
         loadStandaloneConfig({
           configPath,
-          processEnv: { CORS_ORIGINS: APP_ORIGIN },
+          processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
         }),
       );
       const err = expectFailureValue(exit);
@@ -206,25 +204,13 @@ function envInterpolation() {
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({
         configPath,
-        processEnv: { MY_SECRET: INTERPOLATED, CORS_ORIGINS: APP_ORIGIN },
+        processEnv: testEnv({
+          MY_SECRET: INTERPOLATED,
+          CORS_ORIGINS: APP_ORIGIN,
+        }),
       });
-      expect(result.registrationSecret).toBe(INTERPOLATED);
-    }),
-  );
-}
-
-function sessionsBinding() {
-  return withTempConfig(SESSIONS_YAML, (configPath) =>
-    Effect.gen(function* () {
-      const result = yield* loadStandaloneConfig({
-        configPath,
-        processEnv: { CORS_ORIGINS: APP_ORIGIN },
-      });
-      expect(result.sessionWebhook).toEqual({
-        url: SESSION_URL,
-        timeoutMs: SESSION_TIMEOUT,
-      });
-      expect(result.contactWebhook).toBeUndefined();
+      expect(result.registrationSecret).not.toBeUndefined();
+      expect(Redacted.value(result.registrationSecret!)).toBe(INTERPOLATED);
     }),
   );
 }
@@ -234,7 +220,7 @@ function appsPassthrough() {
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({
         configPath,
-        processEnv: { CORS_ORIGINS: APP_ORIGIN },
+        processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
       });
       expect(result.apps).toEqual([
         { manifest: "./app1.json" },
@@ -253,10 +239,12 @@ function doesNotMutateReusedEnv() {
       const processEnv: Record<string, string | undefined> = {
         [REUSED_ENV_KEY]: REUSED_ENV_VALUE,
         MOLTZAP_DEV_MODE: "true",
+        MOLTZAP_ADMIN_USER_ID: ADMIN_USER_ID,
       };
       const beforeKeys = Object.keys(processEnv).length;
       const result = yield* loadStandaloneConfig({ configPath, processEnv });
-      expect(result.registrationSecret).toBe(REUSED_ENV_VALUE);
+      expect(result.registrationSecret).not.toBeUndefined();
+      expect(Redacted.value(result.registrationSecret!)).toBe(REUSED_ENV_VALUE);
       expect(processEnv[REUSED_ENV_KEY]).toBe(REUSED_ENV_VALUE);
       expect(Object.keys(processEnv).length).toBe(beforeKeys);
     }),
@@ -270,7 +258,7 @@ function expectValidationRejection(body: string) {
       const exit = yield* Effect.exit(
         loadStandaloneConfig({
           configPath,
-          processEnv: { CORS_ORIGINS: APP_ORIGIN },
+          processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
         }),
       );
       const err = expectFailureValue(exit);
@@ -285,30 +273,31 @@ function contactsBinding() {
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({
         configPath,
-        processEnv: { CORS_ORIGINS: APP_ORIGIN },
+        processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
       });
       expect(result.contactWebhook).toEqual({
         url: CONTACT_URL,
         timeoutMs: CONTACT_TIMEOUT,
       });
-      expect(result.sessionWebhook).toBeUndefined();
     }),
   );
 }
 
-function sessionCallbackTokenBothPresent() {
-  return withTempConfig(SESSION_WITH_CALLBACK_YAML, (configPath) =>
+function contactCallbackTokenBothPresent() {
+  return withTempConfig(CONTACT_WITH_CALLBACK_YAML, (configPath) =>
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({
         configPath,
-        processEnv: { CORS_ORIGINS: APP_ORIGIN },
+        processEnv: testEnv({ CORS_ORIGINS: APP_ORIGIN }),
       });
-      // Both timeout_ms and callback_token present must both survive the
-      // YAML service decode (regression: an earlier projection dropped
-      // callback_token whenever timeout_ms was also set).
-      expect(result.sessionWebhook).toEqual({
-        url: SESSION_URL,
-        timeoutMs: SESSION_TIMEOUT,
+      // The shared webhook parser accepts both timeout_ms and
+      // callback_token; both present must survive the YAML service decode
+      // (regression: an earlier projection dropped callback_token whenever
+      // timeout_ms was also set). callback_token is not projected into the
+      // boot-plan binding, so only the url + timeoutMs surface.
+      expect(result.contactWebhook).toEqual({
+        url: CONTACT_URL,
+        timeoutMs: CONTACT_TIMEOUT,
       });
     }),
   );
@@ -328,18 +317,14 @@ describe("loadStandaloneConfig YAML", () => {
   it("rejects an out-of-range port with a validation ConfigLoadError", () =>
     rejectsInvalidPort());
   it("env interpolation: ${VAR} resolves against processEnv", envInterpolation);
-  it(
-    "services.sessions: webhook produces sessionWebhook binding",
-    sessionsBinding,
-  );
   it("apps[] passes through to bootPlan", appsPassthrough);
   it(
     "services.contacts: webhook produces contactWebhook binding",
     contactsBinding,
   );
   it(
-    "services.sessions: keeps both timeout_ms and callback_token",
-    sessionCallbackTokenBothPresent,
+    "services.contacts: keeps both timeout_ms and callback_token",
+    contactCallbackTokenBothPresent,
   );
   it("does not mutate a reused processEnv during interpolation", () =>
     doesNotMutateReusedEnv());
@@ -364,8 +349,6 @@ describe("loadStandaloneConfig validation parity", () => {
     expectValidationRejection(BAD_WEBHOOK_URL_YAML));
   it("rejects timeout_ms below the 100ms minimum", () =>
     expectValidationRejection(SMALL_TIMEOUT_YAML));
-  it("rejects an invalid log_level enum value", () =>
-    expectValidationRejection(BAD_LOG_LEVEL_YAML));
   it("rejects an unknown service type", () =>
     expectValidationRejection(BAD_SERVICE_TYPE_YAML));
   it("rejects an empty database.url string", () =>

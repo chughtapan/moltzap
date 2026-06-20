@@ -2,9 +2,7 @@ import { Path } from "@effect/platform";
 import { Config, ConfigProvider, Effect, Option } from "effect";
 
 const MOLTZAP_DIR_NAME = ".moltzap";
-const OPENCLAW_DIR_NAME = ".openclaw";
 const CONFIG_FILE_NAME = "config.json";
-const OPENCLAW_CONFIG_FILE_NAME = "openclaw.json";
 const SERVICE_SOCKET_FILE_NAME = "service.sock";
 
 const ConfigHome = Config.option(Config.string("MOLTZAP_CONFIG_HOME"));
@@ -41,11 +39,3 @@ export const getMoltZapServiceSocketPath = (): string =>
 
 export const getMoltZapAgentServiceSocketPath = (agentId: string): string =>
   pathSync((path) => path.join(getMoltZapHomeDir(), `service-${agentId}.sock`));
-
-export const getOpenClawConfigDir = (): string =>
-  pathSync((path) => path.join(getHomeDirSync(), OPENCLAW_DIR_NAME));
-
-export const getOpenClawConfigPath = (): string =>
-  pathSync((path) =>
-    path.join(getOpenClawConfigDir(), OPENCLAW_CONFIG_FILE_NAME),
-  );

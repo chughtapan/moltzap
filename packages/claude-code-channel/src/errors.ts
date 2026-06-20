@@ -1,19 +1,12 @@
-import { Data } from "effect";
-import type { ServiceRpcError } from "@moltzap/client";
+import { Data, type Effect } from "effect";
+import type { MoltZapService, ServiceRpcError } from "@moltzap/client";
 import { LeaseAlreadyConsumed } from "@moltzap/client/channel-base";
 
-// Re-export the canonical `LeaseAlreadyConsumed` from `@moltzap/client/channel-base`
-// so existing consumers of `claude-code-channel/errors` continue to import the
-// same name. The single definition site lives at
-// `packages/client/src/channel-base/lease.ts → LeaseAlreadyConsumed` per
-// spec C (#597) invariant: one canonical class across all three channels.
+// `LeaseAlreadyConsumed` has one canonical definition site shared across all
+// three channels: `packages/client/src/channel-base/lease.ts → LeaseAlreadyConsumed`.
 export { LeaseAlreadyConsumed };
 
 export class McpTransportFailed extends Data.TaggedError("McpTransportFailed")<{
-  readonly cause: string;
-}> {}
-
-export class AgentKeyInvalid extends Data.TaggedError("AgentKeyInvalid")<{
   readonly cause: string;
 }> {}
 
@@ -22,10 +15,14 @@ class SchemaDecodeFailed extends Data.TaggedError("SchemaDecodeFailed")<{
   readonly at: "ws" | "mcp";
 }> {}
 
+type ClientBootConfigError = Effect.Effect.Error<
+  ReturnType<typeof MoltZapService.make>
+>;
+
 export type BootError =
+  | ClientBootConfigError
   | ServiceRpcError
   | McpTransportFailed
-  | AgentKeyInvalid
   | SchemaDecodeFailed;
 
 export class EmitFailed extends Data.TaggedError("EmitFailed")<{

@@ -8,12 +8,8 @@ import {
   setupAgentPair,
 } from "../helpers.js";
 
-import {
-  DEFAULT_APP_ID,
-  MessagesList,
-  MessagesSend,
-  TaskRequest,
-} from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 
 const TOTAL_MESSAGES_TO_SEND = 15;
 const PAGE_SIZE = 10;

@@ -33,54 +33,7 @@ _Variable_
 export const defaultToxicProfile:
 ```
 
-### [`deliveryInvariantFor`](./profile.ts#L75)
-
-_Function_
-
-```ts
-export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName
-```
-
-Selects the delivery invariant for a toxic profile.
-
-### [`DeliveryInvariantName`](./profile.ts#L68)
-
-_TypeAlias_
-
-```ts
-export type DeliveryInvariantName =
-  | "fan-out-cardinality"
-  | "store-and-replay"
-  | "payload-opacity"
-  | "task-boundary-isolation";
-
-/** Selects the delivery invariant for a toxic profile. */
-export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName {
-  switch (toxic) {
-    case "latency":
-    case "bandwidth":
-    case "timeout":
-      return "fan-out-cardinality";
-    case "reset_peer":
-      return "store-and-replay";
-    case "slicer":
-      return "payload-opacity";
-    case "slow_close":
-      return "task-boundary-isolation";
-    default: {
-      const _exhaustive: never = toxic;
-      return absurdToxicTag(_exhaustive);
-    }
-  }
-}
-```
-
-Every delivery-layer property one toxic is expected to re-exercise.
-Keyed by the property's semantic name (matches the register-function
-names in `conformance/task/{fan-out-cardinality,store-and-replay,
-payload-opacity,task-boundary-isolation}.ts`).
-
-### [`makeToxiproxyClient`](./client.ts#L231)
+### [`makeToxiproxyClient`](./client.ts#L255)
 
 _Function_
 
@@ -106,7 +59,7 @@ export class ToxicControlError extends Data.TaggedError(
 
 Toxiproxy HTTP API returned a non-2xx, or the control endpoint is down.
 
-### [`ToxicHandle`](./client.ts#L36)
+### [`ToxicHandle`](./client.ts#L60)
 
 _Interface_
 
@@ -156,7 +109,7 @@ _TypeAlias_
 export type ToxicTag = (typeof allToxicTags)[number];
 ```
 
-### [`ToxiproxyClient`](./client.ts#L57)
+### [`ToxiproxyClient`](./client.ts#L81)
 
 _Interface_
 
@@ -180,10 +133,28 @@ _Interface_
 export interface ToxiproxyConfig {
   /** Control-plane URL, e.g. `http://localhost:8474`. */
   readonly apiUrl: string;
+  readonly network?: ToxiproxyNetworkConfig;
 }
 ```
 
-### [`ToxiproxyProxy`](./client.ts#L46)
+### [`ToxiproxyNetworkConfig`](./client.ts#L31)
+
+_Interface_
+
+```ts
+export interface ToxiproxyNetworkConfig {
+  /** Hostname Toxiproxy should use when dialing the real server upstream. */
+  readonly upstreamHost?: string;
+  /** Address Toxiproxy should bind inside its own process/container. */
+  readonly listenHost?: string;
+  /** Hostname conformance clients should use when dialing a Toxiproxy listener. */
+  readonly connectHost?: string;
+  /** Fixed listener port range for Docker bridge mode. Omit for `:0`. */
+  readonly listenPortRange?: ToxiproxyListenPortRange;
+}
+```
+
+### [`ToxiproxyProxy`](./client.ts#L70)
 
 _Interface_
 

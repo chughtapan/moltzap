@@ -2,8 +2,103 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
+    "rootDir": "src",
+    "baseUrl": "./src",
+    "paths": {
+      "#core": [
+        "core/index.ts"
+      ],
+      "#moltzap": [
+        "moltzap/index.ts"
+      ],
+      "#moltzap/runtime": [
+        "moltzap/runtime.ts"
+      ],
+      "#socket": [
+        "socket/index.ts"
+      ],
+      "#http": [
+        "http/index.ts"
+      ],
+      "#config": [
+        "config.ts"
+      ],
+      "#config/secrets": [
+        "config/secrets.ts"
+      ],
+      "#db": [
+        "db/barrel.ts"
+      ],
+      "#db/crypto": [
+        "db/crypto/barrel.ts"
+      ],
+      "#identity/agents": [
+        "identity/agents/index.ts"
+      ],
+      "#identity/apps": [
+        "identity/apps/index.ts"
+      ],
+      "#identity/credential-keys": [
+        "identity/credential-keys.ts"
+      ],
+      "#identity/contacts/requirements": [
+        "identity/contacts/requirements/index.ts"
+      ],
+      "#identity/contacts": [
+        "identity/contacts/index.ts"
+      ],
+      "#network": [
+        "network/index.ts"
+      ],
+      "#network/presence": [
+        "network/presence/index.ts"
+      ],
+      "#task": [
+        "task/index.ts"
+      ],
+      "#task/handlers": [
+        "task/handlers.ts"
+      ],
+      "#task/requirements": [
+        "task/requirements/index.ts"
+      ],
+      "#conversation": [
+        "conversation/index.ts"
+      ],
+      "#conversation/handlers": [
+        "conversation/handlers.ts"
+      ],
+      "#conversation/requirements": [
+        "conversation/requirements/index.ts"
+      ],
+      "#message": [
+        "message/index.ts"
+      ],
+      "#message/handlers": [
+        "message/handlers.ts"
+      ],
+      "#dispatch": [
+        "dispatch/index.ts"
+      ],
+      "#dispatch/handlers": [
+        "dispatch/handlers.ts"
+      ],
+      "#test-utils": [
+        "test-utils/index.ts"
+      ]
+    }
   },
-  "include": ["src"],
-  "exclude": ["src/__tests__"]
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/__tests__"
+  ],
+  "references": [
+    {
+      "path": "../protocol"
+    }
+  ]
 }

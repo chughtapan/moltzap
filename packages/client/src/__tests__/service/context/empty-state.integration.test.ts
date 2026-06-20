@@ -11,7 +11,7 @@ it("returns null with only one conversation active", () =>
     const regB = yield* H.registerAgent("ctx-b");
 
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const conv = yield* H.createDm(service, regB.agentId);
 
@@ -39,7 +39,7 @@ it("returns null when other conversations have no messages", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const convB = yield* H.createDm(service, regB.agentId);
 
@@ -71,7 +71,7 @@ it("returns system-reminder with new messages from other conversation", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const convB = yield* H.createDm(service, regB.agentId);
     const convC = yield* H.createDm(service, regC.agentId);

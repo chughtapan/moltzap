@@ -3,18 +3,21 @@ import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
 import { Data, Effect, Stream } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
-import { stripWsPath } from "@moltzap/client/test";
-import type { Message } from "@moltzap/protocol";
-import { registerAndClaim, waitFor } from "./test-helpers.js";
+import { stripWsPath } from "@moltzap/client/test-utils";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentKey } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { Message } from "@moltzap/protocol/message";
+import type { TaskId } from "@moltzap/protocol/task";
+import { registerTestAgent, waitFor } from "./test-helpers.js";
 
+import { AgentsList } from "@moltzap/protocol/identity";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  AgentsLookup,
-  DEFAULT_APP_ID,
   MessageReceivedNotificationDefinition,
   MessagesList,
   MessagesSend,
-  TaskRequest,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/message";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -24,6 +27,7 @@ const RECONNECT_WAIT_MS = 10_000;
 const MESSAGE_DELIVERY_WAIT_MS = 5_000;
 const WAIT_BUDGET_FACTOR_MIN = 1;
 const WAIT_BUDGET_FACTOR_MAX = 3;
+const AGENT_LIST_PAGE_SIZE = 100;
 
 const RECONNECT_BOB_NAME = "recon-bob";
 const RECONNECT_ALICE_HISTORY_NAME = "recon-alice-history";
@@ -65,7 +69,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
 function registerAgent(name: string) {
   return Effect.tryPromise({
-    try: () => registerAndClaim(name),
+    try: () => registerTestAgent(name),
     catch: (cause) =>
       new ReconnectionTestError({
         message: `Registration failed for ${name}`,
@@ -85,7 +89,7 @@ function waitUntil(predicate: () => boolean, timeoutMs: number, label: string) {
   });
 }
 
-function createClient(agentKey: string, options = {}) {
+function createClient(agentKey: AgentKey, options = {}) {
   return new MoltZapAgentClient({
     serverUrl: baseUrl,
     agentKey,
@@ -93,7 +97,7 @@ function createClient(agentKey: string, options = {}) {
   });
 }
 
-function createStrippedClient(agentKey: string) {
+function createStrippedClient(agentKey: AgentKey) {
   return new MoltZapAgentClient({
     serverUrl: stripWsPath(wsUrl),
     agentKey,
@@ -101,19 +105,19 @@ function createStrippedClient(agentKey: string) {
 }
 
 interface DmBinding {
-  readonly taskId: string;
-  readonly conversationId: string;
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
 }
 
 function createDmConversation(
   client: MoltZapAgentClient,
-  agentId: string,
+  invitee: AgentId,
 ): Effect.Effect<DmBinding, unknown> {
   return client
-    .sendRpc(TaskRequest, {
+    .call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [agentId],
-      initialConversation: { participants: [agentId] },
+      invitedAgentIds: [invitee],
+      initialConversation: { participants: [invitee] },
     })
     .pipe(
       Effect.map((result) => ({
@@ -128,7 +132,7 @@ function sendText(
   binding: DmBinding,
   text: string,
 ) {
-  return client.sendRpc(MessagesSend, {
+  return client.call(MessagesSend.name, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: TEXT_PART_TYPE, text }],
@@ -137,7 +141,7 @@ function sendText(
 
 function listMessageTexts(client: MoltZapAgentClient, binding: DmBinding) {
   return client
-    .sendRpc(MessagesList, {
+    .call(MessagesList.name, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     })
@@ -190,10 +194,12 @@ function onReconnectReceivesHelloOk() {
     const aliceClient = createStrippedClient(alice.apiKey);
     yield* aliceClient.connect();
     const binding = yield* createDmConversation(aliceClient, bob.agentId);
-    let reconnectHelloOk: unknown = null;
+    let reconnectFired = false;
+    let reconnectHelloOk: unknown = undefined;
     const bobClient = createClient(bob.apiKey, {
       onDisconnect: () => undefined,
       onReconnect: (helloOk: unknown) => {
+        reconnectFired = true;
         reconnectHelloOk = helloOk;
       },
     });
@@ -202,11 +208,13 @@ function onReconnectReceivesHelloOk() {
     yield* bobClient.disconnect();
     yield* sendText(aliceClient, binding, MISSED_WHILE_OFFLINE_TEXT);
     yield* waitUntil(
-      () => reconnectHelloOk !== null,
+      () => reconnectFired,
       RECONNECT_WAIT_MS,
       "missed-message reconnect",
     );
-    expect(reconnectHelloOk).toMatchObject({ agentId: bob.agentId });
+    // `HelloOk` carries no payload — the connecting client already holds its own
+    // id, so success (a delivered, well-formed envelope) is the whole signal.
+    expect(reconnectHelloOk).toEqual({});
     expect(yield* listMessageTexts(bobClient, binding)).toContain(
       MISSED_WHILE_OFFLINE_TEXT,
     );
@@ -316,12 +324,13 @@ function rpcCallsWorkAfterReconnect() {
     yield* client.connect();
     yield* client.disconnect();
     yield* waitUntil(() => reconnected, RECONNECT_WAIT_MS, "reconnect");
-    const result = yield* client.sendRpc(AgentsLookup, {
-      agentIds: [bob.agentId],
+    const result = yield* client.call(AgentsList.name, {
+      limit: AGENT_LIST_PAGE_SIZE,
     });
+    const bobCard = result.agents.find((agent) => agent.id === bob.agentId);
 
-    expect(result.agents).toHaveLength(SINGLE_AGENT_COUNT);
-    expect(result.agents[0]?.name).toBe(RECONNECT_BOB_RPC_NAME);
+    expect(result.agents.length).toBeGreaterThanOrEqual(SINGLE_AGENT_COUNT);
+    expect(bobCard?.name).toBe(RECONNECT_BOB_RPC_NAME);
     yield* client.close();
   });
 }

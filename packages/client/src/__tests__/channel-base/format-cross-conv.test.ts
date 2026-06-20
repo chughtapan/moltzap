@@ -2,9 +2,8 @@
  * Golden-snapshot tests for `formatCrossConv`.
  *
  * Each case asserts byte-equality between the channel-base output and the
- * pre-refactor fixture captured by `scripts/capture-channel-base-fixtures.ts`
- * (see arch sub-issue #605 §3.5). Both markup variants are covered, plus
- * the formatter-callback escape hatch.
+ * fixture captured by `scripts/capture-channel-base-fixtures.ts`. Both markup
+ * variants are covered, plus the formatter-callback escape hatch.
  */
 
 import { readFileSync } from "node:fs";

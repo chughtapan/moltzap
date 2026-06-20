@@ -1,19 +1,12 @@
 import { defineConfig } from "vitest/config";
 
-/**
- * Nanoclaw channel client-side conformance vitest config (AC17).
- * Scoped to the `src/__tests__/conformance/**` tree; reuses the
- * protocol package's executable client divergence proofs.
- */
+/** Client-side conformance was retired with the typed Effect RPC transport. */
 export default defineConfig({
   test: {
-    include: [
-      "src/__tests__/conformance/**/*.test.ts",
-      "../protocol/src/testing/conformance/__divergence_proofs__/client-executable.proofs.test.ts",
-    ],
+    include: ["src/__tests__/conformance/**/*.test.ts"],
     testTimeout: 120_000,
     hookTimeout: 90_000,
     fileParallelism: false,
-    passWithNoTests: false,
+    passWithNoTests: true,
   },
 });

@@ -3,39 +3,49 @@
  * and downstream consumers (nanoclaw, openclaw).
  *
  * Strategy: extend the real `MoltZapService`, keeping all stateful logic
- * intact, and override only `sendRpc` so every RPC is answered from a
+ * intact, and override only `call` so every RPC is answered from a
  * canned-response map. `setResponse` indexes by protocol descriptor so a
  * typo in the wire name cannot compile.
  *
- * Motivation: the `sendToAgent` contract drift bug (A7) happened because a
+ * Motivation: the `sendToAgent` contract drift bug happened because a
  * hand-maintained mock drifted from the real wire shape. Typed method names
  * surface renames and additions to the RPC surface as compile errors across
  * every test that uses the fake.
- *
- * Canned responses are validated through the descriptor's result schema before
- * they are returned, matching the real transport boundary.
  */
 
-import type {
-  DecodedNotification,
-  AnyNotificationDefinition,
-  NotificationFrame,
-  Message,
-  ParamsOf,
-  ResultOf,
-  RpcDefinition,
-} from "@moltzap/protocol";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
-  decodeServerInbound,
-  JSON_RPC_RESERVED_CODES,
-  RpcServerError,
-} from "@moltzap/protocol";
+  AgentCallableGroup,
+  type AnyAgentCallableRpcDefinition,
+  type AnyNotificationDefinition,
+} from "@moltzap/protocol/socket/catalog";
+import type {
+  NotificationDelivery,
+  NotificationParamsOf,
+  PayloadForTag,
+  SuccessForTag,
+} from "@moltzap/protocol/rpc";
+import type { Message } from "@moltzap/protocol/message";
+import type { RpcGroup } from "@effect/rpc";
+import { NotFoundError } from "@moltzap/protocol/rpc";
+import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
-import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
-import type { RpcCallOptions } from "@moltzap/client";
+import { MoltZapService, type ServiceRpcError } from "../service.js";
+import type { RpcCallOptions } from "../agent-client.js";
 import { testAgentId } from "./ids.js";
 
-/** A tracked `sendRpc` invocation. */
+const TEST_AGENT_KEY = redactedAgentKey(agentKeyString(0));
+
+type FakeAgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+type FakeAgentCallableTag = FakeAgentCallableRpcs["_tag"];
+type FakeResponseMap = {
+  [Tag in FakeAgentCallableTag]?: () => Effect.Effect<
+    SuccessForTag<FakeAgentCallableRpcs, Tag>,
+    ServiceRpcError
+  >;
+};
+
+/** A tracked `call` invocation. */
 export interface RecordedCall {
   method: string;
   params: unknown;
@@ -44,72 +54,59 @@ export interface RecordedCall {
 
 export class FakeMoltZapService extends MoltZapService {
   calls: RecordedCall[] = [];
-  private readonly responses = new Map<
-    string,
-    (params: unknown) => Effect.Effect<unknown, ServiceRpcError>
-  >();
+  private readonly responses: FakeResponseMap = {};
 
   constructor(
     opts: {
       serverUrl?: string;
-      agentKey?: string;
+      agentKey?: AgentKey;
+      agentId?: AgentId;
     } = {},
   ) {
     super({
       serverUrl: opts.serverUrl ?? "ws://test.invalid",
-      agentKey: opts.agentKey ?? "test-key",
+      agentKey: opts.agentKey ?? TEST_AGENT_KEY,
+      agentId: opts.agentId ?? testAgentId("test-agent"),
     });
   }
 
   /**
    * Register a canned response, typed against the real RPC descriptor.
    */
-  setResponse<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    result: ResultOf<D>,
+  setResponse<Tag extends FakeAgentCallableTag>(
+    definition: Extract<AnyAgentCallableRpcDefinition, { readonly name: Tag }>,
+    result: SuccessForTag<FakeAgentCallableRpcs, Tag>,
   ): void {
-    this.responses.set(definition.name, () => Effect.succeed(result));
+    this.responses[definition.name] = () => Effect.succeed(result);
   }
 
   /**
    * Remove a previously-registered response.
    */
-  deleteResponse<D extends RpcDefinition<string, any, any>>(
-    definition: D,
+  deleteResponse<Tag extends FakeAgentCallableTag>(
+    definition: Extract<AnyAgentCallableRpcDefinition, { readonly name: Tag }>,
   ): void {
-    this.responses.delete(definition.name);
+    delete this.responses[definition.name];
   }
 
-  override sendRpc<D extends RpcDefinition<string, any, any>>(
-    definition: D,
-    params: ParamsOf<D>,
+  override call<Tag extends FakeAgentCallableTag>(
+    tag: Tag,
+    payload: PayloadForTag<FakeAgentCallableRpcs, Tag>,
     opts?: RpcCallOptions,
-  ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
+  ): Effect.Effect<SuccessForTag<FakeAgentCallableRpcs, Tag>, ServiceRpcError> {
     return Effect.suspend(() => {
-      const method = definition.name;
       this.calls.push(
-        opts === undefined ? { method, params } : { method, params, opts },
+        opts === undefined
+          ? { method: tag, params: payload }
+          : { method: tag, params: payload, opts },
       );
-      const responder = this.responses.get(method);
+      const responder = this.responses[tag];
       if (responder !== undefined) {
-        return responder(params).pipe(
-          Effect.flatMap((result) =>
-            definition.validateResult(result)
-              ? Effect.succeed(result as ResultOf<D>)
-              : Effect.fail(
-                  new RpcServerError({
-                    code: JSON_RPC_RESERVED_CODES.InternalError,
-                    message: `FakeMoltZapService: invalid result for ${method}`,
-                    data: result,
-                  }),
-                ),
-          ),
-        );
+        return responder();
       }
       return Effect.fail(
-        new RpcServerError({
-          code: JSON_RPC_RESERVED_CODES.MethodNotFound,
-          message: `FakeMoltZapService: no canned response for ${method}`,
+        new NotFoundError({
+          message: `FakeMoltZapService: no canned response for ${tag}`,
         }),
       );
     });
@@ -119,8 +116,7 @@ export class FakeMoltZapService extends MoltZapService {
 
   /**
    * Insert a message into the service's internal buffer without going
-   * through the WebSocket path — used to stage state for context-building
-   * tests.
+   * through the WebSocket path. Tests use this to stage context-building state.
    */
   addMessage(convId: string, msg: Message): void {
     Effect.runSync(
@@ -134,33 +130,20 @@ export class FakeMoltZapService extends MoltZapService {
     );
   }
 
-  /** Deliver a protocol notification through the real service handler. */
-  emitEvent(event: NotificationFrame): void {
-    const decoded = Effect.runSync(
-      decodeServerInbound(event).pipe(
-        Effect.catchTag("MalformedFrameError", (cause) =>
-          Effect.fail(
-            new RpcServerError({
-              code: JSON_RPC_RESERVED_CODES.InvalidParams,
-              message: `FakeMoltZapService: invalid notification ${event.method}`,
-              data: { params: event.params, raw: cause.raw },
-            }),
-          ),
-        ),
-      ),
-    );
-    if (decoded._tag !== "Notification") {
-      throw new RpcServerError({
-        code: JSON_RPC_RESERVED_CODES.InvalidParams,
-        message: `FakeMoltZapService: emitEvent expects a notification frame, got ${decoded._tag}`,
-        data: event,
-      });
-    }
-    this.emitNotification(decoded);
+  /** Deliver already Schema-decoded notification params through the service. */
+  emitEvent<D extends AnyNotificationDefinition>(
+    definition: D,
+    params: NotificationParamsOf<D>,
+  ): void {
+    this.emitNotification({
+      definition,
+      method: definition.name,
+      params,
+    });
   }
 
   emitNotification(
-    notification: DecodedNotification<AnyNotificationDefinition>,
+    notification: NotificationDelivery<AnyNotificationDefinition>,
   ): void {
     this.handleNotification(notification);
   }

@@ -18,50 +18,112 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./transport": {
-      "types": "./dist/transport/index.d.ts",
-      "import": "./dist/transport/index.js"
-    },
     "./identity": {
       "types": "./dist/identity/index.d.ts",
       "import": "./dist/identity/index.js"
-    },
-    "./network": {
-      "types": "./dist/network/index.d.ts",
-      "import": "./dist/network/index.js"
     },
     "./task": {
       "types": "./dist/task/index.d.ts",
       "import": "./dist/task/index.js"
     },
-    "./app": {
-      "types": "./dist/app/index.d.ts",
-      "import": "./dist/app/index.js"
+    "./conversation": {
+      "types": "./dist/conversation/index.d.ts",
+      "import": "./dist/conversation/index.js"
+    },
+    "./message": {
+      "types": "./dist/message/index.d.ts",
+      "import": "./dist/message/index.js"
+    },
+    "./message/dispatch": {
+      "types": "./dist/message/dispatch.d.ts",
+      "import": "./dist/message/dispatch.js"
+    },
+    "./rpc": {
+      "types": "./dist/rpc.d.ts",
+      "import": "./dist/rpc.js"
+    },
+    "./network": {
+      "types": "./dist/network/index.d.ts",
+      "import": "./dist/network/index.js"
+    },
+    "./socket": {
+      "types": "./dist/socket/index.d.ts",
+      "import": "./dist/socket/index.js"
+    },
+    "./socket/catalog": {
+      "types": "./dist/socket/catalog/index.d.ts",
+      "import": "./dist/socket/catalog/index.js"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
     }
   },
+  "imports": {
+    "#transport": "./src/transport/index.ts",
+    "#transport/descriptor": "./src/transport/descriptor.ts",
+    "#rpc": "./src/rpc.ts",
+    "#identity": "./src/identity/index.ts",
+    "#identity/agents": "./src/identity/agents/index.ts",
+    "#identity/apps": "./src/identity/apps/index.ts",
+    "#identity/users": "./src/identity/users/index.ts",
+    "#identity/contacts": "./src/identity/contacts/index.ts",
+    "#identity/contacts/requirements": "./src/identity/contacts/requirements/index.ts",
+    "#identity/principals": "./src/identity/principals/index.ts",
+    "#identity/requirements": "./src/identity/requirements/index.ts",
+    "#network": "./src/network/index.ts",
+    "#task": "./src/task/index.ts",
+    "#task/requirements": "./src/task/requirements/index.ts",
+    "#conversation": "./src/conversation/index.ts",
+    "#conversation/requirements": "./src/conversation/requirements/index.ts",
+    "#message": "./src/message/index.ts",
+    "#message/dispatch": "./src/message/dispatch.ts",
+    "#socket": "./src/socket/index.ts",
+    "#socket/catalog": "./src/socket/catalog/index.ts",
+    "#testing": "./src/testing/index.ts"
+  },
   "scripts": {
-    "build": "tsc",
-    "lint": "eslint src scripts *.ts --cache --max-warnings=0",
+    "build": "nx run @moltzap/protocol:build",
+    "lint": "nx run @moltzap/protocol:lint",
     "docs:generate": "tsx scripts/generate-docs.ts && (cd ../.. && pnpm exec typedoc) && tsx scripts/generate-modules.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/protocol",
+          "parallel": false,
+          "commands": [
+            "tsc -b",
+            "tsc-alias -p tsconfig.json",
+            "node scripts/check-dist-aliases.js"
+          ]
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/protocol",
+          "command": "eslint src scripts *.ts --cache --max-warnings=0"
+        }
+      }
+    }
   },
   "dependencies": {
     "@effect/platform": "^0.96.1",
-    "@sinclair/typebox": "^0.34.0",
-    "ajv": "^8.17.0",
-    "ajv-formats": "^3.0.0",
+    "@effect/platform-node": "^0.106.0",
+    "@effect/rpc": "0.75.1",
     "effect": "3.21.2"
   },
   "devDependencies": {
-    "@effect/platform-node": "^0.106.0",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
-    "fast-check": "^4.6.0",
+    "fast-check": "^3.23.1",
+    "tsc-alias": "^1.8.17",
     "tsx": "^4.19.0",
     "typedoc": "^0.28.0",
     "typescript": "^5.7.0",

@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -11,10 +11,10 @@ it("lastRead tracks seen message IDs across reads", () =>
     const regA = yield* H.registerAgent("sock-page-a");
     const regB = yield* H.registerAgent("sock-page-b");
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(TaskRequest, {
+      const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
@@ -67,16 +67,16 @@ it("non-text message parts render as markers in socket history", () =>
     const regA = yield* H.registerAgent("sock-attach-a");
     const regB = yield* H.registerAgent("sock-attach-b");
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     try {
-      const conv = yield* H.socketRpcRequest(TaskRequest, {
+      const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
       });
 
-      yield* regB.client.sendRpc(H.MessagesSend, {
+      yield* regB.client.call(H.MessagesSend.name, {
         taskId: conv.task.id,
         conversationId: conv.conversation!.id,
         parts: [
@@ -106,16 +106,16 @@ it("non-text message parts render as markers in socket history", () =>
 it("socketPath is stable after connect (cached at startSocketServer time)", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent("sock-stable");
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
     const pathAtStart = service.socketPath;
     try {
-      const result = yield* H.requestLocalService(
-        H.LocalServiceCommands.Ping,
-        undefined,
+      const result = yield* H.requestDaemonCommand(
+        H.LocalDaemonCommands.Status,
+        {},
         pathAtStart,
       );
-      expect(result.ok).toBe(true);
+      expect(result.agentId).toBe(reg.agentId);
     } finally {
       service.close();
       yield* reg.client.close();

@@ -1,12 +1,12 @@
 /**
  * Authorized caller → typed success on at least one known-safe RPC.
  * Registers a fresh agent, completes the handshake, calls
- * `conversations/list` (empty-collection result is defined for every
- * newly-registered agent), asserts a Right outcome.
+ * `agent/task/list` (empty-collection result is defined for every
+ * newly-registered agent), and asserts a Right outcome.
  */
 import { Effect } from "effect";
 import { TaskList } from "@moltzap/protocol/task";
-import { makeTestClient } from "../_shared/driver/test-client.js";
+import { makeAgentTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
@@ -18,7 +18,6 @@ import { leftOrNull } from "../_shared/_helpers.js";
 const CATEGORY = "rpc-semantics" as const;
 const PROPERTY = "authority-positive";
 const DEFAULT_TIMEOUT_MS = 3000;
-const DEFAULT_CAPTURE_CAPACITY = 64;
 
 const invariant = (reason: string): PropertyInvariantViolation =>
   new PropertyInvariantViolation({
@@ -32,7 +31,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     PROPERTY,
-    "authorized agent → typed success on conversations/list",
+    "authorized agent -> typed success on agent/task/list",
     Effect.scoped(
       Effect.gen(function* () {
         const agent = yield* registerTestAgent({
@@ -43,12 +42,10 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
             invariant(`agent registration failed: ${e.body}`),
           ),
         );
-        const client = yield* makeTestClient({
+        const client = yield* makeAgentTestClient({
           serverUrl: ctx.realServer.wsUrl,
           agentKey: agent.apiKey,
-          agentId: agent.agentId,
           defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-          captureCapacity: DEFAULT_CAPTURE_CAPACITY,
         }).pipe(
           Effect.mapError((e) =>
             invariant(`client acquire failed: ${String(e)}`),
@@ -58,11 +55,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
         const failure = leftOrNull(outcome);
         if (failure !== null) {
           return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `authorized conversations/list failed: ${failure._tag}`,
-            }),
+            invariant(`authorized agent/task/list failed: ${failure._tag}`),
           );
         }
       }).pipe(Effect.withSpan("registerAuthorityPositive")),

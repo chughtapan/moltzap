@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -12,7 +12,7 @@ it("messages/list returns both own and other agent messages", () =>
     const regB = yield* H.registerAgent("hist-b");
 
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     // Create DM between A and B
     const conv = yield* H.createDm(service, regB.agentId);
@@ -38,7 +38,7 @@ it("messages/list returns both own and other agent messages", () =>
     yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
 
     // Fetch history via RPC (same as CLI moltzap history would do)
-    const result = yield* service.sendRpc(H.MessagesList, {
+    const result = yield* service.call(H.MessagesList.name, {
       taskId: conv.task.id,
       conversationId: conv.conversation!.id,
       limit: 10,
@@ -75,10 +75,10 @@ it("group conversation history shows all participants", () =>
 
     yield* regB.client.connect();
     yield* regC.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     // Create group
-    const conv = yield* service.sendRpc(TaskRequest, {
+    const conv = yield* service.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regB.agentId, regC.agentId],
       initialConversation: {
@@ -96,7 +96,7 @@ it("group conversation history shows all participants", () =>
     yield* H.sendAndSettle(regC.client, taskId, conversationId, "Agent C here");
 
     // Fetch history
-    const result = yield* service.sendRpc(H.MessagesList, {
+    const result = yield* service.call(H.MessagesList.name, {
       taskId,
       conversationId,
       limit: 10,

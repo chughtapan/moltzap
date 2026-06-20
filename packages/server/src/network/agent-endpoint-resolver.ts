@@ -13,11 +13,11 @@
  * evicts the prior owner from the forward map atomically inside the same
  * {@link Ref.update}. Practically unreachable (connection ids are UUIDs
  * minted at `crypto.randomUUID()` per WS accept), but the detection is
- * cheap and the alternative was a silent forward-map leak.
+ * cheap and the alternative is a silent forward-map leak.
  *
  * Auth-lifecycle:
  * - Socket connect: NOT yet added to the resolver (no `agentId` known).
- * - `network/connect` success: {@link add} writes the entry atomically.
+ * - `agent/network/connect` success: {@link add} writes the entry atomically.
  * - Disconnect: {@link remove} removes the entry whether the connection
  *   was authed or not (idempotent on never-authed connections).
  *
@@ -26,17 +26,16 @@
  */
 import { Effect, HashMap, HashSet, Option, Ref } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConnectionId } from "@moltzap/protocol/network";
+import { connectionId as protocolConnectionId } from "@moltzap/protocol/socket";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 
 /**
- * Brand a raw connection-id string. Used by call sites that mint a fresh
- * id (`socket-handler.ts` at WS accept) or in tests that name connections
- * with synthetic strings. `ConnectionId` itself lives at
- * `@moltzap/protocol/network`; the boundary cast here is the only
- * acceptable production construction since `crypto.randomUUID()` returns
- * `string` and `ConnectionId` is a `brandedString` (no UUID predicate).
+ * Decode a raw connection-id string through the protocol brand constructor.
+ * Used by tests that name connections with synthetic strings; production
+ * socket accept uses `newConnectionId` from protocol.
  */
-export const connectionId = (raw: string): ConnectionId => raw as ConnectionId;
+export const connectionId: (value: string) => ConnectionId =
+  protocolConnectionId;
 
 /**
  * Snapshot of the resolver's combined state. Held in a single {@link Ref}
@@ -59,7 +58,7 @@ const emptyState: ResolverState = {
  *
  * All mutators run inside a single {@link Ref.update} so the forward and
  * reverse views never disagree, even under concurrent {@link add} /
- * {@link remove} calls from independent `network/connect` and disconnect
+ * {@link remove} calls from independent `agent/network/connect` and disconnect
  * fibers.
  */
 export class AgentEndpointResolver {
@@ -78,12 +77,12 @@ export class AgentEndpointResolver {
    * same agent leaves the set unchanged ({@link HashSet.add} is set-union
    * semantics).
    *
-   * Cross-agent ownership conflict (Phase 8 codex deferral on PR #458):
-   * if `connectionId` is already in the reverse index for a *different*
-   * agent, the new add takes ownership — the connection is removed from
+   * Cross-agent ownership conflict: if `connectionId` is already in the
+   * reverse index for a *different* agent, the new add takes ownership —
+   * the connection is removed from
    * the prior agent's forward set inside the same `Ref.update` so the
    * forward and reverse views stay invariant. Practically unreachable
-   * but the detection is cheap and the alternative was a silent
+   * but the detection is cheap and the alternative is a silent
    * forward-map leak.
    */
   add(agentId: AgentId, connId: ConnectionId): Effect.Effect<void> {
@@ -158,13 +157,6 @@ export class AgentEndpointResolver {
    * Hot-path fan-out lookup. Returns every connection id currently
    * associated with `agentId`. Read-only snapshot — the `HashSet` is
    * immutable and the caller cannot mutate the resolver through it.
-   *
-   * Phase 9b consumer-migration (sub-issue #460 amendment): post-rename
-   * the return type is `HashSet&lt;ConnectionId>` rather than the
-   * `HashSet&lt;EndpointAddress>` shape the pre-Phase-9b namespace split
-   * carried. Consumers that previously read `EndpointAddress` values
-   * out of the resolver and re-wrapped them around `connectionId` now
-   * read `ConnectionId` directly.
    */
   resolveAll(agentId: AgentId): Effect.Effect<HashSet.HashSet<ConnectionId>> {
     return Effect.map(Ref.get(this.state), (s) =>

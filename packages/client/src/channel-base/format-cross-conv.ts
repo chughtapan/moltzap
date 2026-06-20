@@ -3,14 +3,9 @@
  * formatter parameterized by markup variant or per-channel formatter
  * callback.
  *
- * Replaces:
- * - `packages/openclaw-channel/src/format-cross-conv.ts → formatCrossConvOpenClaw`
- *   (markup variant: `"json-header"`)
- * - `packages/nanoclaw-channel/src/channels/moltzap.ts → formatCrossConvNanoclaw`
- *   (markup variant: `"xml-system-reminder"`)
- *
- * Behavioral parity is locked via the golden-snapshot fixtures captured
- * pre-refactor — see arch sub-issue #605 §3.5 and §4.6.
+ * Used by the openclaw channel (markup variant `"json-header"`) and the
+ * nanoclaw channel (markup variant `"xml-system-reminder"`). Behavioral
+ * parity across both is locked via golden-snapshot fixtures.
  */
 
 import {
@@ -80,13 +75,13 @@ function formatXmlSystemReminder(
  * Returns the formatted block, or `null` when `messages` is empty.
  *
  * Markup variants:
- * - `"json-header"`: byte-identical to the pre-refactor openclaw output.
- *   Header is `"Messages (untrusted metadata):"` followed by a ` ```json `
- *   fenced JSON array.
- * - `"xml-system-reminder"`: byte-identical to the pre-refactor nanoclaw
- *   output. `&lt;messages&gt;` wrapper around `&lt;message&gt;` entries with
- *   `sender`/`conversation`/`time` attributes; sender/conv/time/text all
- *   run through `sanitizeForSystemReminder`.
+ * - `"json-header"`: openclaw output. Header is
+ *   `"Messages (untrusted metadata):"` followed by a ` ```json ` fenced
+ *   JSON array.
+ * - `"xml-system-reminder"`: nanoclaw output. `&lt;messages&gt;` wrapper
+ *   around `&lt;message&gt;` entries with `sender`/`conversation`/`time`
+ *   attributes; sender/conv/time/text all run through
+ *   `sanitizeForSystemReminder`.
  *
  * Or pass a custom `formatter` callback — channel-base owns the empty-check
  * + ownAgentId disambiguation; the callback owns the markup.

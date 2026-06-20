@@ -24,17 +24,18 @@ import {
   Data,
   Effect,
   Either,
-  Match,
   Option,
   Redacted,
   Schema,
 } from "effect";
-import { FormatRegistry, Type } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
-import type { ConfigError } from "effect/ConfigError";
+import { TreeFormatter } from "effect/ParseResult";
+import {
+  RegistrationSecret,
+  ServerEncryptionMasterSecret,
+} from "#config/secrets";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
-import type { Db } from "./db/client.js";
-import type { SessionValidator } from "./identity/services/session-validator.js";
+import { UserId } from "@moltzap/protocol/identity";
+import type { Db } from "#db";
 
 // ─────────────────────────────────────────────────────────────────────
 // Public: CoreConfig — `createCoreApp` boot input
@@ -43,29 +44,18 @@ import type { SessionValidator } from "./identity/services/session-validator.js"
 export interface CoreConfig {
   db: Db;
   dbCleanup?: () => PromiseLike<void>;
-  encryptionMasterSecret?: string;
+  encryptionMasterSecret?: ServerEncryptionMasterSecret;
   port: number;
   corsOrigins: string[];
-  registrationSecret?: string;
+  registrationSecret?: RegistrationSecret;
   devMode?: boolean;
 
   /**
-   * When set, agents registered via the default `/api/v1/auth/register`
-   * route are given this user id as their `owner_user_id`, skipping the
-   * claim step. Intended for local dev / quickstart. Production MUST
-   * leave this unset and perform claim through an external auth
-   * provider — wire it via `services.sessions: { type: webhook }` in
-   * `moltzap.yaml` (see `moltzap.example.yaml` and
-   * `packages/server/src/standalone.ts → makeSessionValidator`).
+   * Boot-time admin owner id. Agents registered through the default
+   * `/api/v1/auth/register` route are owned by this user until the
+   * full app-specific registration/contact flow is installed.
    */
-  devModeUserId?: string;
-
-  /**
-   * Optional bearer-token session validator (called from `network/connect`
-   * when the caller authenticates with a `sessionToken`). Unset → bearer-
-   * token auth is unsupported; only `agentKey` auth works.
-   */
-  sessionValidator?: SessionValidator;
+  adminUserId: UserId;
 
   /**
    * When true, core does not mount its default `/api/v1/auth/register`
@@ -73,18 +63,6 @@ export interface CoreConfig {
    * flow set this and mount their own handler.
    */
   skipDefaultRegisterRoute?: boolean;
-
-  /**
-   * Fire-and-forget HTTP webhook after message delivery with the list of
-   * offline recipient agent IDs. Body is signed with HMAC-SHA256 in the
-   * `X-MoltZap-Signature: sha256=&lt;hex>` header using `secret`.
-   *
-   * Shape: `{ conversationId, messageId, offlineRecipientAgentIds: string[] }`.
-   *
-   * Dispatched on a detached daemon fiber with a 3-attempt exponential backoff
-   * (1s base, jittered). Failures log and drop — never block `messages/send`.
-   */
-  deliveryWebhook?: { url: string; secret: string };
 
   /**
    * Optional OpenTelemetry span processor. Tests typically pass
@@ -113,20 +91,16 @@ export interface StandaloneBootPlan {
   /** YAML `database.data_dir` for PGlite (ignored when `databaseUrl` is set). */
   readonly pgliteDataDir: string | undefined;
 
-  readonly encryptionMasterSecret: string | undefined;
+  readonly encryptionMasterSecret: ServerEncryptionMasterSecret | undefined;
   readonly port: number;
   readonly corsOrigins: string[];
 
   readonly devMode: boolean;
-  /** True when YAML `dev_mode.enabled: true` — drives `devModeUserId` minting. */
-  readonly devModeEnabled: boolean;
-  /** YAML `dev_mode.user_id`. When `devModeEnabled` and this is undefined, callers mint a random UUID. */
-  readonly devModeUserId: string | undefined;
+  /** Boot-time admin owner id from `MOLTZAP_ADMIN_USER_ID` or YAML `admin_user_id`. */
+  readonly adminUserId: UserId;
 
-  readonly registrationSecret: string | undefined;
+  readonly registrationSecret: RegistrationSecret | undefined;
 
-  /** YAML `services.sessions: { type: "webhook" }` — drives `WebhookSessionValidator` wiring. */
-  readonly sessionWebhook: WebhookServiceBinding | undefined;
   /** YAML `services.contacts: { type: "webhook" }` — drives `WebhookContactService` wiring. */
   readonly contactWebhook: WebhookServiceBinding | undefined;
 
@@ -148,276 +122,115 @@ export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
   readonly path: string;
   readonly message: string;
   readonly cause?: unknown;
-  /** Present when `kind === "validation"` — the raw Effect ConfigError tree. */
-  readonly configError?: ConfigError;
 }> {}
 
 // ─────────────────────────────────────────────────────────────────────
-// Private: YAML schema (Effect Config descriptions)
+// Private: YAML schema — the single source of truth for the file shape
+//
+// `Schema.decodeUnknownEither` with `onExcessProperty: "error"` rejects
+// unknown keys and requires `master_secret`, so a camelCase typo
+// (`masterSecret`) or `encryption: {}` cannot pass and silently disable
+// at-rest encryption (plaintext storage). The same decode pins the port
+// range, the webhook URI, the `timeout_ms` floor, and every `minLength`
+// rule, and produces the typed `YamlConfig` value
+// the boot-plan build reads — one pass for both validation and shape.
 // ─────────────────────────────────────────────────────────────────────
 
 const MAX_PORT_NUMBER = 65_535;
 
-const nonEmptyString = (name: string) =>
-  Config.string(name).pipe(
-    Config.validate({
-      message: `${name} must be a non-empty string`,
-      validation: (s: string) => s.length > 0,
-    }),
-  );
-
-const portNumber = (name: string) =>
-  Config.integer(name).pipe(
-    Config.validate({
-      message: `${name} must be in range [1, ${MAX_PORT_NUMBER}]`,
-      validation: (n: number) => n >= 1 && n <= MAX_PORT_NUMBER,
-    }),
-  );
-
 const opt = <A>(c: Config.Config<A>) =>
   c.pipe(Config.option, Config.map(Option.getOrUndefined));
 
-interface YamlWebhookService {
-  readonly type: "webhook";
-  readonly webhook_url: string;
-  readonly timeout_ms?: number;
-  readonly callback_token?: string;
-}
-
-interface YamlInProcessService {
-  readonly type: "in_process";
-}
-
-type YamlServiceConfig = YamlWebhookService | YamlInProcessService;
-
-const YamlWebhookServiceConfig: Config.Config<YamlWebhookService> = Config.all({
-  type: Config.literal("webhook")("type"),
-  webhook_url: nonEmptyString("webhook_url"),
-  timeout_ms: opt(Config.integer("timeout_ms")),
-  callback_token: opt(nonEmptyString("callback_token")),
-}).pipe(
-  Config.map(
-    ({ type, webhook_url, timeout_ms, callback_token }): YamlWebhookService => {
-      const out: YamlWebhookService = { type, webhook_url };
-      if (timeout_ms !== undefined && callback_token !== undefined) {
-        return { ...out, timeout_ms, callback_token };
-      }
-      if (timeout_ms !== undefined) return { ...out, timeout_ms };
-      if (callback_token !== undefined) return { ...out, callback_token };
-      return out;
-    },
-  ),
+// `URL.canParse` requires an absolute URI (a scheme present), so
+// `not-a-url` is rejected while `https://hooks.example.com/x` passes.
+const UriString = Schema.String.pipe(
+  Schema.filter((s) => URL.canParse(s) || "must be a valid absolute URI"),
 );
 
-const YamlInProcessServiceConfig: Config.Config<YamlInProcessService> =
-  Config.all({ type: Config.literal("in_process")("type") }).pipe(
-    Config.map(({ type }): YamlInProcessService => ({ type })),
-  );
+const PortNumber = Schema.Number.pipe(
+  Schema.int(),
+  Schema.greaterThanOrEqualTo(1),
+  Schema.lessThanOrEqualTo(MAX_PORT_NUMBER),
+);
 
-const YamlServiceBlock: Config.Config<YamlServiceConfig> =
-  YamlWebhookServiceConfig.pipe(
-    Config.orElse(() => YamlInProcessServiceConfig),
-  );
-
-interface YamlConfig {
-  readonly server?: {
-    readonly port?: number;
-    readonly cors_origins?: string[];
-  };
-  readonly database?: { readonly url?: string; readonly data_dir?: string };
-  readonly encryption?: { readonly master_secret?: string };
-  readonly services?: {
-    readonly sessions?: YamlServiceConfig;
-    readonly contacts?: YamlServiceConfig;
-  };
-  readonly registration?: { readonly secret?: string };
-  readonly dev_mode?: { readonly enabled: boolean; readonly user_id?: string };
-  readonly apps?: ReadonlyArray<{ readonly manifest: string }>;
-}
-
-const YamlConfigSchema: Config.Config<YamlConfig> = Config.all({
-  server: opt(
-    Config.all({
-      port: opt(portNumber("port")),
-      cors_origins: opt(Config.array(Config.string(), "cors_origins")),
-    }).pipe(Config.nested("server")),
+const WebhookServiceShape = Schema.Struct({
+  type: Schema.Literal("webhook"),
+  webhook_url: UriString,
+  timeout_ms: Schema.optional(
+    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(100)),
   ),
-  database: opt(
-    Config.all({
-      url: opt(nonEmptyString("url")),
-      data_dir: opt(Config.string("data_dir")),
-    }).pipe(Config.nested("database")),
-  ),
-  encryption: opt(
-    Config.all({
-      master_secret: opt(nonEmptyString("master_secret")),
-    }).pipe(Config.nested("encryption")),
-  ),
-  services: opt(
-    Config.all({
-      sessions: opt(YamlServiceBlock.pipe(Config.nested("sessions"))),
-      contacts: opt(YamlServiceBlock.pipe(Config.nested("contacts"))),
-    }).pipe(Config.nested("services")),
-  ),
-  registration: opt(
-    Config.all({ secret: opt(nonEmptyString("secret")) }).pipe(
-      Config.nested("registration"),
-    ),
-  ),
-  dev_mode: opt(
-    Config.all({
-      enabled: Config.boolean("enabled"),
-      user_id: opt(nonEmptyString("user_id")),
-    }).pipe(Config.nested("dev_mode")),
-  ),
-  apps: opt(
-    Config.array(Config.all({ manifest: nonEmptyString("manifest") }), "apps"),
-  ),
+  callback_token: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Private: structural YAML validation (TypeBox Value.Check)
-//
-// Effect `Config` (above) is lenient by design — it relaxes
-// `encryption.master_secret` to optional and silently ignores keys it
-// does not read. Both gaps are dangerous: a camelCase typo
-// (`masterSecret`) or `encryption: {}` would pass Config validation and
-// silently disable at-rest encryption (plaintext storage). This TypeBox
-// schema runs first and rejects everything the prior Ajv schema rejected:
-// unknown keys (`additionalProperties: false`), missing required
-// `master_secret`, malformed `webhook_url`, sub-100ms `timeout_ms`, and
-// invalid `log_level`. Ajv itself is gone; the project's own schema lib
-// supplies the same structural guarantees.
-// ─────────────────────────────────────────────────────────────────────
+const InProcessServiceShape = Schema.Struct({
+  type: Schema.Literal("in_process"),
+});
 
-// TypeBox `Value.Check` ignores `format` unless the format name is
-// registered. ajv-formats `uri` requires an absolute URI (a scheme);
-// `URL.canParse` enforces exactly that, so `not-a-url` is rejected while
-// `https://hooks.example.com/x` passes — matching the prior Ajv behavior.
-FormatRegistry.Set("uri", (value: string): boolean => URL.canParse(value));
+const ServiceShape = Schema.Union(WebhookServiceShape, InProcessServiceShape);
 
-const WebhookServiceShape = Type.Object(
-  {
-    type: Type.Literal("webhook"),
-    webhook_url: Type.String({ format: "uri" }),
-    timeout_ms: Type.Optional(Type.Integer({ minimum: 100 })),
-    callback_token: Type.Optional(Type.String({ minLength: 1 })),
-  },
-  { additionalProperties: false },
-);
+const AppRefShape = Schema.Struct({
+  manifest: Schema.String.pipe(Schema.minLength(1)),
+});
 
-const InProcessServiceShape = Type.Object(
-  { type: Type.Literal("in_process") },
-  { additionalProperties: false },
-);
+const MoltZapConfigShape = Schema.Struct({
+  admin_user_id: Schema.optional(UserId),
+  server: Schema.optional(
+    Schema.Struct({
+      port: Schema.optional(PortNumber),
+      cors_origins: Schema.optional(Schema.Array(Schema.String)),
+    }),
+  ),
+  database: Schema.optional(
+    Schema.Struct({
+      url: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+      data_dir: Schema.optional(Schema.String),
+    }),
+  ),
+  encryption: Schema.optional(
+    Schema.Struct({ master_secret: ServerEncryptionMasterSecret }),
+  ),
+  services: Schema.optional(
+    Schema.Struct({ contacts: Schema.optional(ServiceShape) }),
+  ),
+  registration: Schema.optional(
+    Schema.Struct({ secret: Schema.optional(RegistrationSecret) }),
+  ),
+  dev_mode: Schema.optional(
+    Schema.Struct({
+      enabled: Schema.Boolean,
+    }),
+  ),
+  apps: Schema.optional(Schema.Array(AppRefShape)),
+});
 
-const ServiceShape = Type.Union([WebhookServiceShape, InProcessServiceShape]);
+type YamlConfig = Schema.Schema.Type<typeof MoltZapConfigShape>;
+type YamlServiceConfig = Schema.Schema.Type<typeof ServiceShape>;
 
-const AppRefShape = Type.Object(
-  { manifest: Type.String({ minLength: 1 }) },
-  { additionalProperties: false },
-);
-
-const MoltZapConfigShape = Type.Object(
-  {
-    server: Type.Optional(
-      Type.Object(
-        {
-          port: Type.Optional(Type.Integer({ minimum: 1, maximum: 65_535 })),
-          cors_origins: Type.Optional(Type.Array(Type.String())),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    database: Type.Optional(
-      Type.Object(
-        {
-          url: Type.Optional(Type.String({ minLength: 1 })),
-          data_dir: Type.Optional(Type.String()),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    encryption: Type.Optional(
-      Type.Object(
-        { master_secret: Type.String({ minLength: 1 }) },
-        { additionalProperties: false },
-      ),
-    ),
-    services: Type.Optional(
-      Type.Object(
-        {
-          sessions: Type.Optional(ServiceShape),
-          contacts: Type.Optional(ServiceShape),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    registration: Type.Optional(
-      Type.Object(
-        { secret: Type.Optional(Type.String({ minLength: 1 })) },
-        { additionalProperties: false },
-      ),
-    ),
-    dev_mode: Type.Optional(
-      Type.Object(
-        {
-          enabled: Type.Boolean(),
-          user_id: Type.Optional(Type.String({ minLength: 1 })),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    apps: Type.Optional(Type.Array(AppRefShape)),
-    log_level: Type.Optional(
-      Type.Union([
-        Type.Literal("debug"),
-        Type.Literal("info"),
-        Type.Literal("warn"),
-        Type.Literal("error"),
-      ]),
-    ),
-  },
-  { additionalProperties: false },
-);
+const decodeConfigShape = Schema.decodeUnknownEither(MoltZapConfigShape, {
+  errors: "all",
+  onExcessProperty: "error",
+});
 
 /**
- * Structural validation of the interpolated YAML before the lenient
- * Effect `Config` decode. Surfaces every `Value.Errors` leaf (path +
- * message) as a single `ConfigLoadError`. Softer messages than Ajv's
- * keyword-by-keyword formatter, identical structural rejections.
+ * Decode the interpolated YAML into the typed `YamlConfig`. Surfaces the
+ * full `ParseError` tree (path + message per leaf) as a single
+ * `ConfigLoadError`.
  */
-function validateYamlShape(
+function decodeYamlShape(
   value: unknown,
   configPath: string,
-): Effect.Effect<unknown, ConfigLoadError> {
-  return Effect.sync(() => Value.Check(MoltZapConfigShape, value)).pipe(
-    Effect.flatMap((ok) =>
-      ok
-        ? Effect.succeed(value)
-        : Effect.fail(
-            new ConfigLoadError({
-              kind: "validation",
-              path: configPath,
-              message: `Invalid config in "${configPath}":${formatValueErrors(value)}`,
-            }),
-          ),
-    ),
-    Effect.withSpan("validateYamlShape"),
-  );
-}
-
-function formatValueErrors(value: unknown): string {
-  const lines: string[] = [];
-  const seen = new Set<string>();
-  for (const error of Value.Errors(MoltZapConfigShape, value)) {
-    const line = `  ${error.path || "/"}: ${error.message}`;
-    if (!seen.has(line)) {
-      seen.add(line);
-      lines.push(line);
-    }
-  }
-  return "\n" + lines.join("\n");
+): Effect.Effect<YamlConfig, ConfigLoadError> {
+  return Either.match(decodeConfigShape(value), {
+    onLeft: (error) =>
+      Effect.fail(
+        new ConfigLoadError({
+          kind: "validation",
+          path: configPath,
+          message: `Invalid config in "${configPath}":\n${TreeFormatter.formatErrorSync(error)}`,
+        }),
+      ),
+    onRight: (yaml) => Effect.succeed(yaml),
+  }).pipe(Effect.withSpan("decodeYamlShape"));
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -427,11 +240,10 @@ function formatValueErrors(value: unknown): string {
 type ProcessEnvSnapshot = Readonly<Record<string, string | undefined>>;
 
 /**
- * Top-level YAML document shape. `ConfigProvider.fromJson` silently
- * accepts any input — handing it a scalar, array, or `null` turns every
- * subsequent `Config.nested(...)` lookup into a "missing key" error that
- * hides the real problem (the file is not a config mapping). Decoding
- * at the boundary fails loudly with one clear message instead.
+ * Top-level YAML document shape. A scalar, array, or `null` at the top
+ * level is not a config mapping. Decoding it here — before env
+ * interpolation — fails loudly with one clear "must be a mapping"
+ * message instead of a confusing per-key validation error downstream.
  */
 const YamlDocumentSchema = Schema.Record({
   key: Schema.String,
@@ -538,7 +350,7 @@ function interpolateEnvVars(
         // Treat empty string the same as undefined: an accidentally empty
         // env var would otherwise silently interpolate into strings like
         // `https://${HOST}/callback` and produce a broken URL that still
-        // passes `nonEmptyString` at the outer key.
+        // passes the outer key's minLength check.
         if (value === undefined || value === "") {
           if (missing === null) missing = varName;
           return "";
@@ -578,31 +390,6 @@ function interpolateEnvVars(
   return Effect.succeed(obj);
 }
 
-function decodeYaml(
-  raw: unknown,
-  configPath: string,
-): Effect.Effect<YamlConfig, ConfigLoadError> {
-  return YamlConfigSchema.pipe(
-    Effect.withConfigProvider(ConfigProvider.fromJson(raw ?? {})),
-    Effect.either,
-    Effect.flatMap(
-      Either.match({
-        onLeft: (configError) =>
-          Effect.fail(
-            new ConfigLoadError({
-              kind: "validation",
-              path: configPath,
-              message: `Invalid config in "${configPath}": ${formatConfigError(configError)}`,
-              configError,
-            }),
-          ),
-        onRight: (value) => Effect.succeed(value),
-      }),
-    ),
-    Effect.withSpan("decodeYaml"),
-  );
-}
-
 function resolveConfigDir(
   configPath: string,
 ): Effect.Effect<string, never, FileSystem.FileSystem | Path.Path> {
@@ -618,41 +405,6 @@ function resolveConfigDir(
       ),
     );
   }).pipe(Effect.withSpan("resolveConfigDir"));
-}
-
-function formatConfigError(err: ConfigError): string {
-  const lines: string[] = [];
-  const pushLeaf = (e: { path: ReadonlyArray<string>; message: string }) => {
-    lines.push(`  ${e.path.join(".") || "/"}: ${e.message}`);
-  };
-  const walk = (e: ConfigError): void =>
-    Match.value(e).pipe(
-      Match.discriminatorsExhaustive("_op")({
-        And: (and) => {
-          walk(and.left);
-          walk(and.right);
-        },
-        Or: (or) => {
-          walk(or.left);
-          walk(or.right);
-        },
-        InvalidData: pushLeaf,
-        MissingData: pushLeaf,
-        Unsupported: pushLeaf,
-        SourceUnavailable: pushLeaf,
-      }),
-    );
-  walk(err);
-  // Dedupe while preserving order.
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const line of lines) {
-    if (!seen.has(line)) {
-      seen.add(line);
-      out.push(line);
-    }
-  }
-  return "\n" + out.join("\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -690,17 +442,10 @@ function parseCorsOriginsRaw(raw: string | undefined): string[] {
 }
 
 function loadProcessEnvSnapshot(): Effect.Effect<ProcessEnvSnapshot, never> {
-  // ENCRYPTION_MASTER_SECRET reads as Redacted; we unwrap into the snapshot
-  // immediately, but the Effect log/error path that fires during config-read
-  // never sees the raw value because Redacted intercepts string coercion.
   return Config.all({
     CORS_ORIGINS: opt(Config.string("CORS_ORIGINS")),
     DATABASE_URL: opt(Config.string("DATABASE_URL")),
-    ENCRYPTION_MASTER_SECRET: opt(
-      Config.redacted("ENCRYPTION_MASTER_SECRET"),
-    ).pipe(
-      Config.map((r) => (r === undefined ? undefined : Redacted.value(r))),
-    ),
+    MOLTZAP_ADMIN_USER_ID: opt(Config.string("MOLTZAP_ADMIN_USER_ID")),
     MOLTZAP_CONFIG: opt(Config.string("MOLTZAP_CONFIG")),
     MOLTZAP_DEV_MODE: opt(Config.string("MOLTZAP_DEV_MODE")),
     PORT: opt(Config.string("PORT")),
@@ -733,6 +478,54 @@ interface BootPlanInputs {
   readonly configDirectory: string;
   readonly processEnv: ProcessEnvSnapshot;
   readonly configPath: string;
+  readonly encryptionMasterSecretFromEnv:
+    | ServerEncryptionMasterSecret
+    | undefined;
+}
+
+function decodeEnvSecret<A, I>(
+  schema: Schema.Schema<A, I>,
+  value: string | undefined,
+  envKey: string,
+  configPath: string,
+): Effect.Effect<A | undefined, ConfigLoadError> {
+  if (value === undefined || value.length === 0) {
+    return Effect.succeed(undefined);
+  }
+  return Schema.decodeUnknown(schema)(value).pipe(
+    Effect.mapError((cause) =>
+      makeInvalidEnvError(
+        configPath,
+        `${envKey} is invalid: ${TreeFormatter.formatErrorSync(cause)}`,
+      ),
+    ),
+  );
+}
+
+function loadEncryptionMasterSecretFromEnv(
+  configPath: string,
+): Effect.Effect<ServerEncryptionMasterSecret | undefined, ConfigLoadError> {
+  return Config.option(Config.redacted("ENCRYPTION_MASTER_SECRET")).pipe(
+    Effect.withConfigProvider(ConfigProvider.fromEnv()),
+    Effect.mapError((cause) =>
+      makeInvalidEnvError(
+        configPath,
+        `ENCRYPTION_MASTER_SECRET is invalid: ${String(cause)}`,
+      ),
+    ),
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(undefined),
+        onSome: (secret) =>
+          decodeEnvSecret(
+            ServerEncryptionMasterSecret,
+            Redacted.value(secret),
+            "ENCRYPTION_MASTER_SECRET",
+            configPath,
+          ),
+      }),
+    ),
+  );
 }
 
 function resolveDevMode(
@@ -811,38 +604,55 @@ function resolveDatabaseUrl(
   return Effect.succeed(url);
 }
 
+function resolveAdminUserId(
+  processEnv: ProcessEnvSnapshot,
+  yaml: YamlConfig,
+  configPath: string,
+): Effect.Effect<UserId, ConfigLoadError> {
+  const raw = processEnv["MOLTZAP_ADMIN_USER_ID"];
+  if (raw !== undefined && raw.length > 0) {
+    return Either.match(Schema.decodeUnknownEither(UserId)(raw), {
+      onLeft: (cause) =>
+        Effect.fail(
+          makeInvalidEnvError(
+            configPath,
+            `MOLTZAP_ADMIN_USER_ID must be a UUID (${cause.message})`,
+          ),
+        ),
+      onRight: Effect.succeed,
+    });
+  }
+  if (yaml.admin_user_id !== undefined)
+    return Effect.succeed(yaml.admin_user_id);
+  return Effect.fail(
+    makeInvalidEnvError(
+      configPath,
+      "admin_user_id is required. Set YAML admin_user_id or MOLTZAP_ADMIN_USER_ID.",
+    ),
+  );
+}
+
 interface ResolvedFields {
   readonly devMode: boolean;
   readonly port: number;
   readonly corsOrigins: string[];
   readonly databaseUrl: string;
+  readonly adminUserId: UserId;
 }
 
 interface YamlDerived {
   readonly pgliteDataDir: string | undefined;
-  readonly encryptionFromYaml: string | undefined;
-  readonly devMode: { enabled: boolean; userId: string | undefined };
-  readonly registrationSecret: string | undefined;
-  readonly sessionWebhook: WebhookServiceBinding | undefined;
+  readonly encryptionFromYaml: ServerEncryptionMasterSecret | undefined;
+  readonly registrationSecret: RegistrationSecret | undefined;
   readonly contactWebhook: WebhookServiceBinding | undefined;
   readonly apps: ReadonlyArray<{ readonly manifest: string }>;
-}
-
-function projectYamlDevMode(yaml: YamlConfig): {
-  enabled: boolean;
-  userId: string | undefined;
-} {
-  const dev = yaml.dev_mode;
-  return { enabled: dev?.enabled ?? false, userId: dev?.user_id };
 }
 
 function projectYaml(yaml: YamlConfig): YamlDerived {
   return {
     pgliteDataDir: yaml.database?.data_dir,
     encryptionFromYaml: yaml.encryption?.master_secret,
-    devMode: projectYamlDevMode(yaml),
     registrationSecret: yaml.registration?.secret,
-    sessionWebhook: webhookBinding(yaml.services?.sessions),
     contactWebhook: webhookBinding(yaml.services?.contacts),
     apps: yaml.apps ?? [],
   };
@@ -851,21 +661,18 @@ function projectYaml(yaml: YamlConfig): YamlDerived {
 function assembleBootPlan(
   inputs: BootPlanInputs,
   fields: ResolvedFields,
+  encryptionFromEnv: ServerEncryptionMasterSecret | undefined,
 ): StandaloneBootPlan {
   const ymlDerived = projectYaml(inputs.yaml);
   return {
     databaseUrl: fields.databaseUrl,
     pgliteDataDir: ymlDerived.pgliteDataDir,
-    encryptionMasterSecret:
-      inputs.processEnv["ENCRYPTION_MASTER_SECRET"] ??
-      ymlDerived.encryptionFromYaml,
+    encryptionMasterSecret: encryptionFromEnv ?? ymlDerived.encryptionFromYaml,
     port: fields.port,
     corsOrigins: fields.corsOrigins,
     devMode: fields.devMode,
-    devModeEnabled: ymlDerived.devMode.enabled,
-    devModeUserId: ymlDerived.devMode.userId,
+    adminUserId: fields.adminUserId,
     registrationSecret: ymlDerived.registrationSecret,
-    sessionWebhook: ymlDerived.sessionWebhook,
     contactWebhook: ymlDerived.contactWebhook,
     apps: ymlDerived.apps,
     configDirectory: inputs.configDirectory,
@@ -891,12 +698,18 @@ function buildBootPlan(
       devMode,
       configPath,
     );
-    return assembleBootPlan(inputs, {
-      devMode,
-      port,
-      corsOrigins,
-      databaseUrl,
-    });
+    const adminUserId = yield* resolveAdminUserId(processEnv, yaml, configPath);
+    return assembleBootPlan(
+      inputs,
+      {
+        devMode,
+        port,
+        corsOrigins,
+        databaseUrl,
+        adminUserId,
+      },
+      inputs.encryptionMasterSecretFromEnv,
+    );
   });
 }
 
@@ -928,12 +741,22 @@ export function loadStandaloneConfig(
       processEnv,
       explicit,
     ).pipe(Effect.provide(NodeContext.layer));
+    const encryptionMasterSecretFromEnv =
+      input.processEnv === undefined
+        ? yield* loadEncryptionMasterSecretFromEnv(configPath)
+        : yield* decodeEnvSecret(
+            ServerEncryptionMasterSecret,
+            input.processEnv["ENCRYPTION_MASTER_SECRET"],
+            "ENCRYPTION_MASTER_SECRET",
+            configPath,
+          );
 
     return yield* buildBootPlan({
       yaml,
       configDirectory,
       processEnv,
       configPath,
+      encryptionMasterSecretFromEnv,
     });
   }).pipe(Effect.withSpan("loadStandaloneConfig"));
 }
@@ -966,8 +789,7 @@ function loadYamlFromDisk(
       configPath,
       processEnv,
     );
-    const validated = yield* validateYamlShape(interpolated, configPath);
-    const yaml = yield* decodeYaml(validated, configPath);
+    const yaml = yield* decodeYamlShape(interpolated, configPath);
     const configDirectory = yield* resolveConfigDir(configPath);
     return { yaml, configDirectory };
   });

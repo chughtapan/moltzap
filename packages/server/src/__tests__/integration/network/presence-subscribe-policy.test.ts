@@ -1,5 +1,5 @@
 /**
- * Integration tests for presence/subscribe contact-policy error (#508).
+ * Integration tests for network/presence/subscribe contact-policy errors.
  *
  * Verifies that the server propagates NotInContactsError over the JSON-RPC
  * wire when a caller requests agentIds outside their contact-visible set.
@@ -16,11 +16,12 @@ import {
   resetTestDbEffect,
   trackClient,
   connectTestClient,
-  adminRegisterAgent,
+  createTestUser,
+  registerOwnedAgent,
 } from "../helpers.js";
-import { userId, RpcResponseError } from "@moltzap/protocol/testing";
+import { agentId, userId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
-import { NotInContactsError, PresenceSubscribe } from "@moltzap/protocol";
+import { AgentPresenceSubscribe } from "@moltzap/protocol/network";
 
 const it = effectIt.live;
 
@@ -28,6 +29,8 @@ const it = effectIt.live;
 const REGISTRATION_SECRET = "presence-policy-test-secret-gh508";
 const ALICE_USER_ID = userId("00000000-0000-4000-8000-00000000a5a5") as UserId;
 const CAROL_USER_ID = userId("00000000-0000-4000-8000-00000000c5c5") as UserId;
+const ALICE_USER = createTestUser("alice", ALICE_USER_ID);
+const CAROL_USER = createTestUser("carol", CAROL_USER_ID);
 
 let baseUrl: string;
 let wsUrl: string;
@@ -62,19 +65,19 @@ beforeEach(() =>
   ),
 );
 
-function adminRegister(name: string, ownerUserId: UserId) {
-  return adminRegisterAgent({
+function registerOwned(name: string, ownerUserId: UserId) {
+  return registerOwnedAgent({
     baseUrl,
     inviteCode: REGISTRATION_SECRET,
     name,
-    ownerUserId,
+    user: ownerUserId === ALICE_USER_ID ? ALICE_USER : CAROL_USER,
   });
 }
 
 function registerAndConnectOwned(opts: { name: string; ownerUserId: UserId }) {
   return Effect.gen(function* () {
     const idx = ++agentCounter;
-    const reg = yield* adminRegister(`${opts.name}-${idx}`, opts.ownerUserId);
+    const reg = yield* registerOwned(`${opts.name}-${idx}`, opts.ownerUserId);
     const client = yield* connectTestClient({
       wsUrl,
       agentId: reg.agentId,
@@ -85,18 +88,19 @@ function registerAndConnectOwned(opts: { name: string; ownerUserId: UserId }) {
   });
 }
 
-/** Extract the `RpcResponseError` from an exit's failure cause, or throw. */
-function extractRpcResponseError(
-  exit: Exit.Exit<unknown, unknown>,
-): RpcResponseError {
+/** Extract the typed tagged RPC failure from an exit's failure cause. */
+function extractTaggedRpcError(exit: Exit.Exit<unknown, unknown>): {
+  readonly _tag: string;
+  readonly data?: unknown;
+} {
   expect(Exit.isFailure(exit)).toBe(true);
   if (!Exit.isFailure(exit)) expect.fail("expected failed RPC");
   const failureOpt = Cause.failureOption(exit.cause);
   expect(Option.isSome(failureOpt)).toBe(true);
-  if (Option.isNone(failureOpt)) expect.fail("expected RPC response error");
+  if (Option.isNone(failureOpt)) expect.fail("expected RPC error");
   const err = failureOpt.value;
-  expect(err).toBeInstanceOf(RpcResponseError);
-  return err as RpcResponseError;
+  expect((err as { _tag?: unknown })._tag).toBeTypeOf("string");
+  return err as { readonly _tag: string; readonly data?: unknown };
 }
 
 function rejectsInvisibleAgent() {
@@ -110,13 +114,13 @@ function rejectsInvisibleAgent() {
       ownerUserId: CAROL_USER_ID,
     });
     const exit = yield* Effect.exit(
-      alice.client.sendRpc(PresenceSubscribe, {
-        agentIds: [carol.agentId],
+      alice.client.sendRpc(AgentPresenceSubscribe, {
+        agentIds: [agentId(carol.agentId)],
       }),
     );
 
-    const err = extractRpcResponseError(exit);
-    expect(err.code).toBe(NotInContactsError.code);
+    const err = extractTaggedRpcError(exit);
+    expect(err._tag).toBe(WIRE_ERROR_TAG.NotInContacts);
     const data = err.data as { agentIds: string[] } | undefined;
     expect(data?.agentIds).toContain(carol.agentId);
   });
@@ -137,20 +141,20 @@ function rejectsOnlyInvisibleSubset() {
       ownerUserId: CAROL_USER_ID,
     });
     const exit = yield* Effect.exit(
-      alice.client.sendRpc(PresenceSubscribe, {
-        agentIds: [alice2.agentId, carol.agentId],
+      alice.client.sendRpc(AgentPresenceSubscribe, {
+        agentIds: [agentId(alice2.agentId), agentId(carol.agentId)],
       }),
     );
 
-    const err = extractRpcResponseError(exit);
-    expect(err.code).toBe(NotInContactsError.code);
+    const err = extractTaggedRpcError(exit);
+    expect(err._tag).toBe(WIRE_ERROR_TAG.NotInContacts);
     const data = err.data as { agentIds: string[] } | undefined;
     expect(data?.agentIds).toContain(carol.agentId);
     expect(data?.agentIds).not.toContain(alice2.agentId);
   });
 }
 
-describe("presence/subscribe — NotInContactsError wire propagation (#508)", () => {
+describe("network/presence/subscribe — NotInContactsError wire propagation", () => {
   it(
     "returns NotInContactsError when subscribing to an agentId outside the caller's contact-visible set",
     rejectsInvisibleAgent,

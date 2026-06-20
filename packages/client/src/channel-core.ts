@@ -1,17 +1,12 @@
-/* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-
 /**
  * Shared message-enrichment helper for MoltZap channel adapters.
  */
 
 import { Cause, Chunk, Deferred, Duration, Effect, Fiber, Queue } from "effect";
-import type { LogicalClock, Message } from "@moltzap/protocol";
-import type {
-  ConversationId,
-  LeaseId,
-  MessageId,
-  TaskId,
-} from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { LeaseId } from "@moltzap/protocol/message/dispatch";
+import type { Message } from "@moltzap/protocol/message";
+import type { TaskId } from "@moltzap/protocol/task";
 import type {
   CrossConversationEntry,
   CrossConvMessage,
@@ -75,7 +70,6 @@ export interface PendingDispatchMessage {
   senderAgentId: string;
   createdAt: string;
   receivedAt: string;
-  clock?: LogicalClock;
   parts?: Message["parts"];
 }
 
@@ -85,7 +79,6 @@ export interface DispatchAdmissionRequest {
   senderAgentId: string;
   attempt: number;
   receivedAt: string;
-  clock: LogicalClock;
   pending: ReadonlyArray<PendingDispatchMessage>;
 }
 
@@ -113,7 +106,7 @@ type DispatchHoldDecision = Extract<
 >;
 
 /**
- * Server → recipient `dispatch/release` notification payload (the
+ * Server → recipient `agent/dispatch/released` notification payload (the
  * verdict). Mirrors `NotificationParamsOf&lt;typeof DispatchRelease>` from
  * the protocol, kept structurally typed here so this module does not
  * need a direct protocol descriptor import (the channel core stays
@@ -179,7 +172,7 @@ export interface ChannelService {
   };
 
   /**
-   * Issue `dispatch/request` and receive the immediate
+   * Issue `agent/dispatch/request` and receive the immediate
    * `{leaseId, dispatchId}` ack. The verdict arrives asynchronously
    * via the `dispatchRelease` event.
    *
@@ -198,7 +191,6 @@ export interface ChannelService {
     readonly parts?: ReadonlyArray<unknown>;
     readonly receivedAt?: string;
     readonly pending?: ReadonlyArray<unknown>;
-    readonly clock?: LogicalClock;
     readonly attempt?: number;
   }): Effect.Effect<
     { readonly leaseId: LeaseId; readonly dispatchId: string },
@@ -275,7 +267,6 @@ interface InboundDispatchWork {
   message: Message;
   attempt: number;
   receivedAtMs: number;
-  clock: LogicalClock;
 }
 
 /**
@@ -294,23 +285,23 @@ interface InboundDispatchWork {
  *   participant core as MoltZapChannelCore
  *   participant handler as InboundHandler
  *
- *   server->>ws: messages/received notification
+ *   server->>ws: agent/message/received notification
  *   ws->>svc: subscribers.dispatch — fanout(message)
  *   svc->>core: message listener
- *   Note over core: dedup via recordMessageIdIfNew<br>Queue.unsafeOffer(inboundQueue, work)
- *   Note over core: consumer fiber — Queue.take<br>takeDispatchCandidate prefers parked[convId]
- *   core->>server: dispatch/request — dispatchAdmission
+ *   Note over core: dedup via recordMessageIdIfNew; Queue.unsafeOffer(inboundQueue, work)
+ *   Note over core: consumer fiber — Queue.take; takeDispatchCandidate prefers parked[convId]
+ *   core->>server: agent/dispatch/request — dispatchAdmission
  *   server-->>core: ack {leaseId, dispatchId}
- *   Note over server,core: ack/release race absorbed via<br>pendingDispatchesByLease (Deferred)<br>pendingReleasesByLease (ring 256, soft-TTL 30s)
- *   server->>ws: dispatch/release notification
+ *   Note over server,core: ack/release race absorbed via; pendingDispatchesByLease (Deferred); pendingReleasesByLease (ring 256, soft-TTL 30s)
+ *   server->>ws: agent/dispatch/released notification
  *   ws->>core: recordDispatchRelease — settles Deferred or buffers
  *   alt verdict deny
  *     Note over core: log + drop
  *   else verdict hold
  *     Note over core: parkDispatchWork — front of parked[convId]
  *   else verdict grant
- *     Note over core: takeCoalescedConversationMessages<br>drains same-conv from queue + parked
- *     Note over core: dispatchWithLease<br>leaseIdInFlight = leaseId<br>enrichMessage — sender name, conversation, context entries
+ *     Note over core: takeCoalescedConversationMessages; drains same-conv from queue + parked
+ *     Note over core: dispatchWithLease; leaseIdInFlight = leaseId; enrichMessage — sender name, conversation, context entries
  *     core->>handler: inboundHandler(enriched)
  *     handler-->>core: Effect.void
  *     Note over core: handler exceeds leaseTimeoutMs (90s) → DispatchLeaseExpired
@@ -329,12 +320,10 @@ export class MoltZapChannelCore {
 
   /**
    * Lease id scoped to the in-flight `dispatchInboundEffect` call
-   * (set immediately around the user-handler invocation). Replaces
-   * the legacy `activeDispatchLeaseId` field whose semantics were
-   * unchanged but whose name leaked an admission-flow detail. The
-   * field remains a single mutable cell because the consumer fiber
-   * processes inbound work strictly serially (one queue, one fiber);
-   * concurrent dispatches do not exist on this code path.
+   * (set immediately around the user-handler invocation). A single
+   * mutable cell because the consumer fiber processes inbound work
+   * strictly serially (one queue, one fiber); concurrent dispatches do
+   * not exist on this code path.
    */
   private leaseIdInFlight: LeaseId | undefined;
 
@@ -360,10 +349,6 @@ export class MoltZapChannelCore {
     PendingReleaseEntry
   >();
   private readonly closedConversationIds = new Set<string>();
-  private readonly logicalClocks = new Map<
-    string,
-    { epoch: number; vector: Record<string, number> }
-  >();
   private readonly parkedByConversation = new Map<
     string,
     InboundDispatchWork[]
@@ -410,7 +395,6 @@ export class MoltZapChannelCore {
         message,
         attempt: 0,
         receivedAtMs: Date.now(),
-        clock: this.observeMessage(message),
       });
     });
   }
@@ -637,24 +621,6 @@ export class MoltZapChannelCore {
     );
   }
 
-  private observeMessage(message: Message): LogicalClock {
-    const current = this.logicalClocks.get(message.conversationId) ?? {
-      epoch: 0,
-      vector: {},
-    };
-    const vector = {
-      ...current.vector,
-      [message.senderId]: (current.vector[message.senderId] ?? 0) + 1,
-    };
-    const next = { epoch: current.epoch + 1, vector };
-    this.logicalClocks.set(message.conversationId, next);
-    return {
-      domainId: message.conversationId,
-      epoch: next.epoch,
-      vector,
-    };
-  }
-
   private takeDispatchCandidate(
     incoming: InboundDispatchWork,
   ): InboundDispatchWork {
@@ -683,7 +649,7 @@ export class MoltZapChannelCore {
   }
 
   /**
-   * Issue `dispatch/request` against the service, await the lease's
+   * Issue `agent/dispatch/request` against the service, await the lease's
    * `dispatchRelease` verdict, and return the channel-core
    * `DispatchAdmissionDecision`. Absorbs the ack/release race via
    * `pendingDispatchesByLease` (Deferred) plus
@@ -700,9 +666,9 @@ export class MoltZapChannelCore {
    * ```mermaid
    * stateDiagram-v2
    *   [*] --> PENDING
-   *   PENDING : dispatch/request sent<br>server minting lease
+   *   PENDING : agent/dispatch/request sent; server minting lease
    *   PENDING --> AWAITING_RELEASE : ack returns leaseId
-   *   AWAITING_RELEASE : Deferred registered<br>or buffered release consumed
+   *   AWAITING_RELEASE : Deferred registered; or buffered release consumed
    *   AWAITING_RELEASE --> GRANTED : verdict grant
    *   AWAITING_RELEASE --> DENIED : verdict deny
    *   AWAITING_RELEASE --> HELD : verdict hold
@@ -710,9 +676,9 @@ export class MoltZapChannelCore {
    *   GRANTED : proceed to enrichment
    *   DENIED : drop message — consumer fiber continues
    *   GRANTED --> IN_FLIGHT : dispatchWithLease
-   *   IN_FLIGHT : leaseIdInFlight set<br>handler executing<br>lease authorizes one messages/send
-   *   IN_FLIGHT --> CONSUMED : handler returns within leaseTimeoutMs<br>server marks via dispatchLeaseId
-   *   IN_FLIGHT --> EXPIRED : handler exceeds leaseTimeoutMs<br>DispatchLeaseExpired logged
+   *   IN_FLIGHT : leaseIdInFlight set; handler executing; lease authorizes one agent/message/send
+   *   IN_FLIGHT --> CONSUMED : handler returns within leaseTimeoutMs; server marks via dispatchLeaseId
+   *   IN_FLIGHT --> EXPIRED : handler exceeds leaseTimeoutMs; DispatchLeaseExpired logged
    *   CONSUMED --> [*]
    *   DENIED --> [*]
    *   EXPIRED --> [*]
@@ -744,7 +710,6 @@ export class MoltZapChannelCore {
         parts: work.message.parts,
         attempt: work.attempt,
         receivedAt: new Date(work.receivedAtMs).toISOString(),
-        clock: work.clock,
         pending: this.pendingDispatchSnapshot(work),
       }),
     ).pipe(
@@ -1148,7 +1113,6 @@ export class MoltZapChannelCore {
       senderAgentId: work.message.senderId,
       createdAt: work.message.createdAt,
       receivedAt: new Date(work.receivedAtMs).toISOString(),
-      clock: work.clock,
       parts: work.message.parts,
     }));
   }

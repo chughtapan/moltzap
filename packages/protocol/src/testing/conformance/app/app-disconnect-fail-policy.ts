@@ -1,50 +1,39 @@
 /**
- * App-disconnect fail-policy — replacement for the deleted webhook
- * graceful-shutdown probe (architect plan §8.3).
+ * App-disconnect fail-policy.
  *
- * Architect contract:
+ * Contract:
  *   - When an app's WS severs while admission RPCs are in flight, the
  *     server's pending Deferreds fail with a typed close.
- *   - AppHost applies fail-CLOSED verdicts: `before_dispatch` →
- *     `decision: "deny"`; `before_message_delivery` → `block: true`.
+ *   - Domain callback services apply fail-CLOSED verdicts:
+ *     `before_dispatch` → `decision: "deny"`;
+ *     `before_message_delivery` → `block: true`.
  *   - The per-connection appCallback pending map drains; no Deferred leaks past
  *     the connection's Scope.
  *
  * Conformance reach: the fail-closed verdicts are observable through the
- * SENDER's `messages/send` / dispatch RPC return — when no app is wired
+ * SENDER's `agent/message/send` / dispatch RPC return — when no app is wired
  * to admit, dispatch proceeds (no admission gate); when an app IS wired
  * and severs mid-flight, dispatch sees the deny verdict.
  *
- * Phase 7 cutover removed `apps/createSession`'s session machinery. The
- * tasks/* layer creates a task without bootstrapping the
- * manifest-declared conversation map, so this property cannot
- * assemble the dispatch precondition (a non-empty conversation
- * attached to the task) without a TM-registration step that is
- * out of scope for the conformance fixture. Property reports
- * `PropertyUnavailable` until a follow-up issue wires the TM-topology
- * dispatch precondition. Property ID stays
- * `boundary/app-disconnect-fail-policy` to preserve the conformance
- * baseline (architect §7).
+ * The tasks/* layer creates a task without bootstrapping the
+ * manifest-declared conversation map, so this property cannot assemble
+ * the dispatch precondition (a non-empty conversation attached to the
+ * task) without an app-registration step that is out of scope for the
+ * conformance fixture. Property reports `PropertyUnavailable` until a
+ * follow-up issue wires the app-topology dispatch precondition. Property
+ * ID stays `boundary/app-disconnect-fail-policy`.
  */
-import { Effect, Exit, Scope } from "effect";
-import { TaskRequest } from "../../../task/methods.js";
-import {
-  makeTestClient,
-  type TestClient,
-} from "../_shared/driver/test-client.js";
+import { Effect, type Scope } from "effect";
+import { TaskRequest } from "#task";
+import { makeAgentTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
-import {
-  makeTestAppManifest,
-  registerTestApp,
-  type TestApp,
-} from "../_shared/test-app.js";
+import { registerTestApp, type TestApp } from "../_shared/test-app.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable, registerProperty } from "../_shared/registry.js";
 
 const CATEGORY = "boundary" as const;
 const PROPERTY = "app-disconnect-fail-policy";
 const DEFAULT_TIMEOUT_MS = 3000;
-const DEFAULT_CAPTURE_CAPACITY = 32;
 
 const unavailable = (reason: string): PropertyUnavailable =>
   new PropertyUnavailable({
@@ -67,40 +56,17 @@ export function registerAppDisconnectFailPolicy(
   );
 }
 
-type AppClientSession = {
-  readonly scope: Scope.CloseableScope;
-  readonly client: TestClient;
-};
-
 function runAppDisconnectFailPolicy(ctx: ConformanceRunContext) {
   return Effect.scoped(
     Effect.gen(function* () {
-      const appSession = yield* acquireAppClientSession(ctx);
-      const app = yield* registerDisconnectFailApp(appSession).pipe(
-        Effect.catchAll((e) =>
-          closeAppSession(appSession).pipe(Effect.zipRight(Effect.fail(e))),
-        ),
-      );
+      // The moderator app is an `AppConnection` (HTTP register + `appKey`
+      // Connect); its scope is the surrounding `Effect.scoped`.
+      const app = yield* registerDisconnectFailApp(ctx);
       yield* app.dispatchAuthorize.silence;
       yield* acquireSenderClient(ctx);
-      yield* closeAppSession(appSession);
       return yield* missingTopologyUnavailable();
     }),
   );
-}
-
-function acquireAppClientSession(ctx: ConformanceRunContext) {
-  return Effect.gen(function* () {
-    const appAgent = yield* registerAgent(ctx, "adfp-app", "app agent");
-    const scope = yield* Scope.make();
-    const client = yield* acquireScopedClient(
-      ctx,
-      appAgent,
-      "app client",
-      scope,
-    );
-    return { scope, client } satisfies AppClientSession;
-  });
 }
 
 function registerAgent(
@@ -115,12 +81,10 @@ function registerAgent(
 }
 
 function makeAgentClient(ctx: ConformanceRunContext, agent: TestAgent) {
-  return makeTestClient({
+  return makeAgentTestClient({
     serverUrl: ctx.realServer.wsUrl,
     agentKey: agent.apiKey,
-    agentId: agent.agentId,
     defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-    captureCapacity: DEFAULT_CAPTURE_CAPACITY,
   });
 }
 
@@ -134,30 +98,17 @@ function acquireClient(
   );
 }
 
-function acquireScopedClient(
-  ctx: ConformanceRunContext,
-  agent: TestAgent,
-  label: string,
-  scope: Scope.CloseableScope,
-) {
-  return Scope.extend(makeAgentClient(ctx, agent), scope).pipe(
-    Effect.mapError((e) => unavailable(`${label} acquire: ${String(e)}`)),
-    Effect.tapError(() => Scope.close(scope, Exit.void)),
-  );
-}
-
 function registerDisconnectFailApp(
-  session: AppClientSession,
-): Effect.Effect<TestApp, PropertyUnavailable> {
+  ctx: ConformanceRunContext,
+): Effect.Effect<TestApp, PropertyUnavailable, Scope.Scope> {
   const appId = crypto.randomUUID();
   return registerTestApp({
-    client: session.client,
-    manifest: makeTestAppManifest({
-      appId,
-      name: `Disconnect-fail app ${appId}`,
-      dispatchAuthorizeTimeoutMs: 5_000,
-    }),
-  }).pipe(Effect.mapError((e) => unavailable(e.message)));
+    baseUrl: ctx.realServer.baseUrl,
+    wsUrl: ctx.realServer.wsUrl,
+    appId,
+    name: `Disconnect-fail app ${appId}`,
+    dispatchAuthorizeTimeoutMs: 5_000,
+  }).pipe(Effect.mapError((e) => unavailable(e._tag)));
 }
 
 function acquireSenderClient(ctx: ConformanceRunContext) {
@@ -167,16 +118,12 @@ function acquireSenderClient(ctx: ConformanceRunContext) {
   });
 }
 
-function closeAppSession(session: AppClientSession) {
-  return Scope.close(session.scope, Exit.void);
-}
-
 function missingTopologyUnavailable() {
   return Effect.fail(
     new PropertyUnavailable({
       category: CATEGORY,
       name: PROPERTY,
-      reason: `${TaskRequest.name} does not bootstrap session conversations; covered in Phase 9 with TM topology (#318)`,
+      reason: `${TaskRequest.name} does not bootstrap session conversations; needs app-topology dispatch precondition`,
     }),
   );
 }

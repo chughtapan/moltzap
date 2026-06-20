@@ -1,0 +1,40 @@
+---
+title: "app/dispatch/lease-consumed"
+description: "Pushed as the `app/dispatch/lease-consumed` notification."
+---
+
+# app/dispatch/lease-consumed
+
+Pushed as the `app/dispatch/lease-consumed` notification.
+
+## Params
+
+<ResponseField name="dispatchId" type="string (UUID)">
+  Branded DispatchId
+</ResponseField>
+
+<ResponseField name="leaseId" type="string (UUID)">
+  Branded LeaseId
+</ResponseField>
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="messageId" type="string (UUID)">
+  Branded MessageId
+</ResponseField>
+
+<ResponseField name="consumedAt" type="string (ISO 8601)">
+  The consumedAt field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "app/dispatch/lease-consumed",
+  "params": { ... }
+}
+```

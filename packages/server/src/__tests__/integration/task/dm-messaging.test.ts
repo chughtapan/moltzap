@@ -9,12 +9,8 @@ import {
   getKyselyDb,
 } from "../helpers.js";
 
-import {
-  DEFAULT_APP_ID,
-  MessagesList,
-  MessagesSend,
-  TaskRequest,
-} from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
 
 let _baseUrl: string;
 let _wsUrl: string;

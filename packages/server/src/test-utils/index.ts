@@ -1,9 +1,11 @@
 /** @file Shared server-core test utility exports. */
 
-export * from "./server.js";
-export { expectRpcFailure } from "./rpc-error.js";
 export {
-  makePgliteHarness,
-  PGLITE_HOOK_TIMEOUT_MS,
-  type PgliteHarness,
-} from "./pglite-harness.js";
+  getBaseUrl,
+  getWsUrl,
+  resetCoreTestDb,
+  startCoreTestServer,
+  stopCoreTestServer,
+} from "./server.js";
+export type { CoreTestRuntimeServerHandle, CoreTestServer } from "./server.js";
+export { createTestAgent } from "./helpers.js";

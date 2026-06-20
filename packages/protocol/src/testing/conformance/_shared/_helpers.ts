@@ -4,47 +4,6 @@
  * when they would otherwise be duplicated verbatim.
  */
 import { Effect, Either } from "effect";
-import type { TSchema } from "@sinclair/typebox";
-import type { RpcDefinition } from "../../../transport/method.js";
-import type { TestClient } from "./driver/test-client.js";
-import type { FrameSchemaError } from "./frame-mutator.js";
-import type {
-  RpcResponseError,
-  RpcTimeoutError,
-  TransportClosedError,
-  TransportIoError,
-} from "./errors.js";
-
-/**
- * Send an RPC whose descriptor is not in the typed `serverRpcMethods` registry
- * (e.g., `apps/register`). Returns the result as `unknown`; the cast
- * widens `client.sendRpc`'s `D extends AnyServerRpcDefinition` constraint.
- */
-export function sendUntypedRpc(
-  client: TestClient,
-  definition: RpcDefinition<string, TSchema, TSchema>,
-  params: unknown,
-): Effect.Effect<
-  unknown,
-  | RpcResponseError
-  | RpcTimeoutError
-  | TransportClosedError
-  | TransportIoError
-  | FrameSchemaError
-> {
-  const sendRpc = client.sendRpc.bind(client) as (
-    definition: RpcDefinition<string, TSchema, TSchema>,
-    params: unknown,
-  ) => Effect.Effect<
-    unknown,
-    | RpcResponseError
-    | RpcTimeoutError
-    | TransportClosedError
-    | TransportIoError
-    | FrameSchemaError
-  >;
-  return sendRpc(definition, params);
-}
 
 export function requireRight<A, E, F>(
   value: Either.Either<A, E>,

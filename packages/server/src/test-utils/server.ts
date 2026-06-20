@@ -1,26 +1,28 @@
 /** Test infrastructure — PGlite-based, no external Postgres needed. */
 
 import { randomBytes } from "node:crypto";
-import { Effect, pipe } from "effect";
+import { Effect, pipe, Schema } from "effect";
+import {
+  RegistrationSecret,
+  ServerEncryptionMasterSecret,
+} from "#config/secrets";
+import {
+  UserId,
+  type AgentId,
+  type UserId as UserIdValue,
+} from "@moltzap/protocol/identity";
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { createCoreApp } from "../app/server.js";
-import { seedInitialKek } from "../crypto/key-rotation.js";
-import { EnvelopeEncryption } from "../crypto/envelope.js";
-import type { CoreApp } from "../app/types.js";
-import type { Database } from "../db/database.js";
-import type { SessionValidator } from "../identity/services/session-validator.js";
-import {
-  makeEffectKysely,
-  type EffectKysely,
-} from "../db/effect-kysely-toolkit.js";
+import { createCoreApp, type CoreApp } from "#core";
+import { EnvelopeEncryption, seedInitialKek } from "#db/crypto";
+import { makeEffectKysely, type Database, type EffectKysely } from "#db";
 import { loadCoreSchemaSql } from "./core-schema-sql.js";
 
-export type { Database } from "../db/database.js";
-export type { CoreApp } from "../app/types.js";
+export type { Database } from "#db";
+export type { CoreApp } from "#core";
 
 class CoreTestServerError extends Error {
   override readonly name = "CoreTestServerError";
@@ -35,6 +37,9 @@ class CoreTestServerError extends Error {
 
 const ENCRYPTION_MASTER_SECRET_BYTES = 32;
 const PGLITE_BOOT_DELAY_MS = 200;
+export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
+  UserId,
+)("00000000-0000-4000-8000-00000000ad00");
 
 // Minimal duplicate of `@moltzap/runtimes`'s `awaitAgentReadyByPolling` and
 // `RuntimeServerHandle`/`ReadyOutcome` shapes. We can't import from
@@ -54,22 +59,25 @@ type CoreTestReadyOutcome =
 
 export interface CoreTestRuntimeServerHandle {
   awaitAgentReady(
-    agentId: string,
+    agentId: AgentId,
     timeoutMs: number,
   ): Effect.Effect<CoreTestReadyOutcome, never, never>;
 }
 
 function awaitAgentReadyByPolling(
   connections: {
-    getByAgent(id: string): ReadonlyArray<{ readonly auth: unknown | null }>;
+    agentConnections(
+      id: AgentId,
+    ): Effect.Effect<ReadonlyArray<unknown>, never, never>;
   },
-  agentId: string,
+  agentId: AgentId,
   timeoutMs: number,
 ): Effect.Effect<CoreTestReadyOutcome, never, never> {
-  const tick = Effect.sync(() => {
-    const conns = connections.getByAgent(agentId);
-    return conns.length > 0 && conns[0]!.auth !== null;
-  });
+  // Agent connections are returned only after authentication, so a non-empty
+  // result is sufficient readiness for test servers.
+  const tick = connections
+    .agentConnections(agentId)
+    .pipe(Effect.map((conns) => conns.length > 0));
   const pollLoop = pipe(
     tick,
     Effect.flatMap((ready) =>
@@ -99,7 +107,7 @@ let pgliteClient: {
   exec: (sql: string) => PromiseLike<unknown>;
   close: () => PromiseLike<void>;
 } | null = null;
-let _masterSecret: string | null = null;
+let _masterSecret: ServerEncryptionMasterSecret | null = null;
 let _baseUrl: string | null = null;
 let _wsUrl: string | null = null;
 let spanExporter: InMemorySpanExporter | null = null;
@@ -123,7 +131,7 @@ export interface CoreTestServer {
    * The auto-wired `InMemorySpanExporter`, or `null` when the caller
    * supplied a custom `spanProcessor`. Tests that want to inspect OTel
    * spans call `getFinishedSpans()` on this exporter and map them via
-   * their own shim (see `runtimes/` for arena's mapping).
+   * their own package-specific projection.
    */
   readonly spanExporter: InMemorySpanExporter | null;
 }
@@ -134,21 +142,12 @@ type StartCoreTestServerOptions = {
   encryption?: boolean;
 
   /**
-   * Optional user validator injected into the AppHost. Tests that exercise
-   * admission coalescing or validator short-circuiting pass a counting fake;
-   * default `undefined` preserves the open-access behavior of the original
-   * harness (admit all owners).
+   * When set, registration routes require `inviteCode` to match this value.
+   * When `undefined`, the invite gate is disabled and agent/app registration is
+   * open.
    */
-  sessionValidator?: SessionValidator;
-
-  /**
-   * When set, the server requires `inviteCode` matching this value on
-   * `/api/v1/auth/register` and enables the `/api/v1/admin/register-agent`
-   * route. Default `undefined` keeps the open-registration behavior the
-   * existing tests depend on.
-   */
-  registrationSecret?: string;
-  devModeUserId?: string;
+  registrationSecret?: string | RegistrationSecret;
+  adminUserId?: UserId;
   spanProcessor?: SpanProcessor;
 };
 
@@ -179,7 +178,10 @@ function closePglite(client: NonNullable<typeof pgliteClient>) {
   });
 }
 
-function seedEncryptionKey(db: EffectKysely<Database>, masterSecret: string) {
+function seedEncryptionKey(
+  db: EffectKysely<Database>,
+  masterSecret: ServerEncryptionMasterSecret,
+) {
   const envelope = new EnvelopeEncryption(masterSecret);
   return Effect.tryPromise({
     try: () => seedInitialKek(db, envelope),
@@ -232,8 +234,11 @@ function configureEncryption(
   const masterSecret = randomBytes(ENCRYPTION_MASTER_SECRET_BYTES).toString(
     "base64",
   );
-  _masterSecret = masterSecret;
-  return seedEncryptionKey(db, masterSecret).pipe(Effect.as(masterSecret));
+  const decoded = Schema.decodeUnknownSync(ServerEncryptionMasterSecret)(
+    masterSecret,
+  );
+  _masterSecret = decoded;
+  return seedEncryptionKey(db, decoded).pipe(Effect.as(decoded));
 }
 
 function resolveTestSpanProcessor(
@@ -244,10 +249,18 @@ function resolveTestSpanProcessor(
   return new SimpleSpanProcessor(spanExporter);
 }
 
+function decodeRegistrationSecret(
+  secret: StartCoreTestServerOptions["registrationSecret"],
+): RegistrationSecret | undefined {
+  if (secret === undefined) return undefined;
+  if (typeof secret !== "string") return secret;
+  return Schema.decodeUnknownSync(RegistrationSecret)(secret);
+}
+
 function createCoreTestApp(
   db: EffectKysely<Database>,
   opts: StartCoreTestServerOptions,
-  masterSecret: string | undefined,
+  masterSecret: ServerEncryptionMasterSecret | undefined,
 ): CoreApp {
   return createCoreApp({
     db,
@@ -256,9 +269,8 @@ function createCoreTestApp(
     port: 0,
     corsOrigins: ["*"],
     devMode: true,
-    devModeUserId: opts.devModeUserId,
-    sessionValidator: opts.sessionValidator,
-    registrationSecret: opts.registrationSecret,
+    adminUserId: opts.adminUserId ?? DEFAULT_TEST_ADMIN_USER_ID,
+    registrationSecret: decodeRegistrationSecret(opts.registrationSecret),
     spanProcessor: resolveTestSpanProcessor(opts),
   });
 }
@@ -369,14 +381,6 @@ export function getCoreEncryptionEnvelope(): EnvelopeEncryption {
     throw new CoreTestServerError("Test server encryption not enabled.");
   }
   return new EnvelopeEncryption(_masterSecret);
-}
-
-export function getCoreApp(): CoreApp {
-  if (!coreApp)
-    throw new CoreTestServerError(
-      "Test server not running. Call startCoreTestServer() first.",
-    );
-  return coreApp;
 }
 
 export function getBaseUrl(): string {

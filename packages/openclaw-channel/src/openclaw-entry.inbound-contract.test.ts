@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { live as it } from "@effect/vitest";
 import * as fc from "fast-check";
 import { Data, Effect } from "effect";
-import type { CrossConvMessage } from "@moltzap/client";
+import type { CrossConvMessage } from "@moltzap/client/channel-base";
 import {
   createFakeChannelService,
   flushDispatchChainEffect,
@@ -12,7 +12,7 @@ import {
   testTaskId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
-import type { Message } from "@moltzap/protocol";
+import type { Message } from "@moltzap/protocol/message";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
 
 // Header literal from channel-base's `json-header` markup variant (per spec
@@ -20,9 +20,8 @@ import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
 const CROSS_CONV_HEADER = "Messages (untrusted metadata):";
 
 const MESSAGE_DISPATCH_SETTLE_MS = 100;
-const DEFAULT_ACCOUNT_ID = "test-account";
-const DEFAULT_ACCOUNT_KEY = "moltzap_agent_test123";
-const DEFAULT_SERVER_URL = "ws://localhost:9999";
+const TEST_ACCOUNT_ID = "test-account";
+const PROFILE_ACCOUNT_ID = "profile-account";
 const DEFAULT_AGENT_NAME = "bob";
 const CHANNEL_ID = "moltzap";
 const DEFAULT_MESSAGE_ID = testMessageId(
@@ -122,6 +121,7 @@ describe("Flow 5: Inbound contract", () => {
   it("handles multi-part text messages", joinsMultipartText);
   it("BodyForAgent includes cross-conversation context", includesCrossConv);
   it("BodyForAgent equals Body for empty context", emptyContextKeepsBody);
+  it("uses account id as the MoltZap profile name", accountIdIsProfileName);
   it(
     "property: generated account ids round-trip in config",
     accountIdsRoundTrip,
@@ -149,8 +149,8 @@ function startGateway(params: {
       try: () =>
         plugin.gateway.startAccount({
           cfg: makeCfg(),
-          accountId: DEFAULT_ACCOUNT_ID,
-          account: makeAccount(DEFAULT_ACCOUNT_ID),
+          accountId: TEST_ACCOUNT_ID,
+          account: makeAccount(TEST_ACCOUNT_ID),
           abortSignal: abortController.signal,
           setStatus: (status) => setStatusCalls.push(status),
           ...(params.withRuntime ? { channelRuntime: channelRuntime() } : {}),
@@ -181,13 +181,11 @@ function channelRuntime() {
 function makeAccount(id: string) {
   return {
     id,
-    apiKey: DEFAULT_ACCOUNT_KEY,
-    serverUrl: DEFAULT_SERVER_URL,
     agentName: DEFAULT_AGENT_NAME,
   };
 }
 
-function makeCfg(accountId = DEFAULT_ACCOUNT_ID) {
+function makeCfg(accountId = TEST_ACCOUNT_ID) {
   return {
     channels: {
       moltzap: {
@@ -284,7 +282,7 @@ function contextHasRequiredFields() {
     );
     expect(ctx.Provider).toBe(CHANNEL_ID);
     expect(ctx.Surface).toBe(CHANNEL_ID);
-    expect(ctx.AccountId).toBe(DEFAULT_ACCOUNT_ID);
+    expect(ctx.AccountId).toBe(TEST_ACCOUNT_ID);
   });
 }
 
@@ -406,7 +404,7 @@ function updatesInboundStatus() {
     );
     expect(inboundStatus).toBeDefined();
     if (inboundStatus === undefined) return;
-    expect(inboundStatus.accountId).toBe(DEFAULT_ACCOUNT_ID);
+    expect(inboundStatus.accountId).toBe(TEST_ACCOUNT_ID);
     expect(typeof inboundStatus.lastInboundAt).toBe(NUMBER_TYPE);
   });
 }
@@ -478,6 +476,42 @@ function emptyContextKeepsBody() {
     const ctx = firstDispatchContext();
     expect(ctx.Body).toBe(PLAIN_MESSAGE);
     expect(ctx.BodyForAgent).toBe(PLAIN_MESSAGE);
+  });
+}
+
+function accountIdIsProfileName() {
+  return Effect.gen(function* () {
+    const fixture = createFakeChannelService({ ownAgentId: SELF_AGENT_ID });
+    const calls: Array<{
+      readonly profileName: string;
+      readonly accountId: string;
+    }> = [];
+    const plugin = createMoltzapChannelPlugin({
+      createService: (profileName, account) => {
+        calls.push({ profileName, accountId: account.id });
+        return fixture.service;
+      },
+    });
+    const abortController = new AbortController();
+    abortController.abort();
+    yield* Effect.tryPromise({
+      try: () =>
+        plugin.gateway.startAccount({
+          cfg: makeCfg(PROFILE_ACCOUNT_ID),
+          accountId: PROFILE_ACCOUNT_ID,
+          account: makeAccount(PROFILE_ACCOUNT_ID),
+          abortSignal: abortController.signal,
+          setStatus: vi.fn(),
+        }),
+      catch: (cause) =>
+        new InboundContractTestError({
+          message: "start profile account",
+          cause,
+        }),
+    });
+    expect(calls).toEqual([
+      { profileName: PROFILE_ACCOUNT_ID, accountId: PROFILE_ACCOUNT_ID },
+    ]);
   });
 }
 

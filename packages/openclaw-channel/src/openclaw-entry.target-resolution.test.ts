@@ -8,6 +8,8 @@ const looksLikeId = moltzapChannelPlugin.messaging.targetResolver.looksLikeId;
 const resolveMessagingTarget =
   moltzapChannelPlugin.messaging.targetResolver.resolveTarget;
 const resolveOutboundTarget = moltzapChannelPlugin.outbound.resolveTarget;
+const resolveAccount = moltzapChannelPlugin.config.resolveAccount;
+const isConfiguredAccount = moltzapChannelPlugin.config.isConfigured;
 const cfg = {} as Parameters<typeof resolveMessagingTarget>[0]["cfg"];
 
 const AGENT_BOB = "agent:bob";
@@ -31,6 +33,20 @@ const TASK_ABC_DISPLAY = "t1:abc-123";
 const USER_KIND = "user";
 const GROUP_KIND = "group";
 const NORMALIZED_SOURCE = "normalized";
+const ACCOUNT_A = "account-a";
+const ACCOUNT_B = "account-b";
+const UNKNOWN_ACCOUNT = "unknown-account";
+
+const accountCfg = {
+  channels: {
+    moltzap: {
+      accounts: [
+        { id: ACCOUNT_A, agentName: "agent-a" },
+        { id: ACCOUNT_B, agentName: "agent-b" },
+      ],
+    },
+  },
+};
 
 function tryResolveMessagingTarget(input: string, normalized: string) {
   return Effect.tryPromise({
@@ -152,4 +168,31 @@ describe("outbound.resolveTarget normalization", () => {
       to: AGENT_BOB,
     });
   });
+});
+
+describe("config.resolveAccount", () => {
+  vitestIt("resolves the exact configured account id", () => {
+    expect(resolveAccount(accountCfg, ACCOUNT_B)).toEqual({
+      id: ACCOUNT_B,
+      agentName: "agent-b",
+    });
+  });
+
+  vitestIt(
+    "does not fall back to the first account when account id is omitted",
+    () => {
+      const account = resolveAccount(accountCfg);
+      expect(account).toEqual({ id: "", enabled: false });
+      expect(isConfiguredAccount(account)).toBe(false);
+    },
+  );
+
+  vitestIt(
+    "does not create enabled placeholder accounts for unknown ids",
+    () => {
+      const account = resolveAccount(accountCfg, UNKNOWN_ACCOUNT);
+      expect(account).toEqual({ id: UNKNOWN_ACCOUNT, enabled: false });
+      expect(isConfiguredAccount(account)).toBe(false);
+    },
+  );
 });

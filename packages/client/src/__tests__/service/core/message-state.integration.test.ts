@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol";
+import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -12,7 +12,7 @@ it("on('message') skips own agent's messages", () =>
     const regB = yield* H.registerAgent("other");
 
     yield* regB.client.connect();
-    const service = yield* H.connectService(regA.apiKey);
+    const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     const conv = yield* H.createDm(service, regB.agentId);
 
@@ -36,9 +36,12 @@ it("getHistory() stores received messages", () =>
     const regReceiver = yield* H.registerAgent("hist-receiver");
 
     yield* regSender.client.connect();
-    const service = yield* H.connectService(regReceiver.apiKey);
+    const service = yield* H.connectService(
+      regReceiver.apiKey,
+      regReceiver.agentId,
+    );
 
-    const conv = yield* regSender.client.sendRpc(TaskRequest, {
+    const conv = yield* regSender.client.call(TaskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regReceiver.agentId],
       initialConversation: { participants: [regReceiver.agentId] },
@@ -68,7 +71,7 @@ it("getHistory() stores received messages", () =>
 it("resolveAgentName() returns and caches name", () =>
   Effect.gen(function* () {
     const reg = yield* H.registerAgent(H.SERVICE_NAME_TEST);
-    const service = yield* H.connectService(reg.apiKey);
+    const service = yield* H.connectService(reg.apiKey, reg.agentId);
 
     // Before resolution, getAgentName returns undefined
     expect(service.getAgentName(reg.agentId)).toBeUndefined();

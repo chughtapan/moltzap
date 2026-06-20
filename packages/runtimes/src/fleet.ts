@@ -1,6 +1,7 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { Data, Effect, Exit, Fiber } from "effect";
 import type { Signal } from "@effect/platform/CommandExecutor";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   RuntimeExitedBeforeReady,
   RuntimeReadyTimedOut,
@@ -20,7 +21,6 @@ import {
 } from "./openclaw-adapter.js";
 import {
   AgentName,
-  ApiKey,
   ServerUrl,
   type Runtime,
   type RuntimeServerHandle,
@@ -34,8 +34,8 @@ const LOG_START_OFFSET = 0;
 
 export interface RuntimeAgentSpec {
   readonly agentName: string;
-  readonly apiKey: string;
-  readonly agentId: string;
+  readonly apiKey: AgentKey;
+  readonly agentId: AgentId;
   readonly serverUrl: string;
   readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
   readonly modelId?: string;
@@ -69,7 +69,7 @@ export interface RuntimeFleetProcessSignalOptions
 
 export interface RuntimeFleetAgent {
   readonly name: string;
-  readonly agentId: string;
+  readonly agentId: AgentId;
 }
 
 export interface RuntimeFleet {
@@ -133,7 +133,7 @@ function createRuntime(options: RuntimeStartOptions): Runtime {
 function toSpawnInput(agent: RuntimeAgentSpec): SpawnInput {
   return {
     agentName: AgentName(agent.agentName),
-    apiKey: ApiKey(agent.apiKey),
+    apiKey: agent.apiKey,
     agentId: agent.agentId,
     serverUrl: ServerUrl(agent.serverUrl),
     ...(agent.workspaceFiles !== undefined

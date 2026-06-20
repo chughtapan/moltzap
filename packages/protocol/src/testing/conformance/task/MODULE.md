@@ -10,8 +10,7 @@ Task-layer conformance properties.
 
 Task / conversation / message invariants — fan-out cardinality,
 store-and-replay, payload opacity, task-boundary isolation,
-conversation lifecycle, archive lifecycle, model equivalence,
-task-close lifecycle.
+conversation lifecycle, archive lifecycle, task-close lifecycle.
 
 Each `register*` lives in its own file. This barrel re-exports them
 by name AND aggregates them into `TASK_PROPERTIES` for the
@@ -19,7 +18,7 @@ by name AND aggregates them into `TASK_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireClient`](./_helpers.ts#L514)
+### [`acquireClient`](./_helpers.ts#L503)
 
 _Function_
 
@@ -30,7 +29,7 @@ export function acquireClient(
 ): Effect.Effect<ConversationActor, string, Scope.Scope>
 ```
 
-### [`acquireConversation`](./_helpers.ts#L754)
+### [`acquireConversation`](./_helpers.ts#L745)
 
 _Function_
 
@@ -42,7 +41,7 @@ export function acquireConversation(
 ): Effect.Effect<ConversationFixture, string, Scope.Scope>
 ```
 
-### [`acquirePropertyConversation`](./_helpers.ts#L284)
+### [`acquirePropertyConversation`](./_helpers.ts#L283)
 
 _Function_
 
@@ -54,19 +53,19 @@ export function acquirePropertyConversation(
 ): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope>
 ```
 
-### [`agent`](./_helpers.ts#L74)
+### [`agent`](./_helpers.ts#L77)
 
 _Property_
 
 ```ts
   readonly agent: TestAgent;
-  readonly client: TestClient;
+  readonly client: AgentTestClient;
 
   /**
-   * Per-client historical notification buffer (#645): the consolidated
-   * `TestClient.subscribe` only emits frames arriving AFTER
-   * materialisation, so a sequential `send → awaitOneNotification` races
-   * the response frame. The buffer is fed by a long-lived
+   * Per-client historical notification buffer: `subscribe`
+   * only emits frames arriving AFTER materialisation, so a sequential
+   * `send → awaitOneNotification` races the response frame. The buffer
+   * is fed by a long-lived
    * `subscribeAll()` pump installed at `acquireClient` time;
    * `awaitOneNotification` consumes the buffer so frames that arrived
    * between the triggering RPC and the wait are still observable. This
@@ -78,7 +77,7 @@ _Property_
 
 /**
  * Historical notification buffer used by `awaitOneNotification`. Holds
- * every inbound notification arriving on a single `TestClient`'s
+ * every inbound notification arriving on a single client's
  * `subscribeAll()` Stream until a consumer pulls a matching frame.
  *
  * The `snapshot` and `closed` fields are the only public surfaces;
@@ -92,19 +91,19 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-### [`archiveConversation`](./_helpers.ts#L319)
+### [`archiveConversation`](./_helpers.ts#L321)
 
 _Function_
 
 ```ts
 export function archiveConversation(
-  actor: ConversationActor,
+  moderatorClient: AppTestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 )
 ```
 
-### [`assertConversationRejectsMessages`](./_helpers.ts#L470)
+### [`assertConversationRejectsMessages`](./_helpers.ts#L462)
 
 _Function_
 
@@ -114,7 +113,7 @@ export function assertConversationRejectsMessages(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L462)
+### [`AssertConversationRejectsMessagesInput`](./_helpers.ts#L454)
 
 _Interface_
 
@@ -124,11 +123,11 @@ export interface AssertConversationRejectsMessagesInput {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly propertyName: string;
-  readonly expectedError?: { readonly code: number; readonly label: string };
+  readonly expectedError?: { readonly tag: string };
 }
 ```
 
-### [`awaitOneNotification`](./_helpers.ts#L252)
+### [`awaitOneNotification`](./_helpers.ts#L251)
 
 _Function_
 
@@ -137,37 +136,33 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
   buffer: NotificationBuffer,
   definition: D,
   timeoutMs: number,
-): Effect.Effect<DecodedNotification<D>, string>
+): Effect.Effect<NotificationDelivery<D>, string>
 ```
 
 Stream-based one-shot waiter for protocol-side conformance helpers.
-Replaces the deleted `TestClient.waitForNotification(def, timeoutMs)`
-polling shape (#645).
 
 Consumes the per-client historical `NotificationBuffer` populated by
 the `subscribeAll()` pump installed at `acquireClient` time, so
-sequential `send → awaitOneNotification` patterns observe frames
-that arrived between the triggering RPC and the wait — the legacy
-polling semantic preserved without resurrecting the deleted
-per-definition dedup ring. Mirrors
+sequential `send → awaitOneNotification` patterns observe frames that
+arrived between the triggering RPC and the wait. Mirrors
 `@moltzap/server-core/test-utils → awaitOneNotification`.
 
 Surfaces a single string message on either timeout or stream
-exhaustion so call sites preserve the legacy `e.message`-style error
-mapper without re-deriving a tagged error type per definition.
+exhaustion, so call sites use an `e.message`-style error mapper without
+a tagged error type per definition.
 
-### [`client`](./_helpers.ts#L75)
+### [`client`](./_helpers.ts#L78)
 
 _Property_
 
 ```ts
-  readonly client: TestClient;
+  readonly client: AgentTestClient;
 
   /**
-   * Per-client historical notification buffer (#645): the consolidated
-   * `TestClient.subscribe` only emits frames arriving AFTER
-   * materialisation, so a sequential `send → awaitOneNotification` races
-   * the response frame. The buffer is fed by a long-lived
+   * Per-client historical notification buffer: `subscribe`
+   * only emits frames arriving AFTER materialisation, so a sequential
+   * `send → awaitOneNotification` races the response frame. The buffer
+   * is fed by a long-lived
    * `subscribeAll()` pump installed at `acquireClient` time;
    * `awaitOneNotification` consumes the buffer so frames that arrived
    * between the triggering RPC and the wait are still observable. This
@@ -179,7 +174,7 @@ _Property_
 
 /**
  * Historical notification buffer used by `awaitOneNotification`. Holds
- * every inbound notification arriving on a single `TestClient`'s
+ * every inbound notification arriving on a single client's
  * `subscribeAll()` Stream until a consumer pulls a matching frame.
  *
  * The `snapshot` and `closed` fields are the only public surfaces;
@@ -193,20 +188,35 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-### [`ConversationActor`](./_helpers.ts#L73)
+### [`CONVERSATION_FAMILY_PROPERTIES`](./conversation-family.ts#L453)
+
+_Variable_
+
+```ts
+export const CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
+  (ctx: ConformanceRunContext) => void
+> = [
+  registerTaskCreate,
+  registerTaskRequestReject,
+  registerTaskLeave,
+  registerConversationCreateAndList,
+]
+```
+
+### [`ConversationActor`](./_helpers.ts#L76)
 
 _TypeAlias_
 
 ```ts
 export type ConversationActor = {
   readonly agent: TestAgent;
-  readonly client: TestClient;
+  readonly client: AgentTestClient;
 
   /**
-   * Per-client historical notification buffer (#645): the consolidated
-   * `TestClient.subscribe` only emits frames arriving AFTER
-   * materialisation, so a sequential `send → awaitOneNotification` races
-   * the response frame. The buffer is fed by a long-lived
+   * Per-client historical notification buffer: `subscribe`
+   * only emits frames arriving AFTER materialisation, so a sequential
+   * `send → awaitOneNotification` races the response frame. The buffer
+   * is fed by a long-lived
    * `subscribeAll()` pump installed at `acquireClient` time;
    * `awaitOneNotification` consumes the buffer so frames that arrived
    * between the triggering RPC and the wait are still observable. This
@@ -217,7 +227,7 @@ export type ConversationActor = {
 };
 ```
 
-### [`ConversationFixture`](./_helpers.ts#L66)
+### [`ConversationFixture`](./_helpers.ts#L60)
 
 _Interface_
 
@@ -227,10 +237,19 @@ export interface ConversationFixture {
   readonly participants: ReadonlyArray<ConversationActor>;
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
+
+  /**
+   * The app-principal `AppConnection` bound as the conversation's
+   * moderator. App-admin RPCs (archive, unarchive, addParticipant,
+   * removeParticipant, close) head their `requires` with `AppPrincipal`, so
+   * they route through THIS client, not the agent `owner`. `owner` (an agent)
+   * drives `agent/task/request` + `agent/message/send`.
+   */
+  readonly moderatorClient: AppTestClient;
 }
 ```
 
-### [`DELIVERY_CATEGORY`](./_helpers.ts#L60)
+### [`DELIVERY_CATEGORY`](./_helpers.ts#L55)
 
 _Variable_
 
@@ -238,15 +257,7 @@ _Variable_
 export const DELIVERY_CATEGORY = "delivery" as const
 ```
 
-### [`DELIVERY_DEFAULT_CAPTURE_CAPACITY`](./_helpers.ts#L62)
-
-_Variable_
-
-```ts
-export const DELIVERY_DEFAULT_CAPTURE_CAPACITY = 256
-```
-
-### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L63)
+### [`DELIVERY_DEFAULT_PROPERTY_NUM_RUNS`](./_helpers.ts#L57)
 
 _Variable_
 
@@ -254,7 +265,7 @@ _Variable_
 export const DELIVERY_DEFAULT_PROPERTY_NUM_RUNS = 3
 ```
 
-### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L61)
+### [`DELIVERY_DEFAULT_TIMEOUT_MS`](./_helpers.ts#L56)
 
 _Variable_
 
@@ -262,7 +273,7 @@ _Variable_
 export const DELIVERY_DEFAULT_TIMEOUT_MS = 5000
 ```
 
-### [`deliveryViolation`](./_helpers.ts#L224)
+### [`deliveryViolation`](./_helpers.ts#L227)
 
 _Function_
 
@@ -273,7 +284,7 @@ export function deliveryViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`firstParticipant`](./_helpers.ts#L294)
+### [`firstParticipant`](./_helpers.ts#L293)
 
 _Function_
 
@@ -284,7 +295,7 @@ export function firstParticipant(
 ): Effect.Effect<ConversationActor, PropertyInvariantViolation>
 ```
 
-### [`fixtureN`](./_helpers.ts#L280)
+### [`fixtureN`](./_helpers.ts#L279)
 
 _Function_
 
@@ -292,54 +303,74 @@ _Function_
 export function fixtureN(requested: number): number
 ```
 
-### [`moderateAs`](./_helpers.ts#L721)
+### [`moderateAs`](./_helpers.ts#L714)
 
 _Function_
 
 ```ts
 export function moderateAs(
+  ctx: ConformanceRunContext,
   owner: ConversationActor,
   namePrefix: string,
 ): Effect.Effect<ModeratedHandle, string, Scope.Scope>
 ```
 
-### [`ModeratedHandle`](./_helpers.ts#L705)
+Wire a SEPARATE app principal as moderator: HTTP-register the manifest
++ `appKey`-Connect an `AppTestClient` whose implicit registration binds it
+as the app's moderator endpoint. The grant-all `DispatchAuthorize` +
+accept `TaskCreate` + forward-all `MessagesAuthorize` callbacks run on
+THAT app connection (all are server-initiated, app-principal
+round-trips). The agent `owner` drives `agent/task/request` + `agent/message/send`.
+
+Participant tracking stays on `owner.client` (an agent + conversation
+participant): the `app/conversation/created` + participants/added/removed
+notifications are agent broadcasts that CANNOT reach an `AppConnection`.
+The shared in-process `participantsRef` bridges the owner's subscriber to
+the app's forward-all callback.
+
+### [`ModeratedHandle`](./_helpers.ts#L678)
 
 _Interface_
 
 ```ts
 export interface ModeratedHandle {
-  readonly appId: Static<typeof AppIdSchema>;
+  readonly appId: Schema.Schema.Type<typeof AppIdSchema>;
+
+  /**
+   * The app-principal `AppConnection` bound as moderator. App-admin RPCs (their
+   * `requires` head is `AppPrincipal`) route through this client.
+   */
+  readonly client: AppTestClient;
 
   /**
    * Block until the moderator has observed `expectedAgentIds` as
    * participants of `conversationId` via
-   * `task/conversation/participants/added` notifications. Bridges
+   * `app/conversation/updateed` notifications. Bridges
    * the gap between the create RPC returning and the notification
    * arriving on the moderator's subscriber.
    */
   readonly awaitConversationReady: (
     conversationId: ConversationId,
-    expectedAgentIds: ReadonlyArray<Static<typeof AgentId>>,
+    expectedAgentIds: ReadonlyArray<Schema.Schema.Type<typeof AgentId>>,
   ) => Effect.Effect<void, string>;
 }
 ```
 
-### [`NotificationBuffer`](./_helpers.ts#L104)
+### [`NotificationBuffer`](./_helpers.ts#L107)
 
 _Interface_
 
 ```ts
 export interface NotificationBuffer {
   readonly snapshot: Ref.Ref<
-    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+    ReadonlyArray<NotificationDelivery<AnyNotificationDefinition>>
   >;
   readonly closed: Ref.Ref<boolean>;
 }
 ```
 
 Historical notification buffer used by `awaitOneNotification`. Holds
-every inbound notification arriving on a single `TestClient`'s
+every inbound notification arriving on a single client's
 `subscribeAll()` Stream until a consumer pulls a matching frame.
 
 The `snapshot` and `closed` fields are the only public surfaces;
@@ -350,7 +381,7 @@ set to true when the transport-side stream terminates (either via
 consumes it to surface "Connection closed" rather than masquerading
 a missing notification as a timeout.
 
-### [`notifications`](./_helpers.ts#L88)
+### [`notifications`](./_helpers.ts#L91)
 
 _Property_
 
@@ -360,7 +391,7 @@ _Property_
 
 /**
  * Historical notification buffer used by `awaitOneNotification`. Holds
- * every inbound notification arriving on a single `TestClient`'s
+ * every inbound notification arriving on a single client's
  * `subscribeAll()` Stream until a consumer pulls a matching frame.
  *
  * The `snapshot` and `closed` fields are the only public surfaces;
@@ -374,10 +405,10 @@ _Property_
 export interface NotificationBuffer {
 ```
 
-Per-client historical notification buffer (#645): the consolidated
-`TestClient.subscribe` only emits frames arriving AFTER
-materialisation, so a sequential `send → awaitOneNotification` races
-the response frame. The buffer is fed by a long-lived
+Per-client historical notification buffer: `subscribe`
+only emits frames arriving AFTER materialisation, so a sequential
+`send → awaitOneNotification` races the response frame. The buffer
+is fed by a long-lived
 `subscribeAll()` pump installed at `acquireClient` time;
 `awaitOneNotification` consumes the buffer so frames that arrived
 between the triggering RPC and the wait are still observable. This
@@ -392,6 +423,16 @@ _Function_
 export function registerArchiveLifecycle(ctx: ConformanceRunContext): void
 ```
 
+### [`registerConversationCreateAndList`](./conversation-family.ts#L407)
+
+_Function_
+
+```ts
+export function registerConversationCreateAndList(
+  ctx: ConformanceRunContext,
+): void
+```
+
 ### [`registerConversationLifecycle`](./conversation-lifecycle.ts#L34)
 
 _Function_
@@ -402,7 +443,7 @@ export function registerConversationLifecycle(
 ): void
 ```
 
-### [`registerFanOutCardinality`](./fan-out-cardinality.ts#L47)
+### [`registerFanOutCardinality`](./fan-out-cardinality.ts#L28)
 
 _Function_
 
@@ -410,15 +451,7 @@ _Function_
 export function registerFanOutCardinality(ctx: ConformanceRunContext): void
 ```
 
-### [`registerModelEquivalence`](./model-equivalence.ts#L62)
-
-_Function_
-
-```ts
-export function registerModelEquivalence(ctx: ConformanceRunContext): void
-```
-
-### [`registerPayloadOpacity`](./payload-opacity.ts#L19)
+### [`registerPayloadOpacity`](./payload-opacity.ts#L21)
 
 _Function_
 
@@ -426,7 +459,7 @@ _Function_
 export function registerPayloadOpacity(ctx: ConformanceRunContext): void
 ```
 
-### [`registerStoreAndReplay`](./store-and-replay.ts#L43)
+### [`registerStoreAndReplay`](./store-and-replay.ts#L31)
 
 _Function_
 
@@ -434,7 +467,7 @@ _Function_
 export function registerStoreAndReplay(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskBoundaryIsolation`](./task-boundary-isolation.ts#L17)
+### [`registerTaskBoundaryIsolation`](./task-boundary-isolation.ts#L56)
 
 _Function_
 
@@ -444,7 +477,7 @@ export function registerTaskBoundaryIsolation(
 ): void
 ```
 
-### [`registerTaskCloseLifecycle`](./task-close-lifecycle.ts#L38)
+### [`registerTaskCloseLifecycle`](./task-close-lifecycle.ts#L35)
 
 _Function_
 
@@ -452,57 +485,7 @@ _Function_
 export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskConversationAddParticipant`](./task-conversation-family.ts#L551)
-
-_Function_
-
-```ts
-export function registerTaskConversationAddParticipant(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerTaskConversationArchiveDenied`](./task-conversation-family.ts#L535)
-
-_Function_
-
-```ts
-export function registerTaskConversationArchiveDenied(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerTaskConversationCreateAndList`](./task-conversation-family.ts#L435)
-
-_Function_
-
-```ts
-export function registerTaskConversationCreateAndList(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerTaskConversationCreateDenied`](./task-conversation-family.ts#L634)
-
-_Function_
-
-```ts
-export function registerTaskConversationCreateDenied(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerTaskConversationRemoveParticipant`](./task-conversation-family.ts#L594)
-
-_Function_
-
-```ts
-export function registerTaskConversationRemoveParticipant(
-  ctx: ConformanceRunContext,
-): void
-```
-
-### [`registerTaskCreate`](./task-conversation-family.ts#L138)
+### [`registerTaskCreate`](./conversation-family.ts#L127)
 
 _Function_
 
@@ -510,7 +493,7 @@ _Function_
 export function registerTaskCreate(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskLeave`](./task-conversation-family.ts#L343)
+### [`registerTaskLeave`](./conversation-family.ts#L327)
 
 _Function_
 
@@ -518,7 +501,7 @@ _Function_
 export function registerTaskLeave(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTaskRequestReject`](./task-conversation-family.ts#L271)
+### [`registerTaskRequestReject`](./conversation-family.ts#L265)
 
 _Function_
 
@@ -526,7 +509,7 @@ _Function_
 export function registerTaskRequestReject(ctx: ConformanceRunContext): void
 ```
 
-### [`sendText`](./_helpers.ts#L306)
+### [`sendText`](./_helpers.ts#L305)
 
 _Function_
 
@@ -539,26 +522,7 @@ export function sendText(
 )
 ```
 
-### [`TASK_CONVERSATION_FAMILY_PROPERTIES`](./task-conversation-family.ts#L682)
-
-_Variable_
-
-```ts
-export const TASK_CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
-  (ctx: ConformanceRunContext) => void
-> = [
-  registerTaskCreate,
-  registerTaskRequestReject,
-  registerTaskLeave,
-  registerTaskConversationCreateAndList,
-  registerTaskConversationCreateDenied,
-  registerTaskConversationArchiveDenied,
-  registerTaskConversationAddParticipant,
-  registerTaskConversationRemoveParticipant,
-]
-```
-
-### [`TASK_PROPERTIES`](./index.ts#L65)
+### [`TASK_PROPERTIES`](./index.ts#L51)
 
 _Variable_
 
@@ -573,28 +537,26 @@ export const TASK_PROPERTIES: ReadonlyArray<
   registerConversationLifecycle,
   registerTaskCloseLifecycle,
   registerArchiveLifecycle,
-  ...TASK_CONVERSATION_FAMILY_PROPERTIES,
-  registerModelEquivalence,
+  ...CONVERSATION_FAMILY_PROPERTIES,
 ]
 ```
 
-All task-layer property registrars, ordered per architect plan §2
-(delivery subset first, then `model-equivalence` from rpc-semantics).
-Spec D1 additions append to the delivery subset.
+All task-layer property registrars: delivery subset first, then the
+`app/conversation/*` family.
 
-### [`unarchiveConversation`](./_helpers.ts#L330)
+### [`unarchiveConversation`](./_helpers.ts#L333)
 
 _Function_
 
 ```ts
 export function unarchiveConversation(
-  actor: ConversationActor,
+  moderatorClient: AppTestClient,
   taskId: TaskId,
   conversationId: ConversationId,
 )
 ```
 
-### [`waitForArchivedEvent`](./_helpers.ts#L396)
+### [`waitForArchivedEvent`](./_helpers.ts#L397)
 
 _Function_
 
@@ -607,7 +569,7 @@ export function waitForArchivedEvent(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForConversationCreatedNotification`](./_helpers.ts#L341)
+### [`waitForConversationCreatedNotification`](./_helpers.ts#L345)
 
 _Function_
 
@@ -619,7 +581,7 @@ export function waitForConversationCreatedNotification(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForMessageReceivedNotification`](./_helpers.ts#L369)
+### [`waitForMessageReceivedNotification`](./_helpers.ts#L371)
 
 _Function_
 
@@ -631,7 +593,7 @@ export function waitForMessageReceivedNotification(
 ): Effect.Effect<void, PropertyInvariantViolation>
 ```
 
-### [`waitForUnarchivedEvent`](./_helpers.ts#L433)
+### [`waitForUnarchivedEvent`](./_helpers.ts#L427)
 
 _Function_
 
@@ -648,12 +610,11 @@ export function waitForUnarchivedEvent(
 
 - `_helpers.ts`
 - `archive-lifecycle.ts`
+- `conversation-family.ts`
 - `conversation-lifecycle.ts`
 - `fan-out-cardinality.ts`
 - `index.ts`
-- `model-equivalence.ts`
 - `payload-opacity.ts`
 - `store-and-replay.ts`
 - `task-boundary-isolation.ts`
 - `task-close-lifecycle.ts`
-- `task-conversation-family.ts`

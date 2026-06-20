@@ -2,7 +2,7 @@
  * Subscribing AFTER an agent connects ⇒ snapshot reflects status: online.
  */
 import { Effect } from "effect";
-import { PresenceSubscribe } from "@moltzap/protocol/network";
+import { AgentPresenceSubscribe } from "#network";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
@@ -11,7 +11,7 @@ import {
   acquireCloseableClient,
   presenceViolation,
   registerAgent,
-  type PresenceChangedPayload,
+  type PresenceStatusEntry,
 } from "./_helpers.js";
 
 export function registerSubscribeAfterConnect(
@@ -30,20 +30,16 @@ export function registerSubscribeAfterConnect(
 
         const sub = yield* acquireClient(ctx, NAME, "p6-sub");
         const result = yield* sub.client
-          .sendRpc(PresenceSubscribe, { agentIds: [a.agentId] })
+          .sendRpc(AgentPresenceSubscribe, { agentIds: [a.agentId] })
           .pipe(
             Effect.mapError((e) =>
               presenceViolation(
                 NAME,
-                `presence/subscribe failed: ${String(e)}`,
+                `network/presence/subscribe failed: ${String(e)}`,
               ),
             ),
           );
-        const statuses = (
-          result as {
-            statuses: ReadonlyArray<PresenceChangedPayload>;
-          }
-        ).statuses;
+        const statuses: ReadonlyArray<PresenceStatusEntry> = result.statuses;
         if (statuses.length !== 1) {
           return yield* Effect.fail(
             presenceViolation(

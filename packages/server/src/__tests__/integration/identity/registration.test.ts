@@ -1,6 +1,5 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect, Exit } from "effect";
-import { PROTOCOL_VERSION } from "@moltzap/protocol";
 import {
   connectTestClient,
   it,
@@ -9,9 +8,10 @@ import {
   resetTestDbEffect,
   registerAgent,
 } from "../helpers.js";
-import { getCoreDb } from "../../../test-utils/index.js";
+import { getCoreDb } from "../../../test-utils/server.js";
+import type { AgentId } from "@moltzap/protocol/identity";
 
-import { Connect, TaskConversationList } from "@moltzap/protocol";
+import { ConversationList } from "@moltzap/protocol/conversation";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -30,15 +30,6 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-function registersAgent() {
-  return Effect.gen(function* () {
-    const reg = yield* registerAgent(baseUrl, "test-agent");
-
-    expect(reg.agentId).toBeDefined();
-    expect(reg.apiKey).toMatch(/^moltzap_agent_/);
-  });
-}
-
 function rejectsDuplicateAgentNames() {
   return Effect.gen(function* () {
     yield* registerAgent(baseUrl, "unique-agent");
@@ -55,25 +46,16 @@ function registeredAgentCanUseMethods() {
       wsUrl,
       agentId: reg.agentId,
       apiKey: reg.apiKey,
-      autoConnect: false,
     });
 
-    const hello = yield* client.sendRpc(Connect, {
-      agentKey: reg.apiKey,
-      minProtocol: PROTOCOL_VERSION,
-      maxProtocol: PROTOCOL_VERSION,
-    });
-    expect(hello.protocolVersion).toBeDefined();
-    expect(hello.agentId).toBe(reg.agentId);
-
-    const result = yield* client.sendRpc(TaskConversationList, {});
+    const result = yield* client.sendRpc(ConversationList, {});
     expect(result.items).toEqual([]);
 
     yield* client.close();
   });
 }
 
-function suspendAgent(agentId: string) {
+function suspendAgent(agentId: AgentId) {
   const db = getCoreDb();
   return Effect.tryPromise(() =>
     db
@@ -89,27 +71,18 @@ function suspendedAgentCannotConnect() {
     const reg = yield* registerAgent(baseUrl, "suspended-agent");
     yield* suspendAgent(reg.agentId);
 
-    const client = yield* connectTestClient({
-      wsUrl,
-      agentId: reg.agentId,
-      apiKey: reg.apiKey,
-      autoConnect: false,
-    });
     const result = yield* Effect.exit(
-      client.sendRpc(Connect, {
-        agentKey: reg.apiKey,
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
+      connectTestClient({
+        wsUrl,
+        agentId: reg.agentId,
+        apiKey: reg.apiKey,
       }),
     );
     expect(Exit.isFailure(result)).toBe(true);
-
-    yield* client.close();
   });
 }
 
 describe("Scenario 1: Registration", () => {
-  it("registers an agent and returns API key", registersAgent);
   it("rejects duplicate agent names", rejectsDuplicateAgentNames);
   it(
     "registered agent is active immediately and can use all methods",

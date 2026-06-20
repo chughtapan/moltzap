@@ -3,14 +3,14 @@
   "private": true,
   "packageManager": "pnpm@10.6.2",
   "scripts": {
-    "build": "pnpm -r build",
-    "test": "pnpm -r test",
-    "test:integration": "pnpm -r test:integration",
-    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0 && pnpm -r --workspace-concurrency=1 lint && oxlint . --deny-warnings",
+    "build": "nx run-many -t build",
+    "test": "nx run-many -t test",
+    "test:integration": "nx run-many -t test:integration",
+    "lint": "node scripts/check-architecture-boundaries.js && agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0 && nx run-many -t lint && oxlint . --deny-warnings",
     "lint:root": "agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "typecheck": "pnpm -r exec tsc --noEmit",
+    "typecheck": "nx run-many -t build",
     "check": "pnpm lint && pnpm format:check",
     "test:conformance:toxiproxy": "bash scripts/conformance-toxiproxy.sh",
     "test:conformance:stress": "CONFORMANCE_STRESS=1 bash scripts/conformance-toxiproxy.sh",
@@ -22,7 +22,8 @@
     "docs:check:no-hardcoded-constants": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-no-hardcoded-constants.ts",
     "docs:check:doc-imports-resolve": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-doc-imports-resolve.ts",
     "docs:check:gates-test": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/__tests__/gates.test.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:affected": "nx affected -t test"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
@@ -32,6 +33,7 @@
     "eslint-plugin-agent-code-guard": "0.0.14",
     "husky": "^9.0.0",
     "mint": "^4.0.0",
+    "nx": "^22.7.5",
     "oxfmt": "^0.7.0",
     "oxlint": "^0.16.0",
     "typedoc": "^0.28.19",

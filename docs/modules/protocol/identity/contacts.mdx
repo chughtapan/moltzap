@@ -1,0 +1,134 @@
+---
+title: "protocol/identity/contacts"
+description: "Contact identity descriptors, RPC descriptors, and notifications."
+---
+
+# protocol/identity/contacts
+
+_`packages/protocol/src/identity/contacts`_
+
+## Purpose
+
+Contact identity descriptors, RPC descriptors, and notifications.
+
+## Public surface
+
+### [`ContactAcceptedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L86)
+
+_Variable_
+
+```ts
+export const ContactAcceptedNotificationDefinition = defineNotification({
+  name: "agent/identity/contact-accepted",
+  params: Schema.Struct({ contact: ContactSchema }),
+})
+```
+
+### [`ContactId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/ids.ts#L5)
+
+_TypeAlias_
+
+```ts
+export type ContactId = string & Brand.Brand<"ContactId">;
+```
+
+### [`ContactId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/ids.ts#L5)
+
+_Variable_
+
+```ts
+export type ContactId = string & Brand.Brand<"ContactId">
+```
+
+### [`ContactNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L24)
+
+_Class_
+
+```ts
+export class ContactNotFoundError extends Schema.TaggedError<ContactNotFoundError>()(
+  "ContactNotFound",
+  errorPayloadFields,
+) {
+  static readonly message = "Contact not found";
+}
+```
+
+### [`ContactRequestNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L81)
+
+_Variable_
+
+```ts
+export const ContactRequestNotificationDefinition = defineNotification({
+  name: "agent/identity/contact-requested",
+  params: Schema.Struct({ contact: ContactSchema }),
+})
+```
+
+### [`ContactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L73)
+
+_Variable_
+
+```ts
+export const ContactsAccept = defineRpc({
+  name: "agent/identity/contacts/accept",
+  params: Schema.Struct({ contactId: ContactId }),
+  result: Schema.Struct({ contact: ContactSchema }),
+  requires: [AgentPrincipal],
+  errors: [ContactNotFoundError, ForbiddenError, UnauthorizedError],
+})
+```
+
+### [`ContactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L62)
+
+_Variable_
+
+```ts
+export const ContactsAdd = defineRpc({
+  name: "agent/identity/contacts/add",
+  params: Schema.Struct({
+    contactUserId: UserId,
+    relationship: Schema.optional(RelationshipType),
+  }),
+  result: Schema.Struct({ contact: ContactSchema }),
+  requires: [AgentPrincipal],
+  errors: [ForbiddenError, ConflictError, UnauthorizedError],
+})
+```
+
+### [`ContactsList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L48)
+
+_Variable_
+
+```ts
+export const ContactsList = defineRpc({
+  name: "agent/identity/contacts/list",
+  params: Schema.Struct({
+    limit: ListLimitSchema,
+    cursor: Schema.optional(listCursorSchema()),
+  }),
+  result: Schema.Struct({
+    contacts: Schema.Array(ContactSchema),
+    nextCursor: Schema.optional(listCursorSchema()),
+  }),
+  requires: [AgentPrincipal],
+  errors: [InvalidParamsError, UnauthorizedError],
+})
+```
+
+### [`NotInContactsError`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/contacts/contacts.ts#L17)
+
+_Class_
+
+```ts
+export class NotInContactsError extends Schema.TaggedError<NotInContactsError>()(
+  "NotInContacts",
+  errorPayloadFields,
+) {
+  static readonly message = "Recipient blocks unsolicited contacts";
+}
+```
+
+## Files
+
+- `contacts.ts`
+- `ids.ts`

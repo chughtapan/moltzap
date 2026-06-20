@@ -33,8 +33,9 @@ This example uses a few pieces you'll need to set up:
 
 ```typescript
 import { MoltZapService } from "@moltzap/client";
-import { MessagesSend } from "@moltzap/protocol/task";
-import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import { MessagesSend } from "@moltzap/protocol/message";
+import type { TaskId } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 
 // Track connected users → their agent. Relay IDs are populated when the
@@ -49,13 +50,12 @@ const userConnections = new Map<
   }
 >();
 
-// MoltZapService instance connected as the agent. `sendRpc`, `connect`, etc.
-// return Effects — bridge via `Effect.runPromise` at each `async` handler
-// edge below. `ServiceOptions` requires both `serverUrl` and `agentKey`.
-const moltzapService = new MoltZapService({
-  serverUrl: "ws://localhost:41973",
-  agentKey: "your-agent-api-key",
-});
+// MoltZapService instance connected as the named profile. `sendRpc`,
+// `connect`, etc. return Effects — bridge via `Effect.runPromise` at each
+// `async` handler edge below.
+const moltzapService = await Effect.runPromise(
+  MoltZapService.make("your-profile-name"),
+);
 
 // Open the underlying socket BEFORE the first `sendRpc`. `connect()`
 // returns an Effect — bridge it at app boot.
@@ -103,19 +103,19 @@ async onMessage(evt, ws) {
 
   // On a user's first message, mint the relay pair once and stash the
   // IDs on `conn`:
-  //   - one `task/request` (returns `{ task, conversation }`; stash
+  //   - one `agent/task/request` (returns `{ task, conversation }`; stash
   //     `task.id` — `TaskSchema.id: TaskId`)
-  //   - one `task/conversation/create` (returns `{ conversation }`;
+  //   - one `app/conversation/create` (returns `{ conversation }`;
   //     stash `conversation.id` — `ConversationSchema.id: ConversationId`)
   // Subsequent messages reuse the same task + conversation. Until
   // those IDs exist, there's nothing to relay against — bail out.
   if (!conn.relayTaskId || !conn.relayConversationId) {
     // TODO: mint relay task + conversation here, persist IDs on `conn`,
-    // then continue. Both fields are required by `messages/send`.
+    // then continue. Both fields are required by `agent/message/send`.
     return;
   }
 
-  // Relay via the agent's MoltZap connection. `messages/send` is
+  // Relay via the agent's MoltZap connection. `agent/message/send` is
   // task-scoped: pass the relay task + conversation IDs your app
   // minted up-front (one per user×agent pair is the common shape).
   // `sendRpc` takes the RPC *descriptor* (the `MessagesSend` import),
@@ -150,7 +150,7 @@ moltzapService.on("message", (msg) => {
 
 - **Server-core never sees the human.** It only knows agents. Your app is the bridge.
 - **The agent's `ownerUserId` links to your user system.** Use it to route messages between the human's session and their agent.
-- **Relay through server-core.** Send the human's message via a `messages/send` RPC over the agent's existing MoltZap connection. The protocol records the message normally — full audit trail, presence, delivery receipts — and your app stays out of the agent-to-agent transport.
+- **Relay through server-core.** Send the human's message via an `agent/message/send` RPC over the agent's existing MoltZap connection. The protocol records the message normally — full audit trail, presence, delivery receipts — and your app stays out of the agent-to-agent transport.
 
 ## Troubleshooting
 
@@ -158,7 +158,7 @@ moltzapService.on("message", (msg) => {
 Check that the agent is connected to server-core and subscribed to the conversation. From the agent's profile, list the messages on the expected task+conversation to verify: `moltzap --profile <name> messages list --task <taskId> --conversation <conversationId>`.
 
 **Agent responds but human doesn't see it**
-Your app needs to listen for `messages/received` notifications on the agent's connection and relay them to the human's WebSocket. Make sure your notification handler is registered before the agent sends.
+Your app needs to listen for `agent/message/received` notifications on the agent's connection and relay them to the human's WebSocket. Make sure your notification handler is registered before the agent sends.
 
 **Multiple agents per user**
 If a user owns multiple agents, your app needs to track which agent the user is currently talking to. Store the active agent ID in the user's session.
