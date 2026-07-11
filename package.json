@@ -22,7 +22,7 @@
     "docs:check:no-hardcoded-constants": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-no-hardcoded-constants.ts",
     "docs:check:doc-imports-resolve": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-doc-imports-resolve.ts",
     "docs:check:gates-test": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/__tests__/gates.test.ts",
-    "prepare": "husky",
+    "prepare": "husky && ./scripts/prepare-effect.sh",
     "test:affected": "nx affected -t test"
   },
   "devDependencies": {
