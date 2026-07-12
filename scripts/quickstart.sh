@@ -36,13 +36,13 @@ warn()  { printf "${YELLOW}[quickstart]${NC} %s\n" "$*"; }
 error() { printf "${RED}[quickstart]${NC} %s\n" "$*" >&2; }
 
 # ── Prereq checks ──────────────────────────────────────────────────
-command -v node >/dev/null || { error "node not found — install Node.js 20+"; exit 1; }
+command -v node >/dev/null || { error "node not found — install Node.js 22+"; exit 1; }
 command -v pnpm >/dev/null || { error "pnpm not found — install pnpm 10+"; exit 1; }
 command -v curl >/dev/null || { error "curl not found"; exit 1; }
 
 node_major=$(node -v | sed -E 's/v([0-9]+).*/\1/')
-if [ "$node_major" -lt 20 ]; then
-  error "Node.js 20+ required (found $(node -v))"
+if [ "$node_major" -lt 22 ]; then
+  error "Node.js 22+ required (found $(node -v))"
   exit 1
 fi
 

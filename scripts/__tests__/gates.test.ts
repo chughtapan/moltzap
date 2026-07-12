@@ -462,6 +462,46 @@ const testPublishWorkflowVersionFlow = (): void => {
   );
 };
 
+const testNodeVersionFloorConsistency = (): void => {
+  console.log("\n# Node version floor consistency");
+  const protocolManifest = JSON.parse(
+    readFileSync(
+      resolve(workspaceRoot, "packages/protocol/package.json"),
+      "utf8",
+    ),
+  ) as { readonly engines?: { readonly node?: string } };
+  const quickstart = readFileSync(
+    resolve(workspaceRoot, "scripts/quickstart.sh"),
+    "utf8",
+  );
+  const quickstartDocs = readFileSync(
+    resolve(workspaceRoot, "docs/quickstart.mdx"),
+    "utf8",
+  );
+  const localSetupDocs = readFileSync(
+    resolve(workspaceRoot, "docs/development/local-setup.mdx"),
+    "utf8",
+  );
+  assert(
+    "protocol package declares Node.js 22+",
+    protocolManifest.engines?.node === ">=22.0.0",
+    `expected engines.node >=22.0.0, got ${String(protocolManifest.engines?.node)}`,
+  );
+  assert(
+    "quickstart preflight enforces Node.js 22+",
+    quickstart.includes("install Node.js 22+") &&
+      quickstart.includes('if [ "$node_major" -lt 22 ]') &&
+      quickstart.includes("Node.js 22+ required"),
+    "scripts/quickstart.sh does not consistently enforce Node.js 22+",
+  );
+  assert(
+    "setup docs advertise Node.js 22+",
+    quickstartDocs.includes("Node.js 22+") &&
+      localSetupDocs.includes("Node.js 22+"),
+    "quickstart or local-setup docs have a different Node.js floor",
+  );
+};
+
 // ─── Tests: generate-constants-snippets idempotence ───────────────────────
 
 const testGeneratorIdempotence = (): void => {
@@ -532,6 +572,7 @@ const main = (): void => {
     testProtocolVersionManifest();
     testBakeFailureFailClosed();
     testPublishWorkflowVersionFlow();
+    testNodeVersionFloorConsistency();
   } finally {
     restoreAllPlants();
   }
