@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: protocol version releases
+
+- **One version authority.** `packages/protocol/package.json` now owns the
+  protocol version used by runtime range checks and generated docs. The npm
+  publish workflow bumps only that manifest instead of trying to edit the
+  deleted `src/version.ts`, so protocol releases can complete again.
+- **Supported Node floor.** `@moltzap/protocol` now declares Node.js 22+,
+  matching CI and the import-attribute syntax in its published ESM output.
+- **Release regression coverage.** CI now runs the documentation gate harness,
+  including malformed-manifest, changed-version re-bake, and publish-order
+  checks.
+
 ### Changed: post-cutover simplification + incremental-build robustness
 
 A `/simplify` quality pass over the cutover surface plus a fix for a `tsc -b`
