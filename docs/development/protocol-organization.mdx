@@ -189,9 +189,9 @@ agent/network/presence/subscribe      RPC
 app/network/presence/subscribe        RPC
 ```
 
-`network/connect.ts` also owns `PROTOCOL_VERSION`, range checks, and protocol
-mismatch errors because those are handshake concerns. Do not create a standalone
-`version.ts`.
+`packages/protocol/package.json` owns the protocol version. `network/connect.ts`
+exports that manifest value and owns range checks and mismatch errors because
+those are handshake concerns. Do not create a second version literal.
 
 ### Identity
 
