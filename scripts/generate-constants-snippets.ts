@@ -122,6 +122,27 @@ const readQuickstartPort = (filePath: string): ReadResult<number> => {
   return ok(Number(m[1]));
 };
 
+/** Read a package version from its canonical package.json manifest. */
+const readPackageVersion = (filePath: string): ReadResult<string> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(filePath, "utf8"));
+  } catch (cause) {
+    return err(
+      `could not parse ${filePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("version" in parsed) ||
+    typeof parsed.version !== "string"
+  ) {
+    return err(`expected a string version field in ${filePath}`);
+  }
+  return ok(parsed.version);
+};
+
 // ─── Constant specs ───────────────────────────────────────────────────────
 
 interface StringConstant {
@@ -143,9 +164,8 @@ interface NumberConstant {
 type Constant = StringConstant | NumberConstant;
 
 const collect = (): readonly Constant[] => {
-  const protocolVersion = readTopLevelLiteral(
-    resolve(workspaceRoot, "packages/protocol/src/network/connect.ts"),
-    "PROTOCOL_VERSION",
+  const protocolVersion = readPackageVersion(
+    resolve(workspaceRoot, "packages/protocol/package.json"),
   );
   const defaultAppId = readTopLevelLiteral(
     resolve(workspaceRoot, "packages/protocol/src/identity/apps/ids.ts"),
@@ -204,7 +224,7 @@ const collect = (): readonly Constant[] => {
   const constants: ReadonlyArray<Constant | null> = [
     requireString(
       "PROTOCOL_VERSION",
-      "packages/protocol/src/network/connect.ts",
+      "packages/protocol/package.json",
       protocolVersion,
       "Current wire-protocol version emitted in HelloOk + accepted by the connect handshake.",
     ),

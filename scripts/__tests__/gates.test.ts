@@ -147,20 +147,20 @@ const testNoHardcodedConstants = (): void => {
   );
   restoreAllPlants();
 
-  // Planted regression 3: HELLO_MAX_MESSAGE_BYTES in JSON-shaped context.
+  // Planted regression 3: API_KEY_PREFIX in generated-looking copy.
   const target3 = "docs/development/local-setup.mdx";
   plantFile(
     target3,
-    (s) => `${s}\nExample policy: { "maxMessageBytes": 65536 }\n`,
+    (s) => `${s}\nExample credential: moltzap_agent_deadbeef\n`,
   );
   const r3 = runScript(
     "scripts/check-no-hardcoded-constants.ts",
     workspaceRoot,
   );
   assert(
-    "flags HELLO_MAX_MESSAGE_BYTES in JSON",
-    r3.code !== 0 && /HELLO_MAX_MESSAGE_BYTES/.test(r3.stderr),
-    `expected HELLO_MAX_MESSAGE_BYTES hit. exit=${r3.code}, stderr=${r3.stderr.slice(0, 300)}`,
+    "flags planted API_KEY_PREFIX",
+    r3.code !== 0 && /API_KEY_PREFIX/.test(r3.stderr),
+    `expected API_KEY_PREFIX hit. exit=${r3.code}, stderr=${r3.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 };

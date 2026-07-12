@@ -21,7 +21,7 @@ export const agentCallableNetworkRpcMethods = [
 
 Network RPCs callable by agent clients.
 
-### [`AgentConnect`](./connect.ts#L171)
+### [`AgentConnect`](./connect.ts#L172)
 
 _Variable_
 
@@ -82,7 +82,7 @@ export const appCallableNetworkRpcMethods = [
 
 Network RPCs callable by app clients.
 
-### [`AppConnect`](./connect.ts#L203)
+### [`AppConnect`](./connect.ts#L204)
 
 _Variable_
 
@@ -130,7 +130,7 @@ export const AppPresenceSubscribe = defineRpc({
 })
 ```
 
-### [`checkProtocolRange`](./connect.ts#L99)
+### [`checkProtocolRange`](./connect.ts#L100)
 
 _Function_
 
@@ -141,7 +141,7 @@ export function checkProtocolRange(
 ): Effect.Effect<void, ProtocolMismatchError | InvalidProtocolVersionError>
 ```
 
-### [`compareProtocolVersion`](./connect.ts#L86)
+### [`compareProtocolVersion`](./connect.ts#L87)
 
 _Function_
 
@@ -149,7 +149,7 @@ _Function_
 export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1
 ```
 
-### [`HelloOk`](./connect.ts#L26)
+### [`HelloOk`](./connect.ts#L27)
 
 _TypeAlias_
 
@@ -157,7 +157,7 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
-### [`InvalidProtocolVersionError`](./connect.ts#L64)
+### [`InvalidProtocolVersionError`](./connect.ts#L65)
 
 _Class_
 
@@ -196,15 +196,17 @@ export const networkRpcMethods = [
 
 Network RPCs accepted by the server.
 
-### [`PROTOCOL_VERSION`](./connect.ts#L12)
+### [`PROTOCOL_VERSION`](./connect.ts#L13)
 
 _Variable_
 
 ```ts
-export const PROTOCOL_VERSION = "2026.529.0"
+export const PROTOCOL_VERSION = packageJson.version
 ```
 
-### [`ProtocolMismatchError`](./connect.ts#L46)
+The published package version is also the wire-protocol version.
+
+### [`ProtocolMismatchError`](./connect.ts#L47)
 
 _Class_
 
@@ -235,7 +237,7 @@ so old clients are rejected at the version gate. `data` carries the
 diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
 concretely typed so `error.data.reason` narrows at every reader.
 
-### [`ProtocolMismatchReason`](./connect.ts#L34)
+### [`ProtocolMismatchReason`](./connect.ts#L35)
 
 _TypeAlias_
 
