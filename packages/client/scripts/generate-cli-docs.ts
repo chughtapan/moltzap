@@ -26,6 +26,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  readPackageVersion,
   readTopLevelStringConst,
   type ReadResult,
 } from "./generate-cli-docs.helpers.js";
@@ -455,21 +456,13 @@ const renderGlobalFlagsSnippet = (rootHelp: CommandHelp): string =>
 // ─── agent/network/connect example snippet ───────────────────────────────
 
 /**
- * Read `PROTOCOL_VERSION` from `packages/protocol/src/network/connect.ts` so
- * the generated WS-connect example never drifts from the protocol
- * package. Resolves the constant from source via `readTopLevelStringConst`
- * (AST read, not a runtime import) so the script stays decoupled from the
- * protocol package's build output.
+ * Read `PROTOCOL_VERSION` from the protocol package manifest, which is the
+ * single source of truth for both package and wire versions. Reading JSON
+ * keeps the generator decoupled from the protocol package's build output.
  */
 const readProtocolVersion = (): ReadResult<string> => {
-  const sourcePath = resolve(
-    workspaceRoot,
-    "packages/protocol/src/network/connect.ts",
-  );
-  const result = readTopLevelStringConst(
-    readFileSync(sourcePath, "utf8"),
-    "PROTOCOL_VERSION",
-  );
+  const sourcePath = resolve(workspaceRoot, "packages/protocol/package.json");
+  const result = readPackageVersion(readFileSync(sourcePath, "utf8"));
   if (result._tag === "err") {
     return {
       _tag: "err",

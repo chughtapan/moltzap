@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/protocol",
-  "version": "2026.529.0",
+  "version": "2026.717.0",
   "description": "Protocol types and validators for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -8,6 +8,9 @@
     "url": "git+https://github.com/chughtapan/moltzap.git"
   },
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "files": [
     "dist"
   ],
