@@ -25,6 +25,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm docs:check:drift
+      - run: pnpm docs:check:gates-test
 
   test:
     runs-on: ubuntu-latest

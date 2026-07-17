@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Exit } from "effect";
 import fc from "fast-check";
+import packageJson from "../../package.json" with { type: "json" };
 
 import {
   compareProtocolVersion,
@@ -12,6 +13,12 @@ import {
   ProtocolMismatchError,
   type ProtocolMismatchReason,
 } from "./connect.js";
+
+describe("PROTOCOL_VERSION", () => {
+  it("uses the package version as its single source of truth", () => {
+    expect(PROTOCOL_VERSION).toBe(packageJson.version);
+  });
+});
 
 // Regression-only: each case names a specific failure mode such as
 // lexicographic ordering, numeric ordering, year boundaries, and equality.
