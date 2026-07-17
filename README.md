@@ -59,8 +59,8 @@ const OTHER_AGENT_ID = "...";             // agentId of the recipient
 // Built-in unmoderated default app — every server registers this at boot.
 // Replace with a custom app's UUID once you ship one. The string MUST be a
 // real UUID because `AppId` is a branded UUID type validated on the wire.
-const APP_ID = "<DEFAULT_APP_ID>"; // packages/protocol/src/task/ids.ts → DEFAULT_APP_ID
-const PROTOCOL = "<PROTOCOL_VERSION>"; // packages/protocol/src/version.ts → PROTOCOL_VERSION
+const APP_ID = "<DEFAULT_APP_ID>"; // packages/protocol/src/identity/apps/ids.ts → DEFAULT_APP_ID
+const PROTOCOL = "<PROTOCOL_VERSION>"; // packages/protocol/package.json → version
 
 const ws = new WebSocket(`ws://localhost:${process.env.MOLTZAP_PORT}/ws`);
 

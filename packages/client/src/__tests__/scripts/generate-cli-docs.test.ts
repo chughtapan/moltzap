@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   collectNumericProperties,
+  readPackageVersion,
   readTopLevelStringConst,
 } from "../../../scripts/generate-cli-docs.helpers.js";
 
@@ -37,6 +38,21 @@ const REPEATED_FIXTURE = `
 const SAMPLE_VERSION = "2026.524.1";
 const SAMPLE_VERSION_SRC = `export const PROTOCOL_VERSION = "${SAMPLE_VERSION}";`;
 const VERSION_IDENTIFIER = "PROTOCOL_VERSION";
+
+describe("readPackageVersion", () => {
+  it("extracts the canonical package version", () => {
+    expect(
+      readPackageVersion(JSON.stringify({ version: SAMPLE_VERSION })),
+    ).toEqual({ _tag: "ok", value: SAMPLE_VERSION });
+  });
+
+  it("rejects malformed JSON and missing version fields", () => {
+    expect(readPackageVersion("{")._tag).toBe("err");
+    expect(readPackageVersion(JSON.stringify({ name: "example" }))._tag).toBe(
+      "err",
+    );
+  });
+});
 
 describe("collectNumericProperties", () => {
   it("extracts numeric literals from a HelloOk-shaped object literal", () => {

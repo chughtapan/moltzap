@@ -62,8 +62,8 @@ const ALLOW_PREFIXES: readonly string[] = [
  * as `ALLOW_PREFIXES` but at the file granularity.
  *
  * `ws-connect-example.mdx` is generator-output too, but its generator
- * now sources `API_KEY_PREFIX` + `PROTOCOL_VERSION` from the canonical
- * TS sources (see `packages/client/scripts/generate-cli-docs.ts →
+ * now sources `API_KEY_PREFIX` + `PROTOCOL_VERSION` from their canonical
+ * package/TS sources (see `packages/client/scripts/generate-cli-docs.ts →
  * readApiKeyPrefix / readProtocolVersion`), so the gate runs against
  * it normally and would surface any future hand-edit that drops a
  * literal.
@@ -240,71 +240,6 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
       line.includes("YYYY.MDD.patch") &&
       !/\b\d{4}\.\d{3,4}\.\d+\b/.test(line.replace(/YYYY\.MDD\.patch/g, "")),
   });
-
-  // HELLO_* policy fields baked from `buildHelloOk` in
-  // `packages/server/src/network/connect.handlers.ts`. Each rule
-  // matches `<jsonKey>": <value>` (and `<jsonKey>: <value>` for YAML
-  // contexts) — anchoring on the policy key avoids false positives on
-  // common numeric literals like `10` (pnpm version) or `30000`
-  // (unrelated timeout). The companion
-  // `generate-constants-snippets.ts → readHelloPolicyNumbers` is the
-  // single source.
-  interface HelloRule {
-    readonly name: string;
-    readonly jsonKey: string;
-    readonly hint: string;
-  }
-  const HELLO_RULES: readonly HelloRule[] = [
-    {
-      name: "HELLO_MAX_MESSAGE_BYTES",
-      jsonKey: "maxMessageBytes",
-      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MAX_MESSAGE_BYTES */}\`).`,
-    },
-    {
-      name: "HELLO_MAX_PARTS_PER_MESSAGE",
-      jsonKey: "maxPartsPerMessage",
-      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MAX_PARTS_PER_MESSAGE */}\`).`,
-    },
-    {
-      name: "HELLO_MAX_TEXT_LENGTH",
-      jsonKey: "maxTextLength",
-      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MAX_TEXT_LENGTH */}\`).`,
-    },
-    {
-      name: "HELLO_MAX_GROUP_PARTICIPANTS",
-      jsonKey: "maxGroupParticipants",
-      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MAX_GROUP_PARTICIPANTS */}\`).`,
-    },
-    {
-      name: "HELLO_HEARTBEAT_INTERVAL_MS",
-      jsonKey: "heartbeatIntervalMs",
-      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_HEARTBEAT_INTERVAL_MS */}\`).`,
-    },
-    {
-      name: "HELLO_MESSAGES_PER_MINUTE",
-      jsonKey: "messagesPerMinute",
-      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_MESSAGES_PER_MINUTE */}\`).`,
-    },
-    {
-      name: "HELLO_REQUESTS_PER_MINUTE",
-      jsonKey: "requestsPerMinute",
-      hint: `Bake from connect.handlers.ts → buildHelloOk (mark the file with \`{/* @bake-constants: HELLO_REQUESTS_PER_MINUTE */}\`).`,
-    },
-  ];
-  for (const h of HELLO_RULES) {
-    const c = byName.get(h.name);
-    if (c && c.kind === "number") {
-      rules.push({
-        name: h.name,
-        // `"maxMessageBytes": 65536` (JSON) or `maxMessageBytes: 65536`
-        // (YAML/TS literal). Both accept optional surrounding quotes.
-        regex: new RegExp(
-          `["']?${escape(h.jsonKey)}["']?\\s*:\\s*${c.value}\\b`,
-        ),
-        hint: h.hint,
-      });
-    }
-  }
 
   // Catch-all: stale 3100 references that predate the
   // DEFAULT_SERVER_PORT consolidation. Encoded as a hard reject so a
