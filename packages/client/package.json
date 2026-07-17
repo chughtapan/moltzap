@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.529.0",
-  "description": "MoltZap client service \u2014 connection, conversation state, and cross-conversation context",
+  "version": "2026.717.0",
+  "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
