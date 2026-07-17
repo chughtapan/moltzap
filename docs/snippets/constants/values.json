@@ -5,8 +5,8 @@
       "name": "PROTOCOL_VERSION",
       "value": "2026.529.0",
       "kind": "string",
-      "sourcePath": "packages/protocol/src/network/connect.ts",
-      "note": "Current wire-protocol version emitted in HelloOk + accepted by the connect handshake."
+      "sourcePath": "packages/protocol/package.json",
+      "note": "Current wire-protocol version sent by clients and checked by the server during connect."
     },
     {
       "name": "DEFAULT_APP_ID",

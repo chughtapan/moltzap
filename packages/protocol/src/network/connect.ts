@@ -1,5 +1,5 @@
-// Auto-bumped by publish workflow.
 import { Data, Effect, Schema } from "effect";
+import packageJson from "../../package.json" with { type: "json" };
 import { AgentKey } from "#identity/agents";
 import { AppKey } from "#identity/apps";
 import { defineRpc } from "#transport/descriptor";
@@ -9,7 +9,8 @@ import {
   InvalidParamsError,
 } from "#transport";
 
-export const PROTOCOL_VERSION = "2026.529.0";
+/** The published package version is also the wire-protocol version. */
+export const PROTOCOL_VERSION = packageJson.version;
 
 // ═══════════════════════════════════════════════════════════════════
 // agent/network/connect + app/network/connect

@@ -13,7 +13,13 @@
  *   1 — one or more assertions failed; details printed to stderr.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -73,6 +79,30 @@ const runGenerate = (
   };
 };
 
+/**
+ * Run the generator without asking pnpm to parse every workspace manifest.
+ * This lets the negative-path tests deliberately corrupt protocol/package.json
+ * and prove the generator itself fails closed.
+ */
+const runGenerateDirect = (
+  cwd: string,
+): { code: number; stdout: string; stderr: string } => {
+  const tsxCli = resolve(
+    workspaceRoot,
+    "packages/server/node_modules/tsx/dist/cli.mjs",
+  );
+  const r = spawnSync(
+    process.execPath,
+    [tsxCli, resolve(workspaceRoot, "scripts/generate-constants-snippets.ts")],
+    { cwd, encoding: "utf8" },
+  );
+  return {
+    code: r.status ?? -1,
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? "",
+  };
+};
+
 // ─── Plant / restore helpers ──────────────────────────────────────────────
 //
 // Tests mutate real files under `docs/` to trigger gate hits, then
@@ -94,6 +124,19 @@ const restoreAllPlants = (): void => {
     if (p === undefined) break;
     writeFileSync(p.path, p.original);
   }
+};
+
+const walkFiles = (root: string): readonly string[] => {
+  const out: string[] = [];
+  for (const name of readdirSync(root)) {
+    const path = resolve(root, name);
+    if (statSync(path).isDirectory()) {
+      out.push(...walkFiles(path));
+    } else {
+      out.push(path);
+    }
+  }
+  return out;
 };
 
 // ─── Tests: check-no-hardcoded-constants ──────────────────────────────────
@@ -147,20 +190,20 @@ const testNoHardcodedConstants = (): void => {
   );
   restoreAllPlants();
 
-  // Planted regression 3: HELLO_MAX_MESSAGE_BYTES in JSON-shaped context.
+  // Planted regression 3: API_KEY_PREFIX in generated-looking copy.
   const target3 = "docs/development/local-setup.mdx";
   plantFile(
     target3,
-    (s) => `${s}\nExample policy: { "maxMessageBytes": 65536 }\n`,
+    (s) => `${s}\nExample credential: moltzap_agent_deadbeef\n`,
   );
   const r3 = runScript(
     "scripts/check-no-hardcoded-constants.ts",
     workspaceRoot,
   );
   assert(
-    "flags HELLO_MAX_MESSAGE_BYTES in JSON",
-    r3.code !== 0 && /HELLO_MAX_MESSAGE_BYTES/.test(r3.stderr),
-    `expected HELLO_MAX_MESSAGE_BYTES hit. exit=${r3.code}, stderr=${r3.stderr.slice(0, 300)}`,
+    "flags planted API_KEY_PREFIX",
+    r3.code !== 0 && /API_KEY_PREFIX/.test(r3.stderr),
+    `expected API_KEY_PREFIX hit. exit=${r3.code}, stderr=${r3.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 };
@@ -304,6 +347,161 @@ const testBakeFailureFailClosed = (): void => {
   restoreAllPlants();
 };
 
+// ─── Tests: package manifest is the protocol-version authority ───────────
+
+const testProtocolVersionManifest = (): void => {
+  console.log("\n# protocol package version source");
+  const manifestPath = "packages/protocol/package.json";
+
+  plantFile(manifestPath, () => "{");
+  const malformed = runGenerateDirect(workspaceRoot);
+  assert(
+    "malformed protocol manifest fails closed",
+    malformed.code !== 0 && /could not parse/.test(malformed.stderr),
+    `expected parse failure. exit=${malformed.code}, stderr=${malformed.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile(manifestPath, (source) => {
+    const parsed = JSON.parse(source) as Record<string, unknown>;
+    Reflect.deleteProperty(parsed, "version");
+    return `${JSON.stringify(parsed, null, 2)}\n`;
+  });
+  const missing = runGenerateDirect(workspaceRoot);
+  assert(
+    "missing protocol package version fails closed",
+    missing.code !== 0 &&
+      /expected a string version field/.test(missing.stderr),
+    `expected missing-version failure. exit=${missing.code}, stderr=${missing.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  const currentVersion = JSON.parse(
+    readFileSync(resolve(workspaceRoot, manifestPath), "utf8"),
+  ).version as string;
+  const nextVersion = "2099.999.9";
+  const marker = "@bake-constants:";
+  const consumers = [
+    ...walkFiles(resolve(workspaceRoot, "docs")),
+    resolve(workspaceRoot, "README.md"),
+  ]
+    .filter((path) => /\.mdx?$/.test(path))
+    .filter((path) => {
+      const source = readFileSync(path, "utf8");
+      return (
+        source.includes(marker) &&
+        source.includes("PROTOCOL_VERSION") &&
+        source.includes(currentVersion)
+      );
+    });
+  const generated = [
+    "docs/snippets/constants/values.json",
+    "docs/snippets/constants/values.mdx",
+  ];
+  for (const path of [
+    ...consumers,
+    ...generated.map((p) => resolve(workspaceRoot, p)),
+  ]) {
+    const original = readFileSync(path, "utf8");
+    planted.push({ path, original });
+  }
+  plantFile(manifestPath, (source) => {
+    const parsed = JSON.parse(source) as Record<string, unknown>;
+    parsed.version = nextVersion;
+    return `${JSON.stringify(parsed, null, 2)}\n`;
+  });
+  const bumped = runGenerateDirect(workspaceRoot);
+  assert(
+    "changed package version regenerates constants",
+    bumped.code === 0,
+    `expected successful regeneration. exit=${bumped.code}, stderr=${bumped.stderr.slice(0, 300)}`,
+  );
+  for (const path of consumers) {
+    assert(
+      `re-bakes protocol version: ${path.split("/").slice(-2).join("/")}`,
+      readFileSync(path, "utf8").includes(nextVersion),
+      `${path} did not contain ${nextVersion} after regeneration`,
+    );
+  }
+  for (const path of generated) {
+    assert(
+      `regenerates protocol version snippet: ${path.split("/").slice(-2).join("/")}`,
+      readFileSync(resolve(workspaceRoot, path), "utf8").includes(nextVersion),
+      `${path} did not contain ${nextVersion} after regeneration`,
+    );
+  }
+  restoreAllPlants();
+};
+
+const testPublishWorkflowVersionFlow = (): void => {
+  console.log("\n# publish workflow protocol version flow");
+  const workflow = readFileSync(
+    resolve(workspaceRoot, ".github/workflows/publish.yml"),
+    "utf8",
+  );
+  const manifestWrite = workflow.indexOf(
+    'jq --arg v "$VERSION" \'.version = $v\' "packages/$pkg/package.json"',
+  );
+  const build = workflow.indexOf("pnpm build", manifestWrite);
+  const docs = workflow.indexOf("pnpm docs:generate", build);
+  const stage = workflow.indexOf(
+    "git add packages/*/package.json pnpm-lock.yaml",
+    docs,
+  );
+  assert(
+    "release mutates only the package manifest version source",
+    manifestWrite >= 0 &&
+      !workflow.includes("packages/protocol/src/version.ts") &&
+      !/sed .*PROTOCOL_VERSION/.test(workflow),
+    "expected a package.json version write with no source-file mutation",
+  );
+  assert(
+    "release rebuilds and regenerates docs before staging",
+    manifestWrite < build && build < docs && docs < stage,
+    `expected manifest → build → docs → stage ordering; indices=${manifestWrite},${build},${docs},${stage}`,
+  );
+};
+
+const testNodeVersionFloorConsistency = (): void => {
+  console.log("\n# Node version floor consistency");
+  const protocolManifest = JSON.parse(
+    readFileSync(
+      resolve(workspaceRoot, "packages/protocol/package.json"),
+      "utf8",
+    ),
+  ) as { readonly engines?: { readonly node?: string } };
+  const quickstart = readFileSync(
+    resolve(workspaceRoot, "scripts/quickstart.sh"),
+    "utf8",
+  );
+  const quickstartDocs = readFileSync(
+    resolve(workspaceRoot, "docs/quickstart.mdx"),
+    "utf8",
+  );
+  const localSetupDocs = readFileSync(
+    resolve(workspaceRoot, "docs/development/local-setup.mdx"),
+    "utf8",
+  );
+  assert(
+    "protocol package declares Node.js 22+",
+    protocolManifest.engines?.node === ">=22.0.0",
+    `expected engines.node >=22.0.0, got ${String(protocolManifest.engines?.node)}`,
+  );
+  assert(
+    "quickstart preflight enforces Node.js 22+",
+    quickstart.includes("install Node.js 22+") &&
+      quickstart.includes('if [ "$node_major" -lt 22 ]') &&
+      quickstart.includes("Node.js 22+ required"),
+    "scripts/quickstart.sh does not consistently enforce Node.js 22+",
+  );
+  assert(
+    "setup docs advertise Node.js 22+",
+    quickstartDocs.includes("Node.js 22+") &&
+      localSetupDocs.includes("Node.js 22+"),
+    "quickstart or local-setup docs have a different Node.js floor",
+  );
+};
+
 // ─── Tests: generate-constants-snippets idempotence ───────────────────────
 
 const testGeneratorIdempotence = (): void => {
@@ -371,7 +569,10 @@ const main = (): void => {
     // rather than the post-clean-runGenerate state — eliminating
     // order-of-test coupling between the two suites.
     testGeneratorIdempotence();
+    testProtocolVersionManifest();
     testBakeFailureFailClosed();
+    testPublishWorkflowVersionFlow();
+    testNodeVersionFloorConsistency();
   } finally {
     restoreAllPlants();
   }
