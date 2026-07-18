@@ -117,10 +117,10 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "^0.96.1",
-    "@effect/platform-node": "^0.106.0",
-    "@effect/rpc": "0.75.1",
-    "effect": "3.21.2"
+    "@effect/platform": "^0.97.0",
+    "@effect/platform-node": "^0.108.0",
+    "@effect/rpc": "0.76.0",
+    "effect": "3.22.0"
   },
   "devDependencies": {
     "eslint": "^9",
