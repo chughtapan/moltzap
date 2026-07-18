@@ -40,8 +40,8 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "0.97.0",
-    "@effect/platform-node": "0.108.0",
+    "@effect/platform": "^0.97.0",
+    "@effect/platform-node": "^0.108.0",
     "@moltzap/claude-code-channel": "workspace:*",
     "@moltzap/protocol": "workspace:*",
     "effect": "3.22.0",

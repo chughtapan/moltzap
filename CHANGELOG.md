@@ -7,18 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed: stable Effect 3 development baseline
-
-- **Stable dependency set.** Every workspace package now uses Effect 3.22.0,
-  with the compatible stable `@effect/cli`, platform, platform-node, and SQL
-  releases. Pnpm overrides pin the peer-only cluster, experimental, and
-  workflow packages to the same stable cohort without exposing them as Moltzap
-  dependencies. No Effect 4 beta packages are introduced.
-- **Pinned local source.** The development bootstrap clones the official Effect
-  repository at the exact `effect@3.22.0` commit, validates existing checkouts,
-  and leaves mismatches untouched with actionable recovery guidance. CI,
-  conformance, and publishing opt out of the research-only clone explicitly.
-
 ### Fixed: protocol version releases
 
 - **One version authority.** `packages/protocol/package.json` now owns the

@@ -14,9 +14,6 @@ permissions:
   contents: write
   id-token: write
 
-env:
-  MOLTZAP_SKIP_EFFECT_SOURCE: "1"
-
 jobs:
   publish:
     # Skip if this push is a version commit from a previous run
