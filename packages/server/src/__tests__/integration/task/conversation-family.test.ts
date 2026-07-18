@@ -213,6 +213,8 @@ it("TaskRequest binds separately-created tasks to their requested apps", () =>
       appId: registered.appId,
       invitedAgentIds: [bob.agentId],
     });
+    expect(first.task.appId).toBe(DEFAULT_APP_ID);
+    expect(second.task.appId).toBe(registered.appId);
     expect(second.task.id).not.toBe(first.task.id);
   }));
 
