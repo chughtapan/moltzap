@@ -650,8 +650,8 @@ identified server-side; no wire flag), and folds
   capabilities auto-provisioned by the dispatcher (R14a).
   `MessagesList` likewise requires `taskId`. The `to:
   "agent:<name>"` DM-resolution shortcut retires; callers now invoke
-  `TaskCreate({ appId: DEFAULT_APP_ID, invitedAgentIds: [other] })`
-  (dedup is implicit from shape) and then `MessagesSend`.
+  `TaskRequest({ appId: DEFAULT_APP_ID, invitedAgentIds: [other] })`
+  and then `MessagesSend`.
 - **BREAKING (`@moltzap/protocol`):** Branded `TaskId` / `LeaseId`
   promoted to the wire — `MessagesSend.taskId`,
   `MessageReceivedNotification.taskId`,
@@ -685,7 +685,7 @@ identified server-side; no wire flag), and folds
   shift to `task:<taskId>:<conversationId>` (Commit 11). The
   `conv:<id>` channel prefix retires.
 - **BREAKING (`@moltzap/client`):** `MoltZapService.sendToAgent`
-  calls `TaskCreate({appId, invitedAgentIds, initialConversation})`
+  calls `TaskRequest({appId, invitedAgentIds, initialConversation})`
   (previously `ConversationsCreate({type, participants})`);
   per-agent cache stores `{ taskId, conversationId }` tuples.
 - **BREAKING (`@moltzap/server-core`):** `conversations.handlers.ts`
@@ -699,14 +699,14 @@ identified server-side; no wire flag), and folds
 - **BREAKING (`@moltzap/server-core`):** DM/Group runtime split
   collapses. `conversationService.findExistingDm`,
   `existingDmForCreate`, `createDmByAgentName`,
-  `assertAddParticipantContactPolicy` deleted as dead post-cutover —
-  participant-set dedup is owned by
-  `taskService.findExistingTaskByParticipants` at the `TaskCreate`
-  layer. `taskService.createConversation` + `CreateConversationInput`
-  deleted (zero callers). `obtainContactPolicyForAdd` deleted
-  (never wired to a handler). `obtainContactPolicyForCreate` drops
-  the `type` parameter; `obtainGroupCapacityForCreate` derives
-  capacity from cardinality.
+  `assertAddParticipantContactPolicy` deleted as dead post-cutover.
+  The unused server-side participant-set lookup is also retired;
+  clients that want task reuse can list and filter tasks.
+  `taskService.createConversation` + `CreateConversationInput` deleted
+  (zero callers). `obtainContactPolicyForAdd` deleted (never wired to
+  a handler). `obtainContactPolicyForCreate` drops the `type`
+  parameter; `obtainGroupCapacityForCreate` derives capacity from
+  cardinality.
 - **BREAKING (`@moltzap/protocol`):** `inferConversationType` helper
   retires (zero callers post-collapse). `ConversationCreateAuthorization-
   Value` collapses to `{ ownerByAgentId }`; the `ExistingDm`
@@ -789,12 +789,10 @@ delta. The `pnpm dev` script is the only operator-visible change.
   explicitly. Per-flow walkthrough at
   `packages/protocol/docs/architecture/task-conversation-family.md`.
 - **Service surface (`@moltzap/server-core`):** New `TaskService`
-  package-private helpers: `findExistingTaskByParticipants`
-  (DEFAULT_APP dedup, sibling to legacy
-  `existingDmForCreate`), `requireAgentsAreInTaskParticipants`
-  (D1 participant-admitted invariant — admitted-OR-pending both
-  pass), `leaveTask` (bulk per-cid delete + last-participant task
-  closure), `archiveTaskConversation` / `unarchiveTaskConversation` /
+  package-private helpers: `requireAgentsAreInTaskParticipants` (D1
+  participant-admitted invariant — admitted-OR-pending both pass),
+  `leaveTask` (bulk per-cid delete + last-participant task closure),
+  `archiveTaskConversation` / `unarchiveTaskConversation` /
   `addTaskConversationParticipant` /
   `removeTaskConversationParticipant`. New `ConversationService`
   helpers: `loadById`, `taskIdForConversation`.
@@ -805,7 +803,7 @@ delta. The `pnpm dev` script is the only operator-visible change.
 - **Test infrastructure (`@moltzap/server-core/__tests__`):** New
   integration suite
   `packages/server/src/__tests__/integration/task/task-conversation-family.test.ts`
-  exercises real-Postgres happy-path, dedup, atomic init-conversation,
+  exercises real-Postgres happy-path, app binding, atomic init-conversation,
   participant-admitted invariant, and dual-emit notification fan-out
   end-to-end.
 
@@ -1114,14 +1112,14 @@ delta. The `pnpm dev` script is the only operator-visible change.
 
 - **Added (`@moltzap/client`):** `moltzap start <name> <participant>...
   [--message <text>] [--app-id <uuid>]` — single-command CLI that
-  composes Spec D1 (#598) atomic `TaskCreate({ appId, invitedAgentIds,
+  composes Spec D1 (#598) atomic `TaskRequest({ appId, invitedAgentIds,
   initialConversation })` with an optional follow-up `MessagesSend`.
   Today's two-step workflow (`conversations create` -> `send conv:<id>
   <text>`) collapses into one subcommand for the common case.
   Per-flow walkthrough at
   `packages/client/docs/architecture/moltzap-start-cli.md`.
-- **Exit-code contract:** `0` full success, `1` `TaskCreate` failed
-  (stdout empty), `2` partial success (`TaskCreate` OK +
+- **Exit-code contract:** `0` full success, `1` `TaskRequest` failed
+  (stdout empty), `2` partial success (`TaskRequest` OK +
   `MessagesSend` failed — no rollback; the task + empty conversation
   persist and the user can retry with `moltzap send conv:<id>
   <text>`), `64` usage error (bad `--app-id` UUID v4 syntax or
@@ -1144,29 +1142,21 @@ delta. The `pnpm dev` script is the only operator-visible change.
   opaque AJV decode failure. See architect plan §R1 + per-flow doc
   §"Why we don't reuse `resolveParticipant`" for the transport-
   uniformity reasoning.
-- **Dedup-hit reuse (spec D2 amendment N6):** idempotent reruns of
-  `moltzap start` on `DEFAULT_APP_ID` are now first-class. When the
-  server returns `{ task: existing, conversation: null }` (the D1
-  task-level dedup case), `start.ts -> findReusableConversation` calls
-  `TaskConversationList` (caller-scoped, server-sorted by activity
-  desc), filters items where `item.taskId === existingTaskId` AND
-  `item.conversation.archivedAt === undefined`, and reuses the
-  most-recently-active match. Stdout becomes
+- **Legacy null-conversation compatibility (spec D2 amendment N6):**
+  current servers mint a fresh task and initial conversation for each
+  `TaskRequest`; server-side participant-set dedup is retired. The
+  local-daemon start handler still accepts the older `{ task,
+  conversation: null }` response shape, scans caller-scoped
+  `ConversationList` pages for a matching unarchived conversation,
+  and reuses the most-recently-active match. Stdout becomes
   `Task started: <taskId> (reusing existing conversation: <convId>)`;
   optional `--message` routes to the reused conversation. If no usable
   conversation is found (task closed, all conversations archived, or
-  outside the dedup-lookup pagination window of
-  `DEDUP_LOOKUP_MAX_PAGES × DEDUP_LOOKUP_PAGE_SIZE = 1000` rows), the
+  outside the compatibility lookup's 1,000-row window), the
   CLI prints `Task already exists but is closed: <taskId>` to stderr
-  and exits 1. If `TaskConversationList` itself fails mid-lookup, the
-  CLI surfaces a dedup-specific diagnostic
-  (`Task <id> already exists but reusable-conversation lookup failed: <err>`)
-  instead of the generic `Failed:` prefix so the user is not misled
-  into retrying an already-successful `TaskCreate`. Replaces the
-  pre-fix-roll `TransportDecodeError` misclassification that broke
-  reruns on the second invocation.
+  and exits 1.
 - **Zero-participant wire-shape carve-out (spec D2 amendment N7):**
-  `TaskCreate.params.initialConversation` now OMITS `participants`
+  `TaskRequest.params.initialConversation` now OMITS `participants`
   entirely when `invitedAgentIds.length === 0`. The protocol
   `InitialConversationSchema.participants` is
   `Type.Optional(Type.Array(AgentId, { minItems: 1 }))`; the empty
