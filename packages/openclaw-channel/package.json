@@ -48,14 +48,14 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "0.97.0",
-    "@effect/platform-node": "0.108.0",
+    "@effect/platform": "^0.97.0",
+    "@effect/platform-node": "^0.108.0",
     "@moltzap/client": "workspace:*",
     "@moltzap/protocol": "workspace:*",
     "effect": "3.22.0"
   },
   "devDependencies": {
-    "@effect/vitest": "0.30.0",
+    "@effect/vitest": "^0.30.0",
     "@testcontainers/postgresql": "^10.18.0",
     "@types/node": "^25.5.0",
     "@types/pg": "^8.11.0",

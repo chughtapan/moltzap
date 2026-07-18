@@ -62,11 +62,11 @@
   },
   "dependencies": {
     "@effect/opentelemetry": "0.64.0",
-    "@effect/platform": "0.97.0",
-    "@effect/platform-node": "0.108.0",
+    "@effect/platform": "^0.97.0",
+    "@effect/platform-node": "^0.108.0",
     "@effect/rpc": "0.76.0",
-    "@effect/sql": "0.52.0",
-    "@effect/sql-kysely": "0.48.0",
+    "@effect/sql": "^0.52.0",
+    "@effect/sql-kysely": "^0.48.0",
     "@electric-sql/pglite": "^0.4.4",
     "@moltzap/protocol": "workspace:*",
     "@opentelemetry/api": "1.9.1",
@@ -82,7 +82,7 @@
     "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@effect/vitest": "0.30.0",
+    "@effect/vitest": "^0.30.0",
     "@types/pg": "^8.11.0",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",

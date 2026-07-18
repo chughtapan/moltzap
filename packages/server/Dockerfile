@@ -1,6 +1,5 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
-ENV MOLTZAP_SKIP_EFFECT_SOURCE=1
 COPY . .
 RUN corepack enable && pnpm install --frozen-lockfile
 RUN pnpm --filter @moltzap/protocol build && pnpm --filter @moltzap/server-core build
