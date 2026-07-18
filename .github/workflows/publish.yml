@@ -85,14 +85,6 @@ jobs:
               # Write version to package.json
               jq --arg v "$VERSION" '.version = $v' "packages/$pkg/package.json" > tmp.json && mv tmp.json "packages/$pkg/package.json"
 
-              # If protocol, also update PROTOCOL_VERSION
-              if [ "$pkg" = "protocol" ]; then
-                sed -i "s/PROTOCOL_VERSION = \".*\"/PROTOCOL_VERSION = \"$VERSION\"/" packages/protocol/src/version.ts
-                grep -q "PROTOCOL_VERSION = \"$VERSION\"" packages/protocol/src/version.ts || {
-                  echo "ERROR: Failed to update PROTOCOL_VERSION in version.ts"
-                  exit 1
-                }
-              fi
             else
               echo "Package $pkg — no src/ changes, skipping"
             fi
@@ -119,7 +111,8 @@ jobs:
           # Build all packages so pre-commit typecheck passes
           pnpm build
 
-          # Regenerate docs after version bump. PROTOCOL_VERSION change re-bakes
+          # Regenerate docs after version bump. The protocol package version
+          # is the PROTOCOL_VERSION source of truth, so its change re-bakes
           # `docs/snippets/constants/values.{mdx,json}` plus the CLI reference +
           # 20 command pages. Without this, the husky pre-commit drift gate
           # (`pnpm docs:generate && git diff --quiet`) detects the regen at
@@ -128,7 +121,7 @@ jobs:
 
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
-          git add packages/*/package.json packages/protocol/src/version.ts pnpm-lock.yaml
+          git add packages/*/package.json pnpm-lock.yaml
           # Stage doc regeneration outputs so the pre-commit drift gate passes.
           # Mirrors `docs:check:drift` inputs: `docs/`, `packages/**/MODULE.md`,
           # `README.md`.

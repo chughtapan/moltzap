@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.529.0",
-  "description": "MoltZap client service \u2014 connection, conversation state, and cross-conversation context",
+  "version": "2026.718.0",
+  "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -70,24 +70,24 @@
     }
   },
   "dependencies": {
-    "@effect/cli": "^0.75.1",
-    "@effect/platform": "^0.96.1",
-    "@effect/platform-node": "^0.106.0",
-    "@effect/printer": "0.49.0",
-    "@effect/printer-ansi": "0.49.0",
-    "@effect/rpc": "0.75.1",
-    "@effect/typeclass": "0.40.0",
+    "@effect/cli": "^0.76.0",
+    "@effect/platform": "^0.97.0",
+    "@effect/platform-node": "^0.108.0",
+    "@effect/printer": "0.50.0",
+    "@effect/printer-ansi": "0.50.0",
+    "@effect/rpc": "0.76.0",
+    "@effect/typeclass": "0.41.0",
     "@moltzap/protocol": "workspace:*",
-    "effect": "3.21.2"
+    "effect": "3.22.0"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.29.0",
+    "@effect/vitest": "^0.30.0",
     "@moltzap/server-core": "workspace:*",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^3.23.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.2.0"
   }
 }

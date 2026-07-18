@@ -14,6 +14,28 @@ export type ReadResult<T> =
   | { readonly _tag: "ok"; readonly value: T }
   | { readonly _tag: "err"; readonly reason: string };
 
+/** Read the canonical version string from a package.json document. */
+export const readPackageVersion = (source: string): ReadResult<string> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch (cause) {
+    return {
+      _tag: "err",
+      reason: `invalid package.json: ${cause instanceof Error ? cause.message : String(cause)}`,
+    };
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("version" in parsed) ||
+    typeof parsed.version !== "string"
+  ) {
+    return { _tag: "err", reason: "package.json has no string version field" };
+  }
+  return { _tag: "ok", value: parsed.version };
+};
+
 /**
  * Walk an object-literal-heavy source file and collect numeric-literal
  * property assignments whose name is in `wanted`. Repeated names are
