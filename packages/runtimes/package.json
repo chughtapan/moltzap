@@ -40,11 +40,11 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "^0.96.1",
-    "@effect/platform-node": "^0.106.0",
+    "@effect/platform": "0.97.0",
+    "@effect/platform-node": "0.108.0",
     "@moltzap/claude-code-channel": "workspace:*",
     "@moltzap/protocol": "workspace:*",
-    "effect": "3.21.2",
+    "effect": "3.22.0",
     "openclaw": "2026.3.31"
   },
   "devDependencies": {

@@ -20,6 +20,15 @@ cd moltzap
 pnpm install
 ```
 
+The install hook keeps an ignored checkout of the official Effect repository at
+`.repos/effect`, pinned to the stable Effect version used by this workspace. It
+validates an existing checkout before using it and never rewrites a mismatched
+clone. Disposable automation can skip the source checkout explicitly:
+
+```bash
+MOLTZAP_SKIP_EFFECT_SOURCE=1 pnpm install
+```
+
 ## Build
 
 Build order matters. Protocol must build first:

@@ -6,6 +6,7 @@ on:
   pull_request:
 
 env:
+  MOLTZAP_SKIP_EFFECT_SOURCE: "1"
   NX_SKIP_REMOTE_CACHE: "true"
 
 jobs:
@@ -20,6 +21,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm test:effect-source-bootstrap
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm lint

@@ -15,6 +15,7 @@ on:
       - ".github/workflows/conformance.yml"
 
 env:
+  MOLTZAP_SKIP_EFFECT_SOURCE: "1"
   NX_SKIP_REMOTE_CACHE: "true"
 
 jobs:
