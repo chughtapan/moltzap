@@ -45,46 +45,6 @@ importers:
         specifier: ^5
         version: 5.9.3
 
-  packages/claude-code-channel:
-    dependencies:
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.20.2
-        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
-      '@moltzap/client':
-        specifier: workspace:*
-        version: link:../client
-      '@moltzap/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      effect:
-        specifier: ^3.22.0
-        version: 3.22.0
-    devDependencies:
-      '@effect/platform':
-        specifier: ^0.97.0
-        version: 0.97.0(effect@3.22.0)
-      '@effect/platform-node':
-        specifier: ^0.108.0
-        version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
-      '@effect/vitest':
-        specifier: ^0.30.0
-        version: 0.30.0(effect@3.22.0)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
-      '@types/node':
-        specifier: ^25.5.0
-        version: 25.5.0
-      eslint:
-        specifier: ^9
-        version: 9.39.4(jiti@2.7.0)
-      eslint-plugin-agent-code-guard:
-        specifier: 0.0.14
-        version: 0.0.14(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.0
-        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
-
   packages/client:
     dependencies:
       '@effect/cli':
@@ -274,9 +234,6 @@ importers:
       '@effect/platform-node':
         specifier: ^0.108.0
         version: 0.108.0(@effect/cluster@0.60.0(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/workflow@0.19.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(@effect/rpc@0.76.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/sql@0.52.0(@effect/experimental@0.61.0(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(@effect/platform@0.97.0(effect@3.22.0))(effect@3.22.0))(effect@3.22.0)
-      '@moltzap/claude-code-channel':
-        specifier: workspace:*
-        version: link:../claude-code-channel
       '@moltzap/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -287,9 +244,6 @@ importers:
         specifier: 2026.3.31
         version: 2026.3.31(@cfworker/json-schema@4.1.1)(@napi-rs/canvas@0.1.97)
     devDependencies:
-      '@anthropic-ai/claude-code':
-        specifier: ^2.1.119
-        version: 2.1.119
       '@moltzap/client':
         specifier: workspace:*
         version: link:../client
@@ -420,51 +374,6 @@ packages:
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
-
-  '@anthropic-ai/claude-code-darwin-arm64@2.1.119':
-    resolution: {integrity: sha512-+DC98VI72gZeuSz6VgEc+aAe5RlQGy4gdylf3moyypYPOGzY2eX099pXggdK1sAlFiHQ5xRXCq6QfBnw4/RvZQ==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@anthropic-ai/claude-code-darwin-x64@2.1.119':
-    resolution: {integrity: sha512-4O848nP+ligPgfGKuuQ1MspbwY3eDSwpH0mWfr97HWs8T79Q22Ev291j0tTGJf0qYQ9YP0oCCvVfS93ThVn6zg==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@anthropic-ai/claude-code-linux-arm64-musl@2.1.119':
-    resolution: {integrity: sha512-ALgp64QveCo9s/AR56CUJBDQT6Z7j5twRXFs2LGMvZfod+LxBp9LHCcVfCk0BpJx2edMw/2OOwXFosK5qlXtLA==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@anthropic-ai/claude-code-linux-arm64@2.1.119':
-    resolution: {integrity: sha512-b+ricBXcR7iiEmzelRcRjMGJgpazkvlJzcezFUK41kcJ6HKCPCHVCvGh/4yhoK74PACFA74oSWCp1PK68o0boQ==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@anthropic-ai/claude-code-linux-x64-musl@2.1.119':
-    resolution: {integrity: sha512-GTUn2pFM2I+ZiN+bEmgnH59SQ4M0SOEqUUXw1bA75LVVVKMLarZsb52fBp/KU0ja3O9hx5AaXpT+/FMu5eGBKg==}
-    cpu: [x64]
-    os: [linux]
-
-  '@anthropic-ai/claude-code-linux-x64@2.1.119':
-    resolution: {integrity: sha512-i6nqfRnvW0IaCTJSHADxX23ykQTlYsmHRja72W92HhjyG8fudaSH2f1XM/zSbaSOp5s33mZAZ3js5coiH6Ksdw==}
-    cpu: [x64]
-    os: [linux]
-
-  '@anthropic-ai/claude-code-win32-arm64@2.1.119':
-    resolution: {integrity: sha512-eoMd3ocujGELdMi2jLrMpDEtC2KLTK/NCO7+oVTAKfsBUo6X7V2GQVa4Vdejk0zhxo+o68Jb4oTKQHt/wlRO6g==}
-    cpu: [arm64]
-    os: [win32]
-
-  '@anthropic-ai/claude-code-win32-x64@2.1.119':
-    resolution: {integrity: sha512-vf8Zoqk1ysHsN+0zh/PTx75oVTLL/Tr3qXLnjewycM3lCYDDhtowTyCCkQGU587npHC3BG0FW9+eskaHKZBnzA==}
-    cpu: [x64]
-    os: [win32]
-
-  '@anthropic-ai/claude-code@2.1.119':
-    resolution: {integrity: sha512-gt9dxiIQU60eWcSM26fwu31vzLeL1NYwY3HDFby1TipzwF5lNY766DEqKLkGemZGxaAOXKe9nY3c8GQK/gQ7VA==}
-    engines: {node: '>=18.0.0'}
-    hasBin: true
 
   '@anthropic-ai/sdk@0.73.0':
     resolution: {integrity: sha512-URURVzhxXGJDGUGFunIOtBlSl7KWvZiAAKY/ttTkZAkXT9bTPqdk2eK0b8qqSxXpikh3QKPnPYpiyX98zf5ebw==}
@@ -8761,41 +8670,6 @@ snapshots:
     dependencies:
       package-manager-detector: 1.6.0
       tinyexec: 1.1.2
-
-  '@anthropic-ai/claude-code-darwin-arm64@2.1.119':
-    optional: true
-
-  '@anthropic-ai/claude-code-darwin-x64@2.1.119':
-    optional: true
-
-  '@anthropic-ai/claude-code-linux-arm64-musl@2.1.119':
-    optional: true
-
-  '@anthropic-ai/claude-code-linux-arm64@2.1.119':
-    optional: true
-
-  '@anthropic-ai/claude-code-linux-x64-musl@2.1.119':
-    optional: true
-
-  '@anthropic-ai/claude-code-linux-x64@2.1.119':
-    optional: true
-
-  '@anthropic-ai/claude-code-win32-arm64@2.1.119':
-    optional: true
-
-  '@anthropic-ai/claude-code-win32-x64@2.1.119':
-    optional: true
-
-  '@anthropic-ai/claude-code@2.1.119':
-    optionalDependencies:
-      '@anthropic-ai/claude-code-darwin-arm64': 2.1.119
-      '@anthropic-ai/claude-code-darwin-x64': 2.1.119
-      '@anthropic-ai/claude-code-linux-arm64': 2.1.119
-      '@anthropic-ai/claude-code-linux-arm64-musl': 2.1.119
-      '@anthropic-ai/claude-code-linux-x64': 2.1.119
-      '@anthropic-ai/claude-code-linux-x64-musl': 2.1.119
-      '@anthropic-ai/claude-code-win32-arm64': 2.1.119
-      '@anthropic-ai/claude-code-win32-x64': 2.1.119
 
   '@anthropic-ai/sdk@0.73.0(zod@4.3.6)':
     dependencies:

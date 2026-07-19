@@ -1,7 +1,6 @@
 import { createRequire } from "node:module";
 import { Path } from "@effect/platform";
 import { Data, Effect } from "effect";
-import claudeCodePackageJson from "@anthropic-ai/claude-code/package.json" with { type: "json" };
 
 const requireFromHere = createRequire(import.meta.url);
 
@@ -132,21 +131,6 @@ function resolveOpenClawPackageRoot(): string {
   );
 }
 
-function resolveClaudeCodePackageRoot(): string {
-  const packageName = claudeCodePackageJson.name;
-  if (packageName !== "@anthropic-ai/claude-code") {
-    throw new PackageResolutionFailed({
-      packageName: "@anthropic-ai/claude-code",
-      message: "Resolved Claude Code package metadata has an unexpected name",
-    });
-  }
-  return pathSync((path) =>
-    path.dirname(
-      requireFromHere.resolve("@anthropic-ai/claude-code/package.json"),
-    ),
-  );
-}
-
 export function resolveWorkspaceOpenClawBin(input: {
   readonly repoRoot: string;
   readonly workspacePackageRoot: string;
@@ -157,40 +141,6 @@ export function resolveWorkspaceOpenClawBin(input: {
     packageName: "openclaw",
     packageRoot: resolveOpenClawPackageRoot(),
   });
-}
-
-export function resolveWorkspaceClaudeBin(input: {
-  readonly repoRoot: string;
-  readonly workspacePackageRoot: string;
-}): string {
-  return resolveWorkspaceBin({
-    ...input,
-    binName: "claude",
-    packageName: "@anthropic-ai/claude-code",
-    packageRoot: resolveClaudeCodePackageRoot(),
-  });
-}
-
-export function resolveClaudeCodeChannelDistDir(repoRoot: string): string {
-  try {
-    return pathSync((path) =>
-      path.join(
-        packageRootFromResolvedFile(
-          "@moltzap/claude-code-channel",
-          requireFromHere.resolve("@moltzap/claude-code-channel"),
-        ),
-        "dist",
-      ),
-    );
-  } catch (cause) {
-    logWarningSync(
-      "failed to resolve @moltzap/claude-code-channel from package manager; falling back to workspace path",
-      cause,
-    );
-    return pathSync((path) =>
-      path.join(repoRoot, "packages/claude-code-channel/dist"),
-    );
-  }
 }
 
 function pathSync<A>(f: (path: Path.Path) => A): A {
