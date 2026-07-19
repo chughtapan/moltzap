@@ -494,8 +494,7 @@ the project's Effect-native transport convention.
 - **Changed:** Root `README.md` Documentation section now describes
   the full `pnpm docs:generate` pipeline (protocol reference MDX +
   per-folder `MODULE.md` + Mintlify mirror + coverage report +
-  Mermaid lint). Added `@moltzap/claude-code-channel` to the
-  packages table (was missing).
+  Mermaid lint).
 - **Changed:** `@failure` JSDoc tag defaulted in `eslint.shared.mjs`
   so packages don't each opt in; per-package
   `customJsDocTags` extends the list (server adds `internal`,
@@ -679,8 +678,7 @@ identified server-side; no wire flag), and folds
 - **BREAKING (`@moltzap/client`):** `MoltZapChannelCore.sendReply`
   takes `(taskId, conversationId, text, ...)`; the channel-core
   message handler payload carries `{ taskId, message }`.
-- **BREAKING (channel plugins):** `nanoclaw`, `openclaw`, and
-  `claude-code` track `(taskId, conversationId)` per inbound and
+- **BREAKING (channel plugins):** `nanoclaw` and `openclaw` track `(taskId, conversationId)` per inbound and
   thread both into outbound `MessagesSend`. Channel directory ids
   shift to `task:<taskId>:<conversationId>` (Commit 11). The
   `conv:<id>` channel prefix retires.
@@ -826,8 +824,7 @@ delta. The `pnpm dev` script is the only operator-visible change.
   (`_fixtures.ts → subscribeAll`) updates from `.subscribe({})` to
   `.subscribe()`; channel-side test-support packages
   (`@moltzap/openclaw-channel/test-support`,
-  `@moltzap/nanoclaw-channel/test-support`,
-  `@moltzap/claude-code-channel/test-support`) inherit the simplified
+  `@moltzap/nanoclaw-channel/test-support`) inherit the simplified
   shape automatically via re-export.
 - **Behavior (`@moltzap/protocol/testing`):** `TestClient.close`
   propagates `TransportClosedError` to every in-flight Stream via

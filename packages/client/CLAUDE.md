@@ -117,9 +117,9 @@ Detail JSDoc: `src/channel-base/index.ts` (file-level).
 ## Glossary
 
 - **Channel adapter** — A package that bridges MoltZap to a specific
-  agent runtime (OpenClaw, Claude Code, Nanoclaw). Each adapter
+  agent runtime (OpenClaw, Nanoclaw). Each adapter
   wraps `MoltZapChannelCore` and exposes the runtime-native
-  inbound/outbound shape (e.g., Claude Code's MCP tool protocol).
+  inbound/outbound shape (e.g.'s MCP tool protocol).
   Adapters share the `@moltzap/client/channel-base` primitives.
 - **Channel-core** — `MoltZapChannelCore`: the dispatch + admission
   state machine that sits between raw transport

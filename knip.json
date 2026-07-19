@@ -2,19 +2,18 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["eslint.shared.mjs", "vitest.workspace-aliases.ts"],
-      "project": ["*.mjs", "*.ts"],
-      "ignoreDependencies": ["@mermaid-js/mermaid-cli", "typedoc"]
-    },
-    "packages/claude-code-channel": {
       "entry": [
-        "src/**/*.test.ts",
-        "src/**/*.integration.test.ts",
-        "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
+        "eslint.shared.mjs",
+        "vitest.workspace-aliases.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": [
+        "*.mjs",
+        "*.ts"
+      ],
+      "ignoreDependencies": [
+        "@mermaid-js/mermaid-cli",
+        "typedoc"
+      ]
     },
     "packages/client": {
       "entry": [
@@ -24,8 +23,14 @@
         "src/**/__tests__/**/*.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": [
+        "src/**/*.ts",
+        "*.mjs",
+        "vitest*.config.ts"
+      ],
+      "ignoreDependencies": [
+        "eslint-plugin-agent-code-guard"
+      ]
     },
     "packages/nanoclaw-channel": {
       "entry": [
@@ -33,8 +38,14 @@
         "src/**/__tests__/**/*.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": [
+        "src/**/*.ts",
+        "*.mjs",
+        "vitest*.config.ts"
+      ],
+      "ignoreDependencies": [
+        "eslint-plugin-agent-code-guard"
+      ]
     },
     "packages/openclaw-channel": {
       "entry": [
@@ -43,8 +54,14 @@
         "src/**/__tests__/**/*.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": [
+        "src/**/*.ts",
+        "*.mjs",
+        "vitest*.config.ts"
+      ],
+      "ignoreDependencies": [
+        "eslint-plugin-agent-code-guard"
+      ]
     },
     "packages/protocol": {
       "entry": [
@@ -54,8 +71,15 @@
         "scripts/check-mermaid.ts",
         "vitest*.config.ts"
       ],
-      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": [
+        "scripts/**/*.ts",
+        "src/**/*.ts",
+        "*.mjs",
+        "vitest*.config.ts"
+      ],
+      "ignoreDependencies": [
+        "eslint-plugin-agent-code-guard"
+      ]
     },
     "packages/runtimes": {
       "entry": [
@@ -64,8 +88,14 @@
         "src/**/*.integration.test.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": [
+        "src/**/*.ts",
+        "*.mjs",
+        "vitest*.config.ts"
+      ],
+      "ignoreDependencies": [
+        "eslint-plugin-agent-code-guard"
+      ]
     },
     "packages/server": {
       "entry": [
@@ -75,8 +105,14 @@
         "src/**/__tests__/**/*.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": [
+        "src/**/*.ts",
+        "*.mjs",
+        "vitest*.config.ts"
+      ],
+      "ignoreDependencies": [
+        "eslint-plugin-agent-code-guard"
+      ]
     }
   }
 }
