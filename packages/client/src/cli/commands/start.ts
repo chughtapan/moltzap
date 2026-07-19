@@ -13,7 +13,7 @@ import {
 import { command, type Transport, type TransportError } from "../transport.js";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
-import { optionsFromSchema } from "../schema-options.js";
+import { optionsFromSchema } from "../adapters.js";
 
 const EXIT_CODES = {
   SUCCESS: 0,

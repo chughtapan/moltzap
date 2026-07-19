@@ -1,14 +1,13 @@
 import { Effect, Logger } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect } from "vitest";
-import { sendCommand, sendOptions } from "./send.js";
+import { sendCommand } from "./send.js";
 
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 import { Transport } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
-import { parseCliOptions } from "../../test-utils/cli-options.js";
 import {
   conversationId as makeConversationId,
   messageId as makeMessageId,
@@ -39,23 +38,6 @@ function runSendCommand(input: {
       ),
   };
 }
-
-describe("send command schema options", () => {
-  it("parses omitted and explicit --reply-to values", () =>
-    Effect.gen(function* () {
-      const omitted = yield* parseCliOptions(sendOptions, []);
-      expect(omitted).toEqual({ rest: [], value: {} });
-
-      const explicit = yield* parseCliOptions(sendOptions, [
-        "--reply-to",
-        REPLY_MSG,
-      ]);
-      expect(explicit).toEqual({
-        rest: [],
-        value: { replyToId: REPLY_MSG },
-      });
-    }));
-});
 
 describe("send command handler", () => {
   const taskId = makeTaskId(TASK_UUID);

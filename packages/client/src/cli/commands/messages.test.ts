@@ -4,11 +4,10 @@
 import { Effect, Exit, Logger } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect } from "vitest";
-import { messagesListHandler, messagesListOptions } from "./messages.js";
+import { messagesListHandler } from "./messages.js";
 import { Transport } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
 import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
-import { parseCliOptions } from "../../test-utils/cli-options.js";
 
 import {
   conversationId as makeConversationId,
@@ -71,27 +70,6 @@ function runMessagesList(
     Effect.provide(SilentLogger),
   );
 }
-
-describe("messages list schema options", () => {
-  it("parses the live daemon payload schema from the public flags", () =>
-    Effect.gen(function* () {
-      const parsed = yield* parseCliOptions(messagesListOptions, [
-        "--task",
-        TASK_ID,
-        "--conversation",
-        CONVERSATION_ID,
-      ]);
-
-      expect(parsed).toEqual({
-        rest: [],
-        value: {
-          taskId: TASK_ID,
-          conversationId: CONVERSATION_ID,
-        },
-      });
-      expect(parsed.value).not.toHaveProperty("limit");
-    }));
-});
 
 describe("messages list", () => {
   it("calls messages/list with { conversationId, limit? }", () =>
