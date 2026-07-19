@@ -3,9 +3,8 @@
  *
  *   messages list → agent/message/list
  *
- * `messages` is a subcommand group (distinct from the one-shot top-level
- * `send` command). `--cursor` is absent: the local-daemon CLI contract does
- * not expose the protocol's sequence cursor.
+ * `messages` is a subcommand group, distinct from the one-shot top-level
+ * `send` command.
  */
 import { Command } from "@effect/cli";
 import { Effect, Schema } from "effect";
@@ -21,7 +20,7 @@ import {
   LocalDaemonCommands,
   MessagesListCommandRpc,
 } from "../../local-daemon-rpc.js";
-import { optionsFromSchema } from "../schema-options.js";
+import { optionsFromSchema } from "../adapters.js";
 
 const messagesListPayload = MessagesListCommandRpc.payloadSchema;
 
@@ -31,10 +30,7 @@ export type MessagesCommandError = TransportError;
 
 // ─── Input shapes ──────────────────────────────────────────────────────────
 
-/**
- * `moltzap messages list --conversation &lt;id> [--limit N]`. `cursor` is
- * absent: the local-daemon CLI contract does not expose a cursor.
- */
+/** `moltzap messages list --conversation &lt;id> [--limit N]`. */
 export type MessagesListArgs = Schema.Schema.Type<typeof messagesListPayload>;
 
 // ─── Handlers ──────────────────────────────────────────────────────────────

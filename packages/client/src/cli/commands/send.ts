@@ -8,7 +8,7 @@ import {
 } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import type { Transport } from "../transport.js";
-import { optionsFromSchema } from "../schema-options.js";
+import { optionsFromSchema } from "../adapters.js";
 
 type SendCommandParsed = {
   readonly target: SendTargetValue;

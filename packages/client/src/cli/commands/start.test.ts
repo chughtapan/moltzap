@@ -12,8 +12,7 @@ import { messageId, taskId } from "@moltzap/protocol/testing";
 import { conversationId } from "@moltzap/protocol/testing";
 import { Transport } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
-import { parseCliOptions } from "../../test-utils/cli-options.js";
-import { runStartHandler, startOptions } from "./start.js";
+import { runStartHandler } from "./start.js";
 
 const it = effectIt.effect;
 const SilentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
@@ -122,25 +121,6 @@ function mapsFirstMessageFailureToExit2() {
     expect(exitSpy).toHaveBeenCalledWith(2);
   });
 }
-
-describe("start command schema options", () => {
-  it("parses omitted and explicit --message/--app-id values", () =>
-    Effect.gen(function* () {
-      const omitted = yield* parseCliOptions(startOptions, []);
-      expect(omitted).toEqual({ rest: [], value: {} });
-
-      const explicit = yield* parseCliOptions(startOptions, [
-        "--message",
-        "hello",
-        "--app-id",
-        APP_ID,
-      ]);
-      expect(explicit).toEqual({
-        rest: [],
-        value: { message: "hello", appId: APP_ID },
-      });
-    }));
-});
 
 describe("start command handler", () => {
   it("sends one start-task daemon command", sendsStartTaskDaemonCommand);

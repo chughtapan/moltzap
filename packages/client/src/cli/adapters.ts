@@ -1,3 +1,6 @@
+/**
+ * Shared adapters between Effect schemas and the command-line interface.
+ */
 import { Options } from "@effect/cli";
 import { Option, Schema, SchemaAST } from "effect";
 
