@@ -1,19 +1,19 @@
-import { Args, Command, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
+import { Args, Command } from "@effect/cli";
+import { Effect, Schema } from "effect";
 import {
   LocalDaemonCommands,
+  SendCommandRpc,
   SendTarget,
   type SendTarget as SendTargetValue,
 } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import type { Transport } from "../transport.js";
-
-import { MessageId } from "@moltzap/protocol/conversation";
+import { optionsFromSchema } from "../schema-options.js";
 
 type SendCommandParsed = {
   readonly target: SendTargetValue;
   readonly message: string;
-  readonly replyTo: Option.Option<MessageId>;
+  readonly options: Schema.Schema.Type<typeof SendOptionsSchema>;
 };
 
 const targetArg = Args.text({ name: "target" }).pipe(
@@ -25,11 +25,15 @@ const messageArg = Args.text({ name: "message" }).pipe(
   Args.withDescription("Message text"),
 );
 
-const replyToOption = Options.text("reply-to").pipe(
-  Options.withSchema(MessageId),
-  Options.withDescription("Reply to a specific message"),
-  Options.optional,
+const SendOptionsSchema = SendCommandRpc.payloadSchema.pipe(
+  Schema.omit("target", "message"),
 );
+export const sendOptions = optionsFromSchema(SendOptionsSchema, {
+  replyToId: {
+    name: "reply-to",
+    description: "Reply to a specific message",
+  },
+});
 
 /**
  * `moltzap send task:&lt;taskId>:&lt;convId> &lt;message> [--reply-to &lt;id>]` —
@@ -63,7 +67,7 @@ const replyToOption = Options.text("reply-to").pipe(
  *   participant daemon
  *
  *   shell->>cli: moltzap send task:taskId:convId msg
- *   cli->>send: handler({target, message, replyTo})
+ *   cli->>send: handler({target, message, options})
  *   send->>sock: command(cli/send, {target, message, replyToId?})
  *   Note over sock: NodeSocket.makeNet(~/.moltzap/service.sock, 10s) — ENOENT/ECONNREFUSED → SocketRequestError "not running"
  *   sock->>daemon: NDJSON RPC — cli/send
@@ -83,16 +87,13 @@ export const sendCommand: Command.Command<
   SendCommandParsed
 > = Command.make(
   "send",
-  { target: targetArg, message: messageArg, replyTo: replyToOption },
-  ({ target, message, replyTo }) => {
-    const reply: { replyToId?: MessageId } = Option.isSome(replyTo)
-      ? { replyToId: replyTo.value }
-      : {};
+  { target: targetArg, message: messageArg, options: sendOptions },
+  ({ target, message, options }) => {
     return runHandler(
       command(LocalDaemonCommands.Send, {
         target,
         message,
-        ...reply,
+        ...options,
       }).pipe(
         Effect.flatMap((result) =>
           Effect.log(`Message sent (id: ${result.messageId})`),

@@ -1,13 +1,14 @@
-import { Effect, Logger, Option } from "effect";
+import { Effect, Logger } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect } from "vitest";
-import { sendCommand } from "./send.js";
+import { sendCommand, sendOptions } from "./send.js";
 
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 import { Transport } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
+import { parseCliOptions } from "../../test-utils/cli-options.js";
 import {
   conversationId as makeConversationId,
   messageId as makeMessageId,
@@ -25,7 +26,7 @@ const SilentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
 function runSendCommand(input: {
   readonly target: { taskId: TaskId; conversationId: ConversationId };
   readonly message: string;
-  readonly replyTo: Option.Option<MessageId>;
+  readonly options: { readonly replyToId?: MessageId };
 }) {
   const fixture = makeFakeTransport(() => ({ messageId: "msg-123" }));
   return {
@@ -39,6 +40,23 @@ function runSendCommand(input: {
   };
 }
 
+describe("send command schema options", () => {
+  it("parses omitted and explicit --reply-to values", () =>
+    Effect.gen(function* () {
+      const omitted = yield* parseCliOptions(sendOptions, []);
+      expect(omitted).toEqual({ rest: [], value: {} });
+
+      const explicit = yield* parseCliOptions(sendOptions, [
+        "--reply-to",
+        REPLY_MSG,
+      ]);
+      expect(explicit).toEqual({
+        rest: [],
+        value: { replyToId: REPLY_MSG },
+      });
+    }));
+});
+
 describe("send command handler", () => {
   const taskId = makeTaskId(TASK_UUID);
   const conversationId = makeConversationId(CONV_UUID);
@@ -49,7 +67,7 @@ describe("send command handler", () => {
       const run = runSendCommand({
         target: { taskId, conversationId },
         message: HELLO_WORLD,
-        replyTo: Option.none(),
+        options: {},
       });
       yield* run.effect;
       expect(run.calls).toEqual([
@@ -68,7 +86,7 @@ describe("send command handler", () => {
       const run = runSendCommand({
         target: { taskId, conversationId },
         message: REPLY_TEXT,
-        replyTo: Option.some(replyToId),
+        options: { replyToId },
       });
       yield* run.effect;
       expect(run.calls).toEqual([
