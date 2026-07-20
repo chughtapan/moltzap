@@ -1,10 +1,11 @@
-import { Args, Command, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
+import { Args, Command } from "@effect/cli";
+import { Effect, Schema } from "effect";
 import {
   AppIdV4,
   LocalDaemonCommands,
   StartParticipant,
   StartTaskPartialFailure,
+  StartTaskCommandRpc,
   StartTaskUsageError,
   type StartParticipant as StartParticipantType,
   type StartTaskCommandResult,
@@ -12,6 +13,7 @@ import {
 import { command, type Transport, type TransportError } from "../transport.js";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
+import { optionsFromSchema } from "../adapters.js";
 
 const EXIT_CODES = {
   SUCCESS: 0,
@@ -32,8 +34,7 @@ type StartCommandError = TransportError;
 type StartCommandParsed = {
   readonly name: string;
   readonly participants: StartParticipantType[];
-  readonly message: Option.Option<string>;
-  readonly appId: Option.Option<AppIdV4>;
+  readonly options: Schema.Schema.Type<typeof StartOptionsSchema>;
 };
 
 const startMessage = (outcome: {
@@ -110,16 +111,13 @@ const participantsArg = Args.text({ name: "participant" }).pipe(
   Args.repeated,
 );
 
-const messageOption = Options.text("message").pipe(
-  Options.withDescription("First message body"),
-  Options.optional,
+const StartOptionsSchema = StartTaskCommandRpc.payloadSchema.pipe(
+  Schema.omit("name", "participants"),
 );
-
-const appIdOption = Options.text("app-id").pipe(
-  Options.withSchema(AppIdV4),
-  Options.withDescription("App UUID v4. Defaults to the MoltZap app."),
-  Options.optional,
-);
+export const startOptions = optionsFromSchema(StartOptionsSchema, {
+  message: { description: "First message body" },
+  appId: { description: "App UUID v4. Defaults to the MoltZap app." },
+});
 
 export const runStartHandler = (
   args: StartCommandArgs,
@@ -136,15 +134,14 @@ export const startCommand: Command.Command<
   {
     name: nameArg,
     participants: participantsArg,
-    message: messageOption,
-    appId: appIdOption,
+    options: startOptions,
   },
-  ({ name, participants, message, appId }) =>
+  ({ name, participants, options }) =>
     runStartHandler({
       name,
       participants,
-      message: Option.getOrUndefined(message),
-      appId: Option.getOrUndefined(appId),
+      message: options.message,
+      appId: options.appId,
     }),
 ).pipe(
   Command.withDescription(
