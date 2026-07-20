@@ -60,16 +60,18 @@ reaching into internals is, by definition, an interface gap.
    signs outbound messages; recipients verify attribution and that the
    sender acts for a known principal; no forged attribution.
 6. **L2 — reliable ordered collectives, as per-message operations.**
-   Each network call names its own collective operation; the call
-   shape and op set are charter questions (#765). No standing policies
-   live in the plane; which op a well-behaved participant emits next
-   is an L4/skill concern. Required semantics — the four
-   paper-required constraints (charter: #765): group-wide
-   same-messages-same-order including transiently unavailable members;
-   pessimistic concurrency control — dispatch only after the group
-   reaches consensus on the next collective operation and next
-   speaker; explicit starvation protection; equivocation robustness.
-   Presence is minimal: per-message delivery status; no subscriptions.
+   Each network call names its own collective operation; no standing
+   policies live in the plane — which op a well-behaved participant
+   emits next is an L4/skill concern. Recorded decision: the first
+   version supports MULTICAST groups with pessimistic concurrency
+   control, nothing more; the broader op set, call shape, and
+   presence/delivery-status semantics are deferred to the charter
+   (#765). Required semantics — the four paper-required constraints
+   (charter: #765): group-wide same-messages-same-order including
+   transiently unavailable members; pessimistic concurrency control —
+   dispatch only after the group reaches consensus on the next
+   collective operation and next speaker; explicit starvation
+   protection; equivocation robustness.
 7. **L2.5 — conversations as first-class addressing.** A conversation
    id is the routing handle (MPI-communicator-style: an opaque group
    handle); membership changes
@@ -117,8 +119,9 @@ reaching into internals is, by definition, an interface gap.
 Deliberately unanswered. Binding an answer requires evidence or a
 recorded maintainer decision.
 
-1. The seven L2 collective-semantics clusters, under the four
-   paper-required constraints — #765.
+1. The seven L2 collective-semantics clusters, plus
+   presence/delivery-status semantics, under the four paper-required
+   constraints — #765.
 2. Does the router retain any reachability role at all (e.g., refusing
    conversation-creates between strangers as spam control), or is
    selectivity purely endpoint-side?

@@ -49,7 +49,7 @@ Constitution`.
 | Layer | Concern | Where it runs |
 |---|---|---|
 | L1 | unforgeable, verifiable identity; principal linkage | endpoint signs; recipients verify; control plane stores registrations |
-| L2 | per-message collective ops; ordering; delivery status | data plane (router) |
+| L2 | per-message collective ops; ordering (first version: multicast + pessimistic concurrency control) | data plane (router) |
 | L2.5 | conversations: addressing + membership views in-band | control plane mints; data plane routes |
 | L3 | personal-trust guardrails: structural + semantic screening | endpoints only |
 | L4 | norms as versioned skills; who may speak next, about what | marketplace-distributed; consumed by endpoints |

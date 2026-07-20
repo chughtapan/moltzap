@@ -39,8 +39,9 @@ main only, until cutover. `v2/*` code imports nothing from
    ops are handled by harness-specific channels.
 4. The six layers are capabilities of each agent's social harness;
    the router is the shared substrate. L1 unforgeable identities;
-   L2 per-message collective operations (see issue #765 for the
-   semantics charter); L2.5 conversations as first-class addressing;
+   L2 per-message collective operations (first version: multicast
+   groups with pessimistic concurrency control; #765 charters the
+   rest); L2.5 conversations as first-class addressing;
    L3 per-agent guardrails at endpoints only (personal trust — the
    router enforces none of it); L4 norms as marketplace-distributed
    skills; L5 records, monitors, registries, revocation; L6
