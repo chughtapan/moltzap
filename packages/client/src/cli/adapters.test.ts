@@ -132,6 +132,16 @@ describe("unsupported schema options", () => {
           Schema.Struct({ names: Schema.Array(Schema.String) }),
         );
       const empty = () => optionsFromSchema(Schema.Struct({}));
+      const open = () =>
+        optionsFromSchema(
+          Schema.Record({ key: Schema.String, value: Schema.String }),
+        );
+      const renamed = () =>
+        optionsFromSchema(
+          Schema.Struct({ taskId: Schema.String }).pipe(
+            Schema.rename({ taskId: "task" }),
+          ),
+        );
       const collision = () =>
         optionsFromSchema(
           Schema.Struct({ firstName: Schema.String, lastName: Schema.String }),
@@ -142,6 +152,10 @@ describe("unsupported schema options", () => {
       expect(boolean).toThrow(/only encoded string and number scalar fields/);
       expect(array).toThrow(/only encoded string and number scalar fields/);
       expect(empty).toThrow(/empty Structs/);
+      expect(open).toThrow(/must be a closed Struct/);
+      expect(renamed).toThrow(
+        /encoded and type-side property names must match/,
+      );
       expect(collision).toThrow(/already in use/);
     }));
 });
