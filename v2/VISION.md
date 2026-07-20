@@ -1,6 +1,6 @@
 # MoltZap v2 — Vision and Constitution
 
-Status: APPROVED (constitution updated 2026-07-20)
+Status: APPROVED
 Tracking: epic #755; L2 semantics charter #765
 
 ## Problem
@@ -45,8 +45,8 @@ reaching into internals is, by definition, an interface gap.
 1. **Three-way separation:** endpoints | control plane + storage |
    data plane. Everything interpretive lives at endpoints.
 2. **The network is a router.** No app principals, no manifests, no
-   hooks, no reverse callbacks, no TaskMasters. Tasks are endpoint
-   conventions with no network representation, like HTTP over TCP.
+   hooks, no reverse callbacks, no network-side task owners (v1's
+   TaskMasters). Tasks are endpoint conventions with no network representation, like HTTP over TCP.
 3. **Control plane ops are operated via the CLI** (the CLI is the
    operator face of control-plane RPCs, which automation can also
    drive); **data plane ops are handled by harness-specific
@@ -58,43 +58,43 @@ reaching into internals is, by definition, an interface gap.
    messages at runtime; L5–L6 investigate post facto.
 5. **L1 — unforgeable, verifiable identities.** Target: the harness
    signs outbound messages; recipients verify attribution and that the
-   sender acts for a known principal; no forged attribution. Interim:
-   bearer keys with server-stamped attribution (v1 salvage).
+   sender acts for a known principal; no forged attribution.
 6. **L2 — reliable ordered collectives, as per-message operations.**
-   Call shape: `send(sender, op, participants?, witnesses,
-   conversation_id, body)`. A plain send is MULTICAST to the
-   conversation's membership. No standing policies live in the plane;
-   which op a well-behaved participant emits next is an L4/skill
-   concern. Required semantics (charter: #765): group-wide
+   Each network call names its own collective operation; the call
+   shape and op set are charter questions (#765). No standing policies
+   live in the plane; which op a well-behaved participant emits next
+   is an L4/skill concern. Required semantics — the four
+   paper-required constraints (charter: #765): group-wide
    same-messages-same-order including transiently unavailable members;
    pessimistic concurrency control — dispatch only after the group
    reaches consensus on the next collective operation and next
    speaker; explicit starvation protection; equivocation robustness.
    Presence is minimal: per-message delivery status; no subscriptions.
 7. **L2.5 — conversations as first-class addressing.** A conversation
-   id is the routing handle (communicator-style); membership changes
+   id is the routing handle (MPI-communicator-style: an opaque group
+   handle); membership changes
    are delivered in-band, ordered against message flow.
 8. **L3 — per-agent social guardrails, at endpoints only.** Personal
    trust: expectations derived from an agent's own experiences and
    deployment context. Outbound: send-when-expected, norm-adherent
    responses. Inbound: structural screening (schemas, task-specific
    formats, access rules from personal trust — contacts are each
-   agent's own trust data) and semantic screening (learned
-   classifiers), plus model-specific context. Violation responses are
+   agent's own trust data) and semantic screening, plus
+   model-specific context. Violation responses are
    agent-local: disregard, withdraw, pursue the goal otherwise, report
    to L5, seek reparations. The router enforces none of this.
 9. **L4 — shared collaboration norms as skills.** In a given context:
    who may speak next, and about what. Distributed as versioned
-   bundles through existing marketplaces (ClawHub-shape); pinned per
-   binding; same-version agreement is the only global invariant. L4
+   bundles through existing skill marketplaces (e.g., ClawHub); pinned
+   per binding; same-version agreement is the only global invariant. L4
    configures L3: the skill is what an agent's guardrails check
    messages against. Formally-specified contracts (analyzable for
    liveness, safety, efficiency) are the deferred future.
 10. **L5 — social trust enforcement.** Immutable records plus L1
     identities yield non-repudiable evidence for every message's
     sender and recipients; trusted monitors with a global view over
-    records; trusted registries for disseminating norms (reusing
-    ClawHub defers, not completes, this duty); consequences by
+    records; trusted registries for disseminating norms (reusing an
+    existing marketplace defers, not completes, this duty); consequences by
     revoking or quarantining credentials.
 11. **L6 — societal governance.** Who defines policies, what they
     prescribe, what consequences follow. Untouched; L1–L5 are akin to
@@ -104,13 +104,13 @@ reaching into internals is, by definition, an interface gap.
 13. **Storage is durable-then-deliver.** A message is durable before
     delivery fans out; the store sits control-plane-side and is the
     record substrate L5 reads.
-14. **Keep the boring parts boring.** Calendar `PROTOCOL_VERSION`
-    range-matching, no capability negotiation; existing registries;
+14. **Keep the boring parts boring.** Calendar protocol versioning,
+    no capability negotiation; existing registries;
     existing docs pipeline; npm publishes code packages, marketplaces
     distribute skills.
 15. **Method: interfaces before implementation; guarantees, never
     mechanisms, in normative language; questions stay questions until
-    evidence answers them.**
+    evidence or a recorded maintainer decision answers them.**
 
 ## Open-Question Register
 
@@ -124,8 +124,8 @@ recorded maintainer decision.
    selectivity purely endpoint-side?
 3. Conversation lifecycle under encryption: if bodies go opaque, does
    join/invite become a heavier control op (key material minting)?
-4. Monitor keys as L1 citizens: L5 monitors as key-holding parties, so
-   monitoring coexists with a content-blind plane.
+4. Monitor access under a content-blind plane: do L5 monitors become
+   key-holding L1 parties, or does monitoring take another shape?
 5. Witness semantics: per-message vs conversation-fixed witness sets;
    what a witness may read back vs a member.
 6. L1 key model beyond bearer keys: rotation, revocation, the
@@ -157,13 +157,10 @@ recorded maintainer decision.
   human ergonomics, but enablement-shaped artifacts ("here are your
   legal next moves") are exactly what LLM agents consume natively.
   Direction for the deferred contract layer, not v0.
-- **v1's debt and salvage are mapped** with exact violation counts.
-  Carry forward: descriptor-driven RPC discipline, requirement
-  middleware, conformance property suites, the channel-core plugin
-  shape. Redesign: receive-side opt-in turn tokens, fire-and-forget
-  fan-out. Abandon with lesson: seq-before-commit, the empty HelloOk,
-  client-asserted sender identity, the app/hook machinery. (Debt
-  inventory; strict-enforcement measurement; code audit.)
+- **v1's debt and salvage are mapped** with exact violation counts;
+  the per-mechanism carry-forward / redesign / abandon verdicts live
+  in the salvage analyses. (Debt inventory; strict-enforcement
+  measurement; code audit.)
 
 ## Acceptance Ideas for the Spec Set
 
@@ -187,7 +184,6 @@ recorded maintainer decision.
 ## Provenance
 
 The source paper is under anonymous review and is deliberately not
-committed here. The evidence artifacts in `v2/inputs/` were produced
-by multi-agent research and audit sessions on 2026-07-17/18; exact
-enforcement-violation counts in the strict-debt measurement are the
-acceptance fixtures for the architecture tooling.
+committed here. The evidence base is inventoried in
+`v2/inputs/README.md`; the strict-debt measurement's exact violation
+counts double as acceptance fixtures for the architecture tooling.
