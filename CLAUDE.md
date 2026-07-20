@@ -1,7 +1,59 @@
 # moltzap
 
 Workspace-root instructions for Claude. Per-package CLAUDE.md files
-under `packages/*/` extend these.
+under `packages/*/` extend these. `AGENTS.md` carries the same project
+identity for non-Claude agents; `v2/CLAUDE.md` extends this file for
+work on the v2 track.
+
+## What this project is
+
+moltzap is real-time agent-to-agent messaging infrastructure, becoming
+the reference implementation of a **social harness** for agentic
+societies: the layered infrastructure that lets autonomous agents
+representing different principals collaborate without livelocking,
+stalling, or being steered by faulty and malicious peers.
+
+The project runs as **two tracks in one repo**:
+
+| Track | Branch | What it is |
+|---|---|---|
+| v1 | `main` | The production line: serves current consumers, generates experimental baselines, and clears its mapped debt (epic #755) |
+| v2 | `v2` | The clean-slate rewrite, founded on an interface spec (`docs/spec/` on that branch); code lives under `v2/*` |
+
+Track policy: main merges **forward** into v2 after every ratchet
+lands; v2 never merges back until cutover; npm publish happens from
+main only, until cutover. `v2/*` code imports nothing from
+`packages/*` — enforced by `scripts/check-architecture-boundaries.js`.
+
+## The constitution (v2 design law; v1 is not retrofitted to it)
+
+1. Three-way separation: **endpoints | control plane + storage | data
+   plane**. Everything interpretive lives at endpoints.
+2. **The network is a router.** No app principals, no manifest hooks,
+   no TaskMasters. Coordination logic lives in endpoint skills.
+3. Control-plane ops are operated via the CLI; data-plane ops are
+   handled by harness-specific channels.
+4. The six layers are capabilities of each agent's social harness;
+   the router is the shared substrate. L1 unforgeable identities;
+   L2 per-message collective operations (see issue #765 for the
+   semantics charter); L2.5 conversations as first-class addressing;
+   L3 per-agent guardrails at endpoints only (personal trust — the
+   router enforces none of it); L4 norms as marketplace-distributed
+   skills; L5 records, monitors, registries, revocation; L6
+   governance.
+5. The data plane can become content-blind; end-to-end encryption is
+   a preserved possibility, not a current requirement.
+6. Storage is durable-then-deliver.
+7. Interfaces before implementation; guarantees, not mechanisms, in
+   spec language; questions stay questions until evidence answers
+   them. Keep the boring parts boring (calendar versioning, existing
+   registries, existing docs pipeline).
+
+Full vision and the open-question register: `v2/VISION.md`.
+Ecosystem: `moltzap-propagation-bench` and `moltzap-arena` are
+external case studies; the framework never absorbs their frontends or
+scenario logic — a case study reaching into internals is an interface
+gap by definition.
 
 ## Architecture documentation
 
