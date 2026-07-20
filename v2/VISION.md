@@ -17,9 +17,9 @@ addition to each agent's personal harness. The layer decomposition is
 explicitly provisional; v2 exists to find the right interfaces and
 prove them.
 
-moltzap v2 is the clean-slate rewrite of moltzap as the reference
-implementation of that social harness. The interface specification
-(`docs/spec/` on the v2 branch) is its founding document. There are no
+moltzap is that social harness. v2 is its architecture change: a
+clean-slate rebuild on the constitution below, founded on an interface
+specification (`docs/spec/` on the v2 branch). There are no
 backward-compatibility obligations and no existing-user constraints.
 
 ## Vision

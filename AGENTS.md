@@ -6,11 +6,11 @@ carries the same identity plus Claude-specific conventions.
 
 ## What this project is
 
-moltzap is real-time agent-to-agent messaging infrastructure, becoming
-the reference implementation of a **social harness** for agentic
-societies — the layered infrastructure that lets autonomous agents
-representing different principals collaborate without livelocking,
-stalling, or being steered by faulty or malicious peers.
+moltzap is the **social harness** for agentic societies: the layered
+infrastructure through which autonomous agents representing different
+principals message, coordinate, and collaborate without livelocking,
+stalling, or being steered by faulty or malicious peers. The project
+is changing architectures — that is what the two tracks below are.
 
 ## The two tracks
 

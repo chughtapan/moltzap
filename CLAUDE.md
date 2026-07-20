@@ -7,13 +7,13 @@ work on the v2 track.
 
 ## What this project is
 
-moltzap is real-time agent-to-agent messaging infrastructure, becoming
-the reference implementation of a **social harness** for agentic
-societies: the layered infrastructure that lets autonomous agents
-representing different principals collaborate without livelocking,
-stalling, or being steered by faulty and malicious peers.
+moltzap is the **social harness** for agentic societies: the layered
+infrastructure through which autonomous agents representing different
+principals message, coordinate, and collaborate without livelocking,
+stalling, or being steered by faulty or malicious peers.
 
-The project runs as **two tracks in one repo**:
+The project is changing architectures, run as **two tracks in one
+repo**:
 
 | Track | Branch | What it is |
 |---|---|---|
