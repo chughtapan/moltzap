@@ -562,9 +562,9 @@ timestamp.
   server's `db/list-cursor.ts` codec is the only producer/decoder, and a
   server-package lint guard bans decoding the token elsewhere. A
   tampered token is rejected at the boundary as `InvalidParamsError`.
-- **`MessagesList` is unchanged** (`sinceSeq` + `hasMore`): already an
-  opaque, bounded, monotonic per-conversation seq cursor; request-bounded
-  by construction.
+- **`MessagesList` was not changed in that release**; it remained a
+  bounded newest-message query and was cleaned up in a later protocol
+  pass.
 - **Limit reconciliation (`@moltzap/protocol`):** Every list-RPC `limit`
   param now shares one schema (`ListLimitSchema`) backed by two exported
   constants, `DEFAULT_PAGE_LIMIT` (50) and `MAX_PAGE_LIMIT` (200). The

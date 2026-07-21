@@ -1,8 +1,6 @@
 {
   "group": "Modules",
   "pages": [
-    "modules/claude-code-channel/src",
-    "modules/client/src",
     "modules/protocol/conversation",
     "modules/protocol/conversation/requirements",
     "modules/protocol/identity",
