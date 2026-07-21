@@ -6,38 +6,42 @@ protocol. This package is the workspace leaf: it owns the wire contracts and
 the server/client RPC catalogs, while implementation packages provide handler
 maps, middleware Layers, storage, and runtime policy.
 
-The socket payload is still bare JSON-RPC, but serialization is owned by
+The socket payload is bare JSON-RPC, but serialization is owned by
 `@effect/rpc`. Protocol code declares RPC members and channel routing; it does
 not hand-maintain request/response/notification frame schemas.
 
 ## Key Files
 
-The source DAG is reflected in `src/index.ts`:
+The package subpaths in `package.json` (`imports` / `exports`) mirror this
+layout:
 
 - `src/transport/` — descriptor factory, strict decode helpers, typed dispatch,
-  mux routing, notification subscribers, principal middleware tags, wire string
-  brands, and cross-cutting tagged errors. This is an internal implementation
+  mux routing, notification subscribers, wire-string format helpers, and
+  cross-cutting tagged errors. This is an internal implementation
   layer, not the published consumer surface.
 - `src/rpc.ts` — published call-site support facade for RPC helper types,
   notification subscriber helpers, pagination cursors, typed dispatch helpers,
   and shared wire errors.
-- `src/identity/` — agents, users, contacts, and identity RPC descriptors.
-- `src/network/` — `agent/connect`, `app/connect`, and presence RPCs.
+- `src/identity/` — agents, apps, users, contacts, principal middleware tags,
+  the `ActiveAgent` requirement, and identity RPC descriptors.
+- `src/network/` — `agent/network/connect`, `app/network/connect`, and
+  presence RPCs.
 - `src/task/` — task RPCs, task identifiers, and task requirement descriptors.
 - `src/conversation/` — conversation RPCs, identifiers, notifications, and
   conversation requirement descriptors.
 - `src/message/` — message RPCs, message parts, app callbacks, notifications,
   and dispatch RPCs/callbacks.
 - `src/socket/` — `MoltZapAgentClient`, `MoltZapAppClient`, `MoltZapServer`,
-  shared lifecycle helpers, close info, `ConnectionId`, and the socket-owned
-  AgentCallable, AppCallable, AppCallback, server-inbound, and reverse RPC
-  groups.
+  shared lifecycle helpers, close info, `ConnectionId`, the `appCallbackMethods`
+  catalog, and the derived `AgentCallableGroup`, `AppCallableGroup`,
+  `ServerInboundGroup`, `NotificationRpcGroup`, and `ReverseRpcGroup`.
 - `src/testing/` — lifecycle fixtures, conformance suites, arbitraries, and
   toxics.
 
 ## Commands
 
-- `pnpm build` — `tsc -b && tsc-alias -p tsconfig.json`
+- `pnpm build` — `nx run @moltzap/protocol:build` (`tsc -b`, `tsc-alias -p
+  tsconfig.json`, `node scripts/check-dist-aliases.js`)
 - `pnpm test` — Vitest unit tests
 - `pnpm docs:generate` — regenerate protocol reference docs and module pages
 
@@ -50,9 +54,10 @@ source. Update the descriptor, schema, or JSDoc, then run
 
 ## Adding An RPC Method
 
-1. Pick the owning layer by dependency order: `transport` < `identity` <
-   `network` < `task` < `app`. Put the descriptor in the lowest layer that owns
-   the domain language.
+1. Pick the owning domain folder by dependency order: `transport` <
+   `identity` < `network` < the task domain (`task`, `conversation`,
+   `message`). Put the descriptor in the lowest folder that owns the domain
+   language.
 
 2. Declare params/result schemas in the method block with Effect `Schema`.
    Domain branded strings are declared where the domain type lives with
@@ -71,8 +76,8 @@ source. Update the descriptor, schema, or JSDoc, then run
    `requires` is required. The first element is one principal requirement
    (`AgentPrincipal`, `AppPrincipal`, or `AuthenticatedPrincipal`), optionally
    followed by `ActiveAgent`, then domain requirements in run order.
-   `agent/connect`, `app/connect`, and server-to-client callbacks use
-   `requires: []`.
+   `agent/network/connect`, `app/network/connect`, and server-to-client
+   callbacks use `requires: []`.
 
    `errors` is required. Use `[]` when the handler has no domain-specific
    failure.
@@ -87,7 +92,7 @@ source. Update the descriptor, schema, or JSDoc, then run
 7. For a new domain requirement, declare the protocol tag as an
    `RpcMiddleware.Tag` in the owning domain folder and include its `failure`
    schema, then implement the server Layer in
-   `@moltzap/server-core/src/socket/auth-middleware-layers.ts`.
+   `@moltzap/server-core` (`packages/server/src/moltzap/auth-middleware-layers.ts`).
 
 8. Implement the server handler in `@moltzap/server-core` and add it to
    `serverHandlers`. The `MoltZapServer` constructor type-checks the handler
@@ -129,8 +134,10 @@ Errors:
 
 Type checks:
 
-- `*.types-check.ts` files are compiler-only assertions. Positive canaries use
-  `Expect<Equal<A, B>>`; negative canaries use `@ts-expect-error`.
+- `*.types-check.ts` files are compiler-only assertions. Positive canaries
+  construct the value against the real target contract so drift stops
+  compiling; negative canaries use `@ts-expect-error` (an unused directive
+  fails the build).
 - Delete canaries that merely duplicate runtime tests or hardcode stale
   implementation details.
 
@@ -143,9 +150,10 @@ Type checks:
   it; the server supplies a per-socket Layer that implements it.
 - **Domain Requirement** — A requirement that proves domain authority, such as
   `ConversationInTask` or `TaskReadAccess`.
-- **Principal Requirement** — `AgentPrincipal`, `AppPrincipal`,
-  `AuthenticatedPrincipal`, or `ActiveAgent`.
+- **Principal Requirement** — `AgentPrincipal`, `AppPrincipal`, or
+  `AuthenticatedPrincipal`. `ActiveAgent` is an agent-only refinement that
+  may follow the principal requirement.
 - **Reverse RPC Group** — The server-to-client group containing app callbacks
   and notifications.
 - **Conformance Suite** — Property-based tests under `src/testing/conformance/`
-  consumed by protocol, server, client, and external implementations.
+  consumed by the protocol and server-core test suites.
