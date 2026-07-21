@@ -3,12 +3,13 @@
 Standalone MoltZap server runtime. Composes Effect Layers for the
 service graph, exposes WebSocket + HTTP transport, routes app
 callbacks through the dispatch/message/task domain services, and
-persists state through Kysely against PostgreSQL (or PGlite under
-test). Ships as a binary (`packages/server/bin/moltzap-server`) — root barrel
+persists state through Kysely against PostgreSQL (or embedded PGlite
+when no database URL is configured; tests run on PGlite too). Ships as a binary (`packages/server/bin/moltzap-server`) — root barrel
 (`src/index.ts`) is intentionally `export {}`; this package is not a
-programmatic SDK and consumers must not import from it.
+programmatic SDK; the only importable subpath is `./test-utils`,
+consumed by workspace tests.
 
-Extends the workspace-root CLAUDE.md (architecture-doc rules,
+Extends the workspace-root AGENTS.md (architecture-doc rules,
 LSP-first tracing, symbol-name citations, Mermaid gotchas all
 inherited).
 
@@ -28,10 +29,11 @@ packages/server/src/
 ├── dispatch/           # LeaseRegistry and dispatch admission handlers
 ├── db/                 # Kysely schema, snowflake IDs, effect-kysely-toolkit
 ├── config.ts           # YAML config loader + schema validation
+├── config/             # secret-material schema (`secrets.ts`)
 ├── test-utils/         # PGlite boot + test drivers
 ├── standalone.ts       # startServer(configPath) — CLI/binary entry
 ├── index.ts            # `export {}` — root barrel intentionally empty
-└── __tests__/          # unit, integration, conformance
+└── __tests__/          # integration, conformance (unit tests sit per-module as `*.test.ts`)
 ```
 
 
@@ -50,8 +52,10 @@ server services live beside the domain that owns the requirement:
 `task/requirements`, `conversation/requirements`, and
 `identity/contacts/requirements`.
 
-App-owned task administration loads the task and calls
-`assertAppOwnsTask(appConn.auth.appId, task)` in the handler body. A handler
+App-owned task administration calls
+`assertCallerAppOwnsTask(ctx.appId, params.taskId)`
+(`task/requirements/app-ownership.ts`) in the handler body; it loads
+the open task and delegates to the protocol-owned `assertAppOwnsTask`. A handler
 that needs a domain requirement value reads the value provided by the
 middleware context or performs the same service-backed obtain when it needs
 the loaded row directly.
@@ -64,22 +68,24 @@ the owning protocol domain folder and implement its server layer in
 
 | Store | Type | Purpose |
 |---|---|---|
-| Primary | PostgreSQL (prod) / PGlite (tests) | Agents, conversations, messages, tasks, leases (in-memory copy) |
-| Key tables | — | `agents`, `users`, `sessions`, `conversations`, `conversation_participants`, `messages`, `tasks`, `dispatches` |
+| Primary | PostgreSQL / embedded PGlite (no database URL configured, and all tests) | Agents, apps, contacts, conversations, messages, tasks. Dispatch leases are in-memory only, in `LeaseRegistry` |
+| Key tables | — | `agents`, `apps`, `contacts`, `conversations`, `conversation_participants`, `messages`, `tasks`, `task_participants`, `encryption_keys`, `conversation_keys` |
 
-PGlite (`@electric-sql/pglite` + `kysely-pglite`) is the in-memory
-variant used by integration tests; the same Kysely schema runs against
-both. The `createDb` factory (`db/client.ts`) dispatches on config —
-`db.kind = "pg"` returns a real `Kysely<Database>`, `db.kind = "pglite"`
-returns the in-memory variant. Handlers and services never branch on
-`db.kind`.
+PGlite (`@electric-sql/pglite` + `kysely-pglite`) is the embedded
+variant used by integration tests and by the binary when no database
+URL is configured; the same Kysely schema runs against both. Backend choice happens once at boot: `standalone.ts` boots embedded
+PGlite when no database URL is configured and Postgres otherwise;
+tests boot PGlite through `test-utils/pglite-harness.ts`. Handlers and
+services only ever see the `DbTag` service (`db/layer.ts`, a
+`Kysely<Database>`) and never learn which backend is behind it.
 
 `tasks.app_id` is `TEXT NOT NULL` — every task binds to a registered
 app, and app authority is proved per-frame via app ownership of the
 bound task (`assertAppOwnsTask`, see
 `packages/protocol/src/task/requirements/assert-requirement-matches-task.ts`):
-the 8 task-admin RPCs load the task and assert the calling
-`AppConnection`'s `appId` equals `tasks.app_id`. The schema does not
+the app-arm task-admin RPCs (`app/task/update`,
+`app/conversation/create`, `app/conversation/update`) load the task and
+assert the calling `AppConnection`'s `appId` equals `tasks.app_id`. The schema does not
 carry a separate endpoint-address column; app endpoint identity is
 derived from `app_id` at routing time.
 
@@ -87,8 +93,9 @@ derived from `app_id` at routing time.
 
 - `src/__tests__/integration/` — service + RPC integration tests
   (PGlite-backed; see `__tests__/integration/README.md`).
-- `src/__tests__/conformance/` — server-side conformance harness
-  (re-uses `@moltzap/protocol/testing/conformance`).
+- `src/__tests__/conformance/` — server-side conformance entry:
+  `suite.test.ts` supplies the real server factory and runs
+  `runConformanceSuite` from `@moltzap/protocol/testing`.
 - Per-module `*.test.ts` for unit coverage.
 - Vitest; integration tests excluded from `tsc --build` — grep manually
   when renaming public APIs.
@@ -112,17 +119,20 @@ derived from `app_id` at routing time.
 - **CoreApp** — The composed runtime: services + Kysely + Layers,
   returned by `createCoreApp` for embedding in a host process. Protocol
   handler catalog and requirement composition live under `src/moltzap/`.
-- **Layer-tag hierarchy** — TypeScript-enforced constraint on which
-  Effect Tags a handler may pull (`TransportTags ⊂ IdentityTags ⊂
-  NetworkTags ⊂ TaskTags ⊂ AppTags`); prevents low-layer code from
-  depending on high-layer services. Enforced via the `R` channel of
-  the handler's Effect.
-- **AgentEndpointResolver** — `AgentId → HashSet<ConnId>` multimap
+- **Layer-tag hierarchy** — Documented allowlist of the Effect Tags
+  each protocol layer may pull (`TransportTags ⊂ IdentityTags ⊂
+  NetworkTags ⊂ TaskTags ⊂ AppTags`, defined in
+  `src/moltzap/layer-tags.ts`). Only the top-level `AppTags` union is
+  applied in the type system: `http/routes.ts` bounds the socket
+  dispatch effect's `R` channel to `Exclude<AppTags, ConnectionTag>`.
+  The per-layer subsets guide Tag placement; they are not applied to
+  individual handlers.
+- **AgentEndpointResolver** — `AgentId → HashSet<ConnectionId>` multimap
   kept fresh by `network/connect` success and the disconnect
   finalizer. Read by `NetworkSendService` for O(1) outbound routing.
 - **ConnectionManager** — The set of live three-arm `Connection`
   records (`UnauthenticatedConnection` / `AgentConnection` /
-  `AppConnection`) held in a `Ref<HashMap<ConnId, Connection>>`.
+  `AppConnection`) held in a `Ref<HashMap<ConnectionId, Connection>>`.
   Sanctioned mutators: `addUnauthenticated`, `authenticate`,
   `rollbackToUnauthenticated`, `removeAndReturn`. Reads: `peek`,
   `allConnections`, `agentConnections`, `getByAgentConnection`,
