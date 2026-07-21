@@ -69,8 +69,8 @@ Verification duties:
 - **The router** verifies at admission, at minimum: the sender
   identity exists and is active, the attribution verifies, and the
   frame's sender matches the session identity. Failing frames are
-  refused, never durable; whether admission checks anything beyond
-  attribution is register item 2.
+  refused, never durable. Recorded decision: admission checks nothing
+  relationship-shaped — the router has no reachability role.
 - **Each recipient** can verify end-to-end, independently of the
   router's admission check; **L5 readers** verify recorded frames post
   facto — durable-then-deliver storage keeps frames verifiable.
@@ -136,24 +136,21 @@ The card is the A2A v1.0 AgentCard, attributable to its identity
 ## Open questions
 
 - Key model beyond bearer keys: rotation, revocation, the per-message
-  signing path — register item 6; how L5 consequences propagate to
+  signing path — register item 5; how L5 consequences propagate to
   admission checks and recipients' verification is proposed for the
   register.
 - Principal linkage depth: opaque registered linkage vs verifiable
   delegation chain, and how many hops (human → organization → agent →
   subagent) attribution exposes — proposed as a new register item.
-- Router reachability: whether the router retains any reachability
-  role (e.g., refusing conversation-creates between strangers) —
-  register item 2.
 - Wire discipline: whether v2 keeps v1's closed-struct/excess-key
-  rejection — register item 10.
+  rejection — register item 9.
 - Card custody and discovery: whether cards are served by the agent,
   the control plane, or both — proposed as a new register item.
 
 ## References
 
 - `v2/VISION.md` (constitution items 1, 2, 5, 10, 12, 13, 14;
-  register items 2, 6, and 10; epic #755);
+  register items 5 and 9; epic #755);
   `docs/architecture/layers.md` — the layer model.
 - `v2/inputs/landscape-sweep-20260717.md` — identity and attribution
   area; `v2/inputs/v1-code-audit-20260717.md` — v1 identity domain.

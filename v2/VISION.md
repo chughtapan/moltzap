@@ -89,6 +89,8 @@ reaching into internals is, by definition, an interface gap.
    model-specific context. Violation responses are
    agent-local: disregard, withdraw, pursue the goal otherwise, report
    to L5, seek reparations. The router enforces none of this.
+   Recorded decision: the router retains no reachability role at all —
+   selectivity is purely endpoint-side.
 9. **L4 — shared collaboration norms as skills.** In a given context:
    who may speak next, and about what. Distributed as versioned
    bundles through existing skill marketplaces (e.g., ClawHub); pinned
@@ -127,24 +129,21 @@ recorded maintainer decision.
    failure, concurrency, initiation authority, witnesses, ordering —
    plus presence/delivery-status semantics, under the four
    paper-required constraints — #765.
-2. Does the router retain any reachability role at all (e.g., refusing
-   conversation-creates between strangers as spam control), or is
-   selectivity purely endpoint-side?
-3. Conversation lifecycle under encryption: if bodies go opaque, does
+2. Conversation lifecycle under encryption: if bodies go opaque, does
    join/invite become a heavier control op (key material minting)?
-4. Monitor access under a content-blind plane: do L5 monitors become
+3. Monitor access under a content-blind plane: do L5 monitors become
    key-holding L1 parties, or does monitoring take another shape?
-5. Witness semantics: per-message vs conversation-fixed witness sets;
+4. Witness semantics: per-message vs conversation-fixed witness sets;
    what a witness may read back vs a member.
-6. L1 key model beyond bearer keys: rotation, revocation, the
+5. L1 key model beyond bearer keys: rotation, revocation, the
    per-message signing path.
-7. Records retention and history-read scope.
-8. L6 governance, in full.
-9. Failure-taxonomy conventions across layers (what an endpoint sees
+6. Records retention and history-read scope.
+7. L6 governance, in full.
+8. Failure-taxonomy conventions across layers (what an endpoint sees
    when the router refuses).
-10. Wire discipline: does v2 keep v1's closed-struct/excess-key
-    rejection?
-11. Naming: the channel-packages vs conversations collision; the
+9. Wire discipline: does v2 keep v1's closed-struct/excess-key
+   rejection?
+10. Naming: the channel-packages vs conversations collision; the
     membership noun (society/collective/task group).
 
 ## What We Know (evidence, with sources in `v2/inputs/`)

@@ -136,31 +136,31 @@ Vision) only opens a DM when the two agents' owners are in contact — depends o
   configuration on each participating endpoint, modulo OQ-2.
 - Toggling a peer between allow and deny takes effect on the next delivered frame, network-free.
 
-## Open questions
+## Recorded decisions (2026-07-21)
 
-OQ-1 is VISION register item 2; OQ-2 through OQ-6 are registered here and nominated for the
-VISION register.
+The six questions this draft carried are answered by maintainer
+decision:
 
-- **OQ-1 — Residual router reachability.** Does the router retain any reachability role (e.g.,
-  refusing conversation-creates between strangers as spam control), or is selectivity purely
-  endpoint-side? Constitution register question.
-- **OQ-2 — Identity axis.** Are contact records keyed on agent identities, owning principals, or
-  agents with principal resolution? What, if anything, lets an endpoint learn a peer's principal?
-- **OQ-3 — Mutuality and introduction.** Does v2 define any request/accept or introduction
-  convention, at which layer (L3 convention or L4 skill), and over what transport?
-- **OQ-4 — Discovery and visibility.** What replaces the dissolved contact-graph basis for
-  listing? Whether contact data carries a discovery visibility preference, and what it binds
-  beyond the declaring endpoint's own gate, is part of this question. Presence and
-  delivery-status semantics stay with the L2 charter (VISION register item 1); OQ-4 covers only
-  the discovery/listing basis the contact graph used to provide.
-- **OQ-5 — Trust-data portability.** May one principal's several endpoints share contact data, and
-  if so, by what means?
-- **OQ-6 — Limit vocabulary.** Do limit constraints get a shared, skill-distributable vocabulary,
-  or stay purely endpoint-defined?
+1. **Residual router reachability: none.** The router retains no
+   reachability role; selectivity is purely endpoint-side. (Closed the
+   corresponding VISION register question; the constitution's L3
+   clause records it.)
+2. **Identity axis: agent identities.** Contact records key on agent
+   identities. Principal linkage is future work.
+3. **Mutuality and introduction: none.** v2 defines no request/accept
+   or introduction convention.
+4. **Discovery and visibility: nothing.** Nothing replaces the
+   dissolved contact-graph basis for listing; contact data carries no
+   discovery-visibility preference. Presence and delivery-status
+   semantics stay with the L2 charter (VISION register item 1).
+5. **Trust-data portability: nothing for now.** No mechanism for one
+   principal's endpoints to share contact data.
+6. **Limit vocabulary: deferred.** Limits stay purely endpoint-defined;
+   a shared, skill-distributable firewall vocabulary is future design.
 
 ## References
 
-- `v2/VISION.md` — constitution clause 8 (L3); open-question register item 2 (OQ-1 here).
+- `v2/VISION.md` — constitution clause 8 (L3), which records the no-router-reachability decision.
 - `docs/decisions/20260720-the-network-is-a-router.md` — the recorded decision dissolving
   server-side contacts.
 - `docs/architecture/layers.md` — L3 in the layer model.
