@@ -1,0 +1,39 @@
+---
+status: accepted
+date: 2026-07-21
+decision-makers: Tapan Chugh
+---
+
+# v2 code lives in a top-level `v2/*` workspace
+
+## Context and Problem Statement
+
+moltzap is rebuilding on a new architecture (v2) while v1 keeps
+serving production from `main`. Where does v2 code live so the clean
+slate stays clean while main merges forward into the v2 branch?
+
+## Considered Options
+
+- Top-level `v2/*` workspace: new packages, zero imports from
+  `packages/*`.
+- A `v2/` folder inside each existing package
+  (`packages/server/v2/`, ...).
+- A separate repository.
+
+## Decision Outcome
+
+Chosen: **top-level `v2/*`**. Per-package v2 folders early-bind v2's
+module decomposition to v1's package taxonomy — v1's layout encodes
+the architecture v2 rejects (the server package bundles control
+plane, data plane, and app machinery the router model deletes), and
+v2's decomposition must come from its spec. Shared `package.json`,
+dependencies, and compiler baselines would also leak v1 into v2, and
+forward merges would touch directories both tracks edit. A separate
+repository forfeits shared CI/tooling and the private-repo anonymity
+window with no offsetting benefit; npm names are not bound to
+folders, so cutover keeps the names either way.
+
+Consequences: the zero-v1-imports boundary is mechanically enforced
+in `scripts/check-architecture-boundaries.js`; v2's internal package
+layout is deferred to the spec; main→v2 merges stay conflict-free by
+construction.
