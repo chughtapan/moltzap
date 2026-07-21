@@ -264,6 +264,27 @@ export const toLocalDaemonError = (error: unknown): LocalDaemonError =>
     ? error
     : new LocalDaemonInputError({ message: errorMessage(error) });
 
+export const MessagesListCommandRpc = Rpc.make(
+  LocalDaemonCommands.MessagesList,
+  {
+    payload: MessagesListCommandPayload,
+    success: MessagesList.resultSchema,
+    error: LocalDaemonErrorSchema,
+  },
+);
+
+export const SendCommandRpc = Rpc.make(LocalDaemonCommands.Send, {
+  payload: SendCommandPayload,
+  success: SendCommandResult,
+  error: LocalDaemonErrorSchema,
+});
+
+export const StartTaskCommandRpc = Rpc.make(LocalDaemonCommands.StartTask, {
+  payload: StartTaskCommandPayload,
+  success: StartTaskCommandResult,
+  error: LocalDaemonErrorSchema,
+});
+
 export class LocalDaemonRpcs extends RpcGroup.make(
   Rpc.make(LocalDaemonCommands.Status, {
     payload: EmptyPayload,
@@ -300,21 +321,9 @@ export class LocalDaemonRpcs extends RpcGroup.make(
     success: ContactsAccept.resultSchema,
     error: LocalDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.MessagesList, {
-    payload: MessagesListCommandPayload,
-    success: MessagesList.resultSchema,
-    error: LocalDaemonErrorSchema,
-  }),
-  Rpc.make(LocalDaemonCommands.Send, {
-    payload: SendCommandPayload,
-    success: SendCommandResult,
-    error: LocalDaemonErrorSchema,
-  }),
-  Rpc.make(LocalDaemonCommands.StartTask, {
-    payload: StartTaskCommandPayload,
-    success: StartTaskCommandResult,
-    error: LocalDaemonErrorSchema,
-  }),
+  MessagesListCommandRpc,
+  SendCommandRpc,
+  StartTaskCommandRpc,
 ) {}
 
 export type LocalDaemonHandlers = RpcGroup.HandlersFrom<

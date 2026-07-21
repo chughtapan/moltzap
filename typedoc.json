@@ -6,7 +6,6 @@
     "packages/server",
     "packages/client",
     "packages/runtimes",
-    "packages/claude-code-channel",
     "packages/nanoclaw-channel",
     "packages/openclaw-channel"
   ],

@@ -11,9 +11,6 @@
       "path": "packages/client"
     },
     {
-      "path": "packages/claude-code-channel"
-    },
-    {
       "path": "packages/openclaw-channel"
     },
     {

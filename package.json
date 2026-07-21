@@ -39,10 +39,5 @@
     "oxlint": "^0.16.0",
     "typedoc": "^0.28.19",
     "typescript": "^5"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@anthropic-ai/claude-code"
-    ]
   }
 }

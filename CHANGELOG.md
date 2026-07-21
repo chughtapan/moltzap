@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed: Claude Code integration
+
+- **Breaking runtime surface.** Removed `ClaudeCodeAdapter` and the
+  `"claude-code"` runtime kind; trace-capture payloads using that retired kind
+  are now rejected.
+- **Package removal.** Removed `@moltzap/claude-code-channel` and its repository,
+  documentation, test, and conformance wiring.
+
 ### Fixed: protocol version releases
 
 - **One version authority.** `packages/protocol/package.json` now owns the
