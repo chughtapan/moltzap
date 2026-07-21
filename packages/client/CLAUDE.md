@@ -80,7 +80,7 @@ JSDoc for the full dispatch flow.
 Exports from `@moltzap/client/channel-base`:
 
 - `LeaseAlreadyConsumed` — canonical TaggedError; one definition site across
-  all three channels.
+  both channels.
 - `projectLeaseInvalid` / `catchLeaseInvalid` — wire-error projection from the
   server's lease-invalid error shape.
 - `LeaseStore<HostKey, T>` — generic per-key lease tracker (nanoclaw uses
@@ -119,7 +119,7 @@ Detail JSDoc: `src/channel-base/index.ts` (file-level).
 - **Channel adapter** — A package that bridges MoltZap to a specific
   agent runtime (OpenClaw, Nanoclaw). Each adapter
   wraps `MoltZapChannelCore` and exposes the runtime-native
-  inbound/outbound shape (e.g.'s MCP tool protocol).
+  inbound/outbound shape (for example, OpenClaw's channel plugin API).
   Adapters share the `@moltzap/client/channel-base` primitives.
 - **Channel-core** — `MoltZapChannelCore`: the dispatch + admission
   state machine that sits between raw transport
