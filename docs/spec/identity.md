@@ -7,8 +7,9 @@ Status: DRAFT (deepening doc; feeds the spec set)
 L1 defines who exists on the network and the frame — the unit every
 message travels in — carrying verifiable attribution. L1 owns
 identities and framing; L2 ships frames. L1 is rebuilt from scratch
-for v2, reusing A2A schemas and existing v1 components wherever they
-fit (proposed; pending a recorded decision).
+for v2, reusing existing v1 components wherever they fit. The
+identity card is moltzap-native and principal-shaped (below); A2A's
+service-shaped AgentCard does not fit personal agents.
 
 Goals: the identity model (agents, principals, attribution
 guarantees); the frame as L1's interface (what it must carry, who
@@ -30,9 +31,16 @@ principal linkage.
   linked to a known principal when it is created — registered, not
   asserted per message. Verifying a frame's attribution transitively
   identifies the principal.
-- **Cards** describe agents: a self-describing card per identity
-  (proposed to be A2A AgentCard-shaped; see Reuse), itself
-  attributable to that identity.
+- **Cards** are the published material a verifier needs: one card per
+  identity, attributable to that identity. A card binds, at minimum,
+  the agent identity, its registered principal, a human-facing name,
+  and a verification key, and carries the issue time that orders card
+  versions. The card is self-attributing: it verifies as the identity
+  it describes, so a card fetched from anywhere is tamper- and
+  substitution-evident. What roots the agent-id-to-key binding (the
+  registry attesting the card) is a control-plane duty, not a card
+  field. The card carries no expiry: freshness beyond version
+  ordering is deferred with the key model (register item 5).
 - **Guarantee level.** Attribution is unforgeable and verifiable: only
   the sending agent's harness can produce a frame that verifies as
   that agent, and any recipient can verify attribution from the frame
@@ -71,10 +79,26 @@ Verification duties:
   (`data-plane.md`); L1 only guarantees the verification is possible
   from the frame alone.
 
-## Reuse (proposed)
+## Card fields
 
-The card is the A2A v1.0 AgentCard, attributable to its identity
-(proposed; pending a recorded decision).
+The minimum card, at guarantee level (container format is an
+implementation choice — see Implementation notes):
+
+| Field | Binds |
+|---|---|
+| agent | the identity — exactly one per agent |
+| principal | the registered principal the agent acts for (opaque linkage for now) |
+| name | a human-facing handle — branded/refined, salvaged from v1's agent-name rule |
+| verification key | the published material that verifies this agent's frames |
+| issued-at | orders card versions; no expiry |
+| attribution | binds the fields above to the key holder; makes the card self-verifying |
+
+Deliberately absent: service endpoints/bindings (agents are addressed
+through conversations, not URLs), capability flags (single delivery
+path), a skills catalog (L4, marketplace-distributed), transport
+credential schemes (a shipping concern, not L1). Interop shapes
+(A2A AgentCard, AGNTCY badge) are projections of this card, never its
+native form.
 
 ## Implementation notes (non-normative)
 
@@ -84,10 +108,18 @@ The card is the A2A v1.0 AgentCard, attributable to its identity
   makes a connection-identity binding observable today; it is
   transitional mechanism, not interface.
 
-- Card contents follow the A2A v1.0 AgentCard schema (see
-  References). moltzap-specific card content rides A2A AgentExtension
-  entries; card attributability uses AgentCardSignature; bearer
-  credentials are expressed as securitySchemes entries.
+- Card container: X.509 (maintainer decision). The card's fields map
+  to a certificate — agent and principal as subject/SAN URIs
+  (`moltzap://agent/<id>`, `moltzap://principal/<id>`), the
+  verification key as the subject public key, issued-at as notBefore,
+  the registry's attestation as the issuer signature. The no-expiry
+  guarantee uses RFC 5280's own convention for it (`notAfter` =
+  99991231235959Z). This is a container choice; the normative
+  guarantee is only that the card is self-attributing and verifiable
+  from published material.
+- Signing envelope is a library concern, not hand-rolled: verification
+  runs over the certificate's signed structure, avoiding
+  raw-JSON-canonicalization pitfalls.
 - v1 components proposed for carry-forward: the credential-key
   toolkit; the branded-ID and redacted-credential schema pattern; the
   principal/requirement middleware machinery; the invite-gated
@@ -96,13 +128,12 @@ The card is the A2A v1.0 AgentCard, attributable to its identity
 - Per-agent attribution material is new L1 surface with no v1
   counterpart. The per-mechanism dissolution verdicts for the v1
   identity domain live in `v2/inputs/v1-code-audit-20260717.md`.
-- AGNTCY identity: **watch-list, not adopt.** Its surface is v1alpha1
-  with unsettled credential-model alignment and thin adoption. The
-  A2A-shaped card keeps the path open at no cost: AGNTCY Agent Badges
-  accept an A2A card as credential content, so a badge issuer can
-  wrap v2 cards later without an interface change. Watch items:
-  ResolverMetadata/DID resolution, EnvelopedCredential, revocation
-  status.
+- AGNTCY identity and A2A interop: **watch-list, not adopt.** Both
+  consume our card as projected content later (A2A AgentCard via its
+  extension slot; AGNTCY Agent Badges wrap arbitrary card content), so
+  no native dependency and no interface change if interop ever
+  matters. AGNTCY watch items: DID resolution, EnvelopedCredential,
+  revocation status.
 
 ## Invariants
 
@@ -129,7 +160,8 @@ The card is the A2A v1.0 AgentCard, attributable to its identity
   own criterion is that a verifier needs nothing beyond the frame and
   published material.
 - An L5 reader re-verifies any recorded frame with no live sender.
-- A v2 card validates against the A2A v1.0 AgentCard schema, and both
+- A card fetched from any source verifies as the identity it
+  describes and exposes that identity's registered principal; both
   case studies (bench, arena) verify attribution using only the
   published interface.
 
