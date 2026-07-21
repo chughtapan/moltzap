@@ -10,7 +10,9 @@ import { makeFakeTransport } from "./test-transport.js";
 import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 
 import {
+  agentId as makeAgentId,
   conversationId as makeConversationId,
+  messageId as makeMessageId,
   taskId as makeTaskId,
 } from "@moltzap/protocol/testing";
 
@@ -19,10 +21,10 @@ const TASK_ID = makeTaskId("00000000-0000-4000-8000-00000000001a");
 const CONVERSATION_ID = makeConversationId(
   "00000000-0000-4000-8000-00000000000c",
 );
-const FIRST_MESSAGE_ID = "00000000-0000-4000-8000-00000000000a";
-const SECOND_MESSAGE_ID = "00000000-0000-4000-8000-00000000000b";
-const SENDER_A = "00000000-0000-4000-8000-0000000000a1";
-const SENDER_B = "00000000-0000-4000-8000-0000000000b1";
+const FIRST_MESSAGE_ID = makeMessageId("00000000-0000-4000-8000-00000000000a");
+const SECOND_MESSAGE_ID = makeMessageId("00000000-0000-4000-8000-00000000000b");
+const SENDER_A = makeAgentId("00000000-0000-4000-8000-0000000000a1");
+const SENDER_B = makeAgentId("00000000-0000-4000-8000-0000000000b1");
 const FIRST_CREATED_AT = "2026-04-24T00:00:00Z";
 const SECOND_CREATED_AT = "2026-04-24T00:00:01Z";
 const DEFAULT_LIMIT = 50;
@@ -76,7 +78,9 @@ describe("messages list", () => {
       // `MessageSchema` field is present (including `conversationId`).
       // `senderName` is the CLI display fallback the handler reads; it is
       // not part of `MessageSchema` itself (see WireMessage in messages.ts).
-      const { calls, transport } = makeFakeTransport(messagesListSuccess);
+      const { calls, transport } = makeFakeTransport({
+        [LocalDaemonCommands.MessagesList]: messagesListSuccess,
+      });
       yield* runMessagesList(transport, DEFAULT_LIMIT);
       expect(calls[0]).toEqual({
         method: LocalDaemonCommands.MessagesList,
@@ -90,7 +94,9 @@ describe("messages list", () => {
 
   it("omits limit when absent", () =>
     Effect.gen(function* () {
-      const { calls, transport } = makeFakeTransport(emptyMessagesList);
+      const { calls, transport } = makeFakeTransport({
+        [LocalDaemonCommands.MessagesList]: emptyMessagesList,
+      });
       yield* runMessagesList(transport);
       expect(calls[0]?.params).toEqual({
         taskId: TASK_ID,
@@ -100,7 +106,9 @@ describe("messages list", () => {
 
   it("surfaces TransportRpcError", () =>
     Effect.gen(function* () {
-      const { transport } = makeFakeTransport(transportFailure);
+      const { transport } = makeFakeTransport({
+        [LocalDaemonCommands.MessagesList]: transportFailure,
+      });
       const result = yield* Effect.exit(runMessagesList(transport));
       expect(Exit.isFailure(result)).toBe(true);
     }));

@@ -170,9 +170,10 @@ export type InitialConversationInput = Schema.Schema.Type<
  *
  * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
  * - **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
- *   reach every `invitedAgentIds` target under the recipient's contact policy.
+ *   reach every invited agent and initial-conversation participant under the
+ *   recipient's contact policy.
  * @error TaskRejectedError when the owning app rejects the task
- * @error AgentNotFoundError when an `initialConversation` participant agent is missing
+ * @error AgentNotFoundError when an invited or initial-conversation participant is missing
  * @error ConversationFullError when the `initialConversation` exceeds capacity
  */
 export const TaskRequest = defineRpc({

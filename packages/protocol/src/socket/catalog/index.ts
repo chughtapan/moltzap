@@ -6,7 +6,6 @@
  * server-core, conformance, and generated protocol reference docs.
  */
 import { RpcGroup, type Rpc } from "@effect/rpc";
-import type { Effect } from "effect";
 import { identityRpcMethods, identityNotifications } from "#identity";
 import {
   agentCallableNetworkRpcMethods,
@@ -36,7 +35,6 @@ import {
   dispatchCallbackMethods,
   dispatchNotifications,
 } from "#message/dispatch";
-import type { ParamsOf, ResultOf, RpcDefinition } from "#transport";
 
 /**
  * Server-to-app callback descriptors the app client must serve.
@@ -139,50 +137,6 @@ export type ServerHandlers = RpcGroup.HandlersFrom<
 /** Handler type for one inbound RPC descriptor. */
 export type ServerHandler<D extends AnyServerRpcDefinition> =
   ServerHandlers[Extract<D["name"], keyof ServerHandlers>];
-
-type HandlerErrorOf<H> = H extends (
-  ...args: readonly any[]
-) => Effect.Effect<any, infer E, any>
-  ? E
-  : never;
-
-type RpcDefinitionAny = RpcDefinition<any, any, any, any, any>;
-
-type RequirementFailureOf<Requires extends readonly unknown[]> =
-  Requires[number] extends { readonly failure: infer Failure }
-    ? Failure
-    : never;
-
-type DeclaredHandlerErrorsOf<D extends RpcDefinitionAny> =
-  | InstanceType<D["errors"][number]>
-  | RequirementFailureOf<D["requires"]>;
-
-type ErrorTagOf<E> = E extends { readonly _tag: infer Tag } ? Tag : never;
-
-type UndeclaredHandlerErrorTags<D extends RpcDefinitionAny, H> = Exclude<
-  ErrorTagOf<HandlerErrorOf<H>>,
-  ErrorTagOf<DeclaredHandlerErrorsOf<D>>
->;
-
-type EnsureErrorsDeclared<D extends RpcDefinitionAny, H> =
-  UndeclaredHandlerErrorTags<D, H> extends never
-    ? unknown
-    : {
-        readonly __undeclaredHandlerErrorTags: UndeclaredHandlerErrorTags<D, H>;
-      };
-
-/**
- * Define a concrete server handler while checking its tagged error channel
- * against the descriptor's wire-decodable domain errors and requirement
- * failures. The returned value remains the standard Effect RPC handler type.
- */
-export function defineServerHandler<
-  const D extends AnyServerRpcDefinition,
-  H extends (params: ParamsOf<D>) => Effect.Effect<ResultOf<D>, any, any>,
->(definition: D, handler: H & EnsureErrorsDeclared<D, H>): ServerHandler<D> {
-  void definition;
-  return handler as ServerHandler<D>;
-}
 
 /** Effect RPC group for all agent-callable methods. */
 export const AgentCallableGroup = makeRpcGroup(

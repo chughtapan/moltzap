@@ -45,5 +45,5 @@ export const AppPresenceSubscribe = defineRpc({
   params: PresenceSubscribeParamsSchema,
   result: PresenceSubscribeResultSchema,
   requires: [AppPrincipal],
-  errors: [NotInContactsError],
+  errors: [],
 });

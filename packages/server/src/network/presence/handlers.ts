@@ -1,17 +1,16 @@
-import type { AgentContext, AppContext } from "#socket";
+import type { AgentContext } from "#socket";
 import {
   AgentPresenceSubscribe,
   AppPresenceSubscribe,
 } from "@moltzap/protocol/network";
 import { NotInContactsError } from "@moltzap/protocol/identity";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
 import { DbTag } from "#db";
 import { PresenceServiceTag } from "./layer.js";
 import { visibleAgentIds } from "#identity/agents";
 import { agentArm, appArm } from "#moltzap/runtime";
-import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
 
 /**
  * `network/presence/subscribe` reads the current status snapshot via
@@ -19,38 +18,13 @@ import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
  * `LeaseRegistry` lifecycle + WS connect/disconnect; there is no
  * client-driven `presence/update`.
  *
- * Contact-scoped: throw NotInContactsError when any requested agentId falls
- * outside the caller's visibility set.
+ * Agent subscriptions are contact-scoped; app subscriptions can observe the
+ * agents they manage without an agent contact graph.
  */
-function presenceSubscribeBody(
-  params: ParamsOf<typeof AgentPresenceSubscribe>,
-  ctx: AgentContext | AppContext,
-) {
+function presenceSnapshot(agentIds: ReadonlyArray<AgentId>) {
   return Effect.gen(function* () {
     const presenceService = yield* PresenceServiceTag;
-    const requested = params.agentIds;
-
-    let subscribedIds: ReadonlyArray<AgentId>;
-    if (ctx._tag === "AgentContext") {
-      const db = yield* DbTag;
-      const visibleIds = yield* visibleAgentIds({
-        db,
-        callerAgentId: ctx.agentId,
-        callerOwnerUserId: ctx.ownerUserId,
-        restrictTo: requested,
-      });
-      const visibleSet = new Set(visibleIds);
-      const rejected = requested.filter((id) => !visibleSet.has(id));
-      if (rejected.length > 0) {
-        return yield* Effect.fail(
-          new NotInContactsError({ data: { agentIds: rejected } }),
-        );
-      }
-      subscribedIds = visibleIds;
-    } else {
-      subscribedIds = requested;
-    }
-    const projected = yield* presenceService.statusMany(subscribedIds);
+    const projected = yield* presenceService.statusMany(agentIds);
     const statuses = projected.map((entry) => ({
       agentId: entry.agentId,
       status: entry.status,
@@ -59,20 +33,46 @@ function presenceSubscribeBody(
   }).pipe(Effect.withSpan("presence.subscribe"));
 }
 
+function visiblePresenceAgentIds(
+  requested: ReadonlyArray<AgentId>,
+  ctx: AgentContext,
+) {
+  return Effect.gen(function* () {
+    const db = yield* DbTag;
+    const visibleIds = yield* visibleAgentIds({
+      db,
+      callerAgentId: ctx.agentId,
+      callerOwnerUserId: ctx.ownerUserId,
+      restrictTo: requested,
+    });
+    const visibleSet = new Set(visibleIds);
+    const rejected = requested.filter((id) => !visibleSet.has(id));
+    if (rejected.length > 0) {
+      return yield* Effect.fail(
+        new NotInContactsError({ data: { agentIds: rejected } }),
+      );
+    }
+    return visibleIds;
+  }).pipe(Effect.withSpan("presence.visibleAgentIds"));
+}
+
 // ── @effect/rpc handler body ─────────────────────────────────────────
 
-export const agentPresenceSubscribe = defineServerHandler(
-  AgentPresenceSubscribe,
-  (params: ParamsOf<typeof AgentPresenceSubscribe>) =>
-    Effect.gen(function* () {
-      return yield* presenceSubscribeBody(params, yield* agentArm);
-    }).pipe(Effect.withSpan("agentPresenceSubscribe")),
-);
+export const agentPresenceSubscribe: ServerHandler<
+  typeof AgentPresenceSubscribe
+> = (params) =>
+  Effect.gen(function* () {
+    const subscribedIds = yield* visiblePresenceAgentIds(
+      params.agentIds,
+      yield* agentArm,
+    );
+    return yield* presenceSnapshot(subscribedIds);
+  }).pipe(Effect.withSpan("agentPresenceSubscribe"));
 
-export const appPresenceSubscribe = defineServerHandler(
-  AppPresenceSubscribe,
-  (params: ParamsOf<typeof AppPresenceSubscribe>) =>
-    Effect.gen(function* () {
-      return yield* presenceSubscribeBody(params, yield* appArm);
-    }).pipe(Effect.withSpan("appPresenceSubscribe")),
-);
+export const appPresenceSubscribe: ServerHandler<
+  typeof AppPresenceSubscribe
+> = (params) =>
+  Effect.gen(function* () {
+    yield* appArm;
+    return yield* presenceSnapshot(params.agentIds);
+  }).pipe(Effect.withSpan("appPresenceSubscribe"));

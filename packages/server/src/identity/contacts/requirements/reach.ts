@@ -1,7 +1,9 @@
 import { Effect } from "effect";
 import type {
+  AgentNotFoundError,
   AgentId,
   ContactPolicyAllowsReachValue,
+  NotInContactsError,
 } from "@moltzap/protocol/identity";
 import { ConversationServiceTag } from "#conversation";
 import { catchSqlErrorAsDefect } from "#db";
@@ -15,7 +17,7 @@ export const obtainContactPolicyAllowsReach = (
   input: CreatorAndTargets,
 ): Effect.Effect<
   ContactPolicyAllowsReachValue,
-  unknown,
+  AgentNotFoundError | NotInContactsError,
   ConversationServiceTag
 > =>
   catchSqlErrorAsDefect(

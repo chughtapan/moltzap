@@ -123,7 +123,12 @@ type TaskAndConvParams = {
   readonly conversationId: ConversationId;
 };
 type TaskAndAgentParams = { readonly taskId: TaskId };
-type TaskRequestParams = { readonly invitedAgentIds: readonly AgentId[] };
+type TaskRequestParams = {
+  readonly invitedAgentIds: readonly AgentId[];
+  readonly initialConversation?: {
+    readonly participants?: readonly AgentId[];
+  };
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -143,10 +148,23 @@ const isTaskAndAgentParams = (
 ): payload is TaskAndAgentParams =>
   isRecord(payload) && typeof payload["taskId"] === "string";
 
-const isTaskRequestParams = (payload: unknown): payload is TaskRequestParams =>
-  isRecord(payload) &&
-  Array.isArray(payload["invitedAgentIds"]) &&
-  payload["invitedAgentIds"].every((id) => typeof id === "string");
+const isAgentIdArray = (value: unknown): value is readonly AgentId[] =>
+  Array.isArray(value) && value.every((id) => typeof id === "string");
+
+const isTaskRequestParams = (
+  payload: unknown,
+): payload is TaskRequestParams => {
+  if (!isRecord(payload) || !isAgentIdArray(payload["invitedAgentIds"])) {
+    return false;
+  }
+  const initial = payload["initialConversation"];
+  if (initial === undefined) return true;
+  return (
+    isRecord(initial) &&
+    (initial["participants"] === undefined ||
+      isAgentIdArray(initial["participants"]))
+  );
+};
 
 function requirePayload<A>(
   payload: unknown,
@@ -188,6 +206,14 @@ type RequirementMiddlewareLayerR =
   | MessageServiceTag
   | ConnectionManagerTag;
 
+type MiddlewareFailure<Mw extends RpcMiddleware.TagClassAny> =
+  Context.Tag.Service<Mw> extends RpcMiddleware.RpcMiddleware<
+    unknown,
+    infer Failure
+  >
+    ? Failure
+    : never;
+
 /**
  * Build a requirement impl Layer whose `derive` reads only the decoded `payload`
  * (no caller). Used for requirements that gate on pure params — e.g. `ConversationInTask`,
@@ -197,12 +223,11 @@ type RequirementMiddlewareLayerR =
 const requirementMiddlewareLayer = <
   Mw extends RpcMiddleware.TagClassAny,
   Value,
-  Err,
   In,
 >(
   mw: Mw,
   derive: (payload: unknown) => Effect.Effect<In>,
-  obtain: (input: In) => Effect.Effect<Value, Err, MwEnv>,
+  obtain: (input: In) => Effect.Effect<Value, MiddlewareFailure<Mw>, MwEnv>,
 ): Layer.Layer<
   Context.Tag.Identifier<Mw>,
   never,
@@ -232,13 +257,12 @@ const requirementMiddlewareLayer = <
 const requirementMiddlewareLayerWithCaller = <
   Mw extends RpcMiddleware.TagClassAny,
   Value,
-  Err,
   In,
 >(
   mw: Mw,
   connId: ConnectionId,
   derive: (payload: unknown, callerAgentId: AgentId) => Effect.Effect<In>,
-  obtain: (input: In) => Effect.Effect<Value, Err, MwEnv>,
+  obtain: (input: In) => Effect.Effect<Value, MiddlewareFailure<Mw>, MwEnv>,
 ): Layer.Layer<
   Context.Tag.Identifier<Mw>,
   never,
@@ -315,7 +339,12 @@ const makeContactPolicyAllowsReachLayer = (connId: ConnectionId) =>
       ).pipe(
         Effect.map((p) => ({
           creatorAgentId,
-          targetAgentIds: [...p.invitedAgentIds],
+          targetAgentIds: [
+            ...new Set([
+              ...p.invitedAgentIds,
+              ...(p.initialConversation?.participants ?? []),
+            ]),
+          ],
         })),
       ),
     obtainContactPolicyAllowsReach,

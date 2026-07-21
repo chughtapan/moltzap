@@ -184,7 +184,7 @@ connection (fired fork-and-forget, the `void` result settles on the client's
 ack); the client's reverse `RpcServer` routes it into its
 `SubscriberRegistry`. Replaces the raw `socket.write(encodedFrame)` path.
 
-### [`connectAgent`](./connect.handlers.ts#L446)
+### [`connectAgent`](./connect.handlers.ts#L448)
 
 _Variable_
 
@@ -192,7 +192,7 @@ _Variable_
 export const connectAgent: ServerHandler<typeof AgentConnect> = (params)
 ```
 
-### [`connectApp`](./connect.handlers.ts#L449)
+### [`connectApp`](./connect.handlers.ts#L451)
 
 _Variable_
 

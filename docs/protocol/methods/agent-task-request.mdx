@@ -22,7 +22,8 @@ result is returned after the verdict resolves (the handler awaits it).
 
 - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
 - **Requirements (run order):** `ContactPolicyAllowsReach` proves the caller may
-  reach every `invitedAgentIds` target under the recipient's contact policy.
+  reach every invited agent and initial-conversation participant under the
+  recipient's contact policy.
 
 ## Parameters
 
@@ -53,5 +54,5 @@ result is returned after the verdict resolves (the handler awaits it).
 | Type | When |
 |------|------|
 | `TaskRejectedError` | the owning app rejects the task |
-| `AgentNotFoundError` | an `initialConversation` participant agent is missing |
+| `AgentNotFoundError` | an invited or initial-conversation participant is missing |
 | `ConversationFullError` | the `initialConversation` exceeds capacity |

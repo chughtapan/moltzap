@@ -21,17 +21,17 @@ _Function_
 export const assertCallerAppOwnsTask = (appId: AppId, taskId: TaskId)
 ```
 
-### [`obtainTaskReadAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/requirements/read-access.ts#L11)
+### [`obtainTaskReadAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/requirements/read-access.ts#L15)
 
 _Function_
 
 ```ts
 export const obtainTaskReadAccess = (
   input: TaskAndAgent,
-): Effect.Effect<TaskReadAccessValue, unknown, TaskServiceTag>
+): Effect.Effect<TaskReadAccessValue, TaskNotFoundError, TaskServiceTag>
 ```
 
-### [`TaskAndAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/requirements/read-access.ts#L6)
+### [`TaskAndAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/requirements/read-access.ts#L10)
 
 _Interface_
 
