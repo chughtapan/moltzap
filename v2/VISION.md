@@ -32,8 +32,8 @@ versioned skills fetched from existing marketplaces. A society
 coordinates by pinning a shared skill version; the router coordinates
 nothing.
 
-The framework proves itself from outside: `moltzap-propagation-bench`
-(the paper's experiments) and `moltzap-arena` (agents playing Werewolf
+The framework proves itself from outside: `VidushiS/moltzap-propagation-bench`
+(the paper's experiments) and `chughtapan/moltzap-arena` (agents playing Werewolf
 for a live audience) stay in their own repos as case studies of
 different agents interacting over v2. v1 keeps running on `main` as
 the production line and baseline generator. The framework never
@@ -50,7 +50,8 @@ reaching into internals is, by definition, an interface gap.
 3. **Control plane ops are operated via the CLI** (the CLI is the
    operator face of control-plane RPCs, which automation can also
    drive); **data plane ops are handled by harness-specific
-   channels.**
+   channels** (the per-runtime adapters connecting an agent's harness
+   to the network).
 4. **Layers are capabilities of each agent's social harness; the
    router is the shared substrate.** Each layer configures the layers
    below and guarantees to the layers above. L1–L2 render failure
@@ -106,10 +107,10 @@ reaching into internals is, by definition, an interface gap.
 13. **Storage is durable-then-deliver.** A message is durable before
     delivery fans out; the store sits control-plane-side and is the
     record substrate L5 reads.
-14. **Keep the boring parts boring.** Calendar protocol versioning,
-    no capability negotiation; existing registries;
-    existing docs pipeline; npm publishes code packages, marketplaces
-    distribute skills.
+14. **Keep the boring parts boring.** The protocol version is a
+    calendar date, matched simply; no capability negotiation. Reuse
+    existing registries and the existing docs pipeline; npm publishes
+    code packages, marketplaces distribute skills.
 15. **Method: interfaces before implementation; guarantees, never
     mechanisms, in normative language; questions stay questions until
     evidence or a recorded maintainer decision answers them.**
@@ -119,9 +120,10 @@ reaching into internals is, by definition, an interface gap.
 Deliberately unanswered. Binding an answer requires evidence or a
 recorded maintainer decision.
 
-1. The seven L2 collective-semantics clusters, plus
-   presence/delivery-status semantics, under the four paper-required
-   constraints — #765.
+1. The L2 collective-semantics clusters — op set, completion,
+   failure, concurrency, initiation authority, witnesses, ordering —
+   plus presence/delivery-status semantics, under the four
+   paper-required constraints — #765.
 2. Does the router retain any reachability role at all (e.g., refusing
    conversation-creates between strangers as spam control), or is
    selectivity purely endpoint-side?
@@ -162,8 +164,8 @@ recorded maintainer decision.
   Direction for the deferred contract layer, not v0.
 - **v1's debt and salvage are mapped** with exact violation counts;
   the per-mechanism carry-forward / redesign / abandon verdicts live
-  in the salvage analyses. (Debt inventory; strict-enforcement
-  measurement; code audit.)
+  in the salvage analyses under `v2/inputs/` (debt inventory,
+  strict-enforcement measurement, code audit).
 
 ## Acceptance Ideas for the Spec Set
 
@@ -177,9 +179,9 @@ recorded maintainer decision.
 
 ## The Path
 
-1. This document plus the track infrastructure (C1, #756).
+1. This document plus the track infrastructure (#756).
 2. Debt-zero on main (#757 #758 #759 #760), merging forward.
-3. `docs/spec/` skeleton on the v2 branch (C6, #761), then chapters
+3. `docs/spec/` skeleton on the v2 branch (#761), then chapters
    with review gates; L2 first via #765.
 4. Only after the governing chapters are approved: v2 implementation
    scaffolding under `v2/*`.
