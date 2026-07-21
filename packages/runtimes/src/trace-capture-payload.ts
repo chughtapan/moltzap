@@ -1,8 +1,6 @@
 import { Data, Effect } from "effect";
 import type { RuntimeKind } from "./fleet.js";
 
-export const RUNTIME_KIND_CLAUDE_CODE = "claude-code";
-
 export class InvalidPayload extends Data.TaggedError("InvalidPayload")<{
   readonly path: string;
   readonly issues: readonly string[];
@@ -161,9 +159,7 @@ function validateRuntime(
   issues: Array<string>,
 ): void {
   if (!isRuntimeKind(runtime?.kind)) {
-    issues.push(
-      "runtime.kind must be 'openclaw', 'nanoclaw', or 'claude-code'",
-    );
+    issues.push("runtime.kind must be 'openclaw' or 'nanoclaw'");
   }
   optionalNonEmptyString(
     runtime?.targetAgentName,
@@ -433,11 +429,7 @@ function isBystanderCandidate(value: unknown): value is BystanderCandidate {
 }
 
 function isRuntimeKind(kind: unknown): kind is RuntimeKind {
-  return (
-    kind === "openclaw" ||
-    kind === "nanoclaw" ||
-    kind === RUNTIME_KIND_CLAUDE_CODE
-  );
+  return kind === "openclaw" || kind === "nanoclaw";
 }
 
 function isConversationKind(

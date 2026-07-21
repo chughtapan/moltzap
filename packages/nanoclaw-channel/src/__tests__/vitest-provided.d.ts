@@ -2,7 +2,7 @@
  * Vitest `ProvidedContext` keys published by `vitest.integration.globalSetup.ts`.
  * Kept alongside the integration tests so `inject(...)` has typed keys.
  *
- * Mirrors `packages/claude-code-channel/src/__tests__/vitest-provided.d.ts`
+ * Mirrors `packages/openclaw-channel/src/__tests__/vitest-provided.d.ts`
  * — both packages use the same `moltzap*`-prefixed inject keys, which are
  * collision-free across packages.
  */

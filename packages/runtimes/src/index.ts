@@ -27,13 +27,6 @@ export {
 } from "./nanoclaw-adapter.js";
 
 export {
-  type ClaudeCodeAdapterDeps,
-  type WorkspaceClaudeCodeAdapterInput,
-  ClaudeCodeAdapter,
-  createWorkspaceClaudeCodeAdapter,
-} from "./claude-code-adapter.js";
-
-export {
   SpawnFailed,
   RuntimeExitedBeforeReady,
   RuntimeReadyTimedOut,
