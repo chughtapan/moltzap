@@ -129,9 +129,8 @@ export class NetworkSendService {
    * extend the caller's RPC latency.
    *
    * Filter options:
-   * - `forConversation` — apply the per-connection subscription gate
-   *   (`conn.conversationIds.has(...)`); absent, every connection
-   *   of every listed agent receives.
+   * - `forConversation` — apply the server-side conversation subscription
+   *   index gate; absent, every connection of every listed agent receives.
    * - `excludeConnectionId` — skip the named connection. The
    *   `agent/message/send` author uses this to avoid echoing the RPC reply
    *   back as a notification.
@@ -204,14 +203,16 @@ export class NetworkSendService {
       if (Option.isNone(connOpt)) return Option.none();
       const conn = connOpt.value;
       // Only authenticated agent arms participate in conversation fan-out;
-      // unauthenticated and app arms have no `conversationIds` membership.
+      // unauthenticated and app arms have no conversation subscriptions.
       if (conn._tag !== "AgentConnection") return Option.none();
       const conversationId = options.forConversation;
-      if (
-        conversationId !== undefined &&
-        !conn.conversationIds.has(conversationId)
-      ) {
-        return Option.none();
+      if (conversationId !== undefined) {
+        const subscribed =
+          yield* this.connections.isAgentSubscribedToConversation(
+            conn.auth.agentId,
+            conversationId,
+          );
+        if (!subscribed) return Option.none();
       }
       return Option.some(conn);
     });

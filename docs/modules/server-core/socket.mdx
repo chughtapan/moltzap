@@ -19,20 +19,7 @@ _Interface_
 
 ```ts
 class AgentConnection extends Data.TaggedClass("AgentConnection")<
-  ConnectionBase & {
-    readonly auth: AgentContext;
-
-    /**
-     * Server-side message-delivery-routing state: the set of conversation
-     * ids this connection is subscribed to (the fan-out membership gate in
-     * `network-send.ts → connectionCanReceive`). Hydrated on connect via the
-     * Connect handler's `hydrateConnectionState`; maintained on subscribe
-     * (`ConnectionManager.subscribeAgentsToConversation`) and on
-     * `ConversationService.removeParticipant`. App-armed connections have no
-     * conversation membership, so this field lives on the agent arm only.
-     */
-    readonly conversationIds: Set<ConversationId>;
-  }
+  ConnectionBase & { readonly auth: AgentContext }
 > {
   private readonly __brand!: never;
 }
@@ -92,7 +79,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`AppConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L132)
+### [`AppConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L119)
 
 _Interface_
 
@@ -114,7 +101,7 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 }> {}
 ```
 
-### [`Connection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L141)
+### [`Connection`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L128)
 
 _TypeAlias_
 
@@ -136,20 +123,27 @@ export type TransitionOutcome =
 
 The three-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L202)
+### [`ConnectionManager`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L217)
 
 _Class_
 
 ```ts
 export class ConnectionManager {
   /**
-   * The three-arm connections map. Module-private; the only mutators are
-   * `addUnauthenticated` / `authenticate` / `rollbackToUnauthenticated` /
-   * `removeAndReturn` below.
+   * Connections and their per-agent delivery projection share one Ref so
+   * authentication, disconnect cleanup, and subscription updates are atomic.
+   * This prevents an old last-disconnect cleanup from deleting a newly
+   * authenticated socket's freshly hydrated subscriptions.
    */
-  private readonly connectionsRef: Ref.Ref<
-    HashMap.HashMap<ConnectionId, Connection>
-  > = Effect.runSync(Ref.make(HashMap.empty<ConnectionId, Connection>()));
+  private readonly stateRef: Ref.Ref<ConnectionManagerState> = Effect.runSync(
+    Ref.make({
+      connections: HashMap.empty<ConnectionId, Connection>(),
+      agentConversationSubscriptions: HashMap.empty<
+        AgentId,
+        HashSet.HashSet<ConversationId>
+      >(),
+    }),
+  );
 
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
@@ -160,19 +154,20 @@ export class ConnectionManager {
     socket: WebSocketRef,
     originator: Originator,
   ): Effect.Effect<void> {
-    return Ref.update(this.connectionsRef, (map) =>
-      HashMap.set(
-        map,
+    return Ref.update(this.stateRef, (state) => ({
+      ...state,
+      connections: HashMap.set(
+        state.connections,
         connId,
         new UnauthenticatedConnection({ connId, socket, originator }),
       ),
-    );
+    }));
   }
 
   /** Non-mutating read. Callers discriminate on the returned arm's `_tag`. */
   peek(connId: ConnectionId): Effect.Effect<Option.Option<Connection>> {
-    return Ref.get(this.connectionsRef).pipe(
-      Effect.map((map) => HashMap.get(map, connId)),
+    return Ref.get(this.stateRef).pipe(
+      Effect.map((state) => HashMap.get(state.connections, connId)),
     );
   }
 
@@ -181,15 +176,15 @@ export class ConnectionManager {
    * (e.g. the shutdown loop reads `arm.socket.shutdown`).
    */
   allConnections(): Effect.Effect<readonly Connection[]> {
-    return Ref.get(this.connectionsRef).pipe(
-      Effect.map((map) => Array.from(HashMap.values(map))),
+    return Ref.get(this.stateRef).pipe(
+      Effect.map((state) => Array.from(HashMap.values(state.connections))),
     );
   }
 
   /** Current connection count. */
   currentSize(): Effect.Effect<number> {
-    return Ref.get(this.connectionsRef).pipe(
-      Effect.map((map) => HashMap.size(map)),
+    return Ref.get(this.stateRef).pipe(
+      Effect.map((state) => HashMap.size(state.connections)),
     );
   }
 
@@ -202,29 +197,29 @@ export class ConnectionManager {
     connId: ConnectionId,
     auth: AgentContext | AppContext,
   ): Effect.Effect<TransitionOutcome> {
-    return Ref.modify(this.connectionsRef, (map) => {
-      const current = HashMap.get(map, connId);
+    return Ref.modify(this.stateRef, (state) => {
+      const current = HashMap.get(state.connections, connId);
       if (Option.isNone(current)) {
-        return [{ kind: "not-connected" } as const, map];
+        return [{ kind: "not-connected" } as const, state];
       }
       return Match.value(current.value).pipe(
         Match.tag(
           "AgentConnection",
-          (existing): [TransitionOutcome, typeof map] => [
+          (existing): [TransitionOutcome, typeof state] => [
             { kind: "already-connected", existing },
-            map,
+            state,
           ],
         ),
         Match.tag(
           "AppConnection",
-          (existing): [TransitionOutcome, typeof map] => [
+          (existing): [TransitionOutcome, typeof state] => [
             { kind: "already-connected", existing },
-            map,
+            state,
           ],
         ),
         Match.tag(
           "UnauthenticatedConnection",
-          (unauth): [TransitionOutcome, typeof map] => {
+          (unauth): [TransitionOutcome, typeof state] => {
             const { outcome, minted } = mintAuthedArm(
               {
                 connId: unauth.connId,
@@ -233,7 +228,13 @@ export class ConnectionManager {
               },
               auth,
             );
-            return [outcome, HashMap.set(map, connId, minted)];
+            return [
+              outcome,
+              {
+                ...state,
+                connections: HashMap.set(state.connections, connId, minted),
+              },
+            ];
           },
         ),
         Match.exhaustive,
@@ -247,20 +248,6 @@ export class ConnectionManager {
    * unauthenticated — safe against a racing close handler.
    */
   rollbackToUnauthenticated(connId: ConnectionId): Effect.Effect<void> {
-    return Ref.update(this.connectionsRef, (map) => {
-      const current = HashMap.get(map, connId);
-      if (Option.isNone(current)) return map;
-      // Auth fields are dropped; the shared socket/originator fields remain.
-      const demote = (authed: AgentConnection | AppConnection) =>
-        HashMap.set(
-          map,
-          connId,
-          new UnauthenticatedConnection({
-            connId: authed.connId,
-            socket: authed.socket,
-            originator: authed.originator,
-          }),
-        );
 ```
 
 ### [`ConnectionManagerLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/layer.ts#L16)
@@ -346,7 +333,7 @@ source the Originator from the registered app's `AppEndpoint`, minted
 from the live `AppConnection` arm. Caller controls timeout via
 `Effect.timeout` at the call site.
 
-### [`TransitionOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L152)
+### [`TransitionOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/socket/connection.ts#L139)
 
 _TypeAlias_
 
