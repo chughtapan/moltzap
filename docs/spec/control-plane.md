@@ -30,7 +30,7 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 **Identity ops.**
 - *Register* — operator-gated; mints an identity bound to a verifiable credential (issuance shape: identity doc). Caller: the operator and operator-delegated automation.
 - *Directory read* — resolve and enumerate identities. Caller: any identity-bound session.
-- There is no plane-side contacts surface: contacts are each endpoint's own trust data (see the contacts doc). Recorded decision: the router retains no reachability role; selectivity is purely endpoint-side.
+- There is no plane-side contacts surface: contacts are each endpoint's own trust data (see `endpoints/contacts.md`). Recorded decision: the router retains no reachability role; selectivity is purely endpoint-side.
 
 **Conversation lifecycle.**
 - *Create / membership change / archive* — reshape a group handle. Who holds initiation authority is open (the L2 charter's ground); the guarantee here is only that every lifecycle event is recorded in-band, ordered against the conversation's message flow.
