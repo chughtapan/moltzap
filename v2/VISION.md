@@ -57,13 +57,16 @@ reaching into internals is, by definition, an interface gap.
    below and guarantees to the layers above. L1–L2 render failure
    classes infeasible; L3–L4 let individual agents detect invalid
    messages at runtime; L5–L6 investigate post facto.
-5. **L1 — unforgeable, verifiable identities.** Target: the harness
-   signs outbound messages; recipients verify attribution and that the
-   sender acts for a known principal; no forged attribution.
-6. **L2 — reliable ordered collectives, as per-message operations.**
-   Each network call names its own collective operation; no standing
-   policies live in the plane — which op a well-behaved participant
-   emits next is an L4/skill concern. Recorded decision: the first
+5. **L1 — identities and framing.** Unforgeable, verifiable identity,
+   expressed through the message frame: L1 defines the frames agents
+   emit — peer-to-peer or multicast — carrying attribution a recipient
+   can verify (the sender, and that the sender acts for a known
+   principal; no forged attribution). The harness signs frames; L2
+   ships them.
+6. **L2 — shared ordered collectives with pessimistic concurrency
+   control.** L2 ships L1 frames: each call names its own collective
+   operation; no standing policies live in the plane — which op a
+   well-behaved participant emits next is an L4/skill concern. Recorded decision: the first
    version supports MULTICAST groups with pessimistic concurrency
    control, nothing more; the broader op set, call shape, and
    presence/delivery-status semantics are deferred to the charter
