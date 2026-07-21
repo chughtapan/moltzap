@@ -14,20 +14,7 @@ _Interface_
 
 ```ts
 class AgentConnection extends Data.TaggedClass("AgentConnection")<
-  ConnectionBase & {
-    readonly auth: AgentContext;
-
-    /**
-     * Server-side message-delivery-routing state: the set of conversation
-     * ids this connection is subscribed to (the fan-out membership gate in
-     * `network-send.ts → connectionCanReceive`). Hydrated on connect via the
-     * Connect handler's `hydrateConnectionState`; maintained on subscribe
-     * (`ConnectionManager.subscribeAgentsToConversation`) and on
-     * `ConversationService.removeParticipant`. App-armed connections have no
-     * conversation membership, so this field lives on the agent arm only.
-     */
-    readonly conversationIds: Set<ConversationId>;
-  }
+  ConnectionBase & { readonly auth: AgentContext }
 > {
   private readonly __brand!: never;
 }
@@ -87,7 +74,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`AppConnection`](./connection.ts#L132)
+### [`AppConnection`](./connection.ts#L119)
 
 _Interface_
 
@@ -109,7 +96,7 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
 }> {}
 ```
 
-### [`Connection`](./connection.ts#L141)
+### [`Connection`](./connection.ts#L128)
 
 _TypeAlias_
 
@@ -131,7 +118,7 @@ export type TransitionOutcome =
 
 The three-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L202)
+### [`ConnectionManager`](./connection.ts#L182)
 
 _Class_
 
@@ -145,6 +132,20 @@ export class ConnectionManager {
   private readonly connectionsRef: Ref.Ref<
     HashMap.HashMap<ConnectionId, Connection>
   > = Effect.runSync(Ref.make(HashMap.empty<ConnectionId, Connection>()));
+
+  /**
+   * First-class server-side conversation subscription index.
+   *
+   * Conversation membership remains authoritative in the database; this index
+   * is the in-memory delivery projection hydrated on connect and maintained on
+   * conversation create/remove. It is keyed by agent because every live
+   * connection for an agent has the same conversation membership.
+   */
+  private readonly agentConversationSubscriptionsRef: Ref.Ref<
+    HashMap.HashMap<AgentId, HashSet.HashSet<ConversationId>>
+  > = Effect.runSync(
+    Ref.make(HashMap.empty<AgentId, HashSet.HashSet<ConversationId>>()),
+  );
 
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
@@ -241,21 +242,6 @@ export class ConnectionManager {
    * post-auth failure. Idempotent: no-op when the entry is absent or already
    * unauthenticated — safe against a racing close handler.
    */
-  rollbackToUnauthenticated(connId: ConnectionId): Effect.Effect<void> {
-    return Ref.update(this.connectionsRef, (map) => {
-      const current = HashMap.get(map, connId);
-      if (Option.isNone(current)) return map;
-      // Auth fields are dropped; the shared socket/originator fields remain.
-      const demote = (authed: AgentConnection | AppConnection) =>
-        HashMap.set(
-          map,
-          connId,
-          new UnauthenticatedConnection({
-            connId: authed.connId,
-            socket: authed.socket,
-            originator: authed.originator,
-          }),
-        );
 ```
 
 ### [`ConnectionManagerLive`](./layer.ts#L16)
@@ -341,7 +327,7 @@ source the Originator from the registered app's `AppEndpoint`, minted
 from the live `AppConnection` arm. Caller controls timeout via
 `Effect.timeout` at the call site.
 
-### [`TransitionOutcome`](./connection.ts#L152)
+### [`TransitionOutcome`](./connection.ts#L139)
 
 _TypeAlias_
 
