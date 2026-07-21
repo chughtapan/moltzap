@@ -97,7 +97,11 @@ for (const file of v2Files) {
   for (const match of text.matchAll(
     /(?:from\s*|import\s*\(\s*|require\s*\(\s*)["']((?:@moltzap\/|(?:\.\.\/)+packages\/)[^"']*)["']/g,
   )) {
-    fail(file, lineAt(text, match.index), `v2/ must not import v1 code (${match[1]})`);
+    fail(
+      file,
+      lineAt(text, match.index),
+      `v2/ must not import v1 code (${match[1]})`,
+    );
   }
 }
 
