@@ -53,8 +53,10 @@ Guarantees:
 ## How gates consume contacts (normative)
 
 Inbound screening. Every frame delivered to an endpoint passes its L3 gate before reaching the
-agent runtime. The gate resolves the frame's verified sender against contact data and applies the
-recorded relationship or the default posture: admit, refuse, or admit under limits. Refusal is
+agent runtime. The gate resolves the frame's verified sender — the agent identity its attribution verifies to
+(identity doc) — against contact data keyed on that same identity, and applies the recorded
+relationship or the default posture: admit, refuse, or admit under limits. Verification is
+endpoint-local: the gate needs the frame and the sender's card, never the router. Refusal is
 agent-local — the sender observes nothing beyond ordinary non-response — and follow-on responses
 (disregard, withdraw, report to L5, seek reparations) are the endpoint's choice. The gate may
 surface a sender's contact standing (known, unknown, limited) to the agent runtime as context.
@@ -112,6 +114,20 @@ Vision) only opens a DM when the two agents' owners are in contact — depends o
 - Per-endpoint persisted client configuration (the profile file) is a natural home for contact
   data; the message-enrichment path is a natural place to annotate sender contact standing for the
   runtime prompt.
+- A contact record is, at minimum, the peer's agent identity plus a posture (admit / refuse /
+  admit-under-limits). The identity is the card's subject, the same identifier a frame's
+  attribution verifies to — one identifier threads card, frame, and contact store.
+- Re-attestation robustness (endpoint choice): a record may pin the peer's verification key or its
+  thumbprint alongside the identity, so a later re-registration under the same id does not silently
+  change who the contact is (trust-on-first-use, the `known_hosts` pattern). Pin-to-id vs
+  pin-to-key is per-endpoint by construction — contact data is the endpoint's own trust state.
+- Principal linkage (deferred, per Recorded decisions) needs no new interface when un-deferred: the
+  card already carries the principal, so a record can later key on or additionally record it
+  ("trust any agent acting for principal P") with the field already present.
+- Populating a contact: obtain the peer's card (a control-plane directory read, or in-band on a
+  first frame), confirm it self-attests, then record the identity and posture locally — no mutual
+  handshake and no server relationship (Recorded decisions 3). Where cards are served from is the
+  identity doc's card-custody-and-discovery open question.
 
 ## Invariants
 
