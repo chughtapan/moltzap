@@ -27,7 +27,6 @@ import type {
 } from "@moltzap/protocol/rpc";
 import type { Message } from "@moltzap/protocol/message";
 import type { RpcGroup } from "@effect/rpc";
-import { NotFoundError } from "@moltzap/protocol/rpc";
 import { agentKeyString, redactedAgentKey } from "@moltzap/protocol/testing";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "../service.js";
@@ -104,10 +103,8 @@ export class FakeMoltZapService extends MoltZapService {
       if (responder !== undefined) {
         return responder();
       }
-      return Effect.fail(
-        new NotFoundError({
-          message: `FakeMoltZapService: no canned response for ${tag}`,
-        }),
+      return Effect.dieMessage(
+        `FakeMoltZapService: no canned response for ${tag}`,
       );
     });
   }

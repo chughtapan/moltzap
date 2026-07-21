@@ -51,7 +51,7 @@ accounted-for.
 "offline" is represented by entry absence; presence state NEVER
 holds an entry whose `liveConns` is empty.
 
-### [`agentPresenceSubscribe`](./handlers.ts#L64)
+### [`agentPresenceSubscribe`](./handlers.ts#L61)
 
 _Variable_
 
@@ -61,7 +61,7 @@ export const agentPresenceSubscribe: ServerHandler<
 > = (params)
 ```
 
-### [`appPresenceSubscribe`](./handlers.ts#L71)
+### [`appPresenceSubscribe`](./handlers.ts#L72)
 
 _Variable_
 

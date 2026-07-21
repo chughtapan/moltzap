@@ -8,7 +8,7 @@ Lifecycle-backed conformance client barrel.
 
 ## Public surface
 
-### [`AgentTestClient`](./test-client.ts#L92)
+### [`AgentTestClient`](./test-client.ts#L93)
 
 _Interface_
 
@@ -22,7 +22,7 @@ export interface AgentTestClient extends NotificationClient {
 }
 ```
 
-### [`AgentTestClientConfig`](./test-client.ts#L57)
+### [`AgentTestClientConfig`](./test-client.ts#L58)
 
 _Interface_
 
@@ -35,7 +35,7 @@ export interface AgentTestClientConfig {
 }
 ```
 
-### [`AppTestClient`](./test-client.ts#L100)
+### [`AppTestClient`](./test-client.ts#L101)
 
 _Interface_
 
@@ -52,7 +52,7 @@ export interface AppTestClient extends NotificationClient {
     handler: (
       params: ServerRpcParams<D>,
       ctx: ServerRpcContext,
-    ) => Effect.Effect<ServerRpcResult<D>, RpcResponseError>,
+    ) => Effect.Effect<ServerRpcResult<D>, DomainErrorsOf<D>>,
   ) => Effect.Effect<void>;
 
   readonly awaitServerRequest: <D extends ServerRpcDefinition>(
@@ -63,7 +63,7 @@ export interface AppTestClient extends NotificationClient {
 }
 ```
 
-### [`AppTestClientConfig`](./test-client.ts#L64)
+### [`AppTestClientConfig`](./test-client.ts#L65)
 
 _Interface_
 
@@ -76,7 +76,7 @@ export interface AppTestClientConfig {
 }
 ```
 
-### [`CloseableAgentTestClient`](./test-client.ts#L122)
+### [`CloseableAgentTestClient`](./test-client.ts#L123)
 
 _Interface_
 
@@ -86,7 +86,7 @@ export interface CloseableAgentTestClient extends AgentTestClient {
 }
 ```
 
-### [`CloseableAppTestClient`](./test-client.ts#L126)
+### [`CloseableAppTestClient`](./test-client.ts#L127)
 
 _Interface_
 
@@ -96,7 +96,7 @@ export interface CloseableAppTestClient extends AppTestClient {
 }
 ```
 
-### [`makeAgentTestClient`](./test-client.ts#L161)
+### [`makeAgentTestClient`](./test-client.ts#L162)
 
 _Function_
 
@@ -106,7 +106,7 @@ export function makeAgentTestClient(
 ): Effect.Effect<AgentTestClient, SendRpcError, Scope.Scope>
 ```
 
-### [`makeAppTestClient`](./test-client.ts#L179)
+### [`makeAppTestClient`](./test-client.ts#L180)
 
 _Function_
 
@@ -116,7 +116,7 @@ export function makeAppTestClient(
 ): Effect.Effect<AppTestClient, SendRpcError, Scope.Scope>
 ```
 
-### [`makeCloseableAgentTestClient`](./test-client.ts#L171)
+### [`makeCloseableAgentTestClient`](./test-client.ts#L172)
 
 _Function_
 
@@ -126,7 +126,7 @@ export function makeCloseableAgentTestClient(
 ): Effect.Effect<CloseableAgentTestClient, SendRpcError>
 ```
 
-### [`makeCloseableAppTestClient`](./test-client.ts#L189)
+### [`makeCloseableAppTestClient`](./test-client.ts#L190)
 
 _Function_
 
@@ -136,7 +136,7 @@ export function makeCloseableAppTestClient(
 ): Effect.Effect<CloseableAppTestClient, SendRpcError>
 ```
 
-### [`NotificationClient`](./test-client.ts#L77)
+### [`NotificationClient`](./test-client.ts#L78)
 
 _Interface_
 
@@ -157,7 +157,7 @@ export interface NotificationClient {
 }
 ```
 
-### [`ServerRequestWaitError`](./test-client.ts#L130)
+### [`ServerRequestWaitError`](./test-client.ts#L131)
 
 _Class_
 
@@ -171,7 +171,7 @@ export class ServerRequestWaitError extends Data.TaggedError(
 }> {}
 ```
 
-### [`ServerRpcContext`](./test-client.ts#L142)
+### [`ServerRpcContext`](./test-client.ts#L143)
 
 _Interface_
 
@@ -182,7 +182,7 @@ export interface ServerRpcContext {
 }
 ```
 
-### [`ServerRpcDefinition`](./test-client.ts#L138)
+### [`ServerRpcDefinition`](./test-client.ts#L139)
 
 _TypeAlias_
 
@@ -191,7 +191,7 @@ export type ServerRpcDefinition = AnyAppCallbackRpcDefinition;
 export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 ```
 
-### [`ServerRpcParams`](./test-client.ts#L139)
+### [`ServerRpcParams`](./test-client.ts#L140)
 
 _TypeAlias_
 
@@ -199,7 +199,7 @@ _TypeAlias_
 export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 ```
 
-### [`ServerRpcResult`](./test-client.ts#L140)
+### [`ServerRpcResult`](./test-client.ts#L141)
 
 _TypeAlias_
 

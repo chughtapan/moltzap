@@ -16,12 +16,14 @@ import type {
 } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
+import type {
+  AnyNotificationDefinition,
+  ServerHandler,
+} from "@moltzap/protocol/socket/catalog";
 import type { AppContext, AgentContext } from "#socket";
 import { ConversationServiceTag } from "./layer.js";
 import { TaskServiceTag } from "#task";
 import { agentArm, appArm } from "#moltzap/runtime";
-import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
 import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 import { assertCallerAppOwnsTask } from "#task/requirements";
@@ -303,26 +305,23 @@ function conversationUpdateBody(
   }
 }
 
-export const conversationList = defineServerHandler(
-  ConversationList,
-  (params: ParamsOf<typeof ConversationList>) =>
-    Effect.gen(function* () {
-      return yield* conversationListBody(params, yield* agentArm);
-    }).pipe(Effect.withSpan("conversationList")),
-);
+export const conversationList: ServerHandler<typeof ConversationList> = (
+  params,
+) =>
+  Effect.gen(function* () {
+    return yield* conversationListBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("conversationList"));
 
-export const conversationCreate = defineServerHandler(
-  ConversationCreate,
-  (params: ParamsOf<typeof ConversationCreate>) =>
-    Effect.gen(function* () {
-      return yield* conversationCreateBody((yield* appArm).appId, params);
-    }).pipe(Effect.withSpan("conversationCreate")),
-);
+export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
+  params,
+) =>
+  Effect.gen(function* () {
+    return yield* conversationCreateBody((yield* appArm).appId, params);
+  }).pipe(Effect.withSpan("conversationCreate"));
 
-export const conversationUpdate = defineServerHandler(
-  ConversationUpdate,
-  (params: ParamsOf<typeof ConversationUpdate>) =>
-    Effect.gen(function* () {
-      return yield* conversationUpdateBody(params, yield* appArm);
-    }).pipe(Effect.withSpan("conversationUpdate")),
-);
+export const conversationUpdate: ServerHandler<typeof ConversationUpdate> = (
+  params,
+) =>
+  Effect.gen(function* () {
+    return yield* conversationUpdateBody(params, yield* appArm);
+  }).pipe(Effect.withSpan("conversationUpdate"));

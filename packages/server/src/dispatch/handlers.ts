@@ -5,12 +5,12 @@ import {
 } from "@moltzap/protocol/message/dispatch";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { Effect } from "effect";
 import { ConnectionTag } from "#socket";
 import { DispatchAdmissionServiceTag, LeaseRegistryTag } from "./layer.js";
 import { leaseRecordToWire } from "./lease-registry.js";
 import { agentArm } from "#moltzap/runtime";
-import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
 
 // `agent/dispatch/request` — returns ack immediately, forks the moderator round-trip,
 // recipient observes the verdict via `agent/dispatch/released` notification.
@@ -63,18 +63,16 @@ function dispatchLeaseGetBody(params: ParamsOf<typeof DispatchLeaseGet>) {
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const dispatchRequest = defineServerHandler(
-  DispatchRequest,
-  (params: ParamsOf<typeof DispatchRequest>) =>
-    Effect.gen(function* () {
-      return yield* dispatchRequestBody(params, yield* agentArm);
-    }).pipe(Effect.withSpan("dispatchRequest")),
-);
+export const dispatchRequest: ServerHandler<typeof DispatchRequest> = (
+  params,
+) =>
+  Effect.gen(function* () {
+    return yield* dispatchRequestBody(params, yield* agentArm);
+  }).pipe(Effect.withSpan("dispatchRequest"));
 
-export const dispatchLeaseGet = defineServerHandler(
-  DispatchLeaseGet,
-  (params: ParamsOf<typeof DispatchLeaseGet>) =>
-    Effect.gen(function* () {
-      return yield* dispatchLeaseGetBody(params);
-    }).pipe(Effect.withSpan("dispatchLeaseGet")),
-);
+export const dispatchLeaseGet: ServerHandler<typeof DispatchLeaseGet> = (
+  params,
+) =>
+  Effect.gen(function* () {
+    return yield* dispatchLeaseGetBody(params);
+  }).pipe(Effect.withSpan("dispatchLeaseGet"));

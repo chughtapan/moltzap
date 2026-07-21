@@ -4,8 +4,8 @@ import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { ConnectionId } from "@moltzap/protocol/socket";
+import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { agentArm } from "#moltzap/runtime";
-import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
 import { Effect, Exit } from "effect";
 import { ConnectionTag, type AgentContext } from "#socket";
 import { LeaseRegistryTag } from "#dispatch";
@@ -151,25 +151,19 @@ function handleMessageList(
 // narrow the arm via `agentArm`, run the same domain work as the live slot path,
 // and leave `ConnectionTag` + domain services to the request runtime.
 
-export const messagesSend = defineServerHandler(
-  MessagesSend,
-  (params: ParamsOf<typeof MessagesSend>) =>
-    Effect.gen(function* () {
-      // The send-permission requirements gated this frame in the engine stack
-      // before this handler runs. `agentArm` reads the narrowed principal off
-      // `ConnectionTag`.
-      const ctx = yield* agentArm;
-      return yield* handleMessageSend(params, ctx);
-    }).pipe(Effect.withSpan("messagesSend")),
-);
+export const messagesSend: ServerHandler<typeof MessagesSend> = (params) =>
+  Effect.gen(function* () {
+    // The send-permission requirements gated this frame in the engine stack
+    // before this handler runs. `agentArm` reads the narrowed principal off
+    // `ConnectionTag`.
+    const ctx = yield* agentArm;
+    return yield* handleMessageSend(params, ctx);
+  }).pipe(Effect.withSpan("messagesSend"));
 
-export const messagesList = defineServerHandler(
-  MessagesList,
-  (params: ParamsOf<typeof MessagesList>) =>
-    Effect.gen(function* () {
-      // Gated by the `TaskReadAccess` + `ConversationInTask` requirements in the
-      // engine stack; the body trusts the gated `params`.
-      const ctx = yield* agentArm;
-      return yield* handleMessageList(params, ctx);
-    }).pipe(Effect.withSpan("messagesList")),
-);
+export const messagesList: ServerHandler<typeof MessagesList> = (params) =>
+  Effect.gen(function* () {
+    // Gated by the `TaskReadAccess` + `ConversationInTask` requirements in the
+    // engine stack; the body trusts the gated `params`.
+    const ctx = yield* agentArm;
+    return yield* handleMessageList(params, ctx);
+  }).pipe(Effect.withSpan("messagesList"));

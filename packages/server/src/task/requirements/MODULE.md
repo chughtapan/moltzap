@@ -16,17 +16,17 @@ _Function_
 export const assertCallerAppOwnsTask = (appId: AppId, taskId: TaskId)
 ```
 
-### [`obtainTaskReadAccess`](./read-access.ts#L11)
+### [`obtainTaskReadAccess`](./read-access.ts#L15)
 
 _Function_
 
 ```ts
 export const obtainTaskReadAccess = (
   input: TaskAndAgent,
-): Effect.Effect<TaskReadAccessValue, unknown, TaskServiceTag>
+): Effect.Effect<TaskReadAccessValue, TaskNotFoundError, TaskServiceTag>
 ```
 
-### [`TaskAndAgent`](./read-access.ts#L6)
+### [`TaskAndAgent`](./read-access.ts#L10)
 
 _Interface_
 

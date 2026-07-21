@@ -18,6 +18,7 @@ const it = effectIt.effect;
 const TASK_UUID = "00000000-0000-4000-8000-00000000abc2";
 const CONV_UUID = "00000000-0000-4000-8000-00000000abc1";
 const REPLY_MSG = "00000000-0000-4000-8000-0000000000a1";
+const SENT_MSG = "00000000-0000-4000-8000-0000000000a2";
 const HELLO_WORLD = "Hello world";
 const REPLY_TEXT = "Reply text";
 const SilentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
@@ -27,7 +28,11 @@ function runSendCommand(input: {
   readonly message: string;
   readonly options: { readonly replyToId?: MessageId };
 }) {
-  const fixture = makeFakeTransport(() => ({ messageId: "msg-123" }));
+  const fixture = makeFakeTransport({
+    [LocalDaemonCommands.Send]: () => ({
+      messageId: makeMessageId(SENT_MSG),
+    }),
+  });
   return {
     calls: fixture.calls,
     effect: sendCommand

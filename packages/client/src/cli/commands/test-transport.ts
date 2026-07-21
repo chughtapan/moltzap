@@ -16,9 +16,13 @@ export interface TestTransportCall<Tag extends DaemonCommand = DaemonCommand> {
   readonly params: PayloadForTag<DaemonRpcs, Tag>;
 }
 
-export type TestTransportResponder = <Tag extends DaemonCommand>(
+export type TestTransportResponder<Tag extends DaemonCommand> = (
   call: TestTransportCall<Tag>,
 ) => SuccessForTag<DaemonRpcs, Tag> | TransportError | Error;
+
+export type TestTransportResponders = {
+  readonly [Tag in DaemonCommand]?: TestTransportResponder<Tag>;
+};
 
 const isTransportError = (value: unknown): value is TransportError =>
   typeof value === "object" &&
@@ -30,7 +34,7 @@ const isError = (value: unknown): value is Error => value instanceof Error;
 const errorMessage = (error: Error): string => error.message;
 
 export const makeFakeTransport = (
-  respond: TestTransportResponder,
+  responders: TestTransportResponders,
 ): {
   readonly calls: TestTransportCall[];
   readonly transport: TransportSurface;
@@ -43,6 +47,10 @@ export const makeFakeTransport = (
     ): Effect.Effect<SuccessForTag<DaemonRpcs, Tag>, TransportError> => {
       const call: TestTransportCall<Tag> = { method: tag, params: payload };
       calls.push(call);
+      const respond = responders[tag];
+      if (respond === undefined) {
+        return Effect.dieMessage(`No test transport responder for ${tag}`);
+      }
       const out = respond(call);
       if (isTransportError(out)) {
         return Effect.fail(out);

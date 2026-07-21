@@ -95,7 +95,7 @@ _TypeAlias_
 export type TaskCreateVerdict = ResultOf<typeof TaskCreate>["verdict"];
 ```
 
-### [`taskLeave`](./handlers.ts#L355)
+### [`taskLeave`](./handlers.ts#L352)
 
 _Variable_
 
@@ -103,7 +103,7 @@ _Variable_
 export const taskLeave: ServerHandler<typeof TaskLeave> = (params)
 ```
 
-### [`taskList`](./handlers.ts#L350)
+### [`taskList`](./handlers.ts#L347)
 
 _Variable_
 
@@ -111,7 +111,7 @@ _Variable_
 export const taskList: ServerHandler<typeof TaskList> = (params)
 ```
 
-### [`taskRequest`](./handlers.ts#L204)
+### [`taskRequest`](./handlers.ts#L201)
 
 _Variable_
 
@@ -273,7 +273,7 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 >() {}
 ```
 
-### [`taskUpdate`](./handlers.ts#L360)
+### [`taskUpdate`](./handlers.ts#L357)
 
 _Variable_
 

@@ -1,6 +1,6 @@
 import { RpcMiddleware } from "@effect/rpc";
 import { Schema } from "effect";
-import type { AgentId } from "#identity/agents";
+import { AgentNotFoundError, type AgentId } from "#identity/agents";
 import { NotInContactsError } from "../contacts.js";
 
 export interface ContactPolicyAllowsReachValue {
@@ -9,10 +9,10 @@ export interface ContactPolicyAllowsReachValue {
 }
 
 /**
- * Requirement middleware: resolves whether the creator may reach every target
- * under the recipients' contact policy.
+ * Requirement middleware: resolves every target and verifies the creator may
+ * reach it under the recipient's contact policy.
  */
 export class ContactPolicyAllowsReach extends RpcMiddleware.Tag<ContactPolicyAllowsReach>()(
   "@moltzap/protocol/ContactPolicyAllowsReach",
-  { failure: Schema.Union(NotInContactsError) },
+  { failure: Schema.Union(AgentNotFoundError, NotInContactsError) },
 ) {}
