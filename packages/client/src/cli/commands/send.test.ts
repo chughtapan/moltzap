@@ -1,4 +1,4 @@
-import { Effect, Logger, Option } from "effect";
+import { Effect, Logger } from "effect";
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect } from "vitest";
 import { sendCommand } from "./send.js";
@@ -25,7 +25,7 @@ const SilentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
 function runSendCommand(input: {
   readonly target: { taskId: TaskId; conversationId: ConversationId };
   readonly message: string;
-  readonly replyTo: Option.Option<MessageId>;
+  readonly options: { readonly replyToId?: MessageId };
 }) {
   const fixture = makeFakeTransport(() => ({ messageId: "msg-123" }));
   return {
@@ -49,7 +49,7 @@ describe("send command handler", () => {
       const run = runSendCommand({
         target: { taskId, conversationId },
         message: HELLO_WORLD,
-        replyTo: Option.none(),
+        options: {},
       });
       yield* run.effect;
       expect(run.calls).toEqual([
@@ -68,7 +68,7 @@ describe("send command handler", () => {
       const run = runSendCommand({
         target: { taskId, conversationId },
         message: REPLY_TEXT,
-        replyTo: Option.some(replyToId),
+        options: { replyToId },
       });
       yield* run.effect;
       expect(run.calls).toEqual([

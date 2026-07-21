@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: bounded message history
+
+- **BREAKING (`@moltzap/protocol`): simpler list contract.**
+  `agent/message/list` now accepts only `taskId`, `conversationId`, and `limit`,
+  and returns `{ messages }`. It selects the newest visible messages up to the
+  requested limit and returns that bounded window oldest-first; the unused
+  `sinceSeq` cursor and `hasMore` flag are removed.
+
+### Removed: Claude Code integration
+
+- **Breaking runtime surface.** Removed `ClaudeCodeAdapter` and the
+  `"claude-code"` runtime kind; trace-capture payloads using that retired kind
+  are now rejected.
+- **Package removal.** Removed `@moltzap/claude-code-channel` and its repository,
+  documentation, test, and conformance wiring.
+
 ### Fixed: protocol version releases
 
 - **One version authority.** `packages/protocol/package.json` now owns the

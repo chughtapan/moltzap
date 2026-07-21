@@ -56,7 +56,6 @@ const HistoryConversationMetaSchema = Schema.Struct({
 
 const HistoryResponseSchema = Schema.Struct({
   messages: Schema.Array(HistoryMessageSummarySchema),
-  hasMore: Schema.Boolean,
   conversationMeta: Schema.optional(HistoryConversationMetaSchema),
   newCount: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
 });

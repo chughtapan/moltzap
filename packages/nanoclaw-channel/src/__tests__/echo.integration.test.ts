@@ -7,7 +7,7 @@
  * (`opts.onMessage`, `opts.onChatMetadata`) fire with the expected shape
  * and `sendMessage(jid, text)` round-trips back to the peer.
  *
- * Modeled on `packages/claude-code-channel/src/__tests__/echo.integration.test.ts`
+ * Modeled on `packages/openclaw-channel/src/__tests__/echo.integration.test.ts`
  * (per arch sub-issue #605 §4.4).
  */
 
