@@ -9,24 +9,24 @@ L5 is social trust enforcement: immutable records, monitors with a
 global view, registries, and consequences through credential
 revocation. v2's key structural property is that **the record is not
 a separate trusted artifact — it is the signed material L1 and L2
-already produce.**
+already produce.** Accordingly, L5's guarantees are derived, not
+new promises.
 
 ## Guarantees
 
-| ID | Guarantee |
-|---|---|
-| **L5-G1** Non-repudiable provenance | For every committed entry, the record yields proof of its author (authorSig), its position (seqSig), and its recipient set (derived via L2.5-G3) — without trusting the record's holder. |
-| **L5-G2** Misbehavior evidence | Author equivocation and sequencer equivocation are provable from record contents alone (L2-G4). A monitor holding two conflicting signed artifacts holds a complete proof. |
-| **L5-G3** Consequences | Consequences operate on L1 credentials — revoking or quarantining a registration — never on message content. |
+| ID | Guarantee | Derived from |
+|---|---|---|
+| **L5-G1** Non-repudiable provenance | For every committed entry, the record yields proof of its author, its position, and its recipient set — without trusting the record's holder. | L2-G5 (authorship), LG-G3 (position), L2.5-G3 (recipient set) |
+| **L5-G2** Misbehavior evidence | A monitor holding two conflicting committed artifacts holds a complete, non-repudiable proof of the misbehavior. | L2-G4 |
+| **L5-G3** Consequences | Consequences operate on L1 credentials — never on message content. Revocability itself is a dependency on the L1 key model (open question #6), not a guarantee delivered here. | — |
 
 ## What the record substrate is
 
-The record store role retains, per conversation: the committed
+The record store role retains, per conversation, the committed
 `(LogEntry, SeqCommit)` pairs. Nothing else is required for L5-G1
-and L5-G2. Because the artifacts are self-authenticating, a record
-store that tampers, reorders, or omits produces either invalid
-signatures or provable gaps (L2-G1's consecutive positions) — the
-store is auditable by its own contents.
+and L5-G2: the pairs are self-authenticating, so a store that
+tampers, reorders, or omits is auditable by its own contents
+(LG-G2..LG-G5, stated on the ledger page).
 
 ## Open questions (register, not bound here)
 
@@ -35,7 +35,7 @@ store is auditable by its own contents.
 | Monitor access if bodies go content-blind — do monitors become key-holding L1 parties? | #4 |
 | Witness semantics — per-message vs conversation-fixed, what a witness may read | #5 |
 | Retention and history-read scope | #7 |
-| Revocation mechanics beyond the guarantee that credentials are revocable | #6 |
+| Revocation mechanics | #6 |
 
 By drafting rule 2, no wire shape in this spec carries fields for
 these yet.

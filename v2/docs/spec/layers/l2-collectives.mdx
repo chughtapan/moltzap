@@ -9,13 +9,16 @@ L2 turns pairwise delivery into collectives: per-message collective
 operations over a conversation, with an order every member can
 verify. Each call names its own operation; no standing policies live
 in the plane. The first version supports **MULTICAST with pessimistic
-concurrency control, nothing more** (recorded decision); the broader
-op set is chartered to #765.
+concurrency control (PCC), nothing more** (recorded decision); the
+broader op set is chartered to #765.
 
 A conversation is, abstractly, an append-only log of entries. Members
-author entries; the sequencer role assigns each entry a position.
-Both acts are signed, which is what makes the four constraints below
-enforceable against faulty members *and* a faulty sequencer.
+author entries; the sequencer role assigns each entry a position
+(wire name: `seq`). Both acts are signed, which is what makes the
+four constraints below enforceable against faulty members *and* a
+faulty sequencer. Terminology: *log* (this abstract sequence),
+*stream* (its L2.5 view), and *ledger* (the interface that serves
+it) name the same object at different altitudes.
 
 ## Guarantees
 
@@ -49,7 +52,7 @@ LogEntry {
 |---|---|
 | `conv` | L2-G1 — names the collective the operation addresses |
 | `prevHash` | L2-G4 — the author's causal claim; two entries by one author sharing a `prevHash` are proof of author equivocation |
-| `entry` | L2-owned discriminator between its data and control entries; MEMBERSHIP ordering is L2.5-G2 |
+| `entry` | L2-owned discriminator between its data and control entries; MEMBERSHIP ordering is specified in the next chapter (L2.5-G2) |
 | `author`, `authorSig` | L2-G5 — attribution that survives relay |
 | `body` / `delta` | opaque above L2 / the in-band membership change (L2.5) |
 

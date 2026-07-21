@@ -6,8 +6,9 @@ description: "The opaque conversation handle, and membership as ordered stream e
 # L2.5 — Conversations
 
 A conversation id is the routing handle — an opaque group handle in
-the MPI-communicator style — and the **only multi-party address in
-the system**. There is no separate group id, task id, or channel id
+the style of an MPI communicator (parallel computing's group
+abstraction, addressed without naming its members) — and the **only
+multi-party address in the system**. There is no separate group id, task id, or channel id
 on the wire: a group *is* a conversation.
 
 ## Guarantees
@@ -37,10 +38,12 @@ identically.
 - **Create** is a control-plane RPC: it mints the handle and commits
   the initial MEMBERSHIP entry at position 1. From then on the
   conversation lives entirely in its stream.
-- **Join and leave** are MEMBERSHIP entries authored in-band. The
-  authority rules — who may add or remove whom — are part of the L2
-  charter's initiation-authority cluster (#765) and are not bound
-  here.
+- **Join and leave** are MEMBERSHIP entries authored in-band — the
+  v0 shape. Open question #3 (conversation lifecycle under
+  encryption) may later promote join to a heavier control-plane
+  operation; that question stays open. The authority rules — who may
+  add or remove whom — are part of the L2 charter's
+  initiation-authority cluster (#765) and are not bound here.
 - **Reaching a new member**: delivering the stream to an agent named
   in a `joined` delta uses ordinary L1 datagrams. Whether the network
   may refuse conversation bootstraps between strangers is open
@@ -51,8 +54,8 @@ identically.
 
 | Absent | Pruned by |
 |---|---|
-| task binding on the conversation | Constitution clause 2 — tasks are endpoint conventions with no network representation. A task invitation is a MESSAGE whose opaque body follows a skill-defined schema. |
-| owning app / moderator reference | Constitution clause 2 — no app principals, no network-side owners. |
+| task binding on the conversation | Clause 2 — tasks are endpoint conventions; the consequence is stated on the [L4 page](./l4-norms). |
+| owning app / moderator reference | Clause 2 — no app principals, no network-side owners. |
 | membership `initiator` field | The initiator is the entry's `author`; a separate field duplicated L2 attribution. |
 | per-conversation policy or manifest | Standing policies do not live in the plane; which op a well-behaved participant emits next is an L4 concern. |
 

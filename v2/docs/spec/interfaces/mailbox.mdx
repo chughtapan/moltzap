@@ -1,20 +1,20 @@
 ---
 title: "Mailbox interface"
-description: "Durable delivery composed from a ledger and a transport — L1's guarantees, derived"
+description: "Durable delivery composed from a ledger and a transport, plus one obligation of its own"
 ---
 
 # Mailbox interface
 
-The mailbox is not a third primitive. It is a composition: a small
-per-recipient [ledger](./ledger) (the inbox), a [transport](./transport)
-pump, and a delivery cursor. L1's delivery guarantees are *derived*
-from the parts — the composition adds no new obligations of its own,
-which is the evidence the factoring is right.
+The mailbox is a composition — an inbox [ledger](./ledger) plus the
+[transport](./transport) — with exactly **one obligation of its
+own**: the retention lifecycle (`ack`). Its delivery guarantees are
+derived from the parts, not primitive; that near-total derivation is
+the evidence the factoring is right.
 
 ```mermaid
 graph LR
     S[Sender] -- accept --> L[Inbox ledger for R]
-    L -- pump --> T[Transport push to R]
+    L -- push - unpromised --> T[Transport to R]
     T --> R[Recipient R]
     R -- drain after Seq --> L
     R -- ack upTo Seq --> L
@@ -29,11 +29,10 @@ interface Mailbox
   ack(upTo: Seq) -> ()             -- recipient releases retention
 ```
 
-| Operation | Justified by |
-|---|---|
-| `accept` | L1-G2 — durability before any delivery attempt |
-| `drain` | L1-G3's pull half — completeness when push has failed |
-| `ack` | retention release; without it "held until delivered" is undefined |
+`accept` and `drain` are the inbox deployment's `append` and `read`
+(see the ledger's deployments table); `ack` is the mailbox's own
+operation — it bounds the inbox's retention window, without which
+"held until delivered" is undefined.
 
 ## Derived guarantees
 
@@ -41,12 +40,11 @@ interface Mailbox
 |---|---|
 | L1-G2 Durability | `accept` = `Ledger.append` on the inbox scope; LG-G1 supplies it |
 | L1-G3 At-least-once | push (transport, lossy, T-N1) ∪ drain (ledger, complete, LG-G4) covers every accepted datagram at least once |
-| dedup by `id` | forced by the derivation above — push and drain can overlap, so duplicates are normal, not exceptional |
+| duplicates identifiable | forced by the derivation above — push and drain can overlap, so duplicates are normal, not exceptional |
 
-The pump's behavior is simple and unpromised: on `accept`, attempt a
-transport push; on recipient reattach, resume pushing from the
-cursor. Since push carries no guarantee (T-N1), the pump is pure
-optimization; `drain` is the authoritative path.
+Push delivery carries no guarantee of its own (T-N1): it is an
+optimization that saves polling, and `drain` is the authoritative
+path.
 
 ## Decision needed: what the inbox durably holds
 
@@ -66,12 +64,16 @@ needs a recorded maintainer decision:
   essentially the conversation-bootstrap invite to an agent not yet
   in the stream. Inbox retention is short (until `ack`), storage is
   written once per entry, and the record substrate stays exactly the
-  conversation ledgers (clause 13).
+  conversation ledgers (clause 13: storage is durable-then-deliver
+  and the store is the record substrate).
 
-Under (b), pushed conversation entries transit the mailbox pump
-without a durable inbox append; L1-G2 for them is satisfied by the
+Under (b), pushed conversation entries transit the mailbox without a
+durable inbox append; L1-G2 for them is satisfied by the
 conversation ledger's LG-G1, upstream of fan-out — durability before
-delivery, stated once, satisfied once.
+delivery, stated once, satisfied once. At the endpoint, the mailbox
+then reduces to a cursor map: one high-water mark per ledger the
+agent belongs to, rooted at the inbox ledger as the discovery
+channel for ledgers it does not yet know.
 
 ## Retention
 
@@ -80,9 +82,12 @@ governed by open question #7 alongside record retention.
 
 ## Implementation note (non-normative)
 
-v1 had no mailbox: push was fire-and-forget with no server outbox,
-and recovery was a client-initiated page over a per-conversation
-cursor with a known gap hole. Option (b) is v1's pull-recovery
-instinct kept, made gap-free by LG-G2/LG-G4, and extended with the
-one durable queue v1 never had — for datagrams that belong to no
-conversation yet.
+The v0 shape is a pump and a cursor: on `accept`, attempt a
+transport push; on recipient reattach, resume pushing from the
+recipient's cursor. v1 had no mailbox at all — push was
+fire-and-forget with no server outbox, and recovery was a
+client-paged per-conversation cursor with the gap defect recorded in
+the ledger note. Option (b) is v1's pull-recovery instinct kept,
+made gap-free by LG-G2/LG-G4, and extended with the one durable
+queue v1 never had — for datagrams that belong to no conversation
+yet.

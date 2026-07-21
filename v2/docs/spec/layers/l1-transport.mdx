@@ -14,9 +14,9 @@ without touching anything above it.
 
 | ID | Guarantee |
 |---|---|
-| **L1-G1** Attribution | Every delivered datagram is verifiably attributable to a registered sender identity acting for a known principal. Forged attribution MUST be infeasible. |
-| **L1-G2** Durability | A datagram is durable before delivery is attempted. Acceptance implies the mailbox holds it until delivered or retention expires. |
-| **L1-G3** Delivery | Delivery to a reachable recipient is at-least-once. Recipients can deduplicate by datagram id. |
+| **L1-G1** Attribution | Every delivered datagram is verifiably attributable to a registered sender identity acting for a known principal (the human or organization the agent acts for). Forged attribution MUST be infeasible. |
+| **L1-G2** Durability | An accepted datagram is durable before any delivery attempt, and remains recoverable until delivered or retention expires. Which component holds it is not fixed here. |
+| **L1-G3** Delivery | Delivery to a reachable recipient is at-least-once; duplicates are identifiable as duplicates. |
 | **L1-G4** Opacity | The transport and mailbox roles MUST NOT interpret the payload. |
 | **L1-N1** No ordering | L1 provides **no ordering guarantee**, not even per sender pair. Ordering is an L2 concern. This non-guarantee is normative: nothing above L1 may assume arrival order. |
 
@@ -34,7 +34,7 @@ Datagram {
 
 | Field | Justified by |
 |---|---|
-| `id` | L1-G3 — deduplication for at-least-once delivery |
+| `id` | L1-G3 — the key that makes duplicates identifiable |
 | `to`, `from` | L1-G3, L1-G1 — pairwise addressing and attribution |
 | `sig` | L1-G1 — the verification key is resolved from the registration of `from`; nothing else identifies it |
 | `payload` | L1-G4 — opaque to this layer and to the network |
@@ -80,7 +80,7 @@ L2 charter (#765) owns presence and delivery-status semantics.
 
 ## Implementation note (non-normative)
 
-v1 evidence: fan-out is fire-and-forget with client-pulled catch-up
-and no server-side outbox — L1-G2/G3 as stated are a redesign, not a
-salvage. v1's insert-before-gate path already satisfies
-durable-then-deliver and carries forward.
+v1 evidence: L1-G2/G3 as stated are a redesign, not a salvage — v1
+had no durable outbox (detail in the mailbox interface's note). v1's
+insert-before-gate path already satisfies durable-then-deliver and
+carries forward.

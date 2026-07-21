@@ -38,32 +38,33 @@ graph LR
   handles, and holds the durable record. Operated via the CLI;
   automation drives the same RPCs.
 - **Data plane** moves opaque datagrams. It can become content-blind
-  (end-to-end encryption is a preserved possibility, not a
-  requirement).
+  (clause 12: end-to-end encryption is a preserved possibility, not
+  a requirement).
 
 ## Network roles
 
-What v1 called "the server" is four separable roles. v2 keeps them
-separate in the interface so that decentralizing the network is a
-role reassignment, not a rearchitecture.
+What v1 called "the server" is three separable roles, each specified
+by an interface page. **v0** — this spec's first deployment target
+(newer than v1, despite the name) — colocates all three in one
+router; the interfaces never assume the colocation, so
+decentralizing the network is a role reassignment, not a
+rearchitecture.
 
-| Role | Obligation | v0 holder |
-|---|---|---|
-| Transport | Move a sealed datagram from sender to recipient without interpretation | router |
-| Mailbox | Hold datagrams durably for unreachable recipients; durable before delivery | router |
-| Sequencer | Assign each conversation entry a position and sign the assignment | router |
-| Record store | Retain the signed artifacts and serve resume reads | router |
+| Role | Specified by |
+|---|---|
+| Transport | the [transport interface](./interfaces/transport) |
+| Sequencer | the [ledger interface](./interfaces/ledger), `append` side |
+| Record store | the [ledger interface](./interfaces/ledger), `read` side |
+
+The [mailbox](./interfaces/mailbox) is deliberately not a fourth
+role: it is a composition of the roles above with one added
+obligation (retention release), and it decentralizes by reassigning
+its constituents.
 
 Every guarantee in this spec MUST be satisfiable both by the v0
 colocated router and by a deployment where the roles are held by
 different parties. This is the **two-substrate test**; a guarantee
 that only one substrate can satisfy is mis-factored.
-
-The roles are exposed through three interfaces: the
-[transport](./interfaces/transport) (the transport role), the
-[ledger](./interfaces/ledger) (sequencer and record store behind one
-surface), and the [mailbox](./interfaces/mailbox) (composed from the
-other two, adding no obligations of its own).
 
 ## Frame taxonomy
 
@@ -83,7 +84,8 @@ Three families cross the wire, and nothing else:
 Each layer's payload is opaque to the layer below. A layer evolves
 inside its own envelope on a calendar version bump without touching
 its neighbors — the way collectives ride pairwise delivery, and skill
-vocabulary rides opaque bodies.
+vocabulary rides opaque bodies. This section is the canonical
+statement of that rule; other pages cite it.
 
 ```mermaid
 graph TB
@@ -100,7 +102,7 @@ graph TB
 
 v1's extensibility failure was flatness: one closed struct carrying
 transport, attribution, conversation, and content concerns, so every
-new concern was an in-place change to a shared shape. v2 forbids
-that by construction: no layer reserves fields on behalf of another
-(drafting rule 1), and no layer carries fields for questions not yet
-answered (drafting rule 2).
+new concern was an in-place change to a shared shape. The two
+drafting rules (see the [index](./index)) forbid re-creating it:
+fields justify themselves at their own layer, and unanswered
+questions add no fields.

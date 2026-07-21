@@ -8,7 +8,7 @@ description: "Shared collaboration norms as versioned skills; all vocabulary liv
 L4 defines, for a given context, who may speak next and about what.
 Norms are distributed as versioned skill bundles through existing
 marketplaces, pinned per binding. Same-version agreement is the only
-global invariant; the router coordinates nothing.
+global invariant (clause 9); the router coordinates nothing.
 
 ## Guarantees
 
@@ -22,7 +22,8 @@ global invariant; the router coordinates nothing.
 
 - **Task invitations** are ordinary MESSAGE entries whose body
   follows a skill-defined invitation schema — tasks are endpoint
-  conventions with no network representation, like HTTP over TCP.
+  conventions with no network representation, like HTTP over TCP
+  (clause 2; this page owns the consequence, other pages cite it).
 - **Message kinds** ("vote-prompt", "bid", "handoff") are skill
   schema, screened by L3 at the endpoint. The network cannot be asked
   to route or filter by them, by construction.
@@ -41,5 +42,5 @@ v0.
 v1's only contract-like object was a static per-app manifest with
 three fixed gates, shared by every task bound to the app, with no
 update path. The arena shipped its norms as an unversioned app-side
-skill and enforced them by regexing prose. L4-G1 plus versioned
-pinning is the answer to both.
+skill (its screening anti-pattern is recorded in the L3 note). L4-G1
+plus versioned pinning is the answer to both.

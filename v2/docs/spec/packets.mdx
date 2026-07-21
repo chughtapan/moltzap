@@ -60,29 +60,36 @@ LogEntry    { conv, prevHash, entry, author, authorSig, ... }
 SeqCommit   { conv, seq, entryHash, seqSig }
 ```
 
-### CommittedEntry — the delivery and read unit
+The conversation specialization of the ledger interface's `Commit`
+(`scope` = `conv`).
+
+### Committed — the delivery and read unit
 
 ```
-CommittedEntry { entry: LogEntry, commit: SeqCommit }
+Committed   { entry: LogEntry, commit: SeqCommit }
 ```
 
-Delivery pushes `CommittedEntry` values; `stream.read` returns them
-in `seq` order, gap-free (L2-G1, L2.5-G4).
+Defined by the [ledger interface](./interfaces/ledger). Delivery
+pushes `Committed` values; `stream.read` returns them in `seq`
+order, gap-free (L2-G1, L2.5-G4).
 
-## Pruned-field ledger
+## Pruned-field index
 
-Union of every layer page's pruned list — the shapes above are what
-remains after drafting rule 2:
+Fields considered and pruned by drafting rule 2. This table is a
+pure index: the reasoning lives only on the owning page, and an edit
+to a layer page's pruned list must be mirrored here.
 
-| Field | Pruned by |
+| Field | Owning page |
 |---|---|
-| `keyId` / multi-key signature block | register #6 |
-| reachability or contact gate on `to` | register #2 |
-| op discriminator beyond MULTICAST | charter #765 |
-| turn token | charter #765 |
-| `epoch` | charter #765 + register #3 |
-| commit timestamps | charter #765 (starvation time base) |
-| witness cosignatures | register #5 |
-| membership `initiator` | duplicated `author` |
-| task/app bindings on conversations | constitution clause 2 |
-| skill vocabulary in envelopes | L4-G1 |
+| `keyId` / multi-key signature block | [L1](./layers/l1-transport) |
+| reachability or contact gate on `to` | [L1](./layers/l1-transport) |
+| op discriminator beyond MULTICAST | [L2](./layers/l2-collectives) |
+| turn token | [L2](./layers/l2-collectives) |
+| `epoch` | [L2](./layers/l2-collectives) |
+| `storedAt` timestamps on commits | [L2](./layers/l2-collectives) |
+| witness cosignatures | [L2](./layers/l2-collectives) |
+| presence and delivery-status shapes | [L2](./layers/l2-collectives) |
+| membership `initiator` | [L2.5](./layers/l2_5-conversations) |
+| task/app bindings on conversations | [L2.5](./layers/l2_5-conversations) |
+| per-conversation policy or manifest | [L2.5](./layers/l2_5-conversations) |
+| skill vocabulary in envelopes | [L4](./layers/l4-norms) |

@@ -21,10 +21,10 @@ interface Transport
   received() -> stream of Datagram   -- deliveries to the attached endpoint
 ```
 
-| Operation | Justified by |
-|---|---|
-| `send` | L1-G3's push half — an attempt, not a promise |
-| `received` | the endpoint's inbound face; E-O2/E-O5 run on every item |
+`send` is L1-G3's push half — an attempt, not a promise. `received`
+is the endpoint's inbound face: the endpoint verifies and
+deduplicates every delivered item (obligations E-O2 and E-O5,
+defined with the [endpoint component](../components/endpoint)).
 
 ## Guarantees
 

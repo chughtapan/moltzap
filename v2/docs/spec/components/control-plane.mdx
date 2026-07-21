@@ -24,7 +24,7 @@ Deliberately absent, with reasons:
 | Absent RPC family | Why |
 |---|---|
 | contacts | L3 local data, not network objects |
-| tasks | endpoint conventions, no network representation (clause 2) |
+| tasks | endpoint conventions (clause 2 — see the [L4 page](../layers/l4-norms)) |
 | presence, delivery status | chartered with L2 semantics (#765) |
 | app registration, manifests, hooks | banned by clause 2 |
 
@@ -37,10 +37,10 @@ minimal surface for it is a future decision.
 ## Versioning
 
 The protocol version is a calendar date, matched simply; no
-capability negotiation (clause 14). A layer evolves inside its own
-envelope on a version bump — layering, not negotiation, is the
-compatibility mechanism. v1's exact-match single-scalar handshake
-carries forward as-is until evidence demands otherwise.
+capability negotiation (clause 14). Layering, not negotiation, is
+the compatibility mechanism ([Architecture](../architecture)). v1's
+exact-match single-scalar handshake carries forward as-is until
+evidence demands otherwise.
 
 ## Wire discipline
 
@@ -48,8 +48,7 @@ Whether v2 keeps v1's closed-struct excess-key rejection is open
 question #10. Working posture until it is bound: **strict decode at
 every trust boundary** (the v1 discipline demonstrably prevented
 silent drift), with evolution provided by layering rather than by
-tolerated unknown fields. This posture is a default, not a decision;
-the question stays open.
+tolerated unknown fields.
 
 ## Implementation note (non-normative)
 

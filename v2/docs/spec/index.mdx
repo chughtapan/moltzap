@@ -33,10 +33,16 @@ Every chapter, and every review of one, applies two mechanical rules:
 2. **Open questions prune fields.** If a field's existence depends on
    an unanswered question in the open-question register
    (`v2/VISION.md`), the field does not exist yet. Chapters list their
-   pruned fields with the register question that pruned them.
-   Layering is the extension mechanism: when a question is answered,
-   the owning layer evolves inside its own envelope on a calendar
-   version bump, without touching other layers.
+   pruned fields with the register question that pruned them. When a
+   question is answered, the owning layer evolves inside its own
+   envelope ([Architecture](./architecture): layering is the
+   extension mechanism).
+
+Citation conventions: "clause N" cites `v2/VISION.md → The
+Constitution`; "register #N" and bare "#N" cite its Open-Question
+Register (#765 is the L2 semantics charter issue). The working nouns
+*conversation*, *collective*, and *channel adapter* are provisional
+pending register #11 (naming).
 
 ## Reading order
 
@@ -49,12 +55,12 @@ Every chapter, and every review of one, applies two mechanical rules:
 | [L3 — Guardrails](./layers/l3-guardrails) | Endpoint screening and what it may rely on |
 | [L4 — Norms](./layers/l4-norms) | Skill-defined vocabulary inside opaque bodies |
 | [L5 — Records](./layers/l5-records) | What is non-repudiable by construction |
-| [Endpoint](./components/endpoint) | Harness and channel obligations |
-| [Router](./components/router) | The four network roles and their obligations |
-| [Control plane](./components/control-plane) | Operator RPCs, versioning, wire discipline |
 | [Transport interface](./interfaces/transport) | Best-effort pairwise datagram movement |
 | [Ledger interface](./interfaces/ledger) | Durable positioned logs — sequencer + record store |
 | [Mailbox interface](./interfaces/mailbox) | Durable delivery, composed from the other two |
+| [Endpoint](./components/endpoint) | Harness and channel obligations |
+| [Router](./components/router) | The network roles and their v0 holder |
+| [Control plane](./components/control-plane) | Operator RPCs, versioning, wire discipline |
 | [Packet reference](./packets) | Every shape on one page |
 
 ## Evidence
