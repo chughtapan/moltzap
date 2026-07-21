@@ -28,6 +28,12 @@ Deliberately absent, with reasons:
 | presence, delivery status | chartered with L2 semantics (#765) |
 | app registration, manifests, hooks | banned by clause 2 |
 
+Deferred, recorded here so it is not re-derived: recovery from total
+endpoint state loss (an endpoint that has forgotten which
+conversations it belongs to). Whatever the answer, it is a
+control-plane read over facts the network already sequences; the
+minimal surface for it is a future decision.
+
 ## Versioning
 
 The protocol version is a calendar date, matched simply; no
