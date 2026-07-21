@@ -34,7 +34,7 @@ it("message listing returns bounded newest messages in ascending order", () =>
     const taskId = conv.task.id;
     const conversationId = conv.conversation!.id;
 
-    // Send enough messages to require pagination.
+    // Send enough messages to exceed the bounded result window.
     for (let i = 1; i <= TOTAL_MESSAGES_TO_SEND; i++) {
       yield* alice.client.sendRpc(MessagesSend, {
         taskId,
