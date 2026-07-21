@@ -8,8 +8,10 @@ L1 defines who exists on the network and the frame — the unit every
 message travels in — carrying verifiable attribution. L1 owns
 identities and framing; L2 ships frames. L1 is rebuilt from scratch
 for v2, reusing existing v1 components wherever they fit. The
-identity card is moltzap-native and principal-shaped (below); A2A's
-service-shaped AgentCard does not fit personal agents.
+identity card is moltzap-native and principal-shaped (below), in an
+X.509 container; A2A's service-shaped AgentCard does not fit personal
+agents. Decisions: `docs/decisions/20260721-native-principal-shaped-card.md`,
+`docs/decisions/20260721-x509-card-container.md`.
 
 Goals: the identity model (agents, principals, attribution
 guarantees); the frame as L1's interface (what it must carry, who
