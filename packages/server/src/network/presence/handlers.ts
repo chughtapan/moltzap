@@ -5,13 +5,13 @@ import {
 } from "@moltzap/protocol/network";
 import { NotInContactsError } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { Effect } from "effect";
 import { DbTag } from "#db";
 import { PresenceServiceTag } from "./layer.js";
 import { visibleAgentIds } from "#identity/agents";
 import { agentArm, appArm } from "#moltzap/runtime";
+import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
 
 /**
  * `network/presence/subscribe` reads the current status snapshot via
@@ -61,16 +61,18 @@ function presenceSubscribeBody(
 
 // ── @effect/rpc handler body ─────────────────────────────────────────
 
-export const agentPresenceSubscribe: ServerHandler<
-  typeof AgentPresenceSubscribe
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* presenceSubscribeBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("agentPresenceSubscribe"));
+export const agentPresenceSubscribe = defineServerHandler(
+  AgentPresenceSubscribe,
+  (params: ParamsOf<typeof AgentPresenceSubscribe>) =>
+    Effect.gen(function* () {
+      return yield* presenceSubscribeBody(params, yield* agentArm);
+    }).pipe(Effect.withSpan("agentPresenceSubscribe")),
+);
 
-export const appPresenceSubscribe: ServerHandler<
-  typeof AppPresenceSubscribe
-> = (params) =>
-  Effect.gen(function* () {
-    return yield* presenceSubscribeBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("appPresenceSubscribe"));
+export const appPresenceSubscribe = defineServerHandler(
+  AppPresenceSubscribe,
+  (params: ParamsOf<typeof AppPresenceSubscribe>) =>
+    Effect.gen(function* () {
+      return yield* presenceSubscribeBody(params, yield* appArm);
+    }).pipe(Effect.withSpan("appPresenceSubscribe")),
+);
