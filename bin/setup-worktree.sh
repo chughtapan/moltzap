@@ -5,16 +5,12 @@
 #   `git worktree add` produces a clean filesystem checkout with no
 #   `node_modules/` and no built `dist/`. Every dispatched teammate working in
 #   a fresh worktree needs the same three steps before any `pnpm` command
-#   resolves: install, build, native postinstall. Per-dispatch handling
+#   resolves: install, build. Per-dispatch handling
 #   recurred ~5x during epic #415; this script collapses it to one line.
 #
 # What it does (idempotent — safe to re-run):
 #   1. `pnpm install`
 #        Populates per-package `node_modules/` from the shared pnpm store.
-#        With root `package.json` -> `pnpm.onlyBuiltDependencies`, this also
-#        runs `@anthropic-ai/claude-code`'s postinstall (`install.cjs`),
-#        which downloads the platform-native `bin/claude.exe` (~245MB) used
-#        by `packages/runtimes` integration tests.
 #   2. `pnpm -r build`
 #        Builds every workspace package's `dist/`. Required because:
 #          - `@moltzap/protocol`'s `exports` map points at `./dist/...` —
@@ -41,4 +37,4 @@ echo "==> pnpm -r build"
 pnpm -r build
 
 echo
-echo "Worktree ready. node_modules populated, dist/ built, claude-code binary resolved."
+echo "Worktree ready. node_modules populated and dist/ built."

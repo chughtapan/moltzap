@@ -1,7 +1,7 @@
 # @moltzap/runtimes
 
 Process-launch and lifecycle orchestration for MoltZap trace-capture
-agents: spawning external runtimes (OpenClaw, Nanoclaw, Claude Code)
+agents: spawning external runtimes (OpenClaw, Nanoclaw)
 as child processes, waiting for ready, supervising fleets, propagating
 shutdown. The package is the bridge between server-side orchestration
 code and the external runtime binaries. The adapters and fleet APIs do not speak the
@@ -16,14 +16,12 @@ directly through dynamically loaded client test modules.
 - `src/fleet.ts` — `launchRuntimeFleet`, startup interruption
 - `src/openclaw-adapter.ts` — `OpenClawAdapter` + workspace variant
 - `src/nanoclaw-adapter.ts` — `NanoclawAdapter`
-- `src/claude-code-adapter.ts` — `ClaudeCodeAdapter` + workspace variant
 - `src/await-agent-ready.ts` — `awaitAgentReadyByPolling`
 - `src/adapter-readiness.ts` — `processExitLoop`, shared adapter
   readiness/teardown state machine
 - `src/channel-plugin-install.ts` — shared channel-package install +
   workspace-seed helpers
-- `src/claude-code-process.ts` / `src/nanoclaw-process.ts` —
-  per-runtime process/config helpers
+- `src/nanoclaw-process.ts` — per-runtime process/config helpers
 - `src/package-resolution.ts` — workspace binary/package resolution
 - `src/errors.ts` — `SpawnFailed`, `RuntimeExitedBeforeReady`,
   `RuntimeReadyTimedOut`, `RuntimeLaunchFailed`
@@ -36,8 +34,8 @@ Single-tier source layout — no subdirectories. Each adapter is a peer.
 
 | Export | Shape | Purpose |
 |---|---|---|
-| `OpenClawAdapter` / `NanoclawAdapter` / `ClaudeCodeAdapter` | Adapter | Spawn + supervise a single agent runtime |
-| `createWorkspace{OpenClaw,ClaudeCode}Adapter` | Factory | Workspace-aware variants that resolve binary paths |
+| `OpenClawAdapter` / `NanoclawAdapter` | Adapter | Spawn + supervise a single agent runtime |
+| `createWorkspaceOpenClawAdapter` | Factory | Workspace-aware variant that resolves binary paths |
 | `startRuntimeAgent` | Effect | Start one runtime + wait for ready |
 | `launchRuntimeFleet` / `launchRuntimeFleetWithProcessSignals` | Effect | Start many, propagate SIGINT/SIGTERM |
 | `awaitAgentReadyByPolling` | Effect | Generic readiness probe |
@@ -48,14 +46,12 @@ Single-tier source layout — no subdirectories. Each adapter is a peer.
 
 - `pnpm build` — `tsc`
 - `pnpm test` — vitest unit tests
-- `pnpm test:integration` — vitest integration tests
-  (`vitest.integration.config.ts`; spawns a real Claude Code runtime)
 
 ## Dependencies
 
 **Runtime**: `effect`, `@effect/platform[-node]`, `openclaw` (external
 CLI binary referenced for its plugin protocol).
-**Internal**: `@moltzap/protocol`, `@moltzap/claude-code-channel`.
+**Internal**: `@moltzap/protocol`.
 **Consumers**: the external `cc-judge` runner, which loads the
 compiled trace-capture harness from `dist/`. No in-repo package
 imports `@moltzap/runtimes`.
@@ -72,8 +68,8 @@ emitted by `@moltzap/server-core`, readable in tests via
 
 ## Glossary
 
-- **Runtime** — An external agent process (OpenClaw / Nanoclaw /
-  Claude Code) that connects back to a moltzap server via WS and
+- **Runtime** — An external agent process (OpenClaw / Nanoclaw) that
+  connects back to a moltzap server via WS and
   presents an agent identity.
 - **Adapter** — Per-runtime wrapper that knows how to spawn its
   binary, detect readiness (server-confirmed authentication raced

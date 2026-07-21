@@ -6,7 +6,6 @@ import type { Runtime } from "./runtime.js";
 import {
   decodePayload,
   InvalidPayload,
-  RUNTIME_KIND_CLAUDE_CODE,
   type HarnessPayload,
 } from "./trace-capture-payload.js";
 import {
@@ -309,8 +308,6 @@ function defaultTargetAgentName(kind: RuntimeKind): string {
       return "openclaw-eval-agent";
     case "nanoclaw":
       return "nanoclaw-eval-agent";
-    case RUNTIME_KIND_CLAUDE_CODE:
-      return "claude-code-eval-agent";
   }
 }
 

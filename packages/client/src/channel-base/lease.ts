@@ -3,7 +3,7 @@
  *
  * Public surface:
  * - `LeaseAlreadyConsumed`: canonical tagged error class. One definition site
- *   across all three channels (claude-code, openclaw, nanoclaw).
+ *   across both channels (openclaw, nanoclaw).
  * - `projectLeaseInvalid`: predicate that narrows a `ForbiddenError` to
  *   `LeaseAlreadyConsumed` when the server's wire-error payload matches the
  *   single-use-lease shape (`data.reason === "LeaseInvalid"`).

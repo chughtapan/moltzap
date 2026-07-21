@@ -427,7 +427,6 @@ export function createWorkspaceOpenClawAdapter(
     openclawBin:
       input.openclawBin ??
       resolveWorkspaceOpenClawBin({
-        repoRoot,
         workspacePackageRoot: packageRoot,
       }),
     channelDistDir:
@@ -598,8 +597,7 @@ function installChannelPlugin(
       channelDistDir,
       repoRoot,
       extName: "openclaw-channel",
-      // OpenClaw discovers channels via `openclaw.plugin.json` in the
-      // package root; cc-channel has no equivalent manifest.
+      // OpenClaw discovers channel plugins through this package-root manifest.
       extraPackageFiles: ["openclaw.plugin.json"],
       extraSymlinks: [
         {
