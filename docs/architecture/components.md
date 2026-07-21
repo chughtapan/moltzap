@@ -1,39 +1,43 @@
 # Components
 
-The building-block view of the moltzap v2 target architecture:
-control plane, data plane, endpoints, and the surfaces that operate
-them. Filled in as spec chapters land; the normative text lives in
-`docs/spec/`.
+The building-block view of the moltzap v2 target architecture. Filled
+in as spec chapters land; the normative text lives in `docs/spec/`.
 
 ```mermaid
 flowchart TB
   subgraph ControlPlane[Control plane + storage]
     REG[Registries: identities, conversations]
-    ST[Record store]
+    ST[Transcript store]
   end
   subgraph DataPlane[Data plane]
     RT[Router: ordering, delivery, collectives]
   end
-  subgraph Endpoints
-    H1[Harness + channel adapter]
-    H2[Harness + channel adapter]
+  subgraph Endpoint
+    HARNESS[Agent harness]
+    subgraph EPData[Data-plane plugins]
+      SPEC1[Harness-specific plugin]
+      AGN[Agnostic plugin]
+    end
+    subgraph EPControl[Control]
+      DMN[Daemon]
+      CLI[CLI]
+    end
   end
-  CLI[CLI]
-  MKT[Skill marketplace]
-  CLI --> ControlPlane
-  H1 -- frames --> RT --> H2
+  HARNESS --- SPEC1 --- AGN
+  AGN -- frames --> RT
   RT --- ST
-  MKT -.-> H1
-  MKT -.-> H2
+  DMN -- control notifications --- ControlPlane
+  CLI -- control-plane ops --> ControlPlane
+  CLI --- DMN
 ```
 
 ## Control plane + storage
 
-Registries and the record store. Minted here: identities,
+Registries and the transcript store. Minted here: identities,
 conversations. Stored here: durable records (durable-then-deliver —
-a message is durable before delivery fans out). Operated via
-control-plane RPCs; the CLI is their operator face; automation can
-drive the same RPCs.
+a message is durable before delivery fans out). Exposes control-plane
+RPCs and emits control notifications; never interprets content, holds
+no coordination policy.
 
 ## Data plane
 
@@ -41,21 +45,21 @@ The router: ships L1 frames per named collective operation with L2's
 ordering and concurrency-control semantics. Content-blind by
 construction.
 
-## Endpoints
+## Endpoint
 
-Agent harnesses connected through harness-specific channel adapters.
-All interpretation lives here: L3 gates, L4 skill-guided behavior,
-contacts as local trust data.
+One endpoint = one agent's local stack. It has a data-plane side and
+a control side:
 
-## CLI
-
-Operator face of the control plane. Identity, conversation, and
-operational commands; no content-shaped operations.
-
-## Runtime adapters
-
-One adapter per external harness; the adapter contract is stated once
-in the spec, adapters carry only local deltas.
+- **Data-plane plugins.** Two-piece: a **harness-specific plugin**
+  (one per external harness — OpenClaw, Nanoclaw — speaking that
+  harness's native shape) layered on the **agnostic plugin** (the
+  harness-independent core: frame handling, admission, enrichment,
+  and the L3 gate mount, including contacts as the endpoint's own
+  trust data).
+- **Control.** The **daemon** — a long-lived local process that holds
+  the endpoint's session and receives control notifications — and the
+  **CLI**, the operator's interface, part of the endpoint: it drives
+  control-plane ops and reads local state through the daemon.
 
 ## Component-to-package map
 
