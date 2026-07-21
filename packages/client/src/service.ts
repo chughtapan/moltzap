@@ -627,7 +627,6 @@ export class MoltZapService {
       yield* this.advanceHistoryLastRead(request, result.messages);
       return {
         messages,
-        hasMore: result.hasMore,
         conversationMeta: convMeta,
         newCount: messages.filter((message) => message.isNew).length,
       };
