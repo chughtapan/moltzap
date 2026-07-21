@@ -1,4 +1,4 @@
-import { Data, Effect, HashMap, Match, Option, Ref } from "effect";
+import { Data, Effect, HashMap, HashSet, Match, Option, Ref } from "effect";
 import type { SocketError } from "@effect/platform/Socket";
 import type {
   ReverseCallError,
@@ -110,20 +110,7 @@ class UnauthenticatedConnection extends Data.TaggedClass(
 
 // eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class AgentConnection extends Data.TaggedClass("AgentConnection")<
-  ConnectionBase & {
-    readonly auth: AgentContext;
-
-    /**
-     * Server-side message-delivery-routing state: the set of conversation
-     * ids this connection is subscribed to (the fan-out membership gate in
-     * `network-send.ts → connectionCanReceive`). Hydrated on connect via the
-     * Connect handler's `hydrateConnectionState`; maintained on subscribe
-     * (`ConnectionManager.subscribeAgentsToConversation`) and on
-     * `ConversationService.removeParticipant`. App-armed connections have no
-     * conversation membership, so this field lives on the agent arm only.
-     */
-    readonly conversationIds: Set<ConversationId>;
-  }
+  ConnectionBase & { readonly auth: AgentContext }
 > {
   private readonly __brand!: never;
 }
@@ -168,14 +155,7 @@ const mintAuthedArm = (
 ): { readonly outcome: TransitionOutcome; readonly minted: Connection } =>
   Match.value(auth).pipe(
     Match.tag("AgentContext", (agentAuth) => {
-      // `conversationIds` starts empty; the Connect handler's
-      // `hydrateConnectionState` populates it from the agent's
-      // `conversation_participants` rows after this transition commits.
-      const authed = new AgentConnection({
-        ...base,
-        auth: agentAuth,
-        conversationIds: new Set<ConversationId>(),
-      });
+      const authed = new AgentConnection({ ...base, auth: agentAuth });
       return { outcome: { kind: "ok-agent", authed } as const, minted: authed };
     }),
     Match.tag("AppContext", (appAuth) => {
@@ -208,6 +188,20 @@ export class ConnectionManager {
   private readonly connectionsRef: Ref.Ref<
     HashMap.HashMap<ConnectionId, Connection>
   > = Effect.runSync(Ref.make(HashMap.empty<ConnectionId, Connection>()));
+
+  /**
+   * First-class server-side conversation subscription index.
+   *
+   * Conversation membership remains authoritative in the database; this index
+   * is the in-memory delivery projection hydrated on connect and maintained on
+   * conversation create/remove. It is keyed by agent because every live
+   * connection for an agent has the same conversation membership.
+   */
+  private readonly agentConversationSubscriptionsRef: Ref.Ref<
+    HashMap.HashMap<AgentId, HashSet.HashSet<ConversationId>>
+  > = Effect.runSync(
+    Ref.make(HashMap.empty<AgentId, HashSet.HashSet<ConversationId>>()),
+  );
 
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
@@ -366,9 +360,7 @@ export class ConnectionManager {
 
   /**
    * Every live agent-arm connection of `agentId`. Multi-tab agents have one arm
-   * per socket; the per-connection `conversationIds` subscription gate is
-   * maintained on each. The agent-only consumers (fan-out, conversation
-   * subscription maintenance) read this.
+   * per socket. Agent-only consumers read this.
    */
   agentConnections(
     agentId: AgentId,
@@ -385,68 +377,104 @@ export class ConnectionManager {
   }
 
   /**
-   * Add `conversationId` to the subscription set of every live
-   * agent arm in `agentIds`. Idempotent (Set semantics); returns the
-   * subscribed connection ids for observability. The arm's `conversationIds`
-   * Set is mutated in place (the `Data.TaggedClass` field is a `readonly`
-   * reference to a mutable Set — the reference never changes).
+   * Add `conversationId` to the first-class per-agent subscription index for
+   * every `agentId`. Idempotent (HashSet semantics); returns the live
+   * connection ids for observability.
    */
   addConversationToAgents(
     agentIds: readonly AgentId[],
     conversationId: ConversationId,
   ): Effect.Effect<readonly ConnectionId[]> {
-    return Ref.get(this.connectionsRef).pipe(
-      Effect.map((map) => {
-        const agentSet = new Set<AgentId>(agentIds);
-        const subscribed: ConnectionId[] = [];
-        eachAgentArm(map, (conn) => {
-          if (agentSet.has(conn.auth.agentId)) {
-            conn.conversationIds.add(conversationId);
-            subscribed.push(conn.connId);
-          }
-        });
-        return subscribed;
-      }),
-    );
+    return Effect.gen(this, function* () {
+      for (const agentId of agentIds) {
+        yield* this.addConversationToAgentIds(agentId, [conversationId]);
+      }
+
+      const map = yield* Ref.get(this.connectionsRef);
+      const agentSet = new Set<AgentId>(agentIds);
+      const subscribed: ConnectionId[] = [];
+      eachAgentArm(map, (conn) => {
+        if (agentSet.has(conn.auth.agentId)) subscribed.push(conn.connId);
+      });
+      return subscribed;
+    });
   }
 
   /**
-   * Seed the subscription set of one agent-arm connection from its
-   * persisted `conversation_participants` rows at connect time. No-op
-   * if the entry is absent (close race) or not an agent arm.
+   * Seed the first-class subscription index for an agent from its persisted
+   * `conversation_participants` rows at connect time. No-op if the connection
+   * entry is absent (close race) or not an agent arm.
    */
   hydrateConversationIds(
     connId: ConnectionId,
     conversationIds: readonly ConversationId[],
   ): Effect.Effect<void> {
-    return Ref.get(this.connectionsRef).pipe(
-      Effect.map((map) => {
-        const current = HashMap.get(map, connId);
-        if (Option.isNone(current)) return;
-        const conn = current.value;
-        if (conn._tag !== "AgentConnection") return;
-        for (const id of conversationIds) conn.conversationIds.add(id);
-      }),
-    );
+    return Effect.gen(this, function* () {
+      const current = yield* this.peek(connId);
+      if (Option.isNone(current) || current.value._tag !== "AgentConnection") {
+        return;
+      }
+      yield* this.addConversationToAgentIds(
+        current.value.auth.agentId,
+        conversationIds,
+      );
+    });
   }
 
   /**
-   * Remove `conversationId` from the subscription set of every connected agent
-   * arm of `agentId` (the inverse of {@link addConversationToAgents}). Used by
+   * Remove `conversationId` from the subscription index for `agentId` (the
+   * inverse of {@link addConversationToAgents}). Used by
    * `ConversationService.removeParticipant`.
    */
   removeConversationFromAgent(
     agentId: AgentId,
     conversationId: ConversationId,
   ): Effect.Effect<void> {
-    return Ref.get(this.connectionsRef).pipe(
-      Effect.map((map) => {
-        eachAgentArm(map, (conn) => {
-          if (conn.auth.agentId === agentId) {
-            conn.conversationIds.delete(conversationId);
-          }
-        });
-      }),
+    return Ref.update(
+      this.agentConversationSubscriptionsRef,
+      (subscriptions) => {
+        const existing = HashMap.get(subscriptions, agentId);
+        if (Option.isNone(existing)) return subscriptions;
+        const next = HashSet.remove(existing.value, conversationId);
+        return HashSet.size(next) === 0
+          ? HashMap.remove(subscriptions, agentId)
+          : HashMap.set(subscriptions, agentId, next);
+      },
+    );
+  }
+
+  isAgentSubscribedToConversation(
+    agentId: AgentId,
+    conversationId: ConversationId,
+  ): Effect.Effect<boolean> {
+    return Ref.get(this.agentConversationSubscriptionsRef).pipe(
+      Effect.map((subscriptions) =>
+        Option.match(HashMap.get(subscriptions, agentId), {
+          onNone: () => false,
+          onSome: (conversationIds) =>
+            HashSet.has(conversationIds, conversationId),
+        }),
+      ),
+    );
+  }
+
+  private addConversationToAgentIds(
+    agentId: AgentId,
+    conversationIds: readonly ConversationId[],
+  ): Effect.Effect<void> {
+    return Ref.update(
+      this.agentConversationSubscriptionsRef,
+      (subscriptions) => {
+        const existing = Option.getOrElse(
+          HashMap.get(subscriptions, agentId),
+          () => HashSet.empty<ConversationId>(),
+        );
+        let next = existing;
+        for (const conversationId of conversationIds) {
+          next = HashSet.add(next, conversationId);
+        }
+        return HashMap.set(subscriptions, agentId, next);
+      },
     );
   }
 }
