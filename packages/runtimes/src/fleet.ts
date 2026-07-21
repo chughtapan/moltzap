@@ -8,10 +8,6 @@ import {
   type RuntimeLaunchFailed,
 } from "./errors.js";
 import {
-  createWorkspaceClaudeCodeAdapter,
-  type WorkspaceClaudeCodeAdapterInput,
-} from "./claude-code-adapter.js";
-import {
   NanoclawAdapter,
   type NanoclawAdapterDeps,
 } from "./nanoclaw-adapter.js";
@@ -28,7 +24,7 @@ import {
   type WorkspaceFile,
 } from "./runtime.js";
 
-export type RuntimeKind = "openclaw" | "nanoclaw" | "claude-code";
+export type RuntimeKind = "openclaw" | "nanoclaw";
 
 const LOG_START_OFFSET = 0;
 
@@ -48,7 +44,6 @@ export interface RuntimeStartOptions {
   readonly readyTimeoutMs: number;
   readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
   readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
-  readonly claudeCode?: Omit<WorkspaceClaudeCodeAdapterInput, "server">;
 }
 
 export interface RuntimeFleetLaunchOptions {
@@ -59,7 +54,6 @@ export interface RuntimeFleetLaunchOptions {
   readonly concurrency?: number | "unbounded";
   readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
   readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
-  readonly claudeCode?: Omit<WorkspaceClaudeCodeAdapterInput, "server">;
 }
 
 export interface RuntimeFleetProcessSignalOptions
@@ -122,11 +116,6 @@ function createRuntime(options: RuntimeStartOptions): Runtime {
         server: options.server,
         ...options.nanoclaw,
       });
-    case "claude-code":
-      return createWorkspaceClaudeCodeAdapter({
-        server: options.server,
-        ...options.claudeCode,
-      });
   }
 }
 
@@ -152,9 +141,6 @@ function toSpawnInput(agent: RuntimeAgentSpec): SpawnInput {
  * close the process Scope; recursively remove the temp state-dir.
  *
  * - OpenClaw: `OPENCLAW_TERM_WAIT_MS = 10_000`, `OPENCLAW_KILL_WAIT_MS = 5_000`.
- * - ClaudeCode: same shape, single 10s wait window; no explicit
- *   process-group kill because SIGTERM on claude propagates to the
- *   cc-channel MCP child naturally via the process hierarchy.
  * - Nanoclaw: stops the runtime via OneCLI gateway, then removes
  *   data dir.
  */
@@ -179,9 +165,6 @@ function runtimeStartOptionsForAgent(
     readyTimeoutMs: options.readyTimeoutMs,
     ...(options.openclaw !== undefined ? { openclaw: options.openclaw } : {}),
     ...(options.nanoclaw !== undefined ? { nanoclaw: options.nanoclaw } : {}),
-    ...(options.claudeCode !== undefined
-      ? { claudeCode: options.claudeCode }
-      : {}),
   };
 }
 
