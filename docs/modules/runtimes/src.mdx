@@ -42,211 +42,6 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`ClaudeCodeAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L438)
-
-_Class_
-
-```ts
-export class ClaudeCodeAdapter implements Runtime {
-  private state: AdapterState | null = null;
-
-  constructor(private readonly deps: ClaudeCodeAdapterDeps) {}
-
-  spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    const toSpawnFailed = (cause: unknown): SpawnFailed => {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      return new SpawnFailed({
-        agentName: input.agentName,
-        cause: error,
-        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
-      });
-    };
-
-    return Effect.gen(this, function* () {
-      const { stateDir, extDir } = yield* prepareClaudeCodeStateDir(
-        this.deps,
-        input,
-      );
-
-      const mcpConfigPath = yield* writeClaudeCodeMcpConfig({
-        stateDir,
-        extDir,
-        serverUrl: input.serverUrl,
-        agentName: input.agentName,
-      });
-
-      const logBuffer = { value: "" };
-      const child = yield* spawnConfiguredClaude({
-        deps: this.deps,
-        stateDir,
-        mcpConfigPath,
-        logBuffer,
-      });
-
-      this.state = {
-        process: child,
-        stateDir,
-        spawnInput: input,
-        logBuffer,
-        tornDown: false,
-      };
-    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
-  }
-
-  waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
-    if (!this.state) {
-      return Effect.succeed({ _tag: "Ready" as const });
-    }
-    const { process: proc, spawnInput, logBuffer } = this.state;
-    const agentId = spawnInput.agentId;
-
-    // The server side of readiness — Ready when ConnectionManager records
-    // an authenticated connection, Timeout if it never does. Pluggable per
-    // server-handle implementation (in-process polling vs. out-of-process
-    // WS-presence subscription).
-    const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
-    const processExit = {
-      pollExitCode: () => pollClaudeExitCode(proc),
-      stderr: () => logBuffer.value,
-      timeoutMs,
-    };
-
-    return pipe(
-      Effect.race(serverReady, processExitLoop(processExit)),
-      // Final-check: if the race resolved `Timeout`, the process may have
-      // exited within the last `exitLoop` tick window — give the adapter one
-      // last sync poll so a near-deadline exit still surfaces with stderr
-      // instead of an opaque `Timeout`.
-      Effect.flatMap((outcome) =>
-        promoteTimeoutIfProcessExited(outcome, processExit),
-      ),
-      // Failure outcomes (Timeout, ProcessExited) tear down before returning
-      // — keeps the Runtime contract that the adapter cleans up after itself.
-      Effect.tap((outcome) =>
-        outcome._tag === "Ready" ? Effect.void : this.doTeardown(),
-      ),
-    );
-  }
-
-  teardown(): Effect.Effect<void, never, never> {
-    return Effect.suspend(() => this.doTeardown());
-  }
-
-  getLogs(offset: number): LogSlice {
-    if (!this.state) return { text: "", nextOffset: 0 };
-    const full = this.state.logBuffer.value;
-    return { text: full.slice(offset), nextOffset: full.length };
-  }
-
-  getInboundMarker(): string {
-    // The cc-channel pushes an MCP `notifications/claude/channel` to claude
-    // for every inbound; that method name appears in `--verbose` stream-json
-    // output. Used by trace-capture as a coarse "did inbound reach the
-    // agent" signal.
-    return "notifications/claude/channel";
-  }
-
-  private doTeardown(): Effect.Effect<void, never, never> {
-    if (!this.state || this.state.tornDown) return Effect.void;
-    this.state.tornDown = true;
-    const { process: proc, stateDir } = this.state;
-
-    const removeStateDir = FileSystem.FileSystem.pipe(
-      Effect.flatMap((fileSystem) =>
-        fileSystem.remove(stateDir, { recursive: true, force: true }),
-      ),
-      Effect.provide(NodeContext.layer),
-      Effect.catchAll((cause) =>
-        Effect.logWarning(
-          "failed to remove claude-code adapter state dir",
-          cause,
-        ),
-      ),
-    );
-
-    // SIGTERM with a timeout; escalate to SIGKILL if SIGTERM doesn't
-    // reap. Closing `proc.scope` afterward runs Command.start's kill
-    // finalizer + the stream-consumer fiber finalizers.
-```
-
-Claude Code runtime adapter. Spawns the `claude` CLI as the host
-process with the moltzap channel installed as a stdio MCP server.
-
-```mermaid
-flowchart TD
-  CCS["ClaudeCodeAdapter.spawn(input)"]
-  CC1["1. prepareClaudeCodeStateDir<br>makeTempDirectory, seedWorkspaceFiles,<br>installClaudeCodeChannelPlugin<br>(resolves modelcontextprotocol/sdk + effect)"]
-  CC2["2. writeClaudeCodeMcpConfig<br>{ mcpServers: { moltzap: { command: 'node', args: [extDir/dist/cli.js], env: { MOLTZAP_PROFILE, MOLTZAP_CONFIG_HOME, MOLTZAP_SERVER_URL, MOLTZAP_SERVER_NAME } } } }"]
-  CC3["3. spawnConfiguredClaude<br>buildClaudeArgs:<br>--strict-mcp-config --mcp-config<br>--print --input-format stream-json<br>--output-format stream-json --verbose<br>--dangerously-skip-permissions<br>--add-dir stateDir/workspace<br>env: CLAUDE_CODE_HOME=stateDir"]
-  CC4["4. state = { process, stateDir, logBuffer, ... }"]
-  CCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>(cc-channel MCP stdio server authenticates on start)"]
-  CCS --> CC1 --> CC2 --> CC3 --> CC4 --> CCR
-```
-
-Inbound marker: `notifications/claude/channel`. The cc-channel
-sends MCP `notifications/claude/channel` per inbound message; this
-is visible in claude's `--verbose` stream-json output. Shutdown
-via SIGTERM on the claude process propagates to the MCP stdio
-child naturally — no process-group kill needed (unlike OpenClaw).
-
-### [`ClaudeCodeAdapterDeps`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L64)
-
-_Interface_
-
-```ts
-export interface ClaudeCodeAdapterDeps {
-  readonly server: RuntimeServerHandle;
-
-  /**
-   * Absolute path to the `claude` CLI bin. Production callers pass the
-   * workspace `node_modules/.bin/claude` (resolved by
-   * `createWorkspaceClaudeCodeAdapter`).
-   */
-  readonly claudeBin: string;
-
-  /**
-   * Absolute path to `@moltzap/claude-code-channel`'s built `dist/` dir.
-   * The adapter copies this into the per-agent state dir and points the
-   * MCP config at the copied bin.
-   */
-  readonly channelDistDir: string;
-
-  /**
-   * Absolute path to the moltzap repo root — used to symlink workspace
-   * deps (`@moltzap/protocol`, `@moltzap/client`, etc.) into the plugin
-   * state dir's `node_modules`.
-   */
-  readonly repoRoot: string;
-}
-```
-
-### [`createWorkspaceClaudeCodeAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L593)
-
-_Function_
-
-```ts
-export function createWorkspaceClaudeCodeAdapter(
-  input: WorkspaceClaudeCodeAdapterInput,
-): ClaudeCodeAdapter
-```
-
-Workspace-aware factory mirroring
-createWorkspaceOpenClawAdapter. Resolves `claudeBin` and
-`channelDistDir` from the monorepo at construction time.
-
-```mermaid
-flowchart TD
-  CCWF["createWorkspaceClaudeCodeAdapter(input)"]
-  CCBIN["claudeBin = input.claudeBin ??<br>resolveWorkspaceClaudeBin<br>(resolveWorkspaceBin binName='claude', packageName='@anthropic-ai/claude-code')"]
-  CCROOT["resolveClaudeCodePackageRoot<br>(requireFromHere.resolve('@anthropic-ai/claude-code/package.json'))"]
-  CCCH["channelDistDir = input.channelDistDir ??<br>resolveClaudeCodeChannelDistDir"]
-  CCCHTRY["Try: requireFromHere.resolve('@moltzap/claude-code-channel') → dirname/dist"]
-  CCCHFALL["Fallback: repoRoot/packages/claude-code-channel/dist (logs warning)"]
-  CCWF --> CCBIN --> CCROOT --> CCCH
-  CCCH --> CCCHTRY
-  CCCH --> CCCHFALL
-```
-
 ### [`createWorkspaceOpenClawAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/openclaw-adapter.ts#L418)
 
 _Function_
@@ -277,7 +72,7 @@ Non-workspace usage: pass explicit `openclawBin` /
 `channelDistDir` to OpenClawAdapter's constructor
 directly. This factory is a convenience for monorepo callers.
 
-### [`launchRuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L336)
+### [`launchRuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L319)
 
 _Function_
 
@@ -302,7 +97,7 @@ Sibling: launchRuntimeFleetWithProcessSignals adds SIGINT
 / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
 `RuntimeFleetStartupInterrupted`.
 
-### [`launchRuntimeFleetWithProcessSignals`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L437)
+### [`launchRuntimeFleetWithProcessSignals`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L420)
 
 _Function_
 
@@ -696,7 +491,7 @@ getLogs returns accumulated output from a byte offset.
 getInboundMarker returns a substring that proves an inbound message
 was received by the runtime's channel plugin.
 
-### [`RuntimeAgentSpec`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L35)
+### [`RuntimeAgentSpec`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L31)
 
 _Interface_
 
@@ -733,7 +528,7 @@ Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
 `exitCode` is `null` only if the process exited via signal.
 Caller action: inspect `stderr`; check binary auth config.
 
-### [`RuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L75)
+### [`RuntimeFleet`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L69)
 
 _Interface_
 
@@ -745,7 +540,7 @@ export interface RuntimeFleet {
 }
 ```
 
-### [`RuntimeFleetAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L70)
+### [`RuntimeFleetAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L64)
 
 _Interface_
 
@@ -756,7 +551,7 @@ export interface RuntimeFleetAgent {
 }
 ```
 
-### [`RuntimeFleetLaunchOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L54)
+### [`RuntimeFleetLaunchOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L49)
 
 _Interface_
 
@@ -769,11 +564,10 @@ export interface RuntimeFleetLaunchOptions {
   readonly concurrency?: number | "unbounded";
   readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
   readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
-  readonly claudeCode?: Omit<WorkspaceClaudeCodeAdapterInput, "server">;
 }
 ```
 
-### [`RuntimeFleetProcessSignalOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L65)
+### [`RuntimeFleetProcessSignalOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L59)
 
 _Interface_
 
@@ -784,7 +578,7 @@ export interface RuntimeFleetProcessSignalOptions
 }
 ```
 
-### [`RuntimeFleetStartupInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L81)
+### [`RuntimeFleetStartupInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L75)
 
 _Class_
 
@@ -797,12 +591,12 @@ export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
 }> {}
 ```
 
-### [`RuntimeKind`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L31)
+### [`RuntimeKind`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L27)
 
 _TypeAlias_
 
 ```ts
-export type RuntimeKind = "openclaw" | "nanoclaw" | "claude-code";
+export type RuntimeKind = "openclaw" | "nanoclaw";
 
 const LOG_START_OFFSET = 0;
 
@@ -882,7 +676,7 @@ export interface RuntimeServerHandle {
 }
 ```
 
-### [`RuntimeStartOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L44)
+### [`RuntimeStartOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L40)
 
 _Interface_
 
@@ -894,7 +688,6 @@ export interface RuntimeStartOptions {
   readonly readyTimeoutMs: number;
   readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
   readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
-  readonly claudeCode?: Omit<WorkspaceClaudeCodeAdapterInput, "server">;
 }
 ```
 
@@ -948,7 +741,7 @@ export interface SpawnInput {
 }
 ```
 
-### [`startRuntimeAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L308)
+### [`startRuntimeAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/fleet.ts#L291)
 
 _Function_
 
@@ -982,19 +775,6 @@ coordinated startup.
 - `RuntimeReadyTimedOut` — `waitUntilReady` exceeds `readyTimeoutMs`
 - `RuntimeExitedBeforeReady` — the process exits before signaling ready (inspect `stderr`)
 
-### [`WorkspaceClaudeCodeAdapterInput`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/claude-code-adapter.ts#L89)
-
-_Interface_
-
-```ts
-export interface WorkspaceClaudeCodeAdapterInput {
-  readonly server: RuntimeServerHandle;
-  readonly claudeBin?: string;
-  readonly channelDistDir?: string;
-  readonly repoRoot?: string;
-}
-```
-
 ### [`WorkspaceFile`](https://github.com/chughtapan/moltzap/blob/main/packages/runtimes/src/runtime.ts#L15)
 
 _Interface_
@@ -1022,7 +802,6 @@ export interface WorkspaceOpenClawAdapterInput {
 ## Files
 
 - `await-agent-ready.ts`
-- `claude-code-adapter.ts`
 - `errors.ts`
 - `fleet.ts`
 - `nanoclaw-adapter.ts`

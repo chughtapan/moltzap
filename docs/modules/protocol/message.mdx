@@ -21,7 +21,7 @@ _Variable_
 export const agentCallableDispatchRpcMethods = [DispatchRequest] as const
 ```
 
-### [`agentCallableMessageRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L156)
+### [`agentCallableMessageRpcMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L150)
 
 _Variable_
 
@@ -269,7 +269,7 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L197)
+### [`messageCallbackMethods`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L191)
 
 _Variable_
 
@@ -294,7 +294,7 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
 
 The referenced message does not exist, such as a missing reply target.
 
-### [`messageNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L219)
+### [`messageNotifications`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L213)
 
 _Variable_
 
@@ -306,7 +306,7 @@ export const messageNotifications = [
 
 Message notification catalog.
 
-### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L205)
+### [`MessageReceivedNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L199)
 
 _TypeAlias_
 
@@ -318,7 +318,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L213)
+### [`MessageReceivedNotificationDefinition`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L207)
 
 _Variable_
 
@@ -331,7 +331,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`MessagesAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L188)
+### [`MessagesAuthorize`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L182)
 
 _Variable_
 
@@ -347,7 +347,7 @@ export const MessagesAuthorize = defineRpc({
 
 Server callback asking an app for the per-message fan-out verdict.
 
-### [`MessagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L147)
+### [`MessagesList`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L141)
 
 _Variable_
 
@@ -361,7 +361,7 @@ export const MessagesList = defineRpc({
 })
 ```
 
-List messages in a conversation with cursor-based pagination.
+List the newest visible messages in a conversation, returned oldest-first.
 
 ### [`MessagesSend`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/message/messages.ts#L107)
 

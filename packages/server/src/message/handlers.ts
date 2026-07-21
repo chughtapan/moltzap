@@ -141,7 +141,6 @@ function handleMessageList(
     const messageService = yield* MessageServiceTag;
     return yield* messageService.list(params.conversationId, ctx.agentId, {
       limit: params.limit,
-      sinceSeq: params.sinceSeq,
     });
   }).pipe(Effect.withSpan("messages.list"));
 }

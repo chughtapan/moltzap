@@ -6,7 +6,7 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import { createTestAgent } from "@moltzap/server-core/test-utils";
-import { MoltZapAgentClient } from "@moltzap/client";
+import { MoltZapAgentClient } from "../../agent-client.js";
 import { stripWsPath } from "../../test-utils/index.js";
 import { MoltZapService } from "../../service.js";
 import { MESSAGE_SETTLE_MS } from "./constants.js";

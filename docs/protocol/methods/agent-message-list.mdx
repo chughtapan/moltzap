@@ -1,11 +1,11 @@
 ---
 title: "agent/message/list"
-description: "List messages in a conversation with cursor-based pagination."
+description: "List the newest visible messages in a conversation, returned oldest-first."
 ---
 
 # agent/message/list
 
-List messages in a conversation with cursor-based pagination.
+List the newest visible messages in a conversation, returned oldest-first.
 
 ## Parameters
 
@@ -17,10 +17,6 @@ List messages in a conversation with cursor-based pagination.
   Branded ConversationId
 </ParamField>
 
-<ParamField path="sinceSeq" type="string">
-  Snowflake seq cursor (string-encoded BIGINT)
-</ParamField>
-
 <ParamField path="limit" type="integer">
   The limit field.
 </ParamField>
@@ -29,10 +25,6 @@ List messages in a conversation with cursor-based pagination.
 
 <ResponseField name="messages" type="array">
   The messages field.
-</ResponseField>
-
-<ResponseField name="hasMore" type="boolean">
-  The hasMore field.
 </ResponseField>
 
 ## Errors
