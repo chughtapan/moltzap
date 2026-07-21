@@ -16,10 +16,6 @@ import {
   type NanoclawAdapterDeps,
 } from "./nanoclaw-adapter.js";
 import {
-  ClaudeCodeAdapter,
-  type ClaudeCodeAdapterDeps,
-} from "./claude-code-adapter.js";
-import {
   AgentName,
   ServerUrl,
   type Runtime,
@@ -292,62 +288,6 @@ describe("NanoclawAdapter", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ClaudeCodeAdapter — interface contract (issue #255)
-//
-// Mirror of the OpenClawAdapter unit suite: spawn against a non-existent
-// bin yields SpawnFailed, getLogs / getInboundMarker / waitUntilReady /
-// teardown all behave deterministically when no process has been spawned.
-// ---------------------------------------------------------------------------
-
-function stubClaudeCodeDeps(): ClaudeCodeAdapterDeps {
-  return {
-    server: stubServer(),
-    claudeBin: "/bin/false",
-    channelDistDir: "/nonexistent/cc-channel/dist",
-    repoRoot: "/nonexistent/repo",
-  };
-}
-
-describe("ClaudeCodeAdapter", () => {
-  it("satisfies the Runtime interface (structural typing)", () => {
-    const adapter: Runtime = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-    expectRuntimeMethods(adapter);
-  });
-
-  it(
-    "property: Runtime method contracts match the other adapters",
-    claudeCodeAdapterMatchesRuntimeMethodContract,
-  );
-
-  it("getLogs returns empty slice when not spawned", () => {
-    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-    const slice: LogSlice = adapter.getLogs(0);
-    expect(slice.text).toBe("");
-    expect(slice.nextOffset).toBe(0);
-  });
-
-  it("getInboundMarker returns non-empty string", () => {
-    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-    const marker = adapter.getInboundMarker();
-    expect(typeof marker).toBe(STRING_TYPE);
-    expect(marker.length).toBeGreaterThan(0);
-  });
-
-  it(
-    "waitUntilReady returns Ready when no process has been spawned",
-    claudeCodeWaitUntilReadyReturnsReadyWithoutSpawn,
-  );
-  it(
-    "teardown is idempotent when no process has been spawned",
-    claudeCodeTeardownIsIdempotent,
-  );
-  it(
-    "spawn fails with SpawnFailed when the channel dist dir does not exist",
-    claudeCodeSpawnFailsWhenChannelDistDirIsMissing,
-  );
-});
-
-// ---------------------------------------------------------------------------
 // Test bodies
 // ---------------------------------------------------------------------------
 
@@ -448,55 +388,6 @@ function openClawWaitUntilReadyReturnsReadyWithoutSpawn() {
       const outcome: ReadyOutcome =
         yield* adapter.waitUntilReady(READY_TIMEOUT_MS);
       expect(outcome._tag).toBe(READY_TAG);
-    }),
-  );
-}
-
-function claudeCodeAdapterMatchesRuntimeMethodContract(): void {
-  const adapters: ReadonlyArray<Runtime> = [
-    new OpenClawAdapter(stubDeps()),
-    new NanoclawAdapter(stubNanoclawDeps()),
-    new ClaudeCodeAdapter(stubClaudeCodeDeps()),
-  ];
-
-  for (const adapter of adapters) {
-    expectRuntimeMethods(adapter);
-  }
-}
-
-function claudeCodeWaitUntilReadyReturnsReadyWithoutSpawn() {
-  return runTest(
-    Effect.gen(function* () {
-      const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-      const outcome: ReadyOutcome =
-        yield* adapter.waitUntilReady(READY_TIMEOUT_MS);
-      expect(outcome._tag).toBe(READY_TAG);
-    }),
-  );
-}
-
-function claudeCodeTeardownIsIdempotent() {
-  const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-  return expect(
-    Effect.runPromise(
-      adapter.teardown().pipe(Effect.zipRight(adapter.teardown())),
-    ),
-  ).resolves.toBeUndefined();
-}
-
-function claudeCodeSpawnFailsWhenChannelDistDirIsMissing() {
-  return runTest(
-    Effect.gen(function* () {
-      const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-      const result = yield* Effect.either(adapter.spawn(stubSpawnInput()));
-
-      Either.match(result, {
-        onLeft: (error) => {
-          expect(error).toBeInstanceOf(SpawnFailed);
-          expect(error.agentName).toBe(TEST_AGENT_NAME);
-        },
-        onRight: () => expect.fail(),
-      });
     }),
   );
 }

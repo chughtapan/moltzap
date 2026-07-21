@@ -17,16 +17,7 @@
   ],
   "references": [
     {
-      "path": "../claude-code-channel"
-    },
-    {
-      "path": "../client"
-    },
-    {
       "path": "../protocol"
-    },
-    {
-      "path": "../server"
     }
   ]
 }

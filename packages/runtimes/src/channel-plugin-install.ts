@@ -3,20 +3,9 @@
  * runtime adapter that needs to drop a moltzap channel package onto disk
  * for an external agent runtime to load.
  *
- * Both `openclaw-adapter` and `claude-code-adapter` install a channel
- * package into a per-agent state dir, then either copy or symlink the
- * runtime imports the package resolves at load time. The two adapters
- * differ only in:
- *   - The extension subdirectory name (`openclaw-channel` vs
- *     `claude-code-channel`).
- *   - Whether the channel package ships an additional manifest file
- *     (`openclaw.plugin.json` for openclaw; cc-channel ships none).
- *   - Which runtime modules need to resolve from the plugin's local
- *     `node_modules` (openclaw symlinks `effect`; cc-channel additionally
- *     symlinks `@modelcontextprotocol/sdk`).
- *
- * Per the "minimize tech debt" team memory: factor the shared shape out
- * now that two live adapters consume it.
+ * `openclaw-adapter` installs a channel package into a per-agent state dir,
+ * then either copies or symlinks the runtime imports the package resolves at
+ * load time.
  */
 import { createRequire } from "node:module";
 import { FileSystem, Path } from "@effect/platform";

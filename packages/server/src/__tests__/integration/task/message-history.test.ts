@@ -22,7 +22,7 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-it("message listing returns messages in ascending order with hasMore", () =>
+it("message listing returns bounded newest messages in ascending order", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
@@ -34,7 +34,7 @@ it("message listing returns messages in ascending order with hasMore", () =>
     const taskId = conv.task.id;
     const conversationId = conv.conversation!.id;
 
-    // Send enough messages to require pagination.
+    // Send enough messages to exceed the bounded result window.
     for (let i = 1; i <= TOTAL_MESSAGES_TO_SEND; i++) {
       yield* alice.client.sendRpc(MessagesSend, {
         taskId,
@@ -43,14 +43,13 @@ it("message listing returns messages in ascending order with hasMore", () =>
       });
     }
 
-    // List with limit=10 — should get newest 10 and hasMore=true
+    // List with limit=10 — should get the newest 10.
     const page1 = yield* alice.client.sendRpc(MessagesList, {
       taskId,
       conversationId,
       limit: PAGE_SIZE,
     });
     expect(page1.messages).toHaveLength(PAGE_SIZE);
-    expect(page1.hasMore).toBe(true);
 
     // Messages are returned in ascending order (oldest first in page)
     const texts = page1.messages.map((m) => {
@@ -77,5 +76,4 @@ it("message listing returns messages in ascending order with hasMore", () =>
       limit: 100,
     });
     expect(all.messages).toHaveLength(TOTAL_MESSAGES_TO_SEND);
-    expect(all.hasMore).toBe(false);
   }));

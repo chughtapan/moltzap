@@ -28,12 +28,12 @@ Nanoclaw depends on `@moltzap/client/channel-base` for:
 ## Integration tests
 
 - `vitest.integration.config.ts` (mirrors
-  `packages/claude-code-channel/vitest.integration.config.ts`)
+  `packages/openclaw-channel/vitest.integration.config.ts`)
 - `vitest.integration.globalSetup.ts` (spawns the standalone server on
   PGlite, registers two agents, `provide`s base/WS URLs plus per-agent
   IDs and API keys)
 - `src/__tests__/vitest-provided.d.ts` (typed inject keys; same key set as
-  `packages/claude-code-channel/src/__tests__/vitest-provided.d.ts`)
+  `packages/openclaw-channel/src/__tests__/vitest-provided.d.ts`)
 - `src/__tests__/echo.integration.test.ts` (echo round-trip)
 - `src/__tests__/reconnection.integration.test.ts` (reconnection + missed
   message catch-up; trigger via `MoltZapAgentClient.disconnect()`)

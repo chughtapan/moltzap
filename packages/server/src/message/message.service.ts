@@ -363,7 +363,7 @@ export class MessageService {
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
    * were reached, `recordTrace` observes the misses, and reconnecting clients
-   * recover durable history via `messages/list`.
+   * recover recent durable history within the requested `messages/list` limit.
    */
   sendCommit(
     carrier: SendInsertResult,
@@ -633,9 +633,8 @@ export class MessageService {
     requesterAgentId: AgentId,
     options: {
       limit?: number;
-      sinceSeq?: string;
     } = {},
-  ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, ForbiddenError> {
+  ): Effect.Effect<{ messages: Message[] }, ForbiddenError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         yield* this.conversations.assertConversationParticipant(
@@ -649,13 +648,10 @@ export class MessageService {
         const rows = yield* this.visibleMessageRows({
           conversationId,
           requesterAgentId,
-          sinceSeq: options.sinceSeq,
           limit,
         });
-        const hasMore = rows.length > limit;
-        const resultRows = hasMore ? rows.slice(0, limit) : rows;
-        const messages = yield* this.messageRowsToMessages(resultRows);
-        return { messages, hasMore };
+        const messages = yield* this.messageRowsToMessages(rows);
+        return { messages };
       }),
     );
   }
@@ -663,10 +659,9 @@ export class MessageService {
   private visibleMessageRows(args: {
     readonly conversationId: ConversationId;
     readonly requesterAgentId: AgentId;
-    readonly sinceSeq: string | undefined;
     readonly limit: number;
   }): Effect.Effect<ReadonlyArray<MessageRow>, SqlError> {
-    const { conversationId, requesterAgentId, sinceSeq, limit } = args;
+    const { conversationId, requesterAgentId, limit } = args;
     return Effect.gen(this, function* () {
       // The participant-scoped `dispatch_decision` view always applies: a
       // participant sees their own sends plus messages the authorizing app
@@ -678,9 +673,6 @@ export class MessageService {
         .selectAll()
         .where("conversation_id", "=", conversationId)
         .where("is_deleted", "=", false);
-      if (sinceSeq !== undefined) {
-        qb = qb.where("seq", ">", sinceSeq);
-      }
       qb = qb.where((eb) =>
         eb.or([
           eb("sender_id", "=", requesterAgentId),
@@ -694,7 +686,7 @@ export class MessageService {
           ]),
         ]),
       );
-      return yield* qb.orderBy("seq", "desc").limit(limit + 1);
+      return yield* qb.orderBy("seq", "desc").limit(limit);
     });
   }
 

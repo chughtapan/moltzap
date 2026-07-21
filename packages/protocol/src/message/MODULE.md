@@ -16,7 +16,7 @@ _Variable_
 export const agentCallableDispatchRpcMethods = [DispatchRequest] as const
 ```
 
-### [`agentCallableMessageRpcMethods`](./messages.ts#L156)
+### [`agentCallableMessageRpcMethods`](./messages.ts#L150)
 
 _Variable_
 
@@ -264,7 +264,7 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](./messages.ts#L197)
+### [`messageCallbackMethods`](./messages.ts#L191)
 
 _Variable_
 
@@ -289,7 +289,7 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
 
 The referenced message does not exist, such as a missing reply target.
 
-### [`messageNotifications`](./messages.ts#L219)
+### [`messageNotifications`](./messages.ts#L213)
 
 _Variable_
 
@@ -301,7 +301,7 @@ export const messageNotifications = [
 
 Message notification catalog.
 
-### [`MessageReceivedNotification`](./messages.ts#L205)
+### [`MessageReceivedNotification`](./messages.ts#L199)
 
 _TypeAlias_
 
@@ -313,7 +313,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`MessageReceivedNotificationDefinition`](./messages.ts#L213)
+### [`MessageReceivedNotificationDefinition`](./messages.ts#L207)
 
 _Variable_
 
@@ -326,7 +326,7 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`MessagesAuthorize`](./messages.ts#L188)
+### [`MessagesAuthorize`](./messages.ts#L182)
 
 _Variable_
 
@@ -342,7 +342,7 @@ export const MessagesAuthorize = defineRpc({
 
 Server callback asking an app for the per-message fan-out verdict.
 
-### [`MessagesList`](./messages.ts#L147)
+### [`MessagesList`](./messages.ts#L141)
 
 _Variable_
 
@@ -356,7 +356,7 @@ export const MessagesList = defineRpc({
 })
 ```
 
-List messages in a conversation with cursor-based pagination.
+List the newest visible messages in a conversation, returned oldest-first.
 
 ### [`MessagesSend`](./messages.ts#L107)
 
