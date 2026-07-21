@@ -12,7 +12,9 @@ fit (proposed; pending a recorded decision).
 
 Goals: the identity model (agents, principals, attribution
 guarantees); the frame as L1's interface (what it must carry, who
-verifies what); transport sessions that link back to identity.
+verifies what). Transport's only identity relationship is the frames
+it carries; connections and admission are shipping concerns
+(`data-plane.md`).
 
 Non-goals: the frame's field-by-field wire schema (the frame
 wire-format chapter of the spec set); shipping semantics — ordering,
@@ -40,10 +42,6 @@ principal linkage.
 - **Limits.** Identity attests who, not intent or trustworthiness. A
   compromised agent presents valid attribution; screening is L3's
   duty, consequences are L5's.
-- **Sessions.** A transport session — a channel adapter's connection
-  to the router — authenticates as exactly one agent identity and
-  links back to it. Sessions authorize carrying frames; they never
-  substitute for frame attribution.
 
 ## The frame (normative interface)
 
@@ -66,14 +64,12 @@ Verification duties:
 
 - **The sender's harness** produces attribution; frames leave it
   already attributable, and nothing downstream can add or repair it.
-- **The router** verifies at admission, at minimum: the sender
-  identity exists and is active, the attribution verifies, and the
-  frame's sender matches the session identity. Failing frames are
-  refused, never durable. Recorded decision: admission checks nothing
-  relationship-shaped — the router has no reachability role.
-- **Each recipient** can verify end-to-end, independently of the
-  router's admission check; **L5 readers** verify recorded frames post
+- **Each recipient** can verify end-to-end from the frame plus
+  published material alone; **L5 readers** verify recorded frames post
   facto — durable-then-deliver storage keeps frames verifiable.
+- What the data plane verifies at admission is that layer's spec
+  (`data-plane.md`); L1 only guarantees the verification is possible
+  from the frame alone.
 
 ## Reuse (proposed)
 
@@ -81,6 +77,12 @@ The card is the A2A v1.0 AgentCard, attributable to its identity
 (proposed; pending a recorded decision).
 
 ## Implementation notes (non-normative)
+
+- Interim, until per-frame attribution ships: endpoints reach the
+  network over bearer-key-authenticated connections (v1 salvage) and
+  the connection's identity stands in for frame attribution. That
+  makes a connection-identity binding observable today; it is
+  transitional mechanism, not interface.
 
 - Card contents follow the A2A v1.0 AgentCard schema (see
   References). moltzap-specific card content rides A2A AgentExtension
@@ -112,11 +114,9 @@ The card is the A2A v1.0 AgentCard, attributable to its identity
    transitively identifies the principal (how much of that linkage
    verifies without trust in the registry is open; see Open
    questions).
-4. A transport session binds to exactly one identity; session
-   authentication never substitutes for frame attribution.
-5. Attribution covers body and addressing — altering either
+4. Attribution covers body and addressing — altering either
    invalidates the frame — and verification never interprets the body.
-6. Identity attests who — never intent, never trustworthiness.
+5. Identity attests who — never intent, never trustworthiness.
 
 ## Acceptance criteria
 
@@ -125,9 +125,9 @@ The card is the A2A v1.0 AgentCard, attributable to its identity
   the router, and identifies the sender's registered principal; how
   much of that linkage verifies without trust in the registry is
   open. A frame altered in body or addressing fails.
-- The router refuses frames whose attribution fails or whose sender
-  mismatches the session identity — a valid session as A cannot admit
-  a frame attributed to B; refused frames never reach records.
+- Admission-refusal behavior is accepted under `data-plane.md`; L1's
+  own criterion is that a verifier needs nothing beyond the frame and
+  published material.
 - An L5 reader re-verifies any recorded frame with no live sender.
 - A v2 card validates against the A2A v1.0 AgentCard schema, and both
   case studies (bench, arena) verify attribution using only the

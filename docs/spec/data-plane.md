@@ -44,6 +44,11 @@ participant emits next).
 - **Attribution in transit.** Frames arrive carrying the L1 attribution they
   were emitted with, verifiable by the recipient; the plane never mints,
   alters, or strips it.
+- **Admission.** At admission the plane verifies, at minimum, that the
+  frame's attribution verifies per L1 and its sender identity exists
+  and is active; failing frames are refused before durability.
+  Recorded decision: admission checks nothing relationship-shaped —
+  the router has no reachability role.
 - **Content-blindness.** Routing and admission read envelope fields only, never
   bodies. End-to-end encryption stays a preserved possibility.
 - **Records handoff.** Durable-then-deliver: no frame fans out before it is
