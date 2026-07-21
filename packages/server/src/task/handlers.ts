@@ -44,7 +44,7 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import { ConversationServiceTag } from "#conversation";
 import { TaskAuthorizationServiceTag, TaskServiceTag } from "./layer.js";
 import { agentArm, appArm } from "#moltzap/runtime";
-import { authorizeConversationCreate } from "#conversation/requirements";
+import { authorizeConversationCreateCapacityOnly } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 import type { AgentContext, AppContext } from "#socket";
 import { assertCallerAppOwnsTask } from "#task/requirements";
@@ -75,10 +75,7 @@ function mintInitialConversation(input: MintInitialInput) {
     const conversationService = yield* ConversationServiceTag;
     const participantAgentIds: ReadonlyArray<AgentId> =
       input.initial.participants ?? input.invitedAgentIds;
-    yield* authorizeConversationCreate({
-      agentIds: [...participantAgentIds],
-      creatorAgentId: input.callerAgentId,
-    });
+    yield* authorizeConversationCreateCapacityOnly(participantAgentIds);
     const conversation = yield* conversationService.create({
       name: input.initial.name,
       agentIds: [...participantAgentIds],

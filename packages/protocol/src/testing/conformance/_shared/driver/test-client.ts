@@ -38,6 +38,7 @@ import {
 import {
   NotConnectedError,
   RpcTimeoutError as ProtocolRpcTimeoutError,
+  type DomainErrorsOf,
   type NotificationDelivery,
   type ParamsOf,
   type ResultOf,
@@ -109,7 +110,7 @@ export interface AppTestClient extends NotificationClient {
     handler: (
       params: ServerRpcParams<D>,
       ctx: ServerRpcContext,
-    ) => Effect.Effect<ServerRpcResult<D>, RpcResponseError>,
+    ) => Effect.Effect<ServerRpcResult<D>, DomainErrorsOf<D>>,
   ) => Effect.Effect<void>;
 
   readonly awaitServerRequest: <D extends ServerRpcDefinition>(
@@ -147,7 +148,7 @@ export interface ServerRpcContext {
 type CallbackHandler = (
   params: unknown,
   ctx: ServerRpcContext,
-) => Effect.Effect<unknown, RpcResponseError>;
+) => Effect.Effect<unknown, DomainErrorsOf<ServerRpcDefinition>>;
 
 type CallbackHandlers = HashMap.HashMap<ServerRpcDefinition, CallbackHandler>;
 
@@ -342,7 +343,7 @@ function runAppCallback<D extends ServerRpcDefinition>(
   awaitersRef: Ref.Ref<Awaiters>,
   definition: D,
   params: ServerRpcParams<D>,
-): Effect.Effect<ServerRpcResult<D>, unknown> {
+): Effect.Effect<ServerRpcResult<D>, DomainErrorsOf<ServerRpcDefinition>> {
   return Effect.gen(function* () {
     yield* notifyAwaiter(awaitersRef, definition, params);
     const handlers = yield* Ref.get(handlersRef);

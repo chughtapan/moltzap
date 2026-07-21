@@ -212,7 +212,7 @@ function makeCallbackScript<D extends ServerRpcDefinition>(
 function runScriptedCallback<D extends ServerRpcDefinition>(
   state: Ref.Ref<CallbackState<D>>,
   params: ServerRpcParams<D>,
-): Effect.Effect<ServerRpcResult<D>, RpcResponseError> {
+): Effect.Effect<ServerRpcResult<D>> {
   return Effect.gen(function* () {
     const current = yield* Ref.get(state);
     if (current.silenced) return yield* Effect.never;

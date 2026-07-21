@@ -35,7 +35,7 @@ export interface AppCallbackContext {
 }
 ```
 
-### [`AppCallbackHandlers`](./app-callbacks.ts#L44)
+### [`AppCallbackHandlers`](./app-callbacks.ts#L45)
 
 _TypeAlias_
 
@@ -266,7 +266,7 @@ export function extractCloseInfo(
 ): CloseInfo
 ```
 
-### [`HandlerSlot`](./app-callbacks.ts#L20)
+### [`HandlerSlot`](./app-callbacks.ts#L21)
 
 _Interface_
 
@@ -276,7 +276,7 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
   readonly handle: (
     params: ParamsOf<D>,
     ctx: Ctx,
-  ) => Effect.Effect<ResultOf<D>, unknown>;
+  ) => Effect.Effect<ResultOf<D>, DomainErrorsOf<D>>;
 }
 ```
 

@@ -8,21 +8,7 @@ Conversation-domain requirement helpers.
 
 ## Public surface
 
-### [`authorizeConversationCreate`](./create-authorization.ts#L16)
-
-_Function_
-
-```ts
-export const authorizeConversationCreate = (
-  input: AuthorizeConversationCreateInput,
-): Effect.Effect<
-  void,
-  AgentNotFoundError | NotInContactsError | ConversationFullError,
-  ConversationServiceTag
->
-```
-
-### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L47)
+### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L17)
 
 _Function_
 
@@ -85,14 +71,18 @@ Refine the task is active (status is NOT `closed`/`failed`). Called BEFORE
 guardConversationNotArchived so a closed task surfaces `TaskClosed`
 before the auto-archive's `ConversationArchived`.
 
-### [`obtainConversationInTask`](./in-task.ts#L14)
+### [`obtainConversationInTask`](./in-task.ts#L15)
 
 _Function_
 
 ```ts
 export const obtainConversationInTask = (
   input: TaskAndConversation,
-): Effect.Effect<ConversationInTaskValue, unknown, TaskServiceTag>
+): Effect.Effect<
+  ConversationInTaskValue,
+  ConversationNotFoundError,
+  TaskServiceTag
+>
 ```
 
 ### [`obtainConversationSendAccess`](./send-access.ts#L22)
@@ -118,7 +108,7 @@ whole send path costs one joined read. A `conversationId` that
 survives the participant check but vanishes from the join is a true race
 (archival/deletion) — surfaced as a defect, not a user error.
 
-### [`TaskAndConversation`](./in-task.ts#L9)
+### [`TaskAndConversation`](./in-task.ts#L10)
 
 _Interface_
 

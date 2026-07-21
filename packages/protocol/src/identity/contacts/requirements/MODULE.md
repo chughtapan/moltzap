@@ -15,12 +15,12 @@ _Class_
 ```ts
 export class ContactPolicyAllowsReach extends RpcMiddleware.Tag<ContactPolicyAllowsReach>()(
   "@moltzap/protocol/ContactPolicyAllowsReach",
-  { failure: Schema.Union(NotInContactsError) },
+  { failure: Schema.Union(AgentNotFoundError, NotInContactsError) },
 ) {}
 ```
 
-Requirement middleware: resolves whether the creator may reach every target
-under the recipients' contact policy.
+Requirement middleware: resolves every target and verifies the creator may
+reach it under the recipient's contact policy.
 
 ### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L6)
 
