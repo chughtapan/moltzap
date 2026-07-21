@@ -363,7 +363,7 @@ export class MessageService {
    * Participant fan-out is best-effort after the durable insert. Offline
    * participants are not a send failure: `broadcast` reports which agent IDs
    * were reached, `recordTrace` observes the misses, and reconnecting clients
-   * recover durable history via `messages/list`.
+   * recover recent durable history within the requested `messages/list` limit.
    */
   sendCommit(
     carrier: SendInsertResult,
