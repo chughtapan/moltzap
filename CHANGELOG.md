@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: bounded message history
+
+- **BREAKING (`@moltzap/protocol`): simpler list contract.**
+  `agent/message/list` now accepts only `taskId`, `conversationId`, and `limit`,
+  and returns `{ messages }`. It selects the newest visible messages up to the
+  requested limit and returns that bounded window oldest-first; the unused
+  `sinceSeq` cursor and `hasMore` flag are removed.
+
 ### Removed: Claude Code integration
 
 - **Breaking runtime surface.** Removed `ClaudeCodeAdapter` and the

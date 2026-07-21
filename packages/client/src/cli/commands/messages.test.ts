@@ -45,12 +45,10 @@ const messagesListSuccess = () => ({
       parts: [{ type: "text" as const, text: "hi" }],
     },
   ],
-  hasMore: false,
 });
 
 const emptyMessagesList = () => ({
   messages: [],
-  hasMore: false,
 });
 
 function transportFailure() {

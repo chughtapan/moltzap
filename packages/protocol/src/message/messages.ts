@@ -127,21 +127,15 @@ export const MessagesSend = defineRpc({
 const MessagesListParams = Schema.Struct({
   taskId: TaskId,
   conversationId: ConversationId,
-  sinceSeq: Schema.optional(
-    Schema.String.annotations({
-      description: "Snowflake seq cursor (string-encoded BIGINT)",
-    }),
-  ),
   limit: ListLimitSchema,
 });
 
 const MessagesListResult = Schema.Struct({
   messages: Schema.Array(MessageSchema),
-  hasMore: Schema.Boolean,
 });
 
 /**
- * List messages in a conversation with cursor-based pagination.
+ * List the newest visible messages in a conversation, returned oldest-first.
  * @error ForbiddenError when the caller is not a participant of the conversation
  */
 export const MessagesList = defineRpc({
