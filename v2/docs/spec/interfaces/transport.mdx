@@ -1,0 +1,55 @@
+---
+title: "Transport interface"
+description: "Best-effort pairwise movement of sealed datagrams — the replaceable substrate"
+---
+
+# Transport interface
+
+The smallest interface in the system: move a sealed datagram from
+one registered identity toward another. Everything the transport
+does not promise is deliberately absent — durability belongs to the
+[mailbox](./mailbox), attribution to the datagram's own signature
+(L1-G1), ordering to L2. This is what makes the substrate
+replaceable: the v0 router, a relay mesh, or direct peer links all
+satisfy the same four statements.
+
+## Operations
+
+```
+interface Transport
+  send(d: Datagram) -> ()            -- fire and forget
+  received() -> stream of Datagram   -- deliveries to the attached endpoint
+```
+
+| Operation | Justified by |
+|---|---|
+| `send` | L1-G3's push half — an attempt, not a promise |
+| `received` | the endpoint's inbound face; E-O2/E-O5 run on every item |
+
+## Guarantees
+
+| ID | Guarantee |
+|---|---|
+| **T-G1** Integrity | A delivered datagram is bit-identical to the sent one. The transport MUST NOT alter any field; alteration is detectable by the datagram signature. |
+| **T-G2** Opacity | The transport MUST NOT interpret `payload` (L1-G4). |
+| **T-N1** Best effort | Delivery MAY fail silently and MAY duplicate. No ordering of any kind is promised (L1-N1). Nothing above the transport may assume otherwise. |
+
+`T-N1` is normative and load-bearing: every reliability property in
+the system is built *on top of* an unreliable transport, never
+assumed *of* it. A deployment whose transport happens to be reliable
+gains efficiency, not different semantics.
+
+## Refusals
+
+A transport MAY refuse to carry a datagram (quota, unknown
+recipient, policy under open question #2). What a refusal looks like
+to the sender is open question #9 — the failure taxonomy is not
+bound here.
+
+## Implementation note (non-normative)
+
+v0: WebSocket sessions to the router; `send` is a socket write,
+`received` is the socket's inbound stream. Decentralized later:
+`send` resolves the recipient's current locator and pushes
+peer-to-peer, with relays as fallback. The interface is unchanged in
+both — that is the two-substrate test applied to one interface.

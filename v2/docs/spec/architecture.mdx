@@ -59,6 +59,12 @@ colocated router and by a deployment where the roles are held by
 different parties. This is the **two-substrate test**; a guarantee
 that only one substrate can satisfy is mis-factored.
 
+The roles are exposed through three interfaces: the
+[transport](./interfaces/transport) (the transport role), the
+[ledger](./interfaces/ledger) (sequencer and record store behind one
+surface), and the [mailbox](./interfaces/mailbox) (composed from the
+other two, adding no obligations of its own).
+
 ## Frame taxonomy
 
 Three families cross the wire, and nothing else:

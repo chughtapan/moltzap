@@ -1,0 +1,72 @@
+---
+title: "Ledger interface"
+description: "Durable, consecutively positioned, signed append-only logs — sequencer and record store behind one surface"
+---
+
+# Ledger interface
+
+The ledger is the sequencer and record-store roles exposed as one
+interface: `append` is the sequencing act, `read` is the record act.
+Every durable ordered thing in the system is a deployment of this
+one interface — the conversation stream is a ledger of `LogEntry`,
+and the [mailbox](./mailbox)'s inbox is a small ledger of datagrams.
+
+## Operations
+
+```
+interface Ledger
+  append(scope: LedgerId, entry: Entry) -> Commit
+  read(scope: LedgerId, after: Seq, limit) -> Page
+  head(scope: LedgerId) -> Seq
+
+Commit = SeqCommit                      -- { scope, seq, entryHash, seqSig }
+Page   = { items: Committed[], head: Seq }
+Committed = { entry: Entry, commit: Commit }
+```
+
+| Operation | Justified by |
+|---|---|
+| `append` | L2-G1 — position assignment; returns only after the entry is durable |
+| `read` | L2.5-G4 / E-O4 — gap-free resume from any held position |
+| `head` | gap detection — a member comparing `head` to its own high-water mark discovers withheld entries (L2-G1) |
+
+## Guarantees
+
+| ID | Guarantee |
+|---|---|
+| **LG-G1** Durable append | `append` returns only after the entry is durable. There is no window where a position is assigned but its entry can be lost. |
+| **LG-G2** Consecutive, unique positions | Positions within a scope are consecutive from 1, and each position binds exactly one entry hash, ever. |
+| **LG-G3** Signed commits | Every assignment is signed by the scope's current sequencer. Two commits for one `(scope, seq)` with different hashes are non-repudiable proof of equivocation (L2-G4). |
+| **LG-G4** Gap-free reads | `read(scope, after: N)` returns a prefix-complete continuation: positions N+1, N+2, … with nothing omitted, up to `limit`. |
+| **LG-G5** Immutability | A committed entry is never altered or removed within the retention window. Retention itself is open question #7. |
+
+A ledger holder that violates LG-G2..G5 produces invalid signatures,
+conflicting commits, or provable gaps — the ledger is auditable from
+its own contents, which is what lets the record substrate double as
+L5 evidence (L5-G1, L5-G2).
+
+## Deployments
+
+| Deployment | Scope | Entry | Who appends |
+|---|---|---|---|
+| Conversation stream | `ConversationId` | `LogEntry` | members, under the authority rules chartered to #765 |
+| Mailbox inbox | recipient `AgentId` | `Datagram` | the mailbox itself, on accept |
+
+Authorization for `append` and `read` is a property of the
+deployment, not of the interface; the conversation deployment's
+rules live with the L2 charter, the inbox's with the mailbox page.
+
+## Refusals
+
+An `append` MAY be refused (authority, quota, PCC once #765 binds
+it). Failure taxonomy: open question #9.
+
+## Implementation note (non-normative)
+
+v0: one router-held store; `append` is an insert with a
+commit-time-assigned dense counter per scope — the corrective to
+v1's pre-commit sparse snowflake, which produced a measured
+gap-on-resume hole. Decentralized later: the scope's sequencer role
+moves to a member leader or quorum; `read` can be served by any
+holder of the signed pairs, since LG-G3/G4 make the response
+verifiable regardless of who serves it.

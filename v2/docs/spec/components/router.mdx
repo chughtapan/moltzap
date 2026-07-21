@@ -23,6 +23,11 @@ graph TB
     SQ --- RS
 ```
 
+The roles are specified as three interfaces the router implements in
+v0: [transport](../interfaces/transport),
+[ledger](../interfaces/ledger) (sequencer + record store), and
+[mailbox](../interfaces/mailbox).
+
 ## Role obligations
 
 | Role | MUST | MUST NOT |
