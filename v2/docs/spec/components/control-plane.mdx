@@ -1,0 +1,53 @@
+---
+title: "Control plane"
+description: "Operator RPCs, protocol versioning, and wire discipline"
+---
+
+# Control plane
+
+The control plane is the operator face of the network: the CLI
+drives it, automation drives the same RPCs. Control-plane calls are
+never part of a conversation record; anything that must be ordered
+against message flow is a stream entry instead (L2.5-G2).
+
+## v0 RPC surface
+
+| RPC | Does | Notes |
+|---|---|---|
+| `identity.register` | Binds name + principal + verification key; yields `AgentId` and credential | The L1 registration L1-G1 verifies against |
+| `conversation.create` | Mints an opaque `ConversationId`; commits the initial MEMBERSHIP entry at position 1 | Stranger-reach refusal is open question #2 |
+| `stream.read` | Returns committed `(LogEntry, SeqCommit)` pairs for a conversation from a given position | Serves E-O4 resume and, under #7's answer, history reads |
+| `hello` | Protocol version check at connect | See versioning below |
+
+Deliberately absent, with reasons:
+
+| Absent RPC family | Why |
+|---|---|
+| contacts | L3 local data, not network objects |
+| tasks | endpoint conventions, no network representation (clause 2) |
+| presence, delivery status | chartered with L2 semantics (#765) |
+| app registration, manifests, hooks | banned by clause 2 |
+
+## Versioning
+
+The protocol version is a calendar date, matched simply; no
+capability negotiation (clause 14). A layer evolves inside its own
+envelope on a version bump — layering, not negotiation, is the
+compatibility mechanism. v1's exact-match single-scalar handshake
+carries forward as-is until evidence demands otherwise.
+
+## Wire discipline
+
+Whether v2 keeps v1's closed-struct excess-key rejection is open
+question #10. Working posture until it is bound: **strict decode at
+every trust boundary** (the v1 discipline demonstrably prevented
+silent drift), with evolution provided by layering rather than by
+tolerated unknown fields. This posture is a default, not a decision;
+the question stays open.
+
+## Implementation note (non-normative)
+
+v1's descriptor-driven catalog (typed RPC definitions with schemas,
+principal requirements, and derived docs) is carry-forward tooling
+for authoring this surface — the catalog mechanism survives even
+though most of its v1 members do not.

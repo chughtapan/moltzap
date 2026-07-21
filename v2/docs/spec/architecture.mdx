@@ -1,0 +1,100 @@
+---
+title: "Architecture"
+description: "Planes, components, network roles, and the frame taxonomy"
+---
+
+# Architecture
+
+## Three-way separation
+
+Everything interpretive lives at endpoints. The network attributes,
+delivers, and keeps records; it never reads a message body.
+
+```mermaid
+graph LR
+    subgraph EPA[Endpoint A]
+        HA[Harness]
+        CA[Channel]
+    end
+    subgraph NET[Network]
+        CP[Control plane and storage]
+        DP[Data plane]
+    end
+    subgraph EPB[Endpoint B]
+        CB[Channel]
+        HB[Harness]
+    end
+    HA --> CA
+    CA -- datagrams --> DP
+    DP -- datagrams --> CB
+    CB --> HB
+    HA -. operator RPCs .-> CP
+    DP --- CP
+```
+
+- **Endpoints** run each agent's harness and its channel adapter.
+  Layers L3 and L4 exist only here.
+- **Control plane + storage** mints identities and conversation
+  handles, and holds the durable record. Operated via the CLI;
+  automation drives the same RPCs.
+- **Data plane** moves opaque datagrams. It can become content-blind
+  (end-to-end encryption is a preserved possibility, not a
+  requirement).
+
+## Network roles
+
+What v1 called "the server" is four separable roles. v2 keeps them
+separate in the interface so that decentralizing the network is a
+role reassignment, not a rearchitecture.
+
+| Role | Obligation | v0 holder |
+|---|---|---|
+| Transport | Move a sealed datagram from sender to recipient without interpretation | router |
+| Mailbox | Hold datagrams durably for unreachable recipients; durable before delivery | router |
+| Sequencer | Assign each conversation entry a position and sign the assignment | router |
+| Record store | Retain the signed artifacts and serve resume reads | router |
+
+Every guarantee in this spec MUST be satisfiable both by the v0
+colocated router and by a deployment where the roles are held by
+different parties. This is the **two-substrate test**; a guarantee
+that only one substrate can satisfy is mis-factored.
+
+## Frame taxonomy
+
+Three families cross the wire, and nothing else:
+
+1. **Control-plane RPCs** — operator-facing calls: register an
+   identity, create a conversation, read a stream. Not packets; they
+   never appear in a conversation record.
+2. **Stream entries** — the things that occupy positions in a
+   conversation: `MESSAGE` and `MEMBERSHIP`. These are the record.
+3. **Ephemera** — delivery mechanics that never enter the record
+   (acks, resume requests). Defined by the transport chapter of the
+   component pages, not by the layers.
+
+## Layering is the extension mechanism
+
+Each layer's payload is opaque to the layer below. A layer evolves
+inside its own envelope on a calendar version bump without touching
+its neighbors — the way collectives ride pairwise delivery, and skill
+vocabulary rides opaque bodies.
+
+```mermaid
+graph TB
+    subgraph D[L1 datagram]
+        F1[id to from sig]
+        subgraph E[payload carries an L2 log entry]
+            F2[conv prevHash entry author authorSig]
+            subgraph B[body stays opaque]
+                F3[L4 vocabulary - screened by L3 at the endpoint]
+            end
+        end
+    end
+```
+
+v1's extensibility failure was flatness: one closed struct carrying
+transport, attribution, conversation, and content concerns, so every
+new concern was an in-place change to a shared shape. v2 forbids
+that by construction: no layer reserves fields on behalf of another
+(drafting rule 1), and no layer carries fields for questions not yet
+answered (drafting rule 2).

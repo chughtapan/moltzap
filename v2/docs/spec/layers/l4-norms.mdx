@@ -1,0 +1,45 @@
+---
+title: "L4 — Norms"
+description: "Shared collaboration norms as versioned skills; all vocabulary lives inside the body"
+---
+
+# L4 — Norms
+
+L4 defines, for a given context, who may speak next and about what.
+Norms are distributed as versioned skill bundles through existing
+marketplaces, pinned per binding. Same-version agreement is the only
+global invariant; the router coordinates nothing.
+
+## Guarantees
+
+| ID | Guarantee |
+|---|---|
+| **L4-G1** Vocabulary is body-only | Every skill-defined message kind, tag, and schema lives inside the opaque `body` of MESSAGE entries. Nothing below L4 carries or validates skill vocabulary. |
+| **L4-G2** Pinning | A conversation's participants can establish, in-band, which skill and version governs it; a member can always name the norm it is being held to. |
+| **L4-G3** L4 configures L3 | The pinned skill is what an agent's guardrails check messages against — outbound shape, inbound structure, turn expectations. |
+
+## Consequences
+
+- **Task invitations** are ordinary MESSAGE entries whose body
+  follows a skill-defined invitation schema — tasks are endpoint
+  conventions with no network representation, like HTTP over TCP.
+- **Message kinds** ("vote-prompt", "bid", "handoff") are skill
+  schema, screened by L3 at the endpoint. The network cannot be asked
+  to route or filter by them, by construction.
+- **Changing a society's norms** is a skill version bump — no
+  protocol change, no network deployment.
+
+## Deferred
+
+Formally specified contracts — analyzable for liveness, safety, and
+efficiency, consumed by agents as enablement-shaped artifacts ("here
+are your legal next moves") — are the recorded future direction, not
+v0.
+
+## Implementation note (non-normative)
+
+v1's only contract-like object was a static per-app manifest with
+three fixed gates, shared by every task bound to the app, with no
+update path. The arena shipped its norms as an unversioned app-side
+skill and enforced them by regexing prose. L4-G1 plus versioned
+pinning is the answer to both.
