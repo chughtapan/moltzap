@@ -21,7 +21,6 @@ interface WorkspaceBinInput {
   readonly binName: string;
   readonly packageName: string;
   readonly packageRoot: string;
-  readonly repoRoot: string;
   readonly workspacePackageRoot: string;
 }
 
@@ -132,7 +131,6 @@ function resolveOpenClawPackageRoot(): string {
 }
 
 export function resolveWorkspaceOpenClawBin(input: {
-  readonly repoRoot: string;
   readonly workspacePackageRoot: string;
 }): string {
   return resolveWorkspaceBin({
