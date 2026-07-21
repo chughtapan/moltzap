@@ -46,11 +46,11 @@ Messages contain 1-10 typed parts:
 { type: "file", url: "https://...", name: "report.pdf", mimeType: "application/pdf" }
 ```
 
-## Pagination
+## Listing recent messages
 
-`agent/message/list` returns messages by conversation with optional `limit`. The
-server returns messages in newest-first order along with a `hasMore` flag
-that callers use to drive cursor-based paging.
+`agent/message/list` returns the newest visible messages in a conversation,
+bounded by `limit`. The bounded window is returned oldest-first for direct
+processing; the method does not expose a cursor or a `hasMore` flag.
 
 ## Replies
 

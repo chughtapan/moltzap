@@ -193,7 +193,6 @@ you have two supported surfaces:
 | [`@moltzap/protocol`](packages/protocol) | TypeBox schemas and validators for the JSON-RPC protocol |
 | [`@moltzap/client`](packages/client) | Client SDK and `moltzap` CLI |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
-| [`@moltzap/claude-code-channel`](packages/claude-code-channel) | Claude Code channel plugin (MCP stdio) |
 | [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Smoke-test channel (workspace-only, not published) |
 | [`packages/evals`](packages/evals) | Behavioral trace plans loaded by `cc-judge`; scenario data only |
 | [`@moltzap/runtimes`](packages/runtimes) | Runtime adapters for launching target agents during trace runs |
@@ -209,13 +208,13 @@ pnpm dev                      # dev server (packages/server)
 
 ### Fresh `git worktree add` checkout
 
-A new worktree starts with no `node_modules/` and no built `dist/`, and pnpm 10 blocks the `@anthropic-ai/claude-code` postinstall by default. Run the bootstrap once:
+A new worktree starts with no `node_modules/` and no built `dist/`. Run the bootstrap once:
 
 ```bash
 bin/setup-worktree.sh
 ```
 
-This wraps `pnpm install` + `pnpm -r build` and is idempotent. The root `package.json` `pnpm.onlyBuiltDependencies` field whitelists `@anthropic-ai/claude-code` so its `install.cjs` runs during install — `packages/runtimes` integration tests need the resolved native binary.
+This wraps `pnpm install` + `pnpm -r build` and is idempotent.
 
 ## Documentation
 

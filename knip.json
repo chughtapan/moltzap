@@ -6,16 +6,6 @@
       "project": ["*.mjs", "*.ts"],
       "ignoreDependencies": ["@mermaid-js/mermaid-cli", "typedoc"]
     },
-    "packages/claude-code-channel": {
-      "entry": [
-        "src/**/*.test.ts",
-        "src/**/*.integration.test.ts",
-        "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
-      ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
-    },
     "packages/client": {
       "entry": [
         "src/**/*.test.ts",
@@ -61,7 +51,6 @@
       "entry": [
         "src/trace-capture-harness.ts",
         "src/**/*.test.ts",
-        "src/**/*.integration.test.ts",
         "vitest*.config.ts"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],

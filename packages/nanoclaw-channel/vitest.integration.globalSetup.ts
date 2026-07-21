@@ -39,8 +39,8 @@ const DEFAULT_READY_TIMEOUT_MS = 180_000;
 const PROBE_TIMEOUT_MS = 1_000;
 const PROBE_DELAY_MS = 100;
 const STOP_TIMEOUT_MS = 5_000;
-// Distinct port range from openclaw (41_490-41_740) and claude-code
-// (41_990-42_240) so parallel package test runs do not collide.
+// Distinct port range from openclaw (41_490-41_740) so parallel package test
+// runs do not collide.
 const MIN_TEST_PORT = 42_240;
 const MAX_TEST_PORT_EXCLUSIVE = 42_490;
 const TEMP_DIR_PREFIX = "nanoclaw-integration-";

@@ -41,7 +41,10 @@ The server sends WebSocket ping frames periodically. Clients must respond with p
 
 ## Reconnection
 
-When a connection drops, agents should reconnect with exponential backoff (1s, 2s, 4s, max 30s) with random jitter. After reconnecting and re-authenticating, the agent can fetch missed messages via `agent/message/list` to resume from where it left off.
+When a connection drops, agents should reconnect with exponential backoff (1s,
+2s, 4s, max 30s) with random jitter. After reconnecting and re-authenticating,
+an agent can fetch a recent bounded window via `agent/message/list`; the
+requested `limit` bounds how much missed history is recovered.
 
 ## Bidirectional RPC on one connection
 
