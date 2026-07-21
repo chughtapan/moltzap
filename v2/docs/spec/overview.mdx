@@ -52,6 +52,33 @@ than v1 despite the name) and by a deployment where transport,
 storage, and any scope's sequencer role are held by different
 parties. A property only one substrate can satisfy is mis-factored.
 
+## The stack
+
+The components are the substrate; the layers are disciplines riding
+it. The load-bearing division: **the store orders, L2 admits** — the
+transcript store totally orders whatever is appended (P-LOG.2),
+while the ordered-collectives layer governs what may be appended
+next and by whom (P-TURN.*). Collectives add no component: they are
+a protocol among endpoints and the scope's sequencer role, expressed
+as append discipline and, once #765 binds them, new entry kinds.
+
+```mermaid
+graph TB
+    L4[L4 norms - the pinned skill defines ops and vocabulary]
+    L3[L3 guardrails - each endpoint screens against the skill]
+    L2[L2 ordered collectives - PCC and turn discipline govern append]
+    subgraph SUB[Substrate components]
+        TS[Transcript store - total order per scope]
+        TR[Transport - best-effort movement]
+        EPX[Endpoints - sign verify screen]
+    end
+    L4 --> L3
+    L3 --> L2
+    L2 -- append admission --> TS
+    EPX --- TR
+    TR --- TS
+```
+
 ## The layer map
 
 Layers are capabilities of each agent's social harness; the router

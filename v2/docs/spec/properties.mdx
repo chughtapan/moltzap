@@ -172,9 +172,14 @@ sequenceDiagram
 
 The recorded v0 decision is MULTICAST with pessimistic concurrency
 control (PCC), nothing more; the charter (#765) owns the semantics.
-These cards reserve the property IDs and their informal content so
-no other layer claims them; their formal statements are deliberately
-absent (drafting rule 2).
+These properties are append-admission discipline riding the store:
+the store totally orders whatever is appended (P-LOG.2); collectives
+govern what may be appended next. Where enforcement sits —
+sequencer-refused, endpoint-screened, or hybrid — is itself
+chartered, and the shapes work under all three. These cards reserve
+the property IDs and their informal content so no other layer claims
+them; their formal statements are deliberately absent (drafting
+rule 2).
 
 ### P-TURN.1 Pessimistic concurrency — safety, chartered
 
