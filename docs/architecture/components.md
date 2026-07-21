@@ -18,26 +18,23 @@ flowchart TB
       SPEC1[Harness-specific plugin]
       AGN[Agnostic plugin]
     end
-    subgraph EPControl[Control]
-      DMN[Daemon]
-      CLI[CLI]
-    end
+    CLI[CLI]
   end
   HARNESS --- SPEC1 --- AGN
   AGN -- frames --> RT
   RT --- ST
-  DMN -- control notifications --- ControlPlane
   CLI -- control-plane ops --> ControlPlane
-  CLI --- DMN
 ```
 
 ## Control plane + storage
 
 Registries and the transcript store. Minted here: identities,
 conversations. Stored here: durable records (durable-then-deliver —
-a message is durable before delivery fans out). Exposes control-plane
-RPCs and emits control notifications; never interprets content, holds
-no coordination policy.
+a message is durable before delivery fans out). Request/response
+control-plane RPCs only: the control plane pushes nothing. Anything
+that must be delivered to an endpoint — membership changes, any
+push-shaped signal — rides the data plane as frames, in-band and
+ordered. Never interprets content, holds no coordination policy.
 
 ## Data plane
 
@@ -56,10 +53,10 @@ a control side:
   harness-independent core: frame handling, admission, enrichment,
   and the L3 gate mount, including contacts as the endpoint's own
   trust data).
-- **Control.** The **daemon** — a long-lived local process that holds
-  the endpoint's session and receives control notifications — and the
-  **CLI**, the operator's interface, part of the endpoint: it drives
-  control-plane ops and reads local state through the daemon.
+- **CLI.** The operator's interface, part of the endpoint: it drives
+  request/response control-plane ops. It receives nothing pushed —
+  all delivery is data-plane frames. Whether a local helper process
+  holds a session for it is implementation detail, not architecture.
 
 ## Component-to-package map
 
