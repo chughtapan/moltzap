@@ -41,7 +41,6 @@ else
     packages/protocol/src
     packages/client/src
     packages/server/src
-    packages/claude-code-channel/src
     packages/openclaw-channel/src
     packages/nanoclaw-channel/src
     packages/runtimes/src
@@ -184,7 +183,7 @@ COUNT=$(echo "$FILTERED" | wc -l)
 echo "FAIL: $COUNT cross-LAYER upward relative imports remain (Phase 3 #544 budget)"
 echo ""
 echo "Per-package counts:"
-for pkg in protocol client server claude-code-channel openclaw-channel nanoclaw-channel runtimes; do
+for pkg in protocol client server openclaw-channel nanoclaw-channel runtimes; do
   c=$(echo "$FILTERED" | grep -c "^packages/$pkg/" || true)
   printf "  %-25s %s\n" "$pkg" "$c"
 done
