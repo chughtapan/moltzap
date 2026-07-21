@@ -1,63 +1,38 @@
 # moltzap v2 track
 
-Extends the workspace-root `AGENTS.md`. This file governs work under
-`v2/*` and on the `v2` branch. moltzap is the social harness for
-agentic societies; v2 is its clean-slate architecture change.
+Extends the workspace-root `AGENTS.md`; governs work under `v2/*` and
+on the `v2` branch.
 
-## Where v2 is right now
+## Structure
 
-The interface spec set (`docs/spec/` on the `v2` branch) is the
-founding artifact; epic #755 is the live source for how much of it
-exists so far, and the sequencing lives in `VISION.md → The Path`.
-Do not write v2 implementation code ahead of the spec chapter that
-governs it.
+- `docs/spec/` (on the `v2` branch) — the interface spec set, the
+  founding artifact. Epic #755 is the live source for how much of it
+  exists; sequencing lives in `VISION.md → The Path`.
+- `v2/inputs/` — the evidence base this track was founded on;
+  `v2/inputs/README.md` is the inventory.
+- Layer map: canonical text is `VISION.md → The Constitution`.
 
-## Working style
+## Rules
 
-- **Interfaces before implementation.** The spec is the deliverable of
-  this phase. Implementation conversations wait until the governing
-  chapter is approved.
-- **Guarantees, not mechanisms.** Spec language states ordering,
-  attribution, durability, revocability properties. Ledgers, compilers,
-  pipelines, and other mechanisms belong in implementation notes and
-  salvage analyses, never in normative interface text.
+- **Spec first.** Do not write v2 implementation code ahead of the
+  spec chapter that governs it; implementation waits until the
+  governing chapter is approved.
+- **Guarantees, not mechanisms.** Normative interface text states
+  ordering, attribution, durability, revocability properties.
+  Mechanisms (ledgers, compilers, pipelines) belong in implementation
+  notes and salvage analyses.
 - **Questions stay questions.** The open-question register in
-  `VISION.md` is a deliverable, not a to-do list of things to
-  answer inline. Binding an answer requires evidence or a decision by
-  the maintainer, recorded where the question is registered.
+  `VISION.md` is a deliverable. Binding an answer requires evidence or
+  a maintainer decision, recorded where the question is registered.
 - **Zero v1 imports.** Nothing under `v2/` imports `@moltzap/*` or
-  reaches into `packages/`. v1 is evidence and baseline generator,
-  not a dependency. Salvage happens by
-  re-implementation against the spec, guided by the salvage analyses,
-  never by import. CI enforces the boundary
-  (`scripts/check-architecture-boundaries.js`, run by `pnpm lint`).
-- **The case studies are the falsification harness.** Interface
-  decisions must keep `moltzap-propagation-bench` (paper experiments)
-  and `moltzap-arena` (Mafia) expressible as pure consumers. When a
-  design forces either to reach into internals, the design is wrong.
-
-## Inputs
-
-`v2/inputs/` carries the evidence base this track was founded on;
-`v2/inputs/README.md` is the inventory. `VISION.md` is the
-constitution and vision.
-
-## Layer map for orientation
-
-Orientation digest only; the canonical text is `VISION.md → The
-Constitution`.
-
-| Layer | Concern | Where it runs |
-|---|---|---|
-| L1 | unforgeable, verifiable identity; principal linkage | endpoint signs; recipients verify; control plane stores registrations |
-| L2 | per-message collective ops; ordering (first version, recorded decision: multicast + pessimistic concurrency control; #765 charters the rest) | data plane (router) |
-| L2.5 | conversations: addressing + membership views in-band | control plane mints; data plane routes |
-| L3 | personal-trust guardrails: structural + semantic screening | endpoints only |
-| L4 | norms as versioned skills; who may speak next, about what | marketplace-distributed; consumed by endpoints |
-| L5 | records, monitors, registries, revocation | store is control-plane-side; monitor placement is an open register question |
-| L6 | governance of the policies themselves | open |
-
-The L2 semantics charter is issue #765; treat its questions, and the
-four paper-required constraints (stated in `VISION.md` → The
-Constitution, L2 clause), as the working surface for anything
-L2-shaped.
+  reaches into `packages/`. Salvage happens by re-implementation
+  against the spec, guided by the salvage analyses, never by import.
+  Enforced by `scripts/check-architecture-boundaries.js` (run by
+  `pnpm lint`).
+- **Case studies are the falsification harness.** Interface decisions
+  must keep `moltzap-propagation-bench` (paper experiments) and
+  `moltzap-arena` (Mafia) expressible as pure consumers; a design that
+  forces either to reach into internals is wrong.
+- **L2 work** treats the #765 charter's questions and the four
+  paper-required constraints (`VISION.md → The Constitution`, L2
+  clause) as its working surface.

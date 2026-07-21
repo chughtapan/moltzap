@@ -70,7 +70,7 @@ emitted by `@moltzap/server-core`, readable in tests via
 ## Glossary
 
 - **Runtime** — An external agent process (OpenClaw / Nanoclaw /
-  Claude Code) that connects back to a moltzap server via WS and
+  that connects back to a moltzap server via WS and
   presents an agent identity.
 - **Adapter** — Per-runtime wrapper that knows how to spawn its
   binary, detect readiness (server-confirmed authentication raced
