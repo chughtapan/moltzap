@@ -1,6 +1,6 @@
 ---
 title: "Packets"
-description: "Appendix: identifiers, wire shapes, and the pruned-field ledger"
+description: "Appendix: identifiers, wire shapes, and the pruned-field record"
 ---
 
 # Packets
@@ -74,7 +74,7 @@ LogEntry    { conv, prevHash, entry, author, authorSig, ... }
 SeqCommit   { conv, seq, entryHash, seqSig }
 ```
 
-The conversation specialization of the ledger's `Commit`
+The conversation specialization of the transcript store's `Commit`
 (`scope` = `conv`).
 
 | Field | Justified by |
@@ -89,11 +89,12 @@ The conversation specialization of the ledger's `Commit`
 Committed   { entry: LogEntry, commit: SeqCommit }
 ```
 
-Defined by the [ledger interface](./interfaces/ledger). Delivery
-pushes `Committed` values; `stream.read` returns them in `seq`
-order, gap-free (P-LOG.4).
+Defined by the
+[transcript store](./interfaces/transcript-store). Delivery pushes
+`Committed` values; `stream.read` returns them in `seq` order,
+gap-free (P-LOG.4).
 
-## Pruned-field ledger
+## Pruned fields
 
 Fields considered and pruned by drafting rule 2. This table is the
 single home for the reasons.

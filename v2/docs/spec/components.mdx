@@ -18,29 +18,25 @@ graph TB
         CH[Channel adapter]
     end
     CLI[Operator CLI]
-    subgraph RT[Router v0 - claims every network class]
+    subgraph RT[Router v0 - claims both network classes]
         TR[Transport provider]
-        SQ[Sequencer]
-        RS[Record store]
-        MB[Mailbox provider]
+        TS[Transcript store]
     end
     CPS[Control plane service]
     H --- CH
     CH -- Transport send and received --> TR
-    CH -- Ledger read --> RS
-    CH -- Mailbox drain and ack --> MB
+    CH -- append read release --> TS
+    TS -- push over transport --> TR
     H -. ControlPlane RPCs .-> CPS
     CLI -. ControlPlane RPCs .-> CPS
-    SQ --- RS
 ```
 
 ## Interface matrix
 
 | Interface | Provided by | Consumed by |
 |---|---|---|
-| [Transport](./interfaces/transport) | Transport Provider | endpoint channel (send, received); sequencer (fan-out) |
-| [Ledger](./interfaces/ledger) | Sequencer (append) + Record Store (read, head) | endpoint (append on send, read on resume); mailbox (inbox scope) |
-| [Mailbox](./interfaces/mailbox) | Mailbox Provider | endpoint channel (accept is sender-side, drain/ack recipient-side) |
+| [Transport](./interfaces/transport) | Transport Provider | endpoint channel (send, received); transcript store (push fan-out) |
+| [Transcript store](./interfaces/transcript-store) | Transcript Store | endpoint (append on send, read on resume, release on inbox) |
 | [Control plane](./interfaces/control-plane) | Control Plane | operator CLI, automation, endpoint bootstrap |
 
 ## Endpoint
@@ -86,20 +82,15 @@ skill-defined schema — tasks are endpoint conventions with no
 network representation, like HTTP over TCP (clause 2; this is the
 canonical statement, other pages cite it).
 
-**Consumes:** Transport, Ledger, Mailbox, Control plane.
+**Consumes:** Transport, Transcript store, Control plane.
 
 ## Router (v0)
 
-**Purpose.** The one v0 service holding every network conformance
-class: Transport Provider, Sequencer, Record Store, Mailbox
-Provider. Nothing in the interfaces assumes the colocation.
-
-| Role | Specified by |
-|---|---|
-| Transport Provider | [transport](./interfaces/transport) |
-| Sequencer | [ledger](./interfaces/ledger), append side |
-| Record Store | [ledger](./interfaces/ledger), read side |
-| Mailbox Provider | [mailbox](./interfaces/mailbox) — a composition, not a fourth role |
+**Purpose.** The one v0 service holding both network conformance
+classes: Transport Provider and Transcript Store (and, within the
+store, the sequencer role for every scope). Nothing in the
+interfaces assumes the colocation, and the sequencer role is
+delegable per scope without moving storage (the two-substrate test).
 
 **Accountable, not trusted.** Every service claim the router makes
 is either non-repudiably its own (position assignment, P-LOG.3) or
@@ -115,7 +106,7 @@ message delivery, no contact graph, no visibility derivation. Open
 question #2 (a minimal spam-control role between strangers) is the
 single candidate exception, and it is unbound.
 
-**Provides:** all four interfaces. **Consumes:** none.
+**Provides:** transport and transcript store. **Consumes:** none.
 
 ## Control plane service
 

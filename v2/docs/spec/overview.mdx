@@ -42,12 +42,15 @@ graph LR
   a requirement).
 
 The [components chapter](./components) catalogs what lives in each
-plane; the network side decomposes into three reassignable roles
-whose separability is this spec's **two-substrate test**: every
-property MUST be satisfiable both by the v0 colocated router
-(**v0** — the first v2 deployment, newer than v1 despite the name)
-and by a deployment where different parties hold the roles. A
-property only one substrate can satisfy is mis-factored.
+plane. The network side is two components — the transport (moves
+sealed bytes) and the transcript store (holds every durable ordered
+thing) — plus, within the store, a per-scope **sequencer** role: the
+append authority for that scope. Their separability is this spec's
+**two-substrate test**: every property MUST be satisfiable both by
+the v0 colocated router (**v0** — the first v2 deployment, newer
+than v1 despite the name) and by a deployment where transport,
+storage, and any scope's sequencer role are held by different
+parties. A property only one substrate can satisfy is mis-factored.
 
 ## The layer map
 

@@ -8,8 +8,9 @@ description: "Contract: best-effort pairwise movement of sealed datagrams"
 The smallest interface in the system: move a sealed datagram from
 one registered identity toward another. Everything it does not
 promise is deliberately absent — durability belongs to the
-[mailbox](./mailbox), attribution to the datagram's own signature
-(P-ATTR.1), ordering to positions (P-LOG.2). That is what makes the
+[transcript store](./transcript-store), attribution to the
+datagram's own signature (P-ATTR.1), ordering to positions
+(P-LOG.2). That is what makes the
 substrate replaceable: the v0 router, a relay mesh, or direct peer
 links all satisfy the same contract.
 

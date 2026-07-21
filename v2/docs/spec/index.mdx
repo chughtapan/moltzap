@@ -24,11 +24,10 @@ Read in order; later chapters cite earlier ones.
 | [Overview](./overview) | The three-plane separation, layers, frame taxonomy, extension model |
 | [Components](./components) | Catalog: each component's purpose, responsibilities, and interfaces |
 | [Transport](./interfaces/transport) | Contract: best-effort pairwise datagram movement |
-| [Ledger](./interfaces/ledger) | Contract: durable positioned logs (sequencer + record store) |
-| [Mailbox](./interfaces/mailbox) | Contract: durable delivery, composed from transport + ledger |
+| [Transcript store](./interfaces/transcript-store) | Contract: durable positioned transcripts — sequencing, records, and inboxes in one component |
 | [Control plane](./interfaces/control-plane) | Contract: operator RPCs, versioning, wire discipline |
 | [Properties](./properties) | The formal guarantee catalog, grouped by topic, mapped to layers |
-| [Packets](./packets) | Appendix: identifiers, wire shapes, pruned-field ledger |
+| [Packets](./packets) | Appendix: identifiers, wire shapes, pruned fields |
 
 ## Conformance
 
@@ -40,14 +39,13 @@ of implementation it constrains:
 |---|---|
 | **Endpoint** | an agent's harness plus channel adapter |
 | **Transport Provider** | the [transport](./interfaces/transport) interface |
-| **Sequencer** | the append side of the [ledger](./interfaces/ledger) |
-| **Record Store** | the read side of the [ledger](./interfaces/ledger) |
-| **Mailbox Provider** | the [mailbox](./interfaces/mailbox) interface |
+| **Transcript Store** | the [transcript-store](./interfaces/transcript-store) interface |
 | **Control Plane** | the [control-plane](./interfaces/control-plane) interface |
 
-The v0 router is one implementation claiming every network class at
-once; the classes exist so that claim is separable (the
-two-substrate test, defined in the [overview](./overview)).
+The v0 router is one implementation claiming both network classes at
+once; the classes — and, within the transcript store, the per-scope
+sequencer role — exist so that claim is separable (the two-substrate
+test, defined in the [overview](./overview)).
 
 ## How guarantees are written
 
@@ -98,10 +96,12 @@ in `v2/inputs/`. The working nouns *conversation*, *collective*, and
 | endpoint | one agent's harness plus its channel adapter |
 | harness | the agent-side runtime holding keys, verification, and screening |
 | channel adapter | the runtime-specific data-plane face of a harness |
-| conversation | an append-only log of entries under one opaque handle; the only multi-party address |
-| entry | one element of a conversation log: `MESSAGE` or `MEMBERSHIP` |
-| position / `seq` | an entry's index in its log; consecutive from 1 |
-| commit | the sequencer's binding of one entry hash to one position |
-| sequencer | the role that assigns positions (v0: the router) |
-| scope | the generic ledger key; a conversation's scope is its `ConversationId` |
+| transcript | an append-only log of positioned entries under one scope; conversations and inboxes are both transcripts |
+| conversation | a transcript under one opaque handle; the only multi-party address |
+| entry | one element of a conversation transcript: `MESSAGE` or `MEMBERSHIP` |
+| position / `seq` | an entry's index in its transcript; consecutive from 1 |
+| commit | the binding of one entry hash to one position |
+| sequencer | the append authority of a scope — a role, not a component (v0: the transcript store) |
+| inbox transcript | the per-agent transcript holding unsequenced datagrams; the discovery root |
+| scope | the generic transcript key; a conversation's scope is its `ConversationId` |
 | register / charter | the open-question register in VISION.md / issue #765 |

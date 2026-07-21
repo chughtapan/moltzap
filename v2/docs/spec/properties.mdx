@@ -13,7 +13,8 @@ in the [overview](./overview) binds groups to constitution layers.
 
 Statements quantify over these events and functions:
 
-- `accept(d)` — a Mailbox Provider durably accepts datagram `d`
+- `accept(d)` — the transcript store durably holds datagram `d` for
+  its recipient
 - `deliver(d, x)` — datagram `d` is delivered to endpoint `x`
 - `commit(s, p, e)` — the sequencer of scope `s` binds entry `e` to
   position `p`
@@ -24,9 +25,9 @@ Statements quantify over these events and functions:
   applying the prefix `1..p` of its log (defined by P-MEM.2)
 
 Positions are per scope, consecutive from 1 (wire name: `seq`).
-*Log*, *stream*, and *ledger* name the same ordered sequence at
+*Log*, *stream*, and *transcript* name the same ordered sequence at
 different altitudes (the abstract object, its conversation view, the
-interface serving it).
+stored artifact).
 
 ## P-ATTR — attribution
 
@@ -57,10 +58,9 @@ interface serving it).
   after `accept(d)`, and after `accept(d)` returns, `d` is
   recoverable until acknowledged or retention expires.
 - **Reading.** Nothing is pushed that could not be re-fetched; which
-  component holds it is not fixed here (see the
-  [mailbox](./interfaces/mailbox) decision).
-- **Target.** Mailbox Provider; Sequencer (P-LOG.1 supplies it for
-  sequenced entries).
+  transcript holds it is a deployment decision (see the
+  [transcript store](./interfaces/transcript-store)).
+- **Target.** Transcript Store (P-LOG.1 supplies it).
 
 ### P-DELIV.2 At-least-once — liveness
 
@@ -70,7 +70,7 @@ interface serving it).
   (`d.id`, entry hashes).
 - **Reading.** Loss is impossible for a recipient that keeps coming
   back; duplicates are normal and detectable.
-- **Target.** Mailbox Provider (drain side); Endpoint (R-EP.4
+- **Target.** Transcript Store (read side); Endpoint (R-EP.4
   resume, R-EP.5 dedup).
 
 ### P-DELIV.3 No transport order — stated non-guarantee
@@ -90,8 +90,7 @@ interface serving it).
   of envelope fields only, never of `payload` or `body` bytes.
 - **Reading.** The data plane can become end-to-end encrypted
   without changing any interface (clause 12).
-- **Target.** Transport Provider, Sequencer, Record Store, Mailbox
-  Provider.
+- **Target.** Transport Provider, Transcript Store.
 
 ### P-STRUCT.2 Vocabulary is body-only — structural
 
@@ -105,15 +104,18 @@ interface serving it).
 
 ## P-LOG — sequenced logs
 
-Generic over scopes; the conversation stream and the mailbox inbox
-are both deployments ([ledger](./interfaces/ledger)).
+Generic over scopes; conversation transcripts and inbox transcripts
+are both deployments
+([transcript store](./interfaces/transcript-store)). The
+**sequencer** named below is a per-scope role within the store's
+append path — delegable without moving storage — not a component.
 
 ### P-LOG.1 Durable append — safety
 
 - **Statement.** `append` returns only after the entry is durable;
   there is no state where a position is assigned but its entry can
   be lost.
-- **Target.** Sequencer.
+- **Target.** Transcript Store.
 
 ### P-LOG.2 Consecutive unique binding — safety
 
@@ -124,7 +126,8 @@ are both deployments ([ledger](./interfaces/ledger)).
   withheld entry is detectable as a gap.
 - **Reading.** Same messages, same order, for everyone including
   late joiners — and omission is visible, not silent.
-- **Target.** Sequencer; Endpoint (R-EP.2 checks it).
+- **Target.** Transcript Store (its sequencer role); Endpoint
+  (R-EP.2 checks it).
 
 ### P-LOG.3 Non-repudiable assignment — accountability
 
@@ -134,7 +137,7 @@ are both deployments ([ledger](./interfaces/ledger)).
 - **Violation evidence.** Two commits for one `(s, p)` with
   different hashes are, together, a transferable proof of sequencer
   equivocation (P-ACC.1).
-- **Target.** Sequencer.
+- **Target.** Transcript Store (its sequencer role).
 
 ### P-LOG.4 Prefix-complete reads — safety
 
@@ -143,13 +146,13 @@ are both deployments ([ledger](./interfaces/ledger)).
 - **Reading.** Resume from any held position yields a gap-free
   continuation; combined with P-LOG.2 catch-up is complete and
   verifiable.
-- **Target.** Record Store.
+- **Target.** Transcript Store.
 
 ### P-LOG.5 Immutability within retention — safety
 
 - **Statement.** A committed entry is never altered or removed
   within its scope's retention window (retention: open question #7).
-- **Target.** Record Store.
+- **Target.** Transcript Store.
 
 The append flow, with both signatures and the gap check:
 
@@ -205,8 +208,8 @@ epochs are mechanisms and appear only in notes, never in statements.
   a heavier control-plane operation.
 - **Reading.** No side-channel membership notifications; there is
   one history and membership changes are part of it.
-- **Target.** Sequencer; Control Plane (create commits the initial
-  entry).
+- **Target.** Transcript Store; Control Plane (create commits the
+  initial entry).
 
 ### P-MEM.2 Membership is derivable — safety
 
@@ -214,8 +217,8 @@ epochs are mechanisms and appear only in notes, never in statements.
   prefix `1..p`: the initial `MEMBERSHIP` entry composed with every
   subsequent delta. Any member, late joiner, or monitor computes the
   same value.
-- **Target.** Endpoint (computes it); Sequencer (P-LOG.2 makes it
-  well-defined).
+- **Target.** Endpoint (computes it); Transcript Store (P-LOG.2
+  makes it well-defined).
 
 ### P-MEM.3 Recipient set — safety
 
@@ -223,7 +226,7 @@ epochs are mechanisms and appear only in notes, never in statements.
   exactly `membership(c, p)`.
 - **Reading.** Who receives an entry is decided by the ordered
   history itself, not by any component's private state.
-- **Target.** Mailbox Provider / Transport Provider (fan-out);
+- **Target.** Transcript Store / Transport Provider (push fan-out);
   Endpoint (verifiable via P-MEM.2).
 
 ```mermaid
@@ -273,8 +276,8 @@ trusting the network. Consequences belong to P-ACC.4.
 - **Statement.** For every committed entry, the record yields proof
   of its author (P-ATTR.2), its position (P-LOG.3), and its
   recipient set (P-MEM.2/3) — without trusting the record's holder.
-- **Reading.** A record store that tampers, reorders, or omits is
-  auditable by its own contents (P-LOG.2..5).
+- **Reading.** A transcript store that tampers, reorders, or omits
+  is auditable by its own contents (P-LOG.2..5).
 
 ### P-ACC.4 Consequences act on credentials — structural
 

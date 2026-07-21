@@ -1,0 +1,130 @@
+---
+title: "Transcript store"
+description: "Contract: durable, consecutively positioned transcripts — every ordered thing in the system is one"
+---
+
+# Transcript store
+
+The single durable component of the network. A **transcript** is an
+append-only log of positioned entries under one scope; the store
+holds every transcript in the system. There is no separate
+sequencer, record store, or mailbox component — sequencing is the
+append side of this contract, records are its read side, and an
+agent's inbox is just one more transcript.
+
+## Operations
+
+```
+interface TranscriptStore
+  append(scope: ScopeId, entry: Entry) -> Commit
+  read(scope: ScopeId, after: Seq, limit) -> Page
+  head(scope: ScopeId) -> Seq
+  release(scope: ScopeId, upTo: Seq) -> ()
+
+Commit = SeqCommit                      -- { scope, seq, entryHash, seqSig }
+Page   = { items: Committed[], head: Seq }
+Committed = { entry: Entry, commit: Commit }
+```
+
+`scope` is the generic form of `conv`: a conversation transcript's
+`ScopeId` is its `ConversationId`, and the `SeqCommit` shape in the
+[packet appendix](../packets) is this `Commit` with the scope
+specialized.
+
+### `append`
+
+- **Pre.** Caller is authorized to append to `scope` (a deployment
+  rule, below).
+- **Post.** The entry is durable (P-LOG.1); the returned `Commit`
+  binds it to position `head+1`, maintaining consecutive unique
+  binding (P-LOG.2) and non-repudiable assignment (P-LOG.3). The
+  party issuing commits for a scope is that scope's **sequencer** —
+  a role within this contract, not a component; v0: the store
+  itself.
+- **Refusal.** Authority, quota, or PCC once #765 binds it; failure
+  taxonomy is open question #9.
+
+### `read`
+
+- **Pre.** Caller is authorized to read `scope` (deployment rule;
+  history-read scope is open question #7).
+- **Post.** A prefix-complete continuation from `after` (P-LOG.4) of
+  immutable committed pairs (P-LOG.5), verifiable by the caller
+  regardless of who served it (P-LOG.3).
+
+### `head`
+
+- **Post.** The scope's highest committed position. Comparing it to
+  a held high-water mark makes withheld entries detectable as gaps
+  (P-LOG.2).
+
+### `release`
+
+- **Post.** Retention for positions `≤ upTo` of `scope` is
+  released, where the deployment permits it — the reader-side bound
+  on the retention window (P-LOG.5). Post-release retention: open
+  question #7.
+
+## Deployments
+
+| Deployment | Scope | Entry | Appends | Reads | Releases |
+|---|---|---|---|---|---|
+| Conversation transcript | `ConversationId` | `LogEntry` | members, under authority rules chartered to #765 | members (history scope: #7) | governed by #7, not by readers |
+| Inbox transcript | recipient `AgentId` | `Datagram` | the store, on accepting a datagram for that recipient | the recipient | the recipient, after processing |
+
+Authorization is a property of the deployment, not of the
+interface. The inbox transcript is the **discovery root**: the one
+scope an agent knows from registration, through which it learns of
+conversation scopes it does not yet know (bootstrap invites).
+
+## Delivery
+
+Push is unpromised; reads are authoritative. On commit, the store
+MAY push `Committed` values to the scope's recipient set (P-MEM.3)
+over the transport (P-DELIV.3: no promise); a recipient recovers
+completely by `read` from its held position. This division is what
+derives the delivery properties instead of owning them:
+
+| Property | Derivation |
+|---|---|
+| P-DELIV.1 durable before delivery | `append`/accept is durable first (P-LOG.1) |
+| P-DELIV.2 at-least-once | push (lossy) ∪ read (prefix-complete, P-LOG.4) covers every accepted item; overlap makes duplicates normal (R-EP.5) |
+
+## Decision needed: what inbox transcripts durably hold
+
+Two consistent designs; this page recommends (b), and the choice
+needs a recorded maintainer decision:
+
+- **(a) Inbox-primary.** Every conversation entry is durably
+  appended to every member's inbox transcript. One recovery path —
+  but an N-member conversation stores N+1 durable copies of every
+  entry, and inbox retention grows with conversation history.
+- **(b) Stream-primary (recommended).** Sequenced conversation
+  traffic recovers via `read` on the *conversation* scope:
+  reattach-resume plus gap detection (P-LOG.2) makes silent push
+  loss discoverable without a durable inbox copy. Inbox transcripts
+  durably hold only **unsequenced** datagrams — at v0, essentially
+  the conversation-bootstrap invite to an agent not yet in the
+  stream. Inbox retention is short (until `release`), storage is
+  written once per entry, and the record substrate stays exactly the
+  conversation transcripts (clause 13: storage is
+  durable-then-deliver and the store is the record substrate).
+
+Under (b), the endpoint's delivery state reduces to a cursor map —
+one high-water mark per scope it belongs to, rooted at the inbox
+transcript as the discovery channel.
+
+## Implementation note (non-normative)
+
+v0: one router-held store; `append` assigns a dense per-scope
+counter at commit time, and commits carry the sequencer's signature
+(`seqSig`) as the P-LOG.3 mechanism; a pump pushes new commits and a
+per-reader cursor drives re-push on reattach. v1 assigned sparse
+time-based ids ("snowflakes") *before* commit, producing a
+gap-on-resume defect measured in the v1 audit (`v2/inputs/`), and
+had no durable inbox at all — push was fire-and-forget and recovery
+was a client-paged cursor. Decentralized later: a scope's sequencer
+role moves to a member leader or quorum while storage stays wherever
+it is — `read` can be served by any holder of the committed pairs,
+since P-LOG.3/4 make responses verifiable regardless of who serves
+them.

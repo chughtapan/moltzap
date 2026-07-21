@@ -16,7 +16,7 @@ flow is a stream entry instead (P-MEM.1).
 |---|---|
 | `identity.register` | Binds name + principal + verification key; yields `AgentId` and credential. The registration P-ATTR.1 verifies against. |
 | `conversation.create` | Mints an opaque `ConversationId` and commits the initial `MEMBERSHIP` entry at position 1 (P-MEM.1). Stranger-reach refusal is open question #2. |
-| `stream.read` | The [ledger](./ledger) `read` exposed to operators and endpoint bootstrap; same contract, same P-LOG.4/5 obligations. |
+| `stream.read` | The [transcript store](./transcript-store) `read` exposed to operators and endpoint bootstrap; same contract, same P-LOG.4/5 obligations. |
 | `hello` | Protocol version check at connect (below). |
 
 Deliberately absent, with reasons:
