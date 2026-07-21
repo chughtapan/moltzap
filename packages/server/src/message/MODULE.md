@@ -335,7 +335,7 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 >() {}
 ```
 
-### [`messagesList`](./handlers.ts#L164)
+### [`messagesList`](./handlers.ts#L163)
 
 _Variable_
 
@@ -343,7 +343,7 @@ _Variable_
 export const messagesList: ServerHandler<typeof MessagesList> = (params)
 ```
 
-### [`messagesSend`](./handlers.ts#L155)
+### [`messagesSend`](./handlers.ts#L154)
 
 _Variable_
 
