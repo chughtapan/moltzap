@@ -2,38 +2,8 @@ import { Effect } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConversationServiceTag } from "../layer.js";
 import { catchSqlErrorAsDefect } from "#db";
-import type {
-  AgentNotFoundError,
-  NotInContactsError,
-} from "@moltzap/protocol/identity";
+import type { AgentNotFoundError } from "@moltzap/protocol/identity";
 import type { ConversationFullError } from "@moltzap/protocol/conversation";
-
-interface AuthorizeConversationCreateInput {
-  readonly agentIds: ReadonlyArray<AgentId>;
-  readonly creatorAgentId: AgentId;
-}
-
-export const authorizeConversationCreate = (
-  input: AuthorizeConversationCreateInput,
-): Effect.Effect<
-  void,
-  AgentNotFoundError | NotInContactsError | ConversationFullError,
-  ConversationServiceTag
-> =>
-  catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const conversations = yield* ConversationServiceTag;
-      const ownerByAgentId = yield* conversations.loadAgentOwners(
-        input.agentIds,
-      );
-      yield* conversations.assertContactPolicyForCreate(
-        input.creatorAgentId,
-        input.agentIds,
-        ownerByAgentId,
-      );
-      yield* conversations.assertGroupCapacityForCreate(input.agentIds);
-    }),
-  ).pipe(Effect.withSpan("authorizeConversationCreate"));
 
 /**
  * Capacity-only authorization for the app-originated

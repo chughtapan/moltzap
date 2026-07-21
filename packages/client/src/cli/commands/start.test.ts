@@ -11,7 +11,10 @@ import {
 import { messageId, taskId } from "@moltzap/protocol/testing";
 import { conversationId } from "@moltzap/protocol/testing";
 import { Transport } from "../transport.js";
-import { makeFakeTransport } from "./test-transport.js";
+import {
+  makeFakeTransport,
+  type TestTransportResponder,
+} from "./test-transport.js";
 import { runStartHandler } from "./start.js";
 
 const it = effectIt.effect;
@@ -30,10 +33,12 @@ afterEach(() => {
 });
 
 const runWith = (
-  respond: Parameters<typeof makeFakeTransport>[0],
+  respond: TestTransportResponder<typeof LocalDaemonCommands.StartTask>,
   args: Parameters<typeof runStartHandler>[0],
 ) => {
-  const fixture = makeFakeTransport(respond);
+  const fixture = makeFakeTransport({
+    [LocalDaemonCommands.StartTask]: respond,
+  });
   return {
     calls: fixture.calls,
     effect: runStartHandler(args).pipe(

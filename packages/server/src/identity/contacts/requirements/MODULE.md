@@ -8,7 +8,7 @@ Contact-domain requirement helpers.
 
 ## Public surface
 
-### [`CreatorAndTargets`](./reach.ts#L9)
+### [`CreatorAndTargets`](./reach.ts#L11)
 
 _Interface_
 
@@ -19,7 +19,7 @@ export interface CreatorAndTargets {
 }
 ```
 
-### [`obtainContactPolicyAllowsReach`](./reach.ts#L14)
+### [`obtainContactPolicyAllowsReach`](./reach.ts#L16)
 
 _Function_
 
@@ -28,7 +28,7 @@ export const obtainContactPolicyAllowsReach = (
   input: CreatorAndTargets,
 ): Effect.Effect<
   ContactPolicyAllowsReachValue,
-  unknown,
+  AgentNotFoundError | NotInContactsError,
   ConversationServiceTag
 >
 ```

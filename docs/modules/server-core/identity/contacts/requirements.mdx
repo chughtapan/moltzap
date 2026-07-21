@@ -13,7 +13,7 @@ Contact-domain requirement helpers.
 
 ## Public surface
 
-### [`CreatorAndTargets`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L9)
+### [`CreatorAndTargets`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L11)
 
 _Interface_
 
@@ -24,7 +24,7 @@ export interface CreatorAndTargets {
 }
 ```
 
-### [`obtainContactPolicyAllowsReach`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L14)
+### [`obtainContactPolicyAllowsReach`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L16)
 
 _Function_
 
@@ -33,7 +33,7 @@ export const obtainContactPolicyAllowsReach = (
   input: CreatorAndTargets,
 ): Effect.Effect<
   ContactPolicyAllowsReachValue,
-  unknown,
+  AgentNotFoundError | NotInContactsError,
   ConversationServiceTag
 >
 ```

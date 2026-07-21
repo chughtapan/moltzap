@@ -5,6 +5,7 @@
 import type { Effect } from "effect";
 import type { AnyAppCallbackRpcDefinition } from "#socket/catalog";
 import type {
+  DomainErrorsOf,
   ParamsOf,
   ResultOf,
   RpcDefinition,
@@ -22,7 +23,7 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
   readonly handle: (
     params: ParamsOf<D>,
     ctx: Ctx,
-  ) => Effect.Effect<ResultOf<D>, unknown>;
+  ) => Effect.Effect<ResultOf<D>, DomainErrorsOf<D>>;
 }
 
 type NameOf<D> =

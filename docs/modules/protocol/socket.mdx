@@ -40,7 +40,7 @@ export interface AppCallbackContext {
 }
 ```
 
-### [`AppCallbackHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-callbacks.ts#L44)
+### [`AppCallbackHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-callbacks.ts#L45)
 
 _TypeAlias_
 
@@ -271,7 +271,7 @@ export function extractCloseInfo(
 ): CloseInfo
 ```
 
-### [`HandlerSlot`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-callbacks.ts#L20)
+### [`HandlerSlot`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/socket/app-callbacks.ts#L21)
 
 _Interface_
 
@@ -281,7 +281,7 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
   readonly handle: (
     params: ParamsOf<D>,
     ctx: Ctx,
-  ) => Effect.Effect<ResultOf<D>, unknown>;
+  ) => Effect.Effect<ResultOf<D>, DomainErrorsOf<D>>;
 }
 ```
 

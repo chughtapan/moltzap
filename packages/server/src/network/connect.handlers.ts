@@ -5,7 +5,7 @@ import {
   PROTOCOL_VERSION,
   checkProtocolRange,
 } from "@moltzap/protocol/network";
-import { NotConnectedError, UnauthorizedError } from "@moltzap/protocol/rpc";
+import { UnauthorizedError } from "@moltzap/protocol/rpc";
 import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { HelloOk } from "@moltzap/protocol/network";
@@ -119,7 +119,7 @@ function authenticateAppKey(
  *      resolved but its slot is occupied).
  *   2. A close that raced between the transition and the registration
  *      leaves a stale registry entry; undo it via
- *      `unregisterAppsForConnection` before failing `NotConnectedError`.
+ *      `unregisterAppsForConnection` before interrupting the closed request.
  */
 function registerAppEndpoint(args: {
   readonly connections: ConnectionManager;
@@ -130,7 +130,7 @@ function registerAppEndpoint(args: {
     readonly connId: ConnectionId;
     readonly originator: Originator;
   };
-}): Effect.Effect<void, UnauthorizedError | NotConnectedError> {
+}): Effect.Effect<void, UnauthorizedError> {
   const { connections, appEndpointRegistry, appId, manifest, authed } = args;
   const connId = authed.connId;
   return Effect.gen(function* () {
@@ -150,12 +150,14 @@ function registerAppEndpoint(args: {
       );
     }
     const postCheck = yield* connections.peek(connId);
-    if (Option.isNone(postCheck) || postCheck.value._tag !== "AppConnection") {
+    if (Option.isNone(postCheck)) {
       appEndpointRegistry.unregisterAppsForConnection(connId);
-      return yield* Effect.fail(
-        new NotConnectedError({
-          message: "connection closed during Connect's app-arm registration",
-        }),
+      return yield* Effect.interrupt;
+    }
+    if (postCheck.value._tag !== "AppConnection") {
+      appEndpointRegistry.unregisterAppsForConnection(connId);
+      return yield* Effect.dieMessage(
+        "registerAppEndpoint: app authentication produced a non-app connection",
       );
     }
   }).pipe(Effect.withSpan("connect.registerAppEndpoint"));
@@ -179,7 +181,7 @@ function registerAppArmTransition(args: {
   readonly connId: ConnectionId;
   readonly auth: AppContext;
   readonly manifest: AppManifest;
-}): Effect.Effect<void, UnauthorizedError | NotConnectedError> {
+}): Effect.Effect<void, UnauthorizedError> {
   const { connections, appEndpointRegistry, connId, auth, manifest } = args;
   return connections.authenticate(connId, auth).pipe(
     Effect.flatMap((outcome) =>
