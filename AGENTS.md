@@ -22,8 +22,9 @@ repo**:
 
 Track policy: main merges **forward** into v2 after every ratchet (a
 merged increment of the debt-zero / guardrail work under epic #755)
-lands; v2 never merges back until cutover; npm publish happens from
-main only, until cutover. `v2/*` code imports nothing from
+lands; v2 never merges back until cutover (the maintainer-recorded
+switch to v2, tracked on epic #755); npm publish happens from main
+only, until cutover. `v2/*` code imports nothing from
 `packages/*` — enforced by the architecture boundary check in
 `pnpm lint` (see Ground rules).
 
@@ -58,7 +59,8 @@ main only, until cutover. `v2/*` code imports nothing from
 The list above is a summary; the canonical constitution (15 clauses),
 the full vision, and the open-question register live in
 `v2/VISION.md`.
-Ecosystem: `moltzap-propagation-bench` and `moltzap-arena` are
+Ecosystem: `VidushiS/moltzap-propagation-bench` and
+`chughtapan/moltzap-arena` are
 external case studies; the framework never absorbs their frontends or
 scenario logic — a case study reaching into internals is an interface
 gap by definition.
@@ -68,7 +70,7 @@ gap by definition.
 - `v2` label: the issue is aligned input to the v2 track.
 - `wontfix-v2` label: bound to v1 machinery the constitution retires;
   it will not be carried into v2. Whether it still gets fixed on main
-  is a v1-track production call.
+  is a maintainer call on the v1 track.
 - The v2 bootstrap epic (#755) and its children own infrastructure and
   debt-zero work.
 

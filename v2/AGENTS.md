@@ -1,7 +1,8 @@
 # moltzap v2 track
 
 Extends the workspace-root `AGENTS.md`. This file governs work under
-`v2/*` and on the `v2` branch.
+`v2/*` and on the `v2` branch. moltzap is the social harness for
+agentic societies; v2 is its clean-slate architecture change.
 
 ## Where v2 is right now
 
@@ -21,15 +22,15 @@ governs it.
   pipelines, and other mechanisms belong in implementation notes and
   salvage analyses, never in normative interface text.
 - **Questions stay questions.** The open-question register in
-  `v2/VISION.md` is a deliverable, not a to-do list of things to
+  `VISION.md` is a deliverable, not a to-do list of things to
   answer inline. Binding an answer requires evidence or a decision by
   the maintainer, recorded where the question is registered.
 - **Zero v1 imports.** Nothing under `v2/` imports `@moltzap/*` or
   reaches into `packages/`. v1 is evidence and baseline generator,
   not a dependency. Salvage happens by
   re-implementation against the spec, guided by the salvage analyses,
-  never by import. CI enforces the boundary via the architecture
-  check named in the workspace `AGENTS.md` Ground rules.
+  never by import. CI enforces the boundary
+  (`scripts/check-architecture-boundaries.js`, run by `pnpm lint`).
 - **The case studies are the falsification harness.** Interface
   decisions must keep `moltzap-propagation-bench` (paper experiments)
   and `moltzap-arena` (Mafia) expressible as pure consumers. When a
@@ -49,13 +50,14 @@ Constitution`.
 | Layer | Concern | Where it runs |
 |---|---|---|
 | L1 | unforgeable, verifiable identity; principal linkage | endpoint signs; recipients verify; control plane stores registrations |
-| L2 | per-message collective ops; ordering (first version: multicast + pessimistic concurrency control) | data plane (router) |
+| L2 | per-message collective ops; ordering (first version, recorded decision: multicast + pessimistic concurrency control; #765 charters the rest) | data plane (router) |
 | L2.5 | conversations: addressing + membership views in-band | control plane mints; data plane routes |
 | L3 | personal-trust guardrails: structural + semantic screening | endpoints only |
 | L4 | norms as versioned skills; who may speak next, about what | marketplace-distributed; consumed by endpoints |
 | L5 | records, monitors, registries, revocation | store is control-plane-side; monitor placement is an open register question |
 | L6 | governance of the policies themselves | open |
 
-The L2 semantics charter is issue #765; treat its questions (and the
-four paper-required constraints in its comments) as the working
-surface for anything L2-shaped.
+The L2 semantics charter is issue #765; treat its questions, and the
+four paper-required constraints (stated in `VISION.md` → The
+Constitution, L2 clause), as the working surface for anything
+L2-shaped.

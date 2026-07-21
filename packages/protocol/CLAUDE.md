@@ -1,3 +1,1 @@
-# protocol
-
-Instructions for this package live in `AGENTS.md` in this directory.
+@AGENTS.md
