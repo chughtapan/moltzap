@@ -8,7 +8,6 @@ import {
 } from "@moltzap/protocol/identity";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
-import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import { AuthServiceTag, type AuthService } from "#identity/agents";
@@ -16,6 +15,7 @@ import type { AgentContext } from "#socket";
 import { ContactsServiceTag } from "./layer.js";
 import { NetworkSendServiceTag } from "#network";
 import { agentArm } from "#moltzap/runtime";
+import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
 
 const fanOut = <D extends AnyNotificationDefinition>(
   target: UserId,
@@ -92,17 +92,26 @@ function contactsAcceptBody(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const contactsList: ServerHandler<typeof ContactsList> = (params) =>
-  Effect.gen(function* () {
-    return yield* contactsListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("contactsList"));
+export const contactsList = defineServerHandler(
+  ContactsList,
+  (params: ParamsOf<typeof ContactsList>) =>
+    Effect.gen(function* () {
+      return yield* contactsListBody(params, yield* agentArm);
+    }).pipe(Effect.withSpan("contactsList")),
+);
 
-export const contactsAdd: ServerHandler<typeof ContactsAdd> = (params) =>
-  Effect.gen(function* () {
-    return yield* contactsAddBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("contactsAdd"));
+export const contactsAdd = defineServerHandler(
+  ContactsAdd,
+  (params: ParamsOf<typeof ContactsAdd>) =>
+    Effect.gen(function* () {
+      return yield* contactsAddBody(params, yield* agentArm);
+    }).pipe(Effect.withSpan("contactsAdd")),
+);
 
-export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params) =>
-  Effect.gen(function* () {
-    return yield* contactsAcceptBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("contactsAccept"));
+export const contactsAccept = defineServerHandler(
+  ContactsAccept,
+  (params: ParamsOf<typeof ContactsAccept>) =>
+    Effect.gen(function* () {
+      return yield* contactsAcceptBody(params, yield* agentArm);
+    }).pipe(Effect.withSpan("contactsAccept")),
+);

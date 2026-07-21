@@ -36,7 +36,6 @@ import {
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { Task } from "@moltzap/protocol/task";
 import type { Conversation } from "@moltzap/protocol/conversation";
-import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { TaskId } from "@moltzap/protocol/task";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
@@ -48,6 +47,7 @@ import { authorizeConversationCreate } from "#conversation/requirements";
 import { broadcastNotificationToAgents } from "#network";
 import type { AgentContext, AppContext } from "#socket";
 import { assertCallerAppOwnsTask } from "#task/requirements";
+import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
 
 type TaskRequestParams = {
   readonly appId: AppId;
@@ -201,11 +201,14 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
 //
 // The `ContactPolicyAllowsReach` requirement gates the frame before this body
 // runs. `agentArm` reads the narrowed principal.
-export const taskRequest: ServerHandler<typeof TaskRequest> = (params) =>
-  Effect.gen(function* () {
-    const ctx = yield* agentArm;
-    return yield* taskRequestBody(params, ctx);
-  }).pipe(Effect.withSpan("taskRequest"));
+export const taskRequest = defineServerHandler(
+  TaskRequest,
+  (params: ParamsOf<typeof TaskRequest>) =>
+    Effect.gen(function* () {
+      const ctx = yield* agentArm;
+      return yield* taskRequestBody(params, ctx);
+    }).pipe(Effect.withSpan("taskRequest")),
+);
 
 function taskLeaveBody(
   params: ParamsOf<typeof TaskLeave>,
@@ -347,17 +350,26 @@ function taskUpdateBody(params: TaskUpdateParams, ctx: AppContext) {
   });
 }
 
-export const taskList: ServerHandler<typeof TaskList> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("taskList"));
+export const taskList = defineServerHandler(
+  TaskList,
+  (params: ParamsOf<typeof TaskList>) =>
+    Effect.gen(function* () {
+      return yield* taskListBody(params, yield* agentArm);
+    }).pipe(Effect.withSpan("taskList")),
+);
 
-export const taskLeave: ServerHandler<typeof TaskLeave> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskLeaveBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("taskLeave"));
+export const taskLeave = defineServerHandler(
+  TaskLeave,
+  (params: ParamsOf<typeof TaskLeave>) =>
+    Effect.gen(function* () {
+      return yield* taskLeaveBody(params, yield* agentArm);
+    }).pipe(Effect.withSpan("taskLeave")),
+);
 
-export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params) =>
-  Effect.gen(function* () {
-    return yield* taskUpdateBody(params, yield* appArm);
-  }).pipe(Effect.withSpan("taskUpdate"));
+export const taskUpdate = defineServerHandler(
+  TaskUpdate,
+  (params: ParamsOf<typeof TaskUpdate>) =>
+    Effect.gen(function* () {
+      return yield* taskUpdateBody(params, yield* appArm);
+    }).pipe(Effect.withSpan("taskUpdate")),
+);

@@ -10,7 +10,6 @@ import type { AgentKey, AppKey } from "@moltzap/protocol/identity";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { HelloOk } from "@moltzap/protocol/network";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import {
   agentContextFrom,
   AgentContext,
@@ -35,6 +34,7 @@ import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import { catchSqlErrorAsDefect } from "#db";
 import type { Connection, ConnectionManager, Originator } from "#socket";
 import type { AppEndpointRegistry } from "#identity/apps";
+import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
 
 type AgentConnectParams = ParamsOf<typeof AgentConnect>;
 type AppConnectParams = ParamsOf<typeof AppConnect>;
@@ -443,8 +443,14 @@ function handleAppConnect(params: AppConnectParams) {
 // `agent/network/connect` and `app/network/connect` are the unauthenticated methods. The
 // method tag selects the principal kind; the body only unwraps the redacted
 // key at the auth-service boundary.
-export const connectAgent: ServerHandler<typeof AgentConnect> = (params) =>
-  handleAgentConnect(params).pipe(Effect.withSpan("connect.agent"));
+export const connectAgent = defineServerHandler(
+  AgentConnect,
+  (params: ParamsOf<typeof AgentConnect>) =>
+    handleAgentConnect(params).pipe(Effect.withSpan("connect.agent")),
+);
 
-export const connectApp: ServerHandler<typeof AppConnect> = (params) =>
-  handleAppConnect(params).pipe(Effect.withSpan("connect.app"));
+export const connectApp = defineServerHandler(
+  AppConnect,
+  (params: ParamsOf<typeof AppConnect>) =>
+    handleAppConnect(params).pipe(Effect.withSpan("connect.app")),
+);

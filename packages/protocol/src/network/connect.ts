@@ -7,6 +7,7 @@ import {
   UnauthorizedError,
   AlreadyConnected,
   InvalidParamsError,
+  NotConnectedError,
 } from "#transport";
 
 /** The published package version is also the wire-protocol version. */
@@ -200,6 +201,7 @@ export const AgentConnect = defineRpc({
  * @error UnauthorizedError when the app key is well-formed but invalid
  * @error ProtocolMismatchError when the client protocol version is not supported
  * @error AlreadyConnected when the principal already holds a live connection
+ * @error NotConnectedError when the reverse app callback socket closes during setup
  */
 export const AppConnect = defineRpc({
   name: "app/network/connect",
@@ -215,5 +217,6 @@ export const AppConnect = defineRpc({
     UnauthorizedError,
     ProtocolMismatchError,
     AlreadyConnected,
+    NotConnectedError,
   ],
 });

@@ -4,10 +4,10 @@ import { DEFAULT_PAGE_LIMIT, InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { AgentCard } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentContext } from "#socket";
 import { DbTag } from "#db";
 import { agentArm } from "#moltzap/runtime";
+import { defineServerHandler } from "@moltzap/protocol/socket/catalog";
 import { catchSqlErrorAsDefect } from "#db";
 import { visibleAgentIds } from "./visibility.service.js";
 import {
@@ -130,7 +130,10 @@ function agentsListBody(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const agentsList: ServerHandler<typeof AgentsList> = (params) =>
-  Effect.gen(function* () {
-    return yield* agentsListBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("agentsList"));
+export const agentsList = defineServerHandler(
+  AgentsList,
+  (params: ParamsOf<typeof AgentsList>) =>
+    Effect.gen(function* () {
+      return yield* agentsListBody(params, yield* agentArm);
+    }).pipe(Effect.withSpan("agentsList")),
+);
