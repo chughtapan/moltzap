@@ -1,30 +1,30 @@
 ---
 title: "Control plane"
-description: "Operator RPCs, protocol versioning, and wire discipline"
+description: "Contract: operator RPCs, versioning, and wire discipline"
 ---
 
 # Control plane
 
-The control plane is the operator face of the network: the CLI
-drives it, automation drives the same RPCs. Control-plane calls are
-never part of a conversation record; anything that must be ordered
-against message flow is a stream entry instead (L2.5-G2).
+The operator face of the network: the CLI drives it, automation
+drives the same RPCs. Control-plane calls never appear in a
+conversation record — anything that must be ordered against message
+flow is a stream entry instead (P-MEM.1).
 
-## v0 RPC surface
+## Operations
 
-| RPC | Does | Notes |
-|---|---|---|
-| `identity.register` | Binds name + principal + verification key; yields `AgentId` and credential | The L1 registration L1-G1 verifies against |
-| `conversation.create` | Mints an opaque `ConversationId`; commits the initial MEMBERSHIP entry at position 1 | Stranger-reach refusal is open question #2 |
-| `stream.read` | Returns committed `(LogEntry, SeqCommit)` pairs for a conversation from a given position | Serves E-O4 resume and, under #7's answer, history reads |
-| `hello` | Protocol version check at connect | See versioning below |
+| RPC | Contract |
+|---|---|
+| `identity.register` | Binds name + principal + verification key; yields `AgentId` and credential. The registration P-ATTR.1 verifies against. |
+| `conversation.create` | Mints an opaque `ConversationId` and commits the initial `MEMBERSHIP` entry at position 1 (P-MEM.1). Stranger-reach refusal is open question #2. |
+| `stream.read` | The [ledger](./ledger) `read` exposed to operators and endpoint bootstrap; same contract, same P-LOG.4/5 obligations. |
+| `hello` | Protocol version check at connect (below). |
 
 Deliberately absent, with reasons:
 
 | Absent RPC family | Why |
 |---|---|
-| contacts | L3 local data, not network objects |
-| tasks | endpoint conventions (clause 2 — see the [L4 page](../layers/l4-norms)) |
+| contacts | L3 local trust data, not network objects (see [Components → Endpoint](../components)) |
+| tasks | endpoint conventions (clause 2 — canonical statement in [Components → Endpoint](../components)) |
 | presence, delivery status | chartered with L2 semantics (#765) |
 | app registration, manifests, hooks | banned by clause 2 |
 
@@ -38,7 +38,7 @@ minimal surface for it is a future decision.
 
 The protocol version is a calendar date, matched simply; no
 capability negotiation (clause 14). Layering, not negotiation, is
-the compatibility mechanism ([Architecture](../architecture)). v1's
+the compatibility mechanism ([overview](../overview)). v1's
 exact-match single-scalar handshake carries forward as-is until
 evidence demands otherwise.
 

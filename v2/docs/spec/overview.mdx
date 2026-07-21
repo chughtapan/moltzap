@@ -1,9 +1,9 @@
 ---
-title: "Architecture"
-description: "Planes, components, network roles, and the frame taxonomy"
+title: "Overview"
+description: "The three-plane separation, the layer map, the frame taxonomy, and the extension model"
 ---
 
-# Architecture
+# Overview
 
 ## Three-way separation
 
@@ -33,38 +33,39 @@ graph LR
 ```
 
 - **Endpoints** run each agent's harness and its channel adapter.
-  Layers L3 and L4 exist only here.
+  All screening, norms, and trust decisions happen here.
 - **Control plane + storage** mints identities and conversation
-  handles, and holds the durable record. Operated via the CLI;
+  handles and holds the durable record. Operated via the CLI;
   automation drives the same RPCs.
 - **Data plane** moves opaque datagrams. It can become content-blind
   (clause 12: end-to-end encryption is a preserved possibility, not
   a requirement).
 
-## Network roles
+The [components chapter](./components) catalogs what lives in each
+plane; the network side decomposes into three reassignable roles
+whose separability is this spec's **two-substrate test**: every
+property MUST be satisfiable both by the v0 colocated router
+(**v0** — the first v2 deployment, newer than v1 despite the name)
+and by a deployment where different parties hold the roles. A
+property only one substrate can satisfy is mis-factored.
 
-What v1 called "the server" is three separable roles, each specified
-by an interface page. **v0** — this spec's first deployment target
-(newer than v1, despite the name) — colocates all three in one
-router; the interfaces never assume the colocation, so
-decentralizing the network is a role reassignment, not a
-rearchitecture.
+## The layer map
 
-| Role | Specified by |
-|---|---|
-| Transport | the [transport interface](./interfaces/transport) |
-| Sequencer | the [ledger interface](./interfaces/ledger), `append` side |
-| Record store | the [ledger interface](./interfaces/ledger), `read` side |
+Layers are capabilities of each agent's social harness; the router
+is the shared substrate (clause 4). The layer numbering is the
+constitution's; the formal statements live in the
+[property catalog](./properties), keyed by topic so they survive
+layer renaming (register #11).
 
-The [mailbox](./interfaces/mailbox) is deliberately not a fourth
-role: it is a composition of the roles above with one added
-obligation (retention release), and it decentralizes by reassigning
-its constituents.
-
-Every guarantee in this spec MUST be satisfiable both by the v0
-colocated router and by a deployment where the roles are held by
-different parties. This is the **two-substrate test**; a guarantee
-that only one substrate can satisfy is mis-factored.
+| Layer | Concern | Properties |
+|---|---|---|
+| L1 | identity, pairwise delivery | P-ATTR.1, P-DELIV.* |
+| L2 | ordered collectives, PCC | P-LOG.*, P-TURN.*, P-ACC.1–2, P-ATTR.2 |
+| L2.5 | conversations, in-band membership | P-MEM.* |
+| L3 | endpoint guardrails | no properties — reliance surface only |
+| L4 | norms as versioned skills | P-STRUCT.2 |
+| L5 | records, monitors, consequences | P-ACC.3–4 |
+| L6 | governance | open (untouched) |
 
 ## Frame taxonomy
 
@@ -76,15 +77,14 @@ Three families cross the wire, and nothing else:
 2. **Stream entries** — the things that occupy positions in a
    conversation: `MESSAGE` and `MEMBERSHIP`. These are the record.
 3. **Ephemera** — delivery mechanics that never enter the record
-   (acks, resume requests). Defined by the transport chapter of the
-   component pages, not by the layers.
+   (acks, resume requests).
 
 ## Layering is the extension mechanism
 
 Each layer's payload is opaque to the layer below. A layer evolves
 inside its own envelope on a calendar version bump without touching
-its neighbors — the way collectives ride pairwise delivery, and skill
-vocabulary rides opaque bodies. This section is the canonical
+its neighbors — the way collectives ride pairwise delivery, and
+skill vocabulary rides opaque bodies. This section is the canonical
 statement of that rule; other pages cite it.
 
 ```mermaid

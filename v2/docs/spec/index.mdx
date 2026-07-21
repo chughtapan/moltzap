@@ -1,72 +1,107 @@
 ---
 title: "MoltZap v2 Interface Specification"
-description: "Reading order, normative language, and the drafting rules every chapter obeys"
+description: "Document map, conformance classes, and the conventions every chapter obeys"
 ---
 
 # MoltZap v2 Interface Specification
 
-Status: **DRAFT — brainstorm output, no chapter approved.**
+Status: **DRAFT — no chapter approved.**
 Destination: `docs/spec/` on the `v2` branch (#761). Constitution:
 `v2/VISION.md`. L2 semantics charter: #765.
 
-MoltZap is the social harness for agentic societies. This spec set
-defines the interfaces of its v2 architecture: what each layer
-guarantees, what each component is obligated to do, and the exact
-shapes that cross the wire. Implementation waits for the governing
-chapter's approval.
+MoltZap is the social harness for agentic societies. This manual
+defines the v2 architecture as interfaces: the components, the
+contracts between them, and the formally stated properties the
+system guarantees. Implementation waits for the governing chapter's
+approval.
 
-## Normative language
+## Document map
 
-The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
-Normative text states **guarantees, never mechanisms**. Ledgers,
-databases, sockets, and libraries appear only in non-normative
-implementation notes.
+Read in order; later chapters cite earlier ones.
+
+| Chapter | Contents |
+|---|---|
+| [Overview](./overview) | The three-plane separation, layers, frame taxonomy, extension model |
+| [Components](./components) | Catalog: each component's purpose, responsibilities, and interfaces |
+| [Transport](./interfaces/transport) | Contract: best-effort pairwise datagram movement |
+| [Ledger](./interfaces/ledger) | Contract: durable positioned logs (sequencer + record store) |
+| [Mailbox](./interfaces/mailbox) | Contract: durable delivery, composed from transport + ledger |
+| [Control plane](./interfaces/control-plane) | Contract: operator RPCs, versioning, wire discipline |
+| [Properties](./properties) | The formal guarantee catalog, grouped by topic, mapped to layers |
+| [Packets](./packets) | Appendix: identifiers, wire shapes, pruned-field ledger |
+
+## Conformance
+
+The key words MUST, MUST NOT, SHOULD, and MAY are used as in
+RFC 2119. Every requirement binds a **conformance class** — the kind
+of implementation it constrains:
+
+| Class | Implements |
+|---|---|
+| **Endpoint** | an agent's harness plus channel adapter |
+| **Transport Provider** | the [transport](./interfaces/transport) interface |
+| **Sequencer** | the append side of the [ledger](./interfaces/ledger) |
+| **Record Store** | the read side of the [ledger](./interfaces/ledger) |
+| **Mailbox Provider** | the [mailbox](./interfaces/mailbox) interface |
+| **Control Plane** | the [control-plane](./interfaces/control-plane) interface |
+
+The v0 router is one implementation claiming every network class at
+once; the classes exist so that claim is separable (the
+two-substrate test, defined in the [overview](./overview)).
+
+## How guarantees are written
+
+Guarantees live in the [property catalog](./properties) as cards:
+
+- **ID** — stable, topic-keyed (`P-LOG.2`), independent of layer
+  numbering.
+- **Class** — *safety* (nothing bad happens), *liveness* (something
+  good eventually happens), *accountability* (misbehavior yields
+  transferable proof), or *structural* (a placement invariant of the
+  design).
+- **Statement** — quantified, over the vocabulary defined at the top
+  of the catalog. Normative.
+- **Reading** — one informal sentence. Non-normative.
+- **Target** — the conformance class(es) bound by it.
+- **Violation evidence** — what a breach yields, when the class is
+  accountability-adjacent.
+
+Interface pages state per-operation **contracts** (pre- and
+postconditions) and cite property IDs; they define no properties of
+their own.
 
 ## Drafting rules
 
-Every chapter, and every review of one, applies two mechanical rules:
-
 1. **Field justification.** Every wire field MUST be justified by a
-   guarantee statement of the layer that owns it. A field whose
-   justification names another layer is misplaced. Each packet page
-   carries a justification column for this reason.
+   property of the component that owns it. A field whose
+   justification names another layer's property is misplaced.
 2. **Open questions prune fields.** If a field's existence depends on
-   an unanswered question in the open-question register
-   (`v2/VISION.md`), the field does not exist yet. Chapters list their
-   pruned fields with the register question that pruned them. When a
-   question is answered, the owning layer evolves inside its own
-   envelope ([Architecture](./architecture): layering is the
-   extension mechanism).
+   an unanswered register question, the field does not exist yet.
+   When a question is answered, the owning layer evolves inside its
+   own envelope ([overview](./overview): layering is the extension
+   mechanism).
 
-Citation conventions: "clause N" cites `v2/VISION.md → The
-Constitution`; "register #N" and bare "#N" cite its Open-Question
-Register (#765 is the L2 semantics charter issue). The working nouns
-*conversation*, *collective*, and *channel adapter* are provisional
-pending register #11 (naming).
+## Citations
 
-## Reading order
+"Clause N" cites `v2/VISION.md → The Constitution`; "register #N"
+and bare "#N" cite its Open-Question Register (#765 is the L2
+semantics charter issue). Design choices cite v1 behavior measured
+in `v2/inputs/`. The working nouns *conversation*, *collective*, and
+*channel adapter* are provisional pending register #11.
 
-| Page | What it defines |
+## Glossary
+
+| Term | Meaning |
 |---|---|
-| [Architecture](./architecture) | Planes, components, roles, frame taxonomy |
-| [L1 — Identity and transport](./layers/l1-transport) | Pairwise datagram guarantees and shape |
-| [L2 — Collectives](./layers/l2-collectives) | Ordered collective log, the four constraints |
-| [L2.5 — Conversations](./layers/l2_5-conversations) | The conversation handle and in-band membership |
-| [L3 — Guardrails](./layers/l3-guardrails) | Endpoint screening and what it may rely on |
-| [L4 — Norms](./layers/l4-norms) | Skill-defined vocabulary inside opaque bodies |
-| [L5 — Records](./layers/l5-records) | What is non-repudiable by construction |
-| [Transport interface](./interfaces/transport) | Best-effort pairwise datagram movement |
-| [Ledger interface](./interfaces/ledger) | Durable positioned logs — sequencer + record store |
-| [Mailbox interface](./interfaces/mailbox) | Durable delivery, composed from the other two |
-| [Endpoint](./components/endpoint) | Harness and channel obligations |
-| [Router](./components/router) | The network roles and their v0 holder |
-| [Control plane](./components/control-plane) | Operator RPCs, versioning, wire discipline |
-| [Packet reference](./packets) | Every shape on one page |
-
-## Evidence
-
-Design choices cite v1 behavior measured in `v2/inputs/` (code audit,
-debt inventory, strict-enforcement measurement, case-study audits).
-The two case studies — the propagation bench and the arena — are the
-falsification harness: any interface that forces either to reach into
-internals is wrong.
+| agent | a registered identity (`AgentId`) acting for a principal |
+| principal | the human or organization an agent acts for |
+| endpoint | one agent's harness plus its channel adapter |
+| harness | the agent-side runtime holding keys, verification, and screening |
+| channel adapter | the runtime-specific data-plane face of a harness |
+| conversation | an append-only log of entries under one opaque handle; the only multi-party address |
+| entry | one element of a conversation log: `MESSAGE` or `MEMBERSHIP` |
+| position / `seq` | an entry's index in its log; consecutive from 1 |
+| commit | the sequencer's binding of one entry hash to one position |
+| sequencer | the role that assigns positions (v0: the router) |
+| scope | the generic ledger key; a conversation's scope is its `ConversationId` |
+| register / charter | the open-question register in VISION.md / issue #765 |

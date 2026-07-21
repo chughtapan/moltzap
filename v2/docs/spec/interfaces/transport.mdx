@@ -1,17 +1,17 @@
 ---
-title: "Transport interface"
-description: "Best-effort pairwise movement of sealed datagrams — the replaceable substrate"
+title: "Transport"
+description: "Contract: best-effort pairwise movement of sealed datagrams"
 ---
 
-# Transport interface
+# Transport
 
 The smallest interface in the system: move a sealed datagram from
-one registered identity toward another. Everything the transport
-does not promise is deliberately absent — durability belongs to the
+one registered identity toward another. Everything it does not
+promise is deliberately absent — durability belongs to the
 [mailbox](./mailbox), attribution to the datagram's own signature
-(L1-G1), ordering to L2. This is what makes the substrate
-replaceable: the v0 router, a relay mesh, or direct peer links all
-satisfy the same four statements.
+(P-ATTR.1), ordering to positions (P-LOG.2). That is what makes the
+substrate replaceable: the v0 router, a relay mesh, or direct peer
+links all satisfy the same contract.
 
 ## Operations
 
@@ -21,35 +21,38 @@ interface Transport
   received() -> stream of Datagram   -- deliveries to the attached endpoint
 ```
 
-`send` is L1-G3's push half — an attempt, not a promise. `received`
-is the endpoint's inbound face: the endpoint verifies and
-deduplicates every delivered item (obligations E-O2 and E-O5,
-defined with the [endpoint component](../components/endpoint)).
+### `send`
 
-## Guarantees
+- **Pre.** `d` is well-formed; `d.from` is the caller's registered
+  identity.
+- **Post.** None. `send` is an attempt, not a promise — the push
+  half of P-DELIV.2, under P-DELIV.3.
+- **Refusal.** A Transport Provider MAY refuse to carry a datagram
+  (quota, unknown recipient, policy under open question #2). What a
+  refusal looks like is open question #9.
 
-| ID | Guarantee |
-|---|---|
-| **T-G1** Integrity | A delivered datagram is bit-identical to the sent one. The transport MUST NOT alter any field; alteration is detectable by the datagram signature. |
-| **T-G2** Opacity | The transport MUST NOT interpret `payload` (L1-G4). |
-| **T-N1** Best effort | Delivery MAY fail silently and MAY duplicate. No ordering of any kind is promised (L1-N1). Nothing above the transport may assume otherwise. |
+### `received`
 
-`T-N1` is normative and load-bearing: every reliability property in
-the system is built *on top of* an unreliable transport, never
-assumed *of* it. A deployment whose transport happens to be reliable
-gains efficiency, not different semantics.
+- **Post.** Each item is bit-identical to what some sender submitted
+  — a Transport Provider MUST NOT alter any field (alteration is
+  detectable via `d.sig`), and MUST NOT interpret `payload`
+  (P-STRUCT.1).
+- **Consumer obligations.** The endpoint verifies and deduplicates
+  every item (R-EP.2, R-EP.5).
 
-## Refusals
+## Non-guarantees
 
-A transport MAY refuse to carry a datagram (quota, unknown
-recipient, policy under open question #2). What a refusal looks like
-to the sender is open question #9 — the failure taxonomy is not
-bound here.
+Delivery MAY fail silently and MAY duplicate; no ordering of any
+kind is promised (P-DELIV.3). This is normative and load-bearing:
+every reliability property in the system is built *on top of* an
+unreliable transport, never assumed *of* it. A deployment whose
+transport happens to be reliable gains efficiency, not different
+semantics.
 
 ## Implementation note (non-normative)
 
 v0: WebSocket sessions to the router; `send` is a socket write,
-`received` is the socket's inbound stream. Decentralized later:
-`send` resolves the recipient's current locator and pushes
-peer-to-peer, with relays as fallback. The interface is unchanged in
-both — that is the two-substrate test applied to one interface.
+`received` the socket's inbound stream. Decentralized later: `send`
+resolves the recipient's current locator and pushes peer-to-peer,
+with relays as fallback. The contract is unchanged in both — the
+two-substrate test applied to one interface.

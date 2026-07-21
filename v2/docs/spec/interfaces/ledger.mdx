@@ -1,15 +1,15 @@
 ---
-title: "Ledger interface"
-description: "Durable, consecutively positioned append-only logs — sequencer and record store behind one surface"
+title: "Ledger"
+description: "Contract: durable, consecutively positioned append-only logs — sequencer and record store behind one surface"
 ---
 
-# Ledger interface
+# Ledger
 
-The ledger is the sequencer and record-store roles exposed as one
-interface: `append` is the sequencing act, `read` is the record act.
-Every durable ordered thing in the system is a deployment of this
-one interface — the conversation stream is a ledger of `LogEntry`,
-and the [mailbox](./mailbox)'s inbox is a small ledger of datagrams.
+The sequencer and record-store roles exposed as one interface:
+`append` is the sequencing act, `read` is the record act. Every
+durable ordered thing in the system is a deployment of this one
+interface — the conversation stream is a ledger of `LogEntry`, and
+the [mailbox](./mailbox)'s inbox is a small ledger of datagrams.
 
 ## Operations
 
@@ -25,61 +25,54 @@ Committed = { entry: Entry, commit: Commit }
 ```
 
 `scope` is the generic form of `conv`: a conversation deployment's
-`LedgerId` is its `ConversationId`, and the `SeqCommit` shape on the
-L2 page is this `Commit` with the scope specialized.
+`LedgerId` is its `ConversationId`, and the `SeqCommit` shape in the
+[packet appendix](../packets) is this `Commit` with the scope
+specialized.
 
-| Operation | Justified by |
-|---|---|
-| `append` | L2-G1 — position assignment; returns only after the entry is durable |
-| `read` | L2.5-G4 — gap-free resume from any held position (endpoint obligation E-O4) |
-| `head` | gap detection — a member comparing `head` to its own high-water mark discovers withheld entries |
+### `append`
 
-## Guarantees
+- **Pre.** Caller is authorized to append to `scope` (a deployment
+  rule, below).
+- **Post.** The entry is durable (P-LOG.1); the returned `Commit`
+  binds it to position `head+1`, maintaining consecutive unique
+  binding (P-LOG.2) and non-repudiable assignment (P-LOG.3).
+- **Refusal.** Authority, quota, or PCC once #765 binds it; failure
+  taxonomy is open question #9.
 
-| ID | Guarantee |
-|---|---|
-| **LG-G1** Durable append | `append` returns only after the entry is durable. There is no window where a position is assigned but its entry can be lost. |
-| **LG-G2** Consecutive, unique positions | Positions within a scope are consecutive from 1, and each position binds exactly one entry hash, ever. |
-| **LG-G3** Non-repudiable assignment | Every position assignment is attributable to the scope's current sequencer and non-repudiable; two conflicting assignments for one `(scope, seq)` are provable equivocation. |
-| **LG-G4** Gap-free reads | `read(scope, after: N)` returns a prefix-complete continuation: positions N+1, N+2, … with nothing omitted, up to `limit`. |
-| **LG-G5** Immutability | A committed entry is never altered or removed within the scope's retention window. Retention itself is open question #7. |
+### `read`
 
-Deployed on a conversation scope, LG-G2–LG-G4 are what satisfy
-L2-G1, L2-G4, and L2.5-G4; the layer pages own the
-conversation-level statements, this page owns the generic ones.
+- **Pre.** Caller is authorized to read `scope` (deployment rule;
+  history-read scope is open question #7).
+- **Post.** A prefix-complete continuation from `after` (P-LOG.4) of
+  immutable committed pairs (P-LOG.5), verifiable by the caller
+  regardless of who served it (P-LOG.3).
 
-A ledger holder that violates LG-G2..G5 produces conflicting
-assignments or provable gaps — the ledger is auditable from its own
-contents. This property is what lets the record substrate double as
-L5 evidence (L5-G1, L5-G2); the L5 page cites it rather than
-re-deriving it.
+### `head`
+
+- **Post.** The scope's highest committed position. Comparing it to
+  a held high-water mark makes withheld entries detectable as gaps
+  (P-LOG.2).
 
 ## Deployments
 
 | Deployment | Scope | Entry | Who appends |
 |---|---|---|---|
-| Conversation stream | `ConversationId` | `LogEntry` | members, under the authority rules chartered to #765 |
+| Conversation stream | `ConversationId` | `LogEntry` | members, under authority rules chartered to #765 |
 | Mailbox inbox | recipient `AgentId` | `Datagram` | the mailbox, on accept |
 
 Authorization for `append` and `read` is a property of the
 deployment, not of the interface. The mailbox's `accept` and `drain`
 are the inbox deployment's `append` and `read`; its `ack` bounds the
-inbox's retention window (LG-G5).
-
-## Refusals
-
-An `append` MAY be refused (authority, quota, pessimistic
-concurrency control once #765 binds it). Failure taxonomy: open
-question #9.
+inbox's retention window (P-LOG.5).
 
 ## Implementation note (non-normative)
 
 v0: one router-held store; `append` assigns a dense per-scope
 counter at commit time, and commits carry the sequencer's signature
-(`seqSig`) as the LG-G3 mechanism. v1 assigned sparse time-based ids
-("snowflakes") *before* commit, which produced a gap-on-resume
+(`seqSig`) as the P-LOG.3 mechanism. v1 assigned sparse time-based
+ids ("snowflakes") *before* commit, which produced a gap-on-resume
 defect measured in the v1 audit (`v2/inputs/`); commit-time dense
-positions are the corrective. Decentralized later: the scope's
-sequencer role moves to a member leader or quorum; `read` can be
-served by any holder of the committed pairs, since LG-G3/G4 make the
+positions are the corrective. Decentralized later: a scope's
+sequencer moves to a member leader or quorum; `read` can be served
+by any holder of the committed pairs, since P-LOG.3/4 make the
 response verifiable regardless of who serves it.
