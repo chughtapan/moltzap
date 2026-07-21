@@ -463,9 +463,10 @@ export class ConversationService {
       input.seedCreatorAsParticipant !== false
         ? [input.creatorAgentId, ...input.agentIds]
         : [...input.agentIds];
-    return this.connections
-      .addConversationToAgents(memberAgentIds, conversationId)
-      .pipe(Effect.asVoid);
+    return this.connections.addConversationToAgents(
+      memberAgentIds,
+      conversationId,
+    );
   }
 
   private logConversationCreated<TaskMintError>(
