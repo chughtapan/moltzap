@@ -214,19 +214,16 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  * ```mermaid
  * flowchart LR
  *   A[leaseRegistry.shutdown — fail-closed leases + interrupt TTL/round-trip fibers] --> B[messageService.close — interrupt webhook retries]
- *   B --> C[appEndpointRegistry.destroy — clears manifests + hook registries]
- *   C --> D[for each conn — conn.shutdown signals closeRequested]
- *   D --> E[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
- *   E --> F[Scope.close appScope — NodeHttpServer + upgrade wiring]
- *   F --> G[dispatchRuntime.dispose — finalize service Layers]
- *   G --> H[config.dbCleanup — optional caller hook]
+ *   B --> C[for each conn — conn.shutdown signals closeRequested]
+ *   C --> D[sleep SHUTDOWN_DRAIN_MS — drain in-flight RPCs]
+ *   D --> E[Scope.close appScope — NodeHttpServer + upgrade wiring]
+ *   E --> F[dispatchRuntime.dispose — finalize service Layers]
+ *   F --> G[config.dbCleanup — optional caller hook]
  * ```
  *
  * `leaseRegistry.shutdown()` runs FIRST, before any socket teardown.
  * `messageService.close()` runs next so pending delivery-webhook POSTs
- * do not race the HTTP server teardown. `appEndpointRegistry.destroy()` runs
- * before per-connection shutdown: in-flight RPCs may observe cleared manifests,
- * and the `SHUTDOWN_DRAIN_MS` sleep is the only mitigation.
+ * do not race the HTTP server teardown.
  *
  * `leaseRegistry.shutdown()` runs BEFORE `Scope.close(appScope)`:
  * closing the app scope interrupts every per-connection WS fiber, and each
@@ -253,7 +250,6 @@ function closeCoreAppEffect(options: CoreAppApiOptions) {
     // instead of park; it also interrupts the live TTL/round-trip fibers.
     yield* services.leaseRegistry.shutdown();
     yield* services.messageService.close();
-    services.appEndpointRegistry.destroy();
     for (const conn of yield* services.connections.allConnections()) {
       yield* conn.socket.shutdown;
     }
