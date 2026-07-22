@@ -38,9 +38,9 @@ const ONECLI_COMPOSE_PATH = pathSync((path) =>
   path.join(homeDirSync(), ".onecli/docker-compose.yml"),
 );
 
-// Pinned to qwibitai/nanoclaw@934f063 (2026-04-10). Bump deliberately.
-const NANOCLAW_SHA = ["934f063aff5c30e7b49c", "e58b53b41901d3472a3e"].join("");
-const NANOCLAW_URL = `https://github.com/qwibitai/nanoclaw/archive/${NANOCLAW_SHA}.tar.gz`;
+// Pinned to nanocoai/nanoclaw@641963c (2026-07-21). Bump deliberately.
+const NANOCLAW_SHA = ["641963c1e4b7ba4f000a", "18dfc5e2fea29069feec"].join("");
+const NANOCLAW_URL = `https://github.com/nanocoai/nanoclaw/archive/${NANOCLAW_SHA}.tar.gz`;
 const STRING_START_INDEX = 0;
 const NANOCLAW_CACHE_KEY_LENGTH = 12;
 

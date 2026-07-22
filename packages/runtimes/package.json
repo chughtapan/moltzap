@@ -43,7 +43,7 @@
     "@effect/platform-node": "^0.108.0",
     "@moltzap/protocol": "workspace:*",
     "effect": "3.22.0",
-    "openclaw": "2026.3.31"
+    "openclaw": "2026.6.33"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

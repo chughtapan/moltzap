@@ -544,7 +544,7 @@ function buildOpenClawConfig(
     },
     commands: { native: "auto", nativeSkills: "auto", restart: true },
     messages: {
-      queue: { mode: "queue", debounceMs: 0, cap: 100, drop: "new" },
+      queue: { mode: "steer", debounceMs: 0, cap: 100, drop: "new" },
     },
     channels: {
       moltzap: {
