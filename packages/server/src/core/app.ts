@@ -226,28 +226,19 @@ function makeCoreAppApi(options: CoreAppApiOptions): CoreApp {
  * do not race the HTTP server teardown.
  *
  * `leaseRegistry.shutdown()` runs BEFORE `Scope.close(appScope)`:
- * closing the app scope interrupts every per-connection WS fiber, and each
- * runs its disconnect cleanup UNINTERRUPTIBLY. For a recipient holding a
- * GRANTED lease that cleanup emits a `app/dispatch/lease-expired` frame to the
- * moderator connection; when the moderator socket is torn down concurrently
- * the cross-connection write parks on its closed write-latch forever,
- * deadlocking `Scope.close`. Draining the registry first (fail-closed every
- * lease so notifications drop, interrupt the live TTL/round-trip fibers)
- * removes the parked write. See
+ * it atomically closes and drains lease state, stops background notification
+ * and retention work, and interrupts live TTL/moderator round-trip fibers.
+ * Later per-connection disconnect cleanup therefore observes an empty,
+ * closed registry and cannot schedule new lease work during scope teardown.
+ * See
  * `dispatch/lease-registry.ts → LeaseRegistry.shutdown`.
  */
 function closeCoreAppEffect(options: CoreAppApiOptions) {
   const { services } = options;
   return Effect.gen(function* () {
-    // Drain the lease runtime FIRST, before any socket teardown. Both
-    // the explicit `conn.socket.shutdown` loop below AND `Scope.close`'s
-    // interrupt of the WS fibers trigger each connection's disconnect cleanup
-    // (`MoltZapServer`/`moltzap/server-socket.ts -> leaseRegistry.abandon`),
-    // which for a recipient holding a GRANTED lease emits a cross-connection
-    // `app/dispatch/lease-expired` frame to the moderator. If the moderator socket is
-    // closing concurrently that write parks forever on its closed write-latch.
-    // Flipping the registry closed up front makes every such notification drop
-    // instead of park; it also interrupts the live TTL/round-trip fibers.
+    // Drain the lease runtime before socket teardown. Subsequent disconnect
+    // cleanup observes an empty, closed registry; background notification,
+    // retention, TTL, and moderator round-trip work is stopped first.
     yield* services.leaseRegistry.shutdown();
     yield* services.messageService.close();
     for (const conn of yield* services.connections.allConnections()) {

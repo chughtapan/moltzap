@@ -299,7 +299,7 @@ Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L536)
+### [`leaseRecordToWire`](./lease-registry.ts#L526)
 
 _Function_
 
@@ -425,16 +425,16 @@ export interface LeaseRegistry {
    * Deterministic shutdown drain — invoked by `CoreApp.close`
    * (`core/app.ts -> closeCoreAppEffect`) BEFORE `Scope.close(appScope)`.
    *
-   * Closing the app scope interrupts every per-connection WebSocket fiber.
-   * Each interrupted fiber runs its disconnect cleanup
-   * (`MoltZapServer`/`moltzap/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
-   * `onExit` region, and that cleanup calls {@link abandon}. For a recipient
-   * connection holding a GRANTED lease, `abandon` emits a `app/dispatch/lease-expired`
-   * frame to the MODERATOR connection via {@link fireNotification}. When the
-   * moderator socket is being torn down concurrently its write-latch is
-   * closed, so the cross-connection write SUSPENDS forever — inside the
-   * uninterruptible region — and `Scope.close` blocks awaiting that
-   * fiber. That is the teardown deadlock this method prevents.
+   * Atomically closes and drains the registry, completes the shared signal
+   * observed by background notification and retention fibers, then interrupts
+   * live TTL and moderator round-trip fibers. No concurrent transition can
+   * repopulate the registry after the drain.
+   *
+   * Idempotent; safe to call when no leases are live. Error channel `never` —
+   * shutdown is best-effort.
+   */
+  shutdown(): Effect.Effect<void, never, never>;
+}
 ```
 
 Public contract of the lease registry. One instance per server lifetime,
@@ -502,7 +502,7 @@ the immutable record version that created it, so a stale pre-rollback timer
 cannot expire a newer GRANTED epoch. The timeout comes from the grant
 verdict's `leaseTimeoutMs`.
 
-### [`LeaseRegistryDeps`](./lease-registry.ts#L438)
+### [`LeaseRegistryDeps`](./lease-registry.ts#L428)
 
 _Interface_
 
@@ -612,7 +612,7 @@ Dispatch admission is only defined for app-bound, non-archived
 conversations. The success type deliberately has no non-app-bound arm, so
 downstream lease minting cannot accidentally handle one as a lease binding.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1421)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1346)
 
 _Function_
 

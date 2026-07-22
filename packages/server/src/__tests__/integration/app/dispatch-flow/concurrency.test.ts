@@ -12,10 +12,7 @@
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import {
-  DispatchRelease,
-  type LeaseId,
-} from "@moltzap/protocol/message/dispatch";
+import { DispatchRelease } from "@moltzap/protocol/message/dispatch";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { Chunk, Duration, Effect, Either, Fiber, Stream } from "effect";
@@ -34,7 +31,6 @@ import {
   startDispatchFlowServer,
   stopDispatchFlowServer,
   waitForDispatchRelease,
-  type ConversationBinding,
 } from "./fixture.js";
 import {
   getKyselyDb,
@@ -157,20 +153,6 @@ function requestGrantedDispatchLease(
   });
 }
 
-function sendTwiceWithLease(
-  bob: ConnectedAgent,
-  binding: ConversationBinding,
-  leaseId: LeaseId,
-) {
-  return Effect.all(
-    [
-      sendMessageWithLease(bob, binding, leaseId, "first").pipe(Effect.either),
-      sendMessageWithLease(bob, binding, leaseId, "second").pipe(Effect.either),
-    ],
-    { concurrency: 2 },
-  );
-}
-
 function readMessageIds(conversationId: ConversationId) {
   return Effect.tryPromise(() =>
     getKyselyDb()
@@ -185,13 +167,18 @@ function sameLeaseSendsCommitExactlyOnce() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     const { binding, leaseId } = yield* requestGrantedDispatchLease(alice, bob);
-    const outcomes = yield* sendTwiceWithLease(bob, binding, leaseId);
-    const successes = outcomes.flatMap(
-      Either.match({
-        onLeft: () => [],
-        onRight: (result) => [result],
-      }),
+    const outcomes = yield* Effect.all(
+      [
+        sendMessageWithLease(bob, binding, leaseId, "first").pipe(
+          Effect.either,
+        ),
+        sendMessageWithLease(bob, binding, leaseId, "second").pipe(
+          Effect.either,
+        ),
+      ],
+      { concurrency: 2 },
     );
+    const successes = outcomes.filter(Either.isRight);
 
     expect(successes).toHaveLength(1);
     expect(outcomes.filter(Either.isLeft)).toHaveLength(1);
@@ -202,11 +189,11 @@ function sameLeaseSendsCommitExactlyOnce() {
 
     const rows = yield* readMessageIds(binding.conversationId);
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.id).toBe(success.message.id);
+    expect(rows[0]?.id).toBe(success.right.message.id);
 
     const record = yield* readLeaseByLeaseId(leaseId);
     expect(record.state).toBe(DISPATCH_STATE_CONSUMED);
-    expect(record.consumedMessageId).toBe(success.message.id);
+    expect(record.consumedMessageId).toBe(success.right.message.id);
   });
 }
 
