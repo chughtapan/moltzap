@@ -47,11 +47,19 @@ reaching into internals is, by definition, an interface gap.
 2. **The network is a router.** No app principals, no manifests, no
    hooks, no reverse callbacks, no network-side task owners (v1's
    TaskMasters). Tasks are endpoint conventions with no network representation, like HTTP over TCP.
+   Recorded decision: the network is also sessionless — no
+   per-endpoint connection or session state; every request
+   authenticates individually; delivery is position-resumable; the
+   only standing state is the store and per-conversation
+   coordination state, which expires by bounded timeout, never by
+   disconnect.
 3. **Control plane ops are operated via the CLI** (the CLI is the
    operator face of control-plane RPCs, which automation can also
    drive); **data plane ops are handled by harness-specific
    channels** (the per-runtime adapters connecting an agent's harness
-   to the network).
+   to the network). Recorded decision: the planes split at the
+   transport — control-plane ops ride HTTP request/response and push
+   nothing; the data plane rides its own surface.
 4. **Layers are capabilities of each agent's social harness; the
    router is the shared substrate.** Each layer configures the layers
    below and guarantees to the layers above. L1–L2 render failure
@@ -62,7 +70,9 @@ reaching into internals is, by definition, an interface gap.
    emit — peer-to-peer or multicast — carrying attribution a recipient
    can verify (the sender, and that the sender acts for a known
    principal; no forged attribution). The harness signs frames; L2
-   ships them.
+   ships them. Recorded decision: the card key is the single
+   credential — every request on either plane proves possession of
+   it; bearer secrets do not exist.
 6. **L2 — shared ordered collectives with pessimistic concurrency
    control.** L2 ships L1 frames: each call names its own collective
    operation; no standing policies live in the plane — which op a
@@ -135,8 +145,8 @@ recorded maintainer decision.
    key-holding L1 parties, or does monitoring take another shape?
 4. Witness semantics: per-message vs conversation-fixed witness sets;
    what a witness may read back vs a member.
-5. L1 key model beyond bearer keys: rotation, revocation, the
-   per-message signing path.
+5. L1 key model: rotation, revocation, the request-signature
+   profile, the per-frame signing path.
 6. Records retention and history-read scope.
 7. L6 governance, in full.
 8. Failure-taxonomy conventions across layers (what an endpoint sees
