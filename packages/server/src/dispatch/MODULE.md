@@ -252,7 +252,7 @@ export interface EnqueueDispatchRequestArgs {
 }
 ```
 
-### [`LeaseInvalidError`](./lease-registry.ts#L162)
+### [`LeaseInvalidError`](./lease-registry.ts#L170)
 
 _Class_
 
@@ -275,7 +275,7 @@ surface a precise wire-error code, e.g. typed-CONSUMED /
 typed-EXPIRED) and `expected` carries the set of states the
 operation would have accepted.
 
-### [`LeaseRecord`](./lease-registry.ts#L131)
+### [`LeaseRecord`](./lease-registry.ts#L139)
 
 _Interface_
 
@@ -299,7 +299,7 @@ Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L487)
+### [`leaseRecordToWire`](./lease-registry.ts#L526)
 
 _Function_
 
@@ -310,7 +310,7 @@ export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire
 Translation point between the in-process nested `LeaseRecord` and the wire
 `LeaseRecordSchema` shape.
 
-### [`LeaseRegistry`](./lease-registry.ts#L281)
+### [`LeaseRegistry`](./lease-registry.ts#L288)
 
 _Interface_
 
@@ -386,7 +386,7 @@ export interface LeaseRegistry {
    *   forked fiber catches and discards). No `agent/dispatch/released`
    *   notification fires (the recipient is gone).
    *
-   * - **GRANTED → EXPIRED-on-disconnect**: terminal state; emits
+   * - **GRANTED / HOLD → EXPIRED-on-disconnect**: terminal state; emits
    *   `app/dispatch/lease-expired` to the moderator. Cancels the post-grant TTL
    *   fiber. The recipient won't observe; the moderator's view stays
    *   consistent.
@@ -397,13 +397,12 @@ export interface LeaseRegistry {
    *   release-arm of the acquireUseRelease is responsible. Otherwise a
    *   committed durable row could be retried into a duplicate.
    *
-   * - **HOLD / DENIED / EXPIRED / ABANDONED / CONSUMED**: no-op (already
-   *   terminal-or-near-terminal; no recipient-binding work to do).
+   * - **DENIED / EXPIRED / ABANDONED / CONSUMED**: no-op (already terminal;
+   *   no recipient-binding work to do).
    *
-   * Errors are absorbed: connection-close cleanup is fire-and-forget;
-   * any per-lease transition failure is logged-and-dropped (the
-   * disconnect path must complete even if a single lease's state is
-   * unexpected). Public error channel is `never`.
+   * The matching transitions commit as one atomic batch. Notification
+   * failures are absorbed so disconnect cleanup always completes; the public
+   * error channel is `never`.
    */
   abandon(connId: ConnectionId): Effect.Effect<void, never, never>;
 
@@ -411,9 +410,11 @@ export interface LeaseRegistry {
    * Internal — record the forked moderator round-trip fiber so
    * {@link abandon} can interrupt it on recipient disconnect. The
    * caller forks the round-trip immediately after `mint`; the registry
-   * interrupts the fiber when the binding's recipient connection
-   * closes (PENDING → ABANDONED transition). No-op if the lease is no
-   * longer in PENDING when the fiber is attached. Idempotent.
+   * interrupts the fiber when the binding's recipient connection closes
+   * (PENDING → ABANDONED). If the child already resolved the lease, attachment
+   * leaves that winning child alive to finish its post-commit work. If the
+   * lease was abandoned or removed, attachment interrupts the orphaned child.
+   * Reattaching the same fiber is idempotent.
    */
   attachRoundTripFiber(
     leaseId: LeaseId,
@@ -424,23 +425,22 @@ export interface LeaseRegistry {
    * Deterministic shutdown drain — invoked by `CoreApp.close`
    * (`core/app.ts -> closeCoreAppEffect`) BEFORE `Scope.close(appScope)`.
    *
-   * Closing the app scope interrupts every per-connection WebSocket fiber.
-   * Each interrupted fiber runs its disconnect cleanup
-   * (`MoltZapServer`/`moltzap/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
-   * `onExit` region, and that cleanup calls {@link abandon}. For a recipient
-   * connection holding a GRANTED lease, `abandon` emits a `app/dispatch/lease-expired`
-   * frame to the MODERATOR connection via {@link fireNotification}. When the
-   * moderator socket is being torn down concurrently its write-latch is
-   * closed, so the cross-connection write SUSPENDS forever — inside the
-   * uninterruptible region — and `Scope.close` blocks awaiting that
-   * fiber. That is the teardown deadlock this method prevents.
+   * Atomically closes and drains the registry, completes the shared signal
+   * observed by background notification and retention fibers, then interrupts
+   * live TTL and moderator round-trip fibers. No concurrent transition can
+   * repopulate the registry after the drain.
    *
+   * Idempotent; safe to call when no leases are live. Error channel `never` —
+   * shutdown is best-effort.
+   */
+  shutdown(): Effect.Effect<void, never, never>;
+}
 ```
 
 Public contract of the lease registry. One instance per server lifetime,
 shared by dispatch admission and message send. Backed by an in-process
-`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` with per-lease TTL fibers — no DB row.
-State transitions are atomic via `Ref.modify`.
+`Ref&lt;LeaseRegistryData>` containing entries, dispatch index, and the closed
+flag — no DB row. State transitions are atomic via `Ref.modify`.
 
 Lease state machine (eight states; `LeaseState` in this file is the
 normative enumeration):
@@ -452,7 +452,6 @@ stateDiagram-v2
   PENDING --> DENIED : verdict deny
   PENDING --> HOLD : verdict hold
   PENDING --> ABANDONED : conn close
-  HOLD --> PENDING : retry on next inbound message in same conv
   GRANTED --> CLAIMED : agent/message/send claim
   GRANTED --> EXPIRED : TTL fires OR conn close
   HOLD --> EXPIRED : conn close
@@ -498,12 +497,12 @@ no-op. The CLAIMED no-op is load-bearing — without it, a recipient
 disconnect mid-insert could roll back a committed durable row,
 permitting a duplicate retry.
 
-Timer wheel / min-heap for TTLs runs on a single fiber; per-lease
-scheduler fibers are forbidden. Manifest TTLs come from the
-`dispatch_authorize` `{ kind: "hook", timeoutMs }` policy (moderator
-response) and the verdict's `leaseTimeoutMs` (post-grant lease).
+Each timed GRANTED lease owns one daemon TTL fiber. The fiber is bound to
+the immutable record version that created it, so a stale pre-rollback timer
+cannot expire a newer GRANTED epoch. The timeout comes from the grant
+verdict's `leaseTimeoutMs`.
 
-### [`LeaseRegistryDeps`](./lease-registry.ts#L430)
+### [`LeaseRegistryDeps`](./lease-registry.ts#L428)
 
 _Interface_
 
@@ -520,8 +519,8 @@ Constructor dependencies for the lease registry.
   helper to find the recipient and at `app/dispatch/lease-consumed` /
   `app/dispatch/lease-expired` emission to find the moderator's connection.
 - `leaseRetentionMs`: terminal-state retention window (CONSUMED /
-  DENIED / EXPIRED / ABANDONED). Live states (PENDING / GRANTED /
-  HOLD / CLAIMED) age out on their own TTLs.
+  DENIED / EXPIRED / ABANDONED). A GRANTED lease may separately carry the
+  verdict's `leaseTimeoutMs`.
 - `transitionObserver`: called at every transition that crosses the
   lease's "active for presence" boundary (PENDING → GRANTED, exits
   from GRANTED|CLAIMED). Feeds presence emission. **Required, not
@@ -563,7 +562,7 @@ export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
 >() {}
 ```
 
-### [`LeaseState`](./lease-registry.ts#L110)
+### [`LeaseState`](./lease-registry.ts#L118)
 
 _TypeAlias_
 
@@ -587,7 +586,7 @@ Discriminated state of a lease. The registry's `Ref.modify`
 transitions read this discriminator and reject illegal transitions
 with a typed error (see LeaseInvalidError).
 
-### [`LeaseVerdict`](./lease-registry.ts#L121)
+### [`LeaseVerdict`](./lease-registry.ts#L129)
 
 _TypeAlias_
 
@@ -613,7 +612,7 @@ Dispatch admission is only defined for app-bound, non-archived
 conversations. The success type deliberately has no non-app-bound arm, so
 downstream lease minting cannot accidentally handle one as a lease binding.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1226)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1346)
 
 _Function_
 
@@ -626,15 +625,13 @@ export function makeLeaseRegistry(
 Construct the registry. The constructor is the only public factory
 — `LeaseRegistry` is referenced as an interface from call sites.
 
-Implementation: a `Ref&lt;Map&lt;LeaseId, LeaseEntry>>` plus a per-lease
-scheduled TTL fiber (Effect-managed; safe to interrupt). Every state
-transition is a `Ref.modify` predicate that returns the new entry +
-a description of the side-effect (notification to emit, fiber to
-cancel). The side-effects run AFTER the predicate commits — so the
-state change is visible to concurrent readers before the
-notification fires, satisfying the "first writer wins" invariant.
+Implementation: one `Ref&lt;LeaseRegistryData>` atomically owns entries,
+dispatch index, and closed state. A narrow semaphore orders each state
+commit with its presence observer callback; network notifications and fiber
+interruption run after that critical section. A shared shutdown signal
+cancels parked notification and retention effects.
 
-### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L95)
+### [`ModeratorBoundLeaseBinding`](./lease-registry.ts#L103)
 
 _Interface_
 

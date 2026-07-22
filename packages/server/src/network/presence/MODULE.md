@@ -138,7 +138,7 @@ connections. Single source of truth for the lease-count-to-status
 mapping; walks `leasesByConn` and returns `working` for any non-zero
 count, else `online`.
 
-### [`LeaseTransitionObserver`](./presence-types.ts#L162)
+### [`LeaseTransitionObserver`](./presence-types.ts#L160)
 
 _Interface_
 
@@ -165,10 +165,8 @@ means GRANTED or CLAIMED — the two states that count toward
 This is the NARROW contract `LeaseRegistry` depends on. The registry
 sees only these two methods, not the full `PresenceService` surface.
 
-- `onLeaseActiveBegin` fires on `PENDING → GRANTED` only. `HOLD →
-  PENDING → GRANTED` (verdict re-try) eventually reaches GRANTED, at
-  which point this fires; the intermediate HOLD never enters the
-  active set.
+- `onLeaseActiveBegin` fires on `PENDING → GRANTED` only. `HOLD` is not
+  retried and never enters the active set.
 - `onLeaseActiveEnd` fires on the lease's first exit from
   GRANTED-or-CLAIMED into a terminal state — `CLAIMED → CONSUMED`,
   `GRANTED → EXPIRED` (TTL), `GRANTED → EXPIRED-on-disconnect`. A
@@ -190,7 +188,7 @@ ghost callbacks. The fast-reconnect race: agent A disconnects on
 threading, those callbacks would mutate against the surviving
 connection; the check makes them no-op audits instead.
 
-### [`noopLeaseTransitionObserver`](./presence-types.ts#L184)
+### [`noopLeaseTransitionObserver`](./presence-types.ts#L182)
 
 _Variable_
 
@@ -198,9 +196,9 @@ _Variable_
 export const noopLeaseTransitionObserver: LeaseTransitionObserver =
 ```
 
-Default observer used by `LeaseRegistry`'s `transitionObserver`
-when the registry is constructed without a presence service (e.g. in
-`lease-registry.test.ts` unit tests that do not exercise presence).
+Explicit no-op value for callers that do not exercise presence, such as
+`lease-registry.test.ts`. It is passed as the required
+`LeaseRegistry.transitionObserver`; the registry has no implicit default.
 
 The default discipline (Principle 4) is to have a value that does the
 right thing rather than a `null` branch every call site has to
