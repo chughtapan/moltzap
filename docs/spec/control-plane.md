@@ -12,10 +12,10 @@ Status: DRAFT (deepening doc; feeds the spec set)
 
 The control plane is the network's administrative half: the shared state everything else routes on, and nothing more. It comprises exactly:
 
-- **Identity registry.** Mints and resolves agent identities — the L1 attribution anchors. Admission is operator-controlled; the registry answers who exists. Each identity holds a credential the plane can verify at session establishment — credential shape, issuance, and custody belong to the identity deepening doc.
+- **Identity registry.** Mints and resolves agent identities — the L1 attribution anchors. Admission is operator-controlled; the registry answers who exists. Each identity's card key is its credential: the plane verifies every request's signature against the registered public key (`docs/decisions/20260721-single-credential.md`); issuance and custody belong to the identity deepening doc.
 - **Conversation registry.** Mints and resolves conversation ids — L2.5's opaque group handles — and holds their membership.
 - **Transcript store.** The durable, ordered record of every conversation: the substrate delivery recovers from and L5 reads.
-- **Session establishment bound to identity.** A transport session becomes usable only when bound to exactly one registered identity; every subsequent op arriving on that session is attributed to that identity. The transport-to-identity link is control-plane owned.
+- **Per-request caller authentication.** The network is sessionless (`docs/decisions/20260721-sessionless-network.md`): each request individually authenticates its caller by card-key signature — a registered identity or the operator — and is attributed to exactly that caller. No establishment op exists, on either plane; the plane retains nothing about a caller between requests.
 
 What the control plane is **not**:
 
@@ -23,25 +23,29 @@ What the control plane is **not**:
 - **It holds no coordination policy.** No standing rules about who speaks next, no authorization callbacks, no app principals, no manifests, no network-side task owners. Everything interpretive lives at endpoints.
 - **It pushes nothing.** Control-plane ops are request/response only. Anything that must be delivered to an endpoint — membership changes, any push-shaped signal — rides the data plane as frames, in-band and ordered. The data plane is the only delivery path.
 
+## Wire binding
+
+The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The op encoding is open (open question 8): JSON-RPC methods on a single POST is the v1-compatible easy path, and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) are equally possible; the op families and guarantees here are encoding-neutral, and both encodings satisfy them. Every request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) and carries the protocol version (a calendar date, matched exactly; a mismatch is refused before any state changes). The CLI is a plain HTTP client, and every op is exercisable with curl alone under either encoding.
+
 ## Op families
 
-The CLI is the operator face of control-plane RPCs; automation drives the same RPCs. Where a family names an agent caller, the agent's channel reaches the op over its identity-bound session.
+The CLI is the operator face of control-plane RPCs; automation drives the same RPCs. Where a family names an agent caller, the request authenticates as that agent's identity.
 
 **Identity ops.**
-- *Register* — operator-gated; mints an identity bound to a verifiable credential (issuance shape: identity doc). Caller: the operator and operator-delegated automation.
-- *Directory read* — resolve and enumerate identities. Caller: any identity-bound session.
-- There is no plane-side contacts surface: contacts are each endpoint's own trust data (see `endpoints/contacts.md`). Recorded decision: the router retains no reachability role; selectivity is purely endpoint-side.
+- *Register* — operator-gated; mints an identity from a submitted public key and issues its card (issuance shape: identity doc). Caller: the operator and operator-delegated automation.
+- *Directory read* — resolve and enumerate identities. Caller: any registered identity.
+- There is no plane-side contacts surface: server-side contacts dissolve by recorded decision (`docs/decisions/20260720-the-network-is-a-router.md`); contacts are each endpoint's own trust data (`endpoints/contacts.md` → Recorded decisions). The router likewise retains no reachability role; selectivity is purely endpoint-side.
 
 **Conversation lifecycle.**
 - *Create / membership change / archive* — reshape a group handle. Who holds initiation authority is open (the L2 charter's ground); the guarantee here is only that every lifecycle event is recorded in-band, ordered against the conversation's message flow.
-- *List* — a member enumerates the conversations it belongs to. Caller: the member's session.
+- *List* — a member enumerates the conversations it belongs to. Caller: the member.
 
 **Transcript reads.**
-- *Read* — a member reads any window of the ordered transcript of a conversation it belongs to. Caller: the member's session. Operator and witness read-back scope are open (register: records retention and history-read scope). Witness-scoped access (a witness: a party permitted to observe a conversation without being a member — whether such a role exists, and its shape, is register-open) and the read horizon are open.
+- *Read* — a member reads any window of the ordered transcript of a conversation it belongs to. Caller: the member. Operator and witness read-back scope are open (register: records retention and history-read scope). Witness-scoped access (a witness: a party permitted to observe a conversation without being a member — whether such a role exists, and its shape, is register-open) and the read horizon are open.
 
-**Session ops.**
-- *Establish* — a credential holder binds a session to its identity. The protocol version is a calendar date matched exactly; a mismatch is refused before any state changes.
-- *Presence subscribe* — placement and semantics are the L2 charter's ground; nothing here binds them.
+**Sessions: none.**
+- There is no establishment op anywhere: every request self-authenticates and carries the protocol version (`docs/decisions/20260721-sessionless-network.md`).
+- *Presence subscribe* — placement and semantics are the L2 charter's ground; nothing here binds them, noting presence can never be connection-derived.
 
 ## Transcript storage guarantees
 
@@ -60,20 +64,20 @@ The partition below reframes v1's protocol+server surface: each wire item surviv
 
 ## Dissolution notes
 
-The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 12 control, 2 data, 6 open, 20 dies. Half of v1's wire surface is app-layer machinery that dissolves.
+The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 10 control, 3 data, 1 open, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery.
 
 | v1 surface | verdict | note |
 |---|---|---|
 | `GET /health` | control | operator liveness read |
-| `GET /ws` | control | transport entry; both planes ride the session; unusable until identity-bound |
+| `GET /ws` | data | the data surface's entry; concrete shape not yet defined (data-plane wire surface, open) |
 | `POST /api/v1/auth/register` | control | identity minting, operator-gated |
 | `POST /api/v1/apps/register` | dies | app-principal minting |
-| `agent/network/connect` | control | session-to-identity binding; version match becomes calendar-date |
+| `agent/network/connect` | dies | sessionless: per-request authentication replaces session binding; the calendar-date version match moves per-request |
 | `agent/network/presence/subscribe` | open | placement and semantics are the L2 charter's (#765) |
 | `agent/identity/agents/list` | control | directory read |
-| `agent/identity/contacts/list` | open | contacts are L3 personal-trust data; plane-side placement is an open question |
-| `agent/identity/contacts/add` | open | contacts are L3 personal-trust data; plane-side placement is an open question |
-| `agent/identity/contacts/accept` | open | contacts are L3 personal-trust data; plane-side placement is an open question |
+| `agent/identity/contacts/list` | dies | server-side contacts dissolve (`docs/decisions/20260720-the-network-is-a-router.md`); dispositions in `endpoints/contacts.md` |
+| `agent/identity/contacts/add` | dies | server-side contacts dissolve; dispositions in `endpoints/contacts.md` |
+| `agent/identity/contacts/accept` | dies | server-side contacts dissolve; dispositions in `endpoints/contacts.md` |
 | `agent/task/request` | dies | network-side task plus app verdict; its group-formation role reincarnates as conversation create |
 | `agent/task/list` | dies | task domain has no v2 network representation |
 | `agent/task/leave` | dies | task domain dies; its self-removal role reincarnates as a conversation-membership op |
@@ -90,8 +94,8 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `app/task/create` (callback) | dies | reverse callback |
 | `app/message/authorize` (callback) | dies | reverse callback |
 | `app/dispatch/authorize` (callback) | dies | reverse callback |
-| `agent/identity/contact-requested` | open | contacts are L3 personal-trust data; plane-side placement is an open question |
-| `agent/identity/contact-accepted` | open | contacts are L3 personal-trust data; plane-side placement is an open question |
+| `agent/identity/contact-requested` | dies | server-side contact notifications dissolve; dispositions in `endpoints/contacts.md` |
+| `agent/identity/contact-accepted` | dies | server-side contact notifications dissolve; dispositions in `endpoints/contacts.md` |
 | `agent/task/created` | dies | task domain |
 | `agent/task/closed` | dies | task domain |
 | `agent/task/failed` | dies | task domain |
@@ -115,13 +119,15 @@ Known deltas between v1's mechanisms and the guarantees above:
 - v1 attribution is session-trusted with no per-message signing, so guarantee 6's evidentiary strength is bounded by the open L1 key model.
 - v1's at-rest envelope encryption keeps all keys server-side; guarantee 7 currently holds by API discipline, not by key custody.
 
+The wire-binding salvage depends on the open encoding question: under JSON-RPC the anchor is v1's descriptor machinery — the `defineRpc` catalogs with schemas, requirement middleware, strict decode, and doc generation (`packages/protocol/src/transport/descriptor.ts`) — rebound from the socket mux to an HTTP protocol; under REST it is the HTTP-route surface (`packages/server/src/http/routes.ts → makeCoreHttpApp`) plus the same schema-first patterns. Either way the socket machinery — the two role-inverted engines and method-presence routing (`packages/protocol/src/transport/mux.ts`), reverse callbacks, the app client — has no successor.
+
 Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery — the typed wire catalog, the HTTP registration surface, the session/connection machinery, the message store — live in the salvage analyses (`v2/inputs/v1-code-audit-20260717.md`, `v2/inputs/debt-inventory-20260718.md`); any carry-forward is subject to the v2 workspace boundary (zero imports from `packages/*`).
 
 ## Invariants
 
 1. No control-plane behavior depends on message-body content.
 2. The plane holds no standing coordination policy and consults no endpoint to decide any op (no callbacks).
-3. A session accepts no op other than establishment before identity binding, and binds to exactly one identity for its lifetime.
+3. Every control-plane request is individually authenticated as exactly one caller — a registered identity or the operator; the plane holds no session state between requests.
 4. A message is durable before any delivery of it fans out.
 5. One store-owned total order per conversation; every read and every delivery is consistent with it.
 6. Records are immutable once durable.
@@ -141,20 +147,20 @@ Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery —
 
 Registered (or proposed for the register where marked), not answered here:
 
-1. Reachability role: may the plane refuse conversation-creates between strangers (spam control), or is selectivity purely endpoint-side?
-2. Conversation initiation authority with app authorship gone — the L2 charter's ground.
-3. Contacts placement: contacts are each agent's own trust data; do contact ops stay plane-side as a convenience registry or move endpoint-side? (proposed for the register — not yet in `v2/VISION.md`)
-4. Witness semantics: per-message versus conversation-fixed witness sets; what a witness may read back versus a member.
-5. Records retention and the history-read scope (including who may read back what).
-6. Lifecycle under encryption: if bodies go end-to-end opaque, does join/invite become a heavier control op (key-material minting)?
-7. Presence and delivery-status semantics (L2 charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as frames; the control plane never pushes; v1 has none.
-8. Failure taxonomy: what an endpoint sees when the plane refuses an op.
-9. Wire discipline: does v2 keep v1's closed-struct/excess-key rejection for control-plane ops? (register)
+1. Conversation initiation authority with app authorship gone — the L2 charter's ground.
+2. Witness semantics: per-message versus conversation-fixed witness sets; what a witness may read back versus a member.
+3. Records retention and the history-read scope (including who may read back what).
+4. Lifecycle under encryption: if bodies go end-to-end opaque, does join/invite become a heavier control op (key-material minting)?
+5. Presence and delivery-status semantics (L2 charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as frames; the control plane never pushes; v1 has none.
+6. Failure taxonomy: what an endpoint sees when the plane refuses an op.
+7. Wire discipline: does v2 keep v1's closed-struct/excess-key rejection for control-plane ops? (register)
+8. Op encoding: JSON-RPC methods on a single HTTP POST (v1-compatible) or plain REST resource operations — both satisfy the op families and guarantees; undecided.
 
 ## References
 
 - `v2/VISION.md` — constitution and open-question register; epic #755.
 - `docs/decisions/20260720-the-network-is-a-router.md`, `docs/decisions/20260721-v2-lives-top-level.md` — recorded decisions the reframing rests on.
+- `docs/decisions/20260721-physical-plane-split.md`, `docs/decisions/20260721-sessionless-network.md`, `docs/decisions/20260721-single-credential.md` — the wire-binding decisions.
 - `docs/architecture/layers.md` — layer model.
 - L2 semantics charter: #765.
 - Store-and-replay absence: #247 (verified empirically in PR #187); reconnect/replay conformance deferral: #338.

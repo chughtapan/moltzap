@@ -58,6 +58,21 @@ participant emits next).
   message flow. Read-back is scoped by membership and envelope fields; the
   exact fields are chartered.
 
+## Wire surface
+
+**Not defined yet** (open question 10). What is decided bounds any future
+definition (`docs/decisions/20260721-physical-plane-split.md`,
+`docs/decisions/20260721-sessionless-network.md`,
+`docs/decisions/20260721-single-credential.md`): data-plane traffic rides its
+own surface, never the control endpoint; the plane keeps no per-endpoint
+connection or session state, so whatever shape delivery takes must be
+resumable from a position the endpoint owns; every call is signed with the
+caller's card key and carries the protocol version; and frames cross the
+surface byte-exact (`identity.md`). Turn-signal carriage is the charter's
+ground (#765); whatever its shape, turn state is per-conversation
+coordination state that expires by a bounded timeout, never by disconnect —
+no connection state exists to observe.
+
 ## The eval middleware (proposed)
 
 Proposed, pending a recorded maintainer decision (open question 9): at most
@@ -120,7 +135,9 @@ sequence assigned at insert start breaks gap-free catch-up under concurrent
 commits; no per-conversation exclusivity invariant on active leases; lease
 state in-memory and single-node (whether this is a gap is contingent on open
 question 5); grant coalescing lets one lease consume several messages, while
-consensus ops need exact accounting. Eval-middleware precedent: the v1
+consensus ops need exact accounting. Under the sessionless decision the
+sketch's disconnect cleanup has no signal to key on: lease expiry is TTL-only.
+Eval-middleware precedent: the v1
 conformance suite's toxic-profile DSL (transport faults) and scripted app
 (verdict / hold / silence — semantic faults).
 
@@ -136,7 +153,9 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 8. Membership changes are in-band events, ordered against message flow.
 9. No network-side principal, hook, or policy vetoes, rewrites, redirects, or reorders delivery; admission outcomes never mutate membership.
 10. No data-plane interface names or carries a task.
-11. Middleware absence-equivalence: production semantics are identical with the middleware absent or present-and-idle; every injection stays inside the tolerated failure envelope.
+11. Middleware absence-equivalence: if the eval middleware exists (open question 9), production semantics are identical with it absent or present-and-idle; every injection stays inside the tolerated failure envelope.
+12. The plane keeps no per-endpoint connection or session state.
+13. Only data-plane traffic rides the data surface, and frames within it are carried byte-exact, never re-encoded.
 
 ## Acceptance criteria
 
@@ -156,13 +175,17 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 5. Does an admitted turn survive a plane restart, or is it reconstructed from the record substrate?
 6. Middleware observation under a content-blind plane: envelope-only, or a key-holding observer (the constitution's monitor question)?
 7. Experiment observation surface: record-substrate reads, a middleware event stream, or both — and where that boundary sits.
-8. Wire discipline for op envelopes (closed-struct / excess-key rejection) — constitution register.
+8. Wire discipline for op envelopes (closed-struct / excess-key rejection) — `v2/VISION.md` register item 9.
 9. Does at most one centralized middleware — the fault-injection / capability-evaluation eval seam — exist at all? Needs a recorded maintainer decision (VISION register or #765); the seam is hook-shaped relative to constitution clause 2 (no hooks, no reverse callbacks), so the record must carve the exception explicitly.
+10. The wire surface: the ship call shape; the delivery model (endpoint-initiated reads, held-open responses, or another shape); the feed's scope (per-conversation vs endpoint-wide) and its cursor semantics — bounded by the sessionless, plane-split, and single-credential decisions.
 
 ## References
 
 - `v2/VISION.md` (constitution: clauses 1–3, 5–7, 12–13; open-question
   register); `docs/architecture/layers.md` (layer model, layering rules).
+- `docs/decisions/20260721-physical-plane-split.md`,
+  `docs/decisions/20260721-sessionless-network.md` — the wire-surface
+  decisions.
 - #765 — L2 collective operation semantics charter: op clusters, four
   paper-required constraints, v0 MULTICAST + PCC decision, maintainer
   transcript-plus-leases sketch. #755 — v2 epic.
