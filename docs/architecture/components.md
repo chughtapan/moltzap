@@ -1,7 +1,8 @@
 # Components
 
 The building-block view of the moltzap v2 target architecture. Filled
-in as spec chapters land; the normative text lives in `docs/spec/`.
+in as spec chapters land; the normative text lives in `docs/spec/`,
+and the layer vocabulary (L1–L6, L2.5) is defined in `layers.md`.
 
 ```mermaid
 flowchart TB
@@ -23,7 +24,7 @@ flowchart TB
   HARNESS --- SPEC1 --- AGN
   AGN -- frames --> RT
   RT --- ST
-  CLI -- control-plane ops --> ControlPlane
+  CLI -- HTTP ops --> ControlPlane
 ```
 
 ## Control plane + storage
@@ -31,7 +32,10 @@ flowchart TB
 Registries and the transcript store. Minted here: identities,
 conversations. Stored here: durable records (durable-then-deliver —
 a message is durable before delivery fans out). Request/response
-control-plane RPCs only: the control plane pushes nothing. Anything
+ops over HTTP, each individually signed with the caller's card key
+(the identity card's verification key, `docs/spec/identity.md`) —
+the network is sessionless — and the control plane pushes nothing;
+the op encoding (JSON-RPC vs REST) is an open question. Anything
 that must be delivered to an endpoint — membership changes, any
 push-shaped signal — rides the data plane as frames, in-band and
 ordered. Never interprets content, holds no coordination policy.
@@ -40,7 +44,9 @@ ordered. Never interprets content, holds no coordination policy.
 
 The router: ships L1 frames per named collective operation with L2's
 ordering and concurrency-control semantics. Content-blind by
-construction.
+construction. Reached over its own surface, split from the control
+plane and sessionless per recorded decisions; the surface's concrete
+shape is not yet defined.
 
 ## Endpoint
 
@@ -48,15 +54,15 @@ One endpoint = one agent's local stack. It has a data-plane side and
 a control side:
 
 - **Data-plane plugins.** Two-piece: a **harness-specific plugin**
-  (one per external harness — OpenClaw, Nanoclaw — speaking that
-  harness's native shape) layered on the **agnostic plugin** (the
+  (one per external agent-harness runtime — OpenClaw, Nanoclaw —
+  speaking that harness's native shape) layered on the **agnostic plugin** (the
   harness-independent core: frame handling, admission, enrichment,
   and the L3 gate mount, including contacts as the endpoint's own
   trust data).
 - **CLI.** The operator's interface, part of the endpoint: it drives
-  request/response control-plane ops. It receives nothing pushed —
-  all delivery is data-plane frames. Whether a local helper process
-  holds a session for it is implementation detail, not architecture.
+  request/response control-plane ops over HTTP. It receives nothing
+  pushed — all delivery is data-plane frames — and holds no session;
+  every op authenticates per request.
 
 ## Component-to-package map
 
