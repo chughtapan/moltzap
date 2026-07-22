@@ -395,21 +395,11 @@ export interface LeaseRegistry {
    * Deterministic shutdown drain — invoked by `CoreApp.close`
    * (`core/app.ts -> closeCoreAppEffect`) BEFORE `Scope.close(appScope)`.
    *
-   * Closing the app scope interrupts every per-connection WebSocket fiber.
-   * Each interrupted fiber runs its disconnect cleanup
-   * (`MoltZapServer`/`moltzap/server-socket.ts` close cleanup) in an UNINTERRUPTIBLE
-   * `onExit` region, and that cleanup calls {@link abandon}. For a recipient
-   * connection holding a GRANTED lease, `abandon` emits a `app/dispatch/lease-expired`
-   * frame to the MODERATOR connection via {@link fireNotification}. When the
-   * moderator socket is being torn down concurrently its write-latch is
-   * closed, so the cross-connection write SUSPENDS forever — inside the
-   * uninterruptible region — and `Scope.close` blocks awaiting that
-   * fiber. That is the teardown deadlock this method prevents.
+   * Atomically closes and drains the registry, completes the shared signal
+   * observed by background notification and retention fibers, then interrupts
+   * live TTL and moderator round-trip fibers. No concurrent transition can
+   * repopulate the registry after the drain.
    *
-   * `shutdown` breaks the deadlock at its source: it flips the registry into
-   * a closed state and completes a shared shutdown signal. New notifications
-   * drop, in-flight notifications and retention sleepers lose their race with
-   * that signal, and live TTL/round-trip fibers are interrupted.
    * Idempotent; safe to call when no leases are live. Error channel `never` —
    * shutdown is best-effort.
    */
@@ -610,11 +600,13 @@ function fireNotification<D extends AnyNotificationDefinition>(
   return Ref.get(state.dataRef).pipe(
     Effect.flatMap((data) => {
       if (data.closed) return Effect.void;
-      return Effect.raceFirst(
-        Effect.disconnect(
-          fireNotificationToConnection(state, connId, definition, params),
-        ),
-        Deferred.await(state.shutdownSignal),
+      return Effect.forkDaemon(
+        Effect.raceFirst(
+          Effect.disconnect(
+            fireNotificationToConnection(state, connId, definition, params),
+          ),
+          Deferred.await(state.shutdownSignal),
+        ).pipe(Effect.interruptible),
       ).pipe(Effect.asVoid);
     }),
   );
@@ -633,8 +625,8 @@ function fireNotificationToConnection<D extends AnyNotificationDefinition>(
           "lease-registry: target connection gone; dropping notification",
         ).pipe(Effect.annotateLogs({ connId }));
       }
-      // Fire the notification over the target connection's reverse client; the
-      // void result settles on the client's ack.
+      // The forked reverse-client effect settles on the client's ack; lease
+      // transitions never wait for that acknowledgement.
       return connOpt.value.originator
         .notify(definition, params)
         .pipe(
@@ -735,7 +727,7 @@ function scheduleRetention(
         Effect.flatMap(() => removeEntry(state, leaseId, dispatchId)),
       ),
       Deferred.await(state.shutdownSignal),
-    ),
+    ).pipe(Effect.interruptible),
   ).pipe(Effect.asVoid);
 }
 
@@ -743,14 +735,9 @@ function isTtlExpirableState(state: LeaseState): boolean {
   return state === "GRANTED";
 }
 
-function isDisconnectExpirableState(state: LeaseState): boolean {
-  return state === "GRANTED" || state === "HOLD";
-}
-
 interface ExpiredLeaseTransition {
   readonly record: LeaseRecord;
   readonly expiredAt: string;
-  readonly wasActive: boolean;
 }
 
 function observeLeaseActiveEnd(
@@ -771,14 +758,14 @@ function commitTtlExpiry(
   expectedRecord: LeaseRecord,
 ): Effect.Effect<ExpiredLeaseTransition | null, never, never> {
   const expiredAt = new Date().toISOString();
-  return modifyRegistry(state, (data) => {
+  return Ref.modify(state.dataRef, (data) => {
     const entry = data.entries.get(leaseId);
     if (
       !entry ||
       entry.record !== expectedRecord ||
       !isTtlExpirableState(entry.record.state)
     ) {
-      return [Either.right(null), data];
+      return [null, data];
     }
     const record: LeaseRecord = {
       ...entry.record,
@@ -790,14 +777,7 @@ function commitTtlExpiry(
       ttlFiber: null,
       roundTripFiber: null,
     };
-    return [
-      Either.right({
-        record,
-        expiredAt,
-        wasActive: entry.record.state === "GRANTED",
-      }),
-      withLeaseEntry(data, leaseId, nextEntry),
-    ];
+    return [{ record, expiredAt }, withLeaseEntry(data, leaseId, nextEntry)];
   });
 }
 
@@ -814,7 +794,7 @@ function expireLeaseFromTtl(
           leaseId,
           expectedRecord,
         );
-        if (committed?.wasActive) {
+        if (committed !== null) {
           yield* observeLeaseActiveEnd(state, leaseId, committed.record);
         }
         return committed;
@@ -822,40 +802,12 @@ function expireLeaseFromTtl(
     );
 
     if (transition === null) return;
+    yield* scheduleRetention(state, leaseId, transition.record.dispatchId);
     yield* emitDispatchLeaseExpired(
       state,
       transition.record,
       transition.expiredAt,
     );
-    yield* scheduleRetention(state, leaseId, transition.record.dispatchId);
-  });
-}
-
-function scheduleTtl(
-  state: LeaseRegistryState,
-  leaseId: LeaseId,
-  timeoutMs: number,
-  expectedRecord: LeaseRecord,
-): Effect.Effect<Fiber.RuntimeFiber<unknown, unknown>, never, never> {
-  return Effect.forkDaemon(
-    Effect.sleep(`${timeoutMs} millis`).pipe(
-      Effect.flatMap(() => expireLeaseFromTtl(state, leaseId, expectedRecord)),
-    ),
-  );
-}
-
-function attachTtlFiber(
-  state: LeaseRegistryState,
-  leaseId: LeaseId,
-  expectedRecord: LeaseRecord,
-  fiber: Fiber.RuntimeFiber<unknown, unknown>,
-): Effect.Effect<boolean, never, never> {
-  return Ref.modify(state.dataRef, (data) => {
-    const entry = data.entries.get(leaseId);
-    if (!entry || entry.record !== expectedRecord || entry.ttlFiber !== null) {
-      return [false, data];
-    }
-    return [true, withLeaseEntry(data, leaseId, { ...entry, ttlFiber: fiber })];
   });
 }
 
@@ -869,24 +821,28 @@ function scheduleTtlForEntry(
     return Effect.void;
   }
   return Effect.gen(function* () {
-    const fiber = yield* scheduleTtl(state, leaseId, timeoutMs, entry.record);
-    const attached = yield* attachTtlFiber(state, leaseId, entry.record, fiber);
+    const fiber = yield* Effect.forkDaemon(
+      Effect.sleep(`${timeoutMs} millis`).pipe(
+        Effect.flatMap(() => expireLeaseFromTtl(state, leaseId, entry.record)),
+        Effect.interruptible,
+      ),
+    );
+    const attached = yield* Ref.modify(state.dataRef, (data) => {
+      const current = data.entries.get(leaseId);
+      if (
+        !current ||
+        current.record !== entry.record ||
+        current.ttlFiber !== null
+      ) {
+        return [false, data];
+      }
+      return [
+        true,
+        withLeaseEntry(data, leaseId, { ...current, ttlFiber: fiber }),
+      ];
+    });
     if (!attached) yield* Fiber.interruptFork(fiber);
   });
-}
-
-function getExistingLeaseEntry(
-  state: LeaseRegistryState,
-  leaseId: LeaseId,
-): Effect.Effect<LeaseEntry, LeaseNotFoundError, never> {
-  return Ref.get(state.dataRef).pipe(
-    Effect.flatMap((data) => {
-      const entry = data.entries.get(leaseId);
-      return entry
-        ? Effect.succeed(entry)
-        : Effect.fail(leaseNotFound(leaseId, "leaseId"));
-    }),
-  );
 }
 
 function modifyClaimedEntry<A>(
@@ -942,13 +898,13 @@ function finalizeClaim(
       }),
     );
 
+    yield* scheduleRetention(state, leaseId, consumedRecord.dispatchId);
     yield* emitDispatchLeaseConsumed(
       state,
       consumedRecord,
       messageId,
       consumedAt,
     );
-    yield* scheduleRetention(state, leaseId, consumedRecord.dispatchId);
   });
 }
 
@@ -1078,7 +1034,6 @@ function resolveLease(
   verdict: LeaseVerdict,
 ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never> {
   return Effect.gen(function* () {
-    const nextState = leaseStateForVerdict(verdict);
     const nextEntry = yield* state.transitionPermit.withPermits(1)(
       Effect.gen(function* () {
         const committed = yield* commitResolvedLease(state, leaseId, verdict);
@@ -1094,10 +1049,10 @@ function resolveLease(
     );
 
     yield* scheduleTtlForEntry(state, leaseId, nextEntry);
-    yield* emitDispatchRelease(state, nextEntry.record, verdict);
-    if (nextState === "DENIED") {
+    if (nextEntry.record.state === "DENIED") {
       yield* scheduleRetention(state, leaseId, nextEntry.record.dispatchId);
     }
+    yield* emitDispatchRelease(state, nextEntry.record, verdict);
   });
 }
 
@@ -1150,45 +1105,24 @@ function claimLease(
   });
 }
 
-function readLeaseByLeaseId(
-  state: LeaseRegistryState,
-  leaseId: LeaseId,
-): Effect.Effect<LeaseRecord, LeaseNotFoundError, never> {
-  return getExistingLeaseEntry(state, leaseId).pipe(
-    Effect.map((entry) => entry.record),
-  );
-}
-
-function readLeaseByDispatchId(
-  state: LeaseRegistryState,
-  dispatchId: DispatchId,
-): Effect.Effect<LeaseRecord, LeaseNotFoundError, never> {
-  return Effect.gen(function* () {
-    const data = yield* Ref.get(state.dataRef);
-    const leaseId = data.dispatchIndex.get(dispatchId);
-    if (!leaseId) {
-      return yield* Effect.fail(leaseNotFound(dispatchId, "dispatchId"));
-    }
-    const entry = data.entries.get(leaseId);
-    if (!entry) {
-      return yield* Effect.fail(leaseNotFound(dispatchId, "dispatchId"));
-    }
-    return entry.record;
-  });
-}
-
 function readLease(
   state: LeaseRegistryState,
   id:
     | { readonly _tag: "leaseId"; readonly value: LeaseId }
     | { readonly _tag: "dispatchId"; readonly value: DispatchId },
 ): Effect.Effect<LeaseRecord, LeaseNotFoundError, never> {
-  return id._tag === "leaseId"
-    ? readLeaseByLeaseId(state, id.value)
-    : readLeaseByDispatchId(state, id.value);
+  return Ref.get(state.dataRef).pipe(
+    Effect.flatMap((data) => {
+      const leaseId =
+        id._tag === "leaseId" ? id.value : data.dispatchIndex.get(id.value);
+      const entry =
+        leaseId === undefined ? undefined : data.entries.get(leaseId);
+      return entry
+        ? Effect.succeed(entry.record)
+        : Effect.fail(leaseNotFound(id.value, id._tag));
+    }),
+  );
 }
-
-type RoundTripAttachOutcome = "Attached" | "Cancel" | "Settled";
 
 function attachRoundTripFiberToLease(
   state: LeaseRegistryState,
@@ -1196,28 +1130,25 @@ function attachRoundTripFiberToLease(
   fiber: Fiber.RuntimeFiber<unknown, unknown>,
 ): Effect.Effect<void, never, never> {
   return Effect.gen(function* () {
-    const outcome = yield* Ref.modify(
-      state.dataRef,
-      (data): readonly [RoundTripAttachOutcome, LeaseRegistryData] => {
-        const entry = data.entries.get(leaseId);
-        if (!entry || entry.record.state === "ABANDONED") {
-          return ["Cancel", data];
-        }
-        if (entry.record.state !== "PENDING") {
-          // The child can resolve before its parent attaches the handle. It must
-          // be allowed to finish post-commit work (presence, TTL, notification).
-          return ["Settled", data];
-        }
-        if (entry.roundTripFiber !== null) {
-          return [entry.roundTripFiber === fiber ? "Attached" : "Cancel", data];
-        }
-        return [
-          "Attached",
-          withLeaseEntry(data, leaseId, { ...entry, roundTripFiber: fiber }),
-        ];
-      },
-    );
-    if (outcome === "Cancel") yield* Fiber.interruptFork(fiber);
+    const shouldCancel = yield* Ref.modify(state.dataRef, (data) => {
+      const entry = data.entries.get(leaseId);
+      if (!entry || entry.record.state === "ABANDONED") {
+        return [true, data];
+      }
+      if (entry.record.state !== "PENDING") {
+        // The child can resolve before its parent attaches the handle. It must
+        // be allowed to finish post-commit work (presence, TTL, notification).
+        return [false, data];
+      }
+      if (entry.roundTripFiber !== null) {
+        return [entry.roundTripFiber !== fiber, data];
+      }
+      return [
+        false,
+        withLeaseEntry(data, leaseId, { ...entry, roundTripFiber: fiber }),
+      ];
+    });
+    if (shouldCancel) yield* Fiber.interruptFork(fiber);
   });
 }
 
@@ -1256,14 +1187,15 @@ function makeDisconnectTransition(
       roundTripFiber: entry.roundTripFiber,
     };
   }
-  if (!isDisconnectExpirableState(entry.record.state)) return null;
+  const wasActive = entry.record.state === "GRANTED";
+  if (!wasActive && entry.record.state !== "HOLD") return null;
   return {
     _tag: "Expired",
     leaseId,
     record: { ...entry.record, state: "EXPIRED", expiredAt: transitionedAt },
     expiredAt: transitionedAt,
     ttlFiber: entry.ttlFiber,
-    wasActive: entry.record.state === "GRANTED",
+    wasActive,
   };
 }
 
@@ -1295,20 +1227,6 @@ function commitDisconnectTransitions(
   });
 }
 
-function observeDisconnectTransitions(
-  state: LeaseRegistryState,
-  transitions: ReadonlyArray<DisconnectTransition>,
-): Effect.Effect<void, never, never> {
-  return Effect.forEach(
-    transitions,
-    (transition) =>
-      transition._tag === "Expired" && transition.wasActive
-        ? observeLeaseActiveEnd(state, transition.leaseId, transition.record)
-        : Effect.void,
-    { concurrency: 1, discard: true },
-  );
-}
-
 function runDisconnectTransition(
   state: LeaseRegistryState,
   transition: DisconnectTransition,
@@ -1318,25 +1236,21 @@ function runDisconnectTransition(
       if (transition.roundTripFiber) {
         yield* Fiber.interruptFork(transition.roundTripFiber);
       }
-      yield* scheduleRetention(
-        state,
-        transition.leaseId,
-        transition.record.dispatchId,
-      );
-      return;
+    } else {
+      if (transition.ttlFiber) yield* Fiber.interruptFork(transition.ttlFiber);
     }
-
-    if (transition.ttlFiber) yield* Fiber.interruptFork(transition.ttlFiber);
-    yield* emitDispatchLeaseExpired(
-      state,
-      transition.record,
-      transition.expiredAt,
-    );
     yield* scheduleRetention(
       state,
       transition.leaseId,
       transition.record.dispatchId,
     );
+    if (transition._tag === "Expired") {
+      yield* emitDispatchLeaseExpired(
+        state,
+        transition.record,
+        transition.expiredAt,
+      );
+    }
   });
 }
 
@@ -1348,7 +1262,18 @@ function abandonConnectionLeases(
     const transitions = yield* state.transitionPermit.withPermits(1)(
       Effect.gen(function* () {
         const committed = yield* commitDisconnectTransitions(state, connId);
-        yield* observeDisconnectTransitions(state, committed);
+        yield* Effect.forEach(
+          committed,
+          (transition) =>
+            transition._tag === "Expired" && transition.wasActive
+              ? observeLeaseActiveEnd(
+                  state,
+                  transition.leaseId,
+                  transition.record,
+                )
+              : Effect.void,
+          { concurrency: 1, discard: true },
+        );
         return committed;
       }),
     );

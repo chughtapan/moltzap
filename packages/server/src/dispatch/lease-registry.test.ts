@@ -1,5 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
-import type { RpcSerialization } from "@effect/rpc";
+import { RpcSerialization } from "@effect/rpc";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import {
   agentId,
@@ -9,15 +9,7 @@ import {
   messageId,
   taskId,
 } from "@moltzap/protocol/testing";
-import {
-  Deferred,
-  Effect,
-  Either,
-  Exit,
-  Fiber,
-  Option,
-  TestClock,
-} from "effect";
+import { Deferred, Effect, Either, Fiber, Option, TestClock } from "effect";
 import { describe, expect } from "vitest";
 import type { LeaseTransitionObserver } from "../network/presence/presence-types.js";
 import { noopLeaseTransitionObserver } from "../network/presence/presence-types.js";
@@ -72,22 +64,20 @@ function withRegistry<A, E>(
 const unusedOriginatorOperation = () =>
   Effect.dieMessage("unused test originator operation");
 
-function makeUnusedParser(): RpcSerialization.Parser {
-  const fail = () =>
-    Effect.runSync(Effect.dieMessage("unused test originator parser"));
-  return { decode: fail, encode: fail };
-}
-
-function hangingOriginator(notifyStarted: Deferred.Deferred<void>): Originator {
+function hangingOriginator(
+  notifyStarted: Deferred.Deferred<void>,
+  notifyStopped: Deferred.Deferred<void>,
+): Originator {
   return {
     call: unusedOriginatorOperation,
     callback: unusedOriginatorOperation,
     notify: () =>
       Deferred.succeed(notifyStarted, void 0).pipe(
         Effect.zipRight(Effect.never),
+        Effect.ensuring(Deferred.succeed(notifyStopped, void 0)),
       ),
     sink: {
-      parser: makeUnusedParser(),
+      parser: RpcSerialization.jsonRpc().unsafeMake(),
       inject: unusedOriginatorOperation,
     },
   };
@@ -113,7 +103,17 @@ function expectSingleWinner(
   outcomes: ReadonlyArray<Either.Either<unknown, unknown>>,
 ): void {
   expect(outcomes.filter(Either.isRight)).toHaveLength(1);
-  expect(outcomes.filter(Either.isLeft)).toHaveLength(1);
+  const failures = outcomes.filter(Either.isLeft);
+  expect(failures).toHaveLength(1);
+  expect(failures[0]?.left).toMatchObject({ _tag: "LeaseInvalidError" });
+}
+
+function expectLeaseNotFound(result: Either.Either<unknown, unknown>): void {
+  Either.match(result, {
+    onLeft: (error) =>
+      expect(error).toMatchObject({ _tag: "LeaseNotFoundError" }),
+    onRight: () => expect.fail("expected retained lease to be removed"),
+  });
 }
 
 function concurrentClaimsAreSingleUse() {
@@ -219,8 +219,8 @@ function asyncObserverScenario(registry: LeaseRegistry, gate: BeginGate) {
     const claimFiber = yield* Effect.fork(registry.claim(leaseId));
     expect(Option.isNone(yield* Fiber.poll(claimFiber))).toBe(true);
     yield* Deferred.succeed(gate.releaseBegin, void 0);
-    expect(Exit.isSuccess(yield* Fiber.await(resolveFiber))).toBe(true);
-    expect(Exit.isSuccess(yield* Fiber.await(claimFiber))).toBe(true);
+    yield* Fiber.join(resolveFiber);
+    yield* Fiber.join(claimFiber);
   });
 }
 
@@ -231,7 +231,7 @@ function rollbackStartsANewTtlEpoch() {
       yield* grantLease(registry, leaseId);
       yield* TestClock.adjust(OLD_TTL_ELAPSED_MS);
       const claim = yield* registry.claim(leaseId);
-      yield* claim.rollback;
+      yield* claim.rollback.pipe(Effect.uninterruptible);
       yield* TestClock.adjust(OLD_TTL_REMAINING_MS);
       expect(
         (yield* registry.read({ _tag: "leaseId", value: leaseId })).state,
@@ -244,14 +244,15 @@ function rollbackStartsANewTtlEpoch() {
   );
 }
 
-function shutdownReleasesPendingNotifications() {
+function hangingNotificationDoesNotBlockFinalizeOrRetention() {
   return Effect.gen(function* () {
     const notifyStarted = yield* Deferred.make<void>();
+    const notifyStopped = yield* Deferred.make<void>();
     const connections = new ConnectionManager();
     yield* connections.addUnauthenticated(
       BINDING.moderatorConnectionId,
       UNUSED_SOCKET,
-      hangingOriginator(notifyStarted),
+      hangingOriginator(notifyStarted, notifyStopped),
     );
     return yield* withRegistry(
       (registry) =>
@@ -259,11 +260,18 @@ function shutdownReleasesPendingNotifications() {
           const leaseId = yield* mintLease(registry);
           yield* grantLease(registry, leaseId);
           const claim = yield* registry.claim(leaseId);
-          const finalizeFiber = yield* Effect.fork(claim.finalize(MESSAGE_ID));
+          const finalizeFiber = yield* Effect.fork(
+            claim.finalize(MESSAGE_ID).pipe(Effect.uninterruptible),
+          );
           yield* Deferred.await(notifyStarted);
+          yield* Fiber.join(finalizeFiber);
+          yield* TestClock.adjust(TEST_TTL_MS);
+          const retained = yield* registry
+            .read({ _tag: "leaseId", value: leaseId })
+            .pipe(Effect.either);
+          expectLeaseNotFound(retained);
           yield* registry.shutdown();
-          const completed = yield* Fiber.await(finalizeFiber);
-          expect(Exit.isSuccess(completed)).toBe(true);
+          yield* Deferred.await(notifyStopped);
         }),
       noopLeaseTransitionObserver,
       connections,
@@ -287,7 +295,7 @@ describe("LeaseRegistry", () => {
   );
   it("starts a fresh TTL after rollback", rollbackStartsANewTtlEpoch);
   it(
-    "releases pending notifications at shutdown",
-    shutdownReleasesPendingNotifications,
+    "does not let a hanging notification block finalize or retention",
+    hangingNotificationDoesNotBlockFinalizeOrRetention,
   );
 });
