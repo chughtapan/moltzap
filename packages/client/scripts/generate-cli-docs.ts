@@ -70,34 +70,6 @@ interface CommandHelp {
   readonly subcommands: readonly SubcommandDoc[];
 }
 
-/**
- * Hand-maintained roster of commands to query. The list mirrors
- * `packages/client/src/cli/index.ts → Command.withSubcommands([...])`
- * plus the subcommand groups that own their own sub-subcommands. A
- * missing entry produces an empty reference section (verifiable via
- * `pnpm docs:check:drift`).
- */
-const COMMAND_PATHS: readonly (readonly string[])[] = [
-  ["register"],
-  ["whoami"],
-  ["send"],
-  ["contacts"],
-  ["contacts", "list"],
-  ["contacts", "add"],
-  ["contacts", "accept"],
-  ["conversations"],
-  ["conversations", "history"],
-  ["history"],
-  ["invite"],
-  ["status"],
-  ["agents"],
-  ["agents", "list"],
-  ["agents", "lookup"],
-  ["messages"],
-  ["messages", "list"],
-  ["start"],
-];
-
 const stripAnsi = (s: string): string => s.replace(ANSI_RE, "");
 
 /**
@@ -295,18 +267,48 @@ const readHelp = (path: readonly string[]): CommandHelp => {
   const raw = captureHelp(path);
   const sections = splitSections(raw);
   const usageRaw = sections.get("USAGE") ?? "";
+  const usage = parseUsage(usageRaw);
+  const commandName = path.at(-1);
+  if (commandName !== undefined && usage.split(/\s/, 1)[0] !== commandName) {
+    const command = ["moltzap", ...path].join(" ");
+    throw new Error(
+      `Help for '${command}' resolved to '${usage}', so the command is not registered`,
+    );
+  }
   const description = (sections.get("DESCRIPTION") ?? "").trim();
   const argumentsDoc = parseArguments(sections.get("ARGUMENTS") ?? "");
   const optionsDoc = parseOptions(sections.get("OPTIONS") ?? "");
   const subcommandsDoc = parseSubcommands(sections.get("COMMANDS") ?? "");
   return {
     path,
-    usage: parseUsage(usageRaw),
+    usage,
     description,
     arguments: argumentsDoc,
     options: optionsDoc,
     subcommands: subcommandsDoc,
   };
+};
+
+const commandPathsFromRootHelp = (
+  rootHelp: CommandHelp,
+): readonly (readonly string[])[] => {
+  const paths = rootHelp.subcommands.map(({ signature }) => {
+    const tokens = signature.trim().split(/\s+/);
+    const parameterIndex = tokens.findIndex((token) => /^[-[(<]/.test(token));
+    const path = tokens.slice(
+      0,
+      parameterIndex === -1 ? tokens.length : parameterIndex,
+    );
+    if (path.length === 0) {
+      throw new Error(`Cannot derive a command path from '${signature}'`);
+    }
+    return path;
+  });
+  const uniquePaths = new Set(paths.map((path) => path.join(" ")));
+  if (uniquePaths.size !== paths.length) {
+    throw new Error("Root help contains duplicate command paths");
+  }
+  return paths;
 };
 
 // ─── MDX renderers ────────────────────────────────────────────────────────
@@ -318,7 +320,10 @@ const AUTO_GEN_NOTE =
 const renderCommandReference = (cmd: CommandHelp): string => {
   const cmdLabel = ["moltzap", ...cmd.path].join(" ");
   const heading = `### \`${cmdLabel}\``;
-  const usage = `**Usage:** \`moltzap ${cmd.usage}\``;
+  const qualifiedUsage = ["moltzap", ...cmd.path.slice(0, -1), cmd.usage].join(
+    " ",
+  );
+  const usage = `**Usage:** \`${qualifiedUsage}\``;
   const parts: string[] = [heading];
   if (cmd.description !== "") parts.push(escapeMdxProse(cmd.description));
   parts.push(usage);
@@ -526,7 +531,9 @@ const main = (): void => {
   mkdirSync(snippetsDir, { recursive: true });
 
   const rootHelp = readHelp([]);
-  const commands = COMMAND_PATHS.map((p) => readHelp(p));
+  const commands = commandPathsFromRootHelp(rootHelp).map((path) =>
+    readHelp(path),
+  );
 
   writeFileSync(
     resolve(cliDocsDir, "reference.mdx"),
