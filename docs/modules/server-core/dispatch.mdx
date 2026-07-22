@@ -474,19 +474,19 @@ Mint + claim + finalize sequence (recipient + moderator round-trip):
 ```mermaid
 sequenceDiagram
   participant Recv as Recipient (client)
-  participant AH as apps.handlers
+  participant DA as DispatchAdmissionService
   participant LR as LeaseRegistry
   participant Mod as Moderator
   participant MS as MessageService
 
-  Recv->>AH: agent/dispatch/request (C→S)
-  AH->>LR: mint(binding) — PENDING
-  LR-->>AH: {leaseId, dispatchId}
-  AH-->>Recv: ack returned immediately
-  AH->>Mod: Effect.fork — dispatchAuthorizeHook
-  Mod-->>AH: verdict
-  AH->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
-  AH->>Recv: agent/dispatch/released {verdict}
+  Recv->>DA: agent/dispatch/request (C→S)
+  DA->>LR: mint(binding) — PENDING
+  LR-->>DA: {leaseId, dispatchId}
+  DA-->>Recv: ack returned immediately
+  DA->>Mod: Effect.forkDaemon — app/dispatch/authorize
+  Mod-->>DA: verdict
+  DA->>LR: resolve(leaseId, verdict) — GRANTED | DENIED | HOLD
+  LR->>Recv: agent/dispatch/released {verdict}
   Recv->>MS: agent/message/send with dispatchLeaseId
   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
   Note over MS: Effect.acquireUseRelease; use sendInsert returns carrier; release Exit success → claim.finalize CLAIMED → CONSUMED; release Exit failure → claim.rollback CLAIMED → GRANTED
