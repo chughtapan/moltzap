@@ -15,5 +15,5 @@ and open-question register are in `/v2/VISION.md`.
 |---|---|
 | `identity.md` | L1 — identities, framing, and the frame wire shape |
 | `endpoints/contacts.md` | L3 contacts as endpoint-owned trust data; server contacts dissolve |
-| `control-plane.md` | registries, transcript storage, op families; request/response over HTTP, sessionless; op encoding open |
+| `control-plane.md` | registries, transcript storage, op families; request/response over HTTP, sessionless; encoding-neutral ops — JSON-RPC interim, REST + OpenAPI target |
 | `data-plane.md` | shipping frames: ordering, collectives, PCC; app layer dissolution; the fault-injection/eval seam; wire surface not yet defined |
