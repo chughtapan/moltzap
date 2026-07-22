@@ -187,7 +187,7 @@ function buildArchitectureSettings(extra) {
 }
 
 // `@failure` is the project-wide convention for Effect error-channel
-// documentation (see workspace CLAUDE.md). Every package gets it for
+// documentation (see workspace AGENTS.md). Every package gets it for
 // free; pass `customJsDocTags` to extend the list per package.
 const DEFAULT_CUSTOM_JSDOC_TAGS = ["failure"];
 

@@ -88,6 +88,23 @@ const sourceFiles = [];
 walk(path.join(repo, "packages"), sourceFiles);
 for (const file of sourceFiles) checkSourceFile(file);
 
+// v2 clean slate: nothing under v2/ may import v1 code (workspace packages
+// or reach-ins to packages/). The v2 track builds against its own spec.
+const v2Files = [];
+walk(path.join(repo, "v2"), v2Files);
+for (const file of v2Files) {
+  const text = fs.readFileSync(file, "utf8");
+  for (const match of text.matchAll(
+    /(?:from\s*|import\s*\(\s*|require\s*\(\s*)["']((?:@moltzap\/|(?:\.\.\/)+packages\/)[^"']*)["']/g,
+  )) {
+    fail(
+      file,
+      lineAt(text, match.index),
+      `v2/ must not import v1 code (${match[1]})`,
+    );
+  }
+}
+
 assertExportMap("packages/protocol", [
   ".",
   "./conversation",
@@ -110,5 +127,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} source files scanned`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length + v2Files.length} source files scanned`,
 );
