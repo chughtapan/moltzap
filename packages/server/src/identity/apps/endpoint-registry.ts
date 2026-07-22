@@ -54,6 +54,4 @@ export class AppEndpointRegistry {
   getContactService(): ContactService | null {
     return this.contactService;
   }
-
-  destroy(): void {}
 }
