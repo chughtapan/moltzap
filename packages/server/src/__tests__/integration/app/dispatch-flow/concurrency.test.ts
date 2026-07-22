@@ -12,28 +12,41 @@
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import { DispatchRelease } from "@moltzap/protocol/message/dispatch";
+import {
+  DispatchRelease,
+  type LeaseId,
+} from "@moltzap/protocol/message/dispatch";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
+import { Chunk, Duration, Effect, Either, Fiber, Stream } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
   DISPATCH_RELEASE_TIMEOUT_MS,
   DISPATCH_REQUEST_CONCURRENCY,
+  DISPATCH_STATE_CONSUMED,
   attachDispatchAuthorizeHook,
   createConversationOnApp,
   createDispatchFlowFixture,
   MODERATED_HOOKS,
+  readLeaseByLeaseId,
   requestDispatch,
+  sendMessageWithLease,
   startDispatchFlowServer,
   stopDispatchFlowServer,
+  waitForDispatchRelease,
+  type ConversationBinding,
 } from "./fixture.js";
-import { setupAgentPair, type ConnectedAgent } from "../../helpers.js";
+import {
+  getKyselyDb,
+  setupAgentPair,
+  type ConnectedAgent,
+} from "../../helpers.js";
 
 const it = effectIt.live;
 
 const TEST_APP_ID = "00000000-0000-4000-8000-000000010001";
 const EXPECTED_HOOK_CALLS = 2;
+const LEASE_TTL_MS = 60_000;
 
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
@@ -117,6 +130,86 @@ function sameConversationRequestsRunConcurrently() {
   });
 }
 
+function requestGrantedDispatchLease(
+  alice: ConnectedAgent,
+  bob: ConnectedAgent,
+) {
+  return Effect.gen(function* () {
+    fixture.setNextHookVerdict({
+      decision: "grant",
+      leaseTimeoutMs: LEASE_TTL_MS,
+    });
+    yield* attachDispatchAuthorizeHook(alice, fixture);
+    const binding = yield* createConversationOnApp(
+      alice,
+      bob,
+      TEST_APP_MANIFEST,
+    );
+    const releaseFiber = yield* waitForDispatchRelease(bob);
+    const ack = yield* requestDispatch(
+      bob,
+      binding.conversationId,
+      alice,
+      "same lease",
+    );
+    yield* Fiber.join(releaseFiber);
+    return { binding, leaseId: ack.leaseId };
+  });
+}
+
+function sendTwiceWithLease(
+  bob: ConnectedAgent,
+  binding: ConversationBinding,
+  leaseId: LeaseId,
+) {
+  return Effect.all(
+    [
+      sendMessageWithLease(bob, binding, leaseId, "first").pipe(Effect.either),
+      sendMessageWithLease(bob, binding, leaseId, "second").pipe(Effect.either),
+    ],
+    { concurrency: 2 },
+  );
+}
+
+function readMessageIds(conversationId: ConversationId) {
+  return Effect.tryPromise(() =>
+    getKyselyDb()
+      .selectFrom("messages")
+      .select("id")
+      .where("conversation_id", "=", conversationId)
+      .execute(),
+  );
+}
+
+function sameLeaseSendsCommitExactlyOnce() {
+  return Effect.gen(function* () {
+    const { alice, bob } = yield* setupAgentPair();
+    const { binding, leaseId } = yield* requestGrantedDispatchLease(alice, bob);
+    const outcomes = yield* sendTwiceWithLease(bob, binding, leaseId);
+    const successes = outcomes.flatMap(
+      Either.match({
+        onLeft: () => [],
+        onRight: (result) => [result],
+      }),
+    );
+
+    expect(successes).toHaveLength(1);
+    expect(outcomes.filter(Either.isLeft)).toHaveLength(1);
+    const success = successes[0];
+    if (success === undefined) {
+      return yield* Effect.dieMessage("expected one successful lease send");
+    }
+
+    const rows = yield* readMessageIds(binding.conversationId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(success.message.id);
+
+    const record = yield* readLeaseByLeaseId(leaseId);
+    expect(record.state).toBe(DISPATCH_STATE_CONSUMED);
+    expect(record.consumedMessageId).toBe(success.message.id);
+  });
+}
+
 describe("dispatch/* — concurrency", () => {
   it(
     "cross-conversation concurrency: two agent/dispatch/request in different (taskId, conversationId) run concurrently",
@@ -127,6 +220,12 @@ describe("dispatch/* — concurrency", () => {
   it(
     "same-conversation concurrency: two agent/dispatch/request in same (taskId, conversationId) run concurrently",
     sameConversationRequestsRunConcurrently,
+    25_000,
+  );
+
+  it(
+    "same-lease concurrency: exactly one message send commits",
+    sameLeaseSendsCommitExactlyOnce,
     25_000,
   );
 });
