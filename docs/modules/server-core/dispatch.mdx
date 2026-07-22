@@ -489,7 +489,7 @@ sequenceDiagram
   LR->>Recv: agent/dispatch/released {verdict}
   Recv->>MS: agent/message/send with dispatchLeaseId
   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
-  Note over MS: Effect.acquireUseRelease; use sendInsert returns carrier; release Exit success → claim.finalize CLAIMED → CONSUMED; release Exit failure → claim.rollback CLAIMED → GRANTED
+  Note over MS: Effect.acquireUseRelease — use sendInsert returns carrier — release on Exit success claim.finalize CLAIMED → CONSUMED, on Exit failure claim.rollback CLAIMED → GRANTED
   MS->>MS: sendCommit — post-insert side effects
 ```
 

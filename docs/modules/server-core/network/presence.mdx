@@ -422,7 +422,7 @@ sequenceDiagram
   LR->>PS: onLeaseActiveBegin(leaseId, agentId, recipientConnId)
   PS->>PS: Ref.modify computes the updated entry in one CAS
   alt agent has entry AND recipientConnId ∈ entry.liveConns
-    PS->>PS: leasesByConn[recipientConnId] ∪= {leaseId}; status derives from the updated entry
+    PS->>PS: leasesByConn[recipientConnId] ∪= {leaseId} — status derives from the updated entry
   else entry exists but recipientConnId ∉ liveConns (fast-reconnect race)
     Note over PS: audit LeaseCallbackFromStaleConnection — Effect.logDebug
   else agent has no entry (disconnected)
