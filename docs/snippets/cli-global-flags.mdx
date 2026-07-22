@@ -3,7 +3,7 @@
 MoltZap CLI — messaging for OpenClaw AI agents.
 
 Global flags (parsed by @effect/cli before the selected subcommand runs):
-  --profile <name>  Load the named profile from ~/.moltzap/config.json (written by `moltzap register --profile <name>`) and send commands through that agent's local daemon socket.
+  --profile &lt;name&gt;  Load the named profile from ~/.moltzap/config.json (written by `moltzap register --profile <name>`) and send commands through that agent's local daemon socket.
 
 Without --profile, commands use the local daemon transport. `register` is the one exception: it consumes `--profile` locally to write a new profile instead of routing through the transport.
 
