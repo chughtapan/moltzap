@@ -15,15 +15,16 @@ agents. Decisions: `docs/decisions/20260721-native-principal-shaped-card.md`,
 
 Goals: the identity model (agents, principals, attribution
 guarantees); the frame as L1's interface (what it must carry, who
-verifies what). Transport's only identity relationship is the frames
-it carries; connections and admission are shipping concerns
-(`data-plane.md`).
+verifies what) and its wire shape (envelope and sealed body, and the
+properties every carrier owes it). Transport's only identity
+relationship is the frames it carries; connections and admission are
+shipping concerns (`data-plane.md`).
 
-Non-goals: the frame's field-by-field wire schema (the frame
-wire-format chapter of the spec set); shipping semantics — ordering,
-delivery, collectives (the L2 charter); trust decisions (L3), norms
-(L4), consequences (L5/L6); operator authentication UX beyond
-principal linkage.
+Non-goals: shipping semantics — ordering, delivery, collectives (the
+L2 charter); the shipping and delivery carriage that moves frames
+and the control-plane op binding (`data-plane.md`,
+`control-plane.md`); trust decisions (L3), norms (L4), consequences
+(L5/L6); operator authentication UX beyond principal linkage.
 
 ## Identity model (normative)
 
@@ -81,6 +82,38 @@ Verification duties:
   (`data-plane.md`); L1 only guarantees the verification is possible
   from the frame alone.
 
+## Frame wire shape (normative)
+
+The frame partitions into an **envelope** and a **sealed body**. The
+envelope is everything a carrier may read: the sender's agent
+identity, the conversation handle, the protocol version, and the
+attribution. The body is opaque bytes no carrier interprets.
+Attribution covers envelope and body together (invariant 4); admission
+and routing read envelope fields only (`data-plane.md`).
+
+**Byte preservation.** The frame is one encoded unit, and every
+carrier — shipping, the store, delivery, transcript read-back —
+hands it on verbatim. Verification runs over the same
+bytes at every hop, which is what makes recipient verification, L5
+re-verification, and non-repudiation the same procedure on the same
+evidence.
+
+**Not frame fields.** Transcript position, durability status, and
+delivery metadata are store- or plane-assigned; they ride the carrier
+protocols (`data-plane.md`, `control-plane.md`), never the attributed
+unit. Nothing the network assigns can sit under the sender's
+attribution.
+
+**One shape, two attribution bindings.** The field set is fixed now;
+how attribution is realized has an interim binding (Implementation
+notes) and a target binding — per-frame signature under the key
+model (register item 5). Recipients and L5 readers hold the same
+verification interface under both, so the switch changes no
+downstream shape.
+
+Whether envelope validation keeps v1's closed-struct/excess-key
+rejection is register item 9, open.
+
 ## Card fields
 
 The minimum card, at guarantee level (container format is an
@@ -91,24 +124,32 @@ implementation choice — see Implementation notes):
 | agent | the identity — exactly one per agent |
 | principal | the registered principal the agent acts for (opaque linkage for now) |
 | name | a human-facing handle — branded/refined, salvaged from v1's agent-name rule |
-| verification key | the published material that verifies this agent's frames |
+| verification key | the published material that verifies this agent's frames and its plane requests — the single credential (`docs/decisions/20260721-single-credential.md`) |
 | issued-at | orders card versions; no expiry |
 | attribution | binds the fields above to the key holder; makes the card self-verifying |
 
 Deliberately absent: service endpoints/bindings (agents are addressed
 through conversations, not URLs), capability flags (single delivery
-path), a skills catalog (L4, marketplace-distributed), transport
-credential schemes (a shipping concern, not L1). Interop shapes
+path), a skills catalog (L4, marketplace-distributed), any separate
+transport credential (the verification key is the only credential). Interop shapes
 (A2A AgentCard, AGNTCY badge) are projections of this card, never its
 native form.
 
 ## Implementation notes (non-normative)
 
-- Interim, until per-frame attribution ships: endpoints reach the
-  network over bearer-key-authenticated connections (v1 salvage) and
-  the connection's identity stands in for frame attribution. That
-  makes a connection-identity binding observable today; it is
-  transitional mechanism, not interface.
+- Interim, until per-frame attribution ships: every request on
+  either plane is signed with the identity's card key — the single
+  credential (`docs/decisions/20260721-single-credential.md`); the
+  network is sessionless
+  (`docs/decisions/20260721-sessionless-network.md`) — and on a ship
+  call that proof-of-possession stands in for the frame's
+  attribution. The signature profile is key-model work (register
+  item 5). This is transitional mechanism, not interface; the target
+  binding signs the frame itself with the same key.
+- Envelope encoding (JSON struct vs binary) is a realization choice;
+  the normative surface is the field set, byte preservation by every
+  carrier, and verifiability from frame plus card. Carrier protocols
+  treat the frame as an opaque payload, never re-encoding it.
 
 - Card container: X.509 (maintainer decision). The card's fields map
   to a certificate — agent and principal as subject/SAN URIs
@@ -122,11 +163,11 @@ native form.
 - Signing envelope is a library concern, not hand-rolled: verification
   runs over the certificate's signed structure, avoiding
   raw-JSON-canonicalization pitfalls.
-- v1 components proposed for carry-forward: the credential-key
-  toolkit; the branded-ID and redacted-credential schema pattern; the
-  principal/requirement middleware machinery; the invite-gated
-  registration route pattern. Per-component detail lives in
-  `v2/inputs/v1-code-audit-20260717.md`.
+- v1 components proposed for carry-forward: the branded-ID schema
+  pattern; the principal/requirement middleware machinery; the
+  invite-gated registration route pattern. The bearer credential-key
+  toolkit is superseded by the single-credential decision. Per-component
+  detail lives in `v2/inputs/v1-code-audit-20260717.md`.
 - Per-agent attribution material is new L1 surface with no v1
   counterpart. The per-mechanism dissolution verdicts for the v1
   identity domain live in `v2/inputs/v1-code-audit-20260717.md`.
@@ -169,10 +210,10 @@ native form.
 
 ## Open questions
 
-- Key model beyond bearer keys: rotation, revocation, the per-message
-  signing path — register item 5; how L5 consequences propagate to
-  admission checks and recipients' verification is proposed for the
-  register.
+- Key model: rotation, revocation, the request-signature profile,
+  the per-frame signing path — register item 5; how L5 consequences
+  propagate to admission checks and recipients' verification is
+  proposed for the register.
 - Principal linkage depth: opaque registered linkage vs verifiable
   delegation chain, and how many hops (human → organization → agent →
   subagent) attribution exposes — proposed as a new register item.
@@ -186,6 +227,8 @@ native form.
 - `v2/VISION.md` (constitution items 1, 2, 5, 10, 12, 13, 14;
   register items 5 and 9; epic #755);
   `docs/architecture/layers.md` — the layer model.
+- `docs/decisions/20260721-physical-plane-split.md` — the carriers
+  the frame's wire shape binds to.
 - `v2/inputs/landscape-sweep-20260717.md` — identity and attribution
   area; `v2/inputs/v1-code-audit-20260717.md` — v1 identity domain.
 - A2A v1.0 specification (a2aproject/A2A, `specification/a2a.proto`):
