@@ -5,7 +5,7 @@
  *
  * Source readers use TypeScript's syntax tree rather than regex over source.
  * Tests in `src/__tests__/scripts/generate-cli-docs.test.ts` pin the pure
- * behavior with fixtures, including the idempotence property.
+ * behavior with fixtures.
  */
 import ts from "typescript";
 
@@ -65,35 +65,6 @@ export const readPackageVersion = (source: string): ReadResult<string> => {
     return { _tag: "err", reason: "package.json has no string version field" };
   }
   return { _tag: "ok", value: parsed.version };
-};
-
-/**
- * Walk an object-literal-heavy source file and collect numeric-literal
- * property assignments whose name is in `wanted`. Repeated names are
- * overwritten in source order; the last assignment wins.
- */
-export const collectNumericProperties = (
-  source: string,
-  wanted: ReadonlySet<string>,
-): Record<string, number> => {
-  const src = ts.createSourceFile(
-    "fixture.ts",
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-  );
-  const out: Record<string, number> = {};
-  const visit = (node: ts.Node): void => {
-    if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name)) {
-      const key = node.name.text;
-      if (wanted.has(key) && ts.isNumericLiteral(node.initializer)) {
-        out[key] = Number(node.initializer.text);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(src);
-  return out;
 };
 
 /**

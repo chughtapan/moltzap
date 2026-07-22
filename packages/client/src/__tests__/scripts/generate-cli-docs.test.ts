@@ -1,40 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  collectNumericProperties,
   escapeMdxProse,
   readPackageVersion,
   readTopLevelStringConst,
 } from "../../../scripts/generate-cli-docs.helpers.js";
-
-const HELLO_FIXTURE = `
-  function buildHelloOk() {
-    return {
-      policy: {
-        maxMessageBytes: 65536,
-        maxPartsPerMessage: 10,
-        rateLimits: {
-          messagesPerMinute: 60,
-          requestsPerMinute: 120,
-        },
-      },
-    };
-  }
-`;
-
-const MIXED_FIXTURE = `
-  const x = {
-    name: "hello",
-    unwantedField: 42,
-    wantedField: 7,
-  };
-`;
-
-const REPEATED_FIXTURE = `
-  const policy = {
-    maxMessageBytes: 65536,
-    heartbeatIntervalMs: 30000,
-  };
-`;
 
 const SAMPLE_VERSION = "2026.524.1";
 const SAMPLE_VERSION_SRC = `export const PROTOCOL_VERSION = "${SAMPLE_VERSION}";`;
@@ -84,43 +53,6 @@ describe("readPackageVersion", () => {
     expect(readPackageVersion(JSON.stringify({ name: "example" }))._tag).toBe(
       "err",
     );
-  });
-});
-
-describe("collectNumericProperties", () => {
-  it("extracts numeric literals from a HelloOk-shaped object literal", () => {
-    const found = collectNumericProperties(
-      HELLO_FIXTURE,
-      new Set([
-        "maxMessageBytes",
-        "maxPartsPerMessage",
-        "messagesPerMinute",
-        "requestsPerMinute",
-      ]),
-    );
-    expect(found).toEqual({
-      maxMessageBytes: 65536,
-      maxPartsPerMessage: 10,
-      messagesPerMinute: 60,
-      requestsPerMinute: 120,
-    });
-  });
-
-  it("ignores non-numeric initializers + properties outside the wanted set", () => {
-    const found = collectNumericProperties(
-      MIXED_FIXTURE,
-      new Set(["name", "wantedField"]),
-    );
-    expect(found).toEqual({ wantedField: 7 });
-  });
-
-  it("is idempotent across repeated parses of the same source", () => {
-    const wanted = new Set(["maxMessageBytes", "heartbeatIntervalMs"]);
-    const a = collectNumericProperties(REPEATED_FIXTURE, wanted);
-    const b = collectNumericProperties(REPEATED_FIXTURE, wanted);
-    const c = collectNumericProperties(REPEATED_FIXTURE, wanted);
-    expect(a).toEqual(b);
-    expect(b).toEqual(c);
   });
 });
 
