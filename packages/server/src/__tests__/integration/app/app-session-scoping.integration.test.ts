@@ -14,7 +14,8 @@
  *
  * The hijack rejection (a second connection cannot steal a live app's
  * moderator-endpoint binding) is covered at the unit level by
- * `app-host.remote.test.ts` — the registry's strict no-overwrite invariant.
+ * `identity/apps/endpoint-registry.test.ts` — the registry's strict
+ * no-overwrite invariant.
  * At the integration level the Connect rejection is swallowed by the test
  * client's auto-connect, so a meaningful assertion there is not available
  * without a raw Connect-frame driver; the unit test is the canonical proof.
