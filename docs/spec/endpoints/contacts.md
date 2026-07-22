@@ -17,8 +17,8 @@ invite handling; state what the router sees of contacts (nothing); map every v1 
 contacts behavior to its disposition.
 
 Non-goals: the rest of L3 (semantic screening, norm adherence, outbound discipline — contacts are
-one input to those gates, specified here only as data); discovery/listing design (this doc records
-that the v1 basis dies and registers the replacement as open); the L2/L2.5 membership operations
+one input to those gates, specified here only as data); discovery/listing design (the v1 basis
+dies and nothing replaces it — Recorded decisions, 4); the L2/L2.5 membership operations
 invitations ride on; any wire format, storage schema, or configuration syntax.
 
 ## The contacts model (normative)
@@ -48,7 +48,8 @@ Guarantees:
 - **Verifiable basis.** Contact records key on L1-verifiable identities, so a gate decision binds
   to attribution the recipient can verify, never to claimed identity.
 - **Independence.** Two endpoints' views of their relationship are independent records; nothing
-  forces symmetry. Mutual agreement, where wanted, is a convention above this layer (open).
+  forces symmetry. Mutual agreement, where wanted, is a convention above this layer; v2 defines
+  none (Recorded decisions, 3).
 
 ## How gates consume contacts (normative)
 
@@ -68,17 +69,17 @@ withdrawn from, or ignored — agent-locally (whether a first-class decline oper
 charter's op-set question).
 
 Screening is recipient-side. The router delivers to conversation members without consulting
-anyone's trust data; the gate runs at the receiving endpoint. Whether the router retains any
-residual reachability role is registered as OQ-1 and not answered here.
+anyone's trust data; the gate runs at the receiving endpoint. The router retains no residual
+reachability role (Recorded decisions, 1).
 
 ## What the router sees (normative)
 
 Nothing content- or relationship-shaped. The router holds no contact store, accepts no
 relationship writes, serves no relationship reads, and cannot answer "are A and B in contact."
 Routing and delivery decisions read frame fields and membership, never contact data or any
-endpoint's trust state; whether the router retains any contact-independent reachability role is
-OQ-1. There are no contacts RPCs, contact notifications, relationship-based middleware, or
-contact policy hooks.
+endpoint's trust state; the router retains no contact-independent reachability role (Recorded
+decisions, 1). There are no contacts RPCs, contact notifications, relationship-based middleware,
+or contact policy hooks.
 
 ## Dissolution notes
 
@@ -86,20 +87,21 @@ Every v1 server-side contacts behavior, mapped:
 
 | v1 behavior | Disposition |
 |---|---|
-| Contacts store and list/add/accept RPCs | Dies at the router. The endpoint-local trust store is the record-keeping equivalent; any request/accept handshake is open (OQ-3). |
-| Pending-to-accepted transition with a mirrored reverse edge (symmetric acceptance) | Dies. The independence guarantee replaces it; mutuality conventions are open (OQ-3). |
-| Contact-requested / contact-accepted notifications, fanned out server-side per owner | Dies. Introductions become endpoint conventions over ordinary messaging; transport open (OQ-3). |
-| Visibility filtering (agent listing and presence subscription joined against accepted contacts) | Dies with the store. The replacement basis for discovery and visibility is open (OQ-4). |
-| Reach gating on task invites and agent conversation-create (pluggable predicate, default open, webhook implementation fail-closed) | Endpoint-local equivalent: the inbound gate on invitations and first contact. Any residual router role is open (OQ-1). In v1 the relationship graph never fed this predicate — reach and the graph were already disconnected (the graph-backed contacts service never implemented the pluggable reach predicate; only the webhook variant did, and the default was open), so v2 removes an incoherence, not a working coupling. |
+| Contacts store and list/add/accept RPCs | Dies at the router. The endpoint-local trust store is the record-keeping equivalent; v2 defines no request/accept handshake (Recorded decisions, 3). |
+| Pending-to-accepted transition with a mirrored reverse edge (symmetric acceptance) | Dies. The independence guarantee replaces it; v2 defines no mutuality convention (Recorded decisions, 3). |
+| Contact-requested / contact-accepted notifications, fanned out server-side per owner | Dies. Introductions become endpoint conventions over ordinary messaging; v2 defines no introduction convention (Recorded decisions, 3). |
+| Visibility filtering (agent listing and presence subscription joined against accepted contacts) | Dies with the store. Nothing replaces the basis for discovery and visibility (Recorded decisions, 4). |
+| Reach gating on task invites and agent conversation-create (pluggable predicate, default open, webhook implementation fail-closed) | Endpoint-local equivalent: the inbound gate on invitations and first contact. The router retains no residual role (Recorded decisions, 1). In v1 the relationship graph never fed this predicate — reach and the graph were already disconnected (the graph-backed contacts service never implemented the pluggable reach predicate; only the webhook variant did, and the default was open), so v2 removes an incoherence, not a working coupling. |
 | "Recipient blocks unsolicited contacts" error (v1 shipped the message but no block state or block operation) | Endpoint-local equivalent: deny records plus a closed default posture make blocking real for the first time. |
 | Relationship labels and unused metadata tags on the wire shape | Endpoint-local equivalent: contact records carry whatever local annotation the endpoint wants; no wire shape. |
 | CLI and local-daemon contacts commands | Endpoint-local equivalent: operator tooling edits the endpoint's own contact data; there is no server graph to address. |
 | Server-side policy injection plumbing (installable contact service, webhook checker) | Dies. The network is a router; it hosts no policy objects. |
 
 Owner keying. Every v1 contact surface keyed on the owning principal (user), while endpoints
-authenticate and address as agents. The identity axis of v2 contact records is open (OQ-2); the
-bench's owner-to-owner contact-gated-DM invariant — the propagation bench (`v2/VISION.md` →
-Vision) only opens a DM when the two agents' owners are in contact — depends on the answer.
+authenticate and address as agents. v2 contact records key on agent identities; principal linkage
+is future work (Recorded decisions, 2). The bench's owner-to-owner contact-gated-DM invariant —
+the propagation bench (`v2/VISION.md` → Vision) only opens a DM when the two agents' owners are
+in contact — awaits that linkage.
 
 ## Implementation notes (non-normative)
 
@@ -133,8 +135,7 @@ Vision) only opens a DM when the two agents' owners are in contact — depends o
 
 1. Contact data is endpoint-resident: no router interface accepts, stores, or serves relationship
    data, and no routing or delivery decision reads contact data or any endpoint's trust state
-   (any residual reachability role is OQ-1, and if one exists it is not expressed as contact
-   data).
+   (the router retains no reachability role — Recorded decisions, 1).
 2. A gate decision is a function of the frame, its verified attribution, the norms in play, and
    the endpoint's own contact data — never another party's trust data.
 3. Absent a contact record, the endpoint's declared default posture applies; no network default.
@@ -148,8 +149,9 @@ Vision) only opens a DM when the two agents' owners are in contact — depends o
 - An endpoint with a closed default posture demonstrably refuses a stranger's messages and
   invitations with zero router configuration or involvement.
 - An endpoint with empty contact data and an open posture functions fully (the arena shape).
-- The bench's owner-to-owner contact-gated-DM invariant is expressible purely as endpoint contact
-  configuration on each participating endpoint, modulo OQ-2.
+- The bench's contact-gated-DM invariant is expressible as endpoint contact configuration on each
+  participating endpoint at agent-identity granularity (Recorded decisions, 2); owner-level gating
+  awaits principal linkage.
 - Toggling a peer between allow and deny takes effect on the next delivered frame, network-free.
 
 ## Recorded decisions (2026-07-21)
