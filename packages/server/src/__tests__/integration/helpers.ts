@@ -163,7 +163,7 @@ export function startTestServerEffect(_opts?: StartTestServerOptions) {
       baseUrl: server.baseUrl,
       wsUrl: server.wsUrl,
       coreApp: server.coreApp,
-      spanExporter: server.spanExporter,
+      spanExporter: server.testPort.spanExporter,
     })),
     Effect.withSpan("startTestServer"),
   );

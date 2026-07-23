@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 /** @file MoltZap CLI entrypoint and global transport option wiring. */
-import { Command, Options } from "@effect/cli";
+import { Args, Command, Options } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer, Logger, Option } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Effect,
+  Layer,
+  Logger,
+  LogLevel,
+  Option,
+} from "effect";
 import packageJson from "../../package.json" with { type: "json" };
-import { agentsCommand } from "./commands/agents.js";
 import { contactsCommand } from "./commands/contacts.js";
 import {
   conversationsCommand,
@@ -14,13 +21,15 @@ import { messagesCommand } from "./commands/messages.js";
 import { registerCommand } from "./commands/register.js";
 import { sendCommand } from "./commands/send.js";
 import { startCommand } from "./commands/start.js";
-import { statusCommand } from "./commands/status.js";
-import { LoggerLive, minLogLevel } from "./runtime.js";
 import {
+  command,
   makeTransportLayer,
   resolveTransportInputs,
+  runHandler,
   type TransportOptions,
 } from "./transport.js";
+import { logJson, logLines } from "./output.js";
+import { LocalDaemonCommands } from "../local-daemon-rpc.js";
 import {
   ProfileConfigReadError,
   ProfileInvalidNameError,
@@ -28,9 +37,42 @@ import {
   ProfileName,
   type ProfileName as ProfileNameType,
 } from "../profile.js";
-import { currentArgv } from "./process-argv.js";
 
 const { version } = packageJson;
+
+const CliRuntimeEnv = Config.all({
+  logLevel: Config.string("MOLTZAP_LOG_LEVEL").pipe(Config.withDefault("info")),
+});
+
+const runtimeEnv = Effect.runSync(
+  CliRuntimeEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+);
+
+const LoggerLive = Logger.replace(
+  Logger.defaultLogger,
+  Logger.withConsoleError(Logger.stringLogger),
+);
+
+const minLogLevel: LogLevel.LogLevel = (() => {
+  const env = runtimeEnv.logLevel.toLowerCase();
+  switch (env) {
+    case "trace":
+      return LogLevel.Trace;
+    case "debug":
+      return LogLevel.Debug;
+    case "info":
+      return LogLevel.Info;
+    case "warn":
+    case "warning":
+      return LogLevel.Warning;
+    case "error":
+      return LogLevel.Error;
+    case "fatal":
+      return LogLevel.Fatal;
+    default:
+      return LogLevel.Info;
+  }
+})();
 
 const globalProfileOption = Options.text("profile").pipe(
   Options.withSchema(ProfileName),
@@ -86,6 +128,68 @@ const transportLayerFromConfig = <A extends GlobalTransportConfig>(config: A) =>
     ),
   );
 
+const listAgents = Command.make("list", {}, () =>
+  runHandler(
+    command(LocalDaemonCommands.AgentsList, {}).pipe(
+      Effect.flatMap(logJson),
+      Effect.asVoid,
+    ),
+  ),
+).pipe(Command.withDescription("List agents (default)"));
+
+const namesArg = Args.text({ name: "name" }).pipe(
+  Args.withDescription("Agent names to look up"),
+  Args.repeated,
+);
+
+const lookupAgents = Command.make("lookup", { names: namesArg }, ({ names }) =>
+  runHandler(
+    command(LocalDaemonCommands.AgentsSearch, { names }).pipe(
+      Effect.flatMap((result) => {
+        if (result.agents.length === 0) {
+          return Effect.log("No agents found.");
+        }
+        return logLines(
+          result.agents.map((agent) => {
+            let line = `Agent: ${agent.name}\n  ID: ${agent.id}\n  Status: ${agent.status}`;
+            if (agent.description) {
+              line += `\n  Description: ${agent.description}`;
+            }
+            return `${line}\n`;
+          }),
+        );
+      }),
+      Effect.asVoid,
+    ),
+  ),
+).pipe(Command.withDescription("Look up agents by name"));
+
+const agentsCommand = Command.make("agents", {}, () =>
+  listAgents.handler({}),
+).pipe(
+  Command.withDescription("List and look up agents on MoltZap"),
+  Command.withSubcommands([listAgents, lookupAgents]),
+);
+
+const statusCommand = Command.make("status", {}, () =>
+  runHandler(
+    command(LocalDaemonCommands.Status, {}).pipe(
+      Effect.flatMap((result) =>
+        logLines([
+          `Agent ID:       ${result.agentId ?? "none"}`,
+          `Connected:      ${result.connected}`,
+          `Conversations:  ${result.conversations}`,
+        ]),
+      ),
+      Effect.asVoid,
+    ),
+  ),
+).pipe(
+  Command.withDescription(
+    "Show agent connection status and conversation summary",
+  ),
+);
+
 /**
  * Top-level `moltzap` command. Subcommands are `@effect/cli` `Command`s —
  * each handler returns an Effect. The single `NodeRuntime.runMain` below is
@@ -132,7 +236,8 @@ const moltzap = Command.provide(moltzapBase, (config) =>
 );
 
 const cli = Command.run(moltzap, { name: "moltzap", version });
-cli(currentArgv()).pipe(
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli Command.run requires the Node argv vector at this process entrypoint.
+cli(process.argv).pipe(
   Effect.provide(NodeContext.layer),
   Effect.provide(LoggerLive),
   Logger.withMinimumLogLevel(minLogLevel),

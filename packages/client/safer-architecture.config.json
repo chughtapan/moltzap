@@ -2,7 +2,6 @@
   "minExportedSiblingModules": 6,
   "maxPublicExports": 28,
   "minPublicFacadeModules": 8,
-  "minFolderReadmeChildren": 26,
   "folderChildCountOverrides": [
     {
       "folder": ".",
