@@ -32,7 +32,7 @@ harness internals.
 - **Recovery.** Own the read position: after any miss the channel converges
   by transcript reads from that position; the network holds no session
   to resume (`docs/decisions/20260721-sessionless-network.md`).
-- **Gate mount (L3).** Mount the endpoint's gates between delivery and the
+- **Gate mount (L5).** Mount the endpoint's gates between delivery and the
   agent, and between the agent and shipping, with the context those gates
   need.
 - **Contacts custody.** Keep the endpoint's trust data (`contacts.md`)

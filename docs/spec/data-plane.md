@@ -6,20 +6,21 @@ Status: DRAFT (deepening doc; feeds the spec set)
 
 The data plane is the delivery half of the network, split out of the control
 plane. It carries network delivery and collective operations — shipping L1
-frames under L2 semantics: ordered, with pessimistic concurrency control (PCC),
+frames with ordered multicast delivery (L2) and transactional messaging (L3),
 MULTICAST-only in the first version per the constitution's recorded decision —
-and addresses every delivery through a conversation (L2.5). It is the shared
+and addresses every delivery through a conversation (L3). It is the shared
 substrate under every agent's harness; everything interpretive lives at
 endpoints.
 
-By recorded decision the plane decomposes in two
-(`docs/decisions/20260722-data-plane-layering.md`): a **delivery layer** whose
-only primitive is atomic multicast — a frame delivered to the conversation's
-membership all-or-none, in the conversation's single total order — and a
-**messaging layer** above it, where conversations address (L2.5) and
-collective operations are transactions over the per-conversation transcript.
-Tasks sit above the plane entirely; endpoint firewalls act at the delivery
-layer, programmed by the layers above.
+The plane realizes the stack's L2 and L3
+(`docs/decisions/20260723-eight-layer-stack.md`,
+`docs/decisions/20260722-data-plane-layering.md`): **L2, ordered multicast
+delivery** — a frame delivered all-or-none, in single total order, to the
+recipients it names; the conversation handle carries who each message goes
+to, and the layer owns no membership — and **L3, transactional messaging**,
+where conversations address and collective operations are transactions over
+the per-conversation transcript. Tasks (L4) sit above the plane entirely;
+endpoint firewalls (L5) act at the delivery edge, programmed from above.
 
 Goals: state the plane's duties as guarantees, independent of realization;
 record the dissolution of the v1 app layer, power by power; propose the one
@@ -28,9 +29,9 @@ capability-evaluation (measuring agent behavior under controlled adversity)
 seam for experiments and evals — pending a recorded maintainer decision (open
 question 9). Non-goals: the collective op set, call shape, and the completion /
 failure / concurrency / initiation / witness / ordering clusters (owned by the
-L2 semantics charter; this doc scopes only the v0 MULTICAST + PCC slice);
+collective-semantics charter; this doc scopes only the v0 MULTICAST + PCC slice);
 control-plane duties (identity, membership administration, the record substrate
-itself); endpoint concerns (L3 screening, L4 norms, which op a well-behaved
+itself); endpoint concerns (L5 screening, L4 task norms, which op a well-behaved
 participant emits next).
 
 ## Duties (guarantee level)
@@ -45,11 +46,14 @@ participant emits next).
 - **Ordering.** Deliveries within a conversation are totally ordered: every
   member observes the same messages in the same order, including members
   transiently unavailable at send time.
-- **Turn discipline (PCC).** In the v0 slice the plane admits contributions one
-  at a time per conversation, only under the group's agreed next operation and
-  next speaker. An endpoint observes that its turn is admitted before it
-  generates — agreement precedes generation, not merely delivery.
-  Overlapping-collective concurrency is chartered, not decided here.
+- **Turn admission (recorded technique).** In the v0 slice the plane admits
+  contributions one at a time per conversation, only under the group's agreed
+  next operation and next speaker — pessimistic concurrency control, the
+  recorded implementation technique, mechanism rather than interface
+  (`docs/decisions/20260723-eight-layer-stack.md`). An endpoint observes that
+  its turn is admitted before it generates — agreement precedes generation,
+  not merely delivery. Overlapping-collective concurrency is chartered, not
+  decided here.
 - **Transactional collectives.** A collective operation is one transactional
   unit over the conversation's transcript: the record represents one
   ALL-TO-ALL — MPI-style, every member contributes and every member
@@ -69,8 +73,8 @@ participant emits next).
 - **Content-blindness.** Routing and admission read envelope fields only, never
   bodies. End-to-end encryption stays a preserved possibility.
 - **Records handoff.** Durable-then-deliver: no frame fans out before it is
-  durable in the record substrate (control-plane-side; the record L5 reads).
-- **Addressing (L2.5).** A conversation id is the routing handle — an opaque
+  durable in the record substrate (control-plane-side; the record L6 reads).
+- **Addressing (L3).** A conversation id is the routing handle — an opaque
   group handle. Membership changes are delivered in-band, ordered against
   message flow. Read-back is scoped by membership and envelope fields; the
   exact fields are chartered.
@@ -106,7 +110,7 @@ seam for experiments and evals, explicitly not a production app layer.
   ordered, delivered), with timing; terminal-state vocabulary is deferred to
   the charter's completion / failure clusters; body observation follows the
   deployment's encryption posture (open, below).
-- **May inject:** only faults inside the failure envelope the L2 semantics
+- **May inject:** only faults inside the failure envelope the L2/L3 semantics
   already tolerate — delay, missed push (recoverable by catch-up), disconnect,
   partition, an unresponsive counterparty. Injected faults are
   indistinguishable, to production semantics, from natural ones.
@@ -125,7 +129,7 @@ is reused as the PCC instrument inside delivery semantics — an instrument, not
 an interface: no lease concept appears on the wire surface or in normative
 guarantees (sketch in Implementation notes). Proposed, pending a recorded
 decision: the v1 conversation machinery (participant sets, subscription-scoped
-delivery) as the L2.5 addressing primitive, and the v1 conformance pattern —
+delivery) as the L3 addressing primitive, and the v1 conformance pattern —
 adversity as a suite-invocation parameter, plus scripted-counterparty faults —
 as the shape of the proposed eval middleware's injection surface.
 
@@ -136,7 +140,7 @@ callbacks. Destinations, power by power:
 
 | v1 power | Destination |
 |---|---|
-| Message-authorize hook (per-message forward/block verdict) | Abolished. The plane delivers; inbound screening is endpoint L3. |
+| Message-authorize hook (per-message forward/block verdict) | Abolished. The plane delivers; inbound screening is endpoint L5. |
 | Verdict-derived recipient sets (per-message visibility filter) | Membership and envelope-level addressing; exact fields chartered (open). |
 | Dispatch-authorize hook (moderator grants/denies/holds a turn) | Dissolved into PCC delivery semantics; which op/speaker comes next is an L4/skill concern. |
 | Admission deny ejecting the participant | Abolished. Admission outcomes never mutate membership; membership changes are their own in-band ordered events. |
@@ -183,8 +187,8 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 2. The plane never mints, alters, or strips L1 attribution.
 3. Per-conversation total order: all members observe the same messages in the same order; an unavailable member converges to it on recovery.
 4. Durable-then-deliver: no delivery precedes durability in the record substrate.
-5. PCC: no contribution is admitted before the group agrees on the next operation and speaker; endpoints observe admission before generating.
-6. Starvation protection: no coalition of faulty members can indefinitely deny an honest member its turn.
+5. Turn-disciplined admission (the recorded pessimistic technique): while it is in effect, no contribution is admitted before the group agrees on the next operation and speaker; endpoints observe admission before generating.
+6. Starvation protection, established per task (L4): no coalition of faulty members can indefinitely deny an honest member its turn under the task's protocol.
 7. Equivocation robustness: a sender cannot present different members with different versions of the same message.
 8. Membership changes are in-band events, ordered against message flow.
 9. No network-side principal, hook, or policy vetoes, rewrites, redirects, or reorders delivery; admission outcomes never mutate membership.
@@ -201,11 +205,11 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 - The dissolution table is total: every v1 hook/manifest power has a recorded destination (endpoint layer, envelope, charter, or abolished).
 - Message visibility is fully determined by membership and envelope fields; no per-message principal verdict exists anywhere in the spec set.
 - If the eval middleware is adopted (this doc's open question 9), the v1 scripted-fault conformance tier is reproducible through it with no production hook path, and removing the middleware changes no production conformance outcome.
-- Both case studies' scheduling flows are expressible as op sequences with no middleware dependency — verified under the L2 charter's acceptance.
+- Both case studies' scheduling flows are expressible as op sequences with no middleware dependency — verified under the collective-semantics charter's acceptance.
 
 ## Open questions
 
-1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — L2 charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
+1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — the collective-semantics charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
 2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter, including whether conversation lifecycle (CONVERSATION-START) rides as a collective type and how it reconciles with the control-plane lifecycle ops.
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe positive delivery acknowledgment, or is recovery-convergence the whole guarantee?
@@ -218,13 +222,13 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 
 ## References
 
-- `v2/VISION.md` (constitution: clauses 1–3, 5–7, 12–13; open-question
+- `v2/VISION.md` (constitution: clauses 1–3, 5–7, 13; open-question
   register); `docs/architecture/layers.md` (layer model, layering rules).
 - `docs/decisions/20260721-physical-plane-split.md`,
   `docs/decisions/20260721-sessionless-network.md` — the wire-surface
   decisions; `docs/decisions/20260722-data-plane-layering.md` — plane
   layering and the interim wire.
-- #765 — L2 collective operation semantics charter: op clusters, four
+- #765 — the collective-semantics charter: op clusters, four
   paper-required constraints, v0 MULTICAST + PCC decision, maintainer
   transcript-plus-leases sketch. #755 — v2 epic.
 - `v2/inputs/v1-code-audit-20260717.md` (delivery-path and hook-machinery map);

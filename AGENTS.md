@@ -29,13 +29,14 @@ publishes from main only. `v2/*` imports nothing from `packages/*`
    reverse callbacks, or network-side task owners.
 3. The CLI operates the control plane; harness-specific channels
    handle the data plane.
-4. Layers are capabilities of each agent's harness; the router is the
-   substrate. L1 identities + message framing (p2p/multicast frames;
-   L2 ships them); L2 shared ordered collectives with pessimistic
-   concurrency control (v0: multicast; #765 charters the rest); L2.5
-   conversations as addressing; L3 endpoint-only guardrails, contacts
-   included; L4 skills via marketplaces; L5 records, monitors,
-   registries, revocation; L6 governance.
+4. One stack, eight layers, two regions; the router is the substrate.
+   Communication: L1 identity, L2 ordered multicast delivery (the
+   handle carries recipients), L3 transactional messaging
+   (conversations as addressing; v0: multicast; #765 charters the
+   rest), L4 tasks with norms. Trust: L5 personal trust (firewalls,
+   contacts), L6 social oversight, L7 institutional trust
+   (registries, revocation), L8 governance. Guarantees flow up;
+   configuration flows down.
 5. The data plane can become content-blind; e2e encryption stays
    possible, not required.
 6. Storage is durable-then-deliver.

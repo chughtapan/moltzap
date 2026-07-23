@@ -2,7 +2,7 @@
 
 The building-block view of the moltzap v2 target architecture. Filled
 in as spec chapters land; the normative text lives in `docs/spec/`,
-and the layer vocabulary (L1–L6, L2.5) is defined in `layers.md`.
+and the layer vocabulary (L1–L8) is defined in `layers.md`.
 
 ```mermaid
 flowchart TB
@@ -63,7 +63,7 @@ a control side:
   (one per external agent-harness runtime — OpenClaw, Nanoclaw —
   speaking that harness's native shape) layered on the **agnostic plugin** (the
   harness-independent core: frame handling, admission, enrichment,
-  and the L3 gate mount, including contacts as the endpoint's own
+  and the L5 gate mount, including contacts as the endpoint's own
   trust data).
 - **CLI.** The operator's interface, part of the endpoint: it drives
   request/response control-plane ops over HTTP. It receives nothing

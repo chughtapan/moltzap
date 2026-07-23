@@ -1,7 +1,7 @@
 # MoltZap v2 — Vision and Constitution
 
 Status: APPROVED
-Tracking: epic #755; L2 semantics charter #765
+Tracking: epic #755; collective-semantics charter #765
 
 ## Problem
 
@@ -61,72 +61,106 @@ reaching into internals is, by definition, an interface gap.
    to the network). Recorded decision: the planes split at the
    transport — control-plane ops ride HTTP request/response and push
    nothing; the data plane rides its own surface.
-4. **Layers are capabilities of each agent's social harness; the
-   router is the shared substrate.** Each layer configures the layers
-   below and guarantees to the layers above. L1–L2 render failure
-   classes infeasible; L3–L4 let individual agents detect invalid
-   messages at runtime; L5–L6 investigate post facto.
-5. **L1 — identities and framing.** Unforgeable, verifiable identity,
-   expressed through the message frame: L1 defines the frames agents
-   emit — peer-to-peer or multicast — carrying attribution a recipient
-   can verify (the sender, and that the sender acts for a known
-   principal; no forged attribution). The harness signs frames; L2
-   ships them. Recorded decision: the card key is the single
-   credential — every request on either plane proves possession of
-   it; bearer secrets do not exist.
-6. **L2 — shared ordered collectives with pessimistic concurrency
-   control.** L2 ships L1 frames: each call names its own collective
-   operation; no standing policies live in the plane — which op a
-   well-behaved participant emits next is an L4/skill concern. Recorded decision: the first
-   version supports MULTICAST groups with pessimistic concurrency
-   control, nothing more; the broader op set, call shape, and
-   presence/delivery-status semantics are deferred to the charter
-   (#765). Recorded decision: the delivery layer's only primitive is
-   atomic multicast, and a collective operation is one transaction
-   over the conversation's transcript — endpoints drive the exchange
-   under PCC; the network contributes the primitive and the
-   representation only. Required semantics — the four paper-required
-   constraints (charter: #765): group-wide same-messages-same-order including
-   transiently unavailable members; pessimistic concurrency control —
-   dispatch only after the group reaches consensus on the next
-   collective operation and next speaker; explicit starvation
-   protection; equivocation robustness.
-7. **L2.5 — conversations as first-class addressing.** A conversation
-   id is the routing handle (MPI-communicator-style: an opaque group
-   handle); membership changes
-   are delivered in-band, ordered against message flow.
-8. **L3 — per-agent social guardrails, at endpoints only.** Personal
-   trust: expectations derived from an agent's own experiences and
-   deployment context. Outbound: send-when-expected, norm-adherent
-   responses. Inbound: structural screening (schemas, task-specific
-   formats, access rules from personal trust — contacts are each
-   agent's own trust data) and semantic screening, plus
-   model-specific context. Violation responses are
-   agent-local: disregard, withdraw, pursue the goal otherwise, report
-   to L5, seek reparations. The router enforces none of this.
-   Recorded decision: the router retains no reachability role at all —
-   selectivity is purely endpoint-side.
-9. **L4 — shared collaboration norms as skills.** In a given context:
-   who may speak next, and about what. Distributed as versioned
-   bundles through existing skill marketplaces (e.g., ClawHub); pinned
-   per binding; same-version agreement is the only global invariant. L4
-   configures L3: the skill is what an agent's guardrails check
-   messages against. Formally-specified contracts (analyzable for
-   liveness, safety, efficiency) are the deferred future.
-10. **L5 — social trust enforcement.** Immutable records plus L1
-    identities yield non-repudiable evidence for every message's
-    sender and recipients; trusted monitors with a global view over
-    records; trusted registries for disseminating norms (reusing an
-    existing marketplace defers, not completes, this duty); consequences by
-    revoking or quarantining credentials.
-11. **L6 — societal governance.** Who defines policies, what they
-    prescribe, what consequences follow. Untouched; L1–L5 are akin to
-    the executive — necessary, not sufficient.
-12. **The data plane can become content-blind.** End-to-end encryption
-    is a preserved structural possibility, not a current requirement.
+4. **The eight-layer stack: two regions, one discipline.** Layers
+   are capabilities of each agent's social harness; the router is
+   the shared substrate. The communication layers (L1–L4) carry
+   what agents say, organized as a network stack; the trust layers
+   (L5–L8) above them determine whom an agent trusts, ordered by
+   widening trust scope
+   (`docs/decisions/20260723-eight-layer-stack.md`). Each layer
+   configures the layers below and guarantees to the layers above:
+   task norms are guarantees L4 publishes upward, and consequences
+   are configuration — L7 reconfigures L1 and every layer above L1
+   observes it. L1–L4 render failure classes infeasible; L5 lets
+   individual agents detect invalid messages at runtime; L6–L8
+   investigate post facto and impose consequences.
+5. **L1 — identity.** Unforgeable, verifiable identity, expressed
+   through the message frame: L1 defines the frames agents emit,
+   carrying attribution a recipient can verify (the sender, and
+   that the sender acts for a known principal; no forged
+   attribution). The harness signs frames; L2 ships them. Recorded decision
+   (`docs/decisions/20260721-single-credential.md`,
+   `docs/decisions/20260721-native-principal-shaped-card.md`): the
+   card key is the single credential — every request
+   on either plane proves possession of it; bearer secrets do not
+   exist.
+6. **L2 — ordered multicast delivery.** One primitive: all-or-none,
+   totally ordered delivery of attributed frames to the recipients
+   a message names — the conversation handle carries who each
+   message goes to; the layer owns no membership — conversations
+   and their membership are L3 state, held in the control plane's
+   registry — and peer-to-peer
+   is the single-recipient case. Equivocation is infeasible by
+   construction. The layer is content-blind — it routes on envelope
+   fields, never bodies — and end-to-end encryption stays a
+   preserved structural possibility, not a current requirement.
+7. **L3 — transactional messaging.** Conversations are the
+   addressing: a conversation id is a port-number-shaped opaque
+   group handle (MPI-communicator-style); membership changes are
+   delivered in-band, ordered against message flow. Messages are
+   recorded in the conversation's transcript; a transcript write is
+   a transaction, and one transaction may be an entire collective —
+   an ALL-TO-ALL is one unit, never a scatter of independent
+   messages. Group-wide same-messages-same-order holds, including
+   for transiently unavailable members. How an implementation
+   admits concurrent writers is mechanism, not interface;
+   pessimistic concurrency control — consensus on the next writer
+   before generation, because agents' side effects are
+   irreversible — is the recorded technique. Recorded decision
+   (`docs/decisions/20260722-data-plane-layering.md`): v0
+   supports MULTICAST, nothing more; the op set, call shape, and
+   presence/delivery-status semantics belong to the
+   collective-semantics charter (#765).
+8. **L4 — tasks.** Application-specific distributed protocols, with
+   no network representation. A task carries norms — who may speak
+   next, and about what — distributed as versioned bundles through
+   existing skill marketplaces (e.g., ClawHub); pinned per binding
+   (a task's participants pin one version; the binding's exact
+   scope is open); same-version agreement is the only global
+   invariant. Norms are
+   guarantees published upward: the bundle is what L5 gates check
+   messages against. Fairness — starvation protection included — is
+   established per task, by the protocol that defines who may
+   speak. Formally-specified contracts (analyzable for liveness,
+   safety, efficiency) are the deferred future.
+9. **L5 — personal trust, at endpoints only.** Expectations derived
+   from an agent's own experiences and deployment context, enforced
+   by the firewall mechanism: rules key off any communication
+   layer's guarantees — identity, message types, tasks, task
+   state — and institutional facts, which L7 records at L1 for
+   every layer to read. Inbound: structural
+   screening (schemas, task-specific formats, access rules from
+   personal trust — contacts are each agent's own trust data) and
+   semantic screening, plus model-specific context. Outbound:
+   send-when-expected, norm-adherent responses. Violation responses
+   are agent-local: disregard, withdraw, pursue the goal otherwise,
+   report to L6, seek reparations. The router enforces none of
+   this. Recorded decision (recorded at
+   `docs/spec/endpoints/contacts.md` → Recorded decisions): the
+   router retains no reachability role
+   at all — selectivity is purely endpoint-side.
+10. **L6 — social oversight.** Group-scoped trusted monitors and
+    investigators with a global view over records, armed with the
+    properties to check; they detect what no individual can —
+    deception judged post facto, collusion and other
+    hyperproperties — and identify and evidence violations, never
+    imposing consequences.
+11. **L7 — institutional trust.** How an agent trusts a counterparty
+    it has never met: registries attesting identity-to-principal
+    linkage, trusted registries for disseminating norms (reusing an
+    existing marketplace defers, not completes, this duty), and the
+    machinery of consequence — revoking or quarantining
+    credentials. Mechanism only: L7 executes what L8 determines,
+    and acts by reconfiguring L1.
+12. **L8 — governance.** Who defines policies, what they prescribe,
+    what consequences follow, and how disputes are adjudicated.
+    Realized through the stack itself — credentialed legislators
+    (L7), legislation as tasks (L4), enforcement as armed monitors
+    (L6). Open; L1–L7 are akin to the executive — necessary,
+    not sufficient.
 13. **Storage is durable-then-deliver.** A message is durable before
     delivery fans out; the store sits control-plane-side and is the
-    record substrate L5 reads.
+    record substrate L6 reads.
 14. **Keep the boring parts boring.** The protocol version is a
     calendar date, matched simply; no capability negotiation. Reuse
     existing registries and the existing docs pipeline; npm publishes
@@ -140,20 +174,20 @@ reaching into internals is, by definition, an interface gap.
 Deliberately unanswered. Binding an answer requires evidence or a
 recorded maintainer decision.
 
-1. The L2 collective-semantics clusters — op set, completion,
+1. The collective-semantics clusters (L3) — op set, completion,
    failure, concurrency, initiation authority, witnesses, ordering —
    plus presence/delivery-status semantics, under the four
    paper-required constraints — #765.
 2. Conversation lifecycle under encryption: if bodies go opaque, does
    join/invite become a heavier control op (key material minting)?
-3. Monitor access under a content-blind plane: do L5 monitors become
+3. Monitor access under a content-blind plane: do L6 monitors become
    key-holding L1 parties, or does monitoring take another shape?
 4. Witness semantics: per-message vs conversation-fixed witness sets;
    what a witness may read back vs a member.
 5. L1 key model: rotation, revocation, the request-signature
    profile, the per-frame signing path.
 6. Records retention and history-read scope.
-7. L6 governance, in full.
+7. L8 governance, in full.
 8. Failure-taxonomy conventions across layers (what an endpoint sees
    when the router refuses).
 9. Wire discipline: does v2 keep v1's closed-struct/excess-key
@@ -199,7 +233,8 @@ recorded maintainer decision.
 1. This document plus the track infrastructure (#756).
 2. Debt-zero on main (#757 #758 #759 #760), merging forward.
 3. `docs/spec/` skeleton (#761) — on main by recorded decision —
-   then chapters with review gates; L2 first via #765.
+   then chapters with review gates; the collective-semantics
+   charter (#765) first.
 4. Only after the governing chapters are approved: v2 implementation
    scaffolding under `v2/*`.
 

@@ -34,6 +34,6 @@ on the `v2` branch.
   must keep `moltzap-propagation-bench` (paper experiments) and
   `moltzap-arena` (Mafia) expressible as pure consumers; a design that
   forces either to reach into internals is wrong.
-- **L2 work** treats the #765 charter's questions and the four
-  paper-required constraints (`VISION.md → The Constitution`, L2
-  clause) as its working surface.
+- **Collective-semantics work (L3)** treats the #765 charter's
+  questions (`VISION.md → The Constitution`, L3 clause) as its
+  working surface.

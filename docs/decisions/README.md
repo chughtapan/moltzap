@@ -11,6 +11,7 @@ this log.** Do not add a record without that call.
 
 | Decision | Date |
 |---|---|
+| [The eight-layer stack: communication layers under trust layers](20260723-eight-layer-stack.md) | 2026-07-23 |
 | [The spec set lives on main](20260722-spec-lives-on-main.md) | 2026-07-22 |
 | [Data-plane layering: atomic multicast, transactional collectives](20260722-data-plane-layering.md) | 2026-07-22 |
 | [Control-plane encoding: neutral spec, JSON-RPC interim, REST + OpenAPI target](20260722-control-plane-encoding.md) | 2026-07-22 |
