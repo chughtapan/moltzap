@@ -24,10 +24,12 @@
     "docs:check:gates-test": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/__tests__/gates.test.ts",
     "prepare": "husky",
     "effect:source": "./scripts/prepare-effect.sh",
-    "test:affected": "nx affected -t test"
+    "test:affected": "nx affected -t test",
+    "evals": "pnpm build && cc-judge run packages/evals/scenarios --results ./eval-results"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
+    "@moltzap/cc-judge": "0.0.3",
     "@mermaid-js/mermaid-cli": "^11.15.0",
     "@typescript-eslint/parser": "^8.58.2",
     "eslint": "^9",
