@@ -25,7 +25,7 @@ What the control plane is **not**:
 
 ## Wire binding
 
-The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The op encoding is open (open question 8): JSON-RPC methods on a single POST is the v1-compatible easy path, and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) are equally possible; the op families and guarantees here are encoding-neutral, and both encodings satisfy them. Every request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) and carries the protocol version (a calendar date, matched exactly; a mismatch is refused before any state changes). The CLI is a plain HTTP client, and every op is exercisable with curl alone under either encoding.
+The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) and carries the protocol version (a calendar date, matched exactly; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a card-key signer, not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
 
 ## Op families
 
@@ -119,7 +119,7 @@ Known deltas between v1's mechanisms and the guarantees above:
 - v1 attribution is session-trusted with no per-message signing, so guarantee 6's evidentiary strength is bounded by the open L1 key model.
 - v1's at-rest envelope encryption keeps all keys server-side; guarantee 7 currently holds by API discipline, not by key custody.
 
-The wire-binding salvage depends on the open encoding question: under JSON-RPC the anchor is v1's descriptor machinery — the `defineRpc` catalogs with schemas, requirement middleware, strict decode, and doc generation (`packages/protocol/src/transport/descriptor.ts`) — rebound from the socket mux to an HTTP protocol; under REST it is the HTTP-route surface (`packages/server/src/http/routes.ts → makeCoreHttpApp`) plus the same schema-first patterns. Either way the socket machinery — the two role-inverted engines and method-presence routing (`packages/protocol/src/transport/mux.ts`), reverse callbacks, the app client — has no successor.
+By recorded decision (`docs/decisions/20260722-control-plane-encoding.md`) the wire rides JSON-RPC for now, with REST plus OpenAPI contracts as the target. The interim JSON-RPC wire anchors on v1's descriptor machinery — the `defineRpc` catalogs with schemas, requirement middleware, strict decode, and doc generation (`packages/protocol/src/transport/descriptor.ts`) — rebound from the socket mux to an HTTP protocol. The REST target re-anchors on the HTTP-route surface (`packages/server/src/http/routes.ts → makeCoreHttpApp`) plus the same schema-first patterns, with OpenAPI-generated contracts the CLI consumes directly in place of a separate protocol package. Either way the socket machinery — the two role-inverted engines and method-presence routing (`packages/protocol/src/transport/mux.ts`), reverse callbacks, the app client — has no successor.
 
 Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery — the typed wire catalog, the HTTP registration surface, the session/connection machinery, the message store — live in the salvage analyses (`v2/inputs/v1-code-audit-20260717.md`, `v2/inputs/debt-inventory-20260718.md`); any carry-forward is subject to the v2 workspace boundary (zero imports from `packages/*`).
 
@@ -154,13 +154,12 @@ Registered (or proposed for the register where marked), not answered here:
 5. Presence and delivery-status semantics (L2 charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as frames; the control plane never pushes; v1 has none.
 6. Failure taxonomy: what an endpoint sees when the plane refuses an op.
 7. Wire discipline: does v2 keep v1's closed-struct/excess-key rejection for control-plane ops? (register)
-8. Op encoding: JSON-RPC methods on a single HTTP POST (v1-compatible) or plain REST resource operations — both satisfy the op families and guarantees; undecided.
 
 ## References
 
 - `v2/VISION.md` — constitution and open-question register; epic #755.
 - `docs/decisions/20260720-the-network-is-a-router.md`, `docs/decisions/20260721-v2-lives-top-level.md` — recorded decisions the reframing rests on.
-- `docs/decisions/20260721-physical-plane-split.md`, `docs/decisions/20260721-sessionless-network.md`, `docs/decisions/20260721-single-credential.md` — the wire-binding decisions.
+- `docs/decisions/20260721-physical-plane-split.md`, `docs/decisions/20260721-sessionless-network.md`, `docs/decisions/20260721-single-credential.md`, `docs/decisions/20260722-control-plane-encoding.md` — the wire-binding decisions.
 - `docs/architecture/layers.md` — layer model.
 - L2 semantics charter: #765.
 - Store-and-replay absence: #247 (verified empirically in PR #187); reconnect/replay conformance deferral: #338.
