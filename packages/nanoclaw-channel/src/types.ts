@@ -2,9 +2,9 @@
 // When moltzap.ts is copied into a real nanoclaw fork, these imports resolve
 // against nanoclaw's own src/types.ts (which has the same signatures).
 //
-// Mirrors the channel surface at NanoClaw SHA
-// 934f063aff5c30e7b49ce58b53b41901d3472a3e. Update these stubs with the
-// NANOCLAW_SHA in packages/testbed/src/nanoclaw-install.ts.
+// Mirrors the channel surface at the commit pinned by NANOCLAW_SHA in
+// packages/testbed/src/nanoclaw-install.ts; keep these stubs aligned when
+// bumping that pin.
 
 export interface RegisteredGroup {
   name: string;

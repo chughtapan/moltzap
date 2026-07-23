@@ -18,8 +18,12 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
   lock, immutable cache promotion, and Docker image build
 - `nanoclaw-process.ts` — per-agent runtime directory, process lifecycle,
   namespaced container launch, logs, and teardown
-- `adapter-readiness.ts` — `processExitLoop`, shared readiness/teardown
-  state machine; `await-agent-ready.ts` — `awaitAgentReadyByPolling`
+- `adapter-readiness.ts` — `raceReadiness`, the shared server-auth vs
+  process-exit readiness contract; `await-agent-ready.ts` —
+  `awaitAgentReadyByPolling`
+- `child-process.ts` — shared shell-exec/platform-error helpers
+  (`makeCommandHelpers`), stdout/stderr capture, and exit-fiber polling
+  used by both adapters
 - `errors.ts` — `SpawnFailed`, `RuntimeExitedBeforeReady`,
   `RuntimeReadyTimedOut`, `RuntimeLaunchFailed`
 

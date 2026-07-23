@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createOpenClawAdapter`](./openclaw-adapter.ts#L528)
+### [`createOpenClawAdapter`](./openclaw-adapter.ts#L482)
 
 _Function_
 
@@ -132,7 +132,7 @@ export interface LogSlice {
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L122)
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L98)
 
 _Class_
 
@@ -144,7 +144,7 @@ export class NanoclawAdapter implements Runtime {
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
     return this.launchRuntime(input).pipe(
-      Effect.mapError((cause) => spawnFailedFor(input, cause)),
+      Effect.mapError((cause) => spawnFailed(input.agentName, cause)),
       Effect.provide(NodeContext.layer),
     );
   }
@@ -154,29 +154,18 @@ export class NanoclawAdapter implements Runtime {
       return Effect.succeed({ _tag: "Ready" as const });
     }
     const { handle, spawnInput } = this.state;
-    const agentId = spawnInput.agentId;
-
-    const serverReady = this.options.server.awaitAgentReady(agentId, timeoutMs);
-    const processExit = {
-      pollExitCode: () => pollNanoclawExitCode(handle),
-      stderr: () => getNanoclawRuntimeLogs(handle),
-      timeoutMs,
-    };
-
-    return pipe(
-      Effect.race(serverReady, processExitLoop(processExit)),
-      // Final-check: if the race resolved `Timeout`, nanoclaw's subprocess
-      // may have exited within the last `exitLoop` tick window — one last
-      // sync probe promotes that case to `ProcessExited` with the actual
-      // exit code so the diagnostic stderr isn't lost behind an opaque
-      // `Timeout`.
-      Effect.flatMap((outcome) =>
-        promoteTimeoutIfProcessExited(outcome, processExit),
+    return raceReadiness({
+      serverReady: this.options.server.awaitAgentReady(
+        spawnInput.agentId,
+        timeoutMs,
       ),
-      Effect.tap((outcome) =>
-        outcome._tag === "Ready" ? Effect.void : this.teardown(),
-      ),
-    );
+      source: {
+        pollExitCode: () => pollFiberExitCode(handle.exitFiber),
+        stderr: () => getNanoclawRuntimeLogs(handle),
+        timeoutMs,
+      },
+      teardown: () => this.teardown(),
+    });
   }
 
   teardown(): Effect.Effect<void, never, never> {
@@ -260,7 +249,7 @@ flowchart TD
 Inbound marker: `New messages`. The immutable cache key covers the pinned
 NanoClaw source, dependency lock, bundled channel/skill, and host ABI.
 
-### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L25)
+### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L23)
 
 _Interface_
 
@@ -277,7 +266,7 @@ export interface NanoclawAdapterOptions {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L431)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L402)
 
 _Class_
 
@@ -288,18 +277,12 @@ export class OpenClawAdapter implements Runtime {
   constructor(private readonly deps: OpenClawAdapterDeps) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    const toSpawnFailed = (cause: unknown) => {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      return new SpawnFailed({
-        agentName: input.agentName,
-        cause: error,
-        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
-      });
-    };
-
     return startOpenClawAdapter(this.deps, input, (state) => {
       this.state = state;
-    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
+    }).pipe(
+      Effect.mapError((cause) => spawnFailed(input.agentName, cause)),
+      Effect.provide(NodeContext.layer),
+    );
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
@@ -307,29 +290,18 @@ export class OpenClawAdapter implements Runtime {
       return Effect.succeed({ _tag: "Ready" as const });
     }
     const { process: proc, spawnInput, logBuffer } = this.state;
-    const agentId = spawnInput.agentId;
-
-    const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
-    const processExit = {
-      pollExitCode: () => pollExitCode(proc),
-      stderr: () => logBuffer.value,
-      timeoutMs,
-    };
-
-    return pipe(
-      Effect.race(serverReady, processExitLoop(processExit)),
-      // Final-check: if the race resolved `Timeout`, the child may have
-      // exited within the last `exitLoop` tick window — one last sync probe
-      // promotes that case to `ProcessExited` with the actual exit code so
-      // the diagnostic stderr isn't lost behind an opaque `Timeout`.
-      Effect.flatMap((outcome) =>
-        promoteTimeoutIfProcessExited(outcome, processExit),
+    return raceReadiness({
+      serverReady: this.deps.server.awaitAgentReady(
+        spawnInput.agentId,
+        timeoutMs,
       ),
-      // Failure outcomes (Timeout, ProcessExited) tear down before returning.
-      Effect.tap((outcome) =>
-        outcome._tag === "Ready" ? Effect.void : this.teardown(),
-      ),
-    );
+      source: {
+        pollExitCode: () => pollExitCode(proc),
+        stderr: () => logBuffer.value,
+        timeoutMs,
+      },
+      teardown: () => this.teardown(),
+    });
   }
 
   teardown(): Effect.Effect<void, never, never> {
@@ -391,7 +363,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L212)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L183)
 
 _Interface_
 
@@ -403,7 +375,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L218)
+### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L189)
 
 _Interface_
 
@@ -460,7 +432,7 @@ getLogs returns accumulated output from a byte offset.
 getInboundMarker returns a substring that proves an inbound message
 was received by the runtime's channel plugin.
 
-### [`RuntimeExitedBeforeReady`](./errors.ts#L46)
+### [`RuntimeExitedBeforeReady`](./errors.ts#L56)
 
 _Class_
 
@@ -490,7 +462,7 @@ _TypeAlias_
 export type RuntimeKind = RuntimeSelection["kind"];
 ```
 
-### [`RuntimeLaunchFailed`](./errors.ts#L63)
+### [`RuntimeLaunchFailed`](./errors.ts#L73)
 
 _TypeAlias_
 
@@ -508,7 +480,7 @@ branch by tag, or `Effect.catchAll` to handle uniformly.
 Note: `TestbedStartupInterrupted` lives in `testbed.ts` because it only
 arises in the signal-handling variant and carries the interrupting `Signal`.
 
-### [`RuntimeReadyTimedOut`](./errors.ts#L30)
+### [`RuntimeReadyTimedOut`](./errors.ts#L40)
 
 _Class_
 

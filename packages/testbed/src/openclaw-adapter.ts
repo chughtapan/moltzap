@@ -1,8 +1,9 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
 import type { Process, Signal } from "@effect/platform/CommandExecutor";
-import { Data, Effect, Exit, Fiber, Option, Scope, Stream, pipe } from "effect";
+import { Data, Effect, Exit, Fiber, Option, Scope, pipe } from "effect";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
@@ -14,11 +15,9 @@ import type {
   LogSlice,
   ReadyOutcome,
 } from "./runtime.js";
-import { SpawnFailed } from "./errors.js";
-import {
-  processExitLoop,
-  promoteTimeoutIfProcessExited,
-} from "./adapter-readiness.js";
+import { SpawnFailed, spawnFailed } from "./errors.js";
+import { raceReadiness } from "./adapter-readiness.js";
+import { consumeProcessStream, pollFiberExitCode } from "./child-process.js";
 import {
   installChannelPlugin,
   seedWorkspaceFiles,
@@ -45,41 +44,10 @@ class PortAllocationFailed extends Data.TaggedError("PortAllocationFailed")<{
   readonly cause?: unknown;
 }> {}
 
-const UTF8_DECODER = new TextDecoder("utf-8");
-
-function consumeProcessStream(
-  stream: Stream.Stream<Uint8Array, unknown>,
-  logBuffer: { value: string },
-): Effect.Effect<void, never, never> {
-  return pipe(
-    stream,
-    Stream.runForEach((chunk) =>
-      Effect.sync(() => {
-        logBuffer.value += UTF8_DECODER.decode(chunk);
-      }),
-    ),
-    Effect.catchAll(() => Effect.void),
-  );
-}
-
-function exitPollToCode(exit: Exit.Exit<number, never>): Option.Option<number> {
-  return Exit.match(exit, {
-    onSuccess: (code) => Option.some(code),
-    onFailure: () => Option.some(-1),
-  });
-}
-
 function pollExitCode(
   proc: SpawnedProcess,
 ): Effect.Effect<Option.Option<number>, never, never> {
-  return Fiber.poll(proc.exitFiber).pipe(
-    Effect.map(
-      Option.match({
-        onNone: () => Option.none<number>(),
-        onSome: exitPollToCode,
-      }),
-    ),
-  );
+  return pollFiberExitCode(proc.exitFiber);
 }
 
 function killAndPoll(
@@ -136,10 +104,13 @@ function initializeOpenClawProcess(
       Effect.catchAll(() => Effect.succeed(-1)),
       Effect.forkIn(scope),
     );
-    yield* consumeProcessStream(proc.stdout, logBuffer).pipe(
+    const appendLog = (chunk: string): void => {
+      logBuffer.value += chunk;
+    };
+    yield* consumeProcessStream(proc.stdout, appendLog).pipe(
       Effect.forkIn(scope),
     );
-    yield* consumeProcessStream(proc.stderr, logBuffer).pipe(
+    yield* consumeProcessStream(proc.stderr, appendLog).pipe(
       Effect.forkIn(scope),
     );
     const kill = (signal: Signal): Effect.Effect<void, never, never> =>
@@ -434,18 +405,12 @@ export class OpenClawAdapter implements Runtime {
   constructor(private readonly deps: OpenClawAdapterDeps) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    const toSpawnFailed = (cause: unknown) => {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      return new SpawnFailed({
-        agentName: input.agentName,
-        cause: error,
-        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
-      });
-    };
-
     return startOpenClawAdapter(this.deps, input, (state) => {
       this.state = state;
-    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
+    }).pipe(
+      Effect.mapError((cause) => spawnFailed(input.agentName, cause)),
+      Effect.provide(NodeContext.layer),
+    );
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
@@ -453,29 +418,18 @@ export class OpenClawAdapter implements Runtime {
       return Effect.succeed({ _tag: "Ready" as const });
     }
     const { process: proc, spawnInput, logBuffer } = this.state;
-    const agentId = spawnInput.agentId;
-
-    const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
-    const processExit = {
-      pollExitCode: () => pollExitCode(proc),
-      stderr: () => logBuffer.value,
-      timeoutMs,
-    };
-
-    return pipe(
-      Effect.race(serverReady, processExitLoop(processExit)),
-      // Final-check: if the race resolved `Timeout`, the child may have
-      // exited within the last `exitLoop` tick window — one last sync probe
-      // promotes that case to `ProcessExited` with the actual exit code so
-      // the diagnostic stderr isn't lost behind an opaque `Timeout`.
-      Effect.flatMap((outcome) =>
-        promoteTimeoutIfProcessExited(outcome, processExit),
+    return raceReadiness({
+      serverReady: this.deps.server.awaitAgentReady(
+        spawnInput.agentId,
+        timeoutMs,
       ),
-      // Failure outcomes (Timeout, ProcessExited) tear down before returning.
-      Effect.tap((outcome) =>
-        outcome._tag === "Ready" ? Effect.void : this.teardown(),
-      ),
-    );
+      source: {
+        pollExitCode: () => pollExitCode(proc),
+        stderr: () => logBuffer.value,
+        timeoutMs,
+      },
+      teardown: () => this.teardown(),
+    });
   }
 
   teardown(): Effect.Effect<void, never, never> {
@@ -539,20 +493,12 @@ export function createOpenClawAdapter(
 // --- Module-private helpers ---
 
 function resolveOpenClawChannelDistDir(): string {
-  return pathSync((path) =>
-    path.join(
-      resolveInstalledPackageRoot(
-        "@moltzap/openclaw-channel",
-        OPENCLAW_CHANNEL_LOOKUP_PATHS,
-      ),
-      "dist",
+  return join(
+    resolveInstalledPackageRoot(
+      "@moltzap/openclaw-channel",
+      OPENCLAW_CHANNEL_LOOKUP_PATHS,
     ),
-  );
-}
-
-function pathSync<A>(f: (path: Path.Path) => A): A {
-  return Effect.runSync(
-    Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)),
+    "dist",
   );
 }
 

@@ -1,6 +1,6 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { NodeContext } from "@effect/platform-node";
-import { Effect, Exit, Fiber, Option, pipe } from "effect";
+import { Effect } from "effect";
 
 import type {
   Runtime,
@@ -9,11 +9,9 @@ import type {
   LogSlice,
   ReadyOutcome,
 } from "./runtime.js";
-import { SpawnFailed } from "./errors.js";
-import {
-  processExitLoop,
-  promoteTimeoutIfProcessExited,
-} from "./adapter-readiness.js";
+import { SpawnFailed, spawnFailed } from "./errors.js";
+import { raceReadiness } from "./adapter-readiness.js";
+import { pollFiberExitCode } from "./child-process.js";
 import {
   startNanoclawRuntimeEffect,
   stopNanoclawRuntimeEffect,
@@ -37,19 +35,6 @@ interface AdapterState {
   handle: NanoclawRuntimeHandle;
   spawnInput: SpawnInput;
   teardown: Effect.Effect<void, never, never>;
-}
-
-function exitToCode(exit: Exit.Exit<number, never>): number {
-  return Exit.match(exit, {
-    onSuccess: (code) => code,
-    onFailure: () => -1,
-  });
-}
-
-function pollNanoclawExitCode(
-  handle: NanoclawRuntimeHandle,
-): Effect.Effect<Option.Option<number>, never, never> {
-  return Fiber.poll(handle.exitFiber).pipe(Effect.map(Option.map(exitToCode)));
 }
 
 function stopNanoclawRuntimeSafely(
@@ -79,15 +64,6 @@ const acquireNanoclawRuntime = Effect.fn("NanoclawAdapter.acquire")(function* (
     install,
   );
 });
-
-function spawnFailedFor(input: SpawnInput, cause: unknown): SpawnFailed {
-  const error = cause instanceof Error ? cause : new Error(String(cause));
-  return new SpawnFailed({
-    agentName: input.agentName,
-    cause: error,
-    message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
-  });
-}
 
 /**
  * Nanoclaw runtime adapter. Runs agent subprocesses inside Docker
@@ -126,7 +102,7 @@ export class NanoclawAdapter implements Runtime {
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
     return this.launchRuntime(input).pipe(
-      Effect.mapError((cause) => spawnFailedFor(input, cause)),
+      Effect.mapError((cause) => spawnFailed(input.agentName, cause)),
       Effect.provide(NodeContext.layer),
     );
   }
@@ -136,29 +112,18 @@ export class NanoclawAdapter implements Runtime {
       return Effect.succeed({ _tag: "Ready" as const });
     }
     const { handle, spawnInput } = this.state;
-    const agentId = spawnInput.agentId;
-
-    const serverReady = this.options.server.awaitAgentReady(agentId, timeoutMs);
-    const processExit = {
-      pollExitCode: () => pollNanoclawExitCode(handle),
-      stderr: () => getNanoclawRuntimeLogs(handle),
-      timeoutMs,
-    };
-
-    return pipe(
-      Effect.race(serverReady, processExitLoop(processExit)),
-      // Final-check: if the race resolved `Timeout`, nanoclaw's subprocess
-      // may have exited within the last `exitLoop` tick window — one last
-      // sync probe promotes that case to `ProcessExited` with the actual
-      // exit code so the diagnostic stderr isn't lost behind an opaque
-      // `Timeout`.
-      Effect.flatMap((outcome) =>
-        promoteTimeoutIfProcessExited(outcome, processExit),
+    return raceReadiness({
+      serverReady: this.options.server.awaitAgentReady(
+        spawnInput.agentId,
+        timeoutMs,
       ),
-      Effect.tap((outcome) =>
-        outcome._tag === "Ready" ? Effect.void : this.teardown(),
-      ),
-    );
+      source: {
+        pollExitCode: () => pollFiberExitCode(handle.exitFiber),
+        stderr: () => getNanoclawRuntimeLogs(handle),
+        timeoutMs,
+      },
+      teardown: () => this.teardown(),
+    });
   }
 
   teardown(): Effect.Effect<void, never, never> {

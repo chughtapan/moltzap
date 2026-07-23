@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
-import { Path } from "@effect/platform";
-import { Data, Effect, Option } from "effect";
+import { join, sep } from "node:path";
+import { Data, Option } from "effect";
 
 const requireFromHere = createRequire(import.meta.url);
 
@@ -21,9 +21,7 @@ function parsePackageJson(
   packageRoot: string,
   packageName: string,
 ): PackageJson {
-  const packageJsonPath = pathSync((path) =>
-    path.join(packageRoot, "package.json"),
-  );
+  const packageJsonPath = join(packageRoot, "package.json");
   try {
     return requireFromHere(packageJsonPath) as PackageJson;
   } catch (cause) {
@@ -40,7 +38,7 @@ function packageRootFromResolvedFile(
   resolvedFile: string,
 ): string {
   const packageSegments = packageName.split("/");
-  const separator = pathSync((path) => path.sep);
+  const separator = sep;
   const resolvedSegments = resolvedFile.split(separator);
   for (
     let index = resolvedSegments.length - packageSegments.length;
@@ -78,12 +76,12 @@ function packageBinTarget(
   const packageJson = parsePackageJson(packageRoot, packageName);
   const { bin } = packageJson;
   if (typeof bin === "string") {
-    return pathSync((path) => path.join(packageRoot, bin));
+    return join(packageRoot, bin);
   }
   if (typeof bin === "object" && bin !== null && binName in bin) {
     const target = Object.entries(bin).find(([name]) => name === binName)?.[1];
     if (typeof target === "string") {
-      return pathSync((path) => path.join(packageRoot, target));
+      return join(packageRoot, target);
     }
   }
   throw new PackageResolutionFailed({
@@ -98,7 +96,7 @@ export function resolveInstalledPackageRoot(
     [],
 ): string {
   for (const lookupPath of lookupPaths) {
-    const packageRoot = pathSync((path) => path.join(lookupPath, packageName));
+    const packageRoot = join(lookupPath, packageName);
     const manifest = Option.liftThrowable(parsePackageJson)(
       packageRoot,
       packageName,
@@ -121,11 +119,5 @@ export function resolveInstalledPackageBin(
     resolveInstalledPackageRoot(packageName),
     packageName,
     binName,
-  );
-}
-
-function pathSync<A>(f: (path: Path.Path) => A): A {
-  return Effect.runSync(
-    Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)),
   );
 }

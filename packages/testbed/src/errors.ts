@@ -19,6 +19,16 @@ export class SpawnFailed extends Data.TaggedError("SpawnFailed")<{
   readonly cause: Error;
 }> {}
 
+/** Canonical `SpawnFailed` construction used by every adapter. */
+export function spawnFailed(agentName: string, cause: unknown): SpawnFailed {
+  const error = cause instanceof Error ? cause : new Error(String(cause));
+  return new SpawnFailed({
+    agentName,
+    cause: error,
+    message: `Failed to spawn agent "${agentName}": ${error.message}`,
+  });
+}
+
 /**
  * Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
  * `Timeout`. The process did not signal ready within `timeoutMs` and
