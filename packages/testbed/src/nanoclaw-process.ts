@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   Command,
   FileSystem,
@@ -15,16 +15,16 @@ import {
   Path,
 } from "@effect/platform";
 import type { Process, Signal } from "@effect/platform/CommandExecutor";
-import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
-import { Data, Duration, Effect, Exit, Fiber, Scope, Stream } from "effect";
+import { Data, Duration, Effect, Exit, Fiber, Scope } from "effect";
 import {
   resolveWorkspaceFileDestination,
   TESTBED_PROFILE_NAME,
   writeMoltZapProfileConfig,
 } from "./channel-plugin-install.js";
 import type { NanoclawRuntimeInstall } from "./nanoclaw-install.js";
+import { consumeProcessStream, makeCommandHelpers } from "./child-process.js";
 
 // OneCLI gateway — nanoclaw's container-runner calls this for per-container
 // credential injection. Running locally from ~/.onecli/docker-compose.yml; the
@@ -88,11 +88,6 @@ class NanoclawRuntimeProcessError extends Data.TaggedError(
   }
 }
 
-interface CommandRunOptions {
-  readonly cwd?: string;
-  readonly timeout?: number;
-}
-
 interface StartedNanoclawProcess {
   readonly proc: Process;
   readonly scope: Scope.CloseableScope;
@@ -106,68 +101,12 @@ function toRuntimeError(message: string, cause?: unknown) {
   });
 }
 
-function pathSync<A>(f: (path: Path.Path) => A): A {
-  return Effect.runSync(
-    Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)),
-  );
-}
+const { execEffect, fsEffect } = makeCommandHelpers(toRuntimeError);
 
-function execEffect(
-  commandText: string,
-  options?: CommandRunOptions,
-): Effect.Effect<void, NanoclawRuntimeProcessError> {
-  const command =
-    options?.cwd === undefined
-      ? Command.make(commandText).pipe(Command.runInShell(true))
-      : Command.make(commandText).pipe(
-          Command.runInShell(true),
-          Command.workingDirectory(options.cwd),
-        );
-
-  const exitCode =
-    options?.timeout === undefined
-      ? Command.exitCode(command)
-      : Command.exitCode(command).pipe(
-          Effect.timeoutFail({
-            duration: Duration.millis(options.timeout),
-            onTimeout: () =>
-              toRuntimeError(
-                `command timed out after ${options.timeout}ms: ${commandText}`,
-              ),
-          }),
-        );
-
-  return exitCode.pipe(
-    Effect.flatMap((code) =>
-      Number(code) === 0
-        ? Effect.void
-        : Effect.fail(
-            toRuntimeError(
-              `command failed with exit code ${code}: ${commandText}`,
-            ),
-          ),
-    ),
-    Effect.provide(NodeContext.layer),
-    Effect.mapError((cause) =>
-      cause instanceof NanoclawRuntimeProcessError
-        ? cause
-        : toRuntimeError(`command failed: ${commandText}`, cause),
-    ),
-  );
-}
-
-const UTF8_DECODER = new TextDecoder("utf-8");
-
-function consumeProcessStream(
-  stream: Stream.Stream<Uint8Array, unknown>,
-  capturedLogs: string[],
-): Effect.Effect<void, never, never> {
-  return Stream.runForEach(stream, (chunk) =>
-    Effect.sync(() => {
-      capturedLogs.push(UTF8_DECODER.decode(chunk));
-    }),
-  ).pipe(Effect.catchAll(() => Effect.void));
-}
+// One resolved Path service for the sync helpers that pass it onward.
+const PLATFORM_PATH = Effect.runSync(
+  Path.Path.pipe(Effect.provide(Path.layer)),
+);
 
 function logTail(capturedLogs: readonly string[]): string {
   return capturedLogs
@@ -187,13 +126,6 @@ function killProcessAndWait(
     Effect.as(true),
     Effect.catchAll(() => Effect.succeed(false)),
   );
-}
-
-function fsEffect<T>(
-  reason: string,
-  effect: Effect.Effect<T, PlatformError>,
-): Effect.Effect<T, NanoclawRuntimeProcessError> {
-  return effect.pipe(Effect.mapError((cause) => toRuntimeError(reason, cause)));
 }
 
 function isOnecliReachable(): Effect.Effect<boolean, never> {
@@ -326,11 +258,11 @@ function writeRuntimeWorkspaceFile(
   runtimeDir: string,
   file: NonNullable<StartNanoclawRuntimeOptions["workspaceFiles"]>[number],
 ) {
-  const workspaceRoot = pathSync((path) =>
-    path.join(runtimeDir, "container/skills"),
-  );
-  const destination = pathSync((path) =>
-    resolveWorkspaceFileDestination(path, workspaceRoot, file.relativePath),
+  const workspaceRoot = join(runtimeDir, "container/skills");
+  const destination = resolveWorkspaceFileDestination(
+    PLATFORM_PATH,
+    workspaceRoot,
+    file.relativePath,
   );
   if (destination === null) {
     return Effect.fail(
@@ -339,7 +271,7 @@ function writeRuntimeWorkspaceFile(
       ),
     );
   }
-  const destinationDir = pathSync((path) => path.dirname(destination));
+  const destinationDir = dirname(destination);
   return Effect.all(
     [
       fsEffect(
@@ -366,13 +298,13 @@ function seedNanoclawRuntimeDir(
           fsEffect(
             `copy nanoclaw ${directory} into isolated runtime`,
             fileSystem.copy(
-              pathSync((path) => path.join(install.cacheDir, directory)),
-              pathSync((path) => path.join(runtimeDir, directory)),
+              join(install.cacheDir, directory),
+              join(runtimeDir, directory),
               { overwrite: true },
             ),
           ),
         ),
-        { concurrency: 1, discard: true },
+        { concurrency: 2, discard: true },
       ),
     ),
   );
@@ -383,18 +315,14 @@ export function buildNanoclawProcessPlan(
   runtimeDir: string,
   install: NanoclawRuntimeInstall,
 ): NanoclawProcessPlan {
-  const entrypoint = pathSync((path) =>
-    path.join(install.cacheDir, "dist/index.js"),
-  );
+  const entrypoint = join(install.cacheDir, "dist/index.js");
   return {
     command: "node",
     args: [entrypoint],
     cwd: runtimeDir,
     env: {
       MOLTZAP_PROFILE: TESTBED_PROFILE_NAME,
-      MOLTZAP_CONFIG_HOME: pathSync((path) =>
-        path.join(runtimeDir, ".moltzap"),
-      ),
+      MOLTZAP_CONFIG_HOME: join(runtimeDir, ".moltzap"),
       MOLTZAP_SERVER_URL: normalizeNanoclawServerUrl(opts.serverUrl),
       MOLTZAP_EVAL_MODE: opts.autoRegisterConversations ? "1" : "0",
       CONTAINER_RUNTIME: "docker",
@@ -422,7 +350,7 @@ function writeNanoclawMoltZapProfileConfig(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
 ) {
-  const configDir = pathSync((path) => path.join(runtimeDir, ".moltzap"));
+  const configDir = join(runtimeDir, ".moltzap");
   return writeMoltZapProfileConfig(configDir, opts).pipe(
     Effect.provide(Path.layer),
     Effect.mapError((cause) =>
@@ -465,10 +393,13 @@ function initializeNanoclawProcess(
       Effect.catchAll(() => Effect.succeed(-1)),
       Effect.forkIn(scope),
     );
-    yield* consumeProcessStream(proc.stdout, capturedLogs).pipe(
+    const appendLog = (chunk: string): void => {
+      capturedLogs.push(chunk);
+    };
+    yield* consumeProcessStream(proc.stdout, appendLog).pipe(
       Effect.forkIn(scope),
     );
-    yield* consumeProcessStream(proc.stderr, capturedLogs).pipe(
+    yield* consumeProcessStream(proc.stderr, appendLog).pipe(
       Effect.forkIn(scope),
     );
     return { proc, scope, exitFiber } satisfies StartedNanoclawProcess;
@@ -534,20 +465,6 @@ function cleanupFailedNanoclawRuntime(handle: NanoclawRuntimeHandle) {
   );
 }
 
-function removeFailedNanoclawRuntimeDir(runtimeDir: string) {
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) =>
-      fileSystem.remove(runtimeDir, { recursive: true, force: true }),
-    ),
-    Effect.catchAll((cause) =>
-      Effect.logWarning(
-        "failed to remove NanoClaw runtime directory after startup failure",
-        cause,
-      ),
-    ),
-  );
-}
-
 function startConfiguredNanoclawRuntime(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
@@ -588,7 +505,7 @@ export function startNanoclawRuntimeEffect(
       opts,
       runtimeDir,
       install,
-    ).pipe(Effect.onError(() => removeFailedNanoclawRuntimeDir(runtimeDir)));
+    ).pipe(Effect.onError(() => removeNanoclawRuntimeDir(runtimeDir)));
   }).pipe(Effect.withSpan("startNanoclawRuntimeEffect"));
 }
 

@@ -16,9 +16,10 @@ npm install effect @moltzap/testbed
 ## Runtime versions
 
 Testbed pins the external runtimes it automates: OpenClaw is installed at
-`2026.3.31`; NanoClaw is downloaded from commit
-`934f063aff5c30e7b49ce58b53b41901d3472a3e` and paired with
-`@moltzap/client@2026.722.0`. Ordinary library dependencies use compatible
+the exact version in this package's dependencies; NanoClaw is downloaded
+from the exact commit pinned by `NANOCLAW_SHA` in `src/nanoclaw-install.ts`
+and paired with the exact `@moltzap/client` pinned in
+`nanoclaw-assets/package.json`. Ordinary library dependencies use compatible
 ranges and release independently.
 
 ## Launch an OpenClaw testbed

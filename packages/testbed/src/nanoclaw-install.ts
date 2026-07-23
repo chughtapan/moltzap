@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, FileSystem } from "@effect/platform";
-import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
 import { Data, Duration, Effect, Option } from "effect";
+import { makeCommandHelpers } from "./child-process.js";
 
 const NANOCLAW_SHA = "934f063aff5c30e7b49ce58b53b41901d3472a3e";
 const NANOCLAW_URL =
@@ -14,10 +15,6 @@ const NANOCLAW_IMAGE_REPOSITORY = "nanoclaw-agent";
 const NANOCLAW_IMAGE_TAG_PREFIX = "moltzap";
 const BUILDING_CACHE_PREFIX = ".building-";
 const CACHE_GENERATION_PREFIX = "generation-";
-const SHA_256 = "SHA-256";
-const HEX_RADIX = 16;
-const HEX_BYTE_PAD = 2;
-const UTF8_ENCODER = new TextEncoder();
 const INSTALL_PERMIT = Effect.runSync(Effect.makeSemaphore(1));
 
 export interface NanoclawRuntimeInstall {
@@ -40,11 +37,6 @@ class NanoclawInstallError extends Data.TaggedError("NanoclawInstallError")<{
   }
 }
 
-interface CommandRunOptions {
-  readonly cwd?: string;
-  readonly timeout?: number;
-}
-
 function installError(reason: string, cause?: unknown) {
   return new NanoclawInstallError({
     reason,
@@ -52,67 +44,10 @@ function installError(reason: string, cause?: unknown) {
   });
 }
 
-function fsEffect<A>(reason: string, effect: Effect.Effect<A, PlatformError>) {
-  return effect.pipe(Effect.mapError((cause) => installError(reason, cause)));
-}
+const { execEffect, fsEffect } = makeCommandHelpers(installError);
 
-function execEffect(commandText: string, options?: CommandRunOptions) {
-  const command =
-    options?.cwd === undefined
-      ? Command.make(commandText).pipe(Command.runInShell(true))
-      : Command.make(commandText).pipe(
-          Command.runInShell(true),
-          Command.workingDirectory(options.cwd),
-        );
-  const exitCode =
-    options?.timeout === undefined
-      ? Command.exitCode(command)
-      : Command.exitCode(command).pipe(
-          Effect.timeoutFail({
-            duration: Duration.millis(options.timeout),
-            onTimeout: () =>
-              installError(
-                "command timed out after " +
-                  options.timeout +
-                  "ms: " +
-                  commandText,
-              ),
-          }),
-        );
-  return exitCode.pipe(
-    Effect.flatMap((code) =>
-      Number(code) === 0
-        ? Effect.void
-        : Effect.fail(
-            installError(
-              "command failed with exit code " + code + ": " + commandText,
-            ),
-          ),
-    ),
-    Effect.provide(NodeContext.layer),
-    Effect.mapError((cause) =>
-      cause instanceof NanoclawInstallError
-        ? cause
-        : installError("command failed: " + commandText, cause),
-    ),
-  );
-}
-
-function sha256(data: Uint8Array) {
-  const subtle = globalThis.crypto?.subtle;
-  if (subtle === undefined) {
-    return Effect.fail(installError("Runtime crypto.subtle is not available"));
-  }
-  return Effect.tryPromise({
-    try: () => subtle.digest(SHA_256, new Uint8Array(data)),
-    catch: (cause) => installError("sha256 digest failed", cause),
-  }).pipe(Effect.map(hexDigest));
-}
-
-function hexDigest(digest: ArrayBuffer): string {
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(HEX_RADIX).padStart(HEX_BYTE_PAD, "0"))
-    .join("");
+function sha256Hex(data: string | Uint8Array): string {
+  return createHash("sha256").update(data).digest("hex");
 }
 
 function sha256OfFile(filePath: string) {
@@ -123,7 +58,7 @@ function sha256OfFile(filePath: string) {
         fileSystem.readFile(filePath),
       ),
     ),
-    Effect.flatMap(sha256),
+    Effect.map(sha256Hex),
   );
 }
 
@@ -135,17 +70,22 @@ function bundledAssetPath(assetName: string): string {
   );
 }
 
-function resolveCacheTarget() {
-  return Effect.gen(function* () {
-    const [channelHash, skillHash, packageJsonHash, packageLockHash] =
-      yield* Effect.all([
-        sha256OfFile(bundledAssetPath("moltzap.ts")),
-        sha256OfFile(bundledAssetPath("SKILL.md")),
-        sha256OfFile(bundledAssetPath("package.json")),
-        sha256OfFile(bundledAssetPath("package-lock.json")),
-      ]);
-    const cacheFingerprint = yield* sha256(
-      UTF8_ENCODER.encode(
+// Bundled assets and host ABI are process-constant, so the fingerprint is
+// computed once and reused by every spawn.
+const cachedCacheTarget = Effect.runSync(
+  Effect.cached(
+    Effect.gen(function* () {
+      const [channelHash, skillHash, packageJsonHash, packageLockHash] =
+        yield* Effect.all(
+          [
+            sha256OfFile(bundledAssetPath("moltzap.ts")),
+            sha256OfFile(bundledAssetPath("SKILL.md")),
+            sha256OfFile(bundledAssetPath("package.json")),
+            sha256OfFile(bundledAssetPath("package-lock.json")),
+          ],
+          { concurrency: 4 },
+        );
+      const cacheFingerprint = sha256Hex(
         JSON.stringify({
           cacheSchema: NANOCLAW_CACHE_SCHEMA_VERSION,
           nanoclawSha: NANOCLAW_SHA,
@@ -157,17 +97,21 @@ function resolveCacheTarget() {
           architecture: process.arch,
           nodeAbi: process.versions.modules,
         }),
-      ),
-    );
-    return {
-      cacheRoot: join(
-        homedir(),
-        ".cache/moltzap-testbed/nanoclaw",
+      );
+      return {
+        cacheRoot: join(
+          homedir(),
+          ".cache/moltzap-testbed/nanoclaw",
+          cacheFingerprint,
+        ),
         cacheFingerprint,
-      ),
-      cacheFingerprint,
-    };
-  });
+      };
+    }),
+  ),
+);
+
+function resolveCacheTarget() {
+  return cachedCacheTarget;
 }
 
 function runtimeInstall(
@@ -420,16 +364,19 @@ function patchContainerIsolation(tmpDir: string) {
     const fileSystem = yield* FileSystem.FileSystem;
     const containerRuntimePath = join(tmpDir, "src/container-runtime.ts");
     const containerRunnerPath = join(tmpDir, "src/container-runner.ts");
-    const [containerRuntimeSource, containerRunnerSource] = yield* Effect.all([
-      fsEffect(
-        "read pinned NanoClaw source " + containerRuntimePath,
-        fileSystem.readFileString(containerRuntimePath, "utf8"),
-      ),
-      fsEffect(
-        "read pinned NanoClaw source " + containerRunnerPath,
-        fileSystem.readFileString(containerRunnerPath, "utf8"),
-      ),
-    ]);
+    const [containerRuntimeSource, containerRunnerSource] = yield* Effect.all(
+      [
+        fsEffect(
+          "read pinned NanoClaw source " + containerRuntimePath,
+          fileSystem.readFileString(containerRuntimePath, "utf8"),
+        ),
+        fsEffect(
+          "read pinned NanoClaw source " + containerRunnerPath,
+          fileSystem.readFileString(containerRunnerPath, "utf8"),
+        ),
+      ],
+      { concurrency: 2 },
+    );
     const patched = yield* patchNanoclawContainerIsolationSources(
       containerRuntimeSource,
       containerRunnerSource,

@@ -67,10 +67,10 @@ function jidFromConversationId(conversationId: string): string {
   return `${MOLTZAP_JID_PREFIX}${conversationId}`;
 }
 
+const decodeConversationId = Schema.decodeUnknownSync(ConversationId);
+
 function conversationIdFromJid(jid: string): ConversationId {
-  return Schema.decodeUnknownSync(ConversationId)(
-    jid.slice(MOLTZAP_JID_PREFIX.length),
-  );
+  return decodeConversationId(jid.slice(MOLTZAP_JID_PREFIX.length));
 }
 
 function loadMoltZapChannelEnv(): {
