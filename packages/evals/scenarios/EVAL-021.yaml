@@ -3,7 +3,7 @@ scenarioId: EVAL-021
 name: Multi-turn context retention
 description: Tell the agent a code word, then ask it to recall the code word in a follow-up turn
 requirements:
-  expectedBehavior: Turn 1: The agent acknowledges the code word (e.g. 'OK' or 'Got it'). Turn 2: The agent replies with the code word 'BANANA7'. The final response MUST contain the exact string 'BANANA7'. Any response containing 'BANANA7' passes, regardless of surrounding text.
+  expectedBehavior: "Turn 1: The agent acknowledges the code word (e.g. 'OK' or 'Got it'). Turn 2: The agent replies with the code word 'BANANA7'. The final response MUST contain the exact string 'BANANA7'. Any response containing 'BANANA7' passes, regardless of surrounding text."
   validationChecks:
     - Turn 1 response is a valid MoltZap message with non-empty text parts
     - Turn 2 response contains the string 'BANANA7'

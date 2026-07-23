@@ -44,22 +44,28 @@ Behavioral traces are verified at the span-exporter level: `trace-spans.test.ts`
 
 ## cc-judge
 
-`cc-judge` is now the intended execution owner, but MoltZap does not vendor a local `cc-judge` binary or wrap its CLI.
+`cc-judge` owns scenario loading, harness dispatch, scoring, and report
+emission. `@moltzap/cc-judge` is a workspace devDependency, so the whole
+suite runs with one command:
+
+```bash
+pnpm evals
+```
 
 That means:
 
 - MoltZap scenario YAML stays in `packages/evals/scenarios/`
 - the server emits trace data as OpenTelemetry spans (`moltzap.message.delivered` / `moltzap.message.blocked`)
 - the harness module is `packages/testbed/dist/trace-capture-harness.js`
-- a consuming repo or local environment must install `cc-judge` separately
+- results land in `./eval-results` (gitignored)
 
-Current operator path:
+To run a single scenario:
 
 ```bash
 pnpm build
-cc-judge run packages/evals/scenarios/EVAL-005.yaml --results ./eval-results
+pnpm exec cc-judge run packages/evals/scenarios/EVAL-005.yaml --results ./eval-results
 ```
 
-For OpenClaw-backed eval runs, the default agent model is now
-`minimax/MiniMax-M2.7-highspeed` unless a harness payload or runtime caller
-overrides it.
+OpenClaw-backed eval runs use `createOpenClawAdapter`'s default agent model
+unless a harness payload or runtime caller overrides it. The judge needs
+either `claude auth login` or `ANTHROPIC_API_KEY`.
