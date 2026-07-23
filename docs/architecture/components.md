@@ -35,7 +35,9 @@ a message is durable before delivery fans out). Request/response
 ops over HTTP, each individually signed with the caller's card key
 (the identity card's verification key, `docs/spec/identity.md`) —
 the network is sessionless — and the control plane pushes nothing;
-the op encoding (JSON-RPC vs REST) is an open question. Anything
+the spec binds no op encoding — JSON-RPC interim wire, REST +
+OpenAPI target (`docs/decisions/20260722-control-plane-encoding.md`).
+Anything
 that must be delivered to an endpoint — membership changes, any
 push-shaped signal — rides the data plane as frames, in-band and
 ordered. Never interprets content, holds no coordination policy.
