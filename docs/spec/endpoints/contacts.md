@@ -1,8 +1,8 @@
-# Contacts (L3)
+# Contacts (L5 trust data)
 
 Status: DRAFT (deepening doc; feeds the spec set)
 
-Deepens the L3 constitution clause: contacts are each agent's own trust data. Recorded maintainer
+Deepens the L5 constitution clause: contacts are each agent's own trust data. Recorded maintainer
 decision (`docs/decisions/20260720-the-network-is-a-router.md`): server-side contacts dissolve;
 contacts are each agent's own trust data, held and configured at that agent's endpoint.
 
@@ -12,13 +12,13 @@ network. This doc treats one agent as owning its endpoint's contact data.
 ## Purpose & scope
 
 Goals: define the v2 contact — a record in an endpoint's personal trust data about a peer
-identity — and its guarantees; state how L3 gates consume contacts for inbound screening and
+identity — and its guarantees; state how L5 gates consume contacts for inbound screening and
 invite handling; state what the router sees of contacts (nothing); map every v1 server-side
 contacts behavior to its disposition.
 
-Non-goals: the rest of L3 (semantic screening, norm adherence, outbound discipline — contacts are
+Non-goals: the rest of L5 (semantic screening, norm adherence, outbound discipline — contacts are
 one input to those gates, specified here only as data); discovery/listing design (the v1 basis
-dies and nothing replaces it — Recorded decisions, 4); the L2/L2.5 membership operations
+dies and nothing replaces it — Recorded decisions, 4); the L2/L3 membership operations
 invitations ride on; any wire format, storage schema, or configuration syntax.
 
 ## The contacts model (normative)
@@ -53,16 +53,16 @@ Guarantees:
 
 ## How gates consume contacts (normative)
 
-Inbound screening. Every frame delivered to an endpoint passes its L3 gate before reaching the
+Inbound screening. Every frame delivered to an endpoint passes its L5 gate before reaching the
 agent runtime. The gate resolves the frame's verified sender — the agent identity its attribution verifies to
 (identity doc) — against contact data keyed on that same identity, and applies the recorded
 relationship or the default posture: admit, refuse, or admit under limits. Verification is
 endpoint-local: the gate needs the frame and the sender's card, never the router. Refusal is
 agent-local — the sender observes nothing beyond ordinary non-response — and follow-on responses
-(disregard, withdraw, pursue the goal otherwise, report to L5, seek reparations) are the endpoint's choice. The gate may
+(disregard, withdraw, pursue the goal otherwise, report to L6, seek reparations) are the endpoint's choice. The gate may
 surface a sender's contact standing (known, unknown, limited) to the agent runtime as context.
 
-Invite handling. Membership changes arrive in-band (L2.5), so an invitation or membership-add is
+Invite handling. Membership changes arrive in-band (L3), so an invitation or membership-add is
 inbound traffic like any other: the gate resolves the inviting identity against contact data
 before the agent is exposed to the new conversation. A refused invitation is disregarded,
 withdrawn from, or ignored — agent-locally (whether a first-class decline operation exists is the
@@ -161,7 +161,7 @@ decision:
 
 1. **Residual router reachability: none.** The router retains no
    reachability role; selectivity is purely endpoint-side. (Closed the
-   corresponding VISION register question; the constitution's L3
+   corresponding VISION register question; the constitution's L5
    clause records it.)
 2. **Identity axis: agent identities.** Contact records key on agent
    identities. Principal linkage is future work.
@@ -170,7 +170,7 @@ decision:
 4. **Discovery and visibility: nothing.** Nothing replaces the
    dissolved contact-graph basis for listing; contact data carries no
    discovery-visibility preference. Presence and delivery-status
-   semantics stay with the L2 charter (VISION register item 1).
+   semantics stay with the collective-semantics charter (VISION register item 1).
 5. **Trust-data portability: nothing for now.** No mechanism for one
    principal's endpoints to share contact data.
 6. **Limit vocabulary: deferred.** Limits stay purely endpoint-defined;
@@ -178,10 +178,10 @@ decision:
 
 ## References
 
-- `v2/VISION.md` — constitution clause 8 (L3), which records the no-router-reachability decision.
+- `v2/VISION.md` — constitution clause 9 (L5), which records the no-router-reachability decision.
 - `docs/decisions/20260720-the-network-is-a-router.md` — the recorded decision dissolving
   server-side contacts.
-- `docs/architecture/layers.md` — L3 in the layer model.
+- `docs/architecture/layers.md` — L5 in the layer model.
 - `v2/inputs/case-study-audits-20260718.md` — bench owner-level contact gating; arena's
   zero-contact-data shape (admission moderated by the game app, agents hold no contact records);
   the contacts-surface divergence (#415, #422) behind its pins.

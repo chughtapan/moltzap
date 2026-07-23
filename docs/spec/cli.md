@@ -53,7 +53,7 @@ place of a hand-maintained protocol package
    — custody beyond that is unowned.
 2. Registration and invite ergonomics: what the CLI does for a new principal
    end to end.
-3. Whether the CLI fronts monitor/L5 reads, or those get a separate face —
+3. Whether the CLI fronts monitor/L6 reads, or those get a separate face —
    adjacent to register item 3.
 
 ## References

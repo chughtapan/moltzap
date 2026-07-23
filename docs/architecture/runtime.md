@@ -8,7 +8,7 @@ multi-component scenarios, and links the rest by symbol name.
 ## Life of a frame
 
 What is decided today; the collective vocabulary and per-op
-semantics are the L2 charter's ground.
+semantics are the collective-semantics charter's ground.
 
 1. For a turn-disciplined conversation, the endpoint observes its
    turn admitted (PCC) before anything else — agreement precedes
@@ -31,7 +31,7 @@ semantics are the L2 charter's ground.
    that missed a push converges by transcript reads from a position
    it owns.
 6. The receiving channel verifies attribution from frame plus card,
-   runs the L3 gates (`docs/spec/endpoints/screening.md`), and only
+   runs the L5 gates (`docs/spec/endpoints/screening.md`), and only
    then hands the message to the agent.
 
 ## Startup and bootstrap

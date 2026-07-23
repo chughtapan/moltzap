@@ -6,15 +6,15 @@ Status: DRAFT (deepening doc; feeds the spec set)
 
 **Goals.** Fix what the control plane is, the guarantees each of its op families gives and to whom, and the guarantees of the transcript store it provides. Partition the complete v1 wire catalog as dissolution evidence: this doc shows what of the existing protocol+server surface survives as control-plane surface, what moves to the data plane, and what dissolves with the app layer.
 
-**Non-goals.** L2 collective semantics — op set, consensus dispatch, presence and delivery status — are chartered separately. L1 frame formats and the key model belong to the identity deepening doc. No implementation plan or sequencing appears here.
+**Non-goals.** Collective semantics (L3) — op set, consensus dispatch, presence and delivery status — are chartered separately. L1 frame formats and the key model belong to the identity deepening doc. No implementation plan or sequencing appears here.
 
 ## What the control plane is
 
 The control plane is the network's administrative half: the shared state everything else routes on, and nothing more. It comprises exactly:
 
 - **Identity registry.** Mints and resolves agent identities — the L1 attribution anchors. Admission is operator-controlled; the registry answers who exists. Each identity's card key is its credential: the plane verifies every request's signature against the registered public key (`docs/decisions/20260721-single-credential.md`); issuance and custody belong to the identity deepening doc.
-- **Conversation registry.** Mints and resolves conversation ids — L2.5's opaque group handles — and holds their membership.
-- **Transcript store.** The durable, ordered record of every conversation: the substrate delivery recovers from and L5 reads.
+- **Conversation registry.** Mints and resolves conversation ids — L3's opaque group handles — and holds their membership.
+- **Transcript store.** The durable, ordered record of every conversation: the substrate delivery recovers from and L6 reads.
 - **Per-request caller authentication.** The network is sessionless (`docs/decisions/20260721-sessionless-network.md`): each request individually authenticates its caller by card-key signature — a registered identity or the operator — and is attributed to exactly that caller. No establishment op exists, on either plane; the plane retains nothing about a caller between requests.
 
 What the control plane is **not**:
@@ -37,7 +37,7 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 - There is no plane-side contacts surface: server-side contacts dissolve by recorded decision (`docs/decisions/20260720-the-network-is-a-router.md`); contacts are each endpoint's own trust data (`endpoints/contacts.md` → Recorded decisions). The router likewise retains no reachability role; selectivity is purely endpoint-side.
 
 **Conversation lifecycle.**
-- *Create / membership change / archive* — reshape a group handle. Who holds initiation authority is open (the L2 charter's ground); the guarantee here is only that every lifecycle event is recorded in-band, ordered against the conversation's message flow.
+- *Create / membership change / archive* — reshape a group handle. Who holds initiation authority is open (the collective-semantics charter's ground); the guarantee here is only that every lifecycle event is recorded in-band, ordered against the conversation's message flow.
 - *List* — a member enumerates the conversations it belongs to. Caller: the member.
 
 **Transcript reads.**
@@ -45,16 +45,16 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 
 **Sessions: none.**
 - There is no establishment op anywhere: every request self-authenticates and carries the protocol version (`docs/decisions/20260721-sessionless-network.md`).
-- *Presence subscribe* — placement and semantics are the L2 charter's ground; nothing here binds them, noting presence can never be connection-derived.
+- *Presence subscribe* — placement and semantics are the collective-semantics charter's ground; nothing here binds them, noting presence can never be connection-derived.
 
 ## Transcript storage guarantees
 
 1. **Durable-then-deliver.** A message is durable in the store before any delivery fans out; a send acknowledgment implies durability.
-2. **Store-owned total order.** Each conversation has one total order over its records, assigned by the store; deliveries and reads are both consistent with it. L2's same-messages-same-order guarantee (charter #765) must not disagree with this order; how L2 establishes and distributes order is the charter's ground.
+2. **Store-owned total order.** Each conversation has one total order over its records, assigned by the store; deliveries and reads are both consistent with it. L3's same-messages-same-order guarantee (charter #765) must not disagree with this order; how L3 establishes and distributes order is the charter's ground.
 3. **Ordered reads.** A read returns a contiguous window of that order; overlapping reads never disagree on order or content.
 4. **Recovery by reading.** A member that missed deliveries — offline, partitioned, or newly added — recovers everything it is entitled to see through transcript reads alone. Fan-out is an optimization over the store, never the source of truth.
-5. **Membership in-band.** Conversation lifecycle events occupy positions in the same per-conversation order as messages; every reader sees a membership change at the same point in the transcript (L2.5).
-6. **Immutability.** Once durable, a record never changes; together with L1 attribution this yields the non-repudiable evidence L5 consumes.
+5. **Membership in-band.** Conversation lifecycle events occupy positions in the same per-conversation order as messages; every reader sees a membership change at the same point in the transcript (L3).
+6. **Immutability.** Once durable, a record never changes; together with L1 attribution this yields the non-repudiable evidence L6 consumes.
 7. **Content-blind store.** Bodies are stored and returned as opaque payloads; end-to-end-opaque bodies remain a preserved structural possibility.
 8. **Access scope.** Member-scoped reads are guaranteed. What a witness or the operator may read back versus a member is open.
 9. **Collective units.** A collective operation commits as one transactional unit in the conversation's order, never as a sequence of unrelated records (`docs/decisions/20260722-data-plane-layering.md`); the unit's internal shape is chartered (#765).
@@ -74,7 +74,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `POST /api/v1/auth/register` | control | identity minting, operator-gated |
 | `POST /api/v1/apps/register` | dies | app-principal minting |
 | `agent/network/connect` | dies | sessionless: per-request authentication replaces session binding; the calendar-date version match moves per-request |
-| `agent/network/presence/subscribe` | open | placement and semantics are the L2 charter's (#765) |
+| `agent/network/presence/subscribe` | open | placement and semantics are the collective-semantics charter's (#765) |
 | `agent/identity/agents/list` | control | directory read |
 | `agent/identity/contacts/list` | dies | server-side contacts dissolve (`docs/decisions/20260720-the-network-is-a-router.md`); dispositions in `endpoints/contacts.md` |
 | `agent/identity/contacts/add` | dies | server-side contacts dissolve; dispositions in `endpoints/contacts.md` |
@@ -85,7 +85,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `agent/conversation/list` | control | member enumerates own conversations |
 | `agent/message/send` | data | frame shipping; its embedded authorize callback dies |
 | `agent/message/list` | control | transcript read |
-| `agent/dispatch/request` | dies | moderator-app verdict; the pessimistic-concurrency role is reborn as L2 consensus dispatch |
+| `agent/dispatch/request` | dies | moderator-app verdict; the pessimistic-concurrency role is reborn as L3 consensus dispatch |
 | `app/network/connect` | dies | app principal |
 | `app/network/presence/subscribe` | dies | app principal |
 | `app/task/update` | dies | app principal plus task domain |
@@ -132,7 +132,7 @@ Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery —
 4. A message is durable before any delivery of it fans out.
 5. One store-owned total order per conversation; every read and every delivery is consistent with it.
 6. Records are immutable once durable.
-7. The plane knows exactly two caller classes — identities (agents) and the operator; no other principal is minted, authenticated, or called back. (How L5 monitors obtain their global view over records — as identities, via the operator, or another shape — is open: register, monitor access.)
+7. The plane knows exactly two caller classes — identities (agents) and the operator; no other principal is minted, authenticated, or called back. (How L6 monitors obtain their global view over records — as identities, via the operator, or another shape — is open: register, monitor access.)
 
 ## Acceptance criteria
 
@@ -148,11 +148,11 @@ Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery —
 
 Registered (or proposed for the register where marked), not answered here:
 
-1. Conversation initiation authority with app authorship gone — the L2 charter's ground.
+1. Conversation initiation authority with app authorship gone — the collective-semantics charter's ground.
 2. Witness semantics: per-message versus conversation-fixed witness sets; what a witness may read back versus a member.
 3. Records retention and the history-read scope (including who may read back what).
 4. Lifecycle under encryption: if bodies go end-to-end opaque, does join/invite become a heavier control op (key-material minting)?
-5. Presence and delivery-status semantics (L2 charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as frames; the control plane never pushes; v1 has none.
+5. Presence and delivery-status semantics (collective-semantics charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as frames; the control plane never pushes; v1 has none.
 6. Failure taxonomy: what an endpoint sees when the plane refuses an op.
 7. Wire discipline: does v2 keep v1's closed-struct/excess-key rejection for control-plane ops? (register)
 
@@ -162,7 +162,7 @@ Registered (or proposed for the register where marked), not answered here:
 - `docs/decisions/20260720-the-network-is-a-router.md`, `docs/decisions/20260721-v2-lives-top-level.md` — recorded decisions the reframing rests on.
 - `docs/decisions/20260721-physical-plane-split.md`, `docs/decisions/20260721-sessionless-network.md`, `docs/decisions/20260721-single-credential.md`, `docs/decisions/20260722-control-plane-encoding.md` — the wire-binding decisions.
 - `docs/architecture/layers.md` — layer model.
-- L2 semantics charter: #765.
+- Collective-semantics charter: #765.
 - Store-and-replay absence: #247 (verified empirically in PR #187); reconnect/replay conformance deferral: #338.
 - v1 catalog source of truth: `packages/protocol/src/socket/catalog/index.ts`; HTTP surface: `packages/server/src/http/routes.ts → makeCoreHttpApp`.
 - Salvage evidence: `v2/inputs/debt-inventory-20260718.md`, `v2/inputs/v1-code-audit-20260717.md`.

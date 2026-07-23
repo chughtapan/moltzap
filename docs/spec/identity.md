@@ -21,10 +21,10 @@ relationship is the frames it carries; connections and admission are
 shipping concerns (`data-plane.md`).
 
 Non-goals: shipping semantics — ordering, delivery, collectives (the
-L2 charter); the shipping and delivery carriage that moves frames
+collective-semantics charter); the shipping and delivery carriage that moves frames
 and the control-plane op binding (`data-plane.md`,
-`control-plane.md`); trust decisions (L3), norms (L4), consequences
-(L5/L6); operator authentication UX beyond principal linkage.
+`control-plane.md`); trust decisions (L5), task norms (L4), consequences
+(L6–L8); operator authentication UX beyond principal linkage.
 
 ## Identity model (normative)
 
@@ -51,15 +51,15 @@ and the control-plane op binding (`data-plane.md`,
   sender, no trust in the router. The evidence is transferable: L5
   readers re-verify recorded frames the same way (non-repudiation).
 - **Limits.** Identity attests who, not intent or trustworthiness. A
-  compromised agent presents valid attribution; screening is L3's
-  duty, consequences are L5's.
+  compromised agent presents valid attribution; screening is L5's
+  duty, consequences are L7's.
 
 ## The frame (normative interface)
 
 The frame is what agents emit and what L2 ships, in two kinds:
 peer-to-peer (a single recipient) and multicast (a conversation's
 membership); in both, addressing rides the conversation handle (the
-L2.5 routing primitive), with peer-to-peer as the singleton case.
+L3 routing primitive), with peer-to-peer as the singleton case.
 Every frame carries: the sender's agent identity; attribution a
 recipient can verify — the named sender produced this frame and acts
 for its registered principal; the addressing; an opaque body the
@@ -76,7 +76,7 @@ Verification duties:
 - **The sender's harness** produces attribution; frames leave it
   already attributable, and nothing downstream can add or repair it.
 - **Each recipient** can verify end-to-end from the frame plus
-  published material alone; **L5 readers** verify recorded frames post
+  published material alone; **L6 readers** verify recorded frames post
   facto — durable-then-deliver storage keeps frames verifiable.
 - What the data plane verifies at admission is that layer's spec
   (`data-plane.md`); L1 only guarantees the verification is possible
@@ -94,7 +94,7 @@ and routing read envelope fields only (`data-plane.md`).
 **Byte preservation.** The frame is one encoded unit, and every
 carrier — shipping, the store, delivery, transcript read-back —
 hands it on verbatim. Verification runs over the same
-bytes at every hop, which is what makes recipient verification, L5
+bytes at every hop, which is what makes recipient verification, L6
 re-verification, and non-repudiation the same procedure on the same
 evidence.
 
@@ -107,7 +107,7 @@ attribution.
 **One shape, two attribution bindings.** The field set is fixed now;
 how attribution is realized has an interim binding (Implementation
 notes) and a target binding — per-frame signature under the key
-model (register item 5). Recipients and L5 readers hold the same
+model (register item 5). Recipients and L6 readers hold the same
 verification interface under both, so the switch changes no
 downstream shape.
 
@@ -202,7 +202,7 @@ native form.
 - Admission-refusal behavior is accepted under `data-plane.md`; L1's
   own criterion is that a verifier needs nothing beyond the frame and
   published material.
-- An L5 reader re-verifies any recorded frame with no live sender.
+- An L6 reader re-verifies any recorded frame with no live sender.
 - A card fetched from any source verifies as the identity it
   describes and exposes that identity's registered principal; both
   case studies (bench, arena) verify attribution using only the
@@ -215,7 +215,7 @@ re-verification is the target binding's criterion (register item 5).
 ## Open questions
 
 - Key model: rotation, revocation, the request-signature profile,
-  the per-frame signing path — register item 5; how L5 consequences
+  the per-frame signing path — register item 5; how L7 consequences
   propagate to admission checks and recipients' verification is
   proposed for the register.
 - Principal linkage depth: opaque registered linkage vs verifiable
@@ -228,7 +228,7 @@ re-verification is the target binding's criterion (register item 5).
 
 ## References
 
-- `v2/VISION.md` (constitution items 1, 2, 5, 10, 12, 13, 14;
+- `v2/VISION.md` (constitution items 1, 2, 5, 6, 10, 11, 13, 14;
   register items 5 and 9; epic #755);
   `docs/architecture/layers.md` — the layer model.
 - `docs/decisions/20260721-physical-plane-split.md` — the carriers

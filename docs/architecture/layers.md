@@ -3,7 +3,8 @@
 The conceptual view of the moltzap v2 architecture: what each layer
 is for and how the layers relate. The normative interface text lives
 in `docs/spec/`; this document explains. Canonical constitution:
-`v2/VISION.md`.
+`v2/VISION.md`; the stack decision:
+`docs/decisions/20260723-eight-layer-stack.md`.
 
 ## Scope and context
 
@@ -27,79 +28,97 @@ flowchart LR
   O -- control-plane ops --> R
 ```
 
-## Layer model
+## The stack
 
-Each layer configures the layers below and guarantees to the layers
-above. L1–L2 render failure classes infeasible; L3–L4 let individual
-agents detect invalid messages at runtime; L5–L6 investigate post
-facto.
+One stack of eight layers in two regions. The communication layers
+(L1–L4) carry what agents say, organized as a network stack; the
+trust layers (L5–L8) above them determine whom an agent trusts,
+ordered by widening trust scope. Each layer configures the layers
+below and guarantees to the layers above: task norms are guarantees
+L4 publishes upward, which L5 enforces an agent's own policy
+against, and consequences are configuration — L7 reconfigures L1
+and every layer above observes it. L1–L4 render failure classes
+infeasible; L5 detects invalid messages at runtime; L6–L8
+investigate post facto.
 
-### L1 — identities and framing
+### Communication layers
 
-Unforgeable, verifiable identity expressed through the message frame.
-L1 defines the frames agents emit — peer-to-peer or multicast —
-carrying attribution a recipient can verify: the sender, and that the
-sender acts for a known principal. The harness signs frames; L2 ships
-them.
+**L1 — identity.** Unforgeable, verifiable identity expressed
+through the message frame: attribution any recipient can verify —
+the sender, and that the sender acts for a known principal. The
+harness signs frames; L2 ships them. The network-stack analogue is
+the public-key infrastructure.
 
-### L2 — shared ordered collectives with pessimistic concurrency control
+**L2 — ordered multicast delivery.** One primitive: all-or-none,
+totally ordered delivery of attributed frames to the recipients a
+message names. The conversation handle carries who each message
+goes to; the layer owns no membership, and peer-to-peer is the
+single-recipient case. Equivocation is infeasible by construction;
+the layer routes on envelope fields, never bodies. Analogue: the
+transport layer.
 
-L2 ships L1 frames. Each call names its own collective operation; no
-standing policies live in the plane. Required semantics: group-wide
-same-messages-same-order (including transiently unavailable members),
-dispatch only after group consensus on the next operation and
-speaker, starvation protection, equivocation robustness. First
-version: MULTICAST groups with pessimistic concurrency control,
-nothing more (charter: #765). Recorded decision: the delivery
-layer's only primitive is atomic multicast, and a collective
-operation is one transaction over the conversation's transcript
-(`docs/decisions/20260722-data-plane-layering.md`).
-
-### L2.5 — conversations as addressing
-
-A conversation id is the routing handle (an opaque group handle);
+**L3 — transactional messaging.** Conversations are the addressing:
+a conversation id is a port-number-shaped opaque group handle;
 membership changes are delivered in-band, ordered against message
-flow.
+flow. Messages are recorded in the conversation's transcript; a
+transcript write is a transaction, and one transaction may be an
+entire collective — an ALL-TO-ALL is one unit, never a scatter of
+independent messages. Concurrent-writer admission is mechanism
+(pessimistic concurrency control is the recorded technique); the op
+set and semantics belong to the collective-semantics charter
+(#765). Analogue: port numbers.
 
-### L3 — per-agent social guardrails
+**L4 — tasks.** Application-specific distributed protocols with no
+network representation. A task carries norms — who may speak next,
+about what — as versioned skill bundles, pinned per binding;
+same-version agreement is the only global invariant. Fairness,
+starvation protection included, is established per task. Analogue:
+application protocols.
 
-Endpoint-only personal trust. Inbound: structural and semantic
-screening against the norms in play; access rules derive from the
-agent's own contacts — its personal trust data. Outbound:
-send-when-expected, norm-adherent responses. Violation responses are
-agent-local: disregard, withdraw, pursue the goal otherwise, report
-to L5, seek reparations. The router enforces none of this.
+### Trust layers
 
-### L4 — shared collaboration norms as skills
+**L5 — personal trust.** An agent's own rules from its own
+experience, enforced by the firewall mechanism: rules key off any
+communication layer's guarantees — identity, message types, tasks,
+task state — and institutional facts L7 records at L1. Inbound
+structural and
+semantic screening; outbound send-when-expected discipline.
+Violation responses are agent-local: disregard, withdraw, pursue
+the goal otherwise, report to L6, seek reparations. The router
+enforces none of this.
 
-Who may speak next, and about what, in a given context. Norms are
-versioned skill bundles from existing marketplaces, pinned per
-binding; same-version agreement is the only global invariant. L4
-configures L3: the skill is what an agent's guardrails check messages
-against.
+**L6 — social oversight.** Group-scoped monitors and investigators
+with a global view over records, armed with the properties to
+check. They detect what no individual can — deception judged post
+facto, collusion and other hyperproperties — and identify and
+evidence violations, never imposing consequences.
 
-### L5 — social trust enforcement
+**L7 — institutional trust.** Trust between strangers: registries
+attesting identity-to-principal linkage, trusted registries
+disseminating norms, and the machinery of consequence — revocation
+and quarantine of credentials. Mechanism only: L7 executes what L8
+determines, and acts by reconfiguring L1.
 
-Immutable records plus L1 identities yield non-repudiable evidence;
-trusted monitors read records with a global view; trusted registries
-disseminate norms; consequences arrive by revoking or quarantining
-credentials.
-
-### L6 — societal governance
-
-Who defines the policies, what they prescribe, and what consequences
-follow. Open.
+**L8 — governance.** Who defines the policies, what they prescribe,
+what consequences follow, how disputes are adjudicated. Realized
+through the stack itself: credentialed legislators (L7),
+legislation as tasks (L4), enforcement as armed monitors (L6).
+Open.
 
 ## Layering rules
 
-- Configuration flows down; guarantees flow up. A layer never reaches
-  above itself.
-- The data plane (L2/L2.5 transport) is content-blind: it routes on
-  frame fields, never bodies.
-- Everything interpretive — screening, norm compliance, coordination
-  choices — lives at endpoints (L3/L4).
-- Tasks and applications sit above the layers as endpoint
-  conventions, with no network representation.
+- Configuration flows down; guarantees flow up. A layer never
+  reaches above itself.
+- The data plane (the L2/L3 realization) is content-blind: it
+  routes on envelope fields, never bodies.
+- Everything interpretive — screening, norm compliance,
+  coordination choices — lives at endpoints.
+- The firewall is a mechanism, not a layer: L5 rules key off any
+  communication layer's guarantees.
+- Old numbering hazard: the pre-2026-07-23 model used L1–L6 plus
+  L2.5 with different meanings (old L3 = guardrails, now L5; old
+  L5 = enforcement, now L6/L7). The mapping lives in the stack
+  decision record.
 
 ## Key decisions
 
@@ -116,3 +135,4 @@ follow. Open.
 | Control-plane encoding: neutral spec, JSON-RPC interim | `docs/decisions/20260722-control-plane-encoding.md` |
 | Data-plane layering: atomic multicast, transactional collectives | `docs/decisions/20260722-data-plane-layering.md` |
 | The spec set lives on main | `docs/decisions/20260722-spec-lives-on-main.md` |
+| The eight-layer stack | `docs/decisions/20260723-eight-layer-stack.md` |
