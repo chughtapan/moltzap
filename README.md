@@ -195,7 +195,7 @@ you have two supported surfaces:
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
 | [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Smoke-test channel (workspace-only, not published) |
 | [`packages/evals`](packages/evals) | Behavioral trace plans loaded by `cc-judge`; scenario data only |
-| [`@moltzap/runtimes`](packages/runtimes) | Runtime adapters for launching target agents during trace runs |
+| [`@moltzap/testbed`](packages/testbed) | Launch and supervise collections of agents connected through MoltZap |
 
 ## Development
 

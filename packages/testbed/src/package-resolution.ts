@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { Path } from "@effect/platform";
-import { Data, Effect } from "effect";
+import { Data, Effect, Option } from "effect";
 
 const requireFromHere = createRequire(import.meta.url);
 
@@ -15,13 +15,6 @@ class PackageResolutionFailed extends Data.TaggedError(
 interface PackageJson {
   readonly name?: unknown;
   readonly bin?: unknown;
-}
-
-interface WorkspaceBinInput {
-  readonly binName: string;
-  readonly packageName: string;
-  readonly packageRoot: string;
-  readonly workspacePackageRoot: string;
 }
 
 function parsePackageJson(
@@ -99,54 +92,40 @@ function packageBinTarget(
   });
 }
 
-function resolveWorkspaceBin(input: WorkspaceBinInput): string {
-  const requireFromWorkspace = createRequire(
-    pathSync((path) => path.join(input.workspacePackageRoot, "package.json")),
-  );
-  try {
-    const resolvedFile = requireFromWorkspace.resolve(input.packageName);
-    return packageBinTarget(
-      packageRootFromResolvedFile(input.packageName, resolvedFile),
-      input.packageName,
-      input.binName,
+export function resolveInstalledPackageRoot(
+  packageName: string,
+  lookupPaths: readonly string[] = requireFromHere.resolve.paths(packageName) ??
+    [],
+): string {
+  for (const lookupPath of lookupPaths) {
+    const packageRoot = pathSync((path) => path.join(lookupPath, packageName));
+    const manifest = Option.liftThrowable(parsePackageJson)(
+      packageRoot,
+      packageName,
     );
-  } catch (resolveErr) {
-    logWarningSync(
-      `failed to resolve ${input.packageName} from workspace package; falling back to dependency root`,
-      resolveErr,
-    );
-    return packageBinTarget(
-      input.packageRoot,
-      input.packageName,
-      input.binName,
-    );
+    if (Option.isSome(manifest) && manifest.value.name === packageName) {
+      return packageRoot;
+    }
   }
-}
-
-function resolveOpenClawPackageRoot(): string {
   return packageRootFromResolvedFile(
-    "openclaw",
-    requireFromHere.resolve("openclaw"),
+    packageName,
+    requireFromHere.resolve(packageName),
   );
 }
 
-export function resolveWorkspaceOpenClawBin(input: {
-  readonly workspacePackageRoot: string;
-}): string {
-  return resolveWorkspaceBin({
-    ...input,
-    binName: "openclaw",
-    packageName: "openclaw",
-    packageRoot: resolveOpenClawPackageRoot(),
-  });
+export function resolveInstalledPackageBin(
+  packageName: string,
+  binName: string,
+): string {
+  return packageBinTarget(
+    resolveInstalledPackageRoot(packageName),
+    packageName,
+    binName,
+  );
 }
 
 function pathSync<A>(f: (path: Path.Path) => A): A {
   return Effect.runSync(
     Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)),
   );
-}
-
-function logWarningSync(message: string, cause: unknown): void {
-  Effect.runSync(Effect.logWarning(message, cause));
 }

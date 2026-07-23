@@ -83,7 +83,7 @@ export interface Runtime {
    */
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never>;
 
-  /** Idempotent. SIGTERM → wait 10s → SIGKILL to process group. rm -rf workdir. */
+  /** Idempotently stops the spawned runtime and removes its isolated state. */
   teardown(): Effect.Effect<void, never, never>;
 
   /** Returns stdout+stderr from the given byte offset. */

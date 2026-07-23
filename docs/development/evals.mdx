@@ -12,7 +12,7 @@ The current split is:
 1. `@moltzap/server-core` emits behavioral traces as OpenTelemetry spans (Effect's `withSpan`).
 2. The server records message-delivery and hook-block traces directly where they happen, as the `moltzap.message.delivered` and `moltzap.message.blocked` spans.
 3. `packages/evals/` only keeps the scenario YAML catalog.
-4. `@moltzap/runtimes` owns the runtime adapters and the compiled `trace-capture-harness` module loaded by `cc-judge`.
+4. `@moltzap/testbed` launches and supervises agent collections and owns the compiled `trace-capture-harness` module loaded by `cc-judge`.
 5. External `cc-judge` runners own scenario loading, harness dispatch, scoring, and report emission.
 
 ## Trace emission
@@ -26,8 +26,8 @@ The current split is:
 MoltZap-side verification now lives in package builds/tests plus the real `cc-judge` path, not a local eval CLI:
 
 ```bash
-pnpm --filter @moltzap/runtimes test
-pnpm --filter @moltzap/runtimes build
+pnpm --filter @moltzap/testbed test
+pnpm --filter @moltzap/testbed build
 
 pnpm --filter @moltzap/server-core exec vitest run \
   src/core/layers.test.ts \
@@ -50,7 +50,7 @@ That means:
 
 - MoltZap scenario YAML stays in `packages/evals/scenarios/`
 - the server emits trace data as OpenTelemetry spans (`moltzap.message.delivered` / `moltzap.message.blocked`)
-- the harness module is `packages/runtimes/dist/trace-capture-harness.js`
+- the harness module is `packages/testbed/dist/trace-capture-harness.js`
 - a consuming repo or local environment must install `cc-judge` separately
 
 Current operator path:

@@ -9,16 +9,14 @@ import type {
   OnInboundMessage,
   RegisteredGroup,
 } from "../types.js";
-import type { Effect } from "effect";
 
 export interface ChannelOpts {
-  profileName?: string;
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
 }
 
-type ChannelFactory = (opts: ChannelOpts) => Effect.Effect<Channel, unknown>;
+export type ChannelFactory = (opts: ChannelOpts) => Channel | null;
 
 const registeredChannelFactories = new Map<string, ChannelFactory>();
 
@@ -32,8 +30,8 @@ const registeredChannelFactories = new Map<string, ChannelFactory>();
  * is a no-op (avoids double-registration warnings when this module
  * is loaded twice in a hot-reload environment).
  *
- * The factory returns an Effect because channel construction loads the
- * MoltZap client config and must not expose a half-configured channel.
+ * Channel factories are synchronous in pinned NanoClaw. MoltZap defers its
+ * config load to the channel's asynchronous `connect()` boundary.
  */
 export function registerChannel(name: string, factory: ChannelFactory): void {
   if (registeredChannelFactories.get(name) === factory) return;

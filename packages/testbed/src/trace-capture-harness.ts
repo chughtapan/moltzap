@@ -1,6 +1,6 @@
 import { Path } from "@effect/platform";
 import { Data, Duration, Effect, Fiber, Option, Stream } from "effect";
-import { startRuntimeAgent, type RuntimeKind } from "./fleet.js";
+import { startRuntimeAgent, type RuntimeKind } from "./testbed.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
 import type { Runtime } from "./runtime.js";
 import {

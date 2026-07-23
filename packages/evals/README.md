@@ -23,14 +23,14 @@ node /path/to/cc-judge/dist/bin.js run \
 
 Requirements:
 
-- `@moltzap/runtimes` must be built so the harness module under `dist/` exists
+- `@moltzap/testbed` must be built so the harness module under `dist/` exists
 - the target runtime must have valid credentials for the default agent model `minimax/MiniMax-M2.7-highspeed`, or you must override the model explicitly
 - the judge must have either `claude auth login` or `ANTHROPIC_API_KEY`
 
 Ownership split:
 
 - `packages/server`: server runtime; emits OpenTelemetry spans (`moltzap.message.delivered` / `moltzap.message.blocked`), readable in tests via `CoreTestServer.spanExporter`
-- `packages/runtimes`: runtime adapters, fleet launch, and the compiled trace-capture harness loaded by `cc-judge`
+- `packages/testbed`: connected-agent orchestration, runtime adapters, and the compiled trace-capture harness loaded by `cc-judge`
 - `packages/evals`: scenario data only
 
 There is no local eval CLI, local judge stack, or local bundle pipeline here.

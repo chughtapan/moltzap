@@ -1,5 +1,5 @@
 /**
- * @file Typed errors raised by the runtime adapters and fleet
+ * @file Typed errors raised by the runtime adapters and testbed
  * orchestration. Every adapter's `spawn()` and `waitUntilReady()`
  * uses these types in their `E` channel.
  */
@@ -21,11 +21,11 @@ export class SpawnFailed extends Data.TaggedError("SpawnFailed")<{
 
 /**
  * Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
- * `Timeout`. The process is still running but never signaled ready
- * within `timeoutMs`.
+ * `Timeout`. The process did not signal ready within `timeoutMs` and
+ * has been torn down before the failure reaches the caller.
  *
- * Caller action: increase `readyTimeoutMs`, or inspect
- * `runtime.getLogs(0)` to see what the subprocess is doing.
+ * Caller action: increase `readyTimeoutMs`, or enable process-level
+ * diagnostics at the adapter boundary.
  */
 export class RuntimeReadyTimedOut extends Data.TaggedError(
   "RuntimeReadyTimedOut",
@@ -53,13 +53,12 @@ export class RuntimeExitedBeforeReady extends Data.TaggedError(
 }> {}
 
 /**
- * Union of every failure mode `startRuntimeAgent` and
- * `launchRuntimeFleet` can produce. Use `Effect.catchTags` to
+ * Union of every failure mode `startRuntimeAgent` and `launchTestbed` can
+ * produce. Use `Effect.catchTags` to
  * branch by tag, or `Effect.catchAll` to handle uniformly.
  *
- * Note: `RuntimeFleetStartupInterrupted` lives in `fleet.ts` because
- * it only arises in the signal-handling variant and carries the
- * interrupting `Signal`.
+ * Note: `TestbedStartupInterrupted` lives in `testbed.ts` because it only
+ * arises in the signal-handling variant and carries the interrupting `Signal`.
  */
 export type RuntimeLaunchFailed =
   | SpawnFailed
