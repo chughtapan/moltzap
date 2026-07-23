@@ -3,7 +3,7 @@
  * Uses the shared testcontainers Postgres from vitest globalSetup.
  */
 import {
-  startCoreTestServer,
+  startCoreTestServerFull,
   stopCoreTestServer,
   resetCoreTestDb,
   getCoreDb,
@@ -92,7 +92,7 @@ type StartTestServerOptions = {
   devMode?: boolean;
   encryption?: boolean;
 
-  /** Optional secret forwarded to `startCoreTestServer` — see its docs. */
+  /** Optional registration secret forwarded to the core test server. */
   registrationSecret?: string;
 
   /** Boot admin owner id used by the default registration route. */
@@ -143,7 +143,7 @@ export function startTestServerEffect(_opts?: StartTestServerOptions) {
 
   return Effect.tryPromise({
     try: () =>
-      startCoreTestServer({
+      startCoreTestServerFull({
         pgHost,
         pgPort,
         encryption: opts.encryption,

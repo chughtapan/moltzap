@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** @file MoltZap CLI entrypoint and global transport option wiring. */
-import { Args, Command, Options } from "@effect/cli";
+import { Command, Options } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import {
   Config,
@@ -12,6 +12,7 @@ import {
   Option,
 } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
+import { agentsCommand } from "./commands/agents.js";
 import { contactsCommand } from "./commands/contacts.js";
 import {
   conversationsCommand,
@@ -21,15 +22,12 @@ import { messagesCommand } from "./commands/messages.js";
 import { registerCommand } from "./commands/register.js";
 import { sendCommand } from "./commands/send.js";
 import { startCommand } from "./commands/start.js";
+import { statusCommand } from "./commands/status.js";
 import {
-  command,
   makeTransportLayer,
   resolveTransportInputs,
-  runHandler,
   type TransportOptions,
 } from "./transport.js";
-import { logJson, logLines } from "./output.js";
-import { LocalDaemonCommands } from "../local-daemon-rpc.js";
 import {
   ProfileConfigReadError,
   ProfileInvalidNameError,
@@ -127,68 +125,6 @@ const transportLayerFromConfig = <A extends GlobalTransportConfig>(config: A) =>
       Effect.map(makeTransportLayer),
     ),
   );
-
-const listAgents = Command.make("list", {}, () =>
-  runHandler(
-    command(LocalDaemonCommands.AgentsList, {}).pipe(
-      Effect.flatMap(logJson),
-      Effect.asVoid,
-    ),
-  ),
-).pipe(Command.withDescription("List agents (default)"));
-
-const namesArg = Args.text({ name: "name" }).pipe(
-  Args.withDescription("Agent names to look up"),
-  Args.repeated,
-);
-
-const lookupAgents = Command.make("lookup", { names: namesArg }, ({ names }) =>
-  runHandler(
-    command(LocalDaemonCommands.AgentsSearch, { names }).pipe(
-      Effect.flatMap((result) => {
-        if (result.agents.length === 0) {
-          return Effect.log("No agents found.");
-        }
-        return logLines(
-          result.agents.map((agent) => {
-            let line = `Agent: ${agent.name}\n  ID: ${agent.id}\n  Status: ${agent.status}`;
-            if (agent.description) {
-              line += `\n  Description: ${agent.description}`;
-            }
-            return `${line}\n`;
-          }),
-        );
-      }),
-      Effect.asVoid,
-    ),
-  ),
-).pipe(Command.withDescription("Look up agents by name"));
-
-const agentsCommand = Command.make("agents", {}, () =>
-  listAgents.handler({}),
-).pipe(
-  Command.withDescription("List and look up agents on MoltZap"),
-  Command.withSubcommands([listAgents, lookupAgents]),
-);
-
-const statusCommand = Command.make("status", {}, () =>
-  runHandler(
-    command(LocalDaemonCommands.Status, {}).pipe(
-      Effect.flatMap((result) =>
-        logLines([
-          `Agent ID:       ${result.agentId ?? "none"}`,
-          `Connected:      ${result.connected}`,
-          `Conversations:  ${result.conversations}`,
-        ]),
-      ),
-      Effect.asVoid,
-    ),
-  ),
-).pipe(
-  Command.withDescription(
-    "Show agent connection status and conversation summary",
-  ),
-);
 
 /**
  * Top-level `moltzap` command. Subcommands are `@effect/cli` `Command`s —

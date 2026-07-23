@@ -102,7 +102,7 @@ let _baseUrl: string | null = null;
 let _wsUrl: string | null = null;
 let spanExporter: InMemorySpanExporter | null = null;
 
-export interface CoreTestServer {
+export interface CoreTestServerHandle {
   baseUrl: string;
   wsUrl: string;
   db: EffectKysely<Database>;
@@ -306,7 +306,7 @@ function makeSpanExporterPort(
 function buildCoreTestServer(
   app: CoreApp,
   db: EffectKysely<Database>,
-): CoreTestServer {
+): CoreTestServerHandle {
   const urls = publishCoreTestUrls(app);
   const runtimeServer = makeRuntimeServer(app);
   const testPort: CoreTestServerPort = {
@@ -338,7 +338,7 @@ export function startCoreTestServerEffect(
   }).pipe(Effect.withSpan("startCoreTestServer"));
 }
 
-export function startCoreTestServer(opts: StartCoreTestServerOptions = {}) {
+export function startCoreTestServerFull(opts: StartCoreTestServerOptions = {}) {
   return Effect.runPromise(startCoreTestServerEffect(opts));
 }
 
