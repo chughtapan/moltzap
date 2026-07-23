@@ -1,5 +1,5 @@
-import { describe, expect, it, afterEach, vi } from "vitest";
-import { Deferred, Effect, Either, Exit, Fiber } from "effect";
+import { describe, expect, expectTypeOf, it, afterEach, vi } from "vitest";
+import { Deferred, Effect, Either, Exit, Fiber, Option } from "effect";
 import {
   agentId,
   agentKeyString,
@@ -7,16 +7,18 @@ import {
 } from "@moltzap/protocol/testing";
 
 import {
-  launchRuntimeFleet,
-  launchRuntimeFleetWithProcessSignals,
-  RuntimeFleetStartupInterrupted,
+  launchTestbed,
+  launchTestbedWithProcessSignals,
+  TestbedStartupInterrupted,
   startRuntimeAgent,
-  type RuntimeAgentSpec,
-} from "./fleet.js";
+  type RuntimeStartOptions,
+  type TestbedAgentSpec,
+  type TestbedLaunchOptions,
+} from "./testbed.js";
 import type { ReadyOutcome, Runtime, RuntimeServerHandle } from "./runtime.js";
 import { RuntimeReadyTimedOut } from "./errors.js";
 
-const fleetRuntimeFactoryState = vi.hoisted(() => ({
+const testbedRuntimeFactoryState = vi.hoisted(() => ({
   nextRuntime: null as null | (() => Runtime),
 }));
 
@@ -37,44 +39,89 @@ const READY_TIMEOUT_MS = 1_000;
 const LONG_READY_TIMEOUT_MS = 60_000;
 const SHORT_READY_TIMEOUT_MS = 250;
 
+type RuntimeStartOptionsBase = {
+  readonly server: RuntimeServerHandle;
+  readonly agent: TestbedAgentSpec;
+  readonly readyTimeoutMs: number;
+};
+
+type TestbedLaunchOptionsBase = {
+  readonly server: RuntimeServerHandle;
+  readonly agents: ReadonlyArray<TestbedAgentSpec>;
+  readonly readyTimeoutMs: number;
+};
+
+type NanoclawWithOpenClawOptions = {
+  readonly kind: "nanoclaw";
+  readonly openclaw: { readonly openclawBin: string };
+};
+
+type OpenClawWithNanoclawOptions = {
+  readonly kind: "openclaw";
+  readonly nanoclaw: { readonly autoRegisterConversations: true };
+};
+
 vi.mock("./openclaw-adapter.js", () => ({
-  createWorkspaceOpenClawAdapter: vi.fn(() => {
-    const factory = fleetRuntimeFactoryState.nextRuntime;
+  createOpenClawAdapter: vi.fn(() => {
+    const factory = testbedRuntimeFactoryState.nextRuntime;
     if (factory === null) {
-      throw new Error("Expected a configured runtime factory for fleet tests");
+      throw new Error(
+        "Expected a configured runtime factory for testbed tests",
+      );
     }
     return factory();
   }),
 }));
 
 afterEach(() => {
-  fleetRuntimeFactoryState.nextRuntime = null;
+  testbedRuntimeFactoryState.nextRuntime = null;
 });
 
-describe("runtime fleet lifecycle", () => {
+describe("testbed lifecycle", () => {
   it(
-    "property: successful fleet launch keeps runtimes alive until stopAll",
-    successfulFleetLaunchKeepsRuntimesUntilStopAll,
+    "property: successful testbed launch keeps runtimes alive until stopAll",
+    successfulTestbedLaunchKeepsRuntimesUntilStopAll,
   );
   it(
     "tears down an in-flight runtime when startRuntimeAgent is interrupted",
     startRuntimeAgentInterruptionTearsDownRuntime,
   );
   it(
-    "tears down ready and in-flight runtimes when launchRuntimeFleet is interrupted mid-startup",
-    fleetInterruptionTearsDownStartedAndInFlightRuntimes,
+    "tears down ready and in-flight runtimes when launchTestbed is interrupted mid-startup",
+    testbedInterruptionTearsDownStartedAndInFlightRuntimes,
   );
   it(
-    "tears down an in-flight fleet when a configured process signal arrives",
-    processSignalTearsDownInFlightFleet,
+    "tears down an in-flight testbed when a configured process signal arrives",
+    processSignalTearsDownInFlightTestbed,
   );
   it(
-    "tears down previously started and failing runtimes before fleet launch returns an error",
-    fleetLaunchFailureTearsDownStartedAndFailingRuntimes,
+    "waits for in-flight teardown when the signal wrapper is interrupted",
+    processSignalWrapperInterruptionWaitsForTeardown,
+  );
+  it(
+    "tears down previously started and failing runtimes before testbed launch returns an error",
+    testbedLaunchFailureTearsDownStartedAndFailingRuntimes,
   );
 });
 
-function successfulFleetLaunchKeepsRuntimesUntilStopAll() {
+describe("testbed runtime options", () => {
+  it("rejects adapter options from the other runtime kind", () => {
+    expectTypeOf<
+      RuntimeStartOptionsBase & NanoclawWithOpenClawOptions
+    >().not.toMatchTypeOf<RuntimeStartOptions>();
+    expectTypeOf<
+      RuntimeStartOptionsBase & OpenClawWithNanoclawOptions
+    >().not.toMatchTypeOf<RuntimeStartOptions>();
+    expectTypeOf<
+      TestbedLaunchOptionsBase & NanoclawWithOpenClawOptions
+    >().not.toMatchTypeOf<TestbedLaunchOptions>();
+    expectTypeOf<
+      TestbedLaunchOptionsBase & OpenClawWithNanoclawOptions
+    >().not.toMatchTypeOf<TestbedLaunchOptions>();
+  });
+});
+
+function successfulTestbedLaunchKeepsRuntimesUntilStopAll() {
   return runTest(
     Effect.gen(function* () {
       const first = yield* createMockRuntime({
@@ -83,23 +130,23 @@ function successfulFleetLaunchKeepsRuntimesUntilStopAll() {
       const second = yield* createMockRuntime({
         readyEffect: Effect.succeed({ _tag: READY_TAG }),
       });
-      setMockFleetRuntimes(first.runtime, second.runtime);
+      setMockTestbedRuntimes(first.runtime, second.runtime);
 
-      const fleet = yield* launchRuntimeFleet({
+      const testbed = yield* launchTestbed({
         kind: OPENCLAW_KIND,
         server: stubServer(),
         agents: alphaBetaAgentSpecs(),
         readyTimeoutMs: READY_TIMEOUT_MS,
       }).pipe(Effect.orDie);
 
-      expect(fleet.agents).toEqual([
+      expect(testbed.agents).toEqual([
         { name: ALPHA_AGENT_NAME, agentId: ALPHA_AGENT_ID },
         { name: BETA_AGENT_NAME, agentId: BETA_AGENT_ID },
       ]);
       expect(first.stats.teardownCalls).toBe(0);
       expect(second.stats.teardownCalls).toBe(0);
 
-      yield* fleet.stopAll();
+      yield* testbed.stopAll();
       expect(first.stats.teardownCalls).toBe(1);
       expect(second.stats.teardownCalls).toBe(1);
     }),
@@ -112,13 +159,13 @@ function startRuntimeAgentInterruptionTearsDownRuntime() {
       const blocked = yield* createMockRuntime({
         readyEffect: Effect.never,
       });
-      setMockFleetRuntimes(blocked.runtime);
+      setMockTestbedRuntimes(blocked.runtime);
 
       const fiber = Effect.runFork(
         startRuntimeAgent({
           kind: OPENCLAW_KIND,
           server: stubServer(),
-          agent: stubRuntimeAgentSpec(),
+          agent: stubTestbedAgentSpec(),
           readyTimeoutMs: LONG_READY_TIMEOUT_MS,
         }),
       );
@@ -135,7 +182,7 @@ function startRuntimeAgentInterruptionTearsDownRuntime() {
   );
 }
 
-function fleetInterruptionTearsDownStartedAndInFlightRuntimes() {
+function testbedInterruptionTearsDownStartedAndInFlightRuntimes() {
   return runTest(
     Effect.gen(function* () {
       const first = yield* createMockRuntime({
@@ -144,10 +191,10 @@ function fleetInterruptionTearsDownStartedAndInFlightRuntimes() {
       const second = yield* createMockRuntime({
         readyEffect: Effect.never,
       });
-      setMockFleetRuntimes(first.runtime, second.runtime);
+      setMockTestbedRuntimes(first.runtime, second.runtime);
 
       const fiber = Effect.runFork(
-        launchRuntimeFleet({
+        launchTestbed({
           kind: OPENCLAW_KIND,
           server: stubServer(),
           agents: alphaBetaAgentSpecs(),
@@ -166,7 +213,7 @@ function fleetInterruptionTearsDownStartedAndInFlightRuntimes() {
   );
 }
 
-function processSignalTearsDownInFlightFleet() {
+function processSignalTearsDownInFlightTestbed() {
   return runTest(
     Effect.gen(function* () {
       const first = yield* createMockRuntime({
@@ -175,11 +222,11 @@ function processSignalTearsDownInFlightFleet() {
       const second = yield* createMockRuntime({
         readyEffect: Effect.never,
       });
-      setMockFleetRuntimes(first.runtime, second.runtime);
+      setMockTestbedRuntimes(first.runtime, second.runtime);
 
       const fiber = Effect.runFork(
         Effect.either(
-          launchRuntimeFleetWithProcessSignals({
+          launchTestbedWithProcessSignals({
             kind: OPENCLAW_KIND,
             server: stubServer(),
             agents: alphaBetaAgentSpecs(),
@@ -197,8 +244,8 @@ function processSignalTearsDownInFlightFleet() {
 
       Either.match(result, {
         onLeft: (error) => {
-          expect(error).toBeInstanceOf(RuntimeFleetStartupInterrupted);
-          if (error._tag !== "RuntimeFleetStartupInterrupted") {
+          expect(error).toBeInstanceOf(TestbedStartupInterrupted);
+          if (error._tag !== "TestbedStartupInterrupted") {
             return expect.fail();
           }
           expect(error.signal).toBe(STARTUP_SIGNAL);
@@ -211,7 +258,49 @@ function processSignalTearsDownInFlightFleet() {
   );
 }
 
-function fleetLaunchFailureTearsDownStartedAndFailingRuntimes() {
+function processSignalWrapperInterruptionWaitsForTeardown() {
+  return runTest(
+    Effect.gen(function* () {
+      const teardownStarted = yield* Deferred.make<void, never>();
+      const allowTeardown = yield* Deferred.make<void, never>();
+      const teardownFinished = yield* Deferred.make<void, never>();
+      const blocked = yield* createMockRuntime({
+        readyEffect: Effect.never,
+        teardownEffect: Deferred.succeed(teardownStarted, undefined).pipe(
+          Effect.zipRight(Deferred.await(allowTeardown)),
+          Effect.zipRight(Deferred.succeed(teardownFinished, undefined)),
+          Effect.asVoid,
+        ),
+      });
+      setMockTestbedRuntimes(blocked.runtime);
+
+      const launchFiber = Effect.runFork(
+        launchTestbedWithProcessSignals({
+          kind: OPENCLAW_KIND,
+          server: stubServer(),
+          agents: [stubTestbedAgentSpec()],
+          readyTimeoutMs: LONG_READY_TIMEOUT_MS,
+          signals: [],
+        }),
+      );
+
+      yield* blocked.waitStarted;
+      const interruptFiber = yield* Effect.fork(Fiber.interrupt(launchFiber));
+      yield* Deferred.await(teardownStarted);
+
+      expect(Option.isNone(yield* Fiber.poll(interruptFiber))).toBe(true);
+
+      yield* Deferred.succeed(allowTeardown, undefined);
+      const launchExit = yield* Fiber.join(interruptFiber);
+      yield* Deferred.await(teardownFinished);
+
+      expect(Exit.isInterrupted(launchExit)).toBe(true);
+      expect(blocked.stats.teardownCalls).toBe(1);
+    }),
+  );
+}
+
+function testbedLaunchFailureTearsDownStartedAndFailingRuntimes() {
   return runTest(
     Effect.gen(function* () {
       const first = yield* createMockRuntime({
@@ -223,10 +312,10 @@ function fleetLaunchFailureTearsDownStartedAndFailingRuntimes() {
           timeoutMs: SHORT_READY_TIMEOUT_MS,
         }),
       });
-      setMockFleetRuntimes(first.runtime, second.runtime);
+      setMockTestbedRuntimes(first.runtime, second.runtime);
 
       const result = yield* Effect.either(
-        launchRuntimeFleet({
+        launchTestbed({
           kind: OPENCLAW_KIND,
           server: stubServer(),
           agents: alphaBetaAgentSpecs(),
@@ -269,9 +358,9 @@ function stubServer(): RuntimeServerHandle {
   };
 }
 
-function stubRuntimeAgentSpec(
-  overrides?: Partial<RuntimeAgentSpec>,
-): RuntimeAgentSpec {
+function stubTestbedAgentSpec(
+  overrides?: Partial<TestbedAgentSpec>,
+): TestbedAgentSpec {
   return {
     agentName: TEST_AGENT_NAME,
     apiKey: TEST_API_KEY,
@@ -281,25 +370,25 @@ function stubRuntimeAgentSpec(
   };
 }
 
-function alphaBetaAgentSpecs(): ReadonlyArray<RuntimeAgentSpec> {
+function alphaBetaAgentSpecs(): ReadonlyArray<TestbedAgentSpec> {
   return [
-    stubRuntimeAgentSpec({
+    stubTestbedAgentSpec({
       agentName: ALPHA_AGENT_NAME,
       agentId: ALPHA_AGENT_ID,
     }),
-    stubRuntimeAgentSpec({
+    stubTestbedAgentSpec({
       agentName: BETA_AGENT_NAME,
       agentId: BETA_AGENT_ID,
     }),
   ];
 }
 
-function setMockFleetRuntimes(...runtimes: ReadonlyArray<Runtime>): void {
+function setMockTestbedRuntimes(...runtimes: ReadonlyArray<Runtime>): void {
   const queue = [...runtimes];
-  fleetRuntimeFactoryState.nextRuntime = () => {
+  testbedRuntimeFactoryState.nextRuntime = () => {
     const runtime = queue.shift();
     if (runtime === undefined) {
-      throw new Error("No mocked runtime remaining for fleet test");
+      throw new Error("No mocked runtime remaining for testbed test");
     }
     return runtime;
   };
@@ -307,6 +396,7 @@ function setMockFleetRuntimes(...runtimes: ReadonlyArray<Runtime>): void {
 
 function createMockRuntime(options: {
   readonly readyEffect: Effect.Effect<ReadyOutcome, never, never>;
+  readonly teardownEffect?: Effect.Effect<void, never, never>;
 }) {
   return Effect.gen(function* () {
     const stats: MockRuntimeStats = {
@@ -333,7 +423,7 @@ function createMockRuntime(options: {
       teardown: () =>
         Effect.sync(() => {
           stats.teardownCalls += 1;
-        }),
+        }).pipe(Effect.zipRight(options.teardownEffect ?? Effect.void)),
       getLogs: () => ({ text: "", nextOffset: 0 }),
       getInboundMarker: () => INBOUND_MARKER,
     };

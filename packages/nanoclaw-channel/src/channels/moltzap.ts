@@ -41,6 +41,13 @@ const MoltZapChannelEnv = Config.all({
   evalMode: MoltZapEvalModeEnv,
 });
 
+interface MoltZapChannelState {
+  readonly core: MoltZapChannelCore | null;
+  readonly ownAgentId: string;
+  readonly evalMode: boolean;
+  readonly profileName: string | null;
+}
+
 /**
  * Bidirectional MoltZap conversationId ↔ nanoclaw JID conversion.
  *
@@ -60,10 +67,10 @@ function jidFromConversationId(conversationId: string): string {
   return `${MOLTZAP_JID_PREFIX}${conversationId}`;
 }
 
+const decodeConversationId = Schema.decodeUnknownSync(ConversationId);
+
 function conversationIdFromJid(jid: string): ConversationId {
-  return Schema.decodeUnknownSync(ConversationId)(
-    jid.slice(MOLTZAP_JID_PREFIX.length),
-  );
+  return decodeConversationId(jid.slice(MOLTZAP_JID_PREFIX.length));
 }
 
 function loadMoltZapChannelEnv(): {
@@ -104,7 +111,7 @@ function loadMoltZapEvalMode(): boolean {
  *   note over Handler: Step 1 — jidFromConversationId<br>chatJid = "mz:" + conversationId
  *   note over Handler: Step 2 — rememberDispatchLease<br>leaseStore.remember(chatJid, leaseId) if present
  *   note over Handler: Step 3 — maybeAutoRegister (eval mode only)
- *   Handler->>Router: Step 4 — opts.onChatMetadata({ chatJid, name, ... })<br>nanoclaw receives ChatMetadata BEFORE message
+ *   Handler->>Router: Step 4 — opts.onChatMetadata(chatJid, timestamp, name, ...)<br>nanoclaw receives metadata BEFORE message
  *   Handler->>Router: Step 5 — opts.onMessage(chatJid, toNewMessage(enriched))
  * ```
  *
@@ -133,16 +140,22 @@ export class MoltZapChannel implements Channel {
   // Per-JID memory of the task that owns the most recent conversation seen
   // inbound. `agent/message/send` requires the taskId.
   private readonly taskIdsByJid = new Map<string, TaskId>();
-  private readonly ownAgentId: string;
+  private ownAgentId: string;
+  private core: MoltZapChannelCore | null;
+  private readonly evalMode: boolean;
+  private readonly profileName: string | null;
 
   private constructor(
     private readonly opts: ChannelOpts,
-    private readonly core: MoltZapChannelCore,
-    service: ChannelService,
-    private readonly evalMode: boolean = false,
+    state: MoltZapChannelState,
   ) {
-    this.ownAgentId = service.ownAgentId ?? "";
-    this.attachCore(core);
+    this.core = state.core;
+    this.ownAgentId = state.ownAgentId;
+    this.evalMode = state.evalMode;
+    this.profileName = state.profileName;
+    if (state.core !== null) {
+      this.attachCore(state.core);
+    }
   }
 
   static fromService(
@@ -150,12 +163,49 @@ export class MoltZapChannel implements Channel {
     service: ChannelService,
     evalMode = false,
   ): MoltZapChannel {
-    return new MoltZapChannel(
-      opts,
-      new MoltZapChannelCore({ service }),
-      service,
+    return new MoltZapChannel(opts, {
+      core: new MoltZapChannelCore({ service }),
+      ownAgentId: service.ownAgentId ?? "",
       evalMode,
-    );
+      profileName: null,
+    });
+  }
+
+  static fromProfile(
+    opts: ChannelOpts,
+    profileName: string,
+    evalMode = false,
+  ): MoltZapChannel {
+    return new MoltZapChannel(opts, {
+      core: null,
+      ownAgentId: "",
+      evalMode,
+      profileName,
+    });
+  }
+
+  private initializeCore() {
+    return Effect.gen(this, function* () {
+      if (this.core !== null) {
+        return this.core;
+      }
+      const profileName = this.profileName;
+      if (profileName === null) {
+        return yield* Effect.fail(
+          new MoltZapChannelError({
+            reason: "MoltZap channel has no profile for initialization",
+          }),
+        );
+      }
+      const service = yield* MoltZapService.make(profileName);
+      return yield* Effect.sync(() => {
+        const core = new MoltZapChannelCore({ service });
+        this.core = core;
+        this.ownAgentId = service.ownAgentId ?? "";
+        this.attachCore(core);
+        return core;
+      });
+    });
   }
 
   private attachCore(core: MoltZapChannelCore): void {
@@ -179,10 +229,9 @@ export class MoltZapChannel implements Channel {
   }
 
   connect() {
-    // `core.connect()` is already an Effect — just run it at the nanoclaw
-    // Channel boundary, which imposes a Promise contract.
     return Effect.runPromise(
-      this.core.connect().pipe(
+      this.initializeCore().pipe(
+        Effect.flatMap((core) => core.connect()),
         Effect.tap(() =>
           Effect.logInfo("MoltZap connected").pipe(
             Effect.annotateLogs({ channel: "moltzap" }),
@@ -210,7 +259,7 @@ export class MoltZapChannel implements Channel {
   }
 
   isConnected(): boolean {
-    return this.core.isConnected();
+    return this.core?.isConnected() ?? false;
   }
 
   ownsJid(jid: string): boolean {
@@ -218,7 +267,9 @@ export class MoltZapChannel implements Channel {
   }
 
   disconnect() {
-    return Effect.runPromise(this.core.disconnect().pipe(Effect.asVoid));
+    return this.core === null
+      ? Promise.resolve()
+      : Effect.runPromise(this.core.disconnect().pipe(Effect.asVoid));
   }
 
   private sendMessageEffect(
@@ -246,7 +297,15 @@ export class MoltZapChannel implements Channel {
           }),
         );
       }
-      yield* this.core
+      const core = this.core;
+      if (core === null) {
+        return yield* Effect.fail(
+          new MoltZapChannelError({
+            reason: "MoltZap channel is not connected",
+          }),
+        );
+      }
+      yield* core
         .sendReply(
           taskId,
           conversationIdFromJid(jid),
@@ -294,13 +353,13 @@ export class MoltZapChannel implements Channel {
     chatJid: string,
     enriched: EnrichedInboundMessage,
   ): void {
-    this.opts.onChatMetadata({
+    this.opts.onChatMetadata(
       chatJid,
-      timestamp: enriched.createdAt,
-      name: enriched.conversationMeta?.name,
-      channel: "moltzap",
-      isGroup: enriched.conversationMeta?.type === "group",
-    });
+      enriched.createdAt,
+      enriched.conversationMeta?.name,
+      "moltzap",
+      enriched.conversationMeta?.type === "group",
+    );
   }
 
   // Nanoclaw's router consumes NewMessage.content verbatim into prompt XML,
@@ -358,16 +417,12 @@ export class MoltZapChannel implements Channel {
 export function makeMoltZapChannel(
   opts: ChannelOpts,
   evalMode = loadMoltZapEvalMode(),
-): Effect.Effect<MoltZapChannel, unknown> {
-  return Effect.gen(function* () {
-    const service = yield* MoltZapService.make(
-      opts.profileName ?? loadMoltZapChannelEnv().profileName,
-    );
-    return MoltZapChannel.fromService(opts, service, evalMode);
-  }).pipe(Effect.withSpan("makeMoltZapChannel"));
+  profileName = loadMoltZapChannelEnv().profileName,
+): MoltZapChannel {
+  return MoltZapChannel.fromProfile(opts, profileName, evalMode);
 }
 
 registerChannel("moltzap", (opts: ChannelOpts) => {
   const { evalMode, profileName } = loadMoltZapChannelEnv();
-  return makeMoltZapChannel({ ...opts, profileName }, evalMode);
+  return makeMoltZapChannel(opts, evalMode, profileName);
 });

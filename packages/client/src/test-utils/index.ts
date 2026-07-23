@@ -13,6 +13,12 @@ export {
   type StandaloneAgentPair,
   type StandaloneAgentPairNames,
 } from "./standalone-provisioning.js";
+export {
+  registerAndConnect,
+  type ConnectedHarnessAgent,
+  type HarnessAgentClient,
+} from "./harness.js";
+export { registerAgent, type RegisterResponse } from "../auth.js";
 
 export { FakeMoltZapService, type RecordedCall } from "./fake-service.js";
 export { withTestServiceConfig } from "../config.test-utils.js";

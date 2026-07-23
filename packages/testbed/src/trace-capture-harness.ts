@@ -1,6 +1,6 @@
 import { Path } from "@effect/platform";
 import { Data, Duration, Effect, Fiber, Option, Stream } from "effect";
-import { startRuntimeAgent, type RuntimeKind } from "./fleet.js";
+import { startRuntimeAgent, type RuntimeKind } from "./testbed.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
 import type { Runtime } from "./runtime.js";
 import {
@@ -103,11 +103,11 @@ interface HarnessClient {
   close(): Effect.Effect<void, never, never>;
 
   /**
-   * Spec B (#596): typed-payload Stream subscription. The harness
-   * subscribes BEFORE issuing each `MessagesSend` (`sendMessageAndWait`'s
-   * fork → trigger → join pattern) so the response notification is never
-   * dropped between the request and the Stream materialisation. Structural
-   * shape mirrors `MoltZapAgentClient.subscribe`.
+   * Typed-payload Stream subscription. The harness subscribes BEFORE
+   * issuing each `MessagesSend` (`sendMessageAndWait`'s fork → trigger →
+   * join pattern) so the response notification is never dropped between
+   * the request and the Stream materialisation. Structural shape mirrors
+   * `MoltZapAgentClient.subscribe`.
    */
   subscribe<D extends typeof MessageReceivedNotificationDefinition>(
     definition: D,
@@ -125,6 +125,10 @@ interface ConnectedActor {
   readonly client: HarnessClient;
 }
 
+// Structural shape of the dynamically loaded `@moltzap/client` test-utils
+// barrel; the canonical implementation is `test-utils/harness.ts →
+// registerAndConnect` there. Loaded by path so the published testbed
+// package never takes a static dependency on the client.
 interface ClientTestModule {
   registerAgent(
     baseUrl: string,
@@ -139,7 +143,6 @@ interface ClientTestModule {
   >;
   registerAndConnect(
     baseUrl: string,
-    wsUrl: string,
     name: string,
   ): Effect.Effect<
     {
@@ -284,7 +287,7 @@ function loadClientTestModule(): Effect.Effect<ClientTestModule, Error, never> {
   return Effect.tryPromise({
     try: () =>
       import(
-        packageModuleUrl("client", "dist", "test", "index.js")
+        packageModuleUrl("client", "dist", "test-utils", "index.js")
       ) as Promise<ClientTestModule>,
     catch: (error) =>
       error instanceof Error ? error : new Error(String(error)),
@@ -421,10 +424,9 @@ function sendMessageAndWait(input: {
 function registerConnectedAgent(
   clientModule: ClientTestModule,
   baseUrl: string,
-  wsUrl: string,
   name: string,
 ): Effect.Effect<ConnectedActor, HarnessFailure, never> {
-  return clientModule.registerAndConnect(baseUrl, wsUrl, name).pipe(
+  return clientModule.registerAndConnect(baseUrl, name).pipe(
     Effect.map((connected) => ({
       agentId: connected.agentId,
       name,
@@ -519,7 +521,6 @@ function executeConversationKind(
   input: {
     readonly payload: HarnessPayload;
     readonly baseUrl: string;
-    readonly wsUrl: string;
     readonly targetAgentId: AgentId;
     readonly clientModule: ClientTestModule;
   },
@@ -562,7 +563,6 @@ function executeGroupConversation(
   input: {
     readonly payload: HarnessPayload;
     readonly baseUrl: string;
-    readonly wsUrl: string;
     readonly targetAgentId: AgentId;
     readonly clientModule: ClientTestModule;
   },
@@ -595,7 +595,6 @@ function executeCrossConversation(
   input: {
     readonly payload: HarnessPayload;
     readonly baseUrl: string;
-    readonly wsUrl: string;
     readonly targetAgentId: AgentId;
     readonly clientModule: ClientTestModule;
   },
@@ -638,7 +637,6 @@ function registerBystanders(
   input: {
     readonly payload: HarnessPayload;
     readonly baseUrl: string;
-    readonly wsUrl: string;
     readonly clientModule: ClientTestModule;
   },
   state: ConversationExecutionState,
@@ -652,7 +650,6 @@ function registerBystanders(
       registerConnectedAgent(
         input.clientModule,
         input.baseUrl,
-        input.wsUrl,
         entry.name,
       ).pipe(
         Effect.tap((actor) =>
@@ -675,7 +672,6 @@ function registerProbeSender(
   input: {
     readonly payload: HarnessPayload;
     readonly baseUrl: string;
-    readonly wsUrl: string;
     readonly clientModule: ClientTestModule;
   },
   state: ConversationExecutionState,
@@ -684,12 +680,7 @@ function registerProbeSender(
     input.payload.conversation.kind === "cross"
       ? (input.payload.conversation.probeSenderName ?? "eval-probe-sender")
       : "eval-probe-sender";
-  return registerConnectedAgent(
-    input.clientModule,
-    input.baseUrl,
-    input.wsUrl,
-    name,
-  ).pipe(
+  return registerConnectedAgent(input.clientModule, input.baseUrl, name).pipe(
     Effect.tap((actor) =>
       Effect.sync(() => {
         state.closers.push(actor.client);
@@ -765,7 +756,6 @@ function sendBystanderMessages(
 function executeConversationPlan(input: {
   readonly payload: HarnessPayload;
   readonly baseUrl: string;
-  readonly wsUrl: string;
   readonly targetAgentId: AgentId;
   readonly clientModule: ClientTestModule;
 }): Effect.Effect<ConversationRun, HarnessFailure, never> {
@@ -773,7 +763,6 @@ function executeConversationPlan(input: {
     const sender = yield* registerConnectedAgent(
       input.clientModule,
       input.baseUrl,
-      input.wsUrl,
       input.payload.conversation.senderName ?? "eval-sender",
     );
     const state = createConversationState(sender);
@@ -895,8 +884,17 @@ function startHarnessRuntime(input: {
   readonly targetAgent: TargetAgentRegistration;
   readonly clientModule: ClientTestModule;
 }) {
+  // Harness runs create fresh conversations with no pre-provisioned NanoClaw
+  // registration, so the disposable eval runtime must accept them on delivery.
+  const runtimeSelection =
+    input.payload.runtime.kind === "nanoclaw"
+      ? ({
+          kind: "nanoclaw",
+          nanoclaw: { autoRegisterConversations: true },
+        } as const)
+      : ({ kind: "openclaw" } as const);
   return startRuntimeAgent({
-    kind: input.payload.runtime.kind,
+    ...runtimeSelection,
     server: input.server.runtimeServer,
     readyTimeoutMs:
       input.payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
@@ -939,7 +937,6 @@ function executeTraceRun(input: {
     const conversationRun = yield* executeConversationPlan({
       payload: input.payload,
       baseUrl: input.server.baseUrl,
-      wsUrl: input.server.wsUrl,
       targetAgentId: input.targetAgent.agentId,
       clientModule: input.clientModule,
     });

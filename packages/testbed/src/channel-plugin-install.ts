@@ -10,16 +10,31 @@
 import { createRequire } from "node:module";
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
-import { Data, Effect, Redacted } from "effect";
+import { Data, Effect, Redacted, Schema } from "effect";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import type { SpawnInput } from "./runtime.js";
 
 const PROFILE_CONFIG_INDENT_SPACES = 2;
+const PROFILE_CONFIG_FILE_MODE = 0o600;
+const PROFILE_CONFIG_FILE_NAME = "config.json";
+
+/** Profile selector shared by isolated testbed runtime state directories. */
+export const TESTBED_PROFILE_NAME = "testbed-agent";
+
+const ChannelPackageManifest = Schema.parseJson(
+  Schema.Struct({
+    dependencies: Schema.optionalWith(
+      Schema.Record({ key: Schema.String, value: Schema.String }),
+      { default: () => ({}) },
+    ),
+  }),
+);
 
 /**
  * Serializes the per-agent MoltZap profile config that every runtime
- * adapter drops at the agent state dir's `.moltzap/config.json`; the spawned
- * channel loads it via `MOLTZAP_PROFILE` + `MOLTZAP_CONFIG_HOME`.
+ * adapter drops at the agent state dir's `.moltzap/config.json`. The spawned
+ * channel finds it through `MOLTZAP_CONFIG_HOME`, then selects the fixed
+ * testbed profile through the runtime-specific account selector.
  */
 export function serializeMoltZapProfileConfig(profile: {
   readonly agentName: string;
@@ -29,7 +44,7 @@ export function serializeMoltZapProfileConfig(profile: {
   return JSON.stringify(
     {
       profiles: {
-        [profile.agentName]: {
+        [TESTBED_PROFILE_NAME]: {
           agentId: profile.agentId,
           apiKey: Redacted.value(profile.apiKey),
           agentName: profile.agentName,
@@ -41,6 +56,30 @@ export function serializeMoltZapProfileConfig(profile: {
   );
 }
 
+/** Writes the credentials used by a runtime's isolated channel process. */
+export function writeMoltZapProfileConfig(
+  configHome: string,
+  profile: {
+    readonly agentName: string;
+    readonly agentId: AgentId;
+    readonly apiKey: AgentKey;
+  },
+): Effect.Effect<void, PlatformError, FileSystem.FileSystem | Path.Path> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const configPath = path.join(configHome, PROFILE_CONFIG_FILE_NAME);
+
+    yield* fileSystem.makeDirectory(configHome, { recursive: true });
+    yield* fileSystem.writeFileString(
+      configPath,
+      serializeMoltZapProfileConfig(profile),
+      { mode: PROFILE_CONFIG_FILE_MODE },
+    );
+    yield* fileSystem.chmod(configPath, PROFILE_CONFIG_FILE_MODE);
+  }).pipe(Effect.withSpan("writeMoltZapProfileConfig"));
+}
+
 class ChannelPluginInstallError extends Data.TaggedError(
   "ChannelPluginInstallError",
 )<{
@@ -48,22 +87,9 @@ class ChannelPluginInstallError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-interface PluginSymlinkSpec {
-  /** Path inside the plugin's `node_modules/` (e.g. `effect`, `@x/y`). */
-  readonly linkPath: string;
-
-  /**
-   * Ordered candidate source paths. The first existing candidate is used.
-   * Throws if none exist — surface the missing dep as a config error
-   * rather than a runtime ENOENT inside the spawned subprocess.
-   */
-  readonly candidates: ReadonlyArray<string>;
-}
-
 export interface InstallChannelPluginOpts {
   readonly stateDir: string;
   readonly channelDistDir: string;
-  readonly repoRoot: string;
   /** Subdirectory under `&lt;stateDir>/extensions/`. */
   readonly extName: string;
 
@@ -73,12 +99,6 @@ export interface InstallChannelPluginOpts {
    * `openclaw.plugin.json`); silently skipped if not present.
    */
   readonly extraPackageFiles?: ReadonlyArray<string>;
-
-  /**
-   * Extra symlinks to create under `&lt;extDir>/node_modules/`. Each is
-   * tried against an ordered list of candidate sources; first hit wins.
-   */
-  readonly extraSymlinks?: ReadonlyArray<PluginSymlinkSpec>;
 }
 
 interface CopyDirectoryContext {
@@ -87,16 +107,26 @@ interface CopyDirectoryContext {
   readonly root: string;
 }
 
+interface LinkChannelDependenciesContext {
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly path: Path.Path;
+  readonly channelPackageDir: string;
+  readonly pluginNodeModules: string;
+}
+
+interface PackageResolution {
+  readonly packageRoot: string | null;
+  readonly warning: unknown | null;
+}
+
 /**
  * Install a moltzap channel package into a per-agent state dir.
  *
  * Standard layout produced:
  *   &lt;stateDir>/extensions/&lt;extName>/dist/...      ← copied from channelDistDir
  *   &lt;stateDir>/extensions/&lt;extName>/package.json  ← copied from channel pkg root
- *   &lt;stateDir>/extensions/&lt;extName>/node_modules/@moltzap/protocol → repoRoot/packages/protocol
- *   &lt;stateDir>/extensions/&lt;extName>/node_modules/@moltzap/client   → repoRoot/packages/client
+ *   &lt;stateDir>/extensions/&lt;extName>/node_modules/... → each declared channel dependency
  *   &lt;stateDir>/extensions/&lt;extName>/&lt;extraPackageFiles[i]>         (when present)
- *   &lt;stateDir>/extensions/&lt;extName>/node_modules/&lt;extraSymlinks[i].linkPath> → first existing candidate
  *
  * Returns the absolute path to the installed extension dir.
  */
@@ -128,13 +158,12 @@ export function installChannelPlugin(
       extraPackageFiles: opts.extraPackageFiles ?? [],
     });
     const pluginNm = path.join(extDir, "node_modules");
-    yield* linkWorkspacePackages(fileSystem, path, opts.repoRoot, pluginNm);
-    yield* linkExtraSymlinks(
+    yield* linkChannelDependencies({
       fileSystem,
       path,
-      pluginNm,
-      opts.extraSymlinks ?? [],
-    );
+      channelPackageDir,
+      pluginNodeModules: pluginNm,
+    });
 
     return extDir;
   }).pipe(Effect.withSpan("installChannelPlugin"));
@@ -168,41 +197,77 @@ function copyPackageFiles(input: {
   });
 }
 
-function linkWorkspacePackages(
-  fileSystem: FileSystem.FileSystem,
-  path: Path.Path,
-  repoRoot: string,
-  pluginNm: string,
-): Effect.Effect<void, PlatformError> {
+function linkChannelDependencies(
+  context: LinkChannelDependenciesContext,
+): Effect.Effect<
+  void,
+  ChannelPluginInstallError | PlatformError,
+  FileSystem.FileSystem | Path.Path
+> {
   return Effect.gen(function* () {
-    yield* fileSystem.makeDirectory(path.join(pluginNm, "@moltzap"), {
-      recursive: true,
-    });
-    yield* fileSystem.symlink(
-      path.join(repoRoot, "packages/protocol"),
-      path.join(pluginNm, "@moltzap/protocol"),
-    );
-    yield* fileSystem.symlink(
-      path.join(repoRoot, "packages/client"),
-      path.join(pluginNm, "@moltzap/client"),
-    );
+    const dependencyNames = yield* readChannelDependencyNames(context);
+    for (const packageName of dependencyNames) {
+      yield* linkChannelDependency(context, packageName);
+    }
   });
 }
 
-function linkExtraSymlinks(
-  fileSystem: FileSystem.FileSystem,
-  path: Path.Path,
-  pluginNm: string,
-  specs: ReadonlyArray<PluginSymlinkSpec>,
-): Effect.Effect<void, ChannelPluginInstallError | PlatformError> {
+function readChannelDependencyNames(
+  context: LinkChannelDependenciesContext,
+): Effect.Effect<
+  ReadonlyArray<string>,
+  ChannelPluginInstallError | PlatformError
+> {
   return Effect.gen(function* () {
-    for (const spec of specs) {
-      const linkTarget = path.join(pluginNm, spec.linkPath);
-      yield* fileSystem.makeDirectory(path.dirname(linkTarget), {
-        recursive: true,
-      });
-      yield* symlinkPreferring(fileSystem, spec.candidates, linkTarget);
+    const manifestPath = context.path.join(
+      context.channelPackageDir,
+      "package.json",
+    );
+    const source = yield* context.fileSystem.readFileString(manifestPath);
+    const manifest = yield* Schema.decodeUnknown(ChannelPackageManifest)(
+      source,
+    ).pipe(
+      Effect.catchTag("ParseError", (cause) =>
+        Effect.fail(
+          new ChannelPluginInstallError({
+            cause,
+            message: `channel-plugin-install: invalid package manifest at ${manifestPath}`,
+          }),
+        ),
+      ),
+    );
+    return Object.keys(manifest.dependencies);
+  });
+}
+
+function linkChannelDependency(
+  context: LinkChannelDependenciesContext,
+  packageName: string,
+): Effect.Effect<
+  void,
+  ChannelPluginInstallError | PlatformError,
+  FileSystem.FileSystem | Path.Path
+> {
+  return Effect.gen(function* () {
+    const resolved = yield* resolveChannelDependency(
+      context.channelPackageDir,
+      packageName,
+    );
+    if (resolved === null) {
+      return yield* Effect.fail(
+        new ChannelPluginInstallError({
+          message: `channel-plugin-install: cannot resolve declared dependency ${packageName} from ${context.channelPackageDir}`,
+        }),
+      );
     }
+    const linkTarget = context.path.join(
+      context.pluginNodeModules,
+      packageName,
+    );
+    yield* context.fileSystem.makeDirectory(context.path.dirname(linkTarget), {
+      recursive: true,
+    });
+    yield* context.fileSystem.symlink(resolved, linkTarget);
   });
 }
 
@@ -213,7 +278,11 @@ function linkExtraSymlinks(
 export function seedWorkspaceFiles(
   stateDir: string,
   workspaceFiles: SpawnInput["workspaceFiles"],
-): Effect.Effect<void, PlatformError, FileSystem.FileSystem | Path.Path> {
+): Effect.Effect<
+  void,
+  PlatformError | ChannelPluginInstallError,
+  FileSystem.FileSystem | Path.Path
+> {
   return Effect.gen(function* () {
     if (workspaceFiles === undefined) {
       return;
@@ -223,7 +292,18 @@ export function seedWorkspaceFiles(
     const workspaceDir = path.join(stateDir, "workspace");
     yield* fileSystem.makeDirectory(workspaceDir, { recursive: true });
     for (const file of workspaceFiles) {
-      const destination = path.join(workspaceDir, file.relativePath);
+      const destination = resolveWorkspaceFileDestination(
+        path,
+        workspaceDir,
+        file.relativePath,
+      );
+      if (destination === null) {
+        return yield* Effect.fail(
+          new ChannelPluginInstallError({
+            message: `workspace path must stay below its agent root: ${file.relativePath}`,
+          }),
+        );
+      }
       yield* fileSystem.makeDirectory(path.dirname(destination), {
         recursive: true,
       });
@@ -232,24 +312,26 @@ export function seedWorkspaceFiles(
   }).pipe(Effect.withSpan("seedWorkspaceFiles"));
 }
 
-function symlinkPreferring(
-  fileSystem: FileSystem.FileSystem,
-  candidates: ReadonlyArray<string>,
-  target: string,
-): Effect.Effect<void, ChannelPluginInstallError | PlatformError> {
-  return Effect.gen(function* () {
-    for (const candidate of candidates) {
-      const exists = yield* fileSystem.exists(candidate);
-      if (exists) {
-        return yield* fileSystem.symlink(candidate, target);
-      }
-    }
-    return yield* Effect.fail(
-      new ChannelPluginInstallError({
-        message: `channel-plugin-install: none of the candidate paths exist for ${target}: ${candidates.join(", ")}`,
-      }),
-    );
-  });
+export function resolveWorkspaceFileDestination(
+  path: Path.Path,
+  workspaceRoot: string,
+  relativePath: string,
+): string | null {
+  if (relativePath.length === 0 || path.isAbsolute(relativePath)) {
+    return null;
+  }
+  const root = path.resolve(workspaceRoot);
+  const destination = path.resolve(root, relativePath);
+  const relativeDestination = path.relative(root, destination);
+  if (
+    relativeDestination.length === 0 ||
+    relativeDestination === ".." ||
+    relativeDestination.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativeDestination)
+  ) {
+    return null;
+  }
+  return destination;
 }
 
 /** Resolves a runtime dependency imported by the channel package. */
@@ -267,26 +349,82 @@ export function resolveChannelDependency(
     if (!anchorExists) {
       return null;
     }
-    try {
-      const requireFromAnchor = createRequire(anchor);
-      const pkgJsonPath = requireFromAnchor.resolve(
-        `${packageName}/package.json`,
+
+    const resolutionAnchor = yield* fileSystem
+      .realPath(anchor)
+      .pipe(
+        Effect.catchAll((cause) =>
+          Effect.logWarning(
+            "failed to resolve real channel package path; using linked path",
+            cause,
+          ).pipe(Effect.as(anchor)),
+        ),
       );
-      return path.dirname(pkgJsonPath);
-    } catch (resolveErr) {
-      const code =
-        resolveErr instanceof Error && "code" in resolveErr
-          ? resolveErr.code
-          : undefined;
-      if (code !== "MODULE_NOT_FOUND") {
-        yield* Effect.logWarning(
-          "failed to resolve channel dependency",
-          resolveErr,
-        );
-      }
-      return null;
+    const resolution = resolvePackageRoot(resolutionAnchor, path, packageName);
+    if (resolution.warning !== null) {
+      yield* Effect.logWarning(
+        "failed to resolve channel dependency",
+        resolution.warning,
+      );
     }
+    return resolution.packageRoot;
   }).pipe(Effect.withSpan("resolveChannelDependency"));
+}
+
+function resolvePackageRoot(
+  anchor: string,
+  path: Path.Path,
+  packageName: string,
+): PackageResolution {
+  try {
+    const requireFromAnchor = createRequire(anchor);
+    const packageJsonCandidates = [
+      `${packageName}/package.json`,
+      ...(requireFromAnchor.resolve.paths(packageName) ?? []).map(
+        (lookupPath) => path.join(lookupPath, packageName, "package.json"),
+      ),
+    ];
+    return resolveFirstPackageJson(
+      requireFromAnchor,
+      path,
+      packageJsonCandidates,
+    );
+  } catch (cause) {
+    return {
+      packageRoot: null,
+      warning: isExpectedResolutionFailure(cause) ? null : cause,
+    };
+  }
+}
+
+function resolveFirstPackageJson(
+  requireFromAnchor: NodeRequire,
+  path: Path.Path,
+  candidates: ReadonlyArray<string>,
+): PackageResolution {
+  let firstError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      return {
+        packageRoot: path.dirname(requireFromAnchor.resolve(candidate)),
+        warning: null,
+      };
+    } catch (cause) {
+      firstError ??= cause;
+    }
+  }
+  return {
+    packageRoot: null,
+    warning: isExpectedResolutionFailure(firstError) ? null : firstError,
+  };
+}
+
+function isExpectedResolutionFailure(cause: unknown): boolean {
+  const code =
+    cause instanceof Error && "code" in cause ? cause.code : undefined;
+  return (
+    code === "MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
+  );
 }
 
 function copyFileIfExists(

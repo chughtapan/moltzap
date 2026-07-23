@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: runtimes becomes the moltzap testbed
+
+- **Package rename.** `@moltzap/runtimes` is now `@moltzap/testbed`: the
+  supported harness for launching a collection of agents connected over
+  MoltZap. The fleet surface follows the rename (`launchRuntimeFleet` →
+  `launchTestbed`, `RuntimeFleet` → `Testbed`, `RuntimeFleetStartupInterrupted`
+  → `TestbedStartupInterrupted`), and the package joins the npm publish
+  workflow so external consumers can pin a published version instead of
+  vendoring the source.
+- **Works from an npm install.** Adapter factories no longer assume a
+  monorepo checkout: installed `openclaw` and `@moltzap/openclaw-channel`
+  packages are the default binary/plugin sources, explicit paths remain
+  available as overrides, and channel plugin installation resolves
+  `@moltzap/protocol` / `@moltzap/client` through `createRequire` from the
+  channel package instead of hardcoded `repoRoot/packages/*` symlinks.
+- **Reproducible NanoClaw runtime.** NanoClaw installs from an exact pinned
+  commit with its injected dependencies locked by a bundled lockfile
+  (including an exact `@moltzap/client`), lands in an immutable
+  content-addressed cache with atomic cross-process promotion, and each
+  agent runs in an isolated container namespace with interruption-safe
+  teardown. Stale half-built cache directories from hard-killed installers
+  are swept on the next install.
+
 ### Changed: bounded message history
 
 - **BREAKING (`@moltzap/protocol`): simpler list contract.**

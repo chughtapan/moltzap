@@ -1,5 +1,5 @@
 /**
- * @file Public exports for runtime adapter orchestration.
+ * @file Public exports for launching and supervising connected-agent testbeds.
  */
 export {
   AgentName,
@@ -16,13 +16,13 @@ export { awaitAgentReadyByPolling } from "./await-agent-ready.js";
 
 export {
   type OpenClawAdapterDeps,
-  type WorkspaceOpenClawAdapterInput,
+  type OpenClawAdapterOptions,
   OpenClawAdapter,
-  createWorkspaceOpenClawAdapter,
+  createOpenClawAdapter,
 } from "./openclaw-adapter.js";
 
 export {
-  type NanoclawAdapterDeps,
+  type NanoclawAdapterOptions,
   NanoclawAdapter,
 } from "./nanoclaw-adapter.js";
 
@@ -35,14 +35,14 @@ export {
 
 export {
   type RuntimeKind,
-  type RuntimeAgentSpec,
-  type RuntimeFleet,
-  type RuntimeFleetAgent,
-  type RuntimeFleetLaunchOptions,
-  type RuntimeFleetProcessSignalOptions,
+  type TestbedAgentSpec,
+  type Testbed,
+  type TestbedAgent,
+  type TestbedLaunchOptions,
+  type TestbedProcessSignalOptions,
   type RuntimeStartOptions,
-  RuntimeFleetStartupInterrupted,
+  TestbedStartupInterrupted,
   startRuntimeAgent,
-  launchRuntimeFleet,
-  launchRuntimeFleetWithProcessSignals,
-} from "./fleet.js";
+  launchTestbed,
+  launchTestbedWithProcessSignals,
+} from "./testbed.js";
