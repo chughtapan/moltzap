@@ -19,10 +19,12 @@ import {
 } from "@moltzap/protocol/testing";
 
 import {
+  buildOpenClawConfig,
   createOpenClawAdapter,
   OpenClawAdapter,
   type OpenClawAdapterDeps,
 } from "./openclaw-adapter.js";
+import { TESTBED_PROFILE_NAME } from "./channel-plugin-install.js";
 import {
   NanoclawAdapter,
   type NanoclawAdapterOptions,
@@ -143,6 +145,43 @@ describe("OpenClawAdapter.spawn", () => {
     "cleans prepared state when process spawn fails",
     openClawProcessSpawnFailureCleansState,
   );
+});
+
+// The channel plugin selects its credential profile by account id, so the
+// openclaw.json account must be keyed under the same constant the profile
+// serializer writes.
+const CONFIG_WORKSPACE_DIR = "/workspaces/testbed-agent";
+const CUSTOM_MODEL_ID = "custom/model";
+
+describe("buildOpenClawConfig", () => {
+  it("keys the moltzap account under the testbed profile", () => {
+    const config = buildOpenClawConfig(
+      { agentName: "alice" },
+      CONFIG_WORKSPACE_DIR,
+    );
+
+    expect(config.channels).toMatchObject({
+      moltzap: {
+        accounts: [{ id: TESTBED_PROFILE_NAME, agentName: "alice" }],
+      },
+    });
+    expect(config.agents).toMatchObject({
+      defaults: {
+        workspace: CONFIG_WORKSPACE_DIR,
+        model: { primary: expect.any(String) },
+      },
+    });
+  });
+
+  it("prefers an explicit model id over the default", () => {
+    const config = buildOpenClawConfig(
+      { agentName: "alice", modelId: CUSTOM_MODEL_ID },
+      CONFIG_WORKSPACE_DIR,
+    );
+    expect(config.agents).toMatchObject({
+      defaults: { model: { primary: CUSTOM_MODEL_ID } },
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -318,6 +357,21 @@ describe("NanoclawAdapter", () => {
     expect(typeof marker).toBe(STRING_TYPE);
     expect(marker.length).toBeGreaterThan(0);
   });
+
+  it(
+    "waitUntilReady returns Ready when no process has been spawned",
+    nanoclawWaitUntilReadyReturnsReadyWithoutSpawn,
+  );
+
+  it(
+    "teardown completes without error when no process has been spawned",
+    nanoclawTeardownWithoutSpawnCompletes,
+  );
+
+  it(
+    "teardown is idempotent — calling twice has same effect as once",
+    nanoclawTeardownIsIdempotent,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -575,6 +629,31 @@ function openClawWaitUntilReadyReturnsReadyWithoutSpawn() {
       expect(outcome._tag).toBe(READY_TAG);
     }),
   );
+}
+
+function nanoclawWaitUntilReadyReturnsReadyWithoutSpawn() {
+  return runTest(
+    Effect.gen(function* () {
+      const adapter = new NanoclawAdapter(stubNanoclawOptions());
+      const outcome: ReadyOutcome =
+        yield* adapter.waitUntilReady(READY_TIMEOUT_MS);
+      expect(outcome._tag).toBe(READY_TAG);
+    }),
+  );
+}
+
+function nanoclawTeardownWithoutSpawnCompletes() {
+  const adapter = new NanoclawAdapter(stubNanoclawOptions());
+  return expect(Effect.runPromise(adapter.teardown())).resolves.toBeUndefined();
+}
+
+function nanoclawTeardownIsIdempotent() {
+  const adapter = new NanoclawAdapter(stubNanoclawOptions());
+  return expect(
+    Effect.runPromise(
+      adapter.teardown().pipe(Effect.zipRight(adapter.teardown())),
+    ),
+  ).resolves.toBeUndefined();
 }
 
 // ---------------------------------------------------------------------------

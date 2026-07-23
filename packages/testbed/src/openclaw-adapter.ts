@@ -608,7 +608,8 @@ function writeOpenClawConfig(opts: {
   });
 }
 
-function buildOpenClawConfig(
+/** @internal */
+export function buildOpenClawConfig(
   opts: {
     readonly agentName: string;
     readonly modelId?: string;

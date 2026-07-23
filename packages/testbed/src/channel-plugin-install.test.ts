@@ -132,7 +132,37 @@ describe("installChannelPlugin", () => {
     "fails instead of creating a dangling link for a missing declared dependency",
     missingDeclaredDependencyFails,
   );
+  it(
+    "fails cleanly when the channel manifest is malformed",
+    malformedChannelManifestFails,
+  );
 });
+
+function malformedChannelManifestFails() {
+  return runWithNodeFileSystem(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const channelPkg = path.join(workDir, "malformed", CHANNEL_PACKAGE_DIR);
+      const channelDist = path.join(channelPkg, "dist");
+      const stateDir = path.join(workDir, ".malformed-state");
+      yield* seedPackage(channelPkg, {
+        name: OPENCLAW_CHANNEL_PACKAGE,
+        type: "module",
+        dependencies: "not-a-record",
+      });
+      yield* seedChannelEntry(channelDist, []);
+      yield* makeDirectory(stateDir);
+
+      const error = yield* installChannelPlugin({
+        stateDir,
+        channelDistDir: channelDist,
+        extName: CHANNEL_EXTENSION_NAME,
+      }).pipe(Effect.flip);
+
+      expect(error).toMatchObject({ _tag: "ChannelPluginInstallError" });
+    }),
+  );
+}
 
 describe("testbed profile config", () => {
   it(

@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import { Command, FileSystem } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
-import { Data, Duration, Effect } from "effect";
+import { Data, Duration, Effect, Option } from "effect";
 
-const NANOCLAW_SHA = ["934f063aff5c30e7b49c", "e58b53b41901d3472a3e"].join("");
+const NANOCLAW_SHA = "934f063aff5c30e7b49ce58b53b41901d3472a3e";
 const NANOCLAW_URL =
   "https://github.com/qwibitai/nanoclaw/archive/" + NANOCLAW_SHA + ".tar.gz";
 const NANOCLAW_CACHE_SCHEMA_VERSION = 3;
@@ -239,6 +239,43 @@ function removeBuildingCacheBestEffort(buildingDir: string) {
   );
 }
 
+// Building dirs from hard-killed installers (SIGKILL skips the ensuring
+// cleanup) would otherwise accumulate full checkouts forever. The age gate
+// keeps the sweep from deleting a concurrent process's in-progress build.
+const STALE_BUILDING_CACHE_MAX_AGE_MS = 86_400_000;
+
+/** @internal */
+export function sweepStaleBuildingCaches(
+  cacheRoot: string,
+  maxAgeMs: number = STALE_BUILDING_CACHE_MAX_AGE_MS,
+) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const exists = yield* fileSystem.exists(cacheRoot);
+    if (!exists) return;
+    const entries = yield* fileSystem.readDirectory(cacheRoot);
+    const cutoff = Date.now() - maxAgeMs;
+    const buildingDirs = entries
+      .filter((entry) => entry.startsWith(BUILDING_CACHE_PREFIX))
+      .map((entry) => join(cacheRoot, entry));
+    for (const buildingDir of buildingDirs) {
+      const info = yield* fileSystem.stat(buildingDir);
+      const mtime = Option.getOrNull(info.mtime);
+      if (mtime !== null && mtime.getTime() <= cutoff) {
+        yield* fileSystem.remove(buildingDir, { recursive: true, force: true });
+      }
+    }
+  }).pipe(
+    Effect.catchAll((cause) =>
+      Effect.logWarning(
+        "failed to sweep stale NanoClaw building caches",
+        cause,
+      ),
+    ),
+    Effect.withSpan("sweepStaleBuildingCaches"),
+  );
+}
+
 function ensureBundledAssetExists(assetPath: string) {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -349,6 +386,10 @@ export function patchNanoclawContainerIsolationSources(
       ].join("\n"),
       "src/container-runtime.ts",
     );
+    // The "$" + "{...}" concatenations below emit literal template-placeholder
+    // text into the patched NanoClaw sources; writing "${...}" directly here
+    // would trip no-template-curly-in-string and read as an intended
+    // interpolation of this file.
     const patchedRuntime = yield* replacePinnedSource(
       runtimeWithNamespace,
       "name=nanoclaw-",
@@ -617,6 +658,7 @@ export function ensureNanoclawRuntimeInstalledEffect() {
   return INSTALL_PERMIT.withPermits(1)(
     Effect.gen(function* () {
       const target = yield* resolveCacheTarget();
+      yield* sweepStaleBuildingCaches(target.cacheRoot);
       yield* preflightDocker();
       const generationDir = yield* findNanoclawCacheGeneration(
         target.cacheRoot,
