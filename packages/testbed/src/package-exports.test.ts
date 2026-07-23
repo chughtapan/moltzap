@@ -11,8 +11,8 @@ function loadPackageExports(): Record<string, unknown> {
   return parsed.exports ?? {};
 }
 
-describe("@moltzap/runtimes package exports", () => {
-  it("publishes only the root runtime surface", () => {
+describe("@moltzap/testbed package exports", () => {
+  it("publishes only the root testbed surface", () => {
     const exports = loadPackageExports();
 
     expect(exports).toEqual({

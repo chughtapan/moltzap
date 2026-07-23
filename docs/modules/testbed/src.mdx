@@ -1,14 +1,19 @@
-# runtimes/src
+---
+title: "testbed/src"
+description: "Public exports for launching and supervising connected-agent testbeds."
+---
 
-_`packages/runtimes/src`_
+# testbed/src
+
+_`packages/testbed/src`_
 
 ## Purpose
 
-Public exports for runtime adapter orchestration.
+Public exports for launching and supervising connected-agent testbeds.
 
 ## Public surface
 
-### [`AgentName`](./runtime.ts#L7)
+### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L7)
 
 _TypeAlias_
 
@@ -16,7 +21,7 @@ _TypeAlias_
 export type AgentName = string & Brand.Brand<"AgentName">;
 ```
 
-### [`AgentName`](./runtime.ts#L7)
+### [`AgentName`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L7)
 
 _Variable_
 
@@ -24,7 +29,7 @@ _Variable_
 export type AgentName = string & Brand.Brand<"AgentName">
 ```
 
-### [`awaitAgentReadyByPolling`](./await-agent-ready.ts#L106)
+### [`awaitAgentReadyByPolling`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/await-agent-ready.ts#L106)
 
 _Function_
 
@@ -37,95 +42,89 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createWorkspaceOpenClawAdapter`](./openclaw-adapter.ts#L418)
+### [`createOpenClawAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/openclaw-adapter.ts#L528)
 
 _Function_
 
 ```ts
-export function createWorkspaceOpenClawAdapter(
-  input: WorkspaceOpenClawAdapterInput,
+export function createOpenClawAdapter(
+  input: OpenClawAdapterOptions,
 ): OpenClawAdapter
 ```
 
-Workspace-aware factory: resolves `openclawBin`, `channelDistDir`,
-and `repoRoot` from the monorepo layout at module-load time
-(synchronously via `Effect.runSync`), then constructs an
-OpenClawAdapter.
+Creates an OpenClawAdapter. Omitted paths resolve from this package's
+installed, versioned `openclaw` and `@moltzap/openclaw-channel`
+dependencies. Callers may override either path for local development.
 
 ```mermaid
 flowchart TD
-  OCWF["createWorkspaceOpenClawAdapter(input)"]
-  OCPR["resolveWorkspacePackageRoot<br>(walk import.meta.url ancestors to 'packages' segment)"]
-  OCRR["repoRoot = input.repoRoot ?? two-dirs-up-from-packageRoot"]
-  OCBIN["openclawBin = input.openclawBin ??<br>resolveWorkspaceOpenClawBin<br>(createRequire(packages/runtimes/package.json).resolve('openclaw') → walk back to package root → read package.json bin)"]
-  OCCH["channelDistDir = input.channelDistDir ??<br>repoRoot/packages/openclaw-channel/dist"]
-  OCOUT["new OpenClawAdapter({ server, openclawBin, channelDistDir, repoRoot })"]
-  OCWF --> OCPR --> OCRR --> OCBIN --> OCCH --> OCOUT
+  OCWF["createOpenClawAdapter(input)"]
+  OCBIN["openclawBin = input.openclawBin ??<br>resolveInstalledPackageBin('openclaw')"]
+  OCCH["channelDistDir = input.channelDistDir ??<br>resolveInstalledPackageRoot('@moltzap/openclaw-channel')/dist"]
+  OCOUT["new OpenClawAdapter({ server, openclawBin, channelDistDir })"]
+  OCWF --> OCBIN --> OCCH --> OCOUT
 ```
 
-Non-workspace usage: pass explicit `openclawBin` /
-`channelDistDir` to OpenClawAdapter's constructor
-directly. This factory is a convenience for monorepo callers.
-
-### [`launchRuntimeFleet`](./fleet.ts#L319)
+### [`launchTestbed`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L337)
 
 _Function_
 
 ```ts
-export function launchRuntimeFleet(
-  options: RuntimeFleetLaunchOptions,
-): Effect.Effect<RuntimeFleet, RuntimeLaunchFailed, never>
+export function launchTestbed(
+  options: TestbedLaunchOptions,
+): Effect.Effect<Testbed, RuntimeLaunchFailed, never>
 ```
 
-Launch N agents (sequentially by default; concurrency is opt-in),
-tearing down all already-started agents if any one fails.
+Launch a testbed of N agents (sequentially by default; concurrency is
+opt-in), tearing down all already-started agents if any one fails.
 
 ```mermaid
 flowchart TD
-  FL["launchRuntimeFleet(options)<br>Effect.scoped, withSpan"]
-  FL --> SEQ["Effect.forEach(options.agents, startFleetAgent,<br>{ concurrency: options.concurrency ?? 1 })"]
+  FL["launchTestbed(options)<br>Effect.scoped, withSpan"]
+  FL --> SEQ["Effect.forEach(options.agents, startTestbedAgent,<br>{ concurrency: options.concurrency ?? 1 })"]
   SEQ -->|One fails| TD["onExit: teardownStartedAgents<br>in REVERSE insertion order"]
-  SEQ -->|All succeed| RF["toRuntimeFleet(started)<br>→ RuntimeFleet { agents, stopAll, getLogs }"]
+  SEQ -->|All succeed| RF["toTestbed(started)<br>→ Testbed { agents, stopAll, getLogs }"]
 ```
 
-Sibling: launchRuntimeFleetWithProcessSignals adds SIGINT
+Sibling: launchTestbedWithProcessSignals adds SIGINT
 / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
-`RuntimeFleetStartupInterrupted`.
+`TestbedStartupInterrupted`.
 
-### [`launchRuntimeFleetWithProcessSignals`](./fleet.ts#L420)
+### [`launchTestbedWithProcessSignals`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L439)
 
 _Function_
 
 ```ts
-export function launchRuntimeFleetWithProcessSignals(
-  options: RuntimeFleetProcessSignalOptions,
+export function launchTestbedWithProcessSignals(
+  options: TestbedProcessSignalOptions,
 ): Effect.Effect<
-  RuntimeFleet,
-  RuntimeLaunchFailed | RuntimeFleetStartupInterrupted,
+  Testbed,
+  RuntimeLaunchFailed | TestbedStartupInterrupted,
   never
 >
 ```
 
-Wraps launchRuntimeFleet with OS-signal handlers so user
-Ctrl-C during startup interrupts cleanly instead of half-launching
-a fleet.
+Wraps launchTestbed with OS-signal handlers so user Ctrl-C
+during startup interrupts cleanly instead of half-launching a testbed.
 
 ```mermaid
 flowchart TD
-  LRFPS["launchRuntimeFleetWithProcessSignals(options)"]
-  LRFPS --> FORK["Effect.runFork(launchRuntimeFleet) → fiber"]
+  LRFPS["launchTestbedWithProcessSignals(options)"]
+  LRFPS --> FORK["Effect.runFork(launchTestbed) → fiber"]
   FORK --> SIGS["installProcessSignalHandlers<br>(SIGINT, SIGTERM by default)<br>first signal: shutdownSignal.value = signal<br>Fiber.interrupt(fiber)"]
-  SIGS --> OBS["observeFleetLaunchFiber<br>routes by exit shape"]
-  OBS -->|Success| OK["resume(Effect.succeed(fleet))"]
-  OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))<br>→ RuntimeFleetStartupInterrupted"]
+  SIGS --> OBS["observeTestbedLaunchFiber<br>routes by exit shape"]
+  LRFPS -->|caller interruption| CANCEL["canceler removes handlers<br>and awaits Fiber.interrupt(fiber)"]
+  CANCEL --> CLEAN["launchTestbed finalizers<br>finish runtime teardown"]
+  OBS -->|Success| OK["resume(Effect.succeed(testbed))"]
+  OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))<br>→ TestbedStartupInterrupted"]
   OBS -->|Other failure| ERR["resume(Effect.failCause(...))"]
 ```
 
 **Fails with:**
 
-- `RuntimeFleetStartupInterrupted` — a signal arrives during fleet startup
+- `TestbedStartupInterrupted` — a signal arrives during testbed startup
 
-### [`LogSlice`](./runtime.ts#L49)
+### [`LogSlice`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L49)
 
 _Interface_
 
@@ -138,7 +137,7 @@ export interface LogSlice {
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L80)
+### [`NanoclawAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/nanoclaw-adapter.ts#L122)
 
 _Class_
 
@@ -146,33 +145,13 @@ _Class_
 export class NanoclawAdapter implements Runtime {
   private state: AdapterState | null = null;
 
-  constructor(private readonly deps: NanoclawAdapterDeps) {}
+  constructor(private readonly options: NanoclawAdapterOptions) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    const toSpawnFailed = (cause: unknown) => {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      return new SpawnFailed({
-        agentName: input.agentName,
-        cause: error,
-        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
-      });
-    };
-
-    return Effect.gen(this, function* () {
-      yield* ensureNanoclawRuntimeInstalledEffect();
-
-      const handle = yield* startNanoclawRuntimeEffect({
-        agentName: input.agentName,
-        agentId: input.agentId,
-        apiKey: input.apiKey,
-        serverUrl: input.serverUrl,
-        workspaceFiles: input.workspaceFiles,
-      });
-
-      yield* Effect.sync(() => {
-        this.state = { handle, spawnInput: input, tornDown: false };
-      });
-    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
+    return this.launchRuntime(input).pipe(
+      Effect.mapError((cause) => spawnFailedFor(input, cause)),
+      Effect.provide(NodeContext.layer),
+    );
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
@@ -182,7 +161,7 @@ export class NanoclawAdapter implements Runtime {
     const { handle, spawnInput } = this.state;
     const agentId = spawnInput.agentId;
 
-    const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
+    const serverReady = this.options.server.awaitAgentReady(agentId, timeoutMs);
     const processExit = {
       pollExitCode: () => pollNanoclawExitCode(handle),
       stderr: () => getNanoclawRuntimeLogs(handle),
@@ -206,7 +185,7 @@ export class NanoclawAdapter implements Runtime {
   }
 
   teardown(): Effect.Effect<void, never, never> {
-    return this.doTeardown();
+    return this.state?.teardown ?? Effect.void;
   }
 
   getLogs(offset: number): LogSlice {
@@ -220,20 +199,37 @@ export class NanoclawAdapter implements Runtime {
     return "New messages";
   }
 
-  private doTeardown(): Effect.Effect<void, never, never> {
-    return Effect.sync(() => {
-      const state = this.state;
-      if (!state || state.tornDown) return null;
-      state.tornDown = true;
-      return state.handle;
-    }).pipe(
-      Effect.flatMap((handle) =>
-        handle === null
-          ? Effect.void
-          : stopNanoclawRuntimeEffect(handle).pipe(
-              Effect.provide(NodeContext.layer),
-              Effect.catchAll(() => Effect.void),
+  private launchRuntime(input: SpawnInput) {
+    const lease = { committed: false };
+    return Effect.uninterruptibleMask((restore) =>
+      Effect.scoped(
+        Effect.gen(this, function* () {
+          const handle = yield* Effect.acquireRelease(
+            restore(
+              acquireNanoclawRuntime(
+                input,
+                this.options.autoRegisterConversations ?? false,
+              ),
             ),
+            (acquired) =>
+              lease.committed
+                ? Effect.void
+                : stopNanoclawRuntimeSafely(
+                    acquired,
+                    "failed to release uncommitted NanoClaw runtime",
+                  ),
+          );
+          const teardown = yield* Effect.cached(
+            stopNanoclawRuntimeSafely(
+              handle,
+              "failed to tear down NanoClaw runtime",
+            ),
+          );
+          yield* Effect.sync(() => {
+            this.state = { handle, spawnInput: input, teardown };
+            lease.committed = true;
+          });
+        }),
       ),
     );
   }
@@ -247,18 +243,18 @@ runtime cache is installed, then launch.
 ```mermaid
 flowchart TD
   NS["NanoclawAdapter.spawn(input)"]
-  subgraph P1["Phase 1 — ensureNanoclawRuntimeInstalledEffect"]
-    P1C{".ready exists?"}
-    P1WARM["syncChannelFileIntoCache<br>(diff channel + client/dist; rebuild if drifted)"]
-    P1COLD["preflightDocker → downloadTarball<br>→ copy channel + barrel + skill<br>→ buildNanoclawRuntimeCache<br>→ promoteRuntimeCache"]
-    P1C -->|warm| P1WARM
-    P1C -->|cold| P1COLD
+  subgraph P1["Install pinned NanoClaw runtime"]
+    P1C{"matching immutable generation exists?"}
+    P1WARM["reuse immutable generation"]
+    P1COLD["preflightDocker → download pinned tarball<br>→ copy bundled channel + skill<br>→ install pinned client + build<br>→ publish immutable generation"]
+    P1C -->|yes| P1WARM
+    P1C -->|no| P1COLD
   end
-  subgraph P2["Phase 2 — startNanoclawRuntimeEffect"]
-    P2DIR[createNanoclawDataDir]
+  subgraph P2["Start isolated agent runtime"]
+    P2DIR["create isolated runtime dir<br>copy container + scripts"]
     P2OC["ensureOnecliRunning<br>(probe 10254; up if unreachable)"]
-    P2WS[writeRuntimeWorkspaceFiles]
-    P2SP["startNanoclawProcess<br>(node dist/index.js + ONECLI_URL env)"]
+    P2WS["write agent-local workspace files + profile"]
+    P2SP["startNanoclawProcess<br>(absolute cached entrypoint,<br>isolated runtime cwd)"]
     P2WAIT["waitForNanoclawConnection<br>(scan logs for CONNECTED_MARKER)"]
     P2DIR --> P2OC --> P2WS --> P2SP --> P2WAIT
   end
@@ -266,22 +262,27 @@ flowchart TD
   NS --> P1 --> P2 --> NCR
 ```
 
-Inbound marker: `New messages`. Cache lives at
-`NANOCLAW_RUNTIME_CACHE`; the channel-file sync detects drift in
-the moltzap channel + client-dist files and rebuilds.
+Inbound marker: `New messages`. The immutable cache key covers the pinned
+NanoClaw source, dependency lock, bundled channel/skill, and host ABI.
 
-### [`NanoclawAdapterDeps`](./nanoclaw-adapter.ts#L25)
+### [`NanoclawAdapterOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/nanoclaw-adapter.ts#L25)
 
 _Interface_
 
 ```ts
-export interface NanoclawAdapterDeps {
+export interface NanoclawAdapterOptions {
   readonly server: RuntimeServerHandle;
-  readonly nanoclawCache?: string;
+
+  /**
+   * Registers conversations on first delivery so NanoClaw will process them.
+   * Defaults to `false`; enable it only for disposable testbeds that should
+   * accept conversations without a pre-provisioned NanoClaw registration.
+   */
+  readonly autoRegisterConversations?: boolean;
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L278)
+### [`OpenClawAdapter`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/openclaw-adapter.ts#L431)
 
 _Class_
 
@@ -301,28 +302,8 @@ export class OpenClawAdapter implements Runtime {
       });
     };
 
-    return Effect.gen(this, function* () {
-      const port = yield* allocateFreePort();
-      const { deps } = this;
-      const stateDir = yield* prepareOpenClawStateDir(deps, input);
-      const logBuffer = { value: "" };
-      const child = yield* spawnConfiguredOpenClaw({
-        deps,
-        stateDir,
-        input,
-        port,
-        logBuffer,
-      });
-
-      const st: AdapterState = {
-        process: child,
-        stateDir,
-        logBuffer,
-        spawnInput: input,
-        tornDown: false,
-      };
-
-      this.state = st;
+    return startOpenClawAdapter(this.deps, input, (state) => {
+      this.state = state;
     }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
   }
 
@@ -357,7 +338,24 @@ export class OpenClawAdapter implements Runtime {
   }
 
   teardown(): Effect.Effect<void, never, never> {
-    return this.doTeardown();
+    return Effect.uninterruptible(
+      Effect.gen(this, function* () {
+        const teardownState = yield* Effect.sync(() => {
+          const state = this.state;
+          if (!state || state.tornDown) return null;
+          state.tornDown = true;
+          return { process: state.process, stateDir: state.stateDir };
+        });
+
+        if (teardownState === null) return;
+
+        const { process: proc, stateDir } = teardownState;
+        yield* stopSpawnedOpenClawProcess(proc);
+        yield* removeOpenClawStateDir(stateDir).pipe(
+          Effect.provide(NodeContext.layer),
+        );
+      }),
+    );
   }
 
   getLogs(offset: number): LogSlice {
@@ -370,39 +368,6 @@ export class OpenClawAdapter implements Runtime {
   getInboundMarker(): string {
     return "inbound from agent:";
   }
-
-  private doTeardown(): Effect.Effect<void, never, never> {
-    return Effect.gen(this, function* () {
-      const teardownState = yield* Effect.sync(() => {
-        const state = this.state;
-        if (!state || state.tornDown) return null;
-        state.tornDown = true;
-        return { process: state.process, stateDir: state.stateDir };
-      });
-
-      if (teardownState === null) return;
-
-      const { process: proc, stateDir } = teardownState;
-      const exitOpt = yield* pollExitCode(proc);
-      if (Option.isNone(exitOpt)) {
-        yield* waitAfterSigterm(proc).pipe(Effect.asVoid);
-      }
-      yield* Scope.close(proc.scope, Exit.succeed(undefined));
-
-      yield* FileSystem.FileSystem.pipe(
-        Effect.flatMap((fileSystem) =>
-          fileSystem.remove(stateDir, { recursive: true, force: true }),
-        ),
-        Effect.provide(NodeContext.layer),
-        Effect.catchAll((cause) =>
-          Effect.logWarning(
-            "failed to remove OpenClaw adapter state dir",
-            cause,
-          ),
-        ),
-      );
-    });
-  }
 }
 ```
 
@@ -414,21 +379,24 @@ readiness via the server-side WS authentication event.
 flowchart TD
   OCS["OpenClawAdapter.spawn(input)"]
   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
-  OC2["2. prepareOpenClawStateDir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
+  OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
-  OC4["4. spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,<br>OPENCLAW_CONFIG_PATH)<br>scope-bound; exitFiber + log buffer"]
-  OC5["5. state = { process, stateDir, logBuffer, ... }"]
+  OC4["4. lease spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,<br>OPENCLAW_CONFIG_PATH)<br>exitFiber + log buffer"]
+  OC5["5. commit process + state-dir leases<br>to adapter state"]
+  OCF["failed or interrupted handoff<br>stops child + removes state dir"]
   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
   OCS --> OC1 --> OC2 --> OC3 --> OC4 --> OC5 --> OCR
+  OC2 -.->|failure| OCF
+  OC4 -.->|failure or interruption| OCF
 ```
 
 Readiness signal: server-side WS authentication event surfaces via
 `deps.server.awaitAgentReady`. Inbound traffic log marker:
-`inbound from agent:`. Errors flow into the fleet via `SpawnFailed`
+`inbound from agent:`. Errors flow into the testbed via `SpawnFailed`
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L146)
+### [`OpenClawAdapterDeps`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/openclaw-adapter.ts#L212)
 
 _Interface_
 
@@ -437,11 +405,22 @@ export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
   readonly openclawBin: string;
   readonly channelDistDir: string;
-  readonly repoRoot: string;
 }
 ```
 
-### [`ReadyOutcome`](./runtime.ts#L56)
+### [`OpenClawAdapterOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/openclaw-adapter.ts#L218)
+
+_Interface_
+
+```ts
+export interface OpenClawAdapterOptions {
+  readonly server: RuntimeServerHandle;
+  readonly openclawBin?: string;
+  readonly channelDistDir?: string;
+}
+```
+
+### [`ReadyOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L56)
 
 _TypeAlias_
 
@@ -450,7 +429,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](./runtime.ts#L75)
+### [`Runtime`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L75)
 
 _Interface_
 
@@ -466,7 +445,7 @@ export interface Runtime {
    */
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never>;
 
-  /** Idempotent. SIGTERM → wait 10s → SIGKILL to process group. rm -rf workdir. */
+  /** Idempotently stops the spawned runtime and removes its isolated state. */
   teardown(): Effect.Effect<void, never, never>;
 
   /** Returns stdout+stderr from the given byte offset. */
@@ -486,22 +465,7 @@ getLogs returns accumulated output from a byte offset.
 getInboundMarker returns a substring that proves an inbound message
 was received by the runtime's channel plugin.
 
-### [`RuntimeAgentSpec`](./fleet.ts#L31)
-
-_Interface_
-
-```ts
-export interface RuntimeAgentSpec {
-  readonly agentName: string;
-  readonly apiKey: AgentKey;
-  readonly agentId: AgentId;
-  readonly serverUrl: string;
-  readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
-  readonly modelId?: string;
-}
-```
-
-### [`RuntimeExitedBeforeReady`](./errors.ts#L46)
+### [`RuntimeExitedBeforeReady`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/errors.ts#L46)
 
 _Class_
 
@@ -523,89 +487,15 @@ Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
 `exitCode` is `null` only if the process exited via signal.
 Caller action: inspect `stderr`; check binary auth config.
 
-### [`RuntimeFleet`](./fleet.ts#L69)
-
-_Interface_
-
-```ts
-export interface RuntimeFleet {
-  readonly agents: ReadonlyArray<RuntimeFleetAgent>;
-  stopAll(): Effect.Effect<void, never, never>;
-  getLogs(name: string): string;
-}
-```
-
-### [`RuntimeFleetAgent`](./fleet.ts#L64)
-
-_Interface_
-
-```ts
-export interface RuntimeFleetAgent {
-  readonly name: string;
-  readonly agentId: AgentId;
-}
-```
-
-### [`RuntimeFleetLaunchOptions`](./fleet.ts#L49)
-
-_Interface_
-
-```ts
-export interface RuntimeFleetLaunchOptions {
-  readonly kind: RuntimeKind;
-  readonly server: RuntimeServerHandle;
-  readonly agents: ReadonlyArray<RuntimeAgentSpec>;
-  readonly readyTimeoutMs: number;
-  readonly concurrency?: number | "unbounded";
-  readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
-  readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
-}
-```
-
-### [`RuntimeFleetProcessSignalOptions`](./fleet.ts#L59)
-
-_Interface_
-
-```ts
-export interface RuntimeFleetProcessSignalOptions
-  extends RuntimeFleetLaunchOptions {
-  readonly signals?: ReadonlyArray<Signal>;
-}
-```
-
-### [`RuntimeFleetStartupInterrupted`](./fleet.ts#L75)
-
-_Class_
-
-```ts
-export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
-  "RuntimeFleetStartupInterrupted",
-)<{
-  readonly signal: Signal;
-  readonly message: string;
-}> {}
-```
-
-### [`RuntimeKind`](./fleet.ts#L27)
+### [`RuntimeKind`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L56)
 
 _TypeAlias_
 
 ```ts
-export type RuntimeKind = "openclaw" | "nanoclaw";
-
-const LOG_START_OFFSET = 0;
-
-export interface RuntimeAgentSpec {
-  readonly agentName: string;
-  readonly apiKey: AgentKey;
-  readonly agentId: AgentId;
-  readonly serverUrl: string;
-  readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
-  readonly modelId?: string;
-}
+export type RuntimeKind = RuntimeSelection["kind"];
 ```
 
-### [`RuntimeLaunchFailed`](./errors.ts#L64)
+### [`RuntimeLaunchFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/errors.ts#L63)
 
 _TypeAlias_
 
@@ -616,15 +506,14 @@ export type RuntimeLaunchFailed =
   | RuntimeExitedBeforeReady;
 ```
 
-Union of every failure mode `startRuntimeAgent` and
-`launchRuntimeFleet` can produce. Use `Effect.catchTags` to
+Union of every failure mode `startRuntimeAgent` and `launchTestbed` can
+produce. Use `Effect.catchTags` to
 branch by tag, or `Effect.catchAll` to handle uniformly.
 
-Note: `RuntimeFleetStartupInterrupted` lives in `fleet.ts` because
-it only arises in the signal-handling variant and carries the
-interrupting `Signal`.
+Note: `TestbedStartupInterrupted` lives in `testbed.ts` because it only
+arises in the signal-handling variant and carries the interrupting `Signal`.
 
-### [`RuntimeReadyTimedOut`](./errors.ts#L30)
+### [`RuntimeReadyTimedOut`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/errors.ts#L30)
 
 _Class_
 
@@ -639,13 +528,13 @@ export class RuntimeReadyTimedOut extends Data.TaggedError(
 ```
 
 Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
-`Timeout`. The process is still running but never signaled ready
-within `timeoutMs`.
+`Timeout`. The process did not signal ready within `timeoutMs` and
+has been torn down before the failure reaches the caller.
 
-Caller action: increase `readyTimeoutMs`, or inspect
-`runtime.getLogs(0)` to see what the subprocess is doing.
+Caller action: increase `readyTimeoutMs`, or enable process-level
+diagnostics at the adapter boundary.
 
-### [`RuntimeServerHandle`](./runtime.ts#L20)
+### [`RuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L20)
 
 _Interface_
 
@@ -671,22 +560,22 @@ export interface RuntimeServerHandle {
 }
 ```
 
-### [`RuntimeStartOptions`](./fleet.ts#L40)
+### [`RuntimeStartOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L58)
 
-_Interface_
+_TypeAlias_
 
 ```ts
-export interface RuntimeStartOptions {
-  readonly kind: RuntimeKind;
+export type RuntimeStartOptions = RuntimeStartOptionsBase & RuntimeSelection;
+
+interface TestbedLaunchOptionsBase {
   readonly server: RuntimeServerHandle;
-  readonly agent: RuntimeAgentSpec;
+  readonly agents: ReadonlyArray<TestbedAgentSpec>;
   readonly readyTimeoutMs: number;
-  readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
-  readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
+  readonly concurrency?: number | "unbounded";
 }
 ```
 
-### [`ServerUrl`](./runtime.ts#L8)
+### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L8)
 
 _TypeAlias_
 
@@ -694,7 +583,7 @@ _TypeAlias_
 export type ServerUrl = string & Brand.Brand<"ServerUrl">;
 ```
 
-### [`ServerUrl`](./runtime.ts#L8)
+### [`ServerUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L8)
 
 _Variable_
 
@@ -702,7 +591,7 @@ _Variable_
 export type ServerUrl = string & Brand.Brand<"ServerUrl">
 ```
 
-### [`SpawnFailed`](./errors.ts#L16)
+### [`SpawnFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/errors.ts#L16)
 
 _Class_
 
@@ -721,7 +610,7 @@ failure, state-dir creation failure.
 `cause` carries the underlying Error.
 Caller action: surface to user. No retry — binary or config is wrong.
 
-### [`SpawnInput`](./runtime.ts#L40)
+### [`SpawnInput`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L40)
 
 _Interface_
 
@@ -736,7 +625,7 @@ export interface SpawnInput {
 }
 ```
 
-### [`startRuntimeAgent`](./fleet.ts#L291)
+### [`startRuntimeAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L309)
 
 _Function_
 
@@ -754,14 +643,14 @@ flowchart TD
   A["startRuntimeAgent(options)"]
   A --> B["Effect.scoped:<br>startPendingRuntimeAgent → PendingAgent"]
   B --> C[releaseStartupCleanup]
-  C --> D["Runtime { stop, getLogs }"]
+  C --> D["Runtime { teardown, getLogs }"]
   B -->|Spawn fails| E[SpawnFailed]
   B -->|Process exits early| F[RuntimeExitedBeforeReady]
   B -->|Ready signal times out| G[RuntimeReadyTimedOut]
 ```
 
 Error channel is the union `RuntimeLaunchFailed` of the three
-shapes above. Sibling: launchRuntimeFleet for multi-agent
+shapes above. Sibling: launchTestbed for multi-agent
 coordinated startup.
 
 **Fails with:**
@@ -770,7 +659,80 @@ coordinated startup.
 - `RuntimeReadyTimedOut` — `waitUntilReady` exceeds `readyTimeoutMs`
 - `RuntimeExitedBeforeReady` — the process exits before signaling ready (inspect `stderr`)
 
-### [`WorkspaceFile`](./runtime.ts#L15)
+### [`Testbed`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L78)
+
+_Interface_
+
+```ts
+export interface Testbed {
+  readonly agents: ReadonlyArray<TestbedAgent>;
+  stopAll(): Effect.Effect<void, never, never>;
+  getLogs(name: string): string;
+}
+```
+
+### [`TestbedAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L73)
+
+_Interface_
+
+```ts
+export interface TestbedAgent {
+  readonly name: string;
+  readonly agentId: AgentId;
+}
+```
+
+### [`TestbedAgentSpec`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L29)
+
+_Interface_
+
+```ts
+export interface TestbedAgentSpec {
+  readonly agentName: string;
+  readonly apiKey: AgentKey;
+  readonly agentId: AgentId;
+  readonly serverUrl: string;
+  readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
+  readonly modelId?: string;
+}
+```
+
+### [`TestbedLaunchOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L67)
+
+_TypeAlias_
+
+```ts
+export type TestbedLaunchOptions = TestbedLaunchOptionsBase & RuntimeSelection;
+
+export type TestbedProcessSignalOptions = TestbedLaunchOptions & {
+  readonly signals?: ReadonlyArray<Signal>;
+};
+```
+
+### [`TestbedProcessSignalOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L69)
+
+_TypeAlias_
+
+```ts
+export type TestbedProcessSignalOptions = TestbedLaunchOptions & {
+  readonly signals?: ReadonlyArray<Signal>;
+};
+```
+
+### [`TestbedStartupInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/testbed.ts#L84)
+
+_Class_
+
+```ts
+export class TestbedStartupInterrupted extends Data.TaggedError(
+  "TestbedStartupInterrupted",
+)<{
+  readonly signal: Signal;
+  readonly message: string;
+}> {}
+```
+
+### [`WorkspaceFile`](https://github.com/chughtapan/moltzap/blob/main/packages/testbed/src/runtime.ts#L15)
 
 _Interface_
 
@@ -781,24 +743,11 @@ export interface WorkspaceFile {
 }
 ```
 
-### [`WorkspaceOpenClawAdapterInput`](./openclaw-adapter.ts#L153)
-
-_Interface_
-
-```ts
-export interface WorkspaceOpenClawAdapterInput {
-  readonly server: RuntimeServerHandle;
-  readonly openclawBin?: string;
-  readonly channelDistDir?: string;
-  readonly repoRoot?: string;
-}
-```
-
 ## Files
 
 - `await-agent-ready.ts`
 - `errors.ts`
-- `fleet.ts`
 - `nanoclaw-adapter.ts`
 - `openclaw-adapter.ts`
 - `runtime.ts`
+- `testbed.ts`

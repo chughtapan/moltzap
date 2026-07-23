@@ -14,7 +14,7 @@ import {
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 
-import { MoltZapChannel } from "./moltzap.js";
+import { makeMoltZapChannel, MoltZapChannel } from "./moltzap.js";
 import type { NewMessage, RegisteredGroup } from "../types.js";
 import type { ChannelOpts } from "./registry.js";
 
@@ -124,13 +124,14 @@ function createRecordedOpts(): RecordedChannelOpts {
       received.push({ jid, msg });
       callOrder.push("onMessage");
     },
-    onChatMetadata: (event) => {
+    onChatMetadata: (...metadataArgs) => {
+      const [chatJid, timestamp, name, channel, isGroup] = metadataArgs;
       metadata.push({
-        jid: event.chatJid,
-        ts: event.timestamp,
-        name: event.name,
-        channel: event.channel,
-        isGroup: event.isGroup,
+        jid: chatJid,
+        ts: timestamp,
+        name,
+        channel,
+        isGroup,
       });
       callOrder.push("onChatMetadata");
     },
@@ -266,6 +267,16 @@ function disconnectDelegatesToCore() {
     expect(harness.fake.state.closeCalls.count).toBe(1);
     expect(harness.channel.isConnected()).toBe(false);
   });
+}
+
+function constructsSynchronouslyWithoutReadingTheProfile() {
+  const channel = makeMoltZapChannel(
+    createRecordedOpts(),
+    false,
+    "profile-loaded-on-connect",
+  );
+  expect(channel).toBeInstanceOf(MoltZapChannel);
+  expect(channel.isConnected()).toBe(false);
 }
 
 function ownsPrefixedJids() {
@@ -616,6 +627,10 @@ function sanitizesCrossConversationSenderName() {
 }
 
 describe("MoltZapChannel lifecycle", () => {
+  vitestIt(
+    "constructs synchronously without reading the profile",
+    constructsSynchronouslyWithoutReadingTheProfile,
+  );
   it(
     "connect delegates to the core and marks connected",
     connectDelegatesToCore,

@@ -2,9 +2,9 @@
 // When moltzap.ts is copied into a real nanoclaw fork, these imports resolve
 // against nanoclaw's own src/types.ts (which has the same signatures).
 //
-// Pinned to nanoclaw 1.2.52 types as of 2026-04-10. If nanoclaw upstream refactors
-// these signatures, bump the stubs together with the pinned NANOCLAW_SHA in
-// packages/runtimes/src/nanoclaw-process.ts.
+// Mirrors the channel surface at NanoClaw SHA
+// 934f063aff5c30e7b49ce58b53b41901d3472a3e. Update these stubs with the
+// NANOCLAW_SHA in packages/testbed/src/nanoclaw-install.ts.
 
 export interface RegisteredGroup {
   name: string;
@@ -53,12 +53,12 @@ export interface Channel {
 
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;
 
-interface ChatMetadata {
-  readonly chatJid: string;
-  readonly timestamp: string;
-  readonly name?: string;
-  readonly channel?: string;
-  readonly isGroup?: boolean;
-}
-
-export type OnChatMetadata = (metadata: ChatMetadata) => void;
+export type OnChatMetadata = (
+  ...metadata: [
+    chatJid: string,
+    timestamp: string,
+    name?: string,
+    channel?: string,
+    isGroup?: boolean,
+  ]
+) => void;

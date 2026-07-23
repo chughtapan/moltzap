@@ -155,7 +155,7 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](./server.ts#L60)
+### [`CoreTestRuntimeServerHandle`](./server.ts#L59)
 
 _Interface_
 
@@ -168,7 +168,7 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L115)
+### [`CoreTestServer`](./server.ts#L114)
 
 _Interface_
 
@@ -182,7 +182,7 @@ export interface CoreTestServer {
   /**
    * Pre-wired `RuntimeServerHandle` for runtime-adapter tests. Implements
    * `awaitAgentReady` by polling the live `ConnectionManager` — the same
-   * pattern `@moltzap/runtimes`'s `awaitAgentReadyByPolling` exports for
+   * pattern `@moltzap/testbed`'s `awaitAgentReadyByPolling` exports for
    * downstream in-process consumers. Out-of-process consumers (zapbot's
    * orchestrator) construct their own handle over WebSocket presence.
    */
@@ -219,7 +219,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](./server.ts#L386)
+### [`getBaseUrl`](./server.ts#L385)
 
 _Function_
 
@@ -227,7 +227,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](./server.ts#L371)
+### [`getCoreDb`](./server.ts#L370)
 
 _Function_
 
@@ -235,7 +235,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L379)
+### [`getCoreEncryptionEnvelope`](./server.ts#L378)
 
 _Function_
 
@@ -243,7 +243,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L391)
+### [`getWsUrl`](./server.ts#L390)
 
 _Function_
 
@@ -422,7 +422,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](./server.ts#L345)
+### [`resetCoreTestDb`](./server.ts#L344)
 
 _Function_
 
@@ -463,7 +463,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L306)
+### [`startCoreTestServer`](./server.ts#L305)
 
 _Function_
 
@@ -471,7 +471,7 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L319)
+### [`stopCoreTestServer`](./server.ts#L318)
 
 _Function_
 
