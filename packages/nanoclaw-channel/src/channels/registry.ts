@@ -10,7 +10,7 @@ import type {
   RegisteredGroup,
 } from "../types.js";
 
-// safer-arch-ignore no-trivial-sink-file: this private registry mirrors Nanoclaw's runtime seam so the smoke-test channel compiles against the host's module shape.
+// safer-arch-ignore no-trivial-sink-file: This host-substitution seam mirrors Nanoclaw's registry contract so the channel source binds to the real runtime registry when installed and to this smoke-test stub in isolation.
 export interface ChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;

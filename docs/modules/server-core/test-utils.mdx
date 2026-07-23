@@ -160,7 +160,29 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L59)
+### [`CoreTestDatabasePort`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L22)
+
+_Interface_
+
+```ts
+export interface CoreTestDatabasePort {
+  execute(sql: string): PromiseLike<unknown>;
+  reset(): PromiseLike<void>;
+}
+```
+
+Database operations available to consumers of the published test harness.
+
+### [`CoreTestReadyOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L4)
+
+_TypeAlias_
+
+```ts
+export type CoreTestReadyOutcome =
+  | { readonly _tag: "Ready" }
+```
+
+### [`CoreTestRuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L14)
 
 _Interface_
 
@@ -173,7 +195,32 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L114)
+Process capabilities needed by in-process runtime tests.
+
+### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/index.ts#L30)
+
+_TypeAlias_
+
+```ts
+export type CoreTestServer = CoreTestServerPort;
+
+/**
+ * Start a test server and expose its package-owned integration ports.
+ * @param opts Test server configuration.
+ * @returns A promise for the running server's integration ports.
+ */
+export function startCoreTestServer(opts: StartCoreTestServerOptions = {}) {
+  return Effect.runPromise(
+    startCoreTestServerEffect(opts).pipe(
+      Effect.map((server) => server.testPort),
+    ),
+  );
+}
+```
+
+Canonical published handle for a running core test server.
+
+### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L106)
 
 _Interface_
 
@@ -187,7 +234,7 @@ export interface CoreTestServer {
   /**
    * Pre-wired `RuntimeServerHandle` for runtime-adapter tests. Implements
    * `awaitAgentReady` by polling the live `ConnectionManager` — the same
-   * pattern `@moltzap/testbed`'s `awaitAgentReadyByPolling` exports for
+   * pattern `@moltzap/runtimes`'s `awaitAgentReadyByPolling` exports for
    * downstream in-process consumers. Out-of-process consumers (zapbot's
    * orchestrator) construct their own handle over WebSocket presence.
    */
@@ -200,8 +247,53 @@ export interface CoreTestServer {
    * their own package-specific projection.
    */
   readonly spanExporter: InMemorySpanExporter | null;
+
+  /** Published projection that keeps persistence and tracing vendors private. */
+  readonly testPort: CoreTestServerPort;
 }
 ```
+
+### [`CoreTestServerPort`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L40)
+
+_Interface_
+
+```ts
+export interface CoreTestServerPort {
+  readonly baseUrl: string;
+  readonly wsUrl: string;
+  readonly db: CoreTestDatabasePort;
+  readonly runtimeServer: CoreTestRuntimeServerHandle;
+  readonly spanExporter: CoreTestSpanExporterPort | null;
+}
+```
+
+Published server handle composed only from server-owned test ports.
+
+### [`CoreTestSpan`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L28)
+
+_Interface_
+
+```ts
+export interface CoreTestSpan {
+  readonly name: string;
+  readonly attributes: Readonly<Record<string, unknown>>;
+}
+```
+
+Stable projection of a finished server trace span.
+
+### [`CoreTestSpanExporterPort`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L34)
+
+_Interface_
+
+```ts
+export interface CoreTestSpanExporterPort {
+  getFinishedSpans(): ReadonlyArray<CoreTestSpan>;
+  reset(): void;
+}
+```
+
+Trace-capture operations available to test-harness consumers.
 
 ### [`createTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L196)
 
@@ -214,7 +306,7 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent, never>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L40)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L47)
 
 _Variable_
 
@@ -224,7 +316,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L385)
+### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L413)
 
 _Function_
 
@@ -232,7 +324,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L370)
+### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L398)
 
 _Function_
 
@@ -240,7 +332,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L378)
+### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L406)
 
 _Function_
 
@@ -248,7 +340,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L390)
+### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L418)
 
 _Function_
 
@@ -427,7 +519,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L344)
+### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L372)
 
 _Function_
 
@@ -468,7 +560,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L305)
+### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/index.ts#L37)
 
 _Function_
 
@@ -476,7 +568,43 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L318)
+Start a test server and expose its package-owned integration ports.
+
+**Returns:** A promise for the running server's integration ports.
+
+### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L342)
+
+_Function_
+
+```ts
+export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
+```
+
+### [`startCoreTestServerEffect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L329)
+
+_Function_
+
+```ts
+export function startCoreTestServerEffect(
+  opts: StartCoreTestServerOptions = {},
+)
+```
+
+### [`StartCoreTestServerOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L48)
+
+_Interface_
+
+```ts
+export interface StartCoreTestServerOptions {
+  readonly pgHost?: string;
+  readonly pgPort?: number;
+  readonly encryption?: boolean;
+  readonly registrationSecret?: string;
+  readonly adminUserId?: UserId;
+}
+```
+
+### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L346)
 
 _Function_
 
@@ -498,5 +626,7 @@ export function trackClient(client: TestAgentClient | TestAppClient): void
 - `core-schema-sql.ts`
 - `fakes.ts`
 - `helpers.ts`
+- `index.ts`
 - `pglite-harness.ts`
+- `ports.ts`
 - `server.ts`

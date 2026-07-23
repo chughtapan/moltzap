@@ -4,7 +4,6 @@
   "maxPublicExports": 42,
   "maxPublicReexports": 13,
   "minPublicFacadeModules": 14,
-  "minFolderReadmeChildren": 13,
   "folderChildCountOverrides": [
     {
       "folder": "transport",

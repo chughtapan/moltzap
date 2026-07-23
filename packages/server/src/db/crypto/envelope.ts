@@ -8,7 +8,6 @@ import { Redacted } from "effect";
 import type { ServerEncryptionMasterSecret } from "#config/secrets";
 import { Dek } from "./dek.js";
 import { Kek } from "./kek.js";
-import { MasterKey } from "./master-key.js";
 
 /**
  * Envelope encryption layer:
@@ -25,6 +24,21 @@ import { MasterKey } from "./master-key.js";
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const KEY_LENGTH = 32;
+
+const MasterKeyTypeId = Symbol("@moltzap/server/MasterKey");
+
+interface MasterKey {
+  readonly [MasterKeyTypeId]: typeof MasterKeyTypeId;
+  readonly toBuffer: () => Buffer;
+}
+
+function masterKeyFromBytes(bytes: Buffer): MasterKey {
+  const copiedBytes = Buffer.from(bytes);
+  return {
+    [MasterKeyTypeId]: MasterKeyTypeId,
+    toBuffer: () => Buffer.from(copiedBytes),
+  };
+}
 
 export interface EncryptedPayload {
   ciphertext: Buffer;
@@ -53,7 +67,7 @@ function decryptBytes(payload: EncryptedPayload, key: Buffer): Buffer {
 function deriveKeyFromSecret(
   masterSecret: ServerEncryptionMasterSecret,
 ): MasterKey {
-  return MasterKey.fromBytes(
+  return masterKeyFromBytes(
     createHash("sha256")
       .update(Buffer.from(Redacted.value(masterSecret), "base64"))
       .digest(),
