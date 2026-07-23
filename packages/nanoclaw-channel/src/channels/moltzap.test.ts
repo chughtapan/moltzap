@@ -279,6 +279,15 @@ function constructsSynchronouslyWithoutReadingTheProfile() {
   expect(channel.isConnected()).toBe(false);
 }
 
+function disconnectBeforeConnectResolvesWithoutACore() {
+  const channel = makeMoltZapChannel(
+    createRecordedOpts(),
+    false,
+    "profile-loaded-on-connect",
+  );
+  return expect(channel.disconnect()).resolves.toBeUndefined();
+}
+
 function ownsPrefixedJids() {
   const harness = createHarness();
   expect(harness.channel.ownsJid(asJid(CONV_1))).toBe(true);
@@ -630,6 +639,10 @@ describe("MoltZapChannel lifecycle", () => {
   vitestIt(
     "constructs synchronously without reading the profile",
     constructsSynchronouslyWithoutReadingTheProfile,
+  );
+  vitestIt(
+    "disconnect before connect resolves without a core",
+    disconnectBeforeConnectResolvesWithoutACore,
   );
   it(
     "connect delegates to the core and marks connected",

@@ -38,6 +38,18 @@ describe("NanoClaw process isolation", () => {
     "patches container names and orphan cleanup with the same namespace",
     patchesContainerNamespace,
   );
+  it(
+    "normalizes the ws server url into the runtime env",
+    normalizesServerUrlForRuntime,
+  );
+  it(
+    "fails when an isolation patch anchor is missing",
+    failsOnMissingPatchAnchor,
+  );
+  it(
+    "fails when an isolation patch anchor is ambiguous",
+    failsOnAmbiguousPatchAnchor,
+  );
 });
 
 function usesAgentLocalProcessRoot() {
@@ -148,6 +160,89 @@ function patchesContainerNamespace() {
         expect(patched.containerRunnerSource).toContain(
           NAMESPACED_CONTAINER_NAME,
         );
+      }),
+      Effect.asVoid,
+    ),
+  );
+}
+
+const NORMALIZED_INSECURE_SERVER_URL = "http://localhost:9999";
+const SECURE_SERVER_URL = "wss://example.test:8443/ws";
+const NORMALIZED_SECURE_SERVER_URL = "https://example.test:8443";
+
+function normalizesServerUrlForRuntime() {
+  return runTest(
+    Path.Path.pipe(
+      Effect.tap((path) => {
+        const install = stubInstall(path.resolve("cache/nanoclaw"));
+        const insecure = buildNanoclawProcessPlan(
+          stubStartOptions(),
+          path.resolve(FIRST_RUNTIME_DIR),
+          install,
+        );
+        const secure = buildNanoclawProcessPlan(
+          { ...stubStartOptions(), serverUrl: SECURE_SERVER_URL },
+          path.resolve(SECOND_RUNTIME_DIR),
+          install,
+        );
+
+        expect(insecure.env.MOLTZAP_SERVER_URL).toBe(
+          NORMALIZED_INSECURE_SERVER_URL,
+        );
+        expect(secure.env.MOLTZAP_SERVER_URL).toBe(
+          NORMALIZED_SECURE_SERVER_URL,
+        );
+      }),
+      Effect.asVoid,
+      Effect.provide(NodeContext.layer),
+    ),
+  );
+}
+
+const RUNTIME_BIN_ANCHOR = "export const CONTAINER_RUNTIME_BIN = 'docker';";
+const RUNNER_SOURCE_LINES = [
+  "import {",
+  "  CONTAINER_RUNTIME_BIN,",
+  "  hostGatewayArgs,",
+  "} from './container-runtime.js';",
+  "const containerName = `nanoclaw-${safeName}-${Date.now()}`;",
+];
+const ANCHOR_ERROR_MESSAGE = /isolation patch anchor/;
+const INSTALL_ERROR_TAG = "NanoclawInstallError";
+
+function failsOnMissingPatchAnchor() {
+  const runtimeSourceWithoutAnchor =
+    "const command = `docker ps --filter name=nanoclaw-`;";
+  return runTest(
+    patchNanoclawContainerIsolationSources(
+      runtimeSourceWithoutAnchor,
+      RUNNER_SOURCE_LINES.join("\n"),
+    ).pipe(
+      Effect.flip,
+      Effect.tap((error) => {
+        expect(error._tag).toBe(INSTALL_ERROR_TAG);
+        expect(error.reason).toMatch(ANCHOR_ERROR_MESSAGE);
+      }),
+      Effect.asVoid,
+    ),
+  );
+}
+
+function failsOnAmbiguousPatchAnchor() {
+  const runtimeSourceWithDuplicateAnchor = [
+    RUNTIME_BIN_ANCHOR,
+    RUNTIME_BIN_ANCHOR,
+    "const command = `docker ps --filter name=nanoclaw-`;",
+  ].join("\n");
+  return runTest(
+    patchNanoclawContainerIsolationSources(
+      runtimeSourceWithDuplicateAnchor,
+      RUNNER_SOURCE_LINES.join("\n"),
+    ).pipe(
+      Effect.flip,
+      Effect.tap((error) => {
+        expect(error._tag).toBe(INSTALL_ERROR_TAG);
+        expect(error.reason).toMatch(ANCHOR_ERROR_MESSAGE);
       }),
       Effect.asVoid,
     ),

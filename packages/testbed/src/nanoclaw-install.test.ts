@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   findNanoclawCacheGeneration,
   publishNanoclawCacheGeneration,
+  sweepStaleBuildingCaches,
 } from "./nanoclaw-install.js";
 
 const CACHE_FINGERPRINT = "a".repeat(64);
@@ -26,7 +27,35 @@ describe("NanoClaw cache generations", () => {
     "publishes concurrent builds to unique generations",
     publishesConcurrently,
   );
+  it(
+    "sweeps stale building caches but keeps fresh ones and generations",
+    sweepsOnlyStaleBuildingCaches,
+  );
 });
+
+const SWEEP_MAX_AGE_MS = 60_000;
+
+function sweepsOnlyStaleBuildingCaches() {
+  return runWithFixture((cacheRoot) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const stale = join(cacheRoot, ".building-stale");
+      const fresh = join(cacheRoot, ".building-fresh");
+      const generation = join(cacheRoot, GENERATION_PREFIX + "keep");
+      yield* fileSystem.makeDirectory(stale, { recursive: true });
+      yield* fileSystem.makeDirectory(fresh, { recursive: true });
+      yield* makeGeneration(generation);
+      const staleDate = new Date(Date.now() - SWEEP_MAX_AGE_MS * 2);
+      yield* fileSystem.utimes(stale, staleDate, staleDate);
+
+      yield* sweepStaleBuildingCaches(cacheRoot, SWEEP_MAX_AGE_MS);
+
+      expect(yield* fileSystem.exists(stale)).toBe(false);
+      expect(yield* fileSystem.exists(fresh)).toBe(true);
+      expect(yield* fileSystem.exists(generation)).toBe(true);
+    }),
+  );
+}
 
 function ignoresInvalidGenerations() {
   return runWithFixture((cacheRoot) =>

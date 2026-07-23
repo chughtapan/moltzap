@@ -27,8 +27,9 @@ import {
 import type { NanoclawRuntimeInstall } from "./nanoclaw-install.js";
 
 // OneCLI gateway — nanoclaw's container-runner calls this for per-container
-// credential injection. Running locally from ~/.onecli/docker-compose.yml,
-// dashboard on 10254, gateway on 10255. Install: curl -fsSL https://onecli.sh/install | sh
+// credential injection. Running locally from ~/.onecli/docker-compose.yml; the
+// service answers both the dashboard and /api/container-config on this one
+// port. Install: curl -fsSL https://onecli.sh/install | sh
 const ONECLI_URL = "http://127.0.0.1:10254";
 const ONECLI_COMPOSE_PATH = join(homedir(), ".onecli/docker-compose.yml");
 
@@ -43,7 +44,7 @@ const NANOCLAW_TERM_WAIT_MS = 12_000;
 const NANOCLAW_KILL_WAIT_MS = 5_000;
 const ONECLI_PROBE_TIMEOUT_MS = 2_000;
 const ONECLI_READY_PROBE_LIMIT = 20;
-const ONECLI_READY_PROBE_INTERVAL = "500 millis";
+const ONECLI_READY_PROBE_INTERVAL_MS = 500;
 const CONNECT_WATCH_INTERVAL_MS = 200;
 const LOG_TAIL_LINE_COUNT = 50;
 const MILLISECONDS_PER_SECOND = 1_000;
@@ -197,7 +198,9 @@ function fsEffect<T>(
 
 function isOnecliReachable(): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
-    const client = yield* HttpClient.HttpClient;
+    // filterStatusOk: a 404/500 — or an unrelated process squatting on the
+    // port — must read as unreachable, not as a healthy gateway.
+    const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient);
     yield* client.execute(
       HttpClientRequest.get(`${ONECLI_URL}/api/container-config`),
     );
@@ -256,12 +259,16 @@ function ensureOnecliRunning(): Effect.Effect<
       if (yield* isOnecliReachable()) {
         return;
       }
-      yield* Effect.sleep(ONECLI_READY_PROBE_INTERVAL);
+      yield* Effect.sleep(Duration.millis(ONECLI_READY_PROBE_INTERVAL_MS));
     }
 
+    const probeWindowSeconds =
+      (ONECLI_READY_PROBE_LIMIT * ONECLI_READY_PROBE_INTERVAL_MS) /
+      MILLISECONDS_PER_SECOND;
     return yield* Effect.fail(
       toRuntimeError(
-        `OneCLI gateway started but not reachable at ${ONECLI_URL} after 10s. ` +
+        `OneCLI gateway started but not reachable at ${ONECLI_URL} ` +
+          `after ${probeWindowSeconds}s. ` +
           `Check: docker compose -p onecli -f ${ONECLI_COMPOSE_PATH} logs`,
       ),
     );

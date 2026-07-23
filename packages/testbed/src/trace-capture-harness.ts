@@ -895,8 +895,17 @@ function startHarnessRuntime(input: {
   readonly targetAgent: TargetAgentRegistration;
   readonly clientModule: ClientTestModule;
 }) {
+  // Harness runs create fresh conversations with no pre-provisioned NanoClaw
+  // registration, so the disposable eval runtime must accept them on delivery.
+  const runtimeSelection =
+    input.payload.runtime.kind === "nanoclaw"
+      ? ({
+          kind: "nanoclaw",
+          nanoclaw: { autoRegisterConversations: true },
+        } as const)
+      : ({ kind: "openclaw" } as const);
   return startRuntimeAgent({
-    kind: input.payload.runtime.kind,
+    ...runtimeSelection,
     server: input.server.runtimeServer,
     readyTimeoutMs:
       input.payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
