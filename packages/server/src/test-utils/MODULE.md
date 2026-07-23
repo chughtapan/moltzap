@@ -215,12 +215,12 @@ export function startCoreTestServer(opts: StartCoreTestServerOptions = {}) {
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServer`](./server.ts#L106)
+### [`CoreTestServerHandle`](./server.ts#L106)
 
 _Interface_
 
 ```ts
-export interface CoreTestServer {
+export interface CoreTestServerHandle {
   baseUrl: string;
   wsUrl: string;
   db: EffectKysely<Database>;
@@ -567,14 +567,6 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServer`](./server.ts#L342)
-
-_Function_
-
-```ts
-export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
-```
-
 ### [`startCoreTestServerEffect`](./server.ts#L329)
 
 _Function_
@@ -583,6 +575,14 @@ _Function_
 export function startCoreTestServerEffect(
   opts: StartCoreTestServerOptions = {},
 )
+```
+
+### [`startCoreTestServerFull`](./server.ts#L342)
+
+_Function_
+
+```ts
+export function startCoreTestServerFull(opts: StartCoreTestServerOptions = {})
 ```
 
 ### [`StartCoreTestServerOptions`](./ports.ts#L48)

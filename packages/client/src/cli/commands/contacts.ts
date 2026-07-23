@@ -5,7 +5,6 @@ import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import { logJson } from "../output.js";
 
-// safer-arch-ignore folder-explicit-api-required: the CLI entrypoint deliberately composes private one-command-per-file leaves; this folder is not a reusable API.
 const listContacts = Command.make("list", {}, () =>
   runHandler(
     command(LocalDaemonCommands.ContactsList, {}).pipe(

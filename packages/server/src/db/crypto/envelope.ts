@@ -8,6 +8,7 @@ import { Redacted } from "effect";
 import type { ServerEncryptionMasterSecret } from "#config/secrets";
 import { Dek } from "./dek.js";
 import { Kek } from "./kek.js";
+import { SymmetricKeyMaterial } from "./key-material.js";
 
 /**
  * Envelope encryption layer:
@@ -25,19 +26,10 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const KEY_LENGTH = 32;
 
-const MasterKeyTypeId = Symbol("@moltzap/server/MasterKey");
-
-interface MasterKey {
-  readonly [MasterKeyTypeId]: typeof MasterKeyTypeId;
-  readonly toBuffer: () => Buffer;
-}
-
-function masterKeyFromBytes(bytes: Buffer): MasterKey {
-  const copiedBytes = Buffer.from(bytes);
-  return {
-    [MasterKeyTypeId]: MasterKeyTypeId,
-    toBuffer: () => Buffer.from(copiedBytes),
-  };
+class MasterKey extends SymmetricKeyMaterial {
+  static fromBytes(bytes: Buffer): MasterKey {
+    return new MasterKey(bytes);
+  }
 }
 
 export interface EncryptedPayload {
@@ -67,7 +59,7 @@ function decryptBytes(payload: EncryptedPayload, key: Buffer): Buffer {
 function deriveKeyFromSecret(
   masterSecret: ServerEncryptionMasterSecret,
 ): MasterKey {
-  return masterKeyFromBytes(
+  return MasterKey.fromBytes(
     createHash("sha256")
       .update(Buffer.from(Redacted.value(masterSecret), "base64"))
       .digest(),
@@ -78,6 +70,7 @@ function generateKeyMaterial(): Buffer {
   return randomBytes(KEY_LENGTH);
 }
 
+// eslint-disable-next-line agent-code-guard/max-non-trivial-classes-per-file -- MasterKey is a key-material subtype co-located with its sole envelope consumer.
 export class EnvelopeEncryption {
   private readonly masterKey: MasterKey;
 
