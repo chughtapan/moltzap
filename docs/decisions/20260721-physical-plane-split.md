@@ -30,8 +30,8 @@ concrete shape not yet defined — and carries only data-plane
 traffic, with L1 frames as byte-preserved payloads. Neither surface
 carries the other's ops.
 
-Consequences: the CLI is a plain HTTP client and every control op is
-curl-able; content-blindness and plane separation become wire facts
+Consequences: the CLI is a plain HTTP client, not a privileged
+principal; content-blindness and plane separation become wire facts
 rather than API discipline; v1's two-engine socket mux has no
 successor; recovery after disconnect rides transcript reads, never
 socket replay. How callers authenticate on each surface is the
