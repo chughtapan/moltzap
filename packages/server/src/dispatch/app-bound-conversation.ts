@@ -46,3 +46,5 @@ export function lookupAppBoundForConversation(
     }).pipe(Effect.withSpan("lookupAppBoundForConversation")),
   );
 }
+
+// safer-arch-ignore no-trivial-sink-file: This query owns the invariant that dispatch admission only receives live app-bound conversations and keeps persistence details out of the admission service.

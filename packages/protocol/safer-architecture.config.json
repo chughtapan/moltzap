@@ -1,4 +1,35 @@
 {
+  "minExportedSiblingModules": 10,
+  "maxSubpathExports": 10,
+  "maxPublicExports": 42,
+  "maxPublicReexports": 13,
+  "minPublicFacadeModules": 14,
+  "minFolderReadmeChildren": 13,
+  "folderChildCountOverrides": [
+    {
+      "folder": "transport",
+      "maxChildren": 12,
+      "reason": "Transport is a flat wire-contract toolkit whose descriptor, dispatch, mux, decoding, pagination, and wire-error modules form one cohesive lowest layer"
+    }
+  ],
+  "facadeFiles": [
+    {
+      "file": "socket/lifecycle.ts",
+      "reason": "Stable lifecycle contract shared by the agent and app socket clients while socket/index.ts curates the published socket surface"
+    },
+    {
+      "file": "socket/server.ts",
+      "reason": "Stable server socket contract that composes transport and requirement layers behind MoltZapServer"
+    },
+    {
+      "file": "task/requirements/task-read-access.ts",
+      "reason": "TaskReadAccess is the task-domain capability boundary consumed by descriptors and implemented by the server"
+    },
+    {
+      "file": "transport/definition.ts",
+      "reason": "Descriptor definitions are the stable transport boundary used by every higher protocol domain"
+    }
+  ],
   "publicTypePackages": [
     {
       "package": "effect",

@@ -58,3 +58,5 @@ export class TaskAuthorizationService {
     }
   }
 }
+
+// safer-arch-ignore no-trivial-sink-file: TaskAuthorizationService isolates app callback policy from Effect Layer wiring and the task lifecycle service.

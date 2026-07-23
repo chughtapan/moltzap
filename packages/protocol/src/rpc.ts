@@ -7,6 +7,9 @@
  * descriptor-construction transport layer.
  */
 
+// safer-arch-ignore no-public-vendor-type-leak: This facade re-exports protocol's own #transport subpath, which is package-owned rather than a vendor boundary.
+// safer-arch-ignore require-boundary-owned-types: This facade deliberately exposes package-owned #transport RPC support types.
+
 export type {
   CallErrorsOf,
   DomainErrorsOf,
