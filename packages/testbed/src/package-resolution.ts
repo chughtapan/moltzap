@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
-import { Path } from "@effect/platform";
-import { Data, Effect } from "effect";
+import { join, sep } from "node:path";
+import { Data, Option } from "effect";
 
 const requireFromHere = createRequire(import.meta.url);
 
@@ -17,20 +17,11 @@ interface PackageJson {
   readonly bin?: unknown;
 }
 
-interface WorkspaceBinInput {
-  readonly binName: string;
-  readonly packageName: string;
-  readonly packageRoot: string;
-  readonly workspacePackageRoot: string;
-}
-
 function parsePackageJson(
   packageRoot: string,
   packageName: string,
 ): PackageJson {
-  const packageJsonPath = pathSync((path) =>
-    path.join(packageRoot, "package.json"),
-  );
+  const packageJsonPath = join(packageRoot, "package.json");
   try {
     return requireFromHere(packageJsonPath) as PackageJson;
   } catch (cause) {
@@ -47,7 +38,7 @@ function packageRootFromResolvedFile(
   resolvedFile: string,
 ): string {
   const packageSegments = packageName.split("/");
-  const separator = pathSync((path) => path.sep);
+  const separator = sep;
   const resolvedSegments = resolvedFile.split(separator);
   for (
     let index = resolvedSegments.length - packageSegments.length;
@@ -85,12 +76,12 @@ function packageBinTarget(
   const packageJson = parsePackageJson(packageRoot, packageName);
   const { bin } = packageJson;
   if (typeof bin === "string") {
-    return pathSync((path) => path.join(packageRoot, bin));
+    return join(packageRoot, bin);
   }
   if (typeof bin === "object" && bin !== null && binName in bin) {
     const target = Object.entries(bin).find(([name]) => name === binName)?.[1];
     if (typeof target === "string") {
-      return pathSync((path) => path.join(packageRoot, target));
+      return join(packageRoot, target);
     }
   }
   throw new PackageResolutionFailed({
@@ -99,54 +90,34 @@ function packageBinTarget(
   });
 }
 
-function resolveWorkspaceBin(input: WorkspaceBinInput): string {
-  const requireFromWorkspace = createRequire(
-    pathSync((path) => path.join(input.workspacePackageRoot, "package.json")),
-  );
-  try {
-    const resolvedFile = requireFromWorkspace.resolve(input.packageName);
-    return packageBinTarget(
-      packageRootFromResolvedFile(input.packageName, resolvedFile),
-      input.packageName,
-      input.binName,
+export function resolveInstalledPackageRoot(
+  packageName: string,
+  lookupPaths: readonly string[] = requireFromHere.resolve.paths(packageName) ??
+    [],
+): string {
+  for (const lookupPath of lookupPaths) {
+    const packageRoot = join(lookupPath, packageName);
+    const manifest = Option.liftThrowable(parsePackageJson)(
+      packageRoot,
+      packageName,
     );
-  } catch (resolveErr) {
-    logWarningSync(
-      `failed to resolve ${input.packageName} from workspace package; falling back to dependency root`,
-      resolveErr,
-    );
-    return packageBinTarget(
-      input.packageRoot,
-      input.packageName,
-      input.binName,
-    );
+    if (Option.isSome(manifest) && manifest.value.name === packageName) {
+      return packageRoot;
+    }
   }
-}
-
-function resolveOpenClawPackageRoot(): string {
   return packageRootFromResolvedFile(
-    "openclaw",
-    requireFromHere.resolve("openclaw"),
+    packageName,
+    requireFromHere.resolve(packageName),
   );
 }
 
-export function resolveWorkspaceOpenClawBin(input: {
-  readonly workspacePackageRoot: string;
-}): string {
-  return resolveWorkspaceBin({
-    ...input,
-    binName: "openclaw",
-    packageName: "openclaw",
-    packageRoot: resolveOpenClawPackageRoot(),
-  });
-}
-
-function pathSync<A>(f: (path: Path.Path) => A): A {
-  return Effect.runSync(
-    Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)),
+export function resolveInstalledPackageBin(
+  packageName: string,
+  binName: string,
+): string {
+  return packageBinTarget(
+    resolveInstalledPackageRoot(packageName),
+    packageName,
+    binName,
   );
-}
-
-function logWarningSync(message: string, cause: unknown): void {
-  Effect.runSync(Effect.logWarning(message, cause));
 }

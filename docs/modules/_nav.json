@@ -29,7 +29,6 @@
     "modules/protocol/testing/conformance/task",
     "modules/protocol/testing/conformance/transport",
     "modules/protocol/testing/toxics",
-    "modules/runtimes/src",
     "modules/server-core/conversation",
     "modules/server-core/conversation/requirements",
     "modules/server-core/core",
@@ -45,6 +44,7 @@
     "modules/server-core/socket",
     "modules/server-core/task",
     "modules/server-core/task/requirements",
-    "modules/server-core/test-utils"
+    "modules/server-core/test-utils",
+    "modules/testbed/src"
   ]
 }

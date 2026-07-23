@@ -1,10 +1,16 @@
 {
-  "name": "@moltzap/runtimes",
+  "name": "@moltzap/testbed",
   "version": "0.2.0",
-  "description": "Runtime adapters for launching MoltZap trace-capture agents",
+  "description": "Testbed for launching and supervising collections of agents connected over MoltZap",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chughtapan/moltzap.git"
+  },
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "!dist/tsconfig.tsbuildinfo"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,8 +21,8 @@
     }
   },
   "scripts": {
-    "build": "nx run @moltzap/runtimes:build",
-    "lint": "nx run @moltzap/runtimes:lint",
+    "build": "nx run @moltzap/testbed:build",
+    "lint": "nx run @moltzap/testbed:lint",
     "test": "vitest run --passWithNoTests",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
@@ -24,15 +30,21 @@
     "targets": {
       "build": {
         "executor": "nx:run-commands",
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/packages/nanoclaw-channel/src/channels/moltzap.ts",
+          "{projectRoot}/nanoclaw-assets/*"
+        ],
         "options": {
-          "cwd": "packages/runtimes",
-          "command": "tsc -b"
+          "cwd": "packages/testbed",
+          "command": "tsc -b && node scripts/copy-nanoclaw-assets.mjs"
         }
       },
       "lint": {
         "executor": "nx:run-commands",
         "options": {
-          "cwd": "packages/runtimes",
+          "cwd": "packages/testbed",
           "command": "eslint src *.ts --cache --max-warnings=0"
         }
       }
@@ -41,8 +53,9 @@
   "dependencies": {
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
-    "@moltzap/protocol": "workspace:*",
-    "effect": "3.22.0",
+    "@moltzap/openclaw-channel": "workspace:^",
+    "@moltzap/protocol": "workspace:^",
+    "effect": "^3.22.0",
     "openclaw": "2026.3.31"
   },
   "devDependencies": {

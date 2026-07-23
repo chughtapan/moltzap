@@ -1,6 +1,17 @@
+import { FileSystem, Path } from "@effect/platform";
 import type { Signal } from "@effect/platform/CommandExecutor";
+import { NodeContext } from "@effect/platform-node";
+import { tmpdir } from "node:os";
 import { describe, it, expect, vi } from "vitest";
-import { Effect, Either, Fiber, Redacted, Scope } from "effect";
+import {
+  Deferred,
+  Effect,
+  Either,
+  Fiber,
+  Option,
+  Redacted,
+  Scope,
+} from "effect";
 import {
   agentId,
   agentKeyString,
@@ -8,12 +19,15 @@ import {
 } from "@moltzap/protocol/testing";
 
 import {
+  buildOpenClawConfig,
+  createOpenClawAdapter,
   OpenClawAdapter,
   type OpenClawAdapterDeps,
 } from "./openclaw-adapter.js";
+import { TESTBED_PROFILE_NAME } from "./channel-plugin-install.js";
 import {
   NanoclawAdapter,
-  type NanoclawAdapterDeps,
+  type NanoclawAdapterOptions,
 } from "./nanoclaw-adapter.js";
 import {
   AgentName,
@@ -40,6 +54,8 @@ const MATCH_TIMEOUT_MS = 5_000;
 const TIMEOUT_MATCH_RESULT = `timeout:${MATCH_TIMEOUT_MS}`;
 const PROCESS_EXIT_MATCH_RESULT = "exit:null";
 const TEST_AGENT_NAME = "test-agent";
+const TEST_STATE_DIR_PREFIX = `openclaw-${TEST_AGENT_NAME}-`;
+const PROCESS_SPAWN_AGENT_NAME = "process-spawn-agent";
 const TEST_API_KEY = redactedAgentKey(agentKeyString(70));
 const TEST_AGENT_ID = agentId("11111111-1111-4111-8111-111111111111");
 const TEST_SERVER_URL = "ws://localhost:9999/ws";
@@ -76,7 +92,6 @@ function stubDeps(): OpenClawAdapterDeps {
     server: stubServer(),
     openclawBin: "/bin/false",
     channelDistDir: "/nonexistent/channel",
-    repoRoot: "/nonexistent/repo",
   };
 }
 
@@ -106,14 +121,67 @@ describe("Runtime interface", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Installed-package factory
+// ---------------------------------------------------------------------------
+
+describe("createOpenClawAdapter", () => {
+  it(
+    "uses explicit paths without workspace discovery",
+    openClawFactoryUsesExplicitPaths,
+  );
+  it("resolves pinned installed defaults", openClawFactoryResolvesDefaults);
+});
+
+// ---------------------------------------------------------------------------
 // OpenClawAdapter — spawn
 // ---------------------------------------------------------------------------
 
 describe("OpenClawAdapter.spawn", () => {
   it(
-    "fails with SpawnFailed when bin does not exist",
-    openClawSpawnFailsWhenBinDoesNotExist,
+    "fails with SpawnFailed and cleans state when plugin install fails",
+    openClawSpawnFailureCleansState,
   );
+  it(
+    "cleans prepared state when process spawn fails",
+    openClawProcessSpawnFailureCleansState,
+  );
+});
+
+// The channel plugin selects its credential profile by account id, so the
+// openclaw.json account must be keyed under the same constant the profile
+// serializer writes.
+const CONFIG_WORKSPACE_DIR = "/workspaces/testbed-agent";
+const CUSTOM_MODEL_ID = "custom/model";
+
+describe("buildOpenClawConfig", () => {
+  it("keys the moltzap account under the testbed profile", () => {
+    const config = buildOpenClawConfig(
+      { agentName: "alice" },
+      CONFIG_WORKSPACE_DIR,
+    );
+
+    expect(config.channels).toMatchObject({
+      moltzap: {
+        accounts: [{ id: TESTBED_PROFILE_NAME, agentName: "alice" }],
+      },
+    });
+    expect(config.agents).toMatchObject({
+      defaults: {
+        workspace: CONFIG_WORKSPACE_DIR,
+        model: { primary: expect.any(String) },
+      },
+    });
+  });
+
+  it("prefers an explicit model id over the default", () => {
+    const config = buildOpenClawConfig(
+      { agentName: "alice", modelId: CUSTOM_MODEL_ID },
+      CONFIG_WORKSPACE_DIR,
+    );
+    expect(config.agents).toMatchObject({
+      defaults: { model: { primary: CUSTOM_MODEL_ID } },
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -166,6 +234,10 @@ describe("OpenClawAdapter.teardown", () => {
   it(
     "sends SIGTERM then SIGKILL when the process does not exit",
     openClawTeardownSendsTerminateThenKill,
+  );
+  it(
+    "finishes process-scope cleanup when teardown is interrupted",
+    openClawTeardownInterruptionFinishesCleanup,
   );
 });
 
@@ -262,29 +334,44 @@ describe("SpawnFailed", () => {
 // NanoclawAdapter — interface contract
 // ---------------------------------------------------------------------------
 
-function stubNanoclawDeps(): NanoclawAdapterDeps {
+function stubNanoclawOptions(): NanoclawAdapterOptions {
   return { server: stubServer() };
 }
 
 describe("NanoclawAdapter", () => {
   it("satisfies the Runtime interface (structural typing)", () => {
-    const adapter: Runtime = new NanoclawAdapter(stubNanoclawDeps());
+    const adapter: Runtime = new NanoclawAdapter(stubNanoclawOptions());
     expectRuntimeMethods(adapter);
   });
 
   it("getLogs returns empty slice when not spawned", () => {
-    const adapter = new NanoclawAdapter(stubNanoclawDeps());
+    const adapter = new NanoclawAdapter(stubNanoclawOptions());
     const slice: LogSlice = adapter.getLogs(0);
     expect(slice.text).toBe("");
     expect(slice.nextOffset).toBe(0);
   });
 
   it("getInboundMarker returns non-empty string", () => {
-    const adapter = new NanoclawAdapter(stubNanoclawDeps());
+    const adapter = new NanoclawAdapter(stubNanoclawOptions());
     const marker = adapter.getInboundMarker();
     expect(typeof marker).toBe(STRING_TYPE);
     expect(marker.length).toBeGreaterThan(0);
   });
+
+  it(
+    "waitUntilReady returns Ready when no process has been spawned",
+    nanoclawWaitUntilReadyReturnsReadyWithoutSpawn,
+  );
+
+  it(
+    "teardown completes without error when no process has been spawned",
+    nanoclawTeardownWithoutSpawnCompletes,
+  );
+
+  it(
+    "teardown is idempotent — calling twice has same effect as once",
+    nanoclawTeardownIsIdempotent,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -296,6 +383,33 @@ function openClawAdapterSatisfiesRuntimeInterface(): void {
   expectRuntimeMethods(adapter);
 }
 
+function openClawFactoryUsesExplicitPaths(): void {
+  const deps = stubDeps();
+  const adapter = createOpenClawAdapter(deps);
+  expect(Reflect.get(adapter, "deps")).toEqual(deps);
+}
+
+function openClawFactoryResolvesDefaults() {
+  return runTest(
+    FileSystem.FileSystem.pipe(
+      Effect.flatMap((fileSystem) => {
+        const adapter = createOpenClawAdapter({ server: stubServer() });
+        const deps = Reflect.get(adapter, "deps") as OpenClawAdapterDeps;
+        return Effect.all([
+          fileSystem.exists(deps.openclawBin),
+          fileSystem.exists(deps.channelDistDir),
+        ]);
+      }),
+      Effect.tap((pathsExist) => {
+        expect(pathsExist).toEqual([true, true]);
+      }),
+      Effect.asVoid,
+      Effect.provide(NodeContext.layer),
+      Effect.orDie,
+    ),
+  );
+}
+
 function openClawAdapterExposesRuntimeMethods(): void {
   const adapter = new OpenClawAdapter(stubDeps());
   const publicMethods = RUNTIME_METHODS.filter((method) => method in adapter);
@@ -303,9 +417,10 @@ function openClawAdapterExposesRuntimeMethods(): void {
   expectRuntimeMethods(adapter);
 }
 
-function openClawSpawnFailsWhenBinDoesNotExist() {
+function openClawSpawnFailureCleansState() {
   return runTest(
     Effect.gen(function* () {
+      const stateDirsBefore = yield* listTestStateDirs();
       const adapter = new OpenClawAdapter(stubDeps());
       const result = yield* Effect.either(adapter.spawn(stubSpawnInput()));
 
@@ -317,8 +432,79 @@ function openClawSpawnFailsWhenBinDoesNotExist() {
         },
         onRight: () => expect.fail(),
       });
+
+      expect(yield* listTestStateDirs()).toEqual(stateDirsBefore);
     }),
   );
+}
+
+function openClawProcessSpawnFailureCleansState() {
+  return runTest(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const fixture = yield* createOpenClawSpawnFailureFixture();
+
+        const stateDirsBefore = yield* listTestStateDirs(
+          PROCESS_SPAWN_AGENT_NAME,
+        );
+        const adapter = new OpenClawAdapter({
+          server: stubServer(),
+          openclawBin: path.join(fixture.root, "missing-openclaw"),
+          channelDistDir: fixture.channelDist,
+        });
+        const result = yield* Effect.either(
+          adapter.spawn(
+            stubSpawnInput({
+              agentName: AgentName(PROCESS_SPAWN_AGENT_NAME),
+            }),
+          ),
+        );
+
+        Either.match(result, {
+          onLeft: (error) => expect(error).toBeInstanceOf(SpawnFailed),
+          onRight: () => expect.fail(),
+        });
+        expect(yield* listTestStateDirs(PROCESS_SPAWN_AGENT_NAME)).toEqual(
+          stateDirsBefore,
+        );
+      }),
+    ).pipe(Effect.provide(NodeContext.layer), Effect.orDie),
+  );
+}
+
+function createOpenClawSpawnFailureFixture() {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fileSystem.makeTempDirectory({
+      prefix: "testbed-openclaw-spawn-fixture-",
+    });
+    yield* Effect.addFinalizer(() =>
+      fileSystem
+        .remove(root, { recursive: true, force: true })
+        .pipe(Effect.catchAll(() => Effect.void)),
+    );
+
+    const channelPackage = path.join(root, "channel");
+    const channelDist = path.join(channelPackage, "dist");
+    yield* fileSystem.makeDirectory(channelDist, { recursive: true });
+    yield* Effect.all([
+      fileSystem.writeFileString(
+        path.join(channelPackage, "package.json"),
+        JSON.stringify({
+          name: "testbed-openclaw-spawn-fixture",
+          type: "module",
+          dependencies: {},
+        }),
+      ),
+      fileSystem.writeFileString(
+        path.join(channelDist, "index.js"),
+        "export {};\n",
+      ),
+    ]);
+    return { root, channelDist };
+  });
 }
 
 function openClawTeardownWithoutSpawnCompletes() {
@@ -381,6 +567,59 @@ function openClawTeardownSendsTerminateThenKill() {
   );
 }
 
+function openClawTeardownInterruptionFinishesCleanup() {
+  return runTest(
+    Effect.gen(function* () {
+      const killStarted = yield* Deferred.make<void, never>();
+      const allowKill = yield* Deferred.make<void, never>();
+      const scopeClosed = yield* Deferred.make<void, never>();
+      const interruptStarted = yield* Deferred.make<void, never>();
+      const scope = yield* Scope.make();
+      yield* Scope.addFinalizer(
+        scope,
+        Deferred.succeed(scopeClosed, undefined).pipe(Effect.asVoid),
+      );
+      const exitFiber = yield* Effect.fork(
+        Effect.never as Effect.Effect<number, never, never>,
+      );
+
+      const adapter = new OpenClawAdapter(stubDeps());
+      injectOpenClawAdapterState(adapter, {
+        process: {
+          exitFiber,
+          kill: () =>
+            Deferred.succeed(killStarted, undefined).pipe(
+              Effect.zipRight(Deferred.await(allowKill)),
+              Effect.zipRight(Fiber.interrupt(exitFiber)),
+              Effect.asVoid,
+            ),
+          scope,
+        },
+        stateDir: TEARDOWN_STATE_DIR,
+        logBuffer: { value: "" },
+        spawnInput: stubSpawnInput(),
+        tornDown: false,
+      });
+
+      const teardownFiber = Effect.runFork(adapter.teardown());
+      yield* Deferred.await(killStarted);
+      const interruptFiber = yield* Effect.fork(
+        Deferred.succeed(interruptStarted, undefined).pipe(
+          Effect.zipRight(Fiber.interrupt(teardownFiber)),
+        ),
+      );
+      yield* Deferred.await(interruptStarted);
+      yield* Effect.yieldNow();
+
+      expect(Option.isNone(yield* Fiber.poll(interruptFiber))).toBe(true);
+
+      yield* Deferred.succeed(allowKill, undefined);
+      yield* Fiber.join(interruptFiber);
+      yield* Deferred.await(scopeClosed);
+    }),
+  );
+}
+
 function openClawWaitUntilReadyReturnsReadyWithoutSpawn() {
   return runTest(
     Effect.gen(function* () {
@@ -390,6 +629,31 @@ function openClawWaitUntilReadyReturnsReadyWithoutSpawn() {
       expect(outcome._tag).toBe(READY_TAG);
     }),
   );
+}
+
+function nanoclawWaitUntilReadyReturnsReadyWithoutSpawn() {
+  return runTest(
+    Effect.gen(function* () {
+      const adapter = new NanoclawAdapter(stubNanoclawOptions());
+      const outcome: ReadyOutcome =
+        yield* adapter.waitUntilReady(READY_TIMEOUT_MS);
+      expect(outcome._tag).toBe(READY_TAG);
+    }),
+  );
+}
+
+function nanoclawTeardownWithoutSpawnCompletes() {
+  const adapter = new NanoclawAdapter(stubNanoclawOptions());
+  return expect(Effect.runPromise(adapter.teardown())).resolves.toBeUndefined();
+}
+
+function nanoclawTeardownIsIdempotent() {
+  const adapter = new NanoclawAdapter(stubNanoclawOptions());
+  return expect(
+    Effect.runPromise(
+      adapter.teardown().pipe(Effect.zipRight(adapter.teardown())),
+    ),
+  ).resolves.toBeUndefined();
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +684,23 @@ function injectOpenClawAdapterState(
 
 function runTest<A>(effect: Effect.Effect<A, never, never>) {
   return Effect.runPromise(effect);
+}
+
+function listTestStateDirs(
+  agentName = TEST_AGENT_NAME,
+): Effect.Effect<ReadonlyArray<string>, never, never> {
+  const prefix =
+    agentName === TEST_AGENT_NAME
+      ? TEST_STATE_DIR_PREFIX
+      : `openclaw-${agentName}-`;
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) => fileSystem.readDirectory(tmpdir())),
+    Effect.map((entries) =>
+      entries.filter((entry) => entry.startsWith(prefix)).sort(),
+    ),
+    Effect.provide(NodeContext.layer),
+    Effect.orDie,
+  );
 }
 
 function expectRuntimeMethods(adapter: Runtime): void {

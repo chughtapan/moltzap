@@ -47,7 +47,7 @@
       "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"],
       "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
     },
-    "packages/runtimes": {
+    "packages/testbed": {
       "entry": [
         "src/trace-capture-harness.ts",
         "src/**/*.test.ts",
