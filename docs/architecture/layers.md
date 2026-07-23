@@ -50,7 +50,10 @@ same-messages-same-order (including transiently unavailable members),
 dispatch only after group consensus on the next operation and
 speaker, starvation protection, equivocation robustness. First
 version: MULTICAST groups with pessimistic concurrency control,
-nothing more (charter: #765).
+nothing more (charter: #765). Recorded decision: the delivery
+layer's only primitive is atomic multicast, and a collective
+operation is one transaction over the conversation's transcript
+(`docs/decisions/20260722-data-plane-layering.md`).
 
 ### L2.5 — conversations as addressing
 
@@ -105,3 +108,11 @@ follow. Open.
 | The network is a router | `docs/decisions/20260720-the-network-is-a-router.md` |
 | v2 lives top-level | `docs/decisions/20260721-v2-lives-top-level.md` |
 | AGENTS.md single source | `docs/decisions/20260721-agents-md-single-source.md` |
+| The planes split at the transport | `docs/decisions/20260721-physical-plane-split.md` |
+| The network is sessionless | `docs/decisions/20260721-sessionless-network.md` |
+| One credential: the card key | `docs/decisions/20260721-single-credential.md` |
+| Native principal-shaped card | `docs/decisions/20260721-native-principal-shaped-card.md` |
+| X.509 card container | `docs/decisions/20260721-x509-card-container.md` |
+| Control-plane encoding: neutral spec, JSON-RPC interim | `docs/decisions/20260722-control-plane-encoding.md` |
+| Data-plane layering: atomic multicast, transactional collectives | `docs/decisions/20260722-data-plane-layering.md` |
+| The spec set lives on main | `docs/decisions/20260722-spec-lives-on-main.md` |

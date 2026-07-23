@@ -1,15 +1,18 @@
 # Decision log
 
-Dated, immutable records of decisions that shaped this system, in
-MADR-minimal form (`YYYYMMDD-short-title.md`). Date-prefixed slugs,
+Dated records of decisions that shaped this system, in MADR-minimal
+form (`YYYYMMDD-short-title.md`). Date-prefixed slugs,
 never sequence numbers — two branches minting numbers independently
-collide on every merge; dates do not.
+collide on every merge; dates do not. Records are never deleted or renumbered; corrections
+edit the record in place, with history in git.
 
 **Admission is maintainer-gated: the maintainer decides what enters
 this log.** Do not add a record without that call.
 
 | Decision | Date |
 |---|---|
+| [The spec set lives on main](20260722-spec-lives-on-main.md) | 2026-07-22 |
+| [Data-plane layering: atomic multicast, transactional collectives](20260722-data-plane-layering.md) | 2026-07-22 |
 | [Control-plane encoding: neutral spec, JSON-RPC interim, REST + OpenAPI target](20260722-control-plane-encoding.md) | 2026-07-22 |
 | [One credential: the card key authenticates everything](20260721-single-credential.md) | 2026-07-21 |
 | [The network is sessionless](20260721-sessionless-network.md) | 2026-07-21 |

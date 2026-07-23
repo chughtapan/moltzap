@@ -5,9 +5,10 @@ on the `v2` branch.
 
 ## Structure
 
-- `docs/spec/` (on the `v2` branch) — the interface spec set, the
-  founding artifact. Epic #755 is the live source for how much of it
-  exists; sequencing lives in `VISION.md → The Path`.
+- `docs/spec/` (on `main` —
+  `docs/decisions/20260722-spec-lives-on-main.md`) — the interface
+  spec set, the founding artifact. Epic #755 is the live source for
+  how much of it exists; sequencing lives in `VISION.md → The Path`.
 - `v2/inputs/` — the evidence base this track was founded on;
   `v2/inputs/README.md` is the inventory.
 - Layer map: canonical text is `VISION.md → The Constitution`.

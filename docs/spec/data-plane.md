@@ -12,6 +12,15 @@ and addresses every delivery through a conversation (L2.5). It is the shared
 substrate under every agent's harness; everything interpretive lives at
 endpoints.
 
+By recorded decision the plane decomposes in two
+(`docs/decisions/20260722-data-plane-layering.md`): a **delivery layer** whose
+only primitive is atomic multicast — a frame delivered to the conversation's
+membership all-or-none, in the conversation's single total order — and a
+**messaging layer** above it, where conversations address (L2.5) and
+collective operations are transactions over the per-conversation transcript.
+Tasks sit above the plane entirely; endpoint firewalls act at the delivery
+layer, programmed by the layers above.
+
 Goals: state the plane's duties as guarantees, independent of realization;
 record the dissolution of the v1 app layer, power by power; propose the one
 centralized middleware that would remain — a fault-injection /
@@ -41,14 +50,22 @@ participant emits next).
   next speaker. An endpoint observes that its turn is admitted before it
   generates — agreement precedes generation, not merely delivery.
   Overlapping-collective concurrency is chartered, not decided here.
+- **Transactional collectives.** A collective operation is one transactional
+  unit over the conversation's transcript: the record represents one
+  ALL-TO-ALL — MPI-style, every member contributes and every member
+  receives — as that operation, never as a sequence of independent messages.
+  Endpoints drive the exchange under PCC using the delivery primitive; the
+  plane contributes the primitive and the representation, nothing more. The
+  vocabulary and its semantics are chartered (#765).
 - **Attribution in transit.** Frames arrive carrying the L1 attribution they
   were emitted with, verifiable by the recipient; the plane never mints,
   alters, or strips it.
 - **Admission.** At admission the plane verifies, at minimum, that the
-  frame's attribution verifies per L1 and its sender identity exists
-  and is active; failing frames are refused before durability.
-  Recorded decision: admission checks nothing relationship-shaped —
-  the router has no reachability role.
+  frame's attribution verifies per L1, its sender identity exists
+  and is active, and the sender is a member of the conversation the
+  envelope addresses; failing frames are refused before durability.
+  Recorded decision: admission checks nothing relationship-shaped
+  beyond membership — the router has no reachability role.
 - **Content-blindness.** Routing and admission read envelope fields only, never
   bodies. End-to-end encryption stays a preserved possibility.
 - **Records handoff.** Durable-then-deliver: no frame fans out before it is
@@ -60,11 +77,17 @@ participant emits next).
 
 ## Wire surface
 
-**Not defined yet** (open question 10). What is decided bounds any future
+**Not defined yet** (this doc's open question 10). By recorded decision an interim
+realization keeps v1's WebSocket machinery, replaceable without spec change
+(`docs/decisions/20260722-data-plane-layering.md`; details and the known
+deviation: Implementation notes). What is decided bounds any future
 definition (`docs/decisions/20260721-physical-plane-split.md`,
 `docs/decisions/20260721-sessionless-network.md`,
-`docs/decisions/20260721-single-credential.md`): data-plane traffic rides its
-own surface, never the control endpoint; the plane keeps no per-endpoint
+`docs/decisions/20260721-single-credential.md`,
+`docs/decisions/20260722-data-plane-layering.md`): data-plane traffic rides
+its own surface, never the control endpoint; delivery is one-way — no
+response rides the delivery path, and an endpoint's responses,
+acknowledgments included, are first-class send calls; the plane keeps no per-endpoint
 connection or session state, so whatever shape delivery takes must be
 resumable from a position the endpoint owns; every call is signed with the
 caller's card key and carries the protocol version; and frames cross the
@@ -75,7 +98,7 @@ no connection state exists to observe.
 
 ## The eval middleware (proposed)
 
-Proposed, pending a recorded maintainer decision (open question 9): at most
+Proposed, pending a recorded maintainer decision (this doc's open question 9): at most
 one centralized middleware exists — a fault-injection / capability-evaluation
 seam for experiments and evals, explicitly not a production app layer.
 
@@ -118,12 +141,25 @@ callbacks. Destinations, power by power:
 | Dispatch-authorize hook (moderator grants/denies/holds a turn) | Dissolved into PCC delivery semantics; which op/speaker comes next is an L4/skill concern. |
 | Admission deny ejecting the participant | Abolished. Admission outcomes never mutate membership; membership changes are their own in-band ordered events. |
 | Task-create hook, TaskMasters, network-side task records | Tasks are endpoint conventions with no network representation; conversations stand alone, bound to no task or app. |
-| App manifests, app principals, reverse-callback extension surface | Gone entirely; the proposed eval middleware would be the only centralized seam (open question 9). |
+| App manifests, app principals, reverse-callback extension surface | Gone entirely; the proposed eval middleware would be the only centralized seam (this doc's open question 9). |
 | Moderator lease notifications and moderator-scoped lease reads | Die with the moderator principal; member-facing delivery-status semantics chartered (open). |
 | Lease-derived presence ("working") | Presence semantics chartered (open). |
 | Fail-closed blocking when an app is unreachable | Gone; no network-side gatekeeper exists to be unreachable. |
 
 ## Implementation notes (non-normative)
+
+Interim wire: the v1 WebSocket machinery carries the plane for now — ship as
+a JSON-RPC request; delivery is a fire-and-forget call on the connection's
+reverse RPC channel (v1 labels it a notification, but the frame carries an id
+and its void acknowledgment is discarded). That carriage deviates from the
+one-way delivery bound: the fix restores a strict id-less notification, any
+acknowledgment becoming a separate send call. The interim socket also binds
+identity at connect with a bearer key and carries mixed traffic. The v1
+machinery is a migration baseline, not a compliant realization: the
+sessionless, single-credential, and plane-split bounds stay normative, and
+these gaps are what the migration closes. Transitional mechanism, not
+interface: the sessionless guarantees govern (recovery is position-resumable;
+the connection is never semantic state), and replacement needs no spec change.
 
 Maintainer sketch: the plane's realization is a per-conversation ordered
 transcript plus dispatch leases implementing the PCC discipline. Frames are
@@ -153,9 +189,10 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 8. Membership changes are in-band events, ordered against message flow.
 9. No network-side principal, hook, or policy vetoes, rewrites, redirects, or reorders delivery; admission outcomes never mutate membership.
 10. No data-plane interface names or carries a task.
-11. Middleware absence-equivalence: if the eval middleware exists (open question 9), production semantics are identical with it absent or present-and-idle; every injection stays inside the tolerated failure envelope.
+11. Middleware absence-equivalence: if the eval middleware exists (this doc's open question 9), production semantics are identical with it absent or present-and-idle; every injection stays inside the tolerated failure envelope.
 12. The plane keeps no per-endpoint connection or session state.
 13. Only data-plane traffic rides the data surface, and frames within it are carried byte-exact, never re-encoded.
+14. Delivery is one-way: no response channel rides the delivery path; an endpoint's responses, acknowledgments included, are first-class sends.
 
 ## Acceptance criteria
 
@@ -163,13 +200,13 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 - Each of the four paper-required constraints maps to at least one invariant testable over the v0 MULTICAST + PCC slice.
 - The dissolution table is total: every v1 hook/manifest power has a recorded destination (endpoint layer, envelope, charter, or abolished).
 - Message visibility is fully determined by membership and envelope fields; no per-message principal verdict exists anywhere in the spec set.
-- If the eval middleware is adopted (open question 9), the v1 scripted-fault conformance tier is reproducible through it with no production hook path, and removing the middleware changes no production conformance outcome.
+- If the eval middleware is adopted (this doc's open question 9), the v1 scripted-fault conformance tier is reproducible through it with no production hook path, and removing the middleware changes no production conformance outcome.
 - Both case studies' scheduling flows are expressible as op sequences with no middleware dependency — verified under the L2 charter's acceptance.
 
 ## Open questions
 
-1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — L2 charter, jointly with register Q5/Q7 (witness read-back; records retention and history-read scope).
-2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter.
+1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — L2 charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
+2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter, including whether conversation lifecycle (CONVERSATION-START) rides as a collective type and how it reconciles with the control-plane lifecycle ops.
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe positive delivery acknowledgment, or is recovery-convergence the whole guarantee?
 5. Does an admitted turn survive a plane restart, or is it reconstructed from the record substrate?
@@ -185,7 +222,8 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
   register); `docs/architecture/layers.md` (layer model, layering rules).
 - `docs/decisions/20260721-physical-plane-split.md`,
   `docs/decisions/20260721-sessionless-network.md` — the wire-surface
-  decisions.
+  decisions; `docs/decisions/20260722-data-plane-layering.md` — plane
+  layering and the interim wire.
 - #765 — L2 collective operation semantics charter: op clusters, four
   paper-required constraints, v0 MULTICAST + PCC decision, maintainer
   transcript-plus-leases sketch. #755 — v2 epic.

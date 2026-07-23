@@ -25,7 +25,7 @@ What the control plane is **not**:
 
 ## Wire binding
 
-The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) and carries the protocol version (a calendar date, matched exactly; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a card-key signer, not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
+The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) and carries the protocol version (a calendar date, matched exactly; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a request signer (an identity's card key, or the operator key provisioned as deployment configuration), not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
 
 ## Op families
 
@@ -57,6 +57,7 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 6. **Immutability.** Once durable, a record never changes; together with L1 attribution this yields the non-repudiable evidence L5 consumes.
 7. **Content-blind store.** Bodies are stored and returned as opaque payloads; end-to-end-opaque bodies remain a preserved structural possibility.
 8. **Access scope.** Member-scoped reads are guaranteed. What a witness or the operator may read back versus a member is open.
+9. **Collective units.** A collective operation commits as one transactional unit in the conversation's order, never as a sequence of unrelated records (`docs/decisions/20260722-data-plane-layering.md`); the unit's internal shape is chartered (#765).
 
 ## Reframing
 
@@ -64,7 +65,7 @@ The partition below reframes v1's protocol+server surface: each wire item surviv
 
 ## Dissolution notes
 
-The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 10 control, 3 data, 1 open, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery.
+The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 10 control, 3 data, 1 open, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery. For lifecycle events marked *control*: the op is a control-plane op; the in-band event it records is a transcript record whose delivery, like all delivery, rides the data plane.
 
 | v1 surface | verdict | note |
 |---|---|---|
@@ -119,7 +120,7 @@ Known deltas between v1's mechanisms and the guarantees above:
 - v1 attribution is session-trusted with no per-message signing, so guarantee 6's evidentiary strength is bounded by the open L1 key model.
 - v1's at-rest envelope encryption keeps all keys server-side; guarantee 7 currently holds by API discipline, not by key custody.
 
-By recorded decision (`docs/decisions/20260722-control-plane-encoding.md`) the wire rides JSON-RPC for now, with REST plus OpenAPI contracts as the target. The interim JSON-RPC wire anchors on v1's descriptor machinery — the `defineRpc` catalogs with schemas, requirement middleware, strict decode, and doc generation (`packages/protocol/src/transport/descriptor.ts`) — rebound from the socket mux to an HTTP protocol. The REST target re-anchors on the HTTP-route surface (`packages/server/src/http/routes.ts → makeCoreHttpApp`) plus the same schema-first patterns, with OpenAPI-generated contracts the CLI consumes directly in place of a separate protocol package. Either way the socket machinery — the two role-inverted engines and method-presence routing (`packages/protocol/src/transport/mux.ts`), reverse callbacks, the app client — has no successor.
+By recorded decision (`docs/decisions/20260722-control-plane-encoding.md`) the wire rides JSON-RPC for now, with REST plus OpenAPI contracts as the target. The interim JSON-RPC wire anchors on v1's descriptor machinery — the `defineRpc` catalogs with schemas, requirement middleware, strict decode, and doc generation (`packages/protocol/src/transport/descriptor.ts`) — rebound from the socket mux to an HTTP protocol. The REST target re-anchors on the HTTP-route surface (`packages/server/src/http/routes.ts → makeCoreHttpApp`) plus the same schema-first patterns, with OpenAPI-generated contracts the CLI consumes directly in place of a separate protocol package. Either way the socket machinery — the two role-inverted engines and method-presence routing (`packages/protocol/src/transport/mux.ts`), reverse callbacks, the app client — has no successor on the control plane; the data plane keeps it only as its interim wire (`docs/decisions/20260722-data-plane-layering.md`).
 
 Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery — the typed wire catalog, the HTTP registration surface, the session/connection machinery, the message store — live in the salvage analyses (`v2/inputs/v1-code-audit-20260717.md`, `v2/inputs/debt-inventory-20260718.md`); any carry-forward is subject to the v2 workspace boundary (zero imports from `packages/*`).
 
