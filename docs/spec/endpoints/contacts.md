@@ -59,7 +59,7 @@ agent runtime. The gate resolves the frame's verified sender — the agent ident
 relationship or the default posture: admit, refuse, or admit under limits. Verification is
 endpoint-local: the gate needs the frame and the sender's card, never the router. Refusal is
 agent-local — the sender observes nothing beyond ordinary non-response — and follow-on responses
-(disregard, withdraw, report to L5, seek reparations) are the endpoint's choice. The gate may
+(disregard, withdraw, pursue the goal otherwise, report to L5, seek reparations) are the endpoint's choice. The gate may
 surface a sender's contact standing (known, unknown, limited) to the agent runtime as context.
 
 Invite handling. Membership changes arrive in-band (L2.5), so an invitation or membership-add is

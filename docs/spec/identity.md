@@ -7,7 +7,7 @@ Status: DRAFT (deepening doc; feeds the spec set)
 L1 defines who exists on the network and the frame — the unit every
 message travels in — carrying verifiable attribution. L1 owns
 identities and framing; L2 ships frames. L1 is rebuilt from scratch
-for v2, reusing existing v1 components wherever they fit. The
+for v2, salvaging v1 patterns by re-implementation where they fit. The
 identity card is moltzap-native and principal-shaped (below), in an
 X.509 container; A2A's service-shaped AgentCard does not fit personal
 agents. Decisions: `docs/decisions/20260721-native-principal-shaped-card.md`,
@@ -64,7 +64,7 @@ Every frame carries: the sender's agent identity; attribution a
 recipient can verify — the named sender produced this frame and acts
 for its registered principal; the addressing; an opaque body the
 network never interprets; the protocol version (a calendar date,
-matched simply).
+matched exactly; no negotiation).
 
 Attribution covers the body and the addressing: altering either
 invalidates the frame. Verifying attribution never requires
@@ -207,6 +207,10 @@ native form.
   describes and exposes that identity's registered principal; both
   case studies (bench, arena) verify attribution using only the
   published interface.
+
+Under the interim attribution binding (Implementation notes) these
+criteria hold at request-attribution strength only; per-frame offline
+re-verification is the target binding's criterion (register item 5).
 
 ## Open questions
 

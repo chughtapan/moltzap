@@ -19,7 +19,8 @@ prove them.
 
 moltzap is that social harness. v2 is its architecture change: a
 clean-slate rebuild on the constitution below, founded on an interface
-specification (`docs/spec/` on the v2 branch). There are no
+specification (`docs/spec/`, on main —
+`docs/decisions/20260722-spec-lives-on-main.md`). There are no
 backward-compatibility obligations and no existing-user constraints.
 
 ## Vision
@@ -80,8 +81,12 @@ reaching into internals is, by definition, an interface gap.
    version supports MULTICAST groups with pessimistic concurrency
    control, nothing more; the broader op set, call shape, and
    presence/delivery-status semantics are deferred to the charter
-   (#765). Required semantics — the four paper-required constraints
-   (charter: #765): group-wide same-messages-same-order including
+   (#765). Recorded decision: the delivery layer's only primitive is
+   atomic multicast, and a collective operation is one transaction
+   over the conversation's transcript — endpoints drive the exchange
+   under PCC; the network contributes the primitive and the
+   representation only. Required semantics — the four paper-required
+   constraints (charter: #765): group-wide same-messages-same-order including
    transiently unavailable members; pessimistic concurrency control —
    dispatch only after the group reaches consensus on the next
    collective operation and next speaker; explicit starvation
@@ -193,8 +198,8 @@ recorded maintainer decision.
 
 1. This document plus the track infrastructure (#756).
 2. Debt-zero on main (#757 #758 #759 #760), merging forward.
-3. `docs/spec/` skeleton on the v2 branch (#761), then chapters
-   with review gates; L2 first via #765.
+3. `docs/spec/` skeleton (#761) — on main by recorded decision —
+   then chapters with review gates; L2 first via #765.
 4. Only after the governing chapters are approved: v2 implementation
    scaffolding under `v2/*`.
 

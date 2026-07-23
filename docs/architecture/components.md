@@ -44,11 +44,15 @@ ordered. Never interprets content, holds no coordination policy.
 
 ## Data plane
 
-The router: ships L1 frames per named collective operation with L2's
-ordering and concurrency-control semantics. Content-blind by
+The router: a delivery layer whose only primitive is atomic
+multicast — L1 frames delivered all-or-none in per-conversation
+total order — under a messaging layer where conversations address
+and collective operations are transactions over the transcript
+(`docs/decisions/20260722-data-plane-layering.md`). Content-blind by
 construction. Reached over its own surface, split from the control
-plane and sessionless per recorded decisions; the surface's concrete
-shape is not yet defined.
+plane and sessionless per recorded decisions; the interim wire keeps
+the v1 WebSocket machinery, and the target surface is not yet
+defined.
 
 ## Endpoint
 
