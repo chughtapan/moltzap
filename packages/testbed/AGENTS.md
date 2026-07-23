@@ -1,8 +1,8 @@
-# @moltzap/runtimes
+# @moltzap/testbed
 
-Spawns and supervises external agent runtimes (OpenClaw, Nanoclaw) as
-child processes for MoltZap trace-capture agents: wait for ready,
-supervise fleets, propagate shutdown.
+Launches and supervises a collection of external agents connected through
+MoltZap. OpenClaw and Nanoclaw remain runtime-adapter implementations beneath
+the testbed surface.
 
 ## Structure
 
@@ -10,12 +10,20 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
 
 - `runtime.ts` — `Runtime` contract, `SpawnInput`, `ReadyOutcome`, branded
   `AgentName` / `ServerUrl`
-- `fleet.ts` — `launchRuntimeFleet`, startup interruption
-- `{openclaw,nanoclaw}-adapter.ts` — one adapter per runtime; the OpenClaw
-  workspace variant resolves binary paths relative to the monorepo
-  workspace instead of explicit constructor paths
-- `adapter-readiness.ts` — `processExitLoop`, shared readiness/teardown
-  state machine; `await-agent-ready.ts` — `awaitAgentReadyByPolling`
+- `testbed.ts` — `launchTestbed`, coordinated startup and interruption
+- `{openclaw,nanoclaw}-adapter.ts` — one adapter per runtime; installed
+  runtime packages are the defaults and explicit binary/plugin paths remain
+  available for tests and custom installations
+- `nanoclaw-install.ts` — pinned source/assets, deterministic dependency
+  lock, immutable cache promotion, and Docker image build
+- `nanoclaw-process.ts` — per-agent runtime directory, process lifecycle,
+  namespaced container launch, logs, and teardown
+- `adapter-readiness.ts` — `raceReadiness`, the shared server-auth vs
+  process-exit readiness contract; `await-agent-ready.ts` —
+  `awaitAgentReadyByPolling`
+- `child-process.ts` — shared shell-exec/platform-error helpers
+  (`makeCommandHelpers`), stdout/stderr capture, and exit-fiber polling
+  used by both adapters
 - `errors.ts` — `SpawnFailed`, `RuntimeExitedBeforeReady`,
   `RuntimeReadyTimedOut`, `RuntimeLaunchFailed`
 
@@ -25,10 +33,12 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
   server via WS and presents an agent identity.
 - **Adapter** — spawns its runtime's binary, detects readiness (server-confirmed
   authentication raced against subprocess exit), propagates signals on shutdown.
-- **Fleet** — coordinated multi-agent launch; if any agent fails startup,
+- **Testbed** — coordinated multi-agent launch; if any agent fails startup,
   already-started agents are torn down in reverse order and the launch fails
-  with that agent's `RuntimeLaunchFailed`. `RuntimeFleetStartupInterrupted`
-  arises only when SIGINT/SIGTERM interrupts startup in `launchRuntimeFleetWithProcessSignals`.
+  with that agent's `RuntimeLaunchFailed`. `TestbedStartupInterrupted`
+  arises only when SIGINT/SIGTERM interrupts startup in
+  `launchTestbedWithProcessSignals`. A testbed currently uses one runtime kind
+  for the whole agent collection.
 - **Trace-capture harness** — `trace-capture-{bundle,harness,payload}.ts`,
   compiled by this package, loaded from `dist/` by the external `cc-judge`
   runner (its only consumer), and run against `packages/evals/scenarios/*.yaml`.
@@ -38,7 +48,7 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
 
 ## Code
 
-- Adapters and fleet APIs do not speak the wire protocol; they spawn
+- Adapters and testbed APIs do not speak the wire protocol; they spawn
   processes that do. The trace-capture harness is the one exception — it
   drives the server's HTTP/WS API directly through dynamically loaded
   client test modules.

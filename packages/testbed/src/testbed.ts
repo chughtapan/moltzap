@@ -9,11 +9,11 @@ import {
 } from "./errors.js";
 import {
   NanoclawAdapter,
-  type NanoclawAdapterDeps,
+  type NanoclawAdapterOptions,
 } from "./nanoclaw-adapter.js";
 import {
-  createWorkspaceOpenClawAdapter,
-  type WorkspaceOpenClawAdapterInput,
+  createOpenClawAdapter,
+  type OpenClawAdapterOptions,
 } from "./openclaw-adapter.js";
 import {
   AgentName,
@@ -24,11 +24,9 @@ import {
   type WorkspaceFile,
 } from "./runtime.js";
 
-export type RuntimeKind = "openclaw" | "nanoclaw";
-
 const LOG_START_OFFSET = 0;
 
-export interface RuntimeAgentSpec {
+export interface TestbedAgentSpec {
   readonly agentName: string;
   readonly apiKey: AgentKey;
   readonly agentId: AgentId;
@@ -37,50 +35,61 @@ export interface RuntimeAgentSpec {
   readonly modelId?: string;
 }
 
-export interface RuntimeStartOptions {
-  readonly kind: RuntimeKind;
+interface RuntimeStartOptionsBase {
   readonly server: RuntimeServerHandle;
-  readonly agent: RuntimeAgentSpec;
+  readonly agent: TestbedAgentSpec;
   readonly readyTimeoutMs: number;
-  readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
-  readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
 }
 
-export interface RuntimeFleetLaunchOptions {
-  readonly kind: RuntimeKind;
+type RuntimeSelection =
+  | {
+      readonly kind: "openclaw";
+      readonly openclaw?: Omit<OpenClawAdapterOptions, "server">;
+      readonly nanoclaw?: never;
+    }
+  | {
+      readonly kind: "nanoclaw";
+      readonly nanoclaw?: Omit<NanoclawAdapterOptions, "server">;
+      readonly openclaw?: never;
+    };
+
+export type RuntimeKind = RuntimeSelection["kind"];
+
+export type RuntimeStartOptions = RuntimeStartOptionsBase & RuntimeSelection;
+
+interface TestbedLaunchOptionsBase {
   readonly server: RuntimeServerHandle;
-  readonly agents: ReadonlyArray<RuntimeAgentSpec>;
+  readonly agents: ReadonlyArray<TestbedAgentSpec>;
   readonly readyTimeoutMs: number;
   readonly concurrency?: number | "unbounded";
-  readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
-  readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
 }
 
-export interface RuntimeFleetProcessSignalOptions
-  extends RuntimeFleetLaunchOptions {
+export type TestbedLaunchOptions = TestbedLaunchOptionsBase & RuntimeSelection;
+
+export type TestbedProcessSignalOptions = TestbedLaunchOptions & {
   readonly signals?: ReadonlyArray<Signal>;
-}
+};
 
-export interface RuntimeFleetAgent {
+export interface TestbedAgent {
   readonly name: string;
   readonly agentId: AgentId;
 }
 
-export interface RuntimeFleet {
-  readonly agents: ReadonlyArray<RuntimeFleetAgent>;
+export interface Testbed {
+  readonly agents: ReadonlyArray<TestbedAgent>;
   stopAll(): Effect.Effect<void, never, never>;
   getLogs(name: string): string;
 }
 
-export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
-  "RuntimeFleetStartupInterrupted",
+export class TestbedStartupInterrupted extends Data.TaggedError(
+  "TestbedStartupInterrupted",
 )<{
   readonly signal: Signal;
   readonly message: string;
 }> {}
 
 interface StartedRuntimeAgent {
-  readonly spec: RuntimeAgentSpec;
+  readonly spec: TestbedAgentSpec;
   readonly runtime: Runtime;
 }
 
@@ -107,7 +116,7 @@ class UnknownRuntimeAgent extends Data.TaggedError("UnknownRuntimeAgent")<{
 function createRuntime(options: RuntimeStartOptions): Runtime {
   switch (options.kind) {
     case "openclaw":
-      return createWorkspaceOpenClawAdapter({
+      return createOpenClawAdapter({
         server: options.server,
         ...options.openclaw,
       });
@@ -119,7 +128,7 @@ function createRuntime(options: RuntimeStartOptions): Runtime {
   }
 }
 
-function toSpawnInput(agent: RuntimeAgentSpec): SpawnInput {
+function toSpawnInput(agent: TestbedAgentSpec): SpawnInput {
   return {
     agentName: AgentName(agent.agentName),
     apiKey: agent.apiKey,
@@ -141,8 +150,8 @@ function toSpawnInput(agent: RuntimeAgentSpec): SpawnInput {
  * close the process Scope; recursively remove the temp state-dir.
  *
  * - OpenClaw: `OPENCLAW_TERM_WAIT_MS = 10_000`, `OPENCLAW_KILL_WAIT_MS = 5_000`.
- * - Nanoclaw: stops the runtime via OneCLI gateway, then removes
- *   data dir.
+ * - Nanoclaw: signals the runtime child, closes its process scope, then
+ *   removes the isolated runtime directory.
  */
 function teardownStartedAgents(
   startedAgents: ReadonlyArray<StartedRuntimeAgent>,
@@ -155,23 +164,34 @@ function teardownStartedAgents(
 }
 
 function runtimeStartOptionsForAgent(
-  options: RuntimeFleetLaunchOptions,
-  agent: RuntimeAgentSpec,
+  options: TestbedLaunchOptions,
+  agent: TestbedAgentSpec,
 ): RuntimeStartOptions {
-  return {
-    kind: options.kind,
+  const common = {
     server: options.server,
     agent,
     readyTimeoutMs: options.readyTimeoutMs,
-    ...(options.openclaw !== undefined ? { openclaw: options.openclaw } : {}),
-    ...(options.nanoclaw !== undefined ? { nanoclaw: options.nanoclaw } : {}),
   };
+  switch (options.kind) {
+    case "openclaw":
+      return {
+        ...common,
+        kind: "openclaw",
+        openclaw: options.openclaw,
+      };
+    case "nanoclaw":
+      return {
+        ...common,
+        kind: "nanoclaw",
+        nanoclaw: options.nanoclaw,
+      };
+  }
 }
 
-function startFleetAgent(
-  options: RuntimeFleetLaunchOptions,
+function startTestbedAgent(
+  options: TestbedLaunchOptions,
   startedAgents: StartedRuntimeAgent[],
-  agent: RuntimeAgentSpec,
+  agent: TestbedAgentSpec,
 ) {
   return Effect.gen(function* () {
     const pending = yield* startPendingRuntimeAgent(
@@ -206,9 +226,7 @@ function logsForStartedAgent(
   });
 }
 
-function toRuntimeFleet(
-  started: ReadonlyArray<StartedRuntimeAgent>,
-): RuntimeFleet {
+function toTestbed(started: ReadonlyArray<StartedRuntimeAgent>): Testbed {
   return {
     agents: started.map((startedAgent) => ({
       name: startedAgent.spec.agentName,
@@ -275,14 +293,14 @@ function startPendingRuntimeAgent(options: RuntimeStartOptions) {
  *   A["startRuntimeAgent(options)"]
  *   A --> B["Effect.scoped:<br>startPendingRuntimeAgent → PendingAgent"]
  *   B --> C[releaseStartupCleanup]
- *   C --> D["Runtime { stop, getLogs }"]
+ *   C --> D["Runtime { teardown, getLogs }"]
  *   B -->|Spawn fails| E[SpawnFailed]
  *   B -->|Process exits early| F[RuntimeExitedBeforeReady]
  *   B -->|Ready signal times out| G[RuntimeReadyTimedOut]
  * ```
  *
  * Error channel is the union `RuntimeLaunchFailed` of the three
- * shapes above. Sibling: {@link launchRuntimeFleet} for multi-agent
+ * shapes above. Sibling: {@link launchTestbed} for multi-agent
  * coordinated startup.
  * @failure SpawnFailed when the child process cannot be started (exec error, bad binary, port allocation failure, state-dir error)
  * @failure RuntimeReadyTimedOut when `waitUntilReady` exceeds `readyTimeoutMs`
@@ -301,30 +319,30 @@ export function startRuntimeAgent(
 }
 
 /**
- * Launch N agents (sequentially by default; concurrency is opt-in),
- * tearing down all already-started agents if any one fails.
+ * Launch a testbed of N agents (sequentially by default; concurrency is
+ * opt-in), tearing down all already-started agents if any one fails.
  *
  * ```mermaid
  * flowchart TD
- *   FL["launchRuntimeFleet(options)<br>Effect.scoped, withSpan"]
- *   FL --> SEQ["Effect.forEach(options.agents, startFleetAgent,<br>{ concurrency: options.concurrency ?? 1 })"]
+ *   FL["launchTestbed(options)<br>Effect.scoped, withSpan"]
+ *   FL --> SEQ["Effect.forEach(options.agents, startTestbedAgent,<br>{ concurrency: options.concurrency ?? 1 })"]
  *   SEQ -->|One fails| TD["onExit: teardownStartedAgents<br>in REVERSE insertion order"]
- *   SEQ -->|All succeed| RF["toRuntimeFleet(started)<br>→ RuntimeFleet { agents, stopAll, getLogs }"]
+ *   SEQ -->|All succeed| RF["toTestbed(started)<br>→ Testbed { agents, stopAll, getLogs }"]
  * ```
  *
- * Sibling: {@link launchRuntimeFleetWithProcessSignals} adds SIGINT
+ * Sibling: {@link launchTestbedWithProcessSignals} adds SIGINT
  * / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
- * `RuntimeFleetStartupInterrupted`.
+ * `TestbedStartupInterrupted`.
  */
-export function launchRuntimeFleet(
-  options: RuntimeFleetLaunchOptions,
-): Effect.Effect<RuntimeFleet, RuntimeLaunchFailed, never> {
+export function launchTestbed(
+  options: TestbedLaunchOptions,
+): Effect.Effect<Testbed, RuntimeLaunchFailed, never> {
   return Effect.scoped(
     Effect.gen(function* () {
       const startedAgents: StartedRuntimeAgent[] = [];
       const started = yield* Effect.forEach(
         options.agents,
-        (agent) => startFleetAgent(options, startedAgents, agent),
+        (agent) => startTestbedAgent(options, startedAgents, agent),
         {
           concurrency: options.concurrency ?? 1,
         },
@@ -335,15 +353,15 @@ export function launchRuntimeFleet(
             : teardownStartedAgents(startedAgents),
         ),
       );
-      return toRuntimeFleet(started);
+      return toTestbed(started);
     }),
-  ).pipe(Effect.withSpan("launchRuntimeFleet"));
+  ).pipe(Effect.withSpan("launchTestbed"));
 }
 
 function installProcessSignalHandlers(
   signals: ReadonlyArray<Signal>,
   state: ShutdownSignalState,
-  fiber: Fiber.RuntimeFiber<RuntimeFleet, RuntimeLaunchFailed>,
+  fiber: Fiber.RuntimeFiber<Testbed, RuntimeLaunchFailed>,
 ): ReadonlyArray<ProcessSignalHandler> {
   return signals.map((signal) => {
     const handler = (): void => {
@@ -366,14 +384,14 @@ function cleanupProcessSignalHandlers(
   }
 }
 
-function observeFleetLaunchFiber(
-  fiber: Fiber.RuntimeFiber<RuntimeFleet, RuntimeLaunchFailed>,
+function observeTestbedLaunchFiber(
+  fiber: Fiber.RuntimeFiber<Testbed, RuntimeLaunchFailed>,
   state: ShutdownSignalState,
   cleanup: () => void,
   resume: (
     effect: Effect.Effect<
-      RuntimeFleet,
-      RuntimeLaunchFailed | RuntimeFleetStartupInterrupted
+      Testbed,
+      RuntimeLaunchFailed | TestbedStartupInterrupted
     >,
   ) => void,
 ): void {
@@ -393,58 +411,58 @@ function observeFleetLaunchFiber(
 
 function interruptedStartup(signal: Signal) {
   return Effect.fail(
-    new RuntimeFleetStartupInterrupted({
+    new TestbedStartupInterrupted({
       signal,
-      message: `Runtime fleet startup interrupted by ${signal}`,
+      message: `Testbed startup interrupted by ${signal}`,
     }),
   );
 }
 
 /**
- * Wraps {@link launchRuntimeFleet} with OS-signal handlers so user
- * Ctrl-C during startup interrupts cleanly instead of half-launching
- * a fleet.
+ * Wraps {@link launchTestbed} with OS-signal handlers so user Ctrl-C
+ * during startup interrupts cleanly instead of half-launching a testbed.
  *
  * ```mermaid
  * flowchart TD
- *   LRFPS["launchRuntimeFleetWithProcessSignals(options)"]
- *   LRFPS --> FORK["Effect.runFork(launchRuntimeFleet) → fiber"]
+ *   LRFPS["launchTestbedWithProcessSignals(options)"]
+ *   LRFPS --> FORK["Effect.runFork(launchTestbed) → fiber"]
  *   FORK --> SIGS["installProcessSignalHandlers<br>(SIGINT, SIGTERM by default)<br>first signal: shutdownSignal.value = signal<br>Fiber.interrupt(fiber)"]
- *   SIGS --> OBS["observeFleetLaunchFiber<br>routes by exit shape"]
- *   OBS -->|Success| OK["resume(Effect.succeed(fleet))"]
- *   OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))<br>→ RuntimeFleetStartupInterrupted"]
+ *   SIGS --> OBS["observeTestbedLaunchFiber<br>routes by exit shape"]
+ *   LRFPS -->|caller interruption| CANCEL["canceler removes handlers<br>and awaits Fiber.interrupt(fiber)"]
+ *   CANCEL --> CLEAN["launchTestbed finalizers<br>finish runtime teardown"]
+ *   OBS -->|Success| OK["resume(Effect.succeed(testbed))"]
+ *   OBS -->|Interrupted via signal| INT["resume(interruptedStartup(signal))<br>→ TestbedStartupInterrupted"]
  *   OBS -->|Other failure| ERR["resume(Effect.failCause(...))"]
  * ```
- * @failure RuntimeFleetStartupInterrupted when a signal arrives during fleet startup
+ * @failure TestbedStartupInterrupted when a signal arrives during testbed startup
  */
-export function launchRuntimeFleetWithProcessSignals(
-  options: RuntimeFleetProcessSignalOptions,
+export function launchTestbedWithProcessSignals(
+  options: TestbedProcessSignalOptions,
 ): Effect.Effect<
-  RuntimeFleet,
-  RuntimeLaunchFailed | RuntimeFleetStartupInterrupted,
+  Testbed,
+  RuntimeLaunchFailed | TestbedStartupInterrupted,
   never
 > {
   const signals = options.signals ?? ["SIGINT", "SIGTERM"];
-  return Effect.async<
-    RuntimeFleet,
-    RuntimeLaunchFailed | RuntimeFleetStartupInterrupted
-  >((resume) => {
-    const fiber = Effect.runFork(launchRuntimeFleet(options));
-    const shutdownSignal: ShutdownSignalState = { value: null };
-    const handlers = installProcessSignalHandlers(
-      signals,
-      shutdownSignal,
-      fiber,
-    );
-    const cleanup = (): void => {
-      cleanupProcessSignalHandlers(handlers);
-    };
+  return Effect.async<Testbed, RuntimeLaunchFailed | TestbedStartupInterrupted>(
+    (resume) => {
+      const fiber = Effect.runFork(launchTestbed(options));
+      const shutdownSignal: ShutdownSignalState = { value: null };
+      const handlers = installProcessSignalHandlers(
+        signals,
+        shutdownSignal,
+        fiber,
+      );
+      const cleanup = (): void => {
+        cleanupProcessSignalHandlers(handlers);
+      };
 
-    observeFleetLaunchFiber(fiber, shutdownSignal, cleanup, resume);
+      observeTestbedLaunchFiber(fiber, shutdownSignal, cleanup, resume);
 
-    return Effect.sync(() => {
-      cleanup();
-      Effect.runFork(Fiber.interrupt(fiber));
-    });
-  });
+      return Effect.sync(cleanup).pipe(
+        Effect.zipRight(Fiber.interrupt(fiber)),
+        Effect.asVoid,
+      );
+    },
+  );
 }

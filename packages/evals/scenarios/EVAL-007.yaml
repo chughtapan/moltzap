@@ -10,7 +10,7 @@ requirements:
     - Response accurately distinguishes symmetric from asymmetric encryption
     - No unnecessary preamble or follow-up
 harness:
-  module: ../../runtimes/dist/trace-capture-harness.js
+  module: ../../testbed/dist/trace-capture-harness.js
   payload:
     runtime:
       kind: openclaw

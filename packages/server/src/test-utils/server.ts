@@ -41,13 +41,12 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
   UserId,
 )("00000000-0000-4000-8000-00000000ad00");
 
-// Minimal duplicate of `@moltzap/runtimes`'s `awaitAgentReadyByPolling` and
+// Minimal duplicate of `@moltzap/testbed`'s `awaitAgentReadyByPolling` and
 // `RuntimeServerHandle`/`ReadyOutcome` shapes. We can't import from
-// `@moltzap/runtimes` here without flipping the workspace dep direction
-// (runtimes already devDeps server-core); structural typing keeps both
-// sides honest — the integration test threads `runtimeServer` directly into
-// the adapter's `RuntimeServerHandle` slot, so any drift surfaces at compile
-// time on the consumer.
+// `@moltzap/testbed` here without making server-core depend on the higher-level
+// orchestration package. Structural typing keeps both sides honest — consumers
+// thread `runtimeServer` directly into the adapter's `RuntimeServerHandle`
+// slot, so any drift surfaces at compile time.
 type CoreTestReadyOutcome =
   | { readonly _tag: "Ready" }
   | { readonly _tag: "Timeout"; readonly timeoutMs: number }
@@ -121,7 +120,7 @@ export interface CoreTestServer {
   /**
    * Pre-wired `RuntimeServerHandle` for runtime-adapter tests. Implements
    * `awaitAgentReady` by polling the live `ConnectionManager` — the same
-   * pattern `@moltzap/runtimes`'s `awaitAgentReadyByPolling` exports for
+   * pattern `@moltzap/testbed`'s `awaitAgentReadyByPolling` exports for
    * downstream in-process consumers. Out-of-process consumers (zapbot's
    * orchestrator) construct their own handle over WebSocket presence.
    */

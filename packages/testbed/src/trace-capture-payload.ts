@@ -1,5 +1,5 @@
 import { Data, Effect } from "effect";
-import type { RuntimeKind } from "./fleet.js";
+import type { RuntimeKind } from "./testbed.js";
 
 export class InvalidPayload extends Data.TaggedError("InvalidPayload")<{
   readonly path: string;
