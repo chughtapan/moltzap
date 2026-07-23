@@ -10,6 +10,7 @@
  */
 import { Config, ConfigProvider, Effect, Logger, LogLevel } from "effect";
 
+// safer-arch-ignore no-trivial-sink-file: this module is the CLI's Effect runtime and logging composition seam, consumed only by the process entrypoint.
 const CliRuntimeEnv = Config.all({
   logLevel: Config.string("MOLTZAP_LOG_LEVEL").pipe(Config.withDefault("info")),
 });

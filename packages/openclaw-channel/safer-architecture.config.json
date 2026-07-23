@@ -1,4 +1,5 @@
 {
+  "packageRuntime": "node",
   "publicTypePackages": [
     {
       "package": "effect",

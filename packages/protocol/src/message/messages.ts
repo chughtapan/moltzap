@@ -213,3 +213,5 @@ export const MessageReceivedNotificationDefinition = defineNotification({
 export const messageNotifications = [
   MessageReceivedNotificationDefinition,
 ] as const;
+
+// safer-arch-ignore no-fat-orchestrator: TRIAGE: This message-domain descriptor catalog owns RPCs, callbacks, and notifications; evaluate splitting those families as the catalog grows.

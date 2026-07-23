@@ -4,6 +4,8 @@ import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import { logJson, logLines } from "../output.js";
 
+// safer-arch-ignore folder-explicit-api-required: the CLI entrypoint deliberately composes private one-command-per-file leaves; this folder is not a reusable API.
+// safer-arch-ignore no-trivial-sink-file: each CLI command owns its parser and handler in a focused leaf module consumed by the single CLI entrypoint.
 const listAgents = Command.make("list", {}, () =>
   runHandler(
     command(LocalDaemonCommands.AgentsList, {}).pipe(

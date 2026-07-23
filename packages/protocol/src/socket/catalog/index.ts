@@ -173,3 +173,5 @@ export const ReverseRpcGroup = makeRpcGroup([
   ...appCallbackMethods.map((definition) => definition.clientRpc),
   ...notificationDefinitions.map((definition) => definition.notificationRpc),
 ]);
+
+// safer-arch-ignore require-boundary-owned-types: The public socket catalog is the composition facade for protocol-owned identity, network, task, conversation, and message descriptor groups.

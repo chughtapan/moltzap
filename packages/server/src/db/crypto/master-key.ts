@@ -1,3 +1,5 @@
+// safer-arch-ignore no-trivial-sink-file: MasterKey is a distinct nominal key-material type that prevents the envelope from accepting DEKs or KEKs as the root key.
+
 import { SymmetricKeyMaterial } from "./key-material.js";
 
 const MasterKeyTypeId = Symbol("@moltzap/server/MasterKey");
