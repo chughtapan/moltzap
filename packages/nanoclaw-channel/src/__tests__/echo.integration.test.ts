@@ -148,12 +148,14 @@ function makeChannel(
         inboundMessages.push(msg);
         autoEcho(channel, chatJid, msg.content);
       },
-      onChatMetadata: (meta) => {
-        chatMetadata.push(meta);
+      onChatMetadata: (...metadataArgs) => {
+        const [chatJid, timestamp, name, channel, isGroup] = metadataArgs;
+        chatMetadata.push({ chatJid, timestamp, name, channel, isGroup });
       },
       registeredGroups: emptyRegisteredGroups,
     };
-    channel = yield* withTestServiceConfig(
+    channel = makeMoltZapChannel(opts, false, CHANNEL_PROFILE_NAME);
+    yield* withTestServiceConfig(
       {
         agentId: config.channelAgentId,
         agentKey: config.channelApiKey,
@@ -161,7 +163,7 @@ function makeChannel(
         profileName: CHANNEL_PROFILE_NAME,
         agentName: CHANNEL_PROFILE_NAME,
       },
-      makeMoltZapChannel({ ...opts, profileName: CHANNEL_PROFILE_NAME }, false),
+      tryPromise("channel.connect", () => channel.connect()),
     );
     return channel;
   });
@@ -274,7 +276,6 @@ function makeHarness(
           new EchoIntegrationError({ operation: "makeChannel", cause }),
       ),
     );
-    yield* tryPromise("channel.connect", () => channel.connect());
     const peerService = yield* bootPeerService(config, peerInbox).pipe(
       Effect.mapError(
         (cause) =>

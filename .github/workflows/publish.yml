@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       packages:
-        description: "Space-separated package directories to force publish, e.g. 'server' or 'protocol server client'"
+        description: "Space-separated package directories to force publish, e.g. 'server' or 'protocol server client testbed'"
         required: false
         default: ""
 
@@ -61,16 +61,22 @@ jobs:
 
           CHANGED=""
           REQUESTED_PACKAGES=" ${REQUESTED_PACKAGES} "
-          for pkg in protocol server client openclaw-channel; do
+          for pkg in protocol server client openclaw-channel testbed; do
             if [[ "$REQUESTED_PACKAGES" == *" $pkg "* ]]; then
               SHOULD_RELEASE=1
               echo "Package $pkg requested by workflow_dispatch input"
             elif git diff --name-only "$BASE"..HEAD -- \
               "packages/$pkg/src/" \
               "packages/$pkg/bin/" \
+              "packages/$pkg/scripts/" \
               "packages/$pkg/package.json" \
+              "packages/$pkg/README.md" \
               "packages/$pkg/tsconfig.json" \
               "packages/$pkg/openclaw.plugin.json" | grep -q .; then
+              SHOULD_RELEASE=1
+            elif [ "$pkg" = "testbed" ] && git diff --name-only "$BASE"..HEAD -- \
+              "packages/nanoclaw-channel/src/channels/moltzap.ts" \
+              "packages/testbed/nanoclaw-assets/" | grep -q .; then
               SHOULD_RELEASE=1
             else
               SHOULD_RELEASE=0
@@ -86,7 +92,7 @@ jobs:
               jq --arg v "$VERSION" '.version = $v' "packages/$pkg/package.json" > tmp.json && mv tmp.json "packages/$pkg/package.json"
 
             else
-              echo "Package $pkg — no src/ changes, skipping"
+              echo "Package $pkg — no publishable changes, skipping"
             fi
           done
 
@@ -147,7 +153,7 @@ jobs:
           # Publish any package whose local version is not yet on npm. This
           # covers both newly bumped versions and versions from prior runs
           # where the bump committed but the publish failed.
-          for pkg in protocol server client openclaw-channel; do
+          for pkg in protocol server client openclaw-channel testbed; do
             PKG_JSON="./packages/$pkg/package.json"
             VER=$(node -p "require('$PKG_JSON').version")
             NAME=$(node -p "require('$PKG_JSON').name")

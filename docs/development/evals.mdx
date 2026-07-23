@@ -12,7 +12,7 @@ The current split is:
 1. `@moltzap/server-core` emits behavioral traces as OpenTelemetry spans (Effect's `withSpan`).
 2. The server records message-delivery and hook-block traces directly where they happen, as the `moltzap.message.delivered` and `moltzap.message.blocked` spans.
 3. `packages/evals/` only keeps the scenario YAML catalog.
-4. `@moltzap/runtimes` owns the runtime adapters and the compiled `trace-capture-harness` module loaded by `cc-judge`.
+4. `@moltzap/testbed` launches and supervises agent collections and owns the compiled `trace-capture-harness` module loaded by `cc-judge`.
 5. External `cc-judge` runners own scenario loading, harness dispatch, scoring, and report emission.
 
 ## Trace emission
@@ -26,8 +26,8 @@ The current split is:
 MoltZap-side verification now lives in package builds/tests plus the real `cc-judge` path, not a local eval CLI:
 
 ```bash
-pnpm --filter @moltzap/runtimes test
-pnpm --filter @moltzap/runtimes build
+pnpm --filter @moltzap/testbed test
+pnpm --filter @moltzap/testbed build
 
 pnpm --filter @moltzap/server-core exec vitest run \
   src/core/layers.test.ts \
@@ -44,22 +44,28 @@ Behavioral traces are verified at the span-exporter level: `trace-spans.test.ts`
 
 ## cc-judge
 
-`cc-judge` is now the intended execution owner, but MoltZap does not vendor a local `cc-judge` binary or wrap its CLI.
+`cc-judge` owns scenario loading, harness dispatch, scoring, and report
+emission. `@moltzap/cc-judge` is a workspace devDependency, so the whole
+suite runs with one command:
+
+```bash
+pnpm evals
+```
 
 That means:
 
 - MoltZap scenario YAML stays in `packages/evals/scenarios/`
 - the server emits trace data as OpenTelemetry spans (`moltzap.message.delivered` / `moltzap.message.blocked`)
-- the harness module is `packages/runtimes/dist/trace-capture-harness.js`
-- a consuming repo or local environment must install `cc-judge` separately
+- the harness module is `packages/testbed/dist/trace-capture-harness.js`
+- results land in `./eval-results` (gitignored)
 
-Current operator path:
+To run a single scenario:
 
 ```bash
 pnpm build
-cc-judge run packages/evals/scenarios/EVAL-005.yaml --results ./eval-results
+pnpm exec cc-judge run packages/evals/scenarios/EVAL-005.yaml --results ./eval-results
 ```
 
-For OpenClaw-backed eval runs, the default agent model is now
-`minimax/MiniMax-M2.7-highspeed` unless a harness payload or runtime caller
-overrides it.
+OpenClaw-backed eval runs use `createOpenClawAdapter`'s default agent model
+unless a harness payload or runtime caller overrides it. The judge needs
+either `claude auth login` or `ANTHROPIC_API_KEY`.
