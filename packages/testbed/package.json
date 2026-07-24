@@ -24,6 +24,7 @@
     "build": "nx run @moltzap/testbed:build",
     "lint": "nx run @moltzap/testbed:lint",
     "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -47,6 +48,23 @@
           "cwd": "packages/testbed",
           "command": "eslint src *.ts --cache --max-warnings=0"
         }
+      },
+      "test:integration": {
+        "dependsOn": [
+          "build"
+        ],
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "env": "MOLTZAP_NANOCLAW_ITEST"
+          }
+        ]
+      },
+      "typecheck:tests": {
+        "dependsOn": [
+          "build"
+        ]
       },
       "arch:check": {
         "executor": "nx:run-commands",
