@@ -65,6 +65,7 @@
   "dependencies": {
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
+    "@electric-sql/pglite": "0.4.4",
     "@moltzap/openclaw-channel": "workspace:^",
     "@moltzap/protocol": "workspace:^",
     "effect": "^3.22.0",

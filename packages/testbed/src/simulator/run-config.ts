@@ -97,6 +97,8 @@ export type LaunchDeps = {
   readonly world: World;
   readonly log: EventLog;
   readonly secrets: Secrets;
+  /** This run's OTLP/HTTP traces endpoint; the launcher configures the server container's span export against it. */
+  readonly otlpEndpoint: string;
 };
 
 /**

@@ -32,7 +32,12 @@ import {
   makeSecrets,
   type RecordingStore,
 } from "../recording.js";
-import { decodeEventLine, makeEventLog, makeReceiver } from "../event-log.js";
+import {
+  decodeEventLine,
+  makeEventLog,
+  makeReceiver,
+  makeTranscriptDrain,
+} from "../event-log.js";
 import { RunId, type AttemptId } from "../ids.js";
 import {
   DriverCrashed,
@@ -77,8 +82,10 @@ import {
   SHORT_INACTIVITY,
   doneEpisode,
   outcomeOf,
+  sealedPathOf,
   severWindow,
 } from "./coverage-shared.js";
+import { buildMessagesFixture, type FixtureMessage } from "./pglite-fixture.js";
 
 const MOUNT_NAME = "notes";
 const HTTP_OK = 200;
@@ -271,6 +278,96 @@ function stallingReceiver(stallAfterMs: number): typeof makeReceiver {
           }),
         ),
     });
+}
+
+const DRAIN_CONVERSATION = "22222222-2222-4222-8222-222222222222";
+const DRAIN_SENDER = "33333333-3333-4333-8333-333333333333";
+const DRAIN_SECRET = "drain-secret-0123456789";
+const REDACTED_TEXT_PATTERN = /^hello \[REDACTED:k\d+\] world$/u;
+
+function drainFixtureRows(): ReadonlyArray<FixtureMessage> {
+  return [1, 2].map((seq) => ({
+    id: `44444444-4444-4444-8444-44444444444${String(seq)}`,
+    conversationId: DRAIN_CONVERSATION,
+    senderId: DRAIN_SENDER,
+    seq,
+    parts: [{ type: "text", text: `hello ${DRAIN_SECRET} world` }],
+  }));
+}
+
+function transcriptEventsOf(
+  events: ReadonlyArray<{ _tag: string }>,
+): ReadonlyArray<Record<string, unknown>> {
+  return events.filter(
+    (event): event is Record<string, unknown> & { _tag: string } =>
+      event._tag === EVENT.transcriptMessage,
+  );
+}
+
+/**
+ * Path 20: drained content matches sent messages under the redaction
+ * policy; observer traffic excluded. The fixture is the server's storage
+ * shape; observer exclusion is structural (the observer credential never
+ * sends messages, so storage holds none of its rows) and the exact-match
+ * assertion proves the drain adds nothing beyond the stored rows.
+ */
+export function path20(): Effect.Effect<void, unknown, never> {
+  return Effect.gen(function* () {
+    const root = yield* tempStoreRoot();
+    const volume = yield* tempStoreRoot();
+    const rows = drainFixtureRows();
+    yield* Effect.tryPromise({
+      try: () => buildMessagesFixture(volume, rows),
+      catch: (cause) => `fixture build failed: ${String(cause)}`,
+    }).pipe(Effect.orDie);
+    const input = specInput(root, { episode: doneEpisode(SHORT_INACTIVITY) });
+    const outcome = yield* runHermetic(input, root, {
+      launcherConfig: { volumePath: volume },
+      internals: { makeDrain: makeTranscriptDrain },
+      options: { secrets: [DRAIN_SECRET] },
+    });
+    expect(outcome.sealedExit._tag).toBe(EXIT.success);
+    const path = sealedPathOf(outcome.sealedExit);
+    const events = yield* outcome.store
+      .read(path)
+      .pipe(Effect.flatMap(decodedEvents));
+    const drained = transcriptEventsOf(events);
+    expect(drained.length).toBe(rows.length);
+    for (const row of rows) {
+      const event = drained.find(
+        (entry) => entry["conversationSeq"] === row.seq,
+      );
+      expect(event).toMatchObject({
+        conversationId: row.conversationId,
+        senderId: row.senderId,
+      });
+      const message = event?.["message"] as {
+        id: string;
+        parts: ReadonlyArray<{ text: string }>;
+      };
+      expect(message.id).toBe(row.id);
+      expect(message.parts[0]?.text).toMatch(REDACTED_TEXT_PATTERN);
+    }
+    expect(JSON.stringify(events).includes(DRAIN_SECRET)).toBe(false);
+  });
+}
+
+/** Path 30: a drain failure at the final sweep seals with reason transcript-drain-failed. */
+export function path30(): Effect.Effect<void, unknown, never> {
+  return Effect.gen(function* () {
+    const root = yield* tempStoreRoot();
+    const input = specInput(root, { episode: doneEpisode(SHORT_INACTIVITY) });
+    // The fake launcher's default volume is an empty directory: no PGlite
+    // data dir exists, so the post-stop sweep fails typed.
+    const outcome = yield* runHermetic(input, root, {
+      internals: { makeDrain: makeTranscriptDrain },
+    });
+    expect(outcomeOf(outcome.sealedExit)).toMatchObject({
+      _tag: OUTCOME.infrastructure,
+      reason: REASON.transcriptDrainFailed,
+      errorTag: ERROR_TAG.transcriptDrainFailed,
+    });
+  });
 }
 
 /** Path 21: proxy transparency plus captured call/result pairing. */

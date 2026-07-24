@@ -72,10 +72,11 @@ import {
   EventLogSealed,
   RecordingInvalid,
   TraceCaptureFailed,
+  TranscriptDrainFailed,
   type RecordingStoreFailed,
-  type TranscriptDrainFailed,
 } from "./errors.js";
 import { makeNodeServer } from "./node-http.js";
+import { readSocietyMessages, type StoredMessageRow } from "./node-pglite.js";
 
 // ---------------------------------------------------------------------------
 // Event envelope building blocks
@@ -1056,12 +1057,122 @@ export interface TranscriptDrain {
   awaitFailure(): Effect.Effect<never, TranscriptDrainFailed, never>;
 }
 
-/** Create the v0 transcript drain over one run's server storage; redaction applied at enqueue. */
-export function makeTranscriptDrain(_deps: {
+type TranscriptDrainDeps = {
   readonly log: EventLog;
   readonly secrets: Secrets;
   readonly storage: ServerStorageAccess;
-}): Effect.Effect<TranscriptDrain, never, Scope.Scope> {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+};
+
+/**
+ * Create the v0 transcript drain over one run's server storage; redaction
+ * applied at enqueue. PGlite is single-process, so the volume is read in
+ * one post-stop sweep (the §4.1 shutdown sequence runs it after
+ * `teardown`, before the log seals); with no live sweep there is no
+ * mid-run failure channel and `awaitFailure` never resolves.
+ */
+export function makeTranscriptDrain(
+  deps: TranscriptDrainDeps,
+): Effect.Effect<TranscriptDrain, never, Scope.Scope> {
+  return Effect.succeed({
+    finalSweep: () => sweepServerStorage(deps),
+    awaitFailure: () => Effect.never,
+  });
+}
+
+function drainFailed(detail: string): TranscriptDrainFailed {
+  return new TranscriptDrainFailed({
+    detail,
+    message: `The transcript drain could not read the server storage volume: ${detail}. The run seals failed; message evidence is incomplete.`,
+  });
+}
+
+function sweepServerStorage(
+  deps: TranscriptDrainDeps,
+): Effect.Effect<void, TranscriptDrainFailed, never> {
+  return Effect.tryPromise({
+    try: () => readSocietyMessages(deps.storage.volumePath),
+    catch: (cause) => drainFailed(String(cause)),
+  }).pipe(
+    Effect.flatMap((rows) =>
+      Effect.forEach(rows, (row) => enqueueTranscriptRow(deps.log, row), {
+        concurrency: 1,
+        discard: true,
+      }),
+    ),
+    Effect.withSpan("TranscriptDrain.finalSweep"),
+  );
+}
+
+/**
+ * The per-run container runs without an at-rest encryption secret
+ * (amended §3.5), so rows persist plaintext (`dekVersion` 0); an
+ * encrypted row means a misconfigured container and fails the sweep
+ * rather than dropping evidence. Observer traffic needs no filter: the
+ * observer credential only subscribes to presence and never sends
+ * messages, so storage holds none of its rows.
+ */
+function enqueueTranscriptRow(
+  log: EventLog,
+  row: StoredMessageRow,
+): Effect.Effect<void, TranscriptDrainFailed, never> {
+  if (row.dekVersion !== 0) {
+    return Effect.fail(
+      drainFailed(
+        `message ${row.id} is encrypted (dekVersion ${String(row.dekVersion)}); the simulator's server container must run without an encryption secret`,
+      ),
+    );
+  }
+  return decodeParts(row).pipe(
+    Effect.flatMap((parts) =>
+      log.enqueue({
+        _tag: "transcript.message",
+        source: "transcript",
+        wallTime: wallTimeNow(),
+        conversationId: row.conversationId,
+        conversationSeq: row.seq,
+        senderId: row.senderId,
+        message: transcriptMessageBody(row, parts),
+        createdAtWallTime: Schema.decodeSync(WallTimeMs)(row.createdAtMs),
+      }),
+    ),
+    Effect.asVoid,
+    // The sweep runs before the log seals by the shutdown sequence; a
+    // sealed log here is an ordering violation, surfaced typed.
+    Effect.catchTag("EventLogSealed", (cause) =>
+      Effect.fail(drainFailed(cause.message)),
+    ),
+  );
+}
+
+function decodeParts(
+  row: StoredMessageRow,
+): Effect.Effect<JsonValue, TranscriptDrainFailed, never> {
+  return Effect.try({
+    try: (): unknown => JSON.parse(row.partsText),
+    catch: (cause) =>
+      drainFailed(`message ${row.id} parts are not JSON: ${String(cause)}`),
+  }).pipe(
+    Effect.flatMap((parsed) =>
+      Schema.decodeUnknown(JsonValue)(parsed).pipe(
+        Effect.mapError((cause) =>
+          drainFailed(
+            `message ${row.id} parts are outside the JSON value space: ${cause.message}`,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/** The wire message preserved losslessly: id, multipart body, reply target, deletion mark. */
+function transcriptMessageBody(
+  row: StoredMessageRow,
+  parts: JsonValue,
+): JsonValue {
+  return {
+    id: row.id,
+    parts,
+    ...(row.replyToId === null ? {} : { replyToId: row.replyToId }),
+    ...(row.isDeleted ? { isDeleted: true } : {}),
+  };
 }

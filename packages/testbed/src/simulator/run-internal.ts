@@ -2,15 +2,13 @@
  * @file Composition-root internals behind `run` (contract 4). The
  * manifest persists before server bring-up, so every post-manifest
  * failure has a recording; the episode races every long-lived failure
- * channel; shutdown runs in two phases (final transcript sweep and
- * evented teardown, then log seal, trace write, and store seal); the
- * `InfraError` union maps onto the closed failure-reason taxonomy
- * exhaustively at the seal site.
+ * channel; shutdown follows the §4.1 sequence (evented teardown, then
+ * the post-stop transcript sweep, then log seal, trace write, and store
+ * seal); the `InfraError` union maps onto the closed failure-reason
+ * taxonomy exhaustively at the seal site.
  *
- * The transcript-drain factory is injectable here so the held drain
- * mechanism (escalation on chughtapan/moltzap#818) drops in without
- * touching the rest of the composition; the public default stays
- * `makeTranscriptDrain`.
+ * The transcript-drain factory is injectable here so hermetic tests can
+ * substitute drains; the public default stays `makeTranscriptDrain`.
  */
 import { createRequire } from "node:module";
 import { Brand, Effect, Option, Schema, type Scope } from "effect";
@@ -336,12 +334,13 @@ function bringUp(
 ): Effect.Effect<World, InfraError, Scope.Scope> {
   return Effect.gen(function* () {
     const log = mustLog(live);
-    live.receiver = yield* (internals.makeReceiver ?? makeReceiver)({
+    const receiver = yield* (internals.makeReceiver ?? makeReceiver)({
       runId: live.ref.runId,
       log,
       failBoundMs: live.spec.timeouts.otlpReceiverFailMs,
       secrets: live.secrets,
     });
+    live.receiver = receiver;
     const world = yield* (internals.makeWorld ?? makeWorld)();
     const launcher = options.runner ?? makeLauncher();
     const environment = options.mounts ?? makeEnvironment();
@@ -350,6 +349,7 @@ function bringUp(
       world,
       log,
       secrets: live.secrets,
+      otlpEndpoint: receiver.endpoint,
     });
     live.drain = yield* internals.makeDrain({
       log,
@@ -453,10 +453,14 @@ export function failureReasonOf(error: InfraError): FailureReason {
 // ---------------------------------------------------------------------------
 
 /**
- * Phase 1: final transcript sweep and explicit evented teardown; phase 2:
- * log seal, trace write, store seal. A shutdown-phase failure downgrades
- * an episode outcome to the corresponding infrastructure failure (the
- * first observed failure wins); an already-failed outcome is preserved.
+ * The §4.1 shutdown sequence, verbatim: teardown (server stopped) →
+ * final transcript sweep → log seal → trace drain and write → store
+ * seal. The sweep runs after the stop because PGlite is single-process
+ * (the data directory must not be live-held) and before the log seal so
+ * the recording guarantee is unchanged. A shutdown-phase failure
+ * downgrades an episode outcome to the corresponding infrastructure
+ * failure (the first observed failure wins); an already-failed outcome
+ * is preserved.
  */
 function shutdownAndSeal(
   live: LiveRun,
@@ -466,8 +470,8 @@ function shutdownAndSeal(
   return Effect.uninterruptible(
     Effect.gen(function* () {
       yield* notifyPhase(internals, "draining");
-      let outcome = yield* sweepTranscripts(live, initial);
       yield* teardownSociety(live);
+      let outcome = yield* sweepTranscripts(live, initial);
       yield* enqueueLifecycle(live, { _tag: "run.terminated" });
       const summary = yield* sealEventLog(live);
       if (summary.failed !== undefined && outcome._tag === "episode") {

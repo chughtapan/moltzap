@@ -8,11 +8,11 @@
  * The server-image contract this launcher launches against (built by the
  * server-image row): the image runs `moltzap-server` listening on
  * container port 3000 with open registration and no encryption secret
- * (message content stays volume-readable for the transcript drain), and
+ * (message content stays volume-readable for the transcript drain),
  * persists its data under `/data`, which this launcher bind-mounts from
- * the per-run volume directory that backs `ServerHandle.storage`.
- * The OTLP export wiring into the container follows the pending
- * `LaunchDeps` endpoint amendment (chughtapan/moltzap#818 thread).
+ * the per-run volume directory that backs `ServerHandle.storage`, and
+ * exports spans to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, which this
+ * launcher points at the run's receiver (`LaunchDeps.otlpEndpoint`).
  */
 import {
   Command,
@@ -82,7 +82,7 @@ function launch(
   deps: LaunchDeps,
 ): Effect.Effect<Society, LaunchError, Scope.Scope> {
   return Effect.gen(function* () {
-    const server = yield* startServerContainer(spec);
+    const server = yield* startServerContainer(spec, deps.otlpEndpoint);
     yield* enqueueLifecycle(deps, {
       _tag: "server.started",
       serverUrl: server.handle.serverUrl,
@@ -143,8 +143,40 @@ function execCapture(
   );
 }
 
+/** The engine's host alias: the receiver binds host loopback, and in-container loopback is the container itself. */
+const HOST_GATEWAY_NAME = "host.docker.internal";
+
+function containerReachableEndpoint(otlpEndpoint: string): string {
+  return otlpEndpoint.replace("127.0.0.1", HOST_GATEWAY_NAME);
+}
+
+function serverRunArgs(
+  digest: string,
+  volumePath: string,
+  otlpEndpoint: string,
+): ReadonlyArray<string> {
+  return [
+    "docker",
+    "run",
+    "--detach",
+    "--rm",
+    "--publish",
+    `127.0.0.1:0:${String(SERVER_CONTAINER_PORT)}`,
+    "--volume",
+    `${volumePath}:/data`,
+    // Docker Desktop resolves the alias natively; the explicit
+    // `host-gateway` mapping is what makes it work on Linux engines.
+    "--add-host",
+    `${HOST_GATEWAY_NAME}:host-gateway`,
+    "--env",
+    `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${containerReachableEndpoint(otlpEndpoint)}`,
+    digest,
+  ];
+}
+
 function startServerContainer(
   spec: AgentFacingRunSpec,
+  otlpEndpoint: string,
 ): Effect.Effect<StartedServer, ServerLaunchFailed, Scope.Scope> {
   const digest = spec.server.imageDigest;
   return Effect.gen(function* () {
@@ -157,17 +189,9 @@ function startServerContainer(
         serverFailed(digest, `volume directory: ${String(cause)}`),
       ),
     );
-    const containerId = yield* execCapture([
-      "docker",
-      "run",
-      "--detach",
-      "--rm",
-      "--publish",
-      `127.0.0.1:0:${String(SERVER_CONTAINER_PORT)}`,
-      "--volume",
-      `${volumePath}:/data`,
-      digest,
-    ]).pipe(
+    const containerId = yield* execCapture(
+      serverRunArgs(digest, volumePath, otlpEndpoint),
+    ).pipe(
       Effect.map((output) => output.trim()),
       Effect.mapError((detail) => serverFailed(digest, detail)),
     );
