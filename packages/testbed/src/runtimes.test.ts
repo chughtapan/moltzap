@@ -551,7 +551,9 @@ function openClawTeardownSendsTerminateThenKill() {
         tornDown: false,
       });
 
-      try {
+      // Cleanup must be Effect.ensuring: a gen-body finally is skipped when
+      // a yielded effect fails.
+      yield* Effect.gen(function* () {
         const teardownPromise = Effect.runPromise(adapter.teardown());
         yield* Effect.tryPromise({
           try: () => vi.advanceTimersByTimeAsync(TEARDOWN_TIMER_ADVANCE_MS),
@@ -561,10 +563,13 @@ function openClawTeardownSendsTerminateThenKill() {
           try: () => teardownPromise,
           catch: (cause) => cause,
         }).pipe(Effect.orDie);
-      } finally {
-        vi.useRealTimers();
-        yield* Fiber.interrupt(exitFiber);
-      }
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            vi.useRealTimers();
+          }).pipe(Effect.zipRight(Fiber.interrupt(exitFiber))),
+        ),
+      );
 
       expect(killCalls).toEqual([SIGTERM_SIGNAL, SIGKILL_SIGNAL]);
     }),

@@ -6,6 +6,10 @@ import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
 
+type HistoryMessage = H.SocketHistoryResponse["messages"][number];
+const isOwn = (m: HistoryMessage) => m.isOwn;
+const isNotOwn = (m: HistoryMessage) => !m.isOwn;
+
 it("history via socket returns messages with isOwn labels", () =>
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("sock-hist-a");
@@ -13,7 +17,8 @@ it("history via socket returns messages with isOwn labels", () =>
     yield* regB.client.connect();
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
-    try {
+    // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
+    yield* Effect.gen(function* () {
       const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
@@ -39,17 +44,13 @@ it("history via socket returns messages with isOwn labels", () =>
       );
 
       expect(result.messages.length).toBeGreaterThanOrEqual(2);
-      const ownMsgs = result.messages.filter((m) => m.isOwn);
+      const ownMsgs = result.messages.filter(isOwn);
       expect(ownMsgs.length).toBeGreaterThanOrEqual(1);
       expect(ownMsgs[0]!.senderName).toBe("you");
-      const otherMsgs = result.messages.filter((m) => !m.isOwn);
+      const otherMsgs = result.messages.filter(isNotOwn);
       expect(otherMsgs.length).toBeGreaterThanOrEqual(1);
       expect(otherMsgs[0]!.senderName).toBe(H.SOCK_HIST_B_NAME);
-    } finally {
-      service.close();
-      yield* regA.client.close();
-      yield* regB.client.close();
-    }
+    }).pipe(Effect.ensuring(H.closeAll([service], [regA.client, regB.client])));
   }));
 
 it("messages stay *NEW* after getContext notification until history is read", () =>
@@ -61,7 +62,7 @@ it("messages stay *NEW* after getContext notification until history is read", ()
     yield* regC.client.connect();
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
-    try {
+    yield* Effect.gen(function* () {
       const convB = yield* H.createDm(service, regB.agentId);
       const convC = yield* H.createDm(service, regC.agentId);
 
@@ -102,12 +103,11 @@ it("messages stay *NEW* after getContext notification until history is read", ()
         convB.conversation!.id,
       );
       expect(hist2.newCount).toBe(0);
-    } finally {
-      service.close();
-      yield* regA.client.close();
-      yield* regB.client.close();
-      yield* regC.client.close();
-    }
+    }).pipe(
+      Effect.ensuring(
+        H.closeAll([service], [regA.client, regB.client, regC.client]),
+      ),
+    );
   }));
 
 it("new messages after history read are marked *NEW*", () =>
@@ -118,7 +118,7 @@ it("new messages after history read are marked *NEW*", () =>
     yield* H.connectClients(regB.client, regC.client);
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
-    try {
+    yield* Effect.gen(function* () {
       const convB = yield* H.createDm(service, regB.agentId);
       const convC = yield* H.createDm(service, regC.agentId);
 
@@ -158,8 +158,9 @@ it("new messages after history read are marked *NEW*", () =>
       expect(hist3.newCount).toBe(1);
       const newMsgs = hist3.messages.filter((m) => m.isNew);
       expect(newMsgs[0]!.text).toBe(H.SECOND_MESSAGE);
-    } finally {
-      service.close();
-      yield* H.closeClients(regA.client, regB.client, regC.client);
-    }
+    }).pipe(
+      Effect.ensuring(
+        H.closeAll([service], [regA.client, regB.client, regC.client]),
+      ),
+    );
   }));
