@@ -1,8 +1,9 @@
 import { createRequire } from "node:module";
-import { join, sep } from "node:path";
-import { Data, Option } from "effect";
+import { dirname, join, sep } from "node:path";
+import { Data } from "effect";
 
 const requireFromHere = createRequire(import.meta.url);
+const PACKAGE_RESOLUTION_ANCHOR = import.meta.url;
 
 class PackageResolutionFailed extends Data.TaggedError(
   "PackageResolutionFailed",
@@ -17,13 +18,26 @@ interface PackageJson {
   readonly bin?: unknown;
 }
 
+interface PackageJsonResolution {
+  readonly rejectedRoots: ReadonlySet<string>;
+  readonly root: string | null;
+  readonly unexpectedCause: unknown | null;
+}
+
+interface PackageJsonCandidateResolution {
+  readonly rejectedRoot: string | null;
+  readonly root: string | null;
+  readonly unexpectedCause: unknown | null;
+}
+
 function parsePackageJson(
+  requireFromAnchor: NodeRequire,
   packageRoot: string,
   packageName: string,
 ): PackageJson {
   const packageJsonPath = join(packageRoot, "package.json");
   try {
-    return requireFromHere(packageJsonPath) as PackageJson;
+    return requireFromAnchor(packageJsonPath) as PackageJson;
   } catch (cause) {
     throw new PackageResolutionFailed({
       packageName,
@@ -68,12 +82,124 @@ function packageRootFromResolvedFile(
   });
 }
 
+function isExpectedResolutionFailure(cause: unknown): boolean {
+  const code =
+    cause instanceof Error && "code" in cause ? cause.code : undefined;
+  return (
+    code === "MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
+  );
+}
+
+function resolvePackageJsonCandidate(
+  requireFromAnchor: NodeRequire,
+  packageName: string,
+  candidate: string,
+): PackageJsonCandidateResolution {
+  let packageJsonPath: string;
+  try {
+    packageJsonPath = requireFromAnchor.resolve(candidate);
+  } catch (cause) {
+    return {
+      rejectedRoot: null,
+      root: null,
+      unexpectedCause: isExpectedResolutionFailure(cause) ? null : cause,
+    };
+  }
+  const packageRoot = dirname(packageJsonPath);
+  try {
+    const manifest = parsePackageJson(
+      requireFromAnchor,
+      packageRoot,
+      packageName,
+    );
+    return manifest.name === packageName
+      ? { rejectedRoot: null, root: packageRoot, unexpectedCause: null }
+      : { rejectedRoot: packageRoot, root: null, unexpectedCause: null };
+  } catch (cause) {
+    return {
+      rejectedRoot: packageRoot,
+      root: null,
+      unexpectedCause: cause,
+    };
+  }
+}
+
+function resolvePackageJson(
+  requireFromAnchor: NodeRequire,
+  packageName: string,
+): PackageJsonResolution {
+  const packageJsonCandidates = [
+    `${packageName}/package.json`,
+    ...(requireFromAnchor.resolve.paths(packageName) ?? []).map((lookupPath) =>
+      join(lookupPath, packageName, "package.json"),
+    ),
+  ];
+  const rejectedRoots = new Set<string>();
+  let unexpectedCause: unknown = null;
+  for (const candidate of packageJsonCandidates) {
+    const resolution = resolvePackageJsonCandidate(
+      requireFromAnchor,
+      packageName,
+      candidate,
+    );
+    if (resolution.root !== null) {
+      return { rejectedRoots, root: resolution.root, unexpectedCause: null };
+    }
+    if (resolution.rejectedRoot !== null) {
+      rejectedRoots.add(resolution.rejectedRoot);
+    }
+    unexpectedCause ??= resolution.unexpectedCause;
+  }
+  return { rejectedRoots, root: null, unexpectedCause };
+}
+
+/**
+ * Resolves a package root from the same module-resolution context as `anchor`.
+ *
+ * A package may hide `package.json` behind its exports map, so lookup-path
+ * candidates precede recovery from the package's public entry point.
+ */
+export function resolvePackageRoot(
+  anchor: string | URL,
+  packageName: string,
+): string | null {
+  const requireFromAnchor = createRequire(anchor);
+  const packageJsonResolution = resolvePackageJson(
+    requireFromAnchor,
+    packageName,
+  );
+  if (packageJsonResolution.root !== null) {
+    return packageJsonResolution.root;
+  }
+  try {
+    const publicEntryRoot = packageRootFromResolvedFile(
+      packageName,
+      requireFromAnchor.resolve(packageName),
+    );
+    return packageJsonResolution.rejectedRoots.has(publicEntryRoot)
+      ? null
+      : publicEntryRoot;
+  } catch (cause) {
+    if (!isExpectedResolutionFailure(cause)) {
+      throw cause;
+    }
+    if (packageJsonResolution.unexpectedCause !== null) {
+      throw packageJsonResolution.unexpectedCause;
+    }
+    return null;
+  }
+}
+
 function packageBinTarget(
   packageRoot: string,
   packageName: string,
   binName: string,
 ): string {
-  const packageJson = parsePackageJson(packageRoot, packageName);
+  const packageJson = parsePackageJson(
+    requireFromHere,
+    packageRoot,
+    packageName,
+  );
   const { bin } = packageJson;
   if (typeof bin === "string") {
     return join(packageRoot, bin);
@@ -92,23 +218,27 @@ function packageBinTarget(
 
 export function resolveInstalledPackageRoot(
   packageName: string,
-  lookupPaths: readonly string[] = requireFromHere.resolve.paths(packageName) ??
-    [],
+  anchor: string | URL = PACKAGE_RESOLUTION_ANCHOR,
 ): string {
-  for (const lookupPath of lookupPaths) {
-    const packageRoot = join(lookupPath, packageName);
-    const manifest = Option.liftThrowable(parsePackageJson)(
-      packageRoot,
-      packageName,
-    );
-    if (Option.isSome(manifest) && manifest.value.name === packageName) {
+  try {
+    const packageRoot = resolvePackageRoot(anchor, packageName);
+    if (packageRoot !== null) {
       return packageRoot;
     }
+  } catch (cause) {
+    if (cause instanceof PackageResolutionFailed) {
+      throw cause;
+    }
+    throw new PackageResolutionFailed({
+      packageName,
+      cause,
+      message: `Unable to resolve installed package ${packageName}`,
+    });
   }
-  return packageRootFromResolvedFile(
+  throw new PackageResolutionFailed({
     packageName,
-    requireFromHere.resolve(packageName),
-  );
+    message: `Unable to resolve installed package ${packageName}`,
+  });
 }
 
 export function resolveInstalledPackageBin(

@@ -91,21 +91,28 @@ function bundledAssetPath(assetName: string): string {
 const cachedCacheTarget = Effect.runSync(
   Effect.cached(
     Effect.gen(function* () {
-      const [channelHash, skillHash, packageJsonHash, packageLockHash] =
-        yield* Effect.all(
-          [
-            sha256OfFile(bundledAssetPath("moltzap.ts")),
-            sha256OfFile(bundledAssetPath("SKILL.md")),
-            sha256OfFile(bundledAssetPath("package.json")),
-            sha256OfFile(bundledAssetPath("package-lock.json")),
-          ],
-          { concurrency: 4 },
-        );
+      const [
+        channelHash,
+        evalProvisionHash,
+        skillHash,
+        packageJsonHash,
+        packageLockHash,
+      ] = yield* Effect.all(
+        [
+          sha256OfFile(bundledAssetPath("moltzap.ts")),
+          sha256OfFile(bundledAssetPath("moltzap-eval-provision.ts")),
+          sha256OfFile(bundledAssetPath("SKILL.md")),
+          sha256OfFile(bundledAssetPath("package.json")),
+          sha256OfFile(bundledAssetPath("package-lock.json")),
+        ],
+        { concurrency: 5 },
+      );
       const cacheFingerprint = sha256Hex(
         JSON.stringify({
           cacheSchema: NANOCLAW_CACHE_SCHEMA_VERSION,
           nanoclawSha: NANOCLAW_SHA,
           channelHash,
+          evalProvisionHash,
           skillHash,
           packageJsonHash,
           packageLockHash,
@@ -273,6 +280,10 @@ function injectBundledAssets(tmpDir: string) {
     yield* copyBundledAsset(
       "moltzap.ts",
       join(tmpDir, "src/channels/moltzap.ts"),
+    );
+    yield* copyBundledAsset(
+      "moltzap-eval-provision.ts",
+      join(tmpDir, "src/moltzap-eval-provision.ts"),
     );
 
     const barrelPath = join(tmpDir, "src/channels/index.ts");

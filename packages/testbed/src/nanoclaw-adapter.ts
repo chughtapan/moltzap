@@ -75,7 +75,7 @@ const acquireNanoclawRuntime = Effect.fn("NanoclawAdapter.acquire")(function* (
  *   subgraph P1["Install pinned NanoClaw runtime"]
  *     P1C{"matching immutable generation exists?"}
  *     P1WARM["reuse immutable generation"]
- *     P1COLD["preflightDocker → download pinned tarball<br>→ copy bundled channel + skill<br>→ install pinned client + build<br>→ publish immutable generation"]
+ *     P1COLD["preflightDocker → download pinned tarball<br>→ copy bundled channel + skill + eval provisioner<br>→ install pinned client + build<br>→ publish immutable generation"]
  *     P1C -->|yes| P1WARM
  *     P1C -->|no| P1COLD
  *   end
@@ -83,15 +83,17 @@ const acquireNanoclawRuntime = Effect.fn("NanoclawAdapter.acquire")(function* (
  *     P2DIR["create isolated runtime dir<br>copy container + scripts"]
  *     P2OC["ensureOnecliRunning<br>(probe 10254; up if unreachable)"]
  *     P2WS["write agent-local workspace files + profile"]
+ *     P2EVAL["eval mode only<br>seed agent group + container config"]
  *     P2SP["startNanoclawProcess<br>(absolute cached entrypoint,<br>isolated runtime cwd)"]
- *     P2DIR --> P2OC --> P2WS --> P2SP
+ *     P2OC --> P2DIR --> P2WS --> P2EVAL --> P2SP
  *   end
  *   NCR["waitUntilReady — server.awaitAgentReady (WS auth)<br>raced against subprocess exit,<br>bounded by the caller's readyTimeoutMs"]
  *   NS --> P1 --> P2 --> NCR
  * ```
  *
  * Inbound marker: `New messages`. The immutable cache key covers the pinned
- * NanoClaw source, dependency lock, bundled channel/skill, and host ABI.
+ * NanoClaw source, dependency lock, bundled channel/skill/provisioner, and
+ * host ABI.
  */
 export class NanoclawAdapter implements Runtime {
   private state: AdapterState | null = null;
