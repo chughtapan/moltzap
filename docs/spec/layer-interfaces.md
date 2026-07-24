@@ -4,294 +4,445 @@ Status: DRAFT (deepening doc; feeds the spec set)
 
 ## Purpose & scope
 
-One canonical name for every payload that crosses a layer boundary and
-every service a layer provides, standardized across the eight-layer
-stack (`docs/architecture/layers.md`), plus the recorded Effect
-realization: each service is an Effect `Context.Tag`, each realization
-an Effect `Layer`, and the stack's layering rules become mechanical
-properties of the Layer dependency graph. The service names are the v0
-plan's interface sketches (`v2/drafts/v0-implementation-plan-20260723.md`),
-gathered here by layer so the plan's workstreams and the spec docs stop
-naming the same thing twice.
+One canonical standardization of the stack's programmable surface: the
+payload vocabulary, **five ports** (the only tagged seams), the eight
+layers as **law sets** over those ports, and the Effect realization.
+This revision is a synthesis of seven independently drafted proposals —
+the selection rationale and the six alternates live under
+`v2/drafts/layer-interface-proposals/` — organized around one criterion:
 
-Two vocabularies collide on the word *layer*; this doc keeps them
-apart. A **stack layer** (L1–L8) is a set of guarantees. An **Effect
-`Layer`** is a constructor for a service in a process's composition.
-One stack layer projects into several services across several
-processes; no process implements a stack layer whole.
+> **The port test.** A seam earns a `Context.Tag` if and only if two
+> implementations must be interchangeable and the conformance suite
+> quantifies over the swap. Everything else is a law (a checkable
+> property), a decorator (middleware adding a guarantee), a derivation
+> (a pure read of port state), or an adapter (an implementation behind
+> a port). A tag that exists before its seam is decided is a bet
+> against "questions stay questions."
+
+The spec names exactly five swap axes, so there are exactly five ports:
+**Plane** (production vs testbed data plane), **Store** (storage
+engine), **Registry** (card custody), **Attribution** (interim vs
+target signing binding), **Harness** (the SPI two runtimes implement).
 
 Non-goals: chartered semantics (#765 — op vocabulary, completion,
-failure, concurrency, witnesses); wire encodings (control-plane
-encoding is recorded, the data wire is `data-plane.md` Q10); the key
-model (register item 5); package internals.
+failure, concurrency, witnesses, presence, turn-signal carriage); wire
+encodings (control-plane encoding is recorded, the data wire is
+`data-plane.md` Q10); the key model (register item 5); package
+internals (the component-to-package map is the v0 plan's W1).
 
 ## Conventions
 
-- **Payloads are nouns**: branded or opaque types, defined exactly
-  once, in one home package, imported by reference everywhere else.
-- **Services are per party.** The stack spans distributed parties, so
-  each stack layer projects into services per process region — router,
-  endpoint — listed separately below.
-- **Signatures are guarantee-level.** A method appears here only if
-  some spec doc obligates it; mechanisms (leases, sockets,
-  connections) never appear in a signature.
-- **Refusals are values.** Every fallible operation refuses with a
-  typed value in the error channel, never a throw or defect; wire
-  projection of refusals stays open (register item 8).
+- **Payloads are nouns**: branded or opaque types, defined exactly once
+  in `v2/wire`, imported by reference everywhere. Their base
+  representations (string vs bigint, encoding) are realization choices;
+  signatures use only the brand.
+- **Roots are held only by compositions.** A port tag is a **root
+  authority**: it is provided once at a process's composition root and
+  named in no leaf code's requirements. Leaf code receives **attenuated
+  values** — plain branded values built by the composition from the
+  roots, exposing strictly less authority. Authority is a value; there
+  is no ambient authority.
+- **Laws are equations.** Each law is stated as an equality or a
+  structural fact, carries a spec citation, and a **discharge kind**:
+  **(C)** compile-time — the violation is unrepresentable; **(P)**
+  property — replayed by the conformance suite against one
+  implementation; **(S)** suite — needs a second implementation or a
+  case-study program.
+- **Refusals are values.** Fallible operations refuse with typed
+  values, never throws; defects never cross a port. Each port's
+  internal error union is closed and matched exhaustively inside its
+  region; any wire projection collapses to the single opaque `Refusal`
+  (register item 8 stays open).
+- No lease, socket, connection, or session appears in any signature.
 
 ## Payload vocabulary
 
-The nouns, each with its owning stack layer, who mints it, and its
-home package (per the v0 plan's W1 component-to-package map).
+| Payload | Layer | Minted by | Status |
+|---|---|---|---|
+| `AgentId` | L1 | registry — opaque; survives key rotation | decided |
+| `PrincipalRef` | L1 | registry — opaque linkage | linkage depth open |
+| `Card` | L1 | registry-attested X.509, self-attesting; read through `CardView` | decided |
+| `EncodedFrame` | L1 | sender's harness — the attributed unit as opaque bytes, byte-exact at every hop; read through `FrameView` | decided |
+| `Envelope` | L1 | view of a frame's carrier-readable fields: sender, conversation, protocol, attribution | field set decided; encoding open |
+| `Body` | L1 | sender — opaque bytes, never interpreted below L4 | decided |
+| `Attributed` | L1 | verification — envelope view + principal + the exact bytes verified | decided |
+| `ProtocolVersion` | cross | publish pipeline — CalVer, matched exactly | decided |
+| `ConversationId` | L3 | client — fresh, collision-free by size | decided |
+| `Position` | L3 | store — order handle; never a field of any frame type | decided |
+| `TranscriptRecord` | L3 | store — byte-exact frame + its `Position` | decided |
+| `LifecycleEntry` | L3 | member — **open union**: v0 exactly START / member-add / leave | types decided; semantics chartered |
+| `CollectiveUnit` | L3 | members — **open union**: v0 exactly MULTICAST | chartered |
+| `TranscriptUnit` | L3 | `CollectiveUnit \| LifecycleEntry` — what append/ship take | decided |
+| `Cursor` | L3 | plane — opaque fail-closed paging token for list-shaped reads | decided |
+| `Refusal` | cross | refusing party — opaque `cause`; the only wire-observable failure | register 8 open |
+| `NormBundle` | L4 | marketplace — versioned skill bundle, pinned per binding | decided at guarantee level |
+| `Standing` | L5 | endpoint — allow / deny / limit (limits endpoint-opaque) | decided |
+| `GateVerdict` | L5 | endpoint gate — admit / admit-under-limits / refuse; **success-channel value**, never an error | decided |
+| `Evidence` | L6 | derived, never minted: verified reads of recorded frames | monitor access open |
 
-| Payload | Layer | Minted by | Home | Status |
-|---|---|---|---|---|
-| `AgentId` | L1 | registry — opaque branded string; survives key rotation | `v2/wire` | decided |
-| `PrincipalRef` | L1 | registry — opaque linkage | `v2/wire` | linkage depth open |
-| `Card` | L1 | registry-attested; X.509 container | `v2/identity` | decided |
-| `EncodedFrame` | L1 | sender's harness — the attributed unit as opaque bytes, byte-exact at every hop | `v2/wire` | decided |
-| `Envelope` | L1 | parsed view of a frame's carrier-readable fields: sender `AgentId`, `ConversationId`, `ProtocolVersion`, attribution | `v2/wire` | field set decided; encoding open |
-| `Body` | L1 | sender — opaque bytes, never interpreted below L4 | — | decided |
-| `ProtocolVersion` | cross | publish pipeline — the protocol package's CalVer | `v2/wire` (sourced from `v2/protocol`) | decided |
-| `ConversationId` | L3 | client — fresh, collision-free by size | `v2/wire` | decided |
-| `Position` | L3 | store — branded, store-assigned; never inside the attributed unit | `v2/wire` | decided |
-| `TranscriptRecord` | L3 | store — byte-exact `EncodedFrame` plus its `Position` | `v2/wire` | decided |
-| `LifecycleEntry` | L3 | member — in-band entry types; v0: START, member-add, leave | `v2/wire` | types decided; semantics chartered |
-| `CollectiveUnit` | L3 | members — one transactional transcript unit; v0: MULTICAST only | `v2/wire` | chartered |
-| `Cursor` | L3 | plane — opaque fail-closed paging token for list-shaped reads | `v2/wire` | decided |
-| `RecoveryCursor` | L3 | endpoint — the endpoint-owned resume position; never plane state | `v2/channel` | persistence obligations: channels.md Q2 |
-| `Refusal` | cross | refusing party — one interim value: "the op did not take effect" | `v2/wire` | register item 8 open |
-| `NormBundle` | L4 | marketplace — versioned skill bundle, pinned per binding | endpoint-owned | decided at guarantee level |
-| `Standing` | L5 | endpoint — a contact's posture: allow / deny / limit | `v2/channel` | decided |
-| `GateVerdict` | L5 | endpoint gate — admit / admit-under-limits / refuse; agent-local | `v2/channel` | decided |
-| `Evidence` | L6 | derived, never minted: `TranscriptRecord`s re-verified under L1 | — | monitor access open (register item 3) |
+Three position-shaped roles stay deliberately distinct: `Position` is
+the store's order, `Cursor` pages a list, and the **recovery cursor**
+is endpoint state (a held `Position`), never a plane concept.
 
-Three position-shaped nouns are deliberately distinct: `Position` is
-the store's order, `Cursor` pages a read, `RecoveryCursor` is the
-endpoint's own resume state (it holds a `Position`; it is not one).
+The two **open unions** are the growth surface: #765 widens
+`CollectiveUnit`/`LifecycleEntry` by adding arms, never by adding a
+method to any port — every exhaustive match then fails to compile until
+the new arm is handled, and implementations refuse arms they do not
+know. All seven proposals converged on this independently.
 
-## Per-layer interfaces
+**Lenses.** `EncodedFrame` and `Card` are read through **lenses** —
+codecs whose encode is byte-identity on the retained input
+(`FrameView: Lens<{envelope, body, bytes}, EncodedFrame>`;
+`CardView: Lens<{agent, principal, name, key, issuedAt}, Card>`) — so
+decode-at-boundary and byte-exact preservation coexist structurally:
+no carrier ever re-encodes, because the lens hands back the retained
+bytes. Each `v2/wire` schema also derives its test `Arbitrary`; the
+conformance corpus fuzzes from the same declarations the wire uses.
 
-Each table lists the layer's services by party. Signatures elide
-`Effect` wrappers; the mapping section supplies them.
+## The five ports
 
-### L1 — identity
+Signatures elide the `R` channel; roots and requirements are stated in
+the realization section. `Effect<A, E>` is success/typed-refusal.
 
-| Service | Party | Interface |
-|---|---|---|
-| `FrameAuthor` | endpoint | `attribute(envelope fields, body) → EncodedFrame` — frames leave the harness already attributable |
-| `FrameVerifier` | endpoint, router | `verify(EncodedFrame) → Attributed<Envelope> \| Refusal` — identical interface under the interim and target bindings (identity.md → One shape, two attribution bindings) |
-| `CardResolver` | endpoint, router | `resolve(AgentId) → Card \| Refusal` — issued-at cache, single refetch on verification failure |
+### Attribution (L1; swap axis: interim request-signature vs target per-frame)
 
-Configured from above: L7's consequences arrive here — what
-`CardResolver` can resolve, and whether the registry still vouches,
-is L7 reconfiguring L1 (`docs/decisions/20260723-directory-serves-cards.md`).
+```ts
+/** Verification: offline, from the frame plus the sender's card alone.
+ *  Identical shape under both bindings; recipients, router admission,
+ *  and L6 readers all hold exactly this. */
+interface Verify {
+  readonly open: (frame: EncodedFrame, card: Card) => Effect<Attributed, Refusal>;
+}
+/** The full port adds seal — held ONLY by the endpoint composition.
+ *  The private key is adapter state, never a parameter. */
+interface Attribution extends Verify {
+  readonly seal: (envelope: EnvelopeDraft, body: Body) => Effect<EncodedFrame, AttributionError>;
+}
+```
 
-### L2 — ordered multicast delivery
+The router's requirement set names `Verify` only: no code in the router
+process can hold a seal, which discharges "the plane never mints,
+alters, or strips attribution" (data-plane.md inv. 2) at compile time.
 
-| Service | Party | Interface |
-|---|---|---|
-| `DataPlane` | router | `ship(EncodedFrame) → Ack \| Refusal` — ack only after durability; every refusal before durability. Fan-out to recipients is the plane's duty behind this seam, an optimization over the store, one-way, never a response path |
-| `TransportPort` (delivery half) | endpoint | `ship(EncodedFrame) → Ack \| Refusal`; `deliveries → stream of TranscriptRecord` — one-way; plane refusals pass through as opaque typed values |
+### Plane (L2 + L3 delivery; swap axis: production vs testbed)
 
-`DataPlane` is the seam with two implementations — production and
-testbed (`docs/decisions/20260723-eval-plane-is-testbed.md`) — and is
-the interface data-plane.md invariant 11 quantifies over. The wire
-between `TransportPort` and `DataPlane` is data-plane.md Q10, open;
-both interfaces here are in-process and bind no wire shape.
+One contract, two sides: the endpoint holds it as a client; the router
+and the testbed provide it. Admission (verify, membership, version
+gate, refuse-before-durability) lives inside the providing adapter.
 
-### L3 — transactional messaging
+```ts
+interface Plane {
+  /** Ship one transactional unit; Position returns only after durability;
+   *  every refusal precedes durability. */
+  readonly ship: (unit: TranscriptUnit) => Effect<Position, Refusal>;
+  /** One-way, best-effort push of committed records, resumable from an
+   *  endpoint-owned Position; never a response path, never the source of truth. */
+  readonly deliveries: (conversation: ConversationId, from: Position) => Stream<TranscriptRecord, Refusal>;
+  /** Recovery by reading: contiguous, byte-exact, ordered. */
+  readonly read: (conversation: ConversationId, from: Position) => Effect<readonly TranscriptRecord[], Refusal>;
+}
+```
 
-| Service | Party | Interface |
-|---|---|---|
-| `TranscriptStore` | router | `append(CollectiveUnit) → Position` — one unit, one transaction, commit-time contiguous position, returns after durability; `appendGenesis(EncodedFrame) → Position \| Refusal` — atomic iff the id is unused, reuse refuses with no side effects; `read(ConversationId, window) → TranscriptRecord[]` — contiguous, byte-exact, scoped through `AccessScope`; `listConversations(AgentId, Cursor) → page` |
-| `ConversationIndex` | router | `membershipAt(ConversationId, Position) → AgentId[]` — membership derived from lifecycle entries at or before a position; determines delivery sets and read scope |
-| `AccessScope` | router | the single entitlement seam over reads; v0 checks membership only; witness/operator/horizon policy plugs here without schema change |
-| `TransportPort` (read half) | endpoint | `readTranscript(ConversationId, window)`, `listConversations(Cursor)` — recovery by reading |
-| `ConversationInitiator` | endpoint | `initiate(members, body) → ConversationId` — mints a fresh id, emits CONVERSATION-START through the ordinary send path; no provisioning (`docs/decisions/20260723-lifecycle-rides-l3.md`) |
-| `TurnObserver` | endpoint | `awaitAdmission(ConversationId) → AdmittedTurn` — agreement precedes generation (data-plane.md inv. 5); carriage is the charter's, the interim signal is mechanism |
-| `ReplyGuard` | endpoint | one admitted turn → at most one send |
+### Store (L3 record substrate; swap axis: storage engine)
 
-Turn admission itself (PCC) is a recorded technique inside the
-plane — an instrument, never an interface — so no turn service appears
-on the router's list.
+```ts
+interface Store {
+  /** One unit, one transaction, commit-time contiguous Position, after durability. */
+  readonly append: (conversation: ConversationId, unit: TranscriptUnit) => Effect<Position, StoreError>;
+  /** Genesis: atomic iff the id is unused; reuse refuses with no side effect. */
+  readonly appendGenesis: (frame: EncodedFrame) => Effect<Position, StoreError>;
+  /** Contiguous ordered window, byte-exact records, gated by the entitlement predicate. */
+  readonly read: (conversation: ConversationId, from: Position, scope: Scope) => Effect<readonly TranscriptRecord[], StoreError>;
+  readonly listConversations: (of: AgentId, page: Cursor) => Effect<Page<ConversationId>, StoreError>;
+}
+/** The single entitlement seam. v0 checks membership only; witness,
+ *  operator, horizon, and monitor policy (registers 3/4/6) are future
+ *  predicate values, not new operations. */
+type Scope = (record: TranscriptRecord) => Effect<boolean>;
+```
 
-### L4 — tasks
+### Registry (L1 material + L7 mechanism; swap axis: card custody)
 
-| Service | Party | Interface |
-|---|---|---|
-| `HarnessPlugin` | endpoint | the SPI a harness implements: consumes the enriched inbound stream; sends only via the channel core; owns prompt formatting and batching |
+```ts
+interface Registry {
+  /** Operator-gated mint; the caller must be the operator arm. */
+  readonly mint: (caller: CallerCap, key: PublicKey, principal: PrincipalRef) => Effect<Card, RegistryError>;
+  /** The card IS the directory entry; no thinner projection is served. */
+  readonly resolve: (id: AgentId) => Effect<Card, RegistryError>;
+  readonly enumerate: (page: Cursor) => Effect<Page<Card>, RegistryError>;
+}
+```
 
-Tasks have no network representation and no router-side service, by
-constitution. A task's norms — `NormBundle`s — are guarantees
-published upward: their consumers are L5 gates, not a plane. The task
-protocol vocabulary is chartered.
+Revocation has no operation: it is the registry ceasing to vouch,
+observed at the next `resolve` — and, since per-request authentication
+derives its caller through `resolve`, "L7 reconfigures L1" is exactly
+this backing change. `CallerCap` is a two-arm value
+(`identity | operator`) with a single minter in the router composition;
+no third caller class is constructible (control-plane.md inv. 7).
 
-### L5 — personal trust
+### Harness (L4 SPI; swap axis: the two runtimes)
 
-| Service | Party | Interface |
-|---|---|---|
-| `InboundGate` | endpoint | `screen(Attributed<Envelope>, Body, context) → GateVerdict` — mounted between verification and the agent; fail-closed; filters attention, never the record |
-| `OutboundGate` | endpoint | `screen(outbound frame, context) → GateVerdict` — mounted between the agent and shipping |
-| `ContactStore` | endpoint | `standing(AgentId) → Standing`; `set(AgentId, Standing)` — immediate effect, zero network involvement; default posture applies absent a record; optional TOFU pin |
+```ts
+/** The plugin receives attenuated VALUES and requires no authority: it
+ *  cannot seal, ship raw, append, read out of scope, or write contacts,
+ *  because it holds none of those and can acquire none. "Plugins are
+ *  pure consumers" (channels.md inv. 3) is this type. */
+interface HarnessPlugin {
+  readonly run: (caps: EndpointCaps) => Effect<void, never>; // R = never
+}
+interface EndpointCaps {
+  readonly send: GatedSend;                       // gate + turn + one-shot, by construction
+  readonly initiate: Initiate;                    // derived: fresh id + START via send path
+  readonly inbound: Stream<Enriched, Refusal>;    // the attention stream only
+  readonly contacts: ContactsView;                // read-only standing
+  readonly turn: TurnObservation;                 // typestate surface below
+}
+interface Enriched { readonly attributed: Attributed; readonly verdict: GateVerdict; readonly standing: Standing }
+```
 
-Gate rules key off any lower layer's guarantees — identity, message
-types, task state — and the institutional facts L7 records at L1.
-That reach appears as inputs to `screen` (the enriched context),
-never as a gate dependency on an upper-layer service.
+## The turn discipline (typestate)
 
-### L6 — social oversight
+Three proposals independently produced the same four-phase client
+machine; it is standardized as typestate. A phase-indexed position
+gates which moves exist; `Admitted`'s only constructor is receiving
+admission, and sending consumes it.
 
-No service is minted. An L6 reader is a consumer of what exists:
-member-scoped transcript reads plus `FrameVerifier` over recorded
-frames — `Evidence` is derived, and re-verification is the same
-procedure recipients use (identity.md → Verification duties). How a
-monitor obtains a global view over records — as an identity, via the
-operator, or another shape — is open (register item 3), and this doc
-mints nothing that would bind it.
+```ts
+type TurnPhase = "Idle" | "Contending" | "Admitted" | "Spent";
+/** Not a session or connection: TTL-bounded coordination state,
+ *  reconstructible from an endpoint-owned Position by re-reading. */
+interface TurnAt<P extends TurnPhase> { readonly _phase: P; readonly conversation: ConversationId; readonly at: Position }
 
-### L7 — institutional trust
+interface TurnObservation {
+  readonly request: (t: TurnAt<"Idle">) => Effect<TurnAt<"Contending">, Refusal>;
+  /** Observe-before-generate (data-plane.md inv. 5): the sole constructor of Admitted. */
+  readonly awaitAdmission: (t: TurnAt<"Contending">) => Effect<TurnAt<"Admitted">, Refusal>;
+}
+interface GatedSend {
+  /** Enabled only on Admitted and consumes it — the one-shot reply guard. */
+  readonly send: (t: TurnAt<"Admitted">, body: Body) => Effect<readonly [Position, TurnAt<"Spent">], Refusal>;
+}
+```
 
-| Service | Party | Interface |
-|---|---|---|
-| `IdentityRegistry` | router | `register(publicKey, principal) → Card` — operator-gated minting; `resolve(AgentId) → Card`, `enumerate(Cursor) → page of Card` — the card is the directory entry |
+TypeScript cannot enforce linear consumption, so the residual —
+at most one commit per admitted turn — is a suite law (L3 table). The
+admission signal's wire carriage is the charter's (#765); nothing here
+names it. PCC itself is an instrument inside the Plane adapter, in no
+signature.
 
-Mechanism only: L7 executes what L8 determines, acting by
-reconfiguring L1 — revocation is the registry ceasing to vouch,
-observed by every verifier at next resolve. The registry's ops ride
-the control plane (control-plane.md → Op families).
+## Not ports
 
-### L8 — governance
+- **Screening (L5)** is a **decorator** over the endpoint's inbound and
+  outbound edges, configured by `(rules, contacts, norms)` flowing
+  down. It is not a port because the suite asserts *expressibility*
+  (arena's and bench's rulesets are both expressible), never
+  *equivalence* — two endpoints' gates are intentionally different.
+  `Screening.inbound/outbound` return a `GateVerdict` in the success
+  channel; gates hold no seal, so they cannot alter frames.
+- **Contacts (L5)** is an endpoint-local **adapter** behind screening
+  config (`standing`, `set`; default posture absent a record; immediate
+  effect, zero network). Its guarantees are negative boundary laws ("no
+  router interface accepts, stores, or serves it"), not a swap axis.
+- **Entitlement (L3)** is the `Scope` **predicate** carried into
+  `Store.read`; future read-scope decisions change the value, not the
+  port.
+- **Derivations** are pure functions over port state, in a shared fold
+  library: `stepConversation` (total, exhaustive over `LifecycleEntry`)
+  and `membershipAt` — **one fold, two sites**: the router folds
+  lifecycle entries to compute delivery sets, the endpoint runs the
+  identical fold to know the room; no index service exists.
+  `initiate` = mint a fresh id, seal START, ship through the ordinary
+  path (no create op). `evidence` = `open` mapped over `read` — the
+  recipient's own verification run post facto; L6 mints no port, no
+  principal, no third caller (register 3 open). Materializing a hot
+  fold in a `SubscriptionRef` is realization freedom the laws never
+  see.
+- **The CLI** is a driver: a plain signing HTTP client over the
+  control-plane op families (`Registry` + `Store` reads), holding no
+  state and no port of its own.
+- **L8** has no interface; it is realized through the stack (open).
 
-No interface. L8 is realized through the stack itself — credentialed
-legislators (L7), legislation as tasks (L4), enforcement as armed
-monitors (L6) — and stays open by constitution.
+## Layers as law sets
 
-## Realization map
+Each layer is defined by its laws over the ports. Kind: (C) compile —
+the violation is unrepresentable; (P) property; (S) suite. Citations
+name the governing doc.
 
-Stack layers are not packages; each realization unit carries slices
-of several layers.
+| # | Law | Kind | Cite |
+|---|---|---|---|
+| L1.1 | `open(seal(e,b), resolve(e.sender))` ≈ the attributed view — verify-after-author is identity | P | identity.md inv. 1 |
+| L1.2 | `open : (frame, card) → Attributed` — no round trip, no live sender; L6 readers hold the same shape | C | identity.md → Verification duties |
+| L1.3 | Any alteration of envelope or body ⇒ `open` refuses | P | identity.md inv. 4 |
+| L1.4 | Only the endpoint composition names `Attribution` (seal); the router names `Verify` only | C | identity.md inv. 2; data-plane.md inv. 2 |
+| L1.5 | Lens law: `retained ∘ decode` is byte-identity; no carrier re-encodes a frame or card | C+P | identity.md → Byte preservation; data-plane.md inv. 13 |
+| L1.6 | `Position` is a field of no frame type (types-check canary) | C | identity.md → Not frame fields |
+| L2.1 | All members observe the same records in the same order | S | data-plane.md inv. 3 |
+| L2.2 | `deliveries` carries frames byte-exact with attribution intact | P | data-plane.md inv. 2, 13 |
+| L2.3 | Admission reads `Envelope` only; no Plane operation takes a `Body` | C | data-plane.md inv. 1 |
+| L2.4 | `deliveries` is a read-only `Stream`; a response is a fresh `ship` | C | data-plane.md inv. 14 |
+| L2.5 | `deliveries(c, p)` ≈ `read(c, p)` — resuming at a Position equals never disconnecting | P | control-plane.md guarantee 4; sessionless |
+| L2.6 | One ship, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
+| L3.1 | `read(c, pos(append(c,u)))` contains exactly the appended unit's record | P | control-plane.md guarantees 2, 3 |
+| L3.2 | `ship` ≜ admit, append, then best-effort deliver; `Position` returned ⇒ durable | P | data-plane.md inv. 4; guarantee 1 |
+| L3.3 | `append` takes one `TranscriptUnit`; a collective commits as one transaction | C+P | control-plane.md guarantee 9 |
+| L3.4 | No update, delete, or rewrite operation exists on any port | C | control-plane.md guarantee 6 |
+| L3.5 | `appendGenesis` on a used id refuses with no side effect | P | lifecycle-rides-l3 |
+| L3.6 | `membershipAt` ≈ the fold of lifecycle entries at or before the position; no membership write exists | C+P | data-plane.md inv. 8; guarantee 5 |
+| L3.7 | `initiate` is a derived term (seal START + ship); no create operation exists | C | lifecycle-rides-l3 |
+| L3.8 | `awaitAdmission` precedes every send of that turn (typestate) | C | data-plane.md inv. 5 |
+| L3.9 | At most one commit per admitted turn (linearity residual) | S | data-plane.md → Implementation notes |
+| L3.10 | Admission refusals never mutate membership | C+P | data-plane.md inv. 9 |
+| L5.1 | Gates return a verdict; the frame and its attribution pass through unaltered (gates hold no seal) | C | screening.md inv. 2 |
+| L5.2 | Refuse withholds a record from attention while `read` is unchanged — screening filters attention, never the record | P | screening.md inv. 2–3 |
+| L5.3 | `GateVerdict` rides the success channel and no interface emits it outward | C | screening.md inv. 3; contacts.md inv. 5 |
+| L5.4 | `standing` after `set` reflects the write, locally, with zero network involvement; default posture absent a record | P | contacts.md inv. 3, 4 |
+| L5.5 | No router-side interface accepts, stores, or serves contact data | C | contacts.md inv. 1 |
+| L4.1 | No port has a task sort; a `NormBundle` is screening/turn configuration; same-version agreement is two endpoints pinning one bundle | C | tasks.md inv. 1–3; data-plane.md inv. 10 |
+| L6.1 | `evidence` = the recipient's `open` over `read`, post facto; no monitor port, principal, or caller arm exists | C | identity.md → Verification duties; enforcement.md |
+| L7.1 | `mint` requires the operator arm; `CallerCap` has two arms and one minter | C | control-plane.md inv. 3, 7 |
+| L7.2 | `enumerate` ≈ per-id `resolve`; cards only, no thinner projection | P | directory-serves-cards |
+| L7.3 | Ceasing to vouch changes what `resolve` returns and what callers can be derived — no revoke op | P | layers.md → L7; single-credential |
+| X.1 | Version exact-match refuses before any state change, on every entry operation | C+P | protocol-version-carriage |
+| X.2 | Swap `PlaneLive` for `PlaneTestbed`: observationally equivalent; every testbed injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
+| X.3 | No signature names a lease, socket, connection, or session | C | sessionless-network |
 
-| Unit | Home | Carries |
-|---|---|---|
-| `ServerComposition` | `v2/server` | control-plane dispatch (op families over L3 reads and L7 ops), `TranscriptStore`, `ConversationIndex`, `AccessScope`, `IdentityRegistry`, router-side `FrameVerifier`/`CardResolver`, production `DataPlane` |
-| `ChannelCore` | `v2/channel` | `TransportPort`, `FrameAuthor`/`FrameVerifier`/`CardResolver`, `InboundGate`/`OutboundGate`, `ContactStore`, `RecoveryCursor`, `TurnObserver`/`ReplyGuard`, `ConversationInitiator`, `Enricher`, the `HarnessPlugin` mount |
-| testbed plane | `v2/testbed-plane` | the alternative `DataPlane` implementation: same guarantees plus envelope-level observation and bounded injection |
-| CLI | `v2/cli` | a plain signing HTTP client over the control-plane op families; no service of its own |
+## Effect realization (recorded standard)
 
-## Effect mapping (recorded realization standard)
+The normative surface is the vocabulary, ports, typestate, and laws
+above; this mapping is v2's standard realization of it.
 
-The normative surface is the payload and signature set above; the
-mapping is v2's standard realization of it.
-
-- **One `Context.Tag` per service**, the v1 idiom re-implemented:
-  `class TranscriptStoreTag extends Context.Tag("moltzap/v2/TranscriptStore")<TranscriptStoreTag, TranscriptStore>() {}`.
-  Tag identifiers are `moltzap/v2/<Service>`, permanent strings —
-  they outlive the v1/v2 coexistence they disambiguate.
-- **One live `Layer` per realization**: `<Service>Live`; the testbed
-  plane ships `DataPlaneTestbed`. Construction is `Layer.effect` over
-  the lower tags the service consumes.
-- **Effect channels carry the convention**: success is the guarantee,
-  the error channel is typed refusals (`Effect<A, Refusal, never>`
-  shapes), and defects never cross a service boundary — subscriber
-  registries isolate them (the W6 sketch).
-- **The layering rules become graph properties.** *Guarantees flow
-  up*: a Layer constructing a stack-level-N service may require tags
-  only at levels ≤ N — never above. *Configuration flows down*: upper
-  policy enters as construction input (gate rules into `ChannelCore`,
-  the operator key into `ServerComposition`, L7's revocations into
-  what `CardResolver` resolves), never as a lower service depending
-  on an upper tag. Both are checkable over the import/dependency
-  graph; the boundary script is the natural home for the check.
-- **Implementation-swap equivalence is a Layer substitution.**
-  data-plane.md invariant 11 becomes: the two compositions differing
-  only in `DataPlaneLive` vs `DataPlaneTestbed` are observationally
-  equivalent under the conformance suite. The swap is one binding in
-  the composition — which is what makes the invariant testable.
+- **One `Context.Tag` per port**, ids `moltzap/v2/port/<Name>`
+  (permanent strings): `PlaneTag`, `StoreTag`, `RegistryTag`,
+  `AttributionTag` (endpoint) / `VerifyTag` (router), `HarnessTag`.
+  The v1 idiom (`Context.Tag` class + `Layer.effect`) re-implemented,
+  never imported.
+- **One `Layer` per adapter**: `PlaneLive` (requires Store + Verify),
+  `PlaneTestbed` (same tag; adds envelope-level observation and a
+  closed `FaultProfile` sum — delay, missed push, disconnect,
+  partition, unresponsive — so out-of-envelope faults are
+  unrepresentable), `StoreLive`, `RegistryLive`, `AttributionInterim` /
+  `AttributionTarget`, `HarnessOpenClaw` / `HarnessNanoClaw`. The
+  swap in law X.2 is choosing which Plane `Layer` is provided.
+- **Decorators are `Layer<Port, never, Port>`**: `withEntitlement(scope)`
+  wraps `Store.read`; `withScreening(rules)` wraps the harness mount.
+  Configuration flows down as decorator and adapter parameters — gate
+  rules, the operator key, norm bundles — never as a lower port
+  depending on an upper tag.
+- **Root discipline.** Port tags are provided once per composition
+  (`RouterComposition`: Store, Registry, Verify, Plane-provider;
+  `EndpointComposition`: Attribution, Plane-client, Contacts) and
+  appear in no leaf requirement. Leaf code receives attenuated values
+  (`EndpointCaps`, `CallerCap`, `Scope`). Folds, typestate positions,
+  and capability values are plain branded values with no tag.
+- **Three static checks**, enforced with the W1 boundary machinery:
+  no exported function outside a composition names a port tag in its
+  requirements; `HarnessPlugin.run` has authority-free requirements and
+  `EndpointCaps` contains no port-typed field; a `Layer` building a
+  stack-level-N service requires only tags at levels ≤ N.
 
 ```mermaid
 flowchart TB
-  subgraph Endpoint["ChannelCore (endpoint process)"]
-    HP[HarnessPlugin L4] --> OG[OutboundGate L5]
-    IG[InboundGate L5] --> HP
-    OG --> RG[ReplyGuard L3] --> TP[TransportPort L2/L3]
-    TP --> FV1[FrameVerifier L1] --> IG
-    FA[FrameAuthor L1] --> TP
-    CS[ContactStore L5] -. standing .-> IG
-    CR1[CardResolver L1] --> FV1
+  subgraph Endpoint["EndpointComposition (roots: Attribution, Plane client, Contacts)"]
+    HP[Harness plugin] -- "EndpointCaps (values only)" --> GS[GatedSend + TurnObservation]
+    GS --> SCR[Screening decorator] --> AT[Attribution seal]
+    AT --> PC[Plane client]
+    PC -- deliveries --> VF1[Verify] --> SCR
   end
-  subgraph Router["ServerComposition (router process)"]
-    DP[DataPlane L2] --> FV2[FrameVerifier L1]
-    DP --> TS[TranscriptStore L3]
-    TS --> CI[ConversationIndex L3]
-    TS --> AS[AccessScope L3]
-    REG[IdentityRegistry L7] --> CR2[CardResolver L1]
+  subgraph Router["RouterComposition (roots: Store, Registry, Verify; provides Plane)"]
+    PL[PlaneLive] --> VF2[Verify]
+    PL --> ST[Store + entitlement decorator]
+    RG[Registry] --> VF2
   end
-  TP -- "wire (Q10, open)" --- DP
+  TB[PlaneTestbed] -. "swap: one Layer binding (X.2)" .- PL
+  PC -- "wire (Q10, open)" --- PL
 ```
-
-Every arrow points at an equal or lower stack level: the diagram is
-the guarantees-flow-up rule, drawn.
 
 ## Invariants
 
-1. Every payload noun has exactly one definition, in its home
-   package; all other packages import it by reference.
-2. `EncodedFrame` crosses every service byte-exact; no interface
-   accepts or returns a re-encoded frame.
-3. No service signature names a mechanism: no lease, socket,
-   connection, or session appears in any type above.
-4. Tag dependencies never point up the stack; upper-layer policy
-   reaches lower layers only as construction input.
-5. Refusals are typed values in the error channel; no service
-   signature binds a wire-visible refusal shape (register item 8).
-6. Swapping `DataPlaneLive` for `DataPlaneTestbed` changes no other
-   binding in either composition.
-7. Store-assigned fields (`Position`) never appear inside the
-   attributed unit's type.
+1. Every payload noun has exactly one definition in `v2/wire`; all
+   other packages import it by reference.
+2. `EncodedFrame` crosses every interface byte-exact; the lens law is
+   the only decode path and its encode is byte-identity.
+3. Exactly five port tags exist; adding a sixth requires showing its
+   swap axis (the port test) in a recorded decision.
+4. Port tags appear only at composition roots; leaf code holds
+   attenuated values. Tag dependencies never point up the stack.
+5. The seal half of Attribution is unnameable in the router process;
+   contact data is unnameable in any router interface.
+6. Refusals are values; port-internal error unions are closed and
+   region-local; the wire observes only the opaque `Refusal`.
+7. The open unions are exactly `CollectiveUnit` and `LifecycleEntry`
+   (charter-widened) plus `Refusal.cause` (register-8-widened); every
+   other union is closed and matched to `never`.
+8. Swapping `PlaneLive` for `PlaneTestbed` changes no other binding in
+   either composition.
+9. `Position` never appears inside the attributed unit's type
+   (canary-pinned).
 
 ## Acceptance criteria
 
-- Name closure, both directions: every interface sketch in the v0
-  plan's workstreams appears in exactly one per-layer table here, and
-  every service named here traces to a plan sketch or is marked
-  newly standardized (`DataPlane`, `IdentityRegistry` — named here;
-  the rest are the plan's).
-- The composition diagram contains no upward edge, checked against
-  the layer assignments in the tables.
-- The boundary check enforces invariant 4 over the v2 import graph.
-- The conformance suite's swap-equivalence runner exercises
-  invariant 6 as a one-binding change.
+- Name closure, both directions: every v0-plan interface sketch
+  (W3–W6, W8) maps to exactly one port, decorator, derivation, value,
+  or law here; nothing here lacks a plan anchor or a proposal source.
+- Every law in the table carries a citation and a discharge kind, and
+  the conformance suite discharges each (P) and (S) law; the (C) laws
+  are pinned by the static checks and canaries.
+- The static checks run under `pnpm lint` via the W1 boundary script.
+- The swap gate (X.2) passes as a one-binding change against the same
+  corpus.
+- Both case studies (bench, arena) are expressible as programs over
+  `EndpointCaps` plus screening configuration, with no port tag in
+  their requirements.
 
 ## Open questions
 
-1. Router-side tag granularity: `DataPlane` as one seam versus
-   per-stage tags inside the plane — realization freedom the
-   conformance suite need not see; decided by W4/W5 in code review,
-   not here.
-2. Whether the Effect mapping graduates from recorded standard to a
-   decision record binding v2 code idiom — raised when the first
-   implementation PR would deviate from it.
-3. The wire-facing delivery shape (data-plane.md Q10) — nothing here
-   binds it; `TransportPort`/`DataPlane` are in-process seams.
-4. The L6 monitor service, if one ever exists — register item 3;
-   this doc deliberately mints none.
+1. **Derived conformance machinery.** The algebra proposal derives the
+   property corpus from a reified signature value (`programGen` /
+   `checkEquivalence`) instead of hand-writing each (P)/(S) law.
+   Recommended default: adopt the *format* now (this doc's law table);
+   let W8 decide the generator machinery when the suite is built.
+   Escalation: W8 / `v2/conformance`.
+2. **Does the Effect mapping graduate to a decision record?** Default:
+   recorded standard until the first implementation PR would deviate.
+3. **Promote-a-law-to-a-port cost.** A future charter decision may need
+   a merged-away seam (screening as a port, an index service) — the
+   promotion refactor is accepted as the price of the port test.
+   Escalation: charter #765 / the affected doc.
+4. **Cursor persistence** (channels.md Q2): the ports take
+   `Position`/`Cursor` values and bind no persistence; the endpoint
+   composition decides durability under the W6.S2 spec item.
+5. **The L6 monitor**, if one ever exists, arrives as a wider `Scope`
+   value, not a new port or caller arm (register 3).
+6. **The L4 projector seam.** Task norms may later be expressed as
+   user-supplied protocol descriptions projected to "legal next moves"
+   at the endpoint (the deferred contract layer). The vocabulary here
+   deliberately leaves that seam unbuilt; nothing in the network's
+   surface would change. Escalation: tasks.md when chartered.
 
 ## References
 
-- `docs/architecture/layers.md` — the stack;
-  `docs/decisions/20260723-eight-layer-stack.md` — the layering rules
-  this doc mechanizes.
-- `v2/drafts/v0-implementation-plan-20260723.md` — the interface
-  sketches gathered here (W3–W6, W8).
-- `docs/spec/identity.md`, `docs/spec/data-plane.md`,
-  `docs/spec/control-plane.md`, `docs/spec/endpoints/*` — the
-  guarantee-level obligations behind each signature.
-- `docs/decisions/20260723-eval-plane-is-testbed.md` — the two
-  `DataPlane` implementations;
-  `docs/decisions/20260723-lifecycle-rides-l3.md` — genesis and
-  lifecycle entries; `docs/decisions/20260723-protocol-version-carriage.md`
-  — `ProtocolVersion`.
-- v1 Effect idiom precedent: `packages/server/src/message/layer.ts`
-  (Context.Tag classes + `Layer.effect`), re-implemented never
-  imported (`docs/decisions/20260721-v2-lives-top-level.md`).
+- Source proposals (the graft's provenance):
+  `v2/drafts/layer-interface-proposals/minimal-ports-20260723.md` (the
+  spine: port test, five ports, laws/decorators/derivations);
+  `capability-20260723.md` (root discipline, attenuated values,
+  pure-consumer type, testbed-by-absence);
+  `choreography-20260723.md` (turn typestate, empty-projection
+  argument for contacts, the L4 projector seam);
+  `algebra-20260723.md` (law-table format with discharge kinds, the
+  derived-conformance open question);
+  `schema-first-20260723.md` (lenses, derived Arbitraries,
+  content-blindness as absence); `stream-journal-20260723.md` (the
+  fold library, one-fold-two-sites, materialized-fold freedom).
+- `docs/architecture/layers.md`;
+  `docs/decisions/20260723-eight-layer-stack.md` — the stack and the
+  layering rules the static checks mechanize.
+- `docs/spec/{identity,data-plane,control-plane}.md`,
+  `docs/spec/endpoints/*`, `docs/spec/enforcement.md` — the
+  guarantee-level obligations behind each law.
+- `docs/decisions/20260723-{lifecycle-rides-l3,eval-plane-is-testbed,interim-signature-profile,protocol-version-carriage,directory-serves-cards}.md`;
+  `docs/decisions/20260721-{sessionless-network,single-credential}.md`.
+- `v2/drafts/v0-implementation-plan-20260723.md` — the workstream
+  sketches this standardization renames into ports, values, and laws.
+- v1 Effect idiom precedent: `packages/server/src/message/layer.ts`,
+  re-implemented never imported
+  (`docs/decisions/20260721-v2-lives-top-level.md`).

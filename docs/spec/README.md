@@ -13,7 +13,7 @@ and open-question register are in `/v2/VISION.md`.
 
 | Doc | Covers |
 |---|---|
-| `layer-interfaces.md` | the standardized payload vocabulary and per-layer service interfaces, with the Effect realization mapping |
+| `layer-interfaces.md` | the standardized payload vocabulary, the five ports, layers as law sets, and the Effect realization |
 | `identity.md` | L1 — identities, framing, and the frame wire shape |
 | `endpoints/contacts.md` | L5 contacts as endpoint-owned trust data; server contacts dissolve |
 | `control-plane.md` | registries, transcript storage, op families; request/response over HTTP, sessionless; encoding-neutral ops — JSON-RPC interim, REST + OpenAPI target |
