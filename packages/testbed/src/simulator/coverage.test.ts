@@ -8,9 +8,8 @@
  * shrinks the inventory, which the contract forbids. Path bodies live in
  * `__tests__/coverage-paths-{a,b}.ts`.
  *
- * Three entries stay `it.todo`: paths 20 and 30 await the parked
- * transcript-drain mechanism (escalation on chughtapan/moltzap#818), and
- * path 24 lands with the trace-capture fold row.
+ * One entry stays `it.todo`: path 24 lands with the trace-capture fold
+ * row.
  */
 /* eslint-disable sonarjs/assertions-in-tests -- every entry delegates to an imported path body whose assertions (expect/fc.assert) live in __tests__/coverage-paths-*.ts; this file is the flat inventory the contract pins */
 // @agent-code-guard/regression-only: property evidence lives in the imported path bodies (fc.assert in coverage-paths-a/b); the inventory file itself stays a flat list
@@ -38,12 +37,14 @@ import {
   path17,
   path18,
   path19,
+  path20,
   path21,
   path22,
   path23,
   path27,
   path28,
   path29,
+  path30,
   path31,
   path32,
   path32Shutdown,
@@ -94,9 +95,8 @@ describe("simulator coverage inventory (hermetic CI tier, paths 13-24)", () => {
     run(path18()));
   it("19. OTLP receiver unavailable or stalled: run fails within timeouts.otlpReceiverFailMs; reason span-acceptance-lost", () =>
     run(path19()));
-  it.todo(
-    "20. transcript drain: drained content matches sent messages under the redaction policy; observer traffic excluded",
-  );
+  it("20. transcript drain: drained content matches sent messages under the redaction policy; observer traffic excluded", () =>
+    run(path20()));
   it("21. MCP logging proxy: tool calls captured; tool results byte-identical with and without the proxy", () =>
     run(path21()));
   it("22. principal-speech injection: seed task attributed to a principal identity, never a system sender", () =>
@@ -115,9 +115,8 @@ describe("simulator coverage inventory (design-doc extension paths)", () => {
     run(path28()));
   it("29. OTLP backpressure: acknowledgment stall beyond bound fails the run; no silent span loss", () =>
     run(path29()));
-  it.todo(
-    "30. transcript-drain failure: sealed recording, reason transcript-drain-failed",
-  );
+  it("30. transcript-drain failure: sealed recording, reason transcript-drain-failed", () =>
+    run(path30()));
   it("31. logging-proxy failure mid-run: sealed recording, reason logging-proxy-failed", () =>
     run(path31()));
   it("32. fault-revert failure: sealed recording, reason fault-revert-failed", () =>

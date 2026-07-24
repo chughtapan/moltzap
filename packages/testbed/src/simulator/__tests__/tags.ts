@@ -40,6 +40,7 @@ export const EVENT = {
   teardownCompleted: "teardown.completed",
   toolCall: "proxy.tool-call",
   toolResult: "proxy.tool-result",
+  transcriptMessage: "transcript.message",
 } as const;
 
 export const FAULT_EFFECT = {
@@ -60,6 +61,7 @@ export const ERROR_TAG = {
   recordingSchemaMismatch: "RecordingSchemaMismatch",
   serverLaunchFailed: "ServerLaunchFailed",
   traceCaptureFailed: "TraceCaptureFailed",
+  transcriptDrainFailed: "TranscriptDrainFailed",
 } as const;
 
 export const SNAPSHOT = {

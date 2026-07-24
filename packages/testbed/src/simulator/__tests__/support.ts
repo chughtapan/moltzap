@@ -161,6 +161,8 @@ export type FakeLauncherConfig = {
   readonly teardownReport?: TeardownReport;
   /** Fail the launch before any agent starts (server bring-up failure). */
   readonly serverFailure?: boolean;
+  /** Server storage volume to hand out; drain paths point this at a prepared PGlite fixture. */
+  readonly volumePath?: string;
 };
 
 export type FakeLaunch = {
@@ -237,7 +239,7 @@ function launchFake(
         }),
       );
     }
-    const volumePath = yield* tempStoreRoot();
+    const volumePath = config.volumePath ?? (yield* tempStoreRoot());
     state.storageRoots.push(volumePath);
     const agents: Array<LaunchedAgent> = [];
     const mounts: Array<MountHandle> = [];
