@@ -130,12 +130,16 @@ export function makeEpisodeController(): EpisodeController {
  * implementation. `allocated` carries queue-claimed attempt ids; when
  * absent, `executeRun` calls `store.allocateAttempt` itself, so
  * standalone runs and queue workers share one identity protocol.
+ * `secrets` seeds the per-attempt registry with consumer-held credential
+ * values (the registry also self-seeds from simulator-held credentials
+ * and spec-borne mount env values before the manifest persists).
  */
 export type ExecuteRunOptions = {
   readonly store?: RecordingStore;
   readonly runner?: AgentRunner;
   readonly mounts?: EnvironmentMount;
   readonly allocated?: AllocatedAttempt;
+  readonly secrets?: ReadonlyArray<string>;
 };
 
 /** A sealed attempt: the one observable outcome plus its recording. */
@@ -146,14 +150,19 @@ export type SealedAttempt = {
 
 /**
  * Execute one attempt end-to-end: materialize, allocate the attempt,
- * persist the manifest (the run begins here; before server bring-up),
- * launch the world with the condition-stripped spec, run the episode
- * while racing every long-lived failure channel (event-log sink, OTLP
- * receiver, mounts, transcript drain), then shut down in two phases:
+ * create the secret registry (seeded with simulator-held credentials,
+ * `options.secrets`, and spec-borne mount env values — before the
+ * manifest persists, so the manifest's redaction claim holds), persist
+ * the manifest (the run begins here; before server bring-up), launch the
+ * world with the condition-stripped spec, run the episode while racing
+ * every long-lived failure channel (event-log sink, OTLP receiver, each
+ * `world.mounts[i]`, transcript drain), then shut down in two phases:
  * (1) final transcript sweep, fault reverts, explicit `world.teardown()`
  * with its report evented; (2) `log.seal()`, `receiver.drainTraces()` +
  * `store.writeTraces`, `store.seal`. Teardown precedes the log seal so
- * `teardown.completed` and `teardownComplete` are recordable. Succeeds
+ * `teardown.completed` and `teardownComplete` are recordable. A
+ * `SealRaceLost` from the store means the cancel side sealed first;
+ * `executeRun` reads that single sealed outcome and returns it. Succeeds
  * whenever a sealed recording exists — including infrastructure-failure
  * outcomes; fails only when no recording exists (config-time, allocation,
  * or manifest-persist failure) or when the seal path itself fails and

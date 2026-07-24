@@ -12,11 +12,14 @@
  * mistaken for absent or complete.
  *
  * Sealing is durably at-most-once per attempt: (1) create `seal.lock`
- * with O_CREAT|O_EXCL — the losing racer in a cancel/completion race
- * observes the lock or the marker and returns without writing; (2) fsync
- * the data files; (3) write `result.json` and fsync; (4) write
- * `sealed.json.tmp`, fsync, atomically rename to `sealed.json`, fsync
- * the directory. Observed storage failures on non-seal writes (event
+ * with O_CREAT|O_EXCL, then fsync the directory so the lock's entry
+ * survives a crash — the losing racer in a cancel/completion race fails
+ * typed with `SealRaceLost` and never writes; (2) fsync the three
+ * pre-result files (`manifest.json`, `events.ndjson`, `traces.json`);
+ * (3) write `result.json` and fsync; (4) write `sealed.json.tmp`, fsync,
+ * atomically rename to `sealed.json`, fsync the directory. A lock with
+ * no marker after a crash reads as unsealed (the lock is a tombstone,
+ * not a seal). Observed storage failures on non-seal writes (event
  * append, traces write) still seal, with reason `recording-store-failed`;
  * failures of the seal path itself (`SealFailed.step` names which step)
  * necessarily leave an unsealed recording. Abrupt termination the process
@@ -38,6 +41,7 @@ import type {
   RecordingSchemaMismatch,
   RecordingStoreFailed,
   SealFailed,
+  SealRaceLost,
 } from "./errors.js";
 
 /** Integer recording-schema version; bumped on breaking change; graders hard-fail on mismatch. */
@@ -340,11 +344,11 @@ export interface RecordingStore {
     traces: TracesJson,
   ): Effect.Effect<void, RecordingStoreFailed, never>;
 
-  /** The seal path (lock, fsync, result, marker; file-header protocol). Durably at most once per attempt. */
+  /** The seal path (lock, fsync, result, marker; file-header protocol). Durably at most once per attempt; a lost race fails typed. */
   seal(
     ref: RecordingRef,
     result: ResultJson,
-  ): Effect.Effect<SealedRecordingRef, SealFailed, never>;
+  ): Effect.Effect<SealedRecordingRef, SealFailed | SealRaceLost, never>;
 
   /** Read any recording back; version mismatch and schema-invalid files surface typed. */
   read(

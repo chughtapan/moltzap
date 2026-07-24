@@ -10,7 +10,7 @@
  * YAML-expressible iff `JSONSchema.make` succeeds on it.
  */
 import { Schema, type Brand, type Effect } from "effect";
-import type { ConfigTimeError } from "./errors.js";
+import type { ConfigTimeError, RunSpecInvalid } from "./errors.js";
 
 // ---------------------------------------------------------------------------
 // JSON value space
@@ -525,13 +525,29 @@ export function materializeRunSpec(
 }
 
 /**
+ * A JSON value proven canonicalizable: finite numbers, acyclic, JSON-only
+ * shapes. The brand is only mintable through `toCanonicalJson` or a
+ * schema decode, so `canonicalJson`'s totality holds at the type level —
+ * a raw TS literal with `NaN` or a cycle cannot reach it.
+ */
+export type CanonicalJsonValue = JsonValue & Brand.Brand<"CanonicalJsonValue">;
+
+/** Validate an arbitrary value into the canonical space (rejects non-JSON shapes, non-finite numbers, cycles). */
+export function toCanonicalJson(
+  _input: unknown,
+): Effect.Effect<CanonicalJsonValue, RunSpecInvalid, never> {
+  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
+  throw new Error("not implemented");
+}
+
+/**
  * Canonical serialization: UTF-8 JSON with lexicographically sorted keys,
  * no insignificant whitespace, shortest round-trip numbers, `\n`-free
- * single-line output (NDJSON-safe). Total over `JsonValue`. The
+ * single-line output (NDJSON-safe). Total over its branded input. The
  * byte-identity claims (derived schedule, spec-hash) and every recording
  * file's byte encoding are stated over this form.
  */
-export function canonicalJson(_value: JsonValue): string {
+export function canonicalJson(_value: CanonicalJsonValue): string {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }

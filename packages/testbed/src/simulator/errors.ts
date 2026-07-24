@@ -260,6 +260,19 @@ export class SealFailed extends Schema.TaggedError<SealFailed>()("SealFailed", {
   message: Schema.String,
 }) {}
 
+/**
+ * This sealer lost the at-most-once race: `seal.lock` or `sealed.json`
+ * already exists. Not a recording failure — the winner's outcome is the
+ * attempt's single outcome; the loser observes it via `read`.
+ */
+export class SealRaceLost extends Schema.TaggedError<SealRaceLost>()(
+  "SealRaceLost",
+  {
+    recordingPath: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
 /** A recording file failed schema decode (graders, `recording inspect | validate | events`). */
 export class RecordingInvalid extends Schema.TaggedError<RecordingInvalid>()(
   "RecordingInvalid",
