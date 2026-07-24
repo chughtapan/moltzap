@@ -183,7 +183,7 @@ recorded maintainer decision.
    plus presence/delivery-status semantics, under the four
    paper-required constraints — #765.
 2. Conversation lifecycle under encryption: if bodies go opaque, does
-   join/invite become a heavier control op (key material minting)?
+   join/invite become a heavier lifecycle entry (key material minting)?
 3. Monitor access under a content-blind plane: do L6 monitors become
    key-holding L1 parties, or does monitoring take another shape?
 4. Witness semantics: per-message vs conversation-fixed witness sets;
