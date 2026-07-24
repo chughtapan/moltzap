@@ -50,8 +50,8 @@ per-conversation coordination state, expiring by bounded timeout
 per the sessionless decision; an acceptance, where a norm wants
 one, is the invitee's own in-band entry. Escrow semantics,
 acceptance quorums, and what ARCHIVE means to non-archivers are
-the collective-semantics charter's (#765, cluster 9 — direction
-now recorded).
+the collective-semantics charter's (#765, its lifecycle-as-collective
+cluster — direction now recorded).
 
 v0 implements genesis entries directly — no interim control-plane
 create op is built (option b): v1's creation surface was

@@ -24,7 +24,9 @@ endpoint firewalls (L5) act at the delivery edge, programmed from above.
 Conversation lifecycle rides in-band as L3 entry types: a conversation
 begins as its transcript's genesis entry, membership changes and
 departures are subsequent entries, and half-open state expires by bounded
-timeout (`docs/decisions/20260723-lifecycle-rides-l3.md`).
+timeout (`docs/decisions/20260723-lifecycle-rides-l3.md`). Lifecycle entries
+are membership mechanics, not collective operations — v0's op set remains
+MULTICAST alone.
 
 Goals: state the plane's duties as guarantees, independent of realization;
 record the dissolution of the v1 app layer, power by power; state the
@@ -184,7 +186,7 @@ state in-memory and single-node (whether this is a gap is contingent on open
 question 5); grant coalescing lets one lease consume several messages, while
 consensus ops need exact accounting. Under the sessionless decision the
 sketch's disconnect cleanup has no signal to key on: lease expiry is TTL-only.
-Eval-middleware precedent: the v1
+Testbed-plane precedent: the v1
 conformance suite's toxic-profile DSL (transport faults) and scripted app
 (verdict / hold / silence — semantic faults).
 
@@ -198,7 +200,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 6. Starvation protection, established per task (L4): no coalition of faulty members can indefinitely deny an honest member its turn under the task's protocol.
 7. Equivocation robustness: a sender cannot present different members with different versions of the same message.
 8. Membership changes are in-band events, ordered against message flow.
-9. Closed by recorded decision (`docs/decisions/20260723-eval-plane-is-testbed.md`): no centralized middleware — the eval seam is the testbed data plane. (Number retained; question 10 is cited externally.)
+9. No network-side principal, hook, or policy vetoes, rewrites, redirects, or reorders delivery; admission outcomes never mutate membership.
 10. No data-plane interface names or carries a task.
 11. Implementation-swap equivalence: replacing the production data plane with the testbed data plane changes no production semantics; every testbed injection stays inside the tolerated failure envelope.
 12. The plane keeps no per-endpoint connection or session state.
@@ -224,7 +226,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 6. Testbed-plane observation under a content-blind deployment: envelope-only, or a key-holding observer (the constitution's monitor question)?
 7. Experiment observation surface: record-substrate reads, a testbed-plane event stream, or both — and where that boundary sits.
 8. Wire discipline for op envelopes (closed-struct / excess-key rejection) — `v2/VISION.md` register item 9.
-9. Does at most one centralized middleware — the fault-injection / capability-evaluation eval seam — exist at all? Needs a recorded maintainer decision (VISION register or #765); the seam is hook-shaped relative to constitution clause 2 (no hooks, no reverse callbacks), so the record must carve the exception explicitly.
+9. Closed by recorded decision (`docs/decisions/20260723-eval-plane-is-testbed.md`): no centralized middleware exists — the eval seam is the testbed data plane, and clause 2 carries no exception. Number retained so question 10's external citations stay valid.
 10. The wire surface: the ship call shape; the delivery model (endpoint-initiated reads, held-open responses, or another shape); the feed's scope (per-conversation vs endpoint-wide) and its cursor semantics — bounded by the sessionless, plane-split, and single-credential decisions.
 
 ## References
