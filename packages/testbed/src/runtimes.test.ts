@@ -153,6 +153,7 @@ describe("OpenClawAdapter.spawn", () => {
 // serializer writes.
 const CONFIG_WORKSPACE_DIR = "/workspaces/testbed-agent";
 const CUSTOM_MODEL_ID = "custom/model";
+const DISABLED_MDNS_MODE = "off";
 
 describe("buildOpenClawConfig", () => {
   it("keys the moltzap account under the testbed profile", () => {
@@ -182,6 +183,15 @@ describe("buildOpenClawConfig", () => {
     expect(config.agents).toMatchObject({
       defaults: { model: { primary: CUSTOM_MODEL_ID } },
     });
+  });
+
+  it("disables mDNS discovery for colocated gateways", () => {
+    const config = buildOpenClawConfig(
+      { agentName: "alice" },
+      CONFIG_WORKSPACE_DIR,
+    );
+
+    expect(config.discovery?.mdns?.mode).toBe(DISABLED_MDNS_MODE);
   });
 });
 
@@ -235,6 +245,14 @@ describe("OpenClawAdapter.teardown", () => {
   it(
     "sends SIGTERM then SIGKILL when the process does not exit",
     openClawTeardownSendsTerminateThenKill,
+  );
+  it(
+    "sends SIGKILL to the process group after the leader exits",
+    openClawTeardownKillsDescendantsAfterLeaderExit,
+  );
+  it(
+    "performs only descendant cleanup when the leader already exited",
+    openClawTeardownKillsDescendantsAfterPreexistingLeaderExit,
   );
   it(
     "finishes process-scope cleanup when teardown is interrupted",
@@ -454,6 +472,9 @@ function openClawProcessSpawnFailureCleansState() {
           openclawBin: path.join(fixture.root, "missing-openclaw"),
           channelDistDir: fixture.channelDist,
         });
+        // The launcher process starts even when the target binary is
+        // missing, so spawn commits and the death surfaces through the
+        // readiness race — which tears the runtime down.
         const result = yield* Effect.either(
           adapter.spawn(
             stubSpawnInput({
@@ -461,10 +482,17 @@ function openClawProcessSpawnFailureCleansState() {
             }),
           ),
         );
-
-        Either.match(result, {
-          onLeft: (error) => expect(error).toBeInstanceOf(SpawnFailed),
-          onRight: () => expect.fail(),
+        yield* Either.match(result, {
+          onLeft: (error) =>
+            Effect.sync(() => expect(error).toBeInstanceOf(SpawnFailed)),
+          onRight: () =>
+            adapter
+              .waitUntilReady(READY_TIMEOUT_MS)
+              .pipe(
+                Effect.map((outcome) =>
+                  expect(outcome._tag).toBe(PROCESS_EXITED_TAG),
+                ),
+              ),
         });
         expect(yield* listTestStateDirs(PROCESS_SPAWN_AGENT_NAME)).toEqual(
           stateDirsBefore,
@@ -573,6 +601,79 @@ function openClawTeardownSendsTerminateThenKill() {
       );
 
       expect(killCalls).toEqual([SIGTERM_SIGNAL, SIGKILL_SIGNAL]);
+    }),
+  );
+}
+
+function openClawTeardownKillsDescendantsAfterLeaderExit() {
+  return runTest(
+    Effect.gen(function* () {
+      const killCalls: Signal[] = [];
+      const scope = yield* Scope.make();
+      const exitFiber = yield* Effect.fork(
+        Effect.never as Effect.Effect<number, never, never>,
+      );
+
+      const adapter = new OpenClawAdapter(stubDeps());
+      injectOpenClawAdapterState(adapter, {
+        process: {
+          exitFiber,
+          proc: {
+            kill: (signal: Signal) =>
+              Effect.sync(() => {
+                killCalls.push(signal);
+              }).pipe(
+                Effect.zipRight(
+                  signal === SIGTERM_SIGNAL
+                    ? Fiber.interrupt(exitFiber)
+                    : Effect.void,
+                ),
+              ),
+          },
+          scope,
+        },
+        stateDir: TEARDOWN_STATE_DIR,
+        logBuffer: new BoundedLogBuffer(),
+        spawnInput: stubSpawnInput(),
+        tornDown: false,
+      });
+
+      yield* adapter.teardown();
+
+      expect(killCalls).toEqual([SIGTERM_SIGNAL, SIGKILL_SIGNAL]);
+    }),
+  );
+}
+
+function openClawTeardownKillsDescendantsAfterPreexistingLeaderExit() {
+  return runTest(
+    Effect.gen(function* () {
+      const killCalls: Signal[] = [];
+      const scope = yield* Scope.make();
+      const exitFiber = yield* Effect.succeed(0).pipe(Effect.fork);
+      yield* Fiber.join(exitFiber);
+
+      const adapter = new OpenClawAdapter(stubDeps());
+      injectOpenClawAdapterState(adapter, {
+        process: {
+          exitFiber,
+          proc: {
+            kill: (signal: Signal) =>
+              Effect.sync(() => {
+                killCalls.push(signal);
+              }),
+          },
+          scope,
+        },
+        stateDir: TEARDOWN_STATE_DIR,
+        logBuffer: new BoundedLogBuffer(),
+        spawnInput: stubSpawnInput(),
+        tornDown: false,
+      });
+
+      yield* adapter.teardown();
+
+      expect(killCalls).toEqual([SIGKILL_SIGNAL]);
     }),
   );
 }

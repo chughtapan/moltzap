@@ -7,11 +7,11 @@
  * then either copies or symlinks the runtime imports the package resolves at
  * load time.
  */
-import { createRequire } from "node:module";
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { Data, Effect, Redacted, Schema } from "effect";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import { resolvePackageRoot } from "./package-resolution.js";
 import type { SpawnInput } from "./runtime.js";
 
 const PROFILE_CONFIG_INDENT_SPACES = 2;
@@ -112,11 +112,6 @@ interface LinkChannelDependenciesContext {
   readonly path: Path.Path;
   readonly channelPackageDir: string;
   readonly pluginNodeModules: string;
-}
-
-interface PackageResolution {
-  readonly packageRoot: string | null;
-  readonly warning: unknown | null;
 }
 
 /**
@@ -359,71 +354,17 @@ export function resolveChannelDependency(
           ).pipe(Effect.as(anchor)),
         ),
       );
-    const resolution = resolvePackageRoot(resolutionAnchor, path, packageName);
-    if (resolution.warning !== null) {
-      yield* Effect.logWarning(
-        "failed to resolve channel dependency",
-        resolution.warning,
-      );
-    }
-    return resolution.packageRoot;
-  }).pipe(Effect.withSpan("resolveChannelDependency"));
-}
-
-function resolvePackageRoot(
-  anchor: string,
-  path: Path.Path,
-  packageName: string,
-): PackageResolution {
-  try {
-    const requireFromAnchor = createRequire(anchor);
-    const packageJsonCandidates = [
-      `${packageName}/package.json`,
-      ...(requireFromAnchor.resolve.paths(packageName) ?? []).map(
-        (lookupPath) => path.join(lookupPath, packageName, "package.json"),
+    return yield* Effect.try({
+      try: () => resolvePackageRoot(resolutionAnchor, packageName),
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.catchAll((cause) =>
+        Effect.logWarning("failed to resolve channel dependency", cause).pipe(
+          Effect.as(null),
+        ),
       ),
-    ];
-    return resolveFirstPackageJson(
-      requireFromAnchor,
-      path,
-      packageJsonCandidates,
     );
-  } catch (cause) {
-    return {
-      packageRoot: null,
-      warning: isExpectedResolutionFailure(cause) ? null : cause,
-    };
-  }
-}
-
-function resolveFirstPackageJson(
-  requireFromAnchor: NodeRequire,
-  path: Path.Path,
-  candidates: ReadonlyArray<string>,
-): PackageResolution {
-  let firstError: unknown = null;
-  for (const candidate of candidates) {
-    try {
-      return {
-        packageRoot: path.dirname(requireFromAnchor.resolve(candidate)),
-        warning: null,
-      };
-    } catch (cause) {
-      firstError ??= cause;
-    }
-  }
-  return {
-    packageRoot: null,
-    warning: isExpectedResolutionFailure(firstError) ? null : firstError,
-  };
-}
-
-function isExpectedResolutionFailure(cause: unknown): boolean {
-  const code =
-    cause instanceof Error && "code" in cause ? cause.code : undefined;
-  return (
-    code === "MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
-  );
+  }).pipe(Effect.withSpan("resolveChannelDependency"));
 }
 
 function copyFileIfExists(

@@ -145,8 +145,8 @@ function toSpawnInput(agent: TestbedAgentSpec): SpawnInput {
  * Tear down every started agent in REVERSE insertion order. Last
  * spawned is torn down first so cleanup mirrors startup.
  *
- * Per-adapter teardown does (in order): poll exit; if not exited,
- * SIGTERM with timeout; if still running, SIGKILL with timeout;
+ * Per-adapter teardown does (in order): SIGTERM a running process tree;
+ * SIGKILL descendants when the leader exits or the grace window lapses;
  * close the process Scope; recursively remove the temp state-dir.
  *
  * - OpenClaw: `OPENCLAW_TERM_WAIT_MS = 10_000`, `OPENCLAW_KILL_WAIT_MS = 5_000`.
