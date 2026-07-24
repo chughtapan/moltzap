@@ -24,6 +24,7 @@
     "build": "nx run @moltzap/testbed:build",
     "lint": "nx run @moltzap/testbed:lint",
     "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -48,6 +49,23 @@
           "command": "eslint src *.ts --cache --max-warnings=0"
         }
       },
+      "test:integration": {
+        "dependsOn": [
+          "build"
+        ],
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "env": "MOLTZAP_NANOCLAW_ITEST"
+          }
+        ]
+      },
+      "typecheck:tests": {
+        "dependsOn": [
+          "build"
+        ]
+      },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {
@@ -66,9 +84,10 @@
     "openclaw": "2026.6.33"
   },
   "devDependencies": {
+    "@moltzap/client": "workspace:*",
+    "@moltzap/server-core": "workspace:*",
     "@types/node": "^25.5.0",
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.14",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
