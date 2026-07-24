@@ -234,7 +234,7 @@ function writesNestedWorkspaceFile() {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      yield* seedWorkspaceFiles(workDir, [
+      yield* seedWorkspaceFiles(path.join(workDir, "workspace"), [
         {
           relativePath: WORKSPACE_FILE_PATH,
           content: WORKSPACE_FILE_CONTENT,
@@ -255,7 +255,7 @@ function rejectsEscapingWorkspaceFiles() {
       const path = yield* Path.Path;
       const escapedPath = path.join(workDir, "escaped.md");
       for (const relativePath of ["../escaped.md", escapedPath]) {
-        yield* seedWorkspaceFiles(workDir, [
+        yield* seedWorkspaceFiles(path.join(workDir, "workspace"), [
           { relativePath, content: "escape" },
         ]).pipe(Effect.flip);
       }

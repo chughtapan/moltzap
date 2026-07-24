@@ -4,18 +4,34 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Data, Duration, Effect, Option } from "effect";
+import { Data, Duration, Effect, Option, Ref } from "effect";
 import { makeCommandHelpers } from "./child-process.js";
 
-const NANOCLAW_SHA = "934f063aff5c30e7b49ce58b53b41901d3472a3e";
+// Shared root for the install cache and per-agent runtime dirs. Must stay
+// under the user home: both hold docker bind-mount sources, and macOS
+// VM-backed engines only share home paths by default.
+export const MOLTZAP_TESTBED_CACHE_ROOT = join(
+  homedir(),
+  ".cache",
+  "moltzap-testbed",
+);
+
+const NANOCLAW_SHA = "641963c1e4b7ba4f000a18dfc5e2fea29069feec";
 const NANOCLAW_URL =
-  "https://github.com/qwibitai/nanoclaw/archive/" + NANOCLAW_SHA + ".tar.gz";
-const NANOCLAW_CACHE_SCHEMA_VERSION = 3;
+  "https://github.com/nanocoai/nanoclaw/archive/" + NANOCLAW_SHA + ".tar.gz";
+const NANOCLAW_CACHE_SCHEMA_VERSION = 5;
 const NANOCLAW_IMAGE_REPOSITORY = "nanoclaw-agent";
 const NANOCLAW_IMAGE_TAG_PREFIX = "moltzap";
 const BUILDING_CACHE_PREFIX = ".building-";
 const CACHE_GENERATION_PREFIX = "generation-";
 const INSTALL_PERMIT = Effect.runSync(Effect.makeSemaphore(1));
+
+// A verified install is process-invariant (the fingerprint covers assets and
+// host ABI), so spawns after the first skip the docker/filesystem
+// re-verification. Only success is cached — a failed attempt retries fresh.
+const WARM_INSTALL = Effect.runSync(
+  Ref.make<NanoclawRuntimeInstall | null>(null),
+);
 
 export interface NanoclawRuntimeInstall {
   readonly cacheDir: string;
@@ -100,8 +116,8 @@ const cachedCacheTarget = Effect.runSync(
       );
       return {
         cacheRoot: join(
-          homedir(),
-          ".cache/moltzap-testbed/nanoclaw",
+          MOLTZAP_TESTBED_CACHE_ROOT,
+          "nanoclaw",
           cacheFingerprint,
         ),
         cacheFingerprint,
@@ -280,120 +296,15 @@ function injectBundledAssets(tmpDir: string) {
       fileSystem.makeDirectory(skillDir, { recursive: true }),
     );
     yield* copyBundledAsset("SKILL.md", join(skillDir, "SKILL.md"));
+    // The bundled manifest mirrors upstream's with two deliberate
+    // divergences: @moltzap/{client,protocol} are added for the channel,
+    // and better-sqlite3 rides the v12 line because upstream's exact 11.x
+    // pin has no prebuilds for current host Node and its source no longer
+    // compiles against modern V8.
     yield* copyBundledAsset("package.json", join(tmpDir, "package.json"));
     yield* copyBundledAsset(
       "package-lock.json",
       join(tmpDir, "package-lock.json"),
-    );
-  });
-}
-
-function replacePinnedSource(
-  source: string,
-  expected: string,
-  replacement: string,
-  fileName: string,
-) {
-  const index = source.indexOf(expected);
-  if (index < 0 || index !== source.lastIndexOf(expected)) {
-    return Effect.fail(
-      installError(
-        "Pinned NanoClaw " +
-          fileName +
-          " no longer matches its isolation patch anchor",
-      ),
-    );
-  }
-  return Effect.succeed(
-    source.slice(0, index) +
-      replacement +
-      source.slice(index + expected.length),
-  );
-}
-
-export function patchNanoclawContainerIsolationSources(
-  containerRuntimeSource: string,
-  containerRunnerSource: string,
-) {
-  return Effect.gen(function* () {
-    const runtimeWithNamespace = yield* replacePinnedSource(
-      containerRuntimeSource,
-      "export const CONTAINER_RUNTIME_BIN = 'docker';",
-      [
-        "export const CONTAINER_RUNTIME_BIN = 'docker';",
-        "",
-        "const containerNamespace = (",
-        "  process.env.NANOCLAW_RUNTIME_NAMESPACE || 'default'",
-        ").replace(/[^a-zA-Z0-9_.-]/g, '-');",
-        "export const CONTAINER_NAME_PREFIX =",
-        "  'nanoclaw-' + containerNamespace + '-';",
-      ].join("\n"),
-      "src/container-runtime.ts",
-    );
-    // The "$" + "{...}" concatenations below emit literal template-placeholder
-    // text into the patched NanoClaw sources; writing "${...}" directly here
-    // would trip no-template-curly-in-string and read as an intended
-    // interpolation of this file.
-    const patchedRuntime = yield* replacePinnedSource(
-      runtimeWithNamespace,
-      "name=nanoclaw-",
-      "name=" + "$" + "{CONTAINER_NAME_PREFIX}",
-      "src/container-runtime.ts",
-    );
-    const runnerWithImport = yield* replacePinnedSource(
-      containerRunnerSource,
-      "  CONTAINER_RUNTIME_BIN,\n  hostGatewayArgs,",
-      "  CONTAINER_NAME_PREFIX,\n  CONTAINER_RUNTIME_BIN,\n  hostGatewayArgs,",
-      "src/container-runner.ts",
-    );
-    const patchedRunner = yield* replacePinnedSource(
-      runnerWithImport,
-      "nanoclaw-" + "$" + "{safeName}-",
-      "$" + "{CONTAINER_NAME_PREFIX}" + "$" + "{safeName}-",
-      "src/container-runner.ts",
-    );
-    return {
-      containerRuntimeSource: patchedRuntime,
-      containerRunnerSource: patchedRunner,
-    };
-  }).pipe(Effect.withSpan("patchNanoclawContainerIsolationSources"));
-}
-
-function patchContainerIsolation(tmpDir: string) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const containerRuntimePath = join(tmpDir, "src/container-runtime.ts");
-    const containerRunnerPath = join(tmpDir, "src/container-runner.ts");
-    const [containerRuntimeSource, containerRunnerSource] = yield* Effect.all(
-      [
-        fsEffect(
-          "read pinned NanoClaw source " + containerRuntimePath,
-          fileSystem.readFileString(containerRuntimePath, "utf8"),
-        ),
-        fsEffect(
-          "read pinned NanoClaw source " + containerRunnerPath,
-          fileSystem.readFileString(containerRunnerPath, "utf8"),
-        ),
-      ],
-      { concurrency: 2 },
-    );
-    const patched = yield* patchNanoclawContainerIsolationSources(
-      containerRuntimeSource,
-      containerRunnerSource,
-    );
-    yield* fsEffect(
-      "patch NanoClaw container isolation " + containerRuntimePath,
-      fileSystem.writeFileString(
-        containerRuntimePath,
-        patched.containerRuntimeSource,
-      ),
-    );
-    yield* fsEffect(
-      "patch NanoClaw container isolation " + containerRunnerPath,
-      fileSystem.writeFileString(
-        containerRunnerPath,
-        patched.containerRunnerSource,
-      ),
     );
   });
 }
@@ -461,15 +372,16 @@ function dockerImageExists(containerImage: string) {
   );
 }
 
-function buildContainerImage(
-  sourceDir: string,
-  install: NanoclawRuntimeInstall,
-) {
+function buildContainerImage(install: NanoclawRuntimeInstall) {
+  // Upstream's container/build.sh derives the image name from its own
+  // checkout path; the testbed owns naming (one fingerprint-tagged image
+  // shared by every per-agent runtime dir, selected via the CONTAINER_IMAGE
+  // env override), so it drives `docker build` directly. A cold build pulls
+  // the base image and apt/CLI layers — multi-minute single-layer steps the
+  // hang guard must not trip on.
   return execEffect(
-    'bash container/build.sh "' +
-      containerImageTag(install.cacheFingerprint) +
-      '"',
-    { cwd: sourceDir, timeout: 300_000 },
+    'docker build -t "' + install.containerImage + '" container',
+    { cwd: install.cacheDir, timeout: 900_000 },
   );
 }
 
@@ -490,21 +402,44 @@ function requireContainerImage(containerImage: string) {
 function ensureContainerImage(install: NanoclawRuntimeInstall) {
   return Effect.gen(function* () {
     if (yield* dockerImageExists(install.containerImage)) return;
-    yield* buildContainerImage(install.cacheDir, install);
+    yield* buildContainerImage(install);
     yield* requireContainerImage(install.containerImage);
   });
 }
 
-function buildRuntime(tmpDir: string, install: NanoclawRuntimeInstall) {
-  return Effect.gen(function* () {
-    yield* execEffect("HUSKY=0 npm ci", {
-      cwd: tmpDir,
-      timeout: 300_000,
-    });
-    yield* execEffect("npm run build", { cwd: tmpDir, timeout: 120_000 });
-    yield* buildContainerImage(tmpDir, install);
-    yield* requireContainerImage(install.containerImage);
-  });
+// The npm leg (host deps, dist, upgrade marker) and the image leg share
+// only the immutable container/ build context, so they run concurrently.
+function buildRuntime(install: NanoclawRuntimeInstall) {
+  return Effect.all(
+    [
+      execEffect("HUSKY=0 npm ci", {
+        cwd: install.cacheDir,
+        timeout: 300_000,
+      }).pipe(
+        Effect.andThen(
+          execEffect("npm run build", {
+            cwd: install.cacheDir,
+            timeout: 120_000,
+          }),
+        ),
+        Effect.andThen(stampUpgradeMarker(install.cacheDir)),
+      ),
+      buildContainerImage(install).pipe(
+        Effect.andThen(requireContainerImage(install.containerImage)),
+      ),
+    ],
+    { concurrency: 2, discard: true },
+  );
+}
+
+// NanoClaw's startup tripwire requires data/upgrade-state.json to match the
+// code version; stamping through upstream's own writer keeps the marker
+// schema tracking upstream across SHA bumps.
+function stampUpgradeMarker(sourceDir: string) {
+  return execEffect(
+    '"node_modules/.bin/tsx" scripts/upgrade-state.ts set "" moltzap-testbed',
+    { cwd: sourceDir, timeout: 60_000 },
+  );
 }
 
 function writeReadyMarker(tmpDir: string, cacheFingerprint: string) {
@@ -589,8 +524,7 @@ function buildAndPublish(target: NanoclawCacheTarget) {
       );
       yield* downloadPinnedSource(buildingDir);
       yield* injectBundledAssets(buildingDir);
-      yield* patchContainerIsolation(buildingDir);
-      yield* buildRuntime(buildingDir, buildingInstall);
+      yield* buildRuntime(buildingInstall);
       yield* writeReadyMarker(buildingDir, target.cacheFingerprint);
       const generationDir = yield* publishNanoclawCacheGeneration(
         buildingDir,
@@ -602,19 +536,29 @@ function buildAndPublish(target: NanoclawCacheTarget) {
 }
 
 export function ensureNanoclawRuntimeInstalledEffect() {
-  return INSTALL_PERMIT.withPermits(1)(
-    Effect.gen(function* () {
-      const target = yield* resolveCacheTarget();
-      yield* sweepStaleBuildingCaches(target.cacheRoot);
-      yield* preflightDocker();
-      const generationDir = yield* findNanoclawCacheGeneration(
-        target.cacheRoot,
-        target.cacheFingerprint,
-      );
-      if (generationDir === null) return yield* buildAndPublish(target);
-      const install = runtimeInstall(generationDir, target.cacheFingerprint);
-      yield* ensureContainerImage(install);
-      return install;
-    }),
-  ).pipe(Effect.withSpan("ensureNanoclawRuntimeInstalledEffect"));
+  return Effect.gen(function* () {
+    const warm = yield* Ref.get(WARM_INSTALL);
+    if (warm !== null) return warm;
+    const install = yield* INSTALL_PERMIT.withPermits(1)(
+      verifyOrBuildInstall(),
+    );
+    yield* Ref.set(WARM_INSTALL, install);
+    return install;
+  }).pipe(Effect.withSpan("ensureNanoclawRuntimeInstalledEffect"));
+}
+
+function verifyOrBuildInstall() {
+  return Effect.gen(function* () {
+    const target = yield* resolveCacheTarget();
+    yield* sweepStaleBuildingCaches(target.cacheRoot);
+    yield* preflightDocker();
+    const generationDir = yield* findNanoclawCacheGeneration(
+      target.cacheRoot,
+      target.cacheFingerprint,
+    );
+    if (generationDir === null) return yield* buildAndPublish(target);
+    const install = runtimeInstall(generationDir, target.cacheFingerprint);
+    yield* ensureContainerImage(install);
+    return install;
+  });
 }
