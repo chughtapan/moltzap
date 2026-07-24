@@ -27,6 +27,7 @@ import {
   type NanoclawRuntimeInstall,
 } from "./nanoclaw-install.js";
 import {
+  BoundedLogBuffer,
   escalatingKill,
   makeCommandHelpers,
   startSupervisedProcess,
@@ -53,7 +54,7 @@ export interface NanoclawRuntimeHandle {
   scope: Scope.CloseableScope;
   exitFiber: Fiber.RuntimeFiber<number, never>;
   runtimeDir: string;
-  capturedLogs: string[];
+  logs: BoundedLogBuffer;
 }
 
 interface StartNanoclawRuntimeOptions {
@@ -362,14 +363,14 @@ function startNanoclawProcess(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
   install: NanoclawRuntimeInstall,
-  capturedLogs: string[],
+  logs: BoundedLogBuffer,
 ) {
   const command = makeNanoclawCommand(opts, runtimeDir, install);
   return Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
       const scope = yield* Scope.make();
       return yield* restore(
-        initializeNanoclawProcess(command, scope, capturedLogs),
+        initializeNanoclawProcess(command, scope, logs),
       ).pipe(
         Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
       );
@@ -383,10 +384,10 @@ function startNanoclawProcess(
 function initializeNanoclawProcess(
   command: ReturnType<typeof makeNanoclawCommand>,
   scope: Scope.CloseableScope,
-  capturedLogs: string[],
+  logs: BoundedLogBuffer,
 ) {
   return startSupervisedProcess(command, scope, (chunk) => {
-    capturedLogs.push(chunk);
+    logs.append(chunk);
   }).pipe(
     Effect.map(
       ({ proc, exitFiber }) =>
@@ -409,14 +410,14 @@ function startConfiguredNanoclawRuntime(
     yield* writeRuntimeWorkspaceFiles(runtimeDir, opts.workspaceFiles);
     yield* writeNanoclawMoltZapProfileConfig(opts, runtimeDir);
 
-    const capturedLogs: string[] = [];
+    const logs = new BoundedLogBuffer();
     const started = yield* startNanoclawProcess(
       opts,
       runtimeDir,
       install,
-      capturedLogs,
+      logs,
     );
-    return { ...started, runtimeDir, capturedLogs };
+    return { ...started, runtimeDir, logs };
   });
 }
 
@@ -479,8 +480,4 @@ function removeNanoclawRuntimeDir(runtimeDir: string) {
       Effect.logWarning("failed to remove NanoClaw runtime directory", cause),
     ),
   );
-}
-
-export function getNanoclawRuntimeLogs(handle: NanoclawRuntimeHandle): string {
-  return handle.capturedLogs.join("");
 }

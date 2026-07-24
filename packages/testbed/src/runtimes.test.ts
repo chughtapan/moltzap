@@ -25,6 +25,7 @@ import {
   type OpenClawAdapterDeps,
 } from "./openclaw-adapter.js";
 import { TESTBED_PROFILE_NAME } from "./channel-plugin-install.js";
+import { BoundedLogBuffer } from "./child-process.js";
 import {
   NanoclawAdapter,
   type NanoclawAdapterOptions,
@@ -546,7 +547,7 @@ function openClawTeardownSendsTerminateThenKill() {
           scope,
         },
         stateDir: TEARDOWN_STATE_DIR,
-        logBuffer: { value: "" },
+        logBuffer: new BoundedLogBuffer(),
         spawnInput: stubSpawnInput(),
         tornDown: false,
       });
@@ -607,7 +608,7 @@ function openClawTeardownInterruptionFinishesCleanup() {
           scope,
         },
         stateDir: TEARDOWN_STATE_DIR,
-        logBuffer: { value: "" },
+        logBuffer: new BoundedLogBuffer(),
         spawnInput: stubSpawnInput(),
         tornDown: false,
       });
@@ -680,7 +681,7 @@ interface InjectedOpenClawAdapterState {
     readonly scope: Scope.CloseableScope;
   };
   readonly stateDir: string;
-  readonly logBuffer: { readonly value: string };
+  readonly logBuffer: BoundedLogBuffer;
   readonly spawnInput: SpawnInput;
   tornDown: boolean;
 }
