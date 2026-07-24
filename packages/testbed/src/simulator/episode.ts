@@ -13,6 +13,7 @@
  */
 import type { Effect, Scope } from "effect";
 import type {
+  AgentFacingRunSpec,
   FaultScheduleEntry,
   MaterializedRunSpec,
   RunSpec,
@@ -24,6 +25,7 @@ import type { AgentRunner, LaunchedWorld } from "./run-config.js";
 import type { EnvironmentMount } from "./environment-mount.js";
 import type { WorldDriver } from "./world-driver.js";
 import type {
+  AllocatedAttempt,
   EpisodeTermination,
   RecordingStore,
   RunOutcome,
@@ -33,6 +35,7 @@ import type {
   ConfigTimeError,
   InfraError,
   ManifestPersistFailed,
+  RecordingStoreFailed,
   SealFailed,
   TaskInjectionFailed,
 } from "./errors.js";
@@ -107,7 +110,7 @@ export type EpisodeDeps = {
  */
 export interface EpisodeController {
   run(
-    spec: MaterializedRunSpec,
+    spec: AgentFacingRunSpec,
     deps: EpisodeDeps,
   ): Effect.Effect<EpisodeTermination, InfraError, never>;
 }
@@ -122,11 +125,17 @@ export function makeEpisodeController(): EpisodeController {
 // executeRun: the composition root
 // ---------------------------------------------------------------------------
 
-/** Seams `executeRun` composes; every field has a v0 default implementation. */
+/**
+ * Seams `executeRun` composes; every field has a v0 default
+ * implementation. `allocated` carries queue-claimed attempt ids; when
+ * absent, `executeRun` calls `store.allocateAttempt` itself, so
+ * standalone runs and queue workers share one identity protocol.
+ */
 export type ExecuteRunOptions = {
   readonly store?: RecordingStore;
   readonly runner?: AgentRunner;
   readonly mounts?: EnvironmentMount;
+  readonly allocated?: AllocatedAttempt;
 };
 
 /** A sealed attempt: the one observable outcome plus its recording. */
@@ -136,21 +145,28 @@ export type SealedAttempt = {
 };
 
 /**
- * Execute one attempt end-to-end: materialize, persist the manifest
- * (the run begins here; before server bring-up), launch the world, run
- * the episode, drain and seal. Succeeds whenever a sealed recording
- * exists — including infrastructure-failure outcomes; fails only when no
- * recording exists (config-time or manifest-persist failure) or when the
- * seal path itself fails and necessarily leaves the recording unsealed.
- * Requires Docker only; a spec's own runtimes and consumer MCP servers
- * may add their own requirements.
+ * Execute one attempt end-to-end: materialize, allocate the attempt,
+ * persist the manifest (the run begins here; before server bring-up),
+ * launch the world with the condition-stripped spec, run the episode
+ * while racing every long-lived failure channel (event-log sink, OTLP
+ * receiver, mounts, transcript drain), then shut down in two phases:
+ * (1) final transcript sweep, fault reverts, explicit `world.teardown()`
+ * with its report evented; (2) `log.seal()`, `receiver.drainTraces()` +
+ * `store.writeTraces`, `store.seal`. Teardown precedes the log seal so
+ * `teardown.completed` and `teardownComplete` are recordable. Succeeds
+ * whenever a sealed recording exists — including infrastructure-failure
+ * outcomes; fails only when no recording exists (config-time, allocation,
+ * or manifest-persist failure) or when the seal path itself fails and
+ * necessarily leaves the recording unsealed. Requires Docker only; a
+ * spec's own runtimes and consumer MCP servers may add their own
+ * requirements.
  */
 export function executeRun(
   _spec: RunSpec,
   _options?: ExecuteRunOptions,
 ): Effect.Effect<
   SealedAttempt,
-  ConfigTimeError | ManifestPersistFailed | SealFailed,
+  ConfigTimeError | RecordingStoreFailed | ManifestPersistFailed | SealFailed,
   Scope.Scope
 > {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream

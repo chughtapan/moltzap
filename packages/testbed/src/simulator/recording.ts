@@ -11,25 +11,46 @@
  * files. Unsealed means: no marker; readable for diagnosis, never
  * mistaken for absent or complete.
  *
- * Sealing writes `result.json`, then writes `sealed.json` via
- * write-temp + fsync + atomic rename. Observed storage failures on
- * non-seal writes (event append, traces write) still seal, with reason
- * `recording-store-failed`; failures of the seal path itself (result
- * write, marker rename) necessarily leave an unsealed recording and
- * surface as `SealFailed`. Abrupt termination the process cannot observe
- * always leaves an unsealed recording.
+ * Sealing is durably at-most-once per attempt: (1) create `seal.lock`
+ * with O_CREAT|O_EXCL — the losing racer in a cancel/completion race
+ * observes the lock or the marker and returns without writing; (2) fsync
+ * the data files; (3) write `result.json` and fsync; (4) write
+ * `sealed.json.tmp`, fsync, atomically rename to `sealed.json`, fsync
+ * the directory. Observed storage failures on non-seal writes (event
+ * append, traces write) still seal, with reason `recording-store-failed`;
+ * failures of the seal path itself (`SealFailed.step` names which step)
+ * necessarily leave an unsealed recording. Abrupt termination the process
+ * cannot observe always leaves an unsealed recording.
  */
 import { Schema, type Brand, type Effect } from "effect";
 import { AttemptId, RunId, WallTimeMs, LogicalSequence } from "./ids.js";
-import { IsolationPosture, RunSpec, Seed, SpecHash } from "./run-spec.js";
+import {
+  IsolationPosture,
+  JsonValue,
+  RunSpec,
+  Seed,
+  SimulatorRuntimeKind,
+  SpecHash,
+} from "./run-spec.js";
 import type {
   ManifestPersistFailed,
+  RecordingInvalid,
+  RecordingSchemaMismatch,
   RecordingStoreFailed,
   SealFailed,
 } from "./errors.js";
 
 /** Integer recording-schema version; bumped on breaking change; graders hard-fail on mismatch. */
 export const RECORDING_SCHEMA_VERSION = 1;
+
+/**
+ * Version pin every versioned recording file carries; this reader's
+ * schemas decode exactly this version. `events.ndjson` lines are
+ * unversioned; the manifest governs them and the marker digests bind
+ * them. Graders raise `RecordingSchemaMismatch` on any other integer
+ * before full decode.
+ */
+const RecordingSchemaVersion = Schema.Literal(RECORDING_SCHEMA_VERSION);
 
 // ---------------------------------------------------------------------------
 // Recording identity
@@ -52,9 +73,7 @@ export class SlotProvenance extends Schema.Class<SlotProvenance>(
   "SlotProvenance",
 )({
   slot: Schema.String.annotations({ description: "Agent slot name" }),
-  runtimeKind: Schema.String.annotations({
-    description: "Runtime kind launched into the slot",
-  }),
+  runtimeKind: SimulatorRuntimeKind,
   runtimeVersion: Schema.String.annotations({
     description: "Resolved runtime/adapter version",
   }),
@@ -64,7 +83,7 @@ export class SlotProvenance extends Schema.Class<SlotProvenance>(
     }),
   ),
   providerParameters: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }).annotations({
+    Schema.Record({ key: Schema.String, value: JsonValue }).annotations({
       description: "Provider parameters by name and value, never key material",
     }),
     { default: () => ({}) },
@@ -88,7 +107,7 @@ export class SlotProvenance extends Schema.Class<SlotProvenance>(
  * materialized spec, never raw user input.
  */
 export class ManifestJson extends Schema.Class<ManifestJson>("ManifestJson")({
-  recordingSchemaVersion: Schema.Int.annotations({
+  recordingSchemaVersion: RecordingSchemaVersion.annotations({
     description: "Schema compatibility gate; graders hard-fail on mismatch",
   }),
   simulatorVersion: Schema.String.annotations({
@@ -138,17 +157,20 @@ export type EpisodeTermination = typeof EpisodeTermination.Type;
  * Closed taxonomy of infrastructure failures that end a run before an
  * episode outcome exists, observed by a process that can still seal.
  * Worker death is deliberately absent: a dead worker seals nothing; that
- * outcome is the attempt state `worker-lost` with an unsealed recording.
+ * outcome is a finished attempt with `workerLost: true` and an unsealed
+ * recording.
  */
 export const InfraFailureReason = Schema.Literal(
   "server-launch-failed",
   "agent-launch-failed",
+  "provisioning-failed",
   "mount-failed",
   "logging-proxy-failed",
   "span-acceptance-lost",
   "transcript-drain-failed",
   "fault-apply-failed",
   "fault-revert-failed",
+  "task-injection-failed",
   "driver-crashed",
   "recording-store-failed",
 ).annotations({ description: "Why infrastructure ended the run; closed set" });
@@ -162,7 +184,7 @@ export class EpisodeOutcome extends Schema.TaggedClass<EpisodeOutcome>()(
   },
 ) {}
 
-/** Infrastructure ended the run; `error` is the serialized tagged error. */
+/** Infrastructure ended the run; the causing tagged error is serialized alongside the reason. */
 export class InfraFailureOutcome extends Schema.TaggedClass<InfraFailureOutcome>()(
   "infrastructure-failure",
   {
@@ -170,6 +192,13 @@ export class InfraFailureOutcome extends Schema.TaggedClass<InfraFailureOutcome>
     errorTag: Schema.String.annotations({
       description: "Stable _tag of the causing error",
     }),
+    errorDetail: Schema.optionalWith(
+      Schema.Record({ key: Schema.String, value: JsonValue }).annotations({
+        description:
+          "The causing error's own fields (slot, driver name, ...), redaction applied",
+      }),
+      { default: () => ({}) },
+    ),
     errorMessage: Schema.String.annotations({
       description: "Problem, cause, fix",
     }),
@@ -182,7 +211,7 @@ export type RunOutcome = typeof RunOutcome.Type;
 
 /** Outcome and termination evidence; written by the seal path only. */
 export class ResultJson extends Schema.Class<ResultJson>("ResultJson")({
-  recordingSchemaVersion: Schema.Int,
+  recordingSchemaVersion: RecordingSchemaVersion,
   runId: RunId,
   outcome: RunOutcome,
   endedAtWallTime: WallTimeMs,
@@ -205,12 +234,12 @@ export class CapturedSpan extends Schema.Class<CapturedSpan>("CapturedSpan")({
   logicalSequence: LogicalSequence.annotations({
     description: "Sequence of the paired span.accepted event",
   }),
-  raw: Schema.Unknown.annotations({ description: "Verbatim OTLP span JSON" }),
+  raw: JsonValue.annotations({ description: "Verbatim OTLP span JSON" }),
 }) {}
 
 /** All spans accepted before seal; span completeness upstream of acceptance is not claimed. */
 export class TracesJson extends Schema.Class<TracesJson>("TracesJson")({
-  recordingSchemaVersion: Schema.Int,
+  recordingSchemaVersion: RecordingSchemaVersion,
   runId: RunId,
   spans: Schema.Array(CapturedSpan),
 }) {}
@@ -230,7 +259,7 @@ export const Sha256 = Schema.String.pipe(
  * digests make "complete and mutually consistent" checkable offline.
  */
 export class SealMarker extends Schema.Class<SealMarker>("SealMarker")({
-  recordingSchemaVersion: Schema.Int,
+  recordingSchemaVersion: RecordingSchemaVersion,
   runId: RunId,
   sealedAtWallTime: WallTimeMs,
   files: Schema.Struct({
@@ -258,46 +287,73 @@ export type RecordingRef = {
 export type SealedRecordingRef = RecordingRef &
   Brand.Brand<"SealedRecordingRef">;
 
-/** Decoded view of a recording on disk, sealed or not. */
+/**
+ * Decoded view of a recording on disk, sealed or not. Event lines are
+ * JSON values; graders decode them per line via `decodeEventLine` (the
+ * event union lives in `event-log.ts`; typing them here would cycle the
+ * modules).
+ */
 export type RecordingSnapshot = {
   readonly manifest: ManifestJson;
-  readonly events: ReadonlyArray<unknown>;
+  readonly events: ReadonlyArray<JsonValue>;
   readonly traces: TracesJson | undefined;
   readonly result: ResultJson | undefined;
   readonly seal: SealMarker | undefined;
 };
 
+/** A store-allocated attempt: the ids one attempt executes under. */
+export type AllocatedAttempt = {
+  readonly identity: RecordingIdentity;
+  readonly attemptId: AttemptId;
+  readonly runId: RunId;
+};
+
 /**
- * RecordingStore seam: durable persistence for recordings. v0 ships a
- * local filesystem implementation; the seam exists so remote stores can
- * land without surface change. Sealed attempts are never overwritten.
+ * RecordingStore seam: durable persistence for recordings, addressable
+ * per attempt so concurrent runs share one store. v0 ships a local
+ * filesystem implementation; the seam exists so remote stores can land
+ * without surface change. Sealed attempts are never overwritten. The
+ * store is also the attempt allocator: `allocateAttempt` is the one
+ * atomic source of attempt ids, shared by `executeRun` standalone and by
+ * the queue's workers, so both follow the same identity protocol.
  */
 export interface RecordingStore {
+  /** Atomically allocate the next attempt id (and its runId) under one identity. */
+  allocateAttempt(
+    identity: RecordingIdentity,
+  ): Effect.Effect<AllocatedAttempt, RecordingStoreFailed, never>;
+
   /** Create the recording directory and persist the manifest; the run begins here. */
   persistManifest(
     manifest: ManifestJson,
   ): Effect.Effect<RecordingRef, ManifestPersistFailed, never>;
 
-  /** Append drained event lines (satisfies `EventSink`). */
+  /** Append drained event lines to one attempt's `events.ndjson`. */
   appendEvents(
+    ref: RecordingRef,
     lines: ReadonlyArray<string>,
   ): Effect.Effect<void, RecordingStoreFailed, never>;
 
-  /** Write the accepted-span file. */
+  /** Write one attempt's accepted-span file. */
   writeTraces(
+    ref: RecordingRef,
     traces: TracesJson,
   ): Effect.Effect<void, RecordingStoreFailed, never>;
 
-  /** The seal path: write `result.json`, then the marker atomically. Runs at most once per attempt. */
+  /** The seal path (lock, fsync, result, marker; file-header protocol). Durably at most once per attempt. */
   seal(
     ref: RecordingRef,
     result: ResultJson,
   ): Effect.Effect<SealedRecordingRef, SealFailed, never>;
 
-  /** Read any recording back for inspection, validation, or grading. */
+  /** Read any recording back; version mismatch and schema-invalid files surface typed. */
   read(
     path: string,
-  ): Effect.Effect<RecordingSnapshot, RecordingStoreFailed, never>;
+  ): Effect.Effect<
+    RecordingSnapshot,
+    RecordingStoreFailed | RecordingInvalid | RecordingSchemaMismatch,
+    never
+  >;
 }
 
 /** Compute the store-relative recording path for one attempt. */
@@ -331,10 +387,21 @@ export interface SecretRegistry {
   register(value: string): void;
   /** Replace registered secrets (and their base64/url encodings) in one string. */
   redact(text: string): string;
+  /** Recursively redact every string inside a JSON value (events, spans, tool payloads, configs). */
+  redactJson(value: JsonValue): JsonValue;
 }
 
-/** Create the per-run secret registry, pre-loaded with simulator-held credentials. */
-export function makeSecretRegistry(): SecretRegistry {
+/**
+ * Create one attempt's secret registry, seeded with the credentials the
+ * simulator already holds at creation (provider keys read from env,
+ * registry credentials); launch-time provisioning registers each minted
+ * agent key and the observer credential before any process spawns. One
+ * registry per attempt — a process-global registry would leak secrets
+ * across concurrent runs.
+ */
+export function makeSecretRegistry(
+  _initial: ReadonlyArray<string>,
+): SecretRegistry {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }

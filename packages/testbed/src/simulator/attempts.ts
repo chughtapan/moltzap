@@ -49,48 +49,92 @@ import type {
 
 /**
  * Live states progress `queued -> launching -> running -> draining ->
- * sealing`; terminal states are `sealed`, `unsealed`, `cancelled`. An
- * attempt whose worker dies is observable as `unsealed` with
- * `workerLost: true` once the queue detects the loss.
+ * sealing`; terminal states are `sealed`, `unsealed`, `cancelled`. The
+ * snapshot union makes impossible combinations unrepresentable: only
+ * claimed attempts carry a runId, only post-manifest attempts carry a
+ * recording path, only finished attempts carry `workerLost`.
  */
-export const AttemptState = Schema.Literal(
-  "queued",
+export const LiveAttemptState = Schema.Literal(
   "launching",
   "running",
   "draining",
   "sealing",
+).annotations({ description: "Live attempt state after a worker claimed it" });
+export type LiveAttemptState = typeof LiveAttemptState.Type;
+
+export const TerminalAttemptState = Schema.Literal(
   "sealed",
   "unsealed",
   "cancelled",
-).annotations({ description: "Attempt lifecycle state" });
-export type AttemptState = typeof AttemptState.Type;
+).annotations({ description: "Terminal attempt state" });
+export type TerminalAttemptState = typeof TerminalAttemptState.Type;
 
-/** Queue-visible record of one attempt (`status` output). */
-export class AttemptRecord extends Schema.Class<AttemptRecord>("AttemptRecord")(
+const attemptBaseFields = {
+  attemptId: AttemptId,
+  identity: RecordingIdentity,
+  submittedAtWallTime: WallTimeMs,
+} as const;
+
+/** Submitted, not yet claimed by a worker; no manifest, no recording. */
+export class QueuedAttempt extends Schema.TaggedClass<QueuedAttempt>()(
+  "queued",
   {
-    attemptId: AttemptId,
-    identity: RecordingIdentity,
-    state: AttemptState,
-    runId: Schema.optional(RunId),
-    recordingPath: Schema.optional(
-      Schema.String.annotations({
-        description: "Recording directory once the manifest persists",
-      }),
-    ),
+    ...attemptBaseFields,
     cancelRequested: Schema.Boolean.annotations({
-      description: "A cancel is pending; live states honor it cooperatively",
+      description: "Cancel before start yields the cancelled terminal state",
     }),
-    workerLost: Schema.Boolean.annotations({
-      description: "The executing worker died; the recording is unsealed",
-    }),
-    submittedAtWallTime: WallTimeMs,
   },
 ) {}
+
+/** Claimed and executing; the recording path exists once the manifest persists. */
+export class LiveAttempt extends Schema.TaggedClass<LiveAttempt>()("live", {
+  ...attemptBaseFields,
+  state: LiveAttemptState,
+  runId: RunId,
+  recordingPath: Schema.optional(
+    Schema.String.annotations({
+      description:
+        "Recording directory; absent only before the manifest persists",
+    }),
+  ),
+  cancelRequested: Schema.Boolean.annotations({
+    description: "Live states honor cancel cooperatively; sealing ignores it",
+  }),
+}) {}
+
+/** Finished with a recording on disk: sealed, or unsealed (seal-path failure or lost worker). */
+export class FinishedAttempt extends Schema.TaggedClass<FinishedAttempt>()(
+  "finished",
+  {
+    ...attemptBaseFields,
+    state: Schema.Literal("sealed", "unsealed"),
+    runId: RunId,
+    recordingPath: Schema.String,
+    workerLost: Schema.Boolean.annotations({
+      description: "True when the executing worker died; implies unsealed",
+    }),
+  },
+) {}
+
+/** Cancelled before start; no manifest, no recording, no runId. */
+export class CancelledAttempt extends Schema.TaggedClass<CancelledAttempt>()(
+  "cancelled",
+  attemptBaseFields,
+) {}
+
+/** Queue-visible snapshot of one attempt (`status` output). */
+const AttemptSnapshot = Schema.Union(
+  QueuedAttempt,
+  LiveAttempt,
+  FinishedAttempt,
+  CancelledAttempt,
+);
+export type AttemptSnapshot = typeof AttemptSnapshot.Type;
 
 export type CancelOutcome =
   | { readonly _tag: "CancelledBeforeStart" }
   | { readonly _tag: "InterruptDelivered" }
-  | { readonly _tag: "AlreadyTerminal"; readonly state: AttemptState };
+  | { readonly _tag: "AlreadyTerminal"; readonly state: TerminalAttemptState };
 
 // ---------------------------------------------------------------------------
 // Queue seam
@@ -105,17 +149,17 @@ export type CancelOutcome =
  */
 export interface ExperimentQueue {
   /** Materialize and enqueue; identical specs join the same recording identity with a fresh attempt. */
-  submit(spec: RunSpec): Effect.Effect<AttemptRecord, ConfigTimeError, never>;
+  submit(spec: RunSpec): Effect.Effect<AttemptSnapshot, ConfigTimeError, never>;
 
   /** Current record for one attempt. */
   status(
     attemptId: AttemptId,
-  ): Effect.Effect<AttemptRecord, UnknownAttempt, never>;
+  ): Effect.Effect<AttemptSnapshot, UnknownAttempt, never>;
 
   /** All attempts under one recording identity, attempt order preserved. */
   attemptsFor(
     identity: RecordingIdentity,
-  ): Effect.Effect<ReadonlyArray<AttemptRecord>, never, never>;
+  ): Effect.Effect<ReadonlyArray<AttemptSnapshot>, never, never>;
 
   /** Request cancellation; semantics per state are documented on the state machine above. */
   cancel(
@@ -125,7 +169,11 @@ export interface ExperimentQueue {
   /** New attempt under the same identity; legal only from a terminal or worker-lost attempt. */
   retry(
     attemptId: AttemptId,
-  ): Effect.Effect<AttemptRecord, UnknownAttempt | AttemptNotRetryable, never>;
+  ): Effect.Effect<
+    AttemptSnapshot,
+    UnknownAttempt | AttemptNotRetryable,
+    never
+  >;
 }
 
 // ---------------------------------------------------------------------------

@@ -10,11 +10,43 @@
  * YAML-expressible iff `JSONSchema.make` succeeds on it.
  */
 import { Schema, type Brand, type Effect } from "effect";
-import type {
-  AdapterConfigRejected,
-  IsolationViolation,
-  RunSpecInvalid,
-} from "./errors.js";
+import type { ConfigTimeError } from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// JSON value space
+// ---------------------------------------------------------------------------
+
+/**
+ * The recursive JSON value space every data-valued field lives in.
+ * Driver configs, provider parameters, event payload values, and captured
+ * spans decode against it, so `undefined`, functions, bigints, cycles,
+ * and non-finite numbers are rejected at the boundary and
+ * `canonicalJson` is total over its input.
+ */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ReadonlyArray<JsonValue>
+  | { readonly [key: string]: JsonValue };
+export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
+  Schema.Union(
+    Schema.String,
+    Schema.Finite,
+    Schema.Boolean,
+    Schema.Null,
+    Schema.Array(JsonValue),
+    Schema.Record({ key: Schema.String, value: JsonValue }),
+  ),
+).annotations({ description: "JSON value (finite numbers, no undefined)" });
+
+/** JSON object; the shape of every data-valued config bag. */
+export const JsonObject = Schema.Record({
+  key: Schema.String,
+  value: JsonValue,
+}).annotations({ description: "JSON object of JsonValue entries" });
+export type JsonObject = typeof JsonObject.Type;
 
 // ---------------------------------------------------------------------------
 // Branded identifiers
@@ -136,6 +168,14 @@ export class StubSlotConfig extends Schema.Class<StubSlotConfig>(
   }),
 }) {}
 
+/** Closed union of registered runtime kinds; provenance and events reuse it. */
+export const SimulatorRuntimeKind = Schema.Literal(
+  "openclaw",
+  "nanoclaw",
+  "stub",
+).annotations({ description: "Registered runtime kind" });
+export type SimulatorRuntimeKind = typeof SimulatorRuntimeKind.Type;
+
 /**
  * Runtime assignment per slot: `agent_slot -> (runtime kind + that
  * adapter's canonical config)`. The union is closed over registered
@@ -220,6 +260,16 @@ export const LogicalTime: Schema.Schema<LogicalTime, number> = Schema.Int.pipe(
  * v0's verified obligation is sever; delay and throttle stay expressible
  * and the v0 implementation rejects them with `FaultUnsupported`.
  */
+/** Closed fault-kind vocabulary; events and errors reuse it instead of plain strings. */
+export const FaultKind = Schema.Literal(
+  "sever",
+  "delay",
+  "throttle",
+).annotations({
+  description: "Connection-level fault kind",
+});
+export type FaultKind = typeof FaultKind.Type;
+
 export const FaultSpec = Schema.Union(
   Schema.TaggedStruct("sever", {
     target: AgentSlotName.annotations({
@@ -276,8 +326,8 @@ export class DriverRef extends Schema.Class<DriverRef>("DriverRef")({
     description: "Registered driver implementation name",
   }),
   config: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }).annotations({
-      description: "Driver-owned config; must pass the encodability oracle",
+    JsonObject.annotations({
+      description: "Driver-owned config; JSON values only",
     }),
     { default: () => ({}) },
   ),
@@ -436,11 +486,19 @@ export class RunSpec extends Schema.Class<RunSpec>("RunSpec")({
  */
 export type MaterializedRunSpec = RunSpec & Brand.Brand<"MaterializedRunSpec">;
 
+/**
+ * The materialized spec with the condition designation stripped. Every
+ * component past materialization except manifest persistence receives
+ * this projection, so treatment labels are unrepresentable downstream of
+ * the recording boundary.
+ */
+export type AgentFacingRunSpec = Omit<MaterializedRunSpec, "condition">;
+
 /** Per-field provenance recorded during materialization (drives `spec explain`). */
 export type FieldProvenance = {
   readonly path: ReadonlyArray<string>;
   readonly origin: "user" | "default" | "profile";
-  readonly declaredDefault?: unknown;
+  readonly declaredDefault?: JsonValue;
 };
 
 export type MaterializationReport = {
@@ -452,27 +510,28 @@ export type MaterializationReport = {
 /**
  * Decode + validate + default-resolve an untrusted spec (YAML frontend or
  * TS caller) into its materialized form. Fails fast at config time:
- * schema violations, adapter-rejected fields, and adversarial roles
- * without container isolation never reach launch.
+ * schema violations, adapter-rejected fields, adversarial roles without
+ * container isolation, fault kinds this build does not honor (v0: delay,
+ * throttle), unregistered driver names, and driver-rejected configs never
+ * reach launch. Cross-field rules validated here: slot names unique,
+ * `revertAtMs > applyAtMs` per fault window, fault targets name existing
+ * slots.
  */
 export function materializeRunSpec(
   _input: unknown,
-): Effect.Effect<
-  MaterializationReport,
-  RunSpecInvalid | AdapterConfigRejected | IsolationViolation,
-  never
-> {
+): Effect.Effect<MaterializationReport, ConfigTimeError, never> {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }
 
 /**
  * Canonical serialization: UTF-8 JSON with lexicographically sorted keys,
- * no insignificant whitespace, shortest round-trip numbers. The
- * byte-identity claims (derived schedule, spec-hash) are stated over this
- * form.
+ * no insignificant whitespace, shortest round-trip numbers, `\n`-free
+ * single-line output (NDJSON-safe). Total over `JsonValue`. The
+ * byte-identity claims (derived schedule, spec-hash) and every recording
+ * file's byte encoding are stated over this form.
  */
-export function canonicalJson(_value: unknown): string {
+export function canonicalJson(_value: JsonValue): string {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }
