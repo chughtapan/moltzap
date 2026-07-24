@@ -13,8 +13,8 @@
  * `makeTranscriptDrain`.
  */
 import { createRequire } from "node:module";
-import { Brand, Effect, Schema, type Scope } from "effect";
-import { LogicalSequence, WallTimeMs } from "./ids.js";
+import { Brand, Effect, Option, Schema, type Scope } from "effect";
+import { LogicalSequence, wallTimeNow } from "./ids.js";
 import {
   JsonValue,
   LogicalTime,
@@ -166,6 +166,7 @@ export function runAttempt(
     const secrets = makeSecrets([
       ...(options.secrets ?? []),
       ...mountEnvValues(report.spec),
+      ...environmentCredentials(),
     ]);
     const manifest = redactManifest(
       buildManifest(report.spec, report.specHash, allocated),
@@ -212,6 +213,27 @@ function elapsedClock(): LogicalClock {
 function mountEnvValues(spec: MaterializedRunSpec): Array<string> {
   return spec.agents.flatMap((agent) =>
     agent.mcpServers.flatMap((server) => Object.values(server.env)),
+  );
+}
+
+const CREDENTIAL_ENV_NAME = /key|token|secret|password|credential/iu;
+const MIN_ENV_CREDENTIAL_LENGTH = 8;
+
+/**
+ * Provider keys read from the environment sit inside the invariant-23
+ * trust boundary: host-run runtimes inherit this process's environment,
+ * so credential-named values register before anything launches. The
+ * length floor keeps trivial values ("1", "true") from poisoning
+ * redaction.
+ */
+function environmentCredentials(): Array<string> {
+  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- the redaction boundary scans the whole ambient environment; a typed config cannot enumerate unknown credential variables
+  return Object.entries(process.env).flatMap(([name, value]) =>
+    value !== undefined &&
+    CREDENTIAL_ENV_NAME.test(name) &&
+    value.length >= MIN_ENV_CREDENTIAL_LENGTH
+      ? [value]
+      : [],
   );
 }
 
@@ -268,14 +290,10 @@ function raceEpisode(
     Effect.map(
       (termination) => new EpisodeOutcome({ termination }) as RunOutcome,
     ),
-    Effect.catchAll(sealableFailure),
+    Effect.catchAll((error) =>
+      Effect.succeed<RunOutcome>(infrastructureOutcome(live, error)),
+    ),
   );
-}
-
-function sealableFailure(
-  error: InfraError,
-): Effect.Effect<RunOutcome, never, never> {
-  return Effect.succeed(infrastructureOutcome(error));
 }
 
 /**
@@ -378,13 +396,32 @@ function mustLog(live: LiveRun): EventLog {
   return live.log;
 }
 
-function infrastructureOutcome(error: InfraError): FailureOutcome {
+function infrastructureOutcome(
+  live: LiveRun,
+  error: InfraError,
+): FailureOutcome {
   return new FailureOutcome({
     reason: failureReasonOf(error),
     errorTag: error._tag,
-    errorDetail: {},
-    errorMessage: error.message,
+    errorDetail: errorDetailOf(live.secrets, error),
+    errorMessage: live.secrets.redact(error.message),
   });
+}
+
+/** The error's schema fields (tag and message excluded) become the sealed diagnostic detail, redacted like every recorded value. */
+function errorDetailOf(
+  secrets: Secrets,
+  error: InfraError,
+): Record<string, JsonValue> {
+  const detail: Record<string, JsonValue> = {};
+  for (const [key, value] of Object.entries(error)) {
+    if (key === "_tag" || key === "message") continue;
+    const decoded = Schema.decodeUnknownOption(JsonValue)(value);
+    if (Option.isSome(decoded)) {
+      detail[key] = secrets.redactJson(decoded.value);
+    }
+  }
+  return detail;
 }
 
 /**
@@ -434,7 +471,7 @@ function shutdownAndSeal(
       yield* enqueueLifecycle(live, { _tag: "run.terminated" });
       const summary = yield* sealEventLog(live);
       if (summary.failed !== undefined && outcome._tag === "episode") {
-        outcome = infrastructureOutcome(summary.failed);
+        outcome = infrastructureOutcome(live, summary.failed);
       }
       outcome = yield* writeTraces(live, outcome);
       yield* notifyPhase(internals, "sealing");
@@ -442,17 +479,13 @@ function shutdownAndSeal(
         recordingSchemaVersion: RECORDING_SCHEMA_VERSION,
         runId: live.ref.runId,
         outcome,
-        endedAtWallTime: wallNow(),
+        endedAtWallTime: wallTimeNow(),
         finalLogicalSequence: summary.finalLogicalSequence,
         teardownComplete: live.teardownComplete,
       });
       return yield* sealStore(live, result, outcome);
     }),
   ).pipe(Effect.withSpan("shutdownAndSeal"));
-}
-
-function wallNow(): WallTimeMs {
-  return Schema.decodeSync(WallTimeMs)(Date.now());
 }
 
 /**
@@ -469,7 +502,9 @@ function sweepTranscripts(
     Effect.as(outcome),
     Effect.catchAll((cause) =>
       Effect.succeed(
-        outcome._tag === "episode" ? infrastructureOutcome(cause) : outcome,
+        outcome._tag === "episode"
+          ? infrastructureOutcome(live, cause)
+          : outcome,
       ),
     ),
   );
@@ -527,7 +562,9 @@ function writeTraces(
     Effect.as(outcome),
     Effect.catchAll((cause) =>
       Effect.succeed(
-        outcome._tag === "episode" ? infrastructureOutcome(cause) : outcome,
+        outcome._tag === "episode"
+          ? infrastructureOutcome(live, cause)
+          : outcome,
       ),
     ),
   );
@@ -632,7 +669,7 @@ function enqueueLifecycle(
 ): Effect.Effect<void, never, never> {
   if (live.log === undefined) return Effect.void;
   return live.log
-    .enqueue({ ...fields, source: "lifecycle", wallTime: wallNow() })
+    .enqueue({ ...fields, source: "lifecycle", wallTime: wallTimeNow() })
     .pipe(
       Effect.asVoid,
       Effect.catchTag("EventLogSealed", () => Effect.void),
@@ -704,7 +741,7 @@ function buildManifest(
     attemptId: allocated.attemptId,
     specHash,
     seed: spec.seed,
-    createdAtWallTime: wallNow(),
+    createdAtWallTime: wallTimeNow(),
     serverImageDigest: spec.server.imageDigest,
     slots: spec.agents.map(slotProvenance),
     materializedSpec: spec,

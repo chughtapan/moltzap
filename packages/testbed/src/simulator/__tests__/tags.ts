@@ -56,6 +56,7 @@ export const ERROR_TAG = {
   unknownDriver: "UnknownDriver",
   eventLogSealed: "EventLogSealed",
   alreadySealed: "AlreadySealed",
+  recordingInvalid: "RecordingInvalid",
   recordingSchemaMismatch: "RecordingSchemaMismatch",
   serverLaunchFailed: "ServerLaunchFailed",
   traceCaptureFailed: "TraceCaptureFailed",

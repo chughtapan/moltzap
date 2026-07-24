@@ -46,6 +46,7 @@ import {
   path29,
   path31,
   path32,
+  path32Shutdown,
   path33,
   path34,
   path35,
@@ -121,6 +122,8 @@ describe("simulator coverage inventory (design-doc extension paths)", () => {
     run(path31()));
   it("32. fault-revert failure: sealed recording, reason fault-revert-failed", () =>
     run(path32()));
+  it("32b. fault-revert failure in the post-termination sweep: sealed recording, reason fault-revert-failed (regression)", () =>
+    run(path32Shutdown()));
   it("33. cancellation racing completion: exactly one sealed outcome; late cancel is a recorded no-op", () =>
     run(path33()));
   it("34. queue-worker death mid-attempt: attempt observable as unsealed with workerLost; retry creates a new attempt", () =>

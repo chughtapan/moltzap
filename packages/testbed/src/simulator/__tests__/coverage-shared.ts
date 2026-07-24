@@ -43,3 +43,11 @@ export function outcomeOf(
   expect(sealed._tag).toBe(EXIT.success);
   return sealed._tag === "Success" ? sealed.value.outcome : undefined;
 }
+
+/** The sealed recording's actual path; attempt ids are store-allocated, so shared-store paths are not predictable up front. */
+export function sealedPathOf(
+  sealed: Exit.Exit<{ recording: { path: string } }, unknown>,
+): string {
+  expect(sealed._tag).toBe(EXIT.success);
+  return sealed._tag === "Success" ? sealed.value.recording.path : "";
+}

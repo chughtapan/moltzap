@@ -598,6 +598,28 @@ export function path32(): Effect.Effect<void, unknown, never> {
   });
 }
 
+/**
+ * Regression companion to path 32: the revert fails during the
+ * post-termination sweep (episode already terminated, `done` resolved),
+ * where only the sweep's return channel can carry the failure to seal.
+ */
+export function path32Shutdown(): Effect.Effect<void, unknown, never> {
+  return Effect.gen(function* () {
+    const root = yield* tempStoreRoot();
+    const input = specInput(root, {
+      world: { faults: [severWindow(AGENT_ONE, 700, 500_000)] },
+      episode: doneEpisode(1_200),
+    });
+    const outcome = yield* runHermetic(input, root, {
+      internals: { makeWorld: revertFailingWorld },
+    });
+    expect(outcomeOf(outcome.sealedExit)).toMatchObject({
+      _tag: OUTCOME.infrastructure,
+      reason: REASON.faultRevertFailed,
+    });
+  });
+}
+
 function revertFailingWorld(): ReturnType<typeof makeWorld> {
   return makeWorld().pipe(
     Effect.map(

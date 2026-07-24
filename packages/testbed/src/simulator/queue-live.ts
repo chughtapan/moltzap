@@ -7,8 +7,8 @@
  * is worker loss: the attempt finishes `unsealed` with `workerLost` and
  * stays retryable.
  */
-import { Effect, Exit, Fiber, Queue, Schema } from "effect";
-import { AttemptId, WallTimeMs } from "./ids.js";
+import { Effect, Equal, Exit, Fiber, Queue, Schema } from "effect";
+import { AttemptId, wallTimeNow } from "./ids.js";
 import { RunSpec, materializeRunSpec } from "./run-spec.js";
 import {
   RecordingIdentity,
@@ -89,10 +89,6 @@ export function makeInProcessQueue(
   }).pipe(Effect.withSpan("makeInProcessQueue"));
 }
 
-function wallNow(): WallTimeMs {
-  return Schema.decodeSync(WallTimeMs)(Date.now());
-}
-
 function submit(
   state: QueueState,
   spec: RunSpec,
@@ -108,10 +104,17 @@ function submit(
     const allocated = yield* state.deps.store
       .allocateAttempt(identity)
       .pipe(Effect.orDie);
+    if (state.records.has(allocated.attemptId)) {
+      // Attempt ids are store-root-unique by the allocator contract; a
+      // duplicate would silently misroute status/cancel/retry lookups.
+      return yield* Effect.dieMessage(
+        `the store allocator minted duplicate attempt id "${allocated.attemptId}"`,
+      );
+    }
     const snapshot = new QueuedAttempt({
       attemptId: allocated.attemptId,
       identity,
-      submittedAtWallTime: wallNow(),
+      submittedAtWallTime: wallTimeNow(),
       cancelRequested: false,
     });
     state.records.set(allocated.attemptId, {
@@ -155,11 +158,7 @@ function attemptsFor(
 ): ReturnType<RunQueue["attemptsFor"]> {
   return Effect.sync(() =>
     [...state.records.values()]
-      .filter(
-        (record) =>
-          record.allocated.identity.specHash === identity.specHash &&
-          record.allocated.identity.seed === identity.seed,
-      )
+      .filter((record) => Equal.equals(record.allocated.identity, identity))
       .map((record) => record.snapshot),
   );
 }
@@ -331,15 +330,30 @@ function claimAndRun(
   });
 }
 
-function markWorkerLost(state: QueueState, record: AttemptRecord): void {
-  if (record.snapshot._tag === "finished") return;
-  record.snapshot = new FinishedAttempt({
+function finishedSnapshot(
+  state: QueueState,
+  record: AttemptRecord,
+  fields: {
+    readonly state: "sealed" | "unsealed";
+    readonly workerLost: boolean;
+    readonly recordingPath?: string;
+  },
+): FinishedAttempt {
+  return new FinishedAttempt({
     attemptId: record.allocated.attemptId,
     identity: record.allocated.identity,
     submittedAtWallTime: record.snapshot.submittedAtWallTime,
-    state: "unsealed",
+    state: fields.state,
     runId: record.allocated.runId,
-    recordingPath: attemptPath(state, record),
+    recordingPath: fields.recordingPath ?? attemptPath(state, record),
+    workerLost: fields.workerLost,
+  });
+}
+
+function markWorkerLost(state: QueueState, record: AttemptRecord): void {
+  if (record.snapshot._tag === "finished") return;
+  record.snapshot = finishedSnapshot(state, record, {
+    state: "unsealed",
     workerLost: true,
   });
 }
@@ -391,25 +405,16 @@ function executeAttempt(
     ),
   ).pipe(
     Effect.map((sealed) => {
-      record.snapshot = new FinishedAttempt({
-        attemptId: record.allocated.attemptId,
-        identity: record.allocated.identity,
-        submittedAtWallTime: record.snapshot.submittedAtWallTime,
+      record.snapshot = finishedSnapshot(state, record, {
         state: "sealed",
-        runId: record.allocated.runId,
-        recordingPath: sealed.recording.path,
         workerLost: false,
+        recordingPath: sealed.recording.path,
       });
     }),
     Effect.catchAll(() =>
       Effect.sync(() => {
-        record.snapshot = new FinishedAttempt({
-          attemptId: record.allocated.attemptId,
-          identity: record.allocated.identity,
-          submittedAtWallTime: record.snapshot.submittedAtWallTime,
+        record.snapshot = finishedSnapshot(state, record, {
           state: "unsealed",
-          runId: record.allocated.runId,
-          recordingPath: attemptPath(state, record),
           workerLost: false,
         });
       }),
@@ -437,24 +442,14 @@ function finishRecord(
     // The cooperative interrupt's seal path already ran inside runAttempt;
     // the marker decides sealed vs unsealed on read. The snapshot reports
     // what the worker observed last.
-    record.snapshot = new FinishedAttempt({
-      attemptId: record.allocated.attemptId,
-      identity: record.allocated.identity,
-      submittedAtWallTime: record.snapshot.submittedAtWallTime,
+    record.snapshot = finishedSnapshot(state, record, {
       state: "sealed",
-      runId: record.allocated.runId,
-      recordingPath: attemptPath(state, record),
       workerLost: false,
     });
     return;
   }
-  record.snapshot = new FinishedAttempt({
-    attemptId: record.allocated.attemptId,
-    identity: record.allocated.identity,
-    submittedAtWallTime: record.snapshot.submittedAtWallTime,
+  record.snapshot = finishedSnapshot(state, record, {
     state: "unsealed",
-    runId: record.allocated.runId,
-    recordingPath: attemptPath(state, record),
     workerLost: true,
   });
 }

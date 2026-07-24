@@ -1,11 +1,12 @@
 /**
  * @file Local-filesystem RecordingStore (contract 5 internals): the v0
  * implementation behind the RecordingStore seam. Attempt allocation is
- * an exclusive `mkdir` per attempt directory, so concurrent runs sharing
- * one store root follow one identity protocol without coordination. The
- * seal path implements the four-step durably-at-most-once protocol from
- * the recording contract: exclusive lock + directory fsync, data fsync,
- * result write, marker tmp+rename.
+ * an exclusive `mkdir` CAS — a store-global id claim plus the attempt
+ * directory — so concurrent runs sharing one store root follow one
+ * identity protocol without coordination. The seal path implements the
+ * four-step durably-at-most-once protocol from the recording contract:
+ * exclusive lock + directory fsync, data fsync, result write, marker
+ * tmp+rename.
  *
  * File bytes are the canonical serialization; the reader rejects a
  * manifest whose bytes disagree with the re-encoded decode (a manifest
@@ -17,8 +18,8 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
-import { Brand, Effect, Schema, type Scope } from "effect";
-import { AttemptId, RunId, WallTimeMs } from "./ids.js";
+import { Brand, Effect, Schema } from "effect";
+import { AttemptId, RunId, wallTimeNow } from "./ids.js";
 import { JsonValue, isJsonRecord, serializeJsonCanonical } from "./run-spec.js";
 import {
   AlreadySealed,
@@ -51,6 +52,7 @@ const SEAL_MARKER_FILE = "sealed.json";
 const SEAL_LOCK_FILE = "seal.lock";
 const SPEC_HASH_PREFIX_LENGTH = 12;
 const MAX_ATTEMPT_PROBES = 10_000;
+const ATTEMPT_IDS_DIR = ".attempt-ids";
 
 const mintSealedRecordingRef = Brand.nominal<SealedRecordingRef>();
 
@@ -138,6 +140,14 @@ function claimAttemptDir(
   );
 }
 
+/**
+ * Attempt ids are unique per store root, not merely per identity: the
+ * queue's `status`/`cancel`/`retry` take a bare `AttemptId`, so two
+ * identities sharing one store must never mint the same id. The
+ * store-global claim under `.attempt-ids/` preserves the per-identity
+ * monotonicity the recording contract states; attempt numbers under one
+ * identity are increasing but not dense.
+ */
 function allocateAttempt(
   storeRoot: string,
   identity: RecordingIdentity,
@@ -146,6 +156,8 @@ function allocateAttempt(
     Effect.gen(function* () {
       for (let n = 1; n <= MAX_ATTEMPT_PROBES; n += 1) {
         const attemptId = Schema.decodeSync(AttemptId)(`a${String(n)}`);
+        const idClaim = join(storeRoot, ATTEMPT_IDS_DIR, attemptId);
+        if (!(yield* claimAttemptDir(fs, idClaim))) continue;
         const path = recordingPath(storeRoot, identity, attemptId);
         if (yield* claimAttemptDir(fs, path)) {
           return { identity, attemptId, runId: runIdFor(identity, attemptId) };
@@ -153,7 +165,7 @@ function allocateAttempt(
       }
       return yield* Effect.fail(
         storeFailed(storeRoot)(
-          `more than ${String(MAX_ATTEMPT_PROBES)} attempts exist under one identity`,
+          `more than ${String(MAX_ATTEMPT_PROBES)} attempts exist under one store root`,
         ),
       );
     }),
@@ -277,18 +289,13 @@ function sealFailed(
 }
 
 /** Fsync one path (file or directory) so its bytes or directory entry are crash-durable. */
-function fsyncPath(
-  fs: Fs,
-  path: string,
-): Effect.Effect<void, PlatformError, Scope.Scope> {
-  return fs.open(path, { flag: "r" }).pipe(Effect.flatMap((file) => file.sync));
-}
-
 function fsyncPathScoped(
   fs: Fs,
   path: string,
 ): Effect.Effect<void, PlatformError, never> {
-  return Effect.scoped(fsyncPath(fs, path));
+  return Effect.scoped(
+    fs.open(path, { flag: "r" }).pipe(Effect.flatMap((file) => file.sync)),
+  );
 }
 
 /** Step 1: the CAS. O_CREAT|O_EXCL claims the seal; the directory fsync makes the claim crash-durable. */
@@ -410,7 +417,7 @@ function buildSealMarker(
         new SealMarker({
           recordingSchemaVersion: RECORDING_SCHEMA_VERSION,
           runId: ref.runId,
-          sealedAtWallTime: Schema.decodeSync(WallTimeMs)(Date.now()),
+          sealedAtWallTime: wallTimeNow(),
           files: {
             [MANIFEST_FILE]: Schema.decodeSync(Sha256Hex)(manifest),
             [EVENTS_FILE]: Schema.decodeSync(Sha256Hex)(events),
@@ -483,9 +490,43 @@ function read(
         SEAL_MARKER_FILE,
         SealMarker,
       );
+      if (sealMarker !== undefined) {
+        yield* verifySealDigests(fs, path, sealMarker);
+      }
       return { manifest, events, traces, result, seal: sealMarker };
     }),
   ).pipe(Effect.withSpan("LocalRecordingStore.read"));
+}
+
+/**
+ * The marker's digests are the sealed-completeness evidence: bytes that
+ * disagree mean the recording changed after sealing, and the reader
+ * rejects it rather than presenting modified files as sealed.
+ */
+function verifySealDigests(
+  fs: Fs,
+  path: string,
+  marker: SealMarker,
+): Effect.Effect<void, RecordingStoreFailed | RecordingInvalid, never> {
+  return Effect.forEach(
+    Object.entries(marker.files),
+    ([file, expected]) =>
+      digestFile(fs, join(path, file)).pipe(
+        Effect.mapError(storeFailed(file)),
+        Effect.filterOrFail(
+          (actual) => actual === expected,
+          () =>
+            invalidFile(
+              SEAL_MARKER_FILE,
+              `${file} bytes disagree with the seal digest`,
+              [
+                "The recording changed after sealing; sealed files are immutable.",
+              ],
+            ),
+        ),
+      ),
+    { concurrency: 1, discard: true },
+  );
 }
 
 function readManifest(
