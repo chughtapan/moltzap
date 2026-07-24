@@ -19,6 +19,11 @@ const TASK_DEDUP = testTaskId("dedup-task");
 const ARCHIVED_AT = "2026-05-01T00:00:00.000Z";
 const DEDUP_WINDOW_SIZE = 1000;
 const DEDUP_OVERFLOW_COUNT = DEDUP_WINDOW_SIZE + 1;
+const EMPTY_SEEN_COUNT = 0;
+const SINGLE_SEEN_COUNT = 1;
+const DOUBLE_SEEN_COUNT = 2;
+const OLDEST_EVICTION_MESSAGE_ID = "evict-msg-1";
+const OVERFLOW_EVICTION_MESSAGE_ID = `evict-msg-${DEDUP_OVERFLOW_COUNT}`;
 
 type TestConversationId = ReturnType<typeof testConversationId>;
 
@@ -35,6 +40,10 @@ describe("MoltZapService — inbound messageId dedup", () => {
     scopesIdsByConversation,
   );
   it("evicts the oldest entry when the window is full", evictsOldestMessage);
+  it(
+    "does not refresh a duplicate before the next FIFO eviction",
+    duplicateDoesNotRefresh,
+  );
   it(
     "clears the dedup window when the conversation is archived",
     clearsOnArchive,
@@ -91,11 +100,26 @@ function evictsOldestMessage(): void {
   const { seen, service } = makeObservedService();
   saturateDedupWindow(service);
   seen.length = 0;
-  emitMessage(service, "evict-msg-1", CONV_A);
-  expect(seen).toHaveLength(1);
+  emitMessage(service, OLDEST_EVICTION_MESSAGE_ID, CONV_A);
+  expect(seen).toHaveLength(SINGLE_SEEN_COUNT);
   seen.length = 0;
-  emitMessage(service, "evict-msg-1001", CONV_A);
-  expect(seen).toHaveLength(0);
+  emitMessage(service, OVERFLOW_EVICTION_MESSAGE_ID, CONV_A);
+  expect(seen).toHaveLength(EMPTY_SEEN_COUNT);
+}
+
+function duplicateDoesNotRefresh(): void {
+  const { seen, service } = makeObservedService();
+  for (let i = 1; i <= DEDUP_WINDOW_SIZE; i++) {
+    emitMessage(service, `evict-msg-${i}`, CONV_A);
+  }
+  seen.length = 0;
+
+  emitMessage(service, OLDEST_EVICTION_MESSAGE_ID, CONV_A);
+  expect(seen).toHaveLength(EMPTY_SEEN_COUNT);
+
+  emitMessage(service, OVERFLOW_EVICTION_MESSAGE_ID, CONV_A);
+  emitMessage(service, OLDEST_EVICTION_MESSAGE_ID, CONV_A);
+  expect(seen).toHaveLength(DOUBLE_SEEN_COUNT);
 }
 
 function clearsOnArchive(): void {

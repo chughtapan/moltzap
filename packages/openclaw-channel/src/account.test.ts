@@ -12,9 +12,9 @@ function makeManifestChannelSchema() {
   if (!("required" in generated)) {
     throw new Error("expected an object schema");
   }
-  expect(generated.required).toHaveLength(EMPTY_REQUIRED_COUNT);
 
   const { required, ...embeddedSchema } = generated;
+  expect(required).toHaveLength(EMPTY_REQUIRED_COUNT);
   return embeddedSchema;
 }
 
