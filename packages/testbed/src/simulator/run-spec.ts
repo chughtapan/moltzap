@@ -47,7 +47,12 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
     Schema.Array(JsonValue),
     Schema.Record({ key: Schema.String, value: JsonValue }),
   ),
-).annotations({ description: "JSON value (finite numbers, no undefined)" });
+).annotations({
+  // The identifier keeps the recursive schema JSONSchema-generable, which
+  // is the YAML-expressibility oracle for every data-valued field.
+  identifier: "JsonValue",
+  description: "JSON value (finite numbers, no undefined)",
+});
 
 /** JSON object; the shape of every data-valued config bag. */
 export const JsonObject = Schema.Record({

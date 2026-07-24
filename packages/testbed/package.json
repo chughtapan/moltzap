@@ -10,6 +10,7 @@
   "type": "module",
   "files": [
     "dist",
+    "simulator-assets",
     "!dist/tsconfig.tsbuildinfo"
   ],
   "main": "./dist/index.js",

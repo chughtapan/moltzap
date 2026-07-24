@@ -302,7 +302,11 @@ function injectSeedTask(
 
 function failEpisode(
   ctx: EpisodeContext,
-  cause: TaskInjectionFailed | FaultApplyFailed | FaultRevertFailed | DriverCrashed,
+  cause:
+    | TaskInjectionFailed
+    | FaultApplyFailed
+    | FaultRevertFailed
+    | DriverCrashed,
 ): Effect.Effect<void, never, never> {
   return Deferred.fail(ctx.done, cause).pipe(Effect.asVoid);
 }
@@ -365,7 +369,11 @@ function runOneFaultWindow(
           }),
         ),
         Effect.zipRight(sleepUntilLogical(ctx, entry.revertAtMs)),
-        Effect.zipRight(revertOne(ctx, applied.correlationId, entry)),
+        // Suspended: the sync claim inside revertOne must observe the
+        // outstanding entry pushed above, not construction-time state.
+        Effect.zipRight(
+          Effect.suspend(() => revertOne(ctx, applied.correlationId, entry)),
+        ),
       ),
     ),
     Effect.catchTag("FaultUnsupported", () =>

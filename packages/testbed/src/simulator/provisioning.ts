@@ -41,7 +41,7 @@ export function httpBaseFromServerUrl(serverUrl: string): string {
  * Project an arbitrary identity label onto the register route's name
  * grammar (`^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$`), deterministically.
  */
-export function registrationName(label: string): string {
+function registrationName(label: string): string {
   const lowered = label.toLowerCase().replace(/[^a-z0-9_-]/gu, "-");
   const padded = lowered.length >= 3 ? lowered : `${lowered}-id`.slice(0, 3);
   const bounded = padded.slice(0, REGISTER_NAME_MAX);

@@ -178,7 +178,9 @@ function startTapServer(
       port: 0,
     }).pipe(
       Effect.catchAll((cause) =>
-        Effect.fail(proxyFailed(ctx.agent, `tap bind failed: ${String(cause)}`)),
+        Effect.fail(
+          proxyFailed(ctx.agent, `tap bind failed: ${String(cause)}`),
+        ),
       ),
     );
     yield* Effect.forkScoped(

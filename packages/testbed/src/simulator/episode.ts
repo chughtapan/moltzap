@@ -74,7 +74,8 @@ function compareFaultWindows(
   left: FaultScheduleEntry,
   right: FaultScheduleEntry,
 ): number {
-  if (left.applyAtMs !== right.applyAtMs) return left.applyAtMs - right.applyAtMs;
+  if (left.applyAtMs !== right.applyAtMs)
+    return left.applyAtMs - right.applyAtMs;
   if (left.revertAtMs !== right.revertAtMs) {
     return left.revertAtMs - right.revertAtMs;
   }

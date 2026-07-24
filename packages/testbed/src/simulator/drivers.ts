@@ -36,8 +36,8 @@ import {
 // Registry
 // ---------------------------------------------------------------------------
 
-export const OUT_OF_BAND_PRINCIPAL = "out-of-band";
-export const SPAN_NAME_DONE_SIGNAL = "span-name";
+const OUT_OF_BAND_PRINCIPAL = "out-of-band";
+const SPAN_NAME_DONE_SIGNAL = "span-name";
 
 export type DriverKind = "principal" | "done-signal";
 

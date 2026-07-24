@@ -335,26 +335,29 @@ function loseSealRace(
 }
 
 /**
- * Step 2: fsync the three pre-result files. A missing traces.json
- * materializes empty: an earlier observed store failure still seals, and
- * the digests cover exactly what was written.
+ * Step 2: fsync the three pre-result files. Missing events/traces files
+ * materialize empty: an earlier observed store failure still seals, and
+ * the digests cover exactly what was written. A missing manifest cannot
+ * seal — no manifest, no recording.
  */
 function fsyncPreResultFiles(
   fs: Fs,
   ref: RecordingRef,
 ): Effect.Effect<void, SealFailed, never> {
-  return fs
-    .writeFileString(join(ref.path, TRACES_FILE), "", { flag: "a" })
-    .pipe(
-      Effect.zipRight(
-        Effect.forEach(
-          [MANIFEST_FILE, EVENTS_FILE, TRACES_FILE],
-          (file) => fsyncPathScoped(fs, join(ref.path, file)),
-          { concurrency: 1, discard: true },
-        ),
+  return Effect.forEach(
+    [EVENTS_FILE, TRACES_FILE],
+    (file) => fs.writeFileString(join(ref.path, file), "", { flag: "a" }),
+    { concurrency: 1, discard: true },
+  ).pipe(
+    Effect.zipRight(
+      Effect.forEach(
+        [MANIFEST_FILE, EVENTS_FILE, TRACES_FILE],
+        (file) => fsyncPathScoped(fs, join(ref.path, file)),
+        { concurrency: 1, discard: true },
       ),
-      Effect.mapError(sealFailed(ref, "fsync-data")),
-    );
+    ),
+    Effect.mapError(sealFailed(ref, "fsync-data")),
+  );
 }
 
 /** Step 3: write result.json and fsync it. */

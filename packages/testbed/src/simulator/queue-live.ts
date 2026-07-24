@@ -246,7 +246,7 @@ function awaitTerminal(
   if (snapshot._tag === "finished") return Effect.succeed(snapshot.state);
   if (snapshot._tag === "cancelled") return Effect.succeed("cancelled");
   return Effect.sleep(`${TERMINAL_POLL_MS} millis`).pipe(
-    Effect.zipRight(awaitTerminal(record)),
+    Effect.zipRight(Effect.suspend(() => awaitTerminal(record))),
   );
 }
 
@@ -314,8 +314,33 @@ function claimAndRun(
     setLiveState(state, record, "launching");
     const fiber = yield* Effect.forkDaemon(executeAttempt(state, record));
     record.fiber = fiber;
-    const exit = yield* Fiber.await(fiber);
+    const exit = yield* Fiber.await(fiber).pipe(
+      // The worker dying here IS worker loss: the attempt is marked
+      // finished-unsealed before the abandoned fiber is cut down.
+      Effect.onInterrupt(() =>
+        Effect.sync(() => {
+          markWorkerLost(state, record);
+        }).pipe(
+          Effect.zipRight(
+            Effect.forkDaemon(Fiber.interrupt(fiber)).pipe(Effect.asVoid),
+          ),
+        ),
+      ),
+    );
     finishRecord(state, record, exit);
+  });
+}
+
+function markWorkerLost(state: QueueState, record: AttemptRecord): void {
+  if (record.snapshot._tag === "finished") return;
+  record.snapshot = new FinishedAttempt({
+    attemptId: record.allocated.attemptId,
+    identity: record.allocated.identity,
+    submittedAtWallTime: record.snapshot.submittedAtWallTime,
+    state: "unsealed",
+    runId: record.allocated.runId,
+    recordingPath: attemptPath(state, record),
+    workerLost: true,
   });
 }
 

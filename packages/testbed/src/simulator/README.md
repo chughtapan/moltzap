@@ -8,9 +8,9 @@ schema (design doc: chughtapan/moltzap#812):
   spec-hash, condition/role designation (contract 1, data half)
 - `run-config.ts` — agent-runner launch contract, `SimulatorRuntime`
   exit signal (contract 1, launch half)
-- `environment-mount.ts` — per-agent MCP/skill mounting behind the
+- `environment.ts` — per-agent MCP/skill mounting behind the
   logging proxy (contract 2)
-- `world-driver.ts` — per-agent proxied endpoints and connection-level
+- `world.ts` — per-agent proxied endpoints and connection-level
   fault apply/revert (contract 3)
 - `episode.ts` — task injection, logical time, triggers, termination,
   and `run`, the composition root (contract 4)
@@ -24,6 +24,10 @@ schema (design doc: chughtapan/moltzap#812):
 
 Shape: tree — `episode.ts`'s `run` is the orchestrator over peer
 contract modules; peers never import each other's internals, only the
-declared interfaces. The folder imports `../runtime.ts` (the existing
-`Runtime` contract, part of contract 1's surface) and nothing else from
-the package root.
+declared interfaces. The folder's package-root imports are exactly the
+contract-1 substrate: `../runtime.ts` (the `Runtime` contract), the two
+runtime adapters plus `../child-process.ts` and `../nanoclaw-install.ts`
+(the launcher spawns through them; Docker goes through the existing
+shell helpers), and `../errors.ts` (the adapters' spawn error types).
+Contract interfaces, schemas, and the recording surface import only
+`../runtime.ts`.

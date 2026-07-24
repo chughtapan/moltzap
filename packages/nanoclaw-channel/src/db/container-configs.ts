@@ -35,7 +35,7 @@ export function updateContainerConfigScalars(
   }>,
 ): void {
   scalarUpdates.set(agentGroupId, {
-    ...(scalarUpdates.get(agentGroupId) ?? {}),
+    ...scalarUpdates.get(agentGroupId),
     ...updates,
   });
 }
@@ -51,7 +51,7 @@ export function updateContainerConfigJson(
   value: unknown,
 ): void {
   jsonUpdates.set(agentGroupId, {
-    ...(jsonUpdates.get(agentGroupId) ?? {}),
+    ...jsonUpdates.get(agentGroupId),
     [column]: value,
   });
 }
@@ -68,4 +68,13 @@ export function recordedContainerConfig(agentGroupId: string): {
     scalars: scalarUpdates.get(agentGroupId) ?? {},
     json: jsonUpdates.get(agentGroupId) ?? {},
   };
+}
+
+/**
+ * Test hook; clears recorded updates between cases.
+ * @internal
+ */
+export function resetRecordedContainerConfigs(): void {
+  scalarUpdates.clear();
+  jsonUpdates.clear();
 }

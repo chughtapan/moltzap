@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createOpenClawAdapter`](./openclaw-adapter.ts#L509)
+### [`createOpenClawAdapter`](./openclaw-adapter.ts#L539)
 
 _Function_
 
@@ -132,7 +132,7 @@ export interface LogSlice {
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L98)
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L114)
 
 _Class_
 
@@ -183,18 +183,32 @@ export class NanoclawAdapter implements Runtime {
     return "New messages";
   }
 
+  /** Resolves once, on the runtime process's exit (the simulator's ongoing exit signal). */
+  awaitExit(): Effect.Effect<
+    { readonly exitCode: number | null; readonly signal: string | undefined },
+    never,
+    never
+  > {
+    const state = this.state;
+    if (!state) {
+      return Effect.succeed({ exitCode: null, signal: undefined });
+    }
+    return Fiber.join(state.handle.exitFiber).pipe(
+      Effect.map((exitCode) =>
+        exitCode >= 0
+          ? { exitCode, signal: undefined }
+          : { exitCode: null, signal: undefined },
+      ),
+    );
+  }
+
   private launchRuntime(input: SpawnInput) {
     const lease = { committed: false };
     return Effect.uninterruptibleMask((restore) =>
       Effect.scoped(
         Effect.gen(this, function* () {
           const handle = yield* Effect.acquireRelease(
-            restore(
-              acquireNanoclawRuntime(
-                input,
-                this.options.autoRegisterConversations ?? false,
-              ),
-            ),
+            restore(acquireNanoclawRuntime(input, this.options)),
             (acquired) =>
               lease.committed
                 ? Effect.void
@@ -263,10 +277,24 @@ export interface NanoclawAdapterOptions {
    * accept conversations without a pre-provisioned NanoClaw registration.
    */
   readonly autoRegisterConversations?: boolean;
+
+  /**
+   * Stdio MCP servers wired into the container workspace as `.mcp.json`
+   * (the container-mount half of the simulator's Environment contract).
+   */
+  readonly mcpServers?: ReadonlyArray<{
+    readonly name: string;
+    readonly command: string;
+    readonly args: ReadonlyArray<string>;
+    readonly env: Readonly<Record<string, string>>;
+  }>;
+
+  /** Model identifier honored per spawn; `SpawnInput.modelId` takes precedence. */
+  readonly modelId?: string;
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L429)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L440)
 
 _Class_
 
@@ -335,6 +363,25 @@ export class OpenClawAdapter implements Runtime {
   getInboundMarker(): string {
     return "inbound from agent:";
   }
+
+  /** Resolves once, on the gateway process's exit (the simulator's ongoing exit signal). */
+  awaitExit(): Effect.Effect<
+    { readonly exitCode: number | null; readonly signal: string | undefined },
+    never,
+    never
+  > {
+    const state = this.state;
+    if (!state) {
+      return Effect.succeed({ exitCode: null, signal: undefined });
+    }
+    return Fiber.join(state.process.exitFiber).pipe(
+      Effect.map((exitCode) =>
+        exitCode >= 0
+          ? { exitCode, signal: undefined }
+          : { exitCode: null, signal: undefined },
+      ),
+    );
+  }
 }
 ```
 
@@ -363,7 +410,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L152)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L160)
 
 _Interface_
 
@@ -372,10 +419,11 @@ export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
   readonly openclawBin: string;
   readonly channelDistDir: string;
+  readonly mcpServers?: ReadonlyArray<McpServerMount>;
 }
 ```
 
-### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L158)
+### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L167)
 
 _Interface_
 
@@ -384,6 +432,7 @@ export interface OpenClawAdapterOptions {
   readonly server: RuntimeServerHandle;
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
+  readonly mcpServers?: ReadonlyArray<McpServerMount>;
 }
 ```
 

@@ -20,11 +20,7 @@ import {
   Exit,
 } from "effect";
 import type { Process } from "@effect/platform/CommandExecutor";
-import type {
-  LogSlice,
-  ReadyOutcome,
-  SpawnInput,
-} from "../runtime.js";
+import type { LogSlice, ReadyOutcome, SpawnInput } from "../runtime.js";
 import {
   escalatingKill,
   pollFiberExitCode,
@@ -164,7 +160,7 @@ function waitUntilReady(
 ): Effect.Effect<ReadyOutcome, never, never> {
   const current = state.current;
   if (current === undefined) return Effect.succeed({ _tag: "Ready" });
-  return pollReady(state, current, timeoutMs).pipe(
+  return pollReady(current, timeoutMs).pipe(
     Effect.tap((outcome) =>
       outcome._tag === "Ready" ? Effect.void : teardown(state),
     ),
@@ -172,7 +168,6 @@ function waitUntilReady(
 }
 
 function pollReady(
-  state: StubState,
   current: NonNullable<StubState["current"]>,
   remainingMs: number,
 ): Effect.Effect<ReadyOutcome, never, never> {
@@ -195,7 +190,9 @@ function pollReady(
         });
       }
       return Effect.sleep(Duration.millis(READY_POLL_MS)).pipe(
-        Effect.zipRight(pollReady(state, current, remainingMs - READY_POLL_MS)),
+        Effect.zipRight(
+          Effect.suspend(() => pollReady(current, remainingMs - READY_POLL_MS)),
+        ),
       );
     }),
   );
