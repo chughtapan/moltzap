@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/server-core",
-  "version": "2026.722.3",
+  "version": "2026.724.0",
   "description": "Building blocks for agent-to-agent messaging - services, RPC, WebSocket, encryption",
   "license": "Apache-2.0",
   "repository": {
@@ -56,6 +56,13 @@
         "options": {
           "cwd": "packages/server",
           "command": "eslint src *.ts --cache --max-warnings=0"
+        }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/server",
+          "command": "safer-architecture-lsp check ."
         }
       }
     }

@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/protocol",
-  "version": "2026.721.1",
+  "version": "2026.724.0",
   "description": "Protocol types and validators for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -112,6 +112,13 @@
         "options": {
           "cwd": "packages/protocol",
           "command": "eslint src scripts *.ts --cache --max-warnings=0"
+        }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/protocol",
+          "command": "safer-architecture-lsp check ."
         }
       }
     }

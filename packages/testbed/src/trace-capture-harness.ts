@@ -156,16 +156,8 @@ interface ClientTestModule {
   stripWsPath(wsUrl: string): string;
 }
 
-interface CoreAppHandle {
-  // No fields used by the harness directly today — the test server's
-  // `spanExporter` handle (see CoreTestServer below) is the path for
-  // reading messaging trace data.
-  readonly _placeholder?: never;
-}
-
-// Pre-wired RuntimeServerHandle that startCoreTestServer now exposes — the
-// harness threads this directly into startRuntimeAgent. Structural shape only;
-// the concrete implementation lives in @moltzap/server-core's test-utils.
+// Structural view of the server-owned runtime test port. The concrete
+// implementation lives in @moltzap/server-core's test-utils.
 interface RuntimeServerLike {
   awaitAgentReady(
     agentId: AgentId,
@@ -186,7 +178,6 @@ interface RuntimeServerLike {
 interface CoreTestServer {
   readonly baseUrl: string;
   readonly wsUrl: string;
-  readonly coreApp: CoreAppHandle;
   readonly runtimeServer: RuntimeServerLike;
 }
 
@@ -298,7 +289,7 @@ function loadServerTestModule(): Effect.Effect<ServerTestModule, Error, never> {
   return Effect.tryPromise({
     try: () =>
       import(
-        packageModuleUrl("server", "dist", "test-utils", "server.js")
+        packageModuleUrl("server", "dist", "test-utils", "index.js")
       ) as Promise<ServerTestModule>,
     catch: (error) =>
       error instanceof Error ? error : new Error(String(error)),

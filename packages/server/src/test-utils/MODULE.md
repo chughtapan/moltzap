@@ -155,7 +155,29 @@ export type CoreSchemaSqlLoadError =
 const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
-### [`CoreTestRuntimeServerHandle`](./server.ts#L59)
+### [`CoreTestDatabasePort`](./ports.ts#L22)
+
+_Interface_
+
+```ts
+export interface CoreTestDatabasePort {
+  execute(sql: string): PromiseLike<unknown>;
+  reset(): PromiseLike<void>;
+}
+```
+
+Database operations available to consumers of the published test harness.
+
+### [`CoreTestReadyOutcome`](./ports.ts#L4)
+
+_TypeAlias_
+
+```ts
+export type CoreTestReadyOutcome =
+  | { readonly _tag: "Ready" }
+```
+
+### [`CoreTestRuntimeServerHandle`](./ports.ts#L14)
 
 _Interface_
 
@@ -168,12 +190,37 @@ export interface CoreTestRuntimeServerHandle {
 }
 ```
 
-### [`CoreTestServer`](./server.ts#L114)
+Process capabilities needed by in-process runtime tests.
+
+### [`CoreTestServer`](./index.ts#L30)
+
+_TypeAlias_
+
+```ts
+export type CoreTestServer = CoreTestServerPort;
+
+/**
+ * Start a test server and expose its package-owned integration ports.
+ * @param opts Test server configuration.
+ * @returns A promise for the running server's integration ports.
+ */
+export function startCoreTestServer(opts: StartCoreTestServerOptions = {}) {
+  return Effect.runPromise(
+    startCoreTestServerEffect(opts).pipe(
+      Effect.map((server) => server.testPort),
+    ),
+  );
+}
+```
+
+Canonical published handle for a running core test server.
+
+### [`CoreTestServerHandle`](./server.ts#L105)
 
 _Interface_
 
 ```ts
-export interface CoreTestServer {
+export interface CoreTestServerHandle {
   baseUrl: string;
   wsUrl: string;
   db: EffectKysely<Database>;
@@ -195,8 +242,53 @@ export interface CoreTestServer {
    * their own package-specific projection.
    */
   readonly spanExporter: InMemorySpanExporter | null;
+
+  /** Published projection that keeps persistence and tracing vendors private. */
+  readonly testPort: CoreTestServerPort;
 }
 ```
+
+### [`CoreTestServerPort`](./ports.ts#L40)
+
+_Interface_
+
+```ts
+export interface CoreTestServerPort {
+  readonly baseUrl: string;
+  readonly wsUrl: string;
+  readonly db: CoreTestDatabasePort;
+  readonly runtimeServer: CoreTestRuntimeServerHandle;
+  readonly spanExporter: CoreTestSpanExporterPort | null;
+}
+```
+
+Published server handle composed only from server-owned test ports.
+
+### [`CoreTestSpan`](./ports.ts#L28)
+
+_Interface_
+
+```ts
+export interface CoreTestSpan {
+  readonly name: string;
+  readonly attributes: Readonly<Record<string, unknown>>;
+}
+```
+
+Stable projection of a finished server trace span.
+
+### [`CoreTestSpanExporterPort`](./ports.ts#L34)
+
+_Interface_
+
+```ts
+export interface CoreTestSpanExporterPort {
+  getFinishedSpans(): ReadonlyArray<CoreTestSpan>;
+  reset(): void;
+}
+```
+
+Trace-capture operations available to test-harness consumers.
 
 ### [`createTestAgent`](./helpers.ts#L196)
 
@@ -209,7 +301,7 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent, never>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L40)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L47)
 
 _Variable_
 
@@ -219,7 +311,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](./server.ts#L385)
+### [`getBaseUrl`](./server.ts#L412)
 
 _Function_
 
@@ -227,7 +319,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](./server.ts#L370)
+### [`getCoreDb`](./server.ts#L397)
 
 _Function_
 
@@ -235,7 +327,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L378)
+### [`getCoreEncryptionEnvelope`](./server.ts#L405)
 
 _Function_
 
@@ -243,7 +335,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L390)
+### [`getWsUrl`](./server.ts#L417)
 
 _Function_
 
@@ -422,7 +514,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](./server.ts#L344)
+### [`resetCoreTestDb`](./server.ts#L371)
 
 _Function_
 
@@ -463,7 +555,7 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./server.ts#L305)
+### [`startCoreTestServer`](./index.ts#L37)
 
 _Function_
 
@@ -471,7 +563,43 @@ _Function_
 export function startCoreTestServer(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`stopCoreTestServer`](./server.ts#L318)
+Start a test server and expose its package-owned integration ports.
+
+**Returns:** A promise for the running server's integration ports.
+
+### [`startCoreTestServerEffect`](./server.ts#L328)
+
+_Function_
+
+```ts
+export function startCoreTestServerEffect(
+  opts: StartCoreTestServerOptions = {},
+)
+```
+
+### [`startCoreTestServerFull`](./server.ts#L341)
+
+_Function_
+
+```ts
+export function startCoreTestServerFull(opts: StartCoreTestServerOptions = {})
+```
+
+### [`StartCoreTestServerOptions`](./ports.ts#L48)
+
+_Interface_
+
+```ts
+export interface StartCoreTestServerOptions {
+  readonly pgHost?: string;
+  readonly pgPort?: number;
+  readonly encryption?: boolean;
+  readonly registrationSecret?: string;
+  readonly adminUserId?: UserId;
+}
+```
+
+### [`stopCoreTestServer`](./server.ts#L345)
 
 _Function_
 
@@ -493,5 +621,7 @@ export function trackClient(client: TestAgentClient | TestAppClient): void
 - `core-schema-sql.ts`
 - `fakes.ts`
 - `helpers.ts`
+- `index.ts`
 - `pglite-harness.ts`
+- `ports.ts`
 - `server.ts`

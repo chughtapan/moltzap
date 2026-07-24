@@ -358,3 +358,5 @@ export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params) =>
   Effect.gen(function* () {
     return yield* taskUpdateBody(params, yield* appArm);
   }).pipe(Effect.withSpan("taskUpdate"));
+
+// safer-arch-ignore no-fat-orchestrator: The task RPC adapter coordinates the task lifecycle and notification fan-out while domain state remains in services.

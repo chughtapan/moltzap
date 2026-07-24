@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.722.0",
+  "version": "2026.724.0",
   "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
   "license": "Apache-2.0",
   "repository": {
@@ -65,6 +65,13 @@
         "options": {
           "cwd": "packages/client",
           "command": "eslint src *.ts --cache --max-warnings=0"
+        }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/client",
+          "command": "safer-architecture-lsp check ."
         }
       }
     }

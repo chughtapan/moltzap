@@ -1,6 +1,7 @@
 /**
  * @file Test helpers shared by client package unit and integration tests.
  */
+// safer-arch-ignore no-public-test-helper-leak: this dedicated test-utils subpath intentionally exposes fixtures for downstream package integration tests.
 export {
   createFakeChannelService,
   type ChannelServiceEmit,

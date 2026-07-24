@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/testbed",
-  "version": "0.2.0",
+  "version": "2026.724.0",
   "description": "Testbed for launching and supervising collections of agents connected over MoltZap",
   "license": "MIT",
   "repository": {
@@ -46,6 +46,13 @@
         "options": {
           "cwd": "packages/testbed",
           "command": "eslint src *.ts --cache --max-warnings=0"
+        }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/testbed",
+          "command": "safer-architecture-lsp check ."
         }
       }
     }

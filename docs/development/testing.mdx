@@ -49,9 +49,10 @@ import {
 The published `@moltzap/server-core/test-utils` surface includes the
 server-bring-up harness (`startCoreTestServer`, `stopCoreTestServer`,
 `resetCoreTestDb`, `getBaseUrl`, `getWsUrl`), `createTestAgent`, and the
-`CoreTestServer` handle type. Deeper DB/PGlite helpers remain internal server
-test infrastructure under `packages/server/src/test-utils/`; tests inside
-`packages/server` import those concrete helper modules directly.
+`CoreTestServer` handle type. That handle exposes server-owned database,
+runtime-readiness, and finished-span ports; raw Kysely, PGlite,
+OpenTelemetry, and `CoreApp` handles remain internal server test
+infrastructure under `packages/server/src/test-utils/`.
 
 Public-surface helpers:
 
