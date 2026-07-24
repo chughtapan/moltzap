@@ -12,13 +12,17 @@ function loadPackageExports(): Record<string, unknown> {
 }
 
 describe("@moltzap/testbed package exports", () => {
-  it("publishes only the root testbed surface", () => {
+  it("publishes exactly the root testbed surface and the simulator subpath", () => {
     const exports = loadPackageExports();
 
     expect(exports).toEqual({
       ".": {
         import: "./dist/index.js",
         types: "./dist/index.d.ts",
+      },
+      "./simulator": {
+        import: "./dist/simulator/index.js",
+        types: "./dist/simulator/index.d.ts",
       },
     });
   });

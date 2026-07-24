@@ -1,0 +1,145 @@
+/**
+ * @file Run/attempt state machine and the experiment-queue + Runner
+ * seams (contract 5). A recording's identity is (spec-hash, seed);
+ * re-submitting an identical spec creates a new attempt under the same
+ * identity, never a duplicate identity. Sealed attempts are never
+ * overwritten; `retry` always creates a new attempt.
+ *
+ * ```mermaid
+ * stateDiagram-v2
+ *   [*] --> queued
+ *   queued --> launching: worker picks up
+ *   queued --> cancelled: cancel before start
+ *   launching --> running: episode started
+ *   launching --> sealing: infra failure observed
+ *   running --> draining: termination or infra failure
+ *   draining --> sealing: final drain done
+ *   sealing --> sealed: marker written
+ *   sealing --> unsealed: seal path failed
+ *   launching --> unsealed: worker lost
+ *   running --> unsealed: worker lost
+ *   draining --> unsealed: worker lost
+ *   sealed --> [*]
+ *   unsealed --> [*]
+ *   cancelled --> [*]
+ * ```
+ *
+ * Cancel semantics: cancel on `queued` yields `cancelled` (no manifest,
+ * no recording); cancel on `launching`/`running` interrupts
+ * cooperatively and seals with termination `interrupted`; cancel on
+ * `draining`/`sealing` is recorded as a no-op — sealing is atomic and
+ * happens at most once, so cancellation racing completion resolves to
+ * whichever single outcome seals. Retry is legal from every terminal
+ * state (`sealed`, `unsealed`, `cancelled`) and from `worker-lost`
+ * detection, and never from a live attempt.
+ */
+import { Schema, type Effect } from "effect";
+import { AttemptId, RunId, WallTimeMs } from "./ids.js";
+import { RunSpec } from "./run-spec.js";
+import { RecordingIdentity } from "./recording.js";
+import type {
+  AttemptNotRetryable,
+  ConfigTimeError,
+  UnknownAttempt,
+} from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// Attempt states
+// ---------------------------------------------------------------------------
+
+/**
+ * Live states progress `queued -> launching -> running -> draining ->
+ * sealing`; terminal states are `sealed`, `unsealed`, `cancelled`. An
+ * attempt whose worker dies is observable as `unsealed` with
+ * `workerLost: true` once the queue detects the loss.
+ */
+export const AttemptState = Schema.Literal(
+  "queued",
+  "launching",
+  "running",
+  "draining",
+  "sealing",
+  "sealed",
+  "unsealed",
+  "cancelled",
+).annotations({ description: "Attempt lifecycle state" });
+export type AttemptState = typeof AttemptState.Type;
+
+/** Queue-visible record of one attempt (`status` output). */
+export class AttemptRecord extends Schema.Class<AttemptRecord>("AttemptRecord")(
+  {
+    attemptId: AttemptId,
+    identity: RecordingIdentity,
+    state: AttemptState,
+    runId: Schema.optional(RunId),
+    recordingPath: Schema.optional(
+      Schema.String.annotations({
+        description: "Recording directory once the manifest persists",
+      }),
+    ),
+    cancelRequested: Schema.Boolean.annotations({
+      description: "A cancel is pending; live states honor it cooperatively",
+    }),
+    workerLost: Schema.Boolean.annotations({
+      description: "The executing worker died; the recording is unsealed",
+    }),
+    submittedAtWallTime: WallTimeMs,
+  },
+) {}
+
+export type CancelOutcome =
+  | { readonly _tag: "CancelledBeforeStart" }
+  | { readonly _tag: "InterruptDelivered" }
+  | { readonly _tag: "AlreadyTerminal"; readonly state: AttemptState };
+
+// ---------------------------------------------------------------------------
+// Queue seam
+// ---------------------------------------------------------------------------
+
+/**
+ * Experiment queue seam backing `submit` / `workers` / `status` /
+ * `cancel` / `retry`. v0 ships a local single-process implementation;
+ * the seam exists so a distributed queue can land without surface
+ * change. Submission materializes the spec first, so config-time
+ * failures surface here and never enqueue.
+ */
+export interface ExperimentQueue {
+  /** Materialize and enqueue; identical specs join the same recording identity with a fresh attempt. */
+  submit(spec: RunSpec): Effect.Effect<AttemptRecord, ConfigTimeError, never>;
+
+  /** Current record for one attempt. */
+  status(
+    attemptId: AttemptId,
+  ): Effect.Effect<AttemptRecord, UnknownAttempt, never>;
+
+  /** All attempts under one recording identity, attempt order preserved. */
+  attemptsFor(
+    identity: RecordingIdentity,
+  ): Effect.Effect<ReadonlyArray<AttemptRecord>, never, never>;
+
+  /** Request cancellation; semantics per state are documented on the state machine above. */
+  cancel(
+    attemptId: AttemptId,
+  ): Effect.Effect<CancelOutcome, UnknownAttempt, never>;
+
+  /** New attempt under the same identity; legal only from a terminal or worker-lost attempt. */
+  retry(
+    attemptId: AttemptId,
+  ): Effect.Effect<AttemptRecord, UnknownAttempt | AttemptNotRetryable, never>;
+}
+
+// ---------------------------------------------------------------------------
+// Runner seam
+// ---------------------------------------------------------------------------
+
+/**
+ * Runner seam: executes queued attempts (the `workers` verb). v0 ships
+ * an in-process worker loop; the seam exists so remote workers can land
+ * without surface change. A runner claims one attempt at a time and
+ * drives it through the state machine; it never mutates queue state it
+ * does not own.
+ */
+export interface Runner {
+  /** Claim and execute attempts until interrupted; resolves when the queue closes. */
+  work(): Effect.Effect<void, never, never>;
+}

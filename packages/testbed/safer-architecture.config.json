@@ -5,8 +5,13 @@
   "folderChildCountOverrides": [
     {
       "folder": ".",
+      "maxChildren": 13,
+      "reason": "The testbed keeps runtime adapters, orchestration, readiness, process support, and trace-capture modules as deliberate peers, plus the simulator subfolder (chughtapan/moltzap#812)"
+    },
+    {
+      "folder": "simulator",
       "maxChildren": 12,
-      "reason": "The testbed keeps runtime adapters, orchestration, readiness, process support, and trace-capture modules as deliberate peers in its documented single-tier source layout"
+      "reason": "One file per contract half of the five-contract simulator surface plus shared id/error kernels and the StubRuntime fixture; the design doc pins this file set"
     }
   ],
   "facadeFiles": [
@@ -21,6 +26,26 @@
     {
       "file": "openclaw-adapter.ts",
       "reason": "OpenClaw runtime adapter boundary that composes channel installation, process lifecycle, and readiness behind the Runtime contract"
+    },
+    {
+      "file": "simulator/run-config.ts",
+      "reason": "Contract 1 (RunConfig / agent-runner) launch boundary of the simulator surface"
+    },
+    {
+      "file": "simulator/environment-mount.ts",
+      "reason": "Contract 2 (EnvironmentMount) boundary of the simulator surface"
+    },
+    {
+      "file": "simulator/world-driver.ts",
+      "reason": "Contract 3 (WorldDriver) boundary of the simulator surface"
+    },
+    {
+      "file": "simulator/event-log.ts",
+      "reason": "Contract 5 (EventLog) event-stream boundary of the simulator surface"
+    },
+    {
+      "file": "simulator/recording.ts",
+      "reason": "Contract 5 (recording) schema and store boundary of the simulator surface"
     }
   ],
   "publicTypePackages": [

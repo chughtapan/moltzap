@@ -6,7 +6,10 @@ the testbed surface.
 
 ## Structure
 
-Single-tier `src/` — no subdirectories; each adapter is a peer.
+`src/` holds adapter peers plus one subdirectory, `src/simulator/`, the
+society-simulator surface (five public contracts + recording schema;
+design doc: chughtapan/moltzap#812), exported as
+`@moltzap/testbed/simulator`; the package root export is unchanged.
 
 - `runtime.ts` — `Runtime` contract, `SpawnInput`, `ReadyOutcome`, branded
   `AgentName` / `ServerUrl`
@@ -28,6 +31,13 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
   escalation (`escalatingKill`) used by both adapters
 - `errors.ts` — `SpawnFailed`, `RuntimeExitedBeforeReady`,
   `RuntimeReadyTimedOut`, `RuntimeLaunchFailed`
+- `simulator/` — tree-shaped: `episode.ts` (`executeRun`) is the
+  composition root over four peer contracts (`run-config.ts`,
+  `environment-mount.ts`, `world-driver.ts`, `event-log.ts` +
+  `recording.ts` + `attempts.ts`), with `run-spec.ts` as the single
+  schema registry, `ids.ts`/`errors.ts` as shared kernels, and
+  `stub-runtime.ts` (`createStubRuntime`) as the scripted
+  hermetic-CI/demo runtime; see `simulator/README.md`
 
 ## Concepts
 
