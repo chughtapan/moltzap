@@ -305,8 +305,15 @@ function defaultTargetAgentName(kind: RuntimeKind): string {
   }
 }
 
+const CLIENT_CLOSE_TIMEOUT_MS = 5_000;
+
+// Bounded: a close that hangs (half-dead socket) must degrade to a leaked
+// connection warning, never wedge the run's unwind chain.
 function closeClient(client: HarnessClient): Effect.Effect<void, never, never> {
-  return client.close().pipe(Effect.orElseSucceed(() => undefined));
+  return client.close().pipe(
+    Effect.timeout(Duration.millis(CLIENT_CLOSE_TIMEOUT_MS)),
+    Effect.orElseSucceed(() => undefined),
+  );
 }
 
 function extractTextFromEvent(data: {
@@ -385,7 +392,7 @@ function sendMessageAndWait(input: {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly message: string;
-  readonly timeoutMs?: number;
+  readonly timeoutMs: number | undefined;
 }): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return Effect.gen(function* () {
     // Spec B (#596) Goal #7 disposition (a): fork the response-listener
@@ -499,11 +506,13 @@ function createConversationState(
   };
 }
 
+// Concurrent: the clients are independent sockets, and serial closes would
+// stack the per-close timeout into an N x 5s worst-case unwind.
 function closeConversationClients(
   clients: ReadonlyArray<HarnessClient>,
 ): Effect.Effect<void, never, never> {
-  return Effect.forEach([...clients].reverse(), closeClient, {
-    concurrency: 1,
+  return Effect.forEach(clients, closeClient, {
+    concurrency: clients.length,
     discard: true,
   });
 }
@@ -546,6 +555,7 @@ function executeDirectConversation(
       scope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
+      timeoutMs: input.payload.runtime.responseTimeoutMs,
     });
   });
 }
@@ -570,7 +580,12 @@ function executeGroupConversation(
       groupName: input.payload.conversation.groupName ?? DEFAULT_GROUP_NAME,
       participants: bystanders.map((entry) => entry.actor),
     });
-    yield* sendBystanderMessages(bystanders, input.targetAgentId, scope);
+    yield* sendBystanderMessages(
+      bystanders,
+      input.targetAgentId,
+      scope,
+      input.payload.runtime.responseTimeoutMs,
+    );
     yield* sendSetupAndFollowUps({
       state,
       sender: state.sender,
@@ -578,6 +593,7 @@ function executeGroupConversation(
       scope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
+      timeoutMs: input.payload.runtime.responseTimeoutMs,
     });
   });
 }
@@ -606,6 +622,7 @@ function executeCrossConversation(
       scope: firstScope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
+      timeoutMs: input.payload.runtime.responseTimeoutMs,
     });
     const probeSender = yield* registerProbeSender(input, state);
     const secondScope = yield* createDirectConversation(
@@ -619,6 +636,7 @@ function executeCrossConversation(
         taskId: secondScope.taskId,
         conversationId: secondScope.conversationId,
         message: input.payload.conversation.probeMessage,
+        timeoutMs: input.payload.runtime.responseTimeoutMs,
       }),
     );
   });
@@ -692,6 +710,7 @@ function sendSetupAndFollowUps(input: {
   readonly scope: TaskScope;
   readonly setupMessage: string;
   readonly followUpMessages: ReadonlyArray<string>;
+  readonly timeoutMs: number | undefined;
 }) {
   return Effect.gen(function* () {
     input.state.responses.push(
@@ -701,6 +720,7 @@ function sendSetupAndFollowUps(input: {
         taskId: input.scope.taskId,
         conversationId: input.scope.conversationId,
         message: input.setupMessage,
+        timeoutMs: input.timeoutMs,
       }),
     );
     for (const followUp of input.followUpMessages) {
@@ -711,6 +731,7 @@ function sendSetupAndFollowUps(input: {
           taskId: input.scope.taskId,
           conversationId: input.scope.conversationId,
           message: followUp,
+          timeoutMs: input.timeoutMs,
         }),
       );
     }
@@ -724,6 +745,7 @@ function sendBystanderMessages(
   }>,
   targetAgentId: AgentId,
   scope: TaskScope,
+  responseTimeoutMs: number | undefined,
 ) {
   return Effect.forEach(
     bystanders,
@@ -737,6 +759,7 @@ function sendBystanderMessages(
             taskId: scope.taskId,
             conversationId: scope.conversationId,
             message,
+            timeoutMs: responseTimeoutMs,
           }),
         { concurrency: 1, discard: true },
       ),
@@ -758,15 +781,20 @@ function executeConversationPlan(input: {
     );
     const state = createConversationState(sender);
 
-    try {
-      yield* executeConversationKind(input, state);
-      return {
-        participants: state.participants,
-        responses: state.responses,
-      };
-    } finally {
-      yield* closeConversationClients(state.closers);
-    }
+    // Cleanup MUST be Effect.ensuring, not a gen-body try/finally: on the
+    // failure path Effect.gen never resumes the generator, so a finally's
+    // `yield*` silently never executes — the leaked client sockets then
+    // hang the server close and wedge the caller forever (#791). The
+    // suspend defers reading `closers`, which fills during execution.
+    yield* executeConversationKind(input, state).pipe(
+      Effect.ensuring(
+        Effect.suspend(() => closeConversationClients(state.closers)),
+      ),
+    );
+    return {
+      participants: state.participants,
+      responses: state.responses,
+    };
   });
 }
 
@@ -902,6 +930,11 @@ function startHarnessRuntime(input: {
   );
 }
 
+const SERVER_STOP_TIMEOUT_MS = 15_000;
+
+// Bounded like every other finalizer in the unwind chain: app.close() waits
+// for connection drain, so a socket that survived client close and runtime
+// teardown must degrade to a leak warning instead of wedging the caller.
 function stopCoreTraceServer(
   serverTestModule: ServerTestModule,
 ): Effect.Effect<void> {
@@ -909,7 +942,14 @@ function stopCoreTraceServer(
     try: () => Promise.resolve(serverTestModule.stopCoreTestServer()),
     catch: (error) =>
       error instanceof Error ? error : new Error(String(error)),
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(
+    Effect.timeout(Duration.millis(SERVER_STOP_TIMEOUT_MS)),
+    Effect.catchAll(() =>
+      Effect.logWarning(
+        "core test server did not stop within the bound; abandoning close",
+      ),
+    ),
+  );
 }
 
 function executeTraceRun(input: {
