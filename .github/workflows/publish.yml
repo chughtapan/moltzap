@@ -59,24 +59,23 @@ jobs:
             BASE=$(git hash-object -t tree /dev/null)
           fi
 
+          AFFECTED_PROJECTS=$(pnpm exec nx show projects \
+            --affected \
+            --withTarget=build \
+            --base="$BASE" \
+            --head=HEAD \
+            --json)
+          echo "Affected build projects since $BASE: $AFFECTED_PROJECTS"
+
           CHANGED=""
           REQUESTED_PACKAGES=" ${REQUESTED_PACKAGES} "
           for pkg in protocol server client openclaw-channel testbed; do
+            PROJECT_NAME=$(node -p "require('./packages/$pkg/package.json').name")
             if [[ "$REQUESTED_PACKAGES" == *" $pkg "* ]]; then
               SHOULD_RELEASE=1
               echo "Package $pkg requested by workflow_dispatch input"
-            elif git diff --name-only "$BASE"..HEAD -- \
-              "packages/$pkg/src/" \
-              "packages/$pkg/bin/" \
-              "packages/$pkg/scripts/" \
-              "packages/$pkg/package.json" \
-              "packages/$pkg/README.md" \
-              "packages/$pkg/tsconfig.json" \
-              "packages/$pkg/openclaw.plugin.json" | grep -q .; then
-              SHOULD_RELEASE=1
-            elif [ "$pkg" = "testbed" ] && git diff --name-only "$BASE"..HEAD -- \
-              "packages/nanoclaw-channel/src/channels/moltzap.ts" \
-              "packages/testbed/nanoclaw-assets/" | grep -q .; then
+            elif jq -e --arg project "$PROJECT_NAME" \
+              'index($project) != null' <<< "$AFFECTED_PROJECTS" >/dev/null; then
               SHOULD_RELEASE=1
             else
               SHOULD_RELEASE=0
