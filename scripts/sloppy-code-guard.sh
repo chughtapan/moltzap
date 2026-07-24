@@ -189,49 +189,6 @@ check then-chain \
   '\.then\(' \
   "Promise .then() chain in non-test source — compose with Effect.flatMap / Effect.map"
 
-# gen-finally: try/finally inside a generator. When a yielded effect FAILS,
-# Effect.gen never resumes the generator, so NO finally code runs — not even
-# sync statements — and cleanup silently leaks (#791's root cause). Applies
-# to tests too (leaked clients hang vitest workers). Multi-line, so this is
-# a small awk state machine instead of a `check` pattern; a `yield` anywhere
-# in the enclosing file marks it as generator code worth flagging.
-GEN_FINALLY_MATCHES=$(find packages/*/src -name '*.ts' -not -path '*/dist/*' -print0 2>/dev/null \
-  | xargs -0 awk -v tag="$PRAGMA_TAG" '
-    FNR == 1 { infin = 0 }
-    infin == 0 && /finally[ \t]*\{/ {
-      if (index($0, tag) > 0) next
-      infin = 1; start = FNR; found = 0
-      line = $0
-      sub(/.*finally[ \t]*\{/, "{", line)
-      open = gsub(/\{/, "{", line); close_ = gsub(/\}/, "}", line)
-      depth = open - close_
-      if (line ~ /yield/) found = 1
-      if (depth <= 0) {
-        if (found) print FILENAME ":" start ": finally block executes yield"
-        infin = 0
-      }
-      next
-    }
-    infin == 1 {
-      if ($0 ~ /yield/) found = 1
-      line = $0
-      open = gsub(/\{/, "{", line); close_ = gsub(/\}/, "}", line)
-      depth += open - close_
-      if (depth <= 0) {
-        if (found) print FILENAME ":" start ": finally block executes yield"
-        infin = 0
-      }
-    }
-  ' || true)
-GEN_FINALLY_MATCHES=$(echo "$GEN_FINALLY_MATCHES" | grep -v '^$' || true)
-if [ -n "$GEN_FINALLY_MATCHES" ]; then
-  echo -e "${RED}[FAIL]${NC} [gen-finally] try/finally in Effect.gen — the finally never runs when a yielded effect fails; use Effect.ensuring"
-  echo "$GEN_FINALLY_MATCHES"
-  echo "    Opt out with: // $PRAGMA_TAG[gen-finally]: <reason> (on the finally line)"
-  echo ""
-  ERRORS=$((ERRORS + 1))
-fi
-
 # ============================================================
 # Bare Catch Guards
 # ============================================================

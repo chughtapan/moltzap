@@ -25,13 +25,7 @@ it("status returns connection info", () =>
       );
       expect(result.agentId).toBe(reg.agentId);
       expect(result.connected).toBe(true);
-    }).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          service.close();
-        }).pipe(Effect.zipRight(reg.client.close().pipe(Effect.ignore))),
-      ),
-    );
+    }).pipe(Effect.ensuring(H.closeAll([service], [reg.client])));
   }));
 
 it("send command works via socket", () =>
@@ -57,16 +51,7 @@ it("send command works via socket", () =>
         message: "via socket",
       });
       expect(msg.messageId).toBeDefined();
-    }).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          service.close();
-        }).pipe(
-          Effect.zipRight(regA.client.close().pipe(Effect.ignore)),
-          Effect.zipRight(regB.client.close().pipe(Effect.ignore)),
-        ),
-      ),
-    );
+    }).pipe(Effect.ensuring(H.closeAll([service], [regA.client, regB.client])));
   }));
 
 it("command preserves protocol error tag over socket", () =>
@@ -87,11 +72,5 @@ it("command preserves protocol error tag over socket", () =>
         onLeft: (error) => expect(error._tag).toBe(TASK_NOT_FOUND_TAG),
         onRight: () => expect.fail(),
       });
-    }).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          service.close();
-        }).pipe(Effect.zipRight(reg.client.close().pipe(Effect.ignore))),
-      ),
-    );
+    }).pipe(Effect.ensuring(H.closeAll([service], [reg.client])));
   }));

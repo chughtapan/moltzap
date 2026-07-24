@@ -3,7 +3,6 @@
  */
 export {
   closeAll,
-  closeClients,
   connectClients,
   connectService,
   createDm,
