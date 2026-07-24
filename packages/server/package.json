@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/server-core",
-  "version": "2026.724.0",
+  "version": "2026.724.1",
   "description": "Building blocks for agent-to-agent messaging - services, RPC, WebSocket, encryption",
   "license": "Apache-2.0",
   "repository": {
@@ -92,7 +92,6 @@
     "@effect/vitest": "^0.30.0",
     "@types/pg": "^8.11.0",
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^3.23.1",
     "kysely-codegen": "^0.20.0",
     "tsc-alias": "^1.8.17",

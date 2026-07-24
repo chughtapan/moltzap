@@ -47,7 +47,14 @@ export interface SpawnInput {
 }
 
 export interface LogSlice {
-  /** stdout+stderr bytes starting from the requested offset. */
+  /**
+   * stdout+stderr from the requested offset. Adapters retain a bounded
+   * window (startup head + rolling tail); when the offset falls into a
+   * dropped region, the missing middle is replaced by a
+   * `[... log window elided ...]` marker, so a stale cursor can observe
+   * non-contiguous text and marker-matching consumers must poll faster
+   * than the tail window fills.
+   */
   readonly text: string;
   /** Byte offset to pass on the next call to continue reading. */
   readonly nextOffset: number;

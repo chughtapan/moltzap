@@ -35,7 +35,11 @@ export const getMoltZapConfigPath = (): string =>
   pathSync((path) => path.join(getMoltZapConfigDir(), CONFIG_FILE_NAME));
 
 export const getMoltZapServiceSocketPath = (): string =>
-  pathSync((path) => path.join(getMoltZapHomeDir(), SERVICE_SOCKET_FILE_NAME));
+  pathSync((path) =>
+    path.join(getMoltZapConfigDir(), SERVICE_SOCKET_FILE_NAME),
+  );
 
 export const getMoltZapAgentServiceSocketPath = (agentId: string): string =>
-  pathSync((path) => path.join(getMoltZapHomeDir(), `service-${agentId}.sock`));
+  pathSync((path) =>
+    path.join(getMoltZapConfigDir(), `service-${agentId}.sock`),
+  );

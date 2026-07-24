@@ -29,4 +29,8 @@ await Promise.all([
     join(sourceAssetsDir, "package-lock.json"),
     join(assetsDir, "package-lock.json"),
   ),
+  copyFile(
+    join(sourceAssetsDir, "moltzap-eval-provision.ts"),
+    join(assetsDir, "moltzap-eval-provision.ts"),
+  ),
 ]);

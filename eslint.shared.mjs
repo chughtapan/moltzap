@@ -1,3 +1,4 @@
+// Package ESLint configs load this shared module, so the root owns its plugins.
 import guard from "eslint-plugin-agent-code-guard";
 import tsParser from "@typescript-eslint/parser";
 import comments from "@eslint-community/eslint-plugin-eslint-comments";
@@ -27,6 +28,66 @@ const tsLanguageOptions = {
 const packageIgnores = {
   ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts"],
 };
+
+// Effect.gen abandons its generator when a yielded effect fails, so a
+// `finally` block cannot provide reliable cleanup on that path. This rule
+// flags try/finally inside Effect-driven generators while leaving plain
+// generators alone, where iteration runs finally through `.return()`.
+// Effect.ensuring and Effect.acquireRelease preserve cleanup on every path.
+const genFinallyRule = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Disallow try/finally inside Effect-driven generator bodies; use Effect.ensuring",
+    },
+    schema: [],
+    messages: {
+      genFinally:
+        "try/finally inside Effect.gen — no finally code runs when a yielded effect fails; use Effect.ensuring",
+    },
+  },
+  create(context) {
+    const functionStack = [];
+    const isEffectMember = (node, name) =>
+      node.type === "MemberExpression" &&
+      node.object.type === "Identifier" &&
+      node.object.name === "Effect" &&
+      node.property.type === "Identifier" &&
+      node.property.name === name;
+    const isEffectDrivenGenerator = (fn) => {
+      if (!fn.generator) return false;
+      const call = fn.parent;
+      if (call?.type !== "CallExpression" || !call.arguments.includes(fn)) {
+        return false;
+      }
+      return (
+        isEffectMember(call.callee, "gen") ||
+        (call.callee.type === "CallExpression" &&
+          isEffectMember(call.callee.callee, "fn"))
+      );
+    };
+    const enter = (node) => functionStack.push(node);
+    const exit = () => functionStack.pop();
+    return {
+      FunctionDeclaration: enter,
+      "FunctionDeclaration:exit": exit,
+      FunctionExpression: enter,
+      "FunctionExpression:exit": exit,
+      ArrowFunctionExpression: enter,
+      "ArrowFunctionExpression:exit": exit,
+      TryStatement(node) {
+        if (node.finalizer === null) return;
+        const fn = functionStack[functionStack.length - 1];
+        if (fn !== undefined && isEffectDrivenGenerator(fn)) {
+          context.report({ node, messageId: "genFinally" });
+        }
+      },
+    };
+  },
+};
+
+const localGuardPlugin = { rules: { "gen-finally": genFinallyRule } };
 
 // The `max-non-trivial-classes-per-file` default exemption list covers
 // Effect's own tag-class factories (`Context.Tag`, `Data.TaggedError`, ...) but
@@ -64,6 +125,7 @@ const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   // Disabled: knip runs once at the workspace root (whole-monorepo)
   // via `pnpm lint`; per-package lint scripts run eslint only.
   "agent-code-guard/require-knip-in-lint": "off",
+  "local-guard/gen-finally": "error",
 });
 
 const makeTestSupportRules = (strictRules) => ({
@@ -78,7 +140,7 @@ const makeTestSupportRules = (strictRules) => ({
     "src/test-utils/**/*.ts",
   ],
   languageOptions: tsLanguageOptions,
-  plugins: guard.configs.strict.plugins,
+  plugins: { ...guard.configs.strict.plugins, "local-guard": localGuardPlugin },
   settings: guard.configs.strict.settings,
   rules: strictRules,
 });
@@ -126,7 +188,10 @@ export function packageEslintConfig(options = {}) {
       files: ["src/**/*.ts", "scripts/**/*.ts", "*.ts"],
       ignores: ["**/*.test.ts", "**/*.spec.ts"],
       languageOptions: tsLanguageOptions,
-      plugins: guard.configs.strict.plugins,
+      plugins: {
+        ...guard.configs.strict.plugins,
+        "local-guard": localGuardPlugin,
+      },
       settings: guard.configs.strict.settings,
       rules: { ...strictRules, ...tagRules },
     },
@@ -144,7 +209,10 @@ export function rootEslintConfig() {
     {
       files: ["*.ts"],
       languageOptions: tsLanguageOptions,
-      plugins: guard.configs.strict.plugins,
+      plugins: {
+        ...guard.configs.strict.plugins,
+        "local-guard": localGuardPlugin,
+      },
       settings: guard.configs.strict.settings,
       rules: strictRules,
     },

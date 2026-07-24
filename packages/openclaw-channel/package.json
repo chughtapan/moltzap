@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/openclaw-channel",
-  "version": "2026.724.1",
+  "version": "2026.724.2",
   "description": "OpenClaw channel plugin for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -67,7 +67,6 @@
     "@types/node": "^25.5.0",
     "@types/pg": "^8.11.0",
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^3.23.1",
     "pg": "^8.13.0",
     "typescript": "^5.7.0",

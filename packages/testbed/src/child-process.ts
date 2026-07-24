@@ -1,15 +1,107 @@
+import { Buffer } from "node:buffer";
+import { homedir } from "node:os";
+import { execPath } from "node:process";
 import { Command } from "@effect/platform";
 import type { Process, Signal } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
-import { Duration, Effect, Fiber, Exit, Option, Scope, Stream } from "effect";
+import {
+  Config,
+  Duration,
+  Effect,
+  Fiber,
+  Exit,
+  Option,
+  Scope,
+  Stream,
+} from "effect";
 
 export interface CommandRunOptions {
   readonly cwd?: string;
   readonly timeout?: number;
 }
 
+/**
+ * The only operator variables a runtime child inherits: PATH so the runtime
+ * can find its tools, HOME so per-user state resolution works inside the
+ * exact-environment replacement.
+ */
+export interface BaseChildEnvironment {
+  readonly PATH: string;
+  readonly HOME: string;
+}
+
+export const BaseChildEnvironmentConfig: Config.Config<BaseChildEnvironment> =
+  Config.all({
+    PATH: Config.string("PATH"),
+    HOME: Config.string("HOME").pipe(Config.withDefault(homedir())),
+  });
+
+export interface ExactEnvironmentCommandOptions {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly cleanupTreeOnExit?: boolean;
+}
+
 type ErrorFactory<E> = (reason: string, cause?: unknown) => E;
+
+const EXACT_ENVIRONMENT_LAUNCHER = `
+const { spawn } = require("node:child_process");
+const payload = JSON.parse(
+  Buffer.from(process.argv[1], "base64url").toString("utf8"),
+);
+process.on("SIGTERM", () => {});
+const cleanupTree = () => {
+  if (process.platform === "win32") {
+    const reaper = spawn(
+      "taskkill",
+      ["/pid", String(process.pid), "/T", "/F"],
+      { detached: true, stdio: "ignore", windowsHide: true },
+    );
+    reaper.unref();
+    setInterval(() => {}, 0x7fffffff);
+    return;
+  }
+  process.kill(-process.pid, "SIGKILL");
+};
+const child = spawn(payload.command, payload.args, {
+  cwd: payload.cwd,
+  env: payload.env,
+  stdio: "inherit",
+  windowsHide: true,
+});
+child.once("error", (error) => {
+  console.error(error);
+  process.exit(1);
+});
+child.once("exit", (code) => {
+  if (payload.cleanupTreeOnExit === true) {
+    cleanupTree();
+    return;
+  }
+  process.exit(code ?? 1);
+});
+`;
+
+/**
+ * Builds a command whose target receives exactly `env`. Effect's Node command
+ * executor merges command variables over the operator environment, so a
+ * trusted Node launcher starts the target with an explicit replacement. The
+ * launcher and target share the detached group created by the executor, which
+ * keeps tree-directed teardown semantics on every supported Node platform.
+ * Long-lived runtimes opt into launcher-owned exit cleanup so the group
+ * leader remains present until every residual descendant receives KILL.
+ */
+export function makeExactEnvironmentCommand(
+  options: ExactEnvironmentCommandOptions,
+): Command.Command {
+  const payload = Buffer.from(JSON.stringify(options)).toString("base64url");
+  return Command.make(execPath, "-e", EXACT_ENVIRONMENT_LAUNCHER, payload).pipe(
+    Command.workingDirectory(options.cwd),
+  );
+}
 
 function execEffectWith<E>(
   makeError: ErrorFactory<E>,
@@ -67,6 +159,71 @@ export function makeCommandHelpers<E>(makeError: ErrorFactory<E>) {
 
 const UTF8_DECODER = new TextDecoder("utf-8");
 
+const LOG_HEAD_CAPACITY = 64 * 1024;
+const LOG_TAIL_CAPACITY = 256 * 1024;
+const LOG_ELISION_MARKER = "\n[... log window elided ...]\n";
+
+/**
+ * Append-only process log window: the first `headCapacity` chars (startup
+ * diagnostics) plus a rolling tail, so a chatty long-lived agent cannot
+ * grow memory unbounded. Offsets are positions in the ORIGINAL stream —
+ * pollers keep monotonic cursors even after the middle is elided.
+ */
+export class BoundedLogBuffer {
+  private head = "";
+  private tail = "";
+  private total = 0;
+
+  constructor(
+    private readonly headCapacity = LOG_HEAD_CAPACITY,
+    private readonly tailCapacity = LOG_TAIL_CAPACITY,
+  ) {}
+
+  append(chunk: string): void {
+    this.total += chunk.length;
+    let rest = chunk;
+    if (this.head.length < this.headCapacity) {
+      const take = Math.min(this.headCapacity - this.head.length, rest.length);
+      this.head += rest.slice(0, take);
+      rest = rest.slice(take);
+    }
+    if (rest.length === 0) return;
+    // Compact only past 2x capacity: V8 rope concatenation keeps `+=` cheap,
+    // so the flatten amortizes to O(1)/char at a 2x memory high-water mark.
+    this.tail += rest;
+    if (this.tail.length >= 2 * this.tailCapacity) {
+      this.tail = this.tail.slice(-this.tailCapacity);
+    }
+  }
+
+  /**
+   * Text from `offset` (original-stream position) to the current end;
+   * regions no longer retained collapse into an elision marker.
+   */
+  read(offset: number): { readonly text: string; readonly nextOffset: number } {
+    const tailStart = this.total - this.tail.length;
+    if (offset >= tailStart) {
+      return {
+        text: this.tail.slice(offset - tailStart),
+        nextOffset: this.total,
+      };
+    }
+    const elided = tailStart > this.head.length;
+    return {
+      text:
+        this.head.slice(offset) +
+        (elided ? LOG_ELISION_MARKER : "") +
+        this.tail,
+      nextOffset: this.total,
+    };
+  }
+
+  /** The full retained window (head + elision marker + tail). */
+  get text(): string {
+    return this.read(0).text;
+  }
+}
+
 /** Drains a child stdout/stderr stream into the caller's log accumulator. */
 function consumeProcessStream(
   stream: Stream.Stream<Uint8Array, unknown>,
@@ -88,6 +245,7 @@ export function startSupervisedProcess(
   command: Command.Command,
   scope: Scope.CloseableScope,
   appendLog: (chunk: string) => void,
+  processTreeCleanup: ProcessTreeCleanup = { claimed: false },
 ) {
   return Effect.gen(function* () {
     const proc = yield* Command.start(command).pipe(Scope.extend(scope));
@@ -102,29 +260,73 @@ export function startSupervisedProcess(
     yield* consumeProcessStream(proc.stderr, appendLog).pipe(
       Effect.forkIn(scope),
     );
-    return { proc, exitFiber };
+    if (!processTreeCleanup.launcherOwnsExitCleanup) {
+      yield* Fiber.join(exitFiber).pipe(
+        Effect.zipRight(dispatchProcessTreeKill(proc, processTreeCleanup)),
+        Effect.forkDaemon,
+      );
+    }
+    return { proc, exitFiber, processTreeCleanup };
   }).pipe(Effect.withSpan("startSupervisedProcess"));
 }
 
 const EXIT_POLL_INTERVAL_MS = 100;
 
+export interface ProcessTreeCleanup {
+  claimed: boolean;
+  readonly launcherOwnsExitCleanup?: boolean;
+}
+
 /**
  * TERM→KILL escalation with bounded waits. Teardown runs in uninterruptible
  * regions, so each wait polls the exit fiber instead of racing the platform
  * `kill` await (which resolves only at process death and cannot be
- * interrupted there); the signals themselves are fired as daemons.
+ * interrupted there); the signals themselves are fired as daemons. The Node
+ * executor starts a detached process group on POSIX and `Process.kill`
+ * signals that group before falling back to the direct pid. On Windows the
+ * same call uses `taskkill /T`, so both escalation stages include descendants.
  */
 export function escalatingKill(
   proc: Process,
   exitFiber: Fiber.RuntimeFiber<number, never>,
   waits: { readonly termWaitMs: number; readonly killWaitMs: number },
+  processTreeCleanup: ProcessTreeCleanup = { claimed: false },
 ): Effect.Effect<void, never, never> {
   return Effect.gen(function* () {
+    const initialExit = yield* pollFiberExitCode(exitFiber);
+    if (Option.isSome(initialExit)) {
+      yield* cleanupAfterLeaderExit(proc, processTreeCleanup);
+      return;
+    }
     yield* sendSignal(proc, "SIGTERM");
-    if (yield* exitedWithin(exitFiber, waits.termWaitMs)) return;
-    yield* sendSignal(proc, "SIGKILL");
+    const leaderExited = yield* exitedWithin(exitFiber, waits.termWaitMs);
+    if (leaderExited) {
+      yield* cleanupAfterLeaderExit(proc, processTreeCleanup);
+      return;
+    }
+    yield* dispatchProcessTreeKill(proc, processTreeCleanup);
     yield* exitedWithin(exitFiber, waits.killWaitMs);
   }).pipe(Effect.withSpan("escalatingKill"));
+}
+
+function cleanupAfterLeaderExit(
+  proc: Process,
+  cleanup: ProcessTreeCleanup,
+): Effect.Effect<void, never, never> {
+  return cleanup.launcherOwnsExitCleanup
+    ? Effect.void
+    : dispatchProcessTreeKill(proc, cleanup);
+}
+
+function dispatchProcessTreeKill(
+  proc: Process,
+  cleanup: ProcessTreeCleanup,
+): Effect.Effect<void, never, never> {
+  return Effect.suspend(() => {
+    if (cleanup.claimed) return Effect.void;
+    cleanup.claimed = true;
+    return sendSignal(proc, "SIGKILL");
+  });
 }
 
 function sendSignal(
@@ -133,7 +335,7 @@ function sendSignal(
 ): Effect.Effect<void, never, never> {
   return Effect.forkDaemon(
     proc.kill(signal).pipe(Effect.catchAll(() => Effect.void)),
-  ).pipe(Effect.asVoid);
+  ).pipe(Effect.zipRight(Effect.yieldNow()), Effect.asVoid);
 }
 
 function exitedWithin(

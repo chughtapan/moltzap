@@ -132,6 +132,7 @@ export function path14(): Effect.Effect<void, unknown, never> {
         cacheFingerprint: "fingerprint-fixture",
         containerImage: "img",
       },
+      { PATH: "/usr/bin", HOME: "/home/fixture" },
     );
     const servers = plan.env["MOLTZAP_MCP_SERVERS"];
     expect(servers).toBeDefined();
