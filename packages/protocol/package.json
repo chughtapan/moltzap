@@ -131,7 +131,6 @@
   },
   "devDependencies": {
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^3.23.1",
     "tsc-alias": "^1.8.17",
     "tsx": "^4.19.0",
