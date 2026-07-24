@@ -6,7 +6,7 @@
     {
       "folder": ".",
       "maxChildren": 13,
-      "reason": "The testbed keeps runtime adapters, orchestration, readiness, process support, and trace-capture modules as deliberate peers, plus the simulator subfolder (chughtapan/moltzap#812)"
+      "reason": "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, and trace-capture modules as deliberate peers, plus the simulator subfolder (chughtapan/moltzap#812)"
     },
     {
       "folder": "simulator",
@@ -15,6 +15,10 @@
     }
   ],
   "facadeFiles": [
+    {
+      "file": "channel-plugin-install.ts",
+      "reason": "Shared plugin-install and workspace-seed boundary both runtime adapters compose for on-disk channel provisioning"
+    },
     {
       "file": "testbed.ts",
       "reason": "Public testbed boundary for adapter selection, coordinated runtime startup, process-signal interruption, and reverse-order teardown"

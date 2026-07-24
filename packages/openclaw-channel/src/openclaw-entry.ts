@@ -29,7 +29,15 @@ import {
   type EnrichedInboundMessage,
   type GroupFields,
 } from "@moltzap/client/channel-base";
-import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Data,
+  Effect,
+  JSONSchema,
+  Option,
+  Schema,
+} from "effect";
 import {
   writeOpenClawContextLog,
   type OpenClawContextLogInput,
@@ -152,16 +160,30 @@ function writeContextLogOrWarn(
   );
 }
 
-type MoltZapAccount = {
-  id: string;
-  agentName?: string;
-  enabled?: boolean;
-};
+const MoltZapAccountSchema = Schema.Struct({
+  id: Schema.String,
+  agentName: Schema.optional(Schema.String),
+  enabled: Schema.optional(Schema.Boolean),
+});
+
+type MoltZapAccount = Schema.Schema.Type<typeof MoltZapAccountSchema>;
+
+const MoltZapChannelConfigSchema = Schema.Struct({
+  accounts: Schema.optional(Schema.Array(MoltZapAccountSchema)),
+});
+
+/**
+ * The drift test consumes this projection because OpenClaw reads the manifest
+ * from disk.
+ * @internal
+ */
+export const makeMoltZapChannelConfigJsonSchema = () =>
+  JSONSchema.make(MoltZapChannelConfigSchema);
 
 type OpenClawConfig = Record<string, unknown> & {
   channels?: {
     moltzap?: {
-      accounts?: MoltZapAccount[];
+      accounts?: ReadonlyArray<MoltZapAccount>;
     };
   };
 };
@@ -282,7 +304,9 @@ interface InboundRuntimeData {
   readonly groupMembers: string | undefined;
 }
 
-function resolveAccountList(cfg: OpenClawConfig): MoltZapAccount[] {
+function resolveAccountList(
+  cfg: OpenClawConfig,
+): ReadonlyArray<MoltZapAccount> {
   const section = cfg.channels?.moltzap;
   if (!section) return [];
   return Array.isArray(section.accounts) ? section.accounts : [];

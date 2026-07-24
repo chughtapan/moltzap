@@ -1,10 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   resolveInstalledPackageBin,
   resolveInstalledPackageRoot,
+  resolvePackageRoot,
 } from "./package-resolution.js";
 
 const SCOPED_PACKAGE_NAME = "@moltzap-test/resolved";
@@ -19,72 +26,149 @@ afterAll(() => {
   rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
-function seedLookupPath(
-  lookupName: string,
+function seedConsumer(
+  fixtureName: string,
   manifest: Record<string, unknown>,
-): string {
-  const lookupPath = join(fixtureRoot, lookupName);
-  const packageRoot = join(lookupPath, SCOPED_PACKAGE_NAME);
+): { readonly anchor: string; readonly packageRoot: string } {
+  const consumerRoot = join(fixtureRoot, fixtureName);
+  const anchor = join(consumerRoot, "package.json");
+  const packageRoot = join(consumerRoot, "node_modules", SCOPED_PACKAGE_NAME);
   mkdirSync(packageRoot, { recursive: true });
+  writeFileSync(
+    anchor,
+    JSON.stringify({ name: `package-resolution-${fixtureName}` }),
+  );
   writeFileSync(join(packageRoot, "package.json"), JSON.stringify(manifest));
-  return lookupPath;
+  return { anchor, packageRoot };
 }
 
-// @agent-code-guard/regression-only: each case pins one resolution branch (manifest-name match, decoy skip, unparsable-manifest skip, require fallback, unresolvable failure) against seeded fixture layouts; the input domain is filesystem shapes, not values to generate over
-describe("resolveInstalledPackageRoot", () => {
-  it("returns the lookup-path candidate whose manifest name matches", () => {
-    const lookupPath = seedLookupPath("matching", {
+function seedLayeredConsumer(
+  fixtureName: string,
+  nearestManifest: string,
+): { readonly anchor: string; readonly packageRoot: string } {
+  const fixtureDir = join(fixtureRoot, fixtureName);
+  const consumerRoot = join(fixtureDir, "consumer");
+  const anchor = join(consumerRoot, "package.json");
+  const nearestPackageRoot = join(
+    consumerRoot,
+    "node_modules",
+    SCOPED_PACKAGE_NAME,
+  );
+  const packageRoot = join(fixtureDir, "node_modules", SCOPED_PACKAGE_NAME);
+  mkdirSync(nearestPackageRoot, { recursive: true });
+  mkdirSync(packageRoot, { recursive: true });
+  writeFileSync(
+    anchor,
+    JSON.stringify({ name: `package-resolution-${fixtureName}` }),
+  );
+  writeFileSync(join(nearestPackageRoot, "package.json"), nearestManifest);
+  writeFileSync(
+    join(packageRoot, "package.json"),
+    JSON.stringify({ name: SCOPED_PACKAGE_NAME }),
+  );
+  return { anchor, packageRoot };
+}
+
+// @agent-code-guard/regression-only: seeded module layouts exercise Node resolution branches whose inputs are filesystem topology rather than generated values
+describe("resolvePackageRoot", () => {
+  it("resolves from the supplied consumer anchor", () => {
+    const fixture = seedConsumer("anchored", {
       name: SCOPED_PACKAGE_NAME,
     });
 
-    const root = resolveInstalledPackageRoot(SCOPED_PACKAGE_NAME, [lookupPath]);
+    const root = resolvePackageRoot(fixture.anchor, SCOPED_PACKAGE_NAME);
 
-    expect(root).toBe(join(lookupPath, SCOPED_PACKAGE_NAME));
+    expect(root === null ? null : realpathSync(root)).toBe(
+      realpathSync(fixture.packageRoot),
+    );
   });
 
-  it("skips lookup-path candidates whose manifest name differs", () => {
-    const decoyLookupPath = seedLookupPath("decoy", {
+  it("resolves package.json when an exports map hides the subpath", () => {
+    const fixture = seedConsumer("export-restricted", {
+      name: SCOPED_PACKAGE_NAME,
+      exports: { ".": "./dist/index.js" },
+    });
+    const root = resolvePackageRoot(fixture.anchor, SCOPED_PACKAGE_NAME);
+
+    expect(root === null ? null : realpathSync(root)).toBe(
+      realpathSync(fixture.packageRoot),
+    );
+  });
+
+  it("skips a nearer package whose manifest name differs", () => {
+    const fixture = seedLayeredConsumer(
+      "decoy",
+      JSON.stringify({ name: DECOY_MANIFEST_NAME }),
+    );
+
+    const root = resolvePackageRoot(fixture.anchor, SCOPED_PACKAGE_NAME);
+
+    expect(root === null ? null : realpathSync(root)).toBe(
+      realpathSync(fixture.packageRoot),
+    );
+  });
+
+  it("skips a nearer package whose manifest is unparsable", () => {
+    const fixture = seedLayeredConsumer("broken", "{not json");
+
+    const root = resolvePackageRoot(fixture.anchor, SCOPED_PACKAGE_NAME);
+
+    expect(root === null ? null : realpathSync(root)).toBe(
+      realpathSync(fixture.packageRoot),
+    );
+  });
+});
+
+describe("resolvePackageRoot public-entry fallback", () => {
+  it("does not recover a rejected package through its public entry", () => {
+    const fixture = seedConsumer("only-decoy", {
       name: DECOY_MANIFEST_NAME,
+      main: "index.js",
     });
-    const realLookupPath = seedLookupPath("real", {
+    writeFileSync(join(fixture.packageRoot, "index.js"), "export {};");
+
+    expect(resolvePackageRoot(fixture.anchor, SCOPED_PACKAGE_NAME)).toBeNull();
+  });
+
+  it("recovers a scoped root from a public entry without a manifest", () => {
+    const consumerRoot = join(fixtureRoot, "public-entry");
+    const anchor = join(consumerRoot, "package.json");
+    const packageRoot = join(consumerRoot, "node_modules", SCOPED_PACKAGE_NAME);
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(anchor, JSON.stringify({ name: "public-entry-consumer" }));
+    writeFileSync(join(packageRoot, "index.js"), "export {};");
+
+    const root = resolvePackageRoot(anchor, SCOPED_PACKAGE_NAME);
+
+    expect(root === null ? null : realpathSync(root)).toBe(
+      realpathSync(packageRoot),
+    );
+  });
+
+  it("returns null when the package resolves nowhere", () => {
+    const fixture = seedConsumer("missing", {
       name: SCOPED_PACKAGE_NAME,
     });
 
-    const root = resolveInstalledPackageRoot(SCOPED_PACKAGE_NAME, [
-      decoyLookupPath,
-      realLookupPath,
-    ]);
-
-    expect(root).toBe(join(realLookupPath, SCOPED_PACKAGE_NAME));
+    expect(resolvePackageRoot(fixture.anchor, MISSING_PACKAGE_NAME)).toBeNull();
   });
+});
 
-  it("skips a lookup-path candidate whose package.json is unparsable", () => {
-    const brokenLookupPath = join(fixtureRoot, "broken");
-    const brokenRoot = join(brokenLookupPath, SCOPED_PACKAGE_NAME);
-    mkdirSync(brokenRoot, { recursive: true });
-    writeFileSync(join(brokenRoot, "package.json"), "{not json");
-    const realLookupPath = seedLookupPath("after-broken", {
-      name: SCOPED_PACKAGE_NAME,
-    });
-
-    const root = resolveInstalledPackageRoot(SCOPED_PACKAGE_NAME, [
-      brokenLookupPath,
-      realLookupPath,
-    ]);
-
-    expect(root).toBe(join(realLookupPath, SCOPED_PACKAGE_NAME));
-  });
-
-  it("falls back to require resolution when no lookup path matches", () => {
-    const root = resolveInstalledPackageRoot(REAL_PACKAGE_NAME, []);
-
-    expect(root.split(sep)).toContain(REAL_PACKAGE_NAME);
-  });
-
+describe("resolveInstalledPackageRoot", () => {
   it("throws when the package resolves nowhere", () => {
+    const fixture = seedConsumer("throwing", {
+      name: SCOPED_PACKAGE_NAME,
+    });
+
     expect(() =>
-      resolveInstalledPackageRoot(MISSING_PACKAGE_NAME, [fixtureRoot]),
+      resolveInstalledPackageRoot(MISSING_PACKAGE_NAME, fixture.anchor),
     ).toThrow();
+  });
+
+  it("resolves an installed package from the default anchor", () => {
+    expect(resolveInstalledPackageRoot(REAL_PACKAGE_NAME)).toContain(
+      REAL_PACKAGE_NAME,
+    );
   });
 });
 

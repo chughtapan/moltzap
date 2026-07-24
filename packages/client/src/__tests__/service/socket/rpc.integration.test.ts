@@ -17,17 +17,15 @@ it("status returns connection info", () =>
     const reg = yield* H.registerAgent("sock-status");
     const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
-    try {
+    // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
+    yield* Effect.gen(function* () {
       const result = yield* H.requestDaemonCommand(
         H.LocalDaemonCommands.Status,
         {},
       );
       expect(result.agentId).toBe(reg.agentId);
       expect(result.connected).toBe(true);
-    } finally {
-      service.close();
-      yield* reg.client.close();
-    }
+    }).pipe(Effect.ensuring(H.closeAll([service], [reg.client])));
   }));
 
 it("send command works via socket", () =>
@@ -37,7 +35,7 @@ it("send command works via socket", () =>
     yield* regB.client.connect();
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
-    try {
+    yield* Effect.gen(function* () {
       const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
@@ -53,11 +51,7 @@ it("send command works via socket", () =>
         message: "via socket",
       });
       expect(msg.messageId).toBeDefined();
-    } finally {
-      service.close();
-      yield* regA.client.close();
-      yield* regB.client.close();
-    }
+    }).pipe(Effect.ensuring(H.closeAll([service], [regA.client, regB.client])));
   }));
 
 it("command preserves protocol error tag over socket", () =>
@@ -65,7 +59,7 @@ it("command preserves protocol error tag over socket", () =>
     const reg = yield* H.registerAgent("sock-rpc-error");
     const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
-    try {
+    yield* Effect.gen(function* () {
       const result = yield* Effect.either(
         H.requestDaemonCommand(H.LocalDaemonCommands.MessagesList, {
           taskId: makeTaskId("00000000-0000-4000-8000-00000000f001"),
@@ -78,8 +72,5 @@ it("command preserves protocol error tag over socket", () =>
         onLeft: (error) => expect(error._tag).toBe(TASK_NOT_FOUND_TAG),
         onRight: () => expect.fail(),
       });
-    } finally {
-      service.close();
-      yield* reg.client.close();
-    }
+    }).pipe(Effect.ensuring(H.closeAll([service], [reg.client])));
   }));

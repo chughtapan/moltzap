@@ -5,6 +5,7 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { TaskId } from "@moltzap/protocol/task";
 import {
+  BoundedMap,
   LeaseAlreadyConsumed,
   LeaseStore,
   MoltZapChannelCore,
@@ -29,14 +30,7 @@ import {
   createMessagingGroupAgent,
   getMessagingGroupByPlatform,
 } from "../db/messaging-groups.js";
-import { createAgentGroup, getAllAgentGroups } from "../db/agent-groups.js";
-import {
-  ensureContainerConfig,
-  updateContainerConfigJson,
-  updateContainerConfigScalars,
-} from "../db/container-configs.js";
-import { upsertUser } from "../modules/permissions/db/users.js";
-import type { AgentGroup } from "../types.js";
+import type { MessagingGroupAgent } from "../types.js";
 
 // `MoltZapChannelError` covers nanoclaw's host-shape failures that are NOT
 // lease-related (un-owned jid, missing taskId). Lease errors flow through
@@ -52,65 +46,28 @@ class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
 const MOLTZAP_CHANNEL = "moltzap";
 const MOLTZAP_JID_PREFIX = "mz:";
 const EVAL_NAME_ID_CHARS = 8;
+const MAX_TRACKED_CONVERSATIONS = 4096;
 export const EVAL_AGENT_GROUP_ID = "eval-agent";
-
-// Harness runs start from an empty database, so eval mode also provisions
-// the agent group its wiring points at, with the container-config row the
-// spawn path requires (production installs create theirs via init scripts).
-function createEvalAgentGroup(): AgentGroup {
-  const group: AgentGroup = {
-    id: EVAL_AGENT_GROUP_ID,
-    name: EVAL_AGENT_GROUP_ID,
-    folder: EVAL_AGENT_GROUP_ID,
-    agent_provider: null,
-    created_at: new Date().toISOString(),
-  };
-  createAgentGroup(group);
-  ensureContainerConfig(group.id, null);
-  applyEvalContainerDefaults(group.id);
-  return group;
-}
-
-const EvalContainerDefaultsEnv = Config.all({
-  model: Config.option(Config.string("MOLTZAP_AGENT_MODEL")),
-  mcpServers: Config.option(Config.string("MOLTZAP_MCP_SERVERS")),
-});
-
-/**
- * The moltzap simulator honors per-agent `modelId` and MCP mounts on
- * NanoClaw through the container config of the eval agent group; the
- * spawn path materializes them into `container.json`. `MOLTZAP_MCP_SERVERS`
- * carries a JSON record of stdio server definitions.
- */
-export function applyEvalContainerDefaults(agentGroupId: string): void {
-  const env = Effect.runSync(
-    EvalContainerDefaultsEnv.pipe(
-      Effect.withConfigProvider(ConfigProvider.fromEnv()),
-    ),
-  );
-  const model = Option.getOrNull(env.model);
-  if (model !== null && model.length > 0) {
-    updateContainerConfigScalars(agentGroupId, { model });
-  }
-  const mcpServers = Option.getOrNull(env.mcpServers);
-  if (mcpServers !== null && mcpServers.length > 0) {
-    updateContainerConfigJson(
-      agentGroupId,
-      "mcp_servers",
-      JSON.parse(mcpServers),
-    );
-  }
-}
 
 // Every message a MoltZap conversation delivers is addressed to this agent
 // (the server routes per-conversation), so wirings engage on everything and
-// no platform mention concept exists.
+// no platform mention concept exists. Eval rows read every persisted policy
+// field from this declaration so adapter defaults and router storage agree.
 const MOLTZAP_CONTEXT_DEFAULTS = {
   engageMode: "pattern",
   engagePattern: ".",
   threads: false,
   unknownSenderPolicy: "public",
-} as const;
+  senderScope: "all",
+  ignoredMessagePolicy: "drop",
+  sessionMode: "shared",
+  priority: 0,
+} as const satisfies ChannelDefaults["dm"] & {
+  readonly senderScope: MessagingGroupAgent["sender_scope"];
+  readonly ignoredMessagePolicy: MessagingGroupAgent["ignored_message_policy"];
+  readonly sessionMode: MessagingGroupAgent["session_mode"];
+  readonly priority: MessagingGroupAgent["priority"];
+};
 
 const MOLTZAP_DEFAULTS: ChannelDefaults = {
   dm: MOLTZAP_CONTEXT_DEFAULTS,
@@ -182,7 +139,7 @@ interface MoltZapAdapterState {
  *   Core->>Handler: onInbound(enriched)<br>WS frame decoded + enriched
  *   note over Handler: Step 1 — jidFromConversationId<br>platformId = "mz:" + conversationId
  *   note over Handler: Step 2 — rememberDispatchLease<br>leaseStore.remember(jid, leaseId) if present
- *   note over Handler: Step 3 — ensureEvalWiring (eval mode only)<br>messaging_group + wiring created BEFORE delivery
+ *   note over Handler: Step 3 — ensureEvalWiring (eval mode only)<br>conversation rows target the harness-seeded agent
  *   Handler->>Router: Step 4 — setup.onMetadata(jid, name, isGroup)
  *   Handler->>Router: Step 5 — setup.onInbound(jid, null, message)
  * ```
@@ -206,11 +163,13 @@ export class MoltZapAdapter implements ChannelAdapter {
   private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
   // Per-jid memory of the task and branded conversation id from the most
   // recent inbound. `agent/message/send` requires both; keeping the branded
-  // id avoids re-decoding it on every reply.
-  private readonly conversationsByJid = new Map<
+  // id avoids re-decoding it on every reply. Bounded: an evicted
+  // conversation degrades to the existing "no taskId" deliver error until
+  // its next inbound refreshes the entry.
+  private readonly conversationsByJid = new BoundedMap<
     string,
     { readonly taskId: TaskId; readonly conversationId: ConversationId }
-  >();
+  >(MAX_TRACKED_CONVERSATIONS);
   private ownAgentId: string;
   private core: MoltZapChannelCore | null;
   private setupConfig: ChannelSetup | null = null;
@@ -391,6 +350,16 @@ export class MoltZapAdapter implements ChannelAdapter {
     });
   }
 
+  private rememberConversation(
+    jid: string,
+    enriched: EnrichedInboundMessage,
+  ): void {
+    this.conversationsByJid.set(jid, {
+      taskId: enriched.taskId,
+      conversationId: enriched.conversationId,
+    });
+  }
+
   private handleInbound(enriched: EnrichedInboundMessage): void {
     // Own outbound replies echo back through the notification stream; the
     // router has no is-from-me concept, so they are dropped here.
@@ -399,10 +368,7 @@ export class MoltZapAdapter implements ChannelAdapter {
     if (config === null) return;
     const jid = jidFromConversationId(enriched.conversationId);
     this.rememberDispatchLease(jid, enriched);
-    this.conversationsByJid.set(jid, {
-      taskId: enriched.taskId,
-      conversationId: enriched.conversationId,
-    });
+    this.rememberConversation(jid, enriched);
     const isGroup = enriched.conversationMeta?.type === "group";
     if (this.evalMode) {
       this.ensureEvalWiring(jid, enriched, isGroup);
@@ -467,12 +433,11 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   /**
-   * Eval-mode auto-registration: harness runs create fresh conversations
-   * with no pre-provisioned wiring, so the messaging group and its wiring
-   * to the (single) agent group are created BEFORE the message reaches the
-   * router — otherwise the router drops it. Production registrations are
-   * provisioned out of band; this path stays off unless
-   * `MOLTZAP_EVAL_MODE=1`.
+   * Harness conversations come into existence during a run, so eval mode
+   * creates their messaging group and wiring before the router can drop the
+   * first message. The harness provisions the target agent group and its
+   * container config before startup; NanoClaw's sender resolver owns user
+   * rows. Production registrations stay out of band.
    */
   private ensureEvalWiring(
     jid: string,
@@ -482,28 +447,19 @@ export class MoltZapAdapter implements ChannelAdapter {
     if (getMessagingGroupByPlatform(MOLTZAP_CHANNEL, jid) !== undefined) {
       return;
     }
-    const agentGroup = getAllAgentGroups()[0] ?? createEvalAgentGroup();
-    this.createEvalWiring(jid, enriched, isGroup, agentGroup.id);
+    this.createEvalWiring(jid, enriched, isGroup);
   }
 
-  // Engagement fields mirror the declared channel contract in
-  // MOLTZAP_CONTEXT_DEFAULTS so the wiring row cannot drift from it. Row
-  // ids derive from the full conversation id — the platform lookup in
-  // ensureEvalWiring is then the only freshness guard needed.
+  // Persisted policy fields come from MOLTZAP_CONTEXT_DEFAULTS so the wiring
+  // row cannot drift from the declared channel contract. Row ids derive from
+  // the full conversation id, making the platform lookup the freshness guard.
   private createEvalWiring(
     jid: string,
     enriched: EnrichedInboundMessage,
     isGroup: boolean,
-    agentGroupId: string,
   ): void {
     const now = new Date().toISOString();
     const shortId = enriched.conversationId.slice(0, EVAL_NAME_ID_CHARS);
-    upsertUser({
-      id: `${MOLTZAP_CHANNEL}:${enriched.sender.id}`,
-      kind: MOLTZAP_CHANNEL,
-      display_name: enriched.sender.name ?? enriched.sender.id,
-      created_at: now,
-    });
     const messagingGroupId = `mg-eval-${enriched.conversationId}`;
     createMessagingGroup({
       id: messagingGroupId,
@@ -517,13 +473,13 @@ export class MoltZapAdapter implements ChannelAdapter {
     createMessagingGroupAgent({
       id: `mga-eval-${enriched.conversationId}`,
       messaging_group_id: messagingGroupId,
-      agent_group_id: agentGroupId,
+      agent_group_id: EVAL_AGENT_GROUP_ID,
       engage_mode: MOLTZAP_CONTEXT_DEFAULTS.engageMode,
       engage_pattern: MOLTZAP_CONTEXT_DEFAULTS.engagePattern,
-      sender_scope: "all",
-      ignored_message_policy: "drop",
-      session_mode: "shared",
-      priority: 0,
+      sender_scope: MOLTZAP_CONTEXT_DEFAULTS.senderScope,
+      ignored_message_policy: MOLTZAP_CONTEXT_DEFAULTS.ignoredMessagePolicy,
+      session_mode: MOLTZAP_CONTEXT_DEFAULTS.sessionMode,
+      priority: MOLTZAP_CONTEXT_DEFAULTS.priority,
       created_at: now,
     });
   }

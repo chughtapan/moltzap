@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createOpenClawAdapter`](./openclaw-adapter.ts#L539)
+### [`createOpenClawAdapter`](./openclaw-adapter.ts#L557)
 
 _Function_
 
@@ -125,7 +125,14 @@ _Interface_
 
 ```ts
 export interface LogSlice {
-  /** stdout+stderr bytes starting from the requested offset. */
+  /**
+   * stdout+stderr from the requested offset. Adapters retain a bounded
+   * window (startup head + rolling tail); when the offset falls into a
+   * dropped region, the missing middle is replaced by a
+   * `[... log window elided ...]` marker, so a stale cursor can observe
+   * non-contiguous text and marker-matching consumers must poll faster
+   * than the tail window fills.
+   */
   readonly text: string;
   /** Byte offset to pass on the next call to continue reading. */
   readonly nextOffset: number;
@@ -161,7 +168,7 @@ export class NanoclawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollFiberExitCode(handle.exitFiber),
-        stderr: () => getNanoclawRuntimeLogs(handle),
+        stderr: () => handle.logs.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),
@@ -174,9 +181,7 @@ export class NanoclawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const full = getNanoclawRuntimeLogs(this.state.handle);
-    const text = full.slice(offset);
-    return { text, nextOffset: full.length };
+    return this.state.handle.logs.read(offset);
   }
 
   getInboundMarker(): string {
@@ -244,7 +249,7 @@ flowchart TD
   subgraph P1["Install pinned NanoClaw runtime"]
     P1C{"matching immutable generation exists?"}
     P1WARM["reuse immutable generation"]
-    P1COLD["preflightDocker → download pinned tarball<br>→ copy bundled channel + skill<br>→ install pinned client + build<br>→ publish immutable generation"]
+    P1COLD["preflightDocker → download pinned tarball<br>→ copy bundled channel + skill + eval provisioner<br>→ install pinned client + build<br>→ publish immutable generation"]
     P1C -->|yes| P1WARM
     P1C -->|no| P1COLD
   end
@@ -252,18 +257,19 @@ flowchart TD
     P2DIR["create isolated runtime dir<br>copy container + scripts"]
     P2OC["ensureOnecliRunning<br>(probe 10254; up if unreachable)"]
     P2WS["write agent-local workspace files + profile"]
+    P2EVAL["eval mode only<br>seed agent group + container config"]
     P2SP["startNanoclawProcess<br>(absolute cached entrypoint,<br>isolated runtime cwd)"]
-    P2WAIT["waitForNanoclawConnection<br>(scan logs for CONNECTED_MARKER)"]
-    P2DIR --> P2OC --> P2WS --> P2SP --> P2WAIT
+    P2OC --> P2DIR --> P2WS --> P2EVAL --> P2SP
   end
-  NCR["waitUntilReady — TWO gates:<br>1. inner: waitForNanoclawConnection (stdout marker)<br>2. outer: server.awaitAgentReady (WS auth)"]
+  NCR["waitUntilReady — server.awaitAgentReady (WS auth)<br>raced against subprocess exit,<br>bounded by the caller's readyTimeoutMs"]
   NS --> P1 --> P2 --> NCR
 ```
 
 Inbound marker: `New messages`. The immutable cache key covers the pinned
-NanoClaw source, dependency lock, bundled channel/skill, and host ABI.
+NanoClaw source, dependency lock, bundled channel/skill/provisioner, and
+host ABI.
 
-### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L23)
+### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L22)
 
 _Interface_
 
@@ -294,7 +300,7 @@ export interface NanoclawAdapterOptions {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L440)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L460)
 
 _Class_
 
@@ -325,7 +331,7 @@ export class OpenClawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollExitCode(proc),
-        stderr: () => logBuffer.value,
+        stderr: () => logBuffer.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),
@@ -355,9 +361,7 @@ export class OpenClawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const full = this.state.logBuffer.value;
-    const text = full.slice(offset);
-    return { text, nextOffset: full.length };
+    return this.state.logBuffer.read(offset);
   }
 
   getInboundMarker(): string {
@@ -395,7 +399,7 @@ flowchart TD
   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
-  OC4["4. lease spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,<br>OPENCLAW_CONFIG_PATH)<br>exitFiber + log buffer"]
+  OC4["4. lease spawnOpenClawProcess<br>exact child environment<br>exitFiber + log buffer"]
   OC5["5. commit process + state-dir leases<br>to adapter state"]
   OCF["failed or interrupted handoff<br>stops child + removes state dir"]
   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
@@ -410,7 +414,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L160)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L174)
 
 _Interface_
 
@@ -423,7 +427,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L167)
+### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L181)
 
 _Interface_
 
@@ -436,7 +440,7 @@ export interface OpenClawAdapterOptions {
 }
 ```
 
-### [`ReadyOutcome`](./runtime.ts#L56)
+### [`ReadyOutcome`](./runtime.ts#L63)
 
 _TypeAlias_
 
@@ -445,7 +449,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](./runtime.ts#L75)
+### [`Runtime`](./runtime.ts#L82)
 
 _Interface_
 

@@ -4,8 +4,10 @@
  * Installation and cache promotion live in `nanoclaw-install.ts`; this module
  * owns only isolated runtime directories and subprocess supervision.
  */
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { execPath } from "node:process";
 import {
   Command,
   FileSystem,
@@ -16,7 +18,16 @@ import {
 import type { Process } from "@effect/platform/CommandExecutor";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
-import { Data, Duration, Effect, Exit, Fiber, Option, Scope } from "effect";
+import {
+  Data,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Scope,
+  Stream,
+} from "effect";
 import {
   seedWorkspaceFiles,
   TESTBED_PROFILE_NAME,
@@ -27,10 +38,16 @@ import {
   type NanoclawRuntimeInstall,
 } from "./nanoclaw-install.js";
 import {
+  type BaseChildEnvironment,
+  BaseChildEnvironmentConfig,
+  BoundedLogBuffer,
   escalatingKill,
+  makeExactEnvironmentCommand,
   makeCommandHelpers,
+  type ProcessTreeCleanup,
   startSupervisedProcess,
 } from "./child-process.js";
+import { runCommandWithExclusiveFileLock } from "./file-lock.js";
 
 // OneCLI gateway — nanoclaw's container-runner calls this for per-container
 // credential injection. Running locally from ~/.onecli/docker-compose.yml; the
@@ -38,12 +55,12 @@ import {
 // port. Install: curl -fsSL https://onecli.sh/install | sh
 const ONECLI_URL = "http://127.0.0.1:10254";
 const ONECLI_COMPOSE_PATH = join(homedir(), ".onecli/docker-compose.yml");
+const ONECLI_START_LOCK_PATH = join(
+  homedir(),
+  ".onecli/moltzap-testbed-start.lock",
+);
+const ONECLI_START_PERMIT = Effect.runSync(Effect.makeSemaphore(1));
 
-// The bundled channel emits this local startup marker after its socket connects;
-// the outer server-presence check remains the authoritative readiness gate.
-const CONNECTED_MARKER = /MoltZap connected/;
-
-const CONNECT_TIMEOUT_MS = 60_000;
 // NanoClaw waits up to ten seconds for its queue to drain before disconnecting.
 // Leave margin for channel disconnect and process exit before escalating.
 const NANOCLAW_TERM_WAIT_MS = 12_000;
@@ -51,16 +68,23 @@ const NANOCLAW_KILL_WAIT_MS = 5_000;
 const ONECLI_PROBE_TIMEOUT_MS = 2_000;
 const ONECLI_READY_PROBE_LIMIT = 20;
 const ONECLI_READY_PROBE_INTERVAL_MS = 500;
-const CONNECT_WATCH_INTERVAL_MS = 200;
-const LOG_TAIL_LINE_COUNT = 50;
+const ONECLI_COMPOSE_TIMEOUT_MS = 120_000;
 const MILLISECONDS_PER_SECOND = 1_000;
+const NANOCLAW_INSTALL_SLUG_LENGTH = 8;
+const NANOCLAW_INSTALL_LABEL_KEY = "nanoclaw-install";
+const DOCKER_COMMAND = "docker";
+const NANOCLAW_DOCKER_COMMAND_TIMEOUT_MS = 10_000;
+const NANOCLAW_EVAL_PROVISION_TIMEOUT_MS = 30_000;
+const NANOCLAW_EVAL_PROVISION_ENTRYPOINT = "dist/moltzap-eval-provision.js";
+export const NANOCLAW_EVAL_AGENT_GROUP_ID = "eval-agent";
 
 export interface NanoclawRuntimeHandle {
   proc: Process;
   scope: Scope.CloseableScope;
   exitFiber: Fiber.RuntimeFiber<number, never>;
+  processTreeCleanup?: ProcessTreeCleanup;
   runtimeDir: string;
-  capturedLogs: string[];
+  logs: BoundedLogBuffer;
 }
 
 interface StartNanoclawRuntimeOptions {
@@ -106,6 +130,13 @@ interface StartedNanoclawProcess {
   readonly proc: Process;
   readonly scope: Scope.CloseableScope;
   readonly exitFiber: Fiber.RuntimeFiber<number, never>;
+  readonly processTreeCleanup: ProcessTreeCleanup;
+}
+
+interface CommandResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
 }
 
 function toRuntimeError(message: string, cause?: unknown) {
@@ -115,15 +146,7 @@ function toRuntimeError(message: string, cause?: unknown) {
   });
 }
 
-const { execEffect, fsEffect } = makeCommandHelpers(toRuntimeError);
-
-function logTail(capturedLogs: readonly string[]): string {
-  return capturedLogs
-    .join("")
-    .split("\n")
-    .slice(-LOG_TAIL_LINE_COUNT)
-    .join("\n");
-}
+const { fsEffect } = makeCommandHelpers(toRuntimeError);
 
 function isOnecliReachable(): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
@@ -177,11 +200,63 @@ function ensureOnecliRunning(): Effect.Effect<
       );
     }
 
-    yield* execEffect(
-      `docker compose -p onecli -f "${ONECLI_COMPOSE_PATH}" up -d --wait`,
-      { timeout: 120_000 },
-    );
+    yield* ONECLI_START_PERMIT.withPermits(1)(startOnecliUnderLock());
+  });
+}
 
+function startOnecliUnderLock(): Effect.Effect<
+  void,
+  NanoclawRuntimeProcessError
+> {
+  return Effect.gen(function* () {
+    // The in-process permit makes this probe suppress redundant compose work
+    // locally; the native lock still serializes compose across processes.
+    if (yield* isOnecliReachable()) return;
+    yield* runOnecliComposeUnderLock();
+    yield* waitForOnecliReadiness();
+  });
+}
+
+function runOnecliComposeUnderLock() {
+  return runCommandWithExclusiveFileLock(
+    { path: ONECLI_START_LOCK_PATH },
+    {
+      command: DOCKER_COMMAND,
+      args: [
+        "compose",
+        "-p",
+        "onecli",
+        "-f",
+        ONECLI_COMPOSE_PATH,
+        "up",
+        "-d",
+        "--wait",
+      ],
+    },
+  ).pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(ONECLI_COMPOSE_TIMEOUT_MS),
+      onTimeout: () => toRuntimeError("OneCLI compose startup timed out"),
+    }),
+    Effect.mapError((cause) =>
+      cause instanceof NanoclawRuntimeProcessError
+        ? cause
+        : toRuntimeError("start OneCLI under the host lock", cause),
+    ),
+    Effect.flatMap((composeExitCode) =>
+      Number(composeExitCode) === 0
+        ? Effect.void
+        : Effect.fail(
+            toRuntimeError(
+              `OneCLI compose startup failed with exit code ${composeExitCode}`,
+            ),
+          ),
+    ),
+  );
+}
+
+function waitForOnecliReadiness() {
+  return Effect.gen(function* () {
     // `--wait` returns when healthchecks pass, but give the HTTP listener a
     // moment to bind before the first real request.
     for (let i = 0; i < ONECLI_READY_PROBE_LIMIT; i++) {
@@ -329,13 +404,35 @@ function seedNanoclawRuntimeDir(
   );
 }
 
-export function buildNanoclawProcessPlan(
+function buildNanoclawChildEnvironment(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
   install: NanoclawRuntimeInstall,
-): NanoclawProcessPlan {
-  const entrypoint = join(install.cacheDir, "dist/index.js");
-  const containerDefaults = {
+  baseEnvironment: BaseChildEnvironment,
+): Readonly<Record<string, string>> {
+  return {
+    ...baseEnvironment,
+    MOLTZAP_PROFILE: TESTBED_PROFILE_NAME,
+    MOLTZAP_CONFIG_HOME: join(runtimeDir, ".moltzap"),
+    MOLTZAP_SERVER_URL: normalizeNanoclawServerUrl(opts.serverUrl),
+    MOLTZAP_EVAL_MODE: opts.autoRegisterConversations ? "1" : "0",
+    CONTAINER_RUNTIME: "docker",
+    CONTAINER_IMAGE: install.containerImage,
+    ONECLI_URL: ONECLI_URL,
+    // The OneCLI SDK stages its gateway CA/credential bind-mount sources
+    // under os.tmpdir(); pointing TMPDIR into the runtime dir keeps them
+    // docker-shareable on macOS (the OS temp root is invisible to
+    // VM-backed engines).
+    TMPDIR: join(runtimeDir, "tmp"),
+    LOG_LEVEL: "info",
+  };
+}
+
+/** The simulator's per-agent model and MCP mounts, as the env pairs the eval provisioner materializes into the container config. */
+function buildContainerDefaultsEnvironment(
+  opts: StartNanoclawRuntimeOptions,
+): Readonly<Record<string, string>> {
+  return {
     ...(opts.modelId === undefined || opts.modelId.length === 0
       ? {}
       : { MOLTZAP_AGENT_MODEL: opts.modelId }),
@@ -356,25 +453,61 @@ export function buildNanoclawProcessPlan(
           ),
         }),
   };
+}
+
+export function buildNanoclawProcessPlan(
+  opts: StartNanoclawRuntimeOptions,
+  runtimeDir: string,
+  install: NanoclawRuntimeInstall,
+  baseEnvironment: BaseChildEnvironment,
+): NanoclawProcessPlan {
+  const entrypoint = join(install.cacheDir, "dist/index.js");
   return {
     command: "node",
     args: [entrypoint],
     cwd: runtimeDir,
     env: {
-      ...containerDefaults,
-      MOLTZAP_PROFILE: TESTBED_PROFILE_NAME,
-      MOLTZAP_CONFIG_HOME: join(runtimeDir, ".moltzap"),
-      MOLTZAP_SERVER_URL: normalizeNanoclawServerUrl(opts.serverUrl),
-      MOLTZAP_EVAL_MODE: opts.autoRegisterConversations ? "1" : "0",
-      CONTAINER_RUNTIME: "docker",
-      CONTAINER_IMAGE: install.containerImage,
-      ONECLI_URL: ONECLI_URL,
-      // The OneCLI SDK stages its gateway CA/credential bind-mount sources
-      // under os.tmpdir(); pointing TMPDIR into the runtime dir keeps them
-      // docker-shareable on macOS (the OS temp root is invisible to
-      // VM-backed engines).
-      TMPDIR: join(runtimeDir, "tmp"),
-      LOG_LEVEL: "info",
+      ...buildContainerDefaultsEnvironment(opts),
+      ...buildNanoclawChildEnvironment(
+        opts,
+        runtimeDir,
+        install,
+        baseEnvironment,
+      ),
+    },
+  };
+}
+
+/**
+ * The provision plan carries the same container defaults as the runtime
+ * plan: the provisioner applies `MOLTZAP_AGENT_MODEL` /
+ * `MOLTZAP_MCP_SERVERS` to the seeded container-config row before the
+ * first container spawn reads it.
+ * @internal
+ */
+export function buildNanoclawEvalProvisionPlan(
+  opts: StartNanoclawRuntimeOptions,
+  runtimeDir: string,
+  install: NanoclawRuntimeInstall,
+  baseEnvironment: BaseChildEnvironment,
+): NanoclawProcessPlan {
+  return {
+    command: "node",
+    args: [
+      join(install.cacheDir, NANOCLAW_EVAL_PROVISION_ENTRYPOINT),
+      NANOCLAW_EVAL_AGENT_GROUP_ID,
+      opts.agentName,
+      NANOCLAW_EVAL_AGENT_GROUP_ID,
+    ],
+    cwd: runtimeDir,
+    env: {
+      ...buildContainerDefaultsEnvironment(opts),
+      ...buildNanoclawChildEnvironment(
+        opts,
+        runtimeDir,
+        install,
+        baseEnvironment,
+      ),
     },
   };
 }
@@ -384,10 +517,54 @@ function makeNanoclawCommand(
   runtimeDir: string,
   install: NanoclawRuntimeInstall,
 ) {
-  const plan = buildNanoclawProcessPlan(opts, runtimeDir, install);
-  return Command.make(plan.command, ...plan.args).pipe(
-    Command.workingDirectory(plan.cwd),
-    Command.env(plan.env),
+  return BaseChildEnvironmentConfig.pipe(
+    Effect.map((baseEnvironment) =>
+      makeExactEnvironmentCommand({
+        ...buildNanoclawProcessPlan(opts, runtimeDir, install, baseEnvironment),
+        cleanupTreeOnExit: true,
+      }),
+    ),
+  );
+}
+
+function provisionNanoclawEvalAgent(
+  opts: StartNanoclawRuntimeOptions,
+  runtimeDir: string,
+  install: NanoclawRuntimeInstall,
+) {
+  if (!opts.autoRegisterConversations) return Effect.void;
+  return BaseChildEnvironmentConfig.pipe(
+    Effect.map((baseEnvironment) => {
+      // One-shot provisioner: it writes sqlite and exits, so the inherited
+      // operator environment is harmless and the exact-environment launcher
+      // hop is unnecessary.
+      const plan = buildNanoclawEvalProvisionPlan(
+        opts,
+        runtimeDir,
+        install,
+        baseEnvironment,
+      );
+      return Command.make(execPath, ...plan.args).pipe(
+        Command.env(plan.env),
+        Command.workingDirectory(plan.cwd),
+      );
+    }),
+    Effect.flatMap((command) =>
+      runCommand(command, {
+        timeoutMs: NANOCLAW_EVAL_PROVISION_TIMEOUT_MS,
+        timeoutMessage: "timed out provisioning NanoClaw eval agent",
+      }),
+    ),
+    Effect.flatMap((result) =>
+      requireSuccessfulCommand("provision NanoClaw eval agent", result),
+    ),
+    Effect.provide(NodeContext.layer),
+    Effect.mapError((cause) =>
+      cause instanceof NanoclawRuntimeProcessError
+        ? cause
+        : toRuntimeError("provision NanoClaw eval agent", cause),
+    ),
+    Effect.withSpan("provisionNanoclawEvalAgent"),
   );
 }
 
@@ -408,14 +585,14 @@ function startNanoclawProcess(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
   install: NanoclawRuntimeInstall,
-  capturedLogs: string[],
+  logs: BoundedLogBuffer,
 ) {
-  const command = makeNanoclawCommand(opts, runtimeDir, install);
   return Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
+      const command = yield* makeNanoclawCommand(opts, runtimeDir, install);
       const scope = yield* Scope.make();
       return yield* restore(
-        initializeNanoclawProcess(command, scope, capturedLogs),
+        initializeNanoclawProcess(command, scope, logs),
       ).pipe(
         Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
       );
@@ -427,79 +604,37 @@ function startNanoclawProcess(
 }
 
 function initializeNanoclawProcess(
-  command: ReturnType<typeof makeNanoclawCommand>,
+  command: Command.Command,
   scope: Scope.CloseableScope,
-  capturedLogs: string[],
+  logs: BoundedLogBuffer,
 ) {
-  return startSupervisedProcess(command, scope, (chunk) => {
-    capturedLogs.push(chunk);
-  }).pipe(
-    Effect.map(
-      ({ proc, exitFiber }) =>
-        ({ proc, scope, exitFiber }) satisfies StartedNanoclawProcess,
-    ),
-  );
-}
-
-function waitForNanoclawConnection(
-  exitFiber: Fiber.RuntimeFiber<number, never>,
-  capturedLogs: string[],
-) {
-  return Effect.race(
-    waitForConnectedMarker(capturedLogs),
-    failIfProcessExitsBeforeConnect(exitFiber, capturedLogs),
+  return startSupervisedProcess(
+    command,
+    scope,
+    (chunk) => {
+      logs.append(chunk);
+    },
+    {
+      claimed: false,
+      launcherOwnsExitCleanup: true,
+    },
   ).pipe(
-    Effect.timeoutFail({
-      duration: Duration.millis(CONNECT_TIMEOUT_MS),
-      onTimeout: () => connectionTimeoutError(capturedLogs),
-    }),
-  );
-}
-
-function waitForConnectedMarker(capturedLogs: string[]) {
-  return Effect.iterate(false, {
-    while: (connected) => !connected,
-    body: () =>
-      Effect.sleep(Duration.millis(CONNECT_WATCH_INTERVAL_MS)).pipe(
-        Effect.as(CONNECTED_MARKER.test(capturedLogs.join(""))),
-      ),
-  }).pipe(Effect.asVoid);
-}
-
-function failIfProcessExitsBeforeConnect(
-  exitFiber: Fiber.RuntimeFiber<number, never>,
-  capturedLogs: string[],
-) {
-  return Fiber.join(exitFiber).pipe(
-    Effect.flatMap((code) =>
-      Effect.fail(
-        toRuntimeError(
-          `nanoclaw runtime exited before connecting (code=${code}).\nLast ${LOG_TAIL_LINE_COUNT} log lines:\n${logTail(capturedLogs)}`,
-        ),
-      ),
+    Effect.map(
+      ({ proc, exitFiber, processTreeCleanup }) =>
+        ({
+          proc,
+          scope,
+          exitFiber,
+          processTreeCleanup,
+        }) satisfies StartedNanoclawProcess,
     ),
   );
 }
 
-function connectionTimeoutError(capturedLogs: string[]) {
-  return toRuntimeError(
-    `nanoclaw runtime did not connect within ${
-      CONNECT_TIMEOUT_MS / MILLISECONDS_PER_SECOND
-    }s.\nLast ${LOG_TAIL_LINE_COUNT} log lines:\n${logTail(capturedLogs)}`,
-  );
-}
-
-function cleanupFailedNanoclawRuntime(handle: NanoclawRuntimeHandle) {
-  return stopNanoclawRuntimeEffect(handle).pipe(
-    Effect.catchAll((cause) =>
-      Effect.logWarning(
-        "failed to clean up NanoClaw after startup failure",
-        cause,
-      ),
-    ),
-  );
-}
-
+// Spawn commits as soon as the process starts; readiness — server-confirmed
+// authentication raced against subprocess exit, bounded by the caller's
+// budget — lives entirely in `waitUntilReady`, matching the OpenClaw
+// adapter's semantics for the shared `Runtime` contract.
 function startConfiguredNanoclawRuntime(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
@@ -509,19 +644,16 @@ function startConfiguredNanoclawRuntime(
     yield* seedNanoclawRuntimeDir(runtimeDir, install);
     yield* writeRuntimeWorkspaceFiles(runtimeDir, opts.workspaceFiles);
     yield* writeNanoclawMoltZapProfileConfig(opts, runtimeDir);
+    yield* provisionNanoclawEvalAgent(opts, runtimeDir, install);
 
-    const capturedLogs: string[] = [];
+    const logs = new BoundedLogBuffer();
     const started = yield* startNanoclawProcess(
       opts,
       runtimeDir,
       install,
-      capturedLogs,
+      logs,
     );
-    const handle = { ...started, runtimeDir, capturedLogs };
-    yield* waitForNanoclawConnection(started.exitFiber, capturedLogs).pipe(
-      Effect.onError(() => cleanupFailedNanoclawRuntime(handle)),
-    );
-    return handle;
+    return { ...started, runtimeDir, logs };
   });
 }
 
@@ -551,27 +683,140 @@ export function stopNanoclawRuntimeEffect(
   return Effect.uninterruptible(
     stopNanoclawProcess(handle).pipe(
       Effect.ensuring(Scope.close(handle.scope, Exit.succeed(undefined))),
+      Effect.ensuring(sweepNanoclawContainers(handle.runtimeDir)),
       Effect.ensuring(removeNanoclawRuntimeDir(handle.runtimeDir)),
     ),
   ).pipe(Effect.withSpan("stopNanoclawRuntimeEffect"));
 }
 
-function stopNanoclawProcess(handle: NanoclawRuntimeHandle) {
-  return Effect.gen(function* () {
-    if (!(yield* nanoclawProcessIsRunning(handle))) return;
-    yield* escalatingKill(handle.proc, handle.exitFiber, {
-      termWaitMs: NANOCLAW_TERM_WAIT_MS,
-      killWaitMs: NANOCLAW_KILL_WAIT_MS,
-    });
-  });
+/** @internal */
+export function nanoclawInstallSlug(runtimeDir: string): string {
+  // eslint-disable-next-line sonarjs/hashing -- Matches NanoClaw's non-security checkout identifier.
+  return createHash("sha1")
+    .update(runtimeDir)
+    .digest("hex")
+    .slice(0, NANOCLAW_INSTALL_SLUG_LENGTH);
 }
 
-function nanoclawProcessIsRunning(handle: NanoclawRuntimeHandle) {
-  return handle.proc.isRunning.pipe(
+function nanoclawInstallLabel(runtimeDir: string): string {
+  return `${NANOCLAW_INSTALL_LABEL_KEY}=${nanoclawInstallSlug(runtimeDir)}`;
+}
+
+/** @internal */
+export function buildNanoclawContainerListCommand(
+  runtimeDir: string,
+): Command.Command {
+  return Command.make(
+    DOCKER_COMMAND,
+    "ps",
+    "--quiet",
+    "--filter",
+    `label=${nanoclawInstallLabel(runtimeDir)}`,
+  );
+}
+
+/** @internal */
+export function buildNanoclawContainerRemoveCommand(
+  containerIds: ReadonlyArray<string>,
+): Command.Command {
+  return Command.make(DOCKER_COMMAND, "rm", "--force", ...containerIds);
+}
+
+function captureCommandStream(
+  stream: Stream.Stream<Uint8Array, unknown>,
+): Effect.Effect<string, unknown> {
+  return stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold("", (output, chunk) => output + chunk),
+  );
+}
+
+interface RunCommandOptions {
+  readonly timeoutMs: number;
+  readonly timeoutMessage: string;
+}
+
+const DOCKER_RUN_COMMAND_OPTIONS: RunCommandOptions = {
+  timeoutMs: NANOCLAW_DOCKER_COMMAND_TIMEOUT_MS,
+  timeoutMessage: "timed out sweeping NanoClaw runtime containers",
+};
+
+function runCommand(command: Command.Command, options: RunCommandOptions) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const process = yield* Command.start(command);
+      const [stdout, stderr, exitCode] = yield* Effect.all(
+        [
+          captureCommandStream(process.stdout),
+          captureCommandStream(process.stderr),
+          process.exitCode,
+        ],
+        { concurrency: 3 },
+      );
+      return {
+        stdout,
+        stderr,
+        exitCode: Number(exitCode),
+      } satisfies CommandResult;
+    }),
+  ).pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(options.timeoutMs),
+      onTimeout: () => toRuntimeError(options.timeoutMessage),
+    }),
+    Effect.interruptible,
+  );
+}
+
+function requireSuccessfulCommand(
+  operation: string,
+  result: CommandResult,
+): Effect.Effect<void, NanoclawRuntimeProcessError> {
+  return result.exitCode === 0
+    ? Effect.void
+    : Effect.fail(
+        toRuntimeError(
+          `${operation} failed with exit code ${result.exitCode}: ${result.stderr.trim()}`,
+        ),
+      );
+}
+
+function sweepNanoclawContainers(runtimeDir: string) {
+  return Effect.gen(function* () {
+    const listResult = yield* runCommand(
+      buildNanoclawContainerListCommand(runtimeDir),
+      DOCKER_RUN_COMMAND_OPTIONS,
+    );
+    yield* requireSuccessfulCommand("list NanoClaw containers", listResult);
+    const containerIds = listResult.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    if (containerIds.length === 0) return;
+
+    const removeResult = yield* runCommand(
+      buildNanoclawContainerRemoveCommand(containerIds),
+      DOCKER_RUN_COMMAND_OPTIONS,
+    );
+    yield* requireSuccessfulCommand("remove NanoClaw containers", removeResult);
+  }).pipe(
     Effect.provide(NodeContext.layer),
-    Effect.mapError((cause) =>
-      toRuntimeError("check nanoclaw runtime process", cause),
+    Effect.catchAll((cause) =>
+      Effect.logWarning("failed to sweep NanoClaw runtime containers", cause),
     ),
+    Effect.withSpan("sweepNanoclawContainers"),
+  );
+}
+
+function stopNanoclawProcess(handle: NanoclawRuntimeHandle) {
+  return escalatingKill(
+    handle.proc,
+    handle.exitFiber,
+    {
+      termWaitMs: NANOCLAW_TERM_WAIT_MS,
+      killWaitMs: NANOCLAW_KILL_WAIT_MS,
+    },
+    handle.processTreeCleanup,
   );
 }
 
@@ -584,8 +829,4 @@ function removeNanoclawRuntimeDir(runtimeDir: string) {
       Effect.logWarning("failed to remove NanoClaw runtime directory", cause),
     ),
   );
-}
-
-export function getNanoclawRuntimeLogs(handle: NanoclawRuntimeHandle): string {
-  return handle.capturedLogs.join("");
 }

@@ -1,10 +1,9 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
 import type { Process } from "@effect/platform/CommandExecutor";
-import { Config, Data, Effect, Exit, Fiber, Option, Scope, pipe } from "effect";
+import { Config, Data, Effect, Exit, Fiber, Option, Scope } from "effect";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
@@ -19,8 +18,12 @@ import type {
 import { SpawnFailed, spawnFailed } from "./errors.js";
 import { raceReadiness } from "./adapter-readiness.js";
 import {
+  BaseChildEnvironmentConfig,
+  BoundedLogBuffer,
   escalatingKill,
+  makeExactEnvironmentCommand,
   pollFiberExitCode,
+  type ProcessTreeCleanup,
   startSupervisedProcess,
 } from "./child-process.js";
 import {
@@ -41,9 +44,6 @@ const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 const TOKEN_RADIX = 36;
 const JSON_INDENT_SPACES = 2;
-const OPENCLAW_CHANNEL_LOOKUP_PATHS =
-  createRequire(import.meta.url).resolve.paths("@moltzap/openclaw-channel") ??
-  [];
 
 class PortAllocationFailed extends Data.TaggedError("PortAllocationFailed")<{
   readonly message: string;
@@ -61,13 +61,15 @@ function stopSpawnedOpenClawProcess(
 ): Effect.Effect<void, never, never> {
   return Effect.uninterruptible(
     Effect.gen(function* () {
-      const exitOpt = yield* pollExitCode(proc);
-      if (Option.isNone(exitOpt)) {
-        yield* escalatingKill(proc.proc, proc.exitFiber, {
+      yield* escalatingKill(
+        proc.proc,
+        proc.exitFiber,
+        {
           termWaitMs: OPENCLAW_TERM_WAIT_MS,
           killWaitMs: OPENCLAW_KILL_WAIT_MS,
-        });
-      }
+        },
+        proc.processTreeCleanup,
+      );
       yield* Scope.close(proc.scope, Exit.succeed(undefined));
     }),
   );
@@ -75,15 +77,28 @@ function stopSpawnedOpenClawProcess(
 
 function initializeOpenClawProcess(
   command: Command.Command,
-  logBuffer: { value: string },
+  logBuffer: BoundedLogBuffer,
   scope: Scope.CloseableScope,
 ) {
-  return startSupervisedProcess(command, scope, (chunk) => {
-    logBuffer.value += chunk;
-  }).pipe(
+  return startSupervisedProcess(
+    command,
+    scope,
+    (chunk) => {
+      logBuffer.append(chunk);
+    },
+    {
+      claimed: false,
+      launcherOwnsExitCleanup: true,
+    },
+  ).pipe(
     Effect.map(
-      ({ proc, exitFiber }) =>
-        ({ proc, exitFiber, scope }) satisfies SpawnedProcess,
+      ({ proc, exitFiber, processTreeCleanup }) =>
+        ({
+          proc,
+          exitFiber,
+          processTreeCleanup,
+          scope,
+        }) satisfies SpawnedProcess,
     ),
   );
 }
@@ -117,16 +132,15 @@ function spawnOpenClawProcess(opts: {
   readonly args: ReadonlyArray<string>;
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
-  readonly logBuffer: { value: string };
+  readonly logBuffer: BoundedLogBuffer;
   readonly onStarted: (
     process: SpawnedProcess,
   ) => Effect.Effect<void, never, never>;
 }): Effect.Effect<SpawnedProcess, Error, never> {
-  const command = pipe(
-    Command.make(opts.command, ...opts.args),
-    Command.workingDirectory(opts.cwd),
-    Command.env(opts.env),
-  );
+  const command = makeExactEnvironmentCommand({
+    ...opts,
+    cleanupTreeOnExit: true,
+  });
 
   return Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
@@ -174,7 +188,7 @@ export interface OpenClawAdapterOptions {
 interface AdapterState {
   process: SpawnedProcess;
   stateDir: string;
-  logBuffer: { value: string };
+  logBuffer: BoundedLogBuffer;
   spawnInput: SpawnInput;
   tornDown: boolean;
 }
@@ -182,6 +196,7 @@ interface AdapterState {
 interface SpawnedProcess {
   readonly proc: Process;
   readonly exitFiber: Fiber.RuntimeFiber<number, never>;
+  readonly processTreeCleanup?: ProcessTreeCleanup;
   readonly scope: Scope.CloseableScope;
 }
 
@@ -331,33 +346,38 @@ function spawnConfiguredOpenClaw(options: {
   readonly stateDir: string;
   readonly input: SpawnInput;
   readonly port: number;
-  readonly logBuffer: { value: string };
+  readonly logBuffer: BoundedLogBuffer;
   readonly onStarted: (
     process: SpawnedProcess,
   ) => Effect.Effect<void, never, never>;
 }): Effect.Effect<SpawnedProcess, Error, Path.Path> {
-  return Path.Path.pipe(
-    Effect.flatMap((platformPath) => {
-      const plan = buildOpenClawProcessPlan(
-        options.deps.openclawBin,
-        options.port,
-      );
-      return spawnOpenClawProcess({
-        ...plan,
-        cwd: options.stateDir,
-        env: {
-          OPENCLAW_STATE_DIR: options.stateDir,
-          OPENCLAW_CONFIG_PATH: platformPath.join(
-            options.stateDir,
-            "openclaw.json",
-          ),
-          MOLTZAP_CONFIG_HOME: platformPath.join(options.stateDir, ".moltzap"),
-          MOLTZAP_SERVER_URL: options.input.serverUrl,
-        },
-        logBuffer: options.logBuffer,
-        onStarted: options.onStarted,
-      });
-    }),
+  return Effect.gen(function* () {
+    const platformPath = yield* Path.Path;
+    const baseEnvironment = yield* BaseChildEnvironmentConfig;
+    const plan = buildOpenClawProcessPlan(
+      options.deps.openclawBin,
+      options.port,
+    );
+    return yield* spawnOpenClawProcess({
+      ...plan,
+      cwd: options.stateDir,
+      env: {
+        ...baseEnvironment,
+        OPENCLAW_STATE_DIR: options.stateDir,
+        OPENCLAW_CONFIG_PATH: platformPath.join(
+          options.stateDir,
+          "openclaw.json",
+        ),
+        MOLTZAP_CONFIG_HOME: platformPath.join(options.stateDir, ".moltzap"),
+        MOLTZAP_SERVER_URL: options.input.serverUrl,
+      },
+      logBuffer: options.logBuffer,
+      onStarted: options.onStarted,
+    });
+  }).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof Error ? cause : new Error(String(cause)),
+    ),
   );
 }
 
@@ -382,7 +402,7 @@ function startOpenClawAdapter(
               : removeOpenClawStateDir(leasedStateDir),
         );
         yield* restore(configureOpenClawStateDir(deps, input, stateDir));
-        const logBuffer = { value: "" };
+        const logBuffer = new BoundedLogBuffer();
         const child = yield* restore(
           Effect.acquireReleaseInterruptible(
             spawnConfiguredOpenClaw({
@@ -422,7 +442,7 @@ function startOpenClawAdapter(
  *   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
  *   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
  *   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
- *   OC4["4. lease spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,<br>OPENCLAW_CONFIG_PATH)<br>exitFiber + log buffer"]
+ *   OC4["4. lease spawnOpenClawProcess<br>exact child environment<br>exitFiber + log buffer"]
  *   OC5["5. commit process + state-dir leases<br>to adapter state"]
  *   OCF["failed or interrupted handoff<br>stops child + removes state dir"]
  *   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
@@ -463,7 +483,7 @@ export class OpenClawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollExitCode(proc),
-        stderr: () => logBuffer.value,
+        stderr: () => logBuffer.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),
@@ -493,9 +513,7 @@ export class OpenClawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const full = this.state.logBuffer.value;
-    const text = full.slice(offset);
-    return { text, nextOffset: full.length };
+    return this.state.logBuffer.read(offset);
   }
 
   getInboundMarker(): string {
@@ -551,10 +569,7 @@ export function createOpenClawAdapter(
 
 function resolveOpenClawChannelDistDir(): string {
   return join(
-    resolveInstalledPackageRoot(
-      "@moltzap/openclaw-channel",
-      OPENCLAW_CHANNEL_LOOKUP_PATHS,
-    ),
+    resolveInstalledPackageRoot("@moltzap/openclaw-channel", import.meta.url),
     "dist",
   );
 }
@@ -662,6 +677,9 @@ export function buildOpenClawConfig(
       // buffering (matching the nanoclaw runtime's push behavior).
       queue: { mode: "steer", debounceMs: 0, cap: 100, drop: "new" },
     },
+    // Fleet agents use direct MoltZap channel addressing, so LAN discovery
+    // only creates contention between colocated gateways.
+    discovery: { mdns: { mode: "off" } },
     channels: {
       [OPENCLAW_CHANNEL_ID]: {
         accounts: [
