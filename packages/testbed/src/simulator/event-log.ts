@@ -34,7 +34,7 @@ import {
   WallTimeMs,
 } from "./ids.js";
 import {
-  SlotName,
+  AgentName,
   FaultKind,
   JsonValue,
   LogicalTime,
@@ -47,7 +47,7 @@ import type {
   EventLogSealed,
   RecordingInvalid,
   RecordingStoreFailed,
-  ReceiverLost,
+  TraceCaptureFailed,
   TranscriptDrainFailed,
 } from "./errors.js";
 
@@ -111,7 +111,7 @@ export class AgentLaunched extends Schema.TaggedClass<AgentLaunched>()(
   {
     ...envelopeFields,
     source: Schema.Literal("lifecycle"),
-    slot: SlotName,
+    agent: AgentName,
   },
 ) {}
 
@@ -121,7 +121,7 @@ export class AgentReady extends Schema.TaggedClass<AgentReady>()(
   {
     ...envelopeFields,
     source: Schema.Literal("lifecycle"),
-    slot: SlotName,
+    agent: AgentName,
   },
 ) {}
 
@@ -131,7 +131,7 @@ export class AgentExited extends Schema.TaggedClass<AgentExited>()(
   {
     ...envelopeFields,
     source: Schema.Literal("lifecycle"),
-    slot: SlotName,
+    agent: AgentName,
     exitCode: Schema.NullOr(Schema.Int).annotations({
       description: "Exit code; null when the process died from a signal",
     }),
@@ -194,7 +194,7 @@ export class TaskInjected extends Schema.TaggedClass<TaskInjected>()(
     source: Schema.Literal("scheduler"),
     episodeId: EpisodeId,
     principal: PrincipalName,
-    to: SlotName,
+    to: AgentName,
     content: Schema.String.annotations({
       description: "Task content, redaction policy applied",
     }),
@@ -268,7 +268,7 @@ export class FaultApplied extends Schema.TaggedClass<FaultApplied>()(
     source: Schema.Literal("fault"),
     correlationId: CorrelationId,
     faultKind: FaultKind,
-    target: SlotName,
+    target: AgentName,
     scheduledAtMs: LogicalTime,
     effect: Schema.Literal("applied", "target-not-ready"),
     episodeId: Schema.optional(EpisodeId),
@@ -283,7 +283,7 @@ export class FaultReverted extends Schema.TaggedClass<FaultReverted>()(
     source: Schema.Literal("fault"),
     correlationId: CorrelationId,
     faultKind: FaultKind,
-    target: SlotName,
+    target: AgentName,
     scheduledAtMs: LogicalTime,
     effect: Schema.Literal("reverted", "was-not-applied"),
     episodeId: Schema.optional(EpisodeId),
@@ -357,7 +357,7 @@ export class ToolCallRequested extends Schema.TaggedClass<ToolCallRequested>()(
     ...envelopeFields,
     source: Schema.Literal("proxy"),
     correlationId: CorrelationId,
-    slot: SlotName,
+    agent: AgentName,
     mount: Schema.String.annotations({ description: "MCP server mount name" }),
     tool: Schema.String.annotations({ description: "Tool name invoked" }),
     args: JsonValue.annotations({
@@ -374,7 +374,7 @@ export class ToolCallCompleted extends Schema.TaggedClass<ToolCallCompleted>()(
     ...envelopeFields,
     source: Schema.Literal("proxy"),
     correlationId: CorrelationId,
-    slot: SlotName,
+    agent: AgentName,
     mount: Schema.String,
     tool: Schema.String,
     result: JsonValue.annotations({
@@ -495,7 +495,7 @@ export function makeEventLog(_deps: {
 export type Receiver = {
   /** OTLP/HTTP endpoint the server container exports spans to. */
   readonly endpoint: string;
-  awaitFailure(): Effect.Effect<never, ReceiverLost, never>;
+  awaitFailure(): Effect.Effect<never, TraceCaptureFailed, never>;
   drainTraces(): Effect.Effect<TracesJson, never, never>;
 };
 
@@ -514,7 +514,7 @@ export function makeReceiver(_deps: {
   readonly log: EventLog;
   readonly failBoundMs: number;
   readonly secrets: Secrets;
-}): Effect.Effect<Receiver, ReceiverLost, Scope.Scope> {
+}): Effect.Effect<Receiver, TraceCaptureFailed, Scope.Scope> {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }

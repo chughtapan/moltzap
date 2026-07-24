@@ -50,9 +50,9 @@ describe("simulator coverage inventory (hermetic CI tier, paths 1-12)", () => {
 });
 
 describe("simulator coverage inventory (hermetic CI tier, paths 13-24)", () => {
-  it.todo("13. Mounts OpenClaw: plugin/CLI-config wiring");
-  it.todo("14. Mounts Nanoclaw: container-mount wiring");
-  it.todo("15. Mounts absent: no-mount path unchanged");
+  it.todo("13. Environment OpenClaw: plugin/CLI-config wiring");
+  it.todo("14. Environment Nanoclaw: container-mount wiring");
+  it.todo("15. Environment absent: no-mount path unchanged");
   it.todo("16. unknown span kind: recorded raw, never dropped");
   it.todo(
     "17. fault window overlapping episode end: revert after termination executed; both boundaries recorded",

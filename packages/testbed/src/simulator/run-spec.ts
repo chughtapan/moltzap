@@ -62,13 +62,13 @@ export const Seed: Schema.Schema<Seed, number> = Schema.Int.pipe(
   }),
 );
 
-export type SlotName = string & Brand.Brand<"SlotName">;
-/** Stable per-collection slot name; never allocated from construction order. */
-export const SlotName: Schema.Schema<SlotName, string> =
+export type AgentName = string & Brand.Brand<"AgentName">;
+/** Stable per-collection agent name; never allocated from construction order. */
+export const AgentName: Schema.Schema<AgentName, string> =
   Schema.NonEmptyString.pipe(
-    Schema.brand("SlotName"),
+    Schema.brand("AgentName"),
     Schema.annotations({
-      description: "Agent slot name, unique within the run",
+      description: "Agent name, unique within the run",
     }),
   );
 
@@ -102,29 +102,29 @@ export const ImageDigest: Schema.Schema<ImageDigest, string> =
   );
 
 // ---------------------------------------------------------------------------
-// Slot configuration (adapter-owned canonical configs)
+// Agent configuration (adapter-owned canonical configs)
 // ---------------------------------------------------------------------------
 
-/** Isolation posture per slot; container is mandatory for adversarial roles. */
-export const Isolation = Schema.Literal("host", "container").annotations({
-  description: "Where the slot's runtime process runs (host | container)",
+/** Where the agent's runtime process runs; container is mandatory for adversarial roles. */
+export const RunsIn = Schema.Literal("host", "container").annotations({
+  description: "Where the agent's runtime process runs (host | container)",
 });
-export type Isolation = typeof Isolation.Type;
+export type RunsIn = typeof RunsIn.Type;
 
-/** Behavioral role of the slot; adversarial requires container isolation. */
-export const SlotRole = Schema.Literal("standard", "adversarial").annotations({
+/** Behavioral role of the agent; adversarial requires container isolation. */
+export const AgentRole = Schema.Literal("standard", "adversarial").annotations({
   description:
-    "Slot role; adversarial triggers the config-time isolation check",
+    "Agent role; adversarial triggers the config-time isolation check",
 });
-export type SlotRole = typeof SlotRole.Type;
+export type AgentRole = typeof AgentRole.Type;
 
 /**
  * OpenClaw adapter canonical config. The adapter validates and fails fast
  * on anything it cannot honor; the simulator adds no normalized model
  * abstraction on top.
  */
-export class OpenClawSlotConfig extends Schema.Class<OpenClawSlotConfig>(
-  "OpenClawSlotConfig",
+export class OpenClawConfig extends Schema.Class<OpenClawConfig>(
+  "OpenClawConfig",
 )({
   modelId: Schema.optional(
     Schema.String.annotations({
@@ -140,8 +140,8 @@ export class OpenClawSlotConfig extends Schema.Class<OpenClawSlotConfig>(
 }) {}
 
 /** Nanoclaw adapter canonical config; modelId is honored (T11). */
-export class NanoclawSlotConfig extends Schema.Class<NanoclawSlotConfig>(
-  "NanoclawSlotConfig",
+export class NanoclawConfig extends Schema.Class<NanoclawConfig>(
+  "NanoclawConfig",
 )({
   modelId: Schema.optional(
     Schema.String.annotations({
@@ -157,9 +157,7 @@ export class NanoclawSlotConfig extends Schema.Class<NanoclawSlotConfig>(
 }) {}
 
 /** StubRuntime canonical config: a named behavior script, always bannered as scripted. */
-export class StubSlotConfig extends Schema.Class<StubSlotConfig>(
-  "StubSlotConfig",
-)({
+export class StubConfig extends Schema.Class<StubConfig>("StubConfig")({
   script: Schema.String.annotations({
     description:
       "Registered StubRuntime behavior-script name (instrument fixture, not scenario logic)",
@@ -175,21 +173,21 @@ export const RuntimeKind = Schema.Literal(
 export type RuntimeKind = typeof RuntimeKind.Type;
 
 /**
- * Runtime assignment per slot: `agent_slot -> (runtime kind + that
+ * Runtime assignment per agent: `agent -> (runtime kind + that
  * adapter's canonical config)`. The union is closed over registered
  * runtime kinds; heterogeneous kinds per collection are configuration.
  */
 export const RuntimeAssignment = Schema.Union(
-  Schema.TaggedStruct("openclaw", { config: OpenClawSlotConfig }),
-  Schema.TaggedStruct("nanoclaw", { config: NanoclawSlotConfig }),
-  Schema.TaggedStruct("stub", { config: StubSlotConfig }),
+  Schema.TaggedStruct("openclaw", { config: OpenClawConfig }),
+  Schema.TaggedStruct("nanoclaw", { config: NanoclawConfig }),
+  Schema.TaggedStruct("stub", { config: StubConfig }),
 ).annotations({ description: "Runtime kind + adapter-owned canonical config" });
 export type RuntimeAssignment = typeof RuntimeAssignment.Type;
 
-/** One MCP server the simulator mounts into the slot's runtime at spawn time. */
-export class McpMount extends Schema.Class<McpMount>("McpMount")({
+/** One MCP server the simulator wires into the agent's runtime at spawn time. */
+export class McpServer extends Schema.Class<McpServer>("McpServer")({
   name: Schema.NonEmptyString.annotations({
-    description: "Mount name, unique within the slot",
+    description: "MCP server name, unique within the agent",
   }),
   command: Schema.NonEmptyString.annotations({
     description: "Command the simulator spawns for this MCP server",
@@ -209,14 +207,14 @@ export class McpMount extends Schema.Class<McpMount>("McpMount")({
   ),
 }) {}
 
-/** One agent slot: identity-bearing fields required, never defaulted. */
-export class Slot extends Schema.Class<Slot>("Slot")({
-  slot: SlotName,
+/** One agent: identity-bearing fields required, never defaulted. */
+export class Agent extends Schema.Class<Agent>("Agent")({
+  name: AgentName,
   runtime: RuntimeAssignment,
-  isolation: Isolation,
-  role: SlotRole,
-  mounts: Schema.optionalWith(
-    Schema.Array(McpMount).annotations({
+  runsIn: RunsIn,
+  role: AgentRole,
+  mcpServers: Schema.optionalWith(
+    Schema.Array(McpServer).annotations({
       description:
         "MCP servers mounted at spawn, each wrapped in the logging proxy",
     }),
@@ -232,7 +230,7 @@ export class Slot extends Schema.Class<Slot>("Slot")({
           description: "File content seeded into the workspace",
         }),
       }),
-    ).annotations({ description: "Files seeded into the slot's workspace" }),
+    ).annotations({ description: "Files seeded into the agent's workspace" }),
     { default: () => [] },
   ),
 }) {}
@@ -266,21 +264,21 @@ export type FaultKind = typeof FaultKind.Type;
 
 export const FaultSpec = Schema.Union(
   Schema.TaggedStruct("sever", {
-    target: SlotName.annotations({
-      description: "Slot whose WS connection is severed",
+    target: AgentName.annotations({
+      description: "Agent whose WS connection is severed",
     }),
   }),
   Schema.TaggedStruct("delay", {
-    target: SlotName.annotations({
-      description: "Slot whose connection is delayed",
+    target: AgentName.annotations({
+      description: "Agent whose connection is delayed",
     }),
     delayMs: Schema.Positive.annotations({
       description: "Added one-way latency in milliseconds",
     }),
   }),
   Schema.TaggedStruct("throttle", {
-    target: SlotName.annotations({
-      description: "Slot whose connection is throttled",
+    target: AgentName.annotations({
+      description: "Agent whose connection is throttled",
     }),
     bytesPerSecond: Schema.Positive.annotations({
       description: "Connection bandwidth cap",
@@ -332,8 +330,8 @@ export class TaskInjectionSpec extends Schema.Class<TaskInjectionSpec>(
   "TaskInjectionSpec",
 )({
   principal: PrincipalName,
-  to: SlotName.annotations({
-    description: "Slot the task is delivered to",
+  to: AgentName.annotations({
+    description: "Agent the task is delivered to",
   }),
   content: Schema.String.annotations({
     description: "Task content delivered as the principal's speech",
@@ -456,8 +454,8 @@ export class RecordingSpec extends Schema.Class<RecordingSpec>("RecordingSpec")(
  */
 export class RunSpec extends Schema.Class<RunSpec>("RunSpec")({
   seed: Seed,
-  agents: Schema.NonEmptyArray(Slot).annotations({
-    description: "The agent collection; slot names must be unique",
+  agents: Schema.NonEmptyArray(Agent).annotations({
+    description: "The agent collection; agent names must be unique",
   }),
   server: ServerSpec,
   world: Schema.optionalWith(WorldSpec, {
@@ -488,7 +486,7 @@ export type MaterializedRunSpec = RunSpec & Brand.Brand<"MaterializedRunSpec">;
  */
 export type AgentFacingRunSpec = Omit<MaterializedRunSpec, "condition">;
 
-/** Per-field provenance recorded during materialization (drives `spec explain`). */
+/** Per-field provenance recorded during materialization (drives `spec show`). */
 export type FieldProvenance = {
   readonly path: ReadonlyArray<string>;
   readonly origin: "user" | "default" | "profile";
@@ -507,7 +505,7 @@ export type MaterializationReport = {
  * schema violations, adapter-rejected fields, adversarial roles without
  * container isolation, fault kinds this build does not honor (v0: delay,
  * throttle), unregistered driver names, and driver-rejected configs never
- * reach launch. Cross-field rules validated here: slot names unique,
+ * reach launch. Cross-field rules validated here: agent names unique,
  * `revertAtMs > applyAtMs` per fault window, fault targets name existing
  * slots.
  */

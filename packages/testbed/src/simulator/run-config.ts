@@ -9,9 +9,9 @@
 import type { Effect, Scope } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { Runtime, ServerUrl } from "../runtime.js";
-import type { AgentFacingRunSpec, SlotName, ImageDigest } from "./run-spec.js";
+import type { AgentFacingRunSpec, AgentName, ImageDigest } from "./run-spec.js";
 import type { EventLog, ServerStorageAccess } from "./event-log.js";
-import type { Mounts, MountHandle } from "./mounts.js";
+import type { Environment, MountHandle } from "./environment.js";
 import type { World } from "./world.js";
 import type { Secrets } from "./recording.js";
 import type {
@@ -57,9 +57,9 @@ export type ServerHandle = {
   readonly storage: ServerStorageAccess;
 };
 
-/** One launched slot: its runtime handle and the proxied URL it connects through. */
+/** One launched agent: its runtime handle and the proxied URL it connects through. */
 export type LaunchedAgent = {
-  readonly slot: SlotName;
+  readonly slot: AgentName;
   readonly agentId: AgentId;
   readonly runtime: SimulatorRuntime;
   readonly serverUrl: ServerUrl;
@@ -72,7 +72,7 @@ export type TeardownReport = {
 };
 
 /**
- * Everything launch brings up. `mounts` aggregates every slot's
+ * Everything launch brings up. `mounts` aggregates every agent's
  * `MountHandle`, so `run` can race each proxy-health channel
  * against episode termination. `run` calls `teardown` explicitly
  * during shutdown, before the event log seals, so the teardown report is
@@ -90,9 +90,9 @@ export type Society = {
 // Agent-runner contract
 // ---------------------------------------------------------------------------
 
-/** Collaborators launch wires per slot: mounts, per-agent endpoints, the event log, and the secret registry. */
+/** Collaborators launch wires per agent: environment, per-agent endpoints, the event log, and the secret registry. */
 export type LaunchDeps = {
-  readonly mounts: Mounts;
+  readonly environment: Environment;
   readonly world: World;
   readonly log: EventLog;
   readonly secrets: Secrets;
@@ -102,12 +102,12 @@ export type LaunchDeps = {
  * Launch contract: bring up the server container, provision per-run
  * identities (agent registrations and the observer credential against
  * the fresh server, every minted credential registered in `deps.secrets`
- * before any process spawns), allocate each slot's proxied endpoint,
+ * before any process spawns), allocate each agent's proxied endpoint,
  * prepare mounts, spawn runtimes, and await readiness — collection in,
  * addressable collection out. The spec arrives condition-stripped
  * (`AgentFacingRunSpec`), so treatment labels cannot reach launch-derived
  * channels. Partial multi-agent launch tears down already-started members
- * in reverse order and fails with the failing slot's error.
+ * in reverse order and fails with the failing agent's error.
  */
 export interface Launcher {
   launch(
