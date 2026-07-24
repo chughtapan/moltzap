@@ -78,15 +78,7 @@ export const connectClients = (
     { concurrency: clients.length },
   ).pipe(Effect.asVoid, Effect.withSpan("connectClients"));
 
-export const closeClients = (
-  ...clients: ReadonlyArray<TestClient>
-): Effect.Effect<void> =>
-  Effect.all(
-    clients.map((client) => client.close()),
-    { concurrency: clients.length },
-  ).pipe(Effect.asVoid, Effect.withSpan("closeClients"));
-
-/** Error-free finalizer: closes services synchronously, then each client in order. */
+/** Error-free finalizer: closes services synchronously, then all clients concurrently. */
 export const closeAll = (
   services: ReadonlyArray<ConnectedService>,
   clients: ReadonlyArray<TestClient>,
@@ -96,7 +88,7 @@ export const closeAll = (
   }).pipe(
     Effect.zipRight(
       Effect.forEach(clients, (client) => client.close().pipe(Effect.ignore), {
-        concurrency: 1,
+        concurrency: clients.length,
       }),
     ),
     Effect.asVoid,

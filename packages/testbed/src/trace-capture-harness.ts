@@ -191,7 +191,6 @@ interface ConversationExecutionState {
   readonly closers: Array<HarnessClient>;
   readonly participants: Array<ConversationParticipant>;
   readonly responses: Array<ConversationResponse>;
-  readonly responseTimeoutMs: number | undefined;
 }
 
 function failHarness(message: string): HarnessFailure {
@@ -498,22 +497,22 @@ function createGroupConversation(input: {
 
 function createConversationState(
   sender: ConnectedActor,
-  responseTimeoutMs: number | undefined,
 ): ConversationExecutionState {
   return {
     sender,
     closers: [sender.client],
     participants: [{ id: sender.agentId, name: sender.name, role: "sender" }],
     responses: [],
-    responseTimeoutMs,
   };
 }
 
+// Concurrent: the clients are independent sockets, and serial closes would
+// stack the per-close timeout into an N x 5s worst-case unwind.
 function closeConversationClients(
   clients: ReadonlyArray<HarnessClient>,
 ): Effect.Effect<void, never, never> {
-  return Effect.forEach([...clients].reverse(), closeClient, {
-    concurrency: 1,
+  return Effect.forEach(clients, closeClient, {
+    concurrency: clients.length,
     discard: true,
   });
 }
@@ -556,6 +555,7 @@ function executeDirectConversation(
       scope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
+      timeoutMs: input.payload.runtime.responseTimeoutMs,
     });
   });
 }
@@ -584,7 +584,7 @@ function executeGroupConversation(
       bystanders,
       input.targetAgentId,
       scope,
-      state.responseTimeoutMs,
+      input.payload.runtime.responseTimeoutMs,
     );
     yield* sendSetupAndFollowUps({
       state,
@@ -593,6 +593,7 @@ function executeGroupConversation(
       scope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
+      timeoutMs: input.payload.runtime.responseTimeoutMs,
     });
   });
 }
@@ -621,6 +622,7 @@ function executeCrossConversation(
       scope: firstScope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
+      timeoutMs: input.payload.runtime.responseTimeoutMs,
     });
     const probeSender = yield* registerProbeSender(input, state);
     const secondScope = yield* createDirectConversation(
@@ -634,7 +636,7 @@ function executeCrossConversation(
         taskId: secondScope.taskId,
         conversationId: secondScope.conversationId,
         message: input.payload.conversation.probeMessage,
-        timeoutMs: state.responseTimeoutMs,
+        timeoutMs: input.payload.runtime.responseTimeoutMs,
       }),
     );
   });
@@ -708,6 +710,7 @@ function sendSetupAndFollowUps(input: {
   readonly scope: TaskScope;
   readonly setupMessage: string;
   readonly followUpMessages: ReadonlyArray<string>;
+  readonly timeoutMs: number | undefined;
 }) {
   return Effect.gen(function* () {
     input.state.responses.push(
@@ -717,7 +720,7 @@ function sendSetupAndFollowUps(input: {
         taskId: input.scope.taskId,
         conversationId: input.scope.conversationId,
         message: input.setupMessage,
-        timeoutMs: input.state.responseTimeoutMs,
+        timeoutMs: input.timeoutMs,
       }),
     );
     for (const followUp of input.followUpMessages) {
@@ -728,7 +731,7 @@ function sendSetupAndFollowUps(input: {
           taskId: input.scope.taskId,
           conversationId: input.scope.conversationId,
           message: followUp,
-          timeoutMs: input.state.responseTimeoutMs,
+          timeoutMs: input.timeoutMs,
         }),
       );
     }
@@ -776,10 +779,7 @@ function executeConversationPlan(input: {
       input.baseUrl,
       input.payload.conversation.senderName ?? "eval-sender",
     );
-    const state = createConversationState(
-      sender,
-      input.payload.runtime.responseTimeoutMs,
-    );
+    const state = createConversationState(sender);
 
     // Cleanup MUST be Effect.ensuring, not a gen-body try/finally: on the
     // failure path Effect.gen never resumes the generator, so a finally's
@@ -930,6 +930,11 @@ function startHarnessRuntime(input: {
   );
 }
 
+const SERVER_STOP_TIMEOUT_MS = 15_000;
+
+// Bounded like every other finalizer in the unwind chain: app.close() waits
+// for connection drain, so a socket that survived client close and runtime
+// teardown must degrade to a leak warning instead of wedging the caller.
 function stopCoreTraceServer(
   serverTestModule: ServerTestModule,
 ): Effect.Effect<void> {
@@ -937,7 +942,14 @@ function stopCoreTraceServer(
     try: () => Promise.resolve(serverTestModule.stopCoreTestServer()),
     catch: (error) =>
       error instanceof Error ? error : new Error(String(error)),
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(
+    Effect.timeout(Duration.millis(SERVER_STOP_TIMEOUT_MS)),
+    Effect.catchAll(() =>
+      Effect.logWarning(
+        "core test server did not stop within the bound; abandoning close",
+      ),
+    ),
+  );
 }
 
 function executeTraceRun(input: {
