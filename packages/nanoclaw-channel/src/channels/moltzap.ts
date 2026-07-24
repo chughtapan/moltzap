@@ -48,6 +48,7 @@ class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
 const MOLTZAP_CHANNEL = "moltzap";
 const MOLTZAP_JID_PREFIX = "mz:";
 const EVAL_NAME_ID_CHARS = 8;
+const MAX_TRACKED_CONVERSATIONS = 4096;
 export const EVAL_AGENT_GROUP_ID = "eval-agent";
 
 // Harness runs start from an empty database, so eval mode also provisions
@@ -170,7 +171,9 @@ export class MoltZapAdapter implements ChannelAdapter {
   private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
   // Per-jid memory of the task and branded conversation id from the most
   // recent inbound. `agent/message/send` requires both; keeping the branded
-  // id avoids re-decoding it on every reply.
+  // id avoids re-decoding it on every reply. Bounded FIFO: an evicted
+  // conversation degrades to the existing "no taskId" deliver error until
+  // its next inbound refreshes the entry.
   private readonly conversationsByJid = new Map<
     string,
     { readonly taskId: TaskId; readonly conversationId: ConversationId }
@@ -355,6 +358,21 @@ export class MoltZapAdapter implements ChannelAdapter {
     });
   }
 
+  private rememberConversation(
+    jid: string,
+    enriched: EnrichedInboundMessage,
+  ): void {
+    this.conversationsByJid.delete(jid);
+    if (this.conversationsByJid.size >= MAX_TRACKED_CONVERSATIONS) {
+      const oldest = this.conversationsByJid.keys().next().value;
+      if (oldest !== undefined) this.conversationsByJid.delete(oldest);
+    }
+    this.conversationsByJid.set(jid, {
+      taskId: enriched.taskId,
+      conversationId: enriched.conversationId,
+    });
+  }
+
   private handleInbound(enriched: EnrichedInboundMessage): void {
     // Own outbound replies echo back through the notification stream; the
     // router has no is-from-me concept, so they are dropped here.
@@ -363,10 +381,7 @@ export class MoltZapAdapter implements ChannelAdapter {
     if (config === null) return;
     const jid = jidFromConversationId(enriched.conversationId);
     this.rememberDispatchLease(jid, enriched);
-    this.conversationsByJid.set(jid, {
-      taskId: enriched.taskId,
-      conversationId: enriched.conversationId,
-    });
+    this.rememberConversation(jid, enriched);
     const isGroup = enriched.conversationMeta?.type === "group";
     if (this.evalMode) {
       this.ensureEvalWiring(jid, enriched, isGroup);
