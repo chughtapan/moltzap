@@ -2,6 +2,7 @@
   "group": "Modules",
   "pages": [
     "modules/client/src",
+    "modules/openclaw-channel/src",
     "modules/protocol/conversation",
     "modules/protocol/conversation/requirements",
     "modules/protocol/identity",

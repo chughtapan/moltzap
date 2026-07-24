@@ -4,9 +4,8 @@
  * Installation and cache promotion live in `nanoclaw-install.ts`; this module
  * owns only isolated runtime directories and subprocess supervision.
  */
-import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
   Command,
   FileSystem,
@@ -14,17 +13,24 @@ import {
   HttpClientRequest,
   Path,
 } from "@effect/platform";
-import type { Process, Signal } from "@effect/platform/CommandExecutor";
+import type { Process } from "@effect/platform/CommandExecutor";
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
-import { Data, Duration, Effect, Exit, Fiber, Scope } from "effect";
+import { Data, Duration, Effect, Exit, Fiber, Option, Scope } from "effect";
 import {
-  resolveWorkspaceFileDestination,
+  seedWorkspaceFiles,
   TESTBED_PROFILE_NAME,
   writeMoltZapProfileConfig,
 } from "./channel-plugin-install.js";
-import type { NanoclawRuntimeInstall } from "./nanoclaw-install.js";
-import { consumeProcessStream, makeCommandHelpers } from "./child-process.js";
+import {
+  MOLTZAP_TESTBED_CACHE_ROOT,
+  type NanoclawRuntimeInstall,
+} from "./nanoclaw-install.js";
+import {
+  escalatingKill,
+  makeCommandHelpers,
+  startSupervisedProcess,
+} from "./child-process.js";
 
 // OneCLI gateway — nanoclaw's container-runner calls this for per-container
 // credential injection. Running locally from ~/.onecli/docker-compose.yml; the
@@ -48,7 +54,6 @@ const ONECLI_READY_PROBE_INTERVAL_MS = 500;
 const CONNECT_WATCH_INTERVAL_MS = 200;
 const LOG_TAIL_LINE_COUNT = 50;
 const MILLISECONDS_PER_SECOND = 1_000;
-const NANOCLAW_NAMESPACE_HASH_LENGTH = 12;
 
 export interface NanoclawRuntimeHandle {
   proc: Process;
@@ -103,29 +108,12 @@ function toRuntimeError(message: string, cause?: unknown) {
 
 const { execEffect, fsEffect } = makeCommandHelpers(toRuntimeError);
 
-// One resolved Path service for the sync helpers that pass it onward.
-const PLATFORM_PATH = Effect.runSync(
-  Path.Path.pipe(Effect.provide(Path.layer)),
-);
-
 function logTail(capturedLogs: readonly string[]): string {
   return capturedLogs
     .join("")
     .split("\n")
     .slice(-LOG_TAIL_LINE_COUNT)
     .join("\n");
-}
-
-function killProcessAndWait(
-  proc: Process,
-  signal: Signal,
-  timeoutMs: number,
-): Effect.Effect<boolean, never, never> {
-  return proc.kill(signal).pipe(
-    Effect.timeout(`${timeoutMs} millis`),
-    Effect.as(true),
-    Effect.catchAll(() => Effect.succeed(false)),
-  );
 }
 
 function isOnecliReachable(): Effect.Effect<boolean, never> {
@@ -214,12 +202,45 @@ function normalizeNanoclawServerUrl(serverUrl: string): string {
     .replace(/^wss:/, "https:");
 }
 
-function nanoclawRuntimeNamespace(opts: StartNanoclawRuntimeOptions): string {
-  const serverHash = createHash("sha256")
-    .update(normalizeNanoclawServerUrl(opts.serverUrl))
-    .digest("hex")
-    .slice(0, NANOCLAW_NAMESPACE_HASH_LENGTH);
-  return `${opts.agentId}-${serverHash}`;
+// Runtime dirs are docker bind-mount sources (agent-runner src, group and
+// session dirs), and macOS VM-backed engines only share paths under the
+// user home by default — the system temp dir is invisible to containers —
+// so per-agent dirs live under the testbed cache root instead.
+const NANOCLAW_RUNTIME_DIR_ROOT = join(
+  MOLTZAP_TESTBED_CACHE_ROOT,
+  "nanoclaw-runtimes",
+);
+
+// Hard-killed runs skip teardown, and outside the OS temp dir no reaper
+// backstops the leak. The generous age gate exists because a live agent's
+// root mtime never refreshes — only dirs no plausible run still owns are
+// swept.
+const STALE_RUNTIME_DIR_MAX_AGE_MS = 7 * 86_400_000;
+
+function sweepStaleRuntimeDirs() {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      Effect.gen(function* () {
+        if (!(yield* fileSystem.exists(NANOCLAW_RUNTIME_DIR_ROOT))) return;
+        const entries = yield* fileSystem.readDirectory(
+          NANOCLAW_RUNTIME_DIR_ROOT,
+        );
+        const cutoff = Date.now() - STALE_RUNTIME_DIR_MAX_AGE_MS;
+        for (const entry of entries) {
+          const dir = join(NANOCLAW_RUNTIME_DIR_ROOT, entry);
+          const info = yield* fileSystem.stat(dir);
+          const mtime = Option.getOrNull(info.mtime);
+          if (mtime !== null && mtime.getTime() <= cutoff) {
+            yield* fileSystem.remove(dir, { recursive: true, force: true });
+          }
+        }
+      }),
+    ),
+    Effect.catchAll((cause) =>
+      Effect.logWarning("failed to sweep stale nanoclaw runtime dirs", cause),
+    ),
+    Effect.withSpan("sweepStaleRuntimeDirs"),
+  );
 }
 
 function createNanoclawRuntimeDir() {
@@ -227,9 +248,16 @@ function createNanoclawRuntimeDir() {
     Effect.flatMap((fileSystem) =>
       fsEffect(
         "create nanoclaw runtime directory",
-        fileSystem.makeTempDirectory({
-          prefix: "moltzap-nanoclaw-runtime-",
-        }),
+        fileSystem
+          .makeDirectory(NANOCLAW_RUNTIME_DIR_ROOT, { recursive: true })
+          .pipe(
+            Effect.andThen(
+              fileSystem.makeTempDirectory({
+                directory: NANOCLAW_RUNTIME_DIR_ROOT,
+                prefix: "moltzap-nanoclaw-runtime-",
+              }),
+            ),
+          ),
       ),
     ),
   );
@@ -239,51 +267,14 @@ function writeRuntimeWorkspaceFiles(
   runtimeDir: string,
   workspaceFiles: StartNanoclawRuntimeOptions["workspaceFiles"],
 ) {
-  if (workspaceFiles === undefined) {
-    return Effect.void;
-  }
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) =>
-      Effect.forEach(
-        workspaceFiles,
-        (file) => writeRuntimeWorkspaceFile(fileSystem, runtimeDir, file),
-        { concurrency: 1, discard: true },
-      ),
+  return seedWorkspaceFiles(
+    join(runtimeDir, "container/skills"),
+    workspaceFiles,
+  ).pipe(
+    Effect.provide(Path.layer),
+    Effect.mapError((cause) =>
+      toRuntimeError("seed nanoclaw workspace files", cause),
     ),
-  );
-}
-
-function writeRuntimeWorkspaceFile(
-  fileSystem: FileSystem.FileSystem,
-  runtimeDir: string,
-  file: NonNullable<StartNanoclawRuntimeOptions["workspaceFiles"]>[number],
-) {
-  const workspaceRoot = join(runtimeDir, "container/skills");
-  const destination = resolveWorkspaceFileDestination(
-    PLATFORM_PATH,
-    workspaceRoot,
-    file.relativePath,
-  );
-  if (destination === null) {
-    return Effect.fail(
-      toRuntimeError(
-        `workspace path must stay below its agent root: ${file.relativePath}`,
-      ),
-    );
-  }
-  const destinationDir = dirname(destination);
-  return Effect.all(
-    [
-      fsEffect(
-        `create workspace file directory ${destinationDir}`,
-        fileSystem.makeDirectory(destinationDir, { recursive: true }),
-      ),
-      fsEffect(
-        `write workspace file ${destination}`,
-        fileSystem.writeFileString(destination, file.content),
-      ),
-    ],
-    { concurrency: 1, discard: true },
   );
 }
 
@@ -294,17 +285,36 @@ function seedNanoclawRuntimeDir(
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fileSystem) =>
       Effect.all(
-        ["container", "scripts"].map((directory) =>
-          fsEffect(
-            `copy nanoclaw ${directory} into isolated runtime`,
-            fileSystem.copy(
-              join(install.cacheDir, directory),
-              join(runtimeDir, directory),
-              { overwrite: true },
+        [
+          // The runtime's cwd doubles as NanoClaw's PROJECT_ROOT: the
+          // startup tripwire reads ./package.json and the sanctioned-upgrade
+          // marker in data/ (stamped at install time through upstream's own
+          // writer), so both ride along with container/ and scripts/.
+          ...["container", "scripts", "data"].map((directory) =>
+            fsEffect(
+              `copy nanoclaw ${directory} into isolated runtime`,
+              fileSystem.copy(
+                join(install.cacheDir, directory),
+                join(runtimeDir, directory),
+                { overwrite: true },
+              ),
             ),
           ),
-        ),
-        { concurrency: 2, discard: true },
+          fsEffect(
+            "copy nanoclaw manifest into isolated runtime",
+            fileSystem.copyFile(
+              join(install.cacheDir, "package.json"),
+              join(runtimeDir, "package.json"),
+            ),
+          ),
+          fsEffect(
+            "create nanoclaw runtime temp directory",
+            fileSystem.makeDirectory(join(runtimeDir, "tmp"), {
+              recursive: true,
+            }),
+          ),
+        ],
+        { concurrency: 5, discard: true },
       ),
     ),
   );
@@ -327,8 +337,12 @@ export function buildNanoclawProcessPlan(
       MOLTZAP_EVAL_MODE: opts.autoRegisterConversations ? "1" : "0",
       CONTAINER_RUNTIME: "docker",
       CONTAINER_IMAGE: install.containerImage,
-      NANOCLAW_RUNTIME_NAMESPACE: nanoclawRuntimeNamespace(opts),
       ONECLI_URL: ONECLI_URL,
+      // The OneCLI SDK stages its gateway CA/credential bind-mount sources
+      // under os.tmpdir(); pointing TMPDIR into the runtime dir keeps them
+      // docker-shareable on macOS (the OS temp root is invisible to
+      // VM-backed engines).
+      TMPDIR: join(runtimeDir, "tmp"),
       LOG_LEVEL: "info",
     },
   };
@@ -386,24 +400,14 @@ function initializeNanoclawProcess(
   scope: Scope.CloseableScope,
   capturedLogs: string[],
 ) {
-  return Effect.gen(function* () {
-    const proc = yield* Command.start(command).pipe(Scope.extend(scope));
-    const exitFiber = yield* proc.exitCode.pipe(
-      Effect.map(Number),
-      Effect.catchAll(() => Effect.succeed(-1)),
-      Effect.forkIn(scope),
-    );
-    const appendLog = (chunk: string): void => {
-      capturedLogs.push(chunk);
-    };
-    yield* consumeProcessStream(proc.stdout, appendLog).pipe(
-      Effect.forkIn(scope),
-    );
-    yield* consumeProcessStream(proc.stderr, appendLog).pipe(
-      Effect.forkIn(scope),
-    );
-    return { proc, scope, exitFiber } satisfies StartedNanoclawProcess;
-  });
+  return startSupervisedProcess(command, scope, (chunk) => {
+    capturedLogs.push(chunk);
+  }).pipe(
+    Effect.map(
+      ({ proc, exitFiber }) =>
+        ({ proc, scope, exitFiber }) satisfies StartedNanoclawProcess,
+    ),
+  );
 }
 
 function waitForNanoclawConnection(
@@ -500,6 +504,7 @@ export function startNanoclawRuntimeEffect(
 > {
   return Effect.gen(function* () {
     yield* ensureOnecliRunning();
+    yield* sweepStaleRuntimeDirs();
     const runtimeDir = yield* createNanoclawRuntimeDir();
     return yield* startConfiguredNanoclawRuntime(
       opts,
@@ -523,14 +528,10 @@ export function stopNanoclawRuntimeEffect(
 function stopNanoclawProcess(handle: NanoclawRuntimeHandle) {
   return Effect.gen(function* () {
     if (!(yield* nanoclawProcessIsRunning(handle))) return;
-    const exited = yield* killProcessAndWait(
-      handle.proc,
-      "SIGTERM",
-      NANOCLAW_TERM_WAIT_MS,
-    );
-    if (!exited && (yield* nanoclawProcessIsRunning(handle))) {
-      yield* killProcessAndWait(handle.proc, "SIGKILL", NANOCLAW_KILL_WAIT_MS);
-    }
+    yield* escalatingKill(handle.proc, handle.exitFiber, {
+      termWaitMs: NANOCLAW_TERM_WAIT_MS,
+      killWaitMs: NANOCLAW_KILL_WAIT_MS,
+    });
   });
 }
 
