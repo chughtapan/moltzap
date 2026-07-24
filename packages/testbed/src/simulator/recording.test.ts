@@ -2,7 +2,8 @@
  * @file Property gates for the recording half: `Secrets.redact` (no
  * registered secret substring survives; fixpoint; encodings covered),
  * `recordingPath` injectivity, the local store's durably-at-most-once
- * seal, and the reader's version gate.
+ * seal, the reader's version gate, and the seal-digest verification on
+ * read.
  */
 /* eslint-disable sonarjs/assertions-in-tests -- assertion bodies are extracted to named top-level functions to satisfy the nesting caps; every test delegates to one */
 import { describe, expect, it } from "vitest";
@@ -23,7 +24,12 @@ import {
 } from "./recording.js";
 import { Seed, SpecHash } from "./run-spec.js";
 import { makeLocalRecordingStore, runIdFor } from "./local-store.js";
-import { tempStoreRoot } from "./__tests__/support.js";
+import { runHermetic, specInput, tempStoreRoot } from "./__tests__/support.js";
+import {
+  SHORT_INACTIVITY,
+  doneEpisode,
+  sealedPathOf,
+} from "./__tests__/coverage-shared.js";
 import { ERROR_TAG, EXIT } from "./__tests__/tags.js";
 
 const REDACTION_MARKER_PREFIX = "[REDACTED:k";
@@ -200,6 +206,31 @@ function allocationRaceBody(): Effect.Effect<void, unknown> {
   });
 }
 
+/** Appends one parseable events line so only the digest check can catch the tamper. */
+function appendAfterSeal(path: string): Effect.Effect<void, unknown> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.writeFileString(join(path, "events.ndjson"), "{}\n", { flag: "a" }),
+    ),
+    Effect.provide(NodeContext.layer),
+  );
+}
+
+function sealDigestTamperBody(): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const root = yield* tempStoreRoot();
+    const outcome = yield* runHermetic(
+      specInput(root, { episode: doneEpisode(SHORT_INACTIVITY) }),
+      root,
+    );
+    const path = sealedPathOf(outcome.sealedExit);
+    yield* appendAfterSeal(path);
+    const read = yield* Effect.exit(outcome.store.read(path));
+    expect(read._tag).toBe(EXIT.failure);
+    expect(JSON.stringify(read)).toContain(ERROR_TAG.recordingInvalid);
+  });
+}
+
 function versionGateBody(): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     const root = yield* tempStoreRoot();
@@ -217,6 +248,7 @@ function versionGateBody(): Effect.Effect<void, unknown> {
   });
 }
 
+// @agent-code-guard/regression-only: the store invariants are exercised as concurrent races and byte-tamper regressions; the generative gates of this file live in the Secrets.redact and recordingPath describes
 describe("LocalRecordingStore", () => {
   it("seals durably at most once: one winner, losers observe AlreadySealed, sealed files never rewrite (path 33 store half, property-adjacent race)", () =>
     Effect.runPromise(sealRaceBody().pipe(Effect.orDie)));
@@ -226,4 +258,7 @@ describe("LocalRecordingStore", () => {
 
   it("hard-fails on a recordingSchemaVersion mismatch before full decode (path 8 grader gate)", () =>
     Effect.runPromise(versionGateBody().pipe(Effect.orDie)));
+
+  it("rejects a sealed recording whose bytes changed after sealing (seal digest verification, regression)", () =>
+    Effect.runPromise(sealDigestTamperBody().pipe(Effect.orDie)));
 });

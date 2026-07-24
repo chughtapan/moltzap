@@ -21,7 +21,7 @@ import {
   HttpClient,
 } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Duration, Effect, Schema, type Scope } from "effect";
+import { Duration, Effect, type Scope } from "effect";
 import {
   ServerUrl as mintServerUrl,
   type RuntimeServerHandle,
@@ -51,7 +51,7 @@ import type {
   Society,
   TeardownReport,
 } from "./run-config.js";
-import { WallTimeMs } from "./ids.js";
+import { wallTimeNow } from "./ids.js";
 import {
   AgentLaunchFailed,
   ProvisioningFailed,
@@ -105,7 +105,7 @@ function enqueueLifecycle(
     .enqueue({
       ...fields,
       source: "lifecycle",
-      wallTime: Schema.decodeSync(WallTimeMs)(Date.now()),
+      wallTime: wallTimeNow(),
     })
     .pipe(
       Effect.asVoid,
@@ -436,11 +436,13 @@ function launchOneAgent(
       deps.secrets,
     );
     const runtime = yield* runtimeFor(agent, mount, observer);
+    yield* spawnAgent(runtime, agent, minted, endpoint);
+    // `agent.launched` asserts the runtime process was spawned, so it
+    // enqueues only after the spawn succeeds.
     yield* enqueueLifecycle(deps, {
       _tag: "agent.launched",
       agent: agent.name,
     });
-    yield* spawnAgent(runtime, agent, minted, endpoint);
     const ready = yield* runtime.waitUntilReady(spec.timeouts.readyTimeoutMs);
     yield* readyOrFail(agent, ready);
     yield* enqueueLifecycle(deps, { _tag: "agent.ready", agent: agent.name });

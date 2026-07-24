@@ -43,6 +43,7 @@ import {
   SHORT_INACTIVITY,
   doneEpisode,
   outcomeOf,
+  sealedPathOf,
   severWindow,
 } from "./coverage-shared.js";
 
@@ -274,10 +275,8 @@ export function path9(): Effect.Effect<void, unknown, never> {
     expect(endpointA).not.toBe(endpointB);
     yield* postSpansWhenLive(startedA, 2, [RUN_A_SPAN, DONE_SPAN]);
     yield* postSpansWhenLive(startedB, 2, [RUN_B_SPAN, DONE_SPAN]);
-    expect((yield* startedA.join)._tag).toBe(EXIT.success);
-    expect((yield* startedB.join)._tag).toBe(EXIT.success);
-    const pathA = yield* expectedAttemptPath(inputA, root);
-    const pathB = yield* expectedAttemptPath(inputB, root);
+    const pathA = sealedPathOf(yield* startedA.join);
+    const pathB = sealedPathOf(yield* startedB.join);
     expect(pathA).not.toBe(pathB);
     yield* assertTracesDisjoint(startedA, pathA, startedB, pathB);
   });

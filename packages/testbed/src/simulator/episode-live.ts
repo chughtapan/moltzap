@@ -8,8 +8,8 @@
  * outstanding fault reverts (a revert firing after episode end is still
  * executed and recorded) before the controller returns.
  */
-import { Deferred, Effect, Option, Schema, Stream } from "effect";
-import { CorrelationId, EpisodeId, WallTimeMs } from "./ids.js";
+import { Deferred, Effect, Either, Option, Schema, Stream } from "effect";
+import { CorrelationId, EpisodeId, wallTimeNow } from "./ids.js";
 import type {
   AgentFacingRunSpec,
   FaultScheduleEntry,
@@ -85,10 +85,6 @@ function mintEpisodeId(): EpisodeId {
   return Schema.decodeSync(EpisodeId)(crypto.randomUUID());
 }
 
-function wallNow(): WallTimeMs {
-  return Schema.decodeSync(WallTimeMs)(Date.now());
-}
-
 /**
  * Scheduler-side enqueue. An `EventLogSealed` rejection means the run is
  * already shutting down; the scheduler treats it as episode end, never as
@@ -118,7 +114,7 @@ function enqueueScheduler(
       },
 ): Effect.Effect<void, never, never> {
   return ctx.deps.log
-    .enqueue({ ...fields, source: "scheduler", wallTime: wallNow() })
+    .enqueue({ ...fields, source: "scheduler", wallTime: wallTimeNow() })
     .pipe(
       Effect.asVoid,
       Effect.catchTag("EventLogSealed", () => Effect.void),
@@ -149,7 +145,7 @@ function enqueueFaultEvent(
     .enqueue({
       ...fields,
       source: "fault",
-      wallTime: wallNow(),
+      wallTime: wallTimeNow(),
       episodeId: ctx.episodeId,
     })
     .pipe(
@@ -248,7 +244,7 @@ function watchOneAgent(
         .enqueue({
           _tag: "agent.exited",
           source: "lifecycle",
-          wallTime: wallNow(),
+          wallTime: wallTimeNow(),
           agent: agent.slot,
           exitCode: exit.exitCode,
           episodeId: ctx.episodeId,
@@ -381,6 +377,7 @@ function runOneFaultWindow(
       Effect.dieMessage("unhonored fault kind escaped materialization"),
     ),
     Effect.catchTag("FaultApplyFailed", (cause) => failEpisode(ctx, cause)),
+    Effect.catchTag("FaultRevertFailed", (cause) => failEpisode(ctx, cause)),
   );
 }
 
@@ -397,17 +394,22 @@ function recordUnreadyWindow(
     scheduledAtMs: entry.applyAtMs,
     effect: "target-not-ready",
   }).pipe(
-    Effect.zipRight(sleepUntilLogical(ctx, entry.revertAtMs)),
+    // The pending `was-not-applied` boundary registers as outstanding
+    // before the timer sleeps, so an episode terminating first still
+    // records it through the post-termination sweep.
     Effect.zipRight(
-      enqueueFaultEvent(ctx, {
-        _tag: "fault.reverted",
-        correlationId,
-        faultKind: entry.fault._tag,
-        target: entry.fault.target,
-        scheduledAtMs: entry.revertAtMs,
-        effect: "was-not-applied",
+      Effect.sync(() => {
+        ctx.outstandingReverts.push({
+          entry,
+          revert: Effect.void,
+          correlationId,
+          applied: false,
+        });
       }),
     ),
+    Effect.zipRight(sleepUntilLogical(ctx, entry.revertAtMs)),
+    Effect.zipRight(Effect.suspend(() => revertOne(ctx, correlationId, entry))),
+    Effect.catchTag("FaultRevertFailed", (cause) => failEpisode(ctx, cause)),
   );
 }
 
@@ -415,7 +417,7 @@ function revertOne(
   ctx: EpisodeContext,
   correlationId: CorrelationId,
   entry: FaultScheduleEntry,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void, FaultRevertFailed, never> {
   // The entry is claimed synchronously before the revert executes, so a
   // window fiber racing the post-termination sweep cannot revert twice.
   const index = ctx.outstandingReverts.findIndex(
@@ -432,10 +434,9 @@ function revertOne(
         faultKind: entry.fault._tag,
         target: entry.fault.target,
         scheduledAtMs: entry.revertAtMs,
-        effect: "reverted",
+        effect: pending.applied ? "reverted" : "was-not-applied",
       }),
     ),
-    Effect.catchTag("FaultRevertFailed", (cause) => failEpisode(ctx, cause)),
   );
 }
 
@@ -443,14 +444,22 @@ function revertOne(
  * Fault windows can overlap episode end; the outstanding reverts execute
  * here — after termination, before the controller returns — so both
  * boundaries are always recorded and the world is healed for teardown.
+ * Every revert is attempted; `ctx.done` is already resolved by now, so a
+ * failure travels on the return channel to seal as `fault-revert-failed`.
  */
 function executeOutstandingReverts(
   ctx: EpisodeContext,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void, FaultRevertFailed, never> {
   return Effect.forEach(
     [...ctx.outstandingReverts],
-    (pending) => revertOne(ctx, pending.correlationId, pending.entry),
-    { concurrency: 1, discard: true },
+    (pending) =>
+      Effect.either(revertOne(ctx, pending.correlationId, pending.entry)),
+    { concurrency: 1 },
+  ).pipe(
+    Effect.flatMap((results) => {
+      const failed = results.find(Either.isLeft);
+      return failed === undefined ? Effect.void : Effect.fail(failed.left);
+    }),
   );
 }
 

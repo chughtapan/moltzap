@@ -81,3 +81,8 @@ export const WallTimeMs: Schema.Schema<WallTimeMs, number> = Schema.Number.pipe(
   Schema.brand("WallTimeMs"),
   Schema.annotations({ description: "Wall-clock time, epoch milliseconds" }),
 );
+
+/** The current wall clock as the branded type; every event stamp and timestamped record uses this one mint. */
+export function wallTimeNow(): WallTimeMs {
+  return Schema.decodeSync(WallTimeMs)(Date.now());
+}

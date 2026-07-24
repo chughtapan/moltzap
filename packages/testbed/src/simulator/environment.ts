@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { Deferred, Effect, Schema, type Scope } from "effect";
 import type { Socket } from "@effect/platform";
 import { NodeSocketServer } from "@effect/platform-node";
-import { CorrelationId, WallTimeMs } from "./ids.js";
+import { CorrelationId, wallTimeNow } from "./ids.js";
 import { JsonValue, type Agent } from "./run-spec.js";
 import type { EventLog } from "./event-log.js";
 import type { Secrets } from "./recording.js";
@@ -190,6 +190,12 @@ function startTapServer(
   });
 }
 
+type TapBuffer = {
+  value: string;
+  /** One streaming decoder per connection so multi-byte UTF-8 split across socket chunks reassembles instead of corrupting a report. */
+  readonly decoder: TextDecoder;
+};
+
 /**
  * One tap connection per proxy process. The connection closing while the
  * mount is still live means the proxy died; capture is total, so that is
@@ -199,7 +205,7 @@ function serveTapConnection(
   ctx: TapContext,
   connection: Socket.Socket,
 ): Effect.Effect<void, never, never> {
-  const buffer = { value: "" };
+  const buffer: TapBuffer = { value: "", decoder: new TextDecoder() };
   return connection
     .runRaw((chunk) => consumeTapChunk(ctx, buffer, chunk))
     .pipe(
@@ -217,11 +223,13 @@ function serveTapConnection(
 
 function consumeTapChunk(
   ctx: TapContext,
-  buffer: { value: string },
+  buffer: TapBuffer,
   chunk: string | Uint8Array,
 ): Effect.Effect<void, never, never> {
   buffer.value +=
-    typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+    typeof chunk === "string"
+      ? chunk
+      : buffer.decoder.decode(chunk, { stream: true });
   const lines = buffer.value.split("\n");
   buffer.value = lines.pop() ?? "";
   return Effect.forEach(
@@ -236,7 +244,14 @@ function handleTapLine(
   line: string,
 ): Effect.Effect<void, never, never> {
   const decoded = decodeTapReport(line);
-  if (decoded._tag === "None") return Effect.void;
+  if (decoded._tag === "None") {
+    // Capture is total: a complete line that does not decode is lost
+    // capture, so the proxy fails rather than dropping it silently.
+    return Deferred.fail(
+      ctx.failure,
+      proxyFailed(ctx.agent, `malformed tap report: ${line.slice(0, 200)}`),
+    ).pipe(Effect.asVoid);
+  }
   const report = decoded.value;
   switch (report.type) {
     case "fatal":
@@ -308,7 +323,7 @@ function enqueueProxyEvent(
     .enqueue({
       ...fields,
       source: "proxy",
-      wallTime: Schema.decodeSync(WallTimeMs)(Date.now()),
+      wallTime: wallTimeNow(),
     })
     .pipe(
       Effect.asVoid,

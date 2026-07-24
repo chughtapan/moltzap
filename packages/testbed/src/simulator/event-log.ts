@@ -49,6 +49,7 @@ import {
   LogicalSequence,
   RunId,
   WallTimeMs,
+  wallTimeNow,
 } from "./ids.js";
 import {
   AgentName,
@@ -642,7 +643,7 @@ function stampBatch(
     stampAndSerialize(ctx, {
       _tag: "checkpoint",
       source: "lifecycle",
-      wallTime: wallNow(),
+      wallTime: wallTimeNow(),
     }),
   );
   return { stamped, acks, sealEntry };
@@ -745,10 +746,6 @@ function sealLog(
 
 function lastSequence(nextSequence: number): LogicalSequence {
   return Schema.decodeSync(LogicalSequence)(Math.max(0, nextSequence - 1));
-}
-
-function wallNow(): WallTimeMs {
-  return Schema.decodeSync(WallTimeMs)(Date.now());
 }
 
 // ---------------------------------------------------------------------------
@@ -867,7 +864,7 @@ function acceptSpan(
   ctx: ReceiverContext,
   span: { readonly name: string; readonly raw: JsonValue },
 ): Effect.Effect<AcceptOutcome, never, never> {
-  const wallTime = wallNow();
+  const wallTime = wallTimeNow();
   return ctx.deps.log
     .enqueue({
       _tag: "span.accepted",
