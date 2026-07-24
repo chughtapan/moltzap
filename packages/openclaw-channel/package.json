@@ -13,12 +13,12 @@
     "!dist/__tests__",
     "openclaw.plugin.json"
   ],
-  "main": "./dist/openclaw-entry.js",
+  "main": "./dist/index.js",
   "types": "./dist/openclaw-entry.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/openclaw-entry.d.ts",
-      "import": "./dist/openclaw-entry.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "scripts": {

@@ -1,9 +1,10 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
 import type { Process, Signal } from "@effect/platform/CommandExecutor";
-import { Data, Effect, Exit, Fiber, Option, Scope, pipe } from "effect";
+import { Config, Data, Effect, Exit, Fiber, Option, Scope, pipe } from "effect";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
@@ -31,8 +32,9 @@ import {
 
 const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
-const DEFAULT_OPENCLAW_MODEL_ID = "openai-codex/gpt-5.4";
+const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
 const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
+const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 const TOKEN_RADIX = 36;
 const JSON_INDENT_SPACES = 2;
 const OPENCLAW_CHANNEL_LOOKUP_PATHS =
@@ -245,6 +247,64 @@ function allocateOpenClawStateDir(
   );
 }
 
+// Model-provider auth lives in the per-state-dir agent store, and login is
+// an interactive flow — spawned agents get fresh temp state dirs, so the
+// operator logs in once against the default ~/.openclaw state and every
+// agent seeds its store from there. The sqlite WAL companions are copied
+// with the store so a not-yet-checkpointed login survives the copy.
+const OPERATOR_AUTH_STORE_FILES = [
+  "auth-profiles.json",
+  "openclaw-agent.sqlite",
+  "openclaw-agent.sqlite-shm",
+  "openclaw-agent.sqlite-wal",
+];
+
+// "main" is openclaw's default agent id; per-agent auth resolution beyond
+// the OPENCLAW_HOME override stays with the granularity follow-up.
+const OPERATOR_AGENT_REL_DIR = join("agents", "main", "agent");
+
+const OperatorOpenClawHome = Config.string("OPENCLAW_HOME").pipe(
+  Config.withDefault(""),
+  Config.map((value) => value.trim() || join(homedir(), ".openclaw")),
+);
+
+function seedModelAuthProfile(
+  stateDir: string,
+): Effect.Effect<void, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const operatorHome = yield* OperatorOpenClawHome;
+    const operatorAgentDir = join(operatorHome, OPERATOR_AGENT_REL_DIR);
+    const present = yield* Effect.all(
+      OPERATOR_AUTH_STORE_FILES.map((fileName) =>
+        fileSystem
+          .exists(join(operatorAgentDir, fileName))
+          .pipe(Effect.map((exists) => (exists ? fileName : null))),
+      ),
+      { concurrency: OPERATOR_AUTH_STORE_FILES.length },
+    );
+    const fileNames = present.filter(
+      (fileName): fileName is string => fileName !== null,
+    );
+    if (fileNames.length === 0) return;
+    const destinationDir = join(stateDir, OPERATOR_AGENT_REL_DIR);
+    yield* fileSystem.makeDirectory(destinationDir, { recursive: true });
+    yield* Effect.all(
+      fileNames.map((fileName) =>
+        fileSystem.copyFile(
+          join(operatorAgentDir, fileName),
+          join(destinationDir, fileName),
+        ),
+      ),
+      { concurrency: fileNames.length, discard: true },
+    );
+  }).pipe(
+    Effect.catchAll((cause) =>
+      Effect.logWarning("failed to seed openclaw model auth store", cause),
+    ),
+  );
+}
+
 function configureOpenClawStateDir(
   deps: OpenClawAdapterDeps,
   input: SpawnInput,
@@ -260,14 +320,15 @@ function configureOpenClawStateDir(
         modelId: input.modelId,
       }),
       seedWorkspaceFiles(stateDir, input.workspaceFiles),
+      seedModelAuthProfile(stateDir),
     ],
-    { discard: true },
+    { concurrency: 3, discard: true },
   ).pipe(
     Effect.zipRight(
       installChannelPlugin({
         stateDir,
         channelDistDir: deps.channelDistDir,
-        extName: "openclaw-channel",
+        extName: OPENCLAW_EXTENSION_NAME,
         // OpenClaw discovers channel plugins through this package-root manifest.
         extraPackageFiles: ["openclaw.plugin.json"],
       }).pipe(Effect.asVoid),
@@ -571,8 +632,15 @@ export function buildOpenClawConfig(
       },
     },
     commands: { native: "auto", nativeSkills: "auto", restart: true },
+    // The channel extension is copied into the state dir without install
+    // provenance; openclaw treats such plugins as untracked local code and
+    // will not start their channels unless trust is pinned explicitly.
+    plugins: { allow: [OPENCLAW_EXTENSION_NAME] },
     messages: {
-      queue: { mode: "queue", debounceMs: 0, cap: 100, drop: "new" },
+      // openclaw's own default and the closest heir to the removed passive
+      // "queue" mode: mid-turn messages steer the active turn instead of
+      // buffering (matching the nanoclaw runtime's push behavior).
+      queue: { mode: "steer", debounceMs: 0, cap: 100, drop: "new" },
     },
     channels: {
       [OPENCLAW_CHANNEL_ID]: {

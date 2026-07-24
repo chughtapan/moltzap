@@ -1,11 +1,11 @@
 /**
  * Echo integration test for `@moltzap/nanoclaw-channel`.
  *
- * Boots `MoltZapChannel` against a real MoltZap server (PGlite-backed,
+ * Boots `MoltZapAdapter` against a real MoltZap server (PGlite-backed,
  * spawned by the global setup), uses a peer `MoltZapService` to drive
  * inbound messages, and verifies the host-facing callbacks
- * (`opts.onMessage`, `opts.onChatMetadata`) fire with the expected shape
- * and `sendMessage(jid, text)` round-trips back to the peer.
+ * (`setup.onInbound`, `setup.onMetadata`) fire with the expected shape
+ * and `deliver(jid, null, message)` round-trips back to the peer.
  *
  * Modeled on `packages/openclaw-channel/src/__tests__/echo.integration.test.ts`
  * (per arch sub-issue #605 §4.4).
@@ -26,9 +26,12 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
-import { makeMoltZapChannel, MoltZapChannel } from "../channels/moltzap.js";
-import type { ChannelOpts } from "../channels/registry.js";
-import type { NewMessage, RegisteredGroup } from "../types.js";
+import { MoltZapAdapter } from "../channels/moltzap.js";
+import type {
+  ChannelSetup,
+  InboundMessage,
+  OutboundMessage,
+} from "../channels/adapter.js";
 
 class EchoIntegrationError extends Data.TaggedError("EchoIntegrationError")<{
   readonly operation: string;
@@ -43,18 +46,21 @@ interface InjectedConfig {
   readonly peerAgentId: AgentId;
 }
 
+interface InboundCapture {
+  readonly jid: string;
+  readonly msg: InboundMessage;
+}
+
 interface ChatMetadataCapture {
-  readonly chatJid: string;
-  readonly timestamp: string;
+  readonly jid: string;
   readonly name?: string;
-  readonly channel?: string;
   readonly isGroup?: boolean;
 }
 
 interface Harness {
-  readonly channel: MoltZapChannel;
+  readonly adapter: MoltZapAdapter;
   readonly peerService: MoltZapService;
-  readonly inboundMessages: NewMessage[];
+  readonly inboundMessages: InboundCapture[];
   readonly chatMetadata: ChatMetadataCapture[];
   readonly peerInbox: Message[];
   readonly taskId: TaskId;
@@ -71,6 +77,9 @@ const PING_TWO = "ping-two";
 const TEXT_TYPE = "text";
 const ECHO_PREFIX = "echo-";
 const CHANNEL_PROFILE_NAME = "channel-agent";
+const MOLTZAP_CHANNEL_NAME = "moltzap";
+const JID_PREFIX = "mz:";
+const OUTBOUND_KIND_CHAT = "chat";
 
 let h: Harness;
 
@@ -90,6 +99,18 @@ function injectedConfig(): InjectedConfig {
 
 function decodeInjectedAgentKey(key: string): AgentKey {
   return Schema.decodeUnknownSync(AgentKey)(injectString(key));
+}
+
+function contentText(msg: InboundMessage): string {
+  return (msg.content as { readonly text: string }).text;
+}
+
+function channelSenderId(agentId: string): string {
+  return `${MOLTZAP_CHANNEL_NAME}:${agentId}`;
+}
+
+function makeOutbound(text: string): OutboundMessage {
+  return { kind: OUTBOUND_KIND_CHAT, content: { text } };
 }
 
 function tryPromise<A>(
@@ -136,25 +157,23 @@ function waitForPromise(
   });
 }
 
-function makeChannel(
+function makeAdapter(
   config: InjectedConfig,
-  inboundMessages: NewMessage[],
+  inboundMessages: InboundCapture[],
   chatMetadata: ChatMetadataCapture[],
-): Effect.Effect<MoltZapChannel, unknown> {
+): Effect.Effect<MoltZapAdapter, unknown> {
   return Effect.gen(function* () {
-    let channel: MoltZapChannel;
-    const opts: ChannelOpts = {
-      onMessage: (chatJid, msg) => {
-        inboundMessages.push(msg);
-        autoEcho(channel, chatJid, msg.content);
+    let adapter: MoltZapAdapter;
+    const setup: ChannelSetup = {
+      onInbound: (jid, _threadId, msg) => {
+        inboundMessages.push({ jid, msg });
+        autoEcho(adapter, jid, contentText(msg));
       },
-      onChatMetadata: (...metadataArgs) => {
-        const [chatJid, timestamp, name, channel, isGroup] = metadataArgs;
-        chatMetadata.push({ chatJid, timestamp, name, channel, isGroup });
+      onMetadata: (jid, name, isGroup) => {
+        chatMetadata.push({ jid, name, isGroup });
       },
-      registeredGroups: emptyRegisteredGroups,
     };
-    channel = makeMoltZapChannel(opts, false, CHANNEL_PROFILE_NAME);
+    adapter = MoltZapAdapter.fromProfile(CHANNEL_PROFILE_NAME, false);
     yield* withTestServiceConfig(
       {
         agentId: config.channelAgentId,
@@ -163,24 +182,21 @@ function makeChannel(
         profileName: CHANNEL_PROFILE_NAME,
         agentName: CHANNEL_PROFILE_NAME,
       },
-      tryPromise("channel.connect", () => channel.connect()),
+      tryPromise("adapter.setup", () => adapter.setup(setup)),
     );
-    return channel;
+    return adapter;
   });
 }
 
-function autoEcho(
-  channel: MoltZapChannel,
-  chatJid: string,
-  content: string,
-): void {
+function autoEcho(adapter: MoltZapAdapter, jid: string, content: string): void {
   // Auto-echo failures (e.g. retries on a closed dispatch during teardown)
   // are absorbed: the host-facing test asserts at the peer-inbox boundary
-  // so individual sendMessage failures do not invalidate the test. Modeled
+  // so individual deliver failures do not invalidate the test. Modeled
   // as a fire-and-forget Effect (the simulated host responding to inbound).
   Effect.runFork(
     Effect.tryPromise({
-      try: () => channel.sendMessage(chatJid, `${ECHO_PREFIX}${content}`),
+      try: () =>
+        adapter.deliver(jid, null, makeOutbound(`${ECHO_PREFIX}${content}`)),
       catch: noopOnError,
     }).pipe(Effect.ignore),
   );
@@ -188,10 +204,6 @@ function autoEcho(
 
 function noopOnError(_cause: unknown): void {
   // Intentional no-op: auto-echo loop swallows transient failures.
-}
-
-function emptyRegisteredGroups(): Record<string, RegisteredGroup> {
-  return {};
 }
 
 function bootPeerService(
@@ -263,17 +275,17 @@ function makeHarness(
   config: InjectedConfig,
 ): Effect.Effect<Harness, EchoIntegrationError> {
   return Effect.gen(function* () {
-    const inboundMessages: NewMessage[] = [];
+    const inboundMessages: InboundCapture[] = [];
     const chatMetadata: ChatMetadataCapture[] = [];
     const peerInbox: Message[] = [];
-    const channel = yield* makeChannel(
+    const adapter = yield* makeAdapter(
       config,
       inboundMessages,
       chatMetadata,
     ).pipe(
       Effect.mapError(
         (cause) =>
-          new EchoIntegrationError({ operation: "makeChannel", cause }),
+          new EchoIntegrationError({ operation: "makeAdapter", cause }),
       ),
     );
     const peerService = yield* bootPeerService(config, peerInbox).pipe(
@@ -288,28 +300,28 @@ function makeHarness(
       config.channelAgentId,
     );
     return {
-      channel,
+      adapter,
       peerService,
       inboundMessages,
       chatMetadata,
       peerInbox,
       taskId,
       conversationId,
-      chatJid: `mz:${conversationId}`,
+      chatJid: `${JID_PREFIX}${conversationId}`,
       peerAgentId: config.peerAgentId,
-      stop: () => stopChannelAndPeer(channel, peerService),
+      stop: () => stopAdapterAndPeer(adapter, peerService),
     };
   });
 }
 
-function stopChannelAndPeer(
-  channel: MoltZapChannel,
+function stopAdapterAndPeer(
+  adapter: MoltZapAdapter,
   peerService: MoltZapService,
 ) {
   return Effect.runPromise(
     Effect.gen(function* () {
       yield* Effect.tryPromise({
-        try: () => channel.disconnect(),
+        try: () => adapter.teardown(),
         catch: () => undefined,
       }).pipe(Effect.ignore);
       peerService.close();
@@ -337,7 +349,7 @@ function messageContains(message: Message, needle: string): boolean {
 }
 
 function inboundHas(needle: string): boolean {
-  return h.inboundMessages.some((m) => m.content.includes(needle));
+  return h.inboundMessages.some((c) => contentText(c.msg).includes(needle));
 }
 
 function peerInboxHas(needle: string): boolean {
@@ -357,11 +369,11 @@ function peerSend(text: string): Effect.Effect<void, EchoIntegrationError> {
 
 describe("nanoclaw echo integration", () => {
   it(
-    "delivers inbound messages to the host onMessage callback",
+    "delivers inbound messages to the host onInbound callback",
     deliversInbound,
   );
   it("emits a chat-metadata event for the conversation", emitsChatMetadata);
-  it("sendMessage round-trips back to the peer's inbox", roundTripsToPeer);
+  it("deliver round-trips back to the peer's inbox", roundTripsToPeer);
 });
 
 function deliversInbound() {
@@ -372,15 +384,19 @@ function deliversInbound() {
       INBOUND_NOTIFICATION_TIMEOUT_MS,
       "ping-one inbound",
     );
-    const seen = h.inboundMessages.find((m) => m.content.includes(PING_ONE));
-    expect(seen?.chat_jid).toBe(h.chatJid);
-    expect(seen?.sender).toBe(h.peerAgentId);
+    const seen = h.inboundMessages.find((c) =>
+      contentText(c.msg).includes(PING_ONE),
+    );
+    expect(seen?.jid).toBe(h.chatJid);
+    expect((seen!.msg.content as { senderId: string }).senderId).toBe(
+      channelSenderId(h.peerAgentId),
+    );
   });
 }
 
 function emitsChatMetadata() {
   return Effect.sync(() => {
-    expect(h.chatMetadata.some((m) => m.chatJid === h.chatJid)).toBe(true);
+    expect(h.chatMetadata.some((m) => m.jid === h.chatJid)).toBe(true);
   });
 }
 
