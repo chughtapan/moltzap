@@ -7,17 +7,14 @@ Status: DRAFT (deepening doc; feeds the spec set)
 One canonical standardization of the stack's programmable surface: the
 payload vocabulary, **five ports** (the only tagged seams), the eight
 layers as **law sets** over those ports, and the Effect realization.
-The vocabulary is deliberately the system's everyday language:
-conversations hold a **transcript** of **entries**; members **send**
-**messages**; membership changes are entries too (**start**, **add**,
-**leave**); turns are **requested** and **granted**; identities are
-**cards**, **looked up** in a directory; a harness plugin **runs**
-with a **channel**. If a name needs a glossary, it is the wrong name.
+The vocabulary is the system's everyday language: conversations hold a
+**transcript** of **entries**; members **send** **messages**;
+membership changes are entries too (**start**, **add**, **leave**);
+turns are **requested** and **granted**; identities are **cards**,
+**looked up** in a directory; a harness plugin **runs** with a
+**channel**. If a name needs a glossary, it is the wrong name.
 
-This revision is a synthesis of seven independently drafted
-proposals — the selection rationale and the six alternates live under
-`v2/drafts/layer-interface-proposals/` — organized around one
-criterion:
+One criterion decides what earns a tag:
 
 > **The port test.** A seam earns a `Context.Tag` if and only if two
 > implementations must be interchangeable and the conformance suite
@@ -28,10 +25,10 @@ criterion:
 > against "questions stay questions."
 
 The spec names exactly five swap axes, so there are exactly five
-ports: **Plane** (production vs testbed data plane), **Store**
-(storage engine), **Registry** (card custody), **Attribution**
-(interim vs target signing binding), **Harness** (the SPI two
-runtimes implement).
+ports: **Network** (production vs testbed data plane),
+**TranscriptStore** (storage engine), **Registry** (card custody),
+**Signer** (interim vs target signing binding), **Harness** (the SPI
+two runtimes implement).
 
 Non-goals: chartered semantics (#765 — op vocabulary, completion,
 failure, concurrency, witnesses, presence, turn-signal carriage); wire
@@ -70,6 +67,7 @@ internals (the component-to-package map is the v0 plan's W1).
 |---|---|---|---|
 | `AgentId` | L1 | registry — opaque; survives key rotation | decided |
 | `Principal` | L1 | registry — opaque linkage to the party an agent acts for | linkage depth open |
+| `PublicKey` | L1 | agent — submitted at registration; the key its card binds | decided |
 | `Card` | L1 | registry-attested X.509, self-attesting; read through `CardView` | decided |
 | `Frame` | L1 | sender's harness — the signed unit (envelope + body) as opaque bytes, byte-exact at every hop; read through `FrameView` | decided |
 | `Envelope` | L1 | view of a frame's carrier-readable fields: sender, conversation, version, attribution | field set decided; encoding open |
@@ -80,7 +78,7 @@ internals (the component-to-package map is the v0 plan's W1).
 | `Position` | L3 | store — a record's place in the transcript order; never a field of any frame type | decided |
 | `TranscriptEntry` | L3 | members — what a transcript holds: **open union** `Message \| Start \| Add \| Leave` | message arms chartered (#765); lifecycle arms decided |
 | `TranscriptRecord` | L3 | store — a committed entry: the byte-exact frame plus its `Position` | decided |
-| `PageToken` | L3 | plane — opaque fail-closed token paging list-shaped reads | decided |
+| `PageToken` | L3 | plane — opaque fail-closed token paging list-shaped reads; `Page<T>` is items plus the next token | decided |
 | `Refusal` | cross | refusing party — the interim, non-normative value ("the op did not take effect"), opaque `cause`; encoding-level failures ride the encoding | register 8 open |
 
 Three place-shaped roles stay deliberately distinct: `Position` is a
@@ -92,8 +90,7 @@ never a plane concept.
 side (new collective kinds) by adding arms, never by adding a method
 to any port — every exhaustive match then fails to compile until the
 new arm is handled, and implementations refuse arms they do not know.
-`Start`, `Add`, and `Leave` are the recorded v0 lifecycle set. All
-seven proposals converged on union-widening independently.
+`Start`, `Add`, and `Leave` are the recorded v0 lifecycle set.
 
 The vocabulary deliberately stops at the wire. L4 and L5 carry no
 nouns here: a norm bundle binds only its guarantee (versioned, pinned
@@ -118,34 +115,35 @@ conformance corpus fuzzes from the same declarations the wire uses.
 Signatures elide the `R` channel; roots and requirements are stated in
 the realization section. `Effect<A, E>` is success/typed-refusal.
 
-### Attribution (L1; swap axis: interim request-signature vs target per-frame)
+### Signer (L1; swap axis: interim request-signature vs target per-frame)
 
 ```ts
 /** Verification: offline, from the frame plus the sender's card alone.
  *  Identical shape under both bindings; recipients, router admission,
  *  and L6 readers all hold exactly this. */
-interface Verify {
+interface Verifier {
   readonly verify: (frame: Frame, card: Card) => Effect<VerifiedFrame, Refusal>;
 }
 /** The full port adds signing — held ONLY by the endpoint composition.
- *  The private key is adapter state, never a parameter. */
-interface Attribution extends Verify {
-  readonly sign: (envelope: EnvelopeDraft, body: Body) => Effect<Frame, SignError>;
+ *  The private key is adapter state, never a parameter; the sender and
+ *  version fields are the adapter's own identity and pinned version. */
+interface Signer extends Verifier {
+  readonly sign: (conversation: ConversationId, body: Body) => Effect<Frame, SignError>;
 }
 ```
 
-The router's requirement set names `Verify` only: no code in the
+The router's requirement set names `Verifier` only: no code in the
 router process can sign, which discharges "the plane never mints,
 alters, or strips attribution" (data-plane.md inv. 2) at compile time.
 
-### Plane (L2 + L3 delivery; swap axis: production vs testbed)
+### Network (L2 + L3 delivery; swap axis: production vs testbed)
 
 One contract, two sides: the endpoint holds it as a client; the router
 and the testbed provide it. Admission (verify, membership, version
 gate, refuse-before-durability) lives inside the providing adapter.
 
 ```ts
-interface Plane {
+interface Network {
   /** Send one entry; Position returns only after durability; every
    *  refusal precedes durability. */
   readonly send: (entry: TranscriptEntry) => Effect<Position, Refusal>;
@@ -157,10 +155,10 @@ interface Plane {
 }
 ```
 
-### Store (L3 record substrate; swap axis: storage engine)
+### TranscriptStore (L3 record substrate; swap axis: storage engine)
 
 ```ts
-interface Store {
+interface TranscriptStore {
   /** One entry, one transaction, commit-time contiguous Position, after durability. */
   readonly append: (conversation: ConversationId, entry: TranscriptEntry) => Effect<Position, StoreError>;
   /** Genesis: creates the transcript with this Start frame as entry zero,
@@ -227,19 +225,18 @@ interface InboundMessage { readonly frame: VerifiedFrame; readonly context: Fire
 
 ## The turn discipline (typestate)
 
-Three proposals independently produced the same four-phase client
-machine; it is standardized as typestate. A phase-indexed turn gates
-which moves exist; `Granted`'s only constructor is `awaitTurn`, and
-sending consumes it.
+The client machine is typestate: a phase-indexed turn gates which
+moves exist; `Granted`'s only constructor is `awaitTurn`, and sending
+consumes it.
 
 ```ts
-type Phase = "Idle" | "Requested" | "Granted" | "Spent";
+type Phase = "Requested" | "Granted" | "Spent";
 /** Not a session or connection: TTL-bounded coordination state,
  *  reconstructible from an endpoint-owned Position by re-reading. */
 interface Turn<P extends Phase> { readonly _phase: P; readonly conversation: ConversationId; readonly at: Position }
 
 interface Turns {
-  readonly requestTurn: (t: Turn<"Idle">) => Effect<Turn<"Requested">, Refusal>;
+  readonly requestTurn: (conversation: ConversationId) => Effect<Turn<"Requested">, Refusal>;
   /** Observe-before-generate (data-plane.md inv. 5): the sole constructor of Granted. */
   readonly awaitTurn: (t: Turn<"Requested">) => Effect<Turn<"Granted">, Refusal>;
 }
@@ -248,8 +245,8 @@ interface Turns {
 TypeScript cannot enforce linear consumption, so the residual — at
 most one commit per granted turn — is a suite law (L3 table). The
 grant signal's wire carriage is the charter's (#765); nothing here
-names it. PCC itself is an instrument inside the Plane adapter, in no
-signature.
+names it. PCC itself is an instrument inside the Network adapter, in
+no signature.
 
 ## Not ports
 
@@ -270,8 +267,8 @@ signature.
   `endpoints/screening.md`) — a stopgap behind the slots, not accepted
   design, and none of its vocabulary appears in this contract.
 - **Entitlement (L3)** is the `Scope` **predicate** carried into
-  `Store.readTranscript`; future read-scope decisions change the
-  value, not the port.
+  `TranscriptStore.readTranscript`; future read-scope decisions change
+  the value, not the port.
 - **Derivations** are pure functions over port state, in a shared fold
   library: `applyEntry` (total, exhaustive over `TranscriptEntry`) and
   `membersAt` — **one fold, two sites**: the router folds lifecycle
@@ -284,8 +281,8 @@ signature.
   fold in a `SubscriptionRef` is realization freedom the laws never
   see.
 - **The CLI** is a driver: a plain signing HTTP client over the
-  control-plane op families (`Registry` + `Store` reads), holding no
-  state and no port of its own.
+  control-plane op families (`Registry` + `TranscriptStore` reads),
+  holding no state and no port of its own.
 - **L8** has no interface; it is realized through the stack (open).
 
 ## Layers as law sets
@@ -296,15 +293,15 @@ name the governing doc.
 
 | # | Law | Kind | Cite |
 |---|---|---|---|
-| L1.1 | `verify(sign(e,b), lookup(e.sender))` ≈ the verified view — verify-after-sign is identity | P | identity.md inv. 1 |
+| L1.1 | `verify(sign(c,b), lookup(sender))` ≈ the verified view — verify-after-sign is identity | P | identity.md inv. 1 |
 | L1.2 | `verify : (frame, card) → VerifiedFrame` — no round trip, no live sender; L6 readers hold the same shape | C | identity.md → Verification duties |
 | L1.3 | Any alteration of envelope or body ⇒ `verify` refuses | P | identity.md inv. 4 |
-| L1.4 | Only the endpoint composition names `Attribution` (sign); the router names `Verify` only | C | identity.md inv. 2; data-plane.md inv. 2 |
+| L1.4 | Only the endpoint composition names `Signer`; the router names `Verifier` only | C | identity.md inv. 2; data-plane.md inv. 2 |
 | L1.5 | Lens law: `retained ∘ decode` is byte-identity; no carrier re-encodes a frame or card | C+P | identity.md → Byte preservation; data-plane.md inv. 13 |
 | L1.6 | `Position` is a field of no frame type (types-check canary) | C | identity.md → Not frame fields |
 | L2.1 | All members observe the same records in the same order | S | data-plane.md inv. 3 |
 | L2.2 | `deliveries` carries frames byte-exact with attribution intact | P | data-plane.md inv. 2, 13 |
-| L2.3 | Admission reads `Envelope` only; no Plane operation takes a `Body` | C | data-plane.md inv. 1 |
+| L2.3 | Admission reads `Envelope` only; no Network operation takes a `Body` | C | data-plane.md inv. 1 |
 | L2.4 | `deliveries` is a read-only `Stream`; a response is a fresh `send` | C | data-plane.md inv. 14 |
 | L2.5 | `deliveries(c, p)` ≈ `readTranscript(c, p)` — resuming at a Position equals never disconnecting | P | control-plane.md guarantee 4; sessionless |
 | L2.6 | One send, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
@@ -329,7 +326,7 @@ name the governing doc.
 | L7.2 | `list` ≈ per-id `lookup`; cards only, no thinner projection | P | directory-serves-cards |
 | L7.3 | Ceasing to vouch changes what `lookup` returns and what callers can be derived — no revoke op | P | layers.md → L7; single-credential |
 | X.1 | Version exact-match refuses before any state change, on every entry operation | C+P | protocol-version-carriage |
-| X.2 | Swap `PlaneLive` for `PlaneTestbed`: observationally equivalent; every testbed injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
+| X.2 | Swap `NetworkLive` for `NetworkTestbed`: observationally equivalent; every testbed injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
 | X.3 | No signature names a lease, socket, connection, or session | C | sessionless-network |
 
 ## Effect realization (recorded standard)
@@ -338,30 +335,31 @@ The normative surface is the vocabulary, ports, typestate, and laws
 above; this mapping is v2's standard realization of it.
 
 - **One `Context.Tag` per port**, ids `moltzap/v2/port/<Name>`
-  (permanent strings): `PlaneTag`, `StoreTag`, `RegistryTag`,
-  `AttributionTag` (endpoint) / `VerifyTag` (router), `HarnessTag`.
-  The v1 idiom (`Context.Tag` class + `Layer.effect`) re-implemented,
-  never imported.
-- **One `Layer` per adapter**: `PlaneLive` (requires Store + Verify),
-  `PlaneTestbed` (same tag; adds envelope-level observation and a
-  closed `FaultProfile` sum — delay, missed push, disconnect,
-  partition, unresponsive — so out-of-envelope faults are
-  unrepresentable), `StoreLive`, `RegistryLive`, `AttributionInterim` /
-  `AttributionTarget`, `HarnessOpenClaw` / `HarnessNanoClaw`. The
-  swap in law X.2 is choosing which Plane `Layer` is provided.
+  (permanent strings): `NetworkTag`, `TranscriptStoreTag`,
+  `RegistryTag`, `SignerTag` (endpoint) / `VerifierTag` (router),
+  `HarnessTag`. The v1 idiom (`Context.Tag` class + `Layer.effect`)
+  re-implemented, never imported.
+- **One `Layer` per adapter**: `NetworkLive` (requires TranscriptStore
+  + Verifier), `NetworkTestbed` (same tag; adds envelope-level
+  observation and a closed `FaultProfile` sum — delay, missed push,
+  disconnect, partition, unresponsive — so out-of-envelope faults are
+  unrepresentable), `TranscriptStoreLive`, `RegistryLive`,
+  `SignerInterim` / `SignerTarget`, `HarnessOpenClaw` /
+  `HarnessNanoClaw`. The swap in law X.2 is choosing which Network
+  `Layer` is provided.
 - **Decorators are `Layer<Port, never, Port>`**: `withEntitlement(scope)`
-  wraps `Store.readTranscript`; `withFirewall(rules)` wraps the
-  harness mount (the slots; the rules value is firewall-plan
+  wraps `TranscriptStore.readTranscript`; `withFirewall(rules)` wraps
+  the harness mount (the slots; the rules value is firewall-plan
   territory, opaque here). Configuration flows down as decorator and
   adapter parameters — firewall rules, the operator key, norm
   bundles — never as a lower port depending on an upper tag.
 - **Root discipline.** Port tags are provided once per composition
-  (`RouterComposition`: Store, Registry, Verify, Plane-provider;
-  `EndpointComposition`: Attribution, Plane-client, plus whatever
-  state its firewall implementation owns) and appear in no leaf
-  requirement. Leaf code receives attenuated values (`Channel`,
-  `Caller`, `Scope`). Folds, turns, and channel values are plain
-  branded values with no tag.
+  (`RouterComposition`: TranscriptStore, Registry, Verifier,
+  Network-provider; `EndpointComposition`: Signer, Network-client,
+  plus whatever state its firewall implementation owns) and appear in
+  no leaf requirement. Leaf code receives attenuated values
+  (`Channel`, `Caller`, `Scope`). Folds, turns, and channel values are
+  plain branded values with no tag.
 - **Three static checks**, enforced with the W1 boundary machinery:
   no exported function outside a composition names a port tag in its
   requirements; `Harness.run` has authority-free requirements and
@@ -370,19 +368,19 @@ above; this mapping is v2's standard realization of it.
 
 ```mermaid
 flowchart TB
-  subgraph Endpoint["EndpointComposition (roots: Attribution, Plane client, firewall state)"]
+  subgraph Endpoint["EndpointComposition (roots: Signer, Network client, firewall state)"]
     HP[Harness plugin] -- "Channel (values only)" --> CH[send + turns]
-    CH --> SCR[Firewall slots] --> AT[Attribution sign]
-    AT --> PC[Plane client]
-    PC -- deliveries --> VF1[Verify] --> SCR
+    CH --> SCR[Firewall slots] --> SG[Signer]
+    SG --> NC[Network client]
+    NC -- deliveries --> VF1[Verifier] --> SCR
   end
-  subgraph Router["RouterComposition (roots: Store, Registry, Verify; provides Plane)"]
-    PL[PlaneLive] --> VF2[Verify]
-    PL --> ST[Store + entitlement decorator]
+  subgraph Router["RouterComposition (roots: TranscriptStore, Registry, Verifier; provides Network)"]
+    NL[NetworkLive] --> VF2[Verifier]
+    NL --> ST[TranscriptStore + entitlement decorator]
     RG[Registry] --> VF2
   end
-  TB[PlaneTestbed] -. "swap: one Layer binding (X.2)" .- PL
-  PC -- "wire (Q10, open)" --- PL
+  TB[NetworkTestbed] -. "swap: one Layer binding (X.2)" .- NL
+  NC -- "wire (Q10, open)" --- NL
 ```
 
 ## Invariants
@@ -395,8 +393,9 @@ flowchart TB
    swap axis (the port test) in a recorded decision.
 4. Port tags appear only at composition roots; leaf code holds
    attenuated values. Tag dependencies never point up the stack.
-5. The signing half of Attribution is unnameable in the router
-   process; L5 trust data is unnameable in any router interface.
+5. `sign` is unnameable in the router process (the router holds
+   `Verifier` only); L5 trust data is unnameable in any router
+   interface.
 6. Refusals are values; port-internal error unions are closed and
    region-local; the wire observes only the opaque `Refusal`.
 7. Among wire nouns the open unions are exactly `TranscriptEntry`'s
@@ -404,16 +403,16 @@ flowchart TB
    (register-8-widened); every other wire union is closed and matched
    to `never`. Endpoint-side vocabularies (firewall rules, verdict
    detail, norm shapes) are unbound here, not closed.
-8. Swapping `PlaneLive` for `PlaneTestbed` changes no other binding in
-   either composition.
+8. Swapping `NetworkLive` for `NetworkTestbed` changes no other
+   binding in either composition.
 9. `Position` never appears inside the signed unit's type
    (canary-pinned).
 
 ## Acceptance criteria
 
-- Name closure, both directions: every v0-plan interface sketch
-  (W3–W6, W8) maps to exactly one port, decorator, derivation, value,
-  or law here; nothing here lacks a plan anchor or a proposal source.
+- Name closure: every v0-plan interface sketch (W3–W6, W8) maps to
+  exactly one port, decorator, derivation, value, or law here, and
+  nothing here lacks a plan anchor.
 - Every law in the table carries a citation and a discharge kind, and
   the conformance suite discharges each (P) and (S) law; the (C) laws
   are pinned by the static checks and canaries.
@@ -429,10 +428,10 @@ flowchart TB
 
 ## Open questions
 
-1. **Derived conformance machinery.** The algebra proposal derives the
-   property corpus from a reified signature value (`programGen` /
-   `checkEquivalence`) instead of hand-writing each (P)/(S) law.
-   Recommended default: adopt the *format* now (this doc's law table);
+1. **Derived conformance machinery.** A reified signature value can
+   derive the property corpus (a program generator plus an
+   observational-equivalence checker) instead of hand-writing each
+   (P)/(S) law. Recommended default: adopt the law-table format now;
    let W8 decide the generator machinery when the suite is built.
    Escalation: W8 / `v2/conformance`.
 2. **The firewall plan.** L5's interior is undesigned: the rule
@@ -466,18 +465,8 @@ flowchart TB
 
 ## References
 
-- Source proposals (the graft's provenance):
-  `v2/drafts/layer-interface-proposals/minimal-ports-20260723.md` (the
-  spine: port test, five ports, laws/decorators/derivations);
-  `capability-20260723.md` (root discipline, attenuated values,
-  pure-consumer type, testbed-by-absence);
-  `choreography-20260723.md` (turn typestate, empty-projection
-  argument for contacts, the L4 projector seam);
-  `algebra-20260723.md` (law-table format with discharge kinds, the
-  derived-conformance open question);
-  `schema-first-20260723.md` (lenses, derived Arbitraries,
-  content-blindness as absence); `stream-journal-20260723.md` (the
-  fold library, one-fold-two-sites, materialized-fold freedom).
+- Alternative standardization drafts (inputs to this revision):
+  `v2/drafts/layer-interface-proposals/`.
 - `docs/architecture/layers.md`;
   `docs/decisions/20260723-eight-layer-stack.md` — the stack and the
   layering rules the static checks mechanize.
