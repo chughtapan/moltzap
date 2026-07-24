@@ -14,8 +14,8 @@ import type {
   AgentSlotName,
   ImageDigest,
 } from "./run-spec.js";
-import type { EventLogHandle } from "./event-log.js";
-import type { EnvironmentMount } from "./environment-mount.js";
+import type { EventLogHandle, ServerStorageAccess } from "./event-log.js";
+import type { EnvironmentMount, MountHandle } from "./environment-mount.js";
 import type { WorldDriver } from "./world-driver.js";
 import type { SecretRegistry } from "./recording.js";
 import type {
@@ -57,6 +57,8 @@ export type ServerContainerHandle = {
   readonly imageDigest: ImageDigest;
   /** Direct server URL; agents connect through their per-agent proxied URLs instead. */
   readonly serverUrl: ServerUrl;
+  /** This run's storage volume; the transcript drain reads it and nothing else. */
+  readonly storage: ServerStorageAccess;
 };
 
 /** One launched slot: its runtime handle and the proxied URL it connects through. */
@@ -74,7 +76,9 @@ export type TeardownReport = {
 };
 
 /**
- * Everything launch brings up. `executeRun` calls `teardown` explicitly
+ * Everything launch brings up. `mounts` aggregates every slot's
+ * `MountHandle`, so `executeRun` can race each proxy-health channel
+ * against episode termination. `executeRun` calls `teardown` explicitly
  * during shutdown, before the event log seals, so the teardown report is
  * evented and recorded; scope close re-runs it as an idempotent backstop
  * for abnormal exits.
@@ -82,6 +86,7 @@ export type TeardownReport = {
 export type LaunchedWorld = {
   readonly server: ServerContainerHandle;
   readonly agents: ReadonlyArray<LaunchedAgent>;
+  readonly mounts: ReadonlyArray<MountHandle>;
   teardown(): Effect.Effect<TeardownReport, never, never>;
 };
 

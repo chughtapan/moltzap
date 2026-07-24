@@ -55,6 +55,8 @@ export {
   type FieldProvenance,
   type MaterializationReport,
   materializeRunSpec,
+  type CanonicalJsonValue,
+  toCanonicalJson,
   canonicalJson,
   computeSpecHash,
 } from "./run-spec.js";
@@ -128,6 +130,7 @@ export {
   makeEventLog,
   type OtlpReceiverHandle,
   makeOtlpReceiver,
+  type ServerStorageAccess,
   type TranscriptDrain,
   makeTranscriptDrain,
 } from "./event-log.js";
@@ -192,6 +195,7 @@ export {
   ManifestPersistFailed,
   RecordingStoreFailed,
   SealFailed,
+  SealRaceLost,
   RecordingInvalid,
   RecordingSchemaMismatch,
   UnknownAttempt,

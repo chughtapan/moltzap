@@ -313,14 +313,16 @@ export class SpanAccepted extends Schema.TaggedClass<SpanAccepted>()(
 ) {}
 
 /**
- * A society message drained from the server's storage under the observer
- * credential or volume read, attributed to its original sender. Observer
- * traffic itself never appears as a society event. `conversationSeq` is
- * the server's storage-level per-conversation sequence (the wire list API
- * does not expose it; the v0 drain reads storage, which does), so graders
- * reconstruct exact conversation order independently of drain timing.
- * `message` preserves the wire message losslessly (multipart body,
- * message id, reply target, tags) under the redaction policy.
+ * A society message drained from the server's storage, attributed to its
+ * original sender. Observer traffic itself never appears as a society
+ * event. `conversationSeq` is the server's storage-level per-conversation
+ * **persistence** sequence (the wire list API does not expose it; the v0
+ * drain reads storage, which does). Per-recipient delivery order and
+ * delivery wall times are not in storage; that evidence is graded from
+ * the captured `moltzap.message.delivered` spans in `traces.json`,
+ * relatable to transcript events by message id. `message` preserves the
+ * wire message losslessly (multipart body, message id, reply target,
+ * tags) under the redaction policy.
  */
 export class TranscriptMessage extends Schema.TaggedClass<TranscriptMessage>()(
   "transcript.message",
@@ -331,7 +333,7 @@ export class TranscriptMessage extends Schema.TaggedClass<TranscriptMessage>()(
       description: "Server conversation identity",
     }),
     conversationSeq: Schema.Int.annotations({
-      description: "Storage-level per-conversation sequence",
+      description: "Storage-level per-conversation persistence sequence",
     }),
     senderId: Schema.String.annotations({
       description: "Original sender's agent id",
@@ -340,8 +342,9 @@ export class TranscriptMessage extends Schema.TaggedClass<TranscriptMessage>()(
       description:
         "The protocol message verbatim (all parts and metadata), redaction applied",
     }),
-    deliveredAtWallTime: WallTimeMs.annotations({
-      description: "Wall time the server delivered the message",
+    createdAtWallTime: WallTimeMs.annotations({
+      description:
+        "Storage creation time; delivery evidence lives in the delivered spans",
     }),
     episodeId: Schema.optional(EpisodeId),
   },
@@ -502,11 +505,15 @@ export type OtlpReceiverHandle = {
  * reach the recording before seal. Bind failure fails acquisition; an
  * acknowledgment stall longer than `failBoundMs` surfaces through
  * `awaitFailure`. Either way the run seals with `span-acceptance-lost`.
+ * `secrets` redacts raw spans both at event enqueue and in the
+ * `drainTraces` output, so `traces.json` passes the same hygiene
+ * boundary as the event log.
  */
 export function makeOtlpReceiver(_deps: {
   readonly runId: RunId;
   readonly log: EventLogHandle;
   readonly failBoundMs: number;
+  readonly secrets: SecretRegistry;
 }): Effect.Effect<OtlpReceiverHandle, SpanAcceptanceLost, Scope.Scope> {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
@@ -517,24 +524,35 @@ export function makeOtlpReceiver(_deps: {
 // ---------------------------------------------------------------------------
 
 /**
+ * Attempt-scoped access to one run's server storage: the host path of the
+ * per-run container's data volume. Minted by launch (one run, one world)
+ * and carried on `ServerContainerHandle.storage`, so a concurrent
+ * attempt's drain can only reach its own server.
+ */
+export type ServerStorageAccess = {
+  readonly volumePath: string;
+};
+
+/**
  * Transcript drain for one run. The v0 implementation reads the server
- * container's storage at drain points (the storage-level sequence backs
- * `conversationSeq`; the wire list API does not expose it); a live
- * observer-credential drain can replace it without surface change once
- * the protocol exposes an ordering key. `finalSweep` runs in the draining
- * phase, before seal, and guarantees every message delivered before
- * episode termination is enqueued. `awaitFailure` resolves only on a
- * mid-run drain failure.
+ * container's storage volume at drain points (the storage-level
+ * persistence sequence backs `conversationSeq`; the wire list API does
+ * not expose it); a live observer-credential drain can replace it without
+ * surface change once the protocol exposes an ordering key. `finalSweep`
+ * runs in the draining phase, before seal, and guarantees every message
+ * the server persisted before episode termination is enqueued.
+ * `awaitFailure` resolves only on a mid-run drain failure.
  */
 export interface TranscriptDrain {
   finalSweep(): Effect.Effect<void, TranscriptDrainFailed, never>;
   awaitFailure(): Effect.Effect<never, TranscriptDrainFailed, never>;
 }
 
-/** Create the v0 transcript drain (server-storage read; redaction applied at enqueue). */
+/** Create the v0 transcript drain over one run's server storage; redaction applied at enqueue. */
 export function makeTranscriptDrain(_deps: {
   readonly log: EventLogHandle;
   readonly secrets: SecretRegistry;
+  readonly storage: ServerStorageAccess;
 }): Effect.Effect<TranscriptDrain, never, Scope.Scope> {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
