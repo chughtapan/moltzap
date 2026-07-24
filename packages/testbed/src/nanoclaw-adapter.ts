@@ -15,7 +15,6 @@ import { pollFiberExitCode } from "./child-process.js";
 import {
   startNanoclawRuntimeEffect,
   stopNanoclawRuntimeEffect,
-  getNanoclawRuntimeLogs,
   type NanoclawRuntimeHandle,
 } from "./nanoclaw-process.js";
 import { ensureNanoclawRuntimeInstalledEffect } from "./nanoclaw-install.js";
@@ -118,7 +117,7 @@ export class NanoclawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollFiberExitCode(handle.exitFiber),
-        stderr: () => getNanoclawRuntimeLogs(handle),
+        stderr: () => handle.logs.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),

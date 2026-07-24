@@ -481,7 +481,3 @@ function removeNanoclawRuntimeDir(runtimeDir: string) {
     ),
   );
 }
-
-export function getNanoclawRuntimeLogs(handle: NanoclawRuntimeHandle): string {
-  return handle.logs.text;
-}

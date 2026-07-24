@@ -96,7 +96,12 @@ export class BoundedLogBuffer {
       rest = rest.slice(take);
     }
     if (rest.length === 0) return;
-    this.tail = (this.tail + rest).slice(-this.tailCapacity);
+    // Compact only past 2x capacity: V8 rope concatenation keeps `+=` cheap,
+    // so the flatten amortizes to O(1)/char at a 2x memory high-water mark.
+    this.tail += rest;
+    if (this.tail.length >= 2 * this.tailCapacity) {
+      this.tail = this.tail.slice(-this.tailCapacity);
+    }
   }
 
   /**
@@ -107,14 +112,16 @@ export class BoundedLogBuffer {
     const tailStart = this.total - this.tail.length;
     if (offset >= tailStart) {
       return {
-        text: this.tail.slice(this.tail.length - (this.total - offset)),
+        text: this.tail.slice(offset - tailStart),
         nextOffset: this.total,
       };
     }
-    const headPart = offset < this.head.length ? this.head.slice(offset) : "";
-    const elided = tailStart > Math.max(offset, this.head.length);
+    const elided = tailStart > this.head.length;
     return {
-      text: headPart + (elided ? LOG_ELISION_MARKER : "") + this.tail,
+      text:
+        this.head.slice(offset) +
+        (elided ? LOG_ELISION_MARKER : "") +
+        this.tail,
       nextOffset: this.total,
     };
   }
