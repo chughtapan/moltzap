@@ -233,12 +233,17 @@ const packageDefinitions = {
       folderChildCountOverrides: [
         {
           folder: ".",
-          maxChildren: 12,
+          maxChildren: 13,
           reason:
-            "The testbed keeps runtime adapters, orchestration, readiness, process support, and trace-capture modules as deliberate peers in its documented single-tier source layout",
+            "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, and trace-capture modules as deliberate peers in its documented single-tier source layout",
         },
       ],
       facadeFiles: [
+        {
+          file: "channel-plugin-install.ts",
+          reason:
+            "Shared plugin-install and workspace-seed boundary both runtime adapters compose for on-disk channel provisioning",
+        },
         {
           file: "testbed.ts",
           reason:
