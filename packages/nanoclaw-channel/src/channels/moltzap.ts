@@ -5,6 +5,7 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { TaskId } from "@moltzap/protocol/task";
 import {
+  BoundedMap,
   LeaseAlreadyConsumed,
   LeaseStore,
   MoltZapChannelCore,
@@ -162,13 +163,13 @@ export class MoltZapAdapter implements ChannelAdapter {
   private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
   // Per-jid memory of the task and branded conversation id from the most
   // recent inbound. `agent/message/send` requires both; keeping the branded
-  // id avoids re-decoding it on every reply. Bounded FIFO: an evicted
+  // id avoids re-decoding it on every reply. Bounded: an evicted
   // conversation degrades to the existing "no taskId" deliver error until
   // its next inbound refreshes the entry.
-  private readonly conversationsByJid = new Map<
+  private readonly conversationsByJid = new BoundedMap<
     string,
     { readonly taskId: TaskId; readonly conversationId: ConversationId }
-  >();
+  >(MAX_TRACKED_CONVERSATIONS);
   private ownAgentId: string;
   private core: MoltZapChannelCore | null;
   private setupConfig: ChannelSetup | null = null;
@@ -353,11 +354,6 @@ export class MoltZapAdapter implements ChannelAdapter {
     jid: string,
     enriched: EnrichedInboundMessage,
   ): void {
-    this.conversationsByJid.delete(jid);
-    if (this.conversationsByJid.size >= MAX_TRACKED_CONVERSATIONS) {
-      const oldest = this.conversationsByJid.keys().next().value;
-      if (oldest !== undefined) this.conversationsByJid.delete(oldest);
-    }
     this.conversationsByJid.set(jid, {
       taskId: enriched.taskId,
       conversationId: enriched.conversationId,

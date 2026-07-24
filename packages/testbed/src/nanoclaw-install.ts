@@ -137,6 +137,24 @@ function resolveCacheTarget() {
   return cachedCacheTarget;
 }
 
+/**
+ * Resolves a ready generation without building so integration probes can
+ * guarantee they exercise the warm install path.
+ * @internal
+ */
+export function findWarmNanoclawRuntimeInstallEffect() {
+  return Effect.gen(function* () {
+    const target = yield* resolveCacheTarget();
+    const generationDir = yield* findNanoclawCacheGeneration(
+      target.cacheRoot,
+      target.cacheFingerprint,
+    );
+    return generationDir === null
+      ? null
+      : runtimeInstall(generationDir, target.cacheFingerprint);
+  }).pipe(Effect.withSpan("findWarmNanoclawRuntimeInstallEffect"));
+}
+
 function runtimeInstall(
   cacheDir: string,
   cacheFingerprint: string,

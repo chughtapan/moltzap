@@ -8,7 +8,7 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
-### [`ContextOptions`](./service.ts#L195)
+### [`ContextOptions`](./service.ts#L196)
 
 _Interface_
 
@@ -20,7 +20,7 @@ export interface ContextOptions {
 }
 ```
 
-### [`ConversationMeta`](./service.ts#L188)
+### [`ConversationMeta`](./service.ts#L189)
 
 _Interface_
 
@@ -33,7 +33,7 @@ export interface ConversationMeta {
 }
 ```
 
-### [`MoltZapService`](./service.ts#L324)
+### [`MoltZapService`](./service.ts#L325)
 
 _Class_
 
@@ -88,15 +88,13 @@ export class MoltZapService {
   private readonly archivedConversationIds = new Set<string>();
 
   /**
-   * Insertion-ordered set of recently seen messageIds per conversation.
-   * Bounded at DEDUP_WINDOW_PER_CONV entries per conversation; oldest entry
-   * is evicted when the window is full. Set#keys() preserves insertion
-   * order in V8 / the spec, so eviction via `.next()` is O(1).
-   *
-   * Keyed and valued by their branded ids so the compiler rejects a
-   * `MessageId` accidentally used as a conversation key (or vice versa).
+   * The branded outer and inner keys keep conversation and message ids from
+   * crossing accidentally while each conversation owns its eviction window.
    */
-  private readonly seenMessageIds = new Map<ConversationId, Set<MessageId>>();
+  private readonly seenMessageIds = new Map<
+    ConversationId,
+    BoundedMap<MessageId, true>
+  >();
   private readonly handlers: {
     [K in ServiceHandlerName]: Array<
       NotificationHandler<ServiceHandlerPayloads[K]>
@@ -158,6 +156,8 @@ export class MoltZapService {
   /** Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`. */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
     return Effect.gen(this, function* () {
+      const client = new MoltZapAgentClient({
+        serverUrl: this.opts.serverUrl,
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -168,7 +168,7 @@ Promise siblings — async/await consumers run the Effect at the edge
 with `Effect.runPromise`. Keep this class Effect-only so downstream
 callers compose failures and cancellation explicitly.
 
-### [`ServiceRpcError`](./service.ts#L177)
+### [`ServiceRpcError`](./service.ts#L178)
 
 _TypeAlias_
 

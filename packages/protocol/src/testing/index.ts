@@ -4,9 +4,8 @@
  * `@moltzap/protocol/testing` — test fixtures, typed lifecycle clients,
  * arbitrary derivation, and Toxiproxy adversity helpers.
  */
-// safer-arch-ignore no-public-vendor-type-leak: The dedicated testing entrypoint composes package-owned #transport and #task helpers and exposes fast-check arbitraries only as test support. Tracked upstream: chughtapan/safer-architecture-lsp#2.
-// safer-arch-ignore require-boundary-owned-types: The dedicated testing entrypoint composes package-owned #transport and #task types for cross-package conformance tests. Tracked upstream: chughtapan/safer-architecture-lsp#2.
 // safer-arch-ignore no-public-test-helper-leak: The explicitly exported ./testing subpath is the supported cross-package conformance and fixture API.
+// safer-arch-ignore no-public-vendor-type-leak: The ./testing entrypoint deliberately exposes fast-check arbitraries as property-test support for downstream conformance suites.
 
 import * as arbitraries from "./arbitraries/index.js";
 import * as toxics from "./toxics/index.js";

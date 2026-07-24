@@ -14,8 +14,7 @@
         "src/**/__tests__/**/*.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
     },
     "packages/nanoclaw-channel": {
       "entry": [
@@ -23,8 +22,7 @@
         "src/**/__tests__/**/*.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
     },
     "packages/openclaw-channel": {
       "entry": [
@@ -33,8 +31,7 @@
         "src/**/__tests__/**/*.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
     },
     "packages/protocol": {
       "entry": [
@@ -44,8 +41,7 @@
         "scripts/check-mermaid.ts",
         "vitest*.config.ts"
       ],
-      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"]
     },
     "packages/testbed": {
       "entry": [
@@ -53,8 +49,7 @@
         "src/**/*.test.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
     },
     "packages/server": {
       "entry": [
@@ -64,8 +59,7 @@
         "src/**/__tests__/**/*.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"],
-      "ignoreDependencies": ["eslint-plugin-agent-code-guard"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
     }
   }
 }

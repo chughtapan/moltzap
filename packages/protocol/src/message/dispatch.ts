@@ -203,5 +203,3 @@ export const dispatchNotifications = [
   DispatchLeaseConsumed,
   DispatchLeaseExpired,
 ] as const;
-
-// safer-arch-ignore require-boundary-owned-types: The public dispatch contract composes protocol-owned #transport, #conversation, and #identity domain types. Tracked upstream: chughtapan/safer-architecture-lsp#2.

@@ -3,6 +3,7 @@
   "pages": [
     "modules/client/src",
     "modules/openclaw-channel/src",
+    "modules/protocol/bounded-map",
     "modules/protocol/conversation",
     "modules/protocol/conversation/requirements",
     "modules/protocol/identity",
