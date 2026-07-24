@@ -25,8 +25,8 @@
   "dependencies": {
     "@clack/core": "^1.2.0",
     "@clack/prompts": "^1.2.0",
-    "@moltzap/client": "2026.723.0",
-    "@moltzap/protocol": "2026.721.1",
+    "@moltzap/client": "2026.724.2",
+    "@moltzap/protocol": "2026.724.2",
     "@onecli-sh/sdk": "2.2.1",
     "better-sqlite3": "12.11.1",
     "chat": "4.29.0",
