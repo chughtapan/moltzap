@@ -74,11 +74,7 @@ internals (the component-to-package map is the v0 plan's W1).
 | `CollectiveUnit` | L3 | members — **open union**: v0 exactly MULTICAST | chartered |
 | `TranscriptUnit` | L3 | `CollectiveUnit \| LifecycleEntry` — what append/ship take | decided |
 | `Cursor` | L3 | plane — opaque fail-closed paging token for list-shaped reads | decided |
-| `Refusal` | cross | refusing party — opaque `cause`; the only wire-observable failure | register 8 open |
-| `NormBundle` | L4 | marketplace — versioned skill bundle, pinned per binding | decided at guarantee level |
-| `Standing` | L5 | endpoint — allow / deny / limit (limits endpoint-opaque) | decided |
-| `GateVerdict` | L5 | endpoint gate — admit / admit-under-limits / refuse; **success-channel value**, never an error | decided |
-| `Evidence` | L6 | derived, never minted: verified reads of recorded frames | monitor access open |
+| `Refusal` | cross | refusing party — the interim, non-normative value ("the op did not take effect"), opaque `cause`; encoding-level failures ride the encoding | register 8 open |
 
 Three position-shaped roles stay deliberately distinct: `Position` is
 the store's order, `Cursor` pages a list, and the **recovery cursor**
@@ -89,6 +85,15 @@ The two **open unions** are the growth surface: #765 widens
 method to any port — every exhaustive match then fails to compile until
 the new arm is handled, and implementations refuse arms they do not
 know. All seven proposals converged on this independently.
+
+The vocabulary deliberately stops at the wire. L4 and L5 carry no
+nouns here: a norm bundle binds only its guarantee (versioned, pinned
+per binding, same-version agreement — its shape is tasks.md's open
+bundle-format question), and the firewall's rules, postures, and
+verdict detail belong to the undesigned firewall plan (open
+question 2) — v0's contacts-keyed gate is a stopgap implementation,
+never contract vocabulary. L6's evidence is a derivation (below), not
+a noun.
 
 **Lenses.** `EncodedFrame` and `Card` are read through **lenses** —
 codecs whose encode is byte-identity on the retained input
@@ -184,20 +189,21 @@ no third caller class is constructible (control-plane.md inv. 7).
 
 ```ts
 /** The plugin receives attenuated VALUES and requires no authority: it
- *  cannot seal, ship raw, append, read out of scope, or write contacts,
+ *  cannot seal, ship raw, append, read out of scope, or touch firewall state,
  *  because it holds none of those and can acquire none. "Plugins are
  *  pure consumers" (channels.md inv. 3) is this type. */
 interface HarnessPlugin {
   readonly run: (caps: EndpointCaps) => Effect<void, never>; // R = never
 }
 interface EndpointCaps {
-  readonly send: GatedSend;                       // gate + turn + one-shot, by construction
+  readonly send: GatedSend;                       // firewall + turn + one-shot, by construction
   readonly initiate: Initiate;                    // derived: fresh id + START via send path
   readonly inbound: Stream<Enriched, Refusal>;    // the attention stream only
-  readonly contacts: ContactsView;                // read-only standing
   readonly turn: TurnObservation;                 // typestate surface below
 }
-interface Enriched { readonly attributed: Attributed; readonly verdict: GateVerdict; readonly standing: Standing }
+/** Attribution plus whatever context the endpoint's firewall attaches.
+ *  Enrichment is additive and firewall-defined; no shape is bound here. */
+interface Enriched { readonly attributed: Attributed; readonly context: FirewallContext }
 ```
 
 ## The turn discipline (typestate)
@@ -232,17 +238,22 @@ signature.
 
 ## Not ports
 
-- **Screening (L5)** is a **decorator** over the endpoint's inbound and
-  outbound edges, configured by `(rules, contacts, norms)` flowing
-  down. It is not a port because the suite asserts *expressibility*
-  (arena's and bench's rulesets are both expressible), never
-  *equivalence* — two endpoints' gates are intentionally different.
-  `Screening.inbound/outbound` return a `GateVerdict` in the success
-  channel; gates hold no seal, so they cannot alter frames.
-- **Contacts (L5)** is an endpoint-local **adapter** behind screening
-  config (`standing`, `set`; default posture absent a record; immediate
-  effect, zero network). Its guarantees are negative boundary laws ("no
-  router interface accepts, stores, or serves it"), not a swap axis.
+- **The firewall (L5)** contributes only its **slots** to this
+  contract: an inbound mount between verification and the agent and an
+  outbound mount between the agent and shipping — fail-closed, holding
+  no seal, verdicts agent-local, a withheld inbound frame staying in
+  the record. Everything inside the slots — the rule language, what a
+  verdict may say beyond whether the frame reaches the agent, the
+  trust data rules consult, and how upper layers program the rules —
+  is **the firewall plan, an undesigned surface this doc deliberately
+  does not bind** (open question 2). It is not a port because the
+  suite asserts *expressibility* (arena's and bench's rulesets are
+  both expressible), never *equivalence* — two endpoints' firewalls
+  are intentionally different. v0 ships a stopgap implementation keyed
+  on endpoint-local contact records (`endpoints/contacts.md`'s
+  interface floor; `endpoints/screening.md`) — a stopgap behind the
+  slots, not accepted design, and none of its vocabulary appears in
+  this contract.
 - **Entitlement (L3)** is the `Scope` **predicate** carried into
   `Store.read`; future read-scope decisions change the value, not the
   port.
@@ -292,12 +303,12 @@ name the governing doc.
 | L3.8 | `awaitAdmission` precedes every send of that turn (typestate) | C | data-plane.md inv. 5 |
 | L3.9 | At most one commit per admitted turn (linearity residual) | S | data-plane.md → Implementation notes |
 | L3.10 | Admission refusals never mutate membership | C+P | data-plane.md inv. 9 |
-| L5.1 | Gates return a verdict; the frame and its attribution pass through unaltered (gates hold no seal) | C | screening.md inv. 2 |
-| L5.2 | Refuse withholds a record from attention while `read` is unchanged — screening filters attention, never the record | P | screening.md inv. 2–3 |
-| L5.3 | `GateVerdict` rides the success channel and no interface emits it outward | C | screening.md inv. 3; contacts.md inv. 5 |
-| L5.4 | `standing` after `set` reflects the write, locally, with zero network involvement; default posture absent a record | P | contacts.md inv. 3, 4 |
-| L5.5 | No router-side interface accepts, stores, or serves contact data | C | contacts.md inv. 1 |
-| L4.1 | No port has a task sort; a `NormBundle` is screening/turn configuration; same-version agreement is two endpoints pinning one bundle | C | tasks.md inv. 1–3; data-plane.md inv. 10 |
+| L5.1 | The slots hold no seal; the frame and its attribution pass through unaltered | C | screening.md inv. 2 |
+| L5.2 | A withheld inbound frame stays out of attention while `read` is unchanged — the firewall filters attention, never the record | P | screening.md inv. 2–3 |
+| L5.3 | Verdicts are agent-local; no interface emits one outward | C | screening.md inv. 3; contacts.md inv. 5 |
+| L5.4 | A change to the endpoint's trust data is a local act with immediate effect and zero network involvement | P | contacts.md inv. 4 |
+| L5.5 | No router-side interface accepts, stores, or serves any L5 trust data | C | contacts.md inv. 1 |
+| L4.1 | No port has a task sort; norms enter only as firewall and turn configuration, shape unbound (bundle format: tasks.md open question 1); same-version agreement is two endpoints pinning one bundle | C | tasks.md inv. 1–3; data-plane.md inv. 10 |
 | L6.1 | `evidence` = the recipient's `open` over `read`, post facto; no monitor port, principal, or caller arm exists | C | identity.md → Verification duties; enforcement.md |
 | L7.1 | `mint` requires the operator arm; `CallerCap` has two arms and one minter | C | control-plane.md inv. 3, 7 |
 | L7.2 | `enumerate` ≈ per-id `resolve`; cards only, no thinner projection | P | directory-serves-cards |
@@ -324,14 +335,17 @@ above; this mapping is v2's standard realization of it.
   `AttributionTarget`, `HarnessOpenClaw` / `HarnessNanoClaw`. The
   swap in law X.2 is choosing which Plane `Layer` is provided.
 - **Decorators are `Layer<Port, never, Port>`**: `withEntitlement(scope)`
-  wraps `Store.read`; `withScreening(rules)` wraps the harness mount.
+  wraps `Store.read`; `withFirewall(rules)` wraps the harness mount
+  (the slots; the rules value is firewall-plan territory, opaque
+  here).
   Configuration flows down as decorator and adapter parameters — gate
   rules, the operator key, norm bundles — never as a lower port
   depending on an upper tag.
 - **Root discipline.** Port tags are provided once per composition
   (`RouterComposition`: Store, Registry, Verify, Plane-provider;
-  `EndpointComposition`: Attribution, Plane-client, Contacts) and
-  appear in no leaf requirement. Leaf code receives attenuated values
+  `EndpointComposition`: Attribution, Plane-client, plus whatever
+  state its firewall implementation owns) and appear in no leaf
+  requirement. Leaf code receives attenuated values
   (`EndpointCaps`, `CallerCap`, `Scope`). Folds, typestate positions,
   and capability values are plain branded values with no tag.
 - **Three static checks**, enforced with the W1 boundary machinery:
@@ -342,9 +356,9 @@ above; this mapping is v2's standard realization of it.
 
 ```mermaid
 flowchart TB
-  subgraph Endpoint["EndpointComposition (roots: Attribution, Plane client, Contacts)"]
+  subgraph Endpoint["EndpointComposition (roots: Attribution, Plane client, firewall state)"]
     HP[Harness plugin] -- "EndpointCaps (values only)" --> GS[GatedSend + TurnObservation]
-    GS --> SCR[Screening decorator] --> AT[Attribution seal]
+    GS --> SCR[Firewall slots] --> AT[Attribution seal]
     AT --> PC[Plane client]
     PC -- deliveries --> VF1[Verify] --> SCR
   end
@@ -368,12 +382,14 @@ flowchart TB
 4. Port tags appear only at composition roots; leaf code holds
    attenuated values. Tag dependencies never point up the stack.
 5. The seal half of Attribution is unnameable in the router process;
-   contact data is unnameable in any router interface.
+   L5 trust data is unnameable in any router interface.
 6. Refusals are values; port-internal error unions are closed and
    region-local; the wire observes only the opaque `Refusal`.
-7. The open unions are exactly `CollectiveUnit` and `LifecycleEntry`
-   (charter-widened) plus `Refusal.cause` (register-8-widened); every
-   other union is closed and matched to `never`.
+7. Among wire nouns the open unions are exactly `CollectiveUnit` and
+   `LifecycleEntry` (charter-widened) plus `Refusal.cause`
+   (register-8-widened); every other wire union is closed and matched
+   to `never`. Endpoint-side vocabularies (firewall rules, verdict
+   detail, norm shapes) are unbound here, not closed.
 8. Swapping `PlaneLive` for `PlaneTestbed` changes no other binding in
    either composition.
 9. `Position` never appears inside the attributed unit's type
@@ -391,7 +407,7 @@ flowchart TB
 - The swap gate (X.2) passes as a one-binding change against the same
   corpus.
 - Both case studies (bench, arena) are expressible as programs over
-  `EndpointCaps` plus screening configuration, with no port tag in
+  `EndpointCaps` plus firewall configuration, with no port tag in
   their requirements.
 
 ## Open questions
@@ -402,18 +418,30 @@ flowchart TB
    Recommended default: adopt the *format* now (this doc's law table);
    let W8 decide the generator machinery when the suite is built.
    Escalation: W8 / `v2/conformance`.
-2. **Does the Effect mapping graduate to a decision record?** Default:
+2. **The firewall plan.** L5's interior is undesigned: the rule
+   vocabulary (keying off any communication layer's guarantees and the
+   institutional facts L7 records at L1), verdict expressiveness, the
+   trust-data model, and how norms and upper-layer configuration
+   program the rules. Contacts are one local implementation choice
+   inside that plan, not a contract element. Recommended default: v0
+   ships the contacts-keyed stopgap behind the slots; the plan is a
+   dedicated spec item owned by `endpoints/screening.md` (its shared
+   firewall-vocabulary open question is this item's seed), with
+   `endpoints/contacts.md`'s floor as one input; nothing in this
+   contract changes when it lands. Escalation:
+   `endpoints/screening.md`.
+3. **Does the Effect mapping graduate to a decision record?** Default:
    recorded standard until the first implementation PR would deviate.
-3. **Promote-a-law-to-a-port cost.** A future charter decision may need
-   a merged-away seam (screening as a port, an index service) — the
+4. **Promote-a-law-to-a-port cost.** A future charter decision may need
+   a merged-away seam (the firewall as a port, an index service) — the
    promotion refactor is accepted as the price of the port test.
    Escalation: charter #765 / the affected doc.
-4. **Cursor persistence** (channels.md Q2): the ports take
+5. **Cursor persistence** (channels.md Q2): the ports take
    `Position`/`Cursor` values and bind no persistence; the endpoint
    composition decides durability under the W6.S2 spec item.
-5. **The L6 monitor**, if one ever exists, arrives as a wider `Scope`
+6. **The L6 monitor**, if one ever exists, arrives as a wider `Scope`
    value, not a new port or caller arm (register 3).
-6. **The L4 projector seam.** Task norms may later be expressed as
+7. **The L4 projector seam.** Task norms may later be expressed as
    user-supplied protocol descriptions projected to "legal next moves"
    at the endpoint (the deferred contract layer). The vocabulary here
    deliberately leaves that seam unbuilt; nothing in the network's
