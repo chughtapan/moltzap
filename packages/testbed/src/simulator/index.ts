@@ -19,6 +19,8 @@ export {
 } from "./ids.js";
 
 export {
+  type JsonValue,
+  JsonObject,
   Seed,
   AgentSlotName,
   PrincipalName,
@@ -27,6 +29,8 @@ export {
   LogicalTime,
   IsolationPosture,
   SlotRole,
+  SimulatorRuntimeKind,
+  FaultKind,
   OpenClawSlotConfig,
   NanoclawSlotConfig,
   StubSlotConfig,
@@ -47,6 +51,7 @@ export {
   RecordingSpec,
   RunSpec,
   type MaterializedRunSpec,
+  type AgentFacingRunSpec,
   type FieldProvenance,
   type MaterializationReport,
   materializeRunSpec,
@@ -59,6 +64,7 @@ export {
   type SimulatorRuntime,
   type ServerContainerHandle,
   type LaunchedAgent,
+  type TeardownReport,
   type LaunchedWorld,
   type LaunchDeps,
   type AgentRunner,
@@ -67,6 +73,7 @@ export {
 
 export {
   type MountPlan,
+  type MountHandle,
   type EnvironmentMount,
   makeEnvironmentMount,
 } from "./environment-mount.js";
@@ -121,6 +128,8 @@ export {
   makeEventLog,
   type OtlpReceiverHandle,
   makeOtlpReceiver,
+  type TranscriptDrain,
+  makeTranscriptDrain,
 } from "./event-log.js";
 
 export {
@@ -141,6 +150,7 @@ export {
   type RecordingRef,
   type SealedRecordingRef,
   type RecordingSnapshot,
+  type AllocatedAttempt,
   type RecordingStore,
   recordingPathFor,
   type SecretRegistry,
@@ -148,8 +158,13 @@ export {
 } from "./recording.js";
 
 export {
-  AttemptState,
-  AttemptRecord,
+  LiveAttemptState,
+  TerminalAttemptState,
+  QueuedAttempt,
+  LiveAttempt,
+  FinishedAttempt,
+  CancelledAttempt,
+  type AttemptSnapshot,
   type CancelOutcome,
   type ExperimentQueue,
   type Runner,
@@ -159,8 +174,11 @@ export {
   RunSpecInvalid,
   AdapterConfigRejected,
   IsolationViolation,
+  UnknownDriver,
+  DriverConfigRejected,
   ServerLaunchFailed,
   AgentLaunchFailed,
+  ProvisioningFailed,
   MountFailed,
   LoggingProxyFailed,
   FaultUnsupported,

@@ -9,6 +9,7 @@
 import type { Effect, Scope } from "effect";
 import type { AgentSlotSpec } from "./run-spec.js";
 import type { EventLogHandle } from "./event-log.js";
+import type { SecretRegistry } from "./recording.js";
 import type { LoggingProxyFailed, MountFailed } from "./errors.js";
 
 /**
@@ -33,16 +34,26 @@ export type MountPlan = {
   }>;
 };
 
+/** A prepared slot mount: the adapter-facing plan plus the proxy health channel. */
+export type MountHandle = {
+  readonly plan: MountPlan;
+  /** Resolves only if a proxy or mounted server fails after launch; `executeRun` races it. */
+  awaitFailure(): Effect.Effect<never, LoggingProxyFailed, never>;
+};
+
 /**
  * EnvironmentMount contract. `prepare` spawns the consumer's MCP servers
  * behind logging proxies and returns the plan the runtime adapter wires
  * in at spawn time; proxies and servers are released at scope close.
+ * Mount env values that are credential material are registered in
+ * `secrets` before any proxy starts.
  */
 export interface EnvironmentMount {
   prepare(
     slot: AgentSlotSpec,
     log: EventLogHandle,
-  ): Effect.Effect<MountPlan, MountFailed | LoggingProxyFailed, Scope.Scope>;
+    secrets: SecretRegistry,
+  ): Effect.Effect<MountHandle, MountFailed | LoggingProxyFailed, Scope.Scope>;
 }
 
 /** Create the v0 environment mount (stdio MCP servers behind the logging proxy). */

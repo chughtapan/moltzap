@@ -14,15 +14,15 @@ export const RunId: Schema.Schema<RunId, string> = Schema.NonEmptyString.pipe(
 );
 
 export type AttemptId = string & Brand.Brand<"AttemptId">;
-/** Unique attempt under one recording identity; sequence assigned by the queue's store. */
-export const AttemptId: Schema.Schema<AttemptId, string> =
-  Schema.NonEmptyString.pipe(
-    Schema.brand("AttemptId"),
-    Schema.annotations({
-      description:
-        "Attempt identity under a (specHash, seed) recording identity",
-    }),
-  );
+/** Unique attempt under one recording identity; format `a{n}`, store-allocated. Path-safe by construction. */
+export const AttemptId: Schema.Schema<AttemptId, string> = Schema.String.pipe(
+  Schema.pattern(/^a\d+$/),
+  Schema.brand("AttemptId"),
+  Schema.annotations({
+    description:
+      "Attempt identity under a (specHash, seed) recording identity; a<n>",
+  }),
+);
 
 export type EpisodeId = string & Brand.Brand<"EpisodeId">;
 /** Episode identity; v0 runs exactly one episode per run but the shape stays multi-episode-representable. */

@@ -44,6 +44,25 @@ export class IsolationViolation extends Schema.TaggedError<IsolationViolation>()
   },
 ) {}
 
+/** A `DriverRef.name` does not resolve against the registered-driver set at config time. */
+export class UnknownDriver extends Schema.TaggedError<UnknownDriver>()(
+  "UnknownDriver",
+  {
+    name: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+/** A registered driver rejected its `DriverRef.config` at config time (fail-fast). */
+export class DriverConfigRejected extends Schema.TaggedError<DriverConfigRejected>()(
+  "DriverConfigRejected",
+  {
+    name: Schema.String,
+    field: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
 // ---------------------------------------------------------------------------
 // Launch (contract 1, run time)
 // ---------------------------------------------------------------------------
@@ -73,6 +92,19 @@ export class AgentLaunchFailed extends Schema.TaggedError<AgentLaunchFailed>()(
       "ready-timeout",
     ),
     detail: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+/**
+ * Per-run identity provisioning failed: agent registration or the
+ * observer credential could not be minted against the fresh server; the
+ * run seals with reason `provisioning-failed`.
+ */
+export class ProvisioningFailed extends Schema.TaggedError<ProvisioningFailed>()(
+  "ProvisioningFailed",
+  {
+    subject: Schema.String,
     message: Schema.String,
   },
 ) {}
@@ -213,13 +245,18 @@ export class RecordingStoreFailed extends Schema.TaggedError<RecordingStoreFaile
 ) {}
 
 /**
- * The seal path itself failed (result write or marker rename); the
- * recording necessarily stays unsealed. Surfaced to the invoker; the
- * unsealed recording remains readable for diagnosis.
+ * The seal path itself failed (lock, fsync, result write, or marker
+ * publish); the recording necessarily stays unsealed. Surfaced to the
+ * invoker; the unsealed recording remains readable for diagnosis.
  */
 export class SealFailed extends Schema.TaggedError<SealFailed>()("SealFailed", {
   recordingPath: Schema.String,
-  step: Schema.Literal("write-result", "write-marker"),
+  step: Schema.Literal(
+    "acquire-lock",
+    "fsync-data",
+    "write-result",
+    "write-marker",
+  ),
   message: Schema.String,
 }) {}
 
@@ -279,21 +316,27 @@ export class AttemptNotRetryable extends Schema.TaggedError<AttemptNotRetryable>
 export type ConfigTimeError =
   | RunSpecInvalid
   | AdapterConfigRejected
-  | IsolationViolation;
+  | IsolationViolation
+  | FaultUnsupported
+  | UnknownDriver
+  | DriverConfigRejected;
 
 /**
  * Infrastructure failures observed after the manifest persists. Each maps
- * to exactly one `InfraFailureReason` in `result.json`; sealing is
- * attempted for every member except where the seal path itself is the
- * failure (`SealFailed`).
+ * to exactly one `InfraFailureReason` in `result.json` (the seal site
+ * discriminates exhaustively; an unmapped member is a compile error);
+ * sealing is attempted for every member except where the seal path itself
+ * is the failure (`SealFailed`).
  */
 export type InfraError =
   | ServerLaunchFailed
   | AgentLaunchFailed
+  | ProvisioningFailed
   | MountFailed
   | LoggingProxyFailed
   | FaultApplyFailed
   | FaultRevertFailed
+  | TaskInjectionFailed
   | DriverCrashed
   | SpanAcceptanceLost
   | TranscriptDrainFailed
