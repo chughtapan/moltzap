@@ -70,11 +70,11 @@ internals (the component-to-package map is the v0 plan's W1).
 | `AgentId` | L1 | registry — opaque; survives key rotation | decided |
 | `Principal` | L1 | registry — opaque linkage to the party an agent acts for | linkage depth open |
 | `PublicKey` | L1 | agent — submitted at registration; the key its card binds | decided |
-| `Card` | L1 | registry-attested X.509, self-attesting (fields: identity.md) | decided |
-| `Frame` | L1 | sender's harness — the signed unit (envelope + body) as opaque bytes | decided |
-| `Envelope` | L1 | view of a frame's carrier-readable fields: sender, conversation, version, entry kind, attribution | field set decided; encoding open |
+| `AgentCard` | L1 | registry-attested X.509, self-attesting (fields: identity.md) | decided |
+| `Envelope` | L1 | a frame's carrier-readable fields: sender, conversation, version, entry kind, attribution | field set decided; encoding open |
 | `Body` | L1 | sender — opaque bytes, never interpreted below L4 | decided |
-| `VerifiedFrame` | L1 | verification — envelope view + principal + the exact bytes verified | decided |
+| `Frame` | L1 | sender's harness — an `Envelope` and a `Body`, signed, as opaque bytes | decided |
+| `VerifiedFrame` | L1 | only `verify` constructs it — the frame plus its resolved `Principal`; holding one is proof the frame verified | decided |
 | `Version` | cross | publish pipeline — CalVer, matched exactly | decided |
 | `ConversationId` | L3 | client — fresh, collision-free by size | decided |
 | `Position` | L3 | store — a record's place in the transcript order; never a field of any frame type (law L1.6) | decided |
@@ -117,7 +117,7 @@ migration is an adapter change (register item 5 stays open).
 /** Offline, from the frame plus the sender's card alone; identical
  *  shape under both bindings. */
 interface Verifier {
-  readonly verify: (frame: Frame, card: Card) => Effect<VerifiedFrame, Refusal>;
+  readonly verify: (frame: Frame, card: AgentCard) => Effect<VerifiedFrame, Refusal>;
 }
 /** Held ONLY by the endpoint composition; the private key is adapter
  *  state, and sender/version are the adapter's own identity and
@@ -164,10 +164,10 @@ type Scope = (record: TranscriptRecord) => Effect<boolean>;
 ```ts
 interface Registry {
   /** Operator-gated; the caller must be the operator arm. */
-  readonly register: (caller: Caller, key: PublicKey, principal: Principal) => Effect<Card, RegistryError>;
+  readonly register: (caller: Caller, key: PublicKey, principal: Principal) => Effect<AgentCard, RegistryError>;
   /** The card IS the directory entry; no thinner projection is served. */
-  readonly lookup: (id: AgentId) => Effect<Card, RegistryError>;
-  readonly list: (page: PageToken) => Effect<Page<Card>, RegistryError>;
+  readonly lookup: (id: AgentId) => Effect<AgentCard, RegistryError>;
+  readonly list: (page: PageToken) => Effect<Page<AgentCard>, RegistryError>;
 }
 ```
 
