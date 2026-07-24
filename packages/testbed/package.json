@@ -18,6 +18,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./simulator": {
+      "import": "./dist/simulator/index.js",
+      "types": "./dist/simulator/index.d.ts"
     }
   },
   "scripts": {
