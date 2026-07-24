@@ -60,6 +60,7 @@ import {
 import { AgentCallableGroup } from "@moltzap/protocol/socket/catalog";
 import type { RpcGroup, Rpc } from "@effect/rpc";
 import type { TaskId } from "@moltzap/protocol/task";
+import { BoundedMap } from "@moltzap/protocol/bounded-map";
 import {
   Config,
   ConfigProvider,
@@ -288,10 +289,10 @@ export interface CrossConvMessage {
 const MAX_MESSAGES_PER_CONV = 1000;
 
 /**
- * Per-conversation dedup window. Inbound messageIds are tracked in a
- * Set bounded to this size; once full, the insertion-ordered oldest
- * entry is evicted to make room. 1000 × 36 bytes per UUID ≈ 36 KB per
- * conversation — bounded and negligible for the expected conversation count.
+ * Per-conversation dedup window. `BoundedMap` evicts the oldest message id
+ * when a new id arrives at capacity. 1000 × 36 bytes per UUID ≈ 36 KB per
+ * conversation, which keeps replay protection negligible at the expected
+ * conversation count.
  */
 const DEDUP_WINDOW_PER_CONV = 1000;
 
@@ -371,15 +372,13 @@ export class MoltZapService {
   private readonly archivedConversationIds = new Set<string>();
 
   /**
-   * Insertion-ordered set of recently seen messageIds per conversation.
-   * Bounded at DEDUP_WINDOW_PER_CONV entries per conversation; oldest entry
-   * is evicted when the window is full. Set#keys() preserves insertion
-   * order in V8 / the spec, so eviction via `.next()` is O(1).
-   *
-   * Keyed and valued by their branded ids so the compiler rejects a
-   * `MessageId` accidentally used as a conversation key (or vice versa).
+   * The branded outer and inner keys keep conversation and message ids from
+   * crossing accidentally while each conversation owns its eviction window.
    */
-  private readonly seenMessageIds = new Map<ConversationId, Set<MessageId>>();
+  private readonly seenMessageIds = new Map<
+    ConversationId,
+    BoundedMap<MessageId, true>
+  >();
   private readonly handlers: {
     [K in ServiceHandlerName]: Array<
       NotificationHandler<ServiceHandlerPayloads[K]>
@@ -1279,20 +1278,17 @@ export class MoltZapService {
     convId: ConversationId,
     msgId: MessageId,
   ): boolean {
-    let dedupSet = this.seenMessageIds.get(convId);
-    if (dedupSet === undefined) {
-      dedupSet = new Set<MessageId>();
-      this.seenMessageIds.set(convId, dedupSet);
+    let dedupWindow = this.seenMessageIds.get(convId);
+    if (dedupWindow === undefined) {
+      dedupWindow = new BoundedMap<MessageId, true>(DEDUP_WINDOW_PER_CONV);
+      this.seenMessageIds.set(convId, dedupWindow);
     }
-    if (dedupSet.has(msgId)) {
+    if (dedupWindow.has(msgId)) {
+      // Replays retain their original FIFO age so repeated delivery cannot
+      // keep an old id resident forever.
       return false;
     }
-    if (dedupSet.size >= DEDUP_WINDOW_PER_CONV) {
-      // size >= 1 guaranteed by the guard above; next().value is defined.
-      const oldest = dedupSet.keys().next();
-      if (!oldest.done) dedupSet.delete(oldest.value);
-    }
-    dedupSet.add(msgId);
+    dedupWindow.set(msgId, true);
     return true;
   }
 

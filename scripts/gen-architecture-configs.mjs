@@ -64,7 +64,7 @@ const packageDefinitions = {
   client: {
     beforeShared: {
       minExportedSiblingModules: 6,
-      maxPublicExports: 28,
+      maxPublicExports: 29,
       minPublicFacadeModules: 8,
       folderChildCountOverrides: [
         {
@@ -110,7 +110,22 @@ const packageDefinitions = {
     },
   },
   evals: {},
-  "nanoclaw-channel": {},
+  "nanoclaw-channel": {
+    beforeShared: {
+      sharedFolderNames: [
+        {
+          folder: "db",
+          reason:
+            "Persistence helpers (agent/messaging groups, container configs) the moltzap channel adapter composes over.",
+        },
+        {
+          folder: "modules",
+          reason:
+            "Cross-cutting modules (permissions) the channel adapter depends on.",
+        },
+      ],
+    },
+  },
   "openclaw-channel": {
     beforeShared: {
       packageRuntime: "node",
@@ -119,7 +134,7 @@ const packageDefinitions = {
   protocol: {
     config: {
       minExportedSiblingModules: 10,
-      maxSubpathExports: 10,
+      maxSubpathExports: 11,
       maxPublicExports: 42,
       maxPublicReexports: 13,
       minPublicFacadeModules: 14,
@@ -218,12 +233,17 @@ const packageDefinitions = {
       folderChildCountOverrides: [
         {
           folder: ".",
-          maxChildren: 12,
+          maxChildren: 13,
           reason:
-            "The testbed keeps runtime adapters, orchestration, readiness, process support, and trace-capture modules as deliberate peers in its documented single-tier source layout",
+            "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, and trace-capture modules as deliberate peers in its documented single-tier source layout",
         },
       ],
       facadeFiles: [
+        {
+          file: "channel-plugin-install.ts",
+          reason:
+            "Shared plugin-install and workspace-seed boundary both runtime adapters compose for on-disk channel provisioning",
+        },
         {
           file: "testbed.ts",
           reason:

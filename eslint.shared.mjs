@@ -1,3 +1,4 @@
+// Package ESLint configs load this shared module, so the root owns its plugins.
 import guard from "eslint-plugin-agent-code-guard";
 import tsParser from "@typescript-eslint/parser";
 import comments from "@eslint-community/eslint-plugin-eslint-comments";
@@ -28,14 +29,11 @@ const packageIgnores = {
   ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts"],
 };
 
-// Effect.gen abandons the generator when a yielded effect fails: NO code in
-// a `finally` block runs on that path — not even synchronous statements —
-// so cleanup written as try/finally silently leaks (#791's root cause).
-// Flags any try/finally whose nearest enclosing function is a generator
-// driven by Effect (`Effect.gen(...)` / `Effect.fn(...)(...)`); plain
-// generators, where real iteration does run finally via `.return()`, are
-// not flagged. The fix is Effect.ensuring / Effect.acquireRelease.
-// Inline pending upstream adoption: agent-code-guard#81.
+// Effect.gen abandons its generator when a yielded effect fails, so a
+// `finally` block cannot provide reliable cleanup on that path. This rule
+// flags try/finally inside Effect-driven generators while leaving plain
+// generators alone, where iteration runs finally through `.return()`.
+// Effect.ensuring and Effect.acquireRelease preserve cleanup on every path.
 const genFinallyRule = {
   meta: {
     type: "problem",

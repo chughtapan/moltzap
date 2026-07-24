@@ -1,5 +1,8 @@
 /** @file Shared channel-adapter primitives for `@moltzap/client/channel-base`. */
 
+// Channel adapters import per-key store primitives through channel-base.
+export { BoundedMap } from "@moltzap/protocol/bounded-map";
+
 export {
   LeaseAlreadyConsumed,
   projectLeaseInvalid,
