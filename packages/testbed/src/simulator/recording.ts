@@ -14,7 +14,9 @@
  * Sealing is durably at-most-once per attempt: (1) create `seal.lock`
  * with O_CREAT|O_EXCL, then fsync the directory so the lock's entry
  * survives a crash — the losing racer in a cancel/completion race fails
- * typed with `SealRaceLost` and never writes; (2) fsync the three
+ * typed with `SealRaceLost` (`observed: "marker-present"` = winner
+ * sealed, read its outcome; `observed: "lock-held"` = winner mid-seal or
+ * crash tombstone, no sealed outcome yet) and never writes; (2) fsync the three
  * pre-result files (`manifest.json`, `events.ndjson`, `traces.json`);
  * (3) write `result.json` and fsync; (4) write `sealed.json.tmp`, fsync,
  * atomically rename to `sealed.json`, fsync the directory. A lock with
