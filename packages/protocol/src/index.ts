@@ -6,9 +6,6 @@
  * testing helpers live behind focused package subpaths.
  */
 
-// safer-arch-ignore no-public-vendor-type-leak: The public root re-exports protocol's own #socket subpath, which is package-owned rather than a vendor boundary. Tracked upstream: chughtapan/safer-architecture-lsp#2.
-// safer-arch-ignore require-boundary-owned-types: The public root re-exports package-owned #socket domain types as its curated API. Tracked upstream: chughtapan/safer-architecture-lsp#2.
-
 export { MoltZapAgentClient, MoltZapAppClient, MoltZapServer } from "#socket";
 export type {
   AgentClientOptions,

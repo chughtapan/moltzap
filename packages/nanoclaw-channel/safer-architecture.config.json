@@ -1,4 +1,14 @@
 {
+  "sharedFolderNames": [
+    {
+      "folder": "db",
+      "reason": "Persistence helpers (agent/messaging groups, container configs) the moltzap channel adapter composes over."
+    },
+    {
+      "folder": "modules",
+      "reason": "Cross-cutting modules (permissions) the channel adapter depends on."
+    }
+  ],
   "publicTypePackages": [
     {
       "package": "effect",
