@@ -8,19 +8,7 @@ Dispatch-domain service barrel.
 
 ## Public surface
 
-### [`AppBoundConversationLookup`](./app-bound-conversation.ts#L8)
-
-_Interface_
-
-```ts
-export interface AppBoundConversationLookup {
-  readonly _tag: "AppBound";
-  readonly taskId: TaskId;
-  readonly appId: AppId;
-}
-```
-
-### [`DispatchAdmissionConversations`](./admission.service.ts#L61)
+### [`DispatchAdmissionConversations`](./admission.service.ts#L100)
 
 _Interface_
 
@@ -33,7 +21,7 @@ export interface DispatchAdmissionConversations {
 }
 ```
 
-### [`DispatchAdmissionResult`](./admission.service.ts#L30)
+### [`DispatchAdmissionResult`](./admission.service.ts#L69)
 
 _TypeAlias_
 
@@ -47,7 +35,7 @@ export type DispatchAdmissionResult =
     }
 ```
 
-### [`DispatchAdmissionService`](./admission.service.ts#L109)
+### [`DispatchAdmissionService`](./admission.service.ts#L148)
 
 _Class_
 
@@ -206,7 +194,7 @@ export class DispatchAdmissionServiceTag extends Context.Tag(
 )<DispatchAdmissionServiceTag, DispatchAdmissionService>() {}
 ```
 
-### [`DispatchAuthorizeContext`](./admission.service.ts#L28)
+### [`DispatchAuthorizeContext`](./admission.service.ts#L25)
 
 _TypeAlias_
 
@@ -234,7 +222,7 @@ export const dispatchRequest: ServerHandler<typeof DispatchRequest> = (
 )
 ```
 
-### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L49)
+### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L88)
 
 _Interface_
 
@@ -597,21 +585,6 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`lookupAppBoundForConversation`](./app-bound-conversation.ts#L19)
-
-_Function_
-
-```ts
-export function lookupAppBoundForConversation(
-  db: Db,
-  conversationId: ConversationId,
-): Effect.Effect<AppBoundConversationLookup, never, never>
-```
-
-Dispatch admission is only defined for app-bound, non-archived
-conversations. The success type deliberately has no non-app-bound arm, so
-downstream lease minting cannot accidentally handle one as a lease binding.
-
 ### [`makeLeaseRegistry`](./lease-registry.ts#L1346)
 
 _Function_
@@ -654,7 +627,6 @@ Once recorded, the binding is immutable for the lease's lifetime.
 ## Files
 
 - `admission.service.ts`
-- `app-bound-conversation.ts`
 - `handlers.ts`
 - `layer.ts`
 - `lease-registry.ts`

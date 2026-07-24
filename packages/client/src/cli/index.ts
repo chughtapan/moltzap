@@ -2,7 +2,15 @@
 /** @file MoltZap CLI entrypoint and global transport option wiring. */
 import { Command, Options } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer, Logger, Option } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Effect,
+  Layer,
+  Logger,
+  LogLevel,
+  Option,
+} from "effect";
 import packageJson from "../../package.json" with { type: "json" };
 import { agentsCommand } from "./commands/agents.js";
 import { contactsCommand } from "./commands/contacts.js";
@@ -15,7 +23,6 @@ import { registerCommand } from "./commands/register.js";
 import { sendCommand } from "./commands/send.js";
 import { startCommand } from "./commands/start.js";
 import { statusCommand } from "./commands/status.js";
-import { LoggerLive, minLogLevel } from "./runtime.js";
 import {
   makeTransportLayer,
   resolveTransportInputs,
@@ -28,9 +35,42 @@ import {
   ProfileName,
   type ProfileName as ProfileNameType,
 } from "../profile.js";
-import { currentArgv } from "./process-argv.js";
 
 const { version } = packageJson;
+
+const CliRuntimeEnv = Config.all({
+  logLevel: Config.string("MOLTZAP_LOG_LEVEL").pipe(Config.withDefault("info")),
+});
+
+const runtimeEnv = Effect.runSync(
+  CliRuntimeEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+);
+
+const LoggerLive = Logger.replace(
+  Logger.defaultLogger,
+  Logger.withConsoleError(Logger.stringLogger),
+);
+
+const minLogLevel: LogLevel.LogLevel = (() => {
+  const env = runtimeEnv.logLevel.toLowerCase();
+  switch (env) {
+    case "trace":
+      return LogLevel.Trace;
+    case "debug":
+      return LogLevel.Debug;
+    case "info":
+      return LogLevel.Info;
+    case "warn":
+    case "warning":
+      return LogLevel.Warning;
+    case "error":
+      return LogLevel.Error;
+    case "fatal":
+      return LogLevel.Fatal;
+    default:
+      return LogLevel.Info;
+  }
+})();
 
 const globalProfileOption = Options.text("profile").pipe(
   Options.withSchema(ProfileName),
@@ -132,7 +172,8 @@ const moltzap = Command.provide(moltzapBase, (config) =>
 );
 
 const cli = Command.run(moltzap, { name: "moltzap", version });
-cli(currentArgv()).pipe(
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli Command.run requires the Node argv vector at this process entrypoint.
+cli(process.argv).pipe(
   Effect.provide(NodeContext.layer),
   Effect.provide(LoggerLive),
   Logger.withMinimumLogLevel(minLogLevel),

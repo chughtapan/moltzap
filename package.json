@@ -7,6 +7,9 @@
     "test": "nx run-many -t test",
     "test:integration": "nx run-many -t test:integration",
     "lint": "node scripts/check-architecture-boundaries.js && agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0 && nx run-many -t lint && oxlint . --deny-warnings",
+    "arch:check": "nx run-many -t arch:check",
+    "arch:config:generate": "node scripts/gen-architecture-configs.mjs",
+    "arch:config:check": "pnpm arch:config:generate && git diff --exit-code -- 'packages/*/safer-architecture.config.json'",
     "lint:root": "agent-code-guard-knip --treat-config-hints-as-errors && eslint *.ts --cache --max-warnings=0",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
@@ -28,6 +31,7 @@
     "evals": "pnpm build && cc-judge run packages/evals/scenarios --results ./eval-results"
   },
   "devDependencies": {
+    "@chughtapan/safer-architecture-lsp": "0.1.0",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
     "@moltzap/cc-judge": "0.0.3",
     "@mermaid-js/mermaid-cli": "^11.15.0",

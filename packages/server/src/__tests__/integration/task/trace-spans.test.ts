@@ -1,7 +1,7 @@
 import { WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect, Either, Fiber } from "effect";
-import type { InMemorySpanExporter } from "@opentelemetry/sdk-trace-base";
+import type { CoreTestSpanExporterPort } from "../../../test-utils/index.js";
 
 import {
   awaitOneNotification,
@@ -33,7 +33,7 @@ import type {
 import type { AppId } from "@moltzap/protocol/task";
 import type { AppManifest } from "@moltzap/protocol/identity";
 
-let spanExporter: InMemorySpanExporter;
+let tracePort: CoreTestSpanExporterPort;
 const TRACE_APP_ID = "00000000-0000-4000-8000-000000010006" as AppId;
 const TRACE_BLOCK_REASON = "trace-block";
 const TRACE_BLOCKED_TEXT = "blocked trace span";
@@ -51,15 +51,14 @@ beforeAll(() =>
   Effect.runPromise(
     Effect.gen(function* () {
       const server = yield* startTestServerEffect();
-      // The default test wiring auto-provisions an InMemorySpanExporter; a
-      // null handle would mean a caller passed a custom processor, which
-      // these tests do not.
+      // Default test wiring provides a trace port. A null port means the
+      // caller supplied custom trace processing, which these tests do not.
       if (server.spanExporter === null) {
         return yield* Effect.die(
-          new Error("expected auto-wired InMemorySpanExporter"),
+          new Error("expected default trace exporter port"),
         );
       }
-      spanExporter = server.spanExporter;
+      tracePort = server.spanExporter;
     }),
   ),
 );
@@ -70,13 +69,13 @@ beforeEach(() =>
   Effect.runPromise(
     Effect.gen(function* () {
       yield* resetTestDbEffect();
-      yield* Effect.sync(() => spanExporter.reset());
+      yield* Effect.sync(() => tracePort.reset());
     }),
   ),
 );
 
 function findSpanAttributes(name: string): Record<string, unknown> | undefined {
-  const span = spanExporter.getFinishedSpans().find((s) => s.name === name);
+  const span = tracePort.getFinishedSpans().find((s) => s.name === name);
   return span?.attributes;
 }
 
