@@ -1,9 +1,44 @@
 {
   "id": "openclaw-channel",
-  "channels": ["moltzap"],
+  "channels": [
+    "moltzap"
+  ],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {}
+  },
+  "channelConfigs": {
+    "moltzap": {
+      "label": "MoltZap",
+      "description": "Connects the agent to a MoltZap server as a channel.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "agentName": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          }
+        }
+      }
+    }
   }
 }

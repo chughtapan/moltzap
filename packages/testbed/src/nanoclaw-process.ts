@@ -4,7 +4,6 @@
  * Installation and cache promotion live in `nanoclaw-install.ts`; this module
  * owns only isolated runtime directories and subprocess supervision.
  */
-import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -48,7 +47,6 @@ const ONECLI_READY_PROBE_INTERVAL_MS = 500;
 const CONNECT_WATCH_INTERVAL_MS = 200;
 const LOG_TAIL_LINE_COUNT = 50;
 const MILLISECONDS_PER_SECOND = 1_000;
-const NANOCLAW_NAMESPACE_HASH_LENGTH = 12;
 
 export interface NanoclawRuntimeHandle {
   proc: Process;
@@ -214,22 +212,32 @@ function normalizeNanoclawServerUrl(serverUrl: string): string {
     .replace(/^wss:/, "https:");
 }
 
-function nanoclawRuntimeNamespace(opts: StartNanoclawRuntimeOptions): string {
-  const serverHash = createHash("sha256")
-    .update(normalizeNanoclawServerUrl(opts.serverUrl))
-    .digest("hex")
-    .slice(0, NANOCLAW_NAMESPACE_HASH_LENGTH);
-  return `${opts.agentId}-${serverHash}`;
-}
+// Runtime dirs are docker bind-mount sources (agent-runner src, group and
+// session dirs), and macOS VM-backed engines only share paths under the
+// user home by default — the system temp dir is invisible to containers —
+// so per-agent dirs live under the testbed cache root instead.
+const NANOCLAW_RUNTIME_DIR_ROOT = join(
+  homedir(),
+  ".cache",
+  "moltzap-testbed",
+  "nanoclaw-runtimes",
+);
 
 function createNanoclawRuntimeDir() {
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fileSystem) =>
       fsEffect(
         "create nanoclaw runtime directory",
-        fileSystem.makeTempDirectory({
-          prefix: "moltzap-nanoclaw-runtime-",
-        }),
+        fileSystem
+          .makeDirectory(NANOCLAW_RUNTIME_DIR_ROOT, { recursive: true })
+          .pipe(
+            Effect.andThen(
+              fileSystem.makeTempDirectory({
+                directory: NANOCLAW_RUNTIME_DIR_ROOT,
+                prefix: "moltzap-nanoclaw-runtime-",
+              }),
+            ),
+          ),
       ),
     ),
   );
@@ -294,20 +302,78 @@ function seedNanoclawRuntimeDir(
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fileSystem) =>
       Effect.all(
-        ["container", "scripts"].map((directory) =>
-          fsEffect(
-            `copy nanoclaw ${directory} into isolated runtime`,
-            fileSystem.copy(
-              join(install.cacheDir, directory),
-              join(runtimeDir, directory),
-              { overwrite: true },
+        [
+          ...["container", "scripts"].map((directory) =>
+            fsEffect(
+              `copy nanoclaw ${directory} into isolated runtime`,
+              fileSystem.copy(
+                join(install.cacheDir, directory),
+                join(runtimeDir, directory),
+                { overwrite: true },
+              ),
             ),
           ),
-        ),
-        { concurrency: 2, discard: true },
+          seedUpgradeMarker(fileSystem, runtimeDir, install),
+          fsEffect(
+            "create nanoclaw runtime temp directory",
+            fileSystem.makeDirectory(join(runtimeDir, "tmp"), {
+              recursive: true,
+            }),
+          ),
+        ],
+        { concurrency: 4, discard: true },
       ),
     ),
   );
+}
+
+// The runtime's cwd doubles as NanoClaw's PROJECT_ROOT: the startup
+// tripwire reads ./package.json and data/upgrade-state.json from it and
+// refuses to run unless the marker matches the code version, so a fresh
+// runtime dir carries the manifest plus a matching sanctioned-upgrade
+// marker.
+function seedUpgradeMarker(
+  fileSystem: FileSystem.FileSystem,
+  runtimeDir: string,
+  install: NanoclawRuntimeInstall,
+) {
+  const manifestSource = join(install.cacheDir, "package.json");
+  return Effect.gen(function* () {
+    const manifest = yield* fsEffect(
+      `read nanoclaw manifest ${manifestSource}`,
+      fileSystem.readFileString(manifestSource, "utf8"),
+    );
+    const version = yield* Effect.try({
+      try: () => (JSON.parse(manifest) as { version?: string }).version,
+      catch: (cause) =>
+        toRuntimeError(`unparsable nanoclaw manifest ${manifestSource}`, cause),
+    });
+    if (version === undefined) {
+      return yield* Effect.fail(
+        toRuntimeError(`nanoclaw manifest has no version: ${manifestSource}`),
+      );
+    }
+    yield* fsEffect(
+      "copy nanoclaw manifest into isolated runtime",
+      fileSystem.copyFile(manifestSource, join(runtimeDir, "package.json")),
+    );
+    yield* fsEffect(
+      "create nanoclaw data directory",
+      fileSystem.makeDirectory(join(runtimeDir, "data"), { recursive: true }),
+    );
+    const marker = {
+      version,
+      updatedAt: new Date().toISOString(),
+      via: "moltzap-testbed",
+    };
+    yield* fsEffect(
+      "write nanoclaw upgrade marker",
+      fileSystem.writeFileString(
+        join(runtimeDir, "data", "upgrade-state.json"),
+        JSON.stringify(marker, null, 2) + "\n",
+      ),
+    );
+  });
 }
 
 export function buildNanoclawProcessPlan(
@@ -327,8 +393,12 @@ export function buildNanoclawProcessPlan(
       MOLTZAP_EVAL_MODE: opts.autoRegisterConversations ? "1" : "0",
       CONTAINER_RUNTIME: "docker",
       CONTAINER_IMAGE: install.containerImage,
-      NANOCLAW_RUNTIME_NAMESPACE: nanoclawRuntimeNamespace(opts),
       ONECLI_URL: ONECLI_URL,
+      // The OneCLI SDK stages its gateway CA/credential bind-mount sources
+      // under os.tmpdir(); pointing TMPDIR into the runtime dir keeps them
+      // docker-shareable on macOS (the OS temp root is invisible to
+      // VM-backed engines).
+      TMPDIR: join(runtimeDir, "tmp"),
       LOG_LEVEL: "info",
     },
   };

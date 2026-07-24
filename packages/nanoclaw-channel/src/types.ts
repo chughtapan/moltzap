@@ -1,64 +1,51 @@
-// Stub types matching the subset of nanoclaw's src/types.ts that moltzap.ts touches.
-// When moltzap.ts is copied into a real nanoclaw fork, these imports resolve
-// against nanoclaw's own src/types.ts (which has the same signatures).
+// Stub types matching the subset of nanoclaw's src/types.ts that the
+// bundled channel touches. When moltzap.ts is copied into a real nanoclaw
+// checkout, these imports resolve against nanoclaw's own src/types.ts
+// (same signatures).
 //
-// Mirrors the channel surface at the commit pinned by NANOCLAW_SHA in
+// Mirrors the surface at the commit pinned by NANOCLAW_SHA in
 // packages/testbed/src/nanoclaw-install.ts; keep these stubs aligned when
 // bumping that pin.
 
-export interface RegisteredGroup {
+type EngageMode = "pattern" | "mention" | "mention-sticky";
+type SenderScope = "all" | "known";
+type IgnoredMessagePolicy = "drop" | "accumulate";
+type UnknownSenderPolicy = "strict" | "request_approval" | "public";
+
+export interface MessagingGroup {
+  id: string;
+  channel_type: string;
+  platform_id: string;
+  name: string;
+  is_group: number;
+  unknown_sender_policy: UnknownSenderPolicy;
+  created_at: string;
+}
+
+export interface MessagingGroupAgent {
+  id: string;
+  messaging_group_id: string;
+  agent_group_id: string;
+  engage_mode: EngageMode;
+  engage_pattern: string | null;
+  sender_scope: SenderScope;
+  ignored_message_policy: IgnoredMessagePolicy;
+  session_mode: "shared" | "per-thread" | "agent-shared";
+  priority: number;
+  created_at: string;
+}
+
+export interface AgentGroup {
+  id: string;
   name: string;
   folder: string;
-  trigger: string;
-  added_at: string;
-  containerConfig?: {
-    additionalMounts?: Array<{
-      hostPath: string;
-      containerPath?: string;
-      readonly?: boolean;
-    }>;
-    timeout?: number;
-  };
-  requiresTrigger?: boolean;
-  isMain?: boolean;
+  agent_provider: string | null;
+  created_at: string;
 }
 
-export interface NewMessage {
+export interface User {
   id: string;
-  chat_jid: string;
-  sender: string;
-  sender_name: string;
-  content: string;
-  timestamp: string;
-  is_from_me?: boolean;
-  is_bot_message?: boolean;
-  thread_id?: string;
-  reply_to_message_id?: string;
-  reply_to_message_content?: string;
-  reply_to_sender_name?: string;
+  kind: string;
+  display_name: string;
+  created_at: string;
 }
-
-type UpstreamAsyncVoid = ReturnType<typeof Promise.resolve<void>>;
-
-export interface Channel {
-  name: string;
-  connect(): UpstreamAsyncVoid;
-  sendMessage(jid: string, text: string): UpstreamAsyncVoid;
-  isConnected(): boolean;
-  ownsJid(jid: string): boolean;
-  disconnect(): UpstreamAsyncVoid;
-  setTyping?(jid: string, isTyping: boolean): UpstreamAsyncVoid;
-  syncGroups?(force: boolean): UpstreamAsyncVoid;
-}
-
-export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;
-
-export type OnChatMetadata = (
-  ...metadata: [
-    chatJid: string,
-    timestamp: string,
-    name?: string,
-    channel?: string,
-    isGroup?: boolean,
-  ]
-) => void;

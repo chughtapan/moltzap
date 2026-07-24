@@ -1,7 +1,7 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
+import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
-import { ConversationId } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { TaskId } from "@moltzap/protocol/task";
 import {
@@ -16,6 +16,25 @@ import {
   type EnrichedInboundMessage,
 } from "@moltzap/client/channel-base";
 
+import type {
+  ChannelAdapter,
+  ChannelDefaults,
+  ChannelSetup,
+  InboundMessage,
+  OutboundMessage,
+} from "./adapter.js";
+import { registerChannelAdapter } from "./channel-registry.js";
+import {
+  createMessagingGroup,
+  createMessagingGroupAgent,
+  getMessagingGroupAgentByPair,
+  getMessagingGroupByPlatform,
+} from "../db/messaging-groups.js";
+import { createAgentGroup, getAllAgentGroups } from "../db/agent-groups.js";
+import { ensureContainerConfig } from "../db/container-configs.js";
+import { upsertUser } from "../modules/permissions/db/users.js";
+import type { AgentGroup } from "../types.js";
+
 // `MoltZapChannelError` covers nanoclaw's host-shape failures that are NOT
 // lease-related (un-owned jid, missing taskId). Lease errors flow through
 // channel-base's `LeaseAlreadyConsumed` instead.
@@ -27,21 +46,89 @@ class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
   }
 }
 
-const EVAL_GROUP_NAME_ID_CHARS = 8;
-
-import type { Channel, NewMessage } from "../types.js";
-import { registerChannel, type ChannelOpts } from "./registry.js";
-
+const MOLTZAP_CHANNEL = "moltzap";
 const MOLTZAP_JID_PREFIX = "mz:";
+const EVAL_NAME_ID_CHARS = 8;
+export const EVAL_AGENT_GROUP_ID = "eval-agent";
+
+// Harness runs start from an empty database, so eval mode also provisions
+// the agent group its wiring points at, with the container-config row the
+// spawn path requires (production installs create theirs via init scripts).
+function createEvalAgentGroup(): AgentGroup {
+  const group: AgentGroup = {
+    id: EVAL_AGENT_GROUP_ID,
+    name: EVAL_AGENT_GROUP_ID,
+    folder: EVAL_AGENT_GROUP_ID,
+    agent_provider: null,
+    created_at: new Date().toISOString(),
+  };
+  createAgentGroup(group);
+  ensureContainerConfig(group.id, null);
+  return group;
+}
+
+// Every message a MoltZap conversation delivers is addressed to this agent
+// (the server routes per-conversation), so wirings engage on everything and
+// no platform mention concept exists.
+const MOLTZAP_CONTEXT_DEFAULTS = {
+  engageMode: "pattern",
+  engagePattern: ".",
+  threads: false,
+  unknownSenderPolicy: "public",
+} as const;
+
+const MOLTZAP_DEFAULTS: ChannelDefaults = {
+  dm: MOLTZAP_CONTEXT_DEFAULTS,
+  group: MOLTZAP_CONTEXT_DEFAULTS,
+  mentions: "never",
+};
+
 const MoltZapEvalModeEnv = Config.string("MOLTZAP_EVAL_MODE").pipe(
   Config.withDefault("0"),
 );
 const MoltZapChannelEnv = Config.all({
-  profileName: Config.string("MOLTZAP_PROFILE"),
+  profileName: Config.option(Config.string("MOLTZAP_PROFILE")),
   evalMode: MoltZapEvalModeEnv,
 });
 
-interface MoltZapChannelState {
+/**
+ * MoltZap conversationId → nanoclaw platform id. The router addresses
+ * conversations by `(channelType, platformId)`; this channel uses
+ * `mz:<conversationId>` platform ids, and replies read the branded
+ * conversation id back from the per-jid map rather than re-parsing the jid.
+ */
+function jidFromConversationId(conversationId: string): string {
+  return `${MOLTZAP_JID_PREFIX}${conversationId}`;
+}
+
+function loadMoltZapChannelEnv(): {
+  readonly profileName: string | null;
+  readonly evalMode: boolean;
+} {
+  const env = Effect.runSync(
+    MoltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+  );
+  return {
+    profileName: Option.getOrNull(env.profileName),
+    evalMode: env.evalMode === "1",
+  };
+}
+
+function extractOutboundText(message: OutboundMessage): string | null {
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (
+    content !== null &&
+    typeof content === "object" &&
+    "text" in content &&
+    typeof (content as { text: unknown }).text === "string"
+  ) {
+    return (content as { text: string }).text;
+  }
+  return null;
+}
+
+interface MoltZapAdapterState {
   readonly core: MoltZapChannelCore | null;
   readonly ownAgentId: string;
   readonly evalMode: boolean;
@@ -49,106 +136,53 @@ interface MoltZapChannelState {
 }
 
 /**
- * Bidirectional MoltZap conversationId ↔ nanoclaw JID conversion.
- *
- * The nanoclaw router speaks JIDs (`mz:&lt;conversationId>`). MoltZap
- * speaks conversationIds. The prefix is canonical; no provider
- * disambiguation needed because the moltzap channel is the only
- * `mz:` consumer.
- *
- * - `jidFromConversationId` runs on the inbound path
- *   (`MoltZapChannel.handleInbound`) and feeds the JID to the router
- *   via `opts.onChatMetadata` and `opts.onMessage`.
- * - `conversationIdFromJid` runs on the outbound path
- *   (`MoltZapChannel.sendMessage`) and strips the prefix back to a
- *   conversationId before the `agent/message/send` RPC.
- */
-function jidFromConversationId(conversationId: string): string {
-  return `${MOLTZAP_JID_PREFIX}${conversationId}`;
-}
-
-const decodeConversationId = Schema.decodeUnknownSync(ConversationId);
-
-function conversationIdFromJid(jid: string): ConversationId {
-  return decodeConversationId(jid.slice(MOLTZAP_JID_PREFIX.length));
-}
-
-function loadMoltZapChannelEnv(): {
-  readonly profileName: string;
-  readonly evalMode: boolean;
-} {
-  const env = Effect.runSync(
-    MoltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
-  );
-  return {
-    profileName: env.profileName,
-    evalMode: env.evalMode === "1",
-  };
-}
-
-function loadMoltZapEvalMode(): boolean {
-  return (
-    Effect.runSync(
-      MoltZapEvalModeEnv.pipe(
-        Effect.withConfigProvider(ConfigProvider.fromEnv()),
-      ),
-    ) === "1"
-  );
-}
-
-/**
- * Nanoclaw channel for MoltZap. Wraps `MoltZapChannelCore` from
- * `@moltzap/client` and presents the nanoclaw `Channel` contract.
- * Bridges MoltZap's `EnrichedInboundMessage` shape onto nanoclaw's
- * `NewMessage` projection.
+ * Nanoclaw channel adapter for MoltZap. Wraps `MoltZapChannelCore` from
+ * `@moltzap/client` and presents nanoclaw's `ChannelAdapter` contract.
  *
  * ```mermaid
  * sequenceDiagram
  *   participant Core as MoltZapChannelCore (@moltzap/client)
- *   participant Handler as handleInbound (this class)
+ *   participant Handler as handleInbound (this adapter)
  *   participant Router as nanoclaw router
  *   Core->>Handler: onInbound(enriched)<br>WS frame decoded + enriched
- *   note over Handler: Step 1 — jidFromConversationId<br>chatJid = "mz:" + conversationId
- *   note over Handler: Step 2 — rememberDispatchLease<br>leaseStore.remember(chatJid, leaseId) if present
- *   note over Handler: Step 3 — maybeAutoRegister (eval mode only)
- *   Handler->>Router: Step 4 — opts.onChatMetadata(chatJid, timestamp, name, ...)<br>nanoclaw receives metadata BEFORE message
- *   Handler->>Router: Step 5 — opts.onMessage(chatJid, toNewMessage(enriched))
+ *   note over Handler: Step 1 — jidFromConversationId<br>platformId = "mz:" + conversationId
+ *   note over Handler: Step 2 — rememberDispatchLease<br>leaseStore.remember(jid, leaseId) if present
+ *   note over Handler: Step 3 — ensureEvalWiring (eval mode only)<br>messaging_group + wiring created BEFORE delivery
+ *   Handler->>Router: Step 4 — setup.onMetadata(jid, name, isGroup)
+ *   Handler->>Router: Step 5 — setup.onInbound(jid, null, message)
  * ```
  *
- * Lease-store stale-entry semantic: uses `peek` (not `consume`) so
- * a second `sendMessage` on the same JID after a consumed lease
- * receives the typed `LeaseAlreadyConsumed` from the server instead
- * of silently sending without a lease (delivery is server-enforced
- * single-use; the local entry is intentionally stale-after-consume).
- *
- * Connect / sendMessage / disconnect bridge:
- * - `connect()` runs `core.connect()` (Effect → Promise boundary
- *   here so the nanoclaw Channel interface stays Promise-shaped).
- * - `sendMessage(jid, text)` strips the `mz:` prefix back to a
- *   conversationId and calls `core.sendReply` with
- *   `catchLeaseInvalid` projecting `LeaseInvalid` wire errors into
- *   `LeaseAlreadyConsumed`.
- * - `disconnect()` runs `core.disconnect()` (never fails).
+ * Lease-store stale-entry semantic: uses `peek` (not `consume`) so a second
+ * `deliver` on the same jid after a consumed lease receives the typed
+ * `LeaseAlreadyConsumed` from the server instead of silently sending
+ * without a lease (delivery is server-enforced single-use; the local entry
+ * is intentionally stale-after-consume).
  */
-export class MoltZapChannel implements Channel {
-  readonly name = "moltzap";
+export class MoltZapAdapter implements ChannelAdapter {
+  readonly name = MOLTZAP_CHANNEL;
+  readonly channelType = MOLTZAP_CHANNEL;
+  readonly supportsThreads = false;
+  readonly defaults = MOLTZAP_DEFAULTS;
+
   // Stale-entry-on-retry semantic via `peek` (not `consume`): when a second
-  // sendMessage races a consumed lease, the entry stays in the store, the
+  // deliver races a consumed lease, the entry stays in the store, the
   // server returns the typed wire error, and channel-base projects it to
   // `LeaseAlreadyConsumed`.
   private readonly dispatchLeases = new LeaseStore<string, LeaseId>();
-  // Per-JID memory of the task that owns the most recent conversation seen
-  // inbound. `agent/message/send` requires the taskId.
-  private readonly taskIdsByJid = new Map<string, TaskId>();
+  // Per-jid memory of the task and branded conversation id from the most
+  // recent inbound. `agent/message/send` requires both; keeping the branded
+  // id avoids re-decoding it on every reply.
+  private readonly conversationsByJid = new Map<
+    string,
+    { readonly taskId: TaskId; readonly conversationId: ConversationId }
+  >();
   private ownAgentId: string;
   private core: MoltZapChannelCore | null;
+  private setupConfig: ChannelSetup | null = null;
   private readonly evalMode: boolean;
   private readonly profileName: string | null;
 
-  private constructor(
-    private readonly opts: ChannelOpts,
-    state: MoltZapChannelState,
-  ) {
+  private constructor(state: MoltZapAdapterState) {
     this.core = state.core;
     this.ownAgentId = state.ownAgentId;
     this.evalMode = state.evalMode;
@@ -159,11 +193,10 @@ export class MoltZapChannel implements Channel {
   }
 
   static fromService(
-    opts: ChannelOpts,
     service: ChannelService,
     evalMode = false,
-  ): MoltZapChannel {
-    return new MoltZapChannel(opts, {
+  ): MoltZapAdapter {
+    return new MoltZapAdapter({
       core: new MoltZapChannelCore({ service }),
       ownAgentId: service.ownAgentId ?? "",
       evalMode,
@@ -171,17 +204,65 @@ export class MoltZapChannel implements Channel {
     });
   }
 
-  static fromProfile(
-    opts: ChannelOpts,
-    profileName: string,
-    evalMode = false,
-  ): MoltZapChannel {
-    return new MoltZapChannel(opts, {
+  static fromProfile(profileName: string, evalMode = false): MoltZapAdapter {
+    return new MoltZapAdapter({
       core: null,
       ownAgentId: "",
       evalMode,
       profileName,
     });
+  }
+
+  setup(config: ChannelSetup) {
+    this.setupConfig = config;
+    return Effect.runPromise(
+      this.initializeCore().pipe(
+        Effect.flatMap((core) => core.connect()),
+        Effect.tap(() =>
+          Effect.logInfo("MoltZap connected").pipe(
+            Effect.annotateLogs({ channel: MOLTZAP_CHANNEL }),
+          ),
+        ),
+        Effect.asVoid,
+      ),
+    );
+  }
+
+  teardown() {
+    const core = this.core;
+    return Effect.runPromise(
+      core === null ? Effect.void : core.disconnect().pipe(Effect.asVoid),
+    );
+  }
+
+  isConnected(): boolean {
+    return this.core?.isConnected() ?? false;
+  }
+
+  /**
+   * Outbound reply path with single-use lease semantics: the FIRST deliver
+   * consumes the lease via `core.sendReply`. Any subsequent deliver for the
+   * same jid within the same dispatch finds the lease entry STILL in the
+   * store (peek-style, no removal) AND the lease in `CONSUMED` state
+   * server-side; the typed wire error flows through channel-base's
+   * `catchLeaseInvalid` and surfaces as the canonical `LeaseAlreadyConsumed`
+   * tagged error. Keeping the entry makes the duplicate-send surface
+   * uniform: a second deliver is rejected rather than silently re-sent
+   * unleased.
+   */
+  deliver(
+    platformId: string,
+    _threadId: string | null,
+    message: OutboundMessage,
+  ) {
+    const text = extractOutboundText(message);
+    const send =
+      text === null ? Effect.void : this.deliverEffect(platformId, text);
+    return Effect.runPromise(send.pipe(Effect.as(undefined)));
+  }
+
+  ownsJid(jid: string): boolean {
+    return jid.startsWith(MOLTZAP_JID_PREFIX);
   }
 
   private initializeCore() {
@@ -215,64 +296,20 @@ export class MoltZapChannel implements Channel {
     core.onDisconnect(() => {
       Effect.runFork(
         Effect.logWarning("MoltZap disconnected").pipe(
-          Effect.annotateLogs({ channel: "moltzap" }),
+          Effect.annotateLogs({ channel: MOLTZAP_CHANNEL }),
         ),
       );
     });
     core.onReconnect(() => {
       Effect.runFork(
         Effect.logInfo("MoltZap reconnected").pipe(
-          Effect.annotateLogs({ channel: "moltzap" }),
+          Effect.annotateLogs({ channel: MOLTZAP_CHANNEL }),
         ),
       );
     });
   }
 
-  connect() {
-    return Effect.runPromise(
-      this.initializeCore().pipe(
-        Effect.flatMap((core) => core.connect()),
-        Effect.tap(() =>
-          Effect.logInfo("MoltZap connected").pipe(
-            Effect.annotateLogs({ channel: "moltzap" }),
-          ),
-        ),
-        Effect.asVoid,
-      ),
-    );
-  }
-
-  /**
-   * Outbound reply path with single-use lease semantics: the FIRST send
-   * consumes the lease via `core.sendReply`. Any subsequent send for the
-   * same JID within the same dispatch finds the lease entry STILL in the
-   * store (peek-style, no removal) AND the lease in `CONSUMED` state
-   * server-side; the typed wire error
-   * (`RpcServerError(data.reason="LeaseInvalid")`) flows through
-   * channel-base's `catchLeaseInvalid` and surfaces to nanoclaw as the
-   * canonical `LeaseAlreadyConsumed` tagged error. Keeping the entry makes
-   * the duplicate-send surface uniform: a second send is rejected rather
-   * than silently re-sent unleased.
-   */
-  sendMessage(jid: string, text: string) {
-    return Effect.runPromise(this.sendMessageEffect(jid, text));
-  }
-
-  isConnected(): boolean {
-    return this.core?.isConnected() ?? false;
-  }
-
-  ownsJid(jid: string): boolean {
-    return jid.startsWith(MOLTZAP_JID_PREFIX);
-  }
-
-  disconnect() {
-    return this.core === null
-      ? Promise.resolve()
-      : Effect.runPromise(this.core.disconnect().pipe(Effect.asVoid));
-  }
-
-  private sendMessageEffect(
+  private deliverEffect(
     jid: string,
     text: string,
   ): Effect.Effect<
@@ -289,8 +326,8 @@ export class MoltZapChannel implements Channel {
       }
       const leaseEntry = yield* this.dispatchLeases.peek(jid);
       const leaseId = Option.getOrUndefined(leaseEntry);
-      const taskId = this.taskIdsByJid.get(jid);
-      if (taskId === undefined) {
+      const conversation = this.conversationsByJid.get(jid);
+      if (conversation === undefined) {
         return yield* Effect.fail(
           new MoltZapChannelError({
             reason: `MoltZap channel has no taskId for jid: ${jid}`,
@@ -307,62 +344,67 @@ export class MoltZapChannel implements Channel {
       }
       yield* core
         .sendReply(
-          taskId,
-          conversationIdFromJid(jid),
+          conversation.taskId,
+          conversation.conversationId,
           text,
           leaseId !== undefined ? { dispatchLeaseId: leaseId } : {},
         )
         .pipe(
           catchLeaseInvalid(leaseId !== undefined ? { leaseId } : undefined),
         );
-      // Keep the lease entry: a second sendMessage for the same JID re-uses
-      // the consumed lease and triggers the server's CONSUMED rejection
+      // Keep the lease entry: a second deliver for the same jid re-uses the
+      // consumed lease and triggers the server's CONSUMED rejection
       // (single-use semantics).
     });
   }
 
   private handleInbound(enriched: EnrichedInboundMessage): void {
-    const chatJid = jidFromConversationId(enriched.conversationId);
-    this.rememberDispatchLease(chatJid, enriched);
-    this.taskIdsByJid.set(chatJid, enriched.taskId);
-    this.maybeAutoRegister(chatJid, enriched.conversationId);
-    this.emitChatMetadata(chatJid, enriched);
-    this.opts.onMessage(chatJid, this.toNewMessage(chatJid, enriched));
+    // Own outbound replies echo back through the notification stream; the
+    // router has no is-from-me concept, so they are dropped here.
+    if (enriched.isFromMe) return;
+    const config = this.setupConfig;
+    if (config === null) return;
+    const jid = jidFromConversationId(enriched.conversationId);
+    this.rememberDispatchLease(jid, enriched);
+    this.conversationsByJid.set(jid, {
+      taskId: enriched.taskId,
+      conversationId: enriched.conversationId,
+    });
+    const isGroup = enriched.conversationMeta?.type === "group";
+    if (this.evalMode) {
+      this.ensureEvalWiring(jid, enriched, isGroup);
+    }
+    config.onMetadata(jid, enriched.conversationMeta?.name, isGroup);
+    // onInbound may return a promise; a rejection surfaces as a logged fiber
+    // failure instead of an unhandled rejection.
+    const dispatched = config.onInbound(
+      jid,
+      null,
+      this.toInboundMessage(enriched, isGroup),
+    );
+    Effect.runFork(
+      Effect.tryPromise({
+        try: () => Promise.resolve(dispatched),
+        catch: (cause) =>
+          new MoltZapChannelError({
+            reason: `inbound dispatch failed: ${String(cause)}`,
+          }),
+      }),
+    );
   }
 
   private rememberDispatchLease(
-    chatJid: string,
+    jid: string,
     enriched: EnrichedInboundMessage,
   ): void {
     if (enriched.dispatchLeaseId) {
       Effect.runSync(
-        this.dispatchLeases.remember(chatJid, enriched.dispatchLeaseId),
+        this.dispatchLeases.remember(jid, enriched.dispatchLeaseId),
       );
     }
   }
 
-  private maybeAutoRegister(chatJid: string, conversationId: string): void {
-    // Auto-register unknown conversations only in MOLTZAP_EVAL_MODE (smoke
-    // tests); production registration flows through the runtime adapter.
-    if (this.evalMode) {
-      this.ensureAutoRegistered(chatJid, conversationId);
-    }
-  }
-
-  private emitChatMetadata(
-    chatJid: string,
-    enriched: EnrichedInboundMessage,
-  ): void {
-    this.opts.onChatMetadata(
-      chatJid,
-      enriched.createdAt,
-      enriched.conversationMeta?.name,
-      "moltzap",
-      enriched.conversationMeta?.type === "group",
-    );
-  }
-
-  // Nanoclaw's router consumes NewMessage.content verbatim into prompt XML,
+  // Nanoclaw's router consumes the content text verbatim into prompt XML,
   // so structured context blocks are rendered as `<system-reminder>` markup
   // here via channel-base's `xml-system-reminder` variant.
   private contentFor(enriched: EnrichedInboundMessage): string {
@@ -382,47 +424,99 @@ export class MoltZapChannel implements Channel {
     return `${blocks.join("\n\n")}\n\n${enriched.text}`;
   }
 
-  private toNewMessage(
-    chatJid: string,
+  private toInboundMessage(
     enriched: EnrichedInboundMessage,
-  ): NewMessage {
+    isGroup: boolean,
+  ): InboundMessage {
     return {
       id: enriched.id,
-      chat_jid: chatJid,
-      sender: enriched.sender.id,
-      sender_name: enriched.sender.name ?? enriched.sender.id,
-      content: this.contentFor(enriched),
+      kind: "chat",
+      content: {
+        text: this.contentFor(enriched),
+        sender: enriched.sender.name ?? enriched.sender.id,
+        senderId: `${MOLTZAP_CHANNEL}:${enriched.sender.id}`,
+      },
       timestamp: enriched.createdAt,
-      is_from_me: enriched.isFromMe,
-      reply_to_message_id: enriched.replyToId,
+      isGroup,
     };
   }
 
-  private ensureAutoRegistered(chatJid: string, conversationId: string): void {
-    const registered = this.opts.registeredGroups();
-    if (registered[chatJid]) return;
-    // Mutates the live map — registry exposes it via registeredGroups() in
-    // nanoclaw 1.2.52 (no setter).
-    registered[chatJid] = {
-      name: `eval-${conversationId.slice(0, EVAL_GROUP_NAME_ID_CHARS)}`,
-      folder: `eval_${conversationId.slice(0, EVAL_GROUP_NAME_ID_CHARS)}`,
-      trigger: ".*",
-      added_at: new Date().toISOString(),
-      requiresTrigger: false,
-      isMain: true,
-    };
+  /**
+   * Eval-mode auto-registration: harness runs create fresh conversations
+   * with no pre-provisioned wiring, so the messaging group and its wiring
+   * to the (single) agent group are created BEFORE the message reaches the
+   * router — otherwise the router drops it. Production registrations are
+   * provisioned out of band; this path stays off unless
+   * `MOLTZAP_EVAL_MODE=1`.
+   */
+  private ensureEvalWiring(
+    jid: string,
+    enriched: EnrichedInboundMessage,
+    isGroup: boolean,
+  ): void {
+    if (getMessagingGroupByPlatform(MOLTZAP_CHANNEL, jid) !== undefined) {
+      return;
+    }
+    const agentGroup = getAllAgentGroups()[0] ?? createEvalAgentGroup();
+    this.createEvalWiring(jid, enriched, isGroup, agentGroup.id);
+  }
+
+  // Engagement fields mirror the declared channel contract in
+  // MOLTZAP_CONTEXT_DEFAULTS so the wiring row cannot drift from it.
+  private createEvalWiring(
+    jid: string,
+    enriched: EnrichedInboundMessage,
+    isGroup: boolean,
+    agentGroupId: string,
+  ): void {
+    const now = new Date().toISOString();
+    const shortId = enriched.conversationId.slice(0, EVAL_NAME_ID_CHARS);
+    upsertUser({
+      id: `${MOLTZAP_CHANNEL}:${enriched.sender.id}`,
+      kind: MOLTZAP_CHANNEL,
+      display_name: enriched.sender.name ?? enriched.sender.id,
+      created_at: now,
+    });
+    const messagingGroupId = `mg-eval-${shortId}`;
+    createMessagingGroup({
+      id: messagingGroupId,
+      channel_type: MOLTZAP_CHANNEL,
+      platform_id: jid,
+      name: enriched.conversationMeta?.name ?? `eval-${shortId}`,
+      is_group: isGroup ? 1 : 0,
+      unknown_sender_policy: MOLTZAP_CONTEXT_DEFAULTS.unknownSenderPolicy,
+      created_at: now,
+    });
+    if (
+      getMessagingGroupAgentByPair(messagingGroupId, agentGroupId) !== undefined
+    ) {
+      return;
+    }
+    createMessagingGroupAgent({
+      id: `mga-eval-${shortId}`,
+      messaging_group_id: messagingGroupId,
+      agent_group_id: agentGroupId,
+      engage_mode: MOLTZAP_CONTEXT_DEFAULTS.engageMode,
+      engage_pattern: MOLTZAP_CONTEXT_DEFAULTS.engagePattern,
+      sender_scope: "all",
+      ignored_message_policy: "drop",
+      session_mode: "shared",
+      priority: 0,
+      created_at: now,
+    });
   }
 }
 
-export function makeMoltZapChannel(
-  opts: ChannelOpts,
-  evalMode = loadMoltZapEvalMode(),
-  profileName = loadMoltZapChannelEnv().profileName,
-): MoltZapChannel {
-  return MoltZapChannel.fromProfile(opts, profileName, evalMode);
+export function makeMoltZapAdapter(
+  env = loadMoltZapChannelEnv(),
+): MoltZapAdapter | null {
+  if (env.profileName === null) {
+    return null;
+  }
+  return MoltZapAdapter.fromProfile(env.profileName, env.evalMode);
 }
 
-registerChannel("moltzap", (opts: ChannelOpts) => {
-  const { evalMode, profileName } = loadMoltZapChannelEnv();
-  return makeMoltZapChannel(opts, evalMode, profileName);
+registerChannelAdapter(MOLTZAP_CHANNEL, {
+  factory: () => makeMoltZapAdapter(),
+  defaults: MOLTZAP_DEFAULTS,
 });

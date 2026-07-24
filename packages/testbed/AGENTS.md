@@ -17,7 +17,8 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
 - `nanoclaw-install.ts` — pinned source/assets, deterministic dependency
   lock, immutable cache promotion, and Docker image build
 - `nanoclaw-process.ts` — per-agent runtime directory, process lifecycle,
-  namespaced container launch, logs, and teardown
+  logs, and teardown; container isolation comes from NanoClaw's own
+  cwd-derived install slug
 - `adapter-readiness.ts` — `raceReadiness`, the shared server-auth vs
   process-exit readiness contract; `await-agent-ready.ts` —
   `awaitAgentReadyByPolling`
