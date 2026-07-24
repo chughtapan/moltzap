@@ -25,10 +25,11 @@ One criterion decides what earns a tag:
 > against "questions stay questions."
 
 The spec names exactly five swap axes, so there are exactly five
-ports: **Network** (production vs testbed data plane),
+ports — **Network** (production vs testbed data plane),
 **TranscriptStore** (storage engine), **Registry** (card custody),
-**Signer** (interim vs target signing binding), **Harness** (the SPI
-two runtimes implement).
+**Signer** (attribution binding), **Harness** (the SPI two runtimes
+implement) — and adding a sixth requires a recorded decision showing
+its swap axis.
 
 Non-goals: chartered semantics (#765 — op vocabulary, completion,
 failure, concurrency, witnesses, presence, turn-signal carriage); wire
@@ -57,9 +58,10 @@ internals (the component-to-package map is the v0 plan's W1).
 - **Refusals are values.** Fallible operations refuse with typed
   values, never throws; defects never cross a port. Each port's
   internal error union is closed and matched exhaustively inside its
-  region; any wire projection collapses to the single opaque `Refusal`
-  (register item 8 stays open).
-- No lease, socket, connection, or session appears in any signature.
+  region (`SignError`, `StoreError`, `RegistryError` denote these;
+  their arms are implementation-internal); any wire projection
+  collapses to the single opaque `Refusal` (register item 8 stays
+  open).
 
 ## Nouns
 
@@ -69,14 +71,14 @@ internals (the component-to-package map is the v0 plan's W1).
 | `Principal` | L1 | registry — opaque linkage to the party an agent acts for | linkage depth open |
 | `PublicKey` | L1 | agent — submitted at registration; the key its card binds | decided |
 | `Card` | L1 | registry-attested X.509, self-attesting; read through `CardView` | decided |
-| `Frame` | L1 | sender's harness — the signed unit (envelope + body) as opaque bytes, byte-exact at every hop; read through `FrameView` | decided |
-| `Envelope` | L1 | view of a frame's carrier-readable fields: sender, conversation, version, attribution | field set decided; encoding open |
+| `Frame` | L1 | sender's harness — the signed unit (envelope + body) as opaque bytes; read through `FrameView` | decided |
+| `Envelope` | L1 | view of a frame's carrier-readable fields: sender, conversation, version, entry kind, attribution | field set decided; encoding open |
 | `Body` | L1 | sender — opaque bytes, never interpreted below L4 | decided |
 | `VerifiedFrame` | L1 | verification — envelope view + principal + the exact bytes verified | decided |
 | `Version` | cross | publish pipeline — CalVer, matched exactly | decided |
 | `ConversationId` | L3 | client — fresh, collision-free by size | decided |
-| `Position` | L3 | store — a record's place in the transcript order; never a field of any frame type | decided |
-| `TranscriptEntry` | L3 | members — what a transcript holds: **open union** `Message \| Start \| Add \| Leave` | message arms chartered (#765); lifecycle arms decided |
+| `Position` | L3 | store — a record's place in the transcript order; never a field of any frame type (law L1.6) | decided |
+| `EntryKind` | L3 | envelope-level: **open union** `Message \| Start \| Add \| Leave` | message side chartered (#765); lifecycle side decided |
 | `TranscriptRecord` | L3 | store — a committed entry: the byte-exact frame plus its `Position` | decided |
 | `PageToken` | L3 | plane — opaque fail-closed token paging list-shaped reads; `Page<T>` is items plus the next token | decided |
 | `Refusal` | cross | refusing party — the interim, non-normative value ("the op did not take effect"), opaque `cause`; encoding-level failures ride the encoding | register 8 open |
@@ -86,20 +88,19 @@ record's place in the transcript, `PageToken` pages a list, and the
 endpoint's **resume position** is endpoint state (a held `Position`),
 never a plane concept.
 
-`TranscriptEntry` is the growth surface: #765 widens the `Message`
-side (new collective kinds) by adding arms, never by adding a method
-to any port — every exhaustive match then fails to compile until the
-new arm is handled, and implementations refuse arms they do not know.
-`Start`, `Add`, and `Leave` are the recorded v0 lifecycle set.
-
-The vocabulary deliberately stops at the wire. L4 and L5 carry no
-nouns here: a norm bundle binds only its guarantee (versioned, pinned
-per binding, same-version agreement — its shape is tasks.md's open
-bundle-format question), and the firewall's rules, postures, and
-verdict detail belong to the undesigned firewall plan (open
-question 2) — v0's contacts-keyed gate is a stopgap implementation,
-never contract vocabulary. L6's evidence is a derivation (below), not
-a noun.
+`EntryKind` rides the envelope, so the content-blind plane and the
+membership fold both read it without touching the body — and the
+ports speak `Frame`, never the union. It is the growth surface: #765
+widens the `Message` side by adding arms; every exhaustive match (the
+folds, endpoint code) then fails to compile until the new arm is
+handled, and implementations refuse arms they do not know. The only
+open unions among wire nouns are `EntryKind`'s message side and
+`Refusal.cause` (register-8-widened); every other wire union is
+closed. Endpoint-side vocabularies (firewall rules, verdict detail,
+norm shapes) are unbound here, not closed: norm bundles bind only
+their guarantee (tasks.md; law L4.1), the firewall's vocabulary is the
+undesigned firewall plan (open question 2), and L6's evidence is a
+derivation, not a noun.
 
 **Lenses.** `Frame` and `Card` are read through **lenses** — codecs
 whose encode is byte-identity on the retained input
@@ -107,50 +108,44 @@ whose encode is byte-identity on the retained input
 `CardView: Lens<{agent, principal, name, key, issuedAt}, Card>`) — so
 decode-at-boundary and byte-exact preservation coexist structurally:
 no carrier ever re-encodes, because the lens hands back the retained
-bytes. Each `v2/wire` schema also derives its test `Arbitrary`; the
-conformance corpus fuzzes from the same declarations the wire uses.
+bytes (law L1.5).
 
 ## The five ports
 
 Signatures elide the `R` channel; roots and requirements are stated in
 the realization section. `Effect<A, E>` is success/typed-refusal.
 
-### Signer (L1; swap axis: interim request-signature vs target per-frame)
+### Signer (L1; swap axis: the attribution binding)
+
+Interim request-signature and target per-frame are two adapters; the
+conformance suite runs its corpus under each binding, and the
+migration is an adapter change (register item 5 stays open).
 
 ```ts
-/** Verification: offline, from the frame plus the sender's card alone.
- *  Identical shape under both bindings; recipients, router admission,
- *  and L6 readers all hold exactly this. */
+/** Offline, from the frame plus the sender's card alone; identical
+ *  shape under both bindings. */
 interface Verifier {
   readonly verify: (frame: Frame, card: Card) => Effect<VerifiedFrame, Refusal>;
 }
-/** The full port adds signing — held ONLY by the endpoint composition.
- *  The private key is adapter state, never a parameter; the sender and
- *  version fields are the adapter's own identity and pinned version. */
+/** Held ONLY by the endpoint composition; the private key is adapter
+ *  state, and sender/version are the adapter's own identity and
+ *  pinned version. */
 interface Signer extends Verifier {
-  readonly sign: (conversation: ConversationId, body: Body) => Effect<Frame, SignError>;
+  readonly sign: (conversation: ConversationId, kind: EntryKind, body: Body) => Effect<Frame, SignError>;
 }
 ```
-
-The router's requirement set names `Verifier` only: no code in the
-router process can sign, which discharges "the plane never mints,
-alters, or strips attribution" (data-plane.md inv. 2) at compile time.
 
 ### Network (L2 + L3 delivery; swap axis: production vs testbed)
 
 One contract, two sides: the endpoint holds it as a client; the router
-and the testbed provide it. Admission (verify, membership, version
-gate, refuse-before-durability) lives inside the providing adapter.
+and the testbed provide it. Admission lives inside the providing
+adapter (data-plane.md).
 
 ```ts
 interface Network {
-  /** Send one entry; Position returns only after durability; every
-   *  refusal precedes durability. */
-  readonly send: (entry: TranscriptEntry) => Effect<Position, Refusal>;
-  /** One-way, best-effort push of committed records, resumable from an
-   *  endpoint-owned Position; never a response path, never the source of truth. */
+  readonly send: (frame: Frame) => Effect<Position, Refusal>;
+  /** One-way best-effort push, resumable from a held Position. */
   readonly deliveries: (conversation: ConversationId, from: Position) => Stream<TranscriptRecord, Refusal>;
-  /** Recovery by reading: contiguous, byte-exact, ordered. */
   readonly readTranscript: (conversation: ConversationId, from: Position) => Effect<readonly TranscriptRecord[], Refusal>;
 }
 ```
@@ -159,12 +154,10 @@ interface Network {
 
 ```ts
 interface TranscriptStore {
-  /** One entry, one transaction, commit-time contiguous Position, after durability. */
-  readonly append: (conversation: ConversationId, entry: TranscriptEntry) => Effect<Position, StoreError>;
-  /** Genesis: creates the transcript with this Start frame as entry zero,
-   *  atomic iff the id is unused; reuse refuses with no side effect. */
-  readonly startConversation: (frame: Frame) => Effect<Position, StoreError>;
-  /** Contiguous ordered window, byte-exact records, gated by the entitlement predicate. */
+  /** One frame, one transaction; the conversation is the envelope's.
+   *  A Start frame to a fresh id creates the transcript at entry zero
+   *  (laws L3.5, L3.7). */
+  readonly append: (frame: Frame) => Effect<Position, StoreError>;
   readonly readTranscript: (conversation: ConversationId, from: Position, scope: Scope) => Effect<readonly TranscriptRecord[], StoreError>;
   readonly listConversations: (of: AgentId, page: PageToken) => Effect<Page<ConversationId>, StoreError>;
 }
@@ -186,32 +179,26 @@ interface Registry {
 }
 ```
 
-Revocation has no operation: it is the registry ceasing to vouch,
-observed at the next `lookup` — and, since per-request authentication
-derives its caller through `lookup`, "L7 reconfigures L1" is exactly
-this backing change. `Caller` is a two-arm value
-(`identity | operator`) with a single minter in the router
-composition; no third caller class is constructible
-(control-plane.md inv. 7).
+`Caller` is a two-arm value (`identity | operator`) with a single
+minter in the router composition (law L7.1). Since per-request
+authentication derives its caller through `lookup`, "L7 reconfigures
+L1" is exactly the registry ceasing to vouch (law L7.3).
 
 ### Harness (L4 SPI; swap axis: the two runtimes)
 
 The port is the SPI itself: a runtime plugs in by implementing `run`,
 and everything it can do arrives as the **channel** — attenuated
-values, no authority in its requirements. It cannot sign, send raw,
-append, read out of scope, or touch firewall state, because it holds
-none of those and can acquire none. "Plugins are pure consumers"
-(channels.md inv. 3) is this type.
+values, no authority in its requirements, so "plugins are pure
+consumers" (channels.md inv. 3) is this type.
 
 ```ts
 interface Harness {
   readonly run: (channel: Channel) => Effect<void, never>; // R = never
 }
 interface Channel {
-  /** Enabled only on a granted turn and consumes it — the one-shot reply guard. */
+  /** Consumes the granted turn — the one-shot reply guard. */
   readonly send: (turn: Turn<"Granted">, body: Body) => Effect<readonly [Position, Turn<"Spent">], Refusal>;
-  /** Derived: mint a fresh id, sign Start, send through the ordinary path.
-   *  No provisioning; no create op exists anywhere. */
+  /** Derived: fresh id + Start through send (law L3.7). */
   readonly startConversation: (members: readonly AgentId[], body: Body) => Effect<ConversationId, Refusal>;
   /** The attention stream only; a withheld frame stays in the transcript. */
   readonly inbound: Stream<InboundMessage, Refusal>;
@@ -231,69 +218,57 @@ consumes it.
 
 ```ts
 type Phase = "Requested" | "Granted" | "Spent";
-/** Not a session or connection: TTL-bounded coordination state,
- *  reconstructible from an endpoint-owned Position by re-reading. */
+/** Per-conversation coordination state, TTL-expiring — never a
+ *  session or connection. */
 interface Turn<P extends Phase> { readonly _phase: P; readonly conversation: ConversationId; readonly at: Position }
 
 interface Turns {
   readonly requestTurn: (conversation: ConversationId) => Effect<Turn<"Requested">, Refusal>;
-  /** Observe-before-generate (data-plane.md inv. 5): the sole constructor of Granted. */
   readonly awaitTurn: (t: Turn<"Requested">) => Effect<Turn<"Granted">, Refusal>;
 }
 ```
 
 TypeScript cannot enforce linear consumption, so the residual — at
-most one commit per granted turn — is a suite law (L3 table). The
-grant signal's wire carriage is the charter's (#765); nothing here
-names it. PCC itself is an instrument inside the Network adapter, in
-no signature.
+most one commit per granted turn — is a suite law (L3.9). The grant
+signal's wire carriage is the charter's (#765); nothing here names it.
+PCC itself is an instrument inside the Network adapter, in no
+signature.
 
 ## Not ports
 
-- **The firewall (L5)** contributes only its **slots** to this
-  contract: an inbound mount between verification and the agent and an
-  outbound mount between the agent and sending — fail-closed, holding
-  no signing authority, verdicts agent-local, a withheld inbound frame
-  staying in the record. Everything inside the slots — the rule
-  language, what a verdict may say beyond whether the frame reaches
-  the agent, the trust data rules consult, and how upper layers
-  program the rules — is **the firewall plan, an undesigned surface
-  this doc deliberately does not bind** (open question 2). It is not a
-  port because the suite asserts *expressibility* (arena's and bench's
-  rulesets are both expressible), never *equivalence* — two endpoints'
-  firewalls are intentionally different. v0 ships a stopgap
-  implementation keyed on endpoint-local contact records
-  (`endpoints/contacts.md`'s interface floor;
-  `endpoints/screening.md`) — a stopgap behind the slots, not accepted
-  design, and none of its vocabulary appears in this contract.
-- **Entitlement (L3)** is the `Scope` **predicate** carried into
-  `TranscriptStore.readTranscript`; future read-scope decisions change
-  the value, not the port.
+- **The firewall (L5)** contributes only its **slots**: an inbound
+  mount between verification and the agent and an outbound mount
+  between the agent and sending, with the guarantees of laws
+  L5.1–L5.3. It is not a port because the suite asserts
+  *expressibility* (arena's and bench's rulesets are both
+  expressible), never *equivalence* — two endpoints' firewalls are
+  intentionally different. Everything inside the slots is the
+  undesigned firewall plan (open question 2); v0's contacts-keyed gate
+  (`endpoints/contacts.md`, `endpoints/screening.md`) is a stopgap
+  behind the slots, not accepted design, and none of its vocabulary
+  appears here.
+- **Entitlement (L3)** is the `Scope` predicate — see its comment on
+  the TranscriptStore port.
 - **Derivations** are pure functions over port state, in a shared fold
-  library: `applyEntry` (total, exhaustive over `TranscriptEntry`) and
+  library: `applyEntry` (total, exhaustive over `EntryKind`) and
   `membersAt` — **one fold, two sites**: the router folds lifecycle
   entries to compute delivery sets, the endpoint runs the identical
   fold to know who is in the room; no index service exists.
-  `Channel.startConversation` is a derivation too (fresh id, sign
-  Start, send). `evidence` = `verify` mapped over `readTranscript` —
-  the recipient's own verification run post facto; L6 mints no port,
-  no principal, no third caller (register 3 open). Materializing a hot
-  fold in a `SubscriptionRef` is realization freedom the laws never
-  see.
-- **The CLI** is a driver: a plain signing HTTP client over the
-  control-plane op families (`Registry` + `TranscriptStore` reads),
-  holding no state and no port of its own.
+  `Channel.startConversation` is a derivation too. `evidence` =
+  `verify` mapped over `readTranscript` (law L6.1; register 3 open).
+  Materialization of hot folds is realization freedom.
+- **The CLI** is a driver over `Registry` plus store reads, not a port
+  (control-plane.md).
 - **L8** has no interface; it is realized through the stack (open).
 
 ## Layers as law sets
 
-Each layer is defined by its laws over the ports. Kind: (C) compile —
-the violation is unrepresentable; (P) property; (S) suite. Citations
-name the governing doc.
+Each layer is defined by its laws over the ports; kinds per
+Conventions, citations name the governing doc.
 
 | # | Law | Kind | Cite |
 |---|---|---|---|
-| L1.1 | `verify(sign(c,b), lookup(sender))` ≈ the verified view — verify-after-sign is identity | P | identity.md inv. 1 |
+| L1.1 | `verify(sign(c,k,b), lookup(sender))` ≈ the verified view — verify-after-sign is identity | P | identity.md inv. 1 |
 | L1.2 | `verify : (frame, card) → VerifiedFrame` — no round trip, no live sender; L6 readers hold the same shape | C | identity.md → Verification duties |
 | L1.3 | Any alteration of envelope or body ⇒ `verify` refuses | P | identity.md inv. 4 |
 | L1.4 | Only the endpoint composition names `Signer`; the router names `Verifier` only | C | identity.md inv. 2; data-plane.md inv. 2 |
@@ -305,13 +280,13 @@ name the governing doc.
 | L2.4 | `deliveries` is a read-only `Stream`; a response is a fresh `send` | C | data-plane.md inv. 14 |
 | L2.5 | `deliveries(c, p)` ≈ `readTranscript(c, p)` — resuming at a Position equals never disconnecting | P | control-plane.md guarantee 4; sessionless |
 | L2.6 | One send, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
-| L3.1 | `readTranscript(c, pos(append(c,e)))` contains exactly the appended entry's record | P | control-plane.md guarantees 2, 3 |
-| L3.2 | `send` ≜ admit, append, then best-effort deliver; `Position` returned ⇒ durable | P | data-plane.md inv. 4; guarantee 1 |
-| L3.3 | `append` takes one `TranscriptEntry`; a collective commits as one transaction | C+P | control-plane.md guarantee 9 |
+| L3.1 | `readTranscript(c, pos(append(f)))` contains exactly the appended frame's record | P | control-plane.md guarantees 2, 3 |
+| L3.2 | `send` ≜ admit, append, then best-effort deliver; `Position` returned ⇒ durable; every refusal precedes durability | P | data-plane.md inv. 4; guarantee 1 |
+| L3.3 | `append` takes one frame — one entry, one transaction; a collective commits as one unit | C+P | control-plane.md guarantee 9 |
 | L3.4 | No update, delete, or rewrite operation exists on any port | C | control-plane.md guarantee 6 |
-| L3.5 | `startConversation` on a used id refuses with no side effect | P | lifecycle-rides-l3 |
+| L3.5 | A Start frame to a used id refuses with no side effect; to a fresh id it creates the transcript at entry zero | P | lifecycle-rides-l3 |
 | L3.6 | `membersAt` ≈ the fold of lifecycle entries at or before the position; no membership write exists | C+P | data-plane.md inv. 8; guarantee 5 |
-| L3.7 | `startConversation` is a derived term (sign Start + send); no create operation exists | C | lifecycle-rides-l3 |
+| L3.7 | No create operation exists anywhere; `Channel.startConversation` is a derived term (fresh id, sign Start, send) | C | lifecycle-rides-l3 |
 | L3.8 | `awaitTurn` precedes every send of that turn (typestate) | C | data-plane.md inv. 5 |
 | L3.9 | At most one commit per granted turn (linearity residual) | S | data-plane.md → Implementation notes |
 | L3.10 | Admission refusals never mutate membership | C+P | data-plane.md inv. 9 |
@@ -326,7 +301,7 @@ name the governing doc.
 | L7.2 | `list` ≈ per-id `lookup`; cards only, no thinner projection | P | directory-serves-cards |
 | L7.3 | Ceasing to vouch changes what `lookup` returns and what callers can be derived — no revoke op | P | layers.md → L7; single-credential |
 | X.1 | Version exact-match refuses before any state change, on every entry operation | C+P | protocol-version-carriage |
-| X.2 | Swap `NetworkLive` for `NetworkTestbed`: observationally equivalent; every testbed injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
+| X.2 | Swap `NetworkLive` for `NetworkTestbed`: observationally equivalent, no other binding changes; every testbed injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
 | X.3 | No signature names a lease, socket, connection, or session | C | sessionless-network |
 
 ## Effect realization (recorded standard)
@@ -341,24 +316,22 @@ above; this mapping is v2's standard realization of it.
   re-implemented, never imported.
 - **One `Layer` per adapter**: `NetworkLive` (requires TranscriptStore
   + Verifier), `NetworkTestbed` (same tag; adds envelope-level
-  observation and a closed `FaultProfile` sum — delay, missed push,
-  disconnect, partition, unresponsive — so out-of-envelope faults are
+  observation and a closed `FaultProfile` sum over data-plane.md's
+  tolerated-fault envelope, so out-of-envelope faults are
   unrepresentable), `TranscriptStoreLive`, `RegistryLive`,
   `SignerInterim` / `SignerTarget`, `HarnessOpenClaw` /
   `HarnessNanoClaw`. The swap in law X.2 is choosing which Network
   `Layer` is provided.
 - **Decorators are `Layer<Port, never, Port>`**: `withEntitlement(scope)`
   wraps `TranscriptStore.readTranscript`; `withFirewall(rules)` wraps
-  the harness mount (the slots; the rules value is firewall-plan
-  territory, opaque here). Configuration flows down as decorator and
-  adapter parameters — firewall rules, the operator key, norm
-  bundles — never as a lower port depending on an upper tag.
-- **Root discipline.** Port tags are provided once per composition
-  (`RouterComposition`: TranscriptStore, Registry, Verifier,
-  Network-provider; `EndpointComposition`: Signer, Network-client,
-  plus whatever state its firewall implementation owns) and appear in
-  no leaf requirement. Leaf code receives attenuated values
-  (`Channel`, `Caller`, `Scope`). Folds, turns, and channel values are
+  the harness mount (the rules value is firewall-plan territory,
+  opaque here). Configuration flows down as decorator and adapter
+  parameters, never as a lower port depending on an upper tag.
+- **Compositions**: `RouterComposition` holds TranscriptStore,
+  Registry, Verifier, and provides Network; `EndpointComposition`
+  holds Signer, the Network client, and whatever state its firewall
+  implementation owns. Leaf code receives attenuated values
+  (`Channel`, `Caller`, `Scope`); folds, turns, and channel values are
   plain branded values with no tag.
 - **Three static checks**, enforced with the W1 boundary machinery:
   no exported function outside a composition names a port tag in its
@@ -368,13 +341,13 @@ above; this mapping is v2's standard realization of it.
 
 ```mermaid
 flowchart TB
-  subgraph Endpoint["EndpointComposition (roots: Signer, Network client, firewall state)"]
+  subgraph Endpoint["EndpointComposition"]
     HP[Harness plugin] -- "Channel (values only)" --> CH[send + turns]
     CH --> SCR[Firewall slots] --> SG[Signer]
     SG --> NC[Network client]
     NC -- deliveries --> VF1[Verifier] --> SCR
   end
-  subgraph Router["RouterComposition (roots: TranscriptStore, Registry, Verifier; provides Network)"]
+  subgraph Router["RouterComposition (provides Network)"]
     NL[NetworkLive] --> VF2[Verifier]
     NL --> ST[TranscriptStore + entitlement decorator]
     RG[Registry] --> VF2
@@ -383,48 +356,17 @@ flowchart TB
   NC -- "wire (Q10, open)" --- NL
 ```
 
-## Invariants
-
-1. Every payload noun has exactly one definition in `v2/wire`; all
-   other packages import it by reference.
-2. `Frame` crosses every interface byte-exact; the lens law is the
-   only decode path and its encode is byte-identity.
-3. Exactly five port tags exist; adding a sixth requires showing its
-   swap axis (the port test) in a recorded decision.
-4. Port tags appear only at composition roots; leaf code holds
-   attenuated values. Tag dependencies never point up the stack.
-5. `sign` is unnameable in the router process (the router holds
-   `Verifier` only); L5 trust data is unnameable in any router
-   interface.
-6. Refusals are values; port-internal error unions are closed and
-   region-local; the wire observes only the opaque `Refusal`.
-7. Among wire nouns the open unions are exactly `TranscriptEntry`'s
-   message side (charter-widened) plus `Refusal.cause`
-   (register-8-widened); every other wire union is closed and matched
-   to `never`. Endpoint-side vocabularies (firewall rules, verdict
-   detail, norm shapes) are unbound here, not closed.
-8. Swapping `NetworkLive` for `NetworkTestbed` changes no other
-   binding in either composition.
-9. `Position` never appears inside the signed unit's type
-   (canary-pinned).
-
 ## Acceptance criteria
 
 - Name closure: every v0-plan interface sketch (W3–W6, W8) maps to
   exactly one port, decorator, derivation, value, or law here, and
   nothing here lacks a plan anchor.
-- Every law in the table carries a citation and a discharge kind, and
-  the conformance suite discharges each (P) and (S) law; the (C) laws
-  are pinned by the static checks and canaries.
-- The static checks run under `pnpm lint` via the W1 boundary script.
-- The swap gate (X.2) passes as a one-binding change against the same
-  corpus.
+- Every law carries a citation and a discharge kind; the conformance
+  suite discharges each (P) and (S) law, and the (C) laws are pinned
+  by the static checks and canaries.
 - Both case studies (bench, arena) are expressible as programs over
   `Channel` plus firewall configuration, with no port tag in their
   requirements.
-- A cold reader can restate every port's verbs without the doc: sign
-  and verify; send, deliveries, read; append, start, list; register,
-  lookup, list; request, await, run.
 
 ## Open questions
 
