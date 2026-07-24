@@ -1,7 +1,7 @@
 /**
  * @file Isolates the `@electric-sql/pglite` reads behind the transcript
- * drain (the §6-scoped dependency), the way `node-http.ts` isolates the
- * http factory. PGlite is single-process, so the reader opens the data
+ * drain (the design-authorized dependency), the way `node-http.ts`
+ * isolates the http factory. PGlite is single-process, so the reader opens the data
  * directory only after the server container stopped; the caller wraps
  * these promise functions in `Effect.tryPromise`.
  */
@@ -29,19 +29,23 @@ const PGLITE_SENTINEL = "PG_VERSION";
 /**
  * The server image owns where under the volume its PGlite directory
  * lives, so the reader detects it by the `PG_VERSION` sentinel at the
- * volume root or exactly one direct child (deeper nesting is not
- * searched). Zero candidates and an ambiguous volume throw distinct
- * messages; both surface typed through the caller's `Effect.tryPromise`.
+ * volume root or a direct child (deeper nesting is not searched). The
+ * root and children count as one candidate set, so a root data dir next
+ * to a child data dir is ambiguous, not silently preferred. Zero
+ * candidates and an ambiguous volume throw distinct messages; both
+ * surface typed through the caller's `Effect.tryPromise`.
  */
 function locatePgliteDataDir(volumePath: string): string {
-  if (existsSync(join(volumePath, PGLITE_SENTINEL))) return volumePath;
   if (!existsSync(volumePath)) {
     throw new Error(`storage volume "${volumePath}" does not exist`);
   }
-  const candidates = readdirSync(volumePath, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => join(volumePath, entry.name))
-    .filter((path) => existsSync(join(path, PGLITE_SENTINEL)));
+  const candidates = [
+    ...(existsSync(join(volumePath, PGLITE_SENTINEL)) ? [volumePath] : []),
+    ...readdirSync(volumePath, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(volumePath, entry.name))
+      .filter((path) => existsSync(join(path, PGLITE_SENTINEL))),
+  ];
   const [only] = candidates;
   if (only === undefined) {
     throw new Error(
@@ -50,7 +54,7 @@ function locatePgliteDataDir(volumePath: string): string {
   }
   if (candidates.length > 1) {
     throw new Error(
-      `ambiguous storage volume: ${String(candidates.length)} candidate PGlite data directories under "${volumePath}"`,
+      `ambiguous storage volume: ${String(candidates.length)} candidate PGlite data directories at "${volumePath}"`,
     );
   }
   return only;

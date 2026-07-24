@@ -22,7 +22,7 @@ import {
   HttpClient,
 } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Duration, Effect, type Scope } from "effect";
+import { Deferred, Duration, Effect, type Scope } from "effect";
 import {
   ServerUrl as mintServerUrl,
   type RuntimeServerHandle,
@@ -161,7 +161,7 @@ const HOST_GATEWAY_NAME = "host.docker.internal";
  * must survive). Reaches the host on Docker Desktop; on native Linux the
  * alias maps to the bridge gateway address while the receiver binds
  * loopback only, so container-side export does NOT reach it there — the
- * receiver bind strategy is the live tier's scope (row 5, #819).
+ * receiver bind strategy is the live tier's scope.
  */
 function containerReachableEndpoint(otlpEndpoint: string): string {
   const url = new URL(otlpEndpoint);
@@ -219,9 +219,9 @@ function startServerContainer(
     );
     // Backstop only: covers launch-phase failures (no Society exists yet)
     // and crash paths. The ordered stop lives in `Society.teardown()` so
-    // §4.1's "(server stopped)" precondition holds before the transcript
-    // sweep; by scope close the container is already gone (`--rm`) and
-    // this second stop is an ignored no-op.
+    // the server is stopped before the transcript sweep; by scope close
+    // the container is already gone (`--rm`) and this second stop is an
+    // ignored no-op.
     yield* Effect.addFinalizer(() =>
       execCapture(["docker", "stop", containerId]).pipe(Effect.ignore),
     );
@@ -405,7 +405,10 @@ function launchAgents(
   return Effect.gen(function* () {
     const agents: Array<LaunchedAgent> = [];
     const mounts: Array<MountHandle> = [];
-    const torndown = { value: false };
+    const teardownState: TeardownOnce = {
+      started: false,
+      report: yield* Deferred.make<TeardownReport>(),
+    };
     const ctx: LaunchContext = { spec, deps, server, observer };
     yield* Effect.forEach(
       spec.agents,
@@ -426,7 +429,8 @@ function launchAgents(
       server: server.handle,
       agents,
       mounts,
-      teardown: () => teardownSociety(torndown, agents, server.containerId),
+      teardown: () =>
+        teardownSociety(teardownState, agents, server.containerId),
     };
   });
 }
@@ -453,30 +457,40 @@ function stopServerContainer(
   );
 }
 
+type TeardownOnce = {
+  started: boolean;
+  readonly report: Deferred.Deferred<TeardownReport>;
+};
+
 /**
- * The shutdown sequence (§4.1) makes "(server stopped)" a precondition
+ * The binding shutdown sequence makes "server stopped" a precondition
  * of the post-teardown transcript sweep, so the server container stops
  * here — inside `teardown()`, before the caller sweeps — not in a scope
  * finalizer that would fire after seal. Agents come down in reverse
  * first (runtime teardown is infallible by contract); a failing
  * container stop lands in `failures` and marks the report incomplete.
+ * Teardown runs once; later callers await and receive the same report,
+ * never a synthetic clean one.
  */
 function teardownSociety(
-  torndown: { value: boolean },
+  state: TeardownOnce,
   agents: ReadonlyArray<LaunchedAgent>,
   containerId: string,
 ): Effect.Effect<TeardownReport, never, never> {
-  if (torndown.value) {
-    return Effect.succeed({ complete: true, failures: [] });
-  }
-  torndown.value = true;
-  return teardownAgents(agents).pipe(
-    Effect.zipRight(stopServerContainer(containerId)),
-    Effect.map((failures) => ({
-      complete: failures.length === 0,
-      failures,
-    })),
-  );
+  return Effect.suspend(() => {
+    if (state.started) return Deferred.await(state.report);
+    state.started = true;
+    return teardownAgents(agents).pipe(
+      Effect.zipRight(stopServerContainer(containerId)),
+      Effect.map(
+        (failures): TeardownReport => ({
+          complete: failures.length === 0,
+          failures,
+        }),
+      ),
+      Effect.tap((report) => Deferred.succeed(state.report, report)),
+    );
+  });
 }
 
 type LaunchedOne = {

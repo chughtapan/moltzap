@@ -218,9 +218,15 @@ const packageDefinitions = {
       folderChildCountOverrides: [
         {
           folder: ".",
-          maxChildren: 12,
+          maxChildren: 13,
           reason:
-            "The testbed keeps runtime adapters, orchestration, readiness, process support, and trace-capture modules as deliberate peers in its documented single-tier source layout",
+            "The testbed keeps runtime adapters, orchestration, readiness, process support, and trace-capture modules as deliberate peers, plus the simulator subfolder (chughtapan/moltzap#812)",
+        },
+        {
+          folder: "simulator",
+          maxChildren: 18,
+          reason:
+            "The five-contract surface plus its implementation peers: contract modules, id/error kernels, per-contract *-live implementations, the local store, the queue, driver/provisioning/validation internals, and the isolated raw-node modules (node-http, node-net-relay, node-pglite); the design's tree shape keeps them flat peers of the orchestrator (chughtapan/moltzap#812 §2)",
         },
       ],
       facadeFiles: [
@@ -238,6 +244,59 @@ const packageDefinitions = {
           file: "openclaw-adapter.ts",
           reason:
             "OpenClaw runtime adapter boundary that composes channel installation, process lifecycle, and readiness behind the Runtime contract",
+        },
+        {
+          file: "simulator/run-config.ts",
+          reason:
+            "Contract 1 (RunConfig / agent-runner) launch boundary of the simulator surface",
+        },
+        {
+          file: "simulator/environment.ts",
+          reason: "Contract 2 (Environment) boundary of the simulator surface",
+        },
+        {
+          file: "simulator/world.ts",
+          reason: "Contract 3 (World) boundary of the simulator surface",
+        },
+        {
+          file: "simulator/event-log.ts",
+          reason:
+            "Contract 5 (EventLog) event-stream boundary of the simulator surface",
+        },
+        {
+          file: "simulator/recording.ts",
+          reason:
+            "Contract 5 (recording) schema and store boundary of the simulator surface",
+        },
+        {
+          file: "simulator/run-spec.ts",
+          reason:
+            "Contract 1 (RunSpec) data-half boundary: the single schema registry every module and the public facade consume",
+        },
+        {
+          file: "simulator/episode.ts",
+          reason:
+            "Contract 4 (Episode lifecycle) boundary and the composition root's public face (run, makeSchedule, Principal)",
+        },
+        {
+          file: "simulator/attempts.ts",
+          reason:
+            "Contract 5 attempt-state-machine boundary with the RunQueue/Runner seams",
+        },
+        {
+          file: "simulator/stub-runtime.ts",
+          reason:
+            "Contract 1 reference-runtime boundary (makeStubRuntime is design-pinned public surface)",
+        },
+        {
+          file: "simulator/drivers.ts",
+          reason:
+            "Deliberate internal facade: the registered driver set consumed by materialization, the episode controller, and the launcher",
+        },
+        {
+          file: "simulator/run-internal.ts",
+          reason:
+            "Deliberate internal facade: the composition-root seam (runAttempt, RunInternals) shared by run and the queue worker",
         },
       ],
     },

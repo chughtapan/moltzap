@@ -312,7 +312,7 @@ function transcriptEventsOf(
  * Observer exclusion is asserted structurally, not behaviorally: the
  * observer credential never sends messages, so storage holds none of its
  * rows. Live-held PGlite ordering and real observer traffic need a real
- * server and belong to the live tier (row 5, #819).
+ * server and belong to the live tier.
  */
 export function path20(): Effect.Effect<void, unknown, never> {
   return Effect.gen(function* () {

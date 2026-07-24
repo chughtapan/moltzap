@@ -1074,9 +1074,9 @@ type TranscriptDrainDeps = {
 /**
  * Create the v0 transcript drain over one run's server storage; redaction
  * applied at enqueue. PGlite is single-process, so the volume is read in
- * one post-stop sweep (the §4.1 shutdown sequence runs it after
- * `teardown`, before the log seals); with no live sweep there is no
- * mid-run failure channel and `awaitFailure` never resolves.
+ * one post-stop sweep (the shutdown sequence runs it after `teardown`,
+ * before the log seals); with no live sweep there is no mid-run failure
+ * channel and `awaitFailure` never resolves.
  */
 export function makeTranscriptDrain(
   deps: TranscriptDrainDeps,
@@ -1112,8 +1112,8 @@ function sweepServerStorage(
 }
 
 /**
- * The per-run container runs without an at-rest encryption secret
- * (amended §3.5), so rows persist plaintext (`dekVersion` 0); an
+ * The per-run container runs without an at-rest encryption secret, so
+ * rows persist plaintext (`dekVersion` 0); an
  * encrypted row means a misconfigured container and fails the sweep
  * rather than dropping evidence. Observer traffic needs no filter: the
  * observer credential only subscribes to presence and never sends
