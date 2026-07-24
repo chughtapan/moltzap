@@ -56,6 +56,8 @@ import {
 const run = (effect: Effect.Effect<void, unknown, never>) =>
   Effect.runPromise(effect.pipe(Effect.orDie));
 
+const DRAIN_PATH_TIMEOUT_MS = 30_000;
+
 describe("simulator coverage inventory (hermetic CI tier, paths 1-12)", () => {
   it("1. seed determinism: same seed, byte-identical canonical derived schedule (property)", () =>
     run(path1()));
@@ -95,8 +97,13 @@ describe("simulator coverage inventory (hermetic CI tier, paths 13-24)", () => {
     run(path18()));
   it("19. OTLP receiver unavailable or stalled: run fails within timeouts.otlpReceiverFailMs; reason span-acceptance-lost", () =>
     run(path19()));
-  it("20. transcript drain: drained content matches sent messages under the redaction policy; observer traffic excluded", () =>
-    run(path20()));
+  // PGlite fixture builds are WASM-init heavy; the drain entries carry
+  // their own budget instead of the 5s default.
+  it(
+    "20. transcript drain: drained content matches sent messages under the redaction policy; observer traffic excluded",
+    () => run(path20()),
+    DRAIN_PATH_TIMEOUT_MS,
+  );
   it("21. MCP logging proxy: tool calls captured; tool results byte-identical with and without the proxy", () =>
     run(path21()));
   it("22. principal-speech injection: seed task attributed to a principal identity, never a system sender", () =>
@@ -115,8 +122,11 @@ describe("simulator coverage inventory (design-doc extension paths)", () => {
     run(path28()));
   it("29. OTLP backpressure: acknowledgment stall beyond bound fails the run; no silent span loss", () =>
     run(path29()));
-  it("30. transcript-drain failure: sealed recording, reason transcript-drain-failed", () =>
-    run(path30()));
+  it(
+    "30. transcript-drain failure: sealed recording, reason transcript-drain-failed",
+    () => run(path30()),
+    DRAIN_PATH_TIMEOUT_MS,
+  );
   it("31. logging-proxy failure mid-run: sealed recording, reason logging-proxy-failed", () =>
     run(path31()));
   it("32. fault-revert failure: sealed recording, reason fault-revert-failed", () =>

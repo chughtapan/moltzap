@@ -4,6 +4,7 @@
  * message states problem, cause, and fix. Grouped by owning contract;
  * the union types at the bottom are the per-operation error channels.
  */
+// safer-arch-ignore shared-kernel-cohesion: the closed InfraError taxonomy lives in one kernel per design §5; each contract module consumes its own error subset, so pairwise consumer overlap is structurally low.
 import { Schema } from "effect";
 import { FaultKind, RuntimeKind } from "./ids.js";
 

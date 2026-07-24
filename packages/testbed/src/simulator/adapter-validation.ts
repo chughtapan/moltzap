@@ -4,6 +4,7 @@
  * Each branch states the rules of one registered runtime kind; the
  * schema decode has already run, so only value-level rules live here.
  */
+// safer-arch-ignore no-trivial-sink-file: per-kind value rules stay out of run-spec.ts so the registry keeps its function-size caps and new runtime kinds have one extension point.
 import { Effect } from "effect";
 import { AdapterConfigRejected } from "./errors.js";
 import type { Agent } from "./run-spec.js";

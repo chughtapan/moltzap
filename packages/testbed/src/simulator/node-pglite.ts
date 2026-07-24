@@ -28,17 +28,32 @@ const PGLITE_SENTINEL = "PG_VERSION";
 
 /**
  * The server image owns where under the volume its PGlite directory
- * lives, so the reader detects it by the `PG_VERSION` sentinel: the
- * volume root itself, or exactly one child directory carrying it.
+ * lives, so the reader detects it by the `PG_VERSION` sentinel at the
+ * volume root or exactly one direct child (deeper nesting is not
+ * searched). Zero candidates and an ambiguous volume throw distinct
+ * messages; both surface typed through the caller's `Effect.tryPromise`.
  */
-function locatePgliteDataDir(volumePath: string): string | undefined {
+function locatePgliteDataDir(volumePath: string): string {
   if (existsSync(join(volumePath, PGLITE_SENTINEL))) return volumePath;
-  if (!existsSync(volumePath)) return undefined;
+  if (!existsSync(volumePath)) {
+    throw new Error(`storage volume "${volumePath}" does not exist`);
+  }
   const candidates = readdirSync(volumePath, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => join(volumePath, entry.name))
     .filter((path) => existsSync(join(path, PGLITE_SENTINEL)));
-  return candidates.length === 1 ? candidates[0] : undefined;
+  const [only] = candidates;
+  if (only === undefined) {
+    throw new Error(
+      `no PGlite data directory (${PGLITE_SENTINEL}) at "${volumePath}" or one level below`,
+    );
+  }
+  if (candidates.length > 1) {
+    throw new Error(
+      `ambiguous storage volume: ${String(candidates.length)} candidate PGlite data directories under "${volumePath}"`,
+    );
+  }
+  return only;
 }
 
 const MESSAGES_QUERY = `
@@ -67,11 +82,6 @@ export async function readSocietyMessages(
   // #ignore-sloppy-code-next-line[promise-type]: promise-native PGlite reader; the drain wraps it in Effect.tryPromise
 ): Promise<ReadonlyArray<StoredMessageRow>> {
   const dataDir = locatePgliteDataDir(volumePath);
-  if (dataDir === undefined) {
-    throw new Error(
-      `no PGlite data directory (${PGLITE_SENTINEL}) under "${volumePath}"`,
-    );
-  }
   const db = new PGlite(dataDir);
   try {
     const result = await db.query<RawMessageRow>(MESSAGES_QUERY);
@@ -81,20 +91,38 @@ export async function readSocietyMessages(
   }
 }
 
+/**
+ * Validation happens here — inside `readSocietyMessages`'s promise — so
+ * an out-of-range sequence or unparseable timestamp rejects through the
+ * caller's `Effect.tryPromise` as a typed drain failure instead of
+ * becoming a schema-decode defect at enqueue time.
+ */
 function normalizeRow(row: RawMessageRow): StoredMessageRow {
+  const seq = Number(row.seq);
+  if (!Number.isSafeInteger(seq)) {
+    throw new Error(
+      `message ${row.id} seq ${String(row.seq)} is outside the safe integer range`,
+    );
+  }
+  const createdAtMs =
+    row.created_at instanceof Date
+      ? row.created_at.getTime()
+      : Date.parse(row.created_at);
+  if (!Number.isFinite(createdAtMs)) {
+    throw new Error(
+      `message ${row.id} created_at ${String(row.created_at)} is not a parseable timestamp`,
+    );
+  }
   return {
     id: row.id,
     conversationId: row.conversation_id,
     senderId: row.sender_id,
-    seq: Number(row.seq),
+    seq,
     replyToId: row.reply_to_id,
     partsText: bytesToUtf8(row.parts_encrypted),
     dekVersion: row.dek_version,
     isDeleted: row.is_deleted,
-    createdAtMs:
-      row.created_at instanceof Date
-        ? row.created_at.getTime()
-        : Date.parse(row.created_at),
+    createdAtMs,
   };
 }
 

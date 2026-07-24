@@ -218,11 +218,16 @@ export function path7(): Effect.Effect<void, unknown, never> {
   });
 }
 
+const CONTENT_VERSION = "agentdojo-suite-v1.2";
+
 /** Path 8: manifest identity fields present; grader hard-fails on a version bump. */
 export function path8(): Effect.Effect<void, unknown, never> {
   return Effect.gen(function* () {
     const root = yield* tempStoreRoot();
-    const input = specInput(root, { episode: doneEpisode(SHORT_INACTIVITY) });
+    const input = specInput(root, {
+      episode: doneEpisode(SHORT_INACTIVITY),
+      contentVersion: CONTENT_VERSION,
+    });
     const outcome = yield* runHermetic(input, root);
     expect(outcome.sealedExit._tag).toBe(EXIT.success);
     const path = yield* expectedAttemptPath(input, root);
@@ -232,6 +237,12 @@ export function path8(): Effect.Effect<void, unknown, never> {
       true,
     );
     expect(snapshot.manifest.slots.length).toBe(2);
+    // The consumer content-version key mirrors verbatim from spec to
+    // manifest, and the spec hash covers it (a spec field like any other).
+    expect(snapshot.manifest.contentVersion).toBe(CONTENT_VERSION);
+    expect(snapshot.manifest.materializedSpec.contentVersion).toBe(
+      CONTENT_VERSION,
+    );
     yield* rewriteManifestVersion(path, snapshot.manifest);
     const reread = yield* Effect.exit(outcome.store.read(path));
     expect(reread._tag).toBe(EXIT.failure);

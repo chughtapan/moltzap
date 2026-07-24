@@ -14,6 +14,7 @@
  * exports spans to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, which this
  * launcher points at the run's receiver (`LaunchDeps.otlpEndpoint`).
  */
+// safer-arch-ignore no-fat-orchestrator: the launch orchestrator behind run-config.ts's makeLauncher; the wiring breadth (docker, provisioning, adapters, readiness) is contract 1's launch half by design.
 import {
   Command,
   FetchHttpClient,
@@ -98,8 +99,16 @@ function enqueueLifecycle(
   deps: LaunchDeps,
   fields:
     | { readonly _tag: "server.started"; readonly serverUrl: string }
-    | { readonly _tag: "agent.launched"; readonly agent: Agent["name"] }
-    | { readonly _tag: "agent.ready"; readonly agent: Agent["name"] },
+    | {
+        readonly _tag: "agent.launched";
+        readonly agent: Agent["name"];
+        readonly agentId: string;
+      }
+    | {
+        readonly _tag: "agent.ready";
+        readonly agent: Agent["name"];
+        readonly agentId: string;
+      },
 ): Effect.Effect<void, never, never> {
   return deps.log
     .enqueue({
@@ -146,8 +155,20 @@ function execCapture(
 /** The engine's host alias: the receiver binds host loopback, and in-container loopback is the container itself. */
 const HOST_GATEWAY_NAME = "host.docker.internal";
 
+/**
+ * Rewrites a loopback hostname to the engine's host alias by URL parse,
+ * never raw string replacement (a loopback literal outside the hostname
+ * must survive). Reaches the host on Docker Desktop; on native Linux the
+ * alias maps to the bridge gateway address while the receiver binds
+ * loopback only, so container-side export does NOT reach it there — the
+ * receiver bind strategy is the live tier's scope (row 5, #819).
+ */
 function containerReachableEndpoint(otlpEndpoint: string): string {
-  return otlpEndpoint.replace("127.0.0.1", HOST_GATEWAY_NAME);
+  const url = new URL(otlpEndpoint);
+  if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
+    url.hostname = HOST_GATEWAY_NAME;
+  }
+  return url.toString();
 }
 
 function serverRunArgs(
@@ -164,8 +185,9 @@ function serverRunArgs(
     `127.0.0.1:0:${String(SERVER_CONTAINER_PORT)}`,
     "--volume",
     `${volumePath}:/data`,
-    // Docker Desktop resolves the alias natively; the explicit
-    // `host-gateway` mapping is what makes it work on Linux engines.
+    // The explicit `host-gateway` mapping defines the alias on Linux
+    // engines (Docker Desktop resolves it natively); the reachability
+    // caveat lives on `containerReachableEndpoint`.
     "--add-host",
     `${HOST_GATEWAY_NAME}:host-gateway`,
     "--env",
@@ -195,6 +217,11 @@ function startServerContainer(
       Effect.map((output) => output.trim()),
       Effect.mapError((detail) => serverFailed(digest, detail)),
     );
+    // Backstop only: covers launch-phase failures (no Society exists yet)
+    // and crash paths. The ordered stop lives in `Society.teardown()` so
+    // §4.1's "(server stopped)" precondition holds before the transcript
+    // sweep; by scope close the container is already gone (`--rm`) and
+    // this second stop is an ignored no-op.
     yield* Effect.addFinalizer(() =>
       execCapture(["docker", "stop", containerId]).pipe(Effect.ignore),
     );
@@ -399,7 +426,7 @@ function launchAgents(
       server: server.handle,
       agents,
       mounts,
-      teardown: () => teardownSociety(torndown, agents),
+      teardown: () => teardownSociety(torndown, agents, server.containerId),
     };
   });
 }
@@ -415,19 +442,40 @@ function teardownAgents(
   );
 }
 
+function stopServerContainer(
+  containerId: string,
+): Effect.Effect<ReadonlyArray<string>, never, never> {
+  return execCapture(["docker", "stop", containerId]).pipe(
+    Effect.as([] as ReadonlyArray<string>),
+    Effect.catchAll((detail) =>
+      Effect.succeed([`server-container: ${detail}`] as ReadonlyArray<string>),
+    ),
+  );
+}
+
+/**
+ * The shutdown sequence (§4.1) makes "(server stopped)" a precondition
+ * of the post-teardown transcript sweep, so the server container stops
+ * here — inside `teardown()`, before the caller sweeps — not in a scope
+ * finalizer that would fire after seal. Agents come down in reverse
+ * first (runtime teardown is infallible by contract); a failing
+ * container stop lands in `failures` and marks the report incomplete.
+ */
 function teardownSociety(
   torndown: { value: boolean },
   agents: ReadonlyArray<LaunchedAgent>,
+  containerId: string,
 ): Effect.Effect<TeardownReport, never, never> {
   if (torndown.value) {
     return Effect.succeed({ complete: true, failures: [] });
   }
   torndown.value = true;
-  // Runtime teardown is infallible by contract; the container stop and
-  // proxy shutdown run under the launch scope's finalizers. Failures the
-  // report can observe land in `failures`.
   return teardownAgents(agents).pipe(
-    Effect.as({ complete: true, failures: [] as ReadonlyArray<string> }),
+    Effect.zipRight(stopServerContainer(containerId)),
+    Effect.map((failures) => ({
+      complete: failures.length === 0,
+      failures,
+    })),
   );
 }
 
@@ -466,10 +514,15 @@ function launchOneAgent(
     yield* enqueueLifecycle(deps, {
       _tag: "agent.launched",
       agent: agent.name,
+      agentId: minted.agentId,
     });
     const ready = yield* runtime.waitUntilReady(spec.timeouts.readyTimeoutMs);
     yield* readyOrFail(agent, ready);
-    yield* enqueueLifecycle(deps, { _tag: "agent.ready", agent: agent.name });
+    yield* enqueueLifecycle(deps, {
+      _tag: "agent.ready",
+      agent: agent.name,
+      agentId: minted.agentId,
+    });
     return {
       agent: {
         slot: agent.name,

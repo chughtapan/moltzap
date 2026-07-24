@@ -562,6 +562,17 @@ function writeTraces(
 ): Effect.Effect<RunOutcome, never, never> {
   if (live.receiver === undefined) return Effect.succeed(outcome);
   return live.receiver.drainTraces().pipe(
+    Effect.tap((traces) =>
+      // Zero spans is legal (a run need not export any) but on the live
+      // tier it is also the signature of an unreachable receiver — the
+      // Linux host-gateway caveat on `containerReachableEndpoint` — so
+      // the seal is loud about it instead of silent.
+      traces.spans.length === 0
+        ? Effect.logWarning(
+            `run ${live.ref.runId}: no spans were captured; if the server container was expected to export spans, verify OTLP reachability from the container (the receiver binds host loopback; see containerReachableEndpoint)`,
+          )
+        : Effect.void,
+    ),
     Effect.flatMap((traces) => live.store.writeTraces(live.ref, traces)),
     Effect.as(outcome),
     Effect.catchAll((cause) =>
@@ -745,6 +756,9 @@ function buildManifest(
     attemptId: allocated.attemptId,
     specHash,
     seed: spec.seed,
+    ...(spec.contentVersion === undefined
+      ? {}
+      : { contentVersion: spec.contentVersion }),
     createdAtWallTime: wallTimeNow(),
     serverImageDigest: spec.server.imageDigest,
     slots: spec.agents.map(slotProvenance),

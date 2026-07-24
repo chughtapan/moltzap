@@ -305,11 +305,14 @@ function transcriptEventsOf(
 }
 
 /**
- * Path 20: drained content matches sent messages under the redaction
- * policy; observer traffic excluded. The fixture is the server's storage
- * shape; observer exclusion is structural (the observer credential never
- * sends messages, so storage holds none of its rows) and the exact-match
- * assertion proves the drain adds nothing beyond the stored rows.
+ * Path 20, hermetic tier: proves the storage-read → decode → redact →
+ * enqueue pipeline against a fixture in the server's storage shape — the
+ * drained set equals exactly the stored rows (count, identity fields,
+ * full parts under redaction), and no registered secret survives.
+ * Observer exclusion is asserted structurally, not behaviorally: the
+ * observer credential never sends messages, so storage holds none of its
+ * rows. Live-held PGlite ordering and real observer traffic need a real
+ * server and belong to the live tier (row 5, #819).
  */
 export function path20(): Effect.Effect<void, unknown, never> {
   return Effect.gen(function* () {
@@ -334,32 +337,70 @@ export function path20(): Effect.Effect<void, unknown, never> {
     const drained = transcriptEventsOf(events);
     expect(drained.length).toBe(rows.length);
     for (const row of rows) {
-      const event = drained.find(
-        (entry) => entry["conversationSeq"] === row.seq,
-      );
-      expect(event).toMatchObject({
-        conversationId: row.conversationId,
-        senderId: row.senderId,
-      });
-      const message = event?.["message"] as {
-        id: string;
-        parts: ReadonlyArray<{ text: string }>;
-      };
-      expect(message.id).toBe(row.id);
-      expect(message.parts[0]?.text).toMatch(REDACTED_TEXT_PATTERN);
+      assertDrainedRow(drained, row);
     }
     expect(JSON.stringify(events).includes(DRAIN_SECRET)).toBe(false);
   });
 }
 
-/** Path 30: a drain failure at the final sweep seals with reason transcript-drain-failed. */
+function assertDrainedRow(
+  drained: ReadonlyArray<Record<string, unknown>>,
+  row: FixtureMessage,
+): void {
+  const event = drained.find((entry) => entry["conversationSeq"] === row.seq);
+  expect(event).toMatchObject({
+    conversationId: row.conversationId,
+    senderId: row.senderId,
+  });
+  const message = event?.["message"] as {
+    id: string;
+    parts: ReadonlyArray<{ type: string; text: string }>;
+  };
+  expect(message.id).toBe(row.id);
+  expect(message.parts.length).toBe(row.parts.length);
+  for (const [index, part] of row.parts.entries()) {
+    expect(message.parts[index]?.type).toBe(part.type);
+    expect(message.parts[index]?.text).toMatch(REDACTED_TEXT_PATTERN);
+  }
+}
+
+const UNSAFE_SEQ = "9007199254740993";
+
+/**
+ * Path 30: drain failures at the final sweep seal with reason
+ * transcript-drain-failed — a missing data dir, an encrypted row, and a
+ * sequence beyond the safe integer range each land typed, never as a
+ * defect that could strand the recording unsealed.
+ */
 export function path30(): Effect.Effect<void, unknown, never> {
   return Effect.gen(function* () {
+    // The fake launcher's default volume is an empty directory: no
+    // PGlite data dir exists.
+    yield* assertDrainFailureSeals(undefined);
+    yield* assertDrainFailureSeals([
+      { ...drainFixtureRows()[0]!, dekVersion: 1 },
+    ]);
+    yield* assertDrainFailureSeals([
+      { ...drainFixtureRows()[0]!, seq: UNSAFE_SEQ },
+    ]);
+  });
+}
+
+function assertDrainFailureSeals(
+  rows: ReadonlyArray<FixtureMessage> | undefined,
+): Effect.Effect<void, unknown, never> {
+  return Effect.gen(function* () {
     const root = yield* tempStoreRoot();
+    const volume = yield* tempStoreRoot();
+    if (rows !== undefined) {
+      yield* Effect.tryPromise({
+        try: () => buildMessagesFixture(volume, rows),
+        catch: (cause) => `fixture build failed: ${String(cause)}`,
+      }).pipe(Effect.orDie);
+    }
     const input = specInput(root, { episode: doneEpisode(SHORT_INACTIVITY) });
-    // The fake launcher's default volume is an empty directory: no PGlite
-    // data dir exists, so the post-stop sweep fails typed.
     const outcome = yield* runHermetic(input, root, {
+      launcherConfig: { volumePath: volume },
       internals: { makeDrain: makeTranscriptDrain },
     });
     expect(outcomeOf(outcome.sealedExit)).toMatchObject({
