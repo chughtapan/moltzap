@@ -5,6 +5,7 @@
  * the union types at the bottom are the per-operation error channels.
  */
 import { Schema } from "effect";
+import { FaultKind, RuntimeKind } from "./ids.js";
 
 // ---------------------------------------------------------------------------
 // RunSpec / materialization (contract 1, config time)
@@ -29,7 +30,7 @@ export class AdapterConfigRejected extends Schema.TaggedError<AdapterConfigRejec
   "AdapterConfigRejected",
   {
     slot: Schema.String,
-    runtimeKind: Schema.String,
+    runtimeKind: RuntimeKind,
     field: Schema.String,
     message: Schema.String,
   },
@@ -141,7 +142,7 @@ export class LoggingProxyFailed extends Schema.TaggedError<LoggingProxyFailed>()
 export class FaultUnsupported extends Schema.TaggedError<FaultUnsupported>()(
   "FaultUnsupported",
   {
-    faultKind: Schema.String,
+    faultKind: FaultKind,
     message: Schema.String,
   },
 ) {}
@@ -150,7 +151,7 @@ export class FaultUnsupported extends Schema.TaggedError<FaultUnsupported>()(
 export class FaultApplyFailed extends Schema.TaggedError<FaultApplyFailed>()(
   "FaultApplyFailed",
   {
-    faultKind: Schema.String,
+    faultKind: FaultKind,
     target: Schema.String,
     message: Schema.String,
   },
@@ -160,7 +161,7 @@ export class FaultApplyFailed extends Schema.TaggedError<FaultApplyFailed>()(
 export class FaultRevertFailed extends Schema.TaggedError<FaultRevertFailed>()(
   "FaultRevertFailed",
   {
-    faultKind: Schema.String,
+    faultKind: FaultKind,
     target: Schema.String,
     message: Schema.String,
   },

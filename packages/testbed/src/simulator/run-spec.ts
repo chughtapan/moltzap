@@ -9,8 +9,16 @@
  * the encoded side of this schema and adds no capability; a field is
  * YAML-expressible iff `JSONSchema.make` succeeds on it.
  */
-import { Schema, type Brand, type Effect } from "effect";
-import type { ConfigTimeError, RunSpecInvalid } from "./errors.js";
+import { createHash } from "node:crypto";
+import { Brand, Effect, ParseResult, Schema } from "effect";
+import {
+  FaultUnsupported,
+  IsolationViolation,
+  RunSpecInvalid,
+  type ConfigTimeError,
+} from "./errors.js";
+import { checkAdapterConfig } from "./adapter-validation.js";
+import { checkDriverRef } from "./drivers.js";
 
 // ---------------------------------------------------------------------------
 // JSON value space
@@ -164,13 +172,7 @@ export class StubConfig extends Schema.Class<StubConfig>("StubConfig")({
   }),
 }) {}
 
-/** Closed union of registered runtime kinds; provenance and events reuse it. */
-export const RuntimeKind = Schema.Literal(
-  "openclaw",
-  "nanoclaw",
-  "stub",
-).annotations({ description: "Registered runtime kind" });
-export type RuntimeKind = typeof RuntimeKind.Type;
+export { RuntimeKind, FaultKind } from "./ids.js";
 
 /**
  * Runtime assignment per agent: `agent -> (runtime kind + that
@@ -252,16 +254,6 @@ export const LogicalTime: Schema.Schema<LogicalTime, number> = Schema.Int.pipe(
  * v0's verified obligation is sever; delay and throttle stay expressible
  * and the v0 implementation rejects them with `FaultUnsupported`.
  */
-/** Closed fault-kind vocabulary; events and errors reuse it instead of plain strings. */
-export const FaultKind = Schema.Literal(
-  "sever",
-  "delay",
-  "throttle",
-).annotations({
-  description: "Connection-level fault kind",
-});
-export type FaultKind = typeof FaultKind.Type;
-
 export const FaultSpec = Schema.Union(
   Schema.TaggedStruct("sever", {
     target: AgentName.annotations({
@@ -510,10 +502,46 @@ export type MaterializationReport = {
  * slots.
  */
 export function materializeRunSpec(
-  _input: unknown,
+  input: unknown,
 ): Effect.Effect<MaterializationReport, ConfigTimeError, never> {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+  return Effect.gen(function* () {
+    const spec = yield* Schema.decodeUnknown(RunSpec)(input).pipe(
+      Effect.mapError(specInvalidFromParseError),
+    );
+    const crossField = crossFieldIssues(spec);
+    if (crossField.length > 0) {
+      return yield* Effect.fail(
+        new RunSpecInvalid({
+          issues: crossField,
+          message: `The spec decoded but violates ${String(crossField.length)} cross-field rule(s); fix the listed paths and re-run.`,
+        }),
+      );
+    }
+    yield* Effect.forEach(spec.agents, checkAdapterConfig, {
+      concurrency: 1,
+      discard: true,
+    });
+    yield* Effect.forEach(spec.agents, checkIsolation, {
+      concurrency: 1,
+      discard: true,
+    });
+    yield* Effect.forEach(spec.world.faults, checkFaultHonored, {
+      concurrency: 1,
+      discard: true,
+    });
+    if (spec.episode.termination.doneSignal !== undefined) {
+      yield* checkDriverRef(spec.episode.termination.doneSignal, "done-signal");
+    }
+    if (spec.episode.principalDriver !== undefined) {
+      yield* checkDriverRef(spec.episode.principalDriver, "principal");
+    }
+    const materialized = mintMaterializedRunSpec(spec);
+    return {
+      spec: materialized,
+      specHash: computeSpecHash(materialized),
+      provenance: collectProvenance(input, encodedSpecJson(spec)),
+    };
+  }).pipe(Effect.withSpan("materializeRunSpec"));
 }
 
 /**
@@ -526,26 +554,296 @@ export type CanonicalJson = JsonValue & Brand.Brand<"CanonicalJson">;
 
 /** Validate an arbitrary value into the canonical space (rejects non-JSON shapes, non-finite numbers, cycles). */
 export function toCanonicalJson(
-  _input: unknown,
+  input: unknown,
 ): Effect.Effect<CanonicalJson, RunSpecInvalid, never> {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+  const issues: Array<{ path: Array<string>; message: string }> = [];
+  collectJsonIssues(input, [], new WeakSet(), issues);
+  if (issues.length > 0) {
+    return Effect.fail(
+      new RunSpecInvalid({
+        issues,
+        message: `The value is outside the canonical JSON space at ${String(issues.length)} path(s); replace the listed values with finite, acyclic JSON.`,
+      }),
+    );
+  }
+  // The walk above rejects cycles, so the recursive schema decode terminates.
+  return Schema.decodeUnknown(CanonicalJsonBrand)(input).pipe(
+    Effect.mapError(specInvalidFromParseError),
+  );
+}
+
+const CanonicalJsonBrand: Schema.Schema<CanonicalJson, JsonValue> =
+  JsonValue.pipe(Schema.brand("CanonicalJson"));
+
+/** Package-internal narrowing for structural walks over decoded JSON. */
+export function isJsonRecord(
+  value: JsonValue,
+): value is { readonly [key: string]: JsonValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
- * Canonical serialization: UTF-8 JSON with lexicographically sorted keys,
- * no insignificant whitespace, shortest round-trip numbers, `\n`-free
- * single-line output (NDJSON-safe). Total over its branded input. The
- * byte-identity claims (derived schedule, spec-hash) and every recording
- * file's byte encoding are stated over this form.
+ * Canonical serialization: UTF-8 JSON with lexicographically sorted keys
+ * (code-unit order), no insignificant whitespace, shortest round-trip
+ * numbers, `\n`-free single-line output (NDJSON-safe). Total over its
+ * branded input. The byte-identity claims (derived schedule, spec-hash)
+ * and every recording file's byte encoding are stated over this form.
  */
-export function canonicalJson(_value: CanonicalJson): string {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+export function canonicalJson(value: CanonicalJson): string {
+  return serializeCanonical(value);
+}
+
+/**
+ * Package-internal sibling of `canonicalJson` for values already typed
+ * inside the JSON space (schema encodes, redacted event payloads); the
+ * public entry keeps the brand gate for arbitrary callers.
+ */
+export function serializeJsonCanonical(value: JsonValue): string {
+  return serializeCanonical(value);
 }
 
 /** The sha256 over `canonicalJson` of the materialized spec with the seed field excluded. */
-export function computeSpecHash(_spec: MaterializedRunSpec): SpecHash {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+export function computeSpecHash(spec: MaterializedRunSpec): SpecHash {
+  const withoutSeed = Object.fromEntries(
+    Object.entries(encodedSpecJson(spec)).filter(([key]) => key !== "seed"),
+  );
+  const hex = createHash("sha256")
+    .update(serializeCanonical(withoutSeed), "utf8")
+    .digest("hex");
+  return Schema.decodeSync(SpecHash)(hex);
+}
+
+// ---------------------------------------------------------------------------
+// Canonical-space internals
+// ---------------------------------------------------------------------------
+
+const mintMaterializedRunSpec = Brand.nominal<MaterializedRunSpec>();
+
+/**
+ * The schema encode of a RunSpec lands in the JSON value space by
+ * construction (every field schema encodes to JSON primitives); the
+ * `JsonObject` decode re-proves that at the type level and dies loudly
+ * if a future field schema ever leaves the space.
+ */
+function encodedSpecJson(spec: RunSpec): JsonObject {
+  return Schema.decodeUnknownSync(JsonObject)(Schema.encodeSync(RunSpec)(spec));
+}
+
+type JsonIssue = { path: Array<string>; message: string };
+
+function collectJsonIssues(
+  value: unknown,
+  path: Array<string>,
+  seen: WeakSet<object>,
+  issues: Array<JsonIssue>,
+): void {
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      issues.push({ path: [...path], message: "non-finite number" });
+    }
+    return;
+  }
+  if (typeof value !== "object") {
+    issues.push({ path: [...path], message: `${typeof value} is not JSON` });
+    return;
+  }
+  if (seen.has(value)) {
+    issues.push({ path: [...path], message: "cyclic reference" });
+    return;
+  }
+  seen.add(value);
+  collectCompositeIssues(value, path, seen, issues);
+  seen.delete(value);
+}
+
+function collectCompositeIssues(
+  value: object,
+  path: Array<string>,
+  seen: WeakSet<object>,
+  issues: Array<JsonIssue>,
+): void {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      collectJsonIssues(entry, [...path, String(index)], seen, issues);
+    });
+    return;
+  }
+  if (!isPlainObject(value)) {
+    issues.push({ path: [...path], message: "non-plain object is not JSON" });
+    return;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    collectJsonIssues(entry, [...path, key], seen, issues);
+  }
+}
+
+function isPlainObject(value: object): value is Record<string, unknown> {
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function serializeCanonical(value: JsonValue): string {
+  if (value === null) return "null";
+  if (typeof value === "string" || typeof value === "number") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) {
+    return `[${value.map(serializeCanonical).join(",")}]`;
+  }
+  const entries = Object.entries(value)
+    .sort(([left], [right]) => compareKeys(left, right))
+    .map(
+      ([key, entry]) => `${JSON.stringify(key)}:${serializeCanonical(entry)}`,
+    );
+  return `{${entries.join(",")}}`;
+}
+
+function compareKeys(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Materialization internals
+// ---------------------------------------------------------------------------
+
+function specInvalidFromParseError(
+  error: ParseResult.ParseError,
+): RunSpecInvalid {
+  const issues = ParseResult.ArrayFormatter.formatErrorSync(error).map(
+    (issue) => ({
+      path: issue.path.map(String),
+      message: issue.message,
+    }),
+  );
+  return new RunSpecInvalid({
+    issues,
+    message: `The spec failed schema decode at ${String(issues.length)} path(s); fix the listed fields against the RunSpec schema.`,
+  });
+}
+
+function crossFieldIssues(
+  spec: RunSpec,
+): Array<{ path: Array<string>; message: string }> {
+  const issues: Array<{ path: Array<string>; message: string }> = [];
+  const names = new Set<string>();
+  spec.agents.forEach((agent, index) => {
+    if (names.has(agent.name)) {
+      issues.push({
+        path: ["agents", String(index), "name"],
+        message: `duplicate agent name "${agent.name}"; agent names must be unique within the run`,
+      });
+    }
+    names.add(agent.name);
+  });
+  spec.world.faults.forEach((entry, index) => {
+    if (entry.revertAtMs <= entry.applyAtMs) {
+      issues.push({
+        path: ["world", "faults", String(index), "revertAtMs"],
+        message: `revertAtMs (${String(entry.revertAtMs)}) must be greater than applyAtMs (${String(entry.applyAtMs)})`,
+      });
+    }
+    if (!names.has(entry.fault.target)) {
+      issues.push({
+        path: ["world", "faults", String(index), "fault", "target"],
+        message: `fault target "${entry.fault.target}" names no agent in this spec`,
+      });
+    }
+  });
+  if (!names.has(spec.episode.task.to)) {
+    issues.push({
+      path: ["episode", "task", "to"],
+      message: `task target "${spec.episode.task.to}" names no agent in this spec`,
+    });
+  }
+  return issues;
+}
+
+function checkIsolation(agent: Agent): Effect.Effect<void, IsolationViolation> {
+  if (agent.role === "adversarial" && agent.runsIn !== "container") {
+    return Effect.fail(
+      new IsolationViolation({
+        slot: agent.name,
+        message: `Agent "${agent.name}" is adversarial but runs on the host; adversarial roles require runsIn: "container".`,
+      }),
+    );
+  }
+  return Effect.void;
+}
+
+function checkFaultHonored(
+  entry: FaultScheduleEntry,
+): Effect.Effect<void, FaultUnsupported> {
+  if (entry.fault._tag !== "sever") {
+    return Effect.fail(
+      new FaultUnsupported({
+        faultKind: entry.fault._tag,
+        message: `Fault kind "${entry.fault._tag}" is expressible but not honored by this build (v0 honors sever/heal); remove the entry or run a build that honors it.`,
+      }),
+    );
+  }
+  return Effect.void;
+}
+
+/**
+ * Per-field provenance from an input-presence diff: a leaf (or wholly
+ * absent subtree) present in the materialized encoding but not in the
+ * raw input originated from a schema default, and the materialized value
+ * at that path is the declared default. Profiles stage later; no v0
+ * field carries `origin: "profile"`.
+ */
+function collectProvenance(
+  rawInput: unknown,
+  encoded: JsonObject,
+): Array<FieldProvenance> {
+  const rows: Array<FieldProvenance> = [];
+  for (const [key, entry] of Object.entries(encoded)) {
+    walkProvenance(inputChild(rawInput, key), entry, [key], rows);
+  }
+  return rows;
+}
+
+function inputChild(input: unknown, key: string): unknown {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
+  }
+  if (!isPlainObject(input)) return undefined;
+  return input[key];
+}
+
+function walkProvenance(
+  input: unknown,
+  encoded: JsonValue,
+  path: Array<string>,
+  rows: Array<FieldProvenance>,
+): void {
+  if (input === undefined) {
+    rows.push({
+      path: [...path],
+      origin: "default",
+      // The materialized value at a defaulted path is the resolved declared default.
+      declaredDefault: encoded,
+    });
+    return;
+  }
+  if (Array.isArray(encoded)) {
+    const inputArray: ReadonlyArray<unknown> = Array.isArray(input)
+      ? input
+      : [];
+    encoded.forEach((entry, index) => {
+      walkProvenance(inputArray[index], entry, [...path, String(index)], rows);
+    });
+    return;
+  }
+  if (encoded !== null && typeof encoded === "object") {
+    for (const [key, entry] of Object.entries(encoded)) {
+      walkProvenance(inputChild(input, key), entry, [...path, key], rows);
+    }
+    return;
+  }
+  rows.push({ path: [...path], origin: "user" });
 }

@@ -25,7 +25,24 @@
  *   W --> C[checkpoint at drain boundary]
  * ```
  */
-import { Schema, type Effect, type Scope } from "effect";
+import { NodeHttpServer } from "@effect/platform-node";
+import {
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "@effect/platform";
+import {
+  Chunk,
+  Deferred,
+  Duration,
+  Effect,
+  Option,
+  PubSub,
+  Queue,
+  Schema,
+  Stream,
+  type Scope,
+} from "effect";
 import {
   CorrelationId,
   EpisodeId,
@@ -41,15 +58,23 @@ import {
   PrincipalName,
   Seed,
   SpecHash,
+  isJsonRecord,
+  serializeJsonCanonical,
 } from "./run-spec.js";
-import type { Secrets, TracesJson } from "./recording.js";
-import type {
+import {
+  CapturedSpan,
+  RECORDING_SCHEMA_VERSION,
+  TracesJson,
+  type Secrets,
+} from "./recording.js";
+import {
   EventLogSealed,
   RecordingInvalid,
-  RecordingStoreFailed,
   TraceCaptureFailed,
-  TranscriptDrainFailed,
+  type RecordingStoreFailed,
+  type TranscriptDrainFailed,
 } from "./errors.js";
+import { makeNodeServer } from "./node-http.js";
 
 // ---------------------------------------------------------------------------
 // Event envelope building blocks
@@ -422,12 +447,44 @@ export type PendingEvent = SimulatorEvent extends infer E
     : never
   : never;
 
-/** Boundary decoder for one `events.ndjson` line (graders, `recording validate | events`). */
+/** Boundary decoder for one `events.ndjson` line (graders, `recording check | events`). */
 export function decodeEventLine(
-  _line: string,
+  line: string,
 ): Effect.Effect<SimulatorEvent, RecordingInvalid, never> {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+  return Effect.try({
+    try: (): unknown => JSON.parse(line),
+    catch: eventLineNotJson,
+  }).pipe(
+    Effect.flatMap((parsed) =>
+      Schema.decodeUnknown(SimulatorEvent)(parsed).pipe(
+        Effect.catchTag("ParseError", (cause) =>
+          Effect.fail(eventLineNotDecodable(cause)),
+        ),
+      ),
+    ),
+  );
+}
+
+const EVENTS_FILE = "events.ndjson";
+
+function eventLineNotJson(cause: unknown): RecordingInvalid {
+  return new RecordingInvalid({
+    file: EVENTS_FILE,
+    issues: [{ path: [], message: String(cause) }],
+    message:
+      "The event line is not JSON; the recording is unreadable at this line.",
+  });
+}
+
+function eventLineNotDecodable(cause: {
+  readonly message: string;
+}): RecordingInvalid {
+  return new RecordingInvalid({
+    file: EVENTS_FILE,
+    issues: [{ path: [], message: cause.message }],
+    message:
+      "The event line does not decode against any event class; the recording does not match this reader's schema.",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -470,14 +527,257 @@ export interface EventLog {
 }
 
 /** Create the single-writer event log for one run; the writer redacts at serialization. */
-export function makeEventLog(_deps: {
+export function makeEventLog(deps: {
   readonly runId: RunId;
   readonly clock: LogicalClock;
   readonly sink: EventSink;
   readonly secrets: Secrets;
 }): Effect.Effect<EventLog, never, Scope.Scope> {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+  return Effect.gen(function* () {
+    const ctx: WriterContext = {
+      deps,
+      intake: yield* Queue.unbounded<WriterEntry>(),
+      failure: yield* Deferred.make<never, RecordingStoreFailed>(),
+      taps: yield* PubSub.unbounded<SimulatorEvent>(),
+      state: { sealRequested: false, nextSequence: 0, eventCount: 0 },
+    };
+    yield* Effect.forkScoped(writerLoop(ctx));
+    const log: EventLog = {
+      enqueue: (event) => enqueueEvent(ctx, event),
+      awaitFailure: () => Deferred.await(ctx.failure),
+      seal: () => sealLog(ctx),
+    };
+    registerEventTaps(log, ctx.taps);
+    return log;
+  }).pipe(Effect.withSpan("makeEventLog"));
+}
+
+type SealRequest = {
+  readonly _tag: "seal";
+  readonly done: Deferred.Deferred<SealSummary, RecordingStoreFailed>;
+};
+
+type WriterEntry =
+  | {
+      readonly _tag: "event";
+      readonly pending: PendingEvent;
+      readonly ack: Deferred.Deferred<LogicalSequence, never>;
+    }
+  | SealRequest;
+
+type WriterContext = {
+  readonly deps: {
+    readonly runId: RunId;
+    readonly clock: LogicalClock;
+    readonly sink: EventSink;
+    readonly secrets: Secrets;
+  };
+  readonly intake: Queue.Queue<WriterEntry>;
+  readonly failure: Deferred.Deferred<never, RecordingStoreFailed>;
+  readonly taps: PubSub.PubSub<SimulatorEvent>;
+  readonly state: {
+    sealRequested: boolean;
+    nextSequence: number;
+    eventCount: number;
+  };
+};
+
+type StampedLine = { readonly stamped: SimulatorEvent; readonly line: string };
+
+/**
+ * Pending fields carry the same runtime representation as the encoded
+ * side, so one decode both validates and constructs the event class with
+ * the writer-stamped envelope; the line is the redacted canonical form.
+ */
+function stampAndSerialize(
+  ctx: WriterContext,
+  pending: PendingEvent,
+): StampedLine {
+  const sequence = ctx.state.nextSequence;
+  ctx.state.nextSequence += 1;
+  ctx.state.eventCount += 1;
+  const stamped = Schema.decodeUnknownSync(SimulatorEvent)({
+    ...pending,
+    runId: ctx.deps.runId,
+    logicalSequence: sequence,
+    logicalTime: ctx.deps.clock.now(),
+  });
+  const encodedJson = Schema.decodeUnknownSync(JsonValue)(
+    Schema.encodeSync(SimulatorEvent)(stamped),
+  );
+  const line = serializeJsonCanonical(ctx.deps.secrets.redactJson(encodedJson));
+  return { stamped, line };
+}
+
+type DrainedBatch = {
+  readonly stamped: Array<StampedLine>;
+  readonly acks: Array<{
+    readonly ack: Deferred.Deferred<LogicalSequence, never>;
+    readonly sequence: LogicalSequence;
+  }>;
+  readonly sealEntry: SealRequest | undefined;
+};
+
+/**
+ * Checkpoints are drain boundaries: every drained batch ends with one,
+ * and the seal's final checkpoint is the last event of the log.
+ */
+function stampBatch(
+  ctx: WriterContext,
+  entries: ReadonlyArray<WriterEntry>,
+): DrainedBatch {
+  const stamped: Array<StampedLine> = [];
+  const acks: DrainedBatch["acks"] = [];
+  let sealEntry: SealRequest | undefined;
+  for (const entry of entries) {
+    if (entry._tag === "seal") {
+      sealEntry = entry;
+      continue;
+    }
+    const one = stampAndSerialize(ctx, entry.pending);
+    stamped.push(one);
+    acks.push({ ack: entry.ack, sequence: one.stamped.logicalSequence });
+  }
+  stamped.push(
+    stampAndSerialize(ctx, {
+      _tag: "checkpoint",
+      source: "lifecycle",
+      wallTime: wallNow(),
+    }),
+  );
+  return { stamped, acks, sealEntry };
+}
+
+/**
+ * Acks resolve at drain either way: the stamp is assigned, and a sink
+ * failure surfaces through awaitFailure, sealing the run with reason
+ * recording-store-failed rather than failing producers.
+ */
+function drainBatch(
+  ctx: WriterContext,
+  entries: ReadonlyArray<WriterEntry>,
+): Effect.Effect<boolean, never, never> {
+  const batch = stampBatch(ctx, entries);
+  return ctx.deps.sink.appendEvents(batch.stamped.map((one) => one.line)).pipe(
+    Effect.as(true),
+    Effect.catchAll((cause) =>
+      Deferred.fail(ctx.failure, cause).pipe(Effect.as(false)),
+    ),
+    Effect.tap(() =>
+      Effect.forEach(
+        batch.acks,
+        ({ ack, sequence }) => Deferred.succeed(ack, sequence),
+        { concurrency: 1, discard: true },
+      ),
+    ),
+    Effect.tap(() =>
+      Effect.forEach(
+        batch.stamped,
+        (one) => PubSub.publish(ctx.taps, one.stamped),
+        { concurrency: 1, discard: true },
+      ),
+    ),
+    Effect.flatMap((appended) => resolveSealEntry(ctx, batch, appended)),
+  );
+}
+
+function resolveSealEntry(
+  ctx: WriterContext,
+  batch: DrainedBatch,
+  appended: boolean,
+): Effect.Effect<boolean, never, never> {
+  if (batch.sealEntry === undefined) return Effect.succeed(false);
+  const done = batch.sealEntry.done;
+  if (!appended) {
+    return Deferred.await(ctx.failure).pipe(
+      Effect.flip,
+      Effect.flatMap((failed) => Deferred.fail(done, failed)),
+      Effect.as(true),
+    );
+  }
+  return Deferred.succeed(done, {
+    finalLogicalSequence: lastSequence(ctx.state.nextSequence),
+    eventCount: ctx.state.eventCount,
+  }).pipe(Effect.as(true));
+}
+
+function writerLoop(ctx: WriterContext): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
+    let done = false;
+    while (!done) {
+      const head = yield* Queue.take(ctx.intake);
+      const more = Chunk.toReadonlyArray(yield* Queue.takeAll(ctx.intake));
+      done = yield* drainBatch(ctx, [head, ...more]);
+    }
+  });
+}
+
+function enqueueEvent(
+  ctx: WriterContext,
+  event: PendingEvent,
+): Effect.Effect<LogicalSequence, EventLogSealed, never> {
+  return Effect.gen(function* () {
+    if (ctx.state.sealRequested) {
+      return yield* Effect.fail(
+        new EventLogSealed({
+          source: event.source,
+          kind: event._tag,
+          message: `The log is sealed; a late ${event._tag} from ${event.source} is rejected, never silently dropped.`,
+        }),
+      );
+    }
+    const ack = yield* Deferred.make<LogicalSequence, never>();
+    yield* Queue.offer(ctx.intake, { _tag: "event", pending: event, ack });
+    return yield* Deferred.await(ack);
+  });
+}
+
+function sealLog(
+  ctx: WriterContext,
+): Effect.Effect<SealSummary, RecordingStoreFailed, never> {
+  return Effect.gen(function* () {
+    ctx.state.sealRequested = true;
+    const done = yield* Deferred.make<SealSummary, RecordingStoreFailed>();
+    yield* Queue.offer(ctx.intake, { _tag: "seal", done });
+    return yield* Deferred.await(done);
+  });
+}
+
+function lastSequence(nextSequence: number): LogicalSequence {
+  return Schema.decodeSync(LogicalSequence)(Math.max(0, nextSequence - 1));
+}
+
+function wallNow(): WallTimeMs {
+  return Schema.decodeSync(WallTimeMs)(Date.now());
+}
+
+// ---------------------------------------------------------------------------
+// Internal event taps (package-internal, not part of the exported surface)
+// ---------------------------------------------------------------------------
+
+const EVENT_TAPS = new WeakMap<EventLog, PubSub.PubSub<SimulatorEvent>>();
+
+function registerEventTaps(
+  log: EventLog,
+  taps: PubSub.PubSub<SimulatorEvent>,
+): void {
+  EVENT_TAPS.set(log, taps);
+}
+
+/**
+ * Observation channel over the drained, stamped event stream. The
+ * episode's predicate triggers, done-signal, and inactivity bound read
+ * it. Available exactly for logs built by `makeEventLog` (the contract's
+ * one v0 implementation); the composition root guarantees that, so a
+ * miss is a precondition violation, not an expected failure.
+ */
+export function getEventTaps(
+  log: EventLog,
+): Option.Option<Stream.Stream<SimulatorEvent>> {
+  const taps = EVENT_TAPS.get(log);
+  return taps === undefined
+    ? Option.none()
+    : Option.some(Stream.fromPubSub(taps));
 }
 
 // ---------------------------------------------------------------------------
@@ -499,6 +799,13 @@ export type Receiver = {
   drainTraces(): Effect.Effect<TracesJson, never, never>;
 };
 
+type ReceiverDeps = {
+  readonly runId: RunId;
+  readonly log: EventLog;
+  readonly failBoundMs: number;
+  readonly secrets: Secrets;
+};
+
 /**
  * Bring up the per-run OTLP receiver. A span is accepted when the
  * receiver acknowledges the export request carrying it; accepted spans
@@ -509,14 +816,218 @@ export type Receiver = {
  * `drainTraces` output, so `traces.json` passes the same hygiene
  * boundary as the event log.
  */
-export function makeReceiver(_deps: {
-  readonly runId: RunId;
-  readonly log: EventLog;
-  readonly failBoundMs: number;
-  readonly secrets: Secrets;
-}): Effect.Effect<Receiver, TraceCaptureFailed, Scope.Scope> {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+export function makeReceiver(
+  deps: ReceiverDeps,
+): Effect.Effect<Receiver, TraceCaptureFailed, Scope.Scope> {
+  return Effect.gen(function* () {
+    const ctx: ReceiverContext = {
+      deps,
+      failure: yield* Deferred.make<never, TraceCaptureFailed>(),
+      captured: [],
+    };
+    const endpoint = yield* serveReceiver(ctx);
+    return {
+      endpoint,
+      awaitFailure: () => Deferred.await(ctx.failure),
+      drainTraces: () => Effect.sync(() => drainedTraces(ctx)),
+    };
+  }).pipe(Effect.withSpan("makeReceiver"));
+}
+
+const RECEIVER_HOST = "127.0.0.1";
+
+type AcceptOutcome = "accepted" | "stalled" | "sealed";
+
+type ReceiverContext = {
+  readonly deps: ReceiverDeps;
+  readonly failure: Deferred.Deferred<never, TraceCaptureFailed>;
+  readonly captured: Array<CapturedSpan>;
+};
+
+function stallFailure(deps: ReceiverDeps): TraceCaptureFailed {
+  return new TraceCaptureFailed({
+    boundMs: deps.failBoundMs,
+    phase: "stall",
+    message: `The OTLP receiver could not acknowledge an export within ${String(deps.failBoundMs)}ms; the run fails with reason span-acceptance-lost rather than losing spans silently.`,
+  });
+}
+
+function bindFailure(
+  deps: ReceiverDeps,
+): (cause: unknown) => TraceCaptureFailed {
+  return (cause) =>
+    new TraceCaptureFailed({
+      boundMs: deps.failBoundMs,
+      phase: "bind",
+      message: `The OTLP receiver could not bind and serve a local port: ${String(cause)}. Free local ephemeral ports are required to run the simulator.`,
+    });
+}
+
+function acceptSpan(
+  ctx: ReceiverContext,
+  span: { readonly name: string; readonly raw: JsonValue },
+): Effect.Effect<AcceptOutcome, never, never> {
+  const wallTime = wallNow();
+  return ctx.deps.log
+    .enqueue({
+      _tag: "span.accepted",
+      source: "span",
+      wallTime,
+      spanName: span.name,
+      raw: span.raw,
+    })
+    .pipe(
+      Effect.map((sequence): AcceptOutcome => {
+        ctx.captured.push(
+          new CapturedSpan({
+            acceptedAtWallTime: wallTime,
+            logicalSequence: sequence,
+            raw: ctx.deps.secrets.redactJson(span.raw),
+          }),
+        );
+        return "accepted";
+      }),
+      Effect.timeoutFail({
+        duration: Duration.millis(ctx.deps.failBoundMs),
+        onTimeout: () => stallFailure(ctx.deps),
+      }),
+      Effect.catchTag("TraceCaptureFailed", (cause) =>
+        Deferred.fail(ctx.failure, cause).pipe(
+          Effect.as<AcceptOutcome>("stalled"),
+        ),
+      ),
+      // An export arriving after seal is never acknowledged, so the span
+      // is not accepted and the seal guarantee holds; 503 lets a
+      // conforming exporter treat it as retryable.
+      Effect.catchTag("EventLogSealed", () =>
+        Effect.succeed<AcceptOutcome>("sealed"),
+      ),
+    );
+}
+
+function exportHandler(
+  ctx: ReceiverContext,
+): Effect.Effect<
+  HttpServerResponse.HttpServerResponse,
+  never,
+  HttpServerRequest.HttpServerRequest
+> {
+  return Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const body = yield* request.json.pipe(Effect.orElseSucceed(() => null));
+    const spans = extractOtlpSpans(body);
+    if (spans === null) {
+      return HttpServerResponse.unsafeJson(
+        { error: "body is not an OTLP/HTTP JSON trace export" },
+        { status: 400 },
+      );
+    }
+    const outcomes = yield* Effect.forEach(
+      spans,
+      (span) => acceptSpan(ctx, span),
+      { concurrency: 1 },
+    );
+    return outcomes.every((outcome) => outcome === "accepted")
+      ? HttpServerResponse.unsafeJson({ partialSuccess: {} })
+      : HttpServerResponse.unsafeJson(
+          { error: "receiver is not accepting spans" },
+          { status: 503 },
+        );
+  });
+}
+
+function serveReceiver(
+  ctx: ReceiverContext,
+): Effect.Effect<string, TraceCaptureFailed, Scope.Scope> {
+  const router = HttpRouter.empty.pipe(
+    HttpRouter.post("/v1/traces", exportHandler(ctx)),
+    HttpRouter.catchAllCause(() =>
+      Effect.succeed(
+        HttpServerResponse.unsafeJson(
+          { error: "unsupported request" },
+          { status: 404 },
+        ),
+      ),
+    ),
+  );
+  return NodeHttpServer.make(makeNodeServer, {
+    port: 0,
+    host: RECEIVER_HOST,
+  }).pipe(
+    Effect.tap((server) => server.serve(router)),
+    Effect.map((server) => {
+      const address = server.address;
+      const port = address._tag === "TcpAddress" ? address.port : 0;
+      return `http://${RECEIVER_HOST}:${String(port)}/v1/traces`;
+    }),
+    Effect.mapError(bindFailure(ctx.deps)),
+  );
+}
+
+function drainedTraces(ctx: ReceiverContext): TracesJson {
+  return new TracesJson({
+    recordingSchemaVersion: RECORDING_SCHEMA_VERSION,
+    runId: ctx.deps.runId,
+    spans: ctx.captured.map(
+      (span) =>
+        new CapturedSpan({
+          acceptedAtWallTime: span.acceptedAtWallTime,
+          logicalSequence: span.logicalSequence,
+          // Redaction re-runs at drain so secrets registered after
+          // capture are covered; redact is a fixpoint.
+          raw: ctx.deps.secrets.redactJson(span.raw),
+        }),
+    ),
+  });
+}
+
+type OtlpSpan = { readonly name: string; readonly raw: JsonValue };
+
+/**
+ * Structural walk of an OTLP/HTTP JSON export
+ * (`resourceSpans[].scopeSpans[].spans[]`). Spans pass through verbatim;
+ * a body outside that shape, or a span without a string name, rejects
+ * the whole export (the exporter retries; nothing is silently dropped).
+ */
+function extractOtlpSpans(body: unknown): Array<OtlpSpan> | null {
+  const decoded = Schema.decodeUnknownOption(JsonValue)(body);
+  if (Option.isNone(decoded)) return null;
+  const root = decoded.value;
+  if (!isJsonRecord(root)) return null;
+  const resourceSpans = root["resourceSpans"];
+  if (!Array.isArray(resourceSpans)) return null;
+  const collected: Array<OtlpSpan> = [];
+  for (const resource of resourceSpans) {
+    if (!collectResourceSpans(resource, collected)) return null;
+  }
+  return collected;
+}
+
+function collectResourceSpans(
+  resource: JsonValue,
+  out: Array<OtlpSpan>,
+): boolean {
+  if (!isJsonRecord(resource)) return false;
+  const scopeSpans = resource["scopeSpans"];
+  if (scopeSpans === undefined) return true;
+  if (!Array.isArray(scopeSpans)) return false;
+  return scopeSpans.every((scope) => collectScopeSpans(scope, out));
+}
+
+function collectScopeSpans(scope: JsonValue, out: Array<OtlpSpan>): boolean {
+  if (!isJsonRecord(scope)) return false;
+  const spans = scope["spans"];
+  if (spans === undefined) return true;
+  if (!Array.isArray(spans)) return false;
+  return spans.every((span) => collectSpan(span, out));
+}
+
+function collectSpan(span: JsonValue, out: Array<OtlpSpan>): boolean {
+  if (!isJsonRecord(span)) return false;
+  const name = span["name"];
+  if (typeof name !== "string") return false;
+  out.push({ name, raw: span });
+  return true;
 }
 
 // ---------------------------------------------------------------------------
