@@ -1,0 +1,94 @@
+{
+  "packageRuntime": "node",
+  "publicTypePackages": [
+    {
+      "package": "effect",
+      "reason": "Foundational Effect runtime; intentionally part of the public contract"
+    },
+    {
+      "package": "@effect/platform",
+      "reason": "Effect platform abstractions used at boundaries"
+    },
+    {
+      "package": "@effect/platform-node",
+      "reason": "Effect Node integration used at boundaries"
+    },
+    {
+      "package": "@effect/rpc",
+      "reason": "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design"
+    },
+    {
+      "package": "@sinclair/typebox",
+      "reason": "Schema runtime; types are the contract"
+    },
+    {
+      "package": "@moltzap/protocol",
+      "reason": "Intra-monorepo protocol; foundational shared contract"
+    },
+    {
+      "package": "@moltzap/client",
+      "reason": "Intra-monorepo client SDK; channels depend on its public surface"
+    }
+  ],
+  "allowedTestPublicSubpaths": [
+    {
+      "subpath": "./test-utils",
+      "reason": "Test helpers exposed for cross-package integration testing"
+    },
+    {
+      "subpath": "./test",
+      "reason": "Test harness API for downstream packages"
+    },
+    {
+      "subpath": "./test-support",
+      "reason": "Channel test support exposed for integration tests"
+    },
+    {
+      "subpath": "./testing",
+      "reason": "Conformance + driver surface for cross-package integration testing"
+    }
+  ],
+  "minExportedSiblingModules": 7,
+  "folderChildCountOverrides": [
+    {
+      "folder": ".",
+      "maxChildren": 13,
+      "reason": "The source root is the package assembly boundary and intentionally groups its domain folders with the binary and configuration entrypoints"
+    },
+    {
+      "folder": "db",
+      "maxChildren": 11,
+      "reason": "The database boundary keeps schema, client, migration, and crypto adapters together while each concern remains named and cohesive"
+    }
+  ],
+  "facadeFiles": [
+    {
+      "file": "db/crypto/envelope.ts",
+      "reason": "Envelope encryption is the crypto subsystem's explicit API over its key-material implementation files"
+    },
+    {
+      "file": "dispatch/layer.ts",
+      "reason": "The dispatch layer module is the composition facade for its Effect service tags and live implementations"
+    },
+    {
+      "file": "message/layer.ts",
+      "reason": "The message layer module is the composition facade for its Effect service tags and live implementations"
+    },
+    {
+      "file": "network/layer.ts",
+      "reason": "The network layer module is the composition facade for its Effect service tags and live implementations"
+    },
+    {
+      "file": "task/layer.ts",
+      "reason": "The task layer module is the composition facade for its Effect service tags and live implementations"
+    },
+    {
+      "file": "dispatch/lease-registry.ts",
+      "reason": "The lease registry module is the authoritative facade for the complete dispatch lease state machine and its wire projection"
+    },
+    {
+      "file": "moltzap/handler-catalog.ts",
+      "reason": "The handler catalog is the explicit adapter facade that binds domain handlers to protocol method tags"
+    }
+  ]
+}

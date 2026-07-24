@@ -17,6 +17,8 @@
  * `obtain`. An obtain failure encodes against that requirement's own `failure`
  * schema.
  */
+// safer-arch-ignore no-fat-orchestrator: This module is the assembly point for the complete protocol requirement Layer catalog used by each socket runtime.
+
 import { Context, Effect, Layer } from "effect";
 import type { RpcMiddleware } from "@effect/rpc";
 import {

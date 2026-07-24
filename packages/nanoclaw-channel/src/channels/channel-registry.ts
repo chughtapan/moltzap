@@ -4,6 +4,7 @@
 // tests can drive the factory the same way the nanoclaw daemon does.
 import type { ChannelRegistration } from "./adapter.js";
 
+// safer-arch-ignore no-trivial-sink-file: This host-substitution seam mirrors Nanoclaw's registry contract so the channel source binds to the real runtime registry when installed and to this smoke-test stub in isolation.
 const registrations = new Map<string, ChannelRegistration>();
 
 export function registerChannelAdapter(

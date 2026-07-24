@@ -1,0 +1,13 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "evals",
+  "targets": {
+    "arch:check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/evals",
+        "command": "safer-architecture-lsp check ."
+      }
+    }
+  }
+}
