@@ -12,7 +12,8 @@ export type FixtureMessage = {
   readonly id: string;
   readonly conversationId: string;
   readonly senderId: string;
-  readonly seq: number;
+  /** A string carries BIGINT values beyond the safe integer range into the fixture. */
+  readonly seq: number | string;
   readonly replyToId?: string;
   readonly parts: ReadonlyArray<{ type: string; text: string }>;
   readonly dekVersion?: number;

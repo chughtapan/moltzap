@@ -460,6 +460,12 @@ export class RunSpec extends Schema.Class<RunSpec>("RunSpec")({
   }),
   episode: EpisodeSpec,
   condition: Schema.optional(ConditionDesignation),
+  contentVersion: Schema.optional(
+    Schema.NonEmptyString.annotations({
+      description:
+        "Consumer content-version key; identity-bearing when present, never defaulted. Content axis of the spec, distinct from the recording format's recordingSchemaVersion; the spec hash covers it",
+    }),
+  ),
   timeouts: Schema.optionalWith(TimeoutsSpec, {
     default: () => TimeoutsSpec.make({}),
   }),

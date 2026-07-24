@@ -139,6 +139,10 @@ export class AgentLaunched extends Schema.TaggedClass<AgentLaunched>()(
     ...envelopeFields,
     source: Schema.Literal("lifecycle"),
     agent: AgentName,
+    agentId: Schema.String.annotations({
+      description:
+        "Server-registered agent identity provisioned for the slot; relates lifecycle events to transcript senders",
+    }),
   },
 ) {}
 
@@ -149,6 +153,10 @@ export class AgentReady extends Schema.TaggedClass<AgentReady>()(
     ...envelopeFields,
     source: Schema.Literal("lifecycle"),
     agent: AgentName,
+    agentId: Schema.String.annotations({
+      description:
+        "Server-registered agent identity provisioned for the slot; relates lifecycle events to transcript senders",
+    }),
   },
 ) {}
 

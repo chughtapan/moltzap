@@ -67,6 +67,7 @@ export function specInput(
     world: unknown;
     episode: unknown;
     condition: unknown;
+    contentVersion: string;
     timeouts: unknown;
     seed: number;
   }> = {},
@@ -78,7 +79,6 @@ export function specInput(
       stubAgentInput(AGENT_TWO),
     ],
     server: { imageDigest: IMAGE_DIGEST },
-    ...(overrides.world === undefined ? {} : { world: overrides.world }),
     episode: overrides.episode ?? {
       task: { principal: PRINCIPAL_NAME, to: AGENT_ONE, content: TASK_CONTENT },
       termination: {
@@ -87,12 +87,23 @@ export function specInput(
         doneSignal: { name: "span-name", config: { name: DONE_SPAN } },
       },
     },
-    ...(overrides.condition === undefined
-      ? {}
-      : { condition: overrides.condition }),
+    ...presentOnly({
+      world: overrides.world,
+      condition: overrides.condition,
+      contentVersion: overrides.contentVersion,
+    }),
     timeouts: overrides.timeouts ?? { otlpReceiverFailMs: RECEIVER_BOUND_MS },
     recording: { storeRoot },
   };
+}
+
+/** Keeps only defined entries, so optional spec fields stay absent instead of `undefined`. */
+function presentOnly(
+  entries: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(entries).filter(([, value]) => value !== undefined),
+  );
 }
 
 export function stubAgentInput(name: string): unknown {

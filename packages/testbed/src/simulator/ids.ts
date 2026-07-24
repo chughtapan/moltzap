@@ -6,6 +6,7 @@
  * in events, errors, and provenance. None is ever allocated from
  * construction order.
  */
+// safer-arch-ignore shared-kernel-cohesion: branded ids and closed vocabularies are one shared kernel per design §2; each module consumes its own id subset, so pairwise consumer overlap is structurally low.
 import { Schema, type Brand } from "effect";
 
 /** Closed union of registered runtime kinds; provenance, events, and errors reuse it. */

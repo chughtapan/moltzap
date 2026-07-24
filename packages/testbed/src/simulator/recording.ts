@@ -124,6 +124,12 @@ export class ManifestJson extends Schema.Class<ManifestJson>("ManifestJson")({
   attemptId: AttemptId,
   specHash: SpecHash,
   seed: Seed,
+  contentVersion: Schema.optional(
+    Schema.NonEmptyString.annotations({
+      description:
+        "The spec's consumer content-version key, mirrored verbatim for graders",
+    }),
+  ),
   createdAtWallTime: WallTimeMs,
   gitRevision: Schema.optional(
     Schema.String.annotations({
