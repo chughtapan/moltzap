@@ -1,5 +1,7 @@
 import { Path } from "@effect/platform";
+import type * as ClientTestUtils from "@moltzap/client/test-utils";
 import { Data, Duration, Effect, Fiber, Option, Stream } from "effect";
+import type * as ServerTestUtils from "@moltzap/server-core/test-utils";
 import { startRuntimeAgent, type RuntimeKind } from "./testbed.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
 import type { Runtime } from "./runtime.js";
@@ -16,17 +18,11 @@ import {
   type TraceCaptureEvent,
 } from "./trace-capture-bundle.js";
 
-import type { AnyServerRpcDefinition } from "@moltzap/protocol/socket/catalog";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
 } from "@moltzap/protocol/message";
-import type {
-  NotificationParamsOf,
-  ParamsOf,
-  ResultOf,
-} from "@moltzap/protocol/rpc";
 import {
   DEFAULT_APP_ID,
   TaskRequest,
@@ -99,91 +95,17 @@ interface MessagePart {
   readonly text?: string;
 }
 
-interface HarnessClient {
-  close(): Effect.Effect<void, never, never>;
-
-  /**
-   * Typed-payload Stream subscription. The harness subscribes BEFORE
-   * issuing each `MessagesSend` (`sendMessageAndWait`'s fork → trigger →
-   * join pattern) so the response notification is never dropped between
-   * the request and the Stream materialisation. Structural shape mirrors
-   * `MoltZapAgentClient.subscribe`.
-   */
-  subscribe<D extends typeof MessageReceivedNotificationDefinition>(
-    definition: D,
-    refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<NotificationParamsOf<D>, Error, never>;
-  sendRpc<D extends AnyServerRpcDefinition>(
-    method: D,
-    payload: ParamsOf<D>,
-  ): Effect.Effect<ResultOf<D>, Error, never>;
-}
+// Type-only namespaces keep the dynamic loaders aligned with their published
+// test surfaces without introducing client or server runtime imports.
+type ClientTestModule = typeof ClientTestUtils;
+type HarnessClient = ClientTestUtils.HarnessAgentClient;
+type ServerTestModule = typeof ServerTestUtils;
+type CoreTestServer = ServerTestUtils.CoreTestServer;
 
 interface ConnectedActor {
   readonly agentId: AgentId;
   readonly name: string;
   readonly client: HarnessClient;
-}
-
-// Structural shape of the dynamically loaded `@moltzap/client` test-utils
-// barrel; the canonical implementation is `test-utils/harness.ts →
-// registerAndConnect` there. Loaded by path so the published testbed
-// package never takes a static dependency on the client.
-interface ClientTestModule {
-  registerAgent(
-    baseUrl: string,
-    name: string,
-  ): Effect.Effect<
-    {
-      readonly agentId: AgentId;
-      readonly apiKey: AgentKey;
-    },
-    Error,
-    never
-  >;
-  registerAndConnect(
-    baseUrl: string,
-    name: string,
-  ): Effect.Effect<
-    {
-      readonly agentId: AgentId;
-      readonly apiKey: AgentKey;
-      readonly client: HarnessClient;
-    },
-    Error,
-    never
-  >;
-  stripWsPath(wsUrl: string): string;
-}
-
-// Structural view of the server-owned runtime test port. The concrete
-// implementation lives in @moltzap/server-core's test-utils.
-interface RuntimeServerLike {
-  awaitAgentReady(
-    agentId: AgentId,
-    timeoutMs: number,
-  ): Effect.Effect<
-    | { readonly _tag: "Ready" }
-    | { readonly _tag: "Timeout"; readonly timeoutMs: number }
-    | {
-        readonly _tag: "ProcessExited";
-        readonly exitCode: number | null;
-        readonly stderr: string;
-      },
-    never,
-    never
-  >;
-}
-
-interface CoreTestServer {
-  readonly baseUrl: string;
-  readonly wsUrl: string;
-  readonly runtimeServer: RuntimeServerLike;
-}
-
-interface ServerTestModule {
-  startCoreTestServer(opts: Readonly<Record<string, never>>): unknown;
-  stopCoreTestServer(): unknown;
 }
 
 interface ConversationExecutionState {
@@ -833,10 +755,7 @@ function startCoreTraceServer(
   serverTestModule: ServerTestModule,
 ): Effect.Effect<CoreTestServer, HarnessFailure> {
   return Effect.tryPromise({
-    try: () =>
-      Promise.resolve(
-        serverTestModule.startCoreTestServer({}),
-      ) as Promise<CoreTestServer>,
+    try: () => serverTestModule.startCoreTestServer({}),
     catch: (error) =>
       failHarness(error instanceof Error ? error.message : String(error)),
   });

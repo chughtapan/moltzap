@@ -344,6 +344,12 @@ importers:
         specifier: 2026.6.33
         version: 2026.6.33(@cfworker/json-schema@4.1.1)
     devDependencies:
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../client
+      '@moltzap/server-core':
+        specifier: workspace:*
+        version: link:../server
       '@types/node':
         specifier: ^25.5.0
         version: 25.5.0
