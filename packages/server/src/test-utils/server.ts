@@ -20,6 +20,13 @@ import { createCoreApp, type CoreApp } from "#core";
 import { EnvelopeEncryption, seedInitialKek } from "#db/crypto";
 import { makeEffectKysely, type Database, type EffectKysely } from "#db";
 import { loadCoreSchemaSql } from "./core-schema-sql.js";
+import type {
+  CoreTestDatabasePort,
+  CoreTestReadyOutcome,
+  CoreTestRuntimeServerHandle,
+  CoreTestServerPort,
+  CoreTestSpanExporterPort,
+} from "./ports.js";
 
 export type { Database } from "#db";
 export type { CoreApp } from "#core";
@@ -47,22 +54,6 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 // orchestration package. Structural typing keeps both sides honest — consumers
 // thread `runtimeServer` directly into the adapter's `RuntimeServerHandle`
 // slot, so any drift surfaces at compile time.
-type CoreTestReadyOutcome =
-  | { readonly _tag: "Ready" }
-  | { readonly _tag: "Timeout"; readonly timeoutMs: number }
-  | {
-      readonly _tag: "ProcessExited";
-      readonly exitCode: number | null;
-      readonly stderr: string;
-    };
-
-export interface CoreTestRuntimeServerHandle {
-  awaitAgentReady(
-    agentId: AgentId,
-    timeoutMs: number,
-  ): Effect.Effect<CoreTestReadyOutcome, never, never>;
-}
-
 function awaitAgentReadyByPolling(
   connections: {
     agentConnections(
@@ -111,7 +102,7 @@ let _baseUrl: string | null = null;
 let _wsUrl: string | null = null;
 let spanExporter: InMemorySpanExporter | null = null;
 
-export interface CoreTestServer {
+export interface CoreTestServerHandle {
   baseUrl: string;
   wsUrl: string;
   db: EffectKysely<Database>;
@@ -133,6 +124,9 @@ export interface CoreTestServer {
    * their own package-specific projection.
    */
   readonly spanExporter: InMemorySpanExporter | null;
+
+  /** Published projection that keeps persistence and tracing vendors private. */
+  readonly testPort: CoreTestServerPort;
 }
 
 type StartCoreTestServerOptions = {
@@ -288,31 +282,64 @@ function makeRuntimeServer(app: CoreApp): CoreTestRuntimeServerHandle {
   };
 }
 
+function makeDatabasePort(): CoreTestDatabasePort {
+  return {
+    execute: (sql) => Effect.runPromise(execPglite(sql)),
+    reset: resetCoreTestDb,
+  };
+}
+
+function makeSpanExporterPort(
+  exporter: InMemorySpanExporter | null,
+): CoreTestSpanExporterPort | null {
+  if (exporter === null) return null;
+  return {
+    getFinishedSpans: () =>
+      exporter.getFinishedSpans().map((span) => ({
+        name: span.name,
+        attributes: { ...span.attributes },
+      })),
+    reset: () => exporter.reset(),
+  };
+}
+
 function buildCoreTestServer(
   app: CoreApp,
   db: EffectKysely<Database>,
-): CoreTestServer {
+): CoreTestServerHandle {
   const urls = publishCoreTestUrls(app);
+  const runtimeServer = makeRuntimeServer(app);
+  const testPort: CoreTestServerPort = {
+    ...urls,
+    db: makeDatabasePort(),
+    runtimeServer,
+    spanExporter: makeSpanExporterPort(spanExporter),
+  };
   return {
     ...urls,
     db,
     coreApp: app,
-    runtimeServer: makeRuntimeServer(app),
+    runtimeServer,
     spanExporter,
+    testPort,
   };
 }
 
-export function startCoreTestServer(opts: StartCoreTestServerOptions = {}) {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      yield* ensureNoCoreTestServerRunning();
-      const db = yield* initializeTestDatabase();
-      const masterSecret = yield* configureEncryption(db, opts);
-      coreApp = createCoreTestApp(db, opts, masterSecret);
-      yield* Effect.sleep(`${PGLITE_BOOT_DELAY_MS} millis`);
-      return buildCoreTestServer(coreApp, db);
-    }).pipe(Effect.withSpan("startCoreTestServer")),
-  );
+export function startCoreTestServerEffect(
+  opts: StartCoreTestServerOptions = {},
+) {
+  return Effect.gen(function* () {
+    yield* ensureNoCoreTestServerRunning();
+    const db = yield* initializeTestDatabase();
+    const masterSecret = yield* configureEncryption(db, opts);
+    coreApp = createCoreTestApp(db, opts, masterSecret);
+    yield* Effect.sleep(`${PGLITE_BOOT_DELAY_MS} millis`);
+    return buildCoreTestServer(coreApp, db);
+  }).pipe(Effect.withSpan("startCoreTestServer"));
+}
+
+export function startCoreTestServerFull(opts: StartCoreTestServerOptions = {}) {
+  return Effect.runPromise(startCoreTestServerEffect(opts));
 }
 
 export function stopCoreTestServer() {

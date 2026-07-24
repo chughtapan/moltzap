@@ -1,0 +1,104 @@
+{
+  "minExportedSiblingModules": 10,
+  "maxSubpathExports": 10,
+  "maxPublicExports": 42,
+  "maxPublicReexports": 13,
+  "minPublicFacadeModules": 14,
+  "folderChildCountOverrides": [
+    {
+      "folder": "transport",
+      "maxChildren": 12,
+      "reason": "Transport is a flat wire-contract toolkit whose descriptor, dispatch, mux, decoding, pagination, and wire-error modules form one cohesive lowest layer"
+    }
+  ],
+  "facadeFiles": [
+    {
+      "file": "socket/lifecycle.ts",
+      "reason": "Stable lifecycle contract shared by the agent and app socket clients while socket/index.ts curates the published socket surface"
+    },
+    {
+      "file": "socket/server.ts",
+      "reason": "Stable server socket contract that composes transport and requirement layers behind MoltZapServer"
+    },
+    {
+      "file": "task/requirements/task-read-access.ts",
+      "reason": "TaskReadAccess is the task-domain capability boundary consumed by descriptors and implemented by the server"
+    },
+    {
+      "file": "transport/definition.ts",
+      "reason": "Descriptor definitions are the stable transport boundary used by every higher protocol domain"
+    }
+  ],
+  "publicTypePackages": [
+    {
+      "package": "effect",
+      "reason": "Foundational Effect runtime; intentionally part of the public contract"
+    },
+    {
+      "package": "@effect/platform",
+      "reason": "Effect platform abstractions used at boundaries"
+    },
+    {
+      "package": "@effect/platform-node",
+      "reason": "Effect Node integration used at boundaries"
+    },
+    {
+      "package": "@effect/rpc",
+      "reason": "RPC definitions are the protocol's public contract; Rpc/RpcGroup types cross the boundary by design"
+    },
+    {
+      "package": "@sinclair/typebox",
+      "reason": "Schema runtime; types are the contract"
+    }
+  ],
+  "allowedTestPublicSubpaths": [
+    {
+      "subpath": "./testing",
+      "reason": "Conformance + driver surface for cross-package integration testing; consumed by moltzap-arena"
+    }
+  ],
+  "layers": [
+    {
+      "name": "engine",
+      "folders": [
+        "engine"
+      ],
+      "reason": "RpcServer engine + descriptor-aggregate; couples to the full rpc-registry catalog + task-layer capability tags, so it sits above the domains"
+    },
+    {
+      "name": "app",
+      "folders": [
+        "app"
+      ],
+      "reason": "Composition layer: app RPCs composed over task, network, identity, transport descriptors"
+    },
+    {
+      "name": "task",
+      "folders": [
+        "task"
+      ],
+      "reason": "Task domain: conversations, messages, dispatch, TM authority"
+    },
+    {
+      "name": "network",
+      "folders": [
+        "network"
+      ],
+      "reason": "Network domain: ping, presence, connection liveness, actor-model types"
+    },
+    {
+      "name": "identity",
+      "folders": [
+        "identity"
+      ],
+      "reason": "Identity domain: agents, users, sessions, contact policy"
+    },
+    {
+      "name": "transport",
+      "folders": [
+        "transport"
+      ],
+      "reason": "Wire layer: Ajv frames, RpcDefinition primitives, dispatch; no domain semantics"
+    }
+  ]
+}

@@ -57,6 +57,13 @@
           "cwd": "packages/server",
           "command": "eslint src *.ts --cache --max-warnings=0"
         }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/server",
+          "command": "safer-architecture-lsp check ."
+        }
       }
     }
   },

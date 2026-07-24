@@ -2,7 +2,16 @@
  * Shared message-enrichment helper for MoltZap channel adapters.
  */
 
-import { Cause, Chunk, Deferred, Duration, Effect, Fiber, Queue } from "effect";
+import {
+  Cause,
+  Chunk,
+  Data,
+  Deferred,
+  Duration,
+  Effect,
+  Fiber,
+  Queue,
+} from "effect";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { Message } from "@moltzap/protocol/message";
@@ -12,11 +21,27 @@ import type {
   CrossConvMessage,
   ServiceRpcError,
 } from "./service.js";
-import {
-  DispatchAdmissionTimedOut,
-  DispatchLeaseExpired,
-} from "./channel-core-errors.js";
 import { enrichChannelMessage } from "./channel-core-enrichment.js";
+
+class DispatchAdmissionTimedOut extends Data.TaggedError(
+  "DispatchAdmissionTimedOut",
+)<{
+  readonly timeoutMs: number;
+}> {
+  override get message(): string {
+    return `dispatch request timed out after ${this.timeoutMs}ms`;
+  }
+}
+
+class DispatchLeaseExpired extends Data.TaggedError("DispatchLeaseExpired")<{
+  readonly messageId: string;
+  readonly conversationId: string;
+  readonly timeoutMs: number;
+}> {
+  override get message(): string {
+    return `dispatch lease expired after ${this.timeoutMs}ms`;
+  }
+}
 
 export interface EnrichedSender {
   id: string;

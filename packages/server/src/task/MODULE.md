@@ -8,62 +8,7 @@ Task-domain service barrel.
 
 ## Public surface
 
-### [`TaskAuthorizationService`](./authorization.ts#L13)
-
-_Class_
-
-```ts
-export class TaskAuthorizationService {
-  constructor(private readonly apps: AppEndpointRegistry) {}
-
-  authorizeCreate(
-    appId: AppId,
-    ctx: ParamsOf<typeof TaskCreate>,
-  ): Effect.Effect<TaskCreateVerdict, never> {
-    const entry = this.apps.lookupApp(appId);
-    if (entry === undefined) {
-      return Effect.succeed({
-        decision: "reject",
-        reason: "app_unreachable",
-      });
-    }
-    const policy = entry.manifest.hooks.task_create;
-    switch (policy.kind) {
-      case "accept":
-        return Effect.succeed({ decision: "accept" });
-      case "reject":
-        return Effect.succeed({
-          decision: "reject",
-          reason: policy.reason,
-        });
-      case "hook": {
-        const timeoutMs = policy.timeoutMs;
-        return wrapHookEffectWithEnvelope({
-          raw: callAppRpc(entry, {
-            definition: TaskCreate,
-            params: ctx,
-          }).pipe(Effect.map((envelope) => envelope.verdict)),
-          timeoutMs,
-          timeoutLogMessage: "app/task/create timed out",
-          timeoutLogContext: { taskId: ctx.taskId, appId, timeoutMs },
-          errorLogMessage: "app/task/create error",
-          errorLogContext: { taskId: ctx.taskId, appId },
-          onTimeout: () => ({
-            decision: "reject",
-            reason: "timeout",
-          }),
-          onError: () => ({
-            decision: "reject",
-            reason: "app_unreachable",
-          }),
-        });
-      }
-    }
-  }
-}
-```
-
-### [`TaskAuthorizationServiceLive`](./layer.ts#L22)
+### [`TaskAuthorizationServiceLive`](./layer.ts#L80)
 
 _Variable_
 
@@ -77,7 +22,7 @@ export const TaskAuthorizationServiceLive = Layer.effect(
 )
 ```
 
-### [`TaskAuthorizationServiceTag`](./layer.ts#L13)
+### [`TaskAuthorizationServiceTag`](./layer.ts#L71)
 
 _Class_
 
@@ -85,14 +30,6 @@ _Class_
 export class TaskAuthorizationServiceTag extends Context.Tag(
   "moltzap/TaskAuthorizationService",
 )<TaskAuthorizationServiceTag, TaskAuthorizationService>() {}
-```
-
-### [`TaskCreateVerdict`](./authorization.ts#L11)
-
-_TypeAlias_
-
-```ts
-export type TaskCreateVerdict = ResultOf<typeof TaskCreate>["verdict"];
 ```
 
 ### [`taskLeave`](./handlers.ts#L352)
@@ -246,7 +183,7 @@ export class TaskService {
       return yield* catchSqlErrorAsDefect(
 ```
 
-### [`TaskServiceLive`](./layer.ts#L30)
+### [`TaskServiceLive`](./layer.ts#L88)
 
 _Variable_
 
@@ -262,7 +199,7 @@ export const TaskServiceLive = Layer.effect(
 )
 ```
 
-### [`TaskServiceTag`](./layer.ts#L17)
+### [`TaskServiceTag`](./layer.ts#L75)
 
 _Class_
 
@@ -283,7 +220,6 @@ export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params)
 
 ## Files
 
-- `authorization.ts`
 - `handlers.ts`
 - `layer.ts`
 - `task.service.ts`
