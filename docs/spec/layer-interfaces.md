@@ -25,7 +25,7 @@ One criterion decides what earns a tag:
 > against "questions stay questions."
 
 The spec names exactly five swap axes, so there are exactly five
-ports — **Network** (production vs testbed data plane),
+ports — **Delivery** (production vs testbed data plane),
 **TranscriptStore** (storage engine), **Registry** (card custody),
 **Signer** (attribution binding), **Harness** (the SPI two runtimes
 implement) — and adding a sixth requires a recorded decision showing
@@ -127,20 +127,30 @@ interface Signer extends Verifier {
 }
 ```
 
-### Network (L2 + L3 delivery; swap axis: production vs testbed)
+### Delivery (L2; swap axis: production vs testbed)
 
-One contract, two sides: the endpoint holds it as a client; the router
-and the testbed provide it. Admission lives inside the providing
-adapter (data-plane.md).
+The ordered multicast primitive and nothing above it: frames in,
+committed records out, no transcript semantics beyond the one shared
+order. The swap axis sits exactly at L2 — every testbed injection is
+an L2 fault and every observation an L2 delivery event
+(data-plane.md → The testbed data plane) — so L3 above this port is
+identical under both adapters, and #765 can widen L3's vocabulary
+with zero change here. One contract, two sides: the endpoint holds it
+as a client; the router and the testbed provide it. Admission lives
+inside the providing adapter (data-plane.md).
 
 ```ts
-interface Network {
+interface Delivery {
   readonly send: (frame: Frame) => Effect<Position, Refusal>;
   /** One-way best-effort push, resumable from a held Position. */
   readonly deliveries: (conversation: ConversationId, from: Position) => Stream<TranscriptRecord, Refusal>;
-  readonly readTranscript: (conversation: ConversationId, from: Position) => Effect<readonly TranscriptRecord[], Refusal>;
 }
 ```
+
+`Position` in the ack is not a layer leak: by durable-then-deliver
+the delivery order IS the transcript order — one store-owned order
+spans L2 and L3 (control-plane.md guarantee 2), and fan-out is an
+optimization over the store.
 
 ### TranscriptStore (L3 record substrate; swap axis: storage engine)
 
@@ -158,6 +168,11 @@ interface TranscriptStore {
  *  predicate values, not new operations. */
 type Scope = (record: TranscriptRecord) => Effect<boolean>;
 ```
+
+L3's endpoint surface is not a second data port: members reach
+`readTranscript` and `listConversations` as control-plane reads
+(control-plane.md → Op families), so the endpoint composition holds a
+control-plane client — a driver, like the CLI — for recovery.
 
 ### Registry (L1 material + L7 mechanism; swap axis: card custody)
 
@@ -223,7 +238,7 @@ interface Turns {
 TypeScript cannot enforce linear consumption, so the residual — at
 most one commit per granted turn — is a suite law (L3.9). The grant
 signal's wire carriage is the charter's (#765); nothing here names it.
-PCC itself is an instrument inside the Network adapter, in no
+PCC itself is an instrument inside the Delivery adapter, in no
 signature.
 
 ## Not ports
@@ -268,7 +283,7 @@ Conventions, citations name the governing doc.
 | L1.6 | `Position` is a field of no frame type (types-check canary) | C | identity.md → Not frame fields |
 | L2.1 | All members observe the same records in the same order | S | data-plane.md inv. 3 |
 | L2.2 | `deliveries` carries frames byte-exact with attribution intact | P | data-plane.md inv. 2, 13 |
-| L2.3 | Admission reads `Envelope` only; no Network operation takes a `Body` | C | data-plane.md inv. 1 |
+| L2.3 | Admission reads `Envelope` only; no Delivery operation takes a `Body` | C | data-plane.md inv. 1 |
 | L2.4 | `deliveries` is a read-only `Stream`; a response is a fresh `send` | C | data-plane.md inv. 14 |
 | L2.5 | `deliveries(c, p)` ≈ `readTranscript(c, p)` — resuming at a Position equals never disconnecting | P | control-plane.md guarantee 4; sessionless |
 | L2.6 | One send, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
@@ -293,7 +308,7 @@ Conventions, citations name the governing doc.
 | L7.2 | `list` ≈ per-id `lookup`; cards only, no thinner projection | P | directory-serves-cards |
 | L7.3 | Ceasing to vouch changes what `lookup` returns and what callers can be derived — no revoke op | P | layers.md → L7; single-credential |
 | X.1 | Version exact-match refuses before any state change, on every entry operation | C+P | protocol-version-carriage |
-| X.2 | Swap `NetworkLive` for `NetworkTestbed`: observationally equivalent, no other binding changes; every testbed injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
+| X.2 | Swap `DeliveryLive` for `DeliveryTestbed`: observationally equivalent, no other binding changes; every testbed injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
 | X.3 | No signature names a lease, socket, connection, or session | C | sessionless-network |
 
 ## Effect realization (recorded standard)
@@ -302,17 +317,17 @@ The normative surface is the vocabulary, ports, typestate, and laws
 above; this mapping is v2's standard realization of it.
 
 - **One `Context.Tag` per port**, ids `moltzap/v2/port/<Name>`
-  (permanent strings): `NetworkTag`, `TranscriptStoreTag`,
+  (permanent strings): `DeliveryTag`, `TranscriptStoreTag`,
   `RegistryTag`, `SignerTag` (endpoint) / `VerifierTag` (router),
   `HarnessTag`. The v1 idiom (`Context.Tag` class + `Layer.effect`)
   re-implemented, never imported.
-- **One `Layer` per adapter**: `NetworkLive` (requires TranscriptStore
-  + Verifier), `NetworkTestbed` (same tag; adds envelope-level
-  observation and a closed `FaultProfile` sum over data-plane.md's
-  tolerated-fault envelope, so out-of-envelope faults are
-  unrepresentable), `TranscriptStoreLive`, `RegistryLive`,
+- **One `Layer` per adapter**: `DeliveryLive` (requires
+  TranscriptStore + Verifier), `DeliveryTestbed` (same tag; adds
+  envelope-level observation and a closed `FaultProfile` sum over
+  data-plane.md's tolerated-fault envelope, so out-of-envelope faults
+  are unrepresentable), `TranscriptStoreLive`, `RegistryLive`,
   `SignerInterim` / `SignerTarget`, `HarnessOpenClaw` /
-  `HarnessNanoClaw`. The swap in law X.2 is choosing which Network
+  `HarnessNanoClaw`. The swap in law X.2 is choosing which Delivery
   `Layer` is provided.
 - **Decorators are `Layer<Port, never, Port>`**: `withEntitlement(scope)`
   wraps `TranscriptStore.readTranscript`; `withFirewall(rules)` wraps
@@ -320,9 +335,10 @@ above; this mapping is v2's standard realization of it.
   opaque here). Configuration flows down as decorator and adapter
   parameters, never as a lower port depending on an upper tag.
 - **Compositions**: `RouterComposition` holds TranscriptStore,
-  Registry, Verifier, and provides Network; `EndpointComposition`
-  holds Signer, the Network client, and whatever state its firewall
-  implementation owns. Leaf code receives attenuated values
+  Registry, Verifier, and provides Delivery; `EndpointComposition`
+  holds Signer, the Delivery client, a control-plane client for
+  reads, and whatever state its firewall implementation owns. Leaf
+  code receives attenuated values
   (`Channel`, `Caller`, `Scope`); folds, turns, and channel values are
   plain branded values with no tag.
 - **Three static checks**, enforced with the W1 boundary machinery:
@@ -336,16 +352,16 @@ flowchart TB
   subgraph Endpoint["EndpointComposition"]
     HP[Harness plugin] -- "Channel (values only)" --> CH[send + turns]
     CH --> SCR[Firewall slots] --> SG[Signer]
-    SG --> NC[Network client]
-    NC -- deliveries --> VF1[Verifier] --> SCR
+    SG --> DC[Delivery client]
+    DC -- deliveries --> VF1[Verifier] --> SCR
   end
-  subgraph Router["RouterComposition (provides Network)"]
-    NL[NetworkLive] --> VF2[Verifier]
-    NL --> ST[TranscriptStore + entitlement decorator]
+  subgraph Router["RouterComposition (provides Delivery)"]
+    DL[DeliveryLive] --> VF2[Verifier]
+    DL --> ST[TranscriptStore + entitlement decorator]
     RG[Registry] --> VF2
   end
-  TB[NetworkTestbed] -. "swap: one Layer binding (X.2)" .- NL
-  NC -- "wire (Q10, open)" --- NL
+  TB[DeliveryTestbed] -. "swap: one Layer binding (X.2)" .- DL
+  DC -- "wire (Q10, open)" --- DL
 ```
 
 ## Acceptance criteria
