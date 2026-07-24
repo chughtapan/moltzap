@@ -2,7 +2,7 @@
  * @file Shared helpers for client service integration tests.
  */
 export {
-  closeClients,
+  closeAll,
   connectClients,
   connectService,
   createDm,
