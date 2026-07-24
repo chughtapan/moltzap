@@ -1,6 +1,6 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { NodeContext } from "@effect/platform-node";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 
 import type {
   Runtime,
@@ -29,6 +29,20 @@ export interface NanoclawAdapterOptions {
    * accept conversations without a pre-provisioned NanoClaw registration.
    */
   readonly autoRegisterConversations?: boolean;
+
+  /**
+   * Stdio MCP servers wired into the container workspace as `.mcp.json`
+   * (the container-mount half of the simulator's Environment contract).
+   */
+  readonly mcpServers?: ReadonlyArray<{
+    readonly name: string;
+    readonly command: string;
+    readonly args: ReadonlyArray<string>;
+    readonly env: Readonly<Record<string, string>>;
+  }>;
+
+  /** Model identifier honored per spawn; `SpawnInput.modelId` takes precedence. */
+  readonly modelId?: string;
 }
 
 interface AdapterState {
@@ -49,7 +63,7 @@ function stopNanoclawRuntimeSafely(
 
 const acquireNanoclawRuntime = Effect.fn("NanoclawAdapter.acquire")(function* (
   input: SpawnInput,
-  autoRegisterConversations: boolean,
+  options: NanoclawAdapterOptions,
 ) {
   const install = yield* ensureNanoclawRuntimeInstalledEffect();
   return yield* startNanoclawRuntimeEffect(
@@ -59,7 +73,9 @@ const acquireNanoclawRuntime = Effect.fn("NanoclawAdapter.acquire")(function* (
       apiKey: input.apiKey,
       serverUrl: input.serverUrl,
       workspaceFiles: input.workspaceFiles,
-      autoRegisterConversations,
+      autoRegisterConversations: options.autoRegisterConversations ?? false,
+      modelId: input.modelId ?? options.modelId,
+      mcpServers: options.mcpServers,
     },
     install,
   );
@@ -141,18 +157,32 @@ export class NanoclawAdapter implements Runtime {
     return "New messages";
   }
 
+  /** Resolves once, on the runtime process's exit (the simulator's ongoing exit signal). */
+  awaitExit(): Effect.Effect<
+    { readonly exitCode: number | null; readonly signal: string | undefined },
+    never,
+    never
+  > {
+    const state = this.state;
+    if (!state) {
+      return Effect.succeed({ exitCode: null, signal: undefined });
+    }
+    return Fiber.join(state.handle.exitFiber).pipe(
+      Effect.map((exitCode) =>
+        exitCode >= 0
+          ? { exitCode, signal: undefined }
+          : { exitCode: null, signal: undefined },
+      ),
+    );
+  }
+
   private launchRuntime(input: SpawnInput) {
     const lease = { committed: false };
     return Effect.uninterruptibleMask((restore) =>
       Effect.scoped(
         Effect.gen(this, function* () {
           const handle = yield* Effect.acquireRelease(
-            restore(
-              acquireNanoclawRuntime(
-                input,
-                this.options.autoRegisterConversations ?? false,
-              ),
-            ),
+            restore(acquireNanoclawRuntime(input, this.options)),
             (acquired) =>
               lease.committed
                 ? Effect.void

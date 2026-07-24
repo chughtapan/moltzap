@@ -8,6 +8,7 @@
  */
 import type { Effect, Scope } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
+import { makeLauncherLive } from "./launcher-live.js";
 import type { Runtime, ServerUrl } from "../runtime.js";
 import type { AgentFacingRunSpec, AgentName, ImageDigest } from "./run-spec.js";
 import type { EventLog, ServerStorageAccess } from "./event-log.js";
@@ -126,6 +127,5 @@ export interface Launcher {
 
 /** Create the v0 agent runner (Docker server container + shipped adapters + StubRuntime). */
 export function makeLauncher(): Launcher {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+  return makeLauncherLive();
 }

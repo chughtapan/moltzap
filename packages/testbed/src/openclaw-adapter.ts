@@ -149,16 +149,26 @@ function spawnOpenClawProcess(opts: {
   );
 }
 
+/** One stdio MCP server wired into the runtime at spawn time (the simulator's mount plan shape). */
+export interface McpServerMount {
+  readonly name: string;
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly env: Readonly<Record<string, string>>;
+}
+
 export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
   readonly openclawBin: string;
   readonly channelDistDir: string;
+  readonly mcpServers?: ReadonlyArray<McpServerMount>;
 }
 
 export interface OpenClawAdapterOptions {
   readonly server: RuntimeServerHandle;
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
+  readonly mcpServers?: ReadonlyArray<McpServerMount>;
 }
 
 interface AdapterState {
@@ -284,6 +294,7 @@ function configureOpenClawStateDir(
         agentId: input.agentId,
         apiKey: input.apiKey,
         modelId: input.modelId,
+        mcpServers: deps.mcpServers,
       }),
       seedWorkspaceFiles(join(stateDir, "workspace"), input.workspaceFiles),
       seedModelAuthProfile(stateDir),
@@ -490,6 +501,25 @@ export class OpenClawAdapter implements Runtime {
   getInboundMarker(): string {
     return "inbound from agent:";
   }
+
+  /** Resolves once, on the gateway process's exit (the simulator's ongoing exit signal). */
+  awaitExit(): Effect.Effect<
+    { readonly exitCode: number | null; readonly signal: string | undefined },
+    never,
+    never
+  > {
+    const state = this.state;
+    if (!state) {
+      return Effect.succeed({ exitCode: null, signal: undefined });
+    }
+    return Fiber.join(state.process.exitFiber).pipe(
+      Effect.map((exitCode) =>
+        exitCode >= 0
+          ? { exitCode, signal: undefined }
+          : { exitCode: null, signal: undefined },
+      ),
+    );
+  }
 }
 
 /**
@@ -558,6 +588,7 @@ function writeOpenClawConfig(opts: {
   agentId: SpawnInput["agentId"];
   apiKey: SpawnInput["apiKey"];
   modelId?: string;
+  mcpServers?: ReadonlyArray<McpServerMount>;
 }): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
@@ -582,14 +613,37 @@ function writeOpenClawConfig(opts: {
 }
 
 /** @internal */
+function mcpConfigSection(
+  mcpServers: ReadonlyArray<McpServerMount> | undefined,
+): Pick<OpenClawConfig, "mcp"> {
+  if (mcpServers === undefined || mcpServers.length === 0) return {};
+  return {
+    mcp: {
+      servers: Object.fromEntries(
+        mcpServers.map((server) => [
+          server.name,
+          {
+            transport: "stdio" as const,
+            command: server.command,
+            args: [...server.args],
+            env: { ...server.env },
+          },
+        ]),
+      ),
+    },
+  };
+}
+
 export function buildOpenClawConfig(
   opts: {
     readonly agentName: string;
     readonly modelId?: string;
+    readonly mcpServers?: ReadonlyArray<McpServerMount>;
   },
   workspaceDir: string,
 ): OpenClawConfig {
   return {
+    ...mcpConfigSection(opts.mcpServers),
     agents: {
       defaults: {
         model: { primary: opts.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
