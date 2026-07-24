@@ -67,6 +67,71 @@ export function makeCommandHelpers<E>(makeError: ErrorFactory<E>) {
 
 const UTF8_DECODER = new TextDecoder("utf-8");
 
+const LOG_HEAD_CAPACITY = 64 * 1024;
+const LOG_TAIL_CAPACITY = 256 * 1024;
+const LOG_ELISION_MARKER = "\n[... log window elided ...]\n";
+
+/**
+ * Append-only process log window: the first `headCapacity` chars (startup
+ * diagnostics) plus a rolling tail, so a chatty long-lived agent cannot
+ * grow memory unbounded. Offsets are positions in the ORIGINAL stream —
+ * pollers keep monotonic cursors even after the middle is elided.
+ */
+export class BoundedLogBuffer {
+  private head = "";
+  private tail = "";
+  private total = 0;
+
+  constructor(
+    private readonly headCapacity = LOG_HEAD_CAPACITY,
+    private readonly tailCapacity = LOG_TAIL_CAPACITY,
+  ) {}
+
+  append(chunk: string): void {
+    this.total += chunk.length;
+    let rest = chunk;
+    if (this.head.length < this.headCapacity) {
+      const take = Math.min(this.headCapacity - this.head.length, rest.length);
+      this.head += rest.slice(0, take);
+      rest = rest.slice(take);
+    }
+    if (rest.length === 0) return;
+    // Compact only past 2x capacity: V8 rope concatenation keeps `+=` cheap,
+    // so the flatten amortizes to O(1)/char at a 2x memory high-water mark.
+    this.tail += rest;
+    if (this.tail.length >= 2 * this.tailCapacity) {
+      this.tail = this.tail.slice(-this.tailCapacity);
+    }
+  }
+
+  /**
+   * Text from `offset` (original-stream position) to the current end;
+   * regions no longer retained collapse into an elision marker.
+   */
+  read(offset: number): { readonly text: string; readonly nextOffset: number } {
+    const tailStart = this.total - this.tail.length;
+    if (offset >= tailStart) {
+      return {
+        text: this.tail.slice(offset - tailStart),
+        nextOffset: this.total,
+      };
+    }
+    const elided = tailStart > this.head.length;
+    return {
+      text:
+        this.head.slice(offset) +
+        (elided ? LOG_ELISION_MARKER : "") +
+        this.tail,
+      nextOffset: this.total,
+    };
+  }
+
+  /** The full retained window (head + elision marker + tail). */
+  get text(): string {
+    return this.read(0).text;
+  }
+}
+
 /** Drains a child stdout/stderr stream into the caller's log accumulator. */
 function consumeProcessStream(
   stream: Stream.Stream<Uint8Array, unknown>,

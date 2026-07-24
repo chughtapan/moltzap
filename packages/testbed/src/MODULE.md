@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createOpenClawAdapter`](./openclaw-adapter.ts#L509)
+### [`createOpenClawAdapter`](./openclaw-adapter.ts#L508)
 
 _Function_
 
@@ -125,14 +125,21 @@ _Interface_
 
 ```ts
 export interface LogSlice {
-  /** stdout+stderr bytes starting from the requested offset. */
+  /**
+   * stdout+stderr from the requested offset. Adapters retain a bounded
+   * window (startup head + rolling tail); when the offset falls into a
+   * dropped region, the missing middle is replaced by a
+   * `[... log window elided ...]` marker, so a stale cursor can observe
+   * non-contiguous text and marker-matching consumers must poll faster
+   * than the tail window fills.
+   */
   readonly text: string;
   /** Byte offset to pass on the next call to continue reading. */
   readonly nextOffset: number;
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L97)
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L96)
 
 _Class_
 
@@ -161,7 +168,7 @@ export class NanoclawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollFiberExitCode(handle.exitFiber),
-        stderr: () => getNanoclawRuntimeLogs(handle),
+        stderr: () => handle.logs.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),
@@ -174,9 +181,7 @@ export class NanoclawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const full = getNanoclawRuntimeLogs(this.state.handle);
-    const text = full.slice(offset);
-    return { text, nextOffset: full.length };
+    return this.state.handle.logs.read(offset);
   }
 
   getInboundMarker(): string {
@@ -248,7 +253,7 @@ flowchart TD
 Inbound marker: `New messages`. The immutable cache key covers the pinned
 NanoClaw source, dependency lock, bundled channel/skill, and host ABI.
 
-### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L23)
+### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L22)
 
 _Interface_
 
@@ -265,7 +270,7 @@ export interface NanoclawAdapterOptions {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L429)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L430)
 
 _Class_
 
@@ -296,7 +301,7 @@ export class OpenClawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollExitCode(proc),
-        stderr: () => logBuffer.value,
+        stderr: () => logBuffer.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),
@@ -326,9 +331,7 @@ export class OpenClawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const full = this.state.logBuffer.value;
-    const text = full.slice(offset);
-    return { text, nextOffset: full.length };
+    return this.state.logBuffer.read(offset);
   }
 
   getInboundMarker(): string {
@@ -362,7 +365,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L152)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L153)
 
 _Interface_
 
@@ -374,7 +377,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L158)
+### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L159)
 
 _Interface_
 
@@ -386,7 +389,7 @@ export interface OpenClawAdapterOptions {
 }
 ```
 
-### [`ReadyOutcome`](./runtime.ts#L56)
+### [`ReadyOutcome`](./runtime.ts#L63)
 
 _TypeAlias_
 
@@ -395,7 +398,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](./runtime.ts#L75)
+### [`Runtime`](./runtime.ts#L82)
 
 _Interface_
 

@@ -19,6 +19,7 @@ import type {
 import { SpawnFailed, spawnFailed } from "./errors.js";
 import { raceReadiness } from "./adapter-readiness.js";
 import {
+  BoundedLogBuffer,
   escalatingKill,
   pollFiberExitCode,
   startSupervisedProcess,
@@ -75,11 +76,11 @@ function stopSpawnedOpenClawProcess(
 
 function initializeOpenClawProcess(
   command: Command.Command,
-  logBuffer: { value: string },
+  logBuffer: BoundedLogBuffer,
   scope: Scope.CloseableScope,
 ) {
   return startSupervisedProcess(command, scope, (chunk) => {
-    logBuffer.value += chunk;
+    logBuffer.append(chunk);
   }).pipe(
     Effect.map(
       ({ proc, exitFiber }) =>
@@ -117,7 +118,7 @@ function spawnOpenClawProcess(opts: {
   readonly args: ReadonlyArray<string>;
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
-  readonly logBuffer: { value: string };
+  readonly logBuffer: BoundedLogBuffer;
   readonly onStarted: (
     process: SpawnedProcess,
   ) => Effect.Effect<void, never, never>;
@@ -164,7 +165,7 @@ export interface OpenClawAdapterOptions {
 interface AdapterState {
   process: SpawnedProcess;
   stateDir: string;
-  logBuffer: { value: string };
+  logBuffer: BoundedLogBuffer;
   spawnInput: SpawnInput;
   tornDown: boolean;
 }
@@ -320,7 +321,7 @@ function spawnConfiguredOpenClaw(options: {
   readonly stateDir: string;
   readonly input: SpawnInput;
   readonly port: number;
-  readonly logBuffer: { value: string };
+  readonly logBuffer: BoundedLogBuffer;
   readonly onStarted: (
     process: SpawnedProcess,
   ) => Effect.Effect<void, never, never>;
@@ -371,7 +372,7 @@ function startOpenClawAdapter(
               : removeOpenClawStateDir(leasedStateDir),
         );
         yield* restore(configureOpenClawStateDir(deps, input, stateDir));
-        const logBuffer = { value: "" };
+        const logBuffer = new BoundedLogBuffer();
         const child = yield* restore(
           Effect.acquireReleaseInterruptible(
             spawnConfiguredOpenClaw({
@@ -452,7 +453,7 @@ export class OpenClawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollExitCode(proc),
-        stderr: () => logBuffer.value,
+        stderr: () => logBuffer.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),
@@ -482,9 +483,7 @@ export class OpenClawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const full = this.state.logBuffer.value;
-    const text = full.slice(offset);
-    return { text, nextOffset: full.length };
+    return this.state.logBuffer.read(offset);
   }
 
   getInboundMarker(): string {
