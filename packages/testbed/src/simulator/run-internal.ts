@@ -2,7 +2,7 @@
  * @file Composition-root internals behind `run` (contract 4). The
  * manifest persists before server bring-up, so every post-manifest
  * failure has a recording; the episode races every long-lived failure
- * channel; shutdown follows the §4.1 sequence (evented teardown, then
+ * channel; shutdown follows the binding sequence (evented teardown, then
  * the post-stop transcript sweep, then log seal, trace write, and store
  * seal); the `InfraError` union maps onto the closed failure-reason
  * taxonomy exhaustively at the seal site.
@@ -63,6 +63,7 @@ import { episodeRun } from "./episode-live.js";
 import { NANOCLAW_PINNED_SHA } from "../nanoclaw-install.js";
 import {
   SealFailed,
+  TranscriptDrainFailed,
   type ConfigTimeError,
   type InfraError,
   type ManifestPersistFailed,
@@ -218,7 +219,7 @@ const CREDENTIAL_ENV_NAME = /key|token|secret|password|credential/iu;
 const MIN_ENV_CREDENTIAL_LENGTH = 8;
 
 /**
- * Provider keys read from the environment sit inside the invariant-23
+ * Provider keys read from the environment sit inside the credential
  * trust boundary: host-run runtimes inherit this process's environment,
  * so credential-named values register before anything launches. The
  * length floor keeps trivial values ("1", "true") from poisoning
@@ -453,7 +454,7 @@ export function failureReasonOf(error: InfraError): FailureReason {
 // ---------------------------------------------------------------------------
 
 /**
- * The §4.1 shutdown sequence, verbatim: teardown (server stopped) →
+ * The binding shutdown sequence, verbatim: teardown (server stopped) →
  * final transcript sweep → log seal → trace drain and write → store
  * seal. The sweep runs after the stop because PGlite is single-process
  * (the data directory must not be live-held) and before the log seal so
@@ -470,8 +471,14 @@ function shutdownAndSeal(
   return Effect.uninterruptible(
     Effect.gen(function* () {
       yield* notifyPhase(internals, "draining");
-      yield* teardownSociety(live);
-      let outcome = yield* sweepTranscripts(live, initial);
+      const serverStopped = yield* teardownSociety(live);
+      // An incomplete teardown means the server container did not
+      // confirm its stop (runtime teardown is infallible by contract),
+      // so the sweep would read live-held storage; the run seals with
+      // the drain's failure reason instead of sweeping.
+      let outcome = serverStopped
+        ? yield* sweepTranscripts(live, initial)
+        : skippedSweepOutcome(live, initial);
       yield* enqueueLifecycle(live, { _tag: "run.terminated" });
       const summary = yield* sealEventLog(live);
       if (summary.failed !== undefined && outcome._tag === "episode") {
@@ -514,8 +521,9 @@ function sweepTranscripts(
   );
 }
 
-function teardownSociety(live: LiveRun): Effect.Effect<void, never, never> {
-  if (live.society === undefined) return Effect.void;
+/** Returns whether teardown completed (and so the server confirmed its stop). */
+function teardownSociety(live: LiveRun): Effect.Effect<boolean, never, never> {
+  if (live.society === undefined) return Effect.succeed(true);
   return live.society.teardown().pipe(
     Effect.flatMap((report) => {
       live.teardownComplete = report.complete;
@@ -523,7 +531,21 @@ function teardownSociety(live: LiveRun): Effect.Effect<void, never, never> {
         _tag: "teardown.completed",
         complete: report.complete,
         failures: report.failures,
-      });
+      }).pipe(Effect.as(report.complete));
+    }),
+  );
+}
+
+/** The sweep-skipped outcome: transcript evidence is incomplete by the drain's own failure mode; an already-failed outcome keeps its first cause. */
+function skippedSweepOutcome(live: LiveRun, outcome: RunOutcome): RunOutcome {
+  if (outcome._tag !== "episode") return outcome;
+  return infrastructureOutcome(
+    live,
+    new TranscriptDrainFailed({
+      detail:
+        "the server teardown reported failures, so the storage volume may still be live-held",
+      message:
+        "The transcript sweep was skipped: the server container did not confirm its stop, and reading a live-held PGlite volume is unsafe. The run seals failed; message evidence is incomplete.",
     }),
   );
 }

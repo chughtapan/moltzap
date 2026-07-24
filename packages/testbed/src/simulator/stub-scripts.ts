@@ -2,8 +2,8 @@
  * @file Registered StubRuntime behavior scripts referenced by name from
  * `StubConfig.script`. Instrument fixtures, not scenario logic: they
  * live behind demo/test entry points and every StubRuntime society is
- * bannered as scripted. The registry is the closed v0 set; the row-5
- * demo extends it with its fault-theater scripts.
+ * bannered as scripted. The registry is the closed v0 set; the demo
+ * entry point extends it with its fault-theater scripts.
  */
 import { StubScript } from "./stub-runtime.js";
 
