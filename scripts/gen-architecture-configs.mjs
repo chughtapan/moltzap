@@ -64,7 +64,7 @@ const packageDefinitions = {
   client: {
     beforeShared: {
       minExportedSiblingModules: 6,
-      maxPublicExports: 28,
+      maxPublicExports: 29,
       minPublicFacadeModules: 8,
       folderChildCountOverrides: [
         {
@@ -134,7 +134,7 @@ const packageDefinitions = {
   protocol: {
     config: {
       minExportedSiblingModules: 10,
-      maxSubpathExports: 10,
+      maxSubpathExports: 11,
       maxPublicExports: 42,
       maxPublicReexports: 13,
       minPublicFacadeModules: 14,

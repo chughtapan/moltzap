@@ -107,6 +107,7 @@ for (const file of v2Files) {
 
 assertExportMap("packages/protocol", [
   ".",
+  "./bounded-map",
   "./conversation",
   "./identity",
   "./message",
