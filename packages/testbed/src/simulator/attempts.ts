@@ -147,7 +147,7 @@ export type CancelOutcome =
  * change. Submission materializes the spec first, so config-time
  * failures surface here and never enqueue.
  */
-export interface ExperimentQueue {
+export interface RunQueue {
   /** Materialize and enqueue; identical specs join the same recording identity with a fresh attempt. */
   submit(spec: RunSpec): Effect.Effect<AttemptSnapshot, ConfigTimeError, never>;
 

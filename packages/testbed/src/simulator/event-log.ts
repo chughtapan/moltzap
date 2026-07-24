@@ -34,7 +34,7 @@ import {
   WallTimeMs,
 } from "./ids.js";
 import {
-  AgentSlotName,
+  SlotName,
   FaultKind,
   JsonValue,
   LogicalTime,
@@ -42,12 +42,12 @@ import {
   Seed,
   SpecHash,
 } from "./run-spec.js";
-import type { SecretRegistry, TracesJson } from "./recording.js";
+import type { Secrets, TracesJson } from "./recording.js";
 import type {
   EventLogSealed,
   RecordingInvalid,
   RecordingStoreFailed,
-  SpanAcceptanceLost,
+  ReceiverLost,
   TranscriptDrainFailed,
 } from "./errors.js";
 
@@ -111,7 +111,7 @@ export class AgentLaunched extends Schema.TaggedClass<AgentLaunched>()(
   {
     ...envelopeFields,
     source: Schema.Literal("lifecycle"),
-    slot: AgentSlotName,
+    slot: SlotName,
   },
 ) {}
 
@@ -121,7 +121,7 @@ export class AgentReady extends Schema.TaggedClass<AgentReady>()(
   {
     ...envelopeFields,
     source: Schema.Literal("lifecycle"),
-    slot: AgentSlotName,
+    slot: SlotName,
   },
 ) {}
 
@@ -131,7 +131,7 @@ export class AgentExited extends Schema.TaggedClass<AgentExited>()(
   {
     ...envelopeFields,
     source: Schema.Literal("lifecycle"),
-    slot: AgentSlotName,
+    slot: SlotName,
     exitCode: Schema.NullOr(Schema.Int).annotations({
       description: "Exit code; null when the process died from a signal",
     }),
@@ -194,7 +194,7 @@ export class TaskInjected extends Schema.TaggedClass<TaskInjected>()(
     source: Schema.Literal("scheduler"),
     episodeId: EpisodeId,
     principal: PrincipalName,
-    to: AgentSlotName,
+    to: SlotName,
     content: Schema.String.annotations({
       description: "Task content, redaction policy applied",
     }),
@@ -268,7 +268,7 @@ export class FaultApplied extends Schema.TaggedClass<FaultApplied>()(
     source: Schema.Literal("fault"),
     correlationId: CorrelationId,
     faultKind: FaultKind,
-    target: AgentSlotName,
+    target: SlotName,
     scheduledAtMs: LogicalTime,
     effect: Schema.Literal("applied", "target-not-ready"),
     episodeId: Schema.optional(EpisodeId),
@@ -283,7 +283,7 @@ export class FaultReverted extends Schema.TaggedClass<FaultReverted>()(
     source: Schema.Literal("fault"),
     correlationId: CorrelationId,
     faultKind: FaultKind,
-    target: AgentSlotName,
+    target: SlotName,
     scheduledAtMs: LogicalTime,
     effect: Schema.Literal("reverted", "was-not-applied"),
     episodeId: Schema.optional(EpisodeId),
@@ -357,7 +357,7 @@ export class ToolCallRequested extends Schema.TaggedClass<ToolCallRequested>()(
     ...envelopeFields,
     source: Schema.Literal("proxy"),
     correlationId: CorrelationId,
-    slot: AgentSlotName,
+    slot: SlotName,
     mount: Schema.String.annotations({ description: "MCP server mount name" }),
     tool: Schema.String.annotations({ description: "Tool name invoked" }),
     args: JsonValue.annotations({
@@ -374,7 +374,7 @@ export class ToolCallCompleted extends Schema.TaggedClass<ToolCallCompleted>()(
     ...envelopeFields,
     source: Schema.Literal("proxy"),
     correlationId: CorrelationId,
-    slot: AgentSlotName,
+    slot: SlotName,
     mount: Schema.String,
     tool: Schema.String,
     result: JsonValue.annotations({
@@ -456,12 +456,12 @@ export type SealSummary = {
  * the stamped `logicalSequence`, so producers that need the assigned
  * position (the OTLP receiver pairing spans, predicate causation) get it
  * from the acknowledgment. `awaitFailure` resolves only if the writer's
- * sink fails mid-run; `executeRun` races it against episode termination.
+ * sink fails mid-run; `run` races it against episode termination.
  * `seal` closes the queue, drains the remainder, appends the final
  * checkpoint, and returns the final sequence; the recording marker write
  * follows in `RecordingStore.seal`.
  */
-export interface EventLogHandle {
+export interface EventLog {
   enqueue(
     event: PendingEvent,
   ): Effect.Effect<LogicalSequence, EventLogSealed, never>;
@@ -474,8 +474,8 @@ export function makeEventLog(_deps: {
   readonly runId: RunId;
   readonly clock: LogicalClock;
   readonly sink: EventSink;
-  readonly secrets: SecretRegistry;
-}): Effect.Effect<EventLogHandle, never, Scope.Scope> {
+  readonly secrets: Secrets;
+}): Effect.Effect<EventLog, never, Scope.Scope> {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }
@@ -492,10 +492,10 @@ export function makeEventLog(_deps: {
  * only on a post-bind acknowledgment stall exceeding the configured
  * bound.
  */
-export type OtlpReceiverHandle = {
+export type Receiver = {
   /** OTLP/HTTP endpoint the server container exports spans to. */
   readonly endpoint: string;
-  awaitFailure(): Effect.Effect<never, SpanAcceptanceLost, never>;
+  awaitFailure(): Effect.Effect<never, ReceiverLost, never>;
   drainTraces(): Effect.Effect<TracesJson, never, never>;
 };
 
@@ -509,12 +509,12 @@ export type OtlpReceiverHandle = {
  * `drainTraces` output, so `traces.json` passes the same hygiene
  * boundary as the event log.
  */
-export function makeOtlpReceiver(_deps: {
+export function makeReceiver(_deps: {
   readonly runId: RunId;
-  readonly log: EventLogHandle;
+  readonly log: EventLog;
   readonly failBoundMs: number;
-  readonly secrets: SecretRegistry;
-}): Effect.Effect<OtlpReceiverHandle, SpanAcceptanceLost, Scope.Scope> {
+  readonly secrets: Secrets;
+}): Effect.Effect<Receiver, ReceiverLost, Scope.Scope> {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }
@@ -526,7 +526,7 @@ export function makeOtlpReceiver(_deps: {
 /**
  * Attempt-scoped access to one run's server storage: the host path of the
  * per-run container's data volume. Minted by launch (one run, one world)
- * and carried on `ServerContainerHandle.storage`, so a concurrent
+ * and carried on `ServerHandle.storage`, so a concurrent
  * attempt's drain can only reach its own server.
  */
 export type ServerStorageAccess = {
@@ -550,8 +550,8 @@ export interface TranscriptDrain {
 
 /** Create the v0 transcript drain over one run's server storage; redaction applied at enqueue. */
 export function makeTranscriptDrain(_deps: {
-  readonly log: EventLogHandle;
-  readonly secrets: SecretRegistry;
+  readonly log: EventLog;
+  readonly secrets: Secrets;
   readonly storage: ServerStorageAccess;
 }): Effect.Effect<TranscriptDrain, never, Scope.Scope> {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream

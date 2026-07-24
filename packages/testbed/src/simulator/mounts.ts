@@ -1,5 +1,5 @@
 /**
- * @file EnvironmentMount (contract 2): wiring per-agent MCP servers and
+ * @file Mounts (contract 2): wiring per-agent MCP servers and
  * skills into each runtime at spawn time. Every mounted MCP server is
  * wrapped in the logging proxy; the proxy is interface-transparent (tool
  * results byte-identical with and without it) and taps every call and
@@ -7,9 +7,9 @@
  * live entirely with the consumer; the simulator only mounts them.
  */
 import type { Effect, Scope } from "effect";
-import type { AgentSlotSpec } from "./run-spec.js";
-import type { EventLogHandle } from "./event-log.js";
-import type { SecretRegistry } from "./recording.js";
+import type { Slot } from "./run-spec.js";
+import type { EventLog } from "./event-log.js";
+import type { Secrets } from "./recording.js";
 import type { LoggingProxyFailed, MountFailed } from "./errors.js";
 
 /**
@@ -19,7 +19,7 @@ import type { LoggingProxyFailed, MountFailed } from "./errors.js";
  * plan and the no-mount launch path is unchanged.
  */
 export type MountPlan = {
-  readonly slot: AgentSlotSpec["slot"];
+  readonly slot: Slot["slot"];
 
   /**
    * Proxied MCP server endpoints, one per mount in the slot spec, in
@@ -37,27 +37,27 @@ export type MountPlan = {
 /** A prepared slot mount: the adapter-facing plan plus the proxy health channel. */
 export type MountHandle = {
   readonly plan: MountPlan;
-  /** Resolves only if a proxy or mounted server fails after launch; `executeRun` races it. */
+  /** Resolves only if a proxy or mounted server fails after launch; `run` races it. */
   awaitFailure(): Effect.Effect<never, LoggingProxyFailed, never>;
 };
 
 /**
- * EnvironmentMount contract. `prepare` spawns the consumer's MCP servers
+ * Mounts contract. `prepare` spawns the consumer's MCP servers
  * behind logging proxies and returns the plan the runtime adapter wires
  * in at spawn time; proxies and servers are released at scope close.
  * Mount env values that are credential material are registered in
  * `secrets` before any proxy starts.
  */
-export interface EnvironmentMount {
+export interface Mounts {
   prepare(
-    slot: AgentSlotSpec,
-    log: EventLogHandle,
-    secrets: SecretRegistry,
+    slot: Slot,
+    log: EventLog,
+    secrets: Secrets,
   ): Effect.Effect<MountHandle, MountFailed | LoggingProxyFailed, Scope.Scope>;
 }
 
 /** Create the v0 environment mount (stdio MCP servers behind the logging proxy). */
-export function makeEnvironmentMount(): EnvironmentMount {
+export function makeMounts(): Mounts {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }

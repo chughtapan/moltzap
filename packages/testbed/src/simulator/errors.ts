@@ -110,7 +110,7 @@ export class ProvisioningFailed extends Schema.TaggedError<ProvisioningFailed>()
 ) {}
 
 // ---------------------------------------------------------------------------
-// EnvironmentMount (contract 2)
+// Mounts (contract 2)
 // ---------------------------------------------------------------------------
 
 /** Mount material could not be prepared or wired into the runtime at spawn time. */
@@ -134,7 +134,7 @@ export class LoggingProxyFailed extends Schema.TaggedError<LoggingProxyFailed>()
 ) {}
 
 // ---------------------------------------------------------------------------
-// WorldDriver (contract 3)
+// World (contract 3)
 // ---------------------------------------------------------------------------
 
 /** The fault kind is expressible in the vocabulary but not honored by this implementation (v0: delay, throttle). */
@@ -208,8 +208,8 @@ export class EventLogSealed extends Schema.TaggedError<EventLogSealed>()(
  * (`timeouts.otlpReceiverFailMs`) or failed to bind at bring-up; the run
  * seals with reason `span-acceptance-lost`.
  */
-export class SpanAcceptanceLost extends Schema.TaggedError<SpanAcceptanceLost>()(
-  "SpanAcceptanceLost",
+export class ReceiverLost extends Schema.TaggedError<ReceiverLost>()(
+  "ReceiverLost",
   {
     boundMs: Schema.Number,
     phase: Schema.Literal("bind", "stall"),
@@ -271,14 +271,11 @@ export class SealFailed extends Schema.TaggedError<SealFailed>()("SealFailed", {
  * marker and no live sealer reads as unsealed (the lock is a tombstone,
  * never a seal). Not a recording failure in either case.
  */
-export class SealRaceLost extends Schema.TaggedError<SealRaceLost>()(
-  "SealRaceLost",
-  {
-    recordingPath: Schema.String,
-    observed: Schema.Literal("marker-present", "lock-held"),
-    message: Schema.String,
-  },
-) {}
+export class SealLost extends Schema.TaggedError<SealLost>()("SealLost", {
+  recordingPath: Schema.String,
+  observed: Schema.Literal("marker-present", "lock-held"),
+  message: Schema.String,
+}) {}
 
 /** A recording file failed schema decode (graders, `recording inspect | validate | events`). */
 export class RecordingInvalid extends Schema.TaggedError<RecordingInvalid>()(
@@ -343,7 +340,7 @@ export type ConfigTimeError =
 
 /**
  * Infrastructure failures observed after the manifest persists. Each maps
- * to exactly one `InfraFailureReason` in `result.json` (the seal site
+ * to exactly one `FailureReason` in `result.json` (the seal site
  * discriminates exhaustively; an unmapped member is a compile error);
  * sealing is attempted for every member except where the seal path itself
  * is the failure (`SealFailed`).
@@ -358,6 +355,6 @@ export type InfraError =
   | FaultRevertFailed
   | TaskInjectionFailed
   | DriverCrashed
-  | SpanAcceptanceLost
+  | ReceiverLost
   | TranscriptDrainFailed
   | RecordingStoreFailed;

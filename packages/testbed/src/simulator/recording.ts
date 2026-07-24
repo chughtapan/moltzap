@@ -14,7 +14,7 @@
  * Sealing is durably at-most-once per attempt: (1) create `seal.lock`
  * with O_CREAT|O_EXCL, then fsync the directory so the lock's entry
  * survives a crash — the losing racer in a cancel/completion race fails
- * typed with `SealRaceLost` (`observed: "marker-present"` = winner
+ * typed with `SealLost` (`observed: "marker-present"` = winner
  * sealed, read its outcome; `observed: "lock-held"` = winner mid-seal or
  * crash tombstone, no sealed outcome yet) and never writes; (2) fsync the three
  * pre-result files (`manifest.json`, `events.ndjson`, `traces.json`);
@@ -30,11 +30,11 @@
 import { Schema, type Brand, type Effect } from "effect";
 import { AttemptId, RunId, WallTimeMs, LogicalSequence } from "./ids.js";
 import {
-  IsolationPosture,
+  Isolation,
   JsonValue,
   RunSpec,
   Seed,
-  SimulatorRuntimeKind,
+  RuntimeKind,
   SpecHash,
 } from "./run-spec.js";
 import type {
@@ -43,7 +43,7 @@ import type {
   RecordingSchemaMismatch,
   RecordingStoreFailed,
   SealFailed,
-  SealRaceLost,
+  SealLost,
 } from "./errors.js";
 
 /** Integer recording-schema version; bumped on breaking change; graders hard-fail on mismatch. */
@@ -79,7 +79,7 @@ export class SlotProvenance extends Schema.Class<SlotProvenance>(
   "SlotProvenance",
 )({
   slot: Schema.String.annotations({ description: "Agent slot name" }),
-  runtimeKind: SimulatorRuntimeKind,
+  runtimeKind: RuntimeKind,
   runtimeVersion: Schema.String.annotations({
     description: "Resolved runtime/adapter version",
   }),
@@ -99,7 +99,7 @@ export class SlotProvenance extends Schema.Class<SlotProvenance>(
       description: "Container image digest for container-isolated slots",
     }),
   ),
-  isolation: IsolationPosture,
+  isolation: Isolation,
   promptHash: Schema.optional(
     Schema.String.annotations({
       description: "Consumer-supplied prompt/persona hash",
@@ -166,7 +166,7 @@ export type EpisodeTermination = typeof EpisodeTermination.Type;
  * outcome is a finished attempt with `workerLost: true` and an unsealed
  * recording.
  */
-export const InfraFailureReason = Schema.Literal(
+export const FailureReason = Schema.Literal(
   "server-launch-failed",
   "agent-launch-failed",
   "provisioning-failed",
@@ -180,7 +180,7 @@ export const InfraFailureReason = Schema.Literal(
   "driver-crashed",
   "recording-store-failed",
 ).annotations({ description: "Why infrastructure ended the run; closed set" });
-export type InfraFailureReason = typeof InfraFailureReason.Type;
+export type FailureReason = typeof FailureReason.Type;
 
 /** The run reached an episode outcome. */
 export class EpisodeOutcome extends Schema.TaggedClass<EpisodeOutcome>()(
@@ -191,10 +191,10 @@ export class EpisodeOutcome extends Schema.TaggedClass<EpisodeOutcome>()(
 ) {}
 
 /** Infrastructure ended the run; the causing tagged error is serialized alongside the reason. */
-export class InfraFailureOutcome extends Schema.TaggedClass<InfraFailureOutcome>()(
+export class FailureOutcome extends Schema.TaggedClass<FailureOutcome>()(
   "infrastructure-failure",
   {
-    reason: InfraFailureReason,
+    reason: FailureReason,
     errorTag: Schema.String.annotations({
       description: "Stable _tag of the causing error",
     }),
@@ -212,7 +212,7 @@ export class InfraFailureOutcome extends Schema.TaggedClass<InfraFailureOutcome>
 ) {}
 
 /** Exactly one outcome per sealed attempt; cancellation racing completion resolves to the single sealed outcome. */
-const RunOutcome = Schema.Union(EpisodeOutcome, InfraFailureOutcome);
+const RunOutcome = Schema.Union(EpisodeOutcome, FailureOutcome);
 export type RunOutcome = typeof RunOutcome.Type;
 
 /** Outcome and termination evidence; written by the seal path only. */
@@ -320,7 +320,7 @@ export type AllocatedAttempt = {
  * filesystem implementation; the seam exists so remote stores can land
  * without surface change. Sealed attempts are never overwritten. The
  * store is also the attempt allocator: `allocateAttempt` is the one
- * atomic source of attempt ids, shared by `executeRun` standalone and by
+ * atomic source of attempt ids, shared by `run` standalone and by
  * the queue's workers, so both follow the same identity protocol.
  */
 export interface RecordingStore {
@@ -350,7 +350,7 @@ export interface RecordingStore {
   seal(
     ref: RecordingRef,
     result: ResultJson,
-  ): Effect.Effect<SealedRecordingRef, SealFailed | SealRaceLost, never>;
+  ): Effect.Effect<SealedRecordingRef, SealFailed | SealLost, never>;
 
   /** Read any recording back; version mismatch and schema-invalid files surface typed. */
   read(
@@ -363,7 +363,7 @@ export interface RecordingStore {
 }
 
 /** Compute the store-relative recording path for one attempt. */
-export function recordingPathFor(
+export function recordingPath(
   _storeRoot: string,
   _identity: RecordingIdentity,
   _attemptId: AttemptId,
@@ -388,7 +388,7 @@ export function recordingPathFor(
  * and recorded verbatim. Both sides of "drained content matches sent
  * messages" are compared under this same function.
  */
-export interface SecretRegistry {
+export interface Secrets {
   /** Register one credential value; idempotent per value. */
   register(value: string): void;
   /** Replace registered secrets (and their base64/url encodings) in one string. */
@@ -405,9 +405,7 @@ export interface SecretRegistry {
  * registry per attempt — a process-global registry would leak secrets
  * across concurrent runs.
  */
-export function makeSecretRegistry(
-  _initial: ReadonlyArray<string>,
-): SecretRegistry {
+export function makeSecrets(_initial: ReadonlyArray<string>): Secrets {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }

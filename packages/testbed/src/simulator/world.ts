@@ -1,5 +1,5 @@
 /**
- * @file WorldDriver (contract 3): substrate control. Owns synchrony and
+ * @file World (contract 3): substrate control. Owns synchrony and
  * delivery treatments and scheduled connection-level fault apply/revert
  * pairs, acting through per-agent proxied server endpoints. The fault
  * vocabulary is connection-level only (sever, delay, throttle), never
@@ -10,7 +10,7 @@
  */
 import type { Effect, Scope } from "effect";
 import type { ServerUrl } from "../runtime.js";
-import type { AgentSlotName, FaultSpec } from "./run-spec.js";
+import type { SlotName, FaultSpec } from "./run-spec.js";
 import type { CorrelationId } from "./ids.js";
 import type {
   FaultApplyFailed,
@@ -31,16 +31,16 @@ export type AppliedFault = {
 };
 
 /**
- * WorldDriver contract. `allocateEndpoint` returns the per-agent proxied
+ * World contract. `allocateEndpoint` returns the per-agent proxied
  * ServerUrl a slot's runtime connects through — the control point faults
  * act on; proxies are released at scope close. `apply` executes one
  * scheduled fault against a live target; applying against a not-yet-ready
  * target is the caller's `target-not-ready` case, recorded, never a
  * crash and never a silent skip.
  */
-export interface WorldDriver {
+export interface World {
   allocateEndpoint(
-    slot: AgentSlotName,
+    slot: SlotName,
     upstream: ServerUrl,
   ): Effect.Effect<ServerUrl, never, Scope.Scope>;
 
@@ -50,11 +50,7 @@ export interface WorldDriver {
 }
 
 /** Create the v0 world driver (per-agent WS proxy; sever/heal honored, delay/throttle rejected). */
-export function makeWorldDriver(): Effect.Effect<
-  WorldDriver,
-  never,
-  Scope.Scope
-> {
+export function makeWorld(): Effect.Effect<World, never, Scope.Scope> {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }

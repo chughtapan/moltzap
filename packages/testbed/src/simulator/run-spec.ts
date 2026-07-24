@@ -62,11 +62,11 @@ export const Seed: Schema.Schema<Seed, number> = Schema.Int.pipe(
   }),
 );
 
-export type AgentSlotName = string & Brand.Brand<"AgentSlotName">;
+export type SlotName = string & Brand.Brand<"SlotName">;
 /** Stable per-collection slot name; never allocated from construction order. */
-export const AgentSlotName: Schema.Schema<AgentSlotName, string> =
+export const SlotName: Schema.Schema<SlotName, string> =
   Schema.NonEmptyString.pipe(
-    Schema.brand("AgentSlotName"),
+    Schema.brand("SlotName"),
     Schema.annotations({
       description: "Agent slot name, unique within the run",
     }),
@@ -106,12 +106,10 @@ export const ImageDigest: Schema.Schema<ImageDigest, string> =
 // ---------------------------------------------------------------------------
 
 /** Isolation posture per slot; container is mandatory for adversarial roles. */
-export const IsolationPosture = Schema.Literal("host", "container").annotations(
-  {
-    description: "Where the slot's runtime process runs (host | container)",
-  },
-);
-export type IsolationPosture = typeof IsolationPosture.Type;
+export const Isolation = Schema.Literal("host", "container").annotations({
+  description: "Where the slot's runtime process runs (host | container)",
+});
+export type Isolation = typeof Isolation.Type;
 
 /** Behavioral role of the slot; adversarial requires container isolation. */
 export const SlotRole = Schema.Literal("standard", "adversarial").annotations({
@@ -169,12 +167,12 @@ export class StubSlotConfig extends Schema.Class<StubSlotConfig>(
 }) {}
 
 /** Closed union of registered runtime kinds; provenance and events reuse it. */
-export const SimulatorRuntimeKind = Schema.Literal(
+export const RuntimeKind = Schema.Literal(
   "openclaw",
   "nanoclaw",
   "stub",
 ).annotations({ description: "Registered runtime kind" });
-export type SimulatorRuntimeKind = typeof SimulatorRuntimeKind.Type;
+export type RuntimeKind = typeof RuntimeKind.Type;
 
 /**
  * Runtime assignment per slot: `agent_slot -> (runtime kind + that
@@ -189,9 +187,7 @@ export const RuntimeAssignment = Schema.Union(
 export type RuntimeAssignment = typeof RuntimeAssignment.Type;
 
 /** One MCP server the simulator mounts into the slot's runtime at spawn time. */
-export class McpServerMountSpec extends Schema.Class<McpServerMountSpec>(
-  "McpServerMountSpec",
-)({
+export class McpMount extends Schema.Class<McpMount>("McpMount")({
   name: Schema.NonEmptyString.annotations({
     description: "Mount name, unique within the slot",
   }),
@@ -214,34 +210,32 @@ export class McpServerMountSpec extends Schema.Class<McpServerMountSpec>(
 }) {}
 
 /** One agent slot: identity-bearing fields required, never defaulted. */
-export class AgentSlotSpec extends Schema.Class<AgentSlotSpec>("AgentSlotSpec")(
-  {
-    slot: AgentSlotName,
-    runtime: RuntimeAssignment,
-    isolation: IsolationPosture,
-    role: SlotRole,
-    mounts: Schema.optionalWith(
-      Schema.Array(McpServerMountSpec).annotations({
-        description:
-          "MCP servers mounted at spawn, each wrapped in the logging proxy",
-      }),
-      { default: () => [] },
-    ),
-    workspaceFiles: Schema.optionalWith(
-      Schema.Array(
-        Schema.Struct({
-          relativePath: Schema.String.annotations({
-            description: "Path relative to the agent workspace",
-          }),
-          content: Schema.String.annotations({
-            description: "File content seeded into the workspace",
-          }),
+export class Slot extends Schema.Class<Slot>("Slot")({
+  slot: SlotName,
+  runtime: RuntimeAssignment,
+  isolation: Isolation,
+  role: SlotRole,
+  mounts: Schema.optionalWith(
+    Schema.Array(McpMount).annotations({
+      description:
+        "MCP servers mounted at spawn, each wrapped in the logging proxy",
+    }),
+    { default: () => [] },
+  ),
+  workspaceFiles: Schema.optionalWith(
+    Schema.Array(
+      Schema.Struct({
+        relativePath: Schema.String.annotations({
+          description: "Path relative to the agent workspace",
         }),
-      ).annotations({ description: "Files seeded into the slot's workspace" }),
-      { default: () => [] },
-    ),
-  },
-) {}
+        content: Schema.String.annotations({
+          description: "File content seeded into the workspace",
+        }),
+      }),
+    ).annotations({ description: "Files seeded into the slot's workspace" }),
+    { default: () => [] },
+  ),
+}) {}
 
 // ---------------------------------------------------------------------------
 // World / episode / recording / timeout groups
@@ -272,12 +266,12 @@ export type FaultKind = typeof FaultKind.Type;
 
 export const FaultSpec = Schema.Union(
   Schema.TaggedStruct("sever", {
-    target: AgentSlotName.annotations({
+    target: SlotName.annotations({
       description: "Slot whose WS connection is severed",
     }),
   }),
   Schema.TaggedStruct("delay", {
-    target: AgentSlotName.annotations({
+    target: SlotName.annotations({
       description: "Slot whose connection is delayed",
     }),
     delayMs: Schema.Positive.annotations({
@@ -285,7 +279,7 @@ export const FaultSpec = Schema.Union(
     }),
   }),
   Schema.TaggedStruct("throttle", {
-    target: AgentSlotName.annotations({
+    target: SlotName.annotations({
       description: "Slot whose connection is throttled",
     }),
     bytesPerSecond: Schema.Positive.annotations({
@@ -310,7 +304,7 @@ export class FaultScheduleEntry extends Schema.Class<FaultScheduleEntry>(
   }),
 }) {}
 
-/** WorldDriver configuration: synchrony/delivery treatments and the fault schedule. */
+/** World configuration: synchrony/delivery treatments and the fault schedule. */
 export class WorldSpec extends Schema.Class<WorldSpec>("WorldSpec")({
   faults: Schema.optionalWith(
     Schema.Array(FaultScheduleEntry).annotations({
@@ -338,7 +332,7 @@ export class TaskInjectionSpec extends Schema.Class<TaskInjectionSpec>(
   "TaskInjectionSpec",
 )({
   principal: PrincipalName,
-  to: AgentSlotName.annotations({
+  to: SlotName.annotations({
     description: "Slot the task is delivered to",
   }),
   content: Schema.String.annotations({
@@ -385,7 +379,7 @@ export class EpisodeSpec extends Schema.Class<EpisodeSpec>("EpisodeSpec")({
   principalDriver: Schema.optional(
     DriverRef.annotations({
       description:
-        "PrincipalDriver seam implementation; defaults to out-of-band delivery",
+        "Principal seam implementation; defaults to out-of-band delivery",
     }),
   ),
 }) {}
@@ -462,7 +456,7 @@ export class RecordingSpec extends Schema.Class<RecordingSpec>("RecordingSpec")(
  */
 export class RunSpec extends Schema.Class<RunSpec>("RunSpec")({
   seed: Seed,
-  agents: Schema.NonEmptyArray(AgentSlotSpec).annotations({
+  agents: Schema.NonEmptyArray(Slot).annotations({
     description: "The agent collection; slot names must be unique",
   }),
   server: ServerSpec,
@@ -530,12 +524,12 @@ export function materializeRunSpec(
  * schema decode, so `canonicalJson`'s totality holds at the type level —
  * a raw TS literal with `NaN` or a cycle cannot reach it.
  */
-export type CanonicalJsonValue = JsonValue & Brand.Brand<"CanonicalJsonValue">;
+export type CanonicalJson = JsonValue & Brand.Brand<"CanonicalJson">;
 
 /** Validate an arbitrary value into the canonical space (rejects non-JSON shapes, non-finite numbers, cycles). */
 export function toCanonicalJson(
   _input: unknown,
-): Effect.Effect<CanonicalJsonValue, RunSpecInvalid, never> {
+): Effect.Effect<CanonicalJson, RunSpecInvalid, never> {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }
@@ -547,7 +541,7 @@ export function toCanonicalJson(
  * byte-identity claims (derived schedule, spec-hash) and every recording
  * file's byte encoding are stated over this form.
  */
-export function canonicalJson(_value: CanonicalJsonValue): string {
+export function canonicalJson(_value: CanonicalJson): string {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }

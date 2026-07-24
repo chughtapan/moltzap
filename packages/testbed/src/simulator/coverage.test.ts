@@ -42,7 +42,7 @@ describe("simulator coverage inventory (hermetic CI tier, paths 1-12)", () => {
     "10. condition-label hygiene: labels absent from every enumerated agent-visible channel",
   );
   it.todo(
-    "11. WorldDriver fault: sever/heal via per-agent proxied ServerUrl; apply and revert recorded at logical times",
+    "11. World fault: sever/heal via per-agent proxied ServerUrl; apply and revert recorded at logical times",
   );
   it.todo(
     "12. fault before agent-ready: no crash, no silent skip; recording shows scheduled apply and target-not-ready effect",
@@ -50,9 +50,9 @@ describe("simulator coverage inventory (hermetic CI tier, paths 1-12)", () => {
 });
 
 describe("simulator coverage inventory (hermetic CI tier, paths 13-24)", () => {
-  it.todo("13. EnvironmentMount OpenClaw: plugin/CLI-config wiring");
-  it.todo("14. EnvironmentMount Nanoclaw: container-mount wiring");
-  it.todo("15. EnvironmentMount absent: no-mount path unchanged");
+  it.todo("13. Mounts OpenClaw: plugin/CLI-config wiring");
+  it.todo("14. Mounts Nanoclaw: container-mount wiring");
+  it.todo("15. Mounts absent: no-mount path unchanged");
   it.todo("16. unknown span kind: recorded raw, never dropped");
   it.todo(
     "17. fault window overlapping episode end: revert after termination executed; both boundaries recorded",

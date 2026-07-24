@@ -13,7 +13,7 @@ schema (design doc: chughtapan/moltzap#812):
 - `world-driver.ts` — per-agent proxied endpoints and connection-level
   fault apply/revert (contract 3)
 - `episode.ts` — task injection, logical time, triggers, termination,
-  and `executeRun`, the composition root (contract 4)
+  and `run`, the composition root (contract 4)
 - `event-log.ts` + `recording.ts` + `attempts.ts` — the single ordered
   event stream, the four-file recording schema with sealing, and the
   attempt state machine with queue/Runner seams (contract 5)
@@ -22,7 +22,7 @@ schema (design doc: chughtapan/moltzap#812):
 - `stub-runtime.ts` — scripted hermetic-CI/demo runtime; the `Runtime`
   contract's reference implementation
 
-Shape: tree — `episode.ts`'s `executeRun` is the orchestrator over peer
+Shape: tree — `episode.ts`'s `run` is the orchestrator over peer
 contract modules; peers never import each other's internals, only the
 declared interfaces. The folder imports `../runtime.ts` (the existing
 `Runtime` contract, part of contract 1's surface) and nothing else from

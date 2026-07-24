@@ -44,9 +44,7 @@ export const StubStep = Schema.Union(
 export type StubStep = typeof StubStep.Type;
 
 /** A named, registered behavior script referenced from `StubSlotConfig.script`. */
-export class StubRuntimeScript extends Schema.Class<StubRuntimeScript>(
-  "StubRuntimeScript",
-)({
+export class StubScript extends Schema.Class<StubScript>("StubScript")({
   name: Schema.NonEmptyString.annotations({
     description: "Registered script name",
   }),
@@ -55,8 +53,8 @@ export class StubRuntimeScript extends Schema.Class<StubRuntimeScript>(
   }),
 }) {}
 
-export type StubRuntimeOptions = {
-  readonly script: StubRuntimeScript;
+export type StubOptions = {
+  readonly script: StubScript;
 };
 
 /**
@@ -64,9 +62,7 @@ export type StubRuntimeOptions = {
  * authenticates over the real WS protocol; no model keys, no external
  * network.
  */
-export function createStubRuntime(
-  _options: StubRuntimeOptions,
-): SimulatorRuntime {
+export function makeStubRuntime(_options: StubOptions): SimulatorRuntime {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }
