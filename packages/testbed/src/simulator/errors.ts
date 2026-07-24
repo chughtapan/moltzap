@@ -261,14 +261,21 @@ export class SealFailed extends Schema.TaggedError<SealFailed>()("SealFailed", {
 }) {}
 
 /**
- * This sealer lost the at-most-once race: `seal.lock` or `sealed.json`
- * already exists. Not a recording failure — the winner's outcome is the
- * attempt's single outcome; the loser observes it via `read`.
+ * This sealer lost the at-most-once race. `observed` fixes the typed
+ * behavior: `marker-present` — the attempt is sealed; the caller reads
+ * the winner's single outcome via `read`. `lock-held` — a lock exists
+ * with no marker, so no sealed outcome is guaranteed yet: an active
+ * winner may be mid-seal, or the lock is a crash tombstone. The caller
+ * never writes; classification defers to marker presence on the next
+ * observation plus the queue's worker-loss detection — a lock with no
+ * marker and no live sealer reads as unsealed (the lock is a tombstone,
+ * never a seal). Not a recording failure in either case.
  */
 export class SealRaceLost extends Schema.TaggedError<SealRaceLost>()(
   "SealRaceLost",
   {
     recordingPath: Schema.String,
+    observed: Schema.Literal("marker-present", "lock-held"),
     message: Schema.String,
   },
 ) {}

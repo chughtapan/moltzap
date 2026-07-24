@@ -161,8 +161,12 @@ export type SealedAttempt = {
  * with its report evented; (2) `log.seal()`, `receiver.drainTraces()` +
  * `store.writeTraces`, `store.seal`. Teardown precedes the log seal so
  * `teardown.completed` and `teardownComplete` are recordable. A
- * `SealRaceLost` from the store means the cancel side sealed first;
- * `executeRun` reads that single sealed outcome and returns it. Succeeds
+ * `SealRaceLost` from the store branches on `observed`: with
+ * `marker-present` the cancel side already sealed and `executeRun` reads
+ * that single outcome and returns it; with `lock-held` the cancel-side
+ * sealer runs in this same process, so `executeRun` awaits its
+ * completion and then reads the marker — a lock whose holder is gone
+ * classifies as unsealed via the queue's worker-loss rules. Succeeds
  * whenever a sealed recording exists — including infrastructure-failure
  * outcomes; fails only when no recording exists (config-time, allocation,
  * or manifest-persist failure) or when the seal path itself fails and
