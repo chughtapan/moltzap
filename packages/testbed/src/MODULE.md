@@ -125,14 +125,21 @@ _Interface_
 
 ```ts
 export interface LogSlice {
-  /** stdout+stderr bytes starting from the requested offset. */
+  /**
+   * stdout+stderr from the requested offset. Adapters retain a bounded
+   * window (startup head + rolling tail); when the offset falls into a
+   * dropped region, the missing middle is replaced by a
+   * `[... log window elided ...]` marker, so a stale cursor can observe
+   * non-contiguous text and marker-matching consumers must poll faster
+   * than the tail window fills.
+   */
   readonly text: string;
   /** Byte offset to pass on the next call to continue reading. */
   readonly nextOffset: number;
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L97)
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L96)
 
 _Class_
 
@@ -161,7 +168,7 @@ export class NanoclawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollFiberExitCode(handle.exitFiber),
-        stderr: () => getNanoclawRuntimeLogs(handle),
+        stderr: () => handle.logs.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),
@@ -246,7 +253,7 @@ flowchart TD
 Inbound marker: `New messages`. The immutable cache key covers the pinned
 NanoClaw source, dependency lock, bundled channel/skill, and host ABI.
 
-### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L23)
+### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L22)
 
 _Interface_
 
@@ -382,7 +389,7 @@ export interface OpenClawAdapterOptions {
 }
 ```
 
-### [`ReadyOutcome`](./runtime.ts#L56)
+### [`ReadyOutcome`](./runtime.ts#L63)
 
 _TypeAlias_
 
@@ -391,7 +398,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](./runtime.ts#L75)
+### [`Runtime`](./runtime.ts#L82)
 
 _Interface_
 
