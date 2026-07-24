@@ -70,8 +70,8 @@ internals (the component-to-package map is the v0 plan's W1).
 | `AgentId` | L1 | registry — opaque; survives key rotation | decided |
 | `Principal` | L1 | registry — opaque linkage to the party an agent acts for | linkage depth open |
 | `PublicKey` | L1 | agent — submitted at registration; the key its card binds | decided |
-| `Card` | L1 | registry-attested X.509, self-attesting; read through `CardView` | decided |
-| `Frame` | L1 | sender's harness — the signed unit (envelope + body) as opaque bytes; read through `FrameView` | decided |
+| `Card` | L1 | registry-attested X.509, self-attesting (fields: identity.md) | decided |
+| `Frame` | L1 | sender's harness — the signed unit (envelope + body) as opaque bytes | decided |
 | `Envelope` | L1 | view of a frame's carrier-readable fields: sender, conversation, version, entry kind, attribution | field set decided; encoding open |
 | `Body` | L1 | sender — opaque bytes, never interpreted below L4 | decided |
 | `VerifiedFrame` | L1 | verification — envelope view + principal + the exact bytes verified | decided |
@@ -101,14 +101,6 @@ norm shapes) are unbound here, not closed: norm bundles bind only
 their guarantee (tasks.md; law L4.1), the firewall's vocabulary is the
 undesigned firewall plan (open question 2), and L6's evidence is a
 derivation, not a noun.
-
-**Lenses.** `Frame` and `Card` are read through **lenses** — codecs
-whose encode is byte-identity on the retained input
-(`FrameView: Lens<{envelope, body, bytes}, Frame>`;
-`CardView: Lens<{agent, principal, name, key, issuedAt}, Card>`) — so
-decode-at-boundary and byte-exact preservation coexist structurally:
-no carrier ever re-encodes, because the lens hands back the retained
-bytes (law L1.5).
 
 ## The five ports
 
@@ -272,7 +264,7 @@ Conventions, citations name the governing doc.
 | L1.2 | `verify : (frame, card) → VerifiedFrame` — no round trip, no live sender; L6 readers hold the same shape | C | identity.md → Verification duties |
 | L1.3 | Any alteration of envelope or body ⇒ `verify` refuses | P | identity.md inv. 4 |
 | L1.4 | Only the endpoint composition names `Signer`; the router names `Verifier` only | C | identity.md inv. 2; data-plane.md inv. 2 |
-| L1.5 | Lens law: `retained ∘ decode` is byte-identity; no carrier re-encodes a frame or card | C+P | identity.md → Byte preservation; data-plane.md inv. 13 |
+| L1.5 | Frames and cards cross every carrier byte-exact: `Envelope` and card fields are views over the retained bytes, and nothing re-encodes | C+P | identity.md → Byte preservation; data-plane.md inv. 13 |
 | L1.6 | `Position` is a field of no frame type (types-check canary) | C | identity.md → Not frame fields |
 | L2.1 | All members observe the same records in the same order | S | data-plane.md inv. 3 |
 | L2.2 | `deliveries` carries frames byte-exact with attribution intact | P | data-plane.md inv. 2, 13 |
