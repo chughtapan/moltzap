@@ -210,31 +210,34 @@ const packageDefinitions = {
       ],
     },
   },
-  runtimes: {
+  testbed: {
     beforeShared: {
+      packageRuntime: "node",
       maxPublicExports: 30,
       minPublicFacadeModules: 7,
       folderChildCountOverrides: [
         {
           folder: ".",
-          maxChildren: 13,
+          maxChildren: 12,
           reason:
-            "Runtime adapters and their shared orchestration modules are deliberate peers in the package's documented single-tier source layout",
+            "The testbed keeps runtime adapters, orchestration, readiness, process support, and trace-capture modules as deliberate peers in its documented single-tier source layout",
         },
       ],
       facadeFiles: [
         {
-          file: "fleet.ts",
+          file: "testbed.ts",
           reason:
-            "Public fleet orchestration boundary for coordinated runtime startup and shutdown",
+            "Public testbed boundary for adapter selection, coordinated runtime startup, process-signal interruption, and reverse-order teardown",
         },
         {
           file: "nanoclaw-adapter.ts",
-          reason: "Public Nanoclaw runtime adapter boundary",
+          reason:
+            "Nanoclaw runtime adapter boundary that composes installation, process lifecycle, and readiness behind the Runtime contract",
         },
         {
           file: "openclaw-adapter.ts",
-          reason: "Public OpenClaw runtime adapter boundary",
+          reason:
+            "OpenClaw runtime adapter boundary that composes channel installation, process lifecycle, and readiness behind the Runtime contract",
         },
       ],
     },

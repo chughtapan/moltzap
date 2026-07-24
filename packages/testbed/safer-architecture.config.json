@@ -1,0 +1,74 @@
+{
+  "packageRuntime": "node",
+  "maxPublicExports": 30,
+  "minPublicFacadeModules": 7,
+  "folderChildCountOverrides": [
+    {
+      "folder": ".",
+      "maxChildren": 12,
+      "reason": "The testbed keeps runtime adapters, orchestration, readiness, process support, and trace-capture modules as deliberate peers in its documented single-tier source layout"
+    }
+  ],
+  "facadeFiles": [
+    {
+      "file": "testbed.ts",
+      "reason": "Public testbed boundary for adapter selection, coordinated runtime startup, process-signal interruption, and reverse-order teardown"
+    },
+    {
+      "file": "nanoclaw-adapter.ts",
+      "reason": "Nanoclaw runtime adapter boundary that composes installation, process lifecycle, and readiness behind the Runtime contract"
+    },
+    {
+      "file": "openclaw-adapter.ts",
+      "reason": "OpenClaw runtime adapter boundary that composes channel installation, process lifecycle, and readiness behind the Runtime contract"
+    }
+  ],
+  "publicTypePackages": [
+    {
+      "package": "effect",
+      "reason": "Foundational Effect runtime; intentionally part of the public contract"
+    },
+    {
+      "package": "@effect/platform",
+      "reason": "Effect platform abstractions used at boundaries"
+    },
+    {
+      "package": "@effect/platform-node",
+      "reason": "Effect Node integration used at boundaries"
+    },
+    {
+      "package": "@effect/rpc",
+      "reason": "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design"
+    },
+    {
+      "package": "@sinclair/typebox",
+      "reason": "Schema runtime; types are the contract"
+    },
+    {
+      "package": "@moltzap/protocol",
+      "reason": "Intra-monorepo protocol; foundational shared contract"
+    },
+    {
+      "package": "@moltzap/client",
+      "reason": "Intra-monorepo client SDK; channels depend on its public surface"
+    }
+  ],
+  "allowedTestPublicSubpaths": [
+    {
+      "subpath": "./test-utils",
+      "reason": "Test helpers exposed for cross-package integration testing"
+    },
+    {
+      "subpath": "./test",
+      "reason": "Test harness API for downstream packages"
+    },
+    {
+      "subpath": "./test-support",
+      "reason": "Channel test support exposed for integration tests"
+    },
+    {
+      "subpath": "./testing",
+      "reason": "Conformance + driver surface for cross-package integration testing"
+    }
+  ]
+}

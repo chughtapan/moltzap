@@ -215,7 +215,7 @@ export function startCoreTestServer(opts: StartCoreTestServerOptions = {}) {
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServerHandle`](./server.ts#L106)
+### [`CoreTestServerHandle`](./server.ts#L105)
 
 _Interface_
 
@@ -229,7 +229,7 @@ export interface CoreTestServerHandle {
   /**
    * Pre-wired `RuntimeServerHandle` for runtime-adapter tests. Implements
    * `awaitAgentReady` by polling the live `ConnectionManager` — the same
-   * pattern `@moltzap/runtimes`'s `awaitAgentReadyByPolling` exports for
+   * pattern `@moltzap/testbed`'s `awaitAgentReadyByPolling` exports for
    * downstream in-process consumers. Out-of-process consumers (zapbot's
    * orchestrator) construct their own handle over WebSocket presence.
    */
@@ -311,7 +311,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](./server.ts#L413)
+### [`getBaseUrl`](./server.ts#L412)
 
 _Function_
 
@@ -319,7 +319,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](./server.ts#L398)
+### [`getCoreDb`](./server.ts#L397)
 
 _Function_
 
@@ -327,7 +327,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L406)
+### [`getCoreEncryptionEnvelope`](./server.ts#L405)
 
 _Function_
 
@@ -335,7 +335,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L418)
+### [`getWsUrl`](./server.ts#L417)
 
 _Function_
 
@@ -514,7 +514,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](./server.ts#L372)
+### [`resetCoreTestDb`](./server.ts#L371)
 
 _Function_
 
@@ -567,7 +567,7 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServerEffect`](./server.ts#L329)
+### [`startCoreTestServerEffect`](./server.ts#L328)
 
 _Function_
 
@@ -577,7 +577,7 @@ export function startCoreTestServerEffect(
 )
 ```
 
-### [`startCoreTestServerFull`](./server.ts#L342)
+### [`startCoreTestServerFull`](./server.ts#L341)
 
 _Function_
 
@@ -599,7 +599,7 @@ export interface StartCoreTestServerOptions {
 }
 ```
 
-### [`stopCoreTestServer`](./server.ts#L346)
+### [`stopCoreTestServer`](./server.ts#L345)
 
 _Function_
 
