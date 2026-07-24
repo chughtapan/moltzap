@@ -272,11 +272,11 @@ function linkChannelDependency(
 }
 
 /**
- * Drop SpawnInput.workspaceFiles into `&lt;stateDir>/workspace/`. Identical
+ * Drop SpawnInput.workspaceFiles below the given workspace root. Identical
  * shape between adapters; lifted here so they share one implementation.
  */
 export function seedWorkspaceFiles(
-  stateDir: string,
+  workspaceDir: string,
   workspaceFiles: SpawnInput["workspaceFiles"],
 ): Effect.Effect<
   void,
@@ -289,7 +289,6 @@ export function seedWorkspaceFiles(
     }
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const workspaceDir = path.join(stateDir, "workspace");
     yield* fileSystem.makeDirectory(workspaceDir, { recursive: true });
     for (const file of workspaceFiles) {
       const destination = resolveWorkspaceFileDestination(
@@ -312,7 +311,7 @@ export function seedWorkspaceFiles(
   }).pipe(Effect.withSpan("seedWorkspaceFiles"));
 }
 
-export function resolveWorkspaceFileDestination(
+function resolveWorkspaceFileDestination(
   path: Path.Path,
   workspaceRoot: string,
   relativePath: string,

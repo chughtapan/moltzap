@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
-import type { Process, Signal } from "@effect/platform/CommandExecutor";
+import type { Process } from "@effect/platform/CommandExecutor";
 import { Config, Data, Effect, Exit, Fiber, Option, Scope, pipe } from "effect";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
@@ -18,7 +18,11 @@ import type {
 } from "./runtime.js";
 import { SpawnFailed, spawnFailed } from "./errors.js";
 import { raceReadiness } from "./adapter-readiness.js";
-import { consumeProcessStream, pollFiberExitCode } from "./child-process.js";
+import {
+  escalatingKill,
+  pollFiberExitCode,
+  startSupervisedProcess,
+} from "./child-process.js";
 import {
   installChannelPlugin,
   seedWorkspaceFiles,
@@ -52,34 +56,6 @@ function pollExitCode(
   return pollFiberExitCode(proc.exitFiber);
 }
 
-function killAndPoll(
-  proc: SpawnedProcess,
-  signal: Signal,
-  timeoutMs: number,
-): Effect.Effect<Option.Option<number>, never, never> {
-  return proc.kill(signal).pipe(
-    Effect.timeout(`${timeoutMs} millis`),
-    Effect.catchAll(() => Effect.void),
-    Effect.zipRight(pollExitCode(proc)),
-  );
-}
-
-function waitAfterSigterm(
-  proc: SpawnedProcess,
-): Effect.Effect<number, never, never> {
-  return killAndPoll(proc, "SIGTERM", OPENCLAW_TERM_WAIT_MS).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          killAndPoll(proc, "SIGKILL", OPENCLAW_KILL_WAIT_MS).pipe(
-            Effect.map(Option.getOrElse(() => -1)),
-          ),
-        onSome: Effect.succeed,
-      }),
-    ),
-  );
-}
-
 function stopSpawnedOpenClawProcess(
   proc: SpawnedProcess,
 ): Effect.Effect<void, never, never> {
@@ -87,7 +63,10 @@ function stopSpawnedOpenClawProcess(
     Effect.gen(function* () {
       const exitOpt = yield* pollExitCode(proc);
       if (Option.isNone(exitOpt)) {
-        yield* waitAfterSigterm(proc).pipe(Effect.asVoid);
+        yield* escalatingKill(proc.proc, proc.exitFiber, {
+          termWaitMs: OPENCLAW_TERM_WAIT_MS,
+          killWaitMs: OPENCLAW_KILL_WAIT_MS,
+        });
       }
       yield* Scope.close(proc.scope, Exit.succeed(undefined));
     }),
@@ -99,26 +78,14 @@ function initializeOpenClawProcess(
   logBuffer: { value: string },
   scope: Scope.CloseableScope,
 ) {
-  return Effect.gen(function* () {
-    const proc = yield* Command.start(command).pipe(Scope.extend(scope));
-    const exitFiber = yield* proc.exitCode.pipe(
-      Effect.map(Number),
-      Effect.catchAll(() => Effect.succeed(-1)),
-      Effect.forkIn(scope),
-    );
-    const appendLog = (chunk: string): void => {
-      logBuffer.value += chunk;
-    };
-    yield* consumeProcessStream(proc.stdout, appendLog).pipe(
-      Effect.forkIn(scope),
-    );
-    yield* consumeProcessStream(proc.stderr, appendLog).pipe(
-      Effect.forkIn(scope),
-    );
-    const kill = (signal: Signal): Effect.Effect<void, never, never> =>
-      proc.kill(signal).pipe(Effect.catchAll(() => Effect.void));
-    return { proc, exitFiber, kill, scope } satisfies SpawnedProcess;
-  });
+  return startSupervisedProcess(command, scope, (chunk) => {
+    logBuffer.value += chunk;
+  }).pipe(
+    Effect.map(
+      ({ proc, exitFiber }) =>
+        ({ proc, exitFiber, scope }) satisfies SpawnedProcess,
+    ),
+  );
 }
 
 function closeScopeOnFailedProcessStart(
@@ -205,7 +172,6 @@ interface AdapterState {
 interface SpawnedProcess {
   readonly proc: Process;
   readonly exitFiber: Fiber.RuntimeFiber<number, never>;
-  readonly kill: (signal: Signal) => Effect.Effect<void, never, never>;
   readonly scope: Scope.CloseableScope;
 }
 
@@ -319,7 +285,7 @@ function configureOpenClawStateDir(
         apiKey: input.apiKey,
         modelId: input.modelId,
       }),
-      seedWorkspaceFiles(stateDir, input.workspaceFiles),
+      seedWorkspaceFiles(join(stateDir, "workspace"), input.workspaceFiles),
       seedModelAuthProfile(stateDir),
     ],
     { concurrency: 3, discard: true },

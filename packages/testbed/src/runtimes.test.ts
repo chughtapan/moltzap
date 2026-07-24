@@ -535,10 +535,14 @@ function openClawTeardownSendsTerminateThenKill() {
       injectOpenClawAdapterState(adapter, {
         process: {
           exitFiber,
-          kill: (signal: Signal) =>
-            Effect.sync(() => {
-              killCalls.push(signal);
-            }),
+          // A stubborn process: the kill await never resolves and the exit
+          // fiber never completes, so both signal windows must lapse.
+          proc: {
+            kill: (signal: Signal) =>
+              Effect.sync(() => {
+                killCalls.push(signal);
+              }).pipe(Effect.andThen(Effect.never)),
+          },
           scope,
         },
         stateDir: TEARDOWN_STATE_DIR,
@@ -587,12 +591,14 @@ function openClawTeardownInterruptionFinishesCleanup() {
       injectOpenClawAdapterState(adapter, {
         process: {
           exitFiber,
-          kill: () =>
-            Deferred.succeed(killStarted, undefined).pipe(
-              Effect.zipRight(Deferred.await(allowKill)),
-              Effect.zipRight(Fiber.interrupt(exitFiber)),
-              Effect.asVoid,
-            ),
+          proc: {
+            kill: () =>
+              Deferred.succeed(killStarted, undefined).pipe(
+                Effect.zipRight(Deferred.await(allowKill)),
+                Effect.zipRight(Fiber.interrupt(exitFiber)),
+                Effect.asVoid,
+              ),
+          },
           scope,
         },
         stateDir: TEARDOWN_STATE_DIR,
@@ -663,7 +669,9 @@ function nanoclawTeardownIsIdempotent() {
 interface InjectedOpenClawAdapterState {
   readonly process: {
     readonly exitFiber: Fiber.RuntimeFiber<number, never>;
-    readonly kill: (signal: Signal) => Effect.Effect<void, never, never>;
+    readonly proc: {
+      readonly kill: (signal: Signal) => Effect.Effect<void, never, never>;
+    };
     readonly scope: Scope.CloseableScope;
   };
   readonly stateDir: string;
@@ -674,7 +682,7 @@ interface InjectedOpenClawAdapterState {
 
 // `OpenClawAdapter.state` is private; teardown is the only path that reads it.
 // `Reflect.set` writes the field without a privacy-defeating cast. The injected
-// process omits `proc` because the teardown path under test never reads it.
+// `proc` carries only `kill` — the sole raw-process member teardown reads.
 function injectOpenClawAdapterState(
   adapter: OpenClawAdapter,
   state: InjectedOpenClawAdapterState,

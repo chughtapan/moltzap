@@ -1,7 +1,8 @@
 import { Command } from "@effect/platform";
+import type { Process, Signal } from "@effect/platform/CommandExecutor";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
-import { Duration, Effect, Fiber, Exit, Option, Stream } from "effect";
+import { Duration, Effect, Fiber, Exit, Option, Scope, Stream } from "effect";
 
 export interface CommandRunOptions {
   readonly cwd?: string;
@@ -67,7 +68,7 @@ export function makeCommandHelpers<E>(makeError: ErrorFactory<E>) {
 const UTF8_DECODER = new TextDecoder("utf-8");
 
 /** Drains a child stdout/stderr stream into the caller's log accumulator. */
-export function consumeProcessStream(
+function consumeProcessStream(
   stream: Stream.Stream<Uint8Array, unknown>,
   append: (chunk: string) => void,
 ): Effect.Effect<void, never, never> {
@@ -76,6 +77,83 @@ export function consumeProcessStream(
       append(UTF8_DECODER.decode(chunk));
     }),
   ).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/**
+ * Starts a command under `scope`, forks its exit fiber (the exit code, or
+ * `-1` when the wait itself fails), and drains stdout/stderr into
+ * `appendLog`.
+ */
+export function startSupervisedProcess(
+  command: Command.Command,
+  scope: Scope.CloseableScope,
+  appendLog: (chunk: string) => void,
+) {
+  return Effect.gen(function* () {
+    const proc = yield* Command.start(command).pipe(Scope.extend(scope));
+    const exitFiber = yield* proc.exitCode.pipe(
+      Effect.map(Number),
+      Effect.catchAll(() => Effect.succeed(-1)),
+      Effect.forkIn(scope),
+    );
+    yield* consumeProcessStream(proc.stdout, appendLog).pipe(
+      Effect.forkIn(scope),
+    );
+    yield* consumeProcessStream(proc.stderr, appendLog).pipe(
+      Effect.forkIn(scope),
+    );
+    return { proc, exitFiber };
+  }).pipe(Effect.withSpan("startSupervisedProcess"));
+}
+
+const EXIT_POLL_INTERVAL_MS = 100;
+
+/**
+ * TERM→KILL escalation with bounded waits. Teardown runs in uninterruptible
+ * regions, so each wait polls the exit fiber instead of racing the platform
+ * `kill` await (which resolves only at process death and cannot be
+ * interrupted there); the signals themselves are fired as daemons.
+ */
+export function escalatingKill(
+  proc: Process,
+  exitFiber: Fiber.RuntimeFiber<number, never>,
+  waits: { readonly termWaitMs: number; readonly killWaitMs: number },
+): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
+    yield* sendSignal(proc, "SIGTERM");
+    if (yield* exitedWithin(exitFiber, waits.termWaitMs)) return;
+    yield* sendSignal(proc, "SIGKILL");
+    yield* exitedWithin(exitFiber, waits.killWaitMs);
+  }).pipe(Effect.withSpan("escalatingKill"));
+}
+
+function sendSignal(
+  proc: Process,
+  signal: Signal,
+): Effect.Effect<void, never, never> {
+  return Effect.forkDaemon(
+    proc.kill(signal).pipe(Effect.catchAll(() => Effect.void)),
+  ).pipe(Effect.asVoid);
+}
+
+function exitedWithin(
+  exitFiber: Fiber.RuntimeFiber<number, never>,
+  waitMs: number,
+): Effect.Effect<boolean, never, never> {
+  return Effect.iterate(
+    { elapsedMs: 0, exited: false },
+    {
+      while: (state) => !state.exited && state.elapsedMs < waitMs,
+      body: (state) =>
+        Effect.sleep(Duration.millis(EXIT_POLL_INTERVAL_MS)).pipe(
+          Effect.zipRight(pollFiberExitCode(exitFiber)),
+          Effect.map((exit) => ({
+            elapsedMs: state.elapsedMs + EXIT_POLL_INTERVAL_MS,
+            exited: Option.isSome(exit),
+          })),
+        ),
+    },
+  ).pipe(Effect.map((state) => state.exited));
 }
 
 /**

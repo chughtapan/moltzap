@@ -23,8 +23,8 @@ channel plugins.
 ## Concepts
 
 - **Platform id (JID)** — channel-level addressing string,
-  `mz:<conversationId>`; `jidFromConversationId` /
-  `conversationIdFromJid` convert.
+  `mz:<conversationId>`; `jidFromConversationId` converts one way, and
+  replies read the branded conversation id back from the per-jid map.
 - **Wiring** — nanoclaw routes by `(channel_type, platform_id)` →
   `messaging_groups` → `messaging_group_agents`. Production wirings
   are provisioned out of band.

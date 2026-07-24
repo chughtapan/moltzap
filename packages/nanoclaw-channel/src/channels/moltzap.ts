@@ -27,7 +27,6 @@ import { registerChannelAdapter } from "./channel-registry.js";
 import {
   createMessagingGroup,
   createMessagingGroupAgent,
-  getMessagingGroupAgentByPair,
   getMessagingGroupByPlatform,
 } from "../db/messaging-groups.js";
 import { createAgentGroup, getAllAgentGroups } from "../db/agent-groups.js";
@@ -121,9 +120,9 @@ function extractOutboundText(message: OutboundMessage): string | null {
     content !== null &&
     typeof content === "object" &&
     "text" in content &&
-    typeof (content as { text: unknown }).text === "string"
+    typeof content.text === "string"
   ) {
-    return (content as { text: string }).text;
+    return content.text;
   }
   return null;
 }
@@ -279,13 +278,11 @@ export class MoltZapAdapter implements ChannelAdapter {
         );
       }
       const service = yield* MoltZapService.make(profileName);
-      return yield* Effect.sync(() => {
-        const core = new MoltZapChannelCore({ service });
-        this.core = core;
-        this.ownAgentId = service.ownAgentId ?? "";
-        this.attachCore(core);
-        return core;
-      });
+      const core = new MoltZapChannelCore({ service });
+      this.core = core;
+      this.ownAgentId = service.ownAgentId ?? "";
+      this.attachCore(core);
+      return core;
     });
   }
 
@@ -382,15 +379,7 @@ export class MoltZapAdapter implements ChannelAdapter {
       null,
       this.toInboundMessage(enriched, isGroup),
     );
-    Effect.runFork(
-      Effect.tryPromise({
-        try: () => Promise.resolve(dispatched),
-        catch: (cause) =>
-          new MoltZapChannelError({
-            reason: `inbound dispatch failed: ${String(cause)}`,
-          }),
-      }),
-    );
+    Effect.runFork(Effect.tryPromise(() => Promise.resolve(dispatched)));
   }
 
   private rememberDispatchLease(
@@ -462,7 +451,9 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   // Engagement fields mirror the declared channel contract in
-  // MOLTZAP_CONTEXT_DEFAULTS so the wiring row cannot drift from it.
+  // MOLTZAP_CONTEXT_DEFAULTS so the wiring row cannot drift from it. Row
+  // ids derive from the full conversation id — the platform lookup in
+  // ensureEvalWiring is then the only freshness guard needed.
   private createEvalWiring(
     jid: string,
     enriched: EnrichedInboundMessage,
@@ -477,7 +468,7 @@ export class MoltZapAdapter implements ChannelAdapter {
       display_name: enriched.sender.name ?? enriched.sender.id,
       created_at: now,
     });
-    const messagingGroupId = `mg-eval-${shortId}`;
+    const messagingGroupId = `mg-eval-${enriched.conversationId}`;
     createMessagingGroup({
       id: messagingGroupId,
       channel_type: MOLTZAP_CHANNEL,
@@ -487,13 +478,8 @@ export class MoltZapAdapter implements ChannelAdapter {
       unknown_sender_policy: MOLTZAP_CONTEXT_DEFAULTS.unknownSenderPolicy,
       created_at: now,
     });
-    if (
-      getMessagingGroupAgentByPair(messagingGroupId, agentGroupId) !== undefined
-    ) {
-      return;
-    }
     createMessagingGroupAgent({
-      id: `mga-eval-${shortId}`,
+      id: `mga-eval-${enriched.conversationId}`,
       messaging_group_id: messagingGroupId,
       agent_group_id: agentGroupId,
       engage_mode: MOLTZAP_CONTEXT_DEFAULTS.engageMode,

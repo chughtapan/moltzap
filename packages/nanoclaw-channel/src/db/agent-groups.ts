@@ -12,3 +12,11 @@ export function getAllAgentGroups(): AgentGroup[] {
 export function createAgentGroup(group: AgentGroup): void {
   agentGroups.set(group.id, group);
 }
+
+/**
+ * Test hook; resets state the real nanoclaw module persists in sqlite.
+ * @internal
+ */
+export function clearAgentGroups(): void {
+  agentGroups.clear();
+}

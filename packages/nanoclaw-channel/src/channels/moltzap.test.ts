@@ -1,4 +1,4 @@
-import { describe, expect, it as vitestIt } from "vitest";
+import { beforeEach, describe, expect, it as vitestIt } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect, Either } from "effect";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
@@ -29,6 +29,7 @@ import {
   getMessagingGroupAgentByPair,
   getMessagingGroupByPlatform,
 } from "../db/messaging-groups.js";
+import { clearAgentGroups } from "../db/agent-groups.js";
 import { hasContainerConfig } from "../db/container-configs.js";
 import { getUserById } from "../modules/permissions/db/users.js";
 
@@ -501,9 +502,6 @@ function dropsMessagesFromOwnAgent() {
 }
 
 function provisionsAgentGroupWhenNoneExists() {
-  // Runs FIRST in this describe: the agent-group db stub is a module-level
-  // map shared across tests, so this case needs `getAllAgentGroups()` empty
-  // at this point — later eval tests then reuse the group this one creates.
   const harness = createHarness(true);
   return Effect.gen(function* () {
     yield* setup(harness);
@@ -792,6 +790,11 @@ describe("MoltZapAdapter inbound projection", () => {
 });
 
 describe("MoltZapAdapter eval registration", () => {
+  // The agent-group stub is a module-level map; each case provisions its
+  // own group from empty.
+  beforeEach(() => {
+    clearAgentGroups();
+  });
   it(
     "provisions the agent group on first inbound when none exists",
     provisionsAgentGroupWhenNoneExists,
