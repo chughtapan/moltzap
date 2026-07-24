@@ -39,11 +39,6 @@ import {
 const ONECLI_URL = "http://127.0.0.1:10254";
 const ONECLI_COMPOSE_PATH = join(homedir(), ".onecli/docker-compose.yml");
 
-// The bundled channel emits this local startup marker after its socket connects;
-// the outer server-presence check remains the authoritative readiness gate.
-const CONNECTED_MARKER = /MoltZap connected/;
-
-const CONNECT_TIMEOUT_MS = 60_000;
 // NanoClaw waits up to ten seconds for its queue to drain before disconnecting.
 // Leave margin for channel disconnect and process exit before escalating.
 const NANOCLAW_TERM_WAIT_MS = 12_000;
@@ -51,8 +46,6 @@ const NANOCLAW_KILL_WAIT_MS = 5_000;
 const ONECLI_PROBE_TIMEOUT_MS = 2_000;
 const ONECLI_READY_PROBE_LIMIT = 20;
 const ONECLI_READY_PROBE_INTERVAL_MS = 500;
-const CONNECT_WATCH_INTERVAL_MS = 200;
-const LOG_TAIL_LINE_COUNT = 50;
 const MILLISECONDS_PER_SECOND = 1_000;
 
 export interface NanoclawRuntimeHandle {
@@ -107,14 +100,6 @@ function toRuntimeError(message: string, cause?: unknown) {
 }
 
 const { execEffect, fsEffect } = makeCommandHelpers(toRuntimeError);
-
-function logTail(capturedLogs: readonly string[]): string {
-  return capturedLogs
-    .join("")
-    .split("\n")
-    .slice(-LOG_TAIL_LINE_COUNT)
-    .join("\n");
-}
 
 function isOnecliReachable(): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
@@ -410,65 +395,10 @@ function initializeNanoclawProcess(
   );
 }
 
-function waitForNanoclawConnection(
-  exitFiber: Fiber.RuntimeFiber<number, never>,
-  capturedLogs: string[],
-) {
-  return Effect.race(
-    waitForConnectedMarker(capturedLogs),
-    failIfProcessExitsBeforeConnect(exitFiber, capturedLogs),
-  ).pipe(
-    Effect.timeoutFail({
-      duration: Duration.millis(CONNECT_TIMEOUT_MS),
-      onTimeout: () => connectionTimeoutError(capturedLogs),
-    }),
-  );
-}
-
-function waitForConnectedMarker(capturedLogs: string[]) {
-  return Effect.iterate(false, {
-    while: (connected) => !connected,
-    body: () =>
-      Effect.sleep(Duration.millis(CONNECT_WATCH_INTERVAL_MS)).pipe(
-        Effect.as(CONNECTED_MARKER.test(capturedLogs.join(""))),
-      ),
-  }).pipe(Effect.asVoid);
-}
-
-function failIfProcessExitsBeforeConnect(
-  exitFiber: Fiber.RuntimeFiber<number, never>,
-  capturedLogs: string[],
-) {
-  return Fiber.join(exitFiber).pipe(
-    Effect.flatMap((code) =>
-      Effect.fail(
-        toRuntimeError(
-          `nanoclaw runtime exited before connecting (code=${code}).\nLast ${LOG_TAIL_LINE_COUNT} log lines:\n${logTail(capturedLogs)}`,
-        ),
-      ),
-    ),
-  );
-}
-
-function connectionTimeoutError(capturedLogs: string[]) {
-  return toRuntimeError(
-    `nanoclaw runtime did not connect within ${
-      CONNECT_TIMEOUT_MS / MILLISECONDS_PER_SECOND
-    }s.\nLast ${LOG_TAIL_LINE_COUNT} log lines:\n${logTail(capturedLogs)}`,
-  );
-}
-
-function cleanupFailedNanoclawRuntime(handle: NanoclawRuntimeHandle) {
-  return stopNanoclawRuntimeEffect(handle).pipe(
-    Effect.catchAll((cause) =>
-      Effect.logWarning(
-        "failed to clean up NanoClaw after startup failure",
-        cause,
-      ),
-    ),
-  );
-}
-
+// Spawn commits as soon as the process starts; readiness — server-confirmed
+// authentication raced against subprocess exit, bounded by the caller's
+// budget — lives entirely in `waitUntilReady`, matching the OpenClaw
+// adapter's semantics for the shared `Runtime` contract.
 function startConfiguredNanoclawRuntime(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
@@ -486,11 +416,7 @@ function startConfiguredNanoclawRuntime(
       install,
       capturedLogs,
     );
-    const handle = { ...started, runtimeDir, capturedLogs };
-    yield* waitForNanoclawConnection(started.exitFiber, capturedLogs).pipe(
-      Effect.onError(() => cleanupFailedNanoclawRuntime(handle)),
-    );
-    return handle;
+    return { ...started, runtimeDir, capturedLogs };
   });
 }
 

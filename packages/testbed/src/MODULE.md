@@ -132,7 +132,7 @@ export interface LogSlice {
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L98)
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L97)
 
 _Class_
 
@@ -239,10 +239,9 @@ flowchart TD
     P2OC["ensureOnecliRunning<br>(probe 10254; up if unreachable)"]
     P2WS["write agent-local workspace files + profile"]
     P2SP["startNanoclawProcess<br>(absolute cached entrypoint,<br>isolated runtime cwd)"]
-    P2WAIT["waitForNanoclawConnection<br>(scan logs for CONNECTED_MARKER)"]
-    P2DIR --> P2OC --> P2WS --> P2SP --> P2WAIT
+    P2DIR --> P2OC --> P2WS --> P2SP
   end
-  NCR["waitUntilReady — TWO gates:<br>1. inner: waitForNanoclawConnection (stdout marker)<br>2. outer: server.awaitAgentReady (WS auth)"]
+  NCR["waitUntilReady — server.awaitAgentReady (WS auth)<br>raced against subprocess exit,<br>bounded by the caller's readyTimeoutMs"]
   NS --> P1 --> P2 --> NCR
 ```
 
