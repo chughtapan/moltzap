@@ -1,6 +1,6 @@
 /**
  * @file Episode lifecycle (contract 4): task injection, logical-time
- * advance, trigger firing, and termination — plus `executeRun`, the
+ * advance, trigger firing, and termination — plus `run`, the
  * composition root that drives one attempt end-to-end. v0 runs exactly
  * one episode per run; done-signal and inactivity terminate the episode
  * and with it the run.
@@ -20,10 +20,10 @@ import type {
   TaskInjectionSpec,
 } from "./run-spec.js";
 import type { EpisodeId } from "./ids.js";
-import type { LogicalClock, EventLogHandle } from "./event-log.js";
-import type { AgentRunner, LaunchedWorld } from "./run-config.js";
-import type { EnvironmentMount } from "./environment-mount.js";
-import type { WorldDriver } from "./world-driver.js";
+import type { LogicalClock, EventLog } from "./event-log.js";
+import type { Launcher, Society } from "./run-config.js";
+import type { Mounts } from "./mounts.js";
+import type { World } from "./world.js";
 import type {
   AllocatedAttempt,
   EpisodeTermination,
@@ -45,7 +45,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 /** The fully derived generative schedule; deterministic function of the materialized spec. */
-export type GenerativeSchedule = {
+export type Schedule = {
   readonly taskArrivals: ReadonlyArray<TaskInjectionSpec>;
   readonly faultWindows: ReadonlyArray<FaultScheduleEntry>;
 };
@@ -55,32 +55,30 @@ export type GenerativeSchedule = {
  * deterministic: two calls with byte-identical canonical spec
  * serializations yield byte-identical canonical schedule serializations.
  */
-export function deriveGenerativeSchedule(
-  _spec: MaterializedRunSpec,
-): GenerativeSchedule {
+export function makeSchedule(_spec: MaterializedRunSpec): Schedule {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }
 
 // ---------------------------------------------------------------------------
-// PrincipalDriver seam
+// Principal seam
 // ---------------------------------------------------------------------------
 
 /** What a principal delivers: the seed task as that principal's speech. */
 export type TaskDelivery = {
   readonly episodeId: EpisodeId;
   readonly task: TaskInjectionSpec;
-  readonly world: LaunchedWorld;
+  readonly world: Society;
 };
 
 /**
- * PrincipalDriver seam: delivers seed tasks as principal speech,
+ * Principal seam: delivers seed tasks as principal speech,
  * attributed to a principal identity in the conversation flow, never a
  * system sender. Channel-agnostic on purpose: v0 delivers out-of-band;
  * a later principals-as-endpoints mode lands without surface change.
  * Implementations are named (registered), never closures.
  */
-export interface PrincipalDriver {
+export interface Principal {
   deliverTask(
     delivery: TaskDelivery,
   ): Effect.Effect<void, TaskInjectionFailed, never>;
@@ -92,10 +90,10 @@ export interface PrincipalDriver {
 
 /** Everything the episode controller drives. */
 export type EpisodeDeps = {
-  readonly world: LaunchedWorld;
-  readonly worldDriver: WorldDriver;
-  readonly log: EventLogHandle;
-  readonly principal: PrincipalDriver;
+  readonly world: Society;
+  readonly worldDriver: World;
+  readonly log: EventLog;
+  readonly principal: Principal;
   readonly clock: LogicalClock;
 };
 
@@ -106,9 +104,9 @@ export type EpisodeDeps = {
  * the done-signal, enforce the inactivity bound and the on-agent-crash
  * policy, and honor cooperative interrupts (SIGINT, cancel). Every
  * cooperative path resolves to an `EpisodeTermination`; infrastructure
- * failures fail the effect with the tagged error `executeRun` seals.
+ * failures fail the effect with the tagged error `run` seals.
  */
-export interface EpisodeController {
+export interface Episode {
   run(
     spec: AgentFacingRunSpec,
     deps: EpisodeDeps,
@@ -116,28 +114,28 @@ export interface EpisodeController {
 }
 
 /** Create the v0 episode controller. */
-export function makeEpisodeController(): EpisodeController {
+export function makeEpisode(): Episode {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }
 
 // ---------------------------------------------------------------------------
-// executeRun: the composition root
+// run: the composition root
 // ---------------------------------------------------------------------------
 
 /**
- * Seams `executeRun` composes; every field has a v0 default
+ * Seams `run` composes; every field has a v0 default
  * implementation. `allocated` carries queue-claimed attempt ids; when
- * absent, `executeRun` calls `store.allocateAttempt` itself, so
+ * absent, `run` calls `store.allocateAttempt` itself, so
  * standalone runs and queue workers share one identity protocol.
  * `secrets` seeds the per-attempt registry with consumer-held credential
  * values (the registry also self-seeds from simulator-held credentials
  * and spec-borne mount env values before the manifest persists).
  */
-export type ExecuteRunOptions = {
+export type RunOptions = {
   readonly store?: RecordingStore;
-  readonly runner?: AgentRunner;
-  readonly mounts?: EnvironmentMount;
+  readonly runner?: Launcher;
+  readonly mounts?: Mounts;
   readonly allocated?: AllocatedAttempt;
   readonly secrets?: ReadonlyArray<string>;
 };
@@ -161,10 +159,10 @@ export type SealedAttempt = {
  * with its report evented; (2) `log.seal()`, `receiver.drainTraces()` +
  * `store.writeTraces`, `store.seal`. Teardown precedes the log seal so
  * `teardown.completed` and `teardownComplete` are recordable. A
- * `SealRaceLost` from the store branches on `observed`: with
- * `marker-present` the cancel side already sealed and `executeRun` reads
+ * `SealLost` from the store branches on `observed`: with
+ * `marker-present` the cancel side already sealed and `run` reads
  * that single outcome and returns it; with `lock-held` the cancel-side
- * sealer runs in this same process, so `executeRun` awaits its
+ * sealer runs in this same process, so `run` awaits its
  * completion and then reads the marker — a lock whose holder is gone
  * classifies as unsealed via the queue's worker-loss rules. Succeeds
  * whenever a sealed recording exists — including infrastructure-failure
@@ -174,9 +172,9 @@ export type SealedAttempt = {
  * spec's own runtimes and consumer MCP servers may add their own
  * requirements.
  */
-export function executeRun(
+export function run(
   _spec: RunSpec,
-  _options?: ExecuteRunOptions,
+  _options?: RunOptions,
 ): Effect.Effect<
   SealedAttempt,
   ConfigTimeError | RecordingStoreFailed | ManifestPersistFailed | SealFailed,

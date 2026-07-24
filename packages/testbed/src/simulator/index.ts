@@ -1,7 +1,7 @@
 /**
  * @file Public facade of the simulator surface, exported as
  * `@moltzap/testbed/simulator`: the five public contracts (RunConfig /
- * agent-runner, EnvironmentMount, WorldDriver, Episode lifecycle,
+ * agent-runner, Mounts, World, Episode lifecycle,
  * EventLog / recording), the recording schema, and their seams. The
  * package root keeps the pre-simulator testbed surface unchanged.
  */
@@ -22,21 +22,21 @@ export {
   type JsonValue,
   JsonObject,
   Seed,
-  AgentSlotName,
+  SlotName,
   PrincipalName,
   SpecHash,
   ImageDigest,
   LogicalTime,
-  IsolationPosture,
+  Isolation,
   SlotRole,
-  SimulatorRuntimeKind,
+  RuntimeKind,
   FaultKind,
   OpenClawSlotConfig,
   NanoclawSlotConfig,
   StubSlotConfig,
   RuntimeAssignment,
-  McpServerMountSpec,
-  AgentSlotSpec,
+  McpMount,
+  Slot,
   FaultSpec,
   FaultScheduleEntry,
   WorldSpec,
@@ -55,7 +55,7 @@ export {
   type FieldProvenance,
   type MaterializationReport,
   materializeRunSpec,
-  type CanonicalJsonValue,
+  type CanonicalJson,
   toCanonicalJson,
   canonicalJson,
   computeSpecHash,
@@ -64,39 +64,35 @@ export {
 export {
   type RuntimeExit,
   type SimulatorRuntime,
-  type ServerContainerHandle,
+  type ServerHandle,
   type LaunchedAgent,
   type TeardownReport,
-  type LaunchedWorld,
+  type Society,
   type LaunchDeps,
-  type AgentRunner,
-  makeAgentRunner,
+  type Launcher,
+  makeLauncher,
 } from "./run-config.js";
 
 export {
   type MountPlan,
   type MountHandle,
-  type EnvironmentMount,
-  makeEnvironmentMount,
-} from "./environment-mount.js";
+  type Mounts,
+  makeMounts,
+} from "./mounts.js";
+
+export { type AppliedFault, type World, makeWorld } from "./world.js";
 
 export {
-  type AppliedFault,
-  type WorldDriver,
-  makeWorldDriver,
-} from "./world-driver.js";
-
-export {
-  type GenerativeSchedule,
-  deriveGenerativeSchedule,
+  type Schedule,
+  makeSchedule,
   type TaskDelivery,
-  type PrincipalDriver,
+  type Principal,
   type EpisodeDeps,
-  type EpisodeController,
-  makeEpisodeController,
-  type ExecuteRunOptions,
+  type Episode,
+  makeEpisode,
+  type RunOptions,
   type SealedAttempt,
-  executeRun,
+  run,
 } from "./episode.js";
 
 export {
@@ -126,10 +122,10 @@ export {
   type LogicalClock,
   type EventSink,
   type SealSummary,
-  type EventLogHandle,
+  type EventLog,
   makeEventLog,
-  type OtlpReceiverHandle,
-  makeOtlpReceiver,
+  type Receiver,
+  makeReceiver,
   type ServerStorageAccess,
   type TranscriptDrain,
   makeTranscriptDrain,
@@ -141,9 +137,9 @@ export {
   SlotProvenance,
   ManifestJson,
   EpisodeTermination,
-  InfraFailureReason,
+  FailureReason,
   EpisodeOutcome,
-  InfraFailureOutcome,
+  FailureOutcome,
   type RunOutcome,
   ResultJson,
   CapturedSpan,
@@ -155,9 +151,9 @@ export {
   type RecordingSnapshot,
   type AllocatedAttempt,
   type RecordingStore,
-  recordingPathFor,
-  type SecretRegistry,
-  makeSecretRegistry,
+  recordingPath,
+  type Secrets,
+  makeSecrets,
 } from "./recording.js";
 
 export {
@@ -169,7 +165,7 @@ export {
   CancelledAttempt,
   type AttemptSnapshot,
   type CancelOutcome,
-  type ExperimentQueue,
+  type RunQueue,
   type Runner,
 } from "./attempts.js";
 
@@ -190,12 +186,12 @@ export {
   TaskInjectionFailed,
   DriverCrashed,
   EventLogSealed,
-  SpanAcceptanceLost,
+  ReceiverLost,
   TranscriptDrainFailed,
   ManifestPersistFailed,
   RecordingStoreFailed,
   SealFailed,
-  SealRaceLost,
+  SealLost,
   RecordingInvalid,
   RecordingSchemaMismatch,
   UnknownAttempt,
@@ -206,7 +202,7 @@ export {
 
 export {
   StubStep,
-  StubRuntimeScript,
-  type StubRuntimeOptions,
-  createStubRuntime,
+  StubScript,
+  type StubOptions,
+  makeStubRuntime,
 } from "./stub-runtime.js";

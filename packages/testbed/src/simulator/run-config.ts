@@ -9,15 +9,11 @@
 import type { Effect, Scope } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { Runtime, ServerUrl } from "../runtime.js";
-import type {
-  AgentFacingRunSpec,
-  AgentSlotName,
-  ImageDigest,
-} from "./run-spec.js";
-import type { EventLogHandle, ServerStorageAccess } from "./event-log.js";
-import type { EnvironmentMount, MountHandle } from "./environment-mount.js";
-import type { WorldDriver } from "./world-driver.js";
-import type { SecretRegistry } from "./recording.js";
+import type { AgentFacingRunSpec, SlotName, ImageDigest } from "./run-spec.js";
+import type { EventLog, ServerStorageAccess } from "./event-log.js";
+import type { Mounts, MountHandle } from "./mounts.js";
+import type { World } from "./world.js";
+import type { Secrets } from "./recording.js";
 import type {
   AgentLaunchFailed,
   LoggingProxyFailed,
@@ -53,7 +49,7 @@ export interface SimulatorRuntime extends Runtime {
 // ---------------------------------------------------------------------------
 
 /** The per-run server container (one run, one world). */
-export type ServerContainerHandle = {
+export type ServerHandle = {
   readonly imageDigest: ImageDigest;
   /** Direct server URL; agents connect through their per-agent proxied URLs instead. */
   readonly serverUrl: ServerUrl;
@@ -63,7 +59,7 @@ export type ServerContainerHandle = {
 
 /** One launched slot: its runtime handle and the proxied URL it connects through. */
 export type LaunchedAgent = {
-  readonly slot: AgentSlotName;
+  readonly slot: SlotName;
   readonly agentId: AgentId;
   readonly runtime: SimulatorRuntime;
   readonly serverUrl: ServerUrl;
@@ -77,14 +73,14 @@ export type TeardownReport = {
 
 /**
  * Everything launch brings up. `mounts` aggregates every slot's
- * `MountHandle`, so `executeRun` can race each proxy-health channel
- * against episode termination. `executeRun` calls `teardown` explicitly
+ * `MountHandle`, so `run` can race each proxy-health channel
+ * against episode termination. `run` calls `teardown` explicitly
  * during shutdown, before the event log seals, so the teardown report is
  * evented and recorded; scope close re-runs it as an idempotent backstop
  * for abnormal exits.
  */
-export type LaunchedWorld = {
-  readonly server: ServerContainerHandle;
+export type Society = {
+  readonly server: ServerHandle;
   readonly agents: ReadonlyArray<LaunchedAgent>;
   readonly mounts: ReadonlyArray<MountHandle>;
   teardown(): Effect.Effect<TeardownReport, never, never>;
@@ -96,10 +92,10 @@ export type LaunchedWorld = {
 
 /** Collaborators launch wires per slot: mounts, per-agent endpoints, the event log, and the secret registry. */
 export type LaunchDeps = {
-  readonly mounts: EnvironmentMount;
-  readonly world: WorldDriver;
-  readonly log: EventLogHandle;
-  readonly secrets: SecretRegistry;
+  readonly mounts: Mounts;
+  readonly world: World;
+  readonly log: EventLog;
+  readonly secrets: Secrets;
 };
 
 /**
@@ -113,12 +109,12 @@ export type LaunchDeps = {
  * channels. Partial multi-agent launch tears down already-started members
  * in reverse order and fails with the failing slot's error.
  */
-export interface AgentRunner {
+export interface Launcher {
   launch(
     spec: AgentFacingRunSpec,
     deps: LaunchDeps,
   ): Effect.Effect<
-    LaunchedWorld,
+    Society,
     | ServerLaunchFailed
     | ProvisioningFailed
     | AgentLaunchFailed
@@ -129,7 +125,7 @@ export interface AgentRunner {
 }
 
 /** Create the v0 agent runner (Docker server container + shipped adapters + StubRuntime). */
-export function makeAgentRunner(): AgentRunner {
+export function makeLauncher(): Launcher {
   // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
   throw new Error("not implemented");
 }

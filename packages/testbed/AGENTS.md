@@ -31,12 +31,12 @@ design doc: chughtapan/moltzap#812), exported as
   escalation (`escalatingKill`) used by both adapters
 - `errors.ts` — `SpawnFailed`, `RuntimeExitedBeforeReady`,
   `RuntimeReadyTimedOut`, `RuntimeLaunchFailed`
-- `simulator/` — tree-shaped: `episode.ts` (`executeRun`) is the
+- `simulator/` — tree-shaped: `episode.ts` (`run`) is the
   composition root over four peer contracts (`run-config.ts`,
   `environment-mount.ts`, `world-driver.ts`, `event-log.ts` +
   `recording.ts` + `attempts.ts`), with `run-spec.ts` as the single
   schema registry, `ids.ts`/`errors.ts` as shared kernels, and
-  `stub-runtime.ts` (`createStubRuntime`) as the scripted
+  `stub-runtime.ts` (`makeStubRuntime`) as the scripted
   hermetic-CI/demo runtime; see `simulator/README.md`
 
 ## Concepts
