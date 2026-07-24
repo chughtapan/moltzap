@@ -13,7 +13,7 @@
  * `makeTranscriptDrain`.
  */
 import { createRequire } from "node:module";
-import { Effect, Schema, type Scope } from "effect";
+import { Brand, Effect, Schema, type Scope } from "effect";
 import { LogicalSequence, WallTimeMs } from "./ids.js";
 import {
   JsonValue,
@@ -52,8 +52,9 @@ import {
   type ServerStorageAccess,
   type TranscriptDrain,
 } from "./event-log.js";
-import { makeWorld } from "./world.js";
+import { makeWorld, type World } from "./world.js";
 import { makeEnvironment, type Environment } from "./environment.js";
+import type { Principal } from "./episode.js";
 import { makeLauncher, type Launcher, type Society } from "./run-config.js";
 import {
   makeLocalRecordingStore,
@@ -84,6 +85,12 @@ export type RunInternals = {
     readonly secrets: Secrets;
     readonly storage: ServerStorageAccess;
   }) => Effect.Effect<TranscriptDrain, never, Scope.Scope>;
+  /** Substrate seam; hermetic failure paths inject worlds whose apply/revert fail. */
+  readonly makeWorld?: typeof makeWorld;
+  /** Receiver seam; hermetic tests wrap the real receiver to observe its endpoint or inject stalls. */
+  readonly makeReceiver?: typeof makeReceiver;
+  /** Principal seam; hermetic runs stand in for the wire-speaking out-of-band principal. */
+  readonly makePrincipal?: typeof makePrincipal;
   /** Attempt-phase notifications; the in-process queue mirrors them into `AttemptSnapshot`s. */
   readonly onPhase?: (
     phase: "launching" | "running" | "draining" | "sealing",
@@ -167,7 +174,7 @@ export function runAttempt(
     const ref = yield* store.persistManifest(manifest);
     const live: LiveRun = {
       spec: report.spec,
-      agentFacing: report.spec,
+      agentFacing: stripCondition(report.spec),
       store,
       secrets,
       clock: elapsedClock(),
@@ -176,6 +183,21 @@ export function runAttempt(
     };
     return yield* executeFromManifest(live, options, internals);
   }).pipe(Effect.withSpan("runAttempt"));
+}
+
+/**
+ * The agent-facing projection is a real value-level strip, not a type
+ * assertion: everything past materialization except manifest persistence
+ * receives a spec in which the condition designation does not exist.
+ */
+const mintAgentFacing = Brand.nominal<MaterializedRunSpec>();
+
+function stripCondition(spec: MaterializedRunSpec): AgentFacingRunSpec {
+  const encoded = Schema.encodeSync(RunSpec)(spec);
+  const withoutCondition = Object.fromEntries(
+    Object.entries(encoded).filter(([key]) => key !== "condition"),
+  );
+  return mintAgentFacing(Schema.decodeUnknownSync(RunSpec)(withoutCondition));
 }
 
 /** The run's logical clock: elapsed integer milliseconds since the manifest persisted. */
@@ -268,14 +290,41 @@ function prepareAndRace(
   internals: RunInternals,
 ): Effect.Effect<EpisodeTermination, InfraError, Scope.Scope> {
   return Effect.gen(function* () {
+    const world = yield* bringUp(live, options, internals);
+    // Materialization already validated the driver refs; a failure here
+    // is a registry defect, not an expressible run failure.
+    const principal = yield* (internals.makePrincipal ?? makePrincipal)(
+      live.spec.episode.principalDriver,
+      { secrets: live.secrets },
+    ).pipe(Effect.orDie);
+    yield* notifyPhase(internals, "running");
+    // raceAll settles on the first SUCCESS; failure channels fail typed,
+    // so each contender races as its Either and the first completion of
+    // any kind wins (losers are interrupted).
+    const first = yield* Effect.raceAll(
+      contendersOf(live, world, principal).map((contender) =>
+        Effect.either(contender),
+      ),
+    );
+    return yield* first;
+  });
+}
+
+/** Receiver, world, launch, and drain in the contract order; the handles land on `live`. */
+function bringUp(
+  live: LiveRun,
+  options: RunOptionsInternal,
+  internals: RunInternals,
+): Effect.Effect<World, InfraError, Scope.Scope> {
+  return Effect.gen(function* () {
     const log = mustLog(live);
-    live.receiver = yield* makeReceiver({
+    live.receiver = yield* (internals.makeReceiver ?? makeReceiver)({
       runId: live.ref.runId,
       log,
       failBoundMs: live.spec.timeouts.otlpReceiverFailMs,
       secrets: live.secrets,
     });
-    const world = yield* makeWorld();
+    const world = yield* (internals.makeWorld ?? makeWorld)();
     const launcher = options.runner ?? makeLauncher();
     const environment = options.mounts ?? makeEnvironment();
     live.society = yield* launcher.launch(live.agentFacing, {
@@ -289,26 +338,35 @@ function prepareAndRace(
       secrets: live.secrets,
       storage: live.society.server.storage,
     });
-    // Materialization already validated the driver refs; a failure here
-    // is a registry defect, not an expressible run failure.
-    const principal = yield* makePrincipal(live.spec.episode.principalDriver, {
-      secrets: live.secrets,
-    }).pipe(Effect.orDie);
-    yield* notifyPhase(internals, "running");
-    return yield* Effect.raceAll([
-      episodeRun(live.agentFacing, {
-        world: live.society,
-        worldDriver: world,
-        log,
-        principal,
-        clock: live.clock,
-      }),
-      log.awaitFailure(),
-      live.receiver.awaitFailure(),
-      live.drain.awaitFailure(),
-      ...live.society.mounts.map((mount) => mount.awaitFailure()),
-    ]);
+    return world;
   });
+}
+
+function contendersOf(
+  live: LiveRun,
+  world: World,
+  principal: Principal,
+): ReadonlyArray<Effect.Effect<EpisodeTermination, InfraError, never>> {
+  const log = mustLog(live);
+  const society = live.society;
+  const receiver = live.receiver;
+  const drain = live.drain;
+  if (society === undefined || receiver === undefined || drain === undefined) {
+    return [Effect.dieMessage("bringUp left the run partially wired")];
+  }
+  return [
+    episodeRun(live.agentFacing, {
+      world: society,
+      worldDriver: world,
+      log,
+      principal,
+      clock: live.clock,
+    }),
+    log.awaitFailure(),
+    receiver.awaitFailure(),
+    drain.awaitFailure(),
+    ...society.mounts.map((mount) => mount.awaitFailure()),
+  ];
 }
 
 function mustLog(live: LiveRun): EventLog {

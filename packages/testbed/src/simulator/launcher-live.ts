@@ -14,10 +14,18 @@
  * The OTLP export wiring into the container follows the pending
  * `LaunchDeps` endpoint amendment (chughtapan/moltzap#818 thread).
  */
-import { Command, FetchHttpClient, FileSystem, HttpClient } from "@effect/platform";
+import {
+  Command,
+  FetchHttpClient,
+  FileSystem,
+  HttpClient,
+} from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { Duration, Effect, Schema, type Scope } from "effect";
-import { ServerUrl as mintServerUrl, type RuntimeServerHandle } from "../runtime.js";
+import {
+  ServerUrl as mintServerUrl,
+  type RuntimeServerHandle,
+} from "../runtime.js";
 import { createOpenClawAdapter } from "../openclaw-adapter.js";
 import { NanoclawAdapter } from "../nanoclaw-adapter.js";
 import { MoltZapAgentClient } from "@moltzap/protocol/socket";
@@ -114,10 +122,7 @@ type StartedServer = {
   readonly containerId: string;
 };
 
-function serverFailed(
-  imageDigest: string,
-  detail: string,
-): ServerLaunchFailed {
+function serverFailed(imageDigest: string, detail: string): ServerLaunchFailed {
   return new ServerLaunchFailed({
     imageDigest,
     detail,
@@ -227,8 +232,9 @@ function awaitServerHealthy(
     Effect.retry({
       times: Math.ceil(spec.timeouts.readyTimeoutMs / SERVER_HEALTH_POLL_MS),
     }),
-    Effect.mapError(() =>
-      `health endpoint did not answer within ${String(spec.timeouts.readyTimeoutMs)}ms`,
+    Effect.mapError(
+      () =>
+        `health endpoint did not answer within ${String(spec.timeouts.readyTimeoutMs)}ms`,
     ),
     Effect.asVoid,
   );
@@ -424,28 +430,17 @@ function launchOneAgent(
       agent.name,
       server.handle.serverUrl,
     );
-    const mount = yield* deps.environment.prepare(agent, deps.log, deps.secrets);
+    const mount = yield* deps.environment.prepare(
+      agent,
+      deps.log,
+      deps.secrets,
+    );
     const runtime = yield* runtimeFor(agent, mount, observer);
     yield* enqueueLifecycle(deps, {
       _tag: "agent.launched",
       agent: agent.name,
     });
-    yield* runtime
-      .spawn({
-        agentName: agent.name,
-        apiKey: minted.apiKey,
-        agentId: minted.agentId,
-        serverUrl: endpoint,
-        workspaceFiles: agent.workspaceFiles,
-        ...(modelIdOf(agent) === undefined ? {} : { modelId: modelIdOf(agent) }),
-      })
-      .pipe(
-        Effect.catchTag("SpawnFailed", (cause) =>
-          Effect.fail(
-            agentLaunchFailed(agent, "spawn-failed", cause.message),
-          ),
-        ),
-      );
+    yield* spawnAgent(runtime, agent, minted, endpoint);
     const ready = yield* runtime.waitUntilReady(spec.timeouts.readyTimeoutMs);
     yield* readyOrFail(agent, ready);
     yield* enqueueLifecycle(deps, { _tag: "agent.ready", agent: agent.name });
@@ -461,8 +456,32 @@ function launchOneAgent(
   });
 }
 
+function spawnAgent(
+  runtime: SimulatorRuntime,
+  agent: Agent,
+  minted: MintedIdentity,
+  endpoint: LaunchedAgent["serverUrl"],
+): Effect.Effect<void, AgentLaunchFailed, never> {
+  return runtime
+    .spawn({
+      agentName: agent.name,
+      apiKey: minted.apiKey,
+      agentId: minted.agentId,
+      serverUrl: endpoint,
+      workspaceFiles: agent.workspaceFiles,
+      ...(modelIdOf(agent) === undefined ? {} : { modelId: modelIdOf(agent) }),
+    })
+    .pipe(
+      Effect.catchTag("SpawnFailed", (cause) =>
+        Effect.fail(agentLaunchFailed(agent, "spawn-failed", cause.message)),
+      ),
+    );
+}
+
 function modelIdOf(agent: Agent): string | undefined {
-  return agent.runtime._tag === "stub" ? undefined : agent.runtime.config.modelId;
+  return agent.runtime._tag === "stub"
+    ? undefined
+    : agent.runtime.config.modelId;
 }
 
 function agentLaunchFailed(
@@ -532,8 +551,7 @@ function runtimeFor(
         withExit(
           new NanoclawAdapter({
             server: observer.serverHandle,
-            autoRegisterConversations:
-              runtime.config.autoRegisterConversations,
+            autoRegisterConversations: runtime.config.autoRegisterConversations,
             mcpServers: mount.plan.proxiedServers,
             ...(runtime.config.modelId === undefined
               ? {}
@@ -569,7 +587,9 @@ function openclawRuntimeFor(
   observer: Observer,
 ): Effect.Effect<SimulatorRuntime, AgentLaunchFailed, never> {
   if (agent.runtime._tag !== "openclaw") {
-    return Effect.dieMessage("openclawRuntimeFor requires an openclaw assignment");
+    return Effect.dieMessage(
+      "openclawRuntimeFor requires an openclaw assignment",
+    );
   }
   if (agent.runsIn === "container") {
     return Effect.fail(
@@ -595,6 +615,8 @@ function openclawRuntimeFor(
 }
 
 /** Both shipped adapters implement `awaitExit`; this narrows the existing `Runtime` to the simulator contract. */
-function withExit(runtime: Runtime & Pick<SimulatorRuntime, "awaitExit">): SimulatorRuntime {
+function withExit(
+  runtime: Runtime & Pick<SimulatorRuntime, "awaitExit">,
+): SimulatorRuntime {
   return runtime;
 }

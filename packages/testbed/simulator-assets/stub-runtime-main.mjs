@@ -79,11 +79,13 @@ function textOf(message) {
 }
 
 function armReplies(client, matchers) {
-  const consume = client.subscribe(MessageReceivedNotificationDefinition).pipe(
-    Stream.runForEach((notification) =>
-      Effect.promise(() => onInbound(client, matchers, notification)),
-    ),
-  );
+  const consume = client
+    .subscribe(MessageReceivedNotificationDefinition)
+    .pipe(
+      Stream.runForEach((notification) =>
+        Effect.promise(() => onInbound(client, matchers, notification)),
+      ),
+    );
   Effect.runPromise(consume).catch(() => {
     // Subscription ends when the connection drops; teardown owns exits.
   });

@@ -82,7 +82,7 @@ const EvalContainerDefaultsEnv = Config.all({
  * spawn path materializes them into `container.json`. `MOLTZAP_MCP_SERVERS`
  * carries a JSON record of stdio server definitions.
  */
-function applyEvalContainerDefaults(agentGroupId: string): void {
+export function applyEvalContainerDefaults(agentGroupId: string): void {
   const env = Effect.runSync(
     EvalContainerDefaultsEnv.pipe(
       Effect.withConfigProvider(ConfigProvider.fromEnv()),
