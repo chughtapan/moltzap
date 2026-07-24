@@ -23,8 +23,9 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
   process-exit readiness contract; `await-agent-ready.ts` —
   `awaitAgentReadyByPolling`
 - `child-process.ts` — shared shell-exec/platform-error helpers
-  (`makeCommandHelpers`), stdout/stderr capture, and exit-fiber polling
-  used by both adapters
+  (`makeCommandHelpers`), stdout/stderr capture, supervised spawn
+  (`startSupervisedProcess`), exit-fiber polling, and TERM→KILL
+  escalation (`escalatingKill`) used by both adapters
 - `errors.ts` — `SpawnFailed`, `RuntimeExitedBeforeReady`,
   `RuntimeReadyTimedOut`, `RuntimeLaunchFailed`
 
