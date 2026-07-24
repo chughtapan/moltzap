@@ -85,3 +85,20 @@ export const closeClients = (
     clients.map((client) => client.close()),
     { concurrency: clients.length },
   ).pipe(Effect.asVoid, Effect.withSpan("closeClients"));
+
+/** Error-free finalizer: closes services synchronously, then each client in order. */
+export const closeAll = (
+  services: ReadonlyArray<ConnectedService>,
+  clients: ReadonlyArray<TestClient>,
+): Effect.Effect<void> =>
+  Effect.sync(() => {
+    for (const service of services) service.close();
+  }).pipe(
+    Effect.zipRight(
+      Effect.forEach(clients, (client) => client.close().pipe(Effect.ignore), {
+        concurrency: 1,
+      }),
+    ),
+    Effect.asVoid,
+    Effect.withSpan("closeAll"),
+  );

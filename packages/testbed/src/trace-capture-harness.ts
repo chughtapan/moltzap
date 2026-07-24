@@ -191,6 +191,7 @@ interface ConversationExecutionState {
   readonly closers: Array<HarnessClient>;
   readonly participants: Array<ConversationParticipant>;
   readonly responses: Array<ConversationResponse>;
+  readonly responseTimeoutMs: number | undefined;
 }
 
 function failHarness(message: string): HarnessFailure {
@@ -305,8 +306,15 @@ function defaultTargetAgentName(kind: RuntimeKind): string {
   }
 }
 
+const CLIENT_CLOSE_TIMEOUT_MS = 5_000;
+
+// Bounded: a close that hangs (half-dead socket) must degrade to a leaked
+// connection warning, never wedge the run's unwind chain.
 function closeClient(client: HarnessClient): Effect.Effect<void, never, never> {
-  return client.close().pipe(Effect.orElseSucceed(() => undefined));
+  return client.close().pipe(
+    Effect.timeout(Duration.millis(CLIENT_CLOSE_TIMEOUT_MS)),
+    Effect.orElseSucceed(() => undefined),
+  );
 }
 
 function extractTextFromEvent(data: {
@@ -385,7 +393,7 @@ function sendMessageAndWait(input: {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly message: string;
-  readonly timeoutMs?: number;
+  readonly timeoutMs: number | undefined;
 }): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return Effect.gen(function* () {
     // Spec B (#596) Goal #7 disposition (a): fork the response-listener
@@ -490,12 +498,14 @@ function createGroupConversation(input: {
 
 function createConversationState(
   sender: ConnectedActor,
+  responseTimeoutMs: number | undefined,
 ): ConversationExecutionState {
   return {
     sender,
     closers: [sender.client],
     participants: [{ id: sender.agentId, name: sender.name, role: "sender" }],
     responses: [],
+    responseTimeoutMs,
   };
 }
 
@@ -570,7 +580,12 @@ function executeGroupConversation(
       groupName: input.payload.conversation.groupName ?? DEFAULT_GROUP_NAME,
       participants: bystanders.map((entry) => entry.actor),
     });
-    yield* sendBystanderMessages(bystanders, input.targetAgentId, scope);
+    yield* sendBystanderMessages(
+      bystanders,
+      input.targetAgentId,
+      scope,
+      state.responseTimeoutMs,
+    );
     yield* sendSetupAndFollowUps({
       state,
       sender: state.sender,
@@ -619,6 +634,7 @@ function executeCrossConversation(
         taskId: secondScope.taskId,
         conversationId: secondScope.conversationId,
         message: input.payload.conversation.probeMessage,
+        timeoutMs: state.responseTimeoutMs,
       }),
     );
   });
@@ -701,6 +717,7 @@ function sendSetupAndFollowUps(input: {
         taskId: input.scope.taskId,
         conversationId: input.scope.conversationId,
         message: input.setupMessage,
+        timeoutMs: input.state.responseTimeoutMs,
       }),
     );
     for (const followUp of input.followUpMessages) {
@@ -711,6 +728,7 @@ function sendSetupAndFollowUps(input: {
           taskId: input.scope.taskId,
           conversationId: input.scope.conversationId,
           message: followUp,
+          timeoutMs: input.state.responseTimeoutMs,
         }),
       );
     }
@@ -724,6 +742,7 @@ function sendBystanderMessages(
   }>,
   targetAgentId: AgentId,
   scope: TaskScope,
+  responseTimeoutMs: number | undefined,
 ) {
   return Effect.forEach(
     bystanders,
@@ -737,6 +756,7 @@ function sendBystanderMessages(
             taskId: scope.taskId,
             conversationId: scope.conversationId,
             message,
+            timeoutMs: responseTimeoutMs,
           }),
         { concurrency: 1, discard: true },
       ),
@@ -756,17 +776,25 @@ function executeConversationPlan(input: {
       input.baseUrl,
       input.payload.conversation.senderName ?? "eval-sender",
     );
-    const state = createConversationState(sender);
+    const state = createConversationState(
+      sender,
+      input.payload.runtime.responseTimeoutMs,
+    );
 
-    try {
-      yield* executeConversationKind(input, state);
-      return {
-        participants: state.participants,
-        responses: state.responses,
-      };
-    } finally {
-      yield* closeConversationClients(state.closers);
-    }
+    // Cleanup MUST be Effect.ensuring, not a gen-body try/finally: on the
+    // failure path Effect.gen never resumes the generator, so a finally's
+    // `yield*` silently never executes — the leaked client sockets then
+    // hang the server close and wedge the caller forever (#791). The
+    // suspend defers reading `closers`, which fills during execution.
+    yield* executeConversationKind(input, state).pipe(
+      Effect.ensuring(
+        Effect.suspend(() => closeConversationClients(state.closers)),
+      ),
+    );
+    return {
+      participants: state.participants,
+      responses: state.responses,
+    };
   });
 }
 

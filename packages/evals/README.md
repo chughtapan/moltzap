@@ -26,6 +26,11 @@ Requirements:
   model, or you must override the model explicitly
 - the judge must have either `claude auth login` or `ANTHROPIC_API_KEY`
 
+Harness payload knobs (`harness.payload.runtime`): `kind` (`openclaw` |
+`nanoclaw`), optional `targetAgentName`, `readyTimeoutMs` (default 120s),
+and `responseTimeoutMs` (default 120s) — the per-message window the
+harness waits for the target agent's reply before failing the run.
+
 Ownership split:
 
 - `packages/server`: server runtime; emits OpenTelemetry spans (`moltzap.message.delivered` / `moltzap.message.blocked`), readable in tests via `CoreTestServer.spanExporter`
