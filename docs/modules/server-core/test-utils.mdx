@@ -220,7 +220,7 @@ export function startCoreTestServer(opts: StartCoreTestServerOptions = {}) {
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L106)
+### [`CoreTestServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L105)
 
 _Interface_
 
@@ -234,7 +234,7 @@ export interface CoreTestServerHandle {
   /**
    * Pre-wired `RuntimeServerHandle` for runtime-adapter tests. Implements
    * `awaitAgentReady` by polling the live `ConnectionManager` — the same
-   * pattern `@moltzap/runtimes`'s `awaitAgentReadyByPolling` exports for
+   * pattern `@moltzap/testbed`'s `awaitAgentReadyByPolling` exports for
    * downstream in-process consumers. Out-of-process consumers (zapbot's
    * orchestrator) construct their own handle over WebSocket presence.
    */
@@ -316,7 +316,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L413)
+### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L412)
 
 _Function_
 
@@ -324,7 +324,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L398)
+### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L397)
 
 _Function_
 
@@ -332,7 +332,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L406)
+### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L405)
 
 _Function_
 
@@ -340,7 +340,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L418)
+### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L417)
 
 _Function_
 
@@ -519,7 +519,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L372)
+### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L371)
 
 _Function_
 
@@ -572,7 +572,7 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServerEffect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L329)
+### [`startCoreTestServerEffect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L328)
 
 _Function_
 
@@ -582,7 +582,7 @@ export function startCoreTestServerEffect(
 )
 ```
 
-### [`startCoreTestServerFull`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L342)
+### [`startCoreTestServerFull`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L341)
 
 _Function_
 
@@ -604,7 +604,7 @@ export interface StartCoreTestServerOptions {
 }
 ```
 
-### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L346)
+### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L345)
 
 _Function_
 
