@@ -6,11 +6,15 @@
  * result into the event log. Environment semantics (what the tools do)
  * live entirely with the consumer; the simulator only mounts them.
  */
-import type { Effect, Scope } from "effect";
-import type { Agent } from "./run-spec.js";
+import { fileURLToPath } from "node:url";
+import { Deferred, Effect, Schema, type Scope } from "effect";
+import type { Socket } from "@effect/platform";
+import { NodeSocketServer } from "@effect/platform-node";
+import { CorrelationId, WallTimeMs } from "./ids.js";
+import { JsonValue, type Agent } from "./run-spec.js";
 import type { EventLog } from "./event-log.js";
 import type { Secrets } from "./recording.js";
-import type { LoggingProxyFailed, MountFailed } from "./errors.js";
+import { LoggingProxyFailed, type MountFailed } from "./errors.js";
 
 /**
  * Adapter-facing mount material for one agent. Each runtime adapter
@@ -58,6 +62,254 @@ export interface Environment {
 
 /** Create the v0 environment mount (stdio MCP servers behind the logging proxy). */
 export function makeEnvironment(): Environment {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+  return { prepare };
+}
+
+const PROXY_MAIN_PATH = fileURLToPath(
+  new URL("../../simulator-assets/mcp-logging-proxy.mjs", import.meta.url),
+);
+
+/** One NDJSON report per intercepted frame, sent by the proxy over the tap socket. */
+const TapReport = Schema.Union(
+  Schema.Struct({
+    type: Schema.Literal("call"),
+    mount: Schema.String,
+    id: Schema.Union(Schema.String, Schema.Number),
+    tool: Schema.String,
+    args: JsonValue,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("result"),
+    mount: Schema.String,
+    id: Schema.Union(Schema.String, Schema.Number),
+    tool: Schema.String,
+    result: JsonValue,
+    isError: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("fatal"),
+    mount: Schema.String,
+    message: Schema.String,
+  }),
+).annotations({ description: "MCP logging-proxy tap report" });
+
+const decodeTapReport = Schema.decodeUnknownOption(Schema.parseJson(TapReport));
+
+type TapContext = {
+  readonly agent: Agent;
+  readonly log: EventLog;
+  readonly failure: Deferred.Deferred<never, LoggingProxyFailed>;
+  readonly closing: { value: boolean };
+};
+
+function prepare(
+  agent: Agent,
+  log: EventLog,
+  secrets: Secrets,
+): Effect.Effect<MountHandle, MountFailed | LoggingProxyFailed, Scope.Scope> {
+  return Effect.gen(function* () {
+    registerMountSecrets(agent, secrets);
+    const failure = yield* Deferred.make<never, LoggingProxyFailed>();
+    if (agent.mcpServers.length === 0) {
+      return {
+        plan: { agent: agent.name, proxiedServers: [] },
+        awaitFailure: () => Deferred.await(failure),
+      };
+    }
+    const ctx: TapContext = {
+      agent,
+      log,
+      failure,
+      closing: { value: false },
+    };
+    const tapPort = yield* startTapServer(ctx);
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        ctx.closing.value = true;
+      }),
+    );
+    return {
+      plan: {
+        agent: agent.name,
+        proxiedServers: agent.mcpServers.map((server) => ({
+          name: server.name,
+          command: process.execPath,
+          args: [
+            PROXY_MAIN_PATH,
+            "--tap",
+            String(tapPort),
+            "--mount",
+            server.name,
+            "--",
+            server.command,
+            ...server.args,
+          ],
+          env: server.env,
+        })),
+      },
+      awaitFailure: () => Deferred.await(failure),
+    };
+  }).pipe(Effect.withSpan("Environment.prepare"));
+}
+
+/** Mount env values are credential material until proven otherwise; they register before any proxy starts. */
+function registerMountSecrets(agent: Agent, secrets: Secrets): void {
+  for (const server of agent.mcpServers) {
+    for (const value of Object.values(server.env)) {
+      secrets.register(value);
+    }
+  }
+}
+
+function proxyFailed(agent: Agent, detail: string): LoggingProxyFailed {
+  return new LoggingProxyFailed({
+    slot: agent.name,
+    mount: "*",
+    message: `The MCP logging proxy for agent "${agent.name}" failed: ${detail}. Capture is total, so the run seals with reason logging-proxy-failed.`,
+  });
+}
+
+function startTapServer(
+  ctx: TapContext,
+): Effect.Effect<number, LoggingProxyFailed, Scope.Scope> {
+  return Effect.gen(function* () {
+    const server = yield* NodeSocketServer.make({
+      host: "127.0.0.1",
+      port: 0,
+    }).pipe(
+      Effect.catchAll((cause) =>
+        Effect.fail(proxyFailed(ctx.agent, `tap bind failed: ${String(cause)}`)),
+      ),
+    );
+    yield* Effect.forkScoped(
+      server.run((connection) => serveTapConnection(ctx, connection)),
+    );
+    return server.address._tag === "TcpAddress" ? server.address.port : 0;
+  });
+}
+
+/**
+ * One tap connection per proxy process. The connection closing while the
+ * mount is still live means the proxy died; capture is total, so that is
+ * a logging-proxy failure, not a silent gap.
+ */
+function serveTapConnection(
+  ctx: TapContext,
+  connection: Socket.Socket,
+): Effect.Effect<void, never, never> {
+  const buffer = { value: "" };
+  return connection
+    .runRaw((chunk) => consumeTapChunk(ctx, buffer, chunk))
+    .pipe(
+      Effect.catchAll(() => Effect.void),
+      Effect.zipRight(
+        ctx.closing.value
+          ? Effect.void
+          : Deferred.fail(
+              ctx.failure,
+              proxyFailed(ctx.agent, "the proxy process disconnected mid-run"),
+            ).pipe(Effect.asVoid),
+      ),
+    );
+}
+
+function consumeTapChunk(
+  ctx: TapContext,
+  buffer: { value: string },
+  chunk: string | Uint8Array,
+): Effect.Effect<void, never, never> {
+  buffer.value +=
+    typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+  const lines = buffer.value.split("\n");
+  buffer.value = lines.pop() ?? "";
+  return Effect.forEach(
+    lines.filter((line) => line.trim().length > 0),
+    (line) => handleTapLine(ctx, line),
+    { concurrency: 1, discard: true },
+  );
+}
+
+function handleTapLine(
+  ctx: TapContext,
+  line: string,
+): Effect.Effect<void, never, never> {
+  const decoded = decodeTapReport(line);
+  if (decoded._tag === "None") return Effect.void;
+  const report = decoded.value;
+  switch (report.type) {
+    case "fatal":
+      return Deferred.fail(
+        ctx.failure,
+        proxyFailed(ctx.agent, report.message),
+      ).pipe(Effect.asVoid);
+    case "call":
+      return enqueueProxyEvent(ctx, {
+        _tag: "proxy.tool-call",
+        correlationId: correlationFor(ctx, report.mount, report.id),
+        agent: ctx.agent.name,
+        mount: report.mount,
+        tool: report.tool,
+        args: report.args,
+      });
+    case "result":
+      return enqueueProxyEvent(ctx, {
+        _tag: "proxy.tool-result",
+        correlationId: correlationFor(ctx, report.mount, report.id),
+        agent: ctx.agent.name,
+        mount: report.mount,
+        tool: report.tool,
+        result: report.result,
+        isError: report.isError,
+      });
+    default: {
+      const exhaustive: never = report;
+      return Effect.dieMessage(
+        `unreachable tap report ${JSON.stringify(exhaustive)}`,
+      );
+    }
+  }
+}
+
+/** Call/result pairing key: one correlation per (mount, JSON-RPC id) exchange. */
+function correlationFor(
+  ctx: TapContext,
+  mount: string,
+  id: string | number,
+): CorrelationId {
+  return Schema.decodeSync(CorrelationId)(
+    `${ctx.agent.name}/${mount}/tool-call/${String(id)}`,
+  );
+}
+
+function enqueueProxyEvent(
+  ctx: TapContext,
+  fields:
+    | {
+        readonly _tag: "proxy.tool-call";
+        readonly correlationId: CorrelationId;
+        readonly agent: Agent["name"];
+        readonly mount: string;
+        readonly tool: string;
+        readonly args: JsonValue;
+      }
+    | {
+        readonly _tag: "proxy.tool-result";
+        readonly correlationId: CorrelationId;
+        readonly agent: Agent["name"];
+        readonly mount: string;
+        readonly tool: string;
+        readonly result: JsonValue;
+        readonly isError: boolean;
+      },
+): Effect.Effect<void, never, never> {
+  return ctx.log
+    .enqueue({
+      ...fields,
+      source: "proxy",
+      wallTime: Schema.decodeSync(WallTimeMs)(Date.now()),
+    })
+    .pipe(
+      Effect.asVoid,
+      Effect.catchTag("EventLogSealed", () => Effect.void),
+    );
 }

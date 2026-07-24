@@ -54,6 +54,19 @@ const MAX_ATTEMPT_PROBES = 10_000;
 
 const mintSealedRecordingRef = Brand.nominal<SealedRecordingRef>();
 
+/**
+ * Mint the sealed brand from read evidence: the marker's presence in a
+ * decoded snapshot IS the sealed state, so a seal-race loser can carry
+ * the winner's outcome under the same branded contract. Package-internal;
+ * the public mint stays `RecordingStore.seal`.
+ */
+export function mintSealedFromEvidence(
+  ref: RecordingRef,
+  snapshot: RecordingSnapshot,
+): SealedRecordingRef | undefined {
+  return snapshot.seal === undefined ? undefined : mintSealedRecordingRef(ref);
+}
+
 type Fs = FileSystem.FileSystem;
 
 const withFs = <A, E>(

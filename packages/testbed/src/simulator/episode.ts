@@ -11,7 +11,7 @@
  * schedule, never to recordings. Predicate firings are never
  * seed-derived; each is recorded in the log.
  */
-import type { Effect, Scope } from "effect";
+import { Effect, type Scope } from "effect";
 import type {
   AgentFacingRunSpec,
   FaultScheduleEntry,
@@ -19,6 +19,12 @@ import type {
   RunSpec,
   TaskInjectionSpec,
 } from "./run-spec.js";
+import { episodeRun } from "./episode-live.js";
+import {
+  defaultRunInternals,
+  runAttempt,
+  type RunOptionsInternal,
+} from "./run-internal.js";
 import type { EpisodeId } from "./ids.js";
 import type { LogicalClock, EventLog } from "./event-log.js";
 import type { Launcher, Society } from "./run-config.js";
@@ -55,9 +61,28 @@ export type Schedule = {
  * deterministic: two calls with byte-identical canonical spec
  * serializations yield byte-identical canonical schedule serializations.
  */
-export function makeSchedule(_spec: MaterializedRunSpec): Schedule {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+export function makeSchedule(spec: MaterializedRunSpec): Schedule {
+  // Only the agent-facing episode and world fields feed the schedule, so
+  // a condition designation cannot influence it.
+  return {
+    taskArrivals: [spec.episode.task],
+    faultWindows: [...spec.world.faults].sort(compareFaultWindows),
+  };
+}
+
+function compareFaultWindows(
+  left: FaultScheduleEntry,
+  right: FaultScheduleEntry,
+): number {
+  if (left.applyAtMs !== right.applyAtMs) return left.applyAtMs - right.applyAtMs;
+  if (left.revertAtMs !== right.revertAtMs) {
+    return left.revertAtMs - right.revertAtMs;
+  }
+  if (left.fault.target !== right.fault.target) {
+    return left.fault.target < right.fault.target ? -1 : 1;
+  }
+  if (left.fault._tag === right.fault._tag) return 0;
+  return left.fault._tag < right.fault._tag ? -1 : 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,8 +140,7 @@ export interface Episode {
 
 /** Create the v0 episode controller. */
 export function makeEpisode(): Episode {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+  return { run: episodeRun };
 }
 
 // ---------------------------------------------------------------------------
@@ -173,13 +197,15 @@ export type SealedAttempt = {
  * requirements.
  */
 export function run(
-  _spec: RunSpec,
-  _options?: RunOptions,
+  spec: RunSpec,
+  options?: RunOptions,
 ): Effect.Effect<
   SealedAttempt,
   ConfigTimeError | RecordingStoreFailed | ManifestPersistFailed | SealFailed,
   Scope.Scope
 > {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+  const internalOptions: RunOptionsInternal = options ?? {};
+  return runAttempt(spec, internalOptions, defaultRunInternals).pipe(
+    Effect.withSpan("run"),
+  );
 }

@@ -30,7 +30,11 @@ import {
   getMessagingGroupByPlatform,
 } from "../db/messaging-groups.js";
 import { createAgentGroup, getAllAgentGroups } from "../db/agent-groups.js";
-import { ensureContainerConfig } from "../db/container-configs.js";
+import {
+  ensureContainerConfig,
+  updateContainerConfigJson,
+  updateContainerConfigScalars,
+} from "../db/container-configs.js";
 import { upsertUser } from "../modules/permissions/db/users.js";
 import type { AgentGroup } from "../types.js";
 
@@ -63,7 +67,39 @@ function createEvalAgentGroup(): AgentGroup {
   };
   createAgentGroup(group);
   ensureContainerConfig(group.id, null);
+  applyEvalContainerDefaults(group.id);
   return group;
+}
+
+const EvalContainerDefaultsEnv = Config.all({
+  model: Config.option(Config.string("MOLTZAP_AGENT_MODEL")),
+  mcpServers: Config.option(Config.string("MOLTZAP_MCP_SERVERS")),
+});
+
+/**
+ * The moltzap simulator honors per-agent `modelId` and MCP mounts on
+ * NanoClaw through the container config of the eval agent group; the
+ * spawn path materializes them into `container.json`. `MOLTZAP_MCP_SERVERS`
+ * carries a JSON record of stdio server definitions.
+ */
+function applyEvalContainerDefaults(agentGroupId: string): void {
+  const env = Effect.runSync(
+    EvalContainerDefaultsEnv.pipe(
+      Effect.withConfigProvider(ConfigProvider.fromEnv()),
+    ),
+  );
+  const model = Option.getOrNull(env.model);
+  if (model !== null && model.length > 0) {
+    updateContainerConfigScalars(agentGroupId, { model });
+  }
+  const mcpServers = Option.getOrNull(env.mcpServers);
+  if (mcpServers !== null && mcpServers.length > 0) {
+    updateContainerConfigJson(
+      agentGroupId,
+      "mcp_servers",
+      JSON.parse(mcpServers),
+    );
+  }
 }
 
 // Every message a MoltZap conversation delivers is addressed to this agent

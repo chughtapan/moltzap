@@ -73,6 +73,15 @@ interface StartNanoclawRuntimeOptions {
     relativePath: string;
     content: string;
   }>;
+  /** Honored through the eval agent group's container config (moltzap channel). */
+  modelId?: string;
+  /** Stdio MCP servers mounted into the container via the container config. */
+  mcpServers?: ReadonlyArray<{
+    readonly name: string;
+    readonly command: string;
+    readonly args: ReadonlyArray<string>;
+    readonly env: Readonly<Record<string, string>>;
+  }>;
 }
 
 export interface NanoclawProcessPlan {
@@ -326,11 +335,33 @@ export function buildNanoclawProcessPlan(
   install: NanoclawRuntimeInstall,
 ): NanoclawProcessPlan {
   const entrypoint = join(install.cacheDir, "dist/index.js");
+  const containerDefaults = {
+    ...(opts.modelId === undefined || opts.modelId.length === 0
+      ? {}
+      : { MOLTZAP_AGENT_MODEL: opts.modelId }),
+    ...(opts.mcpServers === undefined || opts.mcpServers.length === 0
+      ? {}
+      : {
+          MOLTZAP_MCP_SERVERS: JSON.stringify(
+            Object.fromEntries(
+              opts.mcpServers.map((server) => [
+                server.name,
+                {
+                  command: server.command,
+                  args: [...server.args],
+                  env: { ...server.env },
+                },
+              ]),
+            ),
+          ),
+        }),
+  };
   return {
     command: "node",
     args: [entrypoint],
     cwd: runtimeDir,
     env: {
+      ...containerDefaults,
       MOLTZAP_PROFILE: TESTBED_PROFILE_NAME,
       MOLTZAP_CONFIG_HOME: join(runtimeDir, ".moltzap"),
       MOLTZAP_SERVER_URL: normalizeNanoclawServerUrl(opts.serverUrl),

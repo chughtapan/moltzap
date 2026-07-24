@@ -122,11 +122,28 @@ export class CancelledAttempt extends Schema.TaggedClass<CancelledAttempt>()(
   attemptBaseFields,
 ) {}
 
-/** Queue-visible snapshot of one attempt (`status` output). */
+/**
+ * Queue-visible snapshot of one attempt (`status` output). The union
+ * filters make the stated implications hold for decoded snapshots too:
+ * worker loss implies unsealed, and a live attempt past `launching` has
+ * a recording path (the manifest persists before launch).
+ */
 const AttemptSnapshot = Schema.Union(
   QueuedAttempt,
-  LiveAttempt,
-  FinishedAttempt,
+  LiveAttempt.pipe(
+    Schema.filter((attempt) =>
+      attempt.state === "launching" || attempt.recordingPath !== undefined
+        ? undefined
+        : `a ${attempt.state} attempt carries its recording path`,
+    ),
+  ),
+  FinishedAttempt.pipe(
+    Schema.filter((attempt) =>
+      attempt.state === "sealed" && attempt.workerLost
+        ? "worker loss implies unsealed; a dead worker seals nothing"
+        : undefined,
+    ),
+  ),
   CancelledAttempt,
 );
 export type AttemptSnapshot = typeof AttemptSnapshot.Type;

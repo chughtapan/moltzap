@@ -16,7 +16,9 @@ export const MOLTZAP_TESTBED_CACHE_ROOT = join(
   "moltzap-testbed",
 );
 
-const NANOCLAW_SHA = "641963c1e4b7ba4f000a18dfc5e2fea29069feec";
+/** Pinned NanoClaw source revision; the simulator's manifest cites it as the runtime version. */
+export const NANOCLAW_PINNED_SHA = "641963c1e4b7ba4f000a18dfc5e2fea29069feec";
+const NANOCLAW_SHA = NANOCLAW_PINNED_SHA;
 const NANOCLAW_URL =
   "https://github.com/nanocoai/nanoclaw/archive/" + NANOCLAW_SHA + ".tar.gz";
 const NANOCLAW_CACHE_SCHEMA_VERSION = 5;
