@@ -27,6 +27,7 @@
  * necessarily leave an unsealed recording. Abrupt termination the process
  * cannot observe always leaves an unsealed recording.
  */
+import { join } from "node:path";
 import { Schema, type Brand, type Effect } from "effect";
 import { AttemptId, RunId, WallTimeMs, LogicalSequence } from "./ids.js";
 import {
@@ -362,14 +363,23 @@ export interface RecordingStore {
   >;
 }
 
-/** Compute the store-relative recording path for one attempt. */
+/**
+ * Compute the recording path for one attempt:
+ * `{storeRoot}/{specHash}/s{seed}/{attemptId}`. Injective because every
+ * component is path-safe by schema (hex hash, integer seed, `a{n}`) and
+ * each occupies its own segment.
+ */
 export function recordingPath(
-  _storeRoot: string,
-  _identity: RecordingIdentity,
-  _attemptId: AttemptId,
+  storeRoot: string,
+  identity: RecordingIdentity,
+  attemptId: AttemptId,
 ): string {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+  return join(
+    storeRoot,
+    identity.specHash,
+    `s${String(identity.seed)}`,
+    attemptId,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +415,115 @@ export interface Secrets {
  * registry per attempt — a process-global registry would leak secrets
  * across concurrent runs.
  */
-export function makeSecrets(_initial: ReadonlyArray<string>): Secrets {
-  // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- interface stub; the signature is the contract, the body is downstream
-  throw new Error("not implemented");
+export function makeSecrets(initial: ReadonlyArray<string>): Secrets {
+  const state: SecretsState = {
+    count: 0,
+    seen: new Set(),
+    variantIndex: new Map(),
+    pattern: null,
+  };
+  const redact = (text: string): string => redactWith(state, text);
+  const secrets: Secrets = {
+    register: (value) => {
+      registerSecret(state, value);
+    },
+    redact,
+    redactJson: (value) => redactJsonWith(redact, value),
+  };
+  initial.forEach(secrets.register);
+  return secrets;
+}
+
+type SecretsState = {
+  count: number;
+  readonly seen: Set<string>;
+  readonly variantIndex: Map<string, number>;
+  pattern: RegExp | null;
+};
+
+const REDACTION_MARKER = /\[REDACTED:k\d+\]/gu;
+
+function registerSecret(state: SecretsState, value: string): void {
+  if (value.length === 0 || state.seen.has(value)) return;
+  state.seen.add(value);
+  const index = state.count;
+  state.count += 1;
+  for (const variant of secretVariants(value)) {
+    if (!state.variantIndex.has(variant)) {
+      state.variantIndex.set(variant, index);
+    }
+  }
+  state.pattern = null;
+}
+
+/**
+ * Longest-first alternation so an encoding variant that contains another
+ * registered value redacts as itself, in one pass over the input.
+ */
+function matcherFor(state: SecretsState): RegExp | null {
+  if (state.variantIndex.size === 0) return null;
+  if (state.pattern === null) {
+    const variants = [...state.variantIndex.keys()].sort(
+      (left, right) => right.length - left.length,
+    );
+    state.pattern = new RegExp(variants.map(escapeRegExp).join("|"), "gu");
+  }
+  state.pattern.lastIndex = 0;
+  return state.pattern;
+}
+
+function redactSegment(state: SecretsState, segment: string): string {
+  const regex = matcherFor(state);
+  if (regex === null) return segment;
+  return segment.replace(regex, (match) => {
+    const index = state.variantIndex.get(match);
+    return index === undefined ? match : `[REDACTED:k${String(index)}]`;
+  });
+}
+
+/**
+ * Existing redaction markers are never rewritten, so redact is a
+ * fixpoint: a second pass sees only marker segments and clean text.
+ */
+function redactWith(state: SecretsState, text: string): string {
+  const segments = text.split(REDACTION_MARKER);
+  const markers = text.match(REDACTION_MARKER) ?? [];
+  let output = "";
+  segments.forEach((segment, index) => {
+    output += redactSegment(state, segment);
+    const marker = markers[index];
+    if (marker !== undefined) output += marker;
+  });
+  return output;
+}
+
+function redactJsonWith(
+  redact: (text: string) => string,
+  value: JsonValue,
+): JsonValue {
+  if (typeof value === "string") return redact(value);
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactJsonWith(redact, entry));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        redactJsonWith(redact, entry),
+      ]),
+    );
+  }
+  return value;
+}
+
+function secretVariants(value: string): ReadonlyArray<string> {
+  const variants = new Set<string>([value]);
+  variants.add(Buffer.from(value, "utf8").toString("base64"));
+  variants.add(Buffer.from(value, "utf8").toString("base64url"));
+  variants.add(encodeURIComponent(value));
+  return [...variants];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }

@@ -1,10 +1,30 @@
 /**
- * @file Branded runtime identifiers shared across the simulator modules.
- * Config-time identifiers (Seed, SpecHash, slot names) live in
- * `run-spec.ts`; these are the identities minted while a run executes.
- * None is ever allocated from construction order.
+ * @file Branded runtime identifiers and closed literal vocabularies
+ * shared across the simulator modules. Config-time identifiers (Seed,
+ * SpecHash, slot names) live in `run-spec.ts`; these are the identities
+ * minted while a run executes plus the literal vocabularies that recur
+ * in events, errors, and provenance. None is ever allocated from
+ * construction order.
  */
 import { Schema, type Brand } from "effect";
+
+/** Closed union of registered runtime kinds; provenance, events, and errors reuse it. */
+export const RuntimeKind = Schema.Literal(
+  "openclaw",
+  "nanoclaw",
+  "stub",
+).annotations({ description: "Registered runtime kind" });
+export type RuntimeKind = typeof RuntimeKind.Type;
+
+/** Closed fault-kind vocabulary; events and errors reuse it instead of plain strings. */
+export const FaultKind = Schema.Literal(
+  "sever",
+  "delay",
+  "throttle",
+).annotations({
+  description: "Connection-level fault kind",
+});
+export type FaultKind = typeof FaultKind.Type;
 
 export type RunId = string & Brand.Brand<"RunId">;
 /** Unique per attempt execution: `{specHash12}-s{seed}-a{attempt}`. */
