@@ -14,7 +14,7 @@
  * Sealing is durably at-most-once per attempt: (1) create `seal.lock`
  * with O_CREAT|O_EXCL, then fsync the directory so the lock's entry
  * survives a crash — the losing racer in a cancel/completion race fails
- * typed with `SealLost` (`observed: "marker-present"` = winner
+ * typed with `AlreadySealed` (`observed: "marker-present"` = winner
  * sealed, read its outcome; `observed: "lock-held"` = winner mid-seal or
  * crash tombstone, no sealed outcome yet) and never writes; (2) fsync the three
  * pre-result files (`manifest.json`, `events.ndjson`, `traces.json`);
@@ -30,7 +30,7 @@
 import { Schema, type Brand, type Effect } from "effect";
 import { AttemptId, RunId, WallTimeMs, LogicalSequence } from "./ids.js";
 import {
-  Isolation,
+  RunsIn,
   JsonValue,
   RunSpec,
   Seed,
@@ -43,7 +43,7 @@ import type {
   RecordingSchemaMismatch,
   RecordingStoreFailed,
   SealFailed,
-  SealLost,
+  AlreadySealed,
 } from "./errors.js";
 
 /** Integer recording-schema version; bumped on breaking change; graders hard-fail on mismatch. */
@@ -74,11 +74,11 @@ export class RecordingIdentity extends Schema.Class<RecordingIdentity>(
 // manifest.json
 // ---------------------------------------------------------------------------
 
-/** Per-slot provenance the manifest pins (no credential material, ever). */
-export class SlotProvenance extends Schema.Class<SlotProvenance>(
-  "SlotProvenance",
+/** Per-agent provenance the manifest pins (no credential material, ever). */
+export class AgentProvenance extends Schema.Class<AgentProvenance>(
+  "AgentProvenance",
 )({
-  slot: Schema.String.annotations({ description: "Agent slot name" }),
+  agent: Schema.String.annotations({ description: "Agent name" }),
   runtimeKind: RuntimeKind,
   runtimeVersion: Schema.String.annotations({
     description: "Resolved runtime/adapter version",
@@ -99,7 +99,7 @@ export class SlotProvenance extends Schema.Class<SlotProvenance>(
       description: "Container image digest for container-isolated slots",
     }),
   ),
-  isolation: Isolation,
+  isolation: RunsIn,
   promptHash: Schema.optional(
     Schema.String.annotations({
       description: "Consumer-supplied prompt/persona hash",
@@ -132,7 +132,7 @@ export class ManifestJson extends Schema.Class<ManifestJson>("ManifestJson")({
   serverImageDigest: Schema.String.annotations({
     description: "Pinned server container image digest",
   }),
-  slots: Schema.Array(SlotProvenance).annotations({
+  slots: Schema.Array(AgentProvenance).annotations({
     description: "Per-slot provenance",
   }),
   lockfileHash: Schema.optional(
@@ -350,7 +350,7 @@ export interface RecordingStore {
   seal(
     ref: RecordingRef,
     result: ResultJson,
-  ): Effect.Effect<SealedRecordingRef, SealFailed | SealLost, never>;
+  ): Effect.Effect<SealedRecordingRef, SealFailed | AlreadySealed, never>;
 
   /** Read any recording back; version mismatch and schema-invalid files surface typed. */
   read(

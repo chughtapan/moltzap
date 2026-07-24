@@ -10,7 +10,7 @@
  */
 import type { Effect, Scope } from "effect";
 import type { ServerUrl } from "../runtime.js";
-import type { SlotName, FaultSpec } from "./run-spec.js";
+import type { AgentName, FaultSpec } from "./run-spec.js";
 import type { CorrelationId } from "./ids.js";
 import type {
   FaultApplyFailed,
@@ -40,7 +40,7 @@ export type AppliedFault = {
  */
 export interface World {
   allocateEndpoint(
-    slot: SlotName,
+    slot: AgentName,
     upstream: ServerUrl,
   ): Effect.Effect<ServerUrl, never, Scope.Scope>;
 

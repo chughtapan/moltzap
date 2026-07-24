@@ -1,7 +1,7 @@
 /**
  * @file Public facade of the simulator surface, exported as
  * `@moltzap/testbed/simulator`: the five public contracts (RunConfig /
- * agent-runner, Mounts, World, Episode lifecycle,
+ * agent-runner, Environment, World, Episode lifecycle,
  * EventLog / recording), the recording schema, and their seams. The
  * package root keeps the pre-simulator testbed surface unchanged.
  */
@@ -22,21 +22,21 @@ export {
   type JsonValue,
   JsonObject,
   Seed,
-  SlotName,
+  AgentName,
   PrincipalName,
   SpecHash,
   ImageDigest,
   LogicalTime,
-  Isolation,
-  SlotRole,
+  RunsIn,
+  AgentRole,
   RuntimeKind,
   FaultKind,
-  OpenClawSlotConfig,
-  NanoclawSlotConfig,
-  StubSlotConfig,
+  OpenClawConfig,
+  NanoclawConfig,
+  StubConfig,
   RuntimeAssignment,
-  McpMount,
-  Slot,
+  McpServer,
+  Agent,
   FaultSpec,
   FaultScheduleEntry,
   WorldSpec,
@@ -76,9 +76,9 @@ export {
 export {
   type MountPlan,
   type MountHandle,
-  type Mounts,
-  makeMounts,
-} from "./mounts.js";
+  type Environment,
+  makeEnvironment,
+} from "./environment.js";
 
 export { type AppliedFault, type World, makeWorld } from "./world.js";
 
@@ -134,7 +134,7 @@ export {
 export {
   RECORDING_SCHEMA_VERSION,
   RecordingIdentity,
-  SlotProvenance,
+  AgentProvenance,
   ManifestJson,
   EpisodeTermination,
   FailureReason,
@@ -186,12 +186,12 @@ export {
   TaskInjectionFailed,
   DriverCrashed,
   EventLogSealed,
-  ReceiverLost,
+  TraceCaptureFailed,
   TranscriptDrainFailed,
   ManifestPersistFailed,
   RecordingStoreFailed,
   SealFailed,
-  SealLost,
+  AlreadySealed,
   RecordingInvalid,
   RecordingSchemaMismatch,
   UnknownAttempt,

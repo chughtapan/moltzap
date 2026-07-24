@@ -22,7 +22,7 @@ import type {
 import type { EpisodeId } from "./ids.js";
 import type { LogicalClock, EventLog } from "./event-log.js";
 import type { Launcher, Society } from "./run-config.js";
-import type { Mounts } from "./mounts.js";
+import type { Environment } from "./environment.js";
 import type { World } from "./world.js";
 import type {
   AllocatedAttempt,
@@ -135,7 +135,7 @@ export function makeEpisode(): Episode {
 export type RunOptions = {
   readonly store?: RecordingStore;
   readonly runner?: Launcher;
-  readonly mounts?: Mounts;
+  readonly mounts?: Environment;
   readonly allocated?: AllocatedAttempt;
   readonly secrets?: ReadonlyArray<string>;
 };
@@ -159,7 +159,7 @@ export type SealedAttempt = {
  * with its report evented; (2) `log.seal()`, `receiver.drainTraces()` +
  * `store.writeTraces`, `store.seal`. Teardown precedes the log seal so
  * `teardown.completed` and `teardownComplete` are recordable. A
- * `SealLost` from the store branches on `observed`: with
+ * `AlreadySealed` from the store branches on `observed`: with
  * `marker-present` the cancel side already sealed and `run` reads
  * that single outcome and returns it; with `lock-held` the cancel-side
  * sealer runs in this same process, so `run` awaits its

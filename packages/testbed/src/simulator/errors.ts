@@ -110,7 +110,7 @@ export class ProvisioningFailed extends Schema.TaggedError<ProvisioningFailed>()
 ) {}
 
 // ---------------------------------------------------------------------------
-// Mounts (contract 2)
+// Environment (contract 2)
 // ---------------------------------------------------------------------------
 
 /** Mount material could not be prepared or wired into the runtime at spawn time. */
@@ -208,8 +208,8 @@ export class EventLogSealed extends Schema.TaggedError<EventLogSealed>()(
  * (`timeouts.otlpReceiverFailMs`) or failed to bind at bring-up; the run
  * seals with reason `span-acceptance-lost`.
  */
-export class ReceiverLost extends Schema.TaggedError<ReceiverLost>()(
-  "ReceiverLost",
+export class TraceCaptureFailed extends Schema.TaggedError<TraceCaptureFailed>()(
+  "TraceCaptureFailed",
   {
     boundMs: Schema.Number,
     phase: Schema.Literal("bind", "stall"),
@@ -271,11 +271,14 @@ export class SealFailed extends Schema.TaggedError<SealFailed>()("SealFailed", {
  * marker and no live sealer reads as unsealed (the lock is a tombstone,
  * never a seal). Not a recording failure in either case.
  */
-export class SealLost extends Schema.TaggedError<SealLost>()("SealLost", {
-  recordingPath: Schema.String,
-  observed: Schema.Literal("marker-present", "lock-held"),
-  message: Schema.String,
-}) {}
+export class AlreadySealed extends Schema.TaggedError<AlreadySealed>()(
+  "AlreadySealed",
+  {
+    recordingPath: Schema.String,
+    observed: Schema.Literal("marker-present", "lock-held"),
+    message: Schema.String,
+  },
+) {}
 
 /** A recording file failed schema decode (graders, `recording inspect | validate | events`). */
 export class RecordingInvalid extends Schema.TaggedError<RecordingInvalid>()(
@@ -355,6 +358,6 @@ export type InfraError =
   | FaultRevertFailed
   | TaskInjectionFailed
   | DriverCrashed
-  | ReceiverLost
+  | TraceCaptureFailed
   | TranscriptDrainFailed
   | RecordingStoreFailed;

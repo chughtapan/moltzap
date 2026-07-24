@@ -43,7 +43,7 @@ export const StubStep = Schema.Union(
 ).annotations({ description: "Scripted StubRuntime behavior step" });
 export type StubStep = typeof StubStep.Type;
 
-/** A named, registered behavior script referenced from `StubSlotConfig.script`. */
+/** A named, registered behavior script referenced from `StubConfig.script`. */
 export class StubScript extends Schema.Class<StubScript>("StubScript")({
   name: Schema.NonEmptyString.annotations({
     description: "Registered script name",

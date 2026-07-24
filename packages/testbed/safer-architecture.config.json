@@ -32,8 +32,8 @@
       "reason": "Contract 1 (RunConfig / agent-runner) launch boundary of the simulator surface"
     },
     {
-      "file": "simulator/mounts.ts",
-      "reason": "Contract 2 (Mounts) boundary of the simulator surface"
+      "file": "simulator/environment.ts",
+      "reason": "Contract 2 (Environment) boundary of the simulator surface"
     },
     {
       "file": "simulator/world.ts",
