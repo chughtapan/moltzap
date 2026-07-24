@@ -54,20 +54,26 @@ totally ordered delivery of attributed frames to the recipients a
 message names. The conversation handle carries who each message
 goes to; the layer owns no membership, and peer-to-peer is the
 single-recipient case. Equivocation is infeasible by construction;
-the layer routes on envelope fields, never bodies. Analogue: the
-transport layer.
+the layer routes on envelope fields, never bodies. Collective
+rounds ride this primitive as ordinary frames, and the
+equivocation-infeasible shared order is what lets one ack round
+replace gossip. Analogue: the transport layer.
 
 **L3 — transactional messaging.** Conversations are the addressing:
 a conversation id is a port-number-shaped opaque group handle;
 membership changes are delivered in-band, ordered against message
 flow, and the conversation itself begins as its transcript's genesis
-entry — lifecycle is in-band, TCP-style. Messages are recorded in the conversation's transcript; a
-transcript write is a transaction, and one transaction may be an
-entire collective — an ALL-TO-ALL is one unit, never a scatter of
-independent messages. Concurrent-writer admission is mechanism
-(pessimistic concurrency control is the recorded technique); the op
-set and semantics belong to the collective-semantics charter
-(#765). Analogue: port numbers.
+entry — lifecycle is in-band, TCP-style. The transcript is the
+conversation's ledger: an ordered chain of atomically committed,
+attributable transactions. One transaction may be an entire
+collective — an ALL-TO-ALL is one unit, never a scatter of
+independent messages — assembled by rounds over L2 and committed
+once, multi-signed, with the ledger off the rounds' critical path
+(`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
+Concurrent-writer admission is mechanism (pessimistic concurrency
+control is the recorded technique); quorum, liveness, and the op
+set belong to the collective-semantics charter (#765). Analogue:
+port numbers.
 
 **L4 — tasks.** Application-specific distributed protocols with no
 network representation. A task carries norms — who may speak next,
@@ -137,3 +143,4 @@ Open.
 | Data-plane layering: atomic multicast, transactional collectives | `docs/decisions/20260722-data-plane-layering.md` |
 | The spec set lives on main | `docs/decisions/20260722-spec-lives-on-main.md` |
 | The eight-layer stack | `docs/decisions/20260723-eight-layer-stack.md` |
+| Collectives are ledger transactions | `docs/decisions/20260724-collectives-are-ledger-transactions.md` |
