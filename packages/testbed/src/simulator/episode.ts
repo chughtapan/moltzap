@@ -31,6 +31,7 @@ import type {
 } from "./recording.js";
 import type {
   ConfigTimeError,
+  InfraError,
   ManifestPersistFailed,
   SealFailed,
   TaskInjectionFailed,
@@ -102,13 +103,13 @@ export type EpisodeDeps = {
  * the done-signal, enforce the inactivity bound and the on-agent-crash
  * policy, and honor cooperative interrupts (SIGINT, cancel). Every
  * cooperative path resolves to an `EpisodeTermination`; infrastructure
- * failures propagate as tagged errors for `executeRun` to seal.
+ * failures fail the effect with the tagged error `executeRun` seals.
  */
 export interface EpisodeController {
   run(
     spec: MaterializedRunSpec,
     deps: EpisodeDeps,
-  ): Effect.Effect<EpisodeTermination, never, never>;
+  ): Effect.Effect<EpisodeTermination, InfraError, never>;
 }
 
 /** Create the v0 episode controller. */

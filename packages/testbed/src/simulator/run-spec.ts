@@ -313,10 +313,13 @@ export type OnAgentCrash = typeof OnAgentCrash.Type;
 export class TerminationPolicySpec extends Schema.Class<TerminationPolicySpec>(
   "TerminationPolicySpec",
 )({
-  inactivityTimeoutMs: Schema.Positive.annotations({
-    description:
-      "Terminate with `timeout` after this long with no society activity",
-  }),
+  inactivityTimeoutMs: Schema.Int.pipe(
+    Schema.positive(),
+    Schema.annotations({
+      description:
+        "Terminate with `timeout` after this many milliseconds with no society activity",
+    }),
+  ),
   onAgentCrash: OnAgentCrash,
   doneSignal: Schema.optional(
     DriverRef.annotations({
@@ -358,14 +361,22 @@ export class ConditionDesignation extends Schema.Class<ConditionDesignation>(
 /** Simulator-owned timeout knobs (ergonomic; defaulted). */
 export class TimeoutsSpec extends Schema.Class<TimeoutsSpec>("TimeoutsSpec")({
   readyTimeoutMs: Schema.optionalWith(
-    Schema.Positive.annotations({ description: "Per-agent readiness timeout" }),
+    Schema.Int.pipe(
+      Schema.positive(),
+      Schema.annotations({
+        description: "Per-agent readiness timeout in milliseconds",
+      }),
+    ),
     { default: () => 120_000 },
   ),
   otlpReceiverFailMs: Schema.optionalWith(
-    Schema.Positive.annotations({
-      description:
-        "Bounded receiver-loss fail time: the run fails with span-acceptance-lost when the OTLP receiver cannot acknowledge exports for this long",
-    }),
+    Schema.Int.pipe(
+      Schema.positive(),
+      Schema.annotations({
+        description:
+          "Bounded receiver-loss fail time in milliseconds: the run fails with span-acceptance-lost when the OTLP receiver cannot acknowledge exports for this long",
+      }),
+    ),
     { default: () => 30_000 },
   ),
 }) {}
