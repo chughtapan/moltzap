@@ -60,11 +60,14 @@ participant emits next).
   not merely delivery. Overlapping-collective concurrency is chartered, not
   decided here.
 - **Transactional collectives.** A collective operation is one transactional
-  unit over the conversation's transcript: the record represents one
+  unit over the conversation's ledger: the record represents one
   ALL-TO-ALL — MPI-style, every member contributes and every member
   receives — as that operation, never as a sequence of independent messages.
-  Endpoints drive the exchange under PCC using the delivery primitive; the
-  plane contributes the primitive and the representation, nothing more. The
+  The unit is a multi-signed transaction assembled by rounds of ordinary
+  multicasts (`docs/decisions/20260724-collectives-are-ledger-transactions.md`;
+  diagrams below): endpoints drive the exchange using the delivery
+  primitive; the plane contributes the primitive and the representation,
+  nothing more — it never judges a collective's completeness. The
   vocabulary and its semantics are chartered (#765).
 - **Attribution in transit.** Frames arrive carrying the L1 attribution they
   were emitted with, verifiable by the recipient; the plane never mints,
@@ -77,12 +80,74 @@ participant emits next).
   beyond membership — the router has no reachability role.
 - **Content-blindness.** Routing and admission read envelope fields only, never
   bodies. End-to-end encryption stays a preserved possibility.
-- **Records handoff.** Durable-then-deliver: no frame fans out before it is
-  durable in the record substrate (control-plane-side; the record L6 reads).
+- **Records handoff.** Atomic commit: an entry is committed for every member
+  or for none, an acknowledgment implies commitment, and only committed
+  entries are the record (control-plane-side; the record L6 reads).
+  Pre-commit round traffic is provisional; whether delivery precedes
+  durability is realization
+  (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 - **Addressing (L3).** A conversation id is the routing handle — an opaque
   group handle. Membership changes are delivered in-band, ordered against
   message flow. Read-back is scoped by membership and envelope fields; the
   exact fields are chartered.
+
+## The collective transaction (recorded)
+
+The recorded direction
+(`docs/decisions/20260724-collectives-are-ledger-transactions.md`): a
+collective executes as rounds of ordinary L2 multicasts and commits as
+one multi-signed ledger transaction. Every round message is an
+ordinary attributed frame the plane admits and fans out without
+understanding it; one ack round replaces gossip because the
+equivocation-infeasible shared order lets every member compute the
+agreement point identically.
+
+```mermaid
+sequenceDiagram
+  participant L as Leader (turn holder)
+  participant A as Member A
+  participant B as Member B
+  participant R as Router (L2 multicast over the ledger)
+  L->>R: PROPOSE the collective op
+  R-->>A: fan out
+  R-->>B: fan out
+  A->>R: ACK
+  B->>R: ACK
+  Note over L,B: ack rule met - every member sees it at the same position, no gossip
+  L->>R: GO - fixes the cut
+  par one concurrent contribution round
+    L->>R: CONTRIBUTE xL
+    A->>R: CONTRIBUTE xA
+    B->>R: CONTRIBUTE xB
+  end
+  Note over L,B: same order and same pinned norms - each member computes r locally
+  L->>R: SIGN the transaction hash
+  A->>R: SIGN the transaction hash
+  B->>R: SIGN the transaction hash
+  L->>R: commit T with the signature set
+  Note over R: one atomic ledger entry - the op, the cut, the contributions, r, the prior link
+```
+
+The ledger sits off the rounds' critical path: rounds run at multicast
+speed, and the durable commit happens once per collective. Round
+traffic is provisional and never the record; a member that missed the
+rounds converges by reading the committed chain.
+
+```mermaid
+flowchart LR
+  subgraph Rounds["L2 multicast tier: round traffic, provisional, bounded lifetime"]
+    P[propose] --> K[acks] --> G[go] --> X[contributions] --> S[signatures]
+  end
+  subgraph Ledger["L3 ledger tier: committed transactions, durable, canonical"]
+    T1[T1] --> T2[T2] --> T3[T3]
+  end
+  S -- "one atomic multi-signed commit" --> T3
+```
+
+Quorum rules, liveness and safety machinery, abort and timeout
+semantics, sealed rounds, the cut's exact form, embedding vs
+referencing contributions, next-leader selection (possibly multiple
+eligible leaders), and round-traffic retention are the charter's.
 
 ## Wire surface
 
@@ -195,7 +260,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 1. Routing and admission read envelope fields only, never bodies.
 2. The plane never mints, alters, or strips L1 attribution.
 3. Per-conversation total order: all members observe the same messages in the same order; an unavailable member converges to it on recovery.
-4. Durable-then-deliver: no delivery precedes durability in the record substrate.
+4. Atomic commit: an entry is committed for every member or for none; an acknowledgment implies commitment; pre-commit round traffic is provisional and never the record.
 5. Turn-disciplined admission (the recorded pessimistic technique): while it is in effect, no contribution is admitted before the group agrees on the next operation and speaker; endpoints observe admission before generating.
 6. Starvation protection, established per task (L4): no coalition of faulty members can indefinitely deny an honest member its turn under the task's protocol.
 7. Equivocation robustness: a sender cannot present different members with different versions of the same message.
@@ -219,7 +284,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 ## Open questions
 
 1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — the collective-semantics charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
-2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`); the charter owes its semantics: escrow, acceptance quorums, ARCHIVE's meaning.
+2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes the semantics inside both: quorum rules, abort and timeout, sealed rounds, next-leader selection, escrow, acceptance quorums, ARCHIVE's meaning.
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe positive delivery acknowledgment, or is recovery-convergence the whole guarantee?
 5. Does an admitted turn survive a plane restart, or is it reconstructed from the record substrate?

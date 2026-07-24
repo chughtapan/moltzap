@@ -11,6 +11,7 @@ this log.** Do not add a record without that call.
 
 | Decision | Date |
 |---|---|
+| [Collectives are ledger transactions](20260724-collectives-are-ledger-transactions.md) | 2026-07-24 |
 | [Directory read serves cards](20260723-directory-serves-cards.md) | 2026-07-23 |
 | [Protocol version: the package version, carried per request](20260723-protocol-version-carriage.md) | 2026-07-23 |
 | [The eval seam is a testbed data-plane implementation](20260723-eval-plane-is-testbed.md) | 2026-07-23 |

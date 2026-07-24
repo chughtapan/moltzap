@@ -97,16 +97,21 @@ reaching into internals is, by definition, an interface gap.
 7. **L3 — transactional messaging.** Conversations are the
    addressing: a conversation id is a port-number-shaped opaque
    group handle (MPI-communicator-style); membership changes are
-   delivered in-band, ordered against message flow. Messages are
-   recorded in the conversation's transcript; a transcript write is
-   a transaction, and one transaction may be an entire collective —
-   an ALL-TO-ALL is one unit, never a scatter of independent
-   messages. Group-wide same-messages-same-order holds, including
-   for transiently unavailable members. How an implementation
-   admits concurrent writers is mechanism, not interface;
-   pessimistic concurrency control — consensus on the next writer
-   before generation, because agents' side effects are
-   irreversible — is the recorded technique. Recorded decision
+   delivered in-band, ordered against message flow. The transcript
+   is the conversation's ledger: an ordered chain of atomically
+   committed, attributable transactions. One transaction may be an
+   entire collective — an ALL-TO-ALL is one unit, never a scatter of
+   independent messages — assembled by rounds of ordinary L2
+   multicasts (propose, ack, contribute, sign) and committed once,
+   multi-signed, so the ledger sits off the rounds' critical path
+   (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
+   Group-wide same-messages-same-order holds over committed entries,
+   including for transiently unavailable members. How an
+   implementation admits concurrent writers is mechanism, not
+   interface; pessimistic concurrency control — consensus on the
+   next writer before generation, because agents' side effects are
+   irreversible — is the recorded technique, and quorum, liveness,
+   and abort machinery are the charter's. Recorded decision
    (`docs/decisions/20260722-data-plane-layering.md`): v0
    supports MULTICAST, nothing more; the op set, call shape, and
    presence/delivery-status semantics belong to the
@@ -162,9 +167,14 @@ reaching into internals is, by definition, an interface gap.
     (L7), legislation as tasks (L4), enforcement as armed monitors
     (L6). Open; L1–L7 are akin to the executive — necessary,
     not sufficient.
-13. **Storage is durable-then-deliver.** A message is durable before
-    delivery fans out; the store sits control-plane-side and is the
-    record substrate L6 reads.
+13. **Storage is atomic commit.** An entry is committed for every
+    member or for none, and an acknowledgment implies commitment —
+    durable, in the conversation's total order. Pre-commit round
+    traffic is provisional and never the record; whether delivery
+    precedes durability is realization
+    (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
+    The store sits control-plane-side and is the record substrate L6
+    reads.
 14. **Keep the boring parts boring.** The protocol version is a
     calendar date, matched simply; no capability negotiation. Reuse
     existing registries and the existing docs pipeline; npm publishes

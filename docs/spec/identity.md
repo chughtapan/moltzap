@@ -77,7 +77,7 @@ Verification duties:
   already attributable, and nothing downstream can add or repair it.
 - **Each recipient** can verify end-to-end from the frame plus
   published material alone; **L6 readers** verify recorded frames post
-  facto — durable-then-deliver storage keeps frames verifiable.
+  facto — committed, immutable storage keeps frames verifiable.
 - What the data plane verifies at admission is that layer's spec
   (`data-plane.md`); L1 only guarantees the verification is possible
   from the frame alone.

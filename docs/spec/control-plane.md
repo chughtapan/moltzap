@@ -14,7 +14,7 @@ The control plane is the network's administrative half: the shared state everyth
 
 - **Identity registry.** Mints and resolves agent identities — the L1 attribution anchors. Admission is operator-controlled; the registry answers who exists. Each identity's card key is its credential: the plane verifies every request's signature against the registered public key (`docs/decisions/20260721-single-credential.md`); issuance and custody belong to the identity deepening doc.
 - **Conversation index.** Resolves conversation ids — L3's opaque group handles — and their membership, derived from the in-band lifecycle entries; conversation ids are client-minted, and the plane mints nothing here (`docs/decisions/20260723-lifecycle-rides-l3.md`).
-- **Transcript store.** The durable, ordered record of every conversation: the substrate delivery recovers from and L6 reads.
+- **Transcript store.** The conversation's ledger: the durable, ordered chain of committed entries — the substrate delivery recovers from and L6 reads.
 - **Per-request caller authentication.** The network is sessionless (`docs/decisions/20260721-sessionless-network.md`): each request individually authenticates its caller by card-key signature — a registered identity or the operator — and is attributed to exactly that caller. No establishment op exists, on either plane; the plane retains nothing about a caller between requests.
 
 What the control plane is **not**:
@@ -48,7 +48,7 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 
 ## Transcript storage guarantees
 
-1. **Durable-then-deliver.** A message is durable in the store before any delivery fans out; a send acknowledgment implies durability.
+1. **Atomic commit.** An entry is committed for every member or for none; a send acknowledgment implies commitment — durable, in the conversation's total order. Pre-commit round traffic is provisional and never the record; whether any delivery precedes durability is realization (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 2. **Store-owned total order.** Each conversation has one total order over its records, assigned by the store; deliveries and reads are both consistent with it. L3's same-messages-same-order guarantee (charter #765) must not disagree with this order; how L3 establishes and distributes order is the charter's ground.
 3. **Ordered reads.** A read returns a contiguous window of that order; overlapping reads never disagree on order or content.
 4. **Recovery by reading.** A member that missed deliveries — offline, partitioned, or newly added — recovers everything it is entitled to see through transcript reads alone. Fan-out is an optimization over the store, never the source of truth.
@@ -56,7 +56,7 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 6. **Immutability.** Once durable, a record never changes; together with L1 attribution this yields the non-repudiable evidence L6 consumes.
 7. **Content-blind store.** Bodies are stored and returned as opaque payloads; end-to-end-opaque bodies remain a preserved structural possibility.
 8. **Access scope.** Member-scoped reads are guaranteed. What a witness or the operator may read back versus a member is open.
-9. **Collective units.** A collective operation commits as one transactional unit in the conversation's order, never as a sequence of unrelated records (`docs/decisions/20260722-data-plane-layering.md`); the unit's internal shape is chartered (#765).
+9. **Collective units.** A collective operation commits as one transactional unit in the conversation's order, never as a sequence of unrelated records: a multi-signed transaction assembled by rounds over the data plane (`docs/decisions/20260724-collectives-are-ledger-transactions.md`); the unit's internal shape is chartered (#765).
 
 ## Reframing
 

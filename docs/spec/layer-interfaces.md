@@ -147,16 +147,27 @@ interface Delivery {
 }
 ```
 
-`Position` in the ack is not a layer leak: by durable-then-deliver
-the delivery order IS the transcript order — one store-owned order
-spans L2 and L3 (control-plane.md guarantee 2), and fan-out is an
-optimization over the store.
+Collective rounds ride this port as ordinary sends — one ack round
+replaces gossip because the shared order is equivocation-infeasible
+(the round protocol and its diagrams: data-plane.md → The collective
+transaction). `Position` in the ack is not a layer leak: it is the
+commit certificate, and the delivery order IS the transcript order —
+one store-owned order spans L2 and L3 (control-plane.md
+guarantee 2), with fan-out an optimization over the store.
 
 ### TranscriptStore (L3 record substrate; swap axis: storage engine)
 
+The transcript is the conversation's **ledger**: an ordered chain of
+atomically committed, attributable transactions. A collective is
+assembled by rounds over Delivery and commits here as one
+multi-signed entry
+(`docs/decisions/20260724-collectives-are-ledger-transactions.md`) —
+which is why `append` stays unit-of-one even for collectives, and why
+the ledger sits off the rounds' critical path.
+
 ```ts
 interface TranscriptStore {
-  /** One frame, one transaction; the conversation is the envelope's.
+  /** One frame, one atomic commit; the conversation is the envelope's.
    *  A Start frame to a fresh id creates the transcript at entry zero
    *  (laws L3.5, L3.7). */
   readonly append: (frame: Frame) => Effect<Position, StoreError>;
@@ -288,7 +299,7 @@ Conventions, citations name the governing doc.
 | L2.5 | `deliveries(c, p)` ≈ `readTranscript(c, p)` — resuming at a Position equals never disconnecting | P | control-plane.md guarantee 4; sessionless |
 | L2.6 | One send, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
 | L3.1 | `readTranscript(c, pos(append(f)))` contains exactly the appended frame's record | P | control-plane.md guarantees 2, 3 |
-| L3.2 | `send` ≜ admit, append, then best-effort deliver; `Position` returned ⇒ durable; every refusal precedes durability | P | data-plane.md inv. 4; guarantee 1 |
+| L3.2 | `send` ≜ admit, commit, then best-effort deliver; `Position` returned ⇒ committed (atomic, durable, ordered); every refusal precedes commitment | P | data-plane.md inv. 4; guarantee 1 |
 | L3.3 | `append` takes one frame — one entry, one transaction; a collective commits as one unit | C+P | control-plane.md guarantee 9 |
 | L3.4 | No update, delete, or rewrite operation exists on any port | C | control-plane.md guarantee 6 |
 | L3.5 | A Start frame to a used id refuses with no side effect; to a fresh id it creates the transcript at entry zero | P | lifecycle-rides-l3 |
@@ -423,7 +434,9 @@ flowchart TB
 - `docs/spec/{identity,data-plane,control-plane}.md`,
   `docs/spec/endpoints/*`, `docs/spec/enforcement.md` — the
   guarantee-level obligations behind each law.
-- `docs/decisions/20260723-{lifecycle-rides-l3,eval-plane-is-testbed,interim-signature-profile,protocol-version-carriage,directory-serves-cards}.md`;
+- `docs/decisions/20260724-collectives-are-ledger-transactions.md` —
+  the ledger model and the round protocol;
+  `docs/decisions/20260723-{lifecycle-rides-l3,eval-plane-is-testbed,interim-signature-profile,protocol-version-carriage,directory-serves-cards}.md`;
   `docs/decisions/20260721-{sessionless-network,single-credential}.md`.
 - `v2/drafts/v0-implementation-plan-20260723.md` — the workstream
   sketches this standardization renames into ports, values, and laws.
