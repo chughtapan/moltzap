@@ -12,13 +12,12 @@ channel plugins.
   over `MoltZapChannelCore` from `@moltzap/client/channel-base` and
   self-registers via `registerChannelAdapter`.
 - `src/channels/adapter.ts`, `src/channels/channel-registry.ts`,
-  `src/db/*.ts`, `src/modules/permissions/db/users.ts`, `src/types.ts`
-  — stub mirrors of the nanoclaw modules the channel imports, pinned
-  to the commit in `NANOCLAW_SHA`
+  `src/db/messaging-groups.ts`, `src/types.ts` — stub mirrors of the
+  nanoclaw modules the channel imports, pinned to the commit in `NANOCLAW_SHA`
   (`packages/testbed/src/nanoclaw-install.ts`). Inside a real nanoclaw
   checkout the same relative imports resolve against nanoclaw's own
-  modules; the db stubs are in-memory maps so unit tests can observe
-  eval-mode wiring creation.
+  modules; the messaging-group stub is an in-memory map so unit tests
+  can observe eval-mode conversation wiring.
 
 ## Concepts
 
@@ -28,11 +27,11 @@ channel plugins.
 - **Wiring** — nanoclaw routes by `(channel_type, platform_id)` →
   `messaging_groups` → `messaging_group_agents`. Production wirings
   are provisioned out of band.
-- **Eval mode** — `MOLTZAP_EVAL_MODE=1` creates the messaging group
-  and its wiring to the first agent group on first inbound for an
-  unknown conversation, BEFORE delivery (otherwise the router drops
-  the message); when no agent group exists yet it also provisions
-  `eval-agent` plus the container-config row the spawn path requires.
+- **Eval mode** — the testbed provisions `eval-agent` and its
+  container-config row before NanoClaw starts. `MOLTZAP_EVAL_MODE=1`
+  creates only the per-conversation messaging group and wiring before
+  first-inbound delivery, because the router drops an unknown or
+  unwired conversation. NanoClaw's sender resolver owns user rows.
 
 ## Code
 

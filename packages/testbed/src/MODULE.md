@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createOpenClawAdapter`](./openclaw-adapter.ts#L508)
+### [`createOpenClawAdapter`](./openclaw-adapter.ts#L527)
 
 _Function_
 
@@ -139,7 +139,7 @@ export interface LogSlice {
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L96)
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L98)
 
 _Class_
 
@@ -235,7 +235,7 @@ flowchart TD
   subgraph P1["Install pinned NanoClaw runtime"]
     P1C{"matching immutable generation exists?"}
     P1WARM["reuse immutable generation"]
-    P1COLD["preflightDocker → download pinned tarball<br>→ copy bundled channel + skill<br>→ install pinned client + build<br>→ publish immutable generation"]
+    P1COLD["preflightDocker → download pinned tarball<br>→ copy bundled channel + skill + eval provisioner<br>→ install pinned client + build<br>→ publish immutable generation"]
     P1C -->|yes| P1WARM
     P1C -->|no| P1COLD
   end
@@ -243,15 +243,17 @@ flowchart TD
     P2DIR["create isolated runtime dir<br>copy container + scripts"]
     P2OC["ensureOnecliRunning<br>(probe 10254; up if unreachable)"]
     P2WS["write agent-local workspace files + profile"]
+    P2EVAL["eval mode only<br>seed agent group + container config"]
     P2SP["startNanoclawProcess<br>(absolute cached entrypoint,<br>isolated runtime cwd)"]
-    P2DIR --> P2OC --> P2WS --> P2SP
+    P2OC --> P2DIR --> P2WS --> P2EVAL --> P2SP
   end
   NCR["waitUntilReady — server.awaitAgentReady (WS auth)<br>raced against subprocess exit,<br>bounded by the caller's readyTimeoutMs"]
   NS --> P1 --> P2 --> NCR
 ```
 
 Inbound marker: `New messages`. The immutable cache key covers the pinned
-NanoClaw source, dependency lock, bundled channel/skill, and host ABI.
+NanoClaw source, dependency lock, bundled channel/skill/provisioner, and
+host ABI.
 
 ### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L22)
 
@@ -270,7 +272,7 @@ export interface NanoclawAdapterOptions {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L430)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L449)
 
 _Class_
 
@@ -350,7 +352,7 @@ flowchart TD
   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
-  OC4["4. lease spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,<br>OPENCLAW_CONFIG_PATH)<br>exitFiber + log buffer"]
+  OC4["4. lease spawnOpenClawProcess<br>exact child environment<br>exitFiber + log buffer"]
   OC5["5. commit process + state-dir leases<br>to adapter state"]
   OCF["failed or interrupted handoff<br>stops child + removes state dir"]
   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
@@ -365,7 +367,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L153)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L166)
 
 _Interface_
 
@@ -377,7 +379,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L159)
+### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L172)
 
 _Interface_
 

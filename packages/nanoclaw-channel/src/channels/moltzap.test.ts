@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it as vitestIt } from "vitest";
+import { describe, expect, it as vitestIt } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect, Either } from "effect";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
@@ -29,9 +29,6 @@ import {
   getMessagingGroupAgentByPair,
   getMessagingGroupByPlatform,
 } from "../db/messaging-groups.js";
-import { clearAgentGroups } from "../db/agent-groups.js";
-import { hasContainerConfig } from "../db/container-configs.js";
-import { getUserById } from "../modules/permissions/db/users.js";
 
 type InboundContent = {
   readonly text: string;
@@ -77,7 +74,6 @@ const CONV_1 = "conv-1";
 const CONV_42 = "conv-42";
 const CONV_43 = "conv-43";
 const CONV_OTHER = "conv-other";
-const CONV_EVAL_NO_AG = "conv-eval-no-agent-group";
 const CONV_EVAL_OFF = "conv-eval-off";
 const CONV_EVAL_ON = "conv-eval-on";
 const CONV_EVAL_IDEMPOTENT = "conv-eval-idempotent";
@@ -112,6 +108,10 @@ const MENTIONS_NEVER = "never";
 const ENGAGE_MODE_PATTERN = "pattern";
 const ENGAGE_PATTERN_DOT = ".";
 const UNKNOWN_SENDER_PUBLIC = "public";
+const SENDER_SCOPE_ALL = "all";
+const IGNORED_MESSAGE_POLICY_DROP = "drop";
+const SESSION_MODE_SHARED = "shared";
+const DEFAULT_WIRING_PRIORITY = 0;
 const ON_INBOUND = "onInbound";
 const ON_METADATA = "onMetadata";
 const SYSTEM_REMINDER_OPEN = "<system-reminder>";
@@ -501,27 +501,6 @@ function dropsMessagesFromOwnAgent() {
   });
 }
 
-function provisionsAgentGroupWhenNoneExists() {
-  const harness = createHarness(true);
-  return Effect.gen(function* () {
-    yield* setup(harness);
-    setDmConversation(harness, CONV_EVAL_NO_AG);
-    harness.fake.emit.message(
-      buildMessage({ conversationId: CONV_EVAL_NO_AG }),
-    );
-    yield* flushDispatch();
-    const group = getMessagingGroupByPlatform(
-      MOLTZAP_CHANNEL_NAME,
-      asJid(CONV_EVAL_NO_AG),
-    );
-    expect(group).toBeDefined();
-    expect(
-      getMessagingGroupAgentByPair(group!.id, EVAL_AGENT_GROUP_ID),
-    ).toBeDefined();
-    expect(hasContainerConfig(EVAL_AGENT_GROUP_ID)).toBe(true);
-  });
-}
-
 function doesNotCreateWiringWithoutEvalMode() {
   const harness = createHarness(false);
   return Effect.gen(function* () {
@@ -553,10 +532,10 @@ function autoRegistersEvalWiring() {
     expect(wiring).toBeDefined();
     expect(wiring!.engage_mode).toBe(ENGAGE_MODE_PATTERN);
     expect(wiring!.engage_pattern).toBe(ENGAGE_PATTERN_DOT);
-
-    const user = getUserById(senderIdFor(AGENT_ALICE));
-    expect(user).toBeDefined();
-    expect(user!.display_name).toBe(ALICE_NAME);
+    expect(wiring!.sender_scope).toBe(SENDER_SCOPE_ALL);
+    expect(wiring!.ignored_message_policy).toBe(IGNORED_MESSAGE_POLICY_DROP);
+    expect(wiring!.session_mode).toBe(SESSION_MODE_SHARED);
+    expect(wiring!.priority).toBe(DEFAULT_WIRING_PRIORITY);
   });
 }
 
@@ -790,15 +769,6 @@ describe("MoltZapAdapter inbound projection", () => {
 });
 
 describe("MoltZapAdapter eval registration", () => {
-  // The agent-group stub is a module-level map; each case provisions its
-  // own group from empty.
-  beforeEach(() => {
-    clearAgentGroups();
-  });
-  it(
-    "provisions the agent group on first inbound when none exists",
-    provisionsAgentGroupWhenNoneExists,
-  );
   it(
     "does not create wiring without eval mode",
     doesNotCreateWiringWithoutEvalMode,
