@@ -13,6 +13,7 @@ import {
   Queue,
 } from "effect";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { BoundedMap } from "@moltzap/protocol/bounded-map";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
@@ -317,7 +318,7 @@ interface InboundDispatchWork {
  *   Note over core: consumer fiber — Queue.take; takeDispatchCandidate prefers parked[convId]
  *   core->>server: agent/dispatch/request — dispatchAdmission
  *   server-->>core: ack {leaseId, dispatchId}
- *   Note over server,core: ack/release race absorbed via; pendingDispatchesByLease (Deferred); pendingReleasesByLease (ring 256, soft-TTL 30s)
+ *   Note over server,core: ack/release race absorbed via pendingDispatchesByLease (Deferred) and pendingReleasesByLease (ring 256, soft-TTL 30s)
  *   server->>ws: agent/dispatch/released notification
  *   ws->>core: recordDispatchRelease — settles Deferred or buffers
  *   alt verdict deny
@@ -365,14 +366,15 @@ export class MoltZapChannelCore {
   /**
    * Ring buffer of `dispatchRelease` frames that arrived before the
    * recipient registered its parking Deferred (release-then-ack
-   * race). Bounded LRU via Map insertion-order iteration; soft-TTL
-   * eviction at `DISPATCH_RELEASE_RING_SOFT_TTL_MS` so a release
-   * without a matching ack does not leak memory.
+   * race). `BoundedMap` refreshes insertion order when a lease is set
+   * again and evicts the oldest entry at capacity. Soft-TTL eviction at
+   * `DISPATCH_RELEASE_RING_SOFT_TTL_MS` keeps a release without a matching
+   * ack from retaining memory.
    */
-  private readonly pendingReleasesByLease = new Map<
+  private readonly pendingReleasesByLease = new BoundedMap<
     string,
     PendingReleaseEntry
-  >();
+  >(DISPATCH_RELEASE_RING_CAPACITY);
   private readonly closedConversationIds = new Set<string>();
   private readonly parkedByConversation = new Map<
     string,
@@ -484,10 +486,9 @@ export class MoltZapChannelCore {
    * parking Deferred is registered, settle it inline; otherwise
    * insert into the ring buffer for the future ack-side `consume`.
    * Soft-TTL evicts buffered entries whose age exceeds
-   * `DISPATCH_RELEASE_RING_SOFT_TTL_MS`; the hard-cap at
-   * `DISPATCH_RELEASE_RING_CAPACITY` evicts the oldest entry once
-   * exceeded. Both eviction paths warn-log so operators can spot
-   * release-without-ack adversarial patterns.
+   * `DISPATCH_RELEASE_RING_SOFT_TTL_MS`; insertion at the hard cap
+   * evicts the oldest entry. Both eviction paths warn-log so operators
+   * can spot release-without-ack adversarial patterns.
    */
   private recordDispatchRelease(frame: DispatchReleaseFrame): void {
     const parked = this.pendingDispatchesByLease.get(frame.leaseId);
@@ -502,19 +503,17 @@ export class MoltZapChannelCore {
     }
     const nowMs = Date.now();
     this.evictDispatchReleaseRing(nowMs);
-    this.pendingReleasesByLease.set(frame.leaseId, {
+    const evicted = this.pendingReleasesByLease.set(frame.leaseId, {
       verdict: frame.verdict,
       leaseTimeoutMs: frame.leaseTimeoutMs,
       receivedAtMs: nowMs,
     });
-    while (this.pendingReleasesByLease.size > DISPATCH_RELEASE_RING_CAPACITY) {
-      const oldest = this.pendingReleasesByLease.keys().next().value;
-      if (oldest === undefined) break;
-      this.pendingReleasesByLease.delete(oldest);
+    if (evicted !== undefined) {
+      const [evictedLeaseId] = evicted;
       runBackgroundLog(
         effectLogWarning(
           "MoltZapChannelCore: dispatchRelease ring buffer evicted oldest entry (capacity reached)",
-          { leaseId: oldest },
+          { leaseId: evictedLeaseId },
         ),
       );
     }
@@ -523,8 +522,8 @@ export class MoltZapChannelCore {
   private evictDispatchReleaseRing(nowMs: number): void {
     for (const [leaseId, entry] of this.pendingReleasesByLease) {
       if (nowMs - entry.receivedAtMs <= DISPATCH_RELEASE_RING_SOFT_TTL_MS) {
-        // Map iteration is insertion-order; once one entry is fresh
-        // every subsequent entry is fresher. Stop here.
+        // BoundedMap iterates oldest-set first, so every subsequent entry is
+        // fresher once this one remains inside the TTL.
         return;
       }
       this.pendingReleasesByLease.delete(leaseId);
@@ -678,7 +677,7 @@ export class MoltZapChannelCore {
    * `dispatchRelease` verdict, and return the channel-core
    * `DispatchAdmissionDecision`. Absorbs the ack/release race via
    * `pendingDispatchesByLease` (Deferred) plus
-   * `pendingReleasesByLease` (LRU ring buffer):
+   * `pendingReleasesByLease` (refresh-on-set FIFO ring buffer):
    *   - if release arrives first, the `recordDispatchRelease` event
    *     handler buffers it; this method consumes the buffered entry
    *     after the ack returns.
