@@ -44,6 +44,7 @@ export interface HarnessPayload {
     readonly kind: RuntimeKind;
     readonly targetAgentName?: string;
     readonly readyTimeoutMs?: number;
+    readonly responseTimeoutMs?: number;
   };
   readonly conversation: ConversationPayload;
 }
@@ -52,6 +53,7 @@ type RuntimeCandidate = {
   readonly kind?: unknown;
   readonly targetAgentName?: unknown;
   readonly readyTimeoutMs?: unknown;
+  readonly responseTimeoutMs?: unknown;
 };
 
 type ConversationCandidate = {
@@ -171,6 +173,11 @@ function validateRuntime(
     "runtime.readyTimeoutMs",
     issues,
   );
+  optionalPositiveInteger(
+    runtime?.responseTimeoutMs,
+    "runtime.responseTimeoutMs",
+    issues,
+  );
 }
 
 function validateConversationBase(
@@ -283,10 +290,12 @@ function buildRuntimePayload(
 ): HarnessPayload["runtime"] {
   const targetAgentName = stringValue(runtime?.targetAgentName);
   const readyTimeoutMs = numberValue(runtime?.readyTimeoutMs);
+  const responseTimeoutMs = numberValue(runtime?.responseTimeoutMs);
   return {
     kind: narrowRuntimeKind(runtime?.kind),
     ...(targetAgentName !== undefined ? { targetAgentName } : {}),
     ...(readyTimeoutMs !== undefined ? { readyTimeoutMs } : {}),
+    ...(responseTimeoutMs !== undefined ? { responseTimeoutMs } : {}),
   };
 }
 

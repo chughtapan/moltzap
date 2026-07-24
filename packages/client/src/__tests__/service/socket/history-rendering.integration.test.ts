@@ -6,6 +6,11 @@ import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
 
+type HistoryMessage = H.SocketHistoryResponse["messages"][number];
+const isNew = (m: HistoryMessage) => m.isNew;
+const containsAttachmentCaption = (m: HistoryMessage) =>
+  m.text.includes("Check this out");
+
 it("lastRead tracks seen message IDs across reads", () =>
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("sock-page-a");
@@ -13,7 +18,8 @@ it("lastRead tracks seen message IDs across reads", () =>
     yield* regB.client.connect();
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
-    try {
+    // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
+    yield* Effect.gen(function* () {
       const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
@@ -53,13 +59,9 @@ it("lastRead tracks seen message IDs across reads", () =>
         H.TRACK_SESSION_KEY,
       );
       expect(hist2.newCount).toBe(1);
-      const newMsg = hist2.messages.find((m) => m.isNew);
+      const newMsg = hist2.messages.find(isNew);
       expect(newMsg?.text).toBe(H.TRACK_NEW_MESSAGE);
-    } finally {
-      service.close();
-      yield* regA.client.close();
-      yield* regB.client.close();
-    }
+    }).pipe(Effect.ensuring(H.closeAll([service], [regA.client, regB.client])));
   }));
 
 it("non-text message parts render as markers in socket history", () =>
@@ -69,7 +71,7 @@ it("non-text message parts render as markers in socket history", () =>
     yield* regB.client.connect();
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
-    try {
+    yield* Effect.gen(function* () {
       const conv = yield* service.call(TaskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
@@ -91,16 +93,10 @@ it("non-text message parts render as markers in socket history", () =>
         conv.conversation!.id,
       );
 
-      const msg = result.messages.find((m) =>
-        m.text.includes("Check this out"),
-      );
+      const msg = result.messages.find(containsAttachmentCaption);
       expect(msg).toBeDefined();
       expect(msg!.text).toContain(H.IMAGE_MARKER);
-    } finally {
-      service.close();
-      yield* regA.client.close();
-      yield* regB.client.close();
-    }
+    }).pipe(Effect.ensuring(H.closeAll([service], [regA.client, regB.client])));
   }));
 
 it("socketPath is stable after connect (cached at startSocketServer time)", () =>
@@ -109,15 +105,12 @@ it("socketPath is stable after connect (cached at startSocketServer time)", () =
     const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
     const pathAtStart = service.socketPath;
-    try {
+    yield* Effect.gen(function* () {
       const result = yield* H.requestDaemonCommand(
         H.LocalDaemonCommands.Status,
         {},
         pathAtStart,
       );
       expect(result.agentId).toBe(reg.agentId);
-    } finally {
-      service.close();
-      yield* reg.client.close();
-    }
+    }).pipe(Effect.ensuring(H.closeAll([service], [reg.client])));
   }));
