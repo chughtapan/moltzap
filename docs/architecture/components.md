@@ -29,8 +29,9 @@ flowchart TB
 
 ## Control plane + storage
 
-Registries and the transcript store. Minted here: identities,
-conversations. Stored here: durable records (durable-then-deliver —
+Registries and the transcript store. Minted here: identities;
+conversations begin in-band as transcript genesis entries, the
+registry keeping only the derived index. Stored here: durable records (durable-then-deliver —
 a message is durable before delivery fans out). Request/response
 ops over HTTP, each individually signed with the caller's card key
 (the identity card's verification key, `docs/spec/identity.md`) —

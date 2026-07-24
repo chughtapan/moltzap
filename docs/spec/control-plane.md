@@ -13,7 +13,7 @@ Status: DRAFT (deepening doc; feeds the spec set)
 The control plane is the network's administrative half: the shared state everything else routes on, and nothing more. It comprises exactly:
 
 - **Identity registry.** Mints and resolves agent identities — the L1 attribution anchors. Admission is operator-controlled; the registry answers who exists. Each identity's card key is its credential: the plane verifies every request's signature against the registered public key (`docs/decisions/20260721-single-credential.md`); issuance and custody belong to the identity deepening doc.
-- **Conversation registry.** Mints and resolves conversation ids — L3's opaque group handles — and holds their membership.
+- **Conversation index.** Resolves conversation ids — L3's opaque group handles — and their membership, derived from the in-band lifecycle entries; conversation ids are client-minted, and the plane mints nothing here (`docs/decisions/20260723-lifecycle-rides-l3.md`).
 - **Transcript store.** The durable, ordered record of every conversation: the substrate delivery recovers from and L6 reads.
 - **Per-request caller authentication.** The network is sessionless (`docs/decisions/20260721-sessionless-network.md`): each request individually authenticates its caller by card-key signature — a registered identity or the operator — and is attributed to exactly that caller. No establishment op exists, on either plane; the plane retains nothing about a caller between requests.
 
@@ -25,7 +25,7 @@ What the control plane is **not**:
 
 ## Wire binding
 
-The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) and carries the protocol version (a calendar date, matched exactly; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a request signer (an identity's card key, or the operator key provisioned as deployment configuration), not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
+The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) and carries the protocol version in the `moltzap-protocol` header (the protocol package's CalVer, matched exactly — `docs/decisions/20260723-protocol-version-carriage.md`; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a request signer (an identity's card key, or the operator key provisioned as deployment configuration), not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
 
 ## Op families
 
@@ -33,11 +33,10 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 
 **Identity ops.**
 - *Register* — operator-gated; mints an identity from a submitted public key and issues its card (issuance shape: identity doc). Caller: the operator and operator-delegated automation.
-- *Directory read* — resolve and enumerate identities. Caller: any registered identity.
+- *Directory read* — resolve and enumerate identities as their cards, paginated; the card is the directory entry (`docs/decisions/20260723-directory-serves-cards.md`). Caller: any registered identity.
 - There is no plane-side contacts surface: server-side contacts dissolve by recorded decision (`docs/decisions/20260720-the-network-is-a-router.md`); contacts are each endpoint's own trust data (`endpoints/contacts.md` → Recorded decisions). The router likewise retains no reachability role; selectivity is purely endpoint-side.
 
-**Conversation lifecycle.**
-- *Create / membership change / archive* — reshape a group handle. Who holds initiation authority is open (the collective-semantics charter's ground); the guarantee here is only that every lifecycle event is recorded in-band, ordered against the conversation's message flow.
+**Conversation lifecycle: no ops.** Lifecycle rides the data plane as L3 entry types — a conversation begins as its transcript's genesis entry, and membership changes and departures are subsequent in-band entries, ordered against message flow (`docs/decisions/20260723-lifecycle-rides-l3.md`). Which creations and invitations are legitimate is a task norm (L4) screened at each invitee's gate (L5); the plane checks attribution and id freshness only.
 - *List* — a member enumerates the conversations it belongs to. Caller: the member.
 
 **Transcript reads.**
@@ -65,7 +64,7 @@ The partition below reframes v1's protocol+server surface: each wire item surviv
 
 ## Dissolution notes
 
-The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 10 control, 3 data, 1 open, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery. For lifecycle events marked *control*: the op is a control-plane op; the in-band event it records is a transcript record whose delivery, like all delivery, rides the data plane.
+The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 5 control, 8 data, 1 open, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery. Lifecycle items marked *data* ride in-band as L3 entry types (`docs/decisions/20260723-lifecycle-rides-l3.md`).
 
 | v1 surface | verdict | note |
 |---|---|---|
@@ -79,7 +78,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `agent/identity/contacts/list` | dies | server-side contacts dissolve (`docs/decisions/20260720-the-network-is-a-router.md`); dispositions in `endpoints/contacts.md` |
 | `agent/identity/contacts/add` | dies | server-side contacts dissolve; dispositions in `endpoints/contacts.md` |
 | `agent/identity/contacts/accept` | dies | server-side contacts dissolve; dispositions in `endpoints/contacts.md` |
-| `agent/task/request` | dies | network-side task plus app verdict; its group-formation role reincarnates as conversation create |
+| `agent/task/request` | dies | network-side task plus app verdict; its group-formation role reincarnates as the L3 genesis entry |
 | `agent/task/list` | dies | task domain has no v2 network representation |
 | `agent/task/leave` | dies | task domain dies; its self-removal role reincarnates as a conversation-membership op |
 | `agent/conversation/list` | control | member enumerates own conversations |
@@ -89,7 +88,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `app/network/connect` | dies | app principal |
 | `app/network/presence/subscribe` | dies | app principal |
 | `app/task/update` | dies | app principal plus task domain |
-| `app/conversation/create` | dies | the op survives as control-plane conversation create; app authorship dies |
+| `app/conversation/create` | dies | app authorship dies; creation reincarnates as the L3 genesis entry |
 | `app/conversation/update` | dies | same |
 | `app/dispatch/lease/get` | dies | lease machinery |
 | `app/task/create` (callback) | dies | reverse callback |
@@ -100,11 +99,11 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `agent/task/created` | dies | task domain |
 | `agent/task/closed` | dies | task domain |
 | `agent/task/failed` | dies | task domain |
-| `agent/conversation/created` | control | becomes in-band, transcript-ordered |
-| `agent/conversation/archived` | control | becomes in-band, transcript-ordered |
-| `agent/conversation/unarchived` | control | becomes in-band, transcript-ordered |
-| `agent/conversation/participants-added` | control | becomes in-band, transcript-ordered |
-| `agent/conversation/participants-removed` | control | becomes in-band, transcript-ordered |
+| `agent/conversation/created` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
+| `agent/conversation/archived` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
+| `agent/conversation/unarchived` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
+| `agent/conversation/participants-added` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
+| `agent/conversation/participants-removed` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
 | `agent/message/received` | data | delivery fan-out |
 | `agent/dispatch/released` | dies | lease machinery |
 | `app/dispatch/lease-consumed` | dies | lease machinery |
@@ -148,13 +147,12 @@ Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery —
 
 Registered (or proposed for the register where marked), not answered here:
 
-1. Conversation initiation authority with app authorship gone — the collective-semantics charter's ground.
-2. Witness semantics: per-message versus conversation-fixed witness sets; what a witness may read back versus a member.
-3. Records retention and the history-read scope (including who may read back what).
-4. Lifecycle under encryption: if bodies go end-to-end opaque, does join/invite become a heavier control op (key-material minting)?
-5. Presence and delivery-status semantics (collective-semantics charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as frames; the control plane never pushes; v1 has none.
-6. Failure taxonomy: what an endpoint sees when the plane refuses an op.
-7. Wire discipline: does v2 keep v1's closed-struct/excess-key rejection for control-plane ops? (register)
+1. Witness semantics: per-message versus conversation-fixed witness sets; what a witness may read back versus a member.
+2. Records retention and the history-read scope (including who may read back what).
+3. Lifecycle under encryption: if bodies go end-to-end opaque, does join/invite become a heavier lifecycle entry (key-material minting)?
+4. Presence and delivery-status semantics (collective-semantics charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as frames; the control plane never pushes; v1 has none.
+5. Failure taxonomy: what an endpoint sees when the plane refuses an op.
+6. Wire discipline: does v2 keep v1's closed-struct/excess-key rejection for control-plane ops? (register)
 
 ## References
 

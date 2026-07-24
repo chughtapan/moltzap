@@ -21,13 +21,16 @@ to, and the layer owns no membership — and **L3, transactional messaging**,
 where conversations address and collective operations are transactions over
 the per-conversation transcript. Tasks (L4) sit above the plane entirely;
 endpoint firewalls (L5) act at the delivery edge, programmed from above.
+Conversation lifecycle rides in-band as L3 entry types: a conversation
+begins as its transcript's genesis entry, membership changes and
+departures are subsequent entries, and half-open state expires by bounded
+timeout (`docs/decisions/20260723-lifecycle-rides-l3.md`).
 
 Goals: state the plane's duties as guarantees, independent of realization;
-record the dissolution of the v1 app layer, power by power; propose the one
-centralized middleware that would remain — a fault-injection /
-capability-evaluation (measuring agent behavior under controlled adversity)
-seam for experiments and evals — pending a recorded maintainer decision (open
-question 9). Non-goals: the collective op set, call shape, and the completion /
+record the dissolution of the v1 app layer, power by power; state the
+recorded eval seam — no centralized middleware exists; testing and evals run
+against an alternative, testbed-owned implementation of this same interface
+(`docs/decisions/20260723-eval-plane-is-testbed.md`). Non-goals: the collective op set, call shape, and the completion /
 failure / concurrency / initiation / witness / ordering clusters (owned by the
 collective-semantics charter; this doc scopes only the v0 MULTICAST + PCC slice);
 control-plane duties (identity, membership administration, the record substrate
@@ -100,11 +103,14 @@ ground (#765); whatever its shape, turn state is per-conversation
 coordination state that expires by a bounded timeout, never by disconnect —
 no connection state exists to observe.
 
-## The eval middleware (proposed)
+## The testbed data plane (recorded)
 
-Proposed, pending a recorded maintainer decision (this doc's open question 9): at most
-one centralized middleware exists — a fault-injection / capability-evaluation
-seam for experiments and evals, explicitly not a production app layer.
+By recorded decision (`docs/decisions/20260723-eval-plane-is-testbed.md`)
+no centralized middleware exists — constitution clause 2 carries no
+exception. Testing and evals run against an alternative implementation of
+this plane's interface, owned by the testbed (the runtimes-to-testbed
+extraction, #779): same guarantees, plus envelope-level observation and
+bounded fault injection. Its rules:
 
 - **May observe:** envelope-level delivery events and op lifecycle (accepted,
   ordered, delivered), with timing; terminal-state vocabulary is deferred to
@@ -129,9 +135,10 @@ is reused as the PCC instrument inside delivery semantics — an instrument, not
 an interface: no lease concept appears on the wire surface or in normative
 guarantees (sketch in Implementation notes). Proposed, pending a recorded
 decision: the v1 conversation machinery (participant sets, subscription-scoped
-delivery) as the L3 addressing primitive, and the v1 conformance pattern —
-adversity as a suite-invocation parameter, plus scripted-counterparty faults —
-as the shape of the proposed eval middleware's injection surface.
+delivery) as the L3 addressing primitive. Decided: the v1 conformance
+pattern — adversity as a suite-invocation parameter, plus
+scripted-counterparty faults — is the testbed data plane's injection surface
+(`docs/decisions/20260723-eval-plane-is-testbed.md`).
 
 ## Dissolution notes
 
@@ -145,7 +152,7 @@ callbacks. Destinations, power by power:
 | Dispatch-authorize hook (moderator grants/denies/holds a turn) | Dissolved into PCC delivery semantics; which op/speaker comes next is an L4/skill concern. |
 | Admission deny ejecting the participant | Abolished. Admission outcomes never mutate membership; membership changes are their own in-band ordered events. |
 | Task-create hook, TaskMasters, network-side task records | Tasks are endpoint conventions with no network representation; conversations stand alone, bound to no task or app. |
-| App manifests, app principals, reverse-callback extension surface | Gone entirely; the proposed eval middleware would be the only centralized seam (this doc's open question 9). |
+| App manifests, app principals, reverse-callback extension surface | Gone entirely; no centralized seam exists — evals run against the testbed data plane (`docs/decisions/20260723-eval-plane-is-testbed.md`). |
 | Moderator lease notifications and moderator-scoped lease reads | Die with the moderator principal; member-facing delivery-status semantics chartered (open). |
 | Lease-derived presence ("working") | Presence semantics chartered (open). |
 | Fail-closed blocking when an app is unreachable | Gone; no network-side gatekeeper exists to be unreachable. |
@@ -191,9 +198,9 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 6. Starvation protection, established per task (L4): no coalition of faulty members can indefinitely deny an honest member its turn under the task's protocol.
 7. Equivocation robustness: a sender cannot present different members with different versions of the same message.
 8. Membership changes are in-band events, ordered against message flow.
-9. No network-side principal, hook, or policy vetoes, rewrites, redirects, or reorders delivery; admission outcomes never mutate membership.
+9. Closed by recorded decision (`docs/decisions/20260723-eval-plane-is-testbed.md`): no centralized middleware — the eval seam is the testbed data plane. (Number retained; question 10 is cited externally.)
 10. No data-plane interface names or carries a task.
-11. Middleware absence-equivalence: if the eval middleware exists (this doc's open question 9), production semantics are identical with it absent or present-and-idle; every injection stays inside the tolerated failure envelope.
+11. Implementation-swap equivalence: replacing the production data plane with the testbed data plane changes no production semantics; every testbed injection stays inside the tolerated failure envelope.
 12. The plane keeps no per-endpoint connection or session state.
 13. Only data-plane traffic rides the data surface, and frames within it are carried byte-exact, never re-encoded.
 14. Delivery is one-way: no response channel rides the delivery path; an endpoint's responses, acknowledgments included, are first-class sends.
@@ -204,18 +211,18 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 - Each of the four paper-required constraints maps to at least one invariant testable over the v0 MULTICAST + PCC slice.
 - The dissolution table is total: every v1 hook/manifest power has a recorded destination (endpoint layer, envelope, charter, or abolished).
 - Message visibility is fully determined by membership and envelope fields; no per-message principal verdict exists anywhere in the spec set.
-- If the eval middleware is adopted (this doc's open question 9), the v1 scripted-fault conformance tier is reproducible through it with no production hook path, and removing the middleware changes no production conformance outcome.
-- Both case studies' scheduling flows are expressible as op sequences with no middleware dependency — verified under the collective-semantics charter's acceptance.
+- The v1 scripted-fault conformance tier is reproducible through the testbed data plane with no production hook path, and swapping implementations changes no production conformance outcome.
+- Both case studies' scheduling flows are expressible as op sequences with no testbed dependency — verified under the collective-semantics charter's acceptance.
 
 ## Open questions
 
 1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — the collective-semantics charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
-2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter, including whether conversation lifecycle (CONVERSATION-START) rides as a collective type and how it reconciles with the control-plane lifecycle ops.
+2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`); the charter owes its semantics: escrow, acceptance quorums, ARCHIVE's meaning.
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe positive delivery acknowledgment, or is recovery-convergence the whole guarantee?
 5. Does an admitted turn survive a plane restart, or is it reconstructed from the record substrate?
-6. Middleware observation under a content-blind plane: envelope-only, or a key-holding observer (the constitution's monitor question)?
-7. Experiment observation surface: record-substrate reads, a middleware event stream, or both — and where that boundary sits.
+6. Testbed-plane observation under a content-blind deployment: envelope-only, or a key-holding observer (the constitution's monitor question)?
+7. Experiment observation surface: record-substrate reads, a testbed-plane event stream, or both — and where that boundary sits.
 8. Wire discipline for op envelopes (closed-struct / excess-key rejection) — `v2/VISION.md` register item 9.
 9. Does at most one centralized middleware — the fault-injection / capability-evaluation eval seam — exist at all? Needs a recorded maintainer decision (VISION register or #765); the seam is hook-shaped relative to constitution clause 2 (no hooks, no reverse callbacks), so the record must carve the exception explicitly.
 10. The wire surface: the ship call shape; the delivery model (endpoint-initiated reads, held-open responses, or another shape); the feed's scope (per-conversation vs endpoint-wide) and its cursor semantics — bounded by the sessionless, plane-split, and single-credential decisions.

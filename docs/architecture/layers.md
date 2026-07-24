@@ -60,7 +60,8 @@ transport layer.
 **L3 — transactional messaging.** Conversations are the addressing:
 a conversation id is a port-number-shaped opaque group handle;
 membership changes are delivered in-band, ordered against message
-flow. Messages are recorded in the conversation's transcript; a
+flow, and the conversation itself begins as its transcript's genesis
+entry — lifecycle is in-band, TCP-style. Messages are recorded in the conversation's transcript; a
 transcript write is a transaction, and one transaction may be an
 entire collective — an ALL-TO-ALL is one unit, never a scatter of
 independent messages. Concurrent-writer admission is mechanism

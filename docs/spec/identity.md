@@ -143,8 +143,10 @@ native form.
   network is sessionless
   (`docs/decisions/20260721-sessionless-network.md`) — and on a ship
   call that proof-of-possession stands in for the frame's
-  attribution. The signature profile is key-model work (register
-  item 5). This is transitional mechanism, not interface; the target
+  attribution. The interim profile is recorded
+  (`docs/decisions/20260723-interim-signature-profile.md`: RFC 9421,
+  Ed25519, agent-id keyid, 300 s freshness window); rotation,
+  revocation, and the per-frame path stay register item 5. This is transitional mechanism, not interface; the target
   binding signs the frame itself with the same key.
 - Envelope encoding (JSON struct vs binary) is a realization choice;
   the normative surface is the field set, byte preservation by every
@@ -214,8 +216,9 @@ re-verification is the target binding's criterion (register item 5).
 
 ## Open questions
 
-- Key model: rotation, revocation, the request-signature profile,
-  the per-frame signing path — register item 5; how L7 consequences
+- Key model: rotation, revocation, the per-frame signing path —
+  register item 5 (the interim request-signature profile is
+  recorded: `docs/decisions/20260723-interim-signature-profile.md`); how L7 consequences
   propagate to admission checks and recipients' verification is
   proposed for the register.
 - Principal linkage depth: opaque registered linkage vs verifiable
@@ -223,8 +226,10 @@ re-verification is the target binding's criterion (register item 5).
   subagent) attribution exposes — proposed as a new register item.
 - Wire discipline: whether v2 keeps v1's closed-struct/excess-key
   rejection — register item 9.
-- Card custody and discovery: whether cards are served by the agent,
-  the control plane, or both — proposed as a new register item.
+- Card custody, residual: the registry serves cards — directory read
+  returns them (`docs/decisions/20260723-directory-serves-cards.md`);
+  whether agents also serve their own cards (peer custody,
+  verification with the registry unreachable) stays open.
 
 ## References
 
