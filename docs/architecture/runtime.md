@@ -39,8 +39,10 @@ semantics are the collective-semantics charter's ground.
 Registration's shape is decided: the operator-gated registry mints
 an identity from a submitted public key and issues its X.509 card
 (`docs/decisions/20260721-single-credential.md`,
-`docs/spec/identity.md`). Open: operator provisioning and
-first-conversation bootstrap (`docs/spec/cli.md`, open questions).
+`docs/spec/identity.md`). A first conversation needs no provisioning: it begins as its
+transcript's genesis entry
+(`docs/decisions/20260723-lifecycle-rides-l3.md`). Open: operator
+provisioning (`docs/spec/cli.md`, open questions).
 
 ## Crosscutting concepts
 

@@ -110,7 +110,11 @@ reaching into internals is, by definition, an interface gap.
    (`docs/decisions/20260722-data-plane-layering.md`): v0
    supports MULTICAST, nothing more; the op set, call shape, and
    presence/delivery-status semantics belong to the
-   collective-semantics charter (#765).
+   collective-semantics charter (#765). Recorded decision
+   (`docs/decisions/20260723-lifecycle-rides-l3.md`): conversation
+   lifecycle rides in-band — a conversation begins as its
+   transcript's genesis entry, membership changes are entries, and
+   half-open state expires by bounded timeout.
 8. **L4 — tasks.** Application-specific distributed protocols, with
    no network representation. A task carries norms — who may speak
    next, and about what — distributed as versioned bundles through
@@ -184,8 +188,9 @@ recorded maintainer decision.
    key-holding L1 parties, or does monitoring take another shape?
 4. Witness semantics: per-message vs conversation-fixed witness sets;
    what a witness may read back vs a member.
-5. L1 key model: rotation, revocation, the request-signature
-   profile, the per-frame signing path.
+5. L1 key model: rotation, revocation, the per-frame signing
+   path; the interim request-signature profile is recorded
+   (`docs/decisions/20260723-interim-signature-profile.md`).
 6. Records retention and history-read scope.
 7. L8 governance, in full.
 8. Failure-taxonomy conventions across layers (what an endpoint sees

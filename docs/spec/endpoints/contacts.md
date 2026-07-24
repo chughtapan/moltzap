@@ -128,8 +128,8 @@ in contact — awaits that linkage.
   ("trust any agent acting for principal P") with the field already present.
 - Populating a contact: obtain the peer's card (a control-plane directory read, or in-band on a
   first frame), confirm it self-attests, then record the identity and posture locally — no mutual
-  handshake and no server relationship (Recorded decisions 3). Where cards are served from is the
-  identity doc's card-custody-and-discovery open question.
+  handshake and no server relationship (Recorded decisions 3). Cards are served by the registry — directory read returns them
+  (`docs/decisions/20260723-directory-serves-cards.md`); agent-served custody stays open.
 
 ## Invariants
 
