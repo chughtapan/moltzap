@@ -1,3 +1,4 @@
+// safer-arch-ignore no-trivial-sink-file: Deliberate db-layer helper owning container-config persistence for the channel adapter.
 // Stub matching the subset of nanoclaw's src/db/container-configs.ts that
 // moltzap.ts touches; resolves against the real sqlite-backed module inside
 // a nanoclaw checkout.

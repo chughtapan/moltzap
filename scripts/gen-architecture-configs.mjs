@@ -110,7 +110,22 @@ const packageDefinitions = {
     },
   },
   evals: {},
-  "nanoclaw-channel": {},
+  "nanoclaw-channel": {
+    beforeShared: {
+      sharedFolderNames: [
+        {
+          folder: "db",
+          reason:
+            "Persistence helpers (agent/messaging groups, container configs) the moltzap channel adapter composes over.",
+        },
+        {
+          folder: "modules",
+          reason:
+            "Cross-cutting modules (permissions) the channel adapter depends on.",
+        },
+      ],
+    },
+  },
   "openclaw-channel": {
     beforeShared: {
       packageRuntime: "node",
