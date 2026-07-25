@@ -22,13 +22,9 @@
  */
 import { Data, Effect } from "effect";
 import {
-  attributeSenders,
-  mergedTimeline,
   openRecording,
   type GradeableRecording,
   type JsonValue,
-  type SenderAttribution,
-  type SimulatorEvent,
 } from "./grader.js";
 
 /** Placeholder image for slots the coordinator never launches. */
@@ -66,7 +62,7 @@ function coordinationFailure(message: string): HarnessFailure {
 
 type RecordingPayload = {
   readonly recording: string;
-  readonly contentVersion: string | null;
+  readonly condition: string | null;
 };
 
 function decodePayload(
@@ -88,11 +84,11 @@ function decodePayload(
       ),
     );
   }
-  const contentVersion =
-    "contentVersion" in payload && typeof payload.contentVersion === "string"
-      ? payload.contentVersion
+  const condition =
+    "condition" in payload && typeof payload.condition === "string"
+      ? payload.condition
       : null;
-  return Effect.succeed({ recording, contentVersion });
+  return Effect.succeed({ recording, condition });
 }
 
 // ---------------------------------------------------------------------------
@@ -111,18 +107,17 @@ type BundleMessage = {
 };
 
 function transcriptOf(
-  timeline: ReadonlyArray<SimulatorEvent>,
-  senders: SenderAttribution,
+  recording: GradeableRecording,
 ): ReadonlyArray<BundleMessage> {
   const messages: Array<BundleMessage> = [];
-  for (const event of timeline) {
+  for (const event of recording.timeline) {
     if (event._tag !== "transcript.message") continue;
     messages.push({
       logicalSequence: event.logicalSequence,
       conversationId: event.conversationId,
       conversationSeq: event.conversationSeq,
       senderId: event.senderId,
-      sender: senders.get(event.senderId) ?? event.senderId,
+      sender: recording.senders.get(event.senderId) ?? event.senderId,
       createdAtWallTime: event.createdAtWallTime,
       message: event.message,
     });
@@ -133,8 +128,6 @@ function transcriptOf(
 function buildBundle(
   plan: PlanEnvelope,
   recording: GradeableRecording,
-  timeline: ReadonlyArray<SimulatorEvent>,
-  senders: SenderAttribution,
 ): Readonly<Record<string, unknown>> {
   return {
     project: plan.project,
@@ -148,7 +141,7 @@ function buildBundle(
       specHash: recording.manifest.specHash,
       seed: recording.manifest.seed,
       attemptId: recording.manifest.attemptId,
-      contentVersion: recording.manifest.contentVersion ?? null,
+      condition: recording.manifest.materializedSpec.condition?.label ?? null,
       outcome: recording.result.outcome,
     },
     agents: recording.manifest.slots.map((slot) => ({
@@ -158,8 +151,8 @@ function buildBundle(
       modelId: slot.modelId ?? null,
       isolation: slot.isolation,
     })),
-    transcript: transcriptOf(timeline, senders),
-    events: timeline.length,
+    transcript: transcriptOf(recording),
+    events: recording.timeline.length,
   };
 }
 
@@ -172,20 +165,10 @@ function executeRecordingRun(
   payload: RecordingPayload,
 ): Effect.Effect<Readonly<Record<string, unknown>>, HarnessFailure, never> {
   return openRecording(payload.recording, {
-    contentVersion: payload.contentVersion,
+    condition: payload.condition,
     outcome: "completed-only",
   }).pipe(
-    Effect.flatMap((recording) =>
-      mergedTimeline(recording).pipe(
-        Effect.flatMap((timeline) =>
-          attributeSenders(timeline).pipe(
-            Effect.map((senders) =>
-              buildBundle(plan, recording, timeline, senders),
-            ),
-          ),
-        ),
-      ),
-    ),
+    Effect.map((recording) => buildBundle(plan, recording)),
     Effect.mapError((error) =>
       coordinationFailure(
         error._tag === "RunNotCompleted"
