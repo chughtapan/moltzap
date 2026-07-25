@@ -210,6 +210,9 @@ recorded maintainer decision.
    join/invite become a heavier lifecycle entry (key material minting)?
 3. Monitor access under a content-blind plane: do L6 monitors become
    key-holding L1 parties, or does monitoring take another shape?
+   Narrowed
+   (`docs/decisions/20260724-monitors-are-deterministic-contracts.md`):
+   whatever access is granted, a finding needs only reads.
 4. Witness semantics: per-message vs conversation-fixed witness sets;
    what a witness may read back vs a member.
 5. L1 key model: rotation, revocation, the per-frame signing

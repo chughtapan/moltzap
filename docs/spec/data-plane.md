@@ -292,7 +292,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 7. Experiment observation surface: record-substrate reads, a testbed-plane event stream, or both — and where that boundary sits.
 8. Wire discipline for op envelopes (closed-struct / excess-key rejection) — `v2/VISION.md` register item 9.
 9. Closed by recorded decision (`docs/decisions/20260723-eval-plane-is-testbed.md`): no centralized middleware exists — the eval seam is the testbed data plane, and clause 2 carries no exception. Number retained so question 10's external citations stay valid.
-10. The wire surface: the ship call shape; the delivery model (endpoint-initiated reads, held-open responses, or another shape); the feed's scope (per-conversation vs endpoint-wide) and its cursor semantics — bounded by the sessionless, plane-split, and single-credential decisions.
+10. The wire surface: the send call shape; the delivery model (endpoint-initiated reads, held-open responses, or another shape); the feed's scope (per-conversation vs endpoint-wide) and its resume semantics — bounded by the sessionless, plane-split, and single-credential decisions.
 
 ## References
 

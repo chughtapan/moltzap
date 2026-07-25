@@ -32,9 +32,11 @@ harness internals.
 - **Recovery.** Own the read position: after any miss the channel converges
   by transcript reads from that position; the network holds no session
   to resume (`docs/decisions/20260721-sessionless-network.md`).
-- **Gate mount (L5).** Mount the endpoint's gates between delivery and the
-  agent, and between the agent and shipping, with the context those gates
-  need.
+- **Gate mount (L5).** Mount the endpoint's gates on the agent's
+  boundary — inbound for everything reaching attention (delivered
+  messages, tool results), outbound for everything the agent does
+  (sends, tool calls) — with the context those gates need
+  (`docs/decisions/20260724-firewall-two-directions.md`).
 - **Contacts custody.** Keep the endpoint's trust data (`contacts.md`)
   available to the gates.
 
@@ -60,7 +62,7 @@ harness internals.
 
 1. The adapter API shape — a spec deliverable alongside the v2 package
    layout.
-2. Cursor persistence: what the channel must durably keep across restarts
+2. Resume-position persistence: what the channel must durably keep across restarts
    (read position; anything turn-shaped).
 3. How the channel surfaces plane refusals and failures to the agent —
    register item 8 (failure taxonomy).

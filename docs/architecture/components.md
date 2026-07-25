@@ -64,7 +64,7 @@ a control side:
 - **Data-plane plugins.** Two-piece: a **harness-specific plugin**
   (one per external agent-harness runtime — OpenClaw, Nanoclaw —
   speaking that harness's native shape) layered on the **agnostic plugin** (the
-  harness-independent core: frame handling, admission, enrichment,
+  harness-independent core: frame handling, verification, enrichment,
   and the L5 gate mount, including contacts as the endpoint's own
   trust data).
 - **CLI.** The operator's interface, part of the endpoint: it drives

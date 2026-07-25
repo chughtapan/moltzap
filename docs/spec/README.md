@@ -20,6 +20,6 @@ and open-question register are in `/v2/VISION.md`.
 | `data-plane.md` | the L2/L3 realization: ordered multicast delivery under transactional messaging; app layer dissolution; the fault-injection/eval seam; interim WS wire, target surface open |
 | `endpoints/screening.md` | L5 personal trust: the firewall mechanism, keyed off any communication layer; agent-local verdicts |
 | `endpoints/tasks.md` | L4 — tasks as application protocols; norms as versioned skill bundles, published upward as guarantees |
-| `endpoints/channels.md` | the endpoint data-plane stack: framing and signing, shipping under PCC, one-way receive, recovery cursor, gate mount |
+| `endpoints/channels.md` | the endpoint data-plane stack: framing and signing, sending under PCC, one-way receive, resume position, gate mount |
 | `enforcement.md` | L6/L7 — social oversight and institutional trust: monitors, registries, credential consequences |
 | `cli.md` | operator surface: a plain signing HTTP client fronting the control-plane op families |

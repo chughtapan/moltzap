@@ -45,5 +45,8 @@ Consequences: one verification path everywhere (resolve keyid,
 fetch card, verify); revocation gains its observable form — the
 registry ceasing to vouch the card is what every verifier sees at
 next resolve, the concrete shape of L7-reconfigures-L1; endpoints
-cache cards keyed on issued-at and refetch once on verification
-failure (implementation note, not interface).
+may cache cards only with an explicit max-age equal to the freshness
+window they accept — issued-at orders versions, it is not freshness,
+and a revoked card still verifies cryptographically, so verification
+failure alone never triggers the refetch (implementation note, not
+interface).
