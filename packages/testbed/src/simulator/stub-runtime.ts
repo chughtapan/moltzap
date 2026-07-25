@@ -27,6 +27,7 @@ import {
   startSupervisedProcess,
 } from "../child-process.js";
 import { SpawnFailed, spawnFailed } from "../errors.js";
+import { httpBaseFromServerUrl } from "./provisioning.js";
 import type { RuntimeExit, SimulatorRuntime } from "./run-config.js";
 
 /** One scripted behavior step; the closed v0 vocabulary. */
@@ -123,7 +124,7 @@ function spawnStub(
 ): Effect.Effect<void, SpawnFailed, never> {
   const command = Command.make(process.execPath, STUB_MAIN_PATH).pipe(
     Command.env({
-      MOLTZAP_STUB_SERVER_URL: input.serverUrl,
+      MOLTZAP_STUB_SERVER_URL: httpBaseFromServerUrl(input.serverUrl),
       MOLTZAP_STUB_AGENT_KEY: Redacted.value(input.apiKey),
       MOLTZAP_STUB_AGENT_NAME: input.agentName,
       MOLTZAP_STUB_SCRIPT: JSON.stringify(

@@ -275,7 +275,7 @@ function makeOutOfBandPrincipal(context: {
         const target = yield* targetAgentId(delivery);
         const minted = yield* mintPrincipalIdentity(delivery, context.secrets);
         const client = new MoltZapAgentClient({
-          serverUrl: delivery.world.server.serverUrl,
+          serverUrl: httpBaseFromServerUrl(delivery.world.server.serverUrl),
           agentKey: minted.apiKey,
         });
         yield* client
