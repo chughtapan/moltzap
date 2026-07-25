@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/testbed",
-  "version": "2026.724.0",
+  "version": "2026.725.0",
   "description": "Testbed for launching and supervising collections of agents connected over MoltZap",
   "license": "MIT",
   "repository": {
