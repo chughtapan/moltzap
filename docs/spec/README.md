@@ -7,9 +7,21 @@ appear only in sections marked "Implementation notes (non-normative)".
 Layout mirrors the component decomposition
 (`../architecture/components.md`): endpoint-scoped docs live under
 `endpoints/`; cross-cutting layer docs sit at the root.
-The living architecture views are in `../architecture/` — the layer
-model (L1–L8) is `../architecture/layers.md`; the constitution
-and open-question register are in `/v2/VISION.md`.
+
+**Reading guide — three depths for three readers.**
+
+1. **Orientation** (anyone): `../architecture/layers.md` — the
+   end-to-end flows and the per-layer provides/configures table; then
+   `../architecture/components.md` for the process view. The
+   constitution and open-question register are `/v2/VISION.md`.
+2. **Design detail** (contributors to the design): the per-layer docs
+   in the table below, plus the decision log
+   (`../decisions/README.md`) — the authority for what is bound vs
+   hypothesis vs open.
+3. **Building** (implementers): `layer-interfaces.md` — the nouns,
+   five ports, and laws — plus
+   `../architecture/first-implementation.md`, the hypothesis for
+   round one.
 
 | Doc | Covers |
 |---|---|
