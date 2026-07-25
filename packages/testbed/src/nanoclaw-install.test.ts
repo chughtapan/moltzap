@@ -4,11 +4,7 @@ import { NodeContext } from "@effect/platform-node";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import {
-  findNanoclawCacheGeneration,
-  publishNanoclawCacheGeneration,
-  sweepStaleBuildingCaches,
-} from "./nanoclaw-install.js";
+import { nanoclawInstallCache } from "./nanoclaw-install.js";
 
 const CACHE_FINGERPRINT = "a".repeat(64);
 const OTHER_FINGERPRINT = "b".repeat(64);
@@ -48,7 +44,9 @@ function sweepsOnlyStaleBuildingCaches() {
       const staleDate = new Date(Date.now() - SWEEP_MAX_AGE_MS * 2);
       yield* fileSystem.utimes(stale, staleDate, staleDate);
 
-      yield* sweepStaleBuildingCaches(cacheRoot, SWEEP_MAX_AGE_MS);
+      yield* nanoclawInstallCache(cacheRoot).sweepStaleBuildingCaches(
+        SWEEP_MAX_AGE_MS,
+      );
 
       expect(yield* fileSystem.exists(stale)).toBe(false);
       expect(yield* fileSystem.exists(fresh)).toBe(true);
@@ -75,10 +73,10 @@ function ignoresInvalidGenerations() {
       );
       yield* makeGeneration(join(cacheRoot, ".building-complete"));
 
-      const found = yield* findNanoclawCacheGeneration(
-        cacheRoot,
-        CACHE_FINGERPRINT,
-      );
+      const found =
+        yield* nanoclawInstallCache(cacheRoot).findCacheGeneration(
+          CACHE_FINGERPRINT,
+        );
 
       expect(found).toBe(null);
     }),
@@ -91,10 +89,10 @@ function selectsExactGeneration() {
       const expected = join(cacheRoot, GENERATION_PREFIX + "valid");
       yield* makeGeneration(expected);
 
-      const found = yield* findNanoclawCacheGeneration(
-        cacheRoot,
-        CACHE_FINGERPRINT,
-      );
+      const found =
+        yield* nanoclawInstallCache(cacheRoot).findCacheGeneration(
+          CACHE_FINGERPRINT,
+        );
 
       expect(found).toBe(expected);
     }),
@@ -110,10 +108,11 @@ function publishesConcurrently() {
       yield* makeGeneration(firstBuilding, CACHE_FINGERPRINT, FIRST_PAYLOAD);
       yield* makeGeneration(secondBuilding, CACHE_FINGERPRINT, SECOND_PAYLOAD);
 
+      const cache = nanoclawInstallCache(cacheRoot);
       const published = yield* Effect.all(
         [
-          publishNanoclawCacheGeneration(firstBuilding, cacheRoot),
-          publishNanoclawCacheGeneration(secondBuilding, cacheRoot),
+          cache.publishCacheGeneration(firstBuilding),
+          cache.publishCacheGeneration(secondBuilding),
         ],
         { concurrency: PUBLISHED_GENERATION_COUNT },
       );
@@ -136,9 +135,9 @@ function publishesConcurrently() {
       expect(new Set(payloads)).toEqual(
         new Set([FIRST_PAYLOAD, SECOND_PAYLOAD]),
       );
-      expect(
-        yield* findNanoclawCacheGeneration(cacheRoot, CACHE_FINGERPRINT),
-      ).not.toBe(null);
+      expect(yield* cache.findCacheGeneration(CACHE_FINGERPRINT)).not.toBe(
+        null,
+      );
     }),
   );
 }

@@ -1,9 +1,13 @@
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Data } from "effect";
 
 const requireFromHere = createRequire(import.meta.url);
 const PACKAGE_RESOLUTION_ANCHOR = import.meta.url;
+const VERSION_NUMBER_PATTERN = /^(?:0|[1-9]\d*)$/;
+const VERSION_IDENTIFIER_PATTERN = /^[0-9A-Za-z-]+$/;
 
 class PackageResolutionFailed extends Data.TaggedError(
   "PackageResolutionFailed",
@@ -16,6 +20,8 @@ class PackageResolutionFailed extends Data.TaggedError(
 interface PackageJson {
   readonly name?: unknown;
   readonly bin?: unknown;
+  readonly dependencies?: unknown;
+  readonly version?: unknown;
 }
 
 interface PackageJsonResolution {
@@ -30,14 +36,92 @@ interface PackageJsonCandidateResolution {
   readonly unexpectedCause: unknown | null;
 }
 
+interface OwningPackage {
+  readonly manifest: PackageJson;
+  readonly root: string;
+}
+
+export interface InstalledPackageDependency {
+  readonly ownerPackageRoot: string;
+  readonly declaredSpec: string;
+  readonly packageRoot: string;
+  readonly version: string;
+}
+
+function isPackageJson(value: unknown): value is PackageJson {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPropertyRecord(
+  value: unknown,
+): value is Readonly<Record<PropertyKey, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function splitAtFirst(
+  value: string,
+  separator: string,
+): readonly [string, string | null] {
+  const separatorIndex = value.indexOf(separator);
+  if (separatorIndex < 0) {
+    return [value, null];
+  }
+  return [
+    value.slice(0, separatorIndex),
+    value.slice(separatorIndex + separator.length),
+  ];
+}
+
+function isValidPrerelease(value: string): boolean {
+  if (value.length === 0) {
+    return false;
+  }
+  return value.split(".").every((identifier) => {
+    if (!VERSION_IDENTIFIER_PATTERN.test(identifier)) {
+      return false;
+    }
+    return /^\d+$/.test(identifier)
+      ? VERSION_NUMBER_PATTERN.test(identifier)
+      : true;
+  });
+}
+
+function isValidBuild(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value
+      .split(".")
+      .every((identifier) => VERSION_IDENTIFIER_PATTERN.test(identifier))
+  );
+}
+
+function isExactPackageVersion(version: string): boolean {
+  const [withoutBuild, build] = splitAtFirst(version, "+");
+  if (build !== null && !isValidBuild(build)) {
+    return false;
+  }
+  const [core, prerelease] = splitAtFirst(withoutBuild, "-");
+  if (prerelease !== null && !isValidPrerelease(prerelease)) {
+    return false;
+  }
+  const coreIdentifiers = core.split(".");
+  return (
+    coreIdentifiers.length === 3 &&
+    coreIdentifiers.every((identifier) =>
+      VERSION_NUMBER_PATTERN.test(identifier),
+    )
+  );
+}
+
 function parsePackageJson(
   requireFromAnchor: NodeRequire,
   packageRoot: string,
   packageName: string,
 ): PackageJson {
   const packageJsonPath = join(packageRoot, "package.json");
+  let manifest: unknown;
   try {
-    return requireFromAnchor(packageJsonPath) as PackageJson;
+    manifest = requireFromAnchor(packageJsonPath);
   } catch (cause) {
     throw new PackageResolutionFailed({
       packageName,
@@ -45,6 +129,13 @@ function parsePackageJson(
       message: `Unable to read package.json for ${packageName} at ${packageJsonPath}`,
     });
   }
+  if (!isPackageJson(manifest)) {
+    throw new PackageResolutionFailed({
+      packageName,
+      message: `Invalid package.json for ${packageName} at ${packageJsonPath}: expected an object`,
+    });
+  }
+  return manifest;
 }
 
 function packageRootFromResolvedFile(
@@ -239,6 +330,139 @@ export function resolveInstalledPackageRoot(
     packageName,
     message: `Unable to resolve installed package ${packageName}`,
   });
+}
+
+function anchorFilePath(anchor: string | URL, packageName: string): string {
+  try {
+    const path =
+      typeof anchor === "string" && !anchor.startsWith("file:")
+        ? anchor
+        : fileURLToPath(anchor);
+    return resolve(path);
+  } catch (cause) {
+    throw new PackageResolutionFailed({
+      packageName,
+      cause,
+      message: `Unable to interpret package-resolution anchor ${String(anchor)}`,
+    });
+  }
+}
+
+function findOwningPackage(
+  ownerPackageName: string,
+  anchor: string | URL,
+): OwningPackage {
+  const anchorPath = anchorFilePath(anchor, ownerPackageName);
+  let candidateRoot = dirname(anchorPath);
+  while (true) {
+    const manifestPath = join(candidateRoot, "package.json");
+    if (existsSync(manifestPath)) {
+      const manifest = parsePackageJson(
+        createRequire(manifestPath),
+        candidateRoot,
+        ownerPackageName,
+      );
+      if (manifest.name !== ownerPackageName) {
+        throw new PackageResolutionFailed({
+          packageName: ownerPackageName,
+          message: `Package-resolution anchor ${anchorPath} belongs to ${String(manifest.name)}, not ${ownerPackageName}`,
+        });
+      }
+      return { manifest, root: candidateRoot };
+    }
+    const parent = dirname(candidateRoot);
+    if (parent === candidateRoot) {
+      throw new PackageResolutionFailed({
+        packageName: ownerPackageName,
+        message: `Unable to find owning package ${ownerPackageName} from ${anchorPath}`,
+      });
+    }
+    candidateRoot = parent;
+  }
+}
+
+function ownDependencySpec(
+  ownerPackageName: string,
+  ownerPackageRoot: string,
+  manifest: PackageJson,
+  dependencyName: string,
+): string {
+  const dependencies = manifest.dependencies;
+  if (
+    !Object.hasOwn(manifest, "dependencies") ||
+    !isPropertyRecord(dependencies)
+  ) {
+    throw new PackageResolutionFailed({
+      packageName: dependencyName,
+      message: `Package ${ownerPackageName} at ${ownerPackageRoot} must declare ${dependencyName} in its own dependencies`,
+    });
+  }
+  if (!Object.hasOwn(dependencies, dependencyName)) {
+    throw new PackageResolutionFailed({
+      packageName: dependencyName,
+      message: `Package ${ownerPackageName} at ${ownerPackageRoot} must declare ${dependencyName} in its own dependencies`,
+    });
+  }
+  const declaredSpec = dependencies[dependencyName];
+  if (typeof declaredSpec !== "string" || declaredSpec.length === 0) {
+    throw new PackageResolutionFailed({
+      packageName: dependencyName,
+      message: `Package ${ownerPackageName} at ${ownerPackageRoot} has an invalid dependencies declaration for ${dependencyName}`,
+    });
+  }
+  return declaredSpec;
+}
+
+/**
+ * Resolves one of an owning package's runtime dependencies and reports both
+ * the declared install contract and the exact installed artifact.
+ *
+ * Reading from the owner's manifest anchor prevents a nested caller path from
+ * changing which installed dependency Node selects.
+ */
+export function resolveInstalledPackageDependency(
+  ownerPackageName: string,
+  dependencyName: string,
+  anchor: string | URL = PACKAGE_RESOLUTION_ANCHOR,
+): InstalledPackageDependency {
+  const owner = findOwningPackage(ownerPackageName, anchor);
+  const declaredSpec = ownDependencySpec(
+    ownerPackageName,
+    owner.root,
+    owner.manifest,
+    dependencyName,
+  );
+  const ownerManifestPath = join(owner.root, "package.json");
+  const packageRoot = resolveInstalledPackageRoot(
+    dependencyName,
+    ownerManifestPath,
+  );
+  const installedManifest = parsePackageJson(
+    createRequire(ownerManifestPath),
+    packageRoot,
+    dependencyName,
+  );
+  if (installedManifest.name !== dependencyName) {
+    throw new PackageResolutionFailed({
+      packageName: dependencyName,
+      message: `Installed package at ${packageRoot} is named ${String(installedManifest.name)}, not ${dependencyName}`,
+    });
+  }
+  if (
+    typeof installedManifest.version !== "string" ||
+    !isExactPackageVersion(installedManifest.version)
+  ) {
+    throw new PackageResolutionFailed({
+      packageName: dependencyName,
+      message: `Installed package ${dependencyName} at ${packageRoot} does not declare an exact version`,
+    });
+  }
+  return {
+    ownerPackageRoot: owner.root,
+    declaredSpec,
+    packageRoot,
+    version: installedManifest.version,
+  };
 }
 
 export function resolveInstalledPackageBin(

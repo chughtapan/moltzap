@@ -1,4 +1,6 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+export type { InstallMode } from "./install-mode.js";
+
 import { Data, Effect, Exit, Fiber } from "effect";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
@@ -23,6 +25,7 @@ import {
   type SpawnInput,
   type WorkspaceFile,
 } from "./runtime.js";
+import { resolveInstallMode, type InstallMode } from "./install-mode.js";
 
 const LOG_START_OFFSET = 0;
 
@@ -41,15 +44,21 @@ interface RuntimeStartOptionsBase {
   readonly readyTimeoutMs: number;
 }
 
+// Adapters take a decided install mode; a launch may override the one this
+// module resolves, so the mode is optional on the caller-facing overrides.
+type RuntimeOverrides<Options> = Omit<Options, "server" | "installMode"> & {
+  readonly installMode?: InstallMode;
+};
+
 type RuntimeSelection =
   | {
       readonly kind: "openclaw";
-      readonly openclaw?: Omit<OpenClawAdapterOptions, "server">;
+      readonly openclaw?: RuntimeOverrides<OpenClawAdapterOptions>;
       readonly nanoclaw?: never;
     }
   | {
       readonly kind: "nanoclaw";
-      readonly nanoclaw?: Omit<NanoclawAdapterOptions, "server">;
+      readonly nanoclaw?: RuntimeOverrides<NanoclawAdapterOptions>;
       readonly openclaw?: never;
     };
 
@@ -113,18 +122,34 @@ class UnknownRuntimeAgent extends Data.TaggedError("UnknownRuntimeAgent")<{
   readonly message: string;
 }> {}
 
-function createRuntime(options: RuntimeStartOptions): Runtime {
+function createRuntime(
+  options: RuntimeStartOptions,
+  installMode: InstallMode,
+): Runtime {
   switch (options.kind) {
     case "openclaw":
       return createOpenClawAdapter({
         server: options.server,
         ...options.openclaw,
+        installMode,
       });
     case "nanoclaw":
       return new NanoclawAdapter({
         server: options.server,
         ...options.nanoclaw,
+        installMode,
       });
+  }
+}
+
+function installModeOverride(
+  options: RuntimeStartOptions | TestbedLaunchOptions,
+): InstallMode | undefined {
+  switch (options.kind) {
+    case "openclaw":
+      return options.openclaw?.installMode;
+    case "nanoclaw":
+      return options.nanoclaw?.installMode;
   }
 }
 
@@ -192,10 +217,12 @@ function startTestbedAgent(
   options: TestbedLaunchOptions,
   startedAgents: StartedRuntimeAgent[],
   agent: TestbedAgentSpec,
+  installMode: InstallMode,
 ) {
   return Effect.gen(function* () {
     const pending = yield* startPendingRuntimeAgent(
       runtimeStartOptionsForAgent(options, agent),
+      installMode,
     );
     const startedAgent = {
       spec: agent,
@@ -237,8 +264,11 @@ function toTestbed(started: ReadonlyArray<StartedRuntimeAgent>): Testbed {
   };
 }
 
-function startPendingRuntimeAgent(options: RuntimeStartOptions) {
-  const runtime = createRuntime(options);
+function startPendingRuntimeAgent(
+  options: RuntimeStartOptions,
+  installMode: InstallMode,
+) {
+  const runtime = createRuntime(options, installMode);
   const spawnInput = toSpawnInput(options.agent);
   return Effect.gen(function* () {
     let cleanupArmed = true;
@@ -311,7 +341,10 @@ export function startRuntimeAgent(
 ): Effect.Effect<Runtime, RuntimeLaunchFailed, never> {
   return Effect.scoped(
     Effect.gen(function* () {
-      const pending = yield* startPendingRuntimeAgent(options);
+      const installMode = yield* resolveInstallMode(
+        installModeOverride(options),
+      );
+      const pending = yield* startPendingRuntimeAgent(options, installMode);
       yield* pending.releaseStartupCleanup;
       return pending.runtime;
     }),
@@ -340,9 +373,13 @@ export function launchTestbed(
   return Effect.scoped(
     Effect.gen(function* () {
       const startedAgents: StartedRuntimeAgent[] = [];
+      const installMode = yield* resolveInstallMode(
+        installModeOverride(options),
+      );
       const started = yield* Effect.forEach(
         options.agents,
-        (agent) => startTestbedAgent(options, startedAgents, agent),
+        (agent) =>
+          startTestbedAgent(options, startedAgents, agent, installMode),
         {
           concurrency: options.concurrency ?? 1,
         },

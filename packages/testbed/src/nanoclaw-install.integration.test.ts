@@ -9,6 +9,7 @@ import {
   findWarmNanoclawRuntimeInstallEffect,
 } from "./nanoclaw-install.js";
 
+const PUBLISHED_INSTALL_MODE = "published";
 const CACHE_GENERATION_PREFIX = "generation-";
 const READY_MARKER = ".ready";
 const DOCKER_COMMAND = "docker";
@@ -38,7 +39,9 @@ describe.skipIf(!NANOCLAW_INSTALL_INTEGRATION_ENABLED)(
 function reusesWarmInstall() {
   return Effect.runPromise(
     Effect.gen(function* () {
-      const warmCandidate = yield* findWarmNanoclawRuntimeInstallEffect();
+      const warmCandidate = yield* findWarmNanoclawRuntimeInstallEffect(
+        PUBLISHED_INSTALL_MODE,
+      );
       expect(warmCandidate).not.toBeNull();
       if (warmCandidate === null) return;
 
@@ -62,9 +65,13 @@ function reusesWarmInstall() {
       );
       expect(Number(imageExitCode)).toBe(SUCCESS_EXIT_CODE);
 
-      const firstInstall = yield* ensureNanoclawRuntimeInstalledEffect();
+      const firstInstall = yield* ensureNanoclawRuntimeInstalledEffect(
+        PUBLISHED_INSTALL_MODE,
+      );
       expect(firstInstall).toEqual(warmCandidate);
-      const secondInstall = yield* ensureNanoclawRuntimeInstalledEffect();
+      const secondInstall = yield* ensureNanoclawRuntimeInstalledEffect(
+        PUBLISHED_INSTALL_MODE,
+      );
       expect(secondInstall).toBe(firstInstall);
     }).pipe(Effect.provide(NodeContext.layer)),
   );
