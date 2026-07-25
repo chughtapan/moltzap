@@ -3,9 +3,9 @@
  * The grading recipe: refuse, then judge.
  *
  * Stage 1 is preflight. It runs `recording check` with the caller's
- * content key and the completed-run requirement, so a recording that is
- * unsealed (10), the wrong schema version (11), undecodable (12),
- * produced from different content (13), or from a run that never
+ * condition label and the completed-run requirement, so a recording that
+ * is unsealed (10), the wrong schema version (11), undecodable (12),
+ * produced under a different condition (13), or from a run that never
  * completed (14) is refused before any grader starts. Stage 2 invokes the
  * grader, whose exit codes are its own.
  *
@@ -15,7 +15,7 @@
  * invalidity out of the verdict channel.
  *
  * Usage:
- *   preflight-and-grade.mjs <recording-dir> [--content-version <key>]
+ *   preflight-and-grade.mjs <recording-dir> [--condition <label>]
  *                           [--grade <command...>]
  *
  * Exit: the preflight code when preflight refuses; otherwise the
@@ -31,25 +31,25 @@ const CLI = resolve(fileURLToPath(new URL("../dist/cli.js", import.meta.url)));
 
 function parse(argv) {
   const [recording, ...rest] = argv;
-  let contentVersion;
+  let condition;
   const grade = [];
   for (let index = 0; index < rest.length; index += 1) {
-    if (rest[index] === "--content-version") {
-      contentVersion = rest[index + 1];
+    if (rest[index] === "--condition") {
+      condition = rest[index + 1];
       index += 1;
     } else if (rest[index] === "--grade") {
       grade.push(...rest.slice(index + 1));
       break;
     }
   }
-  return { recording, contentVersion, grade };
+  return { recording, condition, grade };
 }
 
-const { recording, contentVersion, grade } = parse(process.argv.slice(2));
+const { recording, condition, grade } = parse(process.argv.slice(2));
 
 if (recording === undefined) {
   process.stderr.write(
-    "usage: preflight-and-grade.mjs <recording-dir> [--content-version <key>] [--grade <command...>]\n",
+    "usage: preflight-and-grade.mjs <recording-dir> [--condition <label>] [--grade <command...>]\n",
   );
   process.exit(2);
 }
@@ -63,8 +63,8 @@ const checkArgs = [
   "--require-completed",
   "--json",
 ];
-if (contentVersion !== undefined) {
-  checkArgs.push("--content-version", contentVersion);
+if (condition !== undefined) {
+  checkArgs.push("--condition", condition);
 }
 const preflight = spawnSync(process.execPath, checkArgs, { encoding: "utf8" });
 process.stdout.write(preflight.stdout ?? "");
@@ -89,7 +89,7 @@ const graded = spawnSync(grade[0], grade.slice(1), {
 // these fields, so the recipe that ran both stages writes them down.
 const meta = {
   recording: resolve(recording),
-  contentVersion: contentVersion ?? null,
+  condition: condition ?? null,
   preflight: JSON.parse(preflight.stdout || "{}"),
   grader: grade.join(" "),
   rubricSha256: createHash("sha256")

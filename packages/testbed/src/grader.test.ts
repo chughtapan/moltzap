@@ -11,10 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, FastCheck as fc, Option } from "effect";
 import {
-  attributeSenders,
-  mergedTimeline,
   openRecording,
-  projectBundle,
   type GradeableRecording,
   type GradingPreconditions,
 } from "./grader.js";
@@ -24,7 +21,7 @@ import {
   AGENT_ONE,
   AGENT_TWO,
   DEFAULT_EVENT_COUNT,
-  launched,
+  ready,
   FIXTURE_RUN_ID,
   makeRecording,
   tamper,
@@ -41,16 +38,16 @@ import {
 } from "./simulator/__tests__/tags.js";
 
 const GRADEABLE: GradingPreconditions = {
-  contentVersion: null,
+  condition: null,
   outcome: "completed-only",
 };
 const PERMISSIVE: GradingPreconditions = {
-  contentVersion: null,
+  condition: null,
   outcome: "any",
 };
 
-const CONTENT_KEY = "cold-outreach/2";
-const OTHER_CONTENT_KEY = "cold-outreach/1";
+const CONDITION = "cold-outreach/2";
+const OTHER_CONDITION = "cold-outreach/1";
 const NO_FAILURE = "no-failure";
 
 function failureTag(
@@ -96,7 +93,7 @@ describe("openRecording", () => {
       openedOf({}).pipe(
         Effect.map((recording) => {
           expect(recording.result.outcome._tag).toBe(OUTCOME.episode);
-          expect(recording.events).toHaveLength(DEFAULT_EVENT_COUNT);
+          expect(recording.timeline).toHaveLength(DEFAULT_EVENT_COUNT);
         }),
       ),
     ));
@@ -161,26 +158,28 @@ describe("openRecording", () => {
       ),
     ));
 
-  it("refuses a recording produced under a different content key", () =>
+  it("refuses a recording produced under a different condition", () =>
     Effect.runPromise(
       refusalOf(
-        { contentVersion: OTHER_CONTENT_KEY },
-        { contentVersion: CONTENT_KEY, outcome: "completed-only" },
+        { condition: OTHER_CONDITION },
+        { condition: CONDITION, outcome: "completed-only" },
       ).pipe(
         Effect.map((tag) => {
-          expect(tag).toBe(ERROR_TAG.contentVersionMismatch);
+          expect(tag).toBe(ERROR_TAG.conditionMismatch);
         }),
       ),
     ));
 
-  it("accepts a matching content key", () =>
+  it("accepts a matching condition", () =>
     Effect.runPromise(
       openedOf(
-        { contentVersion: CONTENT_KEY },
-        { contentVersion: CONTENT_KEY, outcome: "completed-only" },
+        { condition: CONDITION },
+        { condition: CONDITION, outcome: "completed-only" },
       ).pipe(
         Effect.map((recording) => {
-          expect(recording.manifest.contentVersion).toBe(CONTENT_KEY);
+          expect(recording.manifest.materializedSpec.condition?.label).toBe(
+            CONDITION,
+          );
         }),
       ),
     ));
@@ -206,7 +205,7 @@ describe("openRecording", () => {
     ));
 });
 
-describe("mergedTimeline", () => {
+describe("openRecording: the timeline", () => {
   it("orders by logicalSequence whatever order the lines were written in", () =>
     fc.assert(
       fc.asyncProperty(
@@ -269,10 +268,9 @@ describe("mergedTimeline", () => {
 
   it("lets independent conversations interleave freely", () =>
     Effect.runPromise(
-      Effect.gen(function* () {
-        const recording = yield* openedOf(
-          {
-            events: [
+      openedOf(
+        {
+          events: [
               transcript({
                 runId: FIXTURE_RUN_ID,
                 logicalSequence: 1,
@@ -289,242 +287,92 @@ describe("mergedTimeline", () => {
                 text: "b1",
                 conversationId: "conv-b",
               }),
-              transcript({
-                runId: FIXTURE_RUN_ID,
-                logicalSequence: 3,
-                senderId: AGENT_ID_ONE,
-                conversationSeq: 2,
-                text: "a2",
-                conversationId: "conv-a",
-              }),
-            ],
-          },
-          PERMISSIVE,
-        );
-        const timeline = yield* mergedTimeline(recording).pipe(Effect.orDie);
-        expect(timeline).toHaveLength(3);
+          transcript({
+            runId: FIXTURE_RUN_ID,
+            logicalSequence: 3,
+            senderId: AGENT_ID_ONE,
+            conversationSeq: 2,
+            text: "a2",
+            conversationId: "conv-a",
+          }),
+        ],
+      },
+      PERMISSIVE,
+    ).pipe(
+      Effect.map((recording) => {
+        expect(recording.timeline).toHaveLength(3);
       }),
-    ));
+    ),
+  ));
 });
 
 /** The timeline is a permutation of the written lines, sorted by sequence. */
 function assertOrdered(
   sequences: ReadonlyArray<number>,
 ): Effect.Effect<void, never, never> {
-  return Effect.gen(function* () {
-    const recording = yield* openedOf(
-      {
-        events: sequences.map((sequence, index) =>
-          transcript({
-            runId: FIXTURE_RUN_ID,
-            logicalSequence: sequence,
-            senderId: AGENT_ID_ONE,
-            conversationSeq: index + 1,
-            text: `m${String(sequence)}`,
-            conversationId: `conv-${String(sequence)}`,
-          }),
-        ),
-      },
-      PERMISSIVE,
-    );
-    const timeline = yield* mergedTimeline(recording).pipe(Effect.orDie);
-    const observed = timeline.map((event) => event.logicalSequence);
-    expect(observed).toStrictEqual([...sequences].sort((a, b) => a - b));
-  });
+  return openedOf(
+    {
+      events: sequences.map((sequence, index) =>
+        transcript({
+          runId: FIXTURE_RUN_ID,
+          logicalSequence: sequence,
+          senderId: AGENT_ID_ONE,
+          conversationSeq: index + 1,
+          text: `m${String(sequence)}`,
+          conversationId: `conv-${String(sequence)}`,
+        }),
+      ),
+    },
+    PERMISSIVE,
+  ).pipe(
+    Effect.map((recording) => {
+      const observed = recording.timeline.map((event) => event.logicalSequence);
+      expect(observed).toStrictEqual([...sequences].sort((a, b) => a - b));
+    }),
+  );
 }
 
 function timelineRefusal(
   events: ReadonlyArray<Record<string, unknown>>,
 ): Effect.Effect<string, never, never> {
-  return Effect.gen(function* () {
-    const recording = yield* openedOf({ events }, PERMISSIVE);
-    const exit = yield* Effect.exit(mergedTimeline(recording));
-    return failureTag(exit);
-  });
+  return refusalOf({ events }, PERMISSIVE);
 }
 
-describe("attributeSenders", () => {
-  it("joins transcript senders to the slots that were launched", () =>
+describe("openRecording: sender attribution", () => {
+  it("joins transcript senders to the slots that became ready", () =>
     Effect.runPromise(
-      sendersOf().pipe(
-        Effect.map((senders) => {
-          expect(senders.get(AGENT_ID_ONE)).toBe(AGENT_ONE);
-          expect(senders.get(AGENT_ID_TWO)).toBe(AGENT_TWO);
+      openedOf({}).pipe(
+        Effect.map((recording) => {
+          expect(recording.senders.get(AGENT_ID_ONE)).toBe(AGENT_ONE);
+          expect(recording.senders.get(AGENT_ID_TWO)).toBe(AGENT_TWO);
         }),
       ),
     ));
 
   it("leaves senders the run never launched unattributed", () =>
     Effect.runPromise(
-      sendersOf().pipe(
-        Effect.map((senders) => {
-          expect(senders.get("some-principal")).toBeUndefined();
+      openedOf({}).pipe(
+        Effect.map((recording) => {
+          expect(recording.senders.get("some-principal")).toBeUndefined();
         }),
       ),
     ));
 
   it("rejects one agent id claimed by two slots", () =>
     Effect.runPromise(
-      Effect.gen(function* () {
-        const recording = yield* openedOf(
-          {
-            events: [
-              launched(FIXTURE_RUN_ID, 1, AGENT_ONE, "shared"),
-              launched(FIXTURE_RUN_ID, 2, AGENT_TWO, "shared"),
-            ],
-          },
-          PERMISSIVE,
-        );
-        const timeline = yield* mergedTimeline(recording).pipe(Effect.orDie);
-        const exit = yield* Effect.exit(attributeSenders(timeline));
-        expect(failureTag(exit)).toBe(ERROR_TAG.recordingInvalid);
-      }),
+      refusalOf(
+        {
+          events: [
+            ready(FIXTURE_RUN_ID, 1, AGENT_ONE, "shared"),
+            ready(FIXTURE_RUN_ID, 2, AGENT_TWO, "shared"),
+          ],
+        },
+        PERMISSIVE,
+      ).pipe(
+        Effect.map((tag) => {
+          expect(tag).toBe(ERROR_TAG.recordingInvalid);
+        }),
+      ),
     ));
 });
 
-function sendersOf(): Effect.Effect<ReadonlyMap<string, string>, never, never> {
-  return Effect.gen(function* () {
-    const recording = yield* openedOf({});
-    const timeline = yield* mergedTimeline(recording).pipe(Effect.orDie);
-    return yield* attributeSenders(timeline).pipe(Effect.orDie);
-  });
-}
-
-// ---------------------------------------------------------------------------
-// projectBundle
-// ---------------------------------------------------------------------------
-
-const GRADER_NAME = "cc-judge";
-const RUBRIC_FIELD = "expectedBehavior";
-const SPEC_FIELD = "seed";
-const CONTENT_FIELD = "contentVersion";
-const STEM = "cold-outreach";
-const DEFAULT_PROJECT = "simulator";
-
-const BUNDLE = {
-  name: "Cold outreach response quality",
-  description: "Tests helpful response to a first-contact DM.",
-  run: { [SPEC_FIELD]: 7 },
-  grade: { grader: GRADER_NAME, config: { [RUBRIC_FIELD]: "be helpful" } },
-};
-const SOURCE = { stem: STEM };
-
-function projected(bundle: unknown) {
-  return projectBundle(bundle, SOURCE).pipe(Effect.orDie);
-}
-
-function projectionRefusal(
-  bundle: unknown,
-): Effect.Effect<string, never, never> {
-  return Effect.exit(projectBundle(bundle, SOURCE)).pipe(
-    Effect.map(failureTag),
-  );
-}
-
-describe("projectBundle", () => {
-  it("carries the envelope and defaults scenarioId to the file stem", () =>
-    Effect.runPromise(
-      projected(BUNDLE).pipe(
-        Effect.map((result) => {
-          expect(result.envelope.scenarioId).toBe(STEM);
-          expect(result.envelope.project).toBe(DEFAULT_PROJECT);
-          expect(result.envelope.name).toBe(BUNDLE.name);
-        }),
-      ),
-    ));
-
-  it("carries grade.config through without letting it reach the spec", () =>
-    Effect.runPromise(
-      projected(BUNDLE).pipe(
-        Effect.map((result) => {
-          expect(result.grade.config).toStrictEqual(BUNDLE.grade.config);
-          expect(Object.keys(result.spec)).toStrictEqual([SPEC_FIELD]);
-        }),
-      ),
-    ));
-
-  it("injects an envelope-only key into the emitted spec", () =>
-    Effect.runPromise(
-      projected({ ...BUNDLE, [CONTENT_FIELD]: CONTENT_KEY }).pipe(
-        Effect.map((result) => {
-          expect(result.contentVersion).toBe(CONTENT_KEY);
-          expect(result.spec[CONTENT_FIELD]).toBe(CONTENT_KEY);
-        }),
-      ),
-    ));
-
-  it("keeps a spec-only key", () =>
-    Effect.runPromise(
-      projected({
-        ...BUNDLE,
-        run: { [SPEC_FIELD]: 7, [CONTENT_FIELD]: CONTENT_KEY },
-      }).pipe(
-        Effect.map((result) => {
-          expect(result.contentVersion).toBe(CONTENT_KEY);
-        }),
-      ),
-    ));
-
-  it("accepts the two keys when they agree", () =>
-    Effect.runPromise(
-      projected({
-        ...BUNDLE,
-        [CONTENT_FIELD]: CONTENT_KEY,
-        run: { [SPEC_FIELD]: 7, [CONTENT_FIELD]: CONTENT_KEY },
-      }).pipe(
-        Effect.map((result) => {
-          expect(result.contentVersion).toBe(CONTENT_KEY);
-        }),
-      ),
-    ));
-
-  it("refuses to pick a winner when the two keys disagree", () =>
-    Effect.runPromise(
-      projectionRefusal({
-        ...BUNDLE,
-        [CONTENT_FIELD]: CONTENT_KEY,
-        run: { [SPEC_FIELD]: 7, [CONTENT_FIELD]: OTHER_CONTENT_KEY },
-      }).pipe(
-        Effect.map((tag) => {
-          expect(tag).toBe(ERROR_TAG.contentVersionConflict);
-        }),
-      ),
-    ));
-
-  it("leaves the key absent when neither half names one", () =>
-    Effect.runPromise(
-      projected(BUNDLE).pipe(
-        Effect.map((result) => {
-          expect(result.contentVersion).toBeUndefined();
-          expect(result.spec[CONTENT_FIELD]).toBeUndefined();
-        }),
-      ),
-    ));
-
-  it("rejects a document that is not a bundle", () =>
-    Effect.runPromise(
-      projectionRefusal({ name: "only a name" }).pipe(
-        Effect.map((tag) => {
-          expect(tag).toBe(ERROR_TAG.bundleInvalid);
-        }),
-      ),
-    ));
-
-  it("is idempotent on its own emitted spec for any content key", () =>
-    Effect.runPromise(
-      Effect.forEach(
-        [CONTENT_KEY, OTHER_CONTENT_KEY],
-        (key) =>
-          projected({ ...BUNDLE, [CONTENT_FIELD]: key }).pipe(
-            Effect.flatMap((once) =>
-              projected({ ...BUNDLE, run: once.spec }).pipe(
-                Effect.map((twice) => {
-                  expect(twice.spec).toStrictEqual(once.spec);
-                }),
-              ),
-            ),
-          ),
-        { concurrency: 1, discard: true },
-      ),
-    ));
-});

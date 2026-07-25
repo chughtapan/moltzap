@@ -43,7 +43,7 @@ const ENDED_AT = 1_700_000_001_000;
 export type FixtureOptions = {
   readonly storeRoot: string;
   readonly outcome?: RunOutcome;
-  readonly contentVersion?: string;
+  readonly condition?: string;
   /** Event lines to write verbatim, replacing the default transcript. */
   readonly events?: ReadonlyArray<Record<string, unknown>>;
   /** Skip the seal step, leaving the recording unsealed. */
@@ -89,15 +89,15 @@ export function envelope(
   };
 }
 
-/** A launched-agent event, the left side of the sender-attribution join. */
-export function launched(
+/** A ready-agent event, the left side of the sender-attribution join. */
+export function ready(
   runId: string,
   logicalSequence: number,
   agent: string,
   agentId: string,
 ): Record<string, unknown> {
   return envelope(runId, logicalSequence, {
-    _tag: "agent.launched",
+    _tag: "agent.ready",
     source: "lifecycle",
     agent,
     agentId,
@@ -128,7 +128,7 @@ export function transcript(row: TranscriptRow): Record<string, unknown> {
   });
 }
 
-/** The default transcript: two launched slots, one message each. */
+/** The default transcript: two ready slots, one message each. */
 function defaultEvents(runId: string): ReadonlyArray<Record<string, unknown>> {
   return [
     envelope(runId, 1, {
@@ -137,8 +137,8 @@ function defaultEvents(runId: string): ReadonlyArray<Record<string, unknown>> {
       specHash: "0".repeat(64),
       seed: 7,
     }),
-    launched(runId, 2, AGENT_ONE, AGENT_ID_ONE),
-    launched(runId, 3, AGENT_TWO, AGENT_ID_TWO),
+    ready(runId, 2, AGENT_ONE, AGENT_ID_ONE),
+    ready(runId, 3, AGENT_TWO, AGENT_ID_TWO),
     transcript({
       runId,
       logicalSequence: 4,
@@ -161,7 +161,6 @@ export const DEFAULT_EVENT_COUNT = 5;
 function buildManifest(
   allocated: AllocatedAttempt,
   spec: RunSpec,
-  contentVersion: string | undefined,
 ): ManifestJson {
   return new ManifestJson({
     recordingSchemaVersion: RECORDING_SCHEMA_VERSION,
@@ -170,7 +169,6 @@ function buildManifest(
     attemptId: allocated.attemptId,
     specHash: allocated.identity.specHash,
     seed: allocated.identity.seed,
-    ...(contentVersion === undefined ? {} : { contentVersion }),
     createdAtWallTime: Schema.decodeSync(WallTimeMs)(CREATED_AT),
     serverImageDigest: IMAGE_DIGEST,
     slots: [],
@@ -203,9 +201,9 @@ export function makeRecording(
     const store = makeLocalRecordingStore(options.storeRoot);
     const report = yield* materializeRunSpec(
       specInput(options.storeRoot, {
-        ...(options.contentVersion === undefined
+        ...(options.condition === undefined
           ? {}
-          : { contentVersion: options.contentVersion }),
+          : { condition: { label: options.condition } }),
       }),
     );
     const allocated = yield* store.allocateAttempt(
@@ -215,7 +213,7 @@ export function makeRecording(
       }),
     );
     const ref = yield* store.persistManifest(
-      buildManifest(allocated, report.spec, options.contentVersion),
+      buildManifest(allocated, report.spec),
     );
     const lines = (options.events ?? defaultEvents(allocated.runId)).map(
       (event) => JSON.stringify(event),
