@@ -20,7 +20,6 @@ import {
   AGENT_TWO,
   PRINCIPAL_NAME,
   SAY_TEXT,
-  awaitAgents,
   decodedEvents,
   expectedAttemptPath,
   fakeAgentId,
@@ -30,18 +29,22 @@ import {
   specInput,
   startHermetic,
   tempStoreRoot,
+  whenLive,
   type DeliveredSpanInput,
   type StartedHermetic,
 } from "./__tests__/support.js";
-import { EVENT, EXIT, OUTCOME, TERMINATION } from "./__tests__/tags.js";
+import { outcomeOf } from "./__tests__/coverage-shared.js";
+import { EVENT, OUTCOME, TERMINATION } from "./__tests__/tags.js";
+import {
+  LAST_STEP_ANSWERED_DONE_SIGNAL,
+  REPLIES_DONE_SIGNAL,
+} from "./drivers.js";
 
 /** Long enough that only a done-signal ends the run. */
 const PATIENT_MS = 60_000;
 /** Short enough to end an unanswered run, long enough to post spans first. */
 const QUIET_MS = 700;
 const AGENT_COUNT = 2;
-/** The episode's tap is forked at start; spans posted before it subscribes are not observed. */
-const SETTLE_MS = 150;
 
 type StepInput = Record<string, unknown>;
 
@@ -67,7 +70,10 @@ const startStep = (name?: string): StepInput => ({
   say: SAY_TEXT,
 });
 
-const LAST_STEP_ANSWERED = { name: "last-step-answered", config: {} };
+const LAST_STEP_ANSWERED = {
+  name: LAST_STEP_ANSWERED_DONE_SIGNAL,
+  config: {},
+};
 
 /** A message from `sender` in `conversationId`. */
 function delivered(
@@ -84,16 +90,6 @@ function ownMessage(
   messageId: string,
 ): DeliveredSpanInput {
   return delivered(conversationId, PRINCIPAL_NAME, messageId);
-}
-
-/** The endpoint, once the agents are up and the episode's tap is subscribed. */
-function liveEndpoint(
-  started: StartedHermetic,
-): Effect.Effect<string, never, never> {
-  return started.endpoint.pipe(
-    Effect.tap(() => awaitAgents(started.launch, AGENT_COUNT)),
-    Effect.tap(() => Effect.sleep(`${SETTLE_MS} millis`)),
-  );
 }
 
 function eventsOf(
@@ -116,12 +112,12 @@ function spokenOf(
 }
 
 function expectTermination(
-  sealed: { readonly _tag: string },
+  sealed: Parameters<typeof outcomeOf>[0],
   termination: string,
 ): void {
-  expect(sealed._tag).toBe(EXIT.success);
-  expect(sealed).toMatchObject({
-    value: { outcome: { _tag: OUTCOME.episode, termination } },
+  expect(outcomeOf(sealed)).toMatchObject({
+    _tag: OUTCOME.episode,
+    termination,
   });
 }
 
@@ -133,7 +129,7 @@ function runWithSpans(
 ): Effect.Effect<StartedHermetic, unknown, never> {
   return startHermetic(input, root).pipe(
     Effect.tap((started) =>
-      liveEndpoint(started).pipe(
+      whenLive(started, AGENT_COUNT).pipe(
         Effect.flatMap((endpoint) => postDeliveredSpans(endpoint, spans)),
       ),
     ),
@@ -163,7 +159,10 @@ function repliesBody(
     const input = specInput(root, {
       episode: episodeOf(
         [startStep()],
-        { name: "replies", config: { from: AGENT_ONE, minCount: 2 } },
+        {
+          name: REPLIES_DONE_SIGNAL,
+          config: { from: AGENT_ONE, minCount: 2 },
+        },
         inactivityMs,
       ),
     });
@@ -284,7 +283,7 @@ function drainedBeforeReceiptBody(): Effect.Effect<void, unknown, never> {
     const started = yield* startHermetic(input, root, {
       internals: { makePrincipal: () => Effect.succeed(held.principal) },
     });
-    const endpoint = yield* liveEndpoint(started);
+    const endpoint = yield* whenLive(started, AGENT_COUNT);
     yield* held.requested(1);
     yield* postDeliveredSpans(endpoint, SETUP_ANSWERED);
     yield* held.release;

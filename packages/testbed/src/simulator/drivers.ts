@@ -26,10 +26,9 @@ import type {
 import type { Society } from "./run-config.js";
 import type { SimulatorEvent } from "./event-log.js";
 import {
-  makeDeliveredLog,
   MESSAGE_DELIVERED_SPAN,
   readDeliveredMessage,
-  type AnswerCriteria,
+  type DeliveredLog,
 } from "./span-attrs.js";
 import type { Secrets } from "./recording.js";
 import {
@@ -51,7 +50,7 @@ import {
 
 const OUT_OF_BAND_PRINCIPAL = "out-of-band";
 const SPAN_NAME_DONE_SIGNAL = "span-name";
-const REPLIES_DONE_SIGNAL = "replies";
+export const REPLIES_DONE_SIGNAL = "replies";
 
 /** The one done-signal that tracks the schedule rather than the traffic. */
 export const LAST_STEP_ANSWERED_DONE_SIGNAL = "last-step-answered";
@@ -202,6 +201,66 @@ export function checkDoneSignalShape(
   );
 }
 
+/**
+ * Refuse a done-signal that waits on nobody this run launches. Only a
+ * launched agent is ever the sender of a delivered message, so a `from`
+ * naming a principal or a typo — or a last step whose participants are
+ * all principals — leaves the predicate with an empty answerer set and
+ * `completed` unreachable. Without this the run burns its whole
+ * inactivity bound and seals `timeout`, and nothing in the recording says
+ * the done-signal never could have fired.
+ */
+export function checkDoneSignalTarget(
+  ref: DriverRef,
+  context: {
+    readonly agentNames: ReadonlySet<string>;
+    readonly steps: ReadonlyArray<SpeechStep>;
+  },
+): Effect.Effect<void, DriverConfigRejected> {
+  const named = configuredFrom(ref);
+  if (named !== undefined) {
+    return context.agentNames.has(named)
+      ? Effect.void
+      : Effect.fail(
+          targetRejected(
+            ref,
+            `waits on "${named}", which this run launches no agent for`,
+            context.agentNames,
+          ),
+        );
+  }
+  if (ref.name !== LAST_STEP_ANSWERED_DONE_SIGNAL) return Effect.void;
+  const answerers = lastStepParticipants(context.steps).filter((name) =>
+    context.agentNames.has(name),
+  );
+  return answerers.length > 0
+    ? Effect.void
+    : Effect.fail(
+        targetRejected(
+          ref,
+          "waits on the last step's participants, and none of them is a launched agent",
+          context.agentNames,
+        ),
+      );
+}
+
+function targetRejected(
+  ref: DriverRef,
+  detail: string,
+  agentNames: ReadonlySet<string>,
+): DriverConfigRejected {
+  return new DriverConfigRejected({
+    name: ref.name,
+    field: "from",
+    message: `Done-signal driver "${ref.name}" ${detail}, so the episode can never complete. Set \`from\` to one of: ${[...agentNames].join(", ")}.`,
+  });
+}
+
+function configuredFrom(ref: DriverRef): string | undefined {
+  const from = ref.config["from"];
+  return typeof from === "string" ? from : undefined;
+}
+
 function registeredNames(kind: DriverKind): ReadonlyArray<string> {
   return Object.entries(REGISTERED_DRIVERS)
     .filter(([, entry]) => entry.kind === kind)
@@ -218,10 +277,19 @@ export type DonePredicate = {
   observe(event: SimulatorEvent): boolean;
 };
 
-/** What a predicate needs to relate the spec's names to the identities on the wire. */
+/**
+ * What a predicate needs beyond the event itself: the spec's names
+ * resolved to wire identities, the schedule it is judging, and the
+ * episode's delivered-span log. The log is the episode's, not the
+ * predicate's — the gate and `last-step-answered` read the same evidence,
+ * so it is recorded once, by the episode, before any predicate observes.
+ */
 export type PredicateContext = {
   readonly agentIds: ReadonlyMap<string, AgentId>;
   readonly steps: ReadonlyArray<SpeechStep>;
+  readonly delivered: DeliveredLog;
+  /** Filled by the episode once the last step has spoken; empty until then. */
+  readonly lastSpoken: { receipt: SpeechReceipt | undefined };
 };
 
 /** Instantiate the done-signal predicate for one episode; the ref is already materialization-checked. */
@@ -243,8 +311,14 @@ function donePredicateFor(
       return makeRepliesPredicate(ref, context);
     case LAST_STEP_ANSWERED_DONE_SIGNAL:
       return makeLastStepAnsweredPredicate(ref, context);
-    default:
+    case SPAN_NAME_DONE_SIGNAL:
       return makeSpanNamePredicate(ref);
+    default:
+      // Registering a done-signal without a factory here would otherwise
+      // decode its config against another driver's schema.
+      return Effect.dieMessage(
+        `registered done-signal "${ref.name}" has no predicate factory`,
+      );
   }
 }
 
@@ -276,8 +350,8 @@ function makeRepliesPredicate(
   return decodeDriverConfig(ref, RepliesDoneConfig).pipe(
     Effect.map((config) => {
       const senderId = context.agentIds.get(config.from);
+      if (senderId === undefined) return neverFires(ref.name);
       return countingPredicate(ref.name, config.minCount, (event) => {
-        if (senderId === undefined) return false;
         if (event._tag !== "span.accepted") return false;
         if (event.spanName !== MESSAGE_DELIVERED_SPAN) return false;
         return readDeliveredMessage(event.raw)?.senderId === senderId;
@@ -286,15 +360,26 @@ function makeRepliesPredicate(
   );
 }
 
+/** A name that resolves to no launched agent can never be the sender of anything. */
+function neverFires(driverName: string): DonePredicate {
+  return { driverName, observe: () => false };
+}
+
 /**
  * Done when the last scheduled step has been answered.
  *
- * It arms only on the last step's own `step.spoken`, which is what makes
- * it safe where the traffic-tracking predicates are not: before that
- * event exists there is no receipt to match against, so the predicate
- * cannot fire early and cannot cut the schedule short. Retention in the
- * delivered log means arming late still matches an answer whose span
- * arrived first.
+ * It reads the last step's receipt straight from the episode, so before
+ * that step has spoken there is nothing to match against and the
+ * predicate cannot fire. That is what makes it safe where the
+ * traffic-tracking predicates are not: it cannot cut a schedule short.
+ * Identity, not a count of observed events — a `step.spoken` the observer
+ * missed would otherwise shift the arming point one step earlier and
+ * complete the run before the last step ever speaks.
+ *
+ * An answer must clear the floor set by the last step's own message span,
+ * and spans are ordered as they arrive, so a span recorded before that
+ * floor can never match. Every candidate therefore arrives after it, and
+ * checking on each delivered span is enough.
  */
 function makeLastStepAnsweredPredicate(
   ref: DriverRef,
@@ -302,31 +387,24 @@ function makeLastStepAnsweredPredicate(
 ): Effect.Effect<DonePredicate, DriverConfigRejected> {
   return decodeDriverConfig(ref, LastStepAnsweredConfig).pipe(
     Effect.map((config) => {
-      const delivered = makeDeliveredLog();
-      const named = config.from;
-      const senders =
-        named === undefined
-          ? participantSenders(context)
-          : wireIdentities(context, [named]);
-      let stepsSpoken = 0;
-      let criteria: AnswerCriteria | undefined;
+      const senders = wireIdentities(
+        context,
+        config.from === undefined
+          ? lastStepParticipants(context.steps)
+          : [config.from],
+      );
       return {
         driverName: ref.name,
         observe: (event: SimulatorEvent): boolean => {
-          if (event._tag === "step.spoken") {
-            stepsSpoken += 1;
-            if (stepsSpoken === context.steps.length) {
-              criteria = {
-                conversationId: event.conversationId,
-                afterMessageId: event.messageId,
-                senders,
-              };
-            }
-          } else if (event._tag === "span.accepted") {
-            delivered.record(event.logicalSequence, event.spanName, event.raw);
-          }
+          if (event._tag !== "span.accepted") return false;
+          const receipt = context.lastSpoken.receipt;
+          if (receipt === undefined) return false;
           return (
-            criteria !== undefined && delivered.answer(criteria) !== undefined
+            context.delivered.answer({
+              conversationId: receipt.conversationId,
+              afterMessageId: receipt.messageId,
+              senders,
+            }) !== undefined
           );
         },
       };
@@ -335,14 +413,10 @@ function makeLastStepAnsweredPredicate(
 }
 
 /**
- * Every launched participant of the last step. The step's speaker is a
+ * The wire identities of the named participants. A step's speaker is a
  * principal and never a launched agent, so resolving through the launched
- * agents excludes it.
+ * agents is what excludes the speaker from its own step's answerers.
  */
-function participantSenders(context: PredicateContext): ReadonlySet<string> {
-  return wireIdentities(context, lastStepParticipants(context.steps));
-}
-
 function wireIdentities(
   context: PredicateContext,
   names: ReadonlyArray<string>,
@@ -365,22 +439,20 @@ function lastStepParticipants(
   steps: ReadonlyArray<SpeechStep>,
 ): ReadonlyArray<string> {
   let cursor = steps.length - 1;
-  while (cursor >= 0) {
-    const step = steps[cursor];
-    if (step?.with !== undefined) return step.with;
-    const next = precedingStepIndex(steps, step, cursor);
+  for (;;) {
+    const participants = steps[cursor]?.with;
+    if (participants !== undefined) return participants;
+    const next = precedingStepIndex(steps, cursor);
     if (next === undefined) return [];
     cursor = next;
   }
-  return [];
 }
 
 function precedingStepIndex(
   steps: ReadonlyArray<SpeechStep>,
-  step: SpeechStep | undefined,
   cursor: number,
 ): number | undefined {
-  const target = step?.into;
+  const target = steps[cursor]?.into;
   if (target === undefined) return undefined;
   const next = steps.findIndex((candidate) => candidate.name === target);
   return next >= 0 && next < cursor ? next : undefined;
@@ -421,7 +493,7 @@ function speechFailed(
   });
 }
 
-function speechFailure(
+function onSpeechError(
   delivery: SpeechDelivery,
   phase: "open" | "speak",
   detail: string,
@@ -472,7 +544,7 @@ function startAndSpeak(
           invitedAgentIds: invited,
           initialConversation: { participants: invited },
         })
-        .pipe(Effect.catchAll(speechFailure(delivery, "open", "task request"))),
+        .pipe(Effect.catchAll(onSpeechError(delivery, "open", "task request"))),
     ),
     Effect.flatMap((created) =>
       created.conversation === null
@@ -505,7 +577,7 @@ function speakInto(
     })
     .pipe(
       Effect.catchAll(
-        speechFailure(delivery, "speak", "message send", channel),
+        onSpeechError(delivery, "speak", "message send", channel),
       ),
       Effect.map((sent) => ({ ...channel, messageId: sent.message.id })),
     );
@@ -556,21 +628,31 @@ function connectedClient(
   const cached = pool.clients.get(speaker);
   if (cached !== undefined) return Effect.succeed(cached);
   return mintedIdentity(pool, delivery, speaker).pipe(
-    Effect.flatMap((minted) => {
-      const client = new MoltZapAgentClient({
-        serverUrl: delivery.world.server.serverUrl,
-        agentKey: minted.apiKey,
-      });
-      return client.connect().pipe(
-        Effect.catchAll(speechFailure(delivery, "open", "principal connect")),
-        Effect.as(client),
-        Effect.tap(() =>
-          Effect.sync(() => {
-            pool.clients.set(speaker, client);
-          }),
+    Effect.flatMap((minted) =>
+      Effect.sync(() => {
+        const client = new MoltZapAgentClient({
+          serverUrl: delivery.world.server.serverUrl,
+          agentKey: minted.apiKey,
+        });
+        // Registered before connecting, not after: a connect that fails
+        // partway, or an interrupt between connecting and registering,
+        // would otherwise leave a client the pool's finalizer never closes
+        // and its reconnect loop running past the end of the run.
+        pool.clients.set(speaker, client);
+        return client;
+      }).pipe(
+        Effect.flatMap((client) =>
+          client
+            .connect()
+            .pipe(
+              Effect.catchAll(
+                onSpeechError(delivery, "open", "principal connect"),
+              ),
+              Effect.as(client),
+            ),
         ),
-      );
-    }),
+      ),
+    ),
   );
 }
 

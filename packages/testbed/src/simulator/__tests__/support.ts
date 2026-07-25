@@ -12,9 +12,14 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { agentId } from "@moltzap/protocol/testing";
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { TaskId } from "@moltzap/protocol/task";
+import type { AgentId } from "@moltzap/protocol/identity";
+import {
+  agentId,
+  conversationId,
+  messageId,
+  taskId,
+  waitUntil,
+} from "@moltzap/protocol/testing";
 import { ServerUrl } from "../../runtime.js";
 import { RunSpec, materializeRunSpec } from "../run-spec.js";
 import type { AgentFacingRunSpec } from "../run-spec.js";
@@ -344,7 +349,7 @@ function startOneFake(
     return {
       agent: {
         slot: agent.name,
-        agentId: agentId(deterministicUuid(agent.name)),
+        agentId: fakeAgentId(agent.name),
         runtime: controls.runtime,
         serverUrl: endpoint,
       },
@@ -375,7 +380,6 @@ export const quietDrain: TranscriptDrain = {
 export type FakePrincipal = {
   readonly principal: Principal;
   readonly deliveries: ReadonlyArray<SpeechDelivery>;
-  readonly receipts: ReadonlyArray<SpeechReceipt>;
 };
 
 /**
@@ -386,48 +390,38 @@ export type FakePrincipal = {
  */
 export function makeFakePrincipal(): FakePrincipal {
   const deliveries: Array<SpeechDelivery> = [];
-  const receipts: Array<SpeechReceipt> = [];
   return {
     principal: {
       deliver: (delivery) =>
         Effect.sync(() => {
           deliveries.push(delivery);
-          const nth = deliveries.length;
-          const opened = delivery.into ?? {
-            taskId: fakeTaskId(`task-${String(nth)}`),
-            conversationId: fakeConversationId(`conversation-${String(nth)}`),
-          };
-          const receipt: SpeechReceipt = {
-            ...opened,
-            messageId: fakeMessageId(`message-${String(nth)}`),
-          };
-          receipts.push(receipt);
-          return receipt;
+          const opened = nthReceipt(deliveries.length);
+          return delivery.into === undefined
+            ? opened
+            : { ...delivery.into, messageId: opened.messageId };
         }),
     },
     deliveries,
-    receipts,
   };
 }
 
-const fakeTaskId = (seedText: string): TaskId =>
-  Schema.decodeSync(TaskId)(deterministicUuid(seedText));
-const fakeConversationId = (seedText: string): ConversationId =>
-  Schema.decodeSync(ConversationId)(deterministicUuid(seedText));
-const fakeMessageId = (seedText: string): MessageId =>
-  Schema.decodeSync(MessageId)(deterministicUuid(seedText));
-
-/** The receipt the fake principal answers the nth delivery with, known before the run starts. */
+/**
+ * The receipt the fake principal answers the nth `start` delivery with.
+ * Tests predict it before the run starts, so the same definition has to
+ * produce it — a second spelling would drift silently.
+ */
 export function nthReceipt(nth: number): SpeechReceipt {
   return {
-    taskId: fakeTaskId(`task-${String(nth)}`),
-    conversationId: fakeConversationId(`conversation-${String(nth)}`),
-    messageId: fakeMessageId(`message-${String(nth)}`),
+    taskId: taskId(deterministicUuid(`task-${String(nth)}`)),
+    conversationId: conversationId(
+      deterministicUuid(`conversation-${String(nth)}`),
+    ),
+    messageId: messageId(deterministicUuid(`message-${String(nth)}`)),
   };
 }
 
 /** The wire identity the fake launcher mints for a slot. */
-export function fakeAgentId(slot: string): string {
+export function fakeAgentId(slot: string): AgentId {
   return agentId(deterministicUuid(slot));
 }
 
@@ -448,7 +442,7 @@ export function makeHeldPrincipal(
   return Effect.gen(function* () {
     const gate = yield* Deferred.make<void>();
     const base = makeFakePrincipal();
-    const seen: Array<number> = [];
+    const seen = { count: 0 };
     return {
       ...base,
       principal: {
@@ -456,29 +450,16 @@ export function makeHeldPrincipal(
         // took, not the count at the time the pipeline was built.
         deliver: (delivery: SpeechDelivery) =>
           Effect.suspend(() => {
-            seen.push(seen.length + 1);
+            seen.count += 1;
             const held =
-              seen.length >= holdFrom ? Deferred.await(gate) : Effect.void;
+              seen.count >= holdFrom ? Deferred.await(gate) : Effect.void;
             return held.pipe(Effect.zipRight(base.principal.deliver(delivery)));
           }),
       },
-      requested: (nth: number) => awaitCount(seen, nth),
+      requested: (nth: number) => waitUntil(() => seen.count >= nth),
       release: Deferred.succeed(gate, undefined).pipe(Effect.asVoid),
     };
   }).pipe(Effect.withSpan("makeHeldPrincipal"));
-}
-
-const COUNT_POLL_MS = 10;
-
-function awaitCount(
-  seen: ReadonlyArray<number>,
-  nth: number,
-): Effect.Effect<void, never, never> {
-  return seen.length >= nth
-    ? Effect.void
-    : Effect.sleep(`${COUNT_POLL_MS} millis`).pipe(
-        Effect.zipRight(Effect.suspend(() => awaitCount(seen, nth))),
-      );
 }
 
 // ---------------------------------------------------------------------------
@@ -586,17 +567,27 @@ export function runHermetic(
 const EPISODE_SETTLE_MS = 150;
 
 /**
- * Wait until the episode is observing (launch done plus a settle window;
- * the tap subscription starts with the episode), then post spans.
+ * The receiver endpoint, once the episode is observing: launch done plus
+ * a settle window, because the tap subscription starts with the episode
+ * and a span drained before it subscribes is never seen.
  */
+export function whenLive(
+  started: StartedHermetic,
+  agentCount: number,
+): Effect.Effect<string, never, never> {
+  return started.endpoint.pipe(
+    Effect.tap(() => awaitAgents(started.launch, agentCount)),
+    Effect.tap(() => Effect.sleep(`${EPISODE_SETTLE_MS} millis`)),
+  );
+}
+
+/** Wait until the episode is observing, then post the named spans. */
 export function postSpansWhenLive(
   started: StartedHermetic,
   agentCount: number,
   names: ReadonlyArray<string>,
 ): Effect.Effect<number, never, never> {
-  return started.endpoint.pipe(
-    Effect.tap(() => awaitAgents(started.launch, agentCount)),
-    Effect.tap(() => Effect.sleep(`${EPISODE_SETTLE_MS} millis`)),
+  return whenLive(started, agentCount).pipe(
     Effect.flatMap((endpoint) => postSpans(endpoint, names)),
   );
 }
@@ -606,11 +597,7 @@ export function awaitAgents(
   launch: FakeLaunch,
   count: number,
 ): Effect.Effect<void, never, never> {
-  return launch.runtimes.size >= count
-    ? Effect.void
-    : Effect.sleep("10 millis").pipe(
-        Effect.zipRight(Effect.suspend(() => awaitAgents(launch, count))),
-      );
+  return waitUntil(() => launch.runtimes.size >= count);
 }
 
 /** The deterministic path of the given attempt for this spec input. */
