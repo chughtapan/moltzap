@@ -28,25 +28,25 @@ import { fileURLToPath } from "node:url";
 import { Effect, Schema } from "effect";
 import type { ParseResult } from "effect";
 import { stringify as stringifyYaml } from "yaml";
-import { collectSpecPaths, loadDocument, loadSpec } from "./cli-documents.js";
+import { collectSpecPaths, loadDocument, loadSpec } from "./documents.js";
 import {
   RUN_FAILED_WITH_RECORDING,
   exitCodeFor,
   outcomeText,
   type ExitCode,
-} from "./cli-exit.js";
+} from "./exit.js";
 import {
   openRecording,
   type GradeableRecording,
   type OpenRecordingError,
-} from "./grader.js";
-import { runDemo } from "./demo/index.js";
+} from "../grading/grader.js";
+import { runDemo } from "./demo.js";
 import type {
   ConfigTimeError,
   ManifestPersistFailed,
   SealFailed,
   UnknownAttempt,
-} from "./simulator/errors.js";
+} from "../simulator/errors.js";
 import {
   AttemptId,
   RECORDING_SCHEMA_VERSION,
@@ -60,7 +60,7 @@ import {
   type InProcessQueue,
   type RunOutcome,
   type SealedAttempt,
-} from "./simulator/index.js";
+} from "../simulator/index.js";
 
 /** What a verb produces: lines to print, and the code to exit with. */
 type Output = {
@@ -656,7 +656,7 @@ const PackageMetadata = Schema.Struct({ version: Schema.String });
  */
 function simulatorVersion(): string {
   return Schema.decodeUnknownSync(PackageMetadata)(
-    createRequire(import.meta.url)("../package.json"),
+    createRequire(import.meta.url)("../../package.json"),
   ).version;
 }
 

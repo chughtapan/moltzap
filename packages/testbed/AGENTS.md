@@ -6,10 +6,22 @@ the testbed surface.
 
 ## Structure
 
-`src/` holds adapter peers plus one subdirectory, `src/simulator/`, the
-society-simulator surface (five public contracts + recording schema;
-design doc: chughtapan/moltzap#812), exported as
-`@moltzap/testbed/simulator`; the package root export is unchanged.
+`src/` holds adapter peers plus three subdirectories layered above them,
+in one direction of knowledge — `cli/` → `grading/` → `simulator/` → the
+root's runtime contract. The root imports from none of the three; the
+layer order is declared in `safer-architecture.config.json`.
+
+- `simulator/` — the society-simulator surface (five public contracts +
+  recording schema; design doc: chughtapan/moltzap#812), exported as
+  `@moltzap/testbed/simulator`
+- `grading/` — `grader.ts` is the published `./grader` entry;
+  `cc-judge-{bundle-plan,recording-harness}.ts` are dist siblings a plan
+  points at by path, which is what keeps a consumer's name off the
+  export map
+- `cli/` — the `moltzap-testbed` verb tree (`main.ts`), its document
+  loader and exit-code vocabulary, and the scripted `demo` fixture
+
+The package root export is unchanged.
 
 - `runtime.ts` — `Runtime` contract, `SpawnInput`, `ReadyOutcome`, branded
   `AgentName` / `ServerUrl`

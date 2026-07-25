@@ -33,9 +33,9 @@ export const AGENT_ID_ONE = "agent-id-one";
 export const AGENT_ID_TWO = "agent-id-two";
 export const AGENT_ONE = "agent-one";
 export const AGENT_TWO = "agent-two";
-export const CONVERSATION = "conv-1";
+const CONVERSATION = "conv-1";
 export const FIXTURE_RUN_ID = "aaaaaaaaaaaa-s7-a1";
-export const IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;
+const IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;
 
 const CREATED_AT = 1_700_000_000_000;
 const ENDED_AT = 1_700_000_001_000;
@@ -75,7 +75,7 @@ const completedOutcome: RunOutcome = new EpisodeOutcome({
   termination: "completed",
 });
 
-export function envelope(
+function envelope(
   runId: string,
   logicalSequence: number,
   rest: Record<string, unknown>,
@@ -200,11 +200,12 @@ export function makeRecording(
   return Effect.gen(function* () {
     const store = makeLocalRecordingStore(options.storeRoot);
     const report = yield* materializeRunSpec(
-      specInput(options.storeRoot, {
-        ...(options.condition === undefined
+      specInput(
+        options.storeRoot,
+        options.condition === undefined
           ? {}
-          : { condition: { label: options.condition } }),
-      }),
+          : { condition: { label: options.condition } },
+      ),
     );
     const allocated = yield* store.allocateAttempt(
       new RecordingIdentity({

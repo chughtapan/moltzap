@@ -10,13 +10,13 @@
  * taxonomy closed rather than growing a parallel filesystem-error family
  * the exit-code mapping would then have to grow with it.
  */
-import { basename, extname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { Effect, Schema } from "effect";
 import { parse as parseYaml } from "yaml";
-import { RunSpecInvalid } from "./simulator/errors.js";
-import { JsonValue, RunSpec } from "./simulator/run-spec.js";
+import { RunSpecInvalid } from "../simulator/errors.js";
+import { JsonValue, RunSpec } from "../simulator/run-spec.js";
 
 const DOCUMENT_EXTENSIONS = [".yaml", ".yml", ".json"] as const;
 
@@ -162,10 +162,4 @@ function listDocuments(
         .map((entry) => join(directory, entry)),
     ),
   );
-}
-
-/** A bundle's default `scenarioId` is its file stem. */
-export function documentStem(path: string): string {
-  const name = basename(path, extname(path));
-  return name.endsWith(".bundle") ? name.slice(0, -".bundle".length) : name;
 }

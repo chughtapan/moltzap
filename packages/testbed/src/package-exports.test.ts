@@ -25,8 +25,8 @@ describe("@moltzap/testbed package exports", () => {
         types: "./dist/simulator/index.d.ts",
       },
       "./grader": {
-        import: "./dist/grader.js",
-        types: "./dist/grader.d.ts",
+        import: "./dist/grading/grader.js",
+        types: "./dist/grading/grader.d.ts",
       },
     });
   });

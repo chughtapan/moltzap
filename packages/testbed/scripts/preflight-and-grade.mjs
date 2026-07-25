@@ -27,7 +27,9 @@ import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const CLI = resolve(fileURLToPath(new URL("../dist/cli.js", import.meta.url)));
+const CLI = resolve(
+  fileURLToPath(new URL("../dist/cli/main.js", import.meta.url)),
+);
 
 function parse(argv) {
   const [recording, ...rest] = argv;

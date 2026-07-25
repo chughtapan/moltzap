@@ -230,12 +230,32 @@ const packageDefinitions = {
       packageRuntime: "node",
       maxPublicExports: 30,
       minPublicFacadeModules: 7,
+      layers: [
+        {
+          name: "cli",
+          folders: ["cli"],
+          reason:
+            "The command line operates the instrument: it reads documents, runs and queues attempts, and renders outcomes. Nothing below it knows a terminal exists",
+        },
+        {
+          name: "grading",
+          folders: ["grading"],
+          reason:
+            "Reading a sealed recording as evidence: the published ./grader entry and the dist-sibling cc-judge adapters. It reads recordings and never runs one",
+        },
+        {
+          name: "simulator",
+          folders: ["simulator"],
+          reason:
+            "The instrument itself: spec, launch, episode, log, recording, queue. It knows nothing about who operates or grades it (chughtapan/moltzap#812 §2)",
+        },
+      ],
       folderChildCountOverrides: [
         {
           folder: ".",
-          maxChildren: 13,
+          maxChildren: 15,
           reason:
-            "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, and trace-capture modules as deliberate peers, plus the simulator subfolder (chughtapan/moltzap#812)",
+            "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, and trace-capture modules as deliberate peers (13), plus three named boundaries above them: the simulator, its command line, and its grading surface (chughtapan/moltzap#812)",
         },
         {
           folder: "simulator",
@@ -264,6 +284,11 @@ const packageDefinitions = {
           file: "openclaw-adapter.ts",
           reason:
             "OpenClaw runtime adapter boundary that composes channel installation, process lifecycle, and readiness behind the Runtime contract",
+        },
+        {
+          file: "grading/grader.ts",
+          reason:
+            "The published ./grader subpath entry: the package export map already names it the grading boundary, and the cc-judge adapters ship as its dist siblings",
         },
         {
           file: "simulator/run-config.ts",
@@ -317,6 +342,11 @@ const packageDefinitions = {
           file: "simulator/run-internal.ts",
           reason:
             "Deliberate internal facade: the composition-root seam (runAttempt, RunInternals) shared by run and the queue worker",
+        },
+        {
+          file: "simulator/local-store.ts",
+          reason:
+            "The RecordingStore seam's v0 binding: makeLocalRecordingStore is named on the published ./simulator facade and composed by the run's composition root",
         },
       ],
     },

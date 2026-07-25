@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { EXIT_CODE } from "./cli-exit.js";
+import { EXIT_CODE } from "./cli/exit.js";
 import {
   makeRecording,
   tempStoreRoot,

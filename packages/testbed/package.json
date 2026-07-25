@@ -25,12 +25,12 @@
       "types": "./dist/simulator/index.d.ts"
     },
     "./grader": {
-      "import": "./dist/grader.js",
-      "types": "./dist/grader.d.ts"
+      "import": "./dist/grading/grader.js",
+      "types": "./dist/grading/grader.d.ts"
     }
   },
   "bin": {
-    "moltzap-testbed": "./dist/cli.js"
+    "moltzap-testbed": "./dist/cli/main.js"
   },
   "scripts": {
     "build": "nx run @moltzap/testbed:build",

@@ -15,7 +15,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import { JsonObject } from "./grader.js";
-import { RunSpecInvalid } from "./simulator/errors.js";
+import { RunSpecInvalid } from "../simulator/errors.js";
 
 /** The recording-backed harness module a plan points at. */
 const RECORDING_HARNESS_FILE = "cc-judge-recording-harness.js";
