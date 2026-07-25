@@ -29,6 +29,16 @@ monitors and registries in a given deployment.
   under a content-blind plane is register item 3 — key-holding L1 parties,
   operator-mediated, or another shape — mirrored at `control-plane.md`
   invariant 7 (the plane knows exactly two caller classes).
+- **A monitor is a deterministic contract; judgment is testimony**
+  (`docs/decisions/20260724-monitors-are-deterministic-contracts.md`).
+  A monitor is a pinned, terminating, deterministic program over the
+  committed ledger and the pinned fold library; a finding —
+  `{monitor hash, fold-library hash, chain range, fired pattern,
+  record references}` — re-executes bit-identically for any reader.
+  The semantic residue is judged separately, as attributed,
+  committable, optionally quorum'd testimony, never presented as part
+  of the certificate. Establishing a monitor is itself a norm (L4),
+  credentialed through L7; nothing here binds establishment or scope.
 - **Registries (L7).** Norm dissemination reuses existing marketplaces;
   reuse defers, not completes, this duty (clause 11).
 - **Consequences (L7)** operate on credentials: revocation or quarantine of an
@@ -43,6 +53,9 @@ monitors and registries in a given deployment.
    mechanics are open (Open questions, 3).
 3. No monitor or registry sits in any delivery path; their absence changes
    no communication-layer guarantee.
+4. A deterministic finding is re-executable from the records and the
+   pinned monitor alone; testimony is attributed and never presented
+   as deterministic.
 
 ## Acceptance criteria
 
@@ -63,6 +76,10 @@ monitors and registries in a given deployment.
 ## References
 
 - `v2/VISION.md` — constitution clauses 10–11; register items 3–7.
+- `docs/decisions/20260724-monitors-are-deterministic-contracts.md` —
+  the monitor implementation model;
+  `docs/decisions/20260724-collectives-are-ledger-transactions.md` —
+  the chain findings re-execute over.
 - `control-plane.md` — transcript storage guarantees, the evidence
   substrate; `identity.md` — attribution and the card.
 - `endpoints/tasks.md` — the norms registries disseminate.

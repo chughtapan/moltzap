@@ -11,6 +11,7 @@ this log.** Do not add a record without that call.
 
 | Decision | Date |
 |---|---|
+| [Monitors are deterministic contracts; judgment is testimony](20260724-monitors-are-deterministic-contracts.md) | 2026-07-24 |
 | [The firewall is the agent's boundary: two directions](20260724-firewall-two-directions.md) | 2026-07-24 |
 | [Norms are MCP-served skill bundles (initial hypothesis)](20260724-norms-are-mcp-skill-bundles.md) | 2026-07-24 |
 | [Collectives are ledger transactions](20260724-collectives-are-ledger-transactions.md) | 2026-07-24 |

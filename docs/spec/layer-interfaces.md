@@ -276,7 +276,10 @@ signature.
   entries to compute delivery sets, the endpoint runs the identical
   fold to know who is in the room; no index service exists.
   `Channel.startConversation` is a derivation too. `evidence` =
-  `verify` mapped over `readTranscript` (law L6.1; register 3 open).
+  `verify` mapped over `readTranscript`, packaged as a recomputation
+  certificate re-executed against the pinned, content-addressed fold
+  library (law L6.1; register 3 open;
+  `docs/decisions/20260724-monitors-are-deterministic-contracts.md`).
   Materialization of hot folds is realization freedom.
 - **The CLI** is a driver over `Registry` plus store reads, not a port
   (control-plane.md).

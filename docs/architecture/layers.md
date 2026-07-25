@@ -98,7 +98,11 @@ enforces none of this.
 with a global view over records, armed with the properties to
 check. They detect what no individual can — deception judged post
 facto, collusion and other hyperproperties — and identify and
-evidence violations, never imposing consequences.
+evidence violations, never imposing consequences. A monitor is a
+pinned deterministic contract over the committed ledger, its findings
+re-executable by any reader; semantic judgment rides separately as
+attributed testimony
+(`docs/decisions/20260724-monitors-are-deterministic-contracts.md`).
 
 **L7 — institutional trust.** Trust between strangers: registries
 attesting identity-to-principal linkage, trusted registries
@@ -146,3 +150,4 @@ Open.
 | Collectives are ledger transactions | `docs/decisions/20260724-collectives-are-ledger-transactions.md` |
 | Norms are MCP-served skill bundles (hypothesis) | `docs/decisions/20260724-norms-are-mcp-skill-bundles.md` |
 | The firewall is the agent's boundary: two directions | `docs/decisions/20260724-firewall-two-directions.md` |
+| Monitors are deterministic contracts; judgment is testimony | `docs/decisions/20260724-monitors-are-deterministic-contracts.md` |
