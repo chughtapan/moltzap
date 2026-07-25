@@ -103,9 +103,32 @@ multi-signed entry.**
   ineffective. Restart recovers lock and transaction state by
   re-folding. One effective commit per txn id — retries are
   harmless — which is also the norm compile step's idempotency key.
-  Round entries are ordered and attributed (the folds need them) but
-  effect-free and prunable once their transaction resolves; the
-  committed transaction is the canonical record.
+  Round entries are ordered, attributed, and committed like any other
+  entry (the folds need them) but effect-free; once a transaction
+  resolves their bodies may be dropped under the retention policy,
+  while offsets and frame hashes are permanent so density and the
+  chain survive. The commit frame carries everything post-hoc
+  verification needs — contributions, signature set, ack
+  certificate — so no verifier depends on an unpruned round entry.
+  Recorded consequences of the skeleton, settled with it: contributions
+  are embedded in the commit frame (references bind in the digest,
+  bodies persist); one transaction is open per conversation, and
+  concurrency is more conversations, never nested locks; abort is
+  holder-only, the group's remedy being a superseding grant, since the
+  acks are already its evidence; participants contribute as unlocked
+  round entries the leader embeds; the cut is the position of the
+  deciding ack, with no separate GO minted — reopened only if a norm
+  needs stragglers past quorum; sealed rounds need no new mechanism
+  (commit-reveal is two update waves in bodies the plane cannot read);
+  and any commit or abort from the holder resolves the transaction and
+  releases the lock whatever its validity, which only decides whether
+  the transaction enters the canonical chain.
+  The ack round is the load-bearing instrument: it is the grant fold,
+  the consensus-on-the-next-speaker that dispatch discipline requires,
+  and the starvation lever — honest members withhold acks from a
+  monopolist — which is why unanimity cannot be a default (one faulty
+  member would hold a veto) and why a norm's rule must be monotone and
+  evaluated against membership at the BEGIN's offset.
 
 Still chartered (#765): quorum rules, liveness and safety machinery,
 abort and timeout semantics, sealed rounds (commit-reveal), whether
