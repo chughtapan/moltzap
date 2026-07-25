@@ -53,7 +53,7 @@ import {
   AGENT_TWO,
   DONE_SPAN,
   PRINCIPAL_NAME,
-  TASK_CONTENT,
+  SAY_TEXT,
   decodedEvents,
   expectedAttemptPath,
   makeFakeLaunch,
@@ -522,7 +522,7 @@ function awaitLine(
       );
 }
 
-/** Path 22: the injected seed task is attributed to the principal identity. */
+/** Path 22: the delivered speech step is attributed to the principal identity. */
 export function path22(): Effect.Effect<void, unknown, never> {
   return Effect.gen(function* () {
     const root = yield* tempStoreRoot();
@@ -533,13 +533,19 @@ export function path22(): Effect.Effect<void, unknown, never> {
     const events = yield* outcome.store
       .read(path)
       .pipe(Effect.flatMap(decodedEvents));
-    const injected = events.find((event) => event._tag === EVENT.taskInjected);
-    expect(injected).toMatchObject({
+    const spoken = events.flatMap((event) =>
+      event._tag === EVENT.stepSpoken ? [event] : [],
+    );
+    expect(spoken).toHaveLength(1);
+    expect(spoken[0]).toMatchObject({
       principal: PRINCIPAL_NAME,
-      to: AGENT_ONE,
-      content: TASK_CONTENT,
+      content: SAY_TEXT,
       source: "scheduler",
     });
+    // The three ids are what ties a conversation back to the step that spoke.
+    expect(spoken[0]?.taskId.length).toBeGreaterThan(0);
+    expect(spoken[0]?.conversationId.length).toBeGreaterThan(0);
+    expect(spoken[0]?.messageId.length).toBeGreaterThan(0);
   });
 }
 
@@ -574,7 +580,7 @@ function soloStubInput(scriptName: string): unknown {
       },
     ],
     episode: {
-      task: { principal: PRINCIPAL_NAME, to: AGENT_ONE, content: TASK_CONTENT },
+      steps: [{ by: PRINCIPAL_NAME, with: [AGENT_ONE], say: SAY_TEXT }],
       termination: { inactivityTimeoutMs: 60_000, onAgentCrash: "halt" },
     },
   });

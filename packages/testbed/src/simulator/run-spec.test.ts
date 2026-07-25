@@ -16,8 +16,20 @@ import {
   materializeRunSpec,
   toCanonicalJson,
 } from "./run-spec.js";
-import { AGENT_ONE, specInput, stubAgentInput } from "./__tests__/support.js";
-import { ERROR_TAG, EXIT, PROVENANCE } from "./__tests__/tags.js";
+import {
+  AGENT_ONE,
+  AGENT_TWO,
+  PRINCIPAL_NAME,
+  specInput,
+  stubAgentInput,
+} from "./__tests__/support.js";
+import {
+  DONE_SIGNAL_SHAPE,
+  ERROR_TAG,
+  EXIT,
+  PROVENANCE,
+} from "./__tests__/tags.js";
+import { SCHEDULE_AWARE_DONE_SIGNAL } from "./drivers.js";
 
 const STORE_ROOT = "./recordings-test";
 const READY_TIMEOUT_DEFAULT = 120_000;
@@ -60,8 +72,19 @@ function expectFailedWithTag(
 
 function soloEpisode(): unknown {
   return {
-    task: { principal: "principal-primary", to: AGENT_ONE, content: "x" },
+    steps: [{ by: PRINCIPAL_NAME, with: [AGENT_ONE], say: "x" }],
     termination: { inactivityTimeoutMs: 60_000, onAgentCrash: "halt" },
+  };
+}
+
+function episodeOf(steps: ReadonlyArray<unknown>, doneSignal?: unknown) {
+  return {
+    steps,
+    termination: {
+      inactivityTimeoutMs: 60_000,
+      onAgentCrash: "halt",
+      ...(doneSignal === undefined ? {} : { doneSignal }),
+    },
   };
 }
 
@@ -114,19 +137,14 @@ describe("computeSpecHash", () => {
       { numRuns: 25 },
     );
     const base = materialize(specInput(STORE_ROOT));
-    const differentTask = materialize(
+    const differentSpeech = materialize(
       specInput(STORE_ROOT, {
-        episode: {
-          task: {
-            principal: "principal-primary",
-            to: AGENT_ONE,
-            content: "a different task",
-          },
-          termination: { inactivityTimeoutMs: 60_000, onAgentCrash: "halt" },
-        },
+        episode: episodeOf([
+          { by: PRINCIPAL_NAME, with: [AGENT_ONE], say: "a different task" },
+        ]),
       }),
     );
-    expect(differentTask.specHash).not.toBe(base.specHash);
+    expect(differentSpeech.specHash).not.toBe(base.specHash);
   });
 });
 
@@ -248,17 +266,124 @@ function assertGuardedFields(): void {
   expectFailedWithTag(unhonored, ERROR_TAG.faultUnsupported);
   const unknownDriver = materializeExit(
     specInput(STORE_ROOT, {
-      episode: {
-        task: { principal: "principal-primary", to: AGENT_ONE, content: "x" },
-        termination: {
-          inactivityTimeoutMs: 60_000,
-          onAgentCrash: "halt",
-          doneSignal: { name: "no-such-driver" },
-        },
-      },
+      episode: episodeOf(
+        [{ by: PRINCIPAL_NAME, with: [AGENT_ONE], say: "x" }],
+        { name: "no-such-driver" },
+      ),
     }),
   );
   expectFailedWithTag(unknownDriver, ERROR_TAG.unknownDriver);
+}
+
+const SETUP_STEP = {
+  name: "setup",
+  by: PRINCIPAL_NAME,
+  with: [AGENT_ONE],
+  say: "the setup",
+};
+
+function assertStepRules(): void {
+  const shape = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([{ ...SETUP_STEP, into: "setup" }]),
+    }),
+  );
+  expectFailedWithTag(shape, ERROR_TAG.runSpecInvalid);
+  const forwardReference = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([
+        { by: PRINCIPAL_NAME, into: "later", say: "too early" },
+        { name: "later", by: PRINCIPAL_NAME, with: [AGENT_ONE], say: "x" },
+      ]),
+    }),
+  );
+  expectFailedWithTag(forwardReference, ERROR_TAG.runSpecInvalid);
+  const duplicateName = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([SETUP_STEP, { ...SETUP_STEP, say: "again" }]),
+    }),
+  );
+  expectFailedWithTag(duplicateName, ERROR_TAG.runSpecInvalid);
+  const unknownParticipant = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([{ by: PRINCIPAL_NAME, with: ["nobody"], say: "x" }]),
+    }),
+  );
+  expectFailedWithTag(unknownParticipant, ERROR_TAG.runSpecInvalid);
+  const sharedNamespace = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([{ by: AGENT_ONE, with: [AGENT_TWO], say: "x" }]),
+    }),
+  );
+  expectFailedWithTag(sharedNamespace, ERROR_TAG.runSpecInvalid);
+}
+
+function assertGateRules(): void {
+  const unlaunchedReplier = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([
+        SETUP_STEP,
+        {
+          by: PRINCIPAL_NAME,
+          into: "setup",
+          awaitReplyFrom: "nobody",
+          say: "probe",
+        },
+      ]),
+    }),
+  );
+  expectFailedWithTag(unlaunchedReplier, ERROR_TAG.runSpecInvalid);
+  const gatedFirstStep = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([{ ...SETUP_STEP, awaitReplyFrom: AGENT_ONE }]),
+    }),
+  );
+  expectFailedWithTag(gatedFirstStep, ERROR_TAG.runSpecInvalid);
+}
+
+/**
+ * A counting done-signal fires on society traffic, so on these shapes it
+ * can terminate the run before a later step is delivered — and still
+ * produce a verdict over a transcript that proves nothing.
+ */
+function assertDoneSignalShapeRule(): void {
+  const multiStep = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf(
+        [SETUP_STEP, { by: PRINCIPAL_NAME, into: "setup", say: "follow-up" }],
+        { name: "replies", config: { from: AGENT_ONE, minCount: 2 } },
+      ),
+    }),
+  );
+  expectFailedWithTag(multiStep, ERROR_TAG.doneSignalUnsafe);
+  expect(JSON.stringify(multiStep)).toContain(SCHEDULE_AWARE_DONE_SIGNAL);
+  const gated = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf(
+        [
+          SETUP_STEP,
+          {
+            by: PRINCIPAL_NAME,
+            into: "setup",
+            awaitReplyFrom: AGENT_ONE,
+            say: "probe",
+          },
+        ],
+        { name: "span-name", config: { name: "any.span" } },
+      ),
+    }),
+  );
+  expectFailedWithTag(gated, ERROR_TAG.doneSignalUnsafe);
+  expect(JSON.stringify(gated)).toContain(DONE_SIGNAL_SHAPE.gatedStep);
+  const singleStep = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([SETUP_STEP], {
+        name: "replies",
+        config: { from: AGENT_ONE },
+      }),
+    }),
+  );
+  expect(singleStep._tag).toBe(EXIT.success);
 }
 
 describe("materializeRunSpec", () => {
@@ -286,6 +411,18 @@ describe("materializeRunSpec", () => {
 
   it("enforces isolation, honored fault kinds, and registered drivers", () => {
     assertGuardedFields();
+  });
+
+  it("enforces the step rules: shape, ordering, unique names, resolvable participants, one namespace", () => {
+    assertStepRules();
+  });
+
+  it("enforces the gate rules: the replier is a launched agent and a gated step has a previous one", () => {
+    assertGateRules();
+  });
+
+  it("refuses a counting done-signal on a multi-step or gated episode", () => {
+    assertDoneSignalShapeRule();
   });
 });
 

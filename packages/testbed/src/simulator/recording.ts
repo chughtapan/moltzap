@@ -183,7 +183,7 @@ export const FailureReason = Schema.Literal(
   "transcript-drain-failed",
   "fault-apply-failed",
   "fault-revert-failed",
-  "task-injection-failed",
+  "speech-failed",
   "driver-crashed",
   "recording-store-failed",
 ).annotations({ description: "Why infrastructure ended the run; closed set" });

@@ -18,7 +18,11 @@ import {
   type ConfigTimeError,
 } from "./errors.js";
 import { checkAdapterConfig } from "./adapter-validation.js";
-import { checkDriverRef } from "./drivers.js";
+import {
+  checkDoneSignalShape,
+  checkDriverRef,
+  type DoneSignalShape,
+} from "./drivers.js";
 
 // ---------------------------------------------------------------------------
 // JSON value space
@@ -86,12 +90,22 @@ export const AgentName: Schema.Schema<AgentName, string> =
   );
 
 export type PrincipalName = string & Brand.Brand<"PrincipalName">;
-/** Principal identity that seed tasks are attributed to (principal speech). */
+/** Principal identity that speech steps are attributed to (principal speech). */
 export const PrincipalName: Schema.Schema<PrincipalName, string> =
   Schema.NonEmptyString.pipe(
     Schema.brand("PrincipalName"),
     Schema.annotations({
-      description: "Principal identity name for task attribution",
+      description: "Principal identity name for speech attribution",
+    }),
+  );
+
+export type StepName = string & Brand.Brand<"StepName">;
+/** Handle of one speech step, so a later step can speak into the conversation it started. */
+export const StepName: Schema.Schema<StepName, string> =
+  Schema.NonEmptyString.pipe(
+    Schema.brand("StepName"),
+    Schema.annotations({
+      description: "Speech-step handle, unique within the episode",
     }),
   );
 
@@ -322,20 +336,59 @@ export class DriverRef extends Schema.Class<DriverRef>("DriverRef")({
   ),
 }) {}
 
-/** Seed task delivered as principal speech, attributed to a principal identity. */
-export class TaskInjectionSpec extends Schema.Class<TaskInjectionSpec>(
-  "TaskInjectionSpec",
-)({
-  principal: PrincipalName,
-  to: AgentName.annotations({
-    description: "Agent the task is delivered to",
+/**
+ * A participant of the task a `with:` step starts. Agent names and
+ * principal names share one namespace and are collectively unique, so an
+ * entry resolves to exactly one identity.
+ */
+const ParticipantName = Schema.Union(AgentName, PrincipalName).annotations({
+  description: "Agent or principal taking part in the task a step starts",
+});
+
+/**
+ * One speech act, delivered as the speech of the principal named in `by`.
+ * Exactly one of the two primitives the protocol offers: `with` starts a
+ * task with those participants alongside the speaker, creating or reusing
+ * its conversation; `into` speaks into the conversation an earlier step
+ * started. Nothing here declares a conversation — on this protocol a
+ * conversation comes into being only through a task request, so speech is
+ * the only way to create one.
+ */
+export class SpeechStep extends Schema.Class<SpeechStep>("SpeechStep")({
+  name: Schema.optional(
+    StepName.annotations({
+      description: "Handle a later step's `into` can reference",
+    }),
+  ),
+  by: PrincipalName.annotations({
+    description:
+      "Principal who speaks; never an agent, since agents speak for themselves",
   }),
-  content: Schema.String.annotations({
-    description: "Task content delivered as the principal's speech",
+  with: Schema.optional(
+    Schema.NonEmptyArray(ParticipantName).annotations({
+      description:
+        "Start a task with these participants alongside the speaker; mutually exclusive with `into`",
+    }),
+  ),
+  into: Schema.optional(
+    StepName.annotations({
+      description:
+        "Speak into the conversation an earlier named step started; mutually exclusive with `with`",
+    }),
+  ),
+  say: Schema.NonEmptyString.annotations({
+    description: "Message body, delivered as the principal's speech",
   }),
+  awaitReplyFrom: Schema.optional(
+    AgentName.annotations({
+      description:
+        "Hold this step until the named agent has replied to the previous step",
+    }),
+  ),
   atMs: Schema.optionalWith(
     LogicalTime.annotations({
-      description: "Logical arrival time; part of the seed-derived schedule",
+      description:
+        "Logical position relative to episode start; a floor, never the sequencing device (array order sequences, `awaitReplyFrom` gates)",
     }),
     { default: () => 0 as LogicalTime },
   ),
@@ -369,7 +422,9 @@ export class TerminationPolicySpec extends Schema.Class<TerminationPolicySpec>(
 
 /** Episode configuration; v0 runs exactly one episode per run. */
 export class EpisodeSpec extends Schema.Class<EpisodeSpec>("EpisodeSpec")({
-  task: TaskInjectionSpec,
+  steps: Schema.NonEmptyArray(SpeechStep).annotations({
+    description: "Ordered speech acts; array order is the only sequencing",
+  }),
   termination: TerminationPolicySpec,
   principalDriver: Schema.optional(
     DriverRef.annotations({
@@ -510,7 +565,7 @@ export type MaterializationReport = {
  * throttle), unregistered driver names, and driver-rejected configs never
  * reach launch. Cross-field rules validated here: agent names unique,
  * `revertAtMs > applyAtMs` per fault window, fault targets name existing
- * slots.
+ * slots, the episode's step rules, and the done-signal shape rule.
  */
 export function materializeRunSpec(
   input: unknown,
@@ -542,6 +597,10 @@ export function materializeRunSpec(
     });
     if (spec.episode.termination.doneSignal !== undefined) {
       yield* checkDriverRef(spec.episode.termination.doneSignal, "done-signal");
+      yield* checkDoneSignalShape(
+        spec.episode.termination.doneSignal,
+        unsafeCountingShape(spec.episode),
+      );
     }
     if (spec.episode.principalDriver !== undefined) {
       yield* checkDriverRef(spec.episode.principalDriver, "principal");
@@ -737,10 +796,10 @@ function specInvalidFromParseError(
   });
 }
 
-function crossFieldIssues(
-  spec: RunSpec,
-): Array<{ path: Array<string>; message: string }> {
-  const issues: Array<{ path: Array<string>; message: string }> = [];
+type CrossFieldIssue = { path: Array<string>; message: string };
+
+function crossFieldIssues(spec: RunSpec): Array<CrossFieldIssue> {
+  const issues: Array<CrossFieldIssue> = [];
   const names = new Set<string>();
   spec.agents.forEach((agent, index) => {
     if (names.has(agent.name)) {
@@ -765,13 +824,130 @@ function crossFieldIssues(
       });
     }
   });
-  if (!names.has(spec.episode.task.to)) {
+  collectStepIssues(spec, names, issues);
+  return issues;
+}
+
+/** One step under validation, with the names it may legally reference. */
+type StepScope = {
+  readonly step: SpeechStep;
+  readonly index: number;
+  readonly agentNames: ReadonlySet<string>;
+  readonly principals: ReadonlySet<string>;
+  /** Handles of the steps declared before this one. */
+  readonly earlier: ReadonlySet<string>;
+};
+
+function stepPath(scope: StepScope, field: string): Array<string> {
+  return ["episode", "steps", String(scope.index), field];
+}
+
+/**
+ * The episode's cross-field rules. Agent names and principal names share
+ * one namespace: a name used as both would mint two server identities and
+ * break the grader's sender-to-name join.
+ */
+function collectStepIssues(
+  spec: RunSpec,
+  agentNames: ReadonlySet<string>,
+  issues: Array<CrossFieldIssue>,
+): void {
+  const principals = new Set(spec.episode.steps.map((step) => step.by));
+  const earlier = new Set<string>();
+  spec.episode.steps.forEach((step, index) => {
+    const scope: StepScope = {
+      step,
+      index,
+      agentNames,
+      principals,
+      earlier: new Set(earlier),
+    };
+    collectStepShapeIssues(scope, issues);
+    collectStepNameIssues(scope, issues);
+    if (step.name !== undefined) earlier.add(step.name);
+  });
+  for (const principal of principals) {
+    if (agentNames.has(principal)) {
+      issues.push({
+        path: ["episode", "steps"],
+        message: `"${principal}" names both an agent and a principal; agent and principal names share one namespace and must be collectively unique`,
+      });
+    }
+  }
+}
+
+function collectStepShapeIssues(
+  scope: StepScope,
+  issues: Array<CrossFieldIssue>,
+): void {
+  const { step } = scope;
+  if ((step.with === undefined) === (step.into === undefined)) {
     issues.push({
-      path: ["episode", "task", "to"],
-      message: `task target "${spec.episode.task.to}" names no agent in this spec`,
+      path: stepPath(scope, "with"),
+      message:
+        "a step either starts a task (`with`) or speaks into an earlier one (`into`); set exactly one",
     });
   }
-  return issues;
+  if (step.into !== undefined && !scope.earlier.has(step.into)) {
+    issues.push({
+      path: stepPath(scope, "into"),
+      message: `"${step.into}" names no earlier step; \`into\` may only reference a step declared before this one`,
+    });
+  }
+  if (step.name !== undefined && scope.earlier.has(step.name)) {
+    issues.push({
+      path: stepPath(scope, "name"),
+      message: `duplicate step name "${step.name}"; step names must be unique within the episode`,
+    });
+  }
+  if (step.awaitReplyFrom !== undefined && scope.index === 0) {
+    issues.push({
+      path: stepPath(scope, "awaitReplyFrom"),
+      message:
+        "the gate holds a step until the named agent replies to the previous step; the first step has none, so remove `awaitReplyFrom` or move this step later",
+    });
+  }
+}
+
+function collectStepNameIssues(
+  scope: StepScope,
+  issues: Array<CrossFieldIssue>,
+): void {
+  const { step } = scope;
+  step.with?.forEach((participant, position) => {
+    if (
+      !scope.agentNames.has(participant) &&
+      !scope.principals.has(participant)
+    ) {
+      issues.push({
+        path: [...stepPath(scope, "with"), String(position)],
+        message: `participant "${participant}" names no agent in this spec and no principal used in \`steps\``,
+      });
+    }
+  });
+  const replier = step.awaitReplyFrom;
+  if (replier !== undefined && !scope.agentNames.has(replier)) {
+    issues.push({
+      path: stepPath(scope, "awaitReplyFrom"),
+      message: `"${replier}" names no agent in this spec; only a launched agent produces the reply this step waits for`,
+    });
+  }
+}
+
+/**
+ * The episode shape on which a done-signal counting society traffic can
+ * fire before a later step is ever delivered — silently converting a
+ * probe into a run that proves nothing while still producing a verdict.
+ * A gate is the sharper report of the two, since a gated step is the one
+ * a premature termination cancels.
+ */
+function unsafeCountingShape(
+  episode: EpisodeSpec,
+): DoneSignalShape | undefined {
+  if (episode.steps.some((step) => step.awaitReplyFrom !== undefined)) {
+    return "gated-step";
+  }
+  return episode.steps.length > 1 ? "multiple-steps" : undefined;
 }
 
 function checkIsolation(agent: Agent): Effect.Effect<void, IsolationViolation> {

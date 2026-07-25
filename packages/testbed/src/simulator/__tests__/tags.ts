@@ -32,7 +32,7 @@ export const EVENT = {
   checkpoint: "checkpoint",
   spanAccepted: "span.accepted",
   agentExited: "agent.exited",
-  taskInjected: "task.injected",
+  stepSpoken: "step.spoken",
   predicateFired: "trigger.predicate-fired",
   episodeTerminated: "episode.terminated",
   faultApplied: "fault.applied",
@@ -43,6 +43,11 @@ export const EVENT = {
   transcriptMessage: "transcript.message",
 } as const;
 
+export const DONE_SIGNAL_SHAPE = {
+  multipleSteps: "multiple-steps",
+  gatedStep: "gated-step",
+} as const;
+
 export const FAULT_EFFECT = {
   applied: "applied",
   targetNotReady: "target-not-ready",
@@ -51,7 +56,9 @@ export const FAULT_EFFECT = {
 } as const;
 
 export const ERROR_TAG = {
+  runSpecInvalid: "RunSpecInvalid",
   adapterConfigRejected: "AdapterConfigRejected",
+  doneSignalUnsafe: "DoneSignalUnsafe",
   isolationViolation: "IsolationViolation",
   faultUnsupported: "FaultUnsupported",
   unknownDriver: "UnknownDriver",
