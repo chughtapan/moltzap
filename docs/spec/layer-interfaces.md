@@ -315,7 +315,7 @@ Conventions, citations name the governing doc.
 | L3.9 | At most one commit per granted turn (linearity residual) | S | data-plane.md → Implementation notes |
 | L3.10 | Admission refusals never mutate membership | C+P | data-plane.md inv. 9 |
 | L5.1 | The slots hold no signing authority; the frame and its attribution pass through unaltered | C | screening.md inv. 2 |
-| L5.2 | A withheld inbound frame stays out of attention while `readTranscript` is unchanged — the firewall filters attention, never the record | P | screening.md inv. 2–3 |
+| L5.2 | A withheld inbound frame stays out of attention while `readTranscript` is unchanged — the firewall filters attention, never the record | P | screening.md inv. 2, acceptance |
 | L5.3 | Verdicts are agent-local; no interface emits one outward | C | screening.md inv. 3; contacts.md inv. 5 |
 | L5.4 | A change to the endpoint's trust data is a local act with immediate effect and zero network involvement | P | contacts.md inv. 4 |
 | L5.5 | No router-side interface accepts, stores, or serves any L5 trust data | C | contacts.md inv. 1 |

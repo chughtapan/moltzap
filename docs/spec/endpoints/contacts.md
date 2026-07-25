@@ -9,6 +9,14 @@ contacts are each agent's own trust data, held and configured at that agent's en
 Endpoint: the channel-adapter attachment point through which an agent's harness meets the
 network. This doc treats one agent as owning its endpoint's contact data.
 
+Standing: this doc specifies the **v0 stopgap** behind the firewall
+slots — one local implementation choice inside the undesigned
+firewall plan, not accepted design and not contract vocabulary
+(`docs/decisions/20260724-firewall-two-directions.md`;
+`docs/spec/layer-interfaces.md` → open question 2). The floor below
+binds the stopgap's own gates; the firewall plan owns the eventual
+rule vocabulary.
+
 ## Purpose & scope
 
 Goals: define the v2 contact — a record in an endpoint's personal trust data about a peer
@@ -28,8 +36,8 @@ its default posture toward identities with no record, are its contact data — p
 constitution's sense: derived from the agent's own experiences and deployment context, owned and
 interpreted by that endpoint alone.
 
-What an endpoint can express (the interface floor — endpoints may hold richer local data, but
-gates honor at least this):
+What an endpoint can express (the stopgap's interface floor — endpoints may hold richer local
+data, but the v0 gates honor at least this):
 
 - **Allow** — traffic and invitations from this identity reach the agent.
 - **Deny** — traffic and invitations from this identity are refused before reaching the agent.

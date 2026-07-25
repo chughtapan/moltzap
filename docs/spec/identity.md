@@ -62,9 +62,11 @@ membership); in both, addressing rides the conversation handle (the
 L3 routing primitive), with peer-to-peer as the singleton case.
 Every frame carries: the sender's agent identity; attribution a
 recipient can verify — the named sender produced this frame and acts
-for its registered principal; the addressing; an opaque body the
-network never interprets; the protocol version (a calendar date,
-matched exactly; no negotiation).
+for its registered principal; the addressing; the entry kind (a
+message, or a lifecycle entry — start, add, leave — carrier-readable
+so admission and the membership fold never touch the body); an opaque
+body the network never interprets; the protocol version (a calendar
+date, matched exactly; no negotiation).
 
 Attribution covers the body and the addressing: altering either
 invalidates the frame. Verifying attribution never requires
@@ -86,8 +88,8 @@ Verification duties:
 
 The frame partitions into an **envelope** and a **sealed body**. The
 envelope is everything a carrier may read: the sender's agent
-identity, the conversation handle, the protocol version, and the
-attribution. The body is opaque bytes no carrier interprets.
+identity, the conversation handle, the protocol version, the entry
+kind, and the attribution. The body is opaque bytes no carrier interprets.
 Attribution covers envelope and body together (invariant 4); admission
 and routing read envelope fields only (`data-plane.md`).
 
@@ -190,7 +192,7 @@ native form.
    transitively identifies the principal (how much of that linkage
    verifies without trust in the registry is open; see Open
    questions).
-4. Attribution covers body and addressing — altering either
+4. Attribution covers envelope and body — altering either
    invalidates the frame — and verification never interprets the body.
 5. Identity attests who — never intent, never trustworthiness.
 
