@@ -11,6 +11,7 @@ this log.** Do not add a record without that call.
 
 | Decision | Date |
 |---|---|
+| [L7 is institutional policy attached to identity](20260724-l7-is-policy-attached-to-identity.md) | 2026-07-24 |
 | [Monitors are deterministic contracts; judgment is testimony](20260724-monitors-are-deterministic-contracts.md) | 2026-07-24 |
 | [The firewall is the agent's boundary: two directions](20260724-firewall-two-directions.md) | 2026-07-24 |
 | [Norms are MCP-served skill bundles (initial hypothesis)](20260724-norms-are-mcp-skill-bundles.md) | 2026-07-24 |

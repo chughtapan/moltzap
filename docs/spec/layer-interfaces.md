@@ -200,7 +200,11 @@ interface Registry {
 `Caller` is a two-arm value (`identity | operator`) with a single
 minter in the router composition (law L7.1). Since per-request
 authentication derives its caller through `lookup`, "L7 reconfigures
-L1" is exactly the registry ceasing to vouch (law L7.3).
+L1" is exactly an institutional fact change at the directory —
+revocation the zero policy (law L7.3;
+`docs/decisions/20260724-l7-is-policy-attached-to-identity.md` — the
+v0 fact set is the single active bit, so the lookup surface is
+unchanged until the fact vocabulary lands).
 
 ### Harness (L4 SPI; swap axis: the two runtimes)
 
@@ -324,7 +328,7 @@ Conventions, citations name the governing doc.
 | L6.1 | `evidence` = the recipient's `verify` over `readTranscript`, post facto; no monitor port, principal, or caller arm exists | C | identity.md → Verification duties; enforcement.md |
 | L7.1 | `register` requires the operator arm; `Caller` has two arms and one minter | C | control-plane.md inv. 3, 7 |
 | L7.2 | `list` ≈ per-id `lookup`; cards only, no thinner projection | P | directory-serves-cards |
-| L7.3 | Ceasing to vouch changes what `lookup` returns and what callers can be derived — no revoke op | P | layers.md → L7; single-credential |
+| L7.3 | An institutional fact change (revocation the zero policy) changes what `lookup` returns and what callers can be derived — no consequence op | P | layers.md → L7; single-credential |
 | X.1 | Version exact-match refuses before any state change, on every entry operation | C+P | protocol-version-carriage |
 | X.2 | Swap `DeliveryLive` for `DeliveryTestbed`: observationally equivalent, no other binding changes; every testbed injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
 | X.3 | No signature names a lease, socket, connection, or session | C | sessionless-network |

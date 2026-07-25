@@ -172,9 +172,14 @@ reaching into internals is, by definition, an interface gap.
     it has never met: registries attesting identity-to-principal
     linkage, trusted registries for disseminating norms (reusing an
     existing marketplace defers, not completes, this duty), and the
-    machinery of consequence — revoking or quarantining
-    credentials. Mechanism only: L7 executes what L8 determines,
-    and acts by reconfiguring L1.
+    machinery of consequence. Recorded decision
+    (`docs/decisions/20260724-l7-is-policy-attached-to-identity.md`):
+    the directory entry is identity plus attached institutional
+    facts — what the identity may do — and consequences are policy
+    changes, quarantine a restricted policy and revocation the zero
+    policy; every layer reads the facts at L1 and enforces its own
+    slice at endpoints. Mechanism only: L7 executes what L8
+    determines, and acts by reconfiguring L1.
 12. **L8 — governance.** Who defines policies, what they prescribe,
     what consequences follow, and how disputes are adjudicated.
     Realized through the stack itself — credentialed legislators

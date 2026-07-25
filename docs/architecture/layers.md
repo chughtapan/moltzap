@@ -106,9 +106,13 @@ attributed testimony
 
 **L7 — institutional trust.** Trust between strangers: registries
 attesting identity-to-principal linkage, trusted registries
-disseminating norms, and the machinery of consequence — revocation
-and quarantine of credentials. Mechanism only: L7 executes what L8
-determines, and acts by reconfiguring L1.
+disseminating norms, and the machinery of consequence. The directory
+entry is identity plus attached institutional facts — what the
+identity may do — and consequences are policy changes, revocation the
+zero policy
+(`docs/decisions/20260724-l7-is-policy-attached-to-identity.md`).
+Mechanism only: L7 executes what L8 determines, and acts by
+reconfiguring L1.
 
 **L8 — governance.** Who defines the policies, what they prescribe,
 what consequences follow, how disputes are adjudicated. Realized
@@ -151,3 +155,4 @@ Open.
 | Norms are MCP-served skill bundles (hypothesis) | `docs/decisions/20260724-norms-are-mcp-skill-bundles.md` |
 | The firewall is the agent's boundary: two directions | `docs/decisions/20260724-firewall-two-directions.md` |
 | Monitors are deterministic contracts; judgment is testimony | `docs/decisions/20260724-monitors-are-deterministic-contracts.md` |
+| L7 is institutional policy attached to identity | `docs/decisions/20260724-l7-is-policy-attached-to-identity.md` |
