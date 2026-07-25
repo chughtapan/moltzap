@@ -296,6 +296,7 @@ function drainedBeforeReceiptBody(): Effect.Effect<void, unknown, never> {
   });
 }
 
+// @agent-code-guard/regression-only: each case runs a live hermetic episode to pin one discrimination rule, so a generative gate here would execute a full run per case; the match rule's invariants are property-tested where they are cheap, in span-attrs.test.ts
 describe("the `awaitReplyFrom` step gate", () => {
   it("releases the gated step on the target's reply to the previous one", () =>
     Effect.runPromise(
@@ -313,6 +314,19 @@ describe("the `awaitReplyFrom` step gate", () => {
         [
           ownMessage(FIRST.conversationId, FIRST.messageId),
           delivered(SECOND.conversationId, AGENT_ONE, "elsewhere"),
+        ],
+        QUIET_MS,
+        expectOnlySetupSpoken,
+        TERMINATION.timeout,
+      ).pipe(Effect.orDie),
+    ));
+
+  it("ignores a reply from another agent: the gated step never speaks", () =>
+    Effect.runPromise(
+      gatedBody(
+        [
+          ownMessage(FIRST.conversationId, FIRST.messageId),
+          delivered(FIRST.conversationId, AGENT_TWO, "not-the-target"),
         ],
         QUIET_MS,
         expectOnlySetupSpoken,
@@ -371,6 +385,7 @@ function armsOnlyOnLastStepBody(): Effect.Effect<void, unknown, never> {
   });
 }
 
+// @agent-code-guard/regression-only: each case runs a live hermetic episode to pin one arming or discrimination rule; the underlying match rule is property-tested in span-attrs.test.ts
 describe("the `last-step-answered` done-signal", () => {
   it("completes when the last step is answered", () =>
     Effect.runPromise(
@@ -386,6 +401,18 @@ describe("the `last-step-answered` done-signal", () => {
 
   it("cannot fire on an answer to an earlier step and truncate the schedule", () =>
     Effect.runPromise(armsOnlyOnLastStepBody().pipe(Effect.orDie)));
+
+  it("ignores a response from an agent the last step never spoke to", () =>
+    Effect.runPromise(
+      lastStepBody(
+        [
+          ownMessage(SECOND.conversationId, SECOND.messageId),
+          delivered(SECOND.conversationId, AGENT_TWO, "not-a-participant"),
+        ],
+        QUIET_MS,
+        TERMINATION.timeout,
+      ).pipe(Effect.orDie),
+    ));
 
   it("does not complete when only an earlier step is answered", () =>
     Effect.runPromise(

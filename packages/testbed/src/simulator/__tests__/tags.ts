@@ -53,6 +53,7 @@ export const FAULT_EFFECT = {
 export const ERROR_TAG = {
   runSpecInvalid: "RunSpecInvalid",
   adapterConfigRejected: "AdapterConfigRejected",
+  driverConfigRejected: "DriverConfigRejected",
   doneSignalUnsafe: "DoneSignalUnsafe",
   isolationViolation: "IsolationViolation",
   faultUnsupported: "FaultUnsupported",

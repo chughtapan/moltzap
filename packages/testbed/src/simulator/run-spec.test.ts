@@ -390,6 +390,54 @@ function assertEveryShapeCanComplete(): void {
   expect(multiStepExit._tag).toBe(EXIT.success);
 }
 
+const SECOND_PRINCIPAL = "principal-second";
+
+/**
+ * Only a launched agent is ever the sender of a delivered message, so a
+ * done-signal waiting on anyone else can never fire. Left to run, such a
+ * spec burns its whole inactivity bound and seals `timeout` with nothing
+ * in the recording to say the signal never could have fired.
+ */
+function assertDoneSignalTargetRule(): void {
+  const unlaunched = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([SETUP_STEP, FOLLOW_UP_STEP], {
+        name: LAST_STEP_ANSWERED_DONE_SIGNAL,
+        config: { from: "nobody" },
+      }),
+    }),
+  );
+  expectFailedWithTag(unlaunched, ERROR_TAG.driverConfigRejected);
+  const principalTarget = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf([SETUP_STEP], {
+        name: "replies",
+        config: { from: PRINCIPAL_NAME },
+      }),
+    }),
+  );
+  expectFailedWithTag(principalTarget, ERROR_TAG.driverConfigRejected);
+  // With `from` omitted the answerers are the last step's participants,
+  // and here they are all principals.
+  const principalsOnly = materializeExit(
+    specInput(STORE_ROOT, {
+      episode: episodeOf(
+        [
+          {
+            name: "setup",
+            by: PRINCIPAL_NAME,
+            with: [SECOND_PRINCIPAL],
+            say: "x",
+          },
+          { by: SECOND_PRINCIPAL, into: "setup", say: "y" },
+        ],
+        { name: LAST_STEP_ANSWERED_DONE_SIGNAL, config: {} },
+      ),
+    }),
+  );
+  expectFailedWithTag(principalsOnly, ERROR_TAG.driverConfigRejected);
+}
+
 describe("materializeRunSpec", () => {
   it("is idempotent over its own encoded output (property)", () => {
     fc.assert(
@@ -431,6 +479,10 @@ describe("materializeRunSpec", () => {
 
   it("leaves every legal spec a legal way to reach completed", () => {
     assertEveryShapeCanComplete();
+  });
+
+  it("refuses a done-signal waiting on anyone this run does not launch", () => {
+    assertDoneSignalTargetRule();
   });
 });
 
