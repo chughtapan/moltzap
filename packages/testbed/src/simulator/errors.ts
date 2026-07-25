@@ -66,17 +66,16 @@ export class DriverConfigRejected extends Schema.TaggedError<DriverConfigRejecte
 ) {}
 
 /**
- * A done-signal counting society traffic is paired with an episode shape
- * it can terminate early. Counting predicates fire on traffic rather than
- * on the schedule's progress, so on a multi-step episode one can fire
- * before a later step is ever delivered — and the run still produces a
- * verdict, over a transcript that proves nothing.
+ * A done-signal that fires on society traffic is paired with a multi-step
+ * episode it can terminate early. Such a predicate tracks traffic rather
+ * than the schedule's progress, so it can fire before a later step is
+ * ever spoken — and the run still produces a verdict, over a transcript
+ * that proves nothing.
  */
 export class DoneSignalUnsafe extends Schema.TaggedError<DoneSignalUnsafe>()(
   "DoneSignalUnsafe",
   {
     driver: Schema.String,
-    observed: Schema.Literal("multiple-steps", "gated-step"),
     message: Schema.String,
   },
 ) {}

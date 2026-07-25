@@ -14,8 +14,8 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type {
   AgentName,
   DriverRef,
-  JsonValue,
   PrincipalName,
+  SpeechStep,
 } from "./run-spec.js";
 import type {
   ChannelRef,
@@ -25,6 +25,12 @@ import type {
 } from "./episode.js";
 import type { Society } from "./run-config.js";
 import type { SimulatorEvent } from "./event-log.js";
+import {
+  makeDeliveredLog,
+  MESSAGE_DELIVERED_SPAN,
+  readDeliveredMessage,
+  type AnswerCriteria,
+} from "./span-attrs.js";
 import type { Secrets } from "./recording.js";
 import {
   DoneSignalUnsafe,
@@ -47,13 +53,10 @@ const OUT_OF_BAND_PRINCIPAL = "out-of-band";
 const SPAN_NAME_DONE_SIGNAL = "span-name";
 const REPLIES_DONE_SIGNAL = "replies";
 
-/** The driver a spec shape must use once counting is unsafe for it. */
-export const SCHEDULE_AWARE_DONE_SIGNAL = "last-injection-answered";
+/** The one done-signal that tracks the schedule rather than the traffic. */
+export const LAST_STEP_ANSWERED_DONE_SIGNAL = "last-step-answered";
 
 export type DriverKind = "principal" | "done-signal";
-
-/** Episode shapes a counting done-signal can terminate before the schedule finishes. */
-export type DoneSignalShape = "multiple-steps" | "gated-step";
 
 /** Config of the `span-name` done-signal predicate. */
 const SpanNameDoneConfig = Schema.Struct({
@@ -87,6 +90,16 @@ const RepliesDoneConfig = Schema.Struct({
   ),
 });
 
+/** Config of the `last-step-answered` done-signal predicate. */
+const LastStepAnsweredConfig = Schema.Struct({
+  from: Schema.optional(
+    Schema.NonEmptyString.annotations({
+      description:
+        "Agent whose response ends the episode; any non-speaker participant of the last step when omitted",
+    }),
+  ),
+});
+
 /** Config of the `out-of-band` principal (no knobs in v0). */
 const OutOfBandPrincipalConfig = Schema.Struct({});
 
@@ -97,24 +110,29 @@ const REGISTERED_DRIVERS: Readonly<
       readonly kind: DriverKind;
       readonly config: Schema.Schema.AnyNoContext;
       /** Fires on society traffic rather than on the schedule's progress. */
-      readonly counting: boolean;
+      readonly tracksTraffic: boolean;
     }
   >
 > = {
   [OUT_OF_BAND_PRINCIPAL]: {
     kind: "principal",
     config: OutOfBandPrincipalConfig,
-    counting: false,
+    tracksTraffic: false,
   },
   [SPAN_NAME_DONE_SIGNAL]: {
     kind: "done-signal",
     config: SpanNameDoneConfig,
-    counting: true,
+    tracksTraffic: true,
   },
   [REPLIES_DONE_SIGNAL]: {
     kind: "done-signal",
     config: RepliesDoneConfig,
-    counting: true,
+    tracksTraffic: true,
+  },
+  [LAST_STEP_ANSWERED_DONE_SIGNAL]: {
+    kind: "done-signal",
+    config: LastStepAnsweredConfig,
+    tracksTraffic: false,
   },
 };
 
@@ -159,104 +177,35 @@ export function checkDriverRef(
 }
 
 /**
- * Refuse a counting done-signal on an episode shape it can terminate
- * early. A note in a doc does not stop an author from writing one, and
- * the failure it produces is a pass: the run ends before a later step is
- * delivered and the judge scores a transcript that proves nothing.
+ * Refuse a traffic-tracking done-signal on a multi-step episode. On a
+ * one-step spec the traffic and the schedule coincide: the only thing the
+ * schedule waits for is the answer to that step. On a multi-step spec
+ * they diverge, and a message counter or a span name can fire before a
+ * later step is ever spoken, converting a probe into a run that proves
+ * nothing while still producing a verdict.
+ *
+ * One clause suffices because a gated spec always has more than one step:
+ * a gate on the first step is already refused, so "gated" is a subset of
+ * "multi-step".
  */
 export function checkDoneSignalShape(
   ref: DriverRef,
-  observed: DoneSignalShape | undefined,
+  multiStep: boolean,
 ): Effect.Effect<void, DoneSignalUnsafe> {
-  if (observed === undefined) return Effect.void;
-  if (REGISTERED_DRIVERS[ref.name]?.counting !== true) return Effect.void;
+  if (!multiStep) return Effect.void;
+  if (REGISTERED_DRIVERS[ref.name]?.tracksTraffic !== true) return Effect.void;
   return Effect.fail(
     new DoneSignalUnsafe({
       driver: ref.name,
-      observed,
-      message: `Done-signal driver "${ref.name}" counts society traffic, so on this episode (${observedDetail(observed)}) it can fire before a later step is delivered and seal a run that never ran to the end. Use "${SCHEDULE_AWARE_DONE_SIGNAL}", whose completion condition tracks the schedule instead of the traffic.`,
+      message: `Done-signal driver "${ref.name}" fires on society traffic, so on an episode with more than one step it can fire before a later step is spoken and seal a run that never reached the end of its schedule. Use "${LAST_STEP_ANSWERED_DONE_SIGNAL}", whose completion condition tracks the schedule instead of the traffic.`,
     }),
   );
-}
-
-function observedDetail(observed: DoneSignalShape): string {
-  return observed === "multiple-steps"
-    ? "more than one step"
-    : "a step gated on a reply";
 }
 
 function registeredNames(kind: DriverKind): ReadonlyArray<string> {
   return Object.entries(REGISTERED_DRIVERS)
     .filter(([, entry]) => entry.kind === kind)
     .map(([name]) => name);
-}
-
-// ---------------------------------------------------------------------------
-// Society traffic, as a predicate sees it
-// ---------------------------------------------------------------------------
-
-/** The span the server emits per committed send; the wire-side evidence of a delivered message. */
-export const MESSAGE_DELIVERED_SPAN = "moltzap.message.delivered";
-
-/** The attributes of a delivered-message span that say who said what, where. */
-export type DeliveredMessage = {
-  readonly messageId: string;
-  readonly conversationId: string;
-  readonly senderId: string;
-};
-
-/**
- * Read the message attributes off a verbatim `moltzap.message.delivered`
- * span. Spans are captured exactly as exported, so the attributes are
- * OTLP's own `[{key, value: {stringValue}}]` encoding rather than a
- * flattened record. A span missing any of the three reads as absent, so a
- * partial match can never stand in for a delivered message.
- */
-export function readDeliveredMessage(
-  raw: JsonValue,
-): DeliveredMessage | undefined {
-  const attributes = otlpStringAttributes(raw);
-  const messageId = attributes.get("moltzap.message.id");
-  const conversationId = attributes.get("moltzap.message.conversation_id");
-  const senderId = attributes.get("moltzap.message.sender_id");
-  if (
-    messageId === undefined ||
-    conversationId === undefined ||
-    senderId === undefined
-  ) {
-    return undefined;
-  }
-  return { messageId, conversationId, senderId };
-}
-
-function otlpStringAttributes(raw: JsonValue): ReadonlyMap<string, string> {
-  const found = new Map<string, string>();
-  if (!isRecord(raw)) return found;
-  const attributes = raw["attributes"];
-  if (!Array.isArray(attributes)) return found;
-  for (const attribute of attributes) {
-    const entry = readStringAttribute(attribute);
-    if (entry !== undefined) found.set(entry.key, entry.value);
-  }
-  return found;
-}
-
-function readStringAttribute(
-  attribute: JsonValue,
-): { readonly key: string; readonly value: string } | undefined {
-  if (!isRecord(attribute)) return undefined;
-  const key = attribute["key"];
-  const wrapper = attribute["value"];
-  if (typeof key !== "string") return undefined;
-  if (wrapper === undefined || !isRecord(wrapper)) return undefined;
-  const value = wrapper["stringValue"];
-  return typeof value === "string" ? { key, value } : undefined;
-}
-
-function isRecord(
-  value: JsonValue,
-): value is { readonly [key: string]: JsonValue } {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -269,9 +218,10 @@ export type DonePredicate = {
   observe(event: SimulatorEvent): boolean;
 };
 
-/** What a predicate needs to relate spec-level names to the identities on the wire. */
+/** What a predicate needs to relate the spec's names to the identities on the wire. */
 export type PredicateContext = {
   readonly agentIds: ReadonlyMap<string, AgentId>;
+  readonly steps: ReadonlyArray<SpeechStep>;
 };
 
 /** Instantiate the done-signal predicate for one episode; the ref is already materialization-checked. */
@@ -280,12 +230,22 @@ export function makeDonePredicate(
   context: PredicateContext,
 ): Effect.Effect<DonePredicate, UnknownDriver | DriverConfigRejected> {
   return checkDriverRef(ref, "done-signal").pipe(
-    Effect.zipRight(
-      ref.name === REPLIES_DONE_SIGNAL
-        ? makeRepliesPredicate(ref, context)
-        : makeSpanNamePredicate(ref),
-    ),
+    Effect.zipRight(donePredicateFor(ref, context)),
   );
+}
+
+function donePredicateFor(
+  ref: DriverRef,
+  context: PredicateContext,
+): Effect.Effect<DonePredicate, DriverConfigRejected> {
+  switch (ref.name) {
+    case REPLIES_DONE_SIGNAL:
+      return makeRepliesPredicate(ref, context);
+    case LAST_STEP_ANSWERED_DONE_SIGNAL:
+      return makeLastStepAnsweredPredicate(ref, context);
+    default:
+      return makeSpanNamePredicate(ref);
+  }
 }
 
 function makeSpanNamePredicate(
@@ -324,6 +284,106 @@ function makeRepliesPredicate(
       });
     }),
   );
+}
+
+/**
+ * Done when the last scheduled step has been answered.
+ *
+ * It arms only on the last step's own `step.spoken`, which is what makes
+ * it safe where the traffic-tracking predicates are not: before that
+ * event exists there is no receipt to match against, so the predicate
+ * cannot fire early and cannot cut the schedule short. Retention in the
+ * delivered log means arming late still matches an answer whose span
+ * arrived first.
+ */
+function makeLastStepAnsweredPredicate(
+  ref: DriverRef,
+  context: PredicateContext,
+): Effect.Effect<DonePredicate, DriverConfigRejected> {
+  return decodeDriverConfig(ref, LastStepAnsweredConfig).pipe(
+    Effect.map((config) => {
+      const delivered = makeDeliveredLog();
+      const named = config.from;
+      const senders =
+        named === undefined
+          ? participantSenders(context)
+          : wireIdentities(context, [named]);
+      let stepsSpoken = 0;
+      let criteria: AnswerCriteria | undefined;
+      return {
+        driverName: ref.name,
+        observe: (event: SimulatorEvent): boolean => {
+          if (event._tag === "step.spoken") {
+            stepsSpoken += 1;
+            if (stepsSpoken === context.steps.length) {
+              criteria = {
+                conversationId: event.conversationId,
+                afterMessageId: event.messageId,
+                senders,
+              };
+            }
+          } else if (event._tag === "span.accepted") {
+            delivered.record(event.logicalSequence, event.spanName, event.raw);
+          }
+          return (
+            criteria !== undefined && delivered.answer(criteria) !== undefined
+          );
+        },
+      };
+    }),
+  );
+}
+
+/**
+ * Every launched participant of the last step. The step's speaker is a
+ * principal and never a launched agent, so resolving through the launched
+ * agents excludes it.
+ */
+function participantSenders(context: PredicateContext): ReadonlySet<string> {
+  return wireIdentities(context, lastStepParticipants(context.steps));
+}
+
+function wireIdentities(
+  context: PredicateContext,
+  names: ReadonlyArray<string>,
+): ReadonlySet<string> {
+  return new Set(
+    names.flatMap((name) => {
+      const id = context.agentIds.get(name);
+      return id === undefined ? [] : [id];
+    }),
+  );
+}
+
+/**
+ * The participants of the conversation the last step spoke into. A `send`
+ * step names no participants of its own, so the walk follows `into` back
+ * to the step that started the task. Materialization requires every
+ * `into` to name an earlier step, so the cursor strictly decreases.
+ */
+function lastStepParticipants(
+  steps: ReadonlyArray<SpeechStep>,
+): ReadonlyArray<string> {
+  let cursor = steps.length - 1;
+  while (cursor >= 0) {
+    const step = steps[cursor];
+    if (step?.with !== undefined) return step.with;
+    const next = precedingStepIndex(steps, step, cursor);
+    if (next === undefined) return [];
+    cursor = next;
+  }
+  return [];
+}
+
+function precedingStepIndex(
+  steps: ReadonlyArray<SpeechStep>,
+  step: SpeechStep | undefined,
+  cursor: number,
+): number | undefined {
+  const target = step?.into;
+  if (target === undefined) return undefined;
+  const next = steps.findIndex((candidate) => candidate.name === target);
+  return next >= 0 && next < cursor ? next : undefined;
 }
 
 function countingPredicate(

@@ -10,7 +10,6 @@
  * returns.
  */
 import { Deferred, Effect, Either, Option, Schema, Stream } from "effect";
-import type { AgentId } from "@moltzap/protocol/identity";
 import {
   CorrelationId,
   EpisodeId,
@@ -31,10 +30,13 @@ import type { EpisodeDeps, ChannelRef, SpeechReceipt } from "./episode.js";
 import {
   agentIdsOf,
   makeDonePredicate,
-  MESSAGE_DELIVERED_SPAN,
-  readDeliveredMessage,
   type DonePredicate,
 } from "./drivers.js";
+import {
+  makeDeliveredLog,
+  type AnswerCriteria,
+  type DeliveredLog,
+} from "./span-attrs.js";
 import type {
   DriverCrashed,
   FaultApplyFailed,
@@ -45,14 +47,6 @@ import type {
 
 const INACTIVITY_POLL_MS = 50;
 
-/** A delivered-message span the episode has seen, reduced to what the reply gate discriminates on. */
-type DeliveredRecord = {
-  readonly logicalSequence: LogicalSequence;
-  readonly conversationId: string;
-  readonly senderId: string;
-  readonly messageId: string;
-};
-
 /**
  * The reply gate's state: every delivered-message span of this episode,
  * plus the steps still waiting on one. The tap is forked before any step
@@ -62,20 +56,13 @@ type DeliveredRecord = {
  * the receipt that names the conversation to look in.
  */
 type ReplyGate = {
-  readonly delivered: Array<DeliveredRecord>;
+  readonly delivered: DeliveredLog;
   readonly waiting: Array<ReplyWaiter>;
 };
 
 type ReplyWaiter = {
-  readonly criteria: ReplyCriteria;
+  readonly criteria: AnswerCriteria;
   readonly release: Deferred.Deferred<LogicalSequence, never>;
-};
-
-/** What a gated step waits for: a reply from one agent, in one conversation, after one message. */
-type ReplyCriteria = {
-  readonly conversationId: string;
-  readonly senderId: AgentId;
-  readonly afterMessageId: string;
 };
 
 type EpisodeContext = {
@@ -108,7 +95,7 @@ export function episodeRun(
         startedAt: deps.clock.now(),
         done: yield* Deferred.make<EpisodeTermination, InfraError>(),
         activity: { lastAt: deps.clock.now() },
-        gate: { delivered: [], waiting: [] },
+        gate: { delivered: makeDeliveredLog(), waiting: [] },
         outstandingReverts: [],
       };
       yield* enqueueScheduler(ctx, {
@@ -250,6 +237,7 @@ function resolveDonePredicate(
   // Materialization already validated the ref; failure here is a defect.
   return makeDonePredicate(ref, {
     agentIds: agentIdsOf(ctx.deps.world),
+    steps: ctx.spec.episode.steps,
   }).pipe(Effect.orDie);
 }
 
@@ -303,14 +291,8 @@ function recordDelivered(
   event: SimulatorEvent,
 ): Effect.Effect<void, never, never> {
   if (event._tag !== "span.accepted") return Effect.void;
-  if (event.spanName !== MESSAGE_DELIVERED_SPAN) return Effect.void;
-  const message = readDeliveredMessage(event.raw);
-  if (message === undefined) return Effect.void;
   return Effect.sync(() => {
-    ctx.gate.delivered.push({
-      logicalSequence: event.logicalSequence,
-      ...message,
-    });
+    ctx.gate.delivered.record(event.logicalSequence, event.spanName, event.raw);
   }).pipe(Effect.zipRight(releaseWaiting(ctx)));
 }
 
@@ -321,7 +303,7 @@ function releaseWaiting(
     const stillWaiting: Array<ReplyWaiter> = [];
     const releases: Array<Effect.Effect<void, never, never>> = [];
     for (const waiter of ctx.gate.waiting) {
-      const matched = matchReply(ctx, waiter.criteria);
+      const matched = ctx.gate.delivered.answer(waiter.criteria);
       if (matched === undefined) {
         stillWaiting.push(waiter);
         continue;
@@ -333,28 +315,6 @@ function releaseWaiting(
     ctx.gate.waiting.splice(0, ctx.gate.waiting.length, ...stillWaiting);
     return Effect.all(releases, { concurrency: 1, discard: true });
   });
-}
-
-/**
- * The first reply in the prior step's conversation, from the named agent,
- * recorded after the prior step's own message. Ordering is by the log's
- * total order, so the comparison holds however the exporter batched the
- * two spans.
- */
-function matchReply(
-  ctx: EpisodeContext,
-  criteria: ReplyCriteria,
-): LogicalSequence | undefined {
-  const own = ctx.gate.delivered.find(
-    (record) => record.messageId === criteria.afterMessageId,
-  );
-  if (own === undefined) return undefined;
-  return ctx.gate.delivered.find(
-    (record) =>
-      record.conversationId === criteria.conversationId &&
-      record.senderId === criteria.senderId &&
-      record.logicalSequence > own.logicalSequence,
-  )?.logicalSequence;
 }
 
 /**
@@ -377,13 +337,13 @@ function awaitReply(
       `awaitReplyFrom names "${from}", which no launched agent answers to`,
     );
   }
-  const criteria: ReplyCriteria = {
+  const criteria: AnswerCriteria = {
     conversationId: previous.conversationId,
-    senderId,
     afterMessageId: previous.messageId,
+    senders: new Set([senderId]),
   };
   return Effect.gen(function* () {
-    const immediate = matchReply(ctx, criteria);
+    const immediate = ctx.gate.delivered.answer(criteria);
     if (immediate !== undefined) return immediate;
     const release = yield* Deferred.make<LogicalSequence, never>();
     ctx.gate.waiting.push({ criteria, release });

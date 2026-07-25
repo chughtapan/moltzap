@@ -18,11 +18,7 @@ import {
   type ConfigTimeError,
 } from "./errors.js";
 import { checkAdapterConfig } from "./adapter-validation.js";
-import {
-  checkDoneSignalShape,
-  checkDriverRef,
-  type DoneSignalShape,
-} from "./drivers.js";
+import { checkDoneSignalShape, checkDriverRef } from "./drivers.js";
 
 // ---------------------------------------------------------------------------
 // JSON value space
@@ -599,7 +595,7 @@ export function materializeRunSpec(
       yield* checkDriverRef(spec.episode.termination.doneSignal, "done-signal");
       yield* checkDoneSignalShape(
         spec.episode.termination.doneSignal,
-        unsafeCountingShape(spec.episode),
+        spec.episode.steps.length > 1,
       );
     }
     if (spec.episode.principalDriver !== undefined) {
@@ -932,22 +928,6 @@ function collectStepNameIssues(
       message: `"${replier}" names no agent in this spec; only a launched agent produces the reply this step waits for`,
     });
   }
-}
-
-/**
- * The episode shape on which a done-signal counting society traffic can
- * fire before a later step is ever delivered — silently converting a
- * probe into a run that proves nothing while still producing a verdict.
- * A gate is the sharper report of the two, since a gated step is the one
- * a premature termination cancels.
- */
-function unsafeCountingShape(
-  episode: EpisodeSpec,
-): DoneSignalShape | undefined {
-  if (episode.steps.some((step) => step.awaitReplyFrom !== undefined)) {
-    return "gated-step";
-  }
-  return episode.steps.length > 1 ? "multiple-steps" : undefined;
 }
 
 function checkIsolation(agent: Agent): Effect.Effect<void, IsolationViolation> {
