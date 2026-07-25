@@ -61,7 +61,9 @@ harness internals.
 ## Open questions
 
 1. The adapter API shape — a spec deliverable alongside the v2 package
-   layout.
+   layout. Reference direction recorded, not bound: the channel
+   presented as an MCP server, the adapter an MCP client connection
+   (`docs/decisions/20260724-firewall-starts-as-mcp-middleware.md`).
 2. Resume-position persistence: what the channel must durably keep across restarts
    (read position; anything turn-shaped).
 3. How the channel surfaces plane refusals and failures to the agent —

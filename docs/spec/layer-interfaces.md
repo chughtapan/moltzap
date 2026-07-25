@@ -473,14 +473,13 @@ flowchart TB
    generate the property corpus instead of hand-writing each (P)/(S)
    law. Default: adopt the law-table format now; W8 decides the
    generator. Escalation: W8 / `v2/conformance`.
-2. **The firewall plan.** L5's interior is undesigned: the rule
-   vocabulary (keying off any communication layer's guarantees and the
-   institutional facts L7 records at L1), verdict expressiveness, the
-   trust-data model, and how norms and upper layers program the rules.
-   Contacts are one implementation choice inside it. Default: v0 ships
-   the contacts-keyed stopgap behind the hooks; the plan is a spec
-   item owned by `endpoints/screening.md`, with the L5 gateway
-   research as input. Escalation: `endpoints/screening.md`.
+2. **The firewall plan.** Phasing recorded
+   (`docs/decisions/20260724-firewall-starts-as-mcp-middleware.md`):
+   the hooks are realized as MCP middleware interception with
+   inherited observability, built first; screening logic is deferred —
+   v0 plugs in only the contacts stopgap and the institutional-fact
+   check, and the rule vocabulary stays undesigned with the proposal
+   drafts as inputs. Escalation: `endpoints/screening.md`.
 3. **Does the Effect mapping graduate to a decision record?** Default:
    recorded standard until an implementation PR would deviate.
 4. **Promote-a-law-to-a-port cost.** A future charter decision may
