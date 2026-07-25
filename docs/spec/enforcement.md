@@ -41,9 +41,14 @@ monitors and registries in a given deployment.
   credentialed through L7; nothing here binds establishment or scope.
 - **Registries (L7).** Norm dissemination reuses existing marketplaces;
   reuse defers, not completes, this duty (clause 11).
-- **Consequences (L7)** operate on credentials: revocation or quarantine of an
-  identity's card. How consequences propagate to admission checks and
-  recipients' verification is proposed for the register (`identity.md`).
+- **Consequences (L7)** are policy changes attached to the identity
+  (`docs/decisions/20260724-l7-is-policy-attached-to-identity.md`):
+  the directory entry is the card plus registry-attested institutional
+  facts — what the identity may do — read at L1 by every layer and
+  enforced at endpoints; quarantine is a restricted policy and
+  revocation the zero policy. How fact changes propagate to admission
+  checks and recipients' verification is proposed for the register
+  (`identity.md`).
 
 ## Invariants
 
@@ -68,8 +73,9 @@ monitors and registries in a given deployment.
 
 1. Monitor access under content-blindness — register item 3.
 2. Records retention and history-read scope — register item 6.
-3. Revocation and quarantine mechanics, and their propagation to admission
-   and verification — proposed for the register (`identity.md`).
+3. Consequence mechanics — the fact vocabulary, who may author which
+   facts (L8), and propagation to admission and verification —
+   proposed for the register (`identity.md`).
 4. Witness roles in evidence — register item 4 — and whether L6 consumes
    witness attestations at all.
 
