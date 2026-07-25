@@ -214,8 +214,7 @@ The port is the SPI: a runtime plugs in by implementing `run`, and
 everything it can do arrives as the **channel** — plain values, no
 authority in its requirements. It cannot sign, send raw, append, read
 out of scope, or touch firewall state, because it holds none of those
-and can acquire none. "Plugins are pure consumers" (channels.md
-inv. 3) is this type.
+and can acquire none. "Plugins are pure consumers" (channels.md → Acceptance) is this type.
 
 ```ts
 interface Harness {
@@ -278,10 +277,15 @@ The store supplies atomicity, isolation, and the lock discipline; it
 quorum suffices, is the committer's call under the task's norms. That
 line is what keeps this the opposite of the rejected escrow model.
 
-The rounds (data-plane.md → The collective transaction) are this
-interface realized among distrusting parties: propose/ack realize
-`begin`, the contribution round realizes `update`s, the signature
-round and commit frame realize `commit`. The correctness skeleton is
+The lock disciplines **effect, at collective granularity**: the
+leader's lock covers the whole transaction, and round entries — acks,
+contributions, signatures — are ordinary effect-free sends outside
+the lock (their carriage is the charter's), so agreement precedes
+generation at the granularity of the collective, not of every round
+message. The rounds (data-plane.md → The collective transaction) are
+this interface realized among distrusting parties: propose/ack
+realize `begin`, the contribution round realizes `update`s, the
+signature round and commit frame realize `commit`. The correctness skeleton is
 recorded there and in the collectives record: the txn id is the hash
 of its BEGIN frame; the grant and a commit's effect are **folds over
 the shared order** (the acks are the grant's certificate; validity is
@@ -315,7 +319,7 @@ sequenceDiagram
   S->>T: sign(conversation, type, body) then send(Frame)
   T->>T: admission: verify, member or fresh start, version
   T->>L: append(Frame)
-  L-->>P: Offset — the commit ack
+  T-->>P: Offset — the commit ack
   T--)T: fan out to membership (optimization over the ledger)
 ```
 
@@ -323,8 +327,9 @@ Receive and recovery — push is convenience, the log is truth:
 
 ```mermaid
 flowchart LR
-  L[Ledger] -- "subscribe(conv, offset)" --> V[verify] --> IH[Inbound hook] --> A[Plugin]
-  L -. "read(conv, offset) — control-plane call, after any miss" .-> V
+  T[Transport] -- "subscribe(conv, offset)" --> V[verify] --> IH[Inbound hook] --> A[Plugin]
+  L[Ledger] -. "read(conv, offset) — control-plane call, after any miss" .-> V
+  L --- T
   A -- "advance owned offset" --> A
 ```
 
@@ -386,7 +391,7 @@ Kinds per Conventions; citations name the governing doc.
 | L3.5 | A start frame to a used id refuses with no side effect; to a fresh id it creates the log at offset zero | P | lifecycle-rides-l3 |
 | L3.6 | `membersAt` ≈ the fold of lifecycle entries at or before the offset; no membership write exists | C+P | data-plane.md inv. 8; guarantee 5 |
 | L3.7 | No create operation exists anywhere; `Channel.startConversation` is a derived term (fresh id, sign start, send) | C | lifecycle-rides-l3 |
-| L3.8 | Every write is staged in a transaction whose `begin` preceded it — holding the open `Txn` is the proof (typestate) | C | data-plane.md inv. 5 |
+| L3.8 | Every *effective* write belongs to a transaction whose `begin` preceded it — holding the open `Txn` is the proof (typestate); round entries are effect-free and outside the lock | C | data-plane.md inv. 5 |
 | L3.9 | `commit`/`abort` consume the `Txn`: at most one commit per lock (linearity residual) | S | data-plane.md → Implementation notes |
 | L3.10 | Admission refusals never mutate membership | C+P | data-plane.md inv. 9 |
 | L5.1 | The hooks hold no signing authority; the frame and its attribution pass through unaltered | C | screening.md inv. 2 |

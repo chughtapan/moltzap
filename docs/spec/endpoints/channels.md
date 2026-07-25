@@ -23,7 +23,7 @@ harness internals.
   attribution on every delivered frame from frame plus card. Both duties
   hold at the strength of the attribution binding in effect — interim or
   target (`../identity.md`, One shape, two attribution bindings).
-- **Shipping.** Emit send calls naming the collective operation, addressed
+- **Sending.** Emit send calls naming the collective operation, addressed
   by conversation; drive the PCC dispatch discipline — observe the admitted
   turn before generating.
 - **Receiving.** Consume one-way delivery pushes; never answer on the
