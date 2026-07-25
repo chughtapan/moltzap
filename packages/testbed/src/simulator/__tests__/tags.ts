@@ -43,11 +43,6 @@ export const EVENT = {
   transcriptMessage: "transcript.message",
 } as const;
 
-export const DONE_SIGNAL_SHAPE = {
-  multipleSteps: "multiple-steps",
-  gatedStep: "gated-step",
-} as const;
-
 export const FAULT_EFFECT = {
   applied: "applied",
   targetNotReady: "target-not-ready",

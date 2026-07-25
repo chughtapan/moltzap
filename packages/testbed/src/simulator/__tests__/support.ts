@@ -417,6 +417,70 @@ const fakeConversationId = (seedText: string): ConversationId =>
 const fakeMessageId = (seedText: string): MessageId =>
   Schema.decodeSync(MessageId)(deterministicUuid(seedText));
 
+/** The receipt the fake principal answers the nth delivery with, known before the run starts. */
+export function nthReceipt(nth: number): SpeechReceipt {
+  return {
+    taskId: fakeTaskId(`task-${String(nth)}`),
+    conversationId: fakeConversationId(`conversation-${String(nth)}`),
+    messageId: fakeMessageId(`message-${String(nth)}`),
+  };
+}
+
+/** The wire identity the fake launcher mints for a slot. */
+export function fakeAgentId(slot: string): string {
+  return agentId(deterministicUuid(slot));
+}
+
+/**
+ * A principal whose deliveries block until released, so a test can drive
+ * a reply span into the receiver before the receipt that names its
+ * conversation exists.
+ */
+export type HeldPrincipal = FakePrincipal & {
+  /** Resolves once the nth delivery has been requested. */
+  readonly requested: (nth: number) => Effect.Effect<void, never, never>;
+  readonly release: Effect.Effect<void, never, never>;
+};
+
+export function makeHeldPrincipal(
+  holdFrom: number,
+): Effect.Effect<HeldPrincipal, never, never> {
+  return Effect.gen(function* () {
+    const gate = yield* Deferred.make<void>();
+    const base = makeFakePrincipal();
+    const seen: Array<number> = [];
+    return {
+      ...base,
+      principal: {
+        // Suspended: the hold decision reads the count this delivery just
+        // took, not the count at the time the pipeline was built.
+        deliver: (delivery: SpeechDelivery) =>
+          Effect.suspend(() => {
+            seen.push(seen.length + 1);
+            const held =
+              seen.length >= holdFrom ? Deferred.await(gate) : Effect.void;
+            return held.pipe(Effect.zipRight(base.principal.deliver(delivery)));
+          }),
+      },
+      requested: (nth: number) => awaitCount(seen, nth),
+      release: Deferred.succeed(gate, undefined).pipe(Effect.asVoid),
+    };
+  }).pipe(Effect.withSpan("makeHeldPrincipal"));
+}
+
+const COUNT_POLL_MS = 10;
+
+function awaitCount(
+  seen: ReadonlyArray<number>,
+  nth: number,
+): Effect.Effect<void, never, never> {
+  return seen.length >= nth
+    ? Effect.void
+    : Effect.sleep(`${COUNT_POLL_MS} millis`).pipe(
+        Effect.zipRight(Effect.suspend(() => awaitCount(seen, nth))),
+      );
+}
+
 // ---------------------------------------------------------------------------
 // Run helpers
 // ---------------------------------------------------------------------------
@@ -586,21 +650,63 @@ export function postSpans(
   endpoint: string,
   names: ReadonlyArray<string>,
 ): Effect.Effect<number, never, never> {
-  const body = {
-    resourceSpans: [
-      {
-        scopeSpans: [
-          {
-            spans: names.map((name) => ({
-              name,
-              traceId: "0123456789abcdef0123456789abcdef",
-              spanId: "0123456789abcdef",
-            })),
-          },
-        ],
-      },
-    ],
+  return postExport(
+    endpoint,
+    names.map((name) => spanBody(name, [])),
+  );
+}
+
+/** One message a delivered-message span reports. */
+export type DeliveredSpanInput = {
+  readonly messageId: string;
+  readonly conversationId: string;
+  readonly senderId: string;
+};
+
+/**
+ * POST delivered-message spans shaped the way the server exports them:
+ * OTLP's `[{key, value: {stringValue}}]` attribute encoding, which is
+ * what the reader under test has to walk.
+ */
+export function postDeliveredSpans(
+  endpoint: string,
+  messages: ReadonlyArray<DeliveredSpanInput>,
+): Effect.Effect<number, never, never> {
+  return postExport(
+    endpoint,
+    messages.map((message) =>
+      spanBody("moltzap.message.delivered", [
+        {
+          key: "moltzap.message.id",
+          value: { stringValue: message.messageId },
+        },
+        {
+          key: "moltzap.message.conversation_id",
+          value: { stringValue: message.conversationId },
+        },
+        {
+          key: "moltzap.message.sender_id",
+          value: { stringValue: message.senderId },
+        },
+      ]),
+    ),
+  );
+}
+
+function spanBody(name: string, attributes: ReadonlyArray<unknown>): unknown {
+  return {
+    name,
+    traceId: "0123456789abcdef0123456789abcdef",
+    spanId: "0123456789abcdef",
+    attributes,
   };
+}
+
+function postExport(
+  endpoint: string,
+  spans: ReadonlyArray<unknown>,
+): Effect.Effect<number, never, never> {
+  const body = { resourceSpans: [{ scopeSpans: [{ spans }] }] };
   return HttpClient.HttpClient.pipe(
     Effect.flatMap((client) =>
       HttpClientRequest.post(endpoint).pipe(

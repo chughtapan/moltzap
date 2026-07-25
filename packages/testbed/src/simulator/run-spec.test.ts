@@ -23,13 +23,8 @@ import {
   specInput,
   stubAgentInput,
 } from "./__tests__/support.js";
-import {
-  DONE_SIGNAL_SHAPE,
-  ERROR_TAG,
-  EXIT,
-  PROVENANCE,
-} from "./__tests__/tags.js";
-import { SCHEDULE_AWARE_DONE_SIGNAL } from "./drivers.js";
+import { ERROR_TAG, EXIT, PROVENANCE } from "./__tests__/tags.js";
+import { LAST_STEP_ANSWERED_DONE_SIGNAL } from "./drivers.js";
 
 const STORE_ROOT = "./recordings-test";
 const READY_TIMEOUT_DEFAULT = 120_000;
@@ -341,49 +336,63 @@ function assertGateRules(): void {
   expectFailedWithTag(gatedFirstStep, ERROR_TAG.runSpecInvalid);
 }
 
+const FOLLOW_UP_STEP = {
+  by: PRINCIPAL_NAME,
+  into: "setup",
+  say: "follow-up",
+};
+
 /**
- * A counting done-signal fires on society traffic, so on these shapes it
- * can terminate the run before a later step is delivered — and still
- * produce a verdict over a transcript that proves nothing.
+ * A done-signal that fires on society traffic can terminate a multi-step
+ * run before a later step is spoken, and still produce a verdict over a
+ * transcript that proves nothing. One clause covers it: a gated spec
+ * always has more than one step, because a gate on the first step is
+ * already refused.
  */
 function assertDoneSignalShapeRule(): void {
-  const multiStep = materializeExit(
+  for (const doneSignal of [
+    { name: "replies", config: { from: AGENT_ONE, minCount: 2 } },
+    { name: "span-name", config: { name: "any.span" } },
+  ]) {
+    const rejected = materializeExit(
+      specInput(STORE_ROOT, {
+        episode: episodeOf([SETUP_STEP, FOLLOW_UP_STEP], doneSignal),
+      }),
+    );
+    expectFailedWithTag(rejected, ERROR_TAG.doneSignalUnsafe);
+    expect(JSON.stringify(rejected)).toContain(LAST_STEP_ANSWERED_DONE_SIGNAL);
+  }
+}
+
+/**
+ * Every legal spec has a legal way to reach `completed`: all three
+ * done-signals on a one-step spec, and `last-step-answered` on a
+ * multi-step one. The fix line the guard prints names a driver that
+ * actually resolves.
+ */
+function assertEveryShapeCanComplete(): void {
+  const oneStep = [SETUP_STEP];
+  const multiStep = [SETUP_STEP, FOLLOW_UP_STEP];
+  const forOneStep = [
+    { name: "replies", config: { from: AGENT_ONE } },
+    { name: "span-name", config: { name: "any.span" } },
+    { name: LAST_STEP_ANSWERED_DONE_SIGNAL, config: {} },
+  ];
+  for (const doneSignal of forOneStep) {
+    const exit = materializeExit(
+      specInput(STORE_ROOT, { episode: episodeOf(oneStep, doneSignal) }),
+    );
+    expect(exit._tag).toBe(EXIT.success);
+  }
+  const multiStepExit = materializeExit(
     specInput(STORE_ROOT, {
-      episode: episodeOf(
-        [SETUP_STEP, { by: PRINCIPAL_NAME, into: "setup", say: "follow-up" }],
-        { name: "replies", config: { from: AGENT_ONE, minCount: 2 } },
-      ),
-    }),
-  );
-  expectFailedWithTag(multiStep, ERROR_TAG.doneSignalUnsafe);
-  expect(JSON.stringify(multiStep)).toContain(SCHEDULE_AWARE_DONE_SIGNAL);
-  const gated = materializeExit(
-    specInput(STORE_ROOT, {
-      episode: episodeOf(
-        [
-          SETUP_STEP,
-          {
-            by: PRINCIPAL_NAME,
-            into: "setup",
-            awaitReplyFrom: AGENT_ONE,
-            say: "probe",
-          },
-        ],
-        { name: "span-name", config: { name: "any.span" } },
-      ),
-    }),
-  );
-  expectFailedWithTag(gated, ERROR_TAG.doneSignalUnsafe);
-  expect(JSON.stringify(gated)).toContain(DONE_SIGNAL_SHAPE.gatedStep);
-  const singleStep = materializeExit(
-    specInput(STORE_ROOT, {
-      episode: episodeOf([SETUP_STEP], {
-        name: "replies",
+      episode: episodeOf(multiStep, {
+        name: LAST_STEP_ANSWERED_DONE_SIGNAL,
         config: { from: AGENT_ONE },
       }),
     }),
   );
-  expect(singleStep._tag).toBe(EXIT.success);
+  expect(multiStepExit._tag).toBe(EXIT.success);
 }
 
 describe("materializeRunSpec", () => {
@@ -421,8 +430,12 @@ describe("materializeRunSpec", () => {
     assertGateRules();
   });
 
-  it("refuses a counting done-signal on a multi-step or gated episode", () => {
+  it("refuses a traffic-tracking done-signal on a multi-step episode", () => {
     assertDoneSignalShapeRule();
+  });
+
+  it("leaves every legal spec a legal way to reach completed", () => {
+    assertEveryShapeCanComplete();
   });
 });
 
