@@ -162,7 +162,12 @@ reaching into internals is, by definition, an interface gap.
     properties to check; they detect what no individual can —
     deception judged post facto, collusion and other
     hyperproperties — and identify and evidence violations, never
-    imposing consequences.
+    imposing consequences. Recorded decision
+    (`docs/decisions/20260724-monitors-are-deterministic-contracts.md`):
+    a monitor is a pinned deterministic contract over the committed
+    ledger — findings re-execute bit-identically — with semantic
+    judgment as separate, attributed testimony; establishing a
+    monitor is itself a norm, credentialed through L7.
 11. **L7 — institutional trust.** How an agent trusts a counterparty
     it has never met: registries attesting identity-to-principal
     linkage, trusted registries for disseminating norms (reusing an
