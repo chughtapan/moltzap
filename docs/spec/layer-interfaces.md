@@ -343,7 +343,7 @@ its owner: data-plane.md → The collective transaction.
   future read-scope decisions change the value, not the port.
 - **Derivations** are pure functions over port state, in a shared,
   pinned, content-addressed fold library (it is trusted computing
-  base — findings cite it by hash): `applyEntry` (total over `Kind`)
+  base — findings cite it by hash): `applyEntry` (total over `EntryType`)
   and `membersAt` — one fold, two sites: the router folds lifecycle
   entries for delivery sets, the endpoint runs the identical fold to
   know the room. `Channel.startConversation` is a derivation.
