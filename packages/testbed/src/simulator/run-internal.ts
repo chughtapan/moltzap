@@ -93,6 +93,8 @@ export type RunInternals = {
   readonly makeWorld?: typeof makeWorld;
   /** Receiver seam; hermetic tests wrap the real receiver to observe its endpoint or inject stalls. */
   readonly makeReceiver?: typeof makeReceiver;
+  /** Engine-topology seam; a hermetic run has no container to reach it, so it answers loopback without asking Docker. */
+  readonly resolveBindHost?: typeof resolveReceiverBindHost;
   /** Principal seam; hermetic runs stand in for the wire-speaking out-of-band principal. */
   readonly makePrincipal?: typeof makePrincipal;
   /** Attempt-phase notifications; the in-process queue mirrors them into `AttemptSnapshot`s. */
@@ -345,7 +347,7 @@ function bringUp(
       log,
       failBoundMs: live.spec.timeouts.otlpReceiverFailMs,
       secrets: live.secrets,
-      bindHost: yield* resolveReceiverBindHost(),
+      bindHost: yield* (internals.resolveBindHost ?? resolveReceiverBindHost)(),
     });
     live.receiver = receiver;
     const world = yield* (internals.makeWorld ?? makeWorld)();

@@ -53,6 +53,7 @@ import {
 import {
   AGENT_ONE,
   AGENT_TWO,
+  LOOPBACK_BIND_HOST,
   DONE_SPAN,
   PRINCIPAL_NAME,
   TASK_CONTENT,
@@ -810,6 +811,8 @@ function makeQueueForTest(
       runOptions: { runner: launch.launcher },
       internals: {
         makeDrain: () => Effect.succeed(quietDrain),
+        // A hermetic run launches no container, so the engine is never asked.
+        resolveBindHost: () => Effect.succeed(LOOPBACK_BIND_HOST),
         makeReceiver,
         makePrincipal: () => Effect.succeed(principal.principal),
       },

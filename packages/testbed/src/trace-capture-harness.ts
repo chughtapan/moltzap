@@ -10,11 +10,10 @@
  * The scenario file and cc-judge's loader stay byte-unchanged; that
  * compatibility is coverage path 24a.
  */
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { Command, FileSystem } from "@effect/platform";
+import { join } from "node:path";
+import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Config, Data, Duration, Effect, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 import type { RuntimeKind } from "./testbed.js";
 import {
   decodePayload,
@@ -24,6 +23,7 @@ import {
 import {
   buildTraceBundle,
   projectRecordedConversation,
+  RecordingUnattributable,
   type RecordedConversation,
 } from "./trace-capture-bundle.js";
 import {
@@ -33,6 +33,7 @@ import {
   type SealedAttempt,
   type SimulatorEvent,
 } from "./simulator/index.js";
+import { resolveServerImagePin } from "./simulator/run-config.js";
 
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;
@@ -42,8 +43,6 @@ const PRINCIPAL_NAME = "eval-sender";
 const DELIVERED_SPAN = "moltzap.message.delivered";
 /** The injection delivered to the target, then the target's answer delivered back. */
 const EXCHANGE_SPAN_COUNT = 2;
-const SERVER_IMAGE_ENV = "MOLTZAP_SIM_SERVER_IMAGE";
-const IMAGE_BUILD_TIMEOUT_MS = 900_000;
 
 class ExecutionFailed extends Data.TaggedError("ExecutionFailed")<{
   readonly message: string;
@@ -98,53 +97,28 @@ function targetAgentName(payload: HarnessPayload): string {
 // Payload -> RunSpec
 // ---------------------------------------------------------------------------
 
-const ImagePin = Schema.Struct({ imageDigest: Schema.String });
-
-const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-
 /**
- * The pinned server image a run needs. An operator can pin one through
- * `MOLTZAP_SIM_SERVER_IMAGE`; otherwise the build script produces it and
- * prints the pin, re-using the image whenever the workspace is unchanged.
+ * The pinned server image a run needs. Building it once per process is
+ * enough: the script is content-addressed, so a second grade of the same
+ * workspace would re-derive the same digest at full cost.
  */
-function resolveServerImage(): Effect.Effect<string, HarnessFailure, never> {
-  return Effect.gen(function* () {
-    const pinned = yield* Config.string(SERVER_IMAGE_ENV).pipe(
-      Config.withDefault(""),
-      Effect.orElseSucceed(() => ""),
-    );
-    if (pinned.length > 0) return pinned;
-    const printed = yield* Command.string(
-      Command.make(
-        "node",
-        join(packageRoot, "scripts", "build-server-image.mjs"),
-      ),
-    ).pipe(
-      Effect.timeout(Duration.millis(IMAGE_BUILD_TIMEOUT_MS)),
-      Effect.mapError((cause) =>
-        failHarness(
-          `The simulator server image could not be built: ${String(cause)}. Build it with \`node scripts/build-server-image.mjs\`, or pin one through ${SERVER_IMAGE_ENV}.`,
+const serverImagePin: Effect.Effect<string, HarnessFailure, never> =
+  Effect.runSync(
+    Effect.cached(
+      resolveServerImagePin().pipe(
+        Effect.mapError((detail) =>
+          failHarness(`The run has no server image: ${detail}.`),
         ),
       ),
-    );
-    const pin = yield* Schema.decodeUnknown(Schema.parseJson(ImagePin))(
-      printed.trim().split("\n").at(-1) ?? "",
-    ).pipe(
-      Effect.mapError((cause) =>
-        failHarness(
-          `The server image build printed no usable pin: ${cause.message}`,
-        ),
-      ),
-    );
-    return pin.imageDigest;
-  }).pipe(Effect.provide(NodeContext.layer));
-}
+    ),
+  );
 
 /**
- * A v0 run carries one principal injection into one conversation, so a
- * payload that speaks more than once, or to more than the target, has no
- * spec. The refusal names the shape instead of running a scenario whose
- * later messages would never be spoken.
+ * The v0 principal speaks once, into one conversation, so a payload that
+ * speaks more than once or to more than the target has no run spec. The
+ * refusal names the shape instead of running a scenario whose later
+ * messages would never be spoken; the shapes return with a principal
+ * driver that speaks more than once, not by deleting this check.
  */
 function unsupportedShape(payload: HarnessPayload): string | undefined {
   if (payload.conversation.kind !== "direct") {
@@ -212,14 +186,6 @@ function specFor(input: {
   readonly imageDigest: string;
   readonly storeRoot: string;
 }): Effect.Effect<RunSpec, HarnessFailure, never> {
-  const unsupported = unsupportedShape(input.payload);
-  if (unsupported !== undefined) {
-    return Effect.fail(
-      failHarness(
-        `This scenario is not expressible as a simulator run: ${unsupported}. The simulator's episode contract carries one principal injection per run.`,
-      ),
-    );
-  }
   return Schema.decodeUnknown(RunSpec)(encodedSpec(input)).pipe(
     Effect.mapError((cause) =>
       failHarness(`The scenario's run spec was rejected: ${cause.message}`),
@@ -267,18 +233,22 @@ function projectOrFail(
   events: ReadonlyArray<SimulatorEvent>,
   payload: HarnessPayload,
 ): Effect.Effect<RecordedConversation, HarnessFailure, never> {
-  const projected = projectRecordedConversation({
+  return projectRecordedConversation({
     events,
     targetSlot: targetAgentName(payload),
     principalName: PRINCIPAL_NAME,
-  });
-  return projected === undefined
-    ? Effect.fail(
-        failHarness(
-          `The recording holds no launch event for "${targetAgentName(payload)}", so no transcript can be attributed to the target agent.`,
-        ),
-      )
-    : Effect.succeed(projected);
+  }).pipe(
+    Effect.mapError((cause) => failHarness(unattributableMessage(cause))),
+  );
+}
+
+function unattributableMessage(cause: RecordingUnattributable): string {
+  switch (cause.reason) {
+    case "slot-never-ready":
+      return `The recording holds no readiness event for "${cause.detail}", so no transcript can be attributed to the target agent.`;
+    case "undecodable-agent-id":
+      return `The recording carries "${cause.detail}" where the protocol expects an agent id, so its senders cannot be attributed.`;
+  }
 }
 
 function outcomeFailure(sealed: SealedAttempt): HarnessFailure | undefined {
@@ -320,7 +290,7 @@ function executeThroughSimulator(input: {
   readonly runId: string | undefined;
 }): Effect.Effect<Readonly<Record<string, unknown>>, HarnessFailure, never> {
   return Effect.gen(function* () {
-    const imageDigest = yield* resolveServerImage();
+    const imageDigest = yield* serverImagePin;
     const storeRoot = yield* recordingRoot();
     const spec = yield* specFor({
       payload: input.payload,
@@ -432,9 +402,26 @@ function targetAgentPlan(payload: HarnessPayload) {
 const traceCaptureHarness = {
   load(args: HarnessLoadArgs) {
     return decodePayload(args.sourcePath, args.payload).pipe(
+      // A scenario this fold cannot run must not produce a plan; refusing
+      // at load is where cc-judge reports it as a scenario problem rather
+      // than as a run that died halfway.
+      Effect.flatMap((payload) => runnableShape(payload)),
       Effect.map((payload) => buildHarnessLoadResult(args, payload)),
     );
   },
 };
+
+function runnableShape(
+  payload: HarnessPayload,
+): Effect.Effect<HarnessPayload, HarnessFailure, never> {
+  const unsupported = unsupportedShape(payload);
+  return unsupported === undefined
+    ? Effect.succeed(payload)
+    : Effect.fail(
+        failHarness(
+          `This scenario is not expressible as a simulator run: ${unsupported}. The default out-of-band principal speaks once per run.`,
+        ),
+      );
+}
 
 export default traceCaptureHarness;

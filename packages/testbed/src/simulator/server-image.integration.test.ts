@@ -14,16 +14,21 @@
  */
 /* eslint-disable sonarjs/assertions-in-tests -- the single entry delegates to `substrateRun`, where every expectation lives; splitting it would boot a second container per assertion */
 // @agent-code-guard/regression-only: one end-to-end execution against a real container; the generative gates for this row live in the hermetic files
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { Command, FileSystem } from "@effect/platform";
-import { NodeContext } from "@effect/platform-node";
 import { Config, Effect, Schema } from "effect";
 import { beforeAll, describe, expect, it } from "vitest";
 import { run } from "./episode.js";
-import { decodeEventLine, type SimulatorEvent } from "./event-log.js";
 import { makeLocalRecordingStore } from "./local-store.js";
+import { resolveServerImagePin } from "./run-config.js";
 import { RunSpec } from "./run-spec.js";
+import {
+  AGENT_ONE,
+  PRINCIPAL_NAME,
+  TASK_CONTENT,
+  decodedEvents,
+  specInput,
+  stubAgentInput,
+  tempStoreRoot,
+} from "./__tests__/support.js";
 
 const SIM_INTEGRATION_ENABLED = Effect.runSync(
   Config.string("MOLTZAP_SIM_ITEST").pipe(
@@ -33,82 +38,55 @@ const SIM_INTEGRATION_ENABLED = Effect.runSync(
 );
 
 const DELIVERED_SPAN = "moltzap.message.delivered";
-const AGENT = "recipient";
-const PRINCIPAL = "operator";
-const TASK_CONTENT = "substrate check: does this message reach the recording";
 const IMAGE_BUILD_TIMEOUT_MS = 900_000;
 const RUN_TIMEOUT_MS = 300_000;
-
-const packageRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-
-const ImagePin = Schema.Struct({ imageDigest: Schema.String });
+const INACTIVITY_MS = 60_000;
 
 let imageDigest = "";
 
-/** Build (or re-use) the image and record the pin its script prints. */
-const buildServerImage: Effect.Effect<void, unknown, never> = Command.string(
-  Command.make("node", join(packageRoot, "scripts", "build-server-image.mjs")),
-).pipe(
-  Effect.map((stdout) => stdout.trim().split("\n").at(-1) ?? "{}"),
-  Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(ImagePin))),
+const buildServerImage = resolveServerImagePin().pipe(
   Effect.map((pin) => {
-    imageDigest = pin.imageDigest;
+    imageDigest = pin;
   }),
-  Effect.provide(NodeContext.layer),
   Effect.orDie,
 );
 
+/** The hermetic spec, re-pointed at the real image and a real delivery span. */
 function liveSpec(storeRoot: string): RunSpec {
-  return Schema.decodeUnknownSync(RunSpec)({
-    seed: 1,
-    agents: [
-      {
-        name: AGENT,
-        runtime: { _tag: "stub", config: { script: "quiet" } },
-        runsIn: "host",
-        role: "standard",
+  return Schema.decodeUnknownSync(RunSpec)(
+    specInput(storeRoot, {
+      seed: 1,
+      agents: [stubAgentInput(AGENT_ONE)],
+      server: { imageDigest },
+      episode: {
+        task: {
+          principal: PRINCIPAL_NAME,
+          to: AGENT_ONE,
+          content: TASK_CONTENT,
+        },
+        termination: {
+          inactivityTimeoutMs: INACTIVITY_MS,
+          onAgentCrash: "halt",
+          doneSignal: { name: "span-name", config: { name: DELIVERED_SPAN } },
+        },
       },
-    ],
-    server: { imageDigest },
-    episode: {
-      task: { principal: PRINCIPAL, to: AGENT, content: TASK_CONTENT },
-      termination: {
-        inactivityTimeoutMs: 60_000,
-        onAgentCrash: "halt",
-        doneSignal: { name: "span-name", config: { name: DELIVERED_SPAN } },
-      },
-    },
-    recording: { storeRoot },
-  });
-}
-
-function eventsOf(
-  lines: ReadonlyArray<unknown>,
-): Effect.Effect<ReadonlyArray<SimulatorEvent>, unknown, never> {
-  return Effect.forEach(
-    lines,
-    (line) => decodeEventLine(JSON.stringify(line)),
-    {
-      concurrency: 1,
-    },
+    }),
   );
 }
 
 const substrateRun = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem;
-  const storeRoot = yield* fs.makeTempDirectory({ prefix: "sim-live-store-" });
+  const storeRoot = yield* tempStoreRoot();
+  const store = makeLocalRecordingStore(storeRoot);
   const sealed = yield* Effect.scoped(run(liveSpec(storeRoot)));
   expect(sealed.outcome).toMatchObject({
     _tag: "episode",
     termination: "completed",
   });
 
-  const snapshot = yield* makeLocalRecordingStore(storeRoot).read(
-    sealed.recording.path,
-  );
+  const snapshot = yield* store.read(sealed.recording.path);
   expect(snapshot.manifest.serverImageDigest).toBe(imageDigest);
 
-  const events = yield* eventsOf(snapshot.events);
+  const events = yield* decodedEvents(snapshot);
   // A captured delivery span proves the container reached the receiver:
   // that export travels container -> host, the half of the wiring no
   // fixture can stand in for.
@@ -127,7 +105,7 @@ const substrateRun = Effect.gen(function* () {
     (event) => event._tag === "transcript.message",
   );
   expect(JSON.stringify(transcripts)).toContain(TASK_CONTENT);
-}).pipe(Effect.provide(NodeContext.layer), Effect.orDie);
+}).pipe(Effect.orDie);
 
 describe.skipIf(!SIM_INTEGRATION_ENABLED)(
   "simulator execution substrate",

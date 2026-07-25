@@ -23,8 +23,9 @@ import {
   HttpClient,
 } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { networkInterfaces, platform } from "node:os";
-import { Deferred, Duration, Effect, type Scope } from "effect";
+import { networkInterfaces } from "node:os";
+import { fileURLToPath } from "node:url";
+import { Config, Deferred, Duration, Effect, Schema, type Scope } from "effect";
 import {
   ServerUrl as mintServerUrl,
   type RuntimeServerHandle,
@@ -43,7 +44,11 @@ import {
 } from "./provisioning.js";
 import { makeStubRuntime } from "./stub-runtime.js";
 import { resolveStubScript } from "./stub-scripts.js";
-import type { Agent, AgentFacingRunSpec } from "./run-spec.js";
+import {
+  ImageDigest,
+  type Agent,
+  type AgentFacingRunSpec,
+} from "./run-spec.js";
 import type { MountHandle } from "./environment.js";
 import type {
   LaunchDeps,
@@ -71,8 +76,6 @@ export const SERVER_DATA_MOUNT = "/data";
 export const SERVER_PGLITE_DIR = "pglite";
 
 const SERVER_HEALTH_POLL_MS = 250;
-const MOUNT_PROBE_POLL_MS = 250;
-const MOUNT_PROBE_ATTEMPTS = 40;
 const OBSERVER_IDENTITY = "moltzap-sim-observer";
 const PRESENCE_POLL_MS = 500;
 
@@ -211,40 +214,82 @@ function hostAddresses(): ReadonlySet<string> {
   );
 }
 
-// The engine's bridge topology does not change under a running process,
-// and every attempt would otherwise pay for the same `docker` call.
-let cachedBindHost: string | undefined;
+/**
+ * Build (or re-use) the server image and read back the pin
+ * `ServerSpec.imageDigest` carries. The build script is content-addressed,
+ * so an unchanged workspace re-uses its image; `MOLTZAP_SIM_SERVER_IMAGE`
+ * pins one outright and skips the build.
+ */
+export function resolveServerImagePin(): Effect.Effect<
+  ImageDigest,
+  string,
+  never
+> {
+  return Config.string(SERVER_IMAGE_ENV).pipe(
+    Config.withDefault(""),
+    Effect.orElseSucceed(() => ""),
+    Effect.flatMap((pinned) =>
+      pinned.length > 0
+        ? Schema.decodeUnknown(ImageDigest)(pinned).pipe(
+            Effect.mapError(
+              () =>
+                `${SERVER_IMAGE_ENV}="${pinned}" is not an image digest (sha256:…)`,
+            ),
+          )
+        : buildServerImagePin(),
+    ),
+  );
+}
+
+const SERVER_IMAGE_ENV = "MOLTZAP_SIM_SERVER_IMAGE";
+const IMAGE_BUILD_SCRIPT = fileURLToPath(
+  new URL("../../scripts/build-server-image.mjs", import.meta.url),
+);
+const ImagePinLine = Schema.parseJson(
+  Schema.Struct({ imageDigest: ImageDigest }),
+);
+
+/** The build script prints its pin as the last line of stdout. */
+function buildServerImagePin(): Effect.Effect<ImageDigest, string, never> {
+  return execCapture(["node", IMAGE_BUILD_SCRIPT]).pipe(
+    Effect.mapError(
+      (detail) =>
+        `the server image could not be built: ${detail}. Build it with \`node scripts/build-server-image.mjs\`, or pin one through ${SERVER_IMAGE_ENV}`,
+    ),
+    Effect.flatMap((printed) =>
+      Schema.decodeUnknown(ImagePinLine)(
+        printed.trim().split("\n").at(-1) ?? "",
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            `the server image build printed no usable pin: ${cause.message}`,
+        ),
+      ),
+    ),
+    Effect.map((pin) => pin.imageDigest),
+  );
+}
 
 /**
- * Resolve the receiver's bind address for this process. Only a Linux
- * host can own the engine's bridge gateway, so every other host skips
- * the `docker` call and takes loopback; an engine that cannot be
- * interrogated reads the same way, which is the answer for every
- * VM-backed engine.
+ * Ask the engine where the receiver should bind. An engine that cannot
+ * be interrogated — no Docker on the host — reads as loopback, the same
+ * answer every VM-backed engine gets, because the host owns none of the
+ * addresses inside the engine's VM.
  */
 export function resolveReceiverBindHost(): Effect.Effect<string, never, never> {
-  return Effect.suspend(() => {
-    if (cachedBindHost !== undefined) return Effect.succeed(cachedBindHost);
-    if (platform() !== "linux") return Effect.succeed(LOOPBACK_HOST);
-    return execCapture([
-      "docker",
-      "network",
-      "inspect",
-      "bridge",
-      "--format",
-      "{{range .IPAM.Config}}{{.Gateway}} {{end}}",
-    ]).pipe(
-      Effect.map((output) =>
-        pickReceiverBindHost(output.trim().split(/\s+/), hostAddresses()),
-      ),
-      Effect.orElseSucceed(() => LOOPBACK_HOST),
-      Effect.tap((host) =>
-        Effect.sync(() => {
-          cachedBindHost = host;
-        }),
-      ),
-    );
-  });
+  return execCapture([
+    "docker",
+    "network",
+    "inspect",
+    "bridge",
+    "--format",
+    "{{range .IPAM.Config}}{{.Gateway}} {{end}}",
+  ]).pipe(
+    Effect.map((output) =>
+      pickReceiverBindHost(output.trim().split(/\s+/), hostAddresses()),
+    ),
+    Effect.orElseSucceed(() => LOOPBACK_HOST),
+  );
 }
 
 function serverRunArgs(
@@ -308,7 +353,7 @@ function startServerContainer(
     yield* awaitServerHealthy(spec, serverUrl).pipe(
       Effect.mapError((detail) => serverFailed(digest, detail)),
     );
-    yield* verifyStorageMount(digest, volumePath);
+    yield* verifyStorageMount(digest, volumePath, containerId);
     return {
       handle: {
         imageDigest: digest,
@@ -321,36 +366,46 @@ function startServerContainer(
 }
 
 /**
- * The server's own writes are the mount check. The image pins its PGlite
- * directory under the mounted volume, so once health answers, that
- * directory is visible on the host side iff the bind mount really shares
- * bytes. An engine that shares only part of the host filesystem (a VM
- * engine whose mounts do not cover the system temp directory, for one)
- * accepts `--volume` and hands the container a private directory
- * instead; without this check the run proceeds and only the transcript
- * drain notices, after the episode is over.
+ * A file written on the host has to be readable inside the container, or
+ * the bind mount shares nothing. An engine that shares only part of the
+ * host filesystem (a VM engine whose mounts do not cover the system temp
+ * directory, for one) accepts `--volume` and hands the container a
+ * private directory instead; without this check the run proceeds and
+ * only the transcript drain notices, after the episode is over. The probe
+ * is a sentinel rather than the server's own data directory, so it
+ * decides the mount question immediately and stays true for any image.
  */
 function verifyStorageMount(
   digest: string,
   volumePath: string,
+  containerId: string,
 ): Effect.Effect<void, ServerLaunchFailed, never> {
-  const dataDir = `${volumePath}/${SERVER_PGLITE_DIR}`;
+  const sentinel = `.mount-probe-${containerId.slice(0, 12)}`;
   return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fs) => fs.exists(dataDir)),
-    Effect.provide(NodeContext.layer),
-    Effect.orElseSucceed(() => false),
-    Effect.flatMap((present) =>
-      present
-        ? Effect.void
-        : Effect.sleep(Duration.millis(MOUNT_PROBE_POLL_MS)).pipe(
-            Effect.zipRight(Effect.fail("absent")),
-          ),
+    Effect.flatMap((fs) =>
+      fs.writeFileString(`${volumePath}/${sentinel}`, containerId).pipe(
+        Effect.mapError((cause) => String(cause)),
+        Effect.zipRight(
+          execCapture([
+            "docker",
+            "exec",
+            containerId,
+            "test",
+            "-f",
+            `${SERVER_DATA_MOUNT}/${sentinel}`,
+          ]),
+        ),
+        Effect.ensuring(
+          fs.remove(`${volumePath}/${sentinel}`).pipe(Effect.ignore),
+        ),
+      ),
     ),
-    Effect.retry({ times: MOUNT_PROBE_ATTEMPTS }),
+    Effect.provide(NodeContext.layer),
+    Effect.asVoid,
     Effect.mapError(() =>
       serverFailed(
         digest,
-        `the server's storage directory never appeared at "${dataDir}" although the container is healthy, so the ${SERVER_DATA_MOUNT} bind mount is not shared with this host. Point the run's storage at a directory the container engine shares (engine file-sharing settings), or the transcript drain will find no messages`,
+        `a file written to the run's storage directory is not visible at ${SERVER_DATA_MOUNT} inside the container, so the bind mount shares nothing. Point the run's storage at a directory the container engine shares (engine file-sharing settings), or the transcript drain will find no messages`,
       ),
     ),
   );
