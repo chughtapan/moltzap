@@ -1,0 +1,126 @@
+name: Cold TTHW
+
+# Measures how long a new reader waits for their first recording, from a
+# machine that has never seen this package: `npx @moltzap/testbed demo`
+# against the published artifact, on a cold npm cache and a cold image
+# store. A warm cache would measure the runner, not the front door.
+#
+# It runs on a schedule and on demand rather than per-PR, because the
+# subject is the published package and a PR's code is not published yet.
+# A regression therefore surfaces after release, which is the same moment
+# a reader would meet it.
+
+on:
+  schedule:
+    # 09:00 UTC daily, after the publish window.
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      dist_tag:
+        description: "npm dist-tag or exact version to measure"
+        required: false
+        default: "latest"
+
+# The benchmark referent. A duration means nothing without the machine it
+# was measured on, so every term is named here rather than spread through
+# the steps: the runner images, the cache state, the architectures, and
+# the rule that picks which artifact is measured. Changing any of them
+# changes what the number means and invalidates comparison with earlier
+# runs.
+env:
+  # The champion budget: a reader who waits longer than this has stopped
+  # reading.
+  TTHW_BUDGET_S: "120"
+  # Artifact-selection rule: the npm dist-tag, never a git ref.
+  DIST_TAG: ${{ inputs.dist_tag || 'latest' }}
+  PACKAGE: "@moltzap/testbed"
+
+jobs:
+  measure:
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Runner images are pinned, not `-latest`: the referent has to
+          # name a machine.
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # Deliberately no `cache:` key. A warm npm cache is the one
+          # thing this benchmark must not have.
+
+      - name: Establish a cold cache
+        run: |
+          npm cache clean --force
+          docker image prune -af
+          docker builder prune -af || true
+
+      - name: Resolve the artifact under measurement
+        id: resolve
+        run: |
+          VERSION=$(npm view "${PACKAGE}@${DIST_TAG}" version)
+          echo "version=${VERSION}" >>"$GITHUB_OUTPUT"
+          echo "Measuring ${PACKAGE}@${VERSION} (${DIST_TAG}) on ${{ matrix.arch }}"
+
+      - name: Time the demo from cold
+        id: demo
+        run: |
+          STORE=$(mktemp -d)
+          START=$(date +%s%3N)
+          set +e
+          npx -y "${PACKAGE}@${{ steps.resolve.outputs.version }}" demo --store "$STORE" --json
+          STATUS=$?
+          set -e
+          END=$(date +%s%3N)
+          ELAPSED_MS=$((END - START))
+          echo "elapsed_ms=${ELAPSED_MS}" >>"$GITHUB_OUTPUT"
+          echo "status=${STATUS}" >>"$GITHUB_OUTPUT"
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::demo exited ${STATUS}; TTHW is unmeasurable when the front door does not open"
+            exit "$STATUS"
+          fi
+
+      - name: Judge against the champion budget
+        run: |
+          ELAPSED_MS=${{ steps.demo.outputs.elapsed_ms }}
+          BUDGET_MS=$((TTHW_BUDGET_S * 1000))
+          printf 'cold TTHW: %s.%03ds (budget %ss, %s)\n' \
+            "$((ELAPSED_MS / 1000))" "$((ELAPSED_MS % 1000))" \
+            "$TTHW_BUDGET_S" "${{ matrix.arch }}" >>"$GITHUB_STEP_SUMMARY"
+          if [ "$ELAPSED_MS" -gt "$BUDGET_MS" ]; then
+            echo "::error::cold TTHW ${ELAPSED_MS}ms exceeds the ${BUDGET_MS}ms champion budget on ${{ matrix.arch }}"
+            exit 1
+          fi
+
+      - name: Record the measurement
+        if: always()
+        run: |
+          cat >tthw-${{ matrix.arch }}.json <<EOF
+          {
+            "package": "${PACKAGE}",
+            "version": "${{ steps.resolve.outputs.version }}",
+            "distTag": "${DIST_TAG}",
+            "arch": "${{ matrix.arch }}",
+            "runnerImage": "${{ matrix.runner }}",
+            "cacheState": "cold",
+            "elapsedMs": ${{ steps.demo.outputs.elapsed_ms || 0 }},
+            "budgetMs": $((TTHW_BUDGET_S * 1000)),
+            "measuredAtWallTime": $(date +%s%3N)
+          }
+          EOF
+
+      - name: Upload the measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cold-tthw-${{ matrix.arch }}
+          path: tthw-${{ matrix.arch }}.json
+          if-no-files-found: warn
