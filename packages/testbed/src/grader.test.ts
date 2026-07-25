@@ -7,7 +7,7 @@
  * refusal that silently stops firing is indistinguishable from a
  * regression in the agents being studied.
  */
-/* eslint-disable sonarjs/assertions-in-tests -- assertion bodies are extracted to named top-level functions to satisfy the nesting caps; every test delegates to one */
+/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, agent-code-guard/no-example-only-tests -- regression-only suite: each case names one refusal openRecording owes a grader (no marker, moved bytes, wrong schema, missing result, wrong condition, each non-completed outcome, colliding sequences, disagreeing storage order, one id claimed twice). That is a closed enumeration of preconditions, not an input domain to generate over; the one axis that is a domain — line order — carries the fast-check property in this file. The enumeration makes each describe body long, and `Effect.runPromise(fixture.pipe(Effect.map(assert)))` nests three deep before any assertion. */
 import { describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, FastCheck as fc, Option } from "effect";
 import {

@@ -127,12 +127,13 @@ export function ccJudgePlanFromBundle(
   options: EmitPlanOptions,
 ): Effect.Effect<CcJudgePlan, RunSpecInvalid, never> {
   return Schema.decodeUnknown(BundleGradeHalf)(document).pipe(
-    Effect.mapError(
-      (cause) =>
+    Effect.catchTag("ParseError", (cause) =>
+      Effect.fail(
         new RunSpecInvalid({
           issues: [{ path: ["grade"], message: cause.message }],
           message: `The document does not carry a gradeable bundle shape (${cause.message}). A bundle is a spec plus a grade section naming a grader and its config.`,
         }),
+      ),
     ),
     Effect.map((bundle) => emitCcJudgePlan(bundle, options)),
   );

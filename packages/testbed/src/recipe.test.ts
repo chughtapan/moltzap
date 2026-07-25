@@ -6,7 +6,7 @@
  * as the least verified artifact in the design, so the chapter points at
  * this file's subject and CI runs it.
  */
-/* eslint-disable sonarjs/assertions-in-tests -- assertion bodies are extracted to named top-level functions to satisfy the nesting caps; every test delegates to one */
+/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, agent-code-guard/no-example-only-tests -- regression-only suite: each case spawns the shipped recipe over one fixture and pins which stage refused it, which is the closed set of refusals stage 1 exists to make. Generating recordings is what the fixture already does; generating recipe invocations would generate nothing the enumeration does not cover. Spawning per case makes the describe body long, and each case nests runPromise over pipe over map. */
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

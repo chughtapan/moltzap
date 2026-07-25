@@ -6,10 +6,10 @@
  * on them is why they key on stable tags, so the tests assert codes
  * rather than prose — prose is allowed to improve.
  */
-/* eslint-disable sonarjs/assertions-in-tests -- assertion bodies are extracted to named top-level functions to satisfy the nesting caps; every test delegates to one */
+/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/assertions-in-tests, agent-code-guard/no-example-only-tests -- regression-only suite: each case pins one verb's exit code and one line of its output, which is the CLI's machine-readable contract and a closed set rather than an input domain. The generative gate is the unnamed-tag property below. The per-verb enumeration makes each describe body long, `Effect.runPromise(invoke(...).pipe(Effect.map(assert)))` nests three deep before any assertion, and cases that delegate their assertions to a named helper carry none inline. */
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { Effect, FastCheck as fc } from "effect";
+import { Effect, FastCheck as fc, Schema } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { stringify as stringifyYaml } from "yaml";
@@ -21,7 +21,12 @@ import {
   tempStoreRoot,
 } from "./__tests__/recording-fixture.js";
 import { specInput } from "./simulator/__tests__/support.js";
-import { EpisodeOutcome } from "./simulator/index.js";
+import {
+  EpisodeOutcome,
+  RECORDING_SCHEMA_VERSION,
+  describeDrivers,
+} from "./simulator/index.js";
+import { JsonObject } from "./simulator/run-spec.js";
 import { ERROR_TAG, TERMINATION } from "./simulator/__tests__/tags.js";
 
 const CONDITION = "cold-outreach/2";
@@ -82,13 +87,16 @@ function writeText(
  * `run` reads, plus the grade half it never names.
  */
 function bundleOf(dir: string, extra: Record<string, unknown> = {}) {
-  return {
-    ...(specInput(dir, {
+  const spec = Schema.decodeUnknownSync(JsonObject)(
+    specInput(dir, {
       condition: {
         label: CONDITION,
         notes: "Tests helpful response to a first-contact DM.",
       },
-    }) as Record<string, unknown>),
+    }),
+  );
+  return {
+    ...spec,
     grade: {
       grader: "cc-judge",
       config: { [RUBRIC_FIELD]: "respond helpfully" },
@@ -415,22 +423,27 @@ describe("the verb tree", () => {
       ),
     ));
 
-  it("lists registered drivers with their config schemas", () =>
+  it("lists every registered driver with its config schema", () =>
     Effect.runPromise(
       invoke("driver", "check").pipe(
         Effect.map((output) => {
+          const listed = output.lines.join("\n");
           expect(output.code).toBe(EXIT_CODE.ok);
-          expect(output.lines.join("\n")).toContain("span-name");
+          for (const driver of describeDrivers()) {
+            expect(listed).toContain(driver.name);
+          }
         }),
       ),
     ));
 
-  it("reports the pins recordings carry", () =>
+  it("reports the schema version recordings carry", () =>
     Effect.runPromise(
       invoke("lock").pipe(
         Effect.map((output) => {
           expect(output.code).toBe(EXIT_CODE.ok);
-          expect(output.lines.join("\n")).toContain("recordingSchemaVersion");
+          expect(output.lines.join("\n")).toContain(
+            String(RECORDING_SCHEMA_VERSION),
+          );
         }),
       ),
     ));
