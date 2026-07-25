@@ -65,12 +65,7 @@ function expectFailedWithTag(
   expect(JSON.stringify(exit)).toContain(tag);
 }
 
-function soloEpisode(): unknown {
-  return {
-    steps: [{ by: PRINCIPAL_NAME, with: [AGENT_ONE], say: "x" }],
-    termination: { inactivityTimeoutMs: 60_000, onAgentCrash: "halt" },
-  };
-}
+const SOLO_STEP = { by: PRINCIPAL_NAME, with: [AGENT_ONE], say: "x" };
 
 function episodeOf(steps: ReadonlyArray<unknown>, doneSignal?: unknown) {
   return {
@@ -210,7 +205,7 @@ function assertAdapterFailFast(): void {
           role: "standard",
         },
       ],
-      episode: soloEpisode(),
+      episode: episodeOf([SOLO_STEP]),
     }),
   );
   expectFailedWithTag(badScript, ERROR_TAG.adapterConfigRejected);
@@ -224,7 +219,7 @@ function assertAdapterFailFast(): void {
           role: "standard",
         },
       ],
-      episode: soloEpisode(),
+      episode: episodeOf([SOLO_STEP]),
     }),
   );
   expectFailedWithTag(blankModel, ERROR_TAG.adapterConfigRejected);
@@ -241,7 +236,7 @@ function assertGuardedFields(): void {
           role: "adversarial",
         },
       ],
-      episode: soloEpisode(),
+      episode: episodeOf([SOLO_STEP]),
     }),
   );
   expectFailedWithTag(isolation, ERROR_TAG.isolationViolation);

@@ -18,7 +18,11 @@ import {
   type ConfigTimeError,
 } from "./errors.js";
 import { checkAdapterConfig } from "./adapter-validation.js";
-import { checkDoneSignalShape, checkDriverRef } from "./drivers.js";
+import {
+  checkDoneSignalShape,
+  checkDoneSignalTarget,
+  checkDriverRef,
+} from "./drivers.js";
 
 // ---------------------------------------------------------------------------
 // JSON value space
@@ -384,7 +388,7 @@ export class SpeechStep extends Schema.Class<SpeechStep>("SpeechStep")({
   atMs: Schema.optionalWith(
     LogicalTime.annotations({
       description:
-        "Logical position relative to episode start; a floor, never the sequencing device (array order sequences, `awaitReplyFrom` gates)",
+        "Earliest logical time this step may speak, measured from when the run began rather than from episode start, so bring-up time is already spent when the episode starts. A floor, never the sequencing device: array order sequences and `awaitReplyFrom` gates",
     }),
     { default: () => 0 as LogicalTime },
   ),
@@ -597,6 +601,10 @@ export function materializeRunSpec(
         spec.episode.termination.doneSignal,
         spec.episode.steps.length > 1,
       );
+      yield* checkDoneSignalTarget(spec.episode.termination.doneSignal, {
+        agentNames: new Set(spec.agents.map((agent) => agent.name)),
+        steps: spec.episode.steps,
+      });
     }
     if (spec.episode.principalDriver !== undefined) {
       yield* checkDriverRef(spec.episode.principalDriver, "principal");
@@ -851,13 +859,9 @@ function collectStepIssues(
   const principals = new Set(spec.episode.steps.map((step) => step.by));
   const earlier = new Set<string>();
   spec.episode.steps.forEach((step, index) => {
-    const scope: StepScope = {
-      step,
-      index,
-      agentNames,
-      principals,
-      earlier: new Set(earlier),
-    };
+    // `earlier` grows only after both checks run, so the live set is
+    // exactly the handles declared before this step.
+    const scope: StepScope = { step, index, agentNames, principals, earlier };
     collectStepShapeIssues(scope, issues);
     collectStepNameIssues(scope, issues);
     if (step.name !== undefined) earlier.add(step.name);

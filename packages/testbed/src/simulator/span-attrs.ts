@@ -51,12 +51,16 @@ export type AnswerCriteria = {
  * speech it is waiting on.
  */
 export type DeliveredLog = {
-  /** Retain a `moltzap.message.delivered` span; any other span is ignored. */
+  /**
+   * Retain a `moltzap.message.delivered` span; any other span is ignored.
+   * Reports whether this span was retained, so callers can skip the work
+   * that only a new delivered message can change.
+   */
   record(
     logicalSequence: LogicalSequence,
     spanName: string,
     raw: JsonValue,
-  ): void;
+  ): boolean;
   answer(criteria: AnswerCriteria): LogicalSequence | undefined;
 };
 
@@ -64,11 +68,11 @@ export function makeDeliveredLog(): DeliveredLog {
   const delivered: Array<DeliveredRecord> = [];
   return {
     record: (logicalSequence, spanName, raw) => {
-      if (spanName !== MESSAGE_DELIVERED_SPAN) return;
+      if (spanName !== MESSAGE_DELIVERED_SPAN) return false;
       const message = readDeliveredMessage(raw);
-      if (message !== undefined) {
-        delivered.push({ logicalSequence, ...message });
-      }
+      if (message === undefined) return false;
+      delivered.push({ logicalSequence, ...message });
+      return true;
     },
     answer: (criteria) => findAnswer(delivered, criteria),
   };
@@ -80,34 +84,47 @@ export function makeDeliveredLog(): DeliveredLog {
  * Ordering is the log's total order, so the comparison holds however the
  * exporter batched the two spans. Until the awaited message's own span
  * arrives there is no floor, and therefore no answer.
+ *
+ * The scan starts past the floor: records are appended in the order the
+ * single log writer stamped them, so everything before the floor fails
+ * the sequence test by construction.
  */
 function findAnswer(
   delivered: ReadonlyArray<DeliveredRecord>,
   criteria: AnswerCriteria,
 ): LogicalSequence | undefined {
-  const floor = delivered.find(
+  const floorIndex = delivered.findIndex(
     (record) => record.messageId === criteria.afterMessageId,
   );
+  const floor = delivered[floorIndex];
   if (floor === undefined) return undefined;
-  return delivered.find(
-    (record) =>
+  for (let index = floorIndex + 1; index < delivered.length; index += 1) {
+    const record = delivered[index];
+    if (record === undefined) continue;
+    if (
       record.conversationId === criteria.conversationId &&
       criteria.senders.has(record.senderId) &&
-      record.logicalSequence > floor.logicalSequence,
-  )?.logicalSequence;
+      record.logicalSequence > floor.logicalSequence
+    ) {
+      return record.logicalSequence;
+    }
+  }
+  return undefined;
 }
 
 /**
  * Read the message attributes off a verbatim `moltzap.message.delivered`
  * span. Spans are captured exactly as exported, so the attributes are
  * OTLP's own `[{key, value: {stringValue}}]` encoding rather than a
- * flattened record. A span missing any of the three reads as absent, so a
- * partial match can never stand in for a delivered message.
+ * flattened record. A span missing any of the three, or repeating any
+ * attribute key, reads as absent — a partial or ambiguous match can never
+ * stand in for a delivered message.
  */
 export function readDeliveredMessage(
   raw: JsonValue,
 ): DeliveredMessage | undefined {
   const attributes = otlpStringAttributes(raw);
+  if (attributes === undefined) return undefined;
   const messageId = attributes.get("moltzap.message.id");
   const conversationId = attributes.get("moltzap.message.conversation_id");
   const senderId = attributes.get("moltzap.message.sender_id");
@@ -121,14 +138,24 @@ export function readDeliveredMessage(
   return { messageId, conversationId, senderId };
 }
 
-function otlpStringAttributes(raw: JsonValue): ReadonlyMap<string, string> {
+/**
+ * A repeated key is rejected rather than resolved. OTLP attribute lists
+ * are not a map, so a span can carry the same key twice; taking either
+ * occurrence would let an appended attribute override the server's own
+ * value and redirect a match.
+ */
+function otlpStringAttributes(
+  raw: JsonValue,
+): ReadonlyMap<string, string> | undefined {
   const found = new Map<string, string>();
   if (!isRecord(raw)) return found;
   const attributes = raw["attributes"];
   if (!Array.isArray(attributes)) return found;
   for (const attribute of attributes) {
     const entry = readStringAttribute(attribute);
-    if (entry !== undefined) found.set(entry.key, entry.value);
+    if (entry === undefined) continue;
+    if (found.has(entry.key)) return undefined;
+    found.set(entry.key, entry.value);
   }
   return found;
 }
