@@ -14,8 +14,18 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
 - `{openclaw,nanoclaw}-adapter.ts` — one adapter per runtime; installed
   runtime packages are the defaults and explicit binary/plugin paths remain
   available for tests and custom installations
+- `install-mode.ts` — one fleet-wide `published` / `workspace` artifact
+  decision, inferred from package resolution or selected explicitly
+- `immutable-cache.ts` — generic building-directory, ready-marker, and
+  immutable-generation lifecycle shared by runtime installers, plus the
+  fingerprint envelope and the process-wide cold-build permit
+- `json-guards.ts` — `makeJsonGuards`, manifest/lockfile shape checks bound to
+  one module's error factory
+- `openclaw-plugin-cache.ts` — pinned npm plugin installation, provenance
+  validation, immutable project caching, and per-agent materialization
 - `nanoclaw-install.ts` — pinned source/assets, deterministic dependency
-  lock, immutable cache promotion, and Docker image build
+  lock, workspace package packing, immutable cache promotion, and Docker
+  image build
 - `nanoclaw-process.ts` — per-agent runtime directory, process lifecycle,
   logs, and teardown; container isolation comes from NanoClaw's own
   cwd-derived install slug
@@ -41,6 +51,10 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
   arises only when SIGINT/SIGTERM interrupts startup in
   `launchTestbedWithProcessSignals`. A testbed currently uses one runtime kind
   for the whole agent collection.
+- **Install mode** — one decision applies to the whole testbed and each
+  adapter interprets it. `published` runs every `@moltzap` artifact from the
+  npm registry at the testbed's exact installed pins; `workspace` runs every
+  `@moltzap` artifact from the current workspace build. Columns never mix.
 - **Trace-capture harness** — `trace-capture-{bundle,harness,payload}.ts`,
   compiled by this package, loaded from `dist/` by the external `cc-judge`
   runner (its only consumer), and run against `packages/evals/scenarios/*.yaml`.

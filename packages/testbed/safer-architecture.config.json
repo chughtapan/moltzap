@@ -1,15 +1,19 @@
 {
   "packageRuntime": "node",
-  "maxPublicExports": 30,
+  "maxPublicExports": 32,
   "minPublicFacadeModules": 7,
   "folderChildCountOverrides": [
     {
       "folder": ".",
-      "maxChildren": 13,
-      "reason": "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, and trace-capture modules as deliberate peers in its documented single-tier source layout"
+      "maxChildren": 16,
+      "reason": "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, install-mode resolution, cache lifecycle, and trace-capture modules as deliberate peers in its documented single-tier source layout"
     }
   ],
   "facadeFiles": [
+    {
+      "file": "nanoclaw-install.ts",
+      "reason": "NanoClaw install boundary composing pinned-source download, bundled-asset injection, and dual-mode dependency materialization behind one immutable cache"
+    },
     {
       "file": "channel-plugin-install.ts",
       "reason": "Shared plugin-install and workspace-seed boundary both runtime adapters compose for on-disk channel provisioning"

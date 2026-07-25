@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createOpenClawAdapter`](./openclaw-adapter.ts#L527)
+### [`createOpenClawAdapter`](./openclaw-adapter.ts#L586)
 
 _Function_
 
@@ -56,11 +56,26 @@ flowchart TD
   OCWF["createOpenClawAdapter(input)"]
   OCBIN["openclawBin = input.openclawBin ??<br>resolveInstalledPackageBin('openclaw')"]
   OCCH["channelDistDir = input.channelDistDir ??<br>resolveInstalledPackageRoot('@moltzap/openclaw-channel')/dist"]
-  OCOUT["new OpenClawAdapter({ server, openclawBin, channelDistDir })"]
+  OCOUT["new OpenClawAdapter({ server, openclawBin,<br>channelDistDir, installMode })"]
   OCWF --> OCBIN --> OCCH --> OCOUT
 ```
 
-### [`launchTestbed`](./testbed.ts#L337)
+### [`InstallMode`](./install-mode.ts#L6)
+
+_TypeAlias_
+
+```ts
+export type InstallMode = "published" | "workspace";
+
+const CHANNEL_PACKAGE_NAME = "@moltzap/openclaw-channel";
+
+interface InstallModeResolverDeps {
+  readonly resolveChannelPackageRoot: () => string;
+  readonly workspacePackagesDir: string | null;
+}
+```
+
+### [`launchTestbed`](./testbed.ts#L370)
 
 _Function_
 
@@ -85,7 +100,7 @@ Sibling: launchTestbedWithProcessSignals adds SIGINT
 / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
 `TestbedStartupInterrupted`.
 
-### [`launchTestbedWithProcessSignals`](./testbed.ts#L439)
+### [`launchTestbedWithProcessSignals`](./testbed.ts#L476)
 
 _Function_
 
@@ -139,7 +154,7 @@ export interface LogSlice {
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L98)
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L114)
 
 _Class_
 
@@ -198,6 +213,7 @@ export class NanoclawAdapter implements Runtime {
               acquireNanoclawRuntime(
                 input,
                 this.options.autoRegisterConversations ?? false,
+                this.options.installMode,
               ),
             ),
             (acquired) =>
@@ -233,11 +249,21 @@ runtime cache is installed, then launch.
 flowchart TD
   NS["NanoclawAdapter.spawn(input)"]
   subgraph P1["Install pinned NanoClaw runtime"]
+    P1M{"install mode"}
+    P1P["published<br>hash bundled exact registry lock"]
+    P1WSRC["workspace<br>pack built client + protocol<br>hash exact tarball bytes"]
     P1C{"matching immutable generation exists?"}
     P1WARM["reuse immutable generation"]
-    P1COLD["preflightDocker → download pinned tarball<br>→ copy bundled channel + skill + eval provisioner<br>→ install pinned client + build<br>→ publish immutable generation"]
+    P1COLD["preflight Docker → download pinned source<br>→ copy bundled channel + skill + eval provisioner"]
+    P1CM{"workspace?"}
+    P1VENDOR["copy tarballs into vendor<br>rewrite both direct deps to file paths<br>refresh + assert package lock"]
+    P1BUILD["npm ci + build<br>build fingerprinted Docker image<br>publish immutable generation"]
+    P1M -->|published| P1P --> P1C
+    P1M -->|workspace| P1WSRC --> P1C
     P1C -->|yes| P1WARM
-    P1C -->|no| P1COLD
+    P1C -->|no| P1COLD --> P1CM
+    P1CM -->|yes| P1VENDOR --> P1BUILD
+    P1CM -->|no| P1BUILD
   end
   subgraph P2["Start isolated agent runtime"]
     P2DIR["create isolated runtime dir<br>copy container + scripts"]
@@ -248,20 +274,24 @@ flowchart TD
     P2OC --> P2DIR --> P2WS --> P2EVAL --> P2SP
   end
   NCR["waitUntilReady — server.awaitAgentReady (WS auth)<br>raced against subprocess exit,<br>bounded by the caller's readyTimeoutMs"]
-  NS --> P1 --> P2 --> NCR
+  NS --> P1M
+  P1WARM --> P2OC
+  P1BUILD --> P2OC
+  P2SP --> NCR
 ```
 
 Inbound marker: `New messages`. The immutable cache key covers the pinned
-NanoClaw source, dependency lock, bundled channel/skill/provisioner, and
-host ABI.
+NanoClaw source, dependency lock, bundled channel/skill/provisioner, host
+ABI, and workspace tarball bytes when workspace mode is selected.
 
-### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L22)
+### [`NanoclawAdapterOptions`](./nanoclaw-adapter.ts#L23)
 
 _Interface_
 
 ```ts
 export interface NanoclawAdapterOptions {
   readonly server: RuntimeServerHandle;
+  readonly installMode: InstallMode;
 
   /**
    * Registers conversations on first delivery so NanoClaw will process them.
@@ -272,7 +302,7 @@ export interface NanoclawAdapterOptions {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L449)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L508)
 
 _Class_
 
@@ -350,14 +380,22 @@ readiness via the server-side WS authentication event.
 flowchart TD
   OCS["OpenClawAdapter.spawn(input)"]
   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
-  OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
+  OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seed workspace + model auth"]
+  OCM{"install mode"}
+  OCW["workspace<br>validate local channel build<br>copy channel dist + dependency links<br>pin plugins.allow"]
+  OCP["published<br>reuse or build pinned npm project cache<br>materialize project + OpenClaw peer link<br>omit plugins.allow"]
   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
   OC4["4. lease spawnOpenClawProcess<br>exact child environment<br>exitFiber + log buffer"]
   OC5["5. commit process + state-dir leases<br>to adapter state"]
   OCF["failed or interrupted handoff<br>stops child + removes state dir"]
   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
-  OCS --> OC1 --> OC2 --> OC3 --> OC4 --> OC5 --> OCR
+  OCS --> OC1 --> OC2 --> OCM
+  OCM -->|workspace| OCW --> OC3
+  OCM -->|published| OCP --> OC3
+  OC3 --> OC4 --> OC5 --> OCR
   OC2 -.->|failure| OCF
+  OCW -.->|failure| OCF
+  OCP -.->|failure| OCF
   OC4 -.->|failure or interruption| OCF
 ```
 
@@ -367,7 +405,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L166)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L176)
 
 _Interface_
 
@@ -376,10 +414,11 @@ export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
   readonly openclawBin: string;
   readonly channelDistDir: string;
+  readonly installMode: InstallMode;
 }
 ```
 
-### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L172)
+### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L183)
 
 _Interface_
 
@@ -388,6 +427,7 @@ export interface OpenClawAdapterOptions {
   readonly server: RuntimeServerHandle;
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
+  readonly installMode: InstallMode;
 }
 ```
 
@@ -458,7 +498,7 @@ Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
 `exitCode` is `null` only if the process exited via signal.
 Caller action: inspect `stderr`; check binary auth config.
 
-### [`RuntimeKind`](./testbed.ts#L56)
+### [`RuntimeKind`](./testbed.ts#L65)
 
 _TypeAlias_
 
@@ -531,7 +571,7 @@ export interface RuntimeServerHandle {
 }
 ```
 
-### [`RuntimeStartOptions`](./testbed.ts#L58)
+### [`RuntimeStartOptions`](./testbed.ts#L67)
 
 _TypeAlias_
 
@@ -596,7 +636,7 @@ export interface SpawnInput {
 }
 ```
 
-### [`startRuntimeAgent`](./testbed.ts#L309)
+### [`startRuntimeAgent`](./testbed.ts#L339)
 
 _Function_
 
@@ -630,7 +670,7 @@ coordinated startup.
 - `RuntimeReadyTimedOut` — `waitUntilReady` exceeds `readyTimeoutMs`
 - `RuntimeExitedBeforeReady` — the process exits before signaling ready (inspect `stderr`)
 
-### [`Testbed`](./testbed.ts#L78)
+### [`Testbed`](./testbed.ts#L87)
 
 _Interface_
 
@@ -642,7 +682,7 @@ export interface Testbed {
 }
 ```
 
-### [`TestbedAgent`](./testbed.ts#L73)
+### [`TestbedAgent`](./testbed.ts#L82)
 
 _Interface_
 
@@ -653,7 +693,7 @@ export interface TestbedAgent {
 }
 ```
 
-### [`TestbedAgentSpec`](./testbed.ts#L29)
+### [`TestbedAgentSpec`](./testbed.ts#L32)
 
 _Interface_
 
@@ -668,7 +708,7 @@ export interface TestbedAgentSpec {
 }
 ```
 
-### [`TestbedLaunchOptions`](./testbed.ts#L67)
+### [`TestbedLaunchOptions`](./testbed.ts#L76)
 
 _TypeAlias_
 
@@ -680,7 +720,7 @@ export type TestbedProcessSignalOptions = TestbedLaunchOptions & {
 };
 ```
 
-### [`TestbedProcessSignalOptions`](./testbed.ts#L69)
+### [`TestbedProcessSignalOptions`](./testbed.ts#L78)
 
 _TypeAlias_
 
@@ -690,7 +730,7 @@ export type TestbedProcessSignalOptions = TestbedLaunchOptions & {
 };
 ```
 
-### [`TestbedStartupInterrupted`](./testbed.ts#L84)
+### [`TestbedStartupInterrupted`](./testbed.ts#L93)
 
 _Class_
 
@@ -718,6 +758,7 @@ export interface WorkspaceFile {
 
 - `await-agent-ready.ts`
 - `errors.ts`
+- `install-mode.ts`
 - `nanoclaw-adapter.ts`
 - `openclaw-adapter.ts`
 - `runtime.ts`

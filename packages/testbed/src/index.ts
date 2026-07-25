@@ -34,6 +34,7 @@ export {
 } from "./errors.js";
 
 export {
+  type InstallMode,
   type RuntimeKind,
   type TestbedAgentSpec,
   type Testbed,

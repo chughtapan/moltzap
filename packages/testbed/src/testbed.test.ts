@@ -1,4 +1,12 @@
-import { describe, expect, expectTypeOf, it, afterEach, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
 import { Deferred, Effect, Either, Exit, Fiber, Option } from "effect";
 import {
   agentId,
@@ -17,9 +25,13 @@ import {
 } from "./testbed.js";
 import type { ReadyOutcome, Runtime, RuntimeServerHandle } from "./runtime.js";
 import { RuntimeReadyTimedOut } from "./errors.js";
+import { createOpenClawAdapter } from "./openclaw-adapter.js";
 
 const testbedRuntimeFactoryState = vi.hoisted(() => ({
   nextRuntime: null as null | (() => Runtime),
+}));
+const installModeMocks = vi.hoisted(() => ({
+  resolveInstallMode: vi.fn(),
 }));
 
 const READY_TAG = "Ready";
@@ -38,6 +50,8 @@ const STARTUP_SIGNAL = "SIGUSR2";
 const READY_TIMEOUT_MS = 1_000;
 const LONG_READY_TIMEOUT_MS = 60_000;
 const SHORT_READY_TIMEOUT_MS = 250;
+const PUBLISHED_INSTALL_MODE = "published";
+const WORKSPACE_INSTALL_MODE = "workspace";
 
 type RuntimeStartOptionsBase = {
   readonly server: RuntimeServerHandle;
@@ -73,6 +87,16 @@ vi.mock("./openclaw-adapter.js", () => ({
   }),
 }));
 
+vi.mock("./install-mode.js", () => installModeMocks);
+
+beforeEach(() => {
+  installModeMocks.resolveInstallMode.mockReset();
+  installModeMocks.resolveInstallMode.mockImplementation((installMode) =>
+    Effect.succeed(installMode ?? WORKSPACE_INSTALL_MODE),
+  );
+  vi.mocked(createOpenClawAdapter).mockClear();
+});
+
 afterEach(() => {
   testbedRuntimeFactoryState.nextRuntime = null;
 });
@@ -105,6 +129,10 @@ describe("testbed lifecycle", () => {
 });
 
 describe("testbed runtime options", () => {
+  it(
+    "resolves one install mode and shares it with every adapter",
+    testbedSharesOneInstallModeAcrossAdapters,
+  );
   it("rejects adapter options from the other runtime kind", () => {
     expectTypeOf<
       RuntimeStartOptionsBase & NanoclawWithOpenClawOptions
@@ -120,6 +148,39 @@ describe("testbed runtime options", () => {
     >().not.toMatchTypeOf<TestbedLaunchOptions>();
   });
 });
+
+function testbedSharesOneInstallModeAcrossAdapters() {
+  return runTest(
+    Effect.gen(function* () {
+      const first = yield* createMockRuntime({
+        readyEffect: Effect.succeed({ _tag: READY_TAG }),
+      });
+      const second = yield* createMockRuntime({
+        readyEffect: Effect.succeed({ _tag: READY_TAG }),
+      });
+      setMockTestbedRuntimes(first.runtime, second.runtime);
+
+      const testbed = yield* launchTestbed({
+        kind: OPENCLAW_KIND,
+        openclaw: { installMode: PUBLISHED_INSTALL_MODE },
+        server: stubServer(),
+        agents: alphaBetaAgentSpecs(),
+        readyTimeoutMs: READY_TIMEOUT_MS,
+      }).pipe(Effect.orDie);
+
+      expect(installModeMocks.resolveInstallMode).toHaveBeenCalledTimes(1);
+      expect(installModeMocks.resolveInstallMode).toHaveBeenCalledWith(
+        PUBLISHED_INSTALL_MODE,
+      );
+      expect(createOpenClawAdapter).toHaveBeenCalledTimes(2);
+      for (const [options] of vi.mocked(createOpenClawAdapter).mock.calls) {
+        expect(options.installMode).toBe(PUBLISHED_INSTALL_MODE);
+      }
+
+      yield* testbed.stopAll();
+    }),
+  );
+}
 
 function successfulTestbedLaunchKeepsRuntimesUntilStopAll() {
   return runTest(
