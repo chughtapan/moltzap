@@ -6,7 +6,7 @@
  * the closed built-in set below; consumer-supplied driver processes are
  * a staged-later surface.
  */
-import { Effect, Schema } from "effect";
+import { Effect, JSONSchema, Option, Schema, SchemaAST } from "effect";
 import { MoltZapAgentClient } from "@moltzap/protocol/socket";
 import {
   DEFAULT_APP_ID,
@@ -16,7 +16,7 @@ import {
 import { MessagesSend } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { DriverRef } from "./run-spec.js";
+import { JsonValue, type DriverRef } from "./run-spec.js";
 import type { Principal, TaskDelivery } from "./episode.js";
 import type { SimulatorEvent } from "./event-log.js";
 import type { Secrets } from "./recording.js";
@@ -55,10 +55,16 @@ const SpanNameDoneConfig = Schema.Struct({
     ),
     { default: () => 1 },
   ),
+}).annotations({
+  description:
+    "Completes the episode once the named span has been accepted minCount times",
 });
 
 /** Config of the `out-of-band` principal (no knobs in v0). */
-const OutOfBandPrincipalConfig = Schema.Struct({});
+const OutOfBandPrincipalConfig = Schema.Struct({}).annotations({
+  description:
+    "Speaks as a principal under an ad-hoc registered identity; no configuration",
+});
 
 const REGISTERED_DRIVERS: Readonly<
   Record<
@@ -117,6 +123,38 @@ function registeredNames(kind: DriverKind): ReadonlyArray<string> {
   return Object.entries(REGISTERED_DRIVERS)
     .filter(([, entry]) => entry.kind === kind)
     .map(([name]) => name);
+}
+
+/** One registered driver as the `driver check` verb and generated docs present it. */
+export type DriverDescription = {
+  readonly name: string;
+  readonly kind: DriverKind;
+  readonly description: string;
+  /** JSON Schema of the driver's declared config, the one source both read. */
+  readonly configSchema: JsonValue;
+};
+
+/**
+ * Describe the registry from the same annotated schemas materialization
+ * validates against, so documentation cannot drift from what a config
+ * must satisfy.
+ */
+export function describeDrivers(): ReadonlyArray<DriverDescription> {
+  return Object.entries(REGISTERED_DRIVERS)
+    .map(([name, entry]) => ({
+      name,
+      kind: entry.kind,
+      description: describeSchema(entry.config),
+      configSchema: Schema.decodeUnknownSync(JsonValue)(
+        JSONSchema.make(entry.config),
+      ),
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function describeSchema(schema: Schema.Schema.AnyNoContext): string {
+  const annotated = SchemaAST.getDescriptionAnnotation(schema.ast);
+  return Option.getOrElse(annotated, () => "");
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,174 @@
+---
+title: "Grading recordings"
+description: "Bundle a run with its grader, refuse invalid evidence, then judge what remains."
+---
+
+Grading runs after a run, over a sealed recording, never against a live
+world. The instrument produces evidence; a grader decides what the
+evidence means. Keeping those apart is what lets you re-grade an old
+recording with a stricter rubric and get an answer you can trust.
+
+## Invalidity is a refusal, never a verdict
+
+A run that timed out seals correctly and passes every integrity check.
+Hand it to a grader anyway and it becomes a failed record — byte
+identical to an agent that answered and failed the rubric. A suite whose
+done-signals all miscounted then reads as "16 evals regressed" instead of
+"16 runs never terminated".
+
+The information that tells those apart is one field of `result.json`,
+available before any model is called. So the check happens there, and a
+non-completed run is **refused at exit 14** rather than scored.
+
+The same logic gives content keys exit 13: a recording produced from
+different task text is not evidence about the experiment you are grading,
+and finding that out from a low rubric score is finding out the wrong
+thing.
+
+## A bundle: one run, one grader, one file
+
+```yaml
+# cold-outreach.bundle.yaml
+name: Cold outreach response quality
+description: Tests helpful response to a first-contact DM.
+project: moltzap
+scenarioId: EVAL-005
+contentVersion: cold-outreach/2
+run:                        # a bare RunSpec, encoded
+  seed: 7
+  agents:
+    - name: target
+      runsIn: host
+      role: standard
+      runtime: { kind: openclaw, config: {} }
+  server: { imageDigest: "sha256:..." }
+  episode:
+    termination:
+      inactivityTimeoutMs: 120000
+      onAgentCrash: halt
+      doneSignal:           # without one the run can only end `timeout`,
+        name: replies       # which exit 14 refuses and no grader judges
+        config: { from: target, minCount: 1 }
+grade:
+  grader: cc-judge
+  config:                   # grader-owned; the instrument never reads it
+    expectedBehavior: The agent should respond helpfully and coherently.
+```
+
+The instrument never runs this file. `run` accepts a bare RunSpec and
+nothing else, so no grader half can ever influence a run.
+
+## Projection: splitting the bundle
+
+```bash
+moltzap-testbed spec from-bundle cold-outreach.bundle.yaml --out specs/
+moltzap-testbed run specs/
+```
+
+`spec from-bundle` emits the run half as a bare spec with the effective
+content key injected. It is deterministic and mechanical: it moves fields
+and resolves declared defaults, never reads `grade.config`, and never
+touches a recording.
+
+The content key may appear on the envelope, inside the run half, or both.
+Agreement resolves to the shared value; disagreement fails, because
+picking a winner would silently decide which half of your document
+describes the experiment.
+
+The grade half is a grader's own grammar and ships as that grader's
+emitter, beside the instrument rather than inside its export map.
+
+## Preflight, then judge
+
+The recipe ships in-repo at
+`packages/testbed/scripts/preflight-and-grade.mjs` and CI executes it:
+
+```bash
+preflight-and-grade.mjs recordings/<specHash>/s7/a1 \
+  --content-version cold-outreach/2 \
+  --grade cc-judge run grade-plan.yaml
+```
+
+Stage 1 refuses at 10-14 and no grader starts. Stage 2 invokes the
+grader, whose exit codes stay its own: a graded fail is the grader's
+exit 1, not a convention code. The recipe composes the two stages; it
+does not re-key the grader.
+
+It also writes `grading-meta.json` beside the recording — grader command,
+rubric hash, content key, timestamp — because unchanged grader artifacts
+cannot carry those fields and reproducibility needs them somewhere.
+
+## Writing a grader in code
+
+`@moltzap/testbed/grader` is the generic surface. It carries no grader's
+name or types; a cc-judge-shaped binding is a separate file that consumes
+this like any other consumer would.
+
+```ts
+import {
+  openRecording,
+  mergedTimeline,
+  attributeSenders,
+} from "@moltzap/testbed/grader";
+import { Effect } from "effect";
+
+const program = Effect.gen(function* () {
+  // Stage 1 as a library: sealed, schema, content key, run outcome.
+  const recording = yield* openRecording(path, {
+    contentVersion: "cold-outreach/2",
+    outcome: "completed-only",
+  });
+
+  // One flat timeline in logicalSequence order, with conversationSeq
+  // checked for agreement within each conversation.
+  const timeline = yield* mergedTimeline(recording);
+
+  // senderId -> agentId -> the slot name the spec declared.
+  const senders = yield* attributeSenders(timeline);
+
+  return timeline
+    .filter((event) => event._tag === "transcript.message")
+    .map((event) => ({
+      sender: senders.get(event.senderId) ?? event.senderId,
+      message: event.message,
+    }));
+});
+```
+
+Both preconditions on `openRecording` are required rather than defaulted.
+A caller that omits the outcome check should not discover the omission
+when a suite of timeouts reads as a suite of regressions.
+
+`recording check` and `openRecording` are one implementation of the same
+check set, so the command and the library cannot drift.
+
+## Reading a transcript message
+
+`transcript.message.message` holds the wire message verbatim under the
+redaction policy: its id, its parts, its reply target, its tags. The join
+to agent names goes through the identities provisioning minted, recorded
+on `agent.launched` and `agent.ready` — ids do not exist yet when the
+manifest is written, which is why the join reads events.
+
+Senders the run never launched, such as principals speaking into a
+conversation, have no entry. That is by construction, not a gap.
+
+## Ordering
+
+`logicalSequence` is the one total order, stamped by a single writer
+across all six event sources. `conversationSeq` is the server's
+persistence sequence within a conversation; it is a consistency check on
+that order, not a second axis to sort by. When the two disagree, the
+recording is the corrupt party and the merge fails rather than guessing.
+
+Per-recipient delivery order and times are not in storage. Grade them
+from the `moltzap.message.delivered` spans in `traces.json`, joined to
+transcript events by message id.
+
+## Two versions, two axes
+
+`recordingSchemaVersion` is the format axis, owned by the instrument, and
+a mismatch is a hard failure. `contentVersion` is the content axis, owned
+by you: it names the gradeable content — task text, persona generation,
+environment assumptions — and explicitly **not** the rubric. Editing a
+rubric and re-grading the same recording is legal and moves no key.

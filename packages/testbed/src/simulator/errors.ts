@@ -282,7 +282,24 @@ export class AlreadySealed extends Schema.TaggedError<AlreadySealed>()(
   },
 ) {}
 
-/** A recording file failed schema decode (graders, `recording inspect | validate | events`). */
+/**
+ * The recording is not sealed, so it is not gradeable. `no-marker` means
+ * `sealed.json` is absent — an expected state for an interrupted or
+ * abruptly terminated attempt, readable for diagnosis but never complete.
+ * `digest-mismatch` means the marker is present but a file's bytes
+ * disagree with the digest it sealed, so the recording changed after
+ * sealing; presenting it as sealed would let mutated evidence be graded.
+ */
+export class RecordingUnsealed extends Schema.TaggedError<RecordingUnsealed>()(
+  "RecordingUnsealed",
+  {
+    recordingPath: Schema.String,
+    observed: Schema.Literal("no-marker", "digest-mismatch"),
+    message: Schema.String,
+  },
+) {}
+
+/** A recording file failed schema decode (graders, `recording check | events`). */
 export class RecordingInvalid extends Schema.TaggedError<RecordingInvalid>()(
   "RecordingInvalid",
   {
