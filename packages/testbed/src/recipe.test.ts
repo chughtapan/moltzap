@@ -65,79 +65,105 @@ function runRecipe(
   });
 }
 
-function sidecarExists(recording: string): Effect.Effect<boolean, never, never> {
+function sidecarExists(
+  recording: string,
+): Effect.Effect<boolean, never, never> {
   return Effect.flatMap(FileSystem.FileSystem, (fs) =>
     fs.exists(join(recording, SIDECAR)),
   ).pipe(Effect.provide(NodeContext.layer), Effect.orDie);
 }
 
 describe("the preflight-and-grade recipe", () => {
-  it("passes a sealed, completed recording", () =>
-    Effect.runPromise(
-      runRecipe({}, []).pipe(
-        Effect.map((result) => {
+  it(
+    "passes a sealed, completed recording",
+    () =>
+      Effect.runPromise(
+        runRecipe({}, []).pipe(
+          Effect.map((result) => {
+            expect(result.status).toBe(EXIT_CODE.ok);
+          }),
+        ),
+      ),
+    RECIPE_TIMEOUT_MS,
+  );
+
+  it(
+    "refuses a run that never completed, before any grader starts",
+    () =>
+      Effect.runPromise(
+        runRecipe(
+          { outcome: new EpisodeOutcome({ termination: TERMINATION.timeout }) },
+          graderExiting(0),
+        ).pipe(
+          Effect.map((result) => {
+            expect(result.status).toBe(EXIT_CODE.runNotCompleted);
+            expect(result.stderr).toContain(NO_GRADER_MESSAGE);
+          }),
+        ),
+      ),
+    RECIPE_TIMEOUT_MS,
+  );
+
+  it(
+    "refuses a content-key mismatch",
+    () =>
+      Effect.runPromise(
+        runRecipe({ contentVersion: OTHER_CONTENT_KEY }, [
+          "--content-version",
+          CONTENT_KEY,
+        ]).pipe(
+          Effect.map((result) => {
+            expect(result.status).toBe(EXIT_CODE.contentVersionMismatch);
+          }),
+        ),
+      ),
+    RECIPE_TIMEOUT_MS,
+  );
+
+  it(
+    "refuses an unsealed recording",
+    () =>
+      Effect.runPromise(
+        runRecipe({ unsealed: true }, []).pipe(
+          Effect.map((result) => {
+            expect(result.status).toBe(EXIT_CODE.notSealed);
+          }),
+        ),
+      ),
+    RECIPE_TIMEOUT_MS,
+  );
+
+  it(
+    "writes the reproducibility sidecar once a grader has run",
+    () =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const result = yield* runRecipe({}, graderExiting(0));
           expect(result.status).toBe(EXIT_CODE.ok);
+          expect(yield* sidecarExists(result.recording)).toBe(true);
         }),
       ),
-    ), RECIPE_TIMEOUT_MS);
+    RECIPE_TIMEOUT_MS,
+  );
 
-  it("refuses a run that never completed, before any grader starts", () =>
-    Effect.runPromise(
-      runRecipe(
-        { outcome: new EpisodeOutcome({ termination: TERMINATION.timeout }) },
-        graderExiting(0),
-      ).pipe(
-        Effect.map((result) => {
-          expect(result.status).toBe(EXIT_CODE.runNotCompleted);
-          expect(result.stderr).toContain(NO_GRADER_MESSAGE);
-        }),
+  it(
+    "passes the grader's own verdict through unchanged",
+    () =>
+      Effect.runPromise(
+        Effect.forEach(
+          [0, 1, 2],
+          (code) =>
+            // A graded fail is the grader's own exit, never a convention
+            // code: the recipe composes the two stages, it does not re-key
+            // the grader.
+            runRecipe({}, graderExiting(code)).pipe(
+              Effect.map((result) => {
+                expect(result.status).toBe(code);
+              }),
+            ),
+          { concurrency: 1, discard: true },
+        ),
       ),
-    ), RECIPE_TIMEOUT_MS);
-
-  it("refuses a content-key mismatch", () =>
-    Effect.runPromise(
-      runRecipe({ contentVersion: OTHER_CONTENT_KEY }, [
-        "--content-version",
-        CONTENT_KEY,
-      ]).pipe(
-        Effect.map((result) => {
-          expect(result.status).toBe(EXIT_CODE.contentVersionMismatch);
-        }),
-      ),
-    ), RECIPE_TIMEOUT_MS);
-
-  it("refuses an unsealed recording", () =>
-    Effect.runPromise(
-      runRecipe({ unsealed: true }, []).pipe(
-        Effect.map((result) => {
-          expect(result.status).toBe(EXIT_CODE.notSealed);
-        }),
-      ),
-    ), RECIPE_TIMEOUT_MS);
-
-  it("writes the reproducibility sidecar once a grader has run", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const result = yield* runRecipe({}, graderExiting(0));
-        expect(result.status).toBe(EXIT_CODE.ok);
-        expect(yield* sidecarExists(result.recording)).toBe(true);
-      }),
-    ), RECIPE_TIMEOUT_MS);
-
-  it("passes the grader's own verdict through unchanged", () =>
-    Effect.runPromise(
-      Effect.forEach(
-        [0, 1, 2],
-        (code) =>
-          // A graded fail is the grader's own exit, never a convention
-          // code: the recipe composes the two stages, it does not re-key
-          // the grader.
-          runRecipe({}, graderExiting(code)).pipe(
-            Effect.map((result) => {
-              expect(result.status).toBe(code);
-            }),
-          ),
-        { concurrency: 1, discard: true },
-      ),
-    ), RECIPE_TIMEOUT_MS);
+    RECIPE_TIMEOUT_MS,
+  );
 });

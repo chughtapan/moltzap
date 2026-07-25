@@ -33,7 +33,12 @@ import {
   transcript,
 } from "./__tests__/recording-fixture.js";
 import { EpisodeOutcome, FailureOutcome } from "./simulator/index.js";
-import { ERROR_TAG, OUTCOME, REASON, TERMINATION } from "./simulator/__tests__/tags.js";
+import {
+  ERROR_TAG,
+  OUTCOME,
+  REASON,
+  TERMINATION,
+} from "./simulator/__tests__/tags.js";
 
 const GRADEABLE: GradingPreconditions = {
   contentVersion: null,
@@ -48,7 +53,9 @@ const CONTENT_KEY = "cold-outreach/2";
 const OTHER_CONTENT_KEY = "cold-outreach/1";
 const NO_FAILURE = "no-failure";
 
-function failureTag(exit: Exit.Exit<unknown, { readonly _tag: string }>): string {
+function failureTag(
+  exit: Exit.Exit<unknown, { readonly _tag: string }>,
+): string {
   if (!Exit.isFailure(exit)) return NO_FAILURE;
   return Option.match(Cause.failureOption(exit.cause), {
     onNone: () => "defect",
@@ -109,9 +116,7 @@ describe("openRecording", () => {
         const storeRoot = yield* tempStoreRoot();
         const fixture = yield* makeRecording({ storeRoot });
         yield* tamper(fixture.path, "traces.json");
-        const exit = yield* Effect.exit(
-          openRecording(fixture.path, GRADEABLE),
-        );
+        const exit = yield* Effect.exit(openRecording(fixture.path, GRADEABLE));
         expect(failureTag(exit)).toBe(ERROR_TAG.recordingUnsealed);
       }),
     ));
@@ -377,11 +382,7 @@ describe("attributeSenders", () => {
     ));
 });
 
-function sendersOf(): Effect.Effect<
-  ReadonlyMap<string, string>,
-  never,
-  never
-> {
+function sendersOf(): Effect.Effect<ReadonlyMap<string, string>, never, never> {
   return Effect.gen(function* () {
     const recording = yield* openedOf({});
     const timeline = yield* mergedTimeline(recording).pipe(Effect.orDie);
@@ -412,8 +413,12 @@ function projected(bundle: unknown) {
   return projectBundle(bundle, SOURCE).pipe(Effect.orDie);
 }
 
-function projectionRefusal(bundle: unknown): Effect.Effect<string, never, never> {
-  return Effect.exit(projectBundle(bundle, SOURCE)).pipe(Effect.map(failureTag));
+function projectionRefusal(
+  bundle: unknown,
+): Effect.Effect<string, never, never> {
+  return Effect.exit(projectBundle(bundle, SOURCE)).pipe(
+    Effect.map(failureTag),
+  );
 }
 
 describe("projectBundle", () => {

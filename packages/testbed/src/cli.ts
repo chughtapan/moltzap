@@ -372,19 +372,17 @@ function writeProjectedSpec(
   const directory = resolve(out);
   const target = join(directory, `${documentStem(source)}.yaml`);
   return withFs((fs) =>
-    fs
-      .makeDirectory(directory, { recursive: true })
-      .pipe(
-        Effect.zipRight(fs.writeFileString(target, stringifyYaml(spec))),
-        Effect.mapError(
-          (cause) =>
-            new RecordingStoreFailed({
-              file: target,
-              message: `The projected spec could not be written to ${target}: ${String(cause)}. Check the --out directory.`,
-            }),
-        ),
-        Effect.as(target),
+    fs.makeDirectory(directory, { recursive: true }).pipe(
+      Effect.zipRight(fs.writeFileString(target, stringifyYaml(spec))),
+      Effect.mapError(
+        (cause) =>
+          new RecordingStoreFailed({
+            file: target,
+            message: `The projected spec could not be written to ${target}: ${String(cause)}. Check the --out directory.`,
+          }),
       ),
+      Effect.as(target),
+    ),
   );
 }
 
@@ -442,7 +440,10 @@ function runVerb(operands: ReadonlyArray<string>, args: Args): Verb {
 }
 
 function renderRuns(
-  results: ReadonlyArray<{ readonly path: string; readonly attempt: SealedAttempt }>,
+  results: ReadonlyArray<{
+    readonly path: string;
+    readonly attempt: SealedAttempt;
+  }>,
   args: Args,
 ): Output {
   const lines = results.map((result) =>
@@ -522,9 +523,9 @@ function queueVerb(rest: ReadonlyArray<string>, args: Args): Verb {
     case "status":
       return withAttemptId(operands, "queue status", (id) =>
         withQueue(storeRoot, (held) =>
-          held.queue.status(id).pipe(
-            Effect.map((snapshot) => snapshotOutput(snapshot, args)),
-          ),
+          held.queue
+            .status(id)
+            .pipe(Effect.map((snapshot) => snapshotOutput(snapshot, args))),
         ),
       );
     case "cancel":
@@ -541,9 +542,9 @@ function queueVerb(rest: ReadonlyArray<string>, args: Args): Verb {
     case "retry":
       return withAttemptId(operands, "queue retry", (id) =>
         withQueue(storeRoot, (held) =>
-          held.queue.retry(id).pipe(
-            Effect.map((snapshot) => snapshotOutput(snapshot, args)),
-          ),
+          held.queue
+            .retry(id)
+            .pipe(Effect.map((snapshot) => snapshotOutput(snapshot, args))),
         ),
       );
     case "work":
@@ -602,7 +603,9 @@ function recordingVerb(rest: ReadonlyArray<string>, args: Args): Verb {
   const [verb, ...operands] = rest;
   const path = operands[0];
   if (verb === undefined || path === undefined) {
-    return usage("recording: expected show, check, or events, plus a directory.");
+    return usage(
+      "recording: expected show, check, or events, plus a directory.",
+    );
   }
   switch (verb) {
     case "show":
@@ -780,7 +783,9 @@ export function main(
 
 function invokedAsBin(): boolean {
   const entry = process.argv[1];
-  return entry !== undefined && resolve(entry) === fileURLToPath(import.meta.url);
+  return (
+    entry !== undefined && resolve(entry) === fileURLToPath(import.meta.url)
+  );
 }
 
 if (invokedAsBin()) {
