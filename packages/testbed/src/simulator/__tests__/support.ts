@@ -13,6 +13,8 @@ import {
 } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { agentId } from "@moltzap/protocol/testing";
+import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { TaskId } from "@moltzap/protocol/task";
 import { ServerUrl } from "../../runtime.js";
 import { RunSpec, materializeRunSpec } from "../run-spec.js";
 import type { AgentFacingRunSpec } from "../run-spec.js";
@@ -48,10 +50,10 @@ import {
   type RecordingStoreFailed,
   type SealFailed,
 } from "../errors.js";
-import type { Principal, TaskDelivery } from "../episode.js";
+import type { Principal, SpeechDelivery, SpeechReceipt } from "../episode.js";
 
 export const DONE_SPAN = "test.done";
-export const TASK_CONTENT = "seed task: reply when done";
+export const SAY_TEXT = "seed task: reply when done";
 export const PRINCIPAL_NAME = "principal-primary";
 export const AGENT_ONE = "agent-one";
 export const AGENT_TWO = "agent-two";
@@ -80,7 +82,7 @@ export function specInput(
     ],
     server: { imageDigest: IMAGE_DIGEST },
     episode: overrides.episode ?? {
-      task: { principal: PRINCIPAL_NAME, to: AGENT_ONE, content: TASK_CONTENT },
+      steps: [{ by: PRINCIPAL_NAME, with: [AGENT_ONE], say: SAY_TEXT }],
       termination: {
         inactivityTimeoutMs: INACTIVITY_MS,
         onAgentCrash: "halt",
@@ -372,22 +374,48 @@ export const quietDrain: TranscriptDrain = {
 
 export type FakePrincipal = {
   readonly principal: Principal;
-  readonly deliveries: ReadonlyArray<TaskDelivery>;
+  readonly deliveries: ReadonlyArray<SpeechDelivery>;
+  readonly receipts: ReadonlyArray<SpeechReceipt>;
 };
 
-/** Captures each delivery; the wire-speaking out-of-band principal is exercised at the nightly tier. */
+/**
+ * Captures each delivery and answers with the receipt a real principal
+ * would return: a `send` step lands in the conversation it was routed
+ * into, a `start` step opens a fresh one. The wire-speaking out-of-band
+ * principal is exercised at the nightly tier.
+ */
 export function makeFakePrincipal(): FakePrincipal {
-  const deliveries: Array<TaskDelivery> = [];
+  const deliveries: Array<SpeechDelivery> = [];
+  const receipts: Array<SpeechReceipt> = [];
   return {
     principal: {
-      deliverTask: (delivery) =>
+      deliver: (delivery) =>
         Effect.sync(() => {
           deliveries.push(delivery);
+          const nth = deliveries.length;
+          const opened = delivery.into ?? {
+            taskId: fakeTaskId(`task-${String(nth)}`),
+            conversationId: fakeConversationId(`conversation-${String(nth)}`),
+          };
+          const receipt: SpeechReceipt = {
+            ...opened,
+            messageId: fakeMessageId(`message-${String(nth)}`),
+          };
+          receipts.push(receipt);
+          return receipt;
         }),
     },
     deliveries,
+    receipts,
   };
 }
+
+const fakeTaskId = (seedText: string): TaskId =>
+  Schema.decodeSync(TaskId)(deterministicUuid(seedText));
+const fakeConversationId = (seedText: string): ConversationId =>
+  Schema.decodeSync(ConversationId)(deterministicUuid(seedText));
+const fakeMessageId = (seedText: string): MessageId =>
+  Schema.decodeSync(MessageId)(deterministicUuid(seedText));
 
 // ---------------------------------------------------------------------------
 // Run helpers

@@ -65,6 +65,22 @@ export class DriverConfigRejected extends Schema.TaggedError<DriverConfigRejecte
   },
 ) {}
 
+/**
+ * A done-signal counting society traffic is paired with an episode shape
+ * it can terminate early. Counting predicates fire on traffic rather than
+ * on the schedule's progress, so on a multi-step episode one can fire
+ * before a later step is ever delivered — and the run still produces a
+ * verdict, over a transcript that proves nothing.
+ */
+export class DoneSignalUnsafe extends Schema.TaggedError<DoneSignalUnsafe>()(
+  "DoneSignalUnsafe",
+  {
+    driver: Schema.String,
+    observed: Schema.Literal("multiple-steps", "gated-step"),
+    message: Schema.String,
+  },
+) {}
+
 // ---------------------------------------------------------------------------
 // Launch (contract 1, run time)
 // ---------------------------------------------------------------------------
@@ -172,12 +188,21 @@ export class FaultRevertFailed extends Schema.TaggedError<FaultRevertFailed>()(
 // Episode lifecycle (contract 4)
 // ---------------------------------------------------------------------------
 
-/** The seed task could not be delivered as principal speech. */
-export class TaskInjectionFailed extends Schema.TaggedError<TaskInjectionFailed>()(
-  "TaskInjectionFailed",
+/**
+ * A speech step did not happen. `phase` and the ids known at failure are
+ * the offline discriminator between the two modes a start step can fail
+ * in: `open` leaves nothing behind, while `speak` leaves the target
+ * invited to a real conversation that no `step.spoken` event records — an
+ * accepted, unrecorded state that `result.json`'s `errorDetail` makes
+ * legible.
+ */
+export class SpeechFailed extends Schema.TaggedError<SpeechFailed>()(
+  "SpeechFailed",
   {
     principal: Schema.String,
-    to: Schema.String,
+    phase: Schema.Literal("open", "speak"),
+    taskId: Schema.optional(Schema.String),
+    conversationId: Schema.optional(Schema.String),
     message: Schema.String,
   },
 ) {}
@@ -341,7 +366,8 @@ export type ConfigTimeError =
   | IsolationViolation
   | FaultUnsupported
   | UnknownDriver
-  | DriverConfigRejected;
+  | DriverConfigRejected
+  | DoneSignalUnsafe;
 
 /**
  * Infrastructure failures observed after the manifest persists. Each maps
@@ -358,7 +384,7 @@ export type InfraError =
   | LoggingProxyFailed
   | FaultApplyFailed
   | FaultRevertFailed
-  | TaskInjectionFailed
+  | SpeechFailed
   | DriverCrashed
   | TraceCaptureFailed
   | TranscriptDrainFailed
