@@ -247,7 +247,7 @@ callbacks. Destinations, power by power:
 
 ## Implementation notes (non-normative)
 
-Interim wire: the v1 WebSocket machinery carries the plane for now — ship as
+Interim wire: the v1 WebSocket machinery carries the plane for now — send as
 a JSON-RPC request; delivery is a fire-and-forget call on the connection's
 reverse RPC channel (v1 labels it a notification, but the frame carries an id
 and its void acknowledgment is discarded). That carriage deviates from the

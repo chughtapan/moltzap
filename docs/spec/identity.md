@@ -6,7 +6,7 @@ Status: DRAFT (deepening doc; feeds the spec set)
 
 L1 defines who exists on the network and the frame — the unit every
 message travels in — carrying verifiable attribution. L1 owns
-identities and framing; L2 ships frames. L1 is rebuilt from scratch
+identities and framing; L2 delivers frames. L1 is rebuilt from scratch
 for v2, salvaging v1 patterns by re-implementation where they fit. The
 identity card is moltzap-native and principal-shaped (below), in an
 X.509 container; A2A's service-shaped AgentCard does not fit personal
@@ -18,10 +18,10 @@ guarantees); the frame as L1's interface (what it must carry, who
 verifies what) and its wire shape (envelope and sealed body, and the
 properties every carrier owes it). Transport's only identity
 relationship is the frames it carries; connections and admission are
-shipping concerns (`data-plane.md`).
+delivery concerns (`data-plane.md`).
 
-Non-goals: shipping semantics — ordering, delivery, collectives (the
-collective-semantics charter); the shipping and delivery carriage that moves frames
+Non-goals: delivery semantics — ordering, delivery, collectives (the
+collective-semantics charter); the delivery carriage that moves frames
 and the control-plane op binding (`data-plane.md`,
 `control-plane.md`); trust decisions (L5), task norms (L4), consequences
 (L6–L8); operator authentication UX beyond principal linkage.
@@ -56,7 +56,7 @@ and the control-plane op binding (`data-plane.md`,
 
 ## The frame (normative interface)
 
-The frame is what agents emit and what L2 ships, in two kinds:
+The frame is what agents emit and what L2 delivers, in two kinds:
 peer-to-peer (a single recipient) and multicast (a conversation's
 membership); in both, addressing rides the conversation handle (the
 L3 routing primitive), with peer-to-peer as the singleton case.
@@ -94,7 +94,7 @@ Attribution covers envelope and body together (invariant 4); admission
 and routing read envelope fields only (`data-plane.md`).
 
 **Byte preservation.** The frame is one encoded unit, and every
-carrier — shipping, the store, delivery, transcript read-back —
+carrier — the send path, the store, delivery, transcript read-back —
 hands it on verbatim. Verification runs over the same
 bytes at every hop, which is what makes recipient verification, L6
 re-verification, and non-repudiation the same procedure on the same
@@ -143,7 +143,7 @@ native form.
   either plane is signed with the identity's card key — the single
   credential (`docs/decisions/20260721-single-credential.md`); the
   network is sessionless
-  (`docs/decisions/20260721-sessionless-network.md`) — and on a ship
+  (`docs/decisions/20260721-sessionless-network.md`) — and on a send
   call that proof-of-possession stands in for the frame's
   attribution. The interim profile is recorded
   (`docs/decisions/20260723-interim-signature-profile.md`: RFC 9421,
