@@ -126,7 +126,12 @@ reaching into internals is, by definition, an interface gap.
    existing skill marketplaces (e.g., ClawHub); pinned per binding
    (a task's participants pin one version; the binding's exact
    scope is open); same-version agreement is the only global
-   invariant. Norms are
+   invariant. Recorded initial hypothesis
+   (`docs/decisions/20260724-norms-are-mcp-skill-bundles.md`): the
+   bundle is a digest-pinned MCP-served skills bundle whose tools are
+   the norm's actions; legal moves are a pure function of committed
+   ledger state, enforced at endpoints — never by what the model is
+   shown. Norms are
    guarantees published upward: the bundle is what L5 gates check
    messages against. Fairness — starvation protection included — is
    established per task, by the protocol that defines who may

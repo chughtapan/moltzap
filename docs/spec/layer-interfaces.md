@@ -418,11 +418,13 @@ flowchart TB
    composition decides durability under the W6.S2 spec item.
 6. **The L6 monitor**, if one ever exists, arrives as a wider `Scope`
    value, not a new port or caller arm (register 3).
-7. **The L4 projector seam.** Task norms may later be expressed as
-   user-supplied protocol descriptions projected to "legal next moves"
-   at the endpoint (the deferred contract layer). The vocabulary here
-   deliberately leaves that seam unbuilt; nothing in the network's
-   surface would change. Escalation: tasks.md when chartered.
+7. **The L4 projector seam.** The recorded hypothesis
+   (`docs/decisions/20260724-norms-are-mcp-skill-bundles.md`): the
+   projection is a pure function of committed ledger state, computed
+   endpoint-side, with enforcement at the L5 slots — an illegal move
+   is refused at invocation, and the model-visible tool surface need
+   not change. Nothing in the network's surface changes; the
+   vocabulary here still binds no norm shape. Escalation: tasks.md.
 
 ## References
 
