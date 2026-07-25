@@ -227,7 +227,7 @@ function sealDigestTamperBody(): Effect.Effect<void, unknown> {
     yield* appendAfterSeal(path);
     const read = yield* Effect.exit(outcome.store.read(path));
     expect(read._tag).toBe(EXIT.failure);
-    expect(JSON.stringify(read)).toContain(ERROR_TAG.recordingInvalid);
+    expect(JSON.stringify(read)).toContain(ERROR_TAG.recordingUnsealed);
   });
 }
 

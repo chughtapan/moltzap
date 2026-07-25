@@ -27,6 +27,7 @@ import {
   RecordingInvalid,
   RecordingSchemaMismatch,
   RecordingStoreFailed,
+  RecordingUnsealed,
   SealFailed,
 } from "./errors.js";
 import {
@@ -463,13 +464,31 @@ function seal(
 type ReadError =
   | RecordingStoreFailed
   | RecordingInvalid
-  | RecordingSchemaMismatch;
+  | RecordingSchemaMismatch
+  | RecordingUnsealed;
 
+/**
+ * Integrity precedes interpretation. The marker's digests are verified
+ * before any sealed file is decoded, so a recording whose bytes moved
+ * after sealing reports that fact rather than whatever decode error the
+ * mutation happens to produce. Reporting "invalid traces.json" about
+ * bytes already known to be untrusted tells the reader the wrong thing
+ * about which party is at fault.
+ */
 function read(
   path: string,
 ): Effect.Effect<RecordingSnapshot, ReadError, never> {
   return withFs((fs) =>
     Effect.gen(function* () {
+      const sealMarker = yield* readVersionedFile(
+        fs,
+        path,
+        SEAL_MARKER_FILE,
+        SealMarker,
+      );
+      if (sealMarker !== undefined) {
+        yield* verifySealDigests(fs, path, sealMarker);
+      }
       const manifest = yield* readManifest(fs, path);
       const events = yield* readEventLines(fs, path);
       const traces = yield* readVersionedFile(
@@ -484,15 +503,6 @@ function read(
         RESULT_FILE,
         ResultJson,
       );
-      const sealMarker = yield* readVersionedFile(
-        fs,
-        path,
-        SEAL_MARKER_FILE,
-        SealMarker,
-      );
-      if (sealMarker !== undefined) {
-        yield* verifySealDigests(fs, path, sealMarker);
-      }
       return { manifest, events, traces, result, seal: sealMarker };
     }),
   ).pipe(Effect.withSpan("LocalRecordingStore.read"));
@@ -501,13 +511,15 @@ function read(
 /**
  * The marker's digests are the sealed-completeness evidence: bytes that
  * disagree mean the recording changed after sealing, and the reader
- * rejects it rather than presenting modified files as sealed.
+ * rejects it rather than presenting modified files as sealed. The
+ * rejection is `RecordingUnsealed`, not a decode failure — the files
+ * still parse; what is gone is the guarantee the marker stood for.
  */
 function verifySealDigests(
   fs: Fs,
   path: string,
   marker: SealMarker,
-): Effect.Effect<void, RecordingStoreFailed | RecordingInvalid, never> {
+): Effect.Effect<void, RecordingStoreFailed | RecordingUnsealed, never> {
   return Effect.forEach(
     Object.entries(marker.files),
     ([file, expected]) =>
@@ -516,13 +528,11 @@ function verifySealDigests(
         Effect.filterOrFail(
           (actual) => actual === expected,
           () =>
-            invalidFile(
-              SEAL_MARKER_FILE,
-              `${file} bytes disagree with the seal digest`,
-              [
-                "The recording changed after sealing; sealed files are immutable.",
-              ],
-            ),
+            new RecordingUnsealed({
+              recordingPath: path,
+              observed: "digest-mismatch",
+              message: `${file} bytes disagree with the digest in ${SEAL_MARKER_FILE}. The recording changed after sealing; sealed files are immutable, so this recording is not gradeable.`,
+            }),
         ),
       ),
     { concurrency: 1, discard: true },

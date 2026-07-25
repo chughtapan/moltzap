@@ -156,6 +156,16 @@ export {
   makeSecrets,
 } from "./recording.js";
 
+export { makeLocalRecordingStore } from "./local-store.js";
+
+export {
+  type DriverKind,
+  type DriverDescription,
+  describeDrivers,
+} from "./drivers.js";
+
+export { makeInProcessQueue, type InProcessQueue } from "./queue-live.js";
+
 export {
   LiveAttemptState,
   TerminalAttemptState,
@@ -194,6 +204,7 @@ export {
   AlreadySealed,
   RecordingInvalid,
   RecordingSchemaMismatch,
+  RecordingUnsealed,
   UnknownAttempt,
   AttemptNotRetryable,
   type ConfigTimeError,

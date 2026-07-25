@@ -43,6 +43,7 @@ import type {
   RecordingInvalid,
   RecordingSchemaMismatch,
   RecordingStoreFailed,
+  RecordingUnsealed,
   SealFailed,
   AlreadySealed,
 } from "./errors.js";
@@ -359,12 +360,20 @@ export interface RecordingStore {
     result: ResultJson,
   ): Effect.Effect<SealedRecordingRef, SealFailed | AlreadySealed, never>;
 
-  /** Read any recording back; version mismatch and schema-invalid files surface typed. */
+  /**
+   * Read any recording back, sealed or not; version mismatch and
+   * schema-invalid files surface typed. A recording with no marker reads
+   * back with `seal: undefined` so it stays diagnosable; only a marker
+   * whose digests disagree with the files fails, as `RecordingUnsealed`.
+   */
   read(
     path: string,
   ): Effect.Effect<
     RecordingSnapshot,
-    RecordingStoreFailed | RecordingInvalid | RecordingSchemaMismatch,
+    | RecordingStoreFailed
+    | RecordingInvalid
+    | RecordingSchemaMismatch
+    | RecordingUnsealed,
     never
   >;
 }

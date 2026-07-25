@@ -51,6 +51,14 @@
             ]
           },
           {
+            "group": "Simulator",
+            "pages": [
+              "simulator/overview",
+              "simulator/cli",
+              "simulator/grading"
+            ]
+          },
+          {
             "group": "Development",
             "pages": [
               "development/local-setup",

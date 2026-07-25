@@ -23,7 +23,14 @@
     "./simulator": {
       "import": "./dist/simulator/index.js",
       "types": "./dist/simulator/index.d.ts"
+    },
+    "./grader": {
+      "import": "./dist/grader.js",
+      "types": "./dist/grader.d.ts"
     }
+  },
+  "bin": {
+    "moltzap-testbed": "./dist/cli.js"
   },
   "scripts": {
     "build": "nx run @moltzap/testbed:build",
@@ -87,7 +94,8 @@
     "@moltzap/openclaw-channel": "workspace:^",
     "@moltzap/protocol": "workspace:^",
     "effect": "^3.22.0",
-    "openclaw": "2026.6.33"
+    "openclaw": "2026.6.33",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@moltzap/client": "workspace:*",
