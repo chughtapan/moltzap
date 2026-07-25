@@ -1,6 +1,6 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
 import type { Process } from "@effect/platform/CommandExecutor";
 import { Config, Data, Effect, Exit, Fiber, Option, Scope } from "effect";
@@ -36,6 +36,8 @@ import {
   resolveInstalledPackageBin,
   resolveInstalledPackageRoot,
 } from "./package-resolution.js";
+import { type InstallMode } from "./install-mode.js";
+import { materializePublishedOpenClawPlugin } from "./openclaw-plugin-cache.js";
 
 const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
@@ -48,6 +50,14 @@ const JSON_INDENT_SPACES = 2;
 class PortAllocationFailed extends Data.TaggedError("PortAllocationFailed")<{
   readonly message: string;
   readonly cause?: unknown;
+}> {}
+
+class OpenClawInstallModeError extends Data.TaggedError(
+  "OpenClawInstallModeError",
+)<{
+  readonly message: string;
+  readonly channelDistDir: string;
+  readonly resolvedChannelDistDir: string;
 }> {}
 
 function pollExitCode(
@@ -167,12 +177,14 @@ export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
   readonly openclawBin: string;
   readonly channelDistDir: string;
+  readonly installMode: InstallMode;
 }
 
 export interface OpenClawAdapterOptions {
   readonly server: RuntimeServerHandle;
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
+  readonly installMode: InstallMode;
 }
 
 interface AdapterState {
@@ -299,12 +311,26 @@ function configureOpenClawStateDir(
         agentId: input.agentId,
         apiKey: input.apiKey,
         modelId: input.modelId,
+        installMode: deps.installMode,
       }),
       seedWorkspaceFiles(join(stateDir, "workspace"), input.workspaceFiles),
       seedModelAuthProfile(stateDir),
     ],
     { concurrency: 3, discard: true },
-  ).pipe(
+  ).pipe(Effect.zipRight(installConfiguredChannel(deps, stateDir)));
+}
+
+function installConfiguredChannel(
+  deps: OpenClawAdapterDeps,
+  stateDir: string,
+): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
+  if (deps.installMode === "published") {
+    return materializePublishedOpenClawPlugin({
+      stateDir,
+      openclawBin: deps.openclawBin,
+    }).pipe(Effect.asVoid);
+  }
+  return assertWorkspaceChannelDist(deps.channelDistDir).pipe(
     Effect.zipRight(
       installChannelPlugin({
         stateDir,
@@ -312,8 +338,33 @@ function configureOpenClawStateDir(
         extName: OPENCLAW_EXTENSION_NAME,
         // OpenClaw discovers channel plugins through this package-root manifest.
         extraPackageFiles: ["openclaw.plugin.json"],
-      }).pipe(Effect.asVoid),
+      }),
     ),
+    Effect.asVoid,
+  );
+}
+
+/**
+ * Workspace mode accepts local build output, including a node_modules symlink
+ * whose real target is local, but never an installed package-store copy.
+ * @internal
+ */
+export function assertWorkspaceChannelDist(channelDistDir: string) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) => fileSystem.realPath(channelDistDir)),
+    Effect.flatMap((resolvedChannelDistDir) =>
+      resolvedChannelDistDir.split(sep).includes("node_modules")
+        ? Effect.fail(
+            new OpenClawInstallModeError({
+              message:
+                "OpenClaw workspace install mode requires local channel build output",
+              channelDistDir,
+              resolvedChannelDistDir,
+            }),
+          )
+        : Effect.void,
+    ),
+    Effect.withSpan("assertWorkspaceChannelDist"),
   );
 }
 
@@ -429,14 +480,22 @@ function startOpenClawAdapter(
  * flowchart TD
  *   OCS["OpenClawAdapter.spawn(input)"]
  *   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
- *   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
+ *   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seed workspace + model auth"]
+ *   OCM{"install mode"}
+ *   OCW["workspace<br>validate local channel build<br>copy channel dist + dependency links<br>pin plugins.allow"]
+ *   OCP["published<br>reuse or build pinned npm project cache<br>materialize project + OpenClaw peer link<br>omit plugins.allow"]
  *   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
  *   OC4["4. lease spawnOpenClawProcess<br>exact child environment<br>exitFiber + log buffer"]
  *   OC5["5. commit process + state-dir leases<br>to adapter state"]
  *   OCF["failed or interrupted handoff<br>stops child + removes state dir"]
  *   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
- *   OCS --> OC1 --> OC2 --> OC3 --> OC4 --> OC5 --> OCR
+ *   OCS --> OC1 --> OC2 --> OCM
+ *   OCM -->|workspace| OCW --> OC3
+ *   OCM -->|published| OCP --> OC3
+ *   OC3 --> OC4 --> OC5 --> OCR
  *   OC2 -.->|failure| OCF
+ *   OCW -.->|failure| OCF
+ *   OCP -.->|failure| OCF
  *   OC4 -.->|failure or interruption| OCF
  * ```
  *
@@ -520,7 +579,7 @@ export class OpenClawAdapter implements Runtime {
  *   OCWF["createOpenClawAdapter(input)"]
  *   OCBIN["openclawBin = input.openclawBin ??<br>resolveInstalledPackageBin('openclaw')"]
  *   OCCH["channelDistDir = input.channelDistDir ??<br>resolveInstalledPackageRoot('@moltzap/openclaw-channel')/dist"]
- *   OCOUT["new OpenClawAdapter({ server, openclawBin, channelDistDir })"]
+ *   OCOUT["new OpenClawAdapter({ server, openclawBin,<br>channelDistDir, installMode })"]
  *   OCWF --> OCBIN --> OCCH --> OCOUT
  * ```
  */
@@ -532,6 +591,7 @@ export function createOpenClawAdapter(
     openclawBin:
       input.openclawBin ?? resolveInstalledPackageBin("openclaw", "openclaw"),
     channelDistDir: input.channelDistDir ?? resolveOpenClawChannelDistDir(),
+    installMode: input.installMode,
   });
 }
 
@@ -573,6 +633,7 @@ function writeOpenClawConfig(opts: {
   agentId: SpawnInput["agentId"];
   apiKey: SpawnInput["apiKey"];
   modelId?: string;
+  installMode: InstallMode;
 }): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
@@ -601,9 +662,18 @@ export function buildOpenClawConfig(
   opts: {
     readonly agentName: string;
     readonly modelId?: string;
+    readonly installMode: InstallMode;
   },
   workspaceDir: string,
 ): OpenClawConfig {
+  const pluginTrust =
+    opts.installMode === "workspace"
+      ? {
+          // Workspace copies have no npm install provenance, so their
+          // extension trust is pinned explicitly.
+          plugins: { allow: [OPENCLAW_EXTENSION_NAME] },
+        }
+      : {};
   return {
     agents: {
       defaults: {
@@ -613,10 +683,7 @@ export function buildOpenClawConfig(
       },
     },
     commands: { native: "auto", nativeSkills: "auto", restart: true },
-    // The channel extension is copied into the state dir without install
-    // provenance; openclaw treats such plugins as untracked local code and
-    // will not start their channels unless trust is pinned explicitly.
-    plugins: { allow: [OPENCLAW_EXTENSION_NAME] },
+    ...pluginTrust,
     messages: {
       // openclaw's own default and the closest heir to the removed passive
       // "queue" mode: mid-turn messages steer the active turn instead of
