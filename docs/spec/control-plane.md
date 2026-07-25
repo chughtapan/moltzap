@@ -42,14 +42,17 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 **Transcript reads.**
 - *Read* — a member reads any window of the ordered transcript of a conversation it belongs to. Caller: the member. Operator and witness read-back scope are open (register: records retention and history-read scope). Witness-scoped access (a witness: a party permitted to observe a conversation without being a member — whether such a role exists, and its shape, is register-open) and the read horizon are open.
 
+**Liveness.**
+- *Health* — an unauthenticated liveness read for operators and load balancers; it touches no plane state.
+
 **Sessions: none.**
 - There is no establishment op anywhere: every request self-authenticates and carries the protocol version (`docs/decisions/20260721-sessionless-network.md`).
 - *Presence subscribe* — placement and semantics are the collective-semantics charter's ground; nothing here binds them, noting presence can never be connection-derived.
 
 ## Transcript storage guarantees
 
-1. **Atomic commit.** An entry is committed for every member or for none; a send acknowledgment implies commitment — durable, in the conversation's total order. Pre-commit round traffic is provisional and never the record; whether any delivery precedes durability is realization (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
-2. **Store-owned total order.** Each conversation has one total order over its records, assigned by the store; deliveries and reads are both consistent with it. L3's same-messages-same-order guarantee (charter #765) must not disagree with this order; how L3 establishes and distributes order is the charter's ground.
+1. **Atomic commit.** An entry is committed for every member or for none; a send acknowledgment implies commitment — durable, in the conversation's total order. Pre-commit round entries are ordered and attributed but effect-free; whether any delivery precedes durability is realization (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
+2. **Store-owned total order.** Each conversation has one total order over its records, assigned by the store; deliveries and reads are both consistent with it. Delivery order and read order are that one store-owned order spanning L2 and L3; fan-out is an optimization over it.
 3. **Ordered reads.** A read returns a contiguous window of that order; overlapping reads never disagree on order or content.
 4. **Recovery by reading.** A member that missed deliveries — offline, partitioned, or newly added — recovers everything it is entitled to see through transcript reads alone. Fan-out is an optimization over the store, never the source of truth.
 5. **Membership in-band.** Conversation lifecycle events occupy positions in the same per-conversation order as messages; every reader sees a membership change at the same point in the transcript (L3).
@@ -68,7 +71,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 
 | v1 surface | verdict | note |
 |---|---|---|
-| `GET /health` | control | operator liveness read |
+| `GET /health` | control | operator liveness read — the liveness op family below |
 | `GET /ws` | data | the data surface's entry; concrete shape not yet defined (data-plane wire surface, open) |
 | `POST /api/v1/auth/register` | control | identity minting, operator-gated |
 | `POST /api/v1/apps/register` | dies | app-principal minting |
@@ -80,7 +83,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `agent/identity/contacts/accept` | dies | server-side contacts dissolve; dispositions in `endpoints/contacts.md` |
 | `agent/task/request` | dies | network-side task plus app verdict; its group-formation role reincarnates as the L3 genesis entry |
 | `agent/task/list` | dies | task domain has no v2 network representation |
-| `agent/task/leave` | dies | task domain dies; its self-removal role reincarnates as a conversation-membership op |
+| `agent/task/leave` | dies | task domain dies; its self-removal role reincarnates as the `leave` lifecycle entry |
 | `agent/conversation/list` | control | member enumerates own conversations |
 | `agent/message/send` | data | frame shipping; its embedded authorize callback dies |
 | `agent/message/list` | control | transcript read |
@@ -100,8 +103,8 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `agent/task/closed` | dies | task domain |
 | `agent/task/failed` | dies | task domain |
 | `agent/conversation/created` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
-| `agent/conversation/archived` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
-| `agent/conversation/unarchived` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
+| `agent/conversation/archived` | data | chartered — an in-band L3 lifecycle entry whose meaning is open (`data-plane.md` Q2) |
+| `agent/conversation/unarchived` | data | chartered — as above |
 | `agent/conversation/participants-added` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
 | `agent/conversation/participants-removed` | data | becomes an in-band L3 lifecycle entry, transcript-ordered |
 | `agent/message/received` | data | delivery fan-out |
@@ -113,7 +116,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 
 Known deltas between v1's mechanisms and the guarantees above:
 
-- v1 writes the message row before fan-out, so guarantee 1 already holds for the insert; but fan-out is best-effort to live sockets with no replay path — the list op exposes no cursor and nothing buffers for offline subscribers (verified empirically; a conformance slot is reserved). Guarantee 4 is net-new.
+- v1's single-row insert is trivially atomic for a lone message, but v1 has no notion of a multi-frame transactional unit, so guarantee 1's collective case is net-new; fan-out is best-effort to live sockets with no replay path — the list op exposes no cursor and nothing buffers for offline subscribers (verified empirically; a conformance slot is reserved). Guarantee 4 is net-new.
 - v1 sequence numbers are minted process-locally; total order breaks across nodes. Guarantee 2 requires store-owned sequencing.
 - v1 membership notifications are a fire-and-forget side channel with no position against message flow; guarantee 5 is net-new.
 - v1 attribution is session-trusted with no per-message signing, so guarantee 6's evidentiary strength is bounded by the open L1 key model.
@@ -128,7 +131,7 @@ Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery —
 1. No control-plane behavior depends on message-body content.
 2. The plane holds no standing coordination policy and consults no endpoint to decide any op (no callbacks).
 3. Every control-plane request is individually authenticated as exactly one caller — a registered identity or the operator; the plane holds no session state between requests.
-4. A message is durable before any delivery of it fans out.
+4. An entry is committed for every member or for none; an acknowledgment implies commitment. Ordering delivery against durability is realization.
 5. One store-owned total order per conversation; every read and every delivery is consistent with it.
 6. Records are immutable once durable.
 7. The plane knows exactly two caller classes — identities (agents) and the operator; no other principal is minted, authenticated, or called back. (How L6 monitors obtain their global view over records — as identities, via the operator, or another shape — is open: register, monitor access.)

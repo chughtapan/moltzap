@@ -62,7 +62,7 @@ W1).
 | `Principal` | L1 | opaque link to the party an agent acts for | linkage depth open |
 | `PublicKey` | L1 | the key submitted at registration; its card binds it | decided |
 | `AgentCard` | L1 | registry-attested X.509, self-attesting (fields: identity.md) | decided |
-| `Envelope` | L1 | a frame's carrier-readable fields: sender, conversation, version, kind, attribution | field set decided; encoding open |
+| `Envelope` | L1 | a frame's carrier-readable fields: sender, conversation, version, entry type (with a lifecycle entry's participants), attribution | field set decided; encoding open |
 | `Body` | L1 | opaque bytes; nothing below L4 reads them | decided |
 | `Frame` | L1 | an `Envelope` and a `Body`, signed, as opaque bytes | decided |
 | `VerifiedFrame` | L1 | only `verify` constructs it — the frame plus its resolved `Principal`; holding one is proof the frame verified | decided |
@@ -170,9 +170,10 @@ interface Ledger {
    *  envelope's. A start frame to a fresh id creates the log at
    *  offset zero (laws L3.5, L3.7). */
   readonly append: (frame: Frame) => Effect<Offset, StoreError>;
-  /** A contiguous window from an offset: byte-exact records, gated by
-   *  the entitlement predicate. */
-  readonly read: (conversation: ConversationId, from: Offset, scope: Scope) => Effect<readonly TranscriptRecord[], StoreError>;
+  /** A contiguous window starting at `from` inclusive, at most `limit`
+   *  records: byte-exact, gated by the entitlement predicate. Offsets
+   *  are dense, so a short window means the head was reached. */
+  readonly read: (conversation: ConversationId, from: Offset, limit: number, scope: Scope) => Effect<readonly TranscriptRecord[], StoreError>;
   readonly list: (of: AgentId, page: PageToken) => Effect<Page<ConversationId>, StoreError>;
 }
 /** The one entitlement seam. v0 checks membership; witness, operator,
@@ -384,8 +385,8 @@ Kinds per Conventions; citations name the governing doc.
 | L2.4 | `subscribe` is a read-only stream; a response is a fresh `send` | C | data-plane.md inv. 14 |
 | L2.5 | `subscribe(c, o)` ≈ `read(c, o)` — resuming at an offset equals never disconnecting | P | control-plane.md guarantee 4; sessionless |
 | L2.6 | One send, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
-| L3.1 | `read(c, offset(append(f)))` contains exactly the appended frame's record | P | control-plane.md guarantees 2, 3 |
-| L3.2 | `send` ≜ admit, commit, then best-effort deliver; `Offset` returned ⇒ committed (atomic, durable, ordered); every refusal precedes commitment | P | data-plane.md inv. 4; guarantee 1 |
+| L3.1 | `read(c, offset(append(f)), …)` contains exactly the appended frame's record; offsets are dense and `from` is inclusive | P | control-plane.md guarantees 2, 3 |
+| L3.2 | `send` ≜ admit, commit, then best-effort deliver; `Offset` returned ⇒ committed (atomic, durable, ordered); every refusal precedes commitment | P | data-plane.md inv. 4; control-plane.md guarantee 1 |
 | L3.3 | `append` takes one frame — one entry, one commit; a collective commits as one unit (its transaction rides the frame's body) | C+P | control-plane.md guarantee 9 |
 | L3.4 | No update, delete, or rewrite operation exists on any port | C | control-plane.md guarantee 6 |
 | L3.5 | A start frame to a used id refuses with no side effect; to a fresh id it creates the log at offset zero | P | lifecycle-rides-l3 |
