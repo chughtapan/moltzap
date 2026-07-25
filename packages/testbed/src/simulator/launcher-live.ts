@@ -402,10 +402,10 @@ function verifyStorageMount(
     ),
     Effect.provide(NodeContext.layer),
     Effect.asVoid,
-    Effect.mapError(() =>
+    Effect.mapError((detail) =>
       serverFailed(
         digest,
-        `a file written to the run's storage directory is not visible at ${SERVER_DATA_MOUNT} inside the container, so the bind mount shares nothing. Point the run's storage at a directory the container engine shares (engine file-sharing settings), or the transcript drain will find no messages`,
+        `a file written to the run's storage directory is not visible at ${SERVER_DATA_MOUNT} inside the container (${detail}), so the bind mount shares nothing. Point the run's storage at a directory the container engine shares (engine file-sharing settings), or the transcript drain will find no messages`,
       ),
     ),
   );
