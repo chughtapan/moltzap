@@ -1,15 +1,18 @@
 /**
- * @file The instrument's tag-to-exit-code mapping. Exit codes key on
- * stable error tags, never on messages, so a script can branch on what
- * happened without parsing prose.
+ * @file How the instrument reports what happened to a run: the
+ * tag-to-exit-code mapping a script branches on, and the one-line outcome
+ * text a reader sees. Both live here so the machine-readable and the
+ * human-readable account of the same outcome cannot drift apart.
  *
- * Two bands share the space. The instrument owns `2`-`5` (what happened
- * to a run) and `10`-`12` (what is wrong with a recording it is reading).
- * The grading convention owns `13`-`14` (what is wrong with using this
- * recording as evidence). `1` stays the residual: a failure the mapping
- * does not name is reported as unexpected rather than dressed up as one
- * of the known refusals.
+ * Exit codes key on stable error tags, never on messages, so a script can
+ * branch without parsing prose. Two bands share the space. The instrument
+ * owns `2`-`5` (what happened to a run) and `10`-`12` (what is wrong with
+ * a recording it is reading). The grading convention owns `13`-`14` (what
+ * is wrong with using this recording as evidence). `1` stays the
+ * residual: a failure the mapping does not name is reported as unexpected
+ * rather than dressed up as one of the known refusals.
  */
+import type { RunOutcome } from "./simulator/index.js";
 
 /**
  * Every exit code the CLI produces, by the name a caller branches on.
@@ -90,3 +93,14 @@ export function exitCodeFor(tag: string): ExitCode {
  * real and complete, and the run still did not produce agent behaviour.
  */
 export const RUN_FAILED_WITH_RECORDING: ExitCode = EXIT_CODE.runFailed;
+
+/**
+ * One sealed outcome as a reader sees it. The two shapes stay
+ * distinguishable in the text, because `episode interrupted` and
+ * `infrastructure-failure` mean different things about the evidence.
+ */
+export function outcomeText(outcome: RunOutcome): string {
+  return outcome._tag === "episode"
+    ? `episode ${outcome.termination}`
+    : `infrastructure-failure ${outcome.errorTag}`;
+}

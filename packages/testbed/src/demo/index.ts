@@ -9,10 +9,11 @@
  * can cause, and it is a misreading about evidence.
  */
 import { Effect } from "effect";
-import { run, RunSpec, type SealedAttempt } from "../simulator/index.js";
+import { run, RunSpec } from "../simulator/index.js";
+import { outcomeText } from "../cli-exit.js";
 import { demoSpec } from "./fault-theater.js";
-import type { ConfigTimeError } from "../simulator/errors.js";
 import type {
+  ConfigTimeError,
   ManifestPersistFailed,
   RecordingStoreFailed,
   SealFailed,
@@ -52,15 +53,9 @@ export function runDemo(
     Effect.map((attempt) => ({
       banner: DEMO_BANNER,
       recordingPath: attempt.recording.path,
-      outcome: outcomeText(attempt),
+      outcome: outcomeText(attempt.outcome),
     })),
   );
-}
-
-function outcomeText(attempt: SealedAttempt): string {
-  return attempt.outcome._tag === "episode"
-    ? `episode ${attempt.outcome.termination}`
-    : `infrastructure-failure ${attempt.outcome.errorTag}`;
 }
 
 export { demoSpec, DEMO_SERVER_IMAGE_DIGEST } from "./fault-theater.js";

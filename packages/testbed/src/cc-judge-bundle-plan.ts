@@ -12,7 +12,7 @@
  * file without either knowing the other's shape.
  */
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import { JsonObject } from "./grader.js";
 import { RunSpecInvalid } from "./simulator/errors.js";
@@ -97,9 +97,7 @@ export function emitCcJudgePlan(
   bundle: BundleGradeHalf,
   options: EmitPlanOptions,
 ): CcJudgePlan {
-  const recording = isAbsolute(options.recording)
-    ? options.recording
-    : resolve(options.recording);
+  const recording = resolve(options.recording);
   const label = bundle.condition?.label;
   const name = label ?? options.stem;
   return {

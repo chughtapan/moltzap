@@ -32,20 +32,18 @@ import { collectSpecPaths, loadDocument, loadSpec } from "./cli-documents.js";
 import {
   RUN_FAILED_WITH_RECORDING,
   exitCodeFor,
+  outcomeText,
   type ExitCode,
 } from "./cli-exit.js";
 import {
   openRecording,
-  type ConditionMismatch,
   type GradeableRecording,
   type OpenRecordingError,
-  type RunNotCompleted,
 } from "./grader.js";
 import { runDemo } from "./demo/index.js";
 import type {
   ConfigTimeError,
   ManifestPersistFailed,
-  RecordingStoreFailed,
   SealFailed,
   UnknownAttempt,
 } from "./simulator/errors.js";
@@ -73,15 +71,15 @@ type Output = {
 /**
  * Every failure a verb can surface. The union is explicit rather than
  * `unknown` so the exit-code mapping has a named set to be total over.
+ * `OpenRecordingError` contributes every refusal a recording read can
+ * produce, including the store failure and the two grading-convention
+ * refusals.
  */
 type CliError =
   | ConfigTimeError
   | ManifestPersistFailed
-  | RecordingStoreFailed
   | SealFailed
   | OpenRecordingError
-  | ConditionMismatch
-  | RunNotCompleted
   | UnknownAttempt
   | ParseResult.ParseError;
 
@@ -388,12 +386,6 @@ function outcomeCode(outcome: RunOutcome): ExitCode {
     : 0;
 }
 
-function outcomeText(outcome: RunOutcome): string {
-  return outcome._tag === "episode"
-    ? `episode ${outcome.termination}`
-    : `infrastructure-failure ${outcome.errorTag}`;
-}
-
 /**
  * A new attempt under the recording's identity, from the spec the
  * manifest persisted — so a rerun cannot silently drift onto an edited
@@ -414,7 +406,7 @@ function rerunVerb(operands: ReadonlyArray<string>, args: Args): Verb {
 // queue
 // ---------------------------------------------------------------------------
 
-function storeRootOf(args: Args): string {
+function configuredStoreRoot(args: Args): string {
   return resolve(args.store ?? "./recordings");
 }
 
@@ -427,7 +419,7 @@ function storeRootOf(args: Args): string {
  */
 function queueVerb(rest: ReadonlyArray<string>, args: Args): Verb {
   const [verb, ...operands] = rest;
-  const storeRoot = storeRootOf(args);
+  const storeRoot = configuredStoreRoot(args);
   switch (verb) {
     case "submit": {
       const path = operands[0];
@@ -556,7 +548,7 @@ function summarize(recording: GradeableRecording): RecordingSummary {
   };
 }
 
-function summaryText(summary: RecordingSummary): string {
+function summaryLines(summary: RecordingSummary): ReadonlyArray<string> {
   return [
     `runId      ${summary.runId}`,
     `identity   ${summary.specHash} seed ${String(summary.seed)} ${summary.attemptId}`,
@@ -564,7 +556,7 @@ function summaryText(summary: RecordingSummary): string {
     `outcome    ${outcomeText(summary.outcome)}`,
     `events     ${String(summary.events)}`,
     `spans      ${String(summary.spans)}`,
-  ].join("\n");
+  ];
 }
 
 function recordingShow(path: string, args: Args): Verb {
@@ -572,9 +564,7 @@ function recordingShow(path: string, args: Args): Verb {
     Effect.map((recording) => {
       const summary = summarize(recording);
       return {
-        lines: [
-          args.json ? JSON.stringify(summary) : summaryText(summary),
-        ],
+        lines: args.json ? [JSON.stringify(summary)] : summaryLines(summary),
         code: 0 as ExitCode,
       };
     }),
@@ -640,17 +630,18 @@ function driverVerb(rest: ReadonlyArray<string>): Verb {
  */
 function lockVerb(rest: ReadonlyArray<string>): Verb {
   const verb = rest[0];
+  if (verb !== undefined && verb !== "check") {
+    return usage("lock: expected no verb, or check.");
+  }
   const pins = {
     recordingSchemaVersion: RECORDING_SCHEMA_VERSION,
     simulatorVersion: simulatorVersion(),
   };
-  if (verb === undefined) {
-    return Effect.succeed({ lines: [JSON.stringify(pins, null, 2)], code: 0 });
-  }
-  if (verb !== "check") return usage("lock: expected no verb, or check.");
   return Effect.succeed({
     lines: [
-      `ok  simulatorVersion ${pins.simulatorVersion}  recordingSchemaVersion ${String(pins.recordingSchemaVersion)}`,
+      verb === undefined
+        ? JSON.stringify(pins, null, 2)
+        : `ok  simulatorVersion ${pins.simulatorVersion}  recordingSchemaVersion ${String(pins.recordingSchemaVersion)}`,
     ],
     code: 0,
   });
@@ -670,7 +661,7 @@ function simulatorVersion(): string {
 }
 
 function demoVerb(args: Args): Verb {
-  return runDemo({ storeRoot: storeRootOf(args) }).pipe(
+  return runDemo({ storeRoot: configuredStoreRoot(args) }).pipe(
     Effect.map((result) => ({
       lines: args.json
         ? [JSON.stringify(result)]
@@ -689,22 +680,17 @@ function demoVerb(args: Args): Verb {
 // Entry point
 // ---------------------------------------------------------------------------
 
-function describeFailure(error: CliError): { tag: string; message: string } {
-  return { tag: error._tag, message: error.message };
-}
-
 /** Run one invocation and report its lines and exit code; never throws. */
 export function main(
   argv: ReadonlyArray<string>,
 ): Effect.Effect<Output, never, never> {
   return dispatch(argv).pipe(
-    Effect.catchAll((error) => {
-      const { tag, message } = describeFailure(error);
-      return Effect.succeed({
-        lines: [`${tag}: ${message}`],
-        code: exitCodeFor(tag),
-      });
-    }),
+    Effect.catchAll((error) =>
+      Effect.succeed({
+        lines: [`${error._tag}: ${error.message}`],
+        code: exitCodeFor(error._tag),
+      }),
+    ),
     Effect.catchAllDefect((defect) =>
       Effect.succeed({
         lines: [`Unexpected: ${String(defect)}`],
