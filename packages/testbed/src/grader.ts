@@ -27,7 +27,7 @@
 import { resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import { absurd } from "effect/Function";
-import { decodeEventLine, type SimulatorEvent } from "./simulator/event-log.js";
+import { decodeEvent, type SimulatorEvent } from "./simulator/event-log.js";
 import {
   EpisodeTermination,
   makeLocalRecordingStore,
@@ -275,11 +275,7 @@ function notCompleted(
 function readTimeline(
   events: ReadonlyArray<unknown>,
 ): Effect.Effect<ReadonlyArray<SimulatorEvent>, RecordingInvalid, never> {
-  return Effect.forEach(
-    events,
-    (line) => decodeEventLine(JSON.stringify(line)),
-    { concurrency: 1 },
-  ).pipe(
+  return Effect.forEach(events, decodeEvent, { concurrency: 1 }).pipe(
     Effect.map((decoded) =>
       [...decoded].sort(
         (left, right) => left.logicalSequence - right.logicalSequence,

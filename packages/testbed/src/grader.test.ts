@@ -271,39 +271,39 @@ describe("openRecording: the timeline", () => {
       openedOf(
         {
           events: [
-              transcript({
-                runId: FIXTURE_RUN_ID,
-                logicalSequence: 1,
-                senderId: AGENT_ID_ONE,
-                conversationSeq: 1,
-                text: "a1",
-                conversationId: "conv-a",
-              }),
-              transcript({
-                runId: FIXTURE_RUN_ID,
-                logicalSequence: 2,
-                senderId: AGENT_ID_TWO,
-                conversationSeq: 1,
-                text: "b1",
-                conversationId: "conv-b",
-              }),
-          transcript({
-            runId: FIXTURE_RUN_ID,
-            logicalSequence: 3,
-            senderId: AGENT_ID_ONE,
-            conversationSeq: 2,
-            text: "a2",
-            conversationId: "conv-a",
-          }),
-        ],
-      },
-      PERMISSIVE,
-    ).pipe(
-      Effect.map((recording) => {
-        expect(recording.timeline).toHaveLength(3);
-      }),
-    ),
-  ));
+            transcript({
+              runId: FIXTURE_RUN_ID,
+              logicalSequence: 1,
+              senderId: AGENT_ID_ONE,
+              conversationSeq: 1,
+              text: "a1",
+              conversationId: "conv-a",
+            }),
+            transcript({
+              runId: FIXTURE_RUN_ID,
+              logicalSequence: 2,
+              senderId: AGENT_ID_TWO,
+              conversationSeq: 1,
+              text: "b1",
+              conversationId: "conv-b",
+            }),
+            transcript({
+              runId: FIXTURE_RUN_ID,
+              logicalSequence: 3,
+              senderId: AGENT_ID_ONE,
+              conversationSeq: 2,
+              text: "a2",
+              conversationId: "conv-a",
+            }),
+          ],
+        },
+        PERMISSIVE,
+      ).pipe(
+        Effect.map((recording) => {
+          expect(recording.timeline).toHaveLength(3);
+        }),
+      ),
+    ));
 });
 
 /** The timeline is a permutation of the written lines, sorted by sequence. */
@@ -375,4 +375,3 @@ describe("openRecording: sender attribution", () => {
       ),
     ));
 });
-

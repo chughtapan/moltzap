@@ -457,6 +457,21 @@ export type PendingEvent = SimulatorEvent extends infer E
     : never
   : never;
 
+/**
+ * Boundary decoder for one already-parsed event value. A store that hands
+ * back parsed JSON decodes through this rather than re-serializing to
+ * reach `decodeEventLine`.
+ */
+export function decodeEvent(
+  value: unknown,
+): Effect.Effect<SimulatorEvent, RecordingInvalid, never> {
+  return Schema.decodeUnknown(SimulatorEvent)(value).pipe(
+    Effect.catchTag("ParseError", (cause) =>
+      Effect.fail(eventLineNotDecodable(cause)),
+    ),
+  );
+}
+
 /** Boundary decoder for one `events.ndjson` line (graders, `recording check | events`). */
 export function decodeEventLine(
   line: string,
@@ -464,15 +479,7 @@ export function decodeEventLine(
   return Effect.try({
     try: (): unknown => JSON.parse(line),
     catch: eventLineNotJson,
-  }).pipe(
-    Effect.flatMap((parsed) =>
-      Schema.decodeUnknown(SimulatorEvent)(parsed).pipe(
-        Effect.catchTag("ParseError", (cause) =>
-          Effect.fail(eventLineNotDecodable(cause)),
-        ),
-      ),
-    ),
-  );
+  }).pipe(Effect.flatMap(decodeEvent));
 }
 
 const EVENTS_FILE = "events.ndjson";
