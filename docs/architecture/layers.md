@@ -145,3 +145,4 @@ Open.
 | The eight-layer stack | `docs/decisions/20260723-eight-layer-stack.md` |
 | Collectives are ledger transactions | `docs/decisions/20260724-collectives-are-ledger-transactions.md` |
 | Norms are MCP-served skill bundles (hypothesis) | `docs/decisions/20260724-norms-are-mcp-skill-bundles.md` |
+| The firewall is the agent's boundary: two directions | `docs/decisions/20260724-firewall-two-directions.md` |

@@ -254,10 +254,13 @@ signature.
 
 ## Not ports
 
-- **The firewall (L5)** contributes only its **slots**: an inbound
-  mount between verification and the agent and an outbound mount
-  between the agent and sending, with the guarantees of laws
-  L5.1–L5.3. It is not a port because the suite asserts
+- **The firewall (L5)** contributes only its **slots**: two
+  directional gates on the agent's boundary — inbound passes
+  everything reaching attention (delivered messages, tool results),
+  outbound everything the agent does (sends, tool calls;
+  `docs/decisions/20260724-firewall-two-directions.md`) — with the
+  guarantees of laws L5.1–L5.3 and L5.6. It is not a port because the
+  suite asserts
   *expressibility* (arena's and bench's rulesets are both
   expressible), never *equivalence* — two endpoints' firewalls are
   intentionally different. Everything inside the slots is the
@@ -313,6 +316,7 @@ Conventions, citations name the governing doc.
 | L5.3 | Verdicts are agent-local; no interface emits one outward | C | screening.md inv. 3; contacts.md inv. 5 |
 | L5.4 | A change to the endpoint's trust data is a local act with immediate effect and zero network involvement | P | contacts.md inv. 4 |
 | L5.5 | No router-side interface accepts, stores, or serves any L5 trust data | C | contacts.md inv. 1 |
+| L5.6 | An illegal committing action is refused at the outbound gate before compilation begins — refusal never strands an in-flight round | P | screening.md inv. 5 |
 | L4.1 | No port has a task sort; norms enter only as firewall and turn configuration, shape unbound (bundle format: tasks.md open question 1); same-version agreement is two endpoints pinning one bundle | C | tasks.md inv. 1–3; data-plane.md inv. 10 |
 | L6.1 | `evidence` = the recipient's `verify` over `readTranscript`, post facto; no monitor port, principal, or caller arm exists | C | identity.md → Verification duties; enforcement.md |
 | L7.1 | `register` requires the operator arm; `Caller` has two arms and one minter | C | control-plane.md inv. 3, 7 |
