@@ -90,8 +90,6 @@
     "openclaw": "2026.6.33"
   },
   "devDependencies": {
-    "@moltzap/client": "workspace:*",
-    "@moltzap/server-core": "workspace:*",
     "@types/node": "^25.5.0",
     "eslint": "^9",
     "typescript": "^5.7.0",

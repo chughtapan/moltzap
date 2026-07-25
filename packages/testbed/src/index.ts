@@ -1,6 +1,7 @@
 /**
  * @file Public exports for launching and supervising connected-agent testbeds.
  */
+// safer-arch-ignore no-folder-cycle: the simulator folder builds on the root's runtime adapters, and the cc-judge compat adapter has to stay at its published root path while executing on the simulator (chughtapan/moltzap#812 §2, "Trace-capture fold"); the direction of knowledge is one-way per file, and the entry-point path is a protected surface.
 export {
   AgentName,
   ServerUrl,

@@ -14,7 +14,9 @@ import {
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
 import { buildOpenClawConfig } from "../../openclaw-adapter.js";
+import { homedir, tmpdir } from "node:os";
 import { buildNanoclawProcessPlan } from "../../nanoclaw-process.js";
+import { MOLTZAP_TESTBED_CACHE_ROOT } from "../../nanoclaw-install.js";
 import { makeWorld, type AppliedFault, type World } from "../world.js";
 import {
   Agent,
@@ -138,6 +140,13 @@ export function path14(): Effect.Effect<void, unknown, never> {
     expect(servers).toBeDefined();
     expect(JSON.stringify(JSON.parse(servers ?? "{}"))).toContain(MOUNT_NAME);
     expect(plan.env["MOLTZAP_AGENT_MODEL"]).toBe(TEST_MODEL);
+    // The runtime dirs this plan runs in are docker bind-mount sources, so
+    // they have to sit where a VM-backed engine shares by default. Under
+    // the system temp directory the container silently gets a private
+    // directory instead of the host's, which is the same failure the
+    // server container's launch-time mount check refuses.
+    expect(MOLTZAP_TESTBED_CACHE_ROOT.startsWith(homedir())).toBe(true);
+    expect(MOLTZAP_TESTBED_CACHE_ROOT.startsWith(tmpdir())).toBe(false);
   });
 }
 
