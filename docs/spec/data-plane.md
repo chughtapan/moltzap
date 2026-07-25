@@ -56,7 +56,10 @@ participant emits next).
   shared order — an endpoint holds the grant before it generates, so agreement
   precedes generation, not merely delivery. The discipline is at collective
   granularity: round entries are admitted without a grant and carry no effect.
-  Overlapping open transactions are chartered, not decided here.
+  At most one transaction is open per conversation: two open
+  transactions would mean two writers generating concurrently, which
+  is what PCC exists to deny. Concurrency is expressed as more
+  conversations — ids are client-minted — never as nested locks.
 - **Transactional collectives.** A collective operation is one transactional
   unit over the conversation's ledger: the record represents one
   ALL-TO-ALL — MPI-style, every member contributes and every member
@@ -72,13 +75,20 @@ participant emits next).
   alters, or strips it.
 - **Admission.** At admission the plane verifies, at minimum, that the
   frame's attribution verifies per L1, its sender identity exists
-  and is active, and the sender is a member of the conversation the
+  and its directory entry says active (the one institutional fact v0
+  reads — `docs/decisions/20260724-l7-is-policy-attached-to-identity.md`), and the sender is a member of the conversation the
   envelope addresses — or the frame is a start entry to a fresh id
-  (law L3.5); failing frames are refused before commitment.
+  (law L3.5), which needs no grant because there is no conversation
+  to lock yet; failing frames are refused before commitment.
   Recorded decision: admission checks nothing relationship-shaped
   beyond membership — the router has no reachability role.
 - **Content-blindness.** Routing and admission read envelope fields only, never
   bodies. End-to-end encryption stays a preserved possibility.
+- **Evidence retention.** The store keeps, beside each frame, whatever
+  the binding in effect needs to re-verify it — under the interim
+  binding the request-signature material and the sender's card — so a
+  recorded frame stays verifiable with no live sender and after the
+  registry ceases to vouch.
 - **Records handoff.** Atomic commit: an entry is committed for every member
   or for none, an acknowledgment implies commitment, and only committed
   entries are the record (control-plane-side; the record L6 reads).
@@ -105,26 +115,25 @@ agreement point identically.
 
 ```mermaid
 sequenceDiagram
-  participant L as Leader (lock holder)
+  participant L as Leader - lock holder
   participant A as Member A
   participant B as Member B
-  participant R as Router (L2 multicast over the ledger)
-  L->>R: BEGIN(txn) - propose; txn id = hash of this frame
+  participant R as Router - L2 over the ledger
+  L->>R: BEGIN txn - propose. txn id is the hash of this frame
   R-->>A: fan out
   R-->>B: fan out
-  A->>R: ACK(txn)
-  B->>R: ACK(txn)
+  A->>R: ACK txn
+  B->>R: ACK txn
   Note over L,B: ack rule met in the shared order - the GRANT is this fold, the acks are its certificate
-  par one concurrent update round
-    L->>R: UPDATE(txn, xL)
-    A->>R: UPDATE(txn, xA)
-    B->>R: UPDATE(txn, xB)
-  end
+  L->>R: UPDATE txn with xL
+  A->>R: UPDATE txn with xA
+  B->>R: UPDATE txn with xB
+  Note over L,B: one update round - contributions are concurrent, order among them irrelevant
   Note over L,B: each update binds txn id + grant ref under its signature - replay and misbinding dead
-  L->>R: SIGN digest(txn id, cut, update refs, result)
+  L->>R: SIGN the digest of txn id, cut, update refs, result
   A->>R: SIGN the same digest
   B->>R: SIGN the same digest
-  L->>R: COMMIT(txn) with the signature set
+  L->>R: COMMIT txn with the signature set
   Note over R: one atomic unit in the order - admitted, never judged
 ```
 
@@ -136,7 +145,12 @@ norm, signatures verifying, result recomputing — is a deterministic
 fold too: the plane admits the commit entry without judging it, and
 every same-pinned party computes the identical effective/ineffective
 verdict, so an invalid commit is admitted, ineffective, and L6
-evidence. Failure handling follows: timeouts are local observations
+evidence. Resolution and effect are separate folds over the same
+entries: any commit or abort from the holder **resolves** the
+transaction and releases the lock whatever its validity — otherwise a
+holder emitting garbage would hold the conversation hostage to its
+TTL — while validity decides only whether the transaction enters the
+canonical chain. Failure handling follows: timeouts are local observations
 whose consequence — a superseding BEGIN or an abort — is resolved by
 the order, so whichever grant completes first wins and a late commit
 against a superseded grant is deterministically ineffective; restart
@@ -151,7 +165,13 @@ are cheap appends. They are committed records like any other —
 ordered, attributed, immutable, and part of the contiguous read
 window, which is what lets the folds define the grant; whether
 resolved round entries may later be pruned is the retention question
-(register item 6), not a property asserted here. The committed
+(register item 6), and pruning can only ever drop bodies: offsets and
+frame hashes are permanent, so density (law L3.1) and the hash chain
+survive, and only a *resolved* transaction's round entries are
+eligible — while it is open they are load-bearing for the grant fold.
+The commit frame therefore carries everything post-hoc verification
+needs, the ack certificate included, so no verifier ever depends on an
+unpruned round entry. The committed
 transaction is the canonical record a late member converges to.
 
 Round entries need entry types of their own before a content-blind
@@ -161,7 +181,7 @@ round traffic at all.
 
 ```mermaid
 flowchart LR
-  subgraph Rounds["Ordered, effect-free round entries - prunable after resolution"]
+  subgraph Rounds["Round entries - committed, effect-free, bodies droppable once resolved"]
     P[begin] --> K[acks] --> X[updates] --> S[signatures]
   end
   subgraph Ledger["Committed transactions - durable, canonical, hash-chained"]
@@ -170,11 +190,14 @@ flowchart LR
   S -- "one atomic multi-signed commit" --> T3
 ```
 
-Parameters are the charter's: ack and quorum rules, lock TTLs, abort
-authority, sealed rounds, the cut's exact form, embedding vs
-referencing updates in the commit, participant-update carriage,
-next-leader selection (possibly multiple eligible writers contending),
-overlapping open transactions, and round-entry retention.
+What the skeleton already settles is recorded with it: contributions
+are embedded in the commit frame (references bind in the digest,
+bodies persist), one open transaction per conversation, holder-only
+abort with a superseding grant as the group's remedy, participants
+contributing as unlocked round entries the leader embeds, the cut
+derived from the deciding ack, and the retention floor above. What
+stays the charter's: the round entry-type names, the shape
+constraints on a norm's ack rule, and TTL magnitudes.
 
 ## Wire surface
 
@@ -311,7 +334,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 ## Open questions
 
 1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — the collective-semantics charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
-2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes the semantics inside both: ack and quorum rules, liveness and safety machinery, abort and timeout, lock TTLs, sealed rounds, the cut's form, embed-vs-reference, participant-update carriage, next-leader selection, overlapping transactions, and ARCHIVE's meaning.
+2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes what remains: the round entry-type names, the shape constraints a norm's ack rule must satisfy, TTL magnitudes, and ARCHIVE's meaning. Embed-vs-reference, abort authority, participant carriage, the cut, overlapping transactions, and the retention floor are recorded consequences of the skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe per-recipient delivery status, or is recovery-convergence the whole guarantee beyond the commit acknowledgment?
 5. Closed by the recorded correctness skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`): lock and transaction state are folds over the shared order, reconstructed by re-folding after any restart — no durable lease table, no wire-visible restart semantics. Number retained.

@@ -142,10 +142,17 @@ native form.
 
 ## Implementation notes (non-normative)
 
-- What a recipient verifies under the interim binding: the router
-  verifies attribution at admission, and a recipient reading a
-  delivered or recorded frame inherits that check — offline per-frame
-  re-verification is the target binding's property, not round one's.
+- What a recipient verifies under the interim binding: the frame's
+  attribution material is the RFC 9421 signature over the send
+  request, whose `content-digest` covers the request body and hence
+  the frame bytes — so altering a frame breaks the digest and
+  verification fails (invariant 4 holds at request-attribution
+  strength). The store retains that material, and the sender's card,
+  beside the frame, so a recipient or an L6 reader runs the same
+  `verify` over the record with no live sender. What the interim
+  binding does not give is a signature bound to the frame
+  independently of the request that carried it; that is the target
+  binding's property, and the residue register item 5 closes.
   This is the concrete meaning of the acceptance criteria holding "at
   request-attribution strength only" below, and it is the strength
   reduction register item 5 closes.

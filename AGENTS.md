@@ -80,7 +80,7 @@ and debt-zero work.
   diagram in the same PR. Cross-package flows are documented once at
   the canonical owner; elsewhere link by symbol name.
 - Mermaid, GitHub-strict: `<br>` not `<br/>`; literal `<` `>` not
-  entities; no `;` in `Note` text; no `<br>` in participant aliases;
+  entities; no `;` in `Note` text; no `<br>` or parentheses in participant aliases;
   `<br>` not `\n` in stateDiagram; no `<word>` literals. Validate:
   `pnpm docs:check:mermaid`.
 

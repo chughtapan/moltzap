@@ -141,9 +141,15 @@ the providing adapter (data-plane.md).
 
 ```ts
 interface Transport {
+  /** Acquire the conversation's write lock. Resolves when the group's
+   *  write discipline grants this writer the next turn; the grant's
+   *  carriage is the charter's, and the v0 instrument lives in the
+   *  adapter. A start to a fresh id needs no grant. */
+  readonly begin: (conversation: ConversationId) => Effect<Grant, Refusal>;
   /** Send one frame. The returned Offset is the commit ack: atomic,
-   *  durable, ordered. Every refusal precedes commitment. */
-  readonly send: (frame: Frame) => Effect<Offset, Refusal>;
+   *  durable, ordered. Every refusal precedes commitment. An effective
+   *  write carries the grant it was issued. */
+  readonly send: (frame: Frame, grant: Option<Grant>) => Effect<Offset, Refusal>;
   /** One-way best-effort push of committed records, resumable from an
    *  offset the endpoint owns. Never a response path, never the
    *  source of truth. */
@@ -172,7 +178,8 @@ interface Ledger {
   readonly append: (frame: Frame) => Effect<Offset, StoreError>;
   /** A contiguous window starting at `from` inclusive, at most `limit`
    *  records: byte-exact, gated by the entitlement predicate. Offsets
-   *  are dense, so a short window means the head was reached. */
+   *  are dense and the ledger never clamps `limit` silently, so a
+   *  short window means the head was reached. */
   readonly read: (conversation: ConversationId, from: Offset, limit: number, scope: Scope) => Effect<readonly TranscriptRecord[], StoreError>;
   readonly list: (of: AgentId, page: PageToken) => Effect<Page<ConversationId>, StoreError>;
 }
