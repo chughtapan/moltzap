@@ -281,14 +281,20 @@ line is what keeps this the opposite of the rejected escrow model.
 The rounds (data-plane.md → The collective transaction) are this
 interface realized among distrusting parties: propose/ack realize
 `begin`, the contribution round realizes `update`s, the signature
-round and commit frame realize `commit`. How non-leader participants'
-updates are carried, lock TTLs, abort authority, next-leader
-selection (possibly several eligible writers contending), overlapping
-open transactions, and the lock-grant signal's wire carriage are the
-charter's. TypeScript cannot enforce linear consumption of the
-handle, so at-most-one-commit-per-lock has a suite-law residual
-(L3.9). PCC's instrument lives inside the Transport adapter, in no
-signature.
+round and commit frame realize `commit`. The correctness skeleton is
+recorded there and in the collectives record: the txn id is the hash
+of its BEGIN frame; the grant and a commit's effect are **folds over
+the shared order** (the acks are the grant's certificate; validity is
+computed identically by every same-pinned party; the store never
+judges); supersession is order-resolved, restart recovers by
+re-folding, and one-effective-commit-per-txn-id makes retries
+harmless — the norm compile step's idempotency key. Parameters — ack
+and quorum rules, lock TTLs, abort authority, participant-update
+carriage, next-leader selection, overlapping transactions, the
+lock-grant wire signal — are the charter's. TypeScript cannot enforce
+linear consumption of the handle, so at-most-one-commit-per-lock has
+a suite-law residual (L3.9). PCC's instrument lives inside the
+Transport adapter, in no signature.
 
 ## Flows
 

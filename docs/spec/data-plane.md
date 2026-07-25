@@ -95,8 +95,10 @@ participant emits next).
 
 The recorded direction
 (`docs/decisions/20260724-collectives-are-ledger-transactions.md`): a
-collective executes as rounds of ordinary L2 multicasts and commits as
-one multi-signed ledger transaction. Every round message is an
+collective is a transaction on the transcript's pessimistic-database
+interface — `begin` locks the turn, `update`s stage contributions,
+`commit` lands one multi-signed unit — realized among distrusting
+parties as rounds of ordinary L2 multicasts. Every round message is an
 ordinary attributed frame the plane admits and fans out without
 understanding it; one ack round replaces gossip because the
 equivocation-infeasible shared order lets every member compute the
@@ -104,50 +106,69 @@ agreement point identically.
 
 ```mermaid
 sequenceDiagram
-  participant L as Leader (turn holder)
+  participant L as Leader (lock holder)
   participant A as Member A
   participant B as Member B
   participant R as Router (L2 multicast over the ledger)
-  L->>R: PROPOSE the collective op
+  L->>R: BEGIN(txn) - propose; txn id = hash of this frame
   R-->>A: fan out
   R-->>B: fan out
-  A->>R: ACK
-  B->>R: ACK
-  Note over L,B: ack rule met - every member sees it at the same position, no gossip
-  L->>R: GO - fixes the cut
-  par one concurrent contribution round
-    L->>R: CONTRIBUTE xL
-    A->>R: CONTRIBUTE xA
-    B->>R: CONTRIBUTE xB
+  A->>R: ACK(txn)
+  B->>R: ACK(txn)
+  Note over L,B: ack rule met in the shared order - the GRANT is this fold, the acks are its certificate
+  par one concurrent update round
+    L->>R: UPDATE(txn, xL)
+    A->>R: UPDATE(txn, xA)
+    B->>R: UPDATE(txn, xB)
   end
-  Note over L,B: same order and same pinned norms - each member computes r locally
-  L->>R: SIGN the transaction hash
-  A->>R: SIGN the transaction hash
-  B->>R: SIGN the transaction hash
-  L->>R: commit T with the signature set
-  Note over R: one atomic ledger entry - the op, the cut, the contributions, r, the prior link
+  Note over L,B: each update binds txn id + grant ref under its signature - replay and misbinding dead
+  L->>R: SIGN digest(txn id, cut, update refs, result)
+  A->>R: SIGN the same digest
+  B->>R: SIGN the same digest
+  L->>R: COMMIT(txn) with the signature set
+  Note over R: one atomic unit in the order - admitted, never judged
 ```
+
+**The correctness skeleton.** Locks and effects are folds over the
+shared order; entries are the only reality. The grant is the fold
+"the ack rule is met by the signed acks following BEGIN" — no router
+utterance, no lock table. A commit's validity — quorum per the pinned
+norm, signatures verifying, result recomputing — is a deterministic
+fold too: the plane admits the commit entry without judging it, and
+every same-pinned party computes the identical effective/ineffective
+verdict, so an invalid commit is admitted, ineffective, and L6
+evidence. Failure handling follows: timeouts are local observations
+whose consequence — a superseding BEGIN or an abort — is resolved by
+the order, so whichever grant completes first wins and a late commit
+against a superseded grant is deterministically ineffective; restart
+recovers lock and transaction state by re-folding (this doc's open
+question 5, closed below); one effective commit per txn id, so
+retries are harmless — which is also the norm compile step's
+idempotency key (`endpoints/tasks.md`).
 
 The ledger sits off the rounds' critical path: rounds run at multicast
 speed, and the durable commit happens once per collective. Round
-traffic is provisional and never the record; a member that missed the
-rounds converges by reading the committed chain.
+entries are ordered and attributed — the folds need them — but carry
+no effect and are prunable once their transaction resolves (retention:
+register item 6); the committed transaction is the canonical record a
+late member converges to.
 
 ```mermaid
 flowchart LR
-  subgraph Rounds["L2 multicast tier: round traffic, provisional, bounded lifetime"]
-    P[propose] --> K[acks] --> G[go] --> X[contributions] --> S[signatures]
+  subgraph Rounds["Ordered, effect-free round entries - prunable after resolution"]
+    P[begin] --> K[acks] --> X[updates] --> S[signatures]
   end
-  subgraph Ledger["L3 ledger tier: committed transactions, durable, canonical"]
+  subgraph Ledger["Committed transactions - durable, canonical, hash-chained"]
     T1[T1] --> T2[T2] --> T3[T3]
   end
   S -- "one atomic multi-signed commit" --> T3
 ```
 
-Quorum rules, liveness and safety machinery, abort and timeout
-semantics, sealed rounds, the cut's exact form, embedding vs
-referencing contributions, next-leader selection (possibly multiple
-eligible leaders), and round-traffic retention are the charter's.
+Parameters are the charter's: ack and quorum rules, lock TTLs, abort
+authority, sealed rounds, the cut's exact form, embedding vs
+referencing updates in the commit, participant-update carriage,
+next-leader selection (possibly multiple eligible writers contending),
+overlapping open transactions, and round-entry retention.
 
 ## Wire surface
 
@@ -287,7 +308,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes the semantics inside both: quorum rules, abort and timeout, sealed rounds, next-leader selection, escrow, acceptance quorums, ARCHIVE's meaning.
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe positive delivery acknowledgment, or is recovery-convergence the whole guarantee?
-5. Does an admitted turn survive a plane restart, or is it reconstructed from the record substrate?
+5. Closed by the recorded correctness skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`): lock and transaction state are folds over the shared order, reconstructed by re-folding after any restart — no durable lease table, no wire-visible restart semantics. Number retained.
 6. Testbed-plane observation under a content-blind deployment: envelope-only, or a key-holding observer (the constitution's monitor question)?
 7. Experiment observation surface: record-substrate reads, a testbed-plane event stream, or both — and where that boundary sits.
 8. Wire discipline for op envelopes (closed-struct / excess-key rejection) — `v2/VISION.md` register item 9.

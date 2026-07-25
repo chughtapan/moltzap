@@ -101,9 +101,12 @@ reaching into internals is, by definition, an interface gap.
    is the conversation's ledger: an ordered chain of atomically
    committed, attributable transactions. One transaction may be an
    entire collective — an ALL-TO-ALL is one unit, never a scatter of
-   independent messages — assembled by rounds of ordinary L2
-   multicasts (propose, ack, contribute, sign) and committed once,
-   multi-signed, so the ledger sits off the rounds' critical path
+   independent messages. The transcript's interface is a pessimistic
+   database — a writer locks the next turn (begin), stages updates,
+   and commits — realized among distrusting parties as rounds of
+   ordinary L2 multicasts, committed once, multi-signed, so the
+   ledger sits off the rounds' critical path; locks and effects are
+   folds over the shared order
    (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
    Group-wide same-messages-same-order holds over committed entries,
    including for transiently unavailable members. How an
@@ -189,8 +192,9 @@ reaching into internals is, by definition, an interface gap.
 13. **Storage is atomic commit.** An entry is committed for every
     member or for none, and an acknowledgment implies commitment —
     durable, in the conversation's total order. Pre-commit round
-    traffic is provisional and never the record; whether delivery
-    precedes durability is realization
+    entries are ordered and attributed but effect-free, prunable once
+    their transaction resolves; whether delivery precedes durability
+    is realization
     (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
     The store sits control-plane-side and is the record substrate L6
     reads.
