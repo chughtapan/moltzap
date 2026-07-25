@@ -8,8 +8,8 @@
  * shrinks the inventory, which the contract forbids. Path bodies live in
  * `__tests__/coverage-paths-{a,b}.ts`.
  *
- * One entry stays `it.todo`: path 24 lands with the trace-capture fold
- * row.
+ * Path 24 splits by tier: 24a is the hermetic entry-point load, 24b
+ * the executed nightly run named in the design.
  */
 /* eslint-disable sonarjs/assertions-in-tests -- every entry delegates to an imported path body whose assertions (expect/fc.assert) live in __tests__/coverage-paths-*.ts; this file is the flat inventory the contract pins */
 // @agent-code-guard/regression-only: property evidence lives in the imported path bodies (fc.assert in coverage-paths-a/b); the inventory file itself stays a flat list
@@ -52,6 +52,7 @@ import {
   path34,
   path35,
 } from "./__tests__/coverage-paths-b.js";
+import { path24a } from "./__tests__/cc-judge-fixture.js";
 
 const run = (effect: Effect.Effect<void, unknown, never>) =>
   Effect.runPromise(effect.pipe(Effect.orDie));
@@ -110,9 +111,8 @@ describe("simulator coverage inventory (hermetic CI tier, paths 13-24)", () => {
     run(path22()));
   it("23. per-adapter canonical config: unsupported field fails fast at config time (property)", () =>
     run(path23()));
-  it.todo(
-    "24. cc-judge compat (CRITICAL): dist loader runs the compat adapter over EVAL-005.yaml against the verify-row oracle",
-  );
+  it("24a. cc-judge compat (CRITICAL): the entry point loads EVAL-005.yaml and assembles its plan", () =>
+    run(path24a()));
 });
 
 describe("simulator coverage inventory (design-doc extension paths)", () => {

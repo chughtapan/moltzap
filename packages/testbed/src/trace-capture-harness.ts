@@ -1,10 +1,21 @@
-import { Path } from "@effect/platform";
-import type * as ClientTestUtils from "@moltzap/client/test-utils";
-import { Data, Duration, Effect, Fiber, Option, Stream } from "effect";
-import type * as ServerTestUtils from "@moltzap/server-core/test-utils";
-import { startRuntimeAgent, type RuntimeKind } from "./testbed.js";
-import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
-import type { Runtime } from "./runtime.js";
+/**
+ * @file The cc-judge compat adapter: the entry point cc-judge loads from
+ * `dist/trace-capture-harness.js`, unchanged in shape (`load(args)`
+ * returning a plan, a harness, and a coordinator), executing on the
+ * simulator. A scenario's harness payload becomes a `RunSpec`, `run`
+ * produces a sealed recording, and the bundle cc-judge grades is
+ * projected from that recording's events — so capture is the recording's
+ * job rather than this file's.
+ *
+ * The scenario file and cc-judge's loader stay byte-unchanged; that
+ * compatibility is coverage path 24a.
+ */
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Command, FileSystem } from "@effect/platform";
+import { NodeContext } from "@effect/platform-node";
+import { Config, Data, Duration, Effect, Schema } from "effect";
+import type { RuntimeKind } from "./testbed.js";
 import {
   decodePayload,
   InvalidPayload,
@@ -12,47 +23,27 @@ import {
 } from "./trace-capture-payload.js";
 import {
   buildTraceBundle,
-  type ConversationParticipant,
-  type ConversationResponse,
-  type ConversationRun,
-  type TraceCaptureEvent,
+  projectRecordedConversation,
+  type RecordedConversation,
 } from "./trace-capture-bundle.js";
-
-import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
-} from "@moltzap/protocol/message";
-import {
-  DEFAULT_APP_ID,
-  TaskRequest,
-  type TaskId,
-} from "@moltzap/protocol/task";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+  decodeEventLine,
+  run,
+  RunSpec,
+  type SealedAttempt,
+  type SimulatorEvent,
+} from "./simulator/index.js";
 
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;
-const DEFAULT_GROUP_NAME = "cc-judge-group";
 const PLAN_TARGET_AGENT_ID = "target-agent";
 const PLACEHOLDER_IMAGE = "managed/by-moltzap-trace-capture";
-
-interface RuntimeCrypto {
-  readonly randomUUID?: () => string;
-}
-
-let activeRun = false;
-
-class WorkspacePackagesDirNotFound extends Data.TaggedError(
-  "WorkspacePackagesDirNotFound",
-)<{
-  readonly message: string;
-}> {}
-
-class ActiveTraceCaptureRunExists extends Data.TaggedError(
-  "ActiveTraceCaptureRunExists",
-)<{
-  readonly message: string;
-}> {}
+const PRINCIPAL_NAME = "eval-sender";
+const DELIVERED_SPAN = "moltzap.message.delivered";
+/** The injection delivered to the target, then the target's answer delivered back. */
+const EXCHANGE_SPAN_COUNT = 2;
+const SERVER_IMAGE_ENV = "MOLTZAP_SIM_SERVER_IMAGE";
+const IMAGE_BUILD_TIMEOUT_MS = 900_000;
 
 class ExecutionFailed extends Data.TaggedError("ExecutionFailed")<{
   readonly message: string;
@@ -62,16 +53,7 @@ class HarnessFailed extends Data.TaggedError("HarnessFailed")<{
   readonly detail: ExecutionFailed;
 }> {}
 
-class ContainerStartFailed extends Data.TaggedError("ContainerStartFailed")<{
-  readonly message: string;
-}> {}
-
-class AgentStartFailed extends Data.TaggedError("AgentStartFailed")<{
-  readonly agentId: AgentId;
-  readonly detail: ContainerStartFailed;
-}> {}
-
-type HarnessFailureCause = InvalidPayload | HarnessFailed | AgentStartFailed;
+type HarnessFailureCause = InvalidPayload | HarnessFailed;
 
 interface HarnessFailure {
   readonly cause: HarnessFailureCause;
@@ -90,132 +72,10 @@ interface HarnessLoadArgs {
   readonly payload: unknown;
 }
 
-interface MessagePart {
-  readonly type: string;
-  readonly text?: string;
-}
-
-// Type-only namespaces keep the dynamic loaders aligned with their published
-// test surfaces without introducing client or server runtime imports.
-type ClientTestModule = typeof ClientTestUtils;
-type HarnessClient = ClientTestUtils.HarnessAgentClient;
-type ServerTestModule = typeof ServerTestUtils;
-type CoreTestServer = ServerTestUtils.CoreTestServer;
-
-interface ConnectedActor {
-  readonly agentId: AgentId;
-  readonly name: string;
-  readonly client: HarnessClient;
-}
-
-interface ConversationExecutionState {
-  readonly sender: ConnectedActor;
-  readonly closers: Array<HarnessClient>;
-  readonly participants: Array<ConversationParticipant>;
-  readonly responses: Array<ConversationResponse>;
-}
-
 function failHarness(message: string): HarnessFailure {
   return {
-    cause: new HarnessFailed({
-      detail: new ExecutionFailed({ message }),
-    }),
+    cause: new HarnessFailed({ detail: new ExecutionFailed({ message }) }),
   };
-}
-
-function failAgentStart(
-  agentId: AgentId,
-  detail: ContainerStartFailed,
-): HarnessFailure {
-  return {
-    cause: new AgentStartFailed({
-      agentId,
-      detail,
-    }),
-  };
-}
-
-function isHarnessFailure(error: unknown): error is HarnessFailure {
-  if (typeof error !== "object" || error === null || !("cause" in error)) {
-    return false;
-  }
-  return isHarnessFailureCause(error.cause);
-}
-
-function isHarnessFailureCause(cause: unknown): cause is HarnessFailureCause {
-  return (
-    cause instanceof InvalidPayload ||
-    cause instanceof HarnessFailed ||
-    cause instanceof AgentStartFailed
-  );
-}
-
-function asHarnessFailure(error: unknown): HarnessFailure {
-  if (isHarnessFailure(error)) return error;
-  return failHarness(error instanceof Error ? error.message : String(error));
-}
-
-function packagesDir(): string {
-  return Effect.runSync(
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const here = yield* path.fromFileUrl(new URL(import.meta.url));
-      let current = path.dirname(here);
-      while (current !== path.parse(current).root) {
-        if (path.basename(current) === "packages") {
-          return current;
-        }
-        current = path.dirname(current);
-      }
-      return yield* Effect.fail(
-        new WorkspacePackagesDirNotFound({
-          message: "Unable to resolve workspace packages directory",
-        }),
-      );
-    }).pipe(Effect.provide(Path.layer), Effect.orDie),
-  );
-}
-
-function packageModuleUrl(...segments: ReadonlyArray<string>): string {
-  return Effect.runSync(
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const url = yield* path.toFileUrl(path.join(packagesDir(), ...segments));
-      return url.href;
-    }).pipe(Effect.provide(Path.layer), Effect.orDie),
-  );
-}
-
-function randomRunId(): Effect.Effect<string, HarnessFailure> {
-  const crypto = (globalThis as { readonly crypto?: RuntimeCrypto }).crypto;
-  if (crypto?.randomUUID === undefined) {
-    return Effect.fail(
-      failHarness("Runtime crypto.randomUUID is not available"),
-    );
-  }
-  return Effect.sync(() => crypto.randomUUID!());
-}
-
-function loadClientTestModule(): Effect.Effect<ClientTestModule, Error, never> {
-  return Effect.tryPromise({
-    try: () =>
-      import(
-        packageModuleUrl("client", "dist", "test-utils", "index.js")
-      ) as Promise<ClientTestModule>,
-    catch: (error) =>
-      error instanceof Error ? error : new Error(String(error)),
-  });
-}
-
-function loadServerTestModule(): Effect.Effect<ServerTestModule, Error, never> {
-  return Effect.tryPromise({
-    try: () =>
-      import(
-        packageModuleUrl("server", "dist", "test-utils", "index.js")
-      ) as Promise<ServerTestModule>,
-    catch: (error) =>
-      error instanceof Error ? error : new Error(String(error)),
-  });
 }
 
 function defaultTargetAgentName(kind: RuntimeKind): string {
@@ -227,742 +87,273 @@ function defaultTargetAgentName(kind: RuntimeKind): string {
   }
 }
 
-const CLIENT_CLOSE_TIMEOUT_MS = 5_000;
-
-// Bounded: a close that hangs (half-dead socket) must degrade to a leaked
-// connection warning, never wedge the run's unwind chain.
-function closeClient(client: HarnessClient): Effect.Effect<void, never, never> {
-  return client.close().pipe(
-    Effect.timeout(Duration.millis(CLIENT_CLOSE_TIMEOUT_MS)),
-    Effect.orElseSucceed(() => undefined),
+function targetAgentName(payload: HarnessPayload): string {
+  return (
+    payload.runtime.targetAgentName ??
+    defaultTargetAgentName(payload.runtime.kind)
   );
 }
 
-function extractTextFromEvent(data: {
-  readonly message: { readonly parts: ReadonlyArray<MessagePart> };
-}): string {
-  return data.message.parts
-    .filter(
-      (part): part is MessagePart & { readonly text: string } =>
-        part.type === "text" && typeof part.text === "string",
-    )
-    .map((part) => part.text)
-    .join("\n");
+// ---------------------------------------------------------------------------
+// Payload -> RunSpec
+// ---------------------------------------------------------------------------
+
+const ImagePin = Schema.Struct({ imageDigest: Schema.String });
+
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+
+/**
+ * The pinned server image a run needs. An operator can pin one through
+ * `MOLTZAP_SIM_SERVER_IMAGE`; otherwise the build script produces it and
+ * prints the pin, re-using the image whenever the workspace is unchanged.
+ */
+function resolveServerImage(): Effect.Effect<string, HarnessFailure, never> {
+  return Effect.gen(function* () {
+    const pinned = yield* Config.string(SERVER_IMAGE_ENV).pipe(
+      Config.withDefault(""),
+      Effect.orElseSucceed(() => ""),
+    );
+    if (pinned.length > 0) return pinned;
+    const printed = yield* Command.string(
+      Command.make(
+        "node",
+        join(packageRoot, "scripts", "build-server-image.mjs"),
+      ),
+    ).pipe(
+      Effect.timeout(Duration.millis(IMAGE_BUILD_TIMEOUT_MS)),
+      Effect.mapError((cause) =>
+        failHarness(
+          `The simulator server image could not be built: ${String(cause)}. Build it with \`node scripts/build-server-image.mjs\`, or pin one through ${SERVER_IMAGE_ENV}.`,
+        ),
+      ),
+    );
+    const pin = yield* Schema.decodeUnknown(Schema.parseJson(ImagePin))(
+      printed.trim().split("\n").at(-1) ?? "",
+    ).pipe(
+      Effect.mapError((cause) =>
+        failHarness(
+          `The server image build printed no usable pin: ${cause.message}`,
+        ),
+      ),
+    );
+    return pin.imageDigest;
+  }).pipe(Effect.provide(NodeContext.layer));
 }
 
 /**
- * Spec B (#596) Goal #7 disposition (a): subscribe BEFORE triggering.
- * Builds the typed Stream of `MessageReceivedNotificationDefinition`
- * payloads filtered to the target sender/conversation pair, takes the
- * first head, and times out with a harness-shaped failure.
- *
- * The reference to `MIN_EVENT_WAIT_MS` from the prior poll-loop shape is
- * dropped — `Stream.runHead` does not poll, it suspends until either a
- * matching frame arrives or the timeout fires.
+ * A v0 run carries one principal injection into one conversation, so a
+ * payload that speaks more than once, or to more than the target, has no
+ * spec. The refusal names the shape instead of running a scenario whose
+ * later messages would never be spoken.
  */
-function waitForTargetResponseStream(input: {
-  readonly client: HarnessClient;
-  readonly targetAgentId: AgentId;
-  readonly conversationId: ConversationId;
-  readonly timeoutMs: number;
-}): Effect.Effect<ConversationResponse, HarnessFailure, never> {
-  return input.client
-    .subscribe(
-      MessageReceivedNotificationDefinition,
-      (params) =>
-        params.message.senderId === input.targetAgentId &&
-        params.message.conversationId === input.conversationId,
-    )
-    .pipe(
-      Stream.runHead,
-      Effect.timeoutFail({
-        duration: Duration.millis(input.timeoutMs),
-        onTimeout: () =>
-          failHarness(
-            `timed out waiting for ${input.targetAgentId} in conversation ${input.conversationId}`,
-          ),
-      }),
-      Effect.flatMap(
-        Option.match({
-          onNone: () =>
-            Effect.fail(
-              failHarness(
-                `notification stream closed before ${input.targetAgentId} response arrived`,
-              ),
-            ),
-          onSome: (data) => {
-            return Effect.succeed({
-              conversationId: data.message.conversationId,
-              senderId: data.message.senderId,
-              text: extractTextFromEvent(data),
-              messageId: data.message.id,
-            } satisfies ConversationResponse);
-          },
-        }),
-      ),
-      Effect.catchAll((error) =>
-        Effect.fail(
-          error instanceof Error ? failHarness(error.message) : error,
-        ),
-      ),
-    );
+function unsupportedShape(payload: HarnessPayload): string | undefined {
+  if (payload.conversation.kind !== "direct") {
+    return `a "${payload.conversation.kind}" conversation needs participants beyond the target`;
+  }
+  if (payload.conversation.followUpMessages.length > 0) {
+    return `${String(payload.conversation.followUpMessages.length)} follow-up message(s) need more than one principal injection`;
+  }
+  return undefined;
 }
 
-function sendMessageAndWait(input: {
-  readonly sender: ConnectedActor;
-  readonly targetAgentId: AgentId;
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-  readonly message: string;
-  readonly timeoutMs: number | undefined;
-}): Effect.Effect<ConversationResponse, HarnessFailure, never> {
-  return Effect.gen(function* () {
-    // Spec B (#596) Goal #7 disposition (a): fork the response-listener
-    // Stream BEFORE the trigger RPC.
-    const responseFiber = yield* Effect.fork(
-      waitForTargetResponseStream({
-        client: input.sender.client,
-        targetAgentId: input.targetAgentId,
-        conversationId: input.conversationId,
-        timeoutMs: input.timeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,
-      }),
-    );
-    yield* input.sender.client
-      .sendRpc(MessagesSend, {
-        taskId: input.taskId,
-        conversationId: input.conversationId,
-        parts: [{ type: "text", text: input.message }],
-      })
-      .pipe(
-        Effect.mapError((error) => failHarness(error.message)),
-        Effect.onError(() => Fiber.interrupt(responseFiber)),
-      );
-    return yield* Fiber.join(responseFiber);
-  });
+function runtimeAssignment(runtime: HarnessPayload["runtime"]): unknown {
+  // Harness runs create fresh conversations with no pre-provisioned
+  // NanoClaw registration, so that runtime has to accept them on delivery.
+  return runtime.kind === "nanoclaw"
+    ? { _tag: "nanoclaw", config: { autoRegisterConversations: true } }
+    : { _tag: "openclaw", config: {} };
 }
 
-function registerConnectedAgent(
-  clientModule: ClientTestModule,
-  baseUrl: string,
-  name: string,
-): Effect.Effect<ConnectedActor, HarnessFailure, never> {
-  return clientModule.registerAndConnect(baseUrl, name).pipe(
-    Effect.map((connected) => ({
-      agentId: connected.agentId,
-      name,
-      client: connected.client,
-    })),
-    Effect.mapError((error) => failHarness(error.message)),
-  );
-}
-
-interface TaskScope {
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-}
-
-function createDirectConversation(
-  sender: ConnectedActor,
-  targetAgentId: AgentId,
-): Effect.Effect<TaskScope, HarnessFailure, never> {
-  return sender.client
-    .sendRpc(TaskRequest, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [targetAgentId],
-      initialConversation: { participants: [targetAgentId] },
-    })
-    .pipe(
-      Effect.mapError((error) => failHarness(error.message)),
-      Effect.flatMap((result) =>
-        result.conversation
-          ? Effect.succeed({
-              taskId: result.task.id,
-              conversationId: result.conversation.id,
-            })
-          : Effect.fail(
-              failHarness("TaskRequest returned null initial conversation"),
-            ),
-      ),
-    );
-}
-
-function createGroupConversation(input: {
-  readonly sender: ConnectedActor;
-  readonly targetAgentId: AgentId;
-  readonly groupName: string;
-  readonly participants: ReadonlyArray<ConnectedActor>;
-}): Effect.Effect<TaskScope, HarnessFailure, never> {
-  const invited = [
-    input.targetAgentId,
-    ...input.participants.map((p) => p.agentId),
-  ];
-  return input.sender.client
-    .sendRpc(TaskRequest, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: invited,
-      initialConversation: { participants: invited },
-    })
-    .pipe(
-      Effect.mapError((error) => failHarness(error.message)),
-      Effect.flatMap((result) =>
-        result.conversation
-          ? Effect.succeed({
-              taskId: result.task.id,
-              conversationId: result.conversation.id,
-            })
-          : Effect.fail(
-              failHarness("TaskRequest returned null initial conversation"),
-            ),
-      ),
-    );
-}
-
-function createConversationState(
-  sender: ConnectedActor,
-): ConversationExecutionState {
+function encodedSpec(input: {
+  readonly payload: HarnessPayload;
+  readonly imageDigest: string;
+  readonly storeRoot: string;
+}): unknown {
+  const runtime = input.payload.runtime;
+  const target = targetAgentName(input.payload);
   return {
-    sender,
-    closers: [sender.client],
-    participants: [{ id: sender.agentId, name: sender.name, role: "sender" }],
-    responses: [],
+    seed: 1,
+    agents: [
+      {
+        name: target,
+        runtime: runtimeAssignment(runtime),
+        runsIn: "host",
+        role: "standard",
+      },
+    ],
+    server: { imageDigest: input.imageDigest },
+    episode: {
+      task: {
+        principal: PRINCIPAL_NAME,
+        to: target,
+        content: input.payload.conversation.setupMessage,
+      },
+      termination: {
+        inactivityTimeoutMs:
+          runtime.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,
+        onAgentCrash: "halt",
+        // One injection and one answer: counting deliveries is safe on a
+        // single-injection spec, where nothing later can be pre-empted.
+        doneSignal: {
+          name: "span-name",
+          config: { name: DELIVERED_SPAN, minCount: EXCHANGE_SPAN_COUNT },
+        },
+      },
+    },
+    timeouts: {
+      readyTimeoutMs: runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+    },
+    recording: { storeRoot: input.storeRoot },
   };
 }
 
-// Concurrent: the clients are independent sockets, and serial closes would
-// stack the per-close timeout into an N x 5s worst-case unwind.
-function closeConversationClients(
-  clients: ReadonlyArray<HarnessClient>,
-): Effect.Effect<void, never, never> {
-  return Effect.forEach(clients, closeClient, {
-    concurrency: clients.length,
-    discard: true,
-  });
-}
-
-function executeConversationKind(
-  input: {
-    readonly payload: HarnessPayload;
-    readonly baseUrl: string;
-    readonly targetAgentId: AgentId;
-    readonly clientModule: ClientTestModule;
-  },
-  state: ConversationExecutionState,
-): Effect.Effect<void, HarnessFailure, never> {
-  switch (input.payload.conversation.kind) {
-    case "direct":
-      return executeDirectConversation(input, state);
-    case "group":
-      return executeGroupConversation(input, state);
-    case "cross":
-      return executeCrossConversation(input, state);
+function specFor(input: {
+  readonly payload: HarnessPayload;
+  readonly imageDigest: string;
+  readonly storeRoot: string;
+}): Effect.Effect<RunSpec, HarnessFailure, never> {
+  const unsupported = unsupportedShape(input.payload);
+  if (unsupported !== undefined) {
+    return Effect.fail(
+      failHarness(
+        `This scenario is not expressible as a simulator run: ${unsupported}. The simulator's episode contract carries one principal injection per run.`,
+      ),
+    );
   }
+  return Schema.decodeUnknown(RunSpec)(encodedSpec(input)).pipe(
+    Effect.mapError((cause) =>
+      failHarness(`The scenario's run spec was rejected: ${cause.message}`),
+    ),
+  );
 }
 
-function executeDirectConversation(
-  input: {
-    readonly payload: HarnessPayload;
-    readonly targetAgentId: AgentId;
-  },
-  state: ConversationExecutionState,
-) {
-  return Effect.gen(function* () {
-    const scope = yield* createDirectConversation(
-      state.sender,
-      input.targetAgentId,
-    );
-    yield* sendSetupAndFollowUps({
-      state,
-      sender: state.sender,
-      targetAgentId: input.targetAgentId,
-      scope,
-      setupMessage: input.payload.conversation.setupMessage,
-      followUpMessages: input.payload.conversation.followUpMessages,
-      timeoutMs: input.payload.runtime.responseTimeoutMs,
-    });
-  });
+// ---------------------------------------------------------------------------
+// Recording -> bundle
+// ---------------------------------------------------------------------------
+
+function readRecordedEvents(
+  sealed: SealedAttempt,
+): Effect.Effect<ReadonlyArray<SimulatorEvent>, HarnessFailure, never> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.readFileString(join(sealed.recording.path, "events.ndjson")),
+    ),
+    Effect.mapError((cause) =>
+      failHarness(`The sealed recording could not be read: ${String(cause)}`),
+    ),
+    Effect.flatMap(decodeEventLines),
+    Effect.provide(NodeContext.layer),
+  );
 }
 
-function executeGroupConversation(
-  input: {
-    readonly payload: HarnessPayload;
-    readonly baseUrl: string;
-    readonly targetAgentId: AgentId;
-    readonly clientModule: ClientTestModule;
-  },
-  state: ConversationExecutionState,
-) {
-  return Effect.gen(function* () {
-    if (input.payload.conversation.kind !== "group") {
-      return;
-    }
-    const bystanders = yield* registerBystanders(input, state);
-    const scope = yield* createGroupConversation({
-      sender: state.sender,
-      targetAgentId: input.targetAgentId,
-      groupName: input.payload.conversation.groupName ?? DEFAULT_GROUP_NAME,
-      participants: bystanders.map((entry) => entry.actor),
-    });
-    yield* sendBystanderMessages(
-      bystanders,
-      input.targetAgentId,
-      scope,
-      input.payload.runtime.responseTimeoutMs,
-    );
-    yield* sendSetupAndFollowUps({
-      state,
-      sender: state.sender,
-      targetAgentId: input.targetAgentId,
-      scope,
-      setupMessage: input.payload.conversation.setupMessage,
-      followUpMessages: input.payload.conversation.followUpMessages,
-      timeoutMs: input.payload.runtime.responseTimeoutMs,
-    });
-  });
-}
-
-function executeCrossConversation(
-  input: {
-    readonly payload: HarnessPayload;
-    readonly baseUrl: string;
-    readonly targetAgentId: AgentId;
-    readonly clientModule: ClientTestModule;
-  },
-  state: ConversationExecutionState,
-) {
-  return Effect.gen(function* () {
-    if (input.payload.conversation.kind !== "cross") {
-      return;
-    }
-    const firstScope = yield* createDirectConversation(
-      state.sender,
-      input.targetAgentId,
-    );
-    yield* sendSetupAndFollowUps({
-      state,
-      sender: state.sender,
-      targetAgentId: input.targetAgentId,
-      scope: firstScope,
-      setupMessage: input.payload.conversation.setupMessage,
-      followUpMessages: input.payload.conversation.followUpMessages,
-      timeoutMs: input.payload.runtime.responseTimeoutMs,
-    });
-    const probeSender = yield* registerProbeSender(input, state);
-    const secondScope = yield* createDirectConversation(
-      probeSender,
-      input.targetAgentId,
-    );
-    state.responses.push(
-      yield* sendMessageAndWait({
-        sender: probeSender,
-        targetAgentId: input.targetAgentId,
-        taskId: secondScope.taskId,
-        conversationId: secondScope.conversationId,
-        message: input.payload.conversation.probeMessage,
-        timeoutMs: input.payload.runtime.responseTimeoutMs,
-      }),
-    );
-  });
-}
-
-function registerBystanders(
-  input: {
-    readonly payload: HarnessPayload;
-    readonly baseUrl: string;
-    readonly clientModule: ClientTestModule;
-  },
-  state: ConversationExecutionState,
-) {
-  if (input.payload.conversation.kind !== "group") {
-    return Effect.succeed([]);
-  }
+function decodeEventLines(
+  text: string,
+): Effect.Effect<ReadonlyArray<SimulatorEvent>, HarnessFailure, never> {
   return Effect.forEach(
-    input.payload.conversation.bystanders,
-    (entry) =>
-      registerConnectedAgent(
-        input.clientModule,
-        input.baseUrl,
-        entry.name,
-      ).pipe(
-        Effect.tap((actor) =>
-          Effect.sync(() => {
-            state.closers.push(actor.client);
-            state.participants.push({
-              id: actor.agentId,
-              name: actor.name,
-              role: "bystander",
-            });
-          }),
+    text.split("\n").filter((line) => line.trim().length > 0),
+    (line) =>
+      decodeEventLine(line).pipe(
+        Effect.mapError((cause) =>
+          failHarness(
+            `The recording holds an undecodable event: ${cause.message}`,
+          ),
         ),
-        Effect.map((actor) => ({ actor, messages: entry.messages })),
       ),
     { concurrency: 1 },
   );
 }
 
-function registerProbeSender(
-  input: {
-    readonly payload: HarnessPayload;
-    readonly baseUrl: string;
-    readonly clientModule: ClientTestModule;
-  },
-  state: ConversationExecutionState,
-) {
-  const name =
-    input.payload.conversation.kind === "cross"
-      ? (input.payload.conversation.probeSenderName ?? "eval-probe-sender")
-      : "eval-probe-sender";
-  return registerConnectedAgent(input.clientModule, input.baseUrl, name).pipe(
-    Effect.tap((actor) =>
-      Effect.sync(() => {
-        state.closers.push(actor.client);
-        state.participants.push({
-          id: actor.agentId,
-          name: actor.name,
-          role: "probe",
-        });
-      }),
-    ),
-  );
+function projectOrFail(
+  events: ReadonlyArray<SimulatorEvent>,
+  payload: HarnessPayload,
+): Effect.Effect<RecordedConversation, HarnessFailure, never> {
+  const projected = projectRecordedConversation({
+    events,
+    targetSlot: targetAgentName(payload),
+    principalName: PRINCIPAL_NAME,
+  });
+  return projected === undefined
+    ? Effect.fail(
+        failHarness(
+          `The recording holds no launch event for "${targetAgentName(payload)}", so no transcript can be attributed to the target agent.`,
+        ),
+      )
+    : Effect.succeed(projected);
 }
 
-function sendSetupAndFollowUps(input: {
-  readonly state: ConversationExecutionState;
-  readonly sender: ConnectedActor;
-  readonly targetAgentId: AgentId;
-  readonly scope: TaskScope;
-  readonly setupMessage: string;
-  readonly followUpMessages: ReadonlyArray<string>;
-  readonly timeoutMs: number | undefined;
-}) {
-  return Effect.gen(function* () {
-    input.state.responses.push(
-      yield* sendMessageAndWait({
-        sender: input.sender,
-        targetAgentId: input.targetAgentId,
-        taskId: input.scope.taskId,
-        conversationId: input.scope.conversationId,
-        message: input.setupMessage,
-        timeoutMs: input.timeoutMs,
-      }),
-    );
-    for (const followUp of input.followUpMessages) {
-      input.state.responses.push(
-        yield* sendMessageAndWait({
-          sender: input.sender,
-          targetAgentId: input.targetAgentId,
-          taskId: input.scope.taskId,
-          conversationId: input.scope.conversationId,
-          message: followUp,
-          timeoutMs: input.timeoutMs,
-        }),
+function outcomeFailure(sealed: SealedAttempt): HarnessFailure | undefined {
+  const outcome = sealed.outcome;
+  switch (outcome._tag) {
+    case "episode":
+      return outcome.termination === "completed"
+        ? undefined
+        : failHarness(
+            `The run ended "${outcome.termination}" rather than completing; the recording at ${sealed.recording.path} holds what was captured.`,
+          );
+    case "infrastructure-failure":
+      return failHarness(
+        `The run failed with ${outcome.errorTag}: ${outcome.errorMessage}`,
       );
-    }
-  });
-}
-
-function sendBystanderMessages(
-  bystanders: ReadonlyArray<{
-    readonly actor: ConnectedActor;
-    readonly messages: ReadonlyArray<string>;
-  }>,
-  targetAgentId: AgentId,
-  scope: TaskScope,
-  responseTimeoutMs: number | undefined,
-) {
-  return Effect.forEach(
-    bystanders,
-    (bystander) =>
-      Effect.forEach(
-        bystander.messages,
-        (message) =>
-          sendMessageAndWait({
-            sender: bystander.actor,
-            targetAgentId,
-            taskId: scope.taskId,
-            conversationId: scope.conversationId,
-            message,
-            timeoutMs: responseTimeoutMs,
-          }),
-        { concurrency: 1, discard: true },
-      ),
-    { concurrency: 1, discard: true },
-  );
-}
-
-function executeConversationPlan(input: {
-  readonly payload: HarnessPayload;
-  readonly baseUrl: string;
-  readonly targetAgentId: AgentId;
-  readonly clientModule: ClientTestModule;
-}): Effect.Effect<ConversationRun, HarnessFailure, never> {
-  return Effect.gen(function* () {
-    const sender = yield* registerConnectedAgent(
-      input.clientModule,
-      input.baseUrl,
-      input.payload.conversation.senderName ?? "eval-sender",
-    );
-    const state = createConversationState(sender);
-
-    // Cleanup MUST be Effect.ensuring, not a gen-body try/finally: on the
-    // failure path Effect.gen never resumes the generator, so a finally's
-    // `yield*` silently never executes — the leaked client sockets then
-    // hang the server close and wedge the caller forever (#791). The
-    // suspend defers reading `closers`, which fills during execution.
-    yield* executeConversationKind(input, state).pipe(
-      Effect.ensuring(
-        Effect.suspend(() => closeConversationClients(state.closers)),
-      ),
-    );
-    return {
-      participants: state.participants,
-      responses: state.responses,
-    };
-  });
-}
-
-function withExclusiveRun<A, E>(
-  effect: Effect.Effect<A, E, never>,
-): Effect.Effect<A, E | HarnessFailure, never> {
-  return Effect.try({
-    try: () => {
-      if (activeRun) {
-        throw new ActiveTraceCaptureRunExists({
-          message:
-            "MoltZap trace-capture harness only supports one active run at a time",
-        });
-      }
-      activeRun = true;
-    },
-    catch: (error) =>
-      failHarness(error instanceof Error ? error.message : String(error)),
-  }).pipe(
-    Effect.zipRight(effect),
-    Effect.ensuring(
-      Effect.sync(() => {
-        activeRun = false;
-      }),
-    ),
-  );
-}
-
-interface TargetAgentRegistration {
-  readonly agentId: AgentId;
-  readonly apiKey: AgentKey;
-  readonly agentName: string;
-}
-
-function startCoreTraceServer(
-  serverTestModule: ServerTestModule,
-): Effect.Effect<CoreTestServer, HarnessFailure> {
-  return Effect.tryPromise({
-    try: () => serverTestModule.startCoreTestServer({}),
-    catch: (error) =>
-      failHarness(error instanceof Error ? error.message : String(error)),
-  });
-}
-
-function loadHarnessClientModule(): Effect.Effect<
-  ClientTestModule,
-  HarnessFailure
-> {
-  return loadClientTestModule().pipe(
-    Effect.mapError((error) =>
-      failHarness(error instanceof Error ? error.message : String(error)),
-    ),
-  );
-}
-
-function registerTargetAgent(input: {
-  readonly clientModule: ClientTestModule;
-  readonly baseUrl: string;
-  readonly targetAgentName: string;
-}): Effect.Effect<TargetAgentRegistration, HarnessFailure> {
-  return input.clientModule
-    .registerAgent(input.baseUrl, input.targetAgentName)
-    .pipe(
-      Effect.map((registered) => ({
-        agentId: registered.agentId,
-        apiKey: registered.apiKey,
-        agentName: input.targetAgentName,
-      })),
-      Effect.mapError((error) => failHarness(error.message)),
-    );
-}
-
-function mapRuntimeStartError(
-  error: unknown,
-  agentId: AgentId,
-): HarnessFailure {
-  if (error instanceof SpawnFailed) {
-    return failAgentStart(
-      agentId,
-      new ContainerStartFailed({ message: error.message }),
-    );
   }
-  if (error instanceof RuntimeReadyTimedOut) {
-    return failAgentStart(
-      agentId,
-      new ContainerStartFailed({
-        message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
-      }),
-    );
-  }
-  const exited = error as { readonly stderr?: unknown };
-  return failAgentStart(
-    agentId,
-    new ContainerStartFailed({
-      message: `runtime exited before readiness: ${String(exited.stderr)}`,
-    }),
-  );
 }
 
-function startHarnessRuntime(input: {
-  readonly payload: HarnessPayload;
-  readonly server: CoreTestServer;
-  readonly targetAgent: TargetAgentRegistration;
-  readonly clientModule: ClientTestModule;
-}) {
-  // Harness runs create fresh conversations with no pre-provisioned NanoClaw
-  // registration, so the disposable eval runtime must accept them on delivery.
-  const runtimeSelection =
-    input.payload.runtime.kind === "nanoclaw"
-      ? ({
-          kind: "nanoclaw",
-          nanoclaw: { autoRegisterConversations: true },
-        } as const)
-      : ({ kind: "openclaw" } as const);
-  return startRuntimeAgent({
-    ...runtimeSelection,
-    server: input.server.runtimeServer,
-    readyTimeoutMs:
-      input.payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-    agent: {
-      agentName: input.targetAgent.agentName,
-      apiKey: input.targetAgent.apiKey,
-      agentId: input.targetAgent.agentId,
-      serverUrl: input.clientModule.stripWsPath(input.server.wsUrl),
-    },
-  }).pipe(
-    Effect.mapError((error) =>
-      mapRuntimeStartError(error, input.targetAgent.agentId),
+// ---------------------------------------------------------------------------
+// Coordinator
+// ---------------------------------------------------------------------------
+
+function recordingRoot(): Effect.Effect<string, HarnessFailure, never> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.makeTempDirectory({ prefix: "moltzap-trace-capture-" }),
     ),
-  );
-}
-
-const SERVER_STOP_TIMEOUT_MS = 15_000;
-
-// Bounded like every other finalizer in the unwind chain: app.close() waits
-// for connection drain, so a socket that survived client close and runtime
-// teardown must degrade to a leak warning instead of wedging the caller.
-function stopCoreTraceServer(
-  serverTestModule: ServerTestModule,
-): Effect.Effect<void> {
-  return Effect.tryPromise({
-    try: () => Promise.resolve(serverTestModule.stopCoreTestServer()),
-    catch: (error) =>
-      error instanceof Error ? error : new Error(String(error)),
-  }).pipe(
-    Effect.timeout(Duration.millis(SERVER_STOP_TIMEOUT_MS)),
-    Effect.catchAll(() =>
-      Effect.logWarning(
-        "core test server did not stop within the bound; abandoning close",
-      ),
+    Effect.mapError((cause) =>
+      failHarness(`No recording directory could be created: ${String(cause)}`),
     ),
+    Effect.provide(NodeContext.layer),
   );
 }
 
-function executeTraceRun(input: {
+function executeThroughSimulator(input: {
   readonly sourcePath: string;
   readonly payload: HarnessPayload;
   readonly plan: HarnessLoadArgs["plan"];
   readonly runId: string | undefined;
-  readonly server: CoreTestServer;
-  readonly clientModule: ClientTestModule;
-  readonly targetAgent: TargetAgentRegistration;
-  readonly runtime: Runtime;
-  readonly runtimeStartedAt: string;
 }): Effect.Effect<Readonly<Record<string, unknown>>, HarnessFailure, never> {
-  const teardown = input.runtime.teardown();
   return Effect.gen(function* () {
-    const conversationRun = yield* executeConversationPlan({
+    const imageDigest = yield* resolveServerImage();
+    const storeRoot = yield* recordingRoot();
+    const spec = yield* specFor({
       payload: input.payload,
-      baseUrl: input.server.baseUrl,
-      targetAgentId: input.targetAgent.agentId,
-      clientModule: input.clientModule,
+      imageDigest,
+      storeRoot,
     });
-    // TODO: read finished OTel spans from `server.spanExporter` and map
-    // `moltzap.message.delivered` spans to `TraceCaptureEvent`. The
-    // server-side custom `TraceCapture` was removed; arena's harness
-    // needs its own OTel→TraceCaptureEvent mapping. Bundles are empty
-    // until that's wired.
-    //
-    // Note: spans carry message-shape metadata only (part/text counts and
-    // lengths), NOT message body plaintext — the server redacts body text
-    // from telemetry. A future mapping that needs the actual message text
-    // must obtain it through a non-telemetry path, not from these spans.
-    const traceEvents: readonly TraceCaptureEvent[] = [];
-    const runId = input.runId ?? (yield* randomRunId());
+    const runtimeStartedAt = new Date().toISOString();
+    const sealed = yield* Effect.scoped(run(spec)).pipe(
+      Effect.mapError((cause) =>
+        failHarness(`The simulator run failed: ${cause.message}`),
+      ),
+    );
+    const failure = outcomeFailure(sealed);
+    if (failure !== undefined) return yield* Effect.fail(failure);
+    const conversation = yield* projectOrFail(
+      yield* readRecordedEvents(sealed),
+      input.payload,
+    );
     return buildTraceBundle({
       sourcePath: input.sourcePath,
       payload: input.payload,
       plan: input.plan,
-      runId,
-      targetAgent: input.targetAgent,
-      runtimeStartedAt: input.runtimeStartedAt,
-      traceEvents,
-      conversationRun,
-    });
-  }).pipe(Effect.ensuring(teardown));
-}
-
-function executeCoordinatorRun(input: {
-  readonly sourcePath: string;
-  readonly payload: HarnessPayload;
-  readonly plan: HarnessLoadArgs["plan"];
-  readonly runId: string | undefined;
-}) {
-  return Effect.gen(function* () {
-    const serverTestModule = yield* loadServerTestModule();
-    const server = yield* startCoreTraceServer(serverTestModule);
-    return yield* executeWithCoreServer(input, server).pipe(
-      Effect.ensuring(stopCoreTraceServer(serverTestModule)),
-    );
-  });
-}
-
-function executeWithCoreServer(
-  input: {
-    readonly sourcePath: string;
-    readonly payload: HarnessPayload;
-    readonly plan: HarnessLoadArgs["plan"];
-    readonly runId: string | undefined;
-  },
-  server: CoreTestServer,
-) {
-  return Effect.gen(function* () {
-    const clientModule = yield* loadHarnessClientModule();
-    const targetAgentName =
-      input.payload.runtime.targetAgentName ??
-      defaultTargetAgentName(input.payload.runtime.kind);
-    const targetAgent = yield* registerTargetAgent({
-      clientModule,
-      baseUrl: server.baseUrl,
-      targetAgentName,
-    });
-    const runtimeStartedAt = new Date().toISOString();
-    const runtime = yield* startHarnessRuntime({
-      payload: input.payload,
-      server,
-      targetAgent,
-      clientModule,
-    });
-    return yield* executeTraceRun({
-      ...input,
-      server,
-      clientModule,
-      targetAgent,
-      runtime,
+      runId: input.runId ?? sealed.recording.runId,
+      targetAgent: {
+        agentId: conversation.targetAgentId,
+        agentName: targetAgentName(input.payload),
+      },
       runtimeStartedAt,
+      traceEvents: conversation.traceEvents,
+      conversationRun: {
+        participants: conversation.participants,
+        responses: conversation.responses,
+      },
     });
   });
 }
@@ -974,14 +365,12 @@ function createCoordinator(sourcePath: string, payload: HarnessPayload) {
       _harness: unknown,
       opts: { readonly runId?: string } = {},
     ): Effect.Effect<Readonly<Record<string, unknown>>, HarnessFailure, never> {
-      return withExclusiveRun(
-        executeCoordinatorRun({
-          sourcePath,
-          payload,
-          plan,
-          runId: opts.runId,
-        }),
-      ).pipe(Effect.mapError(asHarnessFailure));
+      return executeThroughSimulator({
+        sourcePath,
+        payload,
+        plan,
+        runId: opts.runId,
+      });
     },
   };
 }
@@ -1026,9 +415,7 @@ function buildHarnessPlan(args: HarnessLoadArgs, payload: HarnessPayload) {
 function targetAgentPlan(payload: HarnessPayload) {
   return {
     id: PLAN_TARGET_AGENT_ID,
-    name:
-      payload.runtime.targetAgentName ??
-      defaultTargetAgentName(payload.runtime.kind),
+    name: targetAgentName(payload),
     role: "target",
     artifact: {
       _tag: "DockerImageArtifact",
@@ -1045,7 +432,6 @@ function targetAgentPlan(payload: HarnessPayload) {
 const traceCaptureHarness = {
   load(args: HarnessLoadArgs) {
     return decodePayload(args.sourcePath, args.payload).pipe(
-      Effect.mapError(asHarnessFailure),
       Effect.map((payload) => buildHarnessLoadResult(args, payload)),
     );
   },

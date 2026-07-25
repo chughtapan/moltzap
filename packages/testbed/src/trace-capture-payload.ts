@@ -77,7 +77,8 @@ type BystanderCandidate = {
   readonly messages?: unknown;
 };
 
-interface InvalidPayloadFailure {
+/** The failure shape cc-judge receives when a scenario's payload does not decode. */
+export interface InvalidPayloadFailure {
   readonly cause: InvalidPayload;
 }
 
