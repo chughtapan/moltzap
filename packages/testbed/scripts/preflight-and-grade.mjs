@@ -85,14 +85,17 @@ const graded = spawnSync(grade[0], grade.slice(1), {
   stdio: "inherit",
 });
 
-// The reproducibility sidecar. Unchanged grader artifacts cannot carry
-// these fields, so the recipe that ran both stages writes them down.
+// The reproducibility sidecar, written into the recording directory. It
+// records the invocation, not the rubric: which file among the grader's
+// arguments holds a rubric is the grader's own business, and the recipe
+// never interprets it. So the digest covers the argument vector, and a
+// rubric edited in place moves the grader's artifacts, not this field.
 const meta = {
   recording: resolve(recording),
   condition: condition ?? null,
   preflight: JSON.parse(preflight.stdout || "{}"),
   grader: grade.join(" "),
-  rubricSha256: createHash("sha256")
+  graderCommandSha256: createHash("sha256")
     .update(JSON.stringify(grade))
     .digest("hex"),
   gradedAtWallTime: Date.now(),

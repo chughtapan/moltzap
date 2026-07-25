@@ -11,8 +11,8 @@
  * decides the exit code.
  *
  * A bundle is a spec with one more section, so every spec-shaped verb
- * accepts one: `run` reads the spec and never names `grade:`, which
- * materialization strips alongside `condition`.
+ * accepts one: `grade:` is not a `RunSpec` field, so the decode behind
+ * materialization drops it and no verb here can name it.
  *
  * ```mermaid
  * flowchart LR

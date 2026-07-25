@@ -64,11 +64,13 @@ Two readers, one file, and they never meet. `run` reads the spec and
 ignores `grade:`; the grader reads `grade:` and the sealed recording.
 
 No grader half can influence a run, and the property holds structurally
-rather than by procedure: `grade:` is stripped at materialization by the
-same value-level projection that strips `condition`, so nothing
-downstream of materialization can name it. It is excluded from the spec
-hash alongside `seed`, so editing a rubric changes no recording identity
-and splits no comparable set.
+rather than by procedure: `grade:` is not a field of `RunSpec`, so
+materialization's decode drops it and nothing downstream can name it.
+Never being part of the spec, it never reaches the spec hash either —
+editing a rubric changes no recording identity and splits no comparable
+set. `condition` is the opposite case: it does decode, it does count
+toward the hash, and the manifest persists it; what it never reaches is
+the agent-facing projection.
 
 The grade half is a grader's own grammar and ships as that grader's
 emitter, beside the instrument rather than inside its export map.
@@ -89,10 +91,14 @@ grader, whose exit codes stay its own: a graded fail is the grader's
 exit 1, not a convention code. The recipe composes the two stages; it
 does not re-key the grader.
 
-It also writes `grading-meta.json` beside the recording — grader command,
-rubric hash, condition label, timestamp — because unchanged grader
-artifacts cannot carry those fields and reproducibility needs them
-somewhere.
+It also writes `grading-meta.json` into the recording directory — grader
+command, a digest of that command, condition label, timestamp — because
+unchanged grader artifacts cannot carry those fields and reproducibility
+needs them somewhere. The digest covers the invocation, not the rubric:
+which argument holds a rubric is the grader's business, so a rubric
+edited in place moves the grader's own artifacts rather than this field.
+The sidecar is not one of the four sealed files, so writing it leaves the
+seal intact.
 
 ## Writing a grader in code
 
