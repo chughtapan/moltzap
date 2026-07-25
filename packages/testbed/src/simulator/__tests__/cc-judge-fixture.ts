@@ -102,18 +102,16 @@ function scalar(scalars: Scalars, key: string): string {
   return value;
 }
 
-function readFixture(): Effect.Effect<string, unknown, never> {
+function readFixture(): Effect.Effect<string, unknown, FileSystem.FileSystem> {
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fs) => fs.readFileString(fixturePath)),
-    Effect.provide(NodeContext.layer),
   );
 }
 
-function fileExists(path: string): Effect.Effect<boolean, unknown, never> {
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fs) => fs.exists(path)),
-    Effect.provide(NodeContext.layer),
-  );
+function fileExists(
+  path: string,
+): Effect.Effect<boolean, unknown, FileSystem.FileSystem> {
+  return FileSystem.FileSystem.pipe(Effect.flatMap((fs) => fs.exists(path)));
 }
 
 function planFor(scenario: Scalars) {
@@ -129,7 +127,7 @@ function planFor(scenario: Scalars) {
 /** The module path cc-judge imports is this package's built entry point. */
 function expectEntryPoint(
   fixture: string,
-): Effect.Effect<void, unknown, never> {
+): Effect.Effect<void, unknown, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     expect(
       resolve(scenarioDir, scalar(scalarsAt(fixture, ["harness"]), "module")),
@@ -210,5 +208,5 @@ export function path24a(): Effect.Effect<void, unknown, never> {
     yield* expectEntryPoint(fixture);
     yield* expectAssembledPlan(fixture);
     yield* expectRejectedPayload();
-  });
+  }).pipe(Effect.provide(NodeContext.layer));
 }

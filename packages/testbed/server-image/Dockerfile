@@ -4,6 +4,14 @@
 # `scripts/build-server-image.mjs`, which stages the workspace tarballs
 # next to this file; the image is never pushed, so runs pin it by the
 # local image id (`sha256:...`, the `ServerSpec.imageDigest` form).
+#
+# `packages/server/Dockerfile` is the deployment image of the same
+# binary and stays the reference for operators. This one exists beside
+# it because a run's identity is the image digest: it is built from the
+# workspace's already-built output, so it changes exactly when that tree
+# changes, and it bakes the launcher's contract (port, `/data`, open
+# registration, no encryption secret) rather than reading an operator's
+# mounted config.
 FROM node:22-slim
 
 ENV NODE_ENV=production \

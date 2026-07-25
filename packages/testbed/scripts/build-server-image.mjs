@@ -99,8 +99,11 @@ async function stage(version) {
   const staging = await mkdtemp(join(tmpdir(), "moltzap-server-image-"));
   const tarballs = join(staging, "tarballs");
   await mkdir(tarballs);
-  const protocolTarball = await packInto(protocolDir, tarballs);
-  const serverTarball = await packInto(serverDir, tarballs);
+  // Independent packs of independent packages; each is a full pnpm startup.
+  const [protocolTarball, serverTarball] = await Promise.all([
+    packInto(protocolDir, tarballs),
+    packInto(serverDir, tarballs),
+  ]);
   // `overrides` forces the workspace protocol tarball in place of the
   // registry version server-core's manifest names, so the image carries
   // the tree under test rather than the last published release.
@@ -115,12 +118,14 @@ async function stage(version) {
       "@moltzap/protocol": `file:./tarballs/${protocolTarball}`,
     },
   };
-  await writeFile(
-    join(staging, "package.json"),
-    `${JSON.stringify(manifest, null, 2)}\n`,
-  );
-  await copyFile(join(imageDir, "Dockerfile"), join(staging, "Dockerfile"));
-  await copyFile(join(imageDir, "moltzap.yaml"), join(staging, "moltzap.yaml"));
+  await Promise.all([
+    writeFile(
+      join(staging, "package.json"),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+    ),
+    copyFile(join(imageDir, "Dockerfile"), join(staging, "Dockerfile")),
+    copyFile(join(imageDir, "moltzap.yaml"), join(staging, "moltzap.yaml")),
+  ]);
   return staging;
 }
 

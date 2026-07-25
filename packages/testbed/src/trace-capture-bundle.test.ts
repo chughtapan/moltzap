@@ -3,8 +3,9 @@
  * conversation cc-judge grades. Attribution is the load-bearing part —
  * the target's answers are the graded text, so an id that cannot be
  * attributed has to read as a broken recording rather than as a short
- * conversation. Events are decoded through `decodeEventLine`, the same
- * boundary a grader crosses, so a schema change fails here too.
+ * conversation, and each refusal has to name what is broken. Events are
+ * decoded through `decodeEventLine`, the same boundary a grader crosses,
+ * so a schema change fails here too.
  */
 /* eslint-disable sonarjs/assertions-in-tests -- each entry runs one prepared effect whose expectations live beside the recording it projects */
 // @agent-code-guard/regression-only: the subject is attribution over hand-built recordings; each case pins one branch of "who spoke"
@@ -13,9 +14,9 @@ import { describe, expect, it } from "vitest";
 import { agentId } from "@moltzap/protocol/testing";
 import {
   projectRecordedConversation,
-  type RecordedConversation,
+  RecordingUnattributable,
 } from "./trace-capture-bundle.js";
-import { decodeEventLine } from "./simulator/index.js";
+import { decodeEventLine, type RecordingInvalid } from "./simulator/index.js";
 
 const RUN_ID = "abcdef012345-s1-a1";
 const TARGET_SLOT = "openclaw-eval-agent";
@@ -24,6 +25,7 @@ const CONVERSATION = "conv-1";
 const TARGET_ID = agentId("11111111-1111-4111-8111-111111111111");
 const PRINCIPAL_ID = agentId("22222222-2222-4222-8222-222222222222");
 const ANSWER = "they are task-scoped";
+const FOREIGN_SENDER = "not-an-agent-id";
 
 function envelope(sequence: number) {
   return {
@@ -63,19 +65,41 @@ function message(
 }
 
 /** Decode hand-built lines the way a grader does, then project them. */
-function project(
-  lines: ReadonlyArray<unknown>,
-): Effect.Effect<RecordedConversation | undefined, never, never> {
+function project(lines: ReadonlyArray<unknown>) {
   return Effect.forEach(
     lines,
     (line) => decodeEventLine(JSON.stringify(line)),
     { concurrency: 1 },
   ).pipe(
-    Effect.map((events) =>
+    Effect.flatMap((events) =>
       projectRecordedConversation({
         events,
         targetSlot: TARGET_SLOT,
         principalName: PRINCIPAL_NAME,
+      }),
+    ),
+  );
+}
+
+/** Assert the projection refused, and refused for this reason. */
+function expectUnattributable(
+  effect: Effect.Effect<
+    unknown,
+    RecordingUnattributable | RecordingInvalid,
+    never
+  >,
+  expected: RecordingUnattributable,
+): Effect.Effect<void, never, never> {
+  return effect.pipe(
+    Effect.map(() => {
+      expect.unreachable(
+        `the recording must not attribute: ${expected.reason}`,
+      );
+    }),
+    Effect.catchTag("RecordingUnattributable", (cause) =>
+      Effect.sync(() => {
+        expect(cause.reason).toBe(expected.reason);
+        expect(cause.detail).toBe(expected.detail);
       }),
     ),
     Effect.orDie,
@@ -90,8 +114,8 @@ const exchange = [
 
 const attributesTheExchange = project(exchange).pipe(
   Effect.map((projected) => {
-    expect(projected?.targetAgentId).toBe(TARGET_ID);
-    expect(projected?.responses).toEqual([
+    expect(projected.targetAgentId).toBe(TARGET_ID);
+    expect(projected.responses).toEqual([
       {
         conversationId: CONVERSATION,
         senderId: TARGET_ID,
@@ -99,27 +123,32 @@ const attributesTheExchange = project(exchange).pipe(
         messageId: "m2",
       },
     ]);
-    expect(projected?.participants).toEqual([
+    expect(projected.participants).toEqual([
       { id: PRINCIPAL_ID, name: PRINCIPAL_NAME, role: "sender" },
     ]);
     expect(
-      projected?.traceEvents.map((event) => event.senderDisplayName),
+      projected.traceEvents.map((event) => event.senderDisplayName),
     ).toEqual([PRINCIPAL_NAME, TARGET_SLOT]);
   }),
+  Effect.orDie,
 );
 
-const refusesWithoutReady = project(exchange.slice(1)).pipe(
-  Effect.map((projected) => {
-    expect(projected).toBeUndefined();
+const namesTheMissingSlot = expectUnattributable(
+  project(exchange.slice(1)),
+  new RecordingUnattributable({
+    reason: "slot-never-ready",
+    detail: TARGET_SLOT,
   }),
 );
 
-const refusesForeignSender = project([
-  ready(1, TARGET_SLOT, TARGET_ID),
-  message(2, "not-an-agent-id", "hello", "m1"),
-]).pipe(
-  Effect.map((projected) => {
-    expect(projected).toBeUndefined();
+const namesTheForeignSender = expectUnattributable(
+  project([
+    ready(1, TARGET_SLOT, TARGET_ID),
+    message(2, FOREIGN_SENDER, "hello", "m1"),
+  ]),
+  new RecordingUnattributable({
+    reason: "undecodable-agent-id",
+    detail: FOREIGN_SENDER,
   }),
 );
 
@@ -127,9 +156,9 @@ describe("recorded conversation projection", () => {
   it("attributes the target's answers and names the principal", () =>
     Effect.runPromise(attributesTheExchange));
 
-  it("refuses a recording whose target slot never reached ready", () =>
-    Effect.runPromise(refusesWithoutReady));
+  it("names the target slot when it never reached ready", () =>
+    Effect.runPromise(namesTheMissingSlot));
 
-  it("refuses a recording whose sender is not a protocol agent id", () =>
-    Effect.runPromise(refusesForeignSender));
+  it("names the value when a sender is not a protocol agent id", () =>
+    Effect.runPromise(namesTheForeignSender));
 });
