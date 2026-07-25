@@ -28,14 +28,14 @@ import {
   type FixtureOptions,
   tempStoreRoot,
   transcript,
-} from "./__tests__/recording-fixture.js";
-import { EpisodeOutcome, FailureOutcome } from "./simulator/index.js";
+} from "../__tests__/recording-fixture.js";
+import { EpisodeOutcome, FailureOutcome } from "../simulator/index.js";
 import {
   ERROR_TAG,
   OUTCOME,
   REASON,
   TERMINATION,
-} from "./simulator/__tests__/tags.js";
+} from "../simulator/__tests__/tags.js";
 
 const GRADEABLE: GradingPreconditions = {
   condition: null,

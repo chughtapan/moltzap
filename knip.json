@@ -46,6 +46,8 @@
     "packages/testbed": {
       "entry": [
         "src/trace-capture-harness.ts",
+        "src/grading/cc-judge-bundle-plan.ts",
+        "src/grading/cc-judge-recording-harness.ts",
         "src/**/*.test.ts",
         "vitest*.config.ts"
       ],

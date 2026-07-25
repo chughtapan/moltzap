@@ -13,21 +13,21 @@ import { Effect, FastCheck as fc, Schema } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { stringify as stringifyYaml } from "yaml";
-import { main } from "./cli.js";
-import { EXIT_CODE, exitCodeFor } from "./cli-exit.js";
+import { main } from "./main.js";
+import { EXIT_CODE, exitCodeFor } from "./exit.js";
 import {
   makeRecording,
   tamper,
   tempStoreRoot,
-} from "./__tests__/recording-fixture.js";
-import { specInput } from "./simulator/__tests__/support.js";
+} from "../__tests__/recording-fixture.js";
+import { specInput } from "../simulator/__tests__/support.js";
 import {
   EpisodeOutcome,
   RECORDING_SCHEMA_VERSION,
   describeDrivers,
-} from "./simulator/index.js";
-import { JsonObject } from "./simulator/run-spec.js";
-import { ERROR_TAG, TERMINATION } from "./simulator/__tests__/tags.js";
+} from "../simulator/index.js";
+import { JsonObject } from "../simulator/run-spec.js";
+import { ERROR_TAG, TERMINATION } from "../simulator/__tests__/tags.js";
 
 const CONDITION = "cold-outreach/2";
 const OTHER_CONDITION = "cold-outreach/1";

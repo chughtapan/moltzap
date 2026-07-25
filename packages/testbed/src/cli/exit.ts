@@ -12,7 +12,7 @@
  * residual: a failure the mapping does not name is reported as unexpected
  * rather than dressed up as one of the known refusals.
  */
-import type { RunOutcome } from "./simulator/index.js";
+import type { RunOutcome } from "../simulator/index.js";
 
 /**
  * Every exit code the CLI produces, by the name a caller branches on.
@@ -41,7 +41,7 @@ export type ExitCode = (typeof EXIT_CODE)[keyof typeof EXIT_CODE];
  * below is a compile error, which is what keeps the mapping total as the
  * error taxonomy grows.
  */
-export type MappedTag =
+type MappedTag =
   | "RunSpecInvalid"
   | "AdapterConfigRejected"
   | "IsolationViolation"

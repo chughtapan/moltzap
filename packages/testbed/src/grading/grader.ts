@@ -27,7 +27,7 @@
 import { resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import { absurd } from "effect/Function";
-import { decodeEvent, type SimulatorEvent } from "./simulator/event-log.js";
+import { decodeEvent, type SimulatorEvent } from "../simulator/event-log.js";
 import {
   EpisodeTermination,
   makeLocalRecordingStore,
@@ -36,14 +36,14 @@ import {
   type RunOutcome,
   type SealMarker,
   type TracesJson,
-} from "./simulator/index.js";
-import type { AgentName } from "./simulator/run-spec.js";
+} from "../simulator/index.js";
+import type { AgentName } from "../simulator/run-spec.js";
 import {
   RecordingInvalid,
   RecordingUnsealed,
   type RecordingSchemaMismatch,
   type RecordingStoreFailed,
-} from "./simulator/errors.js";
+} from "../simulator/errors.js";
 
 // ---------------------------------------------------------------------------
 // Convention-level refusals
@@ -388,16 +388,19 @@ export {
   SealMarker,
   EpisodeTermination,
   type RunOutcome,
-} from "./simulator/index.js";
+} from "../simulator/index.js";
 
-export { decodeEventLine, type SimulatorEvent } from "./simulator/event-log.js";
+export {
+  decodeEventLine,
+  type SimulatorEvent,
+} from "../simulator/event-log.js";
 
 export {
   RecordingStoreFailed,
   RecordingUnsealed,
   RecordingSchemaMismatch,
   RecordingInvalid,
-} from "./simulator/errors.js";
+} from "../simulator/errors.js";
 
-export { AgentName, JsonValue, JsonObject } from "./simulator/run-spec.js";
-export type { CanonicalJson } from "./simulator/run-spec.js";
+export { AgentName, JsonValue, JsonObject } from "../simulator/run-spec.js";
+export type { CanonicalJson } from "../simulator/run-spec.js";
