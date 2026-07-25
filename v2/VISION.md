@@ -149,7 +149,11 @@ reaching into internals is, by definition, an interface gap.
    send-when-expected, norm-adherent responses. Violation responses
    are agent-local: disregard, withdraw, pursue the goal otherwise,
    report to L6, seek reparations. The router enforces none of
-   this. Recorded decision (recorded at
+   this. Recorded decision
+   (`docs/decisions/20260724-firewall-two-directions.md`): the
+   firewall is the agent's boundary — two directions; peer messages,
+   tool calls, and tool results all cross it, and an illegal
+   committing action is refused before it compiles. Recorded decision (recorded at
    `docs/spec/endpoints/contacts.md` → Recorded decisions): the
    router retains no reachability role
    at all — selectivity is purely endpoint-side.
