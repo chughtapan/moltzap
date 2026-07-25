@@ -64,6 +64,24 @@ multi-signed entry.**
   open — there may be multiple eligible next leaders contending; in
   v0 the PCC turn instrument arbitrates, and a task's norms may
   define election or rotation.
+- **The transcript is a pessimistic database** (refinement,
+  2026-07-24). PCC and transaction semantics are one interface, and
+  the lock comes first: `begin` **acquires the conversation's write
+  lock** — it resolves only when the group's write discipline grants
+  this writer the next turn, so observe-before-generate is holding an
+  open transaction before generating; `update` stages entries within
+  it (a collective's contributions); `commit` lands the unit
+  atomically at one place in the order and releases the lock;
+  `abort` releases without effect. An ordinary message is the
+  autocommit case. The store supplies atomicity, isolation, and the
+  lock discipline; it **never judges completeness** — when to commit,
+  and whether the quorum suffices, is the committer's call under the
+  task's norms, which is what keeps this the opposite of the rejected
+  escrow model. The rounds are this interface realized among
+  distrusting parties: propose/ack realize `begin`, the contribution
+  round realizes `update`s, the signature round and commit frame
+  realize `commit`. Lock TTLs, abort authority, participant-update
+  carriage, and overlapping open transactions are the charter's.
 
 Still chartered (#765): quorum rules, liveness and safety machinery,
 abort and timeout semantics, sealed rounds (commit-reveal), whether
@@ -72,10 +90,11 @@ embedding vs referencing contributions in the transaction, retention
 of round traffic (register item 6), overlapping collectives, and the
 encryption interaction.
 
-Consequences: the port surface is untouched — `send` carries every
-round and the store's write path stays unit-of-one, because a
-committed transaction is one frame; no store bracket or escrow exists;
-a member that missed the rounds needs only the chain, not the votes;
-L6 evidence strengthens, since committed transactions self-certify.
+Consequences: the member write surface is `send` (autocommit) plus
+the transaction verbs; the committed log advances one unit per
+transaction; no completeness judgment exists anywhere in the store;
+a member that missed the rounds needs only the committed chain, not
+the votes; L6 evidence strengthens, since committed transactions
+self-certify.
 Supersedes in part: the durable-then-deliver wording of constitution
 clause 13 and the storage guarantees that repeated it.
