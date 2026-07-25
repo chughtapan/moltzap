@@ -24,8 +24,8 @@ import { specInput } from "./simulator/__tests__/support.js";
 import { EpisodeOutcome } from "./simulator/index.js";
 import { ERROR_TAG, TERMINATION } from "./simulator/__tests__/tags.js";
 
-const CONTENT_KEY = "cold-outreach/2";
-const OTHER_CONTENT_KEY = "cold-outreach/1";
+const CONDITION = "cold-outreach/2";
+const OTHER_CONDITION = "cold-outreach/1";
 const RUBRIC_FIELD = "expectedBehavior";
 const SPEC_MARKER = "seed:";
 const ORIGINS_HEADING = "field origins:";
@@ -77,17 +77,18 @@ function writeText(
   );
 }
 
-function readText(path: string): Effect.Effect<string, never, never> {
-  return withFs((fs) => fs.readFileString(path)).pipe(Effect.orDie);
-}
-
+/**
+ * A bundle is a spec with one more section, so this is the same document
+ * `run` reads, plus the grade half it never names.
+ */
 function bundleOf(dir: string, extra: Record<string, unknown> = {}) {
   return {
-    name: "Cold outreach response quality",
-    description: "Tests helpful response to a first-contact DM.",
-    scenarioId: "EVAL-005",
-    contentVersion: CONTENT_KEY,
-    run: specInput(dir),
+    ...(specInput(dir, {
+      condition: {
+        label: CONDITION,
+        notes: "Tests helpful response to a first-contact DM.",
+      },
+    }) as Record<string, unknown>),
     grade: {
       grader: "cc-judge",
       config: { [RUBRIC_FIELD]: "respond helpfully" },
@@ -106,12 +107,10 @@ const CONFIG_TIME_TAGS = [
   ERROR_TAG.isolationViolation,
   ERROR_TAG.faultUnsupported,
   ERROR_TAG.unknownDriver,
-  ERROR_TAG.bundleInvalid,
-  ERROR_TAG.contentVersionConflict,
 ] as const;
 
 describe("the exit-code mapping", () => {
-  it("gives every config-time and projection-time rejection one code", () => {
+  it("gives every config-time rejection one code", () => {
     for (const tag of CONFIG_TIME_TAGS) {
       expect(exitCodeFor(tag)).toBe(EXIT_CODE.rejected);
     }
@@ -128,8 +127,8 @@ describe("the exit-code mapping", () => {
   });
 
   it("gives the grading convention its own band", () => {
-    expect(exitCodeFor(ERROR_TAG.contentVersionMismatch)).toBe(
-      EXIT_CODE.contentVersionMismatch,
+    expect(exitCodeFor(ERROR_TAG.conditionMismatch)).toBe(
+      EXIT_CODE.conditionMismatch,
     );
     expect(exitCodeFor(ERROR_TAG.runNotCompleted)).toBe(
       EXIT_CODE.runNotCompleted,
@@ -220,78 +219,47 @@ describe("spec verbs", () => {
     ));
 });
 
-describe("spec from-bundle", () => {
-  it("writes one bare spec per bundle and keeps the grade half out of it", () =>
+describe("a bundle is a spec the run path reads directly", () => {
+  it("materializes a bundle as the spec it is", () =>
     Effect.runPromise(
       Effect.gen(function* () {
         const dir = yield* workspace();
-        const bundlePath = yield* writeDocument(
+        const path = yield* writeDocument(
           dir,
           "cold.bundle.yaml",
           bundleOf(dir),
         );
-        const out = join(dir, "specs");
-        const output = yield* invoke(
-          "spec",
-          "from-bundle",
-          bundlePath,
-          "--out",
-          out,
-        );
+        const output = yield* invoke("spec", "check", path);
         expect(output.code).toBe(EXIT_CODE.ok);
-        const written = yield* readText(join(out, "cold.yaml"));
-        expect(written).toContain(SPEC_MARKER);
-        expect(written).not.toContain(RUBRIC_FIELD);
-        expect(written).toContain(CONTENT_KEY);
       }),
     ));
 
-  it("emits a spec the run path accepts unchanged", () =>
+  it("keeps the grade half out of the materialized spec", () =>
     Effect.runPromise(
       Effect.gen(function* () {
         const dir = yield* workspace();
-        const bundlePath = yield* writeDocument(
+        const path = yield* writeDocument(
           dir,
           "cold.bundle.yaml",
           bundleOf(dir),
         );
-        const out = join(dir, "specs");
-        yield* invoke("spec", "from-bundle", bundlePath, "--out", out);
-        const checked = yield* invoke("spec", "check", join(out, "cold.yaml"));
-        expect(checked.code).toBe(EXIT_CODE.ok);
+        const output = yield* invoke("spec", "show", path);
+        const shown = output.lines.join("\n");
+        expect(shown).toContain(SPEC_MARKER);
+        expect(shown).not.toContain(RUBRIC_FIELD);
       }),
     ));
 
-  it("refuses a bundle whose two content keys disagree", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const dir = yield* workspace();
-        const bundlePath = yield* writeDocument(
-          dir,
-          "cold.bundle.yaml",
-          bundleOf(dir, {
-            run: {
-              ...(specInput(dir) as Record<string, unknown>),
-              contentVersion: OTHER_CONTENT_KEY,
-            },
-          }),
-        );
-        const output = yield* invoke("spec", "from-bundle", bundlePath);
-        expect(output.code).toBe(EXIT_CODE.rejected);
-        expect(output.lines[0]).toContain(ERROR_TAG.contentVersionConflict);
-      }),
-    ));
-
-  it("rejects a document that is not a bundle", () =>
+  it("rejects a document that is not a spec at all", () =>
     Effect.runPromise(
       Effect.gen(function* () {
         const dir = yield* workspace();
         const path = yield* writeDocument(dir, "nope.yaml", {
           name: "only a name",
         });
-        const output = yield* invoke("spec", "from-bundle", path);
+        const output = yield* invoke("spec", "check", path);
         expect(output.code).toBe(EXIT_CODE.rejected);
-        expect(output.lines[0]).toContain(ERROR_TAG.bundleInvalid);
+        expect(output.lines[0]).toContain(ERROR_TAG.runSpecInvalid);
       }),
     ));
 });
@@ -352,12 +320,12 @@ describe("recording verbs", () => {
       }),
     ));
 
-  it("refuses a content-key mismatch", () =>
+  it("refuses a condition mismatch", () =>
     Effect.runPromise(
       assertCheck({
-        fixture: { contentVersion: OTHER_CONTENT_KEY },
-        flags: ["--content-version", CONTENT_KEY],
-        expected: EXIT_CODE.contentVersionMismatch,
+        fixture: { condition: OTHER_CONDITION },
+        flags: ["--condition", CONDITION],
+        expected: EXIT_CODE.conditionMismatch,
       }),
     ));
 

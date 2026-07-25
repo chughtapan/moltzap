@@ -28,10 +28,10 @@ const RECIPE = fileURLToPath(
 );
 const SIDECAR = "grading-meta.json";
 const NO_GRADER_MESSAGE = "no grader was invoked";
-const CONTENT_KEY = "cold-outreach/2";
+const CONDITION = "cold-outreach/2";
 /** Each case spawns the CLI in a child process; the default 5s is too tight. */
 const RECIPE_TIMEOUT_MS = 60_000;
-const OTHER_CONTENT_KEY = "cold-outreach/1";
+const OTHER_CONDITION = "cold-outreach/1";
 
 /** A grader stand-in that exits with the code it is told to. */
 function graderExiting(code: number): ReadonlyArray<string> {
@@ -105,15 +105,15 @@ describe("the preflight-and-grade recipe", () => {
   );
 
   it(
-    "refuses a content-key mismatch",
+    "refuses a condition mismatch",
     () =>
       Effect.runPromise(
-        runRecipe({ contentVersion: OTHER_CONTENT_KEY }, [
-          "--content-version",
-          CONTENT_KEY,
+        runRecipe({ condition: OTHER_CONDITION }, [
+          "--condition",
+          CONDITION,
         ]).pipe(
           Effect.map((result) => {
-            expect(result.status).toBe(EXIT_CODE.contentVersionMismatch);
+            expect(result.status).toBe(EXIT_CODE.conditionMismatch);
           }),
         ),
       ),
