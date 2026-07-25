@@ -8,10 +8,11 @@ The stack's programmable surface on one page: a small noun vocabulary,
 **five ports**, the layers as **laws** over them, and the Effect
 realization. The words are the ones infrastructure engineers already
 use: agents **send** frames over a **transport**; conversations keep
-an append-only **ledger** read by **offset**; identities are **cards**
-you **look up** in a **registry**; the firewall is a pair of
-**hooks**; a plugin **runs** with a **channel**. If a name needs a
-glossary, it is the wrong name.
+an append-only **ledger** read by **offset**; a writer **locks** the
+next turn with `begin`, **stages** updates, and **commits**;
+identities are **cards** you **look up** in a **registry**; the
+firewall is a pair of **hooks**; a plugin **runs** with a
+**channel**. If a name needs a glossary, it is the wrong name.
 
 One criterion decides what earns a tag:
 
@@ -68,17 +69,17 @@ W1).
 | `Version` | cross | the protocol CalVer, matched exactly | decided |
 | `ConversationId` | L3 | client-minted, collision-free by size | decided |
 | `Offset` | L3 | a record's place in the conversation's log; ledger-assigned; never a field of any frame type (law L1.6) | decided |
-| `Kind` | L3 | the envelope's entry kind — see the two axes below | v0 set decided |
+| `EntryType` | L3 | the envelope's entry type: `message \| start \| add \| leave` | v0 set decided; payload side charter-widened |
 | `TranscriptRecord` | L3 | a committed entry: the byte-exact frame plus its `Offset` | decided |
 | `PageToken` | L3 | opaque fail-closed token paging list reads; `Page<T>` is items plus the next token | decided |
 | `Refusal` | cross | the interim value ("the op did not take effect"), opaque cause | register 8 open |
 
-**`Kind` has two axes.** The lifecycle axis is the recorded set —
-`start | add | leave` — and stays put. The payload axis is `message`
-in v0 and widens under the charter with **transaction kinds** as
-collective vocabulary lands. Widening adds arms, never port methods:
-every exhaustive match breaks until the new arm is handled, and
-implementations refuse arms they do not know. The kind rides the
+**`EntryType`.** Control flow lives in the verbs (`begin`/`update`/
+`commit`/`abort` below), so the entry vocabulary stays small:
+`message | start | add | leave`. The lifecycle side is the recorded
+set; the charter may widen the payload side as collective vocabulary
+lands — widening adds arms, never port methods, and every exhaustive
+match breaks until the new arm is handled. The type rides the
 envelope so admission and the membership fold never touch the body.
 
 **Where transactions live.** A committed collective is one multi-signed
@@ -120,7 +121,7 @@ interface Verifier {
 /** Signing half — endpoint composition only; the private key is
  *  adapter state. */
 interface Signer extends Verifier {
-  readonly sign: (conversation: ConversationId, kind: Kind, body: Body) => Effect<Frame, SignError>;
+  readonly sign: (conversation: ConversationId, type: EntryType, body: Body) => Effect<Frame, SignError>;
 }
 ```
 
@@ -221,13 +222,28 @@ interface Harness {
   readonly run: (channel: Channel) => Effect<void, never>; // R = never
 }
 interface Channel {
-  /** Consumes the granted turn — the one-shot reply guard. */
-  readonly send: (turn: Turn<"Granted">, body: Body) => Effect<readonly [Offset, Turn<"Spent">], Refusal>;
-  /** Derived: fresh id + start frame through send (law L3.7). */
+  /** Lock the next turn (PCC): resolves only when the group's write
+   *  discipline grants this writer the conversation. Hold the open
+   *  transaction before generating. TTL-bounded — never a session. */
+  readonly begin: (conversation: ConversationId) => Effect<Txn, Refusal>;
+  /** Derived: fresh id + start frame, autocommitted (law L3.7). */
   readonly startConversation: (members: readonly AgentId[], body: Body) => Effect<ConversationId, Refusal>;
   /** The attention stream only; a withheld frame stays in the log. */
   readonly inbound: Stream<InboundMessage, Refusal>;
-  readonly turns: Turns;
+}
+/** Holding an open Txn IS holding the turn; commit and abort consume
+ *  it — at most one commit per lock, by construction. */
+interface Txn {
+  /** Stage one entry in the open transaction. A collective's
+   *  contributions are updates; participant carriage is chartered. */
+  readonly update: (type: EntryType, body: Body) => Effect<void, Refusal>;
+  /** Atomic commit: the staged unit lands at one offset; the lock
+   *  releases. */
+  readonly commit: () => Effect<Offset, Refusal>;
+  /** Release without effect. */
+  readonly abort: () => Effect<void, Refusal>;
+  /** Autocommit sugar for the plain message: one update + commit. */
+  readonly send: (body: Body) => Effect<Offset, Refusal>;
 }
 /** A verified frame plus whatever context the firewall attaches;
  *  enrichment is additive and firewall-defined. */
@@ -237,43 +253,42 @@ interface InboundMessage { readonly frame: VerifiedFrame; readonly context: Fire
 **Where norms attach.** Under the recorded hypothesis
 (`20260724-norms-are-mcp-skill-bundles.md`) a pinned norm bundle runs
 endpoint-side as an MCP server. Its read-only tools are projection
-queries over the folds; its committing tools **compile to sends
-through this same channel** — the compile step consumes
-`Channel.send`, crosses the outbound firewall hook as a tool call
-first, and adds no port. Legal moves are computed from ledger state
-and enforced at the hooks; the model-visible tool surface need not
-change.
+queries over the folds; its committing tools **compile to
+transactions through this same channel** — the compile step consumes
+`begin`/`update`/`commit`, crosses the outbound firewall hook as a
+tool call first, and adds no port. Legal moves are computed from
+ledger state and enforced at the hooks; the model-visible tool
+surface need not change.
 
-## Turns
+## Transactions (the turn is a write lock)
 
-The client machine is typestate: `Granted` has exactly one
-constructor, and sending consumes it.
+The transcript is a **pessimistic database**, and PCC is its lock
+discipline — one interface, lock first. `begin` acquires the
+conversation's write lock: it resolves only when the group's write
+discipline grants this writer the next turn, so
+observe-before-generate (data-plane.md inv. 5) is simply holding an
+open `Txn` before generating. `update` stages entries; `commit` lands
+the staged unit atomically at one offset and releases the lock;
+`abort` releases without effect. A plain message is the autocommit
+case (`begin` then `Txn.send`). The lock is TTL-expiring
+per-conversation coordination state — never a session.
 
-```ts
-type Phase = "Requested" | "Granted" | "Spent";
-/** TTL-expiring per-conversation coordination state — never a
- *  session or connection; rebuilt by re-reading from an owned
- *  offset. */
-interface Turn<P extends Phase> { readonly _phase: P; readonly conversation: ConversationId; readonly at: Offset }
+The store supplies atomicity, isolation, and the lock discipline; it
+**never judges completeness** — when to commit, and whether the
+quorum suffices, is the committer's call under the task's norms. That
+line is what keeps this the opposite of the rejected escrow model.
 
-interface Turns {
-  readonly requestTurn: (conversation: ConversationId) => Effect<Turn<"Requested">, Refusal>;
-  /** Observe-before-generate (data-plane.md inv. 5): the sole
-   *  constructor of Granted. */
-  readonly awaitTurn: (t: Turn<"Requested">) => Effect<Turn<"Granted">, Refusal>;
-}
-```
-
-**Turns and rounds.** In v0 a granted turn covers one ordinary send.
-Under the collectives model the granularity generalizes: the
-**leader's** granted turn covers one whole collective — the rounds
-(propose, ack, contribute, sign) ride inside it as ordinary sends, and
-the commit spends it. Contribution rounds admit participants
-concurrently; that concurrency discipline, next-leader selection
-(possibly several eligible leaders contending), and the grant signal's
-wire carriage are the charter's. TypeScript cannot enforce linear
-consumption, so at-most-one-commit-per-turn is a suite law (L3.9). PCC
-itself is an instrument inside the Transport adapter, in no signature.
+The rounds (data-plane.md → The collective transaction) are this
+interface realized among distrusting parties: propose/ack realize
+`begin`, the contribution round realizes `update`s, the signature
+round and commit frame realize `commit`. How non-leader participants'
+updates are carried, lock TTLs, abort authority, next-leader
+selection (possibly several eligible writers contending), overlapping
+open transactions, and the lock-grant signal's wire carriage are the
+charter's. TypeScript cannot enforce linear consumption of the
+handle, so at-most-one-commit-per-lock has a suite-law residual
+(L3.9). PCC's instrument lives inside the Transport adapter, in no
+signature.
 
 ## Flows
 
@@ -286,9 +301,12 @@ sequenceDiagram
   participant S as Signer (L1)
   participant T as Transport (L2)
   participant L as Ledger (L3)
-  P->>H: send(turn, body) — or a committing tool call
+  P->>H: begin(conversation) — lock the turn
+  H->>T: lock request (PCC, carriage chartered)
+  T-->>P: Txn — the turn is held
+  P->>H: txn.send(body) — or updates then commit, or a committing tool call
   H->>S: admit
-  S->>T: sign(conversation, kind, body) then send(Frame)
+  S->>T: sign(conversation, type, body) then send(Frame)
   T->>T: admission: verify, member or fresh start, version
   T->>L: append(Frame)
   L-->>P: Offset — the commit ack
@@ -362,8 +380,8 @@ Kinds per Conventions; citations name the governing doc.
 | L3.5 | A start frame to a used id refuses with no side effect; to a fresh id it creates the log at offset zero | P | lifecycle-rides-l3 |
 | L3.6 | `membersAt` ≈ the fold of lifecycle entries at or before the offset; no membership write exists | C+P | data-plane.md inv. 8; guarantee 5 |
 | L3.7 | No create operation exists anywhere; `Channel.startConversation` is a derived term (fresh id, sign start, send) | C | lifecycle-rides-l3 |
-| L3.8 | `awaitTurn` precedes every send of that turn (typestate) | C | data-plane.md inv. 5 |
-| L3.9 | At most one commit per granted turn (linearity residual) | S | data-plane.md → Implementation notes |
+| L3.8 | Every write is staged in a transaction whose `begin` preceded it — holding the open `Txn` is the proof (typestate) | C | data-plane.md inv. 5 |
+| L3.9 | `commit`/`abort` consume the `Txn`: at most one commit per lock (linearity residual) | S | data-plane.md → Implementation notes |
 | L3.10 | Admission refusals never mutate membership | C+P | data-plane.md inv. 9 |
 | L5.1 | The hooks hold no signing authority; the frame and its attribution pass through unaltered | C | screening.md inv. 2 |
 | L5.2 | A withheld inbound frame stays out of attention while `read` is unchanged — the firewall filters attention, never the record | P | screening.md inv. 2, acceptance |
@@ -404,8 +422,8 @@ mapping is v2's standard realization.
   Verifier, and provides Transport; `EndpointComposition` holds
   Signer, the Transport client, a control-plane client for reads, and
   whatever state its firewall implementation owns. Leaf code holds
-  values (`Channel`, `Caller`, `Scope`); folds and turns are plain
-  values with no tag.
+  values (`Channel`, `Txn`, `Caller`, `Scope`); folds and transaction
+  handles are plain values with no tag.
 - **Three static checks** under the W1 boundary machinery: no exported
   function outside a composition names a port tag in its
   requirements; `Harness.run` is authority-free and `Channel` contains
@@ -415,7 +433,7 @@ mapping is v2's standard realization.
 ```mermaid
 flowchart TB
   subgraph Endpoint["EndpointComposition"]
-    HP[Harness plugin] -- "Channel (values only)" --> CH[send + turns]
+    HP[Harness plugin] -- "Channel (values only)" --> CH[begin / stage / commit]
     CH --> FH[Firewall hooks] --> SG[Signer]
     SG --> TC[Transport client]
     TC -- subscribe --> VF1[Verifier] --> FH
@@ -470,8 +488,8 @@ flowchart TB
 7. **The transaction's frame shape.** A committed collective rides one
    frame; whether contributions are embedded or referenced, the
    signature-set encoding, and any transaction-kind envelope
-   vocabulary are the charter's. Nothing here binds them; `Kind`'s
-   payload axis is where they will land.
+   vocabulary are the charter's. Nothing here binds them;
+   `EntryType`'s payload side is where they will land.
 
 ## References
 
