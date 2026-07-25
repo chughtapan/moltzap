@@ -56,10 +56,11 @@ multi-signed entry.**
   guarantee durable-then-deliver was carrying is atomicity: an entry
   is committed for every member or for none, and an acknowledgment
   implies commitment — durable, in the conversation's total order.
-  Pre-commit round traffic is provisional and never the record;
-  recovery converges on committed entries. Whether any delivery
-  precedes durability is realization — durable-then-deliver remains a
-  valid v0 posture, no longer a law.
+  Pre-commit round entries are ordered and attributed but effect-free,
+  prunable once their transaction resolves; recovery converges on
+  committed entries. Whether any delivery precedes durability is
+  realization — durable-then-deliver remains a valid v0 posture, no
+  longer a law.
 - **Leadership.** The turn holder initiates. Next-leader selection is
   open — there may be multiple eligible next leaders contending; in
   v0 the PCC turn instrument arbitrates, and a task's norms may
@@ -82,6 +83,29 @@ multi-signed entry.**
   round realizes `update`s, the signature round and commit frame
   realize `commit`. Lock TTLs, abort authority, participant-update
   carriage, and overlapping open transactions are the charter's.
+- **The correctness skeleton** (refinement, 2026-07-24). Locks and
+  effects are folds over the shared order; entries are the only
+  reality. The transaction id is the hash of its BEGIN frame —
+  client-minted, content-bound. The grant is the fold "the ack rule
+  is met by the signed ack entries following BEGIN"; the acks in the
+  order are its certificate — nothing separate is minted. An update
+  binds the txn id and a grant reference under its contributor's
+  signature, killing replay and misbinding. The signature round signs
+  the digest of (txn id, cut, update references, result): a signer
+  attests exactly what it saw and computed. The store admits a commit
+  without judging it; validity — quorum per the pinned norm,
+  signatures verifying, result recomputing — is a deterministic fold
+  every same-pinned party computes identically, so an invalid commit
+  is admitted, ineffective, and evidence. Timeouts are local
+  observations whose consequence — a superseding BEGIN or an abort —
+  is resolved by the order: whichever grant completes first wins, and
+  a late commit against a superseded grant is deterministically
+  ineffective. Restart recovers lock and transaction state by
+  re-folding. One effective commit per txn id — retries are
+  harmless — which is also the norm compile step's idempotency key.
+  Round entries are ordered and attributed (the folds need them) but
+  effect-free and prunable once their transaction resolves; the
+  committed transaction is the canonical record.
 
 Still chartered (#765): quorum rules, liveness and safety machinery,
 abort and timeout semantics, sealed rounds (commit-reveal), whether

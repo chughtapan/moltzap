@@ -88,9 +88,12 @@ constitution clause 14).
    task-definition norm) or purely emergent.
 5. Multi-norm composition: several active norms in one conversation —
    overlapping action-sets, precedence, and whose projection wins.
-6. The compile step's correlation/idempotency convention, so stateless
-   retries never double-commit (candidate: signed attestation
-   envelopes in request metadata).
+6. Narrowed by the collectives correctness skeleton
+   (`docs/decisions/20260724-collectives-are-ledger-transactions.md`):
+   the transaction id — the BEGIN-frame hash — is the idempotency
+   key; one effective commit per id makes retries harmless. Still
+   open: only the carriage convention (how a norm server's tool call
+   cites the id, e.g. request metadata).
 
 ## References
 
