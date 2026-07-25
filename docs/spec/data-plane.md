@@ -5,7 +5,7 @@ Status: DRAFT (deepening doc; feeds the spec set)
 ## Purpose & scope
 
 The data plane is the delivery half of the network, split out of the control
-plane. It carries network delivery and collective operations — shipping L1
+plane. It carries network delivery and collective operations — carrying L1
 frames with ordered multicast delivery (L2) and transactional messaging (L3),
 MULTICAST-only in the first version per the constitution's recorded decision —
 and addresses every delivery through a conversation (L3). It is the shared
@@ -51,14 +51,12 @@ participant emits next).
 - **Ordering.** Deliveries within a conversation are totally ordered: every
   member observes the same messages in the same order, including members
   transiently unavailable at send time.
-- **Turn admission (recorded technique).** In the v0 slice the plane admits
-  contributions one at a time per conversation, only under the group's agreed
-  next operation and next speaker — pessimistic concurrency control, the
-  recorded implementation technique, mechanism rather than interface
-  (`docs/decisions/20260723-eight-layer-stack.md`). An endpoint observes that
-  its turn is admitted before it generates — agreement precedes generation,
-  not merely delivery. Overlapping-collective concurrency is chartered, not
-  decided here.
+- **Turn admission.** At most one transaction is open per conversation, and
+  the plane admits no *effective* entry whose grant does not precede it in the
+  shared order — an endpoint holds the grant before it generates, so agreement
+  precedes generation, not merely delivery. The discipline is at collective
+  granularity: round entries are admitted without a grant and carry no effect.
+  Overlapping open transactions are chartered, not decided here.
 - **Transactional collectives.** A collective operation is one transactional
   unit over the conversation's ledger: the record represents one
   ALL-TO-ALL — MPI-style, every member contributes and every member
@@ -75,7 +73,8 @@ participant emits next).
 - **Admission.** At admission the plane verifies, at minimum, that the
   frame's attribution verifies per L1, its sender identity exists
   and is active, and the sender is a member of the conversation the
-  envelope addresses; failing frames are refused before durability.
+  envelope addresses — or the frame is a start entry to a fresh id
+  (law L3.5); failing frames are refused before commitment.
   Recorded decision: admission checks nothing relationship-shaped
   beyond membership — the router has no reachability role.
 - **Content-blindness.** Routing and admission read envelope fields only, never
@@ -83,8 +82,8 @@ participant emits next).
 - **Records handoff.** Atomic commit: an entry is committed for every member
   or for none, an acknowledgment implies commitment, and only committed
   entries are the record (control-plane-side; the record L6 reads).
-  Pre-commit round traffic is provisional; whether delivery precedes
-  durability is realization
+  Pre-commit round entries are ordered and attributed but effect-free —
+  the folds need them; whether delivery precedes durability is realization
   (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 - **Addressing (L3).** A conversation id is the routing handle — an opaque
   group handle. Membership changes are delivered in-band, ordered against
@@ -146,12 +145,19 @@ question 5, closed below); one effective commit per txn id, so
 retries are harmless — which is also the norm compile step's
 idempotency key (`endpoints/tasks.md`).
 
-The ledger sits off the rounds' critical path: rounds run at multicast
-speed, and the durable commit happens once per collective. Round
-entries are ordered and attributed — the folds need them — but carry
-no effect and are prunable once their transaction resolves (retention:
-register item 6); the committed transaction is the canonical record a
-late member converges to.
+The ledger sits off the rounds' critical path: the expensive
+multi-signed commit happens once per collective while round entries
+are cheap appends. They are committed records like any other —
+ordered, attributed, immutable, and part of the contiguous read
+window, which is what lets the folds define the grant; whether
+resolved round entries may later be pruned is the retention question
+(register item 6), not a property asserted here. The committed
+transaction is the canonical record a late member converges to.
+
+Round entries need entry types of their own before a content-blind
+store can tell them from messages; that vocabulary is the charter's
+(`layer-interfaces.md` open question 7), which is why v0 builds no
+round traffic at all.
 
 ```mermaid
 flowchart LR
@@ -184,7 +190,7 @@ its own surface, never the control endpoint; delivery is one-way — no
 response rides the delivery path, and an endpoint's responses,
 acknowledgments included, are first-class send calls; the plane keeps no per-endpoint
 connection or session state, so whatever shape delivery takes must be
-resumable from a position the endpoint owns; every call is signed with the
+resumable from an offset the endpoint owns; every call is signed with the
 caller's card key and carries the protocol version; and frames cross the
 surface byte-exact (`identity.md`). Turn-signal carriage is the charter's
 ground (#765); whatever its shape, turn state is per-conversation
@@ -237,7 +243,7 @@ callbacks. Destinations, power by power:
 |---|---|
 | Message-authorize hook (per-message forward/block verdict) | Abolished. The plane delivers; inbound screening is endpoint L5. |
 | Verdict-derived recipient sets (per-message visibility filter) | Membership and envelope-level addressing; exact fields chartered (open). |
-| Dispatch-authorize hook (moderator grants/denies/holds a turn) | Dissolved into PCC delivery semantics; which op/speaker comes next is an L4/skill concern. |
+| Dispatch-authorize hook (moderator grants/denies/holds a turn) | Dissolved into the transaction's grant; which op and speaker come next is an L4/skill concern. |
 | Admission deny ejecting the participant | Abolished. Admission outcomes never mutate membership; membership changes are their own in-band ordered events. |
 | Task-create hook, TaskMasters, network-side task records | Tasks are endpoint conventions with no network representation; conversations stand alone, bound to no task or app. |
 | App manifests, app principals, reverse-callback extension surface | Gone entirely; no centralized seam exists — evals run against the testbed data plane (`docs/decisions/20260723-eval-plane-is-testbed.md`). |
@@ -257,7 +263,7 @@ identity at connect with a bearer key and carries mixed traffic. The v1
 machinery is a migration baseline, not a compliant realization: the
 sessionless, single-credential, and plane-split bounds stay normative, and
 these gaps are what the migration closes. Transitional mechanism, not
-interface: the sessionless guarantees govern (recovery is position-resumable;
+interface: the sessionless guarantees govern (recovery is offset-resumable;
 the connection is never semantic state), and replacement needs no spec change.
 
 Maintainer sketch: the plane's realization is a per-conversation ordered
@@ -281,8 +287,8 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 1. Routing and admission read envelope fields only, never bodies.
 2. The plane never mints, alters, or strips L1 attribution.
 3. Per-conversation total order: all members observe the same messages in the same order; an unavailable member converges to it on recovery.
-4. Atomic commit: an entry is committed for every member or for none; an acknowledgment implies commitment; pre-commit round traffic is provisional and never the record.
-5. Turn-disciplined admission (the recorded pessimistic technique): while it is in effect, no contribution is admitted before the group agrees on the next operation and speaker; endpoints observe admission before generating.
+4. Atomic commit: an entry is committed for every member or for none; an acknowledgment implies commitment; round entries are ordered and attributed but effect-free.
+5. Turn-disciplined effect: no entry takes effect unless its grant precedes it in the shared order, and at most one transaction is open per conversation; endpoints hold the grant before generating. Round entries are admitted without a grant and carry no effect.
 6. Starvation protection, established per task (L4): no coalition of faulty members can indefinitely deny an honest member its turn under the task's protocol.
 7. Equivocation robustness: a sender cannot present different members with different versions of the same message.
 8. Membership changes are in-band events, ordered against message flow.
@@ -305,9 +311,9 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 ## Open questions
 
 1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — the collective-semantics charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
-2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes the semantics inside both: quorum rules, abort and timeout, sealed rounds, next-leader selection, escrow, acceptance quorums, ARCHIVE's meaning.
+2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes the semantics inside both: ack and quorum rules, liveness and safety machinery, abort and timeout, lock TTLs, sealed rounds, the cut's form, embed-vs-reference, participant-update carriage, next-leader selection, overlapping transactions, and ARCHIVE's meaning.
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
-4. Does the plane owe positive delivery acknowledgment, or is recovery-convergence the whole guarantee?
+4. Does the plane owe per-recipient delivery status, or is recovery-convergence the whole guarantee beyond the commit acknowledgment?
 5. Closed by the recorded correctness skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`): lock and transaction state are folds over the shared order, reconstructed by re-folding after any restart — no durable lease table, no wire-visible restart semantics. Number retained.
 6. Testbed-plane observation under a content-blind deployment: envelope-only, or a key-holding observer (the constitution's monitor question)?
 7. Experiment observation surface: record-substrate reads, a testbed-plane event stream, or both — and where that boundary sits.

@@ -56,15 +56,18 @@ and the control-plane op binding (`data-plane.md`,
 
 ## The frame (normative interface)
 
-The frame is what agents emit and what L2 delivers, in two kinds:
+The frame is what agents emit and what L2 delivers, in two shapes:
 peer-to-peer (a single recipient) and multicast (a conversation's
 membership); in both, addressing rides the conversation handle (the
 L3 routing primitive), with peer-to-peer as the singleton case.
 Every frame carries: the sender's agent identity; attribution a
 recipient can verify — the named sender produced this frame and acts
-for its registered principal; the addressing; the entry kind (a
+for its registered principal; the addressing; the entry type (a
 message, or a lifecycle entry — start, add, leave — carrier-readable
-so admission and the membership fold never touch the body); an opaque
+so admission and the membership fold never touch the body; a
+lifecycle entry also carries the participants it names, for the same
+reason — a content-blind router must fold membership without reading
+bodies); an opaque
 body the network never interprets; the protocol version (a calendar
 date, matched exactly; no negotiation).
 
@@ -89,7 +92,7 @@ Verification duties:
 The frame partitions into an **envelope** and a **sealed body**. The
 envelope is everything a carrier may read: the sender's agent
 identity, the conversation handle, the protocol version, the entry
-kind, and the attribution. The body is opaque bytes no carrier interprets.
+type (with a lifecycle entry's participants), and the attribution. The body is opaque bytes no carrier interprets.
 Attribution covers envelope and body together (invariant 4); admission
 and routing read envelope fields only (`data-plane.md`).
 
@@ -100,7 +103,7 @@ bytes at every hop, which is what makes recipient verification, L6
 re-verification, and non-repudiation the same procedure on the same
 evidence.
 
-**Not frame fields.** Transcript position, durability status, and
+**Not frame fields.** The store-assigned offset, durability status, and
 delivery metadata are store- or plane-assigned; they ride the carrier
 protocols (`data-plane.md`, `control-plane.md`), never the attributed
 unit. Nothing the network assigns can sit under the sender's
@@ -139,6 +142,13 @@ native form.
 
 ## Implementation notes (non-normative)
 
+- What a recipient verifies under the interim binding: the router
+  verifies attribution at admission, and a recipient reading a
+  delivered or recorded frame inherits that check — offline per-frame
+  re-verification is the target binding's property, not round one's.
+  This is the concrete meaning of the acceptance criteria holding "at
+  request-attribution strength only" below, and it is the strength
+  reduction register item 5 closes.
 - Interim, until per-frame attribution ships: every request on
   either plane is signed with the identity's card key — the single
   credential (`docs/decisions/20260721-single-credential.md`); the
