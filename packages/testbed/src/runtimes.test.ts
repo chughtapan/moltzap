@@ -19,6 +19,7 @@ import {
 } from "@moltzap/protocol/testing";
 
 import {
+  assertWorkspaceChannelDist,
   buildOpenClawConfig,
   createOpenClawAdapter,
   OpenClawAdapter,
@@ -54,6 +55,8 @@ const READY_LABEL = "ready";
 const MATCH_TIMEOUT_MS = 5_000;
 const TIMEOUT_MATCH_RESULT = `timeout:${MATCH_TIMEOUT_MS}`;
 const PROCESS_EXIT_MATCH_RESULT = "exit:null";
+const WORKSPACE_INSTALL_MODE = "workspace";
+const PUBLISHED_INSTALL_MODE = "published";
 const TEST_AGENT_NAME = "test-agent";
 const TEST_STATE_DIR_PREFIX = `openclaw-${TEST_AGENT_NAME}-`;
 const PROCESS_SPAWN_AGENT_NAME = "process-spawn-agent";
@@ -93,6 +96,7 @@ function stubDeps(): OpenClawAdapterDeps {
     server: stubServer(),
     openclawBin: "/bin/false",
     channelDistDir: "/nonexistent/channel",
+    installMode: WORKSPACE_INSTALL_MODE,
   };
 }
 
@@ -131,6 +135,10 @@ describe("createOpenClawAdapter", () => {
     openClawFactoryUsesExplicitPaths,
   );
   it("resolves pinned installed defaults", openClawFactoryResolvesDefaults);
+  it(
+    "rejects an installed channel artifact in workspace mode",
+    openClawWorkspaceModeRejectsInstalledChannel,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -154,11 +162,13 @@ describe("OpenClawAdapter.spawn", () => {
 const CONFIG_WORKSPACE_DIR = "/workspaces/testbed-agent";
 const CUSTOM_MODEL_ID = "custom/model";
 const DISABLED_MDNS_MODE = "off";
+const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 
+// @agent-code-guard/regression-only: each example pins one independent OpenClaw configuration contract
 describe("buildOpenClawConfig", () => {
   it("keys the moltzap account under the testbed profile", () => {
     const config = buildOpenClawConfig(
-      { agentName: "alice" },
+      { agentName: "alice", installMode: WORKSPACE_INSTALL_MODE },
       CONFIG_WORKSPACE_DIR,
     );
 
@@ -173,11 +183,16 @@ describe("buildOpenClawConfig", () => {
         model: { primary: expect.any(String) },
       },
     });
+    expect(config.plugins?.allow).toEqual([OPENCLAW_EXTENSION_NAME]);
   });
 
   it("prefers an explicit model id over the default", () => {
     const config = buildOpenClawConfig(
-      { agentName: "alice", modelId: CUSTOM_MODEL_ID },
+      {
+        agentName: "alice",
+        modelId: CUSTOM_MODEL_ID,
+        installMode: WORKSPACE_INSTALL_MODE,
+      },
       CONFIG_WORKSPACE_DIR,
     );
     expect(config.agents).toMatchObject({
@@ -187,11 +202,20 @@ describe("buildOpenClawConfig", () => {
 
   it("disables mDNS discovery for colocated gateways", () => {
     const config = buildOpenClawConfig(
-      { agentName: "alice" },
+      { agentName: "alice", installMode: WORKSPACE_INSTALL_MODE },
       CONFIG_WORKSPACE_DIR,
     );
 
     expect(config.discovery?.mdns?.mode).toBe(DISABLED_MDNS_MODE);
+  });
+
+  it("omits local plugin trust for registry-backed installs", () => {
+    const config = buildOpenClawConfig(
+      { agentName: "alice", installMode: PUBLISHED_INSTALL_MODE },
+      CONFIG_WORKSPACE_DIR,
+    );
+
+    expect(config).not.toHaveProperty("plugins");
   });
 });
 
@@ -354,7 +378,7 @@ describe("SpawnFailed", () => {
 // ---------------------------------------------------------------------------
 
 function stubNanoclawOptions(): NanoclawAdapterOptions {
-  return { server: stubServer() };
+  return { server: stubServer(), installMode: WORKSPACE_INSTALL_MODE };
 }
 
 describe("NanoclawAdapter", () => {
@@ -412,7 +436,10 @@ function openClawFactoryResolvesDefaults() {
   return runTest(
     FileSystem.FileSystem.pipe(
       Effect.flatMap((fileSystem) => {
-        const adapter = createOpenClawAdapter({ server: stubServer() });
+        const adapter = createOpenClawAdapter({
+          server: stubServer(),
+          installMode: WORKSPACE_INSTALL_MODE,
+        });
         const deps = Reflect.get(adapter, "deps") as OpenClawAdapterDeps;
         return Effect.all([
           fileSystem.exists(deps.openclawBin),
@@ -425,6 +452,40 @@ function openClawFactoryResolvesDefaults() {
       Effect.asVoid,
       Effect.provide(NodeContext.layer),
       Effect.orDie,
+    ),
+  );
+}
+
+function openClawWorkspaceModeRejectsInstalledChannel() {
+  return runTest(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "openclaw-installed-channel-test-",
+        });
+        const channelDistDir = path.join(
+          root,
+          "node_modules",
+          "@moltzap",
+          "openclaw-channel",
+          "dist",
+        );
+        yield* fileSystem.makeDirectory(channelDistDir, { recursive: true });
+        const resolvedChannelDistDir =
+          yield* fileSystem.realPath(channelDistDir);
+
+        const error = yield* assertWorkspaceChannelDist(channelDistDir).pipe(
+          Effect.flip,
+        );
+
+        expect(error).toMatchObject({
+          _tag: "OpenClawInstallModeError",
+          channelDistDir,
+          resolvedChannelDistDir,
+        });
+      }).pipe(Effect.provide(NodeContext.layer), Effect.orDie),
     ),
   );
 }
@@ -471,6 +532,7 @@ function openClawProcessSpawnFailureCleansState() {
           server: stubServer(),
           openclawBin: path.join(fixture.root, "missing-openclaw"),
           channelDistDir: fixture.channelDist,
+          installMode: WORKSPACE_INSTALL_MODE,
         });
         // The launcher process starts even when the target binary is
         // missing, so spawn commits and the death surfaces through the

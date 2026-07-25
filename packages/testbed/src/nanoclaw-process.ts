@@ -33,10 +33,8 @@ import {
   TESTBED_PROFILE_NAME,
   writeMoltZapProfileConfig,
 } from "./channel-plugin-install.js";
-import {
-  MOLTZAP_TESTBED_CACHE_ROOT,
-  type NanoclawRuntimeInstall,
-} from "./nanoclaw-install.js";
+import { type NanoclawRuntimeInstall } from "./nanoclaw-install.js";
+import { MOLTZAP_TESTBED_CACHE_ROOT } from "./immutable-cache.js";
 import {
   type BaseChildEnvironment,
   BaseChildEnvironmentConfig,

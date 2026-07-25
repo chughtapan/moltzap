@@ -7,6 +7,7 @@ import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
 import {
   Config,
+  Data,
   Duration,
   Effect,
   Fiber,
@@ -19,6 +20,11 @@ import {
 export interface CommandRunOptions {
   readonly cwd?: string;
   readonly timeout?: number;
+}
+
+export interface CapturedCommandOutput {
+  readonly stdout: string;
+  readonly stderr: string;
 }
 
 /**
@@ -111,11 +117,8 @@ function execEffectWith<E>(
   const { cwd, timeout } = options;
   const command =
     cwd === undefined
-      ? Command.make(commandText).pipe(Command.runInShell(true))
-      : Command.make(commandText).pipe(
-          Command.runInShell(true),
-          Command.workingDirectory(cwd),
-        );
+      ? makeShellCommand(commandText)
+      : makeShellCommandInDirectory(commandText, cwd);
   const exitCode = Command.exitCode(command).pipe(
     Effect.mapError((cause) =>
       makeError(`command failed: ${commandText}`, cause),
@@ -143,6 +146,128 @@ function execEffectWith<E>(
   );
 }
 
+function makeShellCommand(commandText: string) {
+  return Command.make(commandText).pipe(Command.runInShell(true));
+}
+
+function makeShellCommandInDirectory(commandText: string, cwd: string) {
+  return Command.workingDirectory(makeShellCommand(commandText), cwd);
+}
+
+// Callers parse this output, so capture is faithful rather than windowed
+// like BoundedLogBuffer: eliding the middle of a JSON document turns
+// "output too large" into a misleading parse error. The cap still bounds a
+// runaway child, but surfaces as its own actionable failure.
+const MAX_CAPTURED_OUTPUT_CHARS = 8 * 1024 * 1024;
+
+class CapturedOutputTooLarge extends Data.TaggedError(
+  "CapturedOutputTooLarge",
+)<{
+  readonly limit: number;
+}> {
+  override get message(): string {
+    return `command produced more than ${String(this.limit)} characters of output`;
+  }
+}
+
+function captureCommandStream(stream: Stream.Stream<Uint8Array, unknown>) {
+  const chunks: string[] = [];
+  let total = 0;
+  return stream.pipe(
+    Stream.decodeText(),
+    Stream.runForEach((chunk) => {
+      total += chunk.length;
+      if (total > MAX_CAPTURED_OUTPUT_CHARS) {
+        return Effect.fail(
+          new CapturedOutputTooLarge({ limit: MAX_CAPTURED_OUTPUT_CHARS }),
+        );
+      }
+      chunks.push(chunk);
+      return Effect.void;
+    }),
+    Effect.map(() => chunks.join("")),
+  );
+}
+
+function captureCommandOutput(command: Command.Command) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const process = yield* Command.start(command);
+      const [stdout, stderr, exitCode] = yield* Effect.all(
+        [
+          captureCommandStream(process.stdout),
+          captureCommandStream(process.stderr),
+          process.exitCode,
+        ],
+        { concurrency: 3 },
+      );
+      return { stdout, stderr, exitCode: Number(exitCode) };
+    }),
+  );
+}
+
+function commandFailureReason(
+  description: string,
+  output: CapturedCommandOutput,
+  exitCode: number,
+): string {
+  const diagnostics = (output.stderr.trim() || output.stdout.trim()).slice(
+    -LOG_TAIL_CAPACITY,
+  );
+  return (
+    `command failed with exit code ${exitCode}: ${description}` +
+    (diagnostics ? `\n${diagnostics}` : "")
+  );
+}
+
+function commandOutputEffectWith<E>(
+  makeError: ErrorFactory<E>,
+  description: string,
+  command: Command.Command,
+  timeout: number,
+): Effect.Effect<CapturedCommandOutput, E> {
+  const captured = captureCommandOutput(command).pipe(
+    Effect.mapError((cause) =>
+      makeError(`command failed: ${description}`, cause),
+    ),
+  );
+  return captured.pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(timeout),
+      onTimeout: () =>
+        makeError(`command timed out after ${timeout}ms: ${description}`),
+    }),
+    Effect.flatMap(({ exitCode, ...output }) =>
+      exitCode === 0
+        ? Effect.succeed(output)
+        : Effect.fail(
+            makeError(commandFailureReason(description, output, exitCode)),
+          ),
+    ),
+    Effect.provide(NodeContext.layer),
+  );
+}
+
+function unboundedCommandOutputEffectWith<E>(
+  makeError: ErrorFactory<E>,
+  description: string,
+  command: Command.Command,
+): Effect.Effect<CapturedCommandOutput, E> {
+  return captureCommandOutput(command).pipe(
+    Effect.mapError((cause) =>
+      makeError(`command failed: ${description}`, cause),
+    ),
+    Effect.flatMap(({ exitCode, ...output }) =>
+      exitCode === 0
+        ? Effect.succeed(output)
+        : Effect.fail(
+            makeError(commandFailureReason(description, output, exitCode)),
+          ),
+    ),
+    Effect.provide(NodeContext.layer),
+  );
+}
+
 /**
  * Shell-command and platform-error helpers shared by the runtime adapters.
  * Each module supplies its own tagged-error factory so failures stay in
@@ -152,7 +277,20 @@ export function makeCommandHelpers<E>(makeError: ErrorFactory<E>) {
   return {
     execEffect: (commandText: string, options?: CommandRunOptions) =>
       execEffectWith(makeError, commandText, options ?? {}),
-    fsEffect: <A>(reason: string, effect: Effect.Effect<A, PlatformError>) =>
+    commandOutputEffect: (
+      description: string,
+      command: Command.Command,
+      options?: Pick<CommandRunOptions, "timeout">,
+    ) => {
+      const timeout = options?.timeout;
+      return timeout === undefined
+        ? unboundedCommandOutputEffectWith(makeError, description, command)
+        : commandOutputEffectWith(makeError, description, command, timeout);
+    },
+    fsEffect: <A, R>(
+      reason: string,
+      effect: Effect.Effect<A, PlatformError, R>,
+    ): Effect.Effect<A, E, R> =>
       effect.pipe(Effect.mapError((cause) => makeError(reason, cause))),
   };
 }

@@ -58,6 +58,9 @@
           "^production",
           {
             "env": "MOLTZAP_NANOCLAW_ITEST"
+          },
+          {
+            "env": "MOLTZAP_OPENCLAW_ITEST"
           }
         ]
       },

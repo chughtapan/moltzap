@@ -6,19 +6,25 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  resolveInstalledPackageDependency,
   resolveInstalledPackageBin,
   resolveInstalledPackageRoot,
   resolvePackageRoot,
 } from "./package-resolution.js";
 
 const SCOPED_PACKAGE_NAME = "@moltzap-test/resolved";
+const OWNER_PACKAGE_NAME = "@moltzap-test/owner";
 const DECOY_MANIFEST_NAME = "some-other-package";
 const MISSING_PACKAGE_NAME = "@moltzap-test/definitely-missing";
 const REAL_PACKAGE_NAME = "effect";
 const MISSING_BIN_NAME = "no-such-bin";
+const DECLARED_DEPENDENCY_SPEC = "^1.2.0";
+const INSTALLED_PACKAGE_VERSION = "1.2.3";
+const NON_EXACT_PACKAGE_VERSION = "^1.2.3";
+const NESTED_PACKAGE_VERSION = "9.9.9";
 
 const fixtureRoot = mkdtempSync(join(tmpdir(), "package-resolution-test-"));
 
@@ -67,6 +73,36 @@ function seedLayeredConsumer(
     JSON.stringify({ name: SCOPED_PACKAGE_NAME }),
   );
   return { anchor, packageRoot };
+}
+
+function seedOwnedDependency(
+  fixtureName: string,
+  ownerManifest: Record<string, unknown>,
+  installedManifest: Record<string, unknown>,
+): {
+  readonly anchor: string;
+  readonly ownerPackageRoot: string;
+  readonly packageRoot: string;
+} {
+  const ownerPackageRoot = join(fixtureRoot, fixtureName);
+  const anchor = join(ownerPackageRoot, "src", "nested", "anchor.js");
+  const packageRoot = join(
+    ownerPackageRoot,
+    "node_modules",
+    SCOPED_PACKAGE_NAME,
+  );
+  mkdirSync(join(ownerPackageRoot, "src", "nested"), { recursive: true });
+  mkdirSync(packageRoot, { recursive: true });
+  writeFileSync(anchor, "export {};");
+  writeFileSync(
+    join(ownerPackageRoot, "package.json"),
+    JSON.stringify(ownerManifest),
+  );
+  writeFileSync(
+    join(packageRoot, "package.json"),
+    JSON.stringify(installedManifest),
+  );
+  return { anchor, ownerPackageRoot, packageRoot };
 }
 
 // @agent-code-guard/regression-only: seeded module layouts exercise Node resolution branches whose inputs are filesystem topology rather than generated values
@@ -169,6 +205,129 @@ describe("resolveInstalledPackageRoot", () => {
     expect(resolveInstalledPackageRoot(REAL_PACKAGE_NAME)).toContain(
       REAL_PACKAGE_NAME,
     );
+  });
+});
+
+describe("resolveInstalledPackageDependency metadata", () => {
+  it("returns the owner's declared spec and installed exact version", () => {
+    const fixture = seedOwnedDependency(
+      "installed-dependency",
+      {
+        name: OWNER_PACKAGE_NAME,
+        dependencies: {
+          [SCOPED_PACKAGE_NAME]: DECLARED_DEPENDENCY_SPEC,
+        },
+      },
+      {
+        name: SCOPED_PACKAGE_NAME,
+        version: INSTALLED_PACKAGE_VERSION,
+      },
+    );
+
+    expect(
+      resolveInstalledPackageDependency(
+        OWNER_PACKAGE_NAME,
+        SCOPED_PACKAGE_NAME,
+        fixture.anchor,
+      ),
+    ).toEqual({
+      ownerPackageRoot: fixture.ownerPackageRoot,
+      declaredSpec: DECLARED_DEPENDENCY_SPEC,
+      packageRoot: realpathSync(fixture.packageRoot),
+      version: INSTALLED_PACKAGE_VERSION,
+    });
+  });
+});
+
+describe("resolveInstalledPackageDependency anchoring", () => {
+  it("resolves from the owner anchor instead of a nested dependency", () => {
+    const fixture = seedOwnedDependency(
+      "owner-anchored-dependency",
+      {
+        name: OWNER_PACKAGE_NAME,
+        dependencies: {
+          [SCOPED_PACKAGE_NAME]: DECLARED_DEPENDENCY_SPEC,
+        },
+      },
+      {
+        name: SCOPED_PACKAGE_NAME,
+        version: INSTALLED_PACKAGE_VERSION,
+      },
+    );
+    const nestedPackageRoot = join(
+      dirname(fixture.anchor),
+      "node_modules",
+      SCOPED_PACKAGE_NAME,
+    );
+    mkdirSync(nestedPackageRoot, { recursive: true });
+    writeFileSync(
+      join(nestedPackageRoot, "package.json"),
+      JSON.stringify({
+        name: SCOPED_PACKAGE_NAME,
+        version: NESTED_PACKAGE_VERSION,
+      }),
+    );
+
+    const resolved = resolveInstalledPackageDependency(
+      OWNER_PACKAGE_NAME,
+      SCOPED_PACKAGE_NAME,
+      fixture.anchor,
+    );
+
+    expect(resolved.packageRoot).toBe(realpathSync(fixture.packageRoot));
+    expect(resolved.version).toBe(INSTALLED_PACKAGE_VERSION);
+  });
+});
+
+describe("resolveInstalledPackageDependency declaration validation", () => {
+  it("requires the dependency in the owner's own dependencies", () => {
+    const fixture = seedOwnedDependency(
+      "dev-only-dependency",
+      {
+        name: OWNER_PACKAGE_NAME,
+        devDependencies: {
+          [SCOPED_PACKAGE_NAME]: DECLARED_DEPENDENCY_SPEC,
+        },
+      },
+      {
+        name: SCOPED_PACKAGE_NAME,
+        version: INSTALLED_PACKAGE_VERSION,
+      },
+    );
+
+    expect(() =>
+      resolveInstalledPackageDependency(
+        OWNER_PACKAGE_NAME,
+        SCOPED_PACKAGE_NAME,
+        fixture.anchor,
+      ),
+    ).toThrow(`must declare ${SCOPED_PACKAGE_NAME} in its own dependencies`);
+  });
+});
+
+describe("resolveInstalledPackageDependency version validation", () => {
+  it("rejects an installed manifest without an exact version", () => {
+    const fixture = seedOwnedDependency(
+      "ranged-installed-version",
+      {
+        name: OWNER_PACKAGE_NAME,
+        dependencies: {
+          [SCOPED_PACKAGE_NAME]: DECLARED_DEPENDENCY_SPEC,
+        },
+      },
+      {
+        name: SCOPED_PACKAGE_NAME,
+        version: NON_EXACT_PACKAGE_VERSION,
+      },
+    );
+
+    expect(() =>
+      resolveInstalledPackageDependency(
+        OWNER_PACKAGE_NAME,
+        SCOPED_PACKAGE_NAME,
+        fixture.anchor,
+      ),
+    ).toThrow(`does not declare an exact version`);
   });
 });
 
