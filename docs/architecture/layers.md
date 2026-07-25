@@ -156,3 +156,4 @@ Open.
 | The firewall is the agent's boundary: two directions | `docs/decisions/20260724-firewall-two-directions.md` |
 | Monitors are deterministic contracts; judgment is testimony | `docs/decisions/20260724-monitors-are-deterministic-contracts.md` |
 | L7 is institutional policy attached to identity | `docs/decisions/20260724-l7-is-policy-attached-to-identity.md` |
+| The firewall starts as MCP middleware; logic deferred | `docs/decisions/20260724-firewall-starts-as-mcp-middleware.md` |

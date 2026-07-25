@@ -66,10 +66,29 @@ skill-specific.
 - An inbound frame refused by a gate is withheld from the agent yet remains
   in the transcript: screening filters attention, never the record.
 
+## The firewall plan (recorded phasing)
+
+By recorded decision
+(`docs/decisions/20260724-firewall-starts-as-mcp-middleware.md`) the
+plan builds the **interception capability first**: the two boundary
+gates realized as standard MCP middleware — outbound on the tool-call
+path (norm servers; the channel presented as an MCP server), inbound
+on the delivery path, migrating to the MCP triggers/events mechanism
+as it lands upstream — with per-crossing tracing and audit inherited
+from that ecosystem. Screening **logic is deferred until evidence
+demands it**: v0 plugs in only the contacts-keyed stopgap
+(`contacts.md`) and the institutional-fact check. The three
+firewall-plan proposal drafts (`v2/drafts/firewall-plan-proposals/`)
+are recorded inputs for that later work; their shared floor
+(most-restrictive-wins as the only combinator, the three-verdict
+lattice, deterministic-certificate vs model-testimony, no privileged
+trust source) is noted, not bound.
+
 ## Open questions
 
 1. The shared, skill-distributable firewall vocabulary — a gate-rule format
-   norms can ship — deferred at `contacts.md` (limit vocabulary).
+   norms can ship — deferred at `contacts.md` (limit vocabulary); the
+   proposal drafts are its inputs when taken up.
 2. The violation-response taxonomy: whether the five agent-local responses
    are a closed set, and what a report to L6 carries.
 3. How much screening is normative for a conforming harness versus harness
