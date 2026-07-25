@@ -10,33 +10,25 @@
  * and a record under `--json`; every failure carries its tag, and the tag
  * decides the exit code.
  *
- * `run` accepts a bare RunSpec and nothing else. A bundle reaches it only
- * through `spec from-bundle`, which emits the bare spec — so a consumer's
- * grader half can never influence a run.
+ * A bundle is a spec with one more section, so every spec-shaped verb
+ * accepts one: `run` reads the spec and never names `grade:`, which
+ * materialization strips alongside `condition`.
  *
  * ```mermaid
  * flowchart LR
- *   B[bundle.yaml] --> FB[spec from-bundle]
- *   FB --> S[spec.yaml]
- *   S --> RUN[run]
+ *   S[spec or bundle.yaml] --> RUN[run]
  *   RUN --> REC[sealed recording]
  *   REC --> CHK[recording check]
  *   CHK --> G[the consumer's grader]
  * ```
  */
-import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FileSystem } from "@effect/platform";
-import { NodeContext } from "@effect/platform-node";
 import { Effect, Schema } from "effect";
 import type { ParseResult } from "effect";
 import { stringify as stringifyYaml } from "yaml";
-import {
-  collectSpecPaths,
-  documentStem,
-  loadDocument,
-  loadSpec,
-} from "./cli-documents.js";
+import { collectSpecPaths, loadDocument, loadSpec } from "./cli-documents.js";
 import {
   RUN_FAILED_WITH_RECORDING,
   exitCodeFor,
@@ -44,19 +36,15 @@ import {
 } from "./cli-exit.js";
 import {
   openRecording,
-  projectBundle,
-  type BundleInvalid,
-  type ContentVersionConflict,
-  type ContentVersionMismatch,
+  type ConditionMismatch,
   type OpenRecordingError,
   type RunNotCompleted,
 } from "./grader.js";
 import { runDemo } from "./demo/index.js";
-import { RecordingStoreFailed } from "./simulator/errors.js";
 import type {
-  AttemptNotRetryable,
   ConfigTimeError,
   ManifestPersistFailed,
+  RecordingStoreFailed,
   SealFailed,
   UnknownAttempt,
 } from "./simulator/errors.js";
@@ -64,7 +52,6 @@ import {
   AttemptId,
   RECORDING_SCHEMA_VERSION,
   RunSpec,
-  decodeEventLine,
   describeDrivers,
   makeInProcessQueue,
   makeLocalRecordingStore,
@@ -92,12 +79,9 @@ type CliError =
   | RecordingStoreFailed
   | SealFailed
   | OpenRecordingError
-  | BundleInvalid
-  | ContentVersionConflict
-  | ContentVersionMismatch
+  | ConditionMismatch
   | RunNotCompleted
   | UnknownAttempt
-  | AttemptNotRetryable
   | ParseResult.ParseError;
 
 type Verb<E extends CliError = CliError> = Effect.Effect<Output, E, never>;
@@ -107,14 +91,12 @@ const USAGE = `moltzap-testbed <verb>
   spec check <spec>              decode and materialize a spec; report nothing else
   spec show <spec>               print the materialized spec with per-field origin
   spec to-ts <spec>              print the spec as a typed TypeScript literal
-  spec from-bundle <bundle...>   split bundles into bare RunSpecs (--out <dir>)
 
   run <spec|dir...>              run one spec, several, or a directory of them
   rerun <recording>              new attempt under the recording's identity
   queue submit <spec>            materialize, enqueue, and drain
   queue status <attemptId>       print one attempt's record
   queue cancel <attemptId>       request cancellation
-  queue retry <attemptId>        new attempt from a terminal one
   queue work                     drain this process's queue
 
   recording show <dir>           print identity, outcome, and counts
@@ -128,15 +110,14 @@ const USAGE = `moltzap-testbed <verb>
 
 Options:
   --json                         emit one JSON record per result
-  --out <dir>                    where spec from-bundle writes specs
   --store <dir>                  recording store root (default ./recordings)
-  --content-version <key>        content key recording check compares against
+  --condition <label>            condition label recording check compares against
   --require-completed            refuse a recording whose run did not complete
 
 Exit codes: 0 ok, 2 config-time rejection, 3 run failed with a sealed
 recording, 4 no recording, 5 recording unsealed by a seal failure,
 10 not sealed, 11 schema mismatch, 12 invalid recording,
-13 content-version mismatch, 14 run not completed, 1 unexpected.`;
+13 condition mismatch, 14 run not completed, 1 unexpected.`;
 
 // ---------------------------------------------------------------------------
 // Argument shape
@@ -145,41 +126,64 @@ recording, 4 no recording, 5 recording unsealed by a seal failure,
 type Args = {
   readonly words: ReadonlyArray<string>;
   readonly json: boolean;
-  readonly out: string | undefined;
   readonly store: string | undefined;
-  readonly contentVersion: string | undefined;
+  readonly condition: string | undefined;
   readonly requireCompleted: boolean;
 };
 
-const VALUE_FLAGS = new Set(["--out", "--store", "--content-version"]);
+const JSON_FLAG = "--json";
+const REQUIRE_COMPLETED_FLAG = "--require-completed";
+const STORE_FLAG = "--store";
+const CONDITION_FLAG = "--condition";
 
-function parseArgs(argv: ReadonlyArray<string>): Args {
+const BOOLEAN_FLAGS = new Set([JSON_FLAG, REQUIRE_COMPLETED_FLAG]);
+const VALUE_FLAGS = new Set([STORE_FLAG, CONDITION_FLAG]);
+
+type Tokens = {
+  readonly words: ReadonlyArray<string>;
+  readonly flags: ReadonlySet<string>;
+  readonly values: ReadonlyMap<string, string>;
+};
+
+/** Split argv into positional words, boolean flags, and `--flag value` pairs. */
+function splitTokens(argv: ReadonlyArray<string>): Tokens {
   const words: Array<string> = [];
+  const flags = new Set<string>();
   const values = new Map<string, string>();
-  let json = false;
-  let requireCompleted = false;
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === undefined) continue;
-    if (token === "--json") {
-      json = true;
-    } else if (token === "--require-completed") {
-      requireCompleted = true;
-    } else if (VALUE_FLAGS.has(token)) {
-      const value = argv[index + 1];
-      if (value !== undefined) values.set(token, value);
-      index += 1;
-    } else {
-      words.push(token);
-    }
+    if (BOOLEAN_FLAGS.has(token)) flags.add(token);
+    else if (VALUE_FLAGS.has(token)) index = takeValue(argv, index, values);
+    else words.push(token);
   }
+  return { words, flags, values };
+}
+
+/**
+ * Consume `--flag value` and report the index the value occupied. A
+ * trailing flag with no value is simply absent, which reads the same as
+ * not passing it at all.
+ */
+function takeValue(
+  argv: ReadonlyArray<string>,
+  index: number,
+  into: Map<string, string>,
+): number {
+  const flag = argv[index];
+  const value = argv[index + 1];
+  if (flag !== undefined && value !== undefined) into.set(flag, value);
+  return index + 1;
+}
+
+function parseArgs(argv: ReadonlyArray<string>): Args {
+  const { words, flags, values } = splitTokens(argv);
   return {
     words,
-    json,
-    out: values.get("--out"),
-    store: values.get("--store"),
-    contentVersion: values.get("--content-version"),
-    requireCompleted,
+    json: flags.has(JSON_FLAG),
+    store: values.get(STORE_FLAG),
+    condition: values.get(CONDITION_FLAG),
+    requireCompleted: flags.has(REQUIRE_COMPLETED_FLAG),
   };
 }
 
@@ -191,34 +195,31 @@ function usage(detail: string): Verb<never> {
 // Dispatch
 // ---------------------------------------------------------------------------
 
+type Group = (rest: ReadonlyArray<string>, args: Args) => Verb;
+
+const GROUPS: Readonly<Record<string, Group>> = {
+  spec: specVerb,
+  run: runVerb,
+  rerun: rerunVerb,
+  queue: queueVerb,
+  recording: recordingVerb,
+  driver: (rest) => driverVerb(rest),
+  lock: (rest) => lockVerb(rest),
+  demo: (_rest, args) => demoVerb(args),
+};
+
+const HELP_WORDS = new Set(["help", "--help", "-h"]);
+
 function dispatch(argv: ReadonlyArray<string>): Verb {
   const args = parseArgs(argv);
   const [group, ...rest] = args.words;
-  switch (group) {
-    case "spec":
-      return specVerb(rest, args);
-    case "run":
-      return runVerb(rest, args);
-    case "rerun":
-      return rerunVerb(rest, args);
-    case "queue":
-      return queueVerb(rest, args);
-    case "recording":
-      return recordingVerb(rest, args);
-    case "driver":
-      return driverVerb(rest);
-    case "lock":
-      return lockVerb(rest);
-    case "demo":
-      return demoVerb(args);
-    case undefined:
-    case "help":
-    case "--help":
-    case "-h":
-      return Effect.succeed({ lines: [USAGE], code: 0 });
-    default:
-      return usage(`Unknown verb "${group}".`);
+  if (group === undefined || HELP_WORDS.has(group)) {
+    return Effect.succeed({ lines: [USAGE], code: 0 });
   }
+  const handler = GROUPS[group];
+  return handler === undefined
+    ? usage(`Unknown verb "${group}".`)
+    : handler(rest, args);
 }
 
 // ---------------------------------------------------------------------------
@@ -234,10 +235,8 @@ function specVerb(rest: ReadonlyArray<string>, args: Args): Verb {
       return specShow(operands, args);
     case "to-ts":
       return specToTs(operands);
-    case "from-bundle":
-      return specFromBundle(operands, args);
     default:
-      return usage("spec: expected check, show, to-ts, or from-bundle.");
+      return usage("spec: expected check, show, or to-ts.");
   }
 }
 
@@ -317,84 +316,6 @@ function specToTs(operands: ReadonlyArray<string>): Verb {
   );
 }
 
-/**
- * The run half of the projection, mirroring `spec to-ts`: both are total
- * transforms between two encodings of one spec. The grade half is a
- * grader's own grammar and ships as that grader's emitter, so this verb
- * emits bare specs and only reports which grader the bundle carried.
- */
-function specFromBundle(operands: ReadonlyArray<string>, args: Args): Verb {
-  if (operands.length === 0) {
-    return usage("spec from-bundle: name one or more bundle documents.");
-  }
-  return Effect.forEach(
-    operands,
-    (path) =>
-      loadDocument(path).pipe(
-        Effect.flatMap((document) =>
-          projectBundle(document, { stem: documentStem(path) }),
-        ),
-        Effect.flatMap((projected) =>
-          writeProjectedSpec(path, projected.spec, args.out).pipe(
-            Effect.map((written) => ({ source: path, projected, written })),
-          ),
-        ),
-      ),
-    { concurrency: 1 },
-  ).pipe(
-    Effect.map((results) => ({
-      lines: results.map((result) => {
-        if (args.json) {
-          return JSON.stringify({
-            source: result.source,
-            out: result.written,
-            spec: result.projected.spec,
-            scenarioId: result.projected.envelope.scenarioId,
-            grader: result.projected.grade.grader,
-            contentVersion: result.projected.contentVersion ?? null,
-          });
-        }
-        return result.written === null
-          ? stringifyYaml(result.projected.spec).trimEnd()
-          : `${result.source} -> ${result.written}  (grader ${result.projected.grade.grader})`;
-      }),
-      code: 0 as ExitCode,
-    })),
-  );
-}
-
-function writeProjectedSpec(
-  source: string,
-  spec: unknown,
-  out: string | undefined,
-): Effect.Effect<string | null, RecordingStoreFailed, never> {
-  if (out === undefined) return Effect.succeed(null);
-  const directory = resolve(out);
-  const target = join(directory, `${documentStem(source)}.yaml`);
-  return withFs((fs) =>
-    fs.makeDirectory(directory, { recursive: true }).pipe(
-      Effect.zipRight(fs.writeFileString(target, stringifyYaml(spec))),
-      Effect.mapError(
-        (cause) =>
-          new RecordingStoreFailed({
-            file: target,
-            message: `The projected spec could not be written to ${target}: ${String(cause)}. Check the --out directory.`,
-          }),
-      ),
-      Effect.as(target),
-    ),
-  );
-}
-
-type Fs = FileSystem.FileSystem;
-
-const withFs = <A, E>(
-  body: (fs: Fs) => Effect.Effect<A, E, never>,
-): Effect.Effect<A, E, never> =>
-  Effect.flatMap(FileSystem.FileSystem, body).pipe(
-    Effect.provide(NodeContext.layer),
-  );
-
 // ---------------------------------------------------------------------------
 // run / rerun
 // ---------------------------------------------------------------------------
@@ -471,7 +392,7 @@ function outcomeCode(outcome: RunOutcome): ExitCode {
 function outcomeText(outcome: RunOutcome): string {
   return outcome._tag === "episode"
     ? `episode ${outcome.termination}`
-    : `infrastructure-failure ${outcome.reason} (${outcome.errorTag})`;
+    : `infrastructure-failure ${outcome.errorTag}`;
 }
 
 /**
@@ -539,14 +460,6 @@ function queueVerb(rest: ReadonlyArray<string>, args: Args): Verb {
           ),
         ),
       );
-    case "retry":
-      return withAttemptId(operands, "queue retry", (id) =>
-        withQueue(storeRoot, (held) =>
-          held.queue
-            .retry(id)
-            .pipe(Effect.map((snapshot) => snapshotOutput(snapshot, args))),
-        ),
-      );
     case "work":
       return withQueue(storeRoot, (held) =>
         held.runner
@@ -554,7 +467,7 @@ function queueVerb(rest: ReadonlyArray<string>, args: Args): Verb {
           .pipe(Effect.as({ lines: ["queue drained"], code: 0 as ExitCode })),
       );
     default:
-      return usage("queue: expected submit, status, cancel, retry, or work.");
+      return usage("queue: expected submit, status, cancel, or work.");
   }
 }
 
@@ -596,7 +509,7 @@ function snapshotOutput(snapshot: AttemptSnapshot, args: Args): Output {
 // ---------------------------------------------------------------------------
 
 function openAny(path: string) {
-  return openRecording(path, { contentVersion: null, outcome: "any" });
+  return openRecording(path, { condition: null, outcome: "any" });
 }
 
 function recordingVerb(rest: ReadonlyArray<string>, args: Args): Verb {
@@ -629,17 +542,18 @@ function recordingShow(path: string, args: Args): Verb {
               specHash: recording.manifest.specHash,
               seed: recording.manifest.seed,
               attemptId: recording.manifest.attemptId,
-              contentVersion: recording.manifest.contentVersion ?? null,
+              condition:
+                recording.manifest.materializedSpec.condition?.label ?? null,
               outcome: recording.result.outcome,
-              events: recording.events.length,
+              events: recording.timeline.length,
               spans: recording.traces?.spans.length ?? 0,
             })
           : [
               `runId      ${recording.manifest.runId}`,
               `identity   ${recording.manifest.specHash} seed ${String(recording.manifest.seed)} ${recording.manifest.attemptId}`,
-              `content    ${recording.manifest.contentVersion ?? "(none)"}`,
+              `condition  ${recording.manifest.materializedSpec.condition?.label ?? "(none)"}`,
               `outcome    ${outcomeText(recording.result.outcome)}`,
-              `events     ${String(recording.events.length)}`,
+              `events     ${String(recording.timeline.length)}`,
               `spans      ${String(recording.traces?.spans.length ?? 0)}`,
             ].join("\n"),
       ],
@@ -651,13 +565,13 @@ function recordingShow(path: string, args: Args): Verb {
 /**
  * The instrument's half of grading preflight: sealed, this reader's
  * schema version, every file decodable, and — when the caller supplies
- * them — the content key and the completed-run requirement. It prints the
- * sealed outcome so a wrapper learns *which* outcome sealed without
+ * them — the condition label and the completed-run requirement. It prints
+ * the sealed outcome so a wrapper learns *which* outcome sealed without
  * opening `result.json`.
  */
 function recordingCheck(path: string, args: Args): Verb {
   return openRecording(path, {
-    contentVersion: args.contentVersion ?? null,
+    condition: args.condition ?? null,
     outcome: args.requireCompleted ? "completed-only" : "any",
   }).pipe(
     Effect.map((recording) => ({
@@ -678,17 +592,8 @@ function recordingCheck(path: string, args: Args): Verb {
 
 function recordingEvents(path: string): Verb {
   return openAny(path).pipe(
-    Effect.flatMap((recording) =>
-      Effect.forEach(
-        recording.events,
-        (line) => decodeEventLine(JSON.stringify(line)),
-        { concurrency: 1 },
-      ),
-    ),
-    Effect.map((events) => ({
-      lines: [...events]
-        .sort((left, right) => left.logicalSequence - right.logicalSequence)
-        .map((event) => JSON.stringify(event)),
+    Effect.map((recording) => ({
+      lines: recording.timeline.map((event) => JSON.stringify(event)),
       code: 0 as ExitCode,
     })),
   );
@@ -732,8 +637,17 @@ function lockVerb(rest: ReadonlyArray<string>): Verb {
   });
 }
 
+const PackageMetadata = Schema.Struct({ version: Schema.String });
+
+/**
+ * Read from this package's own manifest rather than the environment, so
+ * `lock` reports the version a manifest will actually carry however the
+ * bin was invoked.
+ */
 function simulatorVersion(): string {
-  return process.env["npm_package_version"] ?? "0.0.0-dev";
+  return Schema.decodeUnknownSync(PackageMetadata)(
+    createRequire(import.meta.url)("../package.json"),
+  ).version;
 }
 
 function demoVerb(args: Args): Verb {
@@ -782,6 +696,7 @@ export function main(
 }
 
 function invokedAsBin(): boolean {
+  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- entrypoint-detection: process.argv is the only way to tell a direct bin invocation from an import of main()
   const entry = process.argv[1];
   return (
     entry !== undefined && resolve(entry) === fileURLToPath(import.meta.url)
@@ -789,6 +704,7 @@ function invokedAsBin(): boolean {
 }
 
 if (invokedAsBin()) {
+  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- the argv vector is this process's input; main() takes it as a value so every other caller stays pure
   const output = await Effect.runPromise(main(process.argv.slice(2)));
   for (const line of output.lines) {
     process.stdout.write(`${line}\n`);
