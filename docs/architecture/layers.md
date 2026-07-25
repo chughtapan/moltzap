@@ -58,7 +58,7 @@ sequenceDiagram
   F->>T: lock request
   T-->>P: turn held — only now may the agent generate
   P->>F: send(body)
-  F->>T: sign and send the frame
+  F->>T: admitted — the channel signs, then sends the frame
   T->>T: admission: sender verifies, is a member, version matches
   T->>L: append — one atomic commit, one offset
   L-->>P: offset (the acknowledgment)
