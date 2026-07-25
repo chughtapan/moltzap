@@ -37,6 +37,7 @@ import {
 import {
   openRecording,
   type ConditionMismatch,
+  type GradeableRecording,
   type OpenRecordingError,
   type RunNotCompleted,
 } from "./grader.js";
@@ -143,41 +144,39 @@ type Tokens = {
   readonly words: ReadonlyArray<string>;
   readonly flags: ReadonlySet<string>;
   readonly values: ReadonlyMap<string, string>;
+  /** The value flag whose value the next token supplies. */
+  readonly pending: string | undefined;
 };
 
-/** Split argv into positional words, boolean flags, and `--flag value` pairs. */
-function splitTokens(argv: ReadonlyArray<string>): Tokens {
-  const words: Array<string> = [];
-  const flags = new Set<string>();
-  const values = new Map<string, string>();
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (token === undefined) continue;
-    if (BOOLEAN_FLAGS.has(token)) flags.add(token);
-    else if (VALUE_FLAGS.has(token)) index = takeValue(argv, index, values);
-    else words.push(token);
-  }
-  return { words, flags, values };
-}
+const EMPTY_TOKENS: Tokens = {
+  words: [],
+  flags: new Set(),
+  values: new Map(),
+  pending: undefined,
+};
 
 /**
- * Consume `--flag value` and report the index the value occupied. A
- * trailing flag with no value is simply absent, which reads the same as
- * not passing it at all.
+ * Absorb one token. `pending` carries the value flag whose value the next
+ * token supplies, so a trailing value flag ends the fold still pending
+ * and its value is simply absent — the same as not passing the flag.
  */
-function takeValue(
-  argv: ReadonlyArray<string>,
-  index: number,
-  into: Map<string, string>,
-): number {
-  const flag = argv[index];
-  const value = argv[index + 1];
-  if (flag !== undefined && value !== undefined) into.set(flag, value);
-  return index + 1;
+function absorb(tokens: Tokens, token: string): Tokens {
+  if (tokens.pending !== undefined) {
+    return {
+      ...tokens,
+      values: new Map(tokens.values).set(tokens.pending, token),
+      pending: undefined,
+    };
+  }
+  if (BOOLEAN_FLAGS.has(token)) {
+    return { ...tokens, flags: new Set(tokens.flags).add(token) };
+  }
+  if (VALUE_FLAGS.has(token)) return { ...tokens, pending: token };
+  return { ...tokens, words: [...tokens.words, token] };
 }
 
 function parseArgs(argv: ReadonlyArray<string>): Args {
-  const { words, flags, values } = splitTokens(argv);
+  const { words, flags, values } = argv.reduce(absorb, EMPTY_TOKENS);
   return {
     words,
     json: flags.has(JSON_FLAG),
@@ -532,33 +531,53 @@ function recordingVerb(rest: ReadonlyArray<string>, args: Args): Verb {
   }
 }
 
+/** What `recording show` reports, in the one shape both renderings read. */
+type RecordingSummary = {
+  readonly runId: string;
+  readonly specHash: string;
+  readonly seed: number;
+  readonly attemptId: string;
+  readonly condition: string | null;
+  readonly outcome: RunOutcome;
+  readonly events: number;
+  readonly spans: number;
+};
+
+function summarize(recording: GradeableRecording): RecordingSummary {
+  return {
+    runId: recording.manifest.runId,
+    specHash: recording.manifest.specHash,
+    seed: recording.manifest.seed,
+    attemptId: recording.manifest.attemptId,
+    condition: recording.manifest.materializedSpec.condition?.label ?? null,
+    outcome: recording.result.outcome,
+    events: recording.timeline.length,
+    spans: recording.traces?.spans.length ?? 0,
+  };
+}
+
+function summaryText(summary: RecordingSummary): string {
+  return [
+    `runId      ${summary.runId}`,
+    `identity   ${summary.specHash} seed ${String(summary.seed)} ${summary.attemptId}`,
+    `condition  ${summary.condition ?? "(none)"}`,
+    `outcome    ${outcomeText(summary.outcome)}`,
+    `events     ${String(summary.events)}`,
+    `spans      ${String(summary.spans)}`,
+  ].join("\n");
+}
+
 function recordingShow(path: string, args: Args): Verb {
   return openAny(path).pipe(
-    Effect.map((recording) => ({
-      lines: [
-        args.json
-          ? JSON.stringify({
-              runId: recording.manifest.runId,
-              specHash: recording.manifest.specHash,
-              seed: recording.manifest.seed,
-              attemptId: recording.manifest.attemptId,
-              condition:
-                recording.manifest.materializedSpec.condition?.label ?? null,
-              outcome: recording.result.outcome,
-              events: recording.timeline.length,
-              spans: recording.traces?.spans.length ?? 0,
-            })
-          : [
-              `runId      ${recording.manifest.runId}`,
-              `identity   ${recording.manifest.specHash} seed ${String(recording.manifest.seed)} ${recording.manifest.attemptId}`,
-              `condition  ${recording.manifest.materializedSpec.condition?.label ?? "(none)"}`,
-              `outcome    ${outcomeText(recording.result.outcome)}`,
-              `events     ${String(recording.timeline.length)}`,
-              `spans      ${String(recording.traces?.spans.length ?? 0)}`,
-            ].join("\n"),
-      ],
-      code: 0 as ExitCode,
-    })),
+    Effect.map((recording) => {
+      const summary = summarize(recording);
+      return {
+        lines: [
+          args.json ? JSON.stringify(summary) : summaryText(summary),
+        ],
+        code: 0 as ExitCode,
+      };
+    }),
   );
 }
 

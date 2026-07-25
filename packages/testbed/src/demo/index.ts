@@ -18,10 +18,12 @@ import type {
   SealFailed,
 } from "../simulator/errors.js";
 
+/** Where the demo's one recording lands. */
 export type DemoOptions = {
   readonly storeRoot: string;
 };
 
+/** What the demo reports once its recording is sealed. */
 export type DemoResult = {
   readonly banner: ReadonlyArray<string>;
   readonly recordingPath: string;
@@ -34,7 +36,11 @@ export const DEMO_BANNER: ReadonlyArray<string> = [
   "Fault theater: the link between them is severed, then healed, while the log records both.",
 ];
 
-/** Run the demo society and report where its recording landed. */
+/**
+ * Run the demo society and report where its recording landed.
+ * @param options Where to write the recording.
+ * @returns The banner, the recording path, and how the episode ended.
+ */
 export function runDemo(
   options: DemoOptions,
 ): Effect.Effect<
@@ -54,7 +60,7 @@ export function runDemo(
 function outcomeText(attempt: SealedAttempt): string {
   return attempt.outcome._tag === "episode"
     ? `episode ${attempt.outcome.termination}`
-    : `infrastructure-failure ${attempt.outcome.reason}`;
+    : `infrastructure-failure ${attempt.outcome.errorTag}`;
 }
 
 export { demoSpec, DEMO_SERVER_IMAGE_DIGEST } from "./fault-theater.js";
