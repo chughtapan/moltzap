@@ -100,7 +100,9 @@ function targetAgentName(payload: HarnessPayload): string {
 /**
  * The pinned server image a run needs. Building it once per process is
  * enough: the script is content-addressed, so a second grade of the same
- * workspace would re-derive the same digest at full cost.
+ * workspace re-derives the same digest at full cost. A failure caches
+ * too, which is what a suite wants — the next scenario would meet the
+ * same engine, and rebuilding to fail again costs minutes per scenario.
  */
 const serverImagePin: Effect.Effect<string, HarnessFailure, never> =
   Effect.runSync(
