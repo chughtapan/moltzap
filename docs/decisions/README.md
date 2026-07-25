@@ -11,6 +11,7 @@ this log.** Do not add a record without that call.
 
 | Decision | Date |
 |---|---|
+| [Norms are MCP-served skill bundles (initial hypothesis)](20260724-norms-are-mcp-skill-bundles.md) | 2026-07-24 |
 | [Collectives are ledger transactions](20260724-collectives-are-ledger-transactions.md) | 2026-07-24 |
 | [Directory read serves cards](20260723-directory-serves-cards.md) | 2026-07-23 |
 | [Protocol version: the package version, carried per request](20260723-protocol-version-carriage.md) | 2026-07-23 |

@@ -26,6 +26,17 @@ constitution clause 14).
 - **Norms are versioned skill bundles** from existing marketplaces (e.g.,
   ClawHub), pinned per binding; same-version agreement is the only global
   invariant (constitution clause 8).
+- **Norm form (initial hypothesis):** a norm is a digest-pinned skills
+  bundle served over MCP — its tools are the norm's actions; read-only
+  tools are projection queries, committing tools compile to ledger
+  transactions; the legal-move set is a pure function of committed
+  ledger state, computed endpoint-side; same-version agreement is both
+  participants citing the same bundle digest
+  (`docs/decisions/20260724-norms-are-mcp-skill-bundles.md`).
+- **Enforcement is hooks, never prompts.** v0 enforces the legal-move
+  set at the L5 slots — an illegal move is refused at invocation.
+  Reshaping the model-visible tool surface is optional context
+  economy, never the enforcement boundary.
 - **Norms are guarantees published upward.** The pinned bundle is what the
   L5 gates check inbound structure and outbound discipline against
   (clause 8); a norm
@@ -39,7 +50,9 @@ constitution clause 14).
 - **Deferred future:** formally specified contracts, analyzable for
   liveness, safety, and efficiency. The recorded direction is
   enablement-shaped artifacts — "here are your legal next moves" — which LLM
-  agents consume natively (`v2/VISION.md`, What We Know).
+  agents consume natively (`v2/VISION.md`, What We Know); the recorded
+  computational form is the norm-form hypothesis's projection over
+  ledger state.
 
 ## Invariants
 
@@ -49,6 +62,8 @@ constitution clause 14).
    agreement check.
 3. Norm distribution reuses existing marketplaces; v2 builds no distribution
    channel.
+4. Affordance is never the enforcement boundary: an illegal move is
+   refused at invocation (L5), whatever the model was shown.
 
 ## Acceptance criteria
 
@@ -61,19 +76,30 @@ constitution clause 14).
 
 ## Open questions
 
-1. Bundle format: what a norms bundle contains — schemas, gate rules, prose
-   for the model — and its versioning discipline.
+1. Bundle contents at guarantee level — schemas, gate rules, prose for
+   the model (the container is the recorded hypothesis; what a norm
+   must carry is not).
 2. What "pinned per binding" binds to: a conversation, a task convention, or
    a standing relationship.
-3. How same-version agreement is established and observed — a convention
-   over ordinary messaging, or part of conversation start (charter-adjacent).
+3. Where the digest citation rides — conversation start or a standing
+   relationship (the mechanism is the recorded hypothesis's digest
+   agreement; the carriage is charter-adjacent).
 4. The task-type vocabulary: whether task types are themselves normed (a
    task-definition norm) or purely emergent.
+5. Multi-norm composition: several active norms in one conversation —
+   overlapping action-sets, precedence, and whose projection wins.
+6. The compile step's correlation/idempotency convention, so stateless
+   retries never double-commit (candidate: signed attestation
+   envelopes in request metadata).
 
 ## References
 
 - `v2/VISION.md` — constitution clauses 2, 8, 14; What We Know (the
   session-types inversion).
+- `docs/decisions/20260724-norms-are-mcp-skill-bundles.md` — the
+  norm-form hypothesis;
+  `docs/decisions/20260724-collectives-are-ledger-transactions.md` —
+  what committing actions compile to.
 - `screening.md` — the L5 gates that consume L4's norms; the
   collective-semantics charter — the ops norms sequence over.
 - `v2/inputs/case-study-audits-20260718.md` — arena's unversioned-skill
