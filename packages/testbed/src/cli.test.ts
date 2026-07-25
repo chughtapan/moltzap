@@ -139,9 +139,11 @@ describe("the exit-code mapping", () => {
   it("reports any unnamed tag as unexpected rather than guessing", () =>
     fc.assert(
       fc.property(
-        fc.string({ minLength: 1, maxLength: 24 }).filter(
-          (tag) => !Object.values(ERROR_TAG).some((known) => known === tag),
-        ),
+        fc
+          .string({ minLength: 1, maxLength: 24 })
+          .filter(
+            (tag) => !Object.values(ERROR_TAG).some((known) => known === tag),
+          ),
         (tag) => exitCodeFor(tag) === EXIT_CODE.unexpected,
       ),
       { numRuns: 50 },

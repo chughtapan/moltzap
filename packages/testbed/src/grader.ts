@@ -7,18 +7,21 @@
  *
  * The division of labour it encodes: **invalidity is a refusal, never a
  * verdict.** A run that never terminated, a recording whose bytes moved
- * after sealing, or evidence produced under different experiment content
- * are all refused here, before a rubric is consulted, so a grader never
- * has to report an invalid run as an agent failure.
+ * after sealing, or evidence produced under a different condition are all
+ * refused here, before a rubric is consulted, so a grader never has to
+ * report an invalid run as an agent failure.
+ *
+ * One function opens a recording. `events.ndjson` is written by one writer
+ * in `logicalSequence` order, so reading it in order is already the whole
+ * timeline; there is no separate merge to call, and therefore no way to
+ * reach the events while skipping the integrity checks that come with them.
  *
  * ```mermaid
  * flowchart LR
- *   R[recording dir] --> O[openRecording: sealed, schema, key, outcome]
- *   O --> M[mergedTimeline: order by logicalSequence]
- *   M --> A[attributeSenders: senderId to agent name]
- *   A --> G[the grader's own bundle and rubric]
- *   B[bundle document] --> P[projectBundle: run half]
- *   P --> S[bare RunSpec for run]
+ *   R[recording dir] --> O[openRecording]
+ *   O --> C[sealed, schema, condition, outcome]
+ *   C --> T[timeline in logicalSequence order, senders named]
+ *   T --> G[the grader's own rubric]
  * ```
  */
 import { resolve } from "node:path";
@@ -27,7 +30,6 @@ import { absurd } from "effect/Function";
 import { decodeEventLine, type SimulatorEvent } from "./simulator/event-log.js";
 import {
   EpisodeTermination,
-  FailureReason,
   makeLocalRecordingStore,
   type ManifestJson,
   type ResultJson,
@@ -35,11 +37,7 @@ import {
   type SealMarker,
   type TracesJson,
 } from "./simulator/index.js";
-import {
-  JsonObject,
-  type AgentName,
-  type JsonValue,
-} from "./simulator/run-spec.js";
+import type { AgentName } from "./simulator/run-spec.js";
 import {
   RecordingInvalid,
   RecordingUnsealed,
@@ -52,13 +50,13 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * The recording was produced from different experiment content than the
- * caller holds. The content key moves on task text, persona generation,
- * and environment assumptions — never on a rubric, so re-grading the same
+ * The recording was produced under a different condition than the caller
+ * holds. The condition label moves on task text, persona generation, and
+ * environment assumptions — never on a rubric, so re-grading the same
  * recording with a stricter rubric is legal and does not trip this.
  */
-export class ContentVersionMismatch extends Schema.TaggedError<ContentVersionMismatch>()(
-  "ContentVersionMismatch",
+export class ConditionMismatch extends Schema.TaggedError<ConditionMismatch>()(
+  "ConditionMismatch",
   {
     recordingPath: Schema.String,
     expected: Schema.NonEmptyString,
@@ -67,12 +65,14 @@ export class ContentVersionMismatch extends Schema.TaggedError<ContentVersionMis
   },
 ) {}
 
-/** What a recording sealed instead of an answered episode; closed over the outcome taxonomy. */
+/** What a recording sealed instead of an answered episode. */
 const NotCompletedOutcome = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("episode"), termination: EpisodeTermination }),
+  Schema.Struct({
+    kind: Schema.Literal("episode"),
+    termination: EpisodeTermination,
+  }),
   Schema.Struct({
     kind: Schema.Literal("infrastructure-failure"),
-    reason: FailureReason,
     errorTag: Schema.String,
   }),
 );
@@ -92,34 +92,6 @@ export class RunNotCompleted extends Schema.TaggedError<RunNotCompleted>()(
   },
 ) {}
 
-/** The bundle document does not decode against the bundle shape. */
-export class BundleInvalid extends Schema.TaggedError<BundleInvalid>()(
-  "BundleInvalid",
-  {
-    issues: Schema.Array(
-      Schema.Struct({
-        path: Schema.Array(Schema.String),
-        message: Schema.String,
-      }),
-    ),
-    message: Schema.String,
-  },
-) {}
-
-/**
- * The bundle envelope and its run half both name a content key and they
- * disagree. There is no winner: picking one would silently decide which
- * half of the document describes the experiment.
- */
-export class ContentVersionConflict extends Schema.TaggedError<ContentVersionConflict>()(
-  "ContentVersionConflict",
-  {
-    envelope: Schema.NonEmptyString,
-    spec: Schema.NonEmptyString,
-    message: Schema.String,
-  },
-) {}
-
 // ---------------------------------------------------------------------------
 // openRecording
 // ---------------------------------------------------------------------------
@@ -131,14 +103,22 @@ export class ContentVersionConflict extends Schema.TaggedError<ContentVersionCon
  * a suite of timeouts reads as a suite of regressions.
  */
 export type GradingPreconditions = {
-  /** The content key the caller holds, or `null` when it holds none. */
-  readonly contentVersion: string | null;
+  /** The condition label the caller holds, or `null` when it holds none. */
+  readonly condition: string | null;
   /** Whether a non-`completed` run is refused or accepted as-is. */
   readonly outcome: "completed-only" | "any";
 };
 
 /**
- * A recording that passed the stage-1 checks. `seal` and `result` are
+ * Server-registered agent id to the slot name the spec declared. Ids the
+ * run never launched — principals speaking into a conversation — are
+ * absent by design; a caller that finds no entry is looking at a sender
+ * the society did not spawn.
+ */
+export type SenderAttribution = ReadonlyMap<string, AgentName>;
+
+/**
+ * A recording that passed every stage-1 check. `seal` and `result` are
  * non-optional because passing the checks is what proves they exist;
  * under `outcome: "completed-only"` the result is additionally known to
  * be an answered episode.
@@ -149,8 +129,9 @@ export type GradeableRecording = {
   readonly seal: SealMarker;
   readonly result: ResultJson;
   readonly traces: TracesJson | undefined;
-  /** Raw `events.ndjson` lines; `mergedTimeline` decodes and orders them. */
-  readonly events: ReadonlyArray<JsonValue>;
+  /** Every event, decoded, in the one total order the writer stamped. */
+  readonly timeline: ReadonlyArray<SimulatorEvent>;
+  readonly senders: SenderAttribution;
 };
 
 /** Every way stage 1 refuses a recording. */
@@ -159,7 +140,7 @@ export type OpenRecordingError =
   | RecordingUnsealed
   | RecordingSchemaMismatch
   | RecordingInvalid
-  | ContentVersionMismatch
+  | ConditionMismatch
   | RunNotCompleted;
 
 /** A recording path is `{storeRoot}/{specHash}/s{seed}/{attemptId}`. */
@@ -169,9 +150,10 @@ function storeRootOf(recordingPath: string): string {
 
 /**
  * Open a recording for grading: read it, require the seal, require this
- * reader's schema version, compare the content key, and apply the
- * caller's outcome policy. This is the library half of the same check set
- * the `recording check` verb runs, so the two cannot drift.
+ * reader's schema version, decode the timeline and check its ordering,
+ * compare the condition, and apply the caller's outcome policy. This is
+ * the library half of the same check set the `recording check` verb runs,
+ * so the two cannot drift.
  */
 export function openRecording(
   path: string,
@@ -199,33 +181,40 @@ export function openRecording(
         }),
       );
     }
+    const timeline = yield* readTimeline(snapshot.events);
     const sealed: GradeableRecording = {
       path: absolute,
       manifest: snapshot.manifest,
       seal: snapshot.seal,
       result: snapshot.result,
       traces: snapshot.traces,
-      events: snapshot.events,
+      timeline,
+      senders: yield* attributeSenders(timeline),
     };
-    yield* checkContentVersion(sealed, preconditions.contentVersion);
+    yield* checkCondition(sealed, preconditions.condition);
     yield* checkOutcome(sealed, preconditions.outcome);
     return sealed;
   }).pipe(Effect.withSpan("openRecording"));
 }
 
-function checkContentVersion(
+/** The label the recording was produced under; `null` when it declares none. */
+function conditionOf(recording: GradeableRecording): string | null {
+  return recording.manifest.materializedSpec.condition?.label ?? null;
+}
+
+function checkCondition(
   recording: GradeableRecording,
   expected: string | null,
-): Effect.Effect<void, ContentVersionMismatch, never> {
+): Effect.Effect<void, ConditionMismatch, never> {
   if (expected === null) return Effect.void;
-  const observed = recording.manifest.contentVersion;
+  const observed = conditionOf(recording);
   if (observed === expected) return Effect.void;
   return Effect.fail(
-    new ContentVersionMismatch({
+    new ConditionMismatch({
       recordingPath: recording.path,
       expected,
-      observed: observed ?? null,
-      message: `${recording.path} was produced under content version ${observed ?? "(none)"}, and this grading run expects ${expected}. The recording describes different experiment content; grade a recording produced from the same content, or drop the key if the two really are comparable.`,
+      observed,
+      message: `${recording.path} was produced under condition ${observed ?? "(none)"}, and this grading run expects ${expected}. The recording describes a different condition; grade a recording produced under the same one, or drop the label if the two really are comparable.`,
     }),
   );
 }
@@ -250,7 +239,6 @@ function checkOutcome(
       return Effect.fail(
         notCompleted(recording, {
           kind: "infrastructure-failure",
-          reason: outcome.reason,
           errorTag: outcome.errorTag,
         }),
       );
@@ -266,7 +254,7 @@ function notCompleted(
   const what =
     observed.kind === "episode"
       ? `the episode ended \`${observed.termination}\``
-      : `infrastructure ended the run (\`${observed.reason}\`, ${observed.errorTag})`;
+      : `infrastructure ended the run (${observed.errorTag})`;
   return new RunNotCompleted({
     recordingPath: recording.path,
     observed,
@@ -275,34 +263,30 @@ function notCompleted(
 }
 
 // ---------------------------------------------------------------------------
-// mergedTimeline
+// The timeline
 // ---------------------------------------------------------------------------
 
 /**
- * Decode every event line into one flat timeline ordered by
- * `logicalSequence` — the single total order the writer stamped, across
- * all six producers.
- *
- * `conversationSeq` is not a second ordering axis; it is a consistency
- * check. Within one conversation the server's persistence sequence must
- * increase along that same timeline, and a violation means the two
- * orderings disagree about the same messages. The recording is then the
- * corrupt party, so this fails rather than picking an order.
+ * Decode every event line and order it by `logicalSequence` — the single
+ * total order the writer stamped, across all six producers. The sort
+ * re-asserts the file's own order rather than repairing it: a file whose
+ * sequences collide is rejected below instead of silently ordered.
  */
-export function mergedTimeline(
-  recording: GradeableRecording,
+function readTimeline(
+  events: ReadonlyArray<unknown>,
 ): Effect.Effect<ReadonlyArray<SimulatorEvent>, RecordingInvalid, never> {
   return Effect.forEach(
-    recording.events,
+    events,
     (line) => decodeEventLine(JSON.stringify(line)),
     { concurrency: 1 },
   ).pipe(
-    Effect.map((events) =>
-      [...events].sort((left, right) => left.logicalSequence - right.logicalSequence),
+    Effect.map((decoded) =>
+      [...decoded].sort(
+        (left, right) => left.logicalSequence - right.logicalSequence,
+      ),
     ),
     Effect.tap(checkSequenceUnique),
     Effect.tap(checkConversationSeq),
-    Effect.withSpan("mergedTimeline"),
   );
 }
 
@@ -331,6 +315,13 @@ function checkSequenceUnique(
   return Effect.void;
 }
 
+/**
+ * `conversationSeq` is not a second ordering axis; it is a consistency
+ * check. Within one conversation the server's persistence sequence must
+ * increase along that same timeline, and a violation means the two
+ * orderings disagree about the same messages. The recording is then the
+ * corrupt party, so this fails rather than picking an order.
+ */
 function checkConversationSeq(
   timeline: ReadonlyArray<SimulatorEvent>,
 ): Effect.Effect<void, RecordingInvalid, never> {
@@ -357,32 +348,18 @@ function checkConversationSeq(
   return Effect.void;
 }
 
-// ---------------------------------------------------------------------------
-// attributeSenders
-// ---------------------------------------------------------------------------
-
 /**
- * Server-registered agent id to the slot name the spec declared. Ids the
- * run never launched — principals speaking into a conversation — are
- * absent by design; a caller that finds no entry is looking at a sender
- * the society did not spawn.
+ * Join transcript senders to the slot names the spec declared, through the
+ * identities the launcher provisioned and recorded on `agent.ready`. Ids
+ * do not exist when the manifest persists, which is why the join reads
+ * events rather than the manifest's slots.
  */
-export type SenderAttribution = ReadonlyMap<string, AgentName>;
-
-/**
- * Join transcript senders to agent names through the identities the
- * launcher provisioned, as recorded on `agent.launched` / `agent.ready`.
- * Ids do not exist when the manifest persists, which is why the join
- * reads events rather than the manifest's slots.
- */
-export function attributeSenders(
+function attributeSenders(
   timeline: ReadonlyArray<SimulatorEvent>,
 ): Effect.Effect<SenderAttribution, RecordingInvalid, never> {
   const byAgentId = new Map<string, AgentName>();
   for (const event of timeline) {
-    if (event._tag !== "agent.launched" && event._tag !== "agent.ready") {
-      continue;
-    }
+    if (event._tag !== "agent.ready") continue;
     const claimed = byAgentId.get(event.agentId);
     if (claimed !== undefined && claimed !== event.agent) {
       return Effect.fail(
@@ -404,149 +381,6 @@ export function attributeSenders(
 }
 
 // ---------------------------------------------------------------------------
-// projectBundle
-// ---------------------------------------------------------------------------
-
-/**
- * One experiment in one document: the envelope, the run half (a RunSpec
- * in encoded form), and the grade half (a grader reference plus that
- * grader's own config, which nothing here reads).
- */
-export const Bundle = Schema.Struct({
-  name: Schema.NonEmptyString.annotations({
-    description: "Human-readable experiment name; becomes the grader plan's name",
-  }),
-  description: Schema.NonEmptyString.annotations({
-    description: "What the experiment tests",
-  }),
-  project: Schema.optional(
-    Schema.NonEmptyString.annotations({ description: "Grader project key" }),
-  ),
-  scenarioId: Schema.optional(
-    Schema.NonEmptyString.annotations({
-      description: "Scenario identity; defaults to the bundle file stem",
-    }),
-  ),
-  contentVersion: Schema.optional(
-    Schema.NonEmptyString.annotations({
-      description: "Consumer content key naming the gradeable content, not the rubric",
-    }),
-  ),
-  run: JsonObject.annotations({
-    description: "The simulator RunSpec in encoded form",
-  }),
-  grade: Schema.Struct({
-    grader: Schema.NonEmptyString.annotations({
-      description: "Grader reference: module path or well-known binary",
-    }),
-    config: JsonObject.annotations({
-      description: "Grader-owned configuration; never interpreted here",
-    }),
-  }).annotations({ description: "The grade half" }),
-}).annotations({ description: "A run and its grader in one document" });
-export type Bundle = typeof Bundle.Type;
-
-/** Where the bundle came from; supplies the defaults the document omits. */
-export type BundleSource = {
-  /** The bundle file's stem, the default `scenarioId`. */
-  readonly stem: string;
-};
-
-/** The bundle split into the two artifacts the existing tools accept. */
-export type ProjectedBundle = {
-  readonly envelope: {
-    readonly name: string;
-    readonly description: string;
-    readonly project: string;
-    readonly scenarioId: string;
-  };
-  /** A bare RunSpec, encoded, with the effective content key injected. */
-  readonly spec: JsonObject;
-  /** Carried through for the grader's own emitter; never read here. */
-  readonly grade: { readonly grader: string; readonly config: JsonObject };
-  readonly contentVersion: string | undefined;
-};
-
-const DEFAULT_PROJECT = "simulator";
-const CONTENT_VERSION_FIELD = "contentVersion";
-
-/**
- * Split a bundle into its run half and its carried grade half. Total and
- * mechanical: it moves fields and resolves declared defaults, never reads
- * `grade.config`, and never touches a recording. The emitted spec is a
- * bare RunSpec, which is what keeps the run path bundle-unaware — no
- * consumer's grader half can reach a run.
- */
-export function projectBundle(
-  input: unknown,
-  source: BundleSource,
-): Effect.Effect<
-  ProjectedBundle,
-  BundleInvalid | ContentVersionConflict,
-  never
-> {
-  return Schema.decodeUnknown(Bundle)(input).pipe(
-    Effect.catchTag("ParseError", (cause) =>
-      Effect.fail(
-        new BundleInvalid({
-          issues: [{ path: [], message: cause.message }],
-          message: `The bundle does not decode against the bundle shape: ${cause.message}. A bundle needs name, description, run, and grade.`,
-        }),
-      ),
-    ),
-    Effect.flatMap((bundle) =>
-      effectiveContentVersion(bundle).pipe(
-        Effect.map((contentVersion) => project(bundle, source, contentVersion)),
-      ),
-    ),
-    Effect.withSpan("projectBundle"),
-  );
-}
-
-/**
- * The key may be written on the envelope, inside the run half, or both.
- * Agreement resolves to the shared value; disagreement has no winner.
- */
-function effectiveContentVersion(
-  bundle: Bundle,
-): Effect.Effect<string | undefined, ContentVersionConflict, never> {
-  const envelope = bundle.contentVersion;
-  const inSpec = bundle.run[CONTENT_VERSION_FIELD];
-  const spec = typeof inSpec === "string" && inSpec.length > 0 ? inSpec : undefined;
-  if (envelope === undefined) return Effect.succeed(spec);
-  if (spec === undefined || spec === envelope) return Effect.succeed(envelope);
-  return Effect.fail(
-    new ContentVersionConflict({
-      envelope,
-      spec,
-      message: `The bundle envelope declares contentVersion ${envelope} and its run half declares ${spec}. There is no winner; delete one so the document names its content once.`,
-    }),
-  );
-}
-
-function project(
-  bundle: Bundle,
-  source: BundleSource,
-  contentVersion: string | undefined,
-): ProjectedBundle {
-  const spec: JsonObject =
-    contentVersion === undefined
-      ? bundle.run
-      : { ...bundle.run, [CONTENT_VERSION_FIELD]: contentVersion };
-  return {
-    envelope: {
-      name: bundle.name,
-      description: bundle.description,
-      project: bundle.project ?? DEFAULT_PROJECT,
-      scenarioId: bundle.scenarioId ?? source.stem,
-    },
-    spec,
-    grade: { grader: bundle.grade.grader, config: bundle.grade.config },
-    contentVersion,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Recording surface re-exports
 // ---------------------------------------------------------------------------
 
@@ -557,14 +391,10 @@ export {
   TracesJson,
   SealMarker,
   EpisodeTermination,
-  FailureReason,
   type RunOutcome,
 } from "./simulator/index.js";
 
-export {
-  decodeEventLine,
-  type SimulatorEvent,
-} from "./simulator/event-log.js";
+export { decodeEventLine, type SimulatorEvent } from "./simulator/event-log.js";
 
 export {
   RecordingStoreFailed,

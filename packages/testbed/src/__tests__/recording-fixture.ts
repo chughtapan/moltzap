@@ -232,7 +232,11 @@ export function makeRecording(
     if (options.unsealed !== true) {
       yield* store.seal(
         ref,
-        buildResult(allocated, options.outcome ?? completedOutcome, lines.length),
+        buildResult(
+          allocated,
+          options.outcome ?? completedOutcome,
+          lines.length,
+        ),
       );
     }
     return { path: ref.path, store };

@@ -26,7 +26,7 @@ export const EXIT_CODE = {
   notSealed: 10,
   schemaMismatch: 11,
   invalidRecording: 12,
-  contentVersionMismatch: 13,
+  conditionMismatch: 13,
   runNotCompleted: 14,
 } as const;
 
@@ -45,27 +45,23 @@ export type MappedTag =
   | "FaultUnsupported"
   | "UnknownDriver"
   | "DriverConfigRejected"
-  | "BundleInvalid"
-  | "ContentVersionConflict"
   | "ManifestPersistFailed"
   | "RecordingStoreFailed"
   | "SealFailed"
   | "RecordingUnsealed"
   | "RecordingSchemaMismatch"
   | "RecordingInvalid"
-  | "ContentVersionMismatch"
+  | "ConditionMismatch"
   | "RunNotCompleted";
 
 const EXIT_CODES: Readonly<Record<MappedTag, ExitCode>> = {
-  // Config-time and projection-time rejections: nothing ran.
+  // Config-time rejections: nothing ran.
   RunSpecInvalid: EXIT_CODE.rejected,
   AdapterConfigRejected: EXIT_CODE.rejected,
   IsolationViolation: EXIT_CODE.rejected,
   FaultUnsupported: EXIT_CODE.rejected,
   UnknownDriver: EXIT_CODE.rejected,
   DriverConfigRejected: EXIT_CODE.rejected,
-  BundleInvalid: EXIT_CODE.rejected,
-  ContentVersionConflict: EXIT_CODE.rejected,
   // No recording exists.
   ManifestPersistFailed: EXIT_CODE.noRecording,
   RecordingStoreFailed: EXIT_CODE.noRecording,
@@ -76,7 +72,7 @@ const EXIT_CODES: Readonly<Record<MappedTag, ExitCode>> = {
   RecordingSchemaMismatch: EXIT_CODE.schemaMismatch,
   RecordingInvalid: EXIT_CODE.invalidRecording,
   // Grading-convention refusals.
-  ContentVersionMismatch: EXIT_CODE.contentVersionMismatch,
+  ConditionMismatch: EXIT_CODE.conditionMismatch,
   RunNotCompleted: EXIT_CODE.runNotCompleted,
 };
 
