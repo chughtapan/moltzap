@@ -41,9 +41,15 @@ agents:
   - name: target
     runsIn: host
     role: standard
-    runtime: { kind: openclaw, config: {} }
-server: { imageDigest: "sha256:..." }
+    runtime: { _tag: openclaw, config: {} }
+server:
+  # The pin your build produced; `moltzap-testbed lock` prints it.
+  imageDigest: sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0
 episode:
+  steps:                    # a principal speaks; agents speak for themselves
+    - by: outreach
+      with: [target]
+      say: Saw your post about scheduling. Mind if I ask two questions?
   termination:
     inactivityTimeoutMs: 120000
     onAgentCrash: halt
