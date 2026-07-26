@@ -8,6 +8,7 @@
  */
 /* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/assertions-in-tests, agent-code-guard/no-example-only-tests -- regression-only suite: each case pins one verb's exit code and one line of its output, which is the CLI's machine-readable contract and a closed set rather than an input domain. The generative gate is the unnamed-tag property below. The per-verb enumeration makes each describe body long, `Effect.runPromise(invoke(...).pipe(Effect.map(assert)))` nests three deep before any assertion, and cases that delegate their assertions to a named helper carry none inline. */
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { Effect, FastCheck as fc, Schema } from "effect";
 import { FileSystem } from "@effect/platform";
@@ -270,7 +271,57 @@ describe("a bundle is a spec the run path reads directly", () => {
         expect(output.lines[0]).toContain(ERROR_TAG.runSpecInvalid);
       }),
     ));
+
+  it("accepts every bundle the manual prints", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const bundles = yield* manualBundles();
+        expect(bundles).toHaveLength(MANUAL_BUNDLE_COUNT);
+        const dir = yield* workspace();
+        yield* Effect.forEach(
+          bundles,
+          (body, index) =>
+            Effect.gen(function* () {
+              const path = yield* writeText(
+                dir,
+                `manual-${String(index)}.bundle.yaml`,
+                body,
+              );
+              const output = yield* invoke("spec", "check", path);
+              expect(output.code, body).toBe(EXIT_CODE.ok);
+            }),
+          { concurrency: 1, discard: true },
+        );
+      }),
+    ));
 });
+
+/** The grading chapter, whose bundle examples this suite holds to the tool. */
+const GRADING_CHAPTER = fileURLToPath(
+  new URL("../../../../docs/simulator/grading.mdx", import.meta.url),
+);
+
+const YAML_FENCE = /```yaml\n([\s\S]*?)```/gu;
+const GRADE_SECTION = /^grade:/mu;
+
+/** How many bundles the chapter prints; a gate that silently narrows checks nothing. */
+const MANUAL_BUNDLE_COUNT = 1;
+
+/**
+ * Every fenced YAML block in the manual that carries a `grade:` section,
+ * which is what makes a document a bundle rather than a fragment. A
+ * printed bundle the tool rejects teaches a shape that does not exist.
+ */
+function manualBundles(): Effect.Effect<ReadonlyArray<string>, never, never> {
+  return withFs((fs) => fs.readFileString(GRADING_CHAPTER)).pipe(
+    Effect.orDie,
+    Effect.map((chapter) =>
+      [...chapter.matchAll(YAML_FENCE)]
+        .map((match) => match[1] ?? "")
+        .filter((body) => GRADE_SECTION.test(body)),
+    ),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // run / rerun
