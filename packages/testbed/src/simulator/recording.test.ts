@@ -2,8 +2,9 @@
  * @file Property gates for the recording half: `Secrets.redact` (no
  * registered secret substring survives; fixpoint; encodings covered),
  * `recordingPath` injectivity, the local store's durably-at-most-once
- * seal, the reader's version gate, and the seal-digest verification on
- * read.
+ * seal, the reader's version gate, the seal-digest verification on
+ * read, and the manifest's runtime provenance for a runtime backed by an
+ * installed package.
  */
 /* eslint-disable sonarjs/assertions-in-tests -- assertion bodies are extracted to named top-level functions to satisfy the nesting caps; every test delegates to one */
 import { describe, expect, it } from "vitest";
@@ -24,13 +25,18 @@ import {
 } from "./recording.js";
 import { Seed, SpecHash } from "./run-spec.js";
 import { makeLocalRecordingStore, runIdFor } from "./local-store.js";
-import { runHermetic, specInput, tempStoreRoot } from "./__tests__/support.js";
+import {
+  AGENT_ONE,
+  runHermetic,
+  specInput,
+  tempStoreRoot,
+} from "./__tests__/support.js";
 import {
   SHORT_INACTIVITY,
   doneEpisode,
   sealedPathOf,
 } from "./__tests__/coverage-shared.js";
-import { ERROR_TAG, EXIT } from "./__tests__/tags.js";
+import { ERROR_TAG, EXIT, RUNTIME_KIND } from "./__tests__/tags.js";
 
 const REDACTION_MARKER_PREFIX = "[REDACTED:k";
 
@@ -248,6 +254,43 @@ function versionGateBody(): Effect.Effect<void, unknown> {
   });
 }
 
+/** OpenClaw hides `./package.json` behind its export map, so provenance resolution has to reach the package root by path. */
+const OPENCLAW_VERSION = new RegExp(
+  `^${RUNTIME_KIND.openclaw}@\\d+\\.\\d+\\.\\d+`,
+  "u",
+);
+
+function openclawAgentInput(name: string): unknown {
+  return {
+    name,
+    runtime: { _tag: RUNTIME_KIND.openclaw, config: {} },
+    runsIn: "host",
+    role: "standard",
+  };
+}
+
+function openclawProvenanceBody(): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const root = yield* tempStoreRoot();
+    const outcome = yield* runHermetic(
+      specInput(root, {
+        agents: [openclawAgentInput(AGENT_ONE)],
+        episode: doneEpisode(SHORT_INACTIVITY),
+      }),
+      root,
+    );
+    expect(outcome.sealedExit._tag).toBe(EXIT.success);
+    const snapshot = yield* outcome.store.read(
+      sealedPathOf(outcome.sealedExit),
+    );
+    const slot = snapshot.manifest.slots.find(
+      (entry) => entry.agent === AGENT_ONE,
+    );
+    expect(slot?.runtimeKind).toBe(RUNTIME_KIND.openclaw);
+    expect(slot?.runtimeVersion).toMatch(OPENCLAW_VERSION);
+  });
+}
+
 // @agent-code-guard/regression-only: the store invariants are exercised as concurrent races and byte-tamper regressions; the generative gates of this file live in the Secrets.redact and recordingPath describes
 describe("LocalRecordingStore", () => {
   it("seals durably at most once: one winner, losers observe AlreadySealed, sealed files never rewrite (path 33 store half, property-adjacent race)", () =>
@@ -261,4 +304,10 @@ describe("LocalRecordingStore", () => {
 
   it("rejects a sealed recording whose bytes changed after sealing (seal digest verification, regression)", () =>
     Effect.runPromise(sealDigestTamperBody().pipe(Effect.orDie)));
+});
+
+// @agent-code-guard/regression-only: one installed runtime package is the whole population; the resolver's generative gates live in package-resolution.test.ts
+describe("manifest provenance", () => {
+  it("names the installed openclaw version for an openclaw slot (regression)", () =>
+    Effect.runPromise(openclawProvenanceBody().pipe(Effect.orDie)));
 });
