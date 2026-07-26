@@ -25,7 +25,16 @@ import {
 import { NodeContext } from "@effect/platform-node";
 import { networkInterfaces } from "node:os";
 import { fileURLToPath } from "node:url";
-import { Config, Deferred, Duration, Effect, Schema, type Scope } from "effect";
+import {
+  Config,
+  Deferred,
+  Duration,
+  Effect,
+  Schedule,
+  Schema,
+  Stream,
+  type Scope,
+} from "effect";
 import {
   ServerUrl as mintServerUrl,
   type RuntimeServerHandle,
@@ -76,6 +85,11 @@ export const SERVER_DATA_MOUNT = "/data";
 export const SERVER_PGLITE_DIR = "pglite";
 
 const SERVER_HEALTH_POLL_MS = 250;
+/** Bound on any one docker call; a wedged daemon fails the run, never hangs it. */
+const DOCKER_CALL_TIMEOUT_MS = 120_000;
+const IMAGE_BUILD_TIMEOUT_MS = 900_000;
+/** Marks every per-run server container, so orphans are identifiable. */
+const SERVER_CONTAINER_LABEL = "moltzap-simulator-run=1";
 const OBSERVER_IDENTITY = "moltzap-sim-observer";
 const PRESENCE_POLL_MS = 500;
 
@@ -152,14 +166,60 @@ function serverFailed(imageDigest: string, detail: string): ServerLaunchFailed {
   });
 }
 
-/** Run a command, capture stdout, and fail on a non-zero exit. */
+/** What a failing process said: stderr when it wrote any, stdout otherwise. */
+function saidAboutFailure(result: {
+  readonly stdout: string;
+  readonly stderr: string;
+}): string {
+  const spoken = result.stderr.trim();
+  return spoken.length > 0 ? spoken : result.stdout.trim();
+}
+
+/**
+ * Run a command, capture stdout, and fail on a non-zero exit with
+ * whatever the process said about it. `Command.string` alone returns
+ * stdout for a failing process too, which turns every check built on it
+ * — the storage-mount probe, the container stop — into a no-op.
+ *
+ * stdout and stderr are drained concurrently with the exit: a process
+ * that fills an unread pipe blocks forever otherwise. Every call is
+ * bounded, so a wedged daemon fails the run instead of hanging it.
+ */
 function execCapture(
   parts: ReadonlyArray<string>,
+  timeoutMs: number = DOCKER_CALL_TIMEOUT_MS,
 ): Effect.Effect<string, string, never> {
   const [head, ...rest] = parts;
   if (head === undefined) return Effect.fail("empty command");
-  const command = Command.make(head, ...rest);
-  return Command.string(command).pipe(
+  const command = Command.make(head, ...rest).pipe(
+    Command.stdout("pipe"),
+    Command.stderr("pipe"),
+  );
+  return Effect.scoped(
+    Command.start(command).pipe(
+      Effect.flatMap((process) =>
+        Effect.all(
+          {
+            stdout: Stream.mkString(Stream.decodeText(process.stdout)),
+            stderr: Stream.mkString(Stream.decodeText(process.stderr)),
+            exitCode: process.exitCode,
+          },
+          { concurrency: 3 },
+        ),
+      ),
+      Effect.flatMap((result) =>
+        Number(result.exitCode) === 0
+          ? Effect.succeed(result.stdout)
+          : Effect.fail(
+              `${head} exited ${String(result.exitCode)}: ${saidAboutFailure(result)}`,
+            ),
+      ),
+    ),
+  ).pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(timeoutMs),
+      onTimeout: () => `${head} did not finish within ${String(timeoutMs)}ms`,
+    }),
     Effect.mapError((cause) => String(cause)),
     Effect.provide(NodeContext.layer),
   );
@@ -177,7 +237,7 @@ const LOOPBACK_HOST = "127.0.0.1";
  * the native-Linux half of the bind strategy on
  * `resolveReceiverBindHost`.
  */
-function containerReachableEndpoint(otlpEndpoint: string): string {
+export function containerReachableEndpoint(otlpEndpoint: string): string {
   const url = new URL(otlpEndpoint);
   if (url.hostname === LOOPBACK_HOST || url.hostname === "localhost") {
     url.hostname = HOST_GATEWAY_NAME;
@@ -251,7 +311,7 @@ const ImagePinLine = Schema.parseJson(
 
 /** The build script prints its pin as the last line of stdout. */
 function buildServerImagePin(): Effect.Effect<ImageDigest, string, never> {
-  return execCapture(["node", IMAGE_BUILD_SCRIPT]).pipe(
+  return execCapture(["node", IMAGE_BUILD_SCRIPT], IMAGE_BUILD_TIMEOUT_MS).pipe(
     Effect.mapError(
       (detail) =>
         `the server image could not be built: ${detail}. Build it with \`node scripts/build-server-image.mjs\`, or pin one through ${SERVER_IMAGE_ENV}`,
@@ -302,6 +362,11 @@ function serverRunArgs(
     "run",
     "--detach",
     "--rm",
+    // An interrupt between the daemon creating the container and this
+    // process learning its id leaves a container nothing holds; the label
+    // is how such an orphan is found afterwards.
+    "--label",
+    SERVER_CONTAINER_LABEL,
     "--publish",
     `${LOOPBACK_HOST}:0:${String(SERVER_CONTAINER_PORT)}`,
     "--volume",
@@ -323,9 +388,11 @@ function startServerContainer(
 ): Effect.Effect<StartedServer, ServerLaunchFailed, Scope.Scope> {
   const digest = spec.server.imageDigest;
   return Effect.gen(function* () {
+    // Scoped: the drain reads this directory during shutdown, inside the
+    // run's scope, and the recording is what survives the attempt.
     const volumePath = yield* FileSystem.FileSystem.pipe(
       Effect.flatMap((fs) =>
-        fs.makeTempDirectory({ prefix: "moltzap-sim-server-" }),
+        fs.makeTempDirectoryScoped({ prefix: "moltzap-sim-server-" }),
       ),
       Effect.provide(NodeContext.layer),
       Effect.mapError((cause) =>
@@ -448,8 +515,13 @@ function awaitServerHealthy(
             Effect.zipRight(Effect.fail("not ready")),
           ),
     ),
-    Effect.retry({
-      times: Math.ceil(spec.timeouts.readyTimeoutMs / SERVER_HEALTH_POLL_MS),
+    Effect.retry({ schedule: Schedule.forever }),
+    // The bound is wall-clock: a probe that blocks (half-open socket, a
+    // daemon mid-restart) would otherwise never consume an attempt.
+    Effect.timeoutFail({
+      duration: Duration.millis(spec.timeouts.readyTimeoutMs),
+      onTimeout: () =>
+        `health endpoint did not answer within ${String(spec.timeouts.readyTimeoutMs)}ms`,
     }),
     Effect.mapError(
       () =>

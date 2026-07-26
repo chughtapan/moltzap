@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,7 +42,14 @@ function packedPaths(packageDir) {
 }
 
 function hashPath(hash, root, path) {
-  if (!existsSync(path)) return;
+  // A published entry that is not on disk (a glob, a moved build output)
+  // would silently shrink the fingerprint and let a stale image answer for
+  // a changed workspace.
+  if (!existsSync(path)) {
+    throw new Error(
+      `published path ${path} does not exist; the image fingerprint would not cover it`,
+    );
+  }
   if (statSync(path).isDirectory()) {
     for (const entry of readdirSync(path).sort()) {
       hashPath(hash, root, join(path, entry));
@@ -138,9 +145,13 @@ async function main() {
   const image = `${IMAGE_REPOSITORY}:${fingerprint()}`;
   if (!(await imageExists(image))) {
     const staging = await stage(version);
-    await exec("docker", ["build", "--tag", image, staging], {
-      timeout: BUILD_TIMEOUT_MS,
-    });
+    try {
+      await exec("docker", ["build", "--tag", image, staging], {
+        timeout: BUILD_TIMEOUT_MS,
+      });
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
   }
   const { stdout } = await exec(
     "docker",
