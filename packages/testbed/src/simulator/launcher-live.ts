@@ -57,6 +57,7 @@ import {
   ImageDigest,
   type Agent,
   type AgentFacingRunSpec,
+  type AgentName,
 } from "./run-spec.js";
 import type { MountHandle } from "./environment.js";
 import type {
@@ -92,6 +93,20 @@ const IMAGE_BUILD_TIMEOUT_MS = 900_000;
 const SERVER_CONTAINER_LABEL = "moltzap-simulator-run=1";
 const OBSERVER_IDENTITY = "moltzap-sim-observer";
 const PRESENCE_POLL_MS = 500;
+
+/**
+ * How much of the child's own output a launch failure carries. A
+ * ready-timeout waits out the whole readiness budget, so the runtime's
+ * log window can hold minutes of output, and the end of it is where a
+ * child that keeps retrying prints why it never connected. The bound is
+ * a character count rather than a line count because a runtime is free
+ * to emit one enormous line; about thirty lines of ordinary agent output
+ * fit, which covers several restart cycles while keeping the sealed
+ * `errorMessage` readable in one pass.
+ */
+export const CHILD_OUTPUT_TAIL_CHARS = 2000;
+/** Asks a runtime for its whole retained window. */
+const LOG_START_OFFSET = 0;
 
 type LaunchError =
   | ServerLaunchFailed
@@ -771,7 +786,7 @@ function launchOneAgent(
       agentId: minted.agentId,
     });
     const ready = yield* runtime.waitUntilReady(spec.timeouts.readyTimeoutMs);
-    yield* readyOrFail(agent, ready);
+    yield* readyOrFail(agent.name, runtime, ready);
     yield* enqueueLifecycle(deps, {
       _tag: "agent.ready",
       agent: agent.name,
@@ -806,7 +821,9 @@ function spawnAgent(
     })
     .pipe(
       Effect.catchTag("SpawnFailed", (cause) =>
-        Effect.fail(agentLaunchFailed(agent, "spawn-failed", cause.message)),
+        Effect.fail(
+          agentLaunchFailed(agent.name, "spawn-failed", cause.message),
+        ),
       ),
     );
 }
@@ -818,20 +835,43 @@ function modelIdOf(agent: Agent): string | undefined {
 }
 
 function agentLaunchFailed(
-  agent: Agent,
+  slot: AgentName,
   cause: AgentLaunchFailed["cause"],
   detail: string,
 ): AgentLaunchFailed {
   return new AgentLaunchFailed({
-    slot: agent.name,
+    slot,
     cause,
     detail,
-    message: `Agent "${agent.name}" failed to launch (${cause}): ${detail}`,
+    message: `Agent "${slot}" failed to launch (${cause}): ${detail}`,
   });
 }
 
-function readyOrFail(
-  agent: Agent,
+/**
+ * Append the tail of a child's output to a failure detail.
+ *
+ * The attached text reaches the recording through `AgentLaunchFailed`'s
+ * `detail` and `message`, both of which seal through the run's secret
+ * redaction — which is what makes it safe to carry raw child output that
+ * may quote the credentials the launcher minted for it.
+ */
+function attachChildOutput(detail: string, output: string): string {
+  const tail = output.trimEnd().slice(-CHILD_OUTPUT_TAIL_CHARS).trimStart();
+  return tail.length === 0
+    ? detail
+    : `${detail}; last output from the agent process:\n${tail}`;
+}
+
+/**
+ * Turn a readiness outcome into the launch failure an operator reads. A
+ * timeout is the moment the child's own diagnostics matter most and the
+ * moment they are easiest to lose: the runtime holds them in a bounded
+ * window nothing else on this path reads, and without them every child
+ * that dies after spawn presents as the same opaque wait.
+ */
+export function readyOrFail(
+  slot: AgentName,
+  runtime: Pick<Runtime, "getLogs">,
   ready: ReadyOutcome,
 ): Effect.Effect<void, AgentLaunchFailed, never> {
   switch (ready._tag) {
@@ -840,17 +880,23 @@ function readyOrFail(
     case "Timeout":
       return Effect.fail(
         agentLaunchFailed(
-          agent,
+          slot,
           "ready-timeout",
-          `no authenticated connection within ${String(ready.timeoutMs)}ms`,
+          attachChildOutput(
+            `no authenticated connection within ${String(ready.timeoutMs)}ms`,
+            runtime.getLogs(LOG_START_OFFSET).text,
+          ),
         ),
       );
     case "ProcessExited":
       return Effect.fail(
         agentLaunchFailed(
-          agent,
+          slot,
           "exited-before-ready",
-          `exit code ${String(ready.exitCode)}: ${ready.stderr.slice(-400)}`,
+          attachChildOutput(
+            `exit code ${String(ready.exitCode)}`,
+            ready.stderr,
+          ),
         ),
       );
     default: {
@@ -927,7 +973,7 @@ function openclawRuntimeFor(
   if (agent.runsIn === "container") {
     return Effect.fail(
       agentLaunchFailed(
-        agent,
+        agent.name,
         "spawn-failed",
         "the OpenClaw container launch path ships with the server-image row; use runsIn: host for OpenClaw until it lands",
       ),
