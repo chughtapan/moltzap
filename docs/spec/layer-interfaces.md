@@ -80,6 +80,7 @@ W1).
 | `MessageType` | L2 | what this message is: an action being recorded (`MULTICAST`, `START`, `ADD`, `LEAVE`) or a protocol step performing one (propose, ack, sign) | v0 set decided; the rest charter-widened |
 | `Action` | L3 | what a conversation does — realized by a protocol, recorded in the ledger | v0: `MULTICAST` + lifecycle; the rest chartered |
 | `TranscriptRecord` | L3 | a recorded action: the byte-exact message that carried it plus its `Offset` | decided |
+| `Delivered` | L2 | what `subscribe` yields: a message, with its `Offset` when it is a recorded action and none when it is a protocol message | decided |
 | `PageToken` | L3 | opaque fail-closed token paging list reads; `Page<T>` is items plus the next token | decided |
 | `Refusal` | cross | the interim value ("the op did not take effect"), opaque cause | register 8 open |
 
@@ -155,10 +156,13 @@ interface Transport {
    *  shared order. Delivery only — nothing is recorded here, and a
    *  protocol's messages never go further than this. */
   readonly send: (message: Message) => Effect<void, Refusal>;
-  /** The ordered stream of delivered messages. Every member observes
-   *  the same order, which is what lets participants fold a protocol
-   *  live — the acks that complete a grant are seen, not stored. */
-  readonly subscribe: (conversation: ConversationId) => Stream<Message, Refusal>;
+  /** The ordered stream for a conversation, resumable: recorded
+   *  actions from `from` onward, then the live tail. Every member
+   *  observes one order, which is what lets participants fold a
+   *  protocol live — the acks that complete a grant are seen, not
+   *  stored, so only recorded actions carry an offset and only they
+   *  replay after a gap. */
+  readonly subscribe: (conversation: ConversationId, from: Offset) => Stream<Delivered, Refusal>;
 }
 ```
 
@@ -197,7 +201,11 @@ type Scope = (record: TranscriptRecord) => Effect<boolean>;
 Members reach the ledger directly — appending a completed action and
 reading history are both L3 acts, carried as control-plane calls
 (control-plane.md → Op families). The router is not involved: it
-delivers messages and records nothing.
+delivers messages and records nothing. Admission therefore runs at
+the ledger's front door — attribution verifies, the sender exists and
+is active, the sender is a member or this is a `START` to a fresh id,
+the version matches exactly, and the grant precedes — since the
+delivery adapter is not on the append path.
 
 ### Registry (L1 material + L7 mechanism; swap axis: card custody)
 
@@ -394,7 +402,7 @@ Kinds per Conventions; citations name the governing doc.
 | L2.2 | `subscribe` carries messages byte-exact with attribution intact | P | data-plane.md inv. 2, 13 |
 | L2.3 | Admission reads `Envelope` only; no Transport operation takes a `Body` | C | data-plane.md inv. 1 |
 | L2.4 | `subscribe` is a read-only stream; a response is a fresh `send` | C | data-plane.md inv. 14 |
-| L2.5 | `subscribe(c, o)` ≈ `read(c, o)` — resuming at an offset equals never disconnecting | P | control-plane.md guarantee 4; sessionless |
+| L2.5 | Over recorded actions, `subscribe(c, o)` ≈ `read(c, o)` — resuming at an offset equals never disconnecting; an in-flight protocol is abandoned, not replayed | P | control-plane.md guarantee 4; sessionless |
 | L2.6 | One send, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
 | L3.1 | `read(c, offset(append(f)), …)` contains exactly the appended message's record; offsets are dense and `from` is inclusive | P | control-plane.md guarantees 2, 3 |
 | L3.2 | `append` returns an `Offset` ⇒ the action is committed (atomic, durable, ordered); every refusal precedes commitment; `Transport.send` records nothing | P | data-plane.md inv. 4; control-plane.md guarantee 1 |

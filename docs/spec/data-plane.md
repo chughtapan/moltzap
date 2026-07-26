@@ -165,25 +165,29 @@ question 5, closed below); one effective commit per txn id, so
 retries are harmless — which is also the norm compile step's
 idempotency key (`endpoints/tasks.md`).
 
-The ledger sits off the rounds' critical path: the expensive
-multi-signed commit happens once per collective while protocol messages
-are cheap appends. They are committed records like any other —
-ordered, attributed, immutable, and part of the contiguous read
-window, which is what lets the folds define the grant; whether
-resolved protocol messages may later be pruned is the retention question
-(register item 6), and pruning can only ever drop bodies: offsets and
-message hashes are permanent, so density (law L3.1) and the hash chain
-survive, and only a *resolved* transaction's protocol messages are
-eligible — while it is open they are load-bearing for the grant fold.
-The commit message therefore carries everything post-hoc verification
-needs, the ack certificate included, so no verifier ever depends on an
-unpruned round entry. The committed
-transaction is the canonical record a late member converges to.
+**Two orders, and only one of them is kept.** L2 delivers every
+message — protocol messages included — in one shared order, and that
+ordering is L2's own guarantee, not a consequence of storage: the
+delivery layer sequences what it delivers whether or not anything
+records it. Participants fold that live stream to compute the grant,
+so the ack rule is met at a position everyone observes identically.
+The ledger is L3 and records **actions**. Protocol messages are
+delivered, never recorded; nothing is stored, so nothing is pruned,
+and post-hoc verification never re-folds the acks — the committing
+message carries the participants' signature set, so a reader verifies
+from that record alone. The ledger is a chain of agreements, not a
+write-ahead log of coordination.
 
-Protocol messages need entry types of their own before a content-blind
-store can tell them from messages; that vocabulary is the charter's
-(`layer-interfaces.md` open question 7), which is why v0 builds no
-protocol messages at all.
+Two consequences an implementer needs. **Recovery converges on
+recorded actions**: a member that reconnects mid-protocol abandons the
+in-flight fold and re-syncs from committed state — the protocol's
+messages are gone, and there is nothing to replay (this is what
+question 5's closure means, and the same reason a router restart has
+nothing to re-fold). And anything the protocol keys on a **position**
+keys it on the last committed offset preceding the protocol's opening
+message, never on an offset of an unrecorded message: membership for
+the ack rule is `membersAt` that offset, and the cut is a position in
+the delivered stream that every participant observes identically.
 
 ```mermaid
 flowchart LR
@@ -343,7 +347,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes what remains: the action vocabulary, the shape constraints a norm's ack rule must satisfy, TTL magnitudes, and ARCHIVE's meaning. Embed-vs-reference, abort authority, participant carriage, the cut, overlapping transactions, and the retention floor are recorded consequences of the skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe per-recipient delivery status, or is recovery-convergence the whole guarantee beyond the commit acknowledgment?
-5. Closed by the recorded correctness skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`): lock and transaction state are folds over the shared order, reconstructed by re-folding after any restart — no durable lease table, no wire-visible restart semantics. Number retained.
+5. Closed: lock and transaction state are live coordination folded from L2's delivered order, never stored — so a restart or reconnect does not re-fold, it abandons the in-flight transaction and re-syncs from committed state (`docs/decisions/20260724-collectives-are-ledger-transactions.md`). No durable lease table, no wire-visible restart semantics. Number retained.
 6. Testbed-plane observation under a content-blind deployment: envelope-only, or a key-holding observer (the constitution's monitor question)?
 7. Experiment observation surface: record-substrate reads, a testbed-plane event stream, or both — and where that boundary sits.
 8. Wire discipline for action envelopes (closed-struct / excess-key rejection) — `v2/VISION.md` register item 9.
