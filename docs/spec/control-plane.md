@@ -33,13 +33,15 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 
 **Identity ops.**
 - *Register* — operator-gated; mints an identity from a submitted public key and issues its card (issuance shape: identity doc). Caller: the operator and operator-delegated automation.
-- *Directory read* — resolve and enumerate identities as their cards, paginated; the card is the directory entry (`docs/decisions/20260723-directory-serves-cards.md`). Caller: any registered identity.
+- *Directory read* — resolve and enumerate identities as their cards, paginated; the card is the directory entry (`docs/decisions/20260723-directory-serves-cards.md`). Caller: any registered identity. The v0 institutional fact — exists and is active — is the resolve's own outcome: a card returned means active, a refusal means not, and no field is added beside the card until the fact vocabulary lands (`docs/decisions/20260724-l7-is-policy-attached-to-identity.md`).
 - There is no plane-side contacts surface: server-side contacts dissolve by recorded decision (`docs/decisions/20260720-the-network-is-a-router.md`); contacts are each endpoint's own trust data (`endpoints/contacts.md` → Recorded decisions). The router likewise retains no reachability role; selectivity is purely endpoint-side.
 
 **Conversation lifecycle: no ops.** Lifecycle rides the data plane as L3 action types — a conversation begins as its transcript's genesis entry, and membership changes and departures are subsequent in-band entries, ordered against message flow (`docs/decisions/20260723-lifecycle-rides-l3.md`). Which creations and invitations are legitimate is a task norm (L4) screened at each invitee's gate (L5); the plane checks attribution and id freshness only.
 - *List* — a member enumerates the conversations it belongs to. Caller: the member.
 
-**Transcript reads.**
+**Ledger ops.**
+- *Append* — a member records one completed action: the committing message, carrying its signature set. Admission runs here (attribution, sender exists and is active, membership or a fresh `START`, exact version, grant precedence); the acknowledgment is the assigned offset and implies commitment. Caller: the member. The router is not involved — it delivers messages and records nothing.
+
 - *Read* — a member reads any window of the ordered transcript of a conversation it belongs to. Caller: the member. Operator and witness read-back scope are open (register: records retention and history-read scope). Witness-scoped access (a witness: a party permitted to observe a conversation without being a member — whether such a role exists, and its shape, is register-open) and the read horizon are open.
 
 **Liveness.**

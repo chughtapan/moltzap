@@ -153,6 +153,11 @@ native form.
   binding does not give is a signature bound to the message
   independently of the request that carried it; that is the target
   binding's property, and the residue register item 5 closes.
+- Freshness is admission-time only. The 300-second window is checked
+  when the action is admitted; a reader re-verifying a recorded action
+  later checks signature validity and digest match, never expiry —
+  every retained signature is long expired by then, and the record's
+  position in the committed order is what dates it.
   This is the concrete meaning of the acceptance criteria holding "at
   request-attribution strength only" below, and it is the strength
   reduction register item 5 closes.

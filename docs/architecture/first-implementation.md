@@ -23,6 +23,26 @@ contract already names.
 | Conformance | The law table discharged per kind: (C) pinned by the static checks and canaries, (P) property-tested against both transport adapters, (S) via the suite including the swap gate as one binding change | The derived-generator machinery (deferred to the conformance workstream — `v2/drafts/v0-implementation-plan-20260723.md`) |
 | Monitors | Nothing: the fold library is built pinned and content-addressed — with the committed chain, all L6 needs to start later | Monitor programs, certificates, testimony carriage |
 
+**Round-one defaults, recorded here because a builder needs them in
+one place.** The message crosses every carrier as one opaque byte
+string — carriers parse the envelope to admit, and re-emit the
+original bytes, never re-encoding (law L1.5). The ledger retains,
+beside each recorded action, the attribution material and the sender's
+card, so a record re-verifies with no live sender and after the
+registry stops vouching. The ledger deduplicates on the message hash,
+so a blind retry after a lost acknowledgment returns the existing
+offset instead of a second record — which also closes the interim
+replay window, and needs the interim profile's `nonce` parameter so
+two genuinely distinct sends never collapse into one. A newly added
+member discovers its conversation by polling the ledger's conversation
+list and subscribing to ids it has not seen; that is a round-one
+default behind `Channel`, not an answer to the open feed-scope
+question. And the router runs as a single process: grants live in its
+memory, so two processes would each grant the same conversation and
+break turn exclusion silently — offsets are nonetheless assigned
+store-side from day one, which is what makes multi-process available
+later.
+
 Two runtimes drive the round end to end: the OpenClaw and NanoClaw
 plugins — two independent agent runtimes — as pure consumers of the
 channel, interoperating in one conversation. Both already run against

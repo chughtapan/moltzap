@@ -67,12 +67,13 @@ sequenceDiagram
   P->>F: begin(conversation) — lock the turn
   F->>T: lock request
   T-->>P: turn held — only now may the agent generate
-  P->>F: send(body)
-  F->>T: the hook passes — the endpoint signs, then sends the message
-  T->>T: admission: sender verifies, is a member or opens a fresh conversation, version matches
-  T->>L: append — one atomic commit, one offset
-  T-->>P: offset — the commit acknowledgment
-  T--)M: fan out the committed record
+  P->>F: the action's protocol runs
+  F->>T: the hook passes — the endpoint signs, then sends each message
+  T--)M: delivered in the shared order — nothing recorded
+  P->>L: append the committing message
+  L->>L: admission: sender verifies, is a member or opens a fresh conversation, version matches
+  L-->>P: offset — the commit acknowledgment
+  L--)M: the recorded action reaches members
 ```
 
 **Receiving and recovering.** Every member verifies the sender

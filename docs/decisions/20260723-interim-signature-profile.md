@@ -33,7 +33,12 @@ per-frame binding, rotation, and revocation stay register item 5.
   `moltzap-protocol` header
   (`20260723-protocol-version-carriage.md`), and
   `content-digest` whenever a body exists. Required signature
-  parameters: `keyid`, `created`, `expires`.
+  parameters: `keyid`, `created`, `expires`, and `nonce` (addendum,
+  2026-07-26 — without it two identical sends by one agent inside a
+  second produce identical bytes, and the ledger's hash-dedupe would
+  collapse them; the nonce makes every send unique by construction,
+  which is what lets dedupe serve as retry suppression and as the
+  interim replay defence, with no server-side nonce store).
 - Algorithm: Ed25519; the identity card is an Ed25519 SPKI X.509
   certificate (`20260721-x509-card-container.md`), and the same
   key later signs frames under the target binding.
