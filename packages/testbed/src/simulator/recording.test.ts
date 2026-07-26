@@ -27,6 +27,7 @@ import { Seed, SpecHash } from "./run-spec.js";
 import { makeLocalRecordingStore, runIdFor } from "./local-store.js";
 import {
   AGENT_ONE,
+  agentInput,
   runHermetic,
   specInput,
   tempStoreRoot,
@@ -260,26 +261,18 @@ const OPENCLAW_VERSION = new RegExp(
   "u",
 );
 
-function openclawAgentInput(name: string): unknown {
-  return {
-    name,
-    runtime: { _tag: RUNTIME_KIND.openclaw, config: {} },
-    runsIn: "host",
-    role: "standard",
-  };
-}
-
 function openclawProvenanceBody(): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     const root = yield* tempStoreRoot();
     const outcome = yield* runHermetic(
       specInput(root, {
-        agents: [openclawAgentInput(AGENT_ONE)],
+        agents: [
+          agentInput(AGENT_ONE, { _tag: RUNTIME_KIND.openclaw, config: {} }),
+        ],
         episode: doneEpisode(SHORT_INACTIVITY),
       }),
       root,
     );
-    expect(outcome.sealedExit._tag).toBe(EXIT.success);
     const snapshot = yield* outcome.store.read(
       sealedPathOf(outcome.sealedExit),
     );

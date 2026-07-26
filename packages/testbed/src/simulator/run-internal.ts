@@ -727,10 +727,11 @@ function enqueueLifecycle(
 // ---------------------------------------------------------------------------
 
 const PackageMetadata = Schema.Struct({ version: Schema.String });
+const requireFromHere = createRequire(import.meta.url);
 
 function simulatorVersion(): string {
   const metadata = Schema.decodeUnknownSync(PackageMetadata)(
-    createRequire(import.meta.url)("../../package.json"),
+    requireFromHere("../../package.json"),
   );
   return metadata.version;
 }
@@ -743,7 +744,7 @@ function simulatorVersion(): string {
 function resolvedPackageVersion(name: string): string {
   const packageRoot = resolveInstalledPackageRoot(name, import.meta.url);
   const metadata = Schema.decodeUnknownSync(PackageMetadata)(
-    createRequire(import.meta.url)(join(packageRoot, "package.json")),
+    requireFromHere(join(packageRoot, "package.json")),
   );
   return `${name}@${metadata.version}`;
 }
