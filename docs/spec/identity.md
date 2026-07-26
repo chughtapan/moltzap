@@ -109,12 +109,10 @@ protocols (`data-plane.md`, `control-plane.md`), never the attributed
 unit. Nothing the network assigns can sit under the sender's
 attribution.
 
-**One shape, two attribution bindings.** The field set is fixed now;
-how attribution is realized has an interim binding (Implementation
-notes) and a target binding — per-message signature under the key
-model (register item 5). Recipients and L6 readers hold the same
-verification interface under both, so the switch changes no
-downstream shape.
+**One binding.** Attribution is a signature over the message's bytes
+(`docs/decisions/20260726-attribution-binds-to-the-message.md`); there
+is no interim-to-target migration to schedule. Register item 5 keeps
+rotation and revocation — the key model proper.
 
 Whether envelope validation keeps v1's closed-struct/excess-key
 rejection is register item 9, open.
@@ -142,36 +140,16 @@ native form.
 
 ## Implementation notes (non-normative)
 
-- What a recipient verifies under the interim binding: the message's
-  attribution material is the RFC 9421 signature over the send
-  request, whose `content-digest` covers the request body and hence
-  the message bytes — so altering a message breaks the digest and
-  verification fails (invariant 4 holds at request-attribution
-  strength). The store retains that material, and the sender's card,
-  beside the message, so a recipient or an L6 reader runs the same
-  `verify` over the record with no live sender. What the interim
-  binding does not give is a signature bound to the message
-  independently of the request that carried it; that is the target
-  binding's property, and the residue register item 5 closes.
-- Freshness is admission-time only. The 300-second window is checked
-  when the action is admitted; a reader re-verifying a recorded action
-  later checks signature validity and digest match, never expiry —
-  every retained signature is long expired by then, and the record's
-  position in the committed order is what dates it.
-  This is the concrete meaning of the acceptance criteria holding "at
-  request-attribution strength only" below, and it is the strength
-  reduction register item 5 closes.
-- Interim, until per-message attribution ships: every request on
-  either plane is signed with the identity's card key — the single
-  credential (`docs/decisions/20260721-single-credential.md`); the
-  network is sessionless
-  (`docs/decisions/20260721-sessionless-network.md`) — and on a send
-  call that proof-of-possession stands in for the message's
-  attribution. The interim profile is recorded
-  (`docs/decisions/20260723-interim-signature-profile.md`: RFC 9421,
-  Ed25519, agent-id keyid, 300 s freshness window); rotation,
-  revocation, and the per-message path stay register item 5. This is transitional mechanism, not interface; the target
-  binding signs the message itself with the same key.
+- Attribution binds to the message
+  (`docs/decisions/20260726-attribution-binds-to-the-message.md`): the
+  signature is over the message's bytes — envelope and body together —
+  and rides alongside the signed part, so a recipient or an L6 reader
+  verifies from the message and the card alone, with no live sender and
+  no trust in the router. The store retains the sender's card beside
+  each recorded action so a record stays verifiable after the registry
+  stops vouching. Signing opaque bytes needs no canonicalization
+  agreement, which is what made the earlier request-signing binding
+  unnecessary.
 - Envelope encoding (JSON struct vs binary) is a realization choice;
   the normative surface is the field set, byte preservation by every
   carrier, and verifiability from message plus card. Carrier protocols
@@ -233,10 +211,6 @@ native form.
   describes and exposes that identity's registered principal; both
   case studies (bench, arena) verify attribution using only the
   published interface.
-
-Under the interim attribution binding (Implementation notes) these
-criteria hold at request-attribution strength only; per-message offline
-re-verification is the target binding's criterion (register item 5).
 
 ## Open questions
 

@@ -72,7 +72,7 @@ W1).
 | `AgentCard` | L1 | registry-attested X.509, self-attesting (fields: identity.md) | decided |
 | `Envelope` | L1 | a message's carrier-readable fields: sender, conversation, version, message type (with a lifecycle action's participants), attribution | field set decided; encoding open |
 | `Body` | L1 | opaque bytes; nothing below L4 reads them | decided |
-| `Message` | L2 | an `Envelope` and a `Body`, signed, as opaque bytes — the unit the transport delivers | decided |
+| `Message` | L2 | an `Envelope` and a `Body`, signed as one byte string — the unit the transport delivers, byte-exact at every hop | decided |
 | `VerifiedMessage` | L1 | only `verify` constructs it — the message plus its resolved `Principal`; holding one is proof it verified | decided |
 | `Version` | cross | the protocol CalVer, matched exactly | decided |
 | `ConversationId` | L3 | client-minted, collision-free by size | decided |
@@ -116,16 +116,18 @@ nothing re-encodes (law L1.5).
 `Effect<A, E>` is success/typed-refusal; the `R` channel is stated in
 the realization section.
 
-### Signer (L1; swap axis: the attribution binding)
+### Signer (L1; swap axis: the signing implementation)
 
-Interim request-signing and target per-message signing are two adapters;
-the suite runs its corpus under each, and the migration is an adapter
-change (register item 5 open).
+Attribution is a signature over the message's bytes
+(`docs/decisions/20260726-attribution-binds-to-the-message.md`), so
+verification needs the message and the card and nothing else. The swap
+axis is the implementation — key custody, hardware backing, a future
+rotation scheme — not the shape of what is signed.
 
 ```ts
-/** Offline: the message plus the sender's card is enough. Same shape
- *  under both bindings; recipients, admission, and L6 readers all
- *  hold exactly this. */
+/** Offline: the message plus the sender's card is enough — no round
+ *  trip, no live sender, no trust in the router. Recipients,
+ *  admission, and L6 readers all hold exactly this. */
 interface Verifier {
   readonly verify: (message: Message, card: AgentCard) => Effect<VerifiedMessage, Refusal>;
 }
