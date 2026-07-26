@@ -13,7 +13,7 @@ import { Effect, FastCheck as fc, Schema } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { stringify as stringifyYaml } from "yaml";
-import { main } from "./main.js";
+import { STORE_FLAG, main } from "./main.js";
 import { EXIT_CODE, exitCodeFor } from "./exit.js";
 import {
   makeRecording,
@@ -268,6 +268,112 @@ describe("a bundle is a spec the run path reads directly", () => {
         const output = yield* invoke("spec", "check", path);
         expect(output.code).toBe(EXIT_CODE.rejected);
         expect(output.lines[0]).toContain(ERROR_TAG.runSpecInvalid);
+      }),
+    ));
+});
+
+// ---------------------------------------------------------------------------
+// run / rerun
+// ---------------------------------------------------------------------------
+
+/**
+ * A store root that cannot hold a recording, so the attempt allocation
+ * refuses and names the root it tried. Allocation is the first thing a
+ * run does with its store and it happens before any container starts,
+ * which is what lets these cases read the root a run actually uses
+ * without executing one.
+ */
+function unusableStoreRoot(dir: string): Effect.Effect<string, never, never> {
+  return writeText(dir, "not-a-directory", "").pipe(
+    Effect.map((path) => join(path, "store")),
+  );
+}
+
+/**
+ * Allocation is the whole contract these cases pin: `run-internal` takes
+ * one store object and uses it for the allocation, the manifest, the
+ * traces, and the seal, so a run that allocates in the right root cannot
+ * seal in a different one.
+ */
+describe("--store on the verbs that write recordings", () => {
+  it("run allocates in the root the flag names", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const dir = yield* workspace();
+        const path = yield* writeDocument(
+          dir,
+          "cold.bundle.yaml",
+          bundleOf(dir),
+        );
+        const storeRoot = yield* unusableStoreRoot(dir);
+        const output = yield* invoke("run", path, STORE_FLAG, storeRoot);
+        expect(output.code).toBe(EXIT_CODE.noRecording);
+        expect(output.lines[0]).toContain(storeRoot);
+      }),
+    ));
+
+  it("run keeps the spec's own root when the flag is absent", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const dir = yield* workspace();
+        const specRoot = yield* unusableStoreRoot(dir);
+        const path = yield* writeDocument(
+          dir,
+          "cold.bundle.yaml",
+          bundleOf(specRoot),
+        );
+        const output = yield* invoke("run", path);
+        expect(output.code).toBe(EXIT_CODE.noRecording);
+        expect(output.lines[0]).toContain(specRoot);
+      }),
+    ));
+
+  it("rerun allocates in the root the flag names", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const dir = yield* workspace();
+        const fixture = yield* makeRecording({
+          storeRoot: yield* tempStoreRoot(),
+        });
+        const storeRoot = yield* unusableStoreRoot(dir);
+        const output = yield* invoke(
+          "rerun",
+          fixture.path,
+          STORE_FLAG,
+          storeRoot,
+        );
+        expect(output.code).toBe(EXIT_CODE.noRecording);
+        expect(output.lines[0]).toContain(storeRoot);
+      }),
+    ));
+
+  it("refuses a --store whose value is the next flag", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const dir = yield* workspace();
+        const path = yield* writeDocument(
+          dir,
+          "cold.bundle.yaml",
+          bundleOf(dir),
+        );
+        const output = yield* invoke("run", path, STORE_FLAG, "--json");
+        expect(output.code).toBe(EXIT_CODE.unexpected);
+        expect(output.lines[0]).toContain(STORE_FLAG);
+      }),
+    ));
+
+  it("refuses a --store with no value at all", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const dir = yield* workspace();
+        const path = yield* writeDocument(
+          dir,
+          "cold.bundle.yaml",
+          bundleOf(dir),
+        );
+        const output = yield* invoke("run", path, STORE_FLAG);
+        expect(output.code).toBe(EXIT_CODE.unexpected);
+        expect(output.lines[0]).toContain(STORE_FLAG);
       }),
     ));
 });
