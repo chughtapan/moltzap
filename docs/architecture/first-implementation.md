@@ -29,11 +29,9 @@ string — carriers parse the envelope to admit, and re-emit the
 original bytes, never re-encoding (law L1.5). The ledger retains,
 beside each recorded action, the attribution material and the sender's
 card, so a record re-verifies with no live sender and after the
-registry stops vouching. The ledger deduplicates on the message hash,
-so a blind retry after a lost acknowledgment returns the existing
-offset instead of a second record — which also closes the interim
-replay window, and needs the interim profile's `nonce` parameter so
-two genuinely distinct sends never collapse into one. A newly added
+registry stops vouching. The ledger deduplicates on the message hash, so a blind retry after a
+lost acknowledgment returns the existing offset instead of a second
+record. A newly added
 member discovers its conversation by polling the ledger's conversation
 list and subscribing to ids it has not seen; that is a round-one
 default behind `Channel`, not an answer to the open feed-scope

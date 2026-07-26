@@ -32,7 +32,7 @@ publishes from main only. `v2/*` imports nothing from `packages/*`
 4. One stack, eight layers, two regions; the router is the substrate.
    Communication: L1 identity, L2 ordered multicast delivery of messages (the
    handle carries recipients), L3 conversations: actions realized by protocols of messages
-   (v0: MULTICAST; #765 charters the rest), L4 tasks with norms. Trust: L5 personal trust (firewalls,
+   (v0 builds the general protocol engine; #765 charters the action vocabulary), L4 tasks with norms. Trust: L5 personal trust (firewalls,
    contacts), L6 social oversight, L7 institutional trust
    (registries, revocation), L8 governance. Guarantees flow up;
    configuration flows down.

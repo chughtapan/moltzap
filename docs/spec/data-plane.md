@@ -56,8 +56,7 @@ participant performs next).
   utterance) is the degenerate protocol; a collective is a longer one.
   The plane contributes delivery and the recording, never a judgment
   about whether a protocol completed.
-- **Turn admission.** At most one transaction is open per conversation, and
-  the plane admits no *effective* entry whose grant does not precede it in the
+- **Turn admission.** The plane admits no *effective* action whose grant does not precede it in the
   shared order — an endpoint holds the grant before it generates, so agreement
   precedes generation, not merely delivery. The discipline is at collective
   granularity: protocol messages are admitted without a grant and carry no effect.
@@ -75,25 +74,26 @@ participant performs next).
   primitive; the plane contributes the primitive and the representation,
   nothing more — it never judges a collective's completeness. The
   vocabulary and its semantics are chartered (#765).
-- **Attribution in transit.** Frames arrive carrying the L1 attribution they
+- **Attribution in transit.** Messages arrive carrying the L1 attribution they
   were emitted with, verifiable by the recipient; the plane never mints,
   alters, or strips it.
 - **Admission.** At admission the plane verifies, at minimum, that the
   message's attribution verifies per L1, its sender identity exists
   and its directory entry says active (the one institutional fact v0
   reads — `docs/decisions/20260724-l7-is-policy-attached-to-identity.md`), and the sender is a member of the conversation the
-  envelope addresses — or the message is a start entry to a fresh id
+  envelope addresses — or the message is a start message to a fresh id
   (law L3.5), which needs no grant because there is no conversation
   to lock yet; failing messages are refused before commitment.
   Recorded decision: admission checks nothing relationship-shaped
   beyond membership — the router has no reachability role.
 - **Content-blindness.** Routing and admission read envelope fields only, never
   bodies. End-to-end encryption stays a preserved possibility.
-- **Evidence retention.** The store keeps, beside each message, whatever
-  the binding in effect needs to re-verify it — under the interim
-  binding the request-signature material and the sender's card — so a
-  recorded message stays verifiable with no live sender and after the
-  registry ceases to vouch.
+- **Evidence retention.** The store keeps the sender's card beside each
+  recorded action, so a record stays verifiable with no live sender and
+  after the registry ceases to vouch. The attribution itself needs no
+  retention: it is a signature over the message's bytes
+  (`docs/decisions/20260726-attribution-binds-to-the-message.md`), so
+  the record carries its own proof.
 - **Records handoff.** Atomic commit: an action is committed for every
   member or for none, an acknowledgment implies commitment, and only
   committed actions are the record (control-plane-side; the record L6
@@ -224,7 +224,10 @@ response rides the delivery path, and an endpoint's responses,
 acknowledgments included, are first-class send calls; the plane keeps no per-endpoint
 connection or session state, so whatever shape delivery takes must be
 resumable from an offset the endpoint owns; every call is signed with the
-caller's card key and carries the protocol version; and messages cross the
+caller's card key and carries the protocol version — call-level
+authentication is transport hygiene and binds nothing at L1, since a
+send's attribution is the message's own signature
+(`docs/decisions/20260726-attribution-binds-to-the-message.md`); and messages cross the
 surface byte-exact (`identity.md`). Turn-signal carriage is the charter's
 ground (#765); whatever its shape, turn state is per-conversation
 coordination state that expires by a bounded timeout, never by disconnect —
@@ -344,7 +347,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 ## Open questions
 
 1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — the collective-semantics charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
-2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes what remains: the action vocabulary, the shape constraints a norm's ack rule must satisfy, TTL magnitudes, and ARCHIVE's meaning. Embed-vs-reference, abort authority, participant carriage, the cut, overlapping transactions, and the retention floor are recorded consequences of the skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
+2. The seven charter clusters (the action vocabulary, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes what remains: the action vocabulary, the shape constraints a norm's ack rule must satisfy, TTL magnitudes, and ARCHIVE's meaning. Embed-vs-reference, abort authority, participant carriage, the cut, overlapping transactions, and the retention floor are recorded consequences of the skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe per-recipient delivery status, or is recovery-convergence the whole guarantee beyond the commit acknowledgment?
 5. Closed: lock and transaction state are live coordination folded from L2's delivered order, never stored — so a restart or reconnect does not re-fold, it abandons the in-flight transaction and re-syncs from committed state (`docs/decisions/20260724-collectives-are-ledger-transactions.md`). No durable lease table, no wire-visible restart semantics. Number retained.

@@ -23,7 +23,7 @@ this log.** Do not add a record without that call.
 | [Protocol version: the package version, carried per request](20260723-protocol-version-carriage.md) | 2026-07-23 |
 | [The eval seam is a testbed data-plane implementation](20260723-eval-plane-is-testbed.md) | 2026-07-23 |
 | [Conversation lifecycle rides in-band at L3](20260723-lifecycle-rides-l3.md) | 2026-07-23 |
-| [Interim request-signature profile: RFC 9421 with Ed25519](20260723-interim-signature-profile.md) | 2026-07-23 |
+| [Interim request-signature profile (binding superseded)](20260723-interim-signature-profile.md) | 2026-07-23 |
 | [The eight-layer stack: communication layers under trust layers](20260723-eight-layer-stack.md) | 2026-07-23 |
 | [The spec set lives on main](20260722-spec-lives-on-main.md) | 2026-07-22 |
 | [Data-plane layering: atomic multicast, transactional collectives](20260722-data-plane-layering.md) | 2026-07-22 |

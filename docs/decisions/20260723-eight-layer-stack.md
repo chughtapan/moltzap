@@ -33,7 +33,7 @@ to the recipients a message names — the conversation handle carries
 who each message goes to, and the layer owns no membership), L3
 transactional messaging (conversations as port-number-shaped
 handles; the transcript; one transaction may be an entire
-collective — an ALL-TO-ALL is one unit, never a scatter of
+collective — an ALL_GATHER is one unit, never a scatter of
 independent messages), and L4 tasks (application-specific
 distributed protocols carrying norms: who may speak next, about
 what). The trust layers above them are ordered by widening trust

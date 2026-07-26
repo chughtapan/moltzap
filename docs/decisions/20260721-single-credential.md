@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (control-plane request signing stands; message attribution is superseded — see 20260726-attribution-binds-to-the-message.md)
 date: 2026-07-21
 decision-makers: Tapan Chugh
 ---

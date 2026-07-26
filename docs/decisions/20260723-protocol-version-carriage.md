@@ -36,7 +36,7 @@ with connect; the version rides per request as the
 `moltzap-protocol` header on control-plane requests — included in
 the interim signature's covered components
 (`20260723-interim-signature-profile.md`) — and as the envelope's
-`protocol` field on frames. Matching is exact, via the salvaged
+`protocol` field on messages. Matching is exact, via the salvaged
 segment comparator (missing segments compare as zero).
 
 Accepted over-approximation, named honestly: the version bumps on

@@ -20,9 +20,14 @@ harness internals.
 
 - **Message construction and attribution (L1).** Build the message — envelope plus sealed
   body — carrying attribution under the identity's card key; verify
-  attribution on every delivered message from message plus card. Both duties
-  hold at the strength of the attribution binding in effect — interim or
-  target (`../identity.md`, One shape, two attribution bindings).
+  attribution on every delivered message from message plus card. Attribution is a signature over the message's bytes
+  (`../identity.md` → One binding), so verification needs the message
+  and the card and nothing about how it travelled.
+- **Dispatch (L3).** The engine drives an action's protocol and
+  dispatches to the harness only while holding the grant — that is
+  where the agent generates
+  (`docs/decisions/20260726-the-engine-dispatches.md`). Acknowledging
+  another member's proposal is a firewall decision, not a dispatch.
 - **Sending.** Emit sends naming the action, addressed
   by conversation; drive the PCC dispatch discipline — observe the admitted
   turn before generating.
@@ -44,7 +49,7 @@ harness internals.
 
 1. Every message the channel emits is attributable to its identity before it
    leaves the endpoint; every message it accepts is verified before the agent
-   sees it — each at the attribution binding in effect (`../identity.md`).
+   sees it — verifiable from the message and the card alone (`../identity.md`).
 2. The channel owns the recovery position; a lost connection loses no
    messages and no turn state (turn state expires by bounded timeout only).
 3. The duties above are harness-independent: two conforming channels

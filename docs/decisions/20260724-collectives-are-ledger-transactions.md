@@ -80,12 +80,12 @@ multi-signed entry.**
   task's norms, which is what keeps this the opposite of the rejected
   escrow model. The rounds are this interface realized among
   distrusting parties: propose/ack realize `begin`, the contribution
-  round realizes `update`s, the signature round and commit frame
+  round realizes `update`s, the signature round and committing message
   realize `commit`. Lock TTLs, abort authority, participant-update
   carriage, and overlapping open transactions are the charter's.
 - **The correctness skeleton** (refinement, 2026-07-24). Locks and
   effects are folds over the shared order; entries are the only
-  reality. The transaction id is the hash of its BEGIN frame —
+  reality. The transaction id is the hash of its BEGIN message —
   client-minted, content-bound. The grant is the fold "the ack rule
   is met by the signed ack entries following BEGIN"; the acks in the
   order are its certificate — nothing separate is minted. An update
@@ -106,12 +106,12 @@ multi-signed entry.**
   Round entries are ordered, attributed, and committed like any other
   entry (the folds need them) but effect-free; once a transaction
   resolves their bodies may be dropped under the retention policy,
-  while offsets and frame hashes are permanent so density and the
-  chain survive. The commit frame carries everything post-hoc
+  while offsets and message hashes are permanent so density and the
+  chain survive. The committing message carries everything post-hoc
   verification needs — contributions, signature set, ack
   certificate — so no verifier depends on an unpruned round entry.
   Recorded consequences of the skeleton, settled with it: contributions
-  are embedded in the commit frame (references bind in the digest,
+  are embedded in the committing message (references bind in the digest,
   bodies persist); one transaction is open per conversation, and
   concurrency is more conversations, never nested locks; abort is
   holder-only, the group's remedy being a superseding grant, since the
