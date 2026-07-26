@@ -12,7 +12,14 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { agentId } from "@moltzap/protocol/testing";
+import type { AgentId } from "@moltzap/protocol/identity";
+import {
+  agentId,
+  conversationId,
+  messageId,
+  taskId,
+  waitUntil,
+} from "@moltzap/protocol/testing";
 import { ServerUrl } from "../../runtime.js";
 import { RunSpec, materializeRunSpec } from "../run-spec.js";
 import type { AgentFacingRunSpec } from "../run-spec.js";
@@ -48,10 +55,10 @@ import {
   type RecordingStoreFailed,
   type SealFailed,
 } from "../errors.js";
-import type { Principal, TaskDelivery } from "../episode.js";
+import type { Principal, SpeechDelivery, SpeechReceipt } from "../episode.js";
 
 export const DONE_SPAN = "test.done";
-export const TASK_CONTENT = "seed task: reply when done";
+export const SAY_TEXT = "seed task: reply when done";
 export const PRINCIPAL_NAME = "principal-primary";
 export const AGENT_ONE = "agent-one";
 export const AGENT_TWO = "agent-two";
@@ -80,7 +87,7 @@ export function specInput(
     ],
     server: { imageDigest: IMAGE_DIGEST },
     episode: overrides.episode ?? {
-      task: { principal: PRINCIPAL_NAME, to: AGENT_ONE, content: TASK_CONTENT },
+      steps: [{ by: PRINCIPAL_NAME, with: [AGENT_ONE], say: SAY_TEXT }],
       termination: {
         inactivityTimeoutMs: INACTIVITY_MS,
         onAgentCrash: "halt",
@@ -342,7 +349,7 @@ function startOneFake(
     return {
       agent: {
         slot: agent.name,
-        agentId: agentId(deterministicUuid(agent.name)),
+        agentId: fakeAgentId(agent.name),
         runtime: controls.runtime,
         serverUrl: endpoint,
       },
@@ -372,21 +379,87 @@ export const quietDrain: TranscriptDrain = {
 
 export type FakePrincipal = {
   readonly principal: Principal;
-  readonly deliveries: ReadonlyArray<TaskDelivery>;
+  readonly deliveries: ReadonlyArray<SpeechDelivery>;
 };
 
-/** Captures each delivery; the wire-speaking out-of-band principal is exercised at the nightly tier. */
+/**
+ * Captures each delivery and answers with the receipt a real principal
+ * would return: a `send` step lands in the conversation it was routed
+ * into, a `start` step opens a fresh one. The wire-speaking out-of-band
+ * principal is exercised at the nightly tier.
+ */
 export function makeFakePrincipal(): FakePrincipal {
-  const deliveries: Array<TaskDelivery> = [];
+  const deliveries: Array<SpeechDelivery> = [];
   return {
     principal: {
-      deliverTask: (delivery) =>
+      deliver: (delivery) =>
         Effect.sync(() => {
           deliveries.push(delivery);
+          const opened = nthReceipt(deliveries.length);
+          return delivery.into === undefined
+            ? opened
+            : { ...delivery.into, messageId: opened.messageId };
         }),
     },
     deliveries,
   };
+}
+
+/**
+ * The receipt the fake principal answers the nth `start` delivery with.
+ * Tests predict it before the run starts, so the same definition has to
+ * produce it — a second spelling would drift silently.
+ */
+export function nthReceipt(nth: number): SpeechReceipt {
+  return {
+    taskId: taskId(deterministicUuid(`task-${String(nth)}`)),
+    conversationId: conversationId(
+      deterministicUuid(`conversation-${String(nth)}`),
+    ),
+    messageId: messageId(deterministicUuid(`message-${String(nth)}`)),
+  };
+}
+
+/** The wire identity the fake launcher mints for a slot. */
+export function fakeAgentId(slot: string): AgentId {
+  return agentId(deterministicUuid(slot));
+}
+
+/**
+ * A principal whose deliveries block until released, so a test can drive
+ * a reply span into the receiver before the receipt that names its
+ * conversation exists.
+ */
+export type HeldPrincipal = FakePrincipal & {
+  /** Resolves once the nth delivery has been requested. */
+  readonly requested: (nth: number) => Effect.Effect<void, never, never>;
+  readonly release: Effect.Effect<void, never, never>;
+};
+
+export function makeHeldPrincipal(
+  holdFrom: number,
+): Effect.Effect<HeldPrincipal, never, never> {
+  return Effect.gen(function* () {
+    const gate = yield* Deferred.make<void>();
+    const base = makeFakePrincipal();
+    const seen = { count: 0 };
+    return {
+      ...base,
+      principal: {
+        // Suspended: the hold decision reads the count this delivery just
+        // took, not the count at the time the pipeline was built.
+        deliver: (delivery: SpeechDelivery) =>
+          Effect.suspend(() => {
+            seen.count += 1;
+            const held =
+              seen.count >= holdFrom ? Deferred.await(gate) : Effect.void;
+            return held.pipe(Effect.zipRight(base.principal.deliver(delivery)));
+          }),
+      },
+      requested: (nth: number) => waitUntil(() => seen.count >= nth),
+      release: Deferred.succeed(gate, undefined).pipe(Effect.asVoid),
+    };
+  }).pipe(Effect.withSpan("makeHeldPrincipal"));
 }
 
 // ---------------------------------------------------------------------------
@@ -494,17 +567,27 @@ export function runHermetic(
 const EPISODE_SETTLE_MS = 150;
 
 /**
- * Wait until the episode is observing (launch done plus a settle window;
- * the tap subscription starts with the episode), then post spans.
+ * The receiver endpoint, once the episode is observing: launch done plus
+ * a settle window, because the tap subscription starts with the episode
+ * and a span drained before it subscribes is never seen.
  */
+export function whenLive(
+  started: StartedHermetic,
+  agentCount: number,
+): Effect.Effect<string, never, never> {
+  return started.endpoint.pipe(
+    Effect.tap(() => awaitAgents(started.launch, agentCount)),
+    Effect.tap(() => Effect.sleep(`${EPISODE_SETTLE_MS} millis`)),
+  );
+}
+
+/** Wait until the episode is observing, then post the named spans. */
 export function postSpansWhenLive(
   started: StartedHermetic,
   agentCount: number,
   names: ReadonlyArray<string>,
 ): Effect.Effect<number, never, never> {
-  return started.endpoint.pipe(
-    Effect.tap(() => awaitAgents(started.launch, agentCount)),
-    Effect.tap(() => Effect.sleep(`${EPISODE_SETTLE_MS} millis`)),
+  return whenLive(started, agentCount).pipe(
     Effect.flatMap((endpoint) => postSpans(endpoint, names)),
   );
 }
@@ -514,11 +597,7 @@ export function awaitAgents(
   launch: FakeLaunch,
   count: number,
 ): Effect.Effect<void, never, never> {
-  return launch.runtimes.size >= count
-    ? Effect.void
-    : Effect.sleep("10 millis").pipe(
-        Effect.zipRight(Effect.suspend(() => awaitAgents(launch, count))),
-      );
+  return waitUntil(() => launch.runtimes.size >= count);
 }
 
 /** The deterministic path of the given attempt for this spec input. */
@@ -558,21 +637,63 @@ export function postSpans(
   endpoint: string,
   names: ReadonlyArray<string>,
 ): Effect.Effect<number, never, never> {
-  const body = {
-    resourceSpans: [
-      {
-        scopeSpans: [
-          {
-            spans: names.map((name) => ({
-              name,
-              traceId: "0123456789abcdef0123456789abcdef",
-              spanId: "0123456789abcdef",
-            })),
-          },
-        ],
-      },
-    ],
+  return postExport(
+    endpoint,
+    names.map((name) => spanBody(name, [])),
+  );
+}
+
+/** One message a delivered-message span reports. */
+export type DeliveredSpanInput = {
+  readonly messageId: string;
+  readonly conversationId: string;
+  readonly senderId: string;
+};
+
+/**
+ * POST delivered-message spans shaped the way the server exports them:
+ * OTLP's `[{key, value: {stringValue}}]` attribute encoding, which is
+ * what the reader under test has to walk.
+ */
+export function postDeliveredSpans(
+  endpoint: string,
+  messages: ReadonlyArray<DeliveredSpanInput>,
+): Effect.Effect<number, never, never> {
+  return postExport(
+    endpoint,
+    messages.map((message) =>
+      spanBody("moltzap.message.delivered", [
+        {
+          key: "moltzap.message.id",
+          value: { stringValue: message.messageId },
+        },
+        {
+          key: "moltzap.message.conversation_id",
+          value: { stringValue: message.conversationId },
+        },
+        {
+          key: "moltzap.message.sender_id",
+          value: { stringValue: message.senderId },
+        },
+      ]),
+    ),
+  );
+}
+
+function spanBody(name: string, attributes: ReadonlyArray<unknown>): unknown {
+  return {
+    name,
+    traceId: "0123456789abcdef0123456789abcdef",
+    spanId: "0123456789abcdef",
+    attributes,
   };
+}
+
+function postExport(
+  endpoint: string,
+  spans: ReadonlyArray<unknown>,
+): Effect.Effect<number, never, never> {
+  const body = { resourceSpans: [{ scopeSpans: [{ spans }] }] };
   return HttpClient.HttpClient.pipe(
     Effect.flatMap((client) =>
       HttpClientRequest.post(endpoint).pipe(

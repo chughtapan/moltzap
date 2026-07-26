@@ -32,7 +32,7 @@ export const EVENT = {
   checkpoint: "checkpoint",
   spanAccepted: "span.accepted",
   agentExited: "agent.exited",
-  taskInjected: "task.injected",
+  stepSpoken: "step.spoken",
   predicateFired: "trigger.predicate-fired",
   episodeTerminated: "episode.terminated",
   faultApplied: "fault.applied",
@@ -51,7 +51,10 @@ export const FAULT_EFFECT = {
 } as const;
 
 export const ERROR_TAG = {
+  runSpecInvalid: "RunSpecInvalid",
   adapterConfigRejected: "AdapterConfigRejected",
+  driverConfigRejected: "DriverConfigRejected",
+  doneSignalUnsafe: "DoneSignalUnsafe",
   isolationViolation: "IsolationViolation",
   faultUnsupported: "FaultUnsupported",
   unknownDriver: "UnknownDriver",

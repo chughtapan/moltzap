@@ -1,23 +1,25 @@
 /**
- * @file Episode lifecycle (contract 4): task injection, logical-time
+ * @file Episode lifecycle (contract 4): speech-step injection, logical-time
  * advance, trigger firing, and termination — plus `run`, the
  * composition root that drives one attempt end-to-end. v0 runs exactly
  * one episode per run; done-signal and inactivity terminate the episode
  * and with it the run.
  *
  * One seed deterministically derives the entire generative schedule
- * (task arrivals, wall-offset fault timings, world transitions); the
+ * (step arrivals, wall-offset fault timings, world transitions); the
  * byte-identity claim applies to `canonicalJson` of that derived
  * schedule, never to recordings. Predicate firings are never
  * seed-derived; each is recorded in the log.
  */
 import { Effect, type Scope } from "effect";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { TaskId } from "@moltzap/protocol/task";
 import type {
   AgentFacingRunSpec,
   FaultScheduleEntry,
   MaterializedRunSpec,
   RunSpec,
-  TaskInjectionSpec,
+  SpeechStep,
 } from "./run-spec.js";
 import { episodeRun } from "./episode-live.js";
 import {
@@ -43,7 +45,7 @@ import type {
   ManifestPersistFailed,
   RecordingStoreFailed,
   SealFailed,
-  TaskInjectionFailed,
+  SpeechFailed,
 } from "./errors.js";
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ import type {
 
 /** The fully derived generative schedule; deterministic function of the materialized spec. */
 export type Schedule = {
-  readonly taskArrivals: ReadonlyArray<TaskInjectionSpec>;
+  readonly stepArrivals: ReadonlyArray<SpeechStep>;
   readonly faultWindows: ReadonlyArray<FaultScheduleEntry>;
 };
 
@@ -65,7 +67,7 @@ export function makeSchedule(spec: MaterializedRunSpec): Schedule {
   // Only the agent-facing episode and world fields feed the schedule, so
   // a condition designation cannot influence it.
   return {
-    taskArrivals: [spec.episode.task],
+    stepArrivals: [...spec.episode.steps],
     faultWindows: [...spec.world.faults].sort(compareFaultWindows),
   };
 }
@@ -90,24 +92,43 @@ function compareFaultWindows(
 // Principal seam
 // ---------------------------------------------------------------------------
 
-/** What a principal delivers: the seed task as that principal's speech. */
-export type TaskDelivery = {
+/** An existing conversation a `send` step speaks into, resolved from an earlier step's receipt. */
+export type ChannelRef = {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+};
+
+/** What a principal delivers: one speech step as that principal's speech. */
+export type SpeechDelivery = {
   readonly episodeId: EpisodeId;
-  readonly task: TaskInjectionSpec;
+  readonly step: SpeechStep;
   readonly world: Society;
+  /** Absent: start a task, then speak. Present: speak into that conversation. */
+  readonly into?: ChannelRef;
 };
 
 /**
- * Principal seam: delivers seed tasks as principal speech,
+ * Where the speech landed. The episode resolves a later step's `into:`
+ * against it, and it is the only place a conversation is tied back to the
+ * step that created it — the join an offline grader needs.
+ */
+export type SpeechReceipt = {
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly messageId: MessageId;
+};
+
+/**
+ * Principal seam: delivers speech steps as principal speech,
  * attributed to a principal identity in the conversation flow, never a
- * system sender. Channel-agnostic on purpose: v0 delivers out-of-band;
- * a later principals-as-endpoints mode lands without surface change.
- * Implementations are named (registered), never closures.
+ * system sender. Agnostic between out-of-band delivery (v0) and a later
+ * principals-as-endpoints mode. Implementations are named (registered),
+ * never closures.
  */
 export interface Principal {
-  deliverTask(
-    delivery: TaskDelivery,
-  ): Effect.Effect<void, TaskInjectionFailed, never>;
+  deliver(
+    delivery: SpeechDelivery,
+  ): Effect.Effect<SpeechReceipt, SpeechFailed, never>;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,8 +145,8 @@ export type EpisodeDeps = {
 };
 
 /**
- * Run the single v0 episode to termination: inject the seed task at its
- * scheduled arrival, advance logical time event-driven (async-first, no
+ * Run the single v0 episode to termination: deliver the speech steps in
+ * array order, advance logical time event-driven (async-first, no
  * fixed rounds), execute fault windows, evaluate predicate triggers and
  * the done-signal, enforce the inactivity bound and the on-agent-crash
  * policy, and honor cooperative interrupts (SIGINT, cancel). Every

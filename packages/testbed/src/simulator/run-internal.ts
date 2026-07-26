@@ -438,7 +438,7 @@ const FAILURE_REASON_BY_TAG: Record<InfraError["_tag"], FailureReason> = {
   LoggingProxyFailed: "logging-proxy-failed",
   FaultApplyFailed: "fault-apply-failed",
   FaultRevertFailed: "fault-revert-failed",
-  TaskInjectionFailed: "task-injection-failed",
+  SpeechFailed: "speech-failed",
   DriverCrashed: "driver-crashed",
   TraceCaptureFailed: "span-acceptance-lost",
   TranscriptDrainFailed: "transcript-drain-failed",
