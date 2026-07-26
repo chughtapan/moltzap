@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createOpenClawAdapter`](./openclaw-adapter.ts#L557)
+### [`createOpenClawAdapter`](./openclaw-adapter.ts#L576)
 
 _Function_
 
@@ -300,7 +300,7 @@ export interface NanoclawAdapterOptions {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L460)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L479)
 
 _Class_
 
@@ -398,8 +398,8 @@ flowchart TD
   OCS["OpenClawAdapter.spawn(input)"]
   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
-  OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
-  OC4["4. lease spawnOpenClawProcess<br>exact child environment<br>exitFiber + log buffer"]
+  OC3["3. buildOpenClawProcessPlan<br>entry (.mjs vs binary), cwd,<br>exact child environment"]
+  OC4["4. lease spawnOpenClawProcess<br>exitFiber + log buffer"]
   OC5["5. commit process + state-dir leases<br>to adapter state"]
   OCF["failed or interrupted handoff<br>stops child + removes state dir"]
   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
@@ -414,7 +414,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L174)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L176)
 
 _Interface_
 
@@ -427,7 +427,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L181)
+### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L183)
 
 _Interface_
 
