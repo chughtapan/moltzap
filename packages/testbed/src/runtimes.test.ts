@@ -20,6 +20,7 @@ import {
 
 import {
   buildOpenClawConfig,
+  buildOpenClawProcessPlan,
   createOpenClawAdapter,
   OpenClawAdapter,
   type OpenClawAdapterDeps,
@@ -194,6 +195,42 @@ describe("buildOpenClawConfig", () => {
     expect(config.discovery?.mdns?.mode).toBe(DISABLED_MDNS_MODE);
   });
 });
+
+// The gateway child reads MOLTZAP_SERVER_URL through the moltzap client,
+// which appends the `/ws` endpoint path itself.
+const OPENCLAW_STATE_DIR = "/state/openclaw-agent";
+const OPENCLAW_PORT = 41_234;
+const OPENCLAW_BASE_CHILD_ENVIRONMENT = {
+  PATH: "/test/bin:/usr/bin:/bin",
+  HOME: "/test/home",
+};
+const SECURE_SERVER_URL = "wss://example.test:8443/ws";
+const NORMALIZED_SERVER_URL = "http://localhost:9999";
+const NORMALIZED_SECURE_SERVER_URL = "https://example.test:8443";
+
+describe("buildOpenClawProcessPlan", () => {
+  it("strips the endpoint path from the child server url", () => {
+    const plan = openClawProcessPlan(stubSpawnInput());
+    expect(plan.env.MOLTZAP_SERVER_URL).toBe(NORMALIZED_SERVER_URL);
+  });
+
+  it("maps a secure endpoint url onto https", () => {
+    const plan = openClawProcessPlan(
+      stubSpawnInput({ serverUrl: ServerUrl(SECURE_SERVER_URL) }),
+    );
+    expect(plan.env.MOLTZAP_SERVER_URL).toBe(NORMALIZED_SECURE_SERVER_URL);
+  });
+});
+
+function openClawProcessPlan(input: SpawnInput) {
+  return buildOpenClawProcessPlan({
+    openclawBin: stubDeps().openclawBin,
+    port: OPENCLAW_PORT,
+    stateDir: OPENCLAW_STATE_DIR,
+    input,
+    baseEnvironment: OPENCLAW_BASE_CHILD_ENVIRONMENT,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // OpenClawAdapter — getLogs / getInboundMarker (no spawn)

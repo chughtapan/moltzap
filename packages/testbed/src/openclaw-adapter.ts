@@ -11,6 +11,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type {
   Runtime,
   RuntimeServerHandle,
+  ServerUrl,
   SpawnInput,
   LogSlice,
   ReadyOutcome,
@@ -18,6 +19,7 @@ import type {
 import { SpawnFailed, spawnFailed } from "./errors.js";
 import { raceReadiness } from "./adapter-readiness.js";
 import {
+  type BaseChildEnvironment,
   BaseChildEnvironmentConfig,
   BoundedLogBuffer,
   escalatingKill,
@@ -208,22 +210,49 @@ interface OpenClawSpawnLease {
 interface OpenClawProcessPlan {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string>>;
 }
 
-function buildOpenClawProcessPlan(
-  openclawBin: string,
-  port: number,
-): OpenClawProcessPlan {
+// A `ServerUrl` carries the server's `/ws` endpoint path, while the moltzap
+// client appends `/ws` to whatever base it reads from the environment, so a
+// child handed the path verbatim dials `/ws/ws` and its upgrade answers 404.
+function normalizeOpenClawServerUrl(serverUrl: ServerUrl): string {
+  return serverUrl
+    .replace(/\/ws$/, "")
+    .replace(/^ws:/, "http:")
+    .replace(/^wss:/, "https:");
+}
+
+/** @internal */
+export function buildOpenClawProcessPlan(opts: {
+  readonly openclawBin: string;
+  readonly port: number;
+  readonly stateDir: string;
+  readonly input: SpawnInput;
+  readonly baseEnvironment: BaseChildEnvironment;
+}): OpenClawProcessPlan {
   const openclawArgs = [
     "gateway",
     "run",
     "--allow-unconfigured",
     "--port",
-    String(port),
+    String(opts.port),
   ];
-  return openclawBin.endsWith(".mjs")
-    ? { command: "node", args: [openclawBin, ...openclawArgs] }
-    : { command: openclawBin, args: openclawArgs };
+  const entrypoint = opts.openclawBin.endsWith(".mjs")
+    ? { command: "node", args: [opts.openclawBin, ...openclawArgs] }
+    : { command: opts.openclawBin, args: openclawArgs };
+  return {
+    ...entrypoint,
+    cwd: opts.stateDir,
+    env: {
+      ...opts.baseEnvironment,
+      OPENCLAW_STATE_DIR: opts.stateDir,
+      OPENCLAW_CONFIG_PATH: join(opts.stateDir, "openclaw.json"),
+      MOLTZAP_CONFIG_HOME: join(opts.stateDir, ".moltzap"),
+      MOLTZAP_SERVER_URL: normalizeOpenClawServerUrl(opts.input.serverUrl),
+    },
+  };
 }
 
 function allocateOpenClawStateDir(
@@ -350,27 +379,17 @@ function spawnConfiguredOpenClaw(options: {
   readonly onStarted: (
     process: SpawnedProcess,
   ) => Effect.Effect<void, never, never>;
-}): Effect.Effect<SpawnedProcess, Error, Path.Path> {
+}): Effect.Effect<SpawnedProcess, Error, never> {
   return Effect.gen(function* () {
-    const platformPath = yield* Path.Path;
     const baseEnvironment = yield* BaseChildEnvironmentConfig;
-    const plan = buildOpenClawProcessPlan(
-      options.deps.openclawBin,
-      options.port,
-    );
     return yield* spawnOpenClawProcess({
-      ...plan,
-      cwd: options.stateDir,
-      env: {
-        ...baseEnvironment,
-        OPENCLAW_STATE_DIR: options.stateDir,
-        OPENCLAW_CONFIG_PATH: platformPath.join(
-          options.stateDir,
-          "openclaw.json",
-        ),
-        MOLTZAP_CONFIG_HOME: platformPath.join(options.stateDir, ".moltzap"),
-        MOLTZAP_SERVER_URL: options.input.serverUrl,
-      },
+      ...buildOpenClawProcessPlan({
+        openclawBin: options.deps.openclawBin,
+        port: options.port,
+        stateDir: options.stateDir,
+        input: options.input,
+        baseEnvironment,
+      }),
       logBuffer: options.logBuffer,
       onStarted: options.onStarted,
     });
@@ -441,8 +460,8 @@ function startOpenClawAdapter(
  *   OCS["OpenClawAdapter.spawn(input)"]
  *   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
  *   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
- *   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
- *   OC4["4. lease spawnOpenClawProcess<br>exact child environment<br>exitFiber + log buffer"]
+ *   OC3["3. buildOpenClawProcessPlan<br>entry (.mjs vs binary), cwd,<br>exact child environment"]
+ *   OC4["4. lease spawnOpenClawProcess<br>exitFiber + log buffer"]
  *   OC5["5. commit process + state-dir leases<br>to adapter state"]
  *   OCF["failed or interrupted handoff<br>stops child + removes state dir"]
  *   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
