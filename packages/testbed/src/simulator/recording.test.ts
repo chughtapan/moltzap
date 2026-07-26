@@ -27,7 +27,6 @@ import { Seed, SpecHash } from "./run-spec.js";
 import { makeLocalRecordingStore, runIdFor } from "./local-store.js";
 import {
   AGENT_ONE,
-  agentInput,
   runHermetic,
   specInput,
   tempStoreRoot,
@@ -37,7 +36,7 @@ import {
   doneEpisode,
   sealedPathOf,
 } from "./__tests__/coverage-shared.js";
-import { ERROR_TAG, EXIT, RUNTIME_KIND } from "./__tests__/tags.js";
+import { ERROR_TAG, EXIT } from "./__tests__/tags.js";
 
 const REDACTION_MARKER_PREFIX = "[REDACTED:k";
 
@@ -256,19 +255,23 @@ function versionGateBody(): Effect.Effect<void, unknown> {
 }
 
 /** OpenClaw hides `./package.json` behind its export map, so provenance resolution has to reach the package root by path. */
-const OPENCLAW_VERSION = new RegExp(
-  `^${RUNTIME_KIND.openclaw}@\\d+\\.\\d+\\.\\d+`,
-  "u",
-);
+const OPENCLAW_VERSION = /^openclaw@\d+\.\d+\.\d+/u;
+
+function openclawAgentInput(name: string): unknown {
+  return {
+    name,
+    runtime: { _tag: "openclaw", config: {} },
+    runsIn: "host",
+    role: "standard",
+  };
+}
 
 function openclawProvenanceBody(): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     const root = yield* tempStoreRoot();
     const outcome = yield* runHermetic(
       specInput(root, {
-        agents: [
-          agentInput(AGENT_ONE, { _tag: RUNTIME_KIND.openclaw, config: {} }),
-        ],
+        agents: [openclawAgentInput(AGENT_ONE)],
         episode: doneEpisode(SHORT_INACTIVITY),
       }),
       root,
@@ -279,7 +282,6 @@ function openclawProvenanceBody(): Effect.Effect<void, unknown> {
     const slot = snapshot.manifest.slots.find(
       (entry) => entry.agent === AGENT_ONE,
     );
-    expect(slot?.runtimeKind).toBe(RUNTIME_KIND.openclaw);
     expect(slot?.runtimeVersion).toMatch(OPENCLAW_VERSION);
   });
 }
