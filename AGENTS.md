@@ -30,10 +30,9 @@ publishes from main only. `v2/*` imports nothing from `packages/*`
 3. The CLI operates the control plane; harness-specific channels
    handle the data plane.
 4. One stack, eight layers, two regions; the router is the substrate.
-   Communication: L1 identity, L2 ordered multicast delivery (the
-   handle carries recipients), L3 transactional messaging
-   (conversations as addressing; v0: multicast; #765 charters the
-   rest), L4 tasks with norms. Trust: L5 personal trust (firewalls,
+   Communication: L1 identity, L2 ordered multicast delivery of messages (the
+   handle carries recipients), L3 conversations: actions realized by protocols of messages
+   (v0: MULTICAST; #765 charters the rest), L4 tasks with norms. Trust: L5 personal trust (firewalls,
    contacts), L6 social oversight, L7 institutional trust
    (registries, revocation), L8 governance. Guarantees flow up;
    configuration flows down.

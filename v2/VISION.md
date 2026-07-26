@@ -75,17 +75,17 @@ reaching into internals is, by definition, an interface gap.
    individual agents detect invalid messages at runtime; L6–L8
    investigate post facto and impose consequences.
 5. **L1 — identity.** Unforgeable, verifiable identity, expressed
-   through the message frame: L1 defines the frames agents emit,
-   carrying attribution a recipient can verify (the sender, and
+   through the message: L1 defines the attribution agents' messages
+   carry a recipient can verify (the sender, and
    that the sender acts for a known principal; no forged
-   attribution). The harness signs frames; L2 ships them. Recorded decision
+   attribution). The harness signs messages; L2 delivers them. Recorded decision
    (`docs/decisions/20260721-single-credential.md`,
    `docs/decisions/20260721-native-principal-shaped-card.md`): the
    card key is the single credential — every request
    on either plane proves possession of it; bearer secrets do not
    exist.
 6. **L2 — ordered multicast delivery.** One primitive: all-or-none,
-   totally ordered delivery of attributed frames to the recipients
+   totally ordered delivery of attributed messages to the recipients
    a message names — the conversation handle carries who each
    message goes to; the layer owns no membership — conversations
    and their membership are L3 state, held in the control plane's
@@ -94,8 +94,11 @@ reaching into internals is, by definition, an interface gap.
    construction. The layer is content-blind — it routes on envelope
    fields, never bodies — and end-to-end encryption stays a
    preserved structural possibility, not a current requirement.
-7. **L3 — transactional messaging.** Conversations are the
-   addressing: a conversation id is a port-number-shaped opaque
+7. **L3 — conversations: actions realized by protocols.** An action —
+   `MULTICAST`, `ALL_GATHER`, `START`, `ADD`, `LEAVE` — is what a
+   conversation does; performing one runs a protocol of L2 messages,
+   and the transcript records the action, never the protocol's
+   messages. Conversations are the addressing: a conversation id is a port-number-shaped opaque
    group handle (MPI-communicator-style); membership changes are
    delivered in-band, ordered against message flow. The transcript
    is the conversation's ledger: an ordered chain of atomically
@@ -224,7 +227,7 @@ recorded maintainer decision.
    whatever access is granted, a finding needs only reads.
 4. Witness semantics: per-message vs conversation-fixed witness sets;
    what a witness may read back vs a member.
-5. L1 key model: rotation, revocation, the per-frame signing
+5. L1 key model: rotation, revocation, the per-message signing
    path; the interim request-signature profile is recorded
    (`docs/decisions/20260723-interim-signature-profile.md`).
 6. Records retention and history-read scope.

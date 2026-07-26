@@ -22,7 +22,7 @@ flowchart TB
     CLI[CLI]
   end
   HARNESS --- SPEC1 --- AGN
-  AGN -- frames --> RT
+  AGN -- messages --> RT
   RT --- ST
   CLI -- HTTP ops --> ControlPlane
 ```
@@ -41,13 +41,13 @@ the spec binds no op encoding — JSON-RPC interim wire, REST +
 OpenAPI target (`docs/decisions/20260722-control-plane-encoding.md`).
 Anything
 that must be delivered to an endpoint — membership changes, any
-push-shaped signal — rides the data plane as frames, in-band and
+push-shaped signal — rides the data plane as messages, in-band and
 ordered. Never interprets content, holds no coordination policy.
 
 ## Data plane
 
 The router: a delivery layer whose only primitive is atomic
-multicast — L1 frames delivered all-or-none in per-conversation
+multicast — L1 messages delivered all-or-none in per-conversation
 total order — under a messaging layer where conversations address
 and collective operations are transactions over the transcript
 (`docs/decisions/20260722-data-plane-layering.md`). Content-blind by
@@ -64,12 +64,12 @@ a control side:
 - **Data-plane plugins.** Two-piece: a **harness-specific plugin**
   (one per external agent-harness runtime — OpenClaw, Nanoclaw —
   speaking that harness's native shape) layered on the **agnostic plugin** (the
-  harness-independent core: frame handling, verification, enrichment,
+  harness-independent core: message handling, verification, enrichment,
   and the L5 gate mount, including contacts as the endpoint's own
   trust data).
 - **CLI.** The operator's interface, part of the endpoint: it drives
   request/response control-plane ops over HTTP. It receives nothing
-  pushed — all delivery is data-plane frames — and holds no session;
+  pushed — all delivery is data-plane messages — and holds no session;
   every op authenticates per request.
 
 ## Component-to-package map

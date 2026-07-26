@@ -7,12 +7,20 @@ Status: DRAFT (deepening doc; feeds the spec set)
 The stack's programmable surface on one page: a small noun vocabulary,
 **five ports**, the layers as **laws** over them, and the Effect
 realization. The words are the ones infrastructure engineers already
-use: agents **send** frames over a **transport**; conversations keep
-an append-only **ledger** read by **offset**; a writer **locks** the
-next turn with `begin`, **stages** updates, and **commits**;
-identities are **cards** you **look up** in a **registry**; the
-firewall is a pair of **hooks**; a plugin **runs** with a
-**channel**. If a name needs a glossary, it is the wrong name.
+use: an agent performs an **action** in a conversation — `MULTICAST`,
+`ALL_GATHER`, `START` — and performing one runs a **protocol** of
+**messages** the **transport** delivers in order; conversations keep
+an append-only **ledger** of actions read by **offset**; a writer
+**locks** the next turn with `begin`, **stages** updates, and
+**commits**; identities are **cards** you **look up** in a
+**registry**; the firewall is a pair of **hooks**; a plugin **runs**
+with a **channel**. If a name needs a glossary, it is the wrong name.
+
+The layering is decomposition, not encapsulation: **one action is
+realized by many messages**, the way one packet is realized by many
+link frames, and the protocol is the rule for that decomposition. The
+transcript records actions; the messages that performed them are not
+kept.
 
 One criterion decides what earns a tag:
 
@@ -62,43 +70,45 @@ W1).
 | `Principal` | L1 | opaque link to the party an agent acts for | linkage depth open |
 | `PublicKey` | L1 | the key submitted at registration; its card binds it | decided |
 | `AgentCard` | L1 | registry-attested X.509, self-attesting (fields: identity.md) | decided |
-| `Envelope` | L1 | a frame's carrier-readable fields: sender, conversation, version, entry type (with a lifecycle entry's participants), attribution | field set decided; encoding open |
+| `Envelope` | L1 | a message's carrier-readable fields: sender, conversation, version, message type (with a lifecycle action's participants), attribution | field set decided; encoding open |
 | `Body` | L1 | opaque bytes; nothing below L4 reads them | decided |
-| `Frame` | L1 | an `Envelope` and a `Body`, signed, as opaque bytes | decided |
-| `VerifiedFrame` | L1 | only `verify` constructs it — the frame plus its resolved `Principal`; holding one is proof the frame verified | decided |
+| `Message` | L2 | an `Envelope` and a `Body`, signed, as opaque bytes — the unit the transport delivers | decided |
+| `VerifiedMessage` | L1 | only `verify` constructs it — the message plus its resolved `Principal`; holding one is proof it verified | decided |
 | `Version` | cross | the protocol CalVer, matched exactly | decided |
 | `ConversationId` | L3 | client-minted, collision-free by size | decided |
-| `Offset` | L3 | a record's place in the conversation's log; ledger-assigned; never a field of any frame type (law L1.6) | decided |
-| `EntryType` | L3 | the envelope's entry type: `message \| start \| add \| leave` | v0 set decided; payload side charter-widened |
-| `TranscriptRecord` | L3 | a committed entry: the byte-exact frame plus its `Offset` | decided |
+| `Offset` | L3 | a record's place in the conversation's log; ledger-assigned; never a field of any message type (law L1.6) | decided |
+| `MessageType` | L2 | what this message is: an action being recorded (`MULTICAST`, `START`, `ADD`, `LEAVE`) or a protocol step performing one (propose, ack, sign) | v0 set decided; the rest charter-widened |
+| `Action` | L3 | what a conversation does — realized by a protocol, recorded in the ledger | v0: `MULTICAST` + lifecycle; the rest chartered |
+| `TranscriptRecord` | L3 | a recorded action: the byte-exact message that carried it plus its `Offset` | decided |
 | `PageToken` | L3 | opaque fail-closed token paging list reads; `Page<T>` is items plus the next token | decided |
 | `Refusal` | cross | the interim value ("the op did not take effect"), opaque cause | register 8 open |
 
-**`EntryType`.** Control flow lives in the verbs (`begin`/`update`/
-`commit`/`abort` below), so the entry vocabulary stays small:
-`message | start | add | leave`. The lifecycle side is the recorded
-set; the charter may widen the payload side as collective vocabulary
-lands — widening adds arms, never port methods, and every exhaustive
-match breaks until the new arm is handled. The type rides the
-envelope so admission and the membership fold never touch the body.
+**Actions and protocols.** An action is what a conversation does; a
+protocol is how it gets done. v0's action vocabulary is `MULTICAST`
+plus the lifecycle three, and a plain utterance is the degenerate
+case — a `MULTICAST` whose protocol is one message, which is why v0
+ships without building any multi-message protocol. The charter widens
+the action vocabulary (`ALL_GATHER`, `ALL_REDUCE`, …) and names the
+protocol steps; widening adds arms, never port methods, and every
+exhaustive match breaks until the new arm is handled. The message
+type rides the envelope so admission and the membership fold never
+touch the body.
 
-**Where transactions live.** A committed collective is one multi-signed
-transaction (`20260724-collectives-are-ledger-transactions.md`) — and
-it is still **one frame**. The leader's commit frame carries the
-transaction in its body: the contributions (embedded or referenced —
-chartered), the computed result, and the participants' signature set.
-The plane never reads it; recipients and monitors verify it. So
-`Transaction` is an endpoint-level reading of a committed frame, like
-`Evidence` — not a wire noun, and the ledger's write path stays
-one-frame-in, one-offset-out. The hash chain that makes the order
-tamper-evident is the ledger's own technique, below the port.
+**What the ledger holds.** One recorded action is one message: the
+committing message carries the action's content and the participants'
+signature set, so it is self-certifying — a reader verifies the action
+happened legitimately from that record alone, without the protocol
+messages that produced it. Those are delivered, not kept. The ledger's
+write path is therefore one message in, one offset out, and the hash
+chain that makes the order tamper-evident is the ledger's own
+technique, below the port.
 
 The vocabulary stops at the wire. L4 and L5 carry no nouns here: a
 norm bundle binds only its guarantee (tasks.md; law L4.1), the
 firewall's rule language is the undesigned firewall plan (open
-question 2), and L6's evidence is a derivation. Frames and cards cross
-every carrier byte-exact — views read the retained bytes, nothing
-re-encodes (law L1.5).
+question 2), and L6's evidence is a derivation. Messages and cards
+cross every carrier byte-exact — views read the retained bytes,
+nothing re-encodes (law L1.5).
 
 ## The five ports
 
@@ -107,21 +117,21 @@ the realization section.
 
 ### Signer (L1; swap axis: the attribution binding)
 
-Interim request-signing and target per-frame signing are two adapters;
+Interim request-signing and target per-message signing are two adapters;
 the suite runs its corpus under each, and the migration is an adapter
 change (register item 5 open).
 
 ```ts
-/** Offline: the frame plus the sender's card is enough. Same shape
+/** Offline: the message plus the sender's card is enough. Same shape
  *  under both bindings; recipients, admission, and L6 readers all
  *  hold exactly this. */
 interface Verifier {
-  readonly verify: (frame: Frame, card: AgentCard) => Effect<VerifiedFrame, Refusal>;
+  readonly verify: (message: Message, card: AgentCard) => Effect<VerifiedMessage, Refusal>;
 }
 /** Signing half — endpoint composition only; the private key is
  *  adapter state. */
 interface Signer extends Verifier {
-  readonly sign: (conversation: ConversationId, type: EntryType, body: Body) => Effect<Frame, SignError>;
+  readonly sign: (conversation: ConversationId, type: MessageType, body: Body) => Effect<Message, SignError>;
 }
 ```
 
@@ -131,7 +141,7 @@ process can sign, which is data-plane.md inv. 2 at compile time
 
 ### Transport (L2; swap axis: production vs testbed)
 
-The ordered multicast primitive and nothing above it: frames in,
+The ordered multicast primitive and nothing above it: messages in,
 committed records out. The swap axis sits exactly at L2 — every
 testbed injection is an L2 fault, every observation an L2 delivery
 event — so L3 and up are identical under both adapters, and the
@@ -146,10 +156,10 @@ interface Transport {
    *  carriage is the charter's, and the v0 instrument lives in the
    *  adapter. A start to a fresh id needs no grant. */
   readonly begin: (conversation: ConversationId) => Effect<Grant, Refusal>;
-  /** Send one frame. The returned Offset is the commit ack: atomic,
+  /** Send one message. The returned Offset is the commit ack: atomic,
    *  durable, ordered. Every refusal precedes commitment. An effective
    *  write carries the grant it was issued. */
-  readonly send: (frame: Frame, grant: Option<Grant>) => Effect<Offset, Refusal>;
+  readonly send: (message: Message, grant: Option<Grant>) => Effect<Offset, Refusal>;
   /** One-way best-effort push of committed records, resumable from an
    *  offset the endpoint owns. Never a response path, never the
    *  source of truth. */
@@ -167,15 +177,15 @@ optimization over the ledger.
 ### Ledger (L3; swap axis: storage engine)
 
 Each conversation's transcript is an append-only log of committed
-frames — the ledger the collectives decision names. One write verb;
+messages — the ledger the collectives decision names. One write verb;
 genesis is not special.
 
 ```ts
 interface Ledger {
-  /** One frame, one atomic commit; the conversation is the
-   *  envelope's. A start frame to a fresh id creates the log at
+  /** One message, one atomic commit; the conversation is the
+   *  envelope's. A start message to a fresh id creates the log at
    *  offset zero (laws L3.5, L3.7). */
-  readonly append: (frame: Frame) => Effect<Offset, StoreError>;
+  readonly append: (message: Message) => Effect<Offset, StoreError>;
   /** A contiguous window starting at `from` inclusive, at most `limit`
    *  records: byte-exact, gated by the entitlement predicate. Offsets
    *  are dense and the ledger never clamps `limit` silently, so a
@@ -233,9 +243,9 @@ interface Channel {
    *  discipline grants this writer the conversation. Hold the open
    *  transaction before generating. TTL-bounded — never a session. */
   readonly begin: (conversation: ConversationId) => Effect<Txn, Refusal>;
-  /** Derived: fresh id + start frame, autocommitted (law L3.7). */
+  /** Derived: fresh id + start message, autocommitted (law L3.7). */
   readonly startConversation: (members: readonly AgentId[], body: Body) => Effect<ConversationId, Refusal>;
-  /** The attention stream only; a withheld frame stays in the log. */
+  /** The attention stream only; a withheld message stays in the log. */
   readonly inbound: Stream<InboundMessage, Refusal>;
 }
 /** Holding an open Txn IS holding the turn; commit and abort consume
@@ -243,7 +253,7 @@ interface Channel {
 interface Txn {
   /** Stage one entry in the open transaction. A collective's
    *  contributions are updates; participant carriage is chartered. */
-  readonly update: (type: EntryType, body: Body) => Effect<void, Refusal>;
+  readonly update: (type: MessageType, body: Body) => Effect<void, Refusal>;
   /** Atomic commit: the staged unit lands at one offset; the lock
    *  releases. */
   readonly commit: () => Effect<Offset, Refusal>;
@@ -252,9 +262,9 @@ interface Txn {
   /** Autocommit sugar for the plain message: one update + commit. */
   readonly send: (body: Body) => Effect<Offset, Refusal>;
 }
-/** A verified frame plus whatever context the firewall attaches;
+/** A verified message plus whatever context the firewall attaches;
  *  enrichment is additive and firewall-defined. */
-interface InboundMessage { readonly frame: VerifiedFrame; readonly context: FirewallContext }
+interface InboundMessage { readonly message: VerifiedMessage; readonly context: FirewallContext }
 ```
 
 **Where norms attach.** Under the recorded hypothesis
@@ -293,9 +303,9 @@ generation at the granularity of the collective, not of every round
 message. The rounds (data-plane.md → The collective transaction) are
 this interface realized among distrusting parties: propose/ack
 realize `begin`, the contribution round realizes `update`s, the
-signature round and commit frame realize `commit`. The correctness skeleton is
+signature round and commit message realize `commit`. The correctness skeleton is
 recorded there and in the collectives record: the txn id is the hash
-of its BEGIN frame; the grant and a commit's effect are **folds over
+of its BEGIN message; the grant and a commit's effect are **folds over
 the shared order** (the acks are the grant's certificate; validity is
 computed identically by every same-pinned party; the store never
 judges); supersession is order-resolved, restart recovers by
@@ -324,9 +334,9 @@ sequenceDiagram
   T-->>P: Txn — the turn is held
   P->>H: txn.send(body) — or updates then commit, or a committing tool call
   H->>S: admit
-  S->>T: sign(conversation, type, body) then send(Frame)
+  S->>T: sign(conversation, type, body) then send(Message)
   T->>T: admission: verify, member or fresh start, version
-  T->>L: append(Frame)
+  T->>L: append(Message)
   T-->>P: Offset — the commit ack
   T--)T: fan out to membership (optimization over the ledger)
 ```
@@ -362,7 +372,7 @@ its owner: data-plane.md → The collective transaction.
   future read-scope decisions change the value, not the port.
 - **Derivations** are pure functions over port state, in a shared,
   pinned, content-addressed fold library (it is trusted computing
-  base — findings cite it by hash): `applyEntry` (total over `EntryType`)
+  base — findings cite it by hash): `applyEntry` (total over `MessageType`)
   and `membersAt` — one fold, two sites: the router folds lifecycle
   entries for delivery sets, the endpoint runs the identical fold to
   know the room. `Channel.startConversation` is a derivation.
@@ -381,29 +391,29 @@ Kinds per Conventions; citations name the governing doc.
 | # | Law | Kind | Cite |
 |---|---|---|---|
 | L1.1 | `verify(sign(c,k,b), lookup(sender))` ≈ the verified view — verify-after-sign is identity | P | identity.md inv. 1 |
-| L1.2 | `verify : (frame, card) → VerifiedFrame` — no round trip, no live sender; L6 readers hold the same shape | C | identity.md → Verification duties |
+| L1.2 | `verify : (message, card) → VerifiedMessage` — no round trip, no live sender; L6 readers hold the same shape | C | identity.md → Verification duties |
 | L1.3 | Any alteration of envelope or body ⇒ `verify` refuses | P | identity.md inv. 4 |
 | L1.4 | Only the endpoint composition names `Signer`; the router names `Verifier` only | C | identity.md inv. 2; data-plane.md inv. 2 |
-| L1.5 | Frames and cards cross every carrier byte-exact: views read the retained bytes, nothing re-encodes | C+P | identity.md → Byte preservation; data-plane.md inv. 13 |
-| L1.6 | `Offset` is a field of no frame type (types-check canary) | C | identity.md → Not frame fields |
+| L1.5 | Messages and cards cross every carrier byte-exact: views read the retained bytes, nothing re-encodes | C+P | identity.md → Byte preservation; data-plane.md inv. 13 |
+| L1.6 | `Offset` is a field of no message type (types-check canary) | C | identity.md → Not message fields |
 | L2.1 | All members observe the same records in the same order | S | data-plane.md inv. 3 |
-| L2.2 | `subscribe` carries frames byte-exact with attribution intact | P | data-plane.md inv. 2, 13 |
+| L2.2 | `subscribe` carries messages byte-exact with attribution intact | P | data-plane.md inv. 2, 13 |
 | L2.3 | Admission reads `Envelope` only; no Transport operation takes a `Body` | C | data-plane.md inv. 1 |
 | L2.4 | `subscribe` is a read-only stream; a response is a fresh `send` | C | data-plane.md inv. 14 |
 | L2.5 | `subscribe(c, o)` ≈ `read(c, o)` — resuming at an offset equals never disconnecting | P | control-plane.md guarantee 4; sessionless |
 | L2.6 | One send, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
-| L3.1 | `read(c, offset(append(f)), …)` contains exactly the appended frame's record; offsets are dense and `from` is inclusive | P | control-plane.md guarantees 2, 3 |
+| L3.1 | `read(c, offset(append(f)), …)` contains exactly the appended message's record; offsets are dense and `from` is inclusive | P | control-plane.md guarantees 2, 3 |
 | L3.2 | `send` ≜ admit, commit, then best-effort deliver; `Offset` returned ⇒ committed (atomic, durable, ordered); every refusal precedes commitment | P | data-plane.md inv. 4; control-plane.md guarantee 1 |
-| L3.3 | `append` takes one frame — one entry, one commit; a collective commits as one unit (its transaction rides the frame's body) | C+P | control-plane.md guarantee 9 |
+| L3.3 | `append` takes one message — one entry, one commit; a collective commits as one unit (its transaction rides the message's body) | C+P | control-plane.md guarantee 9 |
 | L3.4 | No update, delete, or rewrite operation exists on any port | C | control-plane.md guarantee 6 |
-| L3.5 | A start frame to a used id refuses with no side effect; to a fresh id it creates the log at offset zero | P | lifecycle-rides-l3 |
+| L3.5 | A start message to a used id refuses with no side effect; to a fresh id it creates the log at offset zero | P | lifecycle-rides-l3 |
 | L3.6 | `membersAt` ≈ the fold of lifecycle entries at or before the offset; no membership write exists | C+P | data-plane.md inv. 8; guarantee 5 |
 | L3.7 | No create operation exists anywhere; `Channel.startConversation` is a derived term (fresh id, sign start, send) | C | lifecycle-rides-l3 |
 | L3.8 | Every *effective* write belongs to a transaction whose `begin` preceded it — holding the open `Txn` is the proof (typestate); round entries are effect-free and outside the lock | C | data-plane.md inv. 5 |
 | L3.9 | `commit`/`abort` consume the `Txn`: at most one commit per lock (linearity residual) | S | data-plane.md → Implementation notes |
 | L3.10 | Admission refusals never mutate membership | C+P | data-plane.md inv. 9 |
-| L5.1 | The hooks hold no signing authority; the frame and its attribution pass through unaltered | C | screening.md inv. 2 |
-| L5.2 | A withheld inbound frame stays out of attention while `read` is unchanged — the firewall filters attention, never the record | P | screening.md inv. 2, acceptance |
+| L5.1 | The hooks hold no signing authority; the message and its attribution pass through unaltered | C | screening.md inv. 2 |
+| L5.2 | A withheld inbound message stays out of attention while `read` is unchanged — the firewall filters attention, never the record | P | screening.md inv. 2, acceptance |
 | L5.3 | Verdicts are agent-local; no interface emits one outward | C | screening.md inv. 3; contacts.md inv. 5 |
 | L5.4 | A change to the agent's trust data is a local act with immediate effect and zero network involvement | P | contacts.md inv. 4 |
 | L5.5 | No router-side interface accepts, stores, or serves any L5 trust data | C | contacts.md inv. 1 |
@@ -503,11 +513,11 @@ flowchart TB
    composition decides durability under the W6.S2 spec item.
 6. **The L6 monitor**, if one ever exists, arrives as a wider `Scope`
    value, not a new port or caller arm (register 3).
-7. **The transaction's frame shape.** A committed collective rides one
-   frame; whether contributions are embedded or referenced, the
+7. **The transaction's message shape.** A committed collective rides one
+   message; whether contributions are embedded or referenced, the
    signature-set encoding, and any transaction-kind envelope
    vocabulary are the charter's. Nothing here binds them;
-   `EntryType`'s payload side is where they will land.
+   `MessageType`'s payload side is where they will land.
 
 ## References
 

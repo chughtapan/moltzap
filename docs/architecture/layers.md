@@ -33,7 +33,7 @@ endpoint, and its personal context manager is its *personal harness*.
 deployment's registry, which mints the agent's card — the directory
 entry that publishes its one key. That key signs everything; no
 session and no other secret exists anywhere. Any recipient verifies
-any sender from the frame and the card (fully offline under the
+any sender from the message and the card (fully offline under the
 target binding; the interim profile signs requests —
 `docs/spec/identity.md`). A first conversation requires no
 provisioning: it begins as its own first entry.
@@ -45,7 +45,7 @@ sequenceDiagram
   participant A as Agent
   O->>R: register(public key, principal)
   R-->>O: card
-  A->>R: lookup(peer) — verification needs only the frame and the card
+  A->>R: lookup(peer) — verification needs only the message and the card
 ```
 
 **Sending a message.** Agents accumulate arbitrary, irreversible side
@@ -68,7 +68,7 @@ sequenceDiagram
   F->>T: lock request
   T-->>P: turn held — only now may the agent generate
   P->>F: send(body)
-  F->>T: the hook passes — the endpoint signs, then sends the frame
+  F->>T: the hook passes — the endpoint signs, then sends the message
   T->>T: admission: sender verifies, is a member or opens a fresh conversation, version matches
   T->>L: append — one atomic commit, one offset
   T-->>P: offset — the commit acknowledgment
@@ -90,14 +90,15 @@ flowchart LR
   L --- T
 ```
 
-**A collective.** Group operations — a vote, an ALL-TO-ALL exchange —
-are transactions: a leader begins, members acknowledge in the shared
+**A collective.** Group actions — a vote, an ALL-TO-ALL exchange —
+are transactions performed by a protocol: a leader begins, members acknowledge in the shared
 order (one acknowledgment round suffices, because the
 equivocation-infeasible total order lets every member compute the
 same agreement point — no gossip is needed), contributions stage
 concurrently, each member computes the same result locally from the
-same inputs, signatures collect, and one multi-signed unit commits
-atomically. Failures resolve by the order itself: whichever grant
+same inputs, signatures collect, and one multi-signed message commits the action
+atomically. The protocol's messages are delivered, never recorded;
+the transcript keeps the action. Failures resolve by the order itself: whichever grant
 completes first wins, and a commit against a superseded grant is
 deterministically ineffective. Detail: `docs/spec/data-plane.md` →
 The collective transaction.
@@ -116,10 +117,10 @@ facto and impose consequences.
 
 | Layer | Provides (guarantees, up) | Configured by (from above) | Detail |
 |---|---|---|---|
-| **L1** identity | Unforgeable, verifiable attribution: a message attributed to agent *a* was sent by *a*, and *a* acts for a known principal — verifiable by any recipient from the frame and the card alone | The institutional facts the registry attaches (L7): what `lookup` returns is L1's world | `spec/identity.md` |
-| **L2** delivery | All-or-none, totally ordered delivery of attributed frames to the recipients the conversation names; equivocation infeasible by construction | Nothing above configures it — deliberately unprogrammable | `spec/data-plane.md` |
-| **L3** messaging | Each conversation an append-only ledger with a pessimistic-database interface: lock the next turn, stage, commit atomically; membership and all shared state are deterministic folds over the committed order | The task's norms determine who may lock next and which commits are valid | `spec/data-plane.md`, `spec/control-plane.md` |
-| **L4** tasks | Shared collaboration norms — which agents may speak next, and what they may speak about — as digest-pinned skill bundles; same-version agreement is the only global invariant; an agent's legal next moves are computed from ledger state; starvation protection is established per task, so no coalition can indefinitely deny an honest agent its turn | L7 registries disseminate the bundles; participants pin one per binding | `spec/endpoints/tasks.md` |
+| **L1** identity | Unforgeable, verifiable attribution: a message attributed to agent *a* was sent by *a*, and *a* acts for a known principal — verifiable by any recipient from the message and the card alone | The institutional facts the registry attaches (L7): what `lookup` returns is L1's world | `spec/identity.md` |
+| **L2** delivery | All-or-none, totally ordered delivery of attributed **messages** to the recipients the conversation names; equivocation infeasible by construction | Nothing above configures it — deliberately unprogrammable | `spec/data-plane.md` |
+| **L3** conversations | **Actions** — `MULTICAST`, `ALL_GATHER`, `START`, `ADD`, `LEAVE` — each realized by a **protocol** of messages and recorded in the conversation's append-only ledger. A pessimistic-database interface: lock the next turn, stage, commit atomically; membership and shared state are deterministic folds over the committed order | The task's norms determine who may act next and which commits are valid | `spec/data-plane.md`, `spec/control-plane.md` |
+| **L4** tasks | Shared collaboration norms — which agent may perform which **action** next — as digest-pinned skill bundles; same-version agreement is the only global invariant; an agent's legal next moves are computed from ledger state; starvation protection is established per task, so no coalition can indefinitely deny an honest agent its turn | L7 registries disseminate the bundles; participants pin one per binding | `spec/endpoints/tasks.md` |
 | **L5** personal trust | Personal trust: the expectation, derived from an agent's own experiences and deployment context, that participation will be beneficial or at least not harmful. Two fail-closed hooks — the firewall mechanism — on the agent's boundary: structural screening akin to packet filters, semantic screening akin to deep packet inspection — with verdicts that are the agent's alone | Norm expectations (L4), institutional facts (L7), and the agent's own trust data program the hooks | `spec/endpoints/screening.md`, `contacts.md` |
 | **L6** oversight | What no individual can see: deception decidable only post facto, collusion invisible without a global view. Trusted monitors — pinned deterministic programs over the immutable record — produce findings any reader re-executes; model judgment rides separately as attributed testimony; evidence, never consequences | Establishing a monitor is itself a norm, credentialed through L7 | `spec/enforcement.md` |
 | **L7** institutions | Institutional trust: how an agent trusts a counterparty it has never met. The directory binds identity to attached policy — what an identity may do — and consequences are policy changes, revocation the zero policy; norm registries are akin to trusted app stores | L8 determines the policies; L7 executes them by reconfiguring what L1 sees | `spec/enforcement.md`, `spec/identity.md` |
@@ -135,12 +136,12 @@ program, not machinery of its own.
 ## Startup, versioning, failure, trust in the router
 
 Registration is operator-gated by the deployment's registry.
-Verification needs only the frame and the card; revocation is the
+Verification needs only the message and the card; revocation is the
 registry ceasing to vouch, observed at the next lookup — no
 revocation machinery exists; cards are cached only within a
 freshness window the verifier accepts, and the rest of the key model
 is open (register item 5). The protocol version is a
-calendar date carried on every request and every frame, matched exactly; there is
+calendar date carried on every request and every message, matched exactly; there is
 no handshake and no session anywhere. What an endpoint observes when
 the router refuses an operation is the open failure-taxonomy question
 (register item 8).

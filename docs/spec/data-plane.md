@@ -6,7 +6,7 @@ Status: DRAFT (deepening doc; feeds the spec set)
 
 The data plane is the delivery half of the network, split out of the control
 plane. It carries network delivery and collective operations — carrying L1
-frames with ordered multicast delivery (L2) and transactional messaging (L3),
+messages with ordered multicast delivery (L2) and transactional messaging (L3),
 MULTICAST-only in the first version per the constitution's recorded decision —
 and addresses every delivery through a conversation (L3). It is the shared
 substrate under every agent's harness; everything interpretive lives at
@@ -15,7 +15,7 @@ endpoints.
 The plane realizes the stack's L2 and L3
 (`docs/decisions/20260723-eight-layer-stack.md`,
 `docs/decisions/20260722-data-plane-layering.md`): **L2, ordered multicast
-delivery** — a frame delivered all-or-none, in single total order, to the
+delivery** — a message delivered all-or-none, in single total order, to the
 recipients it names; the conversation handle carries who each message goes
 to, and the layer owns no membership — and **L3, transactional messaging**,
 where conversations address and collective operations are transactions over
@@ -41,7 +41,7 @@ participant emits next).
 
 ## Duties (guarantee level)
 
-- **Delivery.** The plane accepts a signed L1 frame naming a collective
+- **Delivery.** The plane accepts a signed L1 message naming a collective
   operation from a conversation member and delivers it to the members the
   envelope addresses; the v0 slice's only operation is MULTICAST to the
   membership. Prompt push is best-effort; convergence is guaranteed
@@ -55,7 +55,7 @@ participant emits next).
   the plane admits no *effective* entry whose grant does not precede it in the
   shared order — an endpoint holds the grant before it generates, so agreement
   precedes generation, not merely delivery. The discipline is at collective
-  granularity: round entries are admitted without a grant and carry no effect.
+  granularity: protocol messages are admitted without a grant and carry no effect.
   At most one transaction is open per conversation: two open
   transactions would mean two writers generating concurrently, which
   is what PCC exists to deny. Concurrency is expressed as more
@@ -74,25 +74,25 @@ participant emits next).
   were emitted with, verifiable by the recipient; the plane never mints,
   alters, or strips it.
 - **Admission.** At admission the plane verifies, at minimum, that the
-  frame's attribution verifies per L1, its sender identity exists
+  message's attribution verifies per L1, its sender identity exists
   and its directory entry says active (the one institutional fact v0
   reads — `docs/decisions/20260724-l7-is-policy-attached-to-identity.md`), and the sender is a member of the conversation the
-  envelope addresses — or the frame is a start entry to a fresh id
+  envelope addresses — or the message is a start entry to a fresh id
   (law L3.5), which needs no grant because there is no conversation
-  to lock yet; failing frames are refused before commitment.
+  to lock yet; failing messages are refused before commitment.
   Recorded decision: admission checks nothing relationship-shaped
   beyond membership — the router has no reachability role.
 - **Content-blindness.** Routing and admission read envelope fields only, never
   bodies. End-to-end encryption stays a preserved possibility.
-- **Evidence retention.** The store keeps, beside each frame, whatever
+- **Evidence retention.** The store keeps, beside each message, whatever
   the binding in effect needs to re-verify it — under the interim
   binding the request-signature material and the sender's card — so a
-  recorded frame stays verifiable with no live sender and after the
+  recorded message stays verifiable with no live sender and after the
   registry ceases to vouch.
 - **Records handoff.** Atomic commit: an entry is committed for every member
   or for none, an acknowledgment implies commitment, and only committed
   entries are the record (control-plane-side; the record L6 reads).
-  Pre-commit round entries are ordered and attributed but effect-free —
+  Pre-commit protocol messages are ordered and attributed but effect-free —
   the folds need them; whether delivery precedes durability is realization
   (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 - **Addressing (L3).** A conversation id is the routing handle — an opaque
@@ -108,7 +108,7 @@ collective is a transaction on the transcript's pessimistic-database
 interface — `begin` locks the turn, `update`s stage contributions,
 `commit` lands one multi-signed unit — realized among distrusting
 parties as rounds of ordinary L2 multicasts. Every round message is an
-ordinary attributed frame the plane admits and fans out without
+ordinary attributed message the plane admits and fans out without
 understanding it; one ack round replaces gossip because the
 equivocation-infeasible shared order lets every member compute the
 agreement point identically.
@@ -119,7 +119,7 @@ sequenceDiagram
   participant A as Member A
   participant B as Member B
   participant R as Router - L2 over the ledger
-  L->>R: BEGIN txn - propose. txn id is the hash of this frame
+  L->>R: BEGIN - propose. txn id is the hash of this message
   R-->>A: fan out
   R-->>B: fan out
   A->>R: ACK txn
@@ -160,28 +160,28 @@ retries are harmless — which is also the norm compile step's
 idempotency key (`endpoints/tasks.md`).
 
 The ledger sits off the rounds' critical path: the expensive
-multi-signed commit happens once per collective while round entries
+multi-signed commit happens once per collective while protocol messages
 are cheap appends. They are committed records like any other —
 ordered, attributed, immutable, and part of the contiguous read
 window, which is what lets the folds define the grant; whether
-resolved round entries may later be pruned is the retention question
+resolved protocol messages may later be pruned is the retention question
 (register item 6), and pruning can only ever drop bodies: offsets and
-frame hashes are permanent, so density (law L3.1) and the hash chain
-survive, and only a *resolved* transaction's round entries are
+message hashes are permanent, so density (law L3.1) and the hash chain
+survive, and only a *resolved* transaction's protocol messages are
 eligible — while it is open they are load-bearing for the grant fold.
-The commit frame therefore carries everything post-hoc verification
+The commit message therefore carries everything post-hoc verification
 needs, the ack certificate included, so no verifier ever depends on an
 unpruned round entry. The committed
 transaction is the canonical record a late member converges to.
 
-Round entries need entry types of their own before a content-blind
+Protocol messages need entry types of their own before a content-blind
 store can tell them from messages; that vocabulary is the charter's
 (`layer-interfaces.md` open question 7), which is why v0 builds no
-round traffic at all.
+protocol messages at all.
 
 ```mermaid
 flowchart LR
-  subgraph Rounds["Round entries - committed, effect-free, bodies droppable once resolved"]
+  subgraph Rounds["Protocol messages - committed, effect-free, bodies droppable once resolved"]
     P[begin] --> K[acks] --> X[updates] --> S[signatures]
   end
   subgraph Ledger["Committed transactions - durable, canonical, hash-chained"]
@@ -191,10 +191,10 @@ flowchart LR
 ```
 
 What the skeleton already settles is recorded with it: contributions
-are embedded in the commit frame (references bind in the digest,
+are embedded in the commit message (references bind in the digest,
 bodies persist), one open transaction per conversation, holder-only
 abort with a superseding grant as the group's remedy, participants
-contributing as unlocked round entries the leader embeds, the cut
+contributing as unlocked protocol messages the leader embeds, the cut
 derived from the deciding ack, and the retention floor above. What
 stays the charter's: the round entry-type names, the shape
 constraints on a norm's ack rule, and TTL magnitudes.
@@ -214,7 +214,7 @@ response rides the delivery path, and an endpoint's responses,
 acknowledgments included, are first-class send calls; the plane keeps no per-endpoint
 connection or session state, so whatever shape delivery takes must be
 resumable from an offset the endpoint owns; every call is signed with the
-caller's card key and carries the protocol version; and frames cross the
+caller's card key and carries the protocol version; and messages cross the
 surface byte-exact (`identity.md`). Turn-signal carriage is the charter's
 ground (#765); whatever its shape, turn state is per-conversation
 coordination state that expires by a bounded timeout, never by disconnect —
@@ -278,7 +278,7 @@ callbacks. Destinations, power by power:
 
 Interim wire: the v1 WebSocket machinery carries the plane for now — send as
 a JSON-RPC request; delivery is a fire-and-forget call on the connection's
-reverse RPC channel (v1 labels it a notification, but the frame carries an id
+reverse RPC channel (v1 labels it a notification, but the message carries an id
 and its void acknowledgment is discarded). That carriage deviates from the
 one-way delivery bound: the fix restores a strict id-less notification, any
 acknowledgment becoming a separate send call. The interim socket also binds
@@ -310,8 +310,8 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 1. Routing and admission read envelope fields only, never bodies.
 2. The plane never mints, alters, or strips L1 attribution.
 3. Per-conversation total order: all members observe the same messages in the same order; an unavailable member converges to it on recovery.
-4. Atomic commit: an entry is committed for every member or for none; an acknowledgment implies commitment; round entries are ordered and attributed but effect-free.
-5. Turn-disciplined effect: no entry takes effect unless its grant precedes it in the shared order, and at most one transaction is open per conversation; endpoints hold the grant before generating. Round entries are admitted without a grant and carry no effect.
+4. Atomic commit: an entry is committed for every member or for none; an acknowledgment implies commitment; protocol messages are ordered and attributed but effect-free.
+5. Turn-disciplined effect: no entry takes effect unless its grant precedes it in the shared order, and at most one transaction is open per conversation; endpoints hold the grant before generating. Protocol messages are admitted without a grant and carry no effect.
 6. Starvation protection, established per task (L4): no coalition of faulty members can indefinitely deny an honest member its turn under the task's protocol.
 7. Equivocation robustness: a sender cannot present different members with different versions of the same message.
 8. Membership changes are in-band events, ordered against message flow.
@@ -319,7 +319,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 10. No data-plane interface names or carries a task.
 11. Implementation-swap equivalence: replacing the production data plane with the testbed data plane changes no production semantics; every testbed injection stays inside the tolerated failure envelope.
 12. The plane keeps no per-endpoint connection or session state.
-13. Only data-plane traffic rides the data surface, and frames within it are carried byte-exact, never re-encoded.
+13. Only data-plane traffic rides the data surface, and messages within it are carried byte-exact, never re-encoded.
 14. Delivery is one-way: no response channel rides the delivery path; an endpoint's responses, acknowledgments included, are first-class sends.
 
 ## Acceptance criteria
