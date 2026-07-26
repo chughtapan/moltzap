@@ -219,9 +219,6 @@ _Property_
 
 ```ts
   readonly leaseId: string;
-};
-
-export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
 ```
 
 ### [`leaseId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L66)
@@ -238,7 +235,6 @@ _Property_
 
 ```ts
   readonly leaseId: string;
-  readonly verdict: { decision: string; reason?: string };
 ```
 
 ### [`LeaseIdOnlyView`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_helpers.ts#L66)
@@ -263,83 +259,6 @@ export type LeaseState =
   | "EXPIRED"
   | "ABANDONED"
   | "HOLD";
-
-// ── Recipient handle ──────────────────────────────────────────────────
-
-/**
- * Recipient-side surface. Owns one `AgentTestClient` connected to the real
- * server under a recipient agent identity. All methods return Effects
- * scoped to the surrounding `Scope`; releasing the scope closes the
- * underlying agent client.
- */
-export interface RecipientHandle {
-  readonly agentId: Schema.Schema.Type<typeof AgentId>;
-
-  /**
-   * Issue `agent/dispatch/request` for the given inbound. Returns the ack
-   * payload `{leaseId, dispatchId}`. Single recipient may issue many
-   * concurrent requests; the property is responsible for ordering its
-   * own assertions.
-   */
-  readonly requestDispatch: (params: {
-    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
-    readonly messageId: Schema.Schema.Type<typeof MessageId>;
-    readonly senderAgentId: Schema.Schema.Type<typeof AgentId>;
-    readonly attempt?: number;
-  }) => Effect.Effect<
-    {
-      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
-      readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
-    },
-    PropertyFailure
-  >;
-
-  /**
-   * Park until a `agent/dispatch/released` notification arrives that matches
-   * `predicate` (default: any). Used by every property in the
-   * `DispatchRelease` group + every property that asserts a verdict
-   * delivery.
-   */
-  readonly waitForRelease: (
-    predicate?: (
-      frame: NotificationDelivery<typeof DispatchRelease>,
-    ) => boolean,
-    timeoutMs?: number,
-  ) => Effect.Effect<
-    NotificationDelivery<typeof DispatchRelease>,
-    PropertyFailure
-  >;
-
-  /**
-   * Send `agent/message/send` carrying `dispatchLeaseId`. Used to consume a
-   * GRANTED lease + assert the consumed/duplicate behavior. Returns the
-   * minted message id on success; on the lease-already-CONSUMED path,
-   * fails with a `PropertyInvariantViolation` whose `reason` carries
-   * the wire-error code + `LeaseInvalid` data tag the server returned.
-   */
-  readonly sendWithLease: (params: {
-    readonly taskId: Schema.Schema.Type<typeof TaskId>;
-    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
-    readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
-    readonly text: string;
-  }) => Effect.Effect<
-    {
-      readonly messageId: Schema.Schema.Type<typeof MessageId>;
-      readonly errorTag?: string;
-      readonly errorState?: string;
-    },
-    PropertyFailure
-  >;
-
-  /**
-   * Disconnect the recipient's WS without graceful shutdown.
-   * Drives ABANDONED + EXPIRED-on-disconnect transitions for every
-   * `*-disconnect-*` property. The returned Effect resolves once the
-   * server has observed the close (registry's connection-close
-   * finalizer fired).
-   */
-  readonly hardClose: Effect.Effect<void, PropertyFailure>;
-}
 ```
 
 Closed lease-state union mirroring `LeaseStateSchema`. The driver's
@@ -371,10 +290,6 @@ _Property_
 
 ```ts
   readonly messageId: string;
-  readonly leaseId: string;
-};
-
-export function freshMessageId(): Schema.Schema.Type<typeof MessageId> {
 ```
 
 ### [`ModeratorHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/testing/conformance/app/_driver.ts#L190)

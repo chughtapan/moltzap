@@ -57,16 +57,6 @@ _TypeAlias_
 
 ```ts
 export type AgentStatus = "active" | "suspended";
-
-/**
- * Principal context arms stored on authenticated socket connections. Handlers
- * receive the arm selected by each method's `requires` head.
- */
-export class AgentContext extends Data.TaggedClass("AgentContext")<{
-  readonly agentId: AgentId;
-  readonly agentStatus: AgentStatus;
-  readonly ownerUserId: UserId;
-}> {}
 ```
 
 Closed agent lifecycle states. Mirrors
@@ -105,15 +95,6 @@ export type Connection =
   | UnauthenticatedConnection
   | AgentConnection
   | AppConnection;
-
-/**
- * Outcome of `ConnectionManager.authenticate`'s atomic transition. The
- * success arms are split per minted arm so the Connect handler's
- * `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
- * `authed` structurally — no `as AgentConnection` cast.
- */
-export type TransitionOutcome =
-  | { readonly kind: "not-connected" }
 ```
 
 The three-arm connection state — the connections map's only entry shape.
@@ -283,19 +264,6 @@ _TypeAlias_
 
 ```ts
 export type Originator = ReverseClient;
-
-/**
- * The per-connection socket handle registered with `ConnectionManager`.
- */
-export interface WebSocketRef {
-  /**
-   * Write a raw frame to this connection. Fails with SocketError on send
-   * failure or if the socket is already closed.
-   */
-  readonly write: (raw: string) => Effect.Effect<void, SocketError>;
-  /** Close this connection's scope, tearing down the underlying socket. */
-  readonly shutdown: Effect.Effect<void>;
-}
 ```
 
 The per-connection reverse `RpcClient&lt;ReverseRpcGroup>` the server fires

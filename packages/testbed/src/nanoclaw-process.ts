@@ -268,11 +268,10 @@ function waitForOnecliReadiness() {
   });
 }
 
-function normalizeNanoclawServerUrl(serverUrl: string): string {
-  return serverUrl
-    .replace(/\/ws$/, "")
-    .replace(/^ws:/, "http:")
-    .replace(/^wss:/, "https:");
+// The container registers over HTTP before its client opens the socket. The
+// address arrives path-free from `SpawnInput`, so only the scheme changes.
+function nanoclawHttpServerUrl(serverUrl: string): string {
+  return serverUrl.replace(/^ws/, "http");
 }
 
 // Runtime dirs are docker bind-mount sources (agent-runner src, group and
@@ -403,7 +402,7 @@ function buildNanoclawChildEnvironment(
     ...baseEnvironment,
     MOLTZAP_PROFILE: TESTBED_PROFILE_NAME,
     MOLTZAP_CONFIG_HOME: join(runtimeDir, ".moltzap"),
-    MOLTZAP_SERVER_URL: normalizeNanoclawServerUrl(opts.serverUrl),
+    MOLTZAP_SERVER_URL: nanoclawHttpServerUrl(opts.serverUrl),
     MOLTZAP_EVAL_MODE: opts.autoRegisterConversations ? "1" : "0",
     CONTAINER_RUNTIME: "docker",
     CONTAINER_IMAGE: install.containerImage,

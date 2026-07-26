@@ -63,6 +63,7 @@ const PROCESS_SPAWN_AGENT_NAME = "process-spawn-agent";
 const TEST_API_KEY = redactedAgentKey(agentKeyString(70));
 const TEST_AGENT_ID = agentId("11111111-1111-4111-8111-111111111111");
 const TEST_SERVER_URL = "ws://localhost:9999/ws";
+const TEST_SERVER_BASE_URL = "ws://localhost:9999";
 const ALICE_AGENT_NAME = "alice";
 const SPAWN_FAILED_MESSAGE = "ENOENT";
 const SIGTERM_SIGNAL = "SIGTERM";
@@ -349,9 +350,9 @@ describe("branded types", () => {
     expect(Redacted.value(TEST_API_KEY)).toBe(agentKeyString(70));
   });
 
-  it("ServerUrl brand compiles and round-trips", () => {
-    const url = ServerUrl(TEST_SERVER_URL);
-    expect(url).toBe(TEST_SERVER_URL);
+  it("ServerUrl is the protocol's path-free base constructor", () => {
+    expect(ServerUrl(TEST_SERVER_URL)).toBe(TEST_SERVER_BASE_URL);
+    expect(() => ServerUrl(`${TEST_SERVER_BASE_URL}/elsewhere`)).toThrow();
   });
 });
 

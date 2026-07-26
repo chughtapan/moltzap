@@ -8,7 +8,7 @@ Public exports for launching and supervising connected-agent testbeds.
 
 ## Public surface
 
-### [`AgentName`](./runtime.ts#L7)
+### [`AgentName`](./runtime.ts#L8)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type AgentName = string & Brand.Brand<"AgentName">;
 ```
 
-### [`AgentName`](./runtime.ts#L7)
+### [`AgentName`](./runtime.ts#L8)
 
 _Variable_
 
@@ -66,16 +66,9 @@ _TypeAlias_
 
 ```ts
 export type InstallMode = "published" | "workspace";
-
-const CHANNEL_PACKAGE_NAME = "@moltzap/openclaw-channel";
-
-interface InstallModeResolverDeps {
-  readonly resolveChannelPackageRoot: () => string;
-  readonly workspacePackagesDir: string | null;
-}
 ```
 
-### [`launchTestbed`](./testbed.ts#L370)
+### [`launchTestbed`](./testbed.ts#L393)
 
 _Function_
 
@@ -100,7 +93,7 @@ Sibling: launchTestbedWithProcessSignals adds SIGINT
 / SIGTERM handlers so Ctrl-C during startup interrupts cleanly via
 `TestbedStartupInterrupted`.
 
-### [`launchTestbedWithProcessSignals`](./testbed.ts#L476)
+### [`launchTestbedWithProcessSignals`](./testbed.ts#L511)
 
 _Function_
 
@@ -134,7 +127,7 @@ flowchart TD
 
 - `TestbedStartupInterrupted` — a signal arrives during testbed startup
 
-### [`LogSlice`](./runtime.ts#L49)
+### [`LogSlice`](./runtime.ts#L57)
 
 _Interface_
 
@@ -431,7 +424,7 @@ export interface OpenClawAdapterOptions {
 }
 ```
 
-### [`ReadyOutcome`](./runtime.ts#L63)
+### [`ReadyOutcome`](./runtime.ts#L71)
 
 _TypeAlias_
 
@@ -440,7 +433,7 @@ export type ReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`Runtime`](./runtime.ts#L82)
+### [`Runtime`](./runtime.ts#L90)
 
 _Interface_
 
@@ -498,7 +491,7 @@ Raised by `startPendingRuntimeAgent` when `waitUntilReady` returns
 `exitCode` is `null` only if the process exited via signal.
 Caller action: inspect `stderr`; check binary auth config.
 
-### [`RuntimeKind`](./testbed.ts#L65)
+### [`RuntimeKind`](./testbed.ts#L67)
 
 _TypeAlias_
 
@@ -545,7 +538,7 @@ has been torn down before the failure reaches the caller.
 Caller action: increase `readyTimeoutMs`, or enable process-level
 diagnostics at the adapter boundary.
 
-### [`RuntimeServerHandle`](./runtime.ts#L20)
+### [`RuntimeServerHandle`](./runtime.ts#L28)
 
 _Interface_
 
@@ -571,35 +564,34 @@ export interface RuntimeServerHandle {
 }
 ```
 
-### [`RuntimeStartOptions`](./testbed.ts#L67)
+### [`RuntimeStartOptions`](./testbed.ts#L69)
 
 _TypeAlias_
 
 ```ts
 export type RuntimeStartOptions = RuntimeStartOptionsBase & RuntimeSelection;
-
-interface TestbedLaunchOptionsBase {
-  readonly server: RuntimeServerHandle;
-  readonly agents: ReadonlyArray<TestbedAgentSpec>;
-  readonly readyTimeoutMs: number;
-  readonly concurrency?: number | "unbounded";
-}
 ```
 
-### [`ServerUrl`](./runtime.ts#L8)
+### [`ServerUrl`](./runtime.ts#L20)
 
 _TypeAlias_
 
 ```ts
-export type ServerUrl = string & Brand.Brand<"ServerUrl">;
+export type ServerUrl = ServerBaseUrl;
 ```
 
-### [`ServerUrl`](./runtime.ts#L8)
+The address an adapter hands its child process: the protocol's path-free
+base, under this package's long-standing name. The child's client appends
+the socket route itself, so a value carrying one dials `/ws/ws` and never
+authenticates. Accepts either form a caller is likely to hold — the base
+URL or the socket endpoint — and throws on any other path.
+
+### [`ServerUrl`](./runtime.ts#L20)
 
 _Variable_
 
 ```ts
-export type ServerUrl = string & Brand.Brand<"ServerUrl">
+export type ServerUrl = ServerBaseUrl
 ```
 
 ### [`SpawnFailed`](./errors.ts#L16)
@@ -621,7 +613,7 @@ failure, state-dir creation failure.
 `cause` carries the underlying Error.
 Caller action: surface to user. No retry — binary or config is wrong.
 
-### [`SpawnInput`](./runtime.ts#L40)
+### [`SpawnInput`](./runtime.ts#L48)
 
 _Interface_
 
@@ -630,13 +622,13 @@ export interface SpawnInput {
   readonly agentName: AgentName;
   readonly apiKey: AgentKey;
   readonly agentId: AgentId;
-  readonly serverUrl: ServerUrl;
+  readonly serverUrl: ServerBaseUrl;
   readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
   readonly modelId?: string;
 }
 ```
 
-### [`startRuntimeAgent`](./testbed.ts#L339)
+### [`startRuntimeAgent`](./testbed.ts#L357)
 
 _Function_
 
@@ -670,7 +662,7 @@ coordinated startup.
 - `RuntimeReadyTimedOut` — `waitUntilReady` exceeds `readyTimeoutMs`
 - `RuntimeExitedBeforeReady` — the process exits before signaling ready (inspect `stderr`)
 
-### [`Testbed`](./testbed.ts#L87)
+### [`Testbed`](./testbed.ts#L89)
 
 _Interface_
 
@@ -682,7 +674,7 @@ export interface Testbed {
 }
 ```
 
-### [`TestbedAgent`](./testbed.ts#L82)
+### [`TestbedAgent`](./testbed.ts#L84)
 
 _Interface_
 
@@ -693,7 +685,7 @@ export interface TestbedAgent {
 }
 ```
 
-### [`TestbedAgentSpec`](./testbed.ts#L32)
+### [`TestbedAgentSpec`](./testbed.ts#L34)
 
 _Interface_
 
@@ -708,19 +700,15 @@ export interface TestbedAgentSpec {
 }
 ```
 
-### [`TestbedLaunchOptions`](./testbed.ts#L76)
+### [`TestbedLaunchOptions`](./testbed.ts#L78)
 
 _TypeAlias_
 
 ```ts
 export type TestbedLaunchOptions = TestbedLaunchOptionsBase & RuntimeSelection;
-
-export type TestbedProcessSignalOptions = TestbedLaunchOptions & {
-  readonly signals?: ReadonlyArray<Signal>;
-};
 ```
 
-### [`TestbedProcessSignalOptions`](./testbed.ts#L78)
+### [`TestbedProcessSignalOptions`](./testbed.ts#L80)
 
 _TypeAlias_
 
@@ -730,7 +718,7 @@ export type TestbedProcessSignalOptions = TestbedLaunchOptions & {
 };
 ```
 
-### [`TestbedStartupInterrupted`](./testbed.ts#L93)
+### [`TestbedStartupInterrupted`](./testbed.ts#L95)
 
 _Class_
 
@@ -743,7 +731,7 @@ export class TestbedStartupInterrupted extends Data.TaggedError(
 }> {}
 ```
 
-### [`WorkspaceFile`](./runtime.ts#L15)
+### [`WorkspaceFile`](./runtime.ts#L23)
 
 _Interface_
 

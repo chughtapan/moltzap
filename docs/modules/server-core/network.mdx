@@ -237,16 +237,6 @@ _TypeAlias_
 
 ```ts
 export type DeliveryError = RecipientNotResolved | WriteFailed;
-
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
-
-interface BroadcastOptions {
-  readonly forConversation?: ConversationId;
-  readonly excludeConnectionId?: ConnectionId;
-  readonly messageId?: MessageId;
-}
 ```
 
 ### [`NetworkSendService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L87)
