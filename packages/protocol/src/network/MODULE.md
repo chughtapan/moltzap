@@ -8,7 +8,7 @@ Public barrel for connect and presence protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](./index.ts#L21)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L23)
 
 _Variable_
 
@@ -69,7 +69,7 @@ export const AgentPresenceSubscribe = defineRpc({
 })
 ```
 
-### [`appCallableNetworkRpcMethods`](./index.ts#L27)
+### [`appCallableNetworkRpcMethods`](./index.ts#L29)
 
 _Variable_
 
@@ -171,7 +171,7 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 }
 ```
 
-### [`networkNotifications`](./index.ts#L41)
+### [`networkNotifications`](./index.ts#L43)
 
 _Variable_
 
@@ -181,7 +181,7 @@ export const networkNotifications = [] as const
 
 Network notifications emitted by the server.
 
-### [`networkRpcMethods`](./index.ts#L33)
+### [`networkRpcMethods`](./index.ts#L35)
 
 _Variable_
 
@@ -245,32 +245,6 @@ _TypeAlias_
 export type ProtocolMismatchReason =
   | "server-above-client-max"
   | "server-below-client-min";
-
-/**
- * Raised by connect methods when the client's `[minProtocol, maxProtocol]`
- * range does not bracket the server's `PROTOCOL_VERSION`. The server's connect
- * handlers raise it BEFORE auth resolution
- * so old clients are rejected at the version gate. `data` carries the
- * diagnostic `{ reason, serverVersion, clientMinProtocol, clientMaxProtocol }`,
- * concretely typed so `error.data.reason` narrows at every reader.
- */
-export class ProtocolMismatchError extends Schema.TaggedError<ProtocolMismatchError>()(
-  "ProtocolMismatchError",
-  {
-    message: Schema.optional(Schema.String),
-    data: Schema.Struct({
-      reason: Schema.Literal(
-        "server-above-client-max",
-        "server-below-client-min",
-      ),
-      serverVersion: Schema.String,
-      clientMinProtocol: Schema.String,
-      clientMaxProtocol: Schema.String,
-    }),
-  },
-) {
-  static readonly message = "Client protocol version not supported";
-}
 ```
 
 Reason discriminant carried in `ProtocolMismatchError.data.reason`:
@@ -278,8 +252,54 @@ Reason discriminant carried in `ProtocolMismatchError.data.reason`:
 `maxProtocol`; the client must update. `server-below-client-min` — the
 client is newer than the server supports.
 
+### [`serverBaseUrl`](./server-url.ts#L94)
+
+_Variable_
+
+```ts
+export const serverBaseUrl = Schema.decodeSync(ServerBaseUrl)
+```
+
+Throwing constructor for addresses a caller already knows are well-formed,
+such as one a locally started server just reported. Decode with
+`Schema.decodeEither(ServerBaseUrl)` wherever the value comes from
+configuration or another package.
+
+### [`ServerBaseUrl`](./server-url.ts#L58)
+
+_TypeAlias_
+
+```ts
+export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
+```
+
+A MoltZap server address carrying no path, query, or fragment, over
+`http`, `https`, `ws`, or `wss`.
+
+### [`ServerBaseUrl`](./server-url.ts#L58)
+
+_Variable_
+
+```ts
+export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">
+```
+
+Decodes either address a caller is likely to hold — the base URL or the
+socket endpoint — into the path-free base. Any other path fails.
+
+### [`webSocketUrl`](./server-url.ts#L97)
+
+_Function_
+
+```ts
+export const webSocketUrl = (base: ServerBaseUrl): string
+```
+
+The socket endpoint a client dials for the given server.
+
 ## Files
 
 - `connect.ts`
 - `index.ts`
 - `presence.ts`
+- `server-url.ts`
