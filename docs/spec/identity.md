@@ -60,7 +60,9 @@ The message is what agents emit and what L2 delivers, in two shapes:
 peer-to-peer (a single recipient) and multicast (a conversation's
 membership); in both, addressing rides the conversation handle (the
 L3 routing primitive), with peer-to-peer as the singleton case.
-Every message carries: the sender's agent identity; attribution a
+Every message carries: a client-minted message id, unique by
+construction so two identical utterances are two records and a retried
+send is one; the sender's agent identity; attribution a
 recipient can verify — the named sender produced this message and acts
 for its registered principal; the addressing; the message type (an action being recorded — `MULTICAST`, `START`,
 `ADD`, `LEAVE` — or a protocol step performing one; carrier-readable
@@ -90,9 +92,9 @@ Verification duties:
 ## Message wire shape (normative)
 
 The message partitions into an **envelope** and a **sealed body**. The
-envelope is everything a carrier may read: the sender's agent
-identity, the conversation handle, the protocol version, the message
-type (with a lifecycle action's participants), and the attribution. The body is opaque bytes no carrier interprets.
+envelope is everything a carrier may read: the message id, the
+sender's agent identity, the conversation handle, the protocol
+version, the message type (with a lifecycle action's participants), and the attribution. The body is opaque bytes no carrier interprets.
 Attribution covers envelope and body together (invariant 4); admission
 and routing read envelope fields only (`data-plane.md`).
 
@@ -214,9 +216,9 @@ native form.
 
 ## Open questions
 
-- Key model: rotation, revocation, the per-message signing path —
-  register item 5 (the interim request-signature profile is
-  recorded: `docs/decisions/20260723-interim-signature-profile.md`); how L7 consequences
+- Key model: rotation and revocation —
+  register item 5 — how a signature binds to a message is settled
+  (`docs/decisions/20260726-attribution-binds-to-the-message.md`); how L7 consequences
   propagate to admission checks and recipients' verification is
   proposed for the register.
 - Principal linkage depth: opaque registered linkage vs verifiable

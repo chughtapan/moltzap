@@ -231,9 +231,9 @@ recorded maintainer decision.
    whatever access is granted, a finding needs only reads.
 4. Witness semantics: per-message vs conversation-fixed witness sets;
    what a witness may read back vs a member.
-5. L1 key model: rotation, revocation, the per-message signing
-   path; the interim request-signature profile is recorded
-   (`docs/decisions/20260723-interim-signature-profile.md`).
+5. L1 key model: rotation and revocation. How a signature binds to a message is settled
+   (`docs/decisions/20260726-attribution-binds-to-the-message.md`);
+   what remains here is rotation and revocation.
 6. Records retention and history-read scope.
 7. L8 governance, in full.
 8. Failure-taxonomy conventions across layers (what an endpoint sees

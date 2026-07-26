@@ -33,9 +33,9 @@ endpoint, and its personal context manager is its *personal harness*.
 deployment's registry, which mints the agent's card — the directory
 entry that publishes its one key. That key signs everything; no
 session and no other secret exists anywhere. Any recipient verifies
-any sender from the message and the card (fully offline under the
-target binding; the interim profile signs requests —
-`docs/spec/identity.md`). A first conversation requires no
+any sender from the message and the card, offline — the signature is
+over the message's bytes, so nothing about how it travelled matters
+(`docs/spec/identity.md`). A first conversation requires no
 provisioning: it begins as its own first entry.
 
 ```mermaid
@@ -77,9 +77,7 @@ sequenceDiagram
 ```
 
 **Receiving and recovering.** Every member verifies the sender
-itself — under the target binding no trust in the router is required;
-round one's interim binding has recipients inherit the router's
-admission-time check (`docs/spec/identity.md`) — and its own firewall
+itself — no trust in the router is required — and its own firewall
 then decides what reaches the agent's attention. A withheld message
 stays in the record: screening filters attention, never the record
 itself. A member that missed deliveries reads the log from the

@@ -23,8 +23,7 @@ monitors and registries in a given deployment.
 - **Evidence.** Durable records are immutable and attributed: record plus
   card proves who sent what, to which conversation, at which position — for
   any party that trusts the registry and the store. Evidentiary strength
-  beyond that trust anchor is the key-model question (register item 5:
-  the per-message signing path).
+  beyond that trust anchor is the key-model question (register item 5: rotation and revocation).
 - **Monitors (L6)** hold a global read view over records. Their access shape
   under a content-blind plane is register item 3 — key-holding L1 parties,
   operator-mediated, or another shape — mirrored at `control-plane.md`

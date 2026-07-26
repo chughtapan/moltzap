@@ -70,7 +70,8 @@ W1).
 | `Principal` | L1 | opaque link to the party an agent acts for | linkage depth open |
 | `PublicKey` | L1 | the key submitted at registration; its card binds it | decided |
 | `AgentCard` | L1 | registry-attested X.509, self-attesting (fields: identity.md) | decided |
-| `Envelope` | L1 | a message's carrier-readable fields: sender, conversation, version, message type (with a lifecycle action's participants), attribution | field set decided; encoding open |
+| `MessageId` | L1 | client-minted, unique per message; makes a retry identifiable and two identical utterances distinct | decided |
+| `Envelope` | L1 | a message's carrier-readable fields: message id, sender, conversation, version, message type (with a lifecycle action's participants), attribution | field set decided; encoding open |
 | `Body` | L1 | opaque bytes; nothing below L4 reads them | decided |
 | `Message` | L2 | an `Envelope` and a `Body`, signed as one byte string — the unit the transport delivers, byte-exact at every hop | decided |
 | `VerifiedMessage` | L1 | only `verify` constructs it — the message plus its resolved `Principal`; holding one is proof it verified | decided |
@@ -333,8 +334,8 @@ recorded there and in the collectives record: the txn id is the hash
 of its BEGIN message; the grant and a commit's effect are **folds over
 the shared order** (the acks are the grant's certificate; validity is
 computed identically by every same-pinned party; the store never
-judges); supersession is order-resolved, restart recovers by
-re-folding, and one-effective-commit-per-txn-id makes retries
+judges); supersession is order-resolved, restart abandons the in-flight
+transaction and re-syncs from committed state, and one-effective-commit-per-txn-id makes retries
 harmless — the norm compile step's idempotency key. Parameters — ack
 and quorum rules, lock TTLs, abort authority, participant-update
 carriage, next-leader selection, overlapping transactions, the
@@ -349,9 +350,9 @@ The send path — every arrow a call, every refusal before commitment:
 
 ```mermaid
 sequenceDiagram
-  participant P as Plugin
-  participant H as Outbound hook (L5)
-  participant S as Signer (L1)
+  participant P as Harness plugin
+  participant E as Protocol engine
+  participant F as Outbound hook (L5)
   participant T as Transport (L2)
   participant L as Ledger (L3)
   P->>H: begin(conversation) — lock the turn
@@ -447,7 +448,7 @@ Kinds per Conventions; citations name the governing doc.
 | L6.1 | `evidence` = the recipient's `verify` over `read`, post facto; no monitor port, principal, or caller arm exists | C | identity.md → Verification duties; enforcement.md |
 | L7.1 | `register` requires the operator arm; `Caller` has two arms and one minter | C | control-plane.md inv. 3, 7 |
 | L7.2 | `list` ≈ per-id `lookup`; cards only, no thinner projection | P | directory-serves-cards |
-| L7.3 | An institutional fact change (revocation the zero policy) changes what `lookup` returns and what callers can be derived — no consequence op | P | layers.md → L7; single-credential |
+| L7.3 | An institutional fact change (revocation the zero policy) changes what `lookup` returns and what callers can be derived — no consequence op | P | layers.md → L7; l7-is-policy-attached-to-identity |
 | X.1 | Version exact-match refuses before any state change, on every recorded action | C+P | protocol-version-carriage |
 | X.2 | Swap `TransportLive` for `TransportTestbed`: observationally equivalent, no other binding changes; every injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
 | X.3 | No signature names a lease, socket, connection, or session | C | sessionless-network |
@@ -464,7 +465,7 @@ mapping is v2's standard realization.
 - **One `Layer` per adapter**: `TransportLive` (requires Verifier only — it records nothing), `TransportTestbed` (same tag; adds envelope-level
   observation and a closed `FaultProfile` sum over data-plane.md's
   tolerated-fault envelope), `LedgerLive`, `RegistryLive`,
-  `SignerInterim` / `SignerTarget`, `HarnessOpenClaw` /
+  `SignerLive`, `HarnessOpenClaw` /
   `HarnessNanoClaw`. Law X.2's swap is choosing the Transport `Layer`.
 - **Decorators are `Layer<Port, never, Port>`**: `withEntitlement(scope)`
   wraps `Ledger.read`; `withFirewall(rules)` wraps the harness mount

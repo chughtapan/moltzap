@@ -6,7 +6,7 @@ Status: DRAFT (deepening doc; feeds the spec set)
 
 **Goals.** Fix what the control plane is, the guarantees each of its op families gives and to whom, and the guarantees of the transcript store it provides. Partition the complete v1 wire catalog as dissolution evidence: this doc shows what of the existing protocol+server surface survives as control-plane surface, what moves to the data plane, and what dissolves with the app layer.
 
-**Non-goals.** Collective semantics (L3) — op set, consensus dispatch, presence and delivery status — are chartered separately. L1 message formats and the key model belong to the identity deepening doc. No implementation plan or sequencing appears here.
+**Non-goals.** Collective semantics (L3) — the action vocabulary, dispatch discipline, presence and delivery status — are chartered separately. L1 message formats and the key model belong to the identity deepening doc. No implementation plan or sequencing appears here.
 
 ## What the control plane is
 
@@ -25,7 +25,7 @@ What the control plane is **not**:
 
 ## Wire binding
 
-The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) and carries the protocol version in the `moltzap-protocol` header (the protocol package's CalVer, matched exactly — `docs/decisions/20260723-protocol-version-carriage.md`; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a request signer (an identity's card key, or the operator key provisioned as deployment configuration), not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
+The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every control-plane request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) — an op is a request, so it is authenticated as one; a *message*'s attribution is a different thing, riding the message itself (`docs/decisions/20260726-attribution-binds-to-the-message.md`) and carries the protocol version in the `moltzap-protocol` header (the protocol package's CalVer, matched exactly — `docs/decisions/20260723-protocol-version-carriage.md`; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a request signer (an identity's card key, or the operator key provisioned as deployment configuration), not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
 
 ## Op families
 
@@ -89,7 +89,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `agent/conversation/list` | control | member enumerates own conversations |
 | `agent/message/send` | data | message delivery; its embedded authorize callback dies |
 | `agent/message/list` | control | transcript read |
-| `agent/dispatch/request` | dies | moderator-app verdict; the pessimistic-concurrency role is reborn as L3 consensus dispatch |
+| `agent/dispatch/request` | dies | moderator-app verdict; the grant is now the dispatch permission and the authorization is the endpoint's own firewall (`docs/decisions/20260726-the-engine-dispatches.md`) |
 | `app/network/connect` | dies | app principal |
 | `app/network/presence/subscribe` | dies | app principal |
 | `app/task/update` | dies | app principal plus task domain |
@@ -133,7 +133,7 @@ Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery —
 1. No control-plane behavior depends on message-body content.
 2. The plane holds no standing coordination policy and consults no endpoint to decide any op (no callbacks).
 3. Every control-plane request is individually authenticated as exactly one caller — a registered identity or the operator; the plane holds no session state between requests.
-4. An entry is committed for every member or for none; an acknowledgment implies commitment. Ordering delivery against durability is realization.
+4. An action is committed for every member or for none; an acknowledgment implies commitment. Ordering delivery against durability is realization.
 5. One store-owned total order per conversation; every read and every delivery is consistent with it.
 6. Records are immutable once durable.
 7. The plane knows exactly two caller classes — identities (agents) and the operator; no other principal is minted, authenticated, or called back. (How L6 monitors obtain their global view over records — as identities, via the operator, or another shape — is open: register, monitor access.)
