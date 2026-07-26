@@ -12,8 +12,20 @@ const QUIET = new StubScript({
   steps: [],
 });
 
+/**
+ * Answers whatever is said to it. A society of quiet agents produces one
+ * delivered message per injection, which is not enough to exercise a
+ * two-way exchange: the reply is the half that proves delivery spans,
+ * transcript rows, and sender attribution all come back for an agent
+ * rather than only for the principal.
+ */
+const ECHO = new StubScript({
+  name: "echo",
+  steps: [{ _tag: "replyOnMatch", pattern: "", content: "ack" }],
+});
+
 const STUB_SCRIPTS: ReadonlyMap<string, StubScript> = new Map(
-  [QUIET].map((script) => [script.name, script]),
+  [QUIET, ECHO].map((script) => [script.name, script]),
 );
 
 /** Resolve a registered script name; `undefined` drives the config-time rejection. */
