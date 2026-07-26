@@ -1,13 +1,16 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
 export type { InstallMode } from "./install-mode.js";
 
-import { Data, Effect, Exit, Fiber } from "effect";
+import { Data, Effect, Exit, Fiber, Schema } from "effect";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import { ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   RuntimeExitedBeforeReady,
   RuntimeReadyTimedOut,
+  spawnFailed,
   type RuntimeLaunchFailed,
+  type SpawnFailed,
 } from "./errors.js";
 import {
   NanoclawAdapter,
@@ -19,7 +22,6 @@ import {
 } from "./openclaw-adapter.js";
 import {
   AgentName,
-  ServerUrl,
   type Runtime,
   type RuntimeServerHandle,
   type SpawnInput,
@@ -153,17 +155,32 @@ function installModeOverride(
   }
 }
 
-function toSpawnInput(agent: TestbedAgentSpec): SpawnInput {
-  return {
-    agentName: AgentName(agent.agentName),
-    apiKey: agent.apiKey,
-    agentId: agent.agentId,
-    serverUrl: ServerUrl(agent.serverUrl),
-    ...(agent.workspaceFiles !== undefined
-      ? { workspaceFiles: agent.workspaceFiles }
-      : {}),
-    ...(agent.modelId !== undefined ? { modelId: agent.modelId } : {}),
-  };
+const decodeServerUrl = Schema.decodeEither(ServerBaseUrl);
+
+/** One agent's spec paired with the `SpawnInput` decoded from it. */
+interface DecodedAgent {
+  readonly agent: TestbedAgentSpec;
+  readonly spawnInput: SpawnInput;
+}
+
+// `TestbedAgentSpec` is the package boundary, so the address is decoded here
+// rather than trusted; downstream every adapter holds a path-free `ServerUrl`.
+function toSpawnInput(
+  agent: TestbedAgentSpec,
+): Effect.Effect<SpawnInput, SpawnFailed> {
+  return decodeServerUrl(agent.serverUrl).pipe(
+    Effect.mapError((cause) => spawnFailed(agent.agentName, cause)),
+    Effect.map((serverUrl) => ({
+      agentName: AgentName(agent.agentName),
+      apiKey: agent.apiKey,
+      agentId: agent.agentId,
+      serverUrl,
+      ...(agent.workspaceFiles !== undefined
+        ? { workspaceFiles: agent.workspaceFiles }
+        : {}),
+      ...(agent.modelId !== undefined ? { modelId: agent.modelId } : {}),
+    })),
+  );
 }
 
 /**
@@ -216,16 +233,17 @@ function runtimeStartOptionsForAgent(
 function startTestbedAgent(
   options: TestbedLaunchOptions,
   startedAgents: StartedRuntimeAgent[],
-  agent: TestbedAgentSpec,
+  decoded: DecodedAgent,
   installMode: InstallMode,
 ) {
   return Effect.gen(function* () {
     const pending = yield* startPendingRuntimeAgent(
-      runtimeStartOptionsForAgent(options, agent),
+      runtimeStartOptionsForAgent(options, decoded.agent),
       installMode,
+      decoded.spawnInput,
     );
     const startedAgent = {
-      spec: agent,
+      spec: decoded.agent,
       runtime: pending.runtime,
     } satisfies StartedRuntimeAgent;
     startedAgents.push(startedAgent);
@@ -267,9 +285,9 @@ function toTestbed(started: ReadonlyArray<StartedRuntimeAgent>): Testbed {
 function startPendingRuntimeAgent(
   options: RuntimeStartOptions,
   installMode: InstallMode,
+  spawnInput: SpawnInput,
 ) {
   const runtime = createRuntime(options, installMode);
-  const spawnInput = toSpawnInput(options.agent);
   return Effect.gen(function* () {
     let cleanupArmed = true;
     const [closeStartupScope] = yield* Effect.withEarlyRelease(
@@ -341,10 +359,15 @@ export function startRuntimeAgent(
 ): Effect.Effect<Runtime, RuntimeLaunchFailed, never> {
   return Effect.scoped(
     Effect.gen(function* () {
+      const spawnInput = yield* toSpawnInput(options.agent);
       const installMode = yield* resolveInstallMode(
         installModeOverride(options),
       );
-      const pending = yield* startPendingRuntimeAgent(options, installMode);
+      const pending = yield* startPendingRuntimeAgent(
+        options,
+        installMode,
+        spawnInput,
+      );
       yield* pending.releaseStartupCleanup;
       return pending.runtime;
     }),
@@ -373,13 +396,25 @@ export function launchTestbed(
   return Effect.scoped(
     Effect.gen(function* () {
       const startedAgents: StartedRuntimeAgent[] = [];
+      // Every address is decoded before the first process starts: a bad one
+      // discovered mid-launch would cost the spawn and teardown of every
+      // agent ahead of it.
+      const decoded = yield* Effect.forEach(
+        options.agents,
+        (agent) =>
+          Effect.map(
+            toSpawnInput(agent),
+            (spawnInput): DecodedAgent => ({ agent, spawnInput }),
+          ),
+        { concurrency: 1 },
+      );
       const installMode = yield* resolveInstallMode(
         installModeOverride(options),
       );
       const started = yield* Effect.forEach(
-        options.agents,
-        (agent) =>
-          startTestbedAgent(options, startedAgents, agent, installMode),
+        decoded,
+        (entry) =>
+          startTestbedAgent(options, startedAgents, entry, installMode),
         {
           concurrency: options.concurrency ?? 1,
         },

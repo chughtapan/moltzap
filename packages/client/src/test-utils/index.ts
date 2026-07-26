@@ -25,6 +25,7 @@ export { FakeMoltZapService, type RecordedCall } from "./fake-service.js";
 export { withTestServiceConfig } from "../config.test-utils.js";
 
 import type { Message } from "@moltzap/protocol/message";
+import { serverBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import { Data, Effect } from "effect";
 import { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
@@ -39,12 +40,12 @@ export {
 const FLUSH_DISPATCH_TURNS = 20;
 
 /**
- * Strip the WebSocket route suffix from a test server URL.
+ * Reduce a test server's WebSocket endpoint to the base a client connects to.
  * @param wsUrl Test server WebSocket URL.
- * @returns Base URL without the `/ws` suffix.
+ * @returns Path-free base URL.
  */
-export const stripWsPath = (wsUrl: string): string =>
-  wsUrl.replace(/\/ws\/?$/, "");
+export const stripWsPath = (wsUrl: string): ServerBaseUrl =>
+  serverBaseUrl(wsUrl);
 
 class FlushDispatchChainError extends Data.TaggedError(
   "FlushDispatchChainError",

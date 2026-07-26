@@ -569,10 +569,6 @@ export type LeaseState =
   | "EXPIRED"
   | "ABANDONED"
   | "HOLD";
-
-/** Verdict shapes accepted by `resolve` — mirrors the wire decision. */
-export type LeaseVerdict =
-  | { readonly _tag: "grant"; readonly leaseTimeoutMs?: number }
 ```
 
 Discriminated state of a lease. The registry's `Ref.modify`

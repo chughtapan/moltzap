@@ -93,11 +93,6 @@ _TypeAlias_
 
 ```ts
 export type PresenceStatus = "online" | "working" | "offline";
-
-export interface PresenceStatusEntry {
-  readonly agentId: AgentId;
-  readonly status: PresenceStatus;
-}
 ```
 
 ### [`PresenceStatusEntry`](./_helpers.ts#L24)

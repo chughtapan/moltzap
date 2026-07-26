@@ -17,10 +17,16 @@ import {
   Option,
   Ref,
   Schedule,
+  Schema,
   Scope,
   Stream,
 } from "effect";
-import { AgentConnect, AppConnect } from "#network";
+import {
+  AgentConnect,
+  AppConnect,
+  ServerBaseUrl,
+  webSocketUrl,
+} from "#network";
 import {
   AgentCallableGroup,
   AppCallableGroup,
@@ -126,8 +132,18 @@ type ClientWebSocket = Effect.Effect.Success<
 const makeNotConnectedError = (): NotConnectedError =>
   new NotConnectedError({ message: MSG_NOT_CONNECTED });
 
-const webSocketUrl = (serverUrl: string): string =>
-  serverUrl.replace(/^http/, "ws") + "/ws";
+const decodeServerBaseUrl = Schema.decodeEither(ServerBaseUrl);
+
+// Callers reach the lifecycle across a package boundary with a plain string,
+// so the address is decoded here rather than trusted.
+const socketUrl = (
+  serverUrl: string,
+): Effect.Effect<string, NotConnectedError> =>
+  Either.match(decodeServerBaseUrl(serverUrl), {
+    onLeft: (error) =>
+      Effect.fail(new NotConnectedError({ message: error.message })),
+    onRight: (base) => Effect.succeed(webSocketUrl(base)),
+  });
 
 const openSocket = (
   url: string,
@@ -523,8 +539,9 @@ const openClientSocketSession = <Rpcs extends ProtocolRpc>(
   Socket.WebSocketConstructor
 > =>
   Effect.gen(function* () {
+    const url = yield* socketUrl(options.serverUrl);
     const scope = yield* Scope.make();
-    const socket = yield* openSocket(webSocketUrl(options.serverUrl), scope);
+    const socket = yield* openSocket(url, scope);
     const write = yield* Scope.extend(socket.writer, scope);
     const wireWrite: WireWrite = (chunk) => write(chunk);
 
