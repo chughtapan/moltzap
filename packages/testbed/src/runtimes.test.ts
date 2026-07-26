@@ -17,6 +17,10 @@ import {
   agentKeyString,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
+// The seeding function has no focused plugin-sdk subpath; the compat bridge is
+// the only public surface openclaw exposes for it.
+import { ensureAgentWorkspace } from "openclaw/extension-api";
+import { OpenClawSchema } from "openclaw/plugin-sdk/config-schema";
 
 import {
   buildOpenClawConfig,
@@ -155,6 +159,8 @@ describe("OpenClawAdapter.spawn", () => {
 const CONFIG_WORKSPACE_DIR = "/workspaces/testbed-agent";
 const CUSTOM_MODEL_ID = "custom/model";
 const DISABLED_MDNS_MODE = "off";
+// openclaw treats this file's presence in a workspace as "onboarding pending".
+const OPENCLAW_BOOTSTRAP_FILENAME = "BOOTSTRAP.md";
 
 describe("buildOpenClawConfig", () => {
   it("keys the moltzap account under the testbed profile", () => {
@@ -194,6 +200,54 @@ describe("buildOpenClawConfig", () => {
 
     expect(config.discovery?.mdns?.mode).toBe(DISABLED_MDNS_MODE);
   });
+
+  // openclaw's config schema is strict, so a misspelled knob is rejected
+  // rather than carried silently as an inert key.
+  it("carries skipBootstrap through openclaw's own config schema", () => {
+    const parsed = OpenClawSchema.safeParse(
+      buildOpenClawConfig({ agentName: "alice" }, CONFIG_WORKSPACE_DIR),
+    );
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.agents?.defaults?.skipBootstrap).toBe(true);
+  });
+
+  it("leaves openclaw's bootstrap prompt out of a fresh workspace", () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const workspaceDir = yield* fileSystem.makeTempDirectory({
+            prefix: "testbed-openclaw-workspace-",
+          });
+          yield* Effect.addFinalizer(() =>
+            fileSystem
+              .remove(workspaceDir, { recursive: true, force: true })
+              .pipe(Effect.catchAll(() => Effect.void)),
+          );
+          const config = buildOpenClawConfig(
+            { agentName: "alice" },
+            workspaceDir,
+          );
+
+          yield* Effect.tryPromise(() =>
+            ensureAgentWorkspace({
+              dir: workspaceDir,
+              // The gate openclaw derives from this key when it prepares a
+              // workspace for a reply.
+              ensureBootstrapFiles: !config.agents?.defaults?.skipBootstrap,
+            }),
+          );
+
+          const seeded = yield* fileSystem.exists(
+            path.join(workspaceDir, OPENCLAW_BOOTSTRAP_FILENAME),
+          );
+          expect(seeded).toBe(false);
+        }),
+      ).pipe(Effect.provide(NodeContext.layer), Effect.orDie),
+    ));
 });
 
 // The gateway child reads MOLTZAP_SERVER_URL through the moltzap client,

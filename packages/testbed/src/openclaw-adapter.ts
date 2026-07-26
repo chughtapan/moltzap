@@ -683,6 +683,10 @@ export function buildOpenClawConfig(
         model: { primary: opts.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
         workspace: workspaceDir,
         compaction: { mode: "safeguard" },
+        // Left unset, openclaw seeds BOOTSTRAP.md into the empty per-agent
+        // workspace and runs its first-run onboarding ritual, whose scripted
+        // opening line the agent sends in place of answering the step.
+        skipBootstrap: true,
       },
     },
     commands: { native: "auto", nativeSkills: "auto", restart: true },
