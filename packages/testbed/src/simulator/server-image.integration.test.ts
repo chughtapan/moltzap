@@ -24,6 +24,7 @@ import {
   EXCHANGE_SPAN_COUNT,
   projectRecordedConversation,
 } from "../trace-capture-bundle.js";
+import { openRecording } from "../grading/grader.js";
 import {
   AGENT_ONE,
   PRINCIPAL_NAME,
@@ -130,6 +131,23 @@ const substrateRun = Effect.gen(function* () {
     ),
   ).toBe(true);
   expect(conversation.participants.length).toBeGreaterThan(0);
+
+  // The principal join matches a `step.spoken` message id against the id
+  // the drain swept out of the container's storage. Those two ids are
+  // produced by different subsystems, so only a real run proves they are
+  // the same string; a hand-built fixture proves the join agrees with the
+  // fixture builder and nothing more.
+  const opened = yield* openRecording(sealed.recording.path, {
+    condition: null,
+    outcome: "any",
+  });
+  const speakers = opened.timeline
+    .filter((event) => event._tag === "transcript.message")
+    .map((event) => opened.senders.get(event.senderId));
+  expect(speakers.length).toBeGreaterThan(0);
+  expect(speakers).toContain(PRINCIPAL_NAME);
+  expect(speakers).toContain(AGENT_ONE);
+  expect(speakers.every((name) => name !== undefined)).toBe(true);
 }).pipe(Effect.orDie);
 
 describe.skipIf(!SIM_INTEGRATION_ENABLED)(

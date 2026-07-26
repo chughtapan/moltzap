@@ -24,12 +24,14 @@ import {
   ready,
   FIXTURE_RUN_ID,
   makeRecording,
+  spoken,
   tamper,
   type FixtureOptions,
   tempStoreRoot,
   transcript,
 } from "../__tests__/recording-fixture.js";
 import { EpisodeOutcome, FailureOutcome } from "../simulator/index.js";
+import { PRINCIPAL_NAME } from "../simulator/__tests__/support.js";
 import {
   ERROR_TAG,
   OUTCOME,
@@ -338,6 +340,43 @@ function timelineRefusal(
   return refusalOf({ events }, PERMISSIVE);
 }
 
+const PRINCIPAL_ID = "principal-id-one";
+const OTHER_PRINCIPAL = "principal-secondary";
+const SETUP_MESSAGE = "m-setup";
+
+/** One principal's speech, plus any further rows it sent under no step. */
+function principalSpoke(
+  ...rest: ReadonlyArray<Record<string, unknown>>
+): FixtureShape {
+  return {
+    events: [
+      spoken({
+        runId: FIXTURE_RUN_ID,
+        logicalSequence: 1,
+        principal: PRINCIPAL_NAME,
+        messageId: SETUP_MESSAGE,
+      }),
+      transcript({
+        runId: FIXTURE_RUN_ID,
+        logicalSequence: 2,
+        senderId: PRINCIPAL_ID,
+        conversationSeq: 1,
+        messageId: SETUP_MESSAGE,
+        text: "hello",
+      }),
+      ...rest,
+    ],
+  };
+}
+
+function transcriptSenderNames(
+  recording: GradeableRecording,
+): ReadonlyArray<string | undefined> {
+  return recording.timeline
+    .filter((event) => event._tag === "transcript.message")
+    .map((event) => recording.senders.get(event.senderId));
+}
+
 describe("openRecording: sender attribution", () => {
   it("joins transcript senders to the slots that became ready", () =>
     Effect.runPromise(
@@ -349,11 +388,73 @@ describe("openRecording: sender attribution", () => {
       ),
     ));
 
-  it("leaves senders the run never launched unattributed", () =>
+  it("names a principal through the step that spoke its message", () =>
+    Effect.runPromise(
+      openedOf(principalSpoke(), PERMISSIVE).pipe(
+        Effect.map((recording) => {
+          expect(recording.senders.get(PRINCIPAL_ID)).toBe(PRINCIPAL_NAME);
+        }),
+      ),
+    ));
+
+  it("names every row a principal sent once one of its messages is joined", () =>
+    Effect.runPromise(
+      openedOf(
+        principalSpoke(
+          transcript({
+            runId: FIXTURE_RUN_ID,
+            logicalSequence: 3,
+            senderId: PRINCIPAL_ID,
+            conversationSeq: 2,
+            messageId: "m-no-step",
+            text: "a row no step spoke",
+          }),
+        ),
+        PERMISSIVE,
+      ).pipe(
+        Effect.map((recording) => {
+          expect(transcriptSenderNames(recording)).toEqual([
+            PRINCIPAL_NAME,
+            PRINCIPAL_NAME,
+          ]);
+        }),
+      ),
+    ));
+
+  it("leaves a sender no event accounts for unattributed", () =>
     Effect.runPromise(
       openedOf({}).pipe(
         Effect.map((recording) => {
-          expect(recording.senders.get("some-principal")).toBeUndefined();
+          expect(recording.senders.get(PRINCIPAL_ID)).toBeUndefined();
+        }),
+      ),
+    ));
+
+  it("leaves a sender unattributed when the step names a message the transcript lacks", () =>
+    Effect.runPromise(
+      openedOf(
+        {
+          events: [
+            spoken({
+              runId: FIXTURE_RUN_ID,
+              logicalSequence: 1,
+              principal: PRINCIPAL_NAME,
+              messageId: "m-never-swept",
+            }),
+            transcript({
+              runId: FIXTURE_RUN_ID,
+              logicalSequence: 2,
+              senderId: PRINCIPAL_ID,
+              conversationSeq: 1,
+              messageId: SETUP_MESSAGE,
+              text: "hello",
+            }),
+          ],
+        },
+        PERMISSIVE,
+      ).pipe(
+        Effect.map((recording) => {
+          expect(recording.senders.get(PRINCIPAL_ID)).toBeUndefined();
         }),
       ),
     ));
@@ -365,6 +466,63 @@ describe("openRecording: sender attribution", () => {
           events: [
             ready(FIXTURE_RUN_ID, 1, AGENT_ONE, "shared"),
             ready(FIXTURE_RUN_ID, 2, AGENT_TWO, "shared"),
+          ],
+        },
+        PERMISSIVE,
+      ).pipe(
+        Effect.map((tag) => {
+          expect(tag).toBe(ERROR_TAG.recordingInvalid);
+        }),
+      ),
+    ));
+
+  it("rejects one sender id claimed by a slot and a principal", () =>
+    Effect.runPromise(
+      refusalOf(
+        {
+          events: [
+            ready(FIXTURE_RUN_ID, 1, AGENT_ONE, AGENT_ID_ONE),
+            spoken({
+              runId: FIXTURE_RUN_ID,
+              logicalSequence: 2,
+              principal: PRINCIPAL_NAME,
+              messageId: SETUP_MESSAGE,
+            }),
+            transcript({
+              runId: FIXTURE_RUN_ID,
+              logicalSequence: 3,
+              senderId: AGENT_ID_ONE,
+              conversationSeq: 1,
+              messageId: SETUP_MESSAGE,
+              text: "spoken by a principal, sent by a slot",
+            }),
+          ],
+        },
+        PERMISSIVE,
+      ).pipe(
+        Effect.map((tag) => {
+          expect(tag).toBe(ERROR_TAG.recordingInvalid);
+        }),
+      ),
+    ));
+
+  it("rejects one message spoken by two principals", () =>
+    Effect.runPromise(
+      refusalOf(
+        {
+          events: [
+            spoken({
+              runId: FIXTURE_RUN_ID,
+              logicalSequence: 1,
+              principal: PRINCIPAL_NAME,
+              messageId: SETUP_MESSAGE,
+            }),
+            spoken({
+              runId: FIXTURE_RUN_ID,
+              logicalSequence: 2,
+              principal: OTHER_PRINCIPAL,
+              messageId: SETUP_MESSAGE,
+            }),
           ],
         },
         PERMISSIVE,
