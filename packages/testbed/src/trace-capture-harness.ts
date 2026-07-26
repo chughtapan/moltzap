@@ -158,11 +158,13 @@ function encodedSpec(input: {
     ],
     server: { imageDigest: input.imageDigest },
     episode: {
-      task: {
-        principal: PRINCIPAL_NAME,
-        to: target,
-        content: input.payload.conversation.setupMessage,
-      },
+      steps: [
+        {
+          by: PRINCIPAL_NAME,
+          with: [target],
+          say: input.payload.conversation.setupMessage,
+        },
+      ],
       termination: {
         inactivityTimeoutMs:
           runtime.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,

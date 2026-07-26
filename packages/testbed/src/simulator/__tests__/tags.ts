@@ -62,7 +62,6 @@ export const ERROR_TAG = {
   alreadySealed: "AlreadySealed",
   recordingInvalid: "RecordingInvalid",
   recordingUnsealed: "RecordingUnsealed",
-  runSpecInvalid: "RunSpecInvalid",
   runNotCompleted: "RunNotCompleted",
   conditionMismatch: "ConditionMismatch",
   recordingSchemaMismatch: "RecordingSchemaMismatch",
