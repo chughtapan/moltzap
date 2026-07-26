@@ -105,6 +105,20 @@ function demoSpec(storeRoot: string, imageDigest: string): RunSpec {
 }
 
 /**
+ * An unresolvable image is reported against the spec field that would
+ * have carried it. The image pin has no tagged error of its own — it
+ * fails with a sentence — and `server.imageDigest` is the field the demo
+ * cannot fill, so a path-precise rejection at exit 2 says both that
+ * nothing ran and where the gap is.
+ */
+function imageRejected(detail: string): RunSpecInvalid {
+  return new RunSpecInvalid({
+    issues: [{ path: ["server", "imageDigest"], message: detail }],
+    message: `The demo has no server image: ${detail}.`,
+  });
+}
+
+/**
  * Run the demo society and report where its recording landed.
  * @param options Where to write the recording.
  * @returns The banner, the recording path, and how the episode ended.
@@ -117,13 +131,7 @@ export function runDemo(
   never
 > {
   return resolveServerImagePin().pipe(
-    Effect.mapError(
-      (detail) =>
-        new RunSpecInvalid({
-          issues: [{ path: ["server", "imageDigest"], message: detail }],
-          message: `The demo has no server image: ${detail}.`,
-        }),
-    ),
+    Effect.mapError(imageRejected),
     Effect.flatMap((imageDigest) =>
       Effect.scoped(run(demoSpec(options.storeRoot, imageDigest))),
     ),
