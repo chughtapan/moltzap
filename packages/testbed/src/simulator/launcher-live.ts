@@ -5,14 +5,15 @@
  * out. Partial launch tears down already-started members in reverse and
  * fails with the failing agent's error.
  *
- * The server-image contract this launcher launches against (built by the
- * server-image row): the image runs `moltzap-server` listening on
- * container port 3000 with open registration and no encryption secret
- * (message content stays volume-readable for the transcript drain),
- * persists its data under `/data`, which this launcher bind-mounts from
- * the per-run volume directory that backs `ServerHandle.storage`, and
- * exports spans to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, which this
- * launcher points at the run's receiver (`LaunchDeps.otlpEndpoint`).
+ * The server-image contract this launcher launches against (built by
+ * `scripts/build-server-image.mjs` from `server-image/`): the image runs
+ * `moltzap-server` listening on container port 3000 with open
+ * registration and no encryption secret (message content stays
+ * volume-readable for the transcript drain), persists its PGlite data
+ * directory at `/data/pglite`, which this launcher bind-mounts from the
+ * per-run volume directory that backs `ServerHandle.storage`, and exports
+ * spans to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, which this launcher
+ * points at the run's receiver (`LaunchDeps.otlpEndpoint`).
  */
 // safer-arch-ignore no-fat-orchestrator: the launch orchestrator behind run-config.ts's makeLauncher; the wiring breadth (docker, provisioning, adapters, readiness) is contract 1's launch half by design.
 import {
@@ -22,7 +23,18 @@ import {
   HttpClient,
 } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Deferred, Duration, Effect, type Scope } from "effect";
+import { networkInterfaces } from "node:os";
+import { fileURLToPath } from "node:url";
+import {
+  Config,
+  Deferred,
+  Duration,
+  Effect,
+  Schedule,
+  Schema,
+  Stream,
+  type Scope,
+} from "effect";
 import {
   ServerUrl as mintServerUrl,
   type RuntimeServerHandle,
@@ -41,7 +53,11 @@ import {
 } from "./provisioning.js";
 import { makeStubRuntime } from "./stub-runtime.js";
 import { resolveStubScript } from "./stub-scripts.js";
-import type { Agent, AgentFacingRunSpec } from "./run-spec.js";
+import {
+  ImageDigest,
+  type Agent,
+  type AgentFacingRunSpec,
+} from "./run-spec.js";
 import type { MountHandle } from "./environment.js";
 import type {
   LaunchDeps,
@@ -61,8 +77,19 @@ import {
   type MountFailed,
 } from "./errors.js";
 
-const SERVER_CONTAINER_PORT = 3000;
+/** Port the image's server listens on, and the port this launcher publishes. */
+export const SERVER_CONTAINER_PORT = 3000;
+/** The image's volume mount point, bind-mounted from the run's storage directory. */
+export const SERVER_DATA_MOUNT = "/data";
+/** Where under the mount the image's config pins its PGlite data directory. */
+export const SERVER_PGLITE_DIR = "pglite";
+
 const SERVER_HEALTH_POLL_MS = 250;
+/** Bound on any one docker call; a wedged daemon fails the run, never hangs it. */
+const DOCKER_CALL_TIMEOUT_MS = 120_000;
+const IMAGE_BUILD_TIMEOUT_MS = 900_000;
+/** Marks every per-run server container, so orphans are identifiable. */
+const SERVER_CONTAINER_LABEL = "moltzap-simulator-run=1";
 const OBSERVER_IDENTITY = "moltzap-sim-observer";
 const PRESENCE_POLL_MS = 500;
 
@@ -139,36 +166,190 @@ function serverFailed(imageDigest: string, detail: string): ServerLaunchFailed {
   });
 }
 
-/** Run a command, capture stdout, and fail on a non-zero exit. */
+/** What a failing process said: stderr when it wrote any, stdout otherwise. */
+function saidAboutFailure(result: {
+  readonly stdout: string;
+  readonly stderr: string;
+}): string {
+  const spoken = result.stderr.trim();
+  return spoken.length > 0 ? spoken : result.stdout.trim();
+}
+
+/**
+ * Run a command, capture stdout, and fail on a non-zero exit with
+ * whatever the process said about it. `Command.string` alone returns
+ * stdout for a failing process too, which turns every check built on it
+ * — the storage-mount probe, the container stop — into a no-op.
+ *
+ * stdout and stderr are drained concurrently with the exit: a process
+ * that fills an unread pipe blocks forever otherwise. Every call is
+ * bounded, so a wedged daemon fails the run instead of hanging it.
+ */
 function execCapture(
   parts: ReadonlyArray<string>,
+  timeoutMs: number = DOCKER_CALL_TIMEOUT_MS,
 ): Effect.Effect<string, string, never> {
   const [head, ...rest] = parts;
   if (head === undefined) return Effect.fail("empty command");
-  const command = Command.make(head, ...rest);
-  return Command.string(command).pipe(
+  const command = Command.make(head, ...rest).pipe(
+    Command.stdout("pipe"),
+    Command.stderr("pipe"),
+  );
+  return Effect.scoped(
+    Command.start(command).pipe(
+      Effect.flatMap((process) =>
+        Effect.all(
+          {
+            stdout: Stream.mkString(Stream.decodeText(process.stdout)),
+            stderr: Stream.mkString(Stream.decodeText(process.stderr)),
+            exitCode: process.exitCode,
+          },
+          { concurrency: 3 },
+        ),
+      ),
+      Effect.flatMap((result) =>
+        Number(result.exitCode) === 0
+          ? Effect.succeed(result.stdout)
+          : Effect.fail(
+              `${head} exited ${String(result.exitCode)}: ${saidAboutFailure(result)}`,
+            ),
+      ),
+    ),
+  ).pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(timeoutMs),
+      onTimeout: () => `${head} did not finish within ${String(timeoutMs)}ms`,
+    }),
     Effect.mapError((cause) => String(cause)),
     Effect.provide(NodeContext.layer),
   );
 }
 
-/** The engine's host alias: the receiver binds host loopback, and in-container loopback is the container itself. */
+/** The engine's host alias, defined for the container by `--add-host`. */
 const HOST_GATEWAY_NAME = "host.docker.internal";
+const LOOPBACK_HOST = "127.0.0.1";
 
 /**
  * Rewrites a loopback hostname to the engine's host alias by URL parse,
  * never raw string replacement (a loopback literal outside the hostname
- * must survive). Reaches the host on Docker Desktop; on native Linux the
- * alias maps to the bridge gateway address while the receiver binds
- * loopback only, so container-side export does NOT reach it there — the
- * receiver bind strategy is the live tier's scope.
+ * must survive). A receiver bound to a non-loopback host address is
+ * already the address the container dials, so it passes through: that is
+ * the native-Linux half of the bind strategy on
+ * `resolveReceiverBindHost`.
  */
-function containerReachableEndpoint(otlpEndpoint: string): string {
+export function containerReachableEndpoint(otlpEndpoint: string): string {
   const url = new URL(otlpEndpoint);
-  if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
+  if (url.hostname === LOOPBACK_HOST || url.hostname === "localhost") {
     url.hostname = HOST_GATEWAY_NAME;
   }
   return url.toString();
+}
+
+/**
+ * Pick the host address whose port the container can reach, given the
+ * engine's bridge gateway and the addresses this host actually owns.
+ *
+ * A VM-backed engine (Docker Desktop, colima, OrbStack) puts the bridge
+ * gateway inside the VM, so the host does not own it; there
+ * `host.docker.internal` forwards to host loopback and loopback is the
+ * correct bind. A native-Linux engine's bridge gateway IS a host address
+ * (`docker0`), and there loopback is unreachable from the container while
+ * the gateway address is reachable in both directions — binding it is
+ * what keeps spans from being dropped with no error.
+ */
+export function pickReceiverBindHost(
+  gateways: ReadonlyArray<string>,
+  hostAddresses: ReadonlySet<string>,
+): string {
+  return (
+    gateways.find((gateway) => hostAddresses.has(gateway)) ?? LOOPBACK_HOST
+  );
+}
+
+function hostAddresses(): ReadonlySet<string> {
+  return new Set(
+    Object.values(networkInterfaces())
+      .flatMap((entries) => entries ?? [])
+      .map((entry) => entry.address),
+  );
+}
+
+/**
+ * Build (or re-use) the server image and read back the pin
+ * `ServerSpec.imageDigest` carries. The build script is content-addressed,
+ * so an unchanged workspace re-uses its image; `MOLTZAP_SIM_SERVER_IMAGE`
+ * pins one outright and skips the build.
+ */
+export function resolveServerImagePin(): Effect.Effect<
+  ImageDigest,
+  string,
+  never
+> {
+  return Config.string(SERVER_IMAGE_ENV).pipe(
+    Config.withDefault(""),
+    Effect.orElseSucceed(() => ""),
+    Effect.flatMap((pinned) =>
+      pinned.length > 0
+        ? Schema.decodeUnknown(ImageDigest)(pinned).pipe(
+            Effect.mapError(
+              () =>
+                `${SERVER_IMAGE_ENV}="${pinned}" is not an image digest (sha256:…)`,
+            ),
+          )
+        : buildServerImagePin(),
+    ),
+  );
+}
+
+const SERVER_IMAGE_ENV = "MOLTZAP_SIM_SERVER_IMAGE";
+const IMAGE_BUILD_SCRIPT = fileURLToPath(
+  new URL("../../scripts/build-server-image.mjs", import.meta.url),
+);
+const ImagePinLine = Schema.parseJson(
+  Schema.Struct({ imageDigest: ImageDigest }),
+);
+
+/** The build script prints its pin as the last line of stdout. */
+function buildServerImagePin(): Effect.Effect<ImageDigest, string, never> {
+  return execCapture(["node", IMAGE_BUILD_SCRIPT], IMAGE_BUILD_TIMEOUT_MS).pipe(
+    Effect.mapError(
+      (detail) =>
+        `the server image could not be built: ${detail}. Build it with \`node scripts/build-server-image.mjs\`, or pin one through ${SERVER_IMAGE_ENV}`,
+    ),
+    Effect.flatMap((printed) =>
+      Schema.decodeUnknown(ImagePinLine)(
+        printed.trim().split("\n").at(-1) ?? "",
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            `the server image build printed no usable pin: ${cause.message}`,
+        ),
+      ),
+    ),
+    Effect.map((pin) => pin.imageDigest),
+  );
+}
+
+/**
+ * Ask the engine where the receiver should bind. An engine that cannot
+ * be interrogated — no Docker on the host — reads as loopback, the same
+ * answer every VM-backed engine gets, because the host owns none of the
+ * addresses inside the engine's VM.
+ */
+export function resolveReceiverBindHost(): Effect.Effect<string, never, never> {
+  return execCapture([
+    "docker",
+    "network",
+    "inspect",
+    "bridge",
+    "--format",
+    "{{range .IPAM.Config}}{{.Gateway}} {{end}}",
+  ]).pipe(
+    Effect.map((output) =>
+      pickReceiverBindHost(output.trim().split(/\s+/), hostAddresses()),
+    ),
+    Effect.orElseSucceed(() => LOOPBACK_HOST),
+  );
 }
 
 function serverRunArgs(
@@ -181,10 +362,15 @@ function serverRunArgs(
     "run",
     "--detach",
     "--rm",
+    // An interrupt between the daemon creating the container and this
+    // process learning its id leaves a container nothing holds; the label
+    // is how such an orphan is found afterwards.
+    "--label",
+    SERVER_CONTAINER_LABEL,
     "--publish",
-    `127.0.0.1:0:${String(SERVER_CONTAINER_PORT)}`,
+    `${LOOPBACK_HOST}:0:${String(SERVER_CONTAINER_PORT)}`,
     "--volume",
-    `${volumePath}:/data`,
+    `${volumePath}:${SERVER_DATA_MOUNT}`,
     // The explicit `host-gateway` mapping defines the alias on Linux
     // engines (Docker Desktop resolves it natively); the reachability
     // caveat lives on `containerReachableEndpoint`.
@@ -202,9 +388,11 @@ function startServerContainer(
 ): Effect.Effect<StartedServer, ServerLaunchFailed, Scope.Scope> {
   const digest = spec.server.imageDigest;
   return Effect.gen(function* () {
+    // Scoped: the drain reads this directory during shutdown, inside the
+    // run's scope, and the recording is what survives the attempt.
     const volumePath = yield* FileSystem.FileSystem.pipe(
       Effect.flatMap((fs) =>
-        fs.makeTempDirectory({ prefix: "moltzap-sim-server-" }),
+        fs.makeTempDirectoryScoped({ prefix: "moltzap-sim-server-" }),
       ),
       Effect.provide(NodeContext.layer),
       Effect.mapError((cause) =>
@@ -228,10 +416,11 @@ function startServerContainer(
     const hostPort = yield* resolveHostPort(containerId).pipe(
       Effect.mapError((detail) => serverFailed(digest, detail)),
     );
-    const serverUrl = mintServerUrl(`ws://127.0.0.1:${hostPort}/ws`);
+    const serverUrl = mintServerUrl(`ws://${LOOPBACK_HOST}:${hostPort}/ws`);
     yield* awaitServerHealthy(spec, serverUrl).pipe(
       Effect.mapError((detail) => serverFailed(digest, detail)),
     );
+    yield* verifyStorageMount(digest, volumePath, containerId);
     return {
       handle: {
         imageDigest: digest,
@@ -241,6 +430,52 @@ function startServerContainer(
       containerId,
     };
   });
+}
+
+/**
+ * A file written on the host has to be readable inside the container, or
+ * the bind mount shares nothing. An engine that shares only part of the
+ * host filesystem (a VM engine whose mounts do not cover the system temp
+ * directory, for one) accepts `--volume` and hands the container a
+ * private directory instead; without this check the run proceeds and
+ * only the transcript drain notices, after the episode is over. The probe
+ * is a sentinel rather than the server's own data directory, so it
+ * decides the mount question immediately and stays true for any image.
+ */
+function verifyStorageMount(
+  digest: string,
+  volumePath: string,
+  containerId: string,
+): Effect.Effect<void, ServerLaunchFailed, never> {
+  const sentinel = `.mount-probe-${containerId.slice(0, 12)}`;
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.writeFileString(`${volumePath}/${sentinel}`, containerId).pipe(
+        Effect.mapError((cause) => String(cause)),
+        Effect.zipRight(
+          execCapture([
+            "docker",
+            "exec",
+            containerId,
+            "test",
+            "-f",
+            `${SERVER_DATA_MOUNT}/${sentinel}`,
+          ]),
+        ),
+        Effect.ensuring(
+          fs.remove(`${volumePath}/${sentinel}`).pipe(Effect.ignore),
+        ),
+      ),
+    ),
+    Effect.provide(NodeContext.layer),
+    Effect.asVoid,
+    Effect.mapError((detail) =>
+      serverFailed(
+        digest,
+        `a file written to the run's storage directory is not visible at ${SERVER_DATA_MOUNT} inside the container (${detail}), so the bind mount shares nothing. Point the run's storage at a directory the container engine shares (engine file-sharing settings), or the transcript drain will find no messages`,
+      ),
+    ),
+  );
 }
 
 function resolveHostPort(
@@ -280,8 +515,13 @@ function awaitServerHealthy(
             Effect.zipRight(Effect.fail("not ready")),
           ),
     ),
-    Effect.retry({
-      times: Math.ceil(spec.timeouts.readyTimeoutMs / SERVER_HEALTH_POLL_MS),
+    Effect.retry({ schedule: Schedule.forever }),
+    // The bound is wall-clock: a probe that blocks (half-open socket, a
+    // daemon mid-restart) would otherwise never consume an attempt.
+    Effect.timeoutFail({
+      duration: Duration.millis(spec.timeouts.readyTimeoutMs),
+      onTimeout: () =>
+        `health endpoint did not answer within ${String(spec.timeouts.readyTimeoutMs)}ms`,
     }),
     Effect.mapError(
       () =>
@@ -312,7 +552,7 @@ function provisionObserver(
   return Effect.gen(function* () {
     const minted = yield* mint(server, deps, OBSERVER_IDENTITY);
     const client = new MoltZapAgentClient({
-      serverUrl: server.serverUrl,
+      serverUrl: httpBaseFromServerUrl(server.serverUrl),
       agentKey: minted.apiKey,
     });
     yield* client.connect().pipe(Effect.mapError(observerConnectFailed));

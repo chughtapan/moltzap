@@ -66,16 +66,17 @@ The package root export is unchanged.
 - **Trace-capture harness** — `trace-capture-{bundle,harness,payload}.ts`,
   compiled by this package, loaded from `dist/` by the external `cc-judge`
   runner (its only consumer), and run against `packages/evals/scenarios/*.yaml`.
-  Wire-side signal: OpenTelemetry spans (`moltzap.message.delivered` /
-  `moltzap.message.blocked`) from `@moltzap/server-core`, readable in tests
-  via `CoreTestServer.spanExporter` (see `packages/evals/README.md`).
+  A compat adapter over the simulator: a scenario payload becomes a `RunSpec`,
+  `run` seals a recording, and the bundle cc-judge grades is projected from that
+  recording's events. Capture belongs to the recording; the harness starts no
+  server and drives no wire.
 
 ## Code
 
 - Adapters and testbed APIs do not speak the wire protocol; they spawn
-  processes that do. The trace-capture harness is the one exception — it
-  drives the server's HTTP/WS API directly through dynamically loaded
-  client test modules.
+  processes that do. The simulator's own provisioning, observer, and
+  principal seams are the exception: they register identities over HTTP
+  and speak as a principal over WS, which is what makes a run a run.
 - `openclaw` is a runtime dependency: an external CLI binary referenced
   for its plugin protocol.
 

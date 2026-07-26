@@ -837,6 +837,14 @@ type ReceiverDeps = {
   readonly log: EventLog;
   readonly failBoundMs: number;
   readonly secrets: Secrets;
+
+  /**
+   * Host address to bind. The server container has to reach it, and which
+   * address that is depends on the container engine, so the caller
+   * resolves it (`resolveReceiverBindHost`) rather than the receiver
+   * assuming loopback.
+   */
+  readonly bindHost: string;
 };
 
 /**
@@ -866,8 +874,6 @@ export function makeReceiver(
     };
   }).pipe(Effect.withSpan("makeReceiver"));
 }
-
-const RECEIVER_HOST = "127.0.0.1";
 
 type AcceptOutcome = "accepted" | "stalled" | "sealed";
 
@@ -983,15 +989,13 @@ function serveReceiver(
       ),
     ),
   );
-  return NodeHttpServer.make(makeNodeServer, {
-    port: 0,
-    host: RECEIVER_HOST,
-  }).pipe(
+  const host = ctx.deps.bindHost;
+  return NodeHttpServer.make(makeNodeServer, { port: 0, host }).pipe(
     Effect.tap((server) => server.serve(router)),
     Effect.map((server) => {
       const address = server.address;
       const port = address._tag === "TcpAddress" ? address.port : 0;
-      return `http://${RECEIVER_HOST}:${String(port)}/v1/traces`;
+      return `http://${host}:${String(port)}/v1/traces`;
     }),
     Effect.mapError(bindFailure(ctx.deps)),
   );

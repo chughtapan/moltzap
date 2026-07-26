@@ -335,12 +335,6 @@ importers:
         specifier: ^2.8.3
         version: 2.9.0
     devDependencies:
-      '@moltzap/client':
-        specifier: workspace:*
-        version: link:../client
-      '@moltzap/server-core':
-        specifier: workspace:*
-        version: link:../server
       '@types/node':
         specifier: ^25.5.0
         version: 25.5.0

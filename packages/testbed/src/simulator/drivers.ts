@@ -677,7 +677,7 @@ function connectedClient(
     Effect.flatMap((minted) =>
       Effect.sync(() => {
         const client = new MoltZapAgentClient({
-          serverUrl: delivery.world.server.serverUrl,
+          serverUrl: httpBaseFromServerUrl(delivery.world.server.serverUrl),
           agentKey: minted.apiKey,
         });
         // Registered before connecting, not after: a connect that fails

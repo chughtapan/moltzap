@@ -290,7 +290,7 @@ function normalizeNanoclawServerUrl(serverUrl: string): string {
 // session dirs), and macOS VM-backed engines only share paths under the
 // user home by default — the system temp dir is invisible to containers —
 // so per-agent dirs live under the testbed cache root instead.
-const NANOCLAW_RUNTIME_DIR_ROOT = join(
+export const NANOCLAW_RUNTIME_DIR_ROOT = join(
   MOLTZAP_TESTBED_CACHE_ROOT,
   "nanoclaw-runtimes",
 );
