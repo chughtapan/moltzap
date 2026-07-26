@@ -11,6 +11,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { Effect, Schema } from "effect";
 import {
+  AgentProvenance,
   EpisodeOutcome,
   LogicalSequence,
   ManifestJson,
@@ -33,7 +34,7 @@ export const AGENT_ID_ONE = "agent-id-one";
 export const AGENT_ID_TWO = "agent-id-two";
 export const AGENT_ONE = "agent-one";
 export const AGENT_TWO = "agent-two";
-const CONVERSATION = "conv-1";
+export const CONVERSATION = "conv-1";
 export const FIXTURE_RUN_ID = "aaaaaaaaaaaa-s7-a1";
 const IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;
 
@@ -46,9 +47,22 @@ export type FixtureOptions = {
   readonly condition?: string;
   /** Event lines to write verbatim, replacing the default transcript. */
   readonly events?: ReadonlyArray<Record<string, unknown>>;
+  /** Per-slot provenance the manifest pins; empty unless a case needs it. */
+  readonly slots?: ReadonlyArray<AgentProvenance>;
   /** Skip the seal step, leaving the recording unsealed. */
   readonly unsealed?: boolean;
 };
+
+/** One host-isolated stub slot, the shape most cases want. */
+export function slot(agent: string, modelId?: string): AgentProvenance {
+  return new AgentProvenance({
+    agent,
+    runtimeKind: "stub",
+    runtimeVersion: "0.0.0-test",
+    isolation: "host",
+    ...(modelId === undefined ? {} : { modelId }),
+  });
+}
 
 export type Fixture = {
   readonly path: string;
@@ -111,6 +125,8 @@ export type TranscriptRow = {
   readonly conversationSeq: number;
   readonly text: string;
   readonly conversationId?: string;
+  /** Replaces the single text part, for bodies that carry no readable text. */
+  readonly parts?: ReadonlyArray<Record<string, unknown>>;
 };
 
 export function transcript(row: TranscriptRow): Record<string, unknown> {
@@ -122,7 +138,7 @@ export function transcript(row: TranscriptRow): Record<string, unknown> {
     senderId: row.senderId,
     message: {
       id: `m${String(row.conversationSeq)}`,
-      parts: [{ type: "text", text: row.text }],
+      parts: row.parts ?? [{ type: "text", text: row.text }],
     },
     createdAtWallTime: CREATED_AT + row.logicalSequence,
   });
@@ -161,6 +177,7 @@ export const DEFAULT_EVENT_COUNT = 5;
 function buildManifest(
   allocated: AllocatedAttempt,
   spec: RunSpec,
+  slots: ReadonlyArray<AgentProvenance>,
 ): ManifestJson {
   return new ManifestJson({
     recordingSchemaVersion: RECORDING_SCHEMA_VERSION,
@@ -171,7 +188,7 @@ function buildManifest(
     seed: allocated.identity.seed,
     createdAtWallTime: Schema.decodeSync(WallTimeMs)(CREATED_AT),
     serverImageDigest: IMAGE_DIGEST,
-    slots: [],
+    slots,
     materializedSpec: Schema.decodeSync(RunSpec)(
       Schema.encodeSync(RunSpec)(spec),
     ),
@@ -214,7 +231,7 @@ export function makeRecording(
       }),
     );
     const ref = yield* store.persistManifest(
-      buildManifest(allocated, report.spec),
+      buildManifest(allocated, report.spec, options.slots ?? []),
     );
     const lines = (options.events ?? defaultEvents(allocated.runId)).map(
       (event) => JSON.stringify(event),
