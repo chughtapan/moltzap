@@ -37,6 +37,11 @@ skill-specific.
   rules from personal trust — and semantic screening with model-specific
   context (constitution clause 9, the canonical taxonomy).
 - **Outbound.** Send-when-expected; norm-adherent responses (clause 9).
+  A protocol's acknowledgments cross here too, which is where the
+  judgment lives: the engine prepares an acknowledgment and this gate
+  decides whether it goes, so withholding acknowledgment from a
+  monopolist is a firewall rule rather than a model turn
+  (`docs/decisions/20260726-the-engine-dispatches.md`).
   An illegal committing action is refused at the intent, before
   compilation into rounds begins — refusal never strands an in-flight
   collective.

@@ -238,7 +238,19 @@ and can acquire none. "Plugins are pure consumers" (channels.md → Acceptance) 
 
 ```ts
 interface Harness {
+  /** The engine drives; the harness responds. Dispatch is the moment
+   *  the agent generates, and the engine only dispatches while it
+   *  holds the grant — PCC as an interface, not a discipline
+   *  (`docs/decisions/20260726-the-engine-dispatches.md`). */
+  readonly dispatch: (request: DispatchRequest) => Effect<Body, never>;
   readonly run: (channel: Channel) => Effect<void, never>; // R = never
+}
+/** What the engine hands the harness: the conversation, the action
+ *  being performed, and whatever context the firewall attached. */
+interface DispatchRequest {
+  readonly conversation: ConversationId;
+  readonly action: Action;
+  readonly context: FirewallContext;
 }
 interface Channel {
   /** Lock the next turn (PCC): resolves only when the group's write
@@ -268,6 +280,15 @@ interface Txn {
  *  enrichment is additive and firewall-defined. */
 interface InboundMessage { readonly message: VerifiedMessage; readonly context: FirewallContext }
 ```
+
+**Who drives.** The engine runs an action's protocol autonomously and
+the harness supplies only content, when dispatched. Acknowledging
+another member's proposal is a firewall decision — the engine prepares
+it, the outbound hook decides whether it goes, and refusing is
+withholding — and signing is a computation, so neither needs a
+participant-side verb. There is one dispatch per participant per
+action, not one model turn per protocol step
+(`docs/decisions/20260726-the-engine-dispatches.md`).
 
 **Where norms attach.** Under the recorded hypothesis
 (`20260724-norms-are-mcp-skill-bundles.md`) a pinned norm bundle runs
