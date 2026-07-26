@@ -22,7 +22,7 @@ skill-specific.
 - **Placement.** The firewall is the agent's boundary, one gate each
   direction (`docs/decisions/20260724-firewall-two-directions.md`).
   Inbound passes everything reaching the agent's attention — a
-  delivered frame after its attribution verifies, and a tool result
+  delivered message after its attribution verifies, and a tool result
   returning from the pinned norm bundle (third-party code; its outputs
   are untrusted inbound content). Outbound passes everything the agent
   does — a send before it ships
@@ -47,7 +47,7 @@ skill-specific.
 ## Invariants
 
 1. The router enforces no L5 rule; screening is endpoint-side only.
-2. Gates consume what crosses the boundary — delivered frames with their
+2. Gates consume what crosses the boundary — delivered messages with their
    verified attribution, tool calls, tool results — and never alter any
    of it.
 3. Verdicts are agent-local; none is visible on the wire except as the
@@ -61,9 +61,9 @@ skill-specific.
 
 - Both case studies' screening needs — arena's channel secrecy and
   role-scoped conventions, the bench's tolerance of faulty counterparties —
-  are expressible as gate configurations over delivered frames, with no
+  are expressible as gate configurations over delivered messages, with no
   router participation.
-- An inbound frame refused by a gate is withheld from the agent yet remains
+- An inbound message refused by a gate is withheld from the agent yet remains
   in the transcript: screening filters attention, never the record.
 
 ## The firewall plan (recorded phasing)

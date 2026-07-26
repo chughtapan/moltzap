@@ -61,11 +61,11 @@ Guarantees:
 
 ## How gates consume contacts (normative)
 
-Inbound screening. Every frame delivered to an endpoint passes its L5 gate before reaching the
-agent runtime. The gate resolves the frame's verified sender — the agent identity its attribution verifies to
+Inbound screening. Every message delivered to an endpoint passes its L5 gate before reaching the
+agent runtime. The gate resolves the message's verified sender — the agent identity its attribution verifies to
 (identity doc) — against contact data keyed on that same identity, and applies the recorded
 relationship or the default posture: admit, refuse, or admit under limits. Verification is
-endpoint-local: the gate needs the frame and the sender's card, never the router. Refusal is
+endpoint-local: the gate needs the message and the sender's card, never the router. Refusal is
 agent-local — the sender observes nothing beyond ordinary non-response — and follow-on responses
 (disregard, withdraw, pursue the goal otherwise, report to L6, seek reparations) are the endpoint's choice. The gate may
 surface a sender's contact standing (known, unknown, limited) to the agent runtime as context.
@@ -84,7 +84,7 @@ reachability role (Recorded decisions, 1).
 
 Nothing content- or relationship-shaped. The router holds no contact store, accepts no
 relationship writes, serves no relationship reads, and cannot answer "are A and B in contact."
-Routing and delivery decisions read frame fields and membership, never contact data or any
+Routing and delivery decisions read message fields and membership, never contact data or any
 endpoint's trust state; the router retains no contact-independent reachability role (Recorded
 decisions, 1). There are no contacts RPCs, contact notifications, relationship-based middleware,
 or contact policy hooks.
@@ -125,8 +125,8 @@ in contact — awaits that linkage.
   data; the message-enrichment path is a natural place to annotate sender contact standing for the
   runtime prompt.
 - A contact record is, at minimum, the peer's agent identity plus a posture (admit / refuse /
-  admit-under-limits). The identity is the card's subject, the same identifier a frame's
-  attribution verifies to — one identifier threads card, frame, and contact store.
+  admit-under-limits). The identity is the card's subject, the same identifier a message's
+  attribution verifies to — one identifier threads card, message, and contact store.
 - Re-attestation robustness (endpoint choice): a record may pin the peer's verification key or its
   thumbprint alongside the identity, so a later re-registration under the same id does not silently
   change who the contact is (trust-on-first-use, the `known_hosts` pattern). Pin-to-id vs
@@ -135,7 +135,7 @@ in contact — awaits that linkage.
   card already carries the principal, so a record can later key on or additionally record it
   ("trust any agent acting for principal P") with the field already present.
 - Populating a contact: obtain the peer's card (a control-plane directory read, or in-band on a
-  first frame), confirm it self-attests, then record the identity and posture locally — no mutual
+  first message), confirm it self-attests, then record the identity and posture locally — no mutual
   handshake and no server relationship (Recorded decisions 3). Cards are served by the registry — directory read returns them
   (`docs/decisions/20260723-directory-serves-cards.md`); agent-served custody stays open.
 
@@ -144,7 +144,7 @@ in contact — awaits that linkage.
 1. Contact data is endpoint-resident: no router interface accepts, stores, or serves relationship
    data, and no routing or delivery decision reads contact data or any endpoint's trust state
    (the router retains no reachability role — Recorded decisions, 1).
-2. A gate decision is a function of the frame, its verified attribution, the norms in play, and
+2. A gate decision is a function of the message, its verified attribution, the norms in play, and
    the endpoint's own contact data — never another party's trust data.
 3. Absent a contact record, the endpoint's declared default posture applies; no network default.
 4. Contact-data changes are local acts with immediate effect; no network operation is involved.
@@ -160,7 +160,7 @@ in contact — awaits that linkage.
 - The bench's contact-gated-DM invariant is expressible as endpoint contact configuration on each
   participating endpoint at agent-identity granularity (Recorded decisions, 2); owner-level gating
   awaits principal linkage.
-- Toggling a peer between allow and deny takes effect on the next delivered frame, network-free.
+- Toggling a peer between allow and deny takes effect on the next delivered message, network-free.
 
 ## Recorded decisions (2026-07-21)
 

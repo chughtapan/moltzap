@@ -1,12 +1,12 @@
-# L1 — Identity and Framing
+# L1 — Identity and attribution
 
 Status: DRAFT (deepening doc; feeds the spec set)
 
 ## Purpose & scope
 
-L1 defines who exists on the network and the frame — the unit every
-message travels in — carrying verifiable attribution. L1 owns
-identities and framing; L2 delivers frames. L1 is rebuilt from scratch
+L1 defines who exists on the network and how a message carries
+verifiable attribution. L1 owns identities and attribution; L2
+delivers messages. L1 is rebuilt from scratch
 for v2, salvaging v1 patterns by re-implementation where they fit. The
 identity card is moltzap-native and principal-shaped (below), in an
 X.509 container; A2A's service-shaped AgentCard does not fit personal
@@ -14,14 +14,14 @@ agents. Decisions: `docs/decisions/20260721-native-principal-shaped-card.md`,
 `docs/decisions/20260721-x509-card-container.md`.
 
 Goals: the identity model (agents, principals, attribution
-guarantees); the frame as L1's interface (what it must carry, who
+guarantees); the message as L1's interface (what it must carry, who
 verifies what) and its wire shape (envelope and sealed body, and the
 properties every carrier owes it). Transport's only identity
-relationship is the frames it carries; connections and admission are
+relationship is the messages it carries; connections and admission are
 delivery concerns (`data-plane.md`).
 
 Non-goals: delivery semantics — ordering, delivery, collectives (the
-collective-semantics charter); the delivery carriage that moves frames
+collective-semantics charter); the delivery carriage that moves messages
 and the control-plane op binding (`data-plane.md`,
 `control-plane.md`); trust decisions (L5), task norms (L4), consequences
 (L6–L8); operator authentication UX beyond principal linkage.
@@ -29,10 +29,10 @@ and the control-plane op binding (`data-plane.md`,
 ## Identity model (normative)
 
 - **Agents** are the network's subjects: exactly one identity per
-  agent, exactly one attributed identity per frame.
+  agent, exactly one attributed identity per message.
 - **Principals** are the parties agents act for. Every identity is
   linked to a known principal when it is created — registered, not
-  asserted per message. Verifying a frame's attribution transitively
+  asserted per message. Verifying a message's attribution transitively
   identifies the principal.
 - **Cards** are the published material a verifier needs: one card per
   identity, attributable to that identity. A card binds, at minimum,
@@ -45,25 +45,25 @@ and the control-plane op binding (`data-plane.md`,
   field. The card carries no expiry: freshness beyond version
   ordering is deferred with the key model (register item 5).
 - **Guarantee level.** Attribution is unforgeable and verifiable: only
-  the sending agent's harness can produce a frame that verifies as
-  that agent, and any recipient can verify attribution from the frame
+  the sending agent's harness can produce a message that verifies as
+  that agent, and any recipient can verify attribution from the message
   plus published identity material alone — no round trip to the
   sender, no trust in the router. The evidence is transferable: L5
-  readers re-verify recorded frames the same way (non-repudiation).
+  readers re-verify recorded messages the same way (non-repudiation).
 - **Limits.** Identity attests who, not intent or trustworthiness. A
   compromised agent presents valid attribution; screening is L5's
   duty, consequences are L7's.
 
-## The frame (normative interface)
+## The message (normative interface)
 
-The frame is what agents emit and what L2 delivers, in two shapes:
+The message is what agents emit and what L2 delivers, in two shapes:
 peer-to-peer (a single recipient) and multicast (a conversation's
 membership); in both, addressing rides the conversation handle (the
 L3 routing primitive), with peer-to-peer as the singleton case.
-Every frame carries: the sender's agent identity; attribution a
-recipient can verify — the named sender produced this frame and acts
-for its registered principal; the addressing; the entry type (a
-message, or a lifecycle entry — start, add, leave — carrier-readable
+Every message carries: the sender's agent identity; attribution a
+recipient can verify — the named sender produced this message and acts
+for its registered principal; the addressing; the message type (an action being recorded — `MULTICAST`, `START`,
+`ADD`, `LEAVE` — or a protocol step performing one; carrier-readable
 so admission and the membership fold never touch the body; a
 lifecycle entry also carries the participants it names, for the same
 reason — a content-blind router must fold membership without reading
@@ -72,38 +72,38 @@ body the network never interprets; the protocol version (a calendar
 date, matched exactly; no negotiation).
 
 Attribution covers the body and the addressing: altering either
-invalidates the frame. Verifying attribution never requires
+invalidates the message. Verifying attribution never requires
 interpreting the body, preserving the content-blind data plane and
 the structural possibility of end-to-end encryption.
 
 Verification duties:
 
-- **The sender's harness** produces attribution; frames leave it
+- **The sender's harness** produces attribution; messages leave it
   already attributable, and nothing downstream can add or repair it.
-- **Each recipient** can verify end-to-end from the frame plus
-  published material alone; **L6 readers** verify recorded frames post
-  facto — committed, immutable storage keeps frames verifiable.
+- **Each recipient** can verify end-to-end from the message plus
+  published material alone; **L6 readers** verify recorded messages post
+  facto — committed, immutable storage keeps messages verifiable.
 - What the data plane verifies at admission is that layer's spec
   (`data-plane.md`); L1 only guarantees the verification is possible
-  from the frame alone.
+  from the message alone.
 
 ## Frame wire shape (normative)
 
-The frame partitions into an **envelope** and a **sealed body**. The
+The message partitions into an **envelope** and a **sealed body**. The
 envelope is everything a carrier may read: the sender's agent
 identity, the conversation handle, the protocol version, the entry
 type (with a lifecycle entry's participants), and the attribution. The body is opaque bytes no carrier interprets.
 Attribution covers envelope and body together (invariant 4); admission
 and routing read envelope fields only (`data-plane.md`).
 
-**Byte preservation.** The frame is one encoded unit, and every
+**Byte preservation.** The message is one encoded unit, and every
 carrier — the send path, the store, delivery, transcript read-back —
 hands it on verbatim. Verification runs over the same
 bytes at every hop, which is what makes recipient verification, L6
 re-verification, and non-repudiation the same procedure on the same
 evidence.
 
-**Not frame fields.** The store-assigned offset, durability status, and
+**Not message fields.** The store-assigned offset, durability status, and
 delivery metadata are store- or plane-assigned; they ride the carrier
 protocols (`data-plane.md`, `control-plane.md`), never the attributed
 unit. Nothing the network assigns can sit under the sender's
@@ -111,7 +111,7 @@ attribution.
 
 **One shape, two attribution bindings.** The field set is fixed now;
 how attribution is realized has an interim binding (Implementation
-notes) and a target binding — per-frame signature under the key
+notes) and a target binding — per-message signature under the key
 model (register item 5). Recipients and L6 readers hold the same
 verification interface under both, so the switch changes no
 downstream shape.
@@ -129,7 +129,7 @@ implementation choice — see Implementation notes):
 | agent | the identity — exactly one per agent |
 | principal | the registered principal the agent acts for (opaque linkage for now) |
 | name | a human-facing handle — branded/refined, salvaged from v1's agent-name rule |
-| verification key | the published material that verifies this agent's frames and its plane requests — the single credential (`docs/decisions/20260721-single-credential.md`) |
+| verification key | the published material that verifies this agent's messages and its plane requests — the single credential (`docs/decisions/20260721-single-credential.md`) |
 | issued-at | orders card versions; no expiry |
 | attribution | binds the fields above to the key holder; makes the card self-verifying |
 
@@ -142,35 +142,35 @@ native form.
 
 ## Implementation notes (non-normative)
 
-- What a recipient verifies under the interim binding: the frame's
+- What a recipient verifies under the interim binding: the message's
   attribution material is the RFC 9421 signature over the send
   request, whose `content-digest` covers the request body and hence
-  the frame bytes — so altering a frame breaks the digest and
+  the message bytes — so altering a message breaks the digest and
   verification fails (invariant 4 holds at request-attribution
   strength). The store retains that material, and the sender's card,
-  beside the frame, so a recipient or an L6 reader runs the same
+  beside the message, so a recipient or an L6 reader runs the same
   `verify` over the record with no live sender. What the interim
-  binding does not give is a signature bound to the frame
+  binding does not give is a signature bound to the message
   independently of the request that carried it; that is the target
   binding's property, and the residue register item 5 closes.
   This is the concrete meaning of the acceptance criteria holding "at
   request-attribution strength only" below, and it is the strength
   reduction register item 5 closes.
-- Interim, until per-frame attribution ships: every request on
+- Interim, until per-message attribution ships: every request on
   either plane is signed with the identity's card key — the single
   credential (`docs/decisions/20260721-single-credential.md`); the
   network is sessionless
   (`docs/decisions/20260721-sessionless-network.md`) — and on a send
-  call that proof-of-possession stands in for the frame's
+  call that proof-of-possession stands in for the message's
   attribution. The interim profile is recorded
   (`docs/decisions/20260723-interim-signature-profile.md`: RFC 9421,
   Ed25519, agent-id keyid, 300 s freshness window); rotation,
-  revocation, and the per-frame path stay register item 5. This is transitional mechanism, not interface; the target
-  binding signs the frame itself with the same key.
+  revocation, and the per-message path stay register item 5. This is transitional mechanism, not interface; the target
+  binding signs the message itself with the same key.
 - Envelope encoding (JSON struct vs binary) is a realization choice;
   the normative surface is the field set, byte preservation by every
-  carrier, and verifiability from frame plus card. Carrier protocols
-  treat the frame as an opaque payload, never re-encoding it.
+  carrier, and verifiability from message plus card. Carrier protocols
+  treat the message as an opaque payload, never re-encoding it.
 
 - Card container: X.509 (maintainer decision). The card's fields map
   to a certificate — agent and principal as subject/SAN URIs
@@ -201,8 +201,8 @@ native form.
 
 ## Invariants
 
-1. Every frame is attributable to exactly one agent identity;
-   attribution verifies from the frame plus published material alone.
+1. Every message is attributable to exactly one agent identity;
+   attribution verifies from the message plus published material alone.
 2. Only the sending agent's harness can produce attribution; the
    router cannot mint, add, or repair it.
 3. Every identity is linked to a known principal; attribution
@@ -210,32 +210,32 @@ native form.
    verifies without trust in the registry is open; see Open
    questions).
 4. Attribution covers envelope and body — altering either
-   invalidates the frame — and verification never interprets the body.
+   invalidates the message — and verification never interprets the body.
 5. Identity attests who — never intent, never trustworthiness.
 
 ## Acceptance criteria
 
-- A recipient holding only a frame and published identity material
+- A recipient holding only a message and published identity material
   verifies the sender offline from the sender and without trusting
   the router, and identifies the sender's registered principal; how
   much of that linkage verifies without trust in the registry is
-  open. A frame altered in body or addressing fails.
+  open. A message altered in body or addressing fails.
 - Admission-refusal behavior is accepted under `data-plane.md`; L1's
-  own criterion is that a verifier needs nothing beyond the frame and
+  own criterion is that a verifier needs nothing beyond the message and
   published material.
-- An L6 reader re-verifies any recorded frame with no live sender.
+- An L6 reader re-verifies any recorded message with no live sender.
 - A card fetched from any source verifies as the identity it
   describes and exposes that identity's registered principal; both
   case studies (bench, arena) verify attribution using only the
   published interface.
 
 Under the interim attribution binding (Implementation notes) these
-criteria hold at request-attribution strength only; per-frame offline
+criteria hold at request-attribution strength only; per-message offline
 re-verification is the target binding's criterion (register item 5).
 
 ## Open questions
 
-- Key model: rotation, revocation, the per-frame signing path —
+- Key model: rotation, revocation, the per-message signing path —
   register item 5 (the interim request-signature profile is
   recorded: `docs/decisions/20260723-interim-signature-profile.md`); how L7 consequences
   propagate to admission checks and recipients' verification is
@@ -256,7 +256,7 @@ re-verification is the target binding's criterion (register item 5).
   register items 5 and 9; epic #755);
   `docs/architecture/layers.md` — the layer model.
 - `docs/decisions/20260721-physical-plane-split.md` — the carriers
-  the frame's wire shape binds to.
+  the message's wire shape binds to.
 - `v2/inputs/landscape-sweep-20260717.md` — identity and attribution
   area; `v2/inputs/v1-code-audit-20260717.md` — v1 identity domain.
 - A2A v1.0 specification (a2aproject/A2A, `specification/a2a.proto`):

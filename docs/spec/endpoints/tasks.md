@@ -90,7 +90,7 @@ constitution clause 14).
    overlapping action-sets, precedence, and whose projection wins.
 6. Narrowed by the collectives correctness skeleton
    (`docs/decisions/20260724-collectives-are-ledger-transactions.md`):
-   the transaction id — the BEGIN-frame hash — is the idempotency
+   the transaction id — the BEGIN-message hash — is the idempotency
    key; one effective commit per id makes retries harmless. Still
    open: only the carriage convention (how a norm server's tool call
    cites the id, e.g. request metadata).

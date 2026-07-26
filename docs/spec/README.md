@@ -26,8 +26,8 @@ Layout mirrors the component decomposition
 
 | Doc | Covers |
 |---|---|
-| `identity.md` | L1 — identities, framing, and the frame wire shape |
-| `data-plane.md` | the L2/L3 realization: ordered multicast delivery under transactional messaging; the collective transaction; the fault-injection/eval seam; interim WS wire, target surface open |
+| `identity.md` | L1 — identities, attribution, and the message wire shape |
+| `data-plane.md` | the L2/L3 realization: ordered multicast delivery of messages, actions realized by protocols; the collective transaction; the fault-injection/eval seam; interim WS wire, target surface open |
 | `endpoints/channels.md` | the endpoint data-plane stack: framing and signing, sending under PCC, one-way receive, resume position, gate mount |
 | `endpoints/tasks.md` | L4 — tasks as application protocols; norms as versioned skill bundles, published upward as guarantees |
 | `endpoints/screening.md` | L5 personal trust: the firewall hooks and their recorded phasing; agent-local verdicts |

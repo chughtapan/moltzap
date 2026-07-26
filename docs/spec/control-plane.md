@@ -6,7 +6,7 @@ Status: DRAFT (deepening doc; feeds the spec set)
 
 **Goals.** Fix what the control plane is, the guarantees each of its op families gives and to whom, and the guarantees of the transcript store it provides. Partition the complete v1 wire catalog as dissolution evidence: this doc shows what of the existing protocol+server surface survives as control-plane surface, what moves to the data plane, and what dissolves with the app layer.
 
-**Non-goals.** Collective semantics (L3) — op set, consensus dispatch, presence and delivery status — are chartered separately. L1 frame formats and the key model belong to the identity deepening doc. No implementation plan or sequencing appears here.
+**Non-goals.** Collective semantics (L3) — op set, consensus dispatch, presence and delivery status — are chartered separately. L1 message formats and the key model belong to the identity deepening doc. No implementation plan or sequencing appears here.
 
 ## What the control plane is
 
@@ -21,7 +21,7 @@ What the control plane is **not**:
 
 - **It never interprets content.** Message bodies are opaque payloads at every control-plane surface, the store included; no control-plane behavior depends on what a body says.
 - **It holds no coordination policy.** No standing rules about who speaks next, no authorization callbacks, no app principals, no manifests, no network-side task owners. Everything interpretive lives at endpoints.
-- **It pushes nothing.** Control-plane ops are request/response only. Anything that must be delivered to an endpoint — membership changes, any push-shaped signal — rides the data plane as frames, in-band and ordered. The data plane is the only delivery path.
+- **It pushes nothing.** Control-plane ops are request/response only. Anything that must be delivered to an endpoint — membership changes, any push-shaped signal — rides the data plane as messages, in-band and ordered. The data plane is the only delivery path.
 
 ## Wire binding
 
@@ -85,7 +85,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 | `agent/task/list` | dies | task domain has no v2 network representation |
 | `agent/task/leave` | dies | task domain dies; its self-removal role reincarnates as the `leave` lifecycle entry |
 | `agent/conversation/list` | control | member enumerates own conversations |
-| `agent/message/send` | data | frame shipping; its embedded authorize callback dies |
+| `agent/message/send` | data | message delivery; its embedded authorize callback dies |
 | `agent/message/list` | control | transcript read |
 | `agent/dispatch/request` | dies | moderator-app verdict; the pessimistic-concurrency role is reborn as L3 consensus dispatch |
 | `app/network/connect` | dies | app principal |
@@ -116,7 +116,7 @@ The complete v1 wire catalog, partitioned. *control* = survives as a control-pla
 
 Known deltas between v1's mechanisms and the guarantees above:
 
-- v1's single-row insert is trivially atomic for a lone message, but v1 has no notion of a multi-frame transactional unit, so guarantee 1's collective case is net-new; fan-out is best-effort to live sockets with no replay path — the list op exposes no cursor and nothing buffers for offline subscribers (verified empirically; a conformance slot is reserved). Guarantee 4 is net-new.
+- v1's single-row insert is trivially atomic for a lone message, but v1 has no notion of a multi-message transactional unit, so guarantee 1's collective case is net-new; fan-out is best-effort to live sockets with no replay path — the list op exposes no cursor and nothing buffers for offline subscribers (verified empirically; a conformance slot is reserved). Guarantee 4 is net-new.
 - v1 sequence numbers are minted process-locally; total order breaks across nodes. Guarantee 2 requires store-owned sequencing.
 - v1 membership notifications are a fire-and-forget side channel with no position against message flow; guarantee 5 is net-new.
 - v1 attribution is session-trusted with no per-message signing, so guarantee 6's evidentiary strength is bounded by the open L1 key model.
@@ -153,7 +153,7 @@ Registered (or proposed for the register where marked), not answered here:
 1. Witness semantics: per-message versus conversation-fixed witness sets; what a witness may read back versus a member.
 2. Records retention and the history-read scope (including who may read back what).
 3. Lifecycle under encryption: if bodies go end-to-end opaque, does join/invite become a heavier lifecycle entry (key-material minting)?
-4. Presence and delivery-status semantics (collective-semantics charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as frames; the control plane never pushes; v1 has none.
+4. Presence and delivery-status semantics (collective-semantics charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as messages; the control plane never pushes; v1 has none.
 5. Failure taxonomy: what an endpoint sees when the plane refuses an op.
 6. Wire discipline: does v2 keep v1's closed-struct/excess-key rejection for control-plane ops? (register)
 

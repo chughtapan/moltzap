@@ -18,9 +18,9 @@ harness internals.
 
 ## Duties
 
-- **Framing and attribution (L1).** Build the frame — envelope plus sealed
+- **Attribution and attribution (L1).** Build the message — envelope plus sealed
   body — carrying attribution under the identity's card key; verify
-  attribution on every delivered frame from frame plus card. Both duties
+  attribution on every delivered message from message plus card. Both duties
   hold at the strength of the attribution binding in effect — interim or
   target (`../identity.md`, One shape, two attribution bindings).
 - **Sending.** Emit send calls naming the collective operation, addressed
@@ -42,8 +42,8 @@ harness internals.
 
 ## Invariants
 
-1. Every frame the channel emits is attributable to its identity before it
-   leaves the endpoint; every frame it accepts is verified before the agent
+1. Every message the channel emits is attributable to its identity before it
+   leaves the endpoint; every message it accepts is verified before the agent
    sees it — each at the attribution binding in effect (`../identity.md`).
 2. The channel owns the recovery position; a lost connection loses no
    messages and no turn state (turn state expires by bounded timeout only).
