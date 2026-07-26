@@ -84,15 +84,15 @@ W1).
 | `Refusal` | cross | the interim value ("the op did not take effect"), opaque cause | register 8 open |
 
 **Actions and protocols.** An action is what a conversation does; a
-protocol is how it gets done. v0's action vocabulary is `MULTICAST`
-plus the lifecycle three, and a plain utterance is the degenerate
-case — a `MULTICAST` whose protocol is one message, which is why v0
-ships without building any multi-message protocol. The charter widens
-the action vocabulary (`ALL_GATHER`, `ALL_REDUCE`, …) and names the
-protocol steps; widening adds arms, never port methods, and every
-exhaustive match breaks until the new arm is handled. The message
-type rides the envelope so admission and the membership fold never
-touch the body.
+protocol is how it gets done, and the machinery is general — the same
+engine runs a one-message utterance and a multi-round collective, so
+v0 builds it rather than hardcoding a single operation. A plain
+utterance is the degenerate protocol; `ALL_GATHER` is a longer one.
+The charter widens the *vocabulary* of actions and fixes the
+norm-level parameters (quorum rules, timeouts); widening adds arms,
+never port methods, and every exhaustive match breaks until the new
+arm is handled. The message type rides the envelope so admission and
+the membership fold never touch the body.
 
 **What the ledger holds.** One recorded action is one message: the
 committing message carries the action's content and the participants'
