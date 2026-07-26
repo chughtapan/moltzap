@@ -130,6 +130,16 @@ multi-signed entry.**
   member would hold a veto) and why a norm's rule must be monotone and
   evaluated against membership at the BEGIN's offset.
 
+**Scope consequence (2026-07-26).** The MULTICAST-only v0 scope
+(`20260722-data-plane-layering.md`) existed because collective
+execution was unknown. It is known now — every action is performed by
+a protocol of messages and recorded once — and the machinery is
+general, so v0 builds the protocol engine rather than a single
+hardcoded operation. A plain utterance is the degenerate protocol; a
+collective is a longer one; the same engine runs both. What the
+charter still owns is the vocabulary of actions and the norm-level
+parameters, not the mechanism.
+
 Still chartered (#765): quorum rules, liveness and safety machinery,
 abort and timeout semantics, sealed rounds (commit-reveal), whether
 the cut is an explicit GO or the position of the deciding ack,

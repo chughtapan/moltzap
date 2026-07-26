@@ -117,11 +117,13 @@ reaching into internals is, by definition, an interface gap.
    interface; pessimistic concurrency control — consensus on the
    next writer before generation, because agents' side effects are
    irreversible — is the recorded technique, and quorum, liveness,
-   and abort machinery are the charter's. Recorded decision
-   (`docs/decisions/20260722-data-plane-layering.md`): v0
-   supports MULTICAST, nothing more; the op set, call shape, and
-   presence/delivery-status semantics belong to the
-   collective-semantics charter (#765). Recorded decision
+   and abort machinery are the charter's. The protocol machinery is
+   general: v0 builds it, superseding the earlier MULTICAST-only
+   scope (`docs/decisions/20260722-data-plane-layering.md`), which
+   existed only while collective execution was unknown. What remains
+   the charter's (#765) is the vocabulary of actions beyond the first
+   ones and the norm-level parameters — quorum rules, timeouts,
+   presence and delivery-status semantics. Recorded decision
    (`docs/decisions/20260723-lifecycle-rides-l3.md`): conversation
    lifecycle rides in-band — a conversation begins as its
    transcript's genesis entry, membership changes are entries, and

@@ -5,10 +5,10 @@ Status: DRAFT (deepening doc; feeds the spec set)
 ## Purpose & scope
 
 The data plane is the delivery half of the network, split out of the control
-plane. It carries network delivery and collective operations — carrying L1
-messages with ordered multicast delivery (L2) and transactional messaging (L3),
-MULTICAST-only in the first version per the constitution's recorded decision —
-and addresses every delivery through a conversation (L3). It is the shared
+plane. It carries network delivery and actions — carrying messages with
+ordered multicast delivery (L2) under conversations whose actions are
+performed by protocols and recorded transactionally (L3) — and
+addresses every delivery through a conversation (L3). It is the shared
 substrate under every agent's harness; everything interpretive lives at
 endpoints.
 
@@ -24,9 +24,9 @@ endpoint firewalls (L5) act at the delivery edge, programmed from above.
 Conversation lifecycle rides in-band as L3 entry types: a conversation
 begins as its transcript's genesis entry, membership changes and
 departures are subsequent entries, and half-open state expires by bounded
-timeout (`docs/decisions/20260723-lifecycle-rides-l3.md`). Lifecycle entries
-are membership mechanics, not collective operations — v0's op set remains
-MULTICAST alone.
+timeout (`docs/decisions/20260723-lifecycle-rides-l3.md`). Lifecycle actions are membership
+mechanics; like every action they are performed by a protocol and
+recorded once.
 
 Goals: state the plane's duties as guarantees, independent of realization;
 record the dissolution of the v1 app layer, power by power; state the
@@ -34,7 +34,7 @@ recorded eval seam — no centralized middleware exists; testing and evals run
 against an alternative, testbed-owned implementation of this same interface
 (`docs/decisions/20260723-eval-plane-is-testbed.md`). Non-goals: the collective op set, call shape, and the completion /
 failure / concurrency / initiation / witness / ordering clusters (owned by the
-collective-semantics charter; this doc scopes only the v0 MULTICAST + PCC slice);
+collective-semantics charter; this doc scopes the protocol machinery, not the vocabulary of actions built on it);
 control-plane duties (identity, membership administration, the record substrate
 itself); endpoint concerns (L5 screening, L4 task norms, which op a well-behaved
 participant emits next).
@@ -42,15 +42,21 @@ participant emits next).
 ## Duties (guarantee level)
 
 - **Delivery.** The plane accepts a signed L1 message naming a collective
-  operation from a conversation member and delivers it to the members the
-  envelope addresses; the v0 slice's only operation is MULTICAST to the
-  membership. Prompt push is best-effort; convergence is guaranteed
+  action from a conversation member and delivers it to the members the
+  envelope addresses. Prompt push is best-effort; convergence is guaranteed
   (timeliness and delivery-status semantics are chartered): a member that
   misses a push recovers the history and reaches the same observed sequence as
   one that never disconnected.
 - **Ordering.** Deliveries within a conversation are totally ordered: every
   member observes the same messages in the same order, including members
   transiently unavailable at send time.
+- **Actions and protocols.** An action is performed by a protocol — an
+  exchange of ordinary messages the plane delivers without
+  understanding — and recorded once, atomically, carrying the
+  participants' signatures. A single-message action (an ordinary
+  utterance) is the degenerate protocol; a collective is a longer one.
+  The plane contributes delivery and the recording, never a judgment
+  about whether a protocol completed.
 - **Turn admission.** At most one transaction is open per conversation, and
   the plane admits no *effective* entry whose grant does not precede it in the
   shared order — an endpoint holds the grant before it generates, so agreement
@@ -325,7 +331,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 ## Acceptance criteria
 
 - Every normative statement in the plane's spec chapter is a guarantee or interface; mechanisms appear only in non-normative notes.
-- Each of the four paper-required constraints maps to at least one invariant testable over the v0 MULTICAST + PCC slice.
+- Each of the four paper-required constraints maps to at least one invariant testable over the protocol machinery.
 - The dissolution table is total: every v1 hook/manifest power has a recorded destination (endpoint layer, envelope, charter, or abolished).
 - Message visibility is fully determined by membership and envelope fields; no per-message principal verdict exists anywhere in the spec set.
 - The v1 scripted-fault conformance tier is reproducible through the testbed data plane with no production hook path, and swapping implementations changes no production conformance outcome.
@@ -353,7 +359,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
   decisions; `docs/decisions/20260722-data-plane-layering.md` — plane
   layering and the interim wire.
 - #765 — the collective-semantics charter: op clusters, four
-  paper-required constraints, v0 MULTICAST + PCC decision, maintainer
+  paper-required constraints, the superseded MULTICAST-only scope, maintainer
   transcript-plus-leases sketch. #755 — v2 epic.
 - `v2/inputs/v1-code-audit-20260717.md` (delivery-path and hook-machinery map);
   `v2/inputs/case-study-audits-20260718.md` (arena/bench evidence for the eval
