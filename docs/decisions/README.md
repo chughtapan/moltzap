@@ -11,6 +11,7 @@ this log.** Do not add a record without that call.
 
 | Decision | Date |
 |---|---|
+| [Attribution binds to the message, not the request](20260726-attribution-binds-to-the-message.md) | 2026-07-26 |
 | [The engine dispatches to the harness after the grant](20260726-the-engine-dispatches.md) | 2026-07-26 |
 | [The firewall starts as MCP middleware; logic deferred](20260724-firewall-starts-as-mcp-middleware.md) | 2026-07-24 |
 | [L7 is institutional policy attached to identity](20260724-l7-is-policy-attached-to-identity.md) | 2026-07-24 |

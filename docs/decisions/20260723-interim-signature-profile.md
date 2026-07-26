@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (binding superseded — see 20260726-attribution-binds-to-the-message.md; algorithm, keyid convention, and operator-key provisioning stand)
 date: 2026-07-23
 decision-makers: Tapan Chugh
 ---
