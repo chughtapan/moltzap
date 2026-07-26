@@ -17,24 +17,21 @@
  * opening message and reverts before the done-signal fires, so the
  * recording holds a `fault.applied` / `fault.reverted` pair around live
  * traffic — the smallest thing that shows why the log is worth reading.
+ *
+ * The server image is resolved rather than hard-coded: the demo must run
+ * with no arguments on a machine that has only Docker, and the digest of
+ * a locally built image is a property of that machine, not of this file.
  */
 import { Effect, Schema } from "effect";
-import { run, RunSpec } from "../simulator/index.js";
+import { resolveServerImagePin, run, RunSpec } from "../simulator/index.js";
 import { outcomeText } from "./exit.js";
+import { RunSpecInvalid } from "../simulator/errors.js";
 import type {
   ConfigTimeError,
   ManifestPersistFailed,
   RecordingStoreFailed,
   SealFailed,
 } from "../simulator/errors.js";
-
-/**
- * Pinned digest of the demo's server image. The demo is the one entry
- * point that must run with no arguments, so it carries a pin rather than
- * asking for one; a spec authored for real use names its own.
- */
-const DEMO_SERVER_IMAGE_DIGEST =
-  "sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
 const SEVER_AT_MS = 3_000;
 const HEAL_AT_MS = 8_000;
@@ -58,8 +55,8 @@ const DEMO_BANNER: ReadonlyArray<string> = [
   "Fault theater: the link between them is severed, then healed, while the log records both.",
 ];
 
-/** Build the demo spec against a store root. */
-function demoSpec(storeRoot: string): RunSpec {
+/** Build the demo spec against a store root and the resolved server image. */
+function demoSpec(storeRoot: string, imageDigest: string): RunSpec {
   return Schema.decodeUnknownSync(RunSpec)({
     seed: 1,
     agents: [
@@ -76,7 +73,7 @@ function demoSpec(storeRoot: string): RunSpec {
         role: "standard",
       },
     ],
-    server: { imageDigest: DEMO_SERVER_IMAGE_DIGEST },
+    server: { imageDigest },
     world: {
       faults: [
         {
@@ -87,11 +84,13 @@ function demoSpec(storeRoot: string): RunSpec {
       ],
     },
     episode: {
-      task: {
-        principal: "operator",
-        to: "asker",
-        content: "Check whether the responder is reachable and report back.",
-      },
+      steps: [
+        {
+          by: "operator",
+          with: ["asker"],
+          say: "Check whether the responder is reachable and report back.",
+        },
+      ],
       termination: {
         inactivityTimeoutMs: INACTIVITY_TIMEOUT_MS,
         onAgentCrash: "halt",
@@ -117,7 +116,17 @@ export function runDemo(
   ConfigTimeError | RecordingStoreFailed | ManifestPersistFailed | SealFailed,
   never
 > {
-  return Effect.scoped(run(demoSpec(options.storeRoot))).pipe(
+  return resolveServerImagePin().pipe(
+    Effect.mapError(
+      (detail) =>
+        new RunSpecInvalid({
+          issues: [{ path: ["server", "imageDigest"], message: detail }],
+          message: `The demo has no server image: ${detail}.`,
+        }),
+    ),
+    Effect.flatMap((imageDigest) =>
+      Effect.scoped(run(demoSpec(options.storeRoot, imageDigest))),
+    ),
     Effect.map((attempt) => ({
       banner: DEMO_BANNER,
       recordingPath: attempt.recording.path,

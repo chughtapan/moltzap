@@ -27,7 +27,7 @@ import {
 import {
   AGENT_ONE,
   PRINCIPAL_NAME,
-  TASK_CONTENT,
+  SAY_TEXT,
   decodedEvents,
   specInput,
   stubAgentInput,
@@ -69,11 +69,7 @@ function liveSpec(storeRoot: string): RunSpec {
       agents: [stubAgentInput(AGENT_ONE, "echo")],
       server: { imageDigest },
       episode: {
-        task: {
-          principal: PRINCIPAL_NAME,
-          to: AGENT_ONE,
-          content: TASK_CONTENT,
-        },
+        steps: [{ by: PRINCIPAL_NAME, with: [AGENT_ONE], say: SAY_TEXT }],
         termination: {
           inactivityTimeoutMs: INACTIVITY_MS,
           onAgentCrash: "halt",
@@ -117,7 +113,7 @@ const substrateRun = Effect.gen(function* () {
   const transcripts = events.filter(
     (event) => event._tag === "transcript.message",
   );
-  expect(JSON.stringify(transcripts)).toContain(TASK_CONTENT);
+  expect(JSON.stringify(transcripts)).toContain(SAY_TEXT);
 
   // The cc-judge fold reads recordings through this projection, so it
   // runs here over a real one: the target's answer has to come back
