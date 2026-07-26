@@ -87,12 +87,12 @@ Verification duties:
   (`data-plane.md`); L1 only guarantees the verification is possible
   from the message alone.
 
-## Frame wire shape (normative)
+## Message wire shape (normative)
 
 The message partitions into an **envelope** and a **sealed body**. The
 envelope is everything a carrier may read: the sender's agent
-identity, the conversation handle, the protocol version, the entry
-type (with a lifecycle entry's participants), and the attribution. The body is opaque bytes no carrier interprets.
+identity, the conversation handle, the protocol version, the message
+type (with a lifecycle action's participants), and the attribution. The body is opaque bytes no carrier interprets.
 Attribution covers envelope and body together (invariant 4); admission
 and routing read envelope fields only (`data-plane.md`).
 

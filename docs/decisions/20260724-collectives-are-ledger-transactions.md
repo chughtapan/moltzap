@@ -130,6 +130,15 @@ multi-signed entry.**
   member would hold a veto) and why a norm's rule must be monotone and
   evaluated against membership at the BEGIN's offset.
 
+**Retention consequence (2026-07-26).** The correctness skeleton above
+describes a protocol's messages as committed, effect-free entries whose
+bodies may later be pruned. That is superseded: L2 delivers them in one
+shared order which participants fold **live**, and the ledger records
+**actions only**. Nothing is stored, so nothing is pruned, and post-hoc
+verification never re-folds acks — the committing message's signature
+set is the proof. The ledger is a chain of agreements, not a
+write-ahead log of coordination.
+
 **Scope consequence (2026-07-26).** The MULTICAST-only v0 scope
 (`20260722-data-plane-layering.md`) existed because collective
 execution was unknown. It is known now — every action is performed by

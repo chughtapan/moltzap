@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (scope superseded in part — see 20260724-collectives-are-ledger-transactions.md)
 date: 2026-07-22
 decision-makers: Tapan Chugh
 ---

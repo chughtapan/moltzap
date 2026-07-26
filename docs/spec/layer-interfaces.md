@@ -142,7 +142,7 @@ process can sign, which is data-plane.md inv. 2 at compile time
 ### Transport (L2; swap axis: production vs testbed)
 
 The ordered multicast primitive and nothing above it: messages in,
-committed records out. The swap axis sits exactly at L2 — every
+messages out, in one shared order. The swap axis sits exactly at L2 — every
 testbed injection is an L2 fault, every observation an L2 delivery
 event — so L3 and up are identical under both adapters, and the
 charter widens L3 with zero change here. The endpoint holds the client
@@ -151,19 +151,14 @@ the providing adapter (data-plane.md).
 
 ```ts
 interface Transport {
-  /** Acquire the conversation's write lock. Resolves when the group's
-   *  write discipline grants this writer the next turn; the grant's
-   *  carriage is the charter's, and the v0 instrument lives in the
-   *  adapter. A start to a fresh id needs no grant. */
-  readonly begin: (conversation: ConversationId) => Effect<Grant, Refusal>;
-  /** Send one message. The returned Offset is the commit ack: atomic,
-   *  durable, ordered. Every refusal precedes commitment. An effective
-   *  write carries the grant it was issued. */
-  readonly send: (message: Message, grant: Option<Grant>) => Effect<Offset, Refusal>;
-  /** One-way best-effort push of committed records, resumable from an
-   *  offset the endpoint owns. Never a response path, never the
-   *  source of truth. */
-  readonly subscribe: (conversation: ConversationId, from: Offset) => Stream<TranscriptRecord, Refusal>;
+  /** Deliver one message to the conversation's members, in the one
+   *  shared order. Delivery only — nothing is recorded here, and a
+   *  protocol's messages never go further than this. */
+  readonly send: (message: Message) => Effect<void, Refusal>;
+  /** The ordered stream of delivered messages. Every member observes
+   *  the same order, which is what lets participants fold a protocol
+   *  live — the acks that complete a grant are seen, not stored. */
+  readonly subscribe: (conversation: ConversationId) => Stream<Message, Refusal>;
 }
 ```
 
@@ -199,11 +194,10 @@ interface Ledger {
 type Scope = (record: TranscriptRecord) => Effect<boolean>;
 ```
 
-Members reach `read` and `list` as control-plane calls
-(control-plane.md → Op families); the endpoint composition holds a
-control-plane client — a driver, like the CLI — for recovery. The
-ledger port itself is router-internal: `send` is the only member
-write.
+Members reach the ledger directly — appending a completed action and
+reading history are both L3 acts, carried as control-plane calls
+(control-plane.md → Op families). The router is not involved: it
+delivers messages and records nothing.
 
 ### Registry (L1 material + L7 mechanism; swap axis: card custody)
 
@@ -251,7 +245,7 @@ interface Channel {
 /** Holding an open Txn IS holding the turn; commit and abort consume
  *  it — at most one commit per lock, by construction. */
 interface Txn {
-  /** Stage one entry in the open transaction. A collective's
+  /** Stage one part of the action being assembled. A collective's
    *  contributions are updates; participant carriage is chartered. */
   readonly update: (type: MessageType, body: Body) => Effect<void, Refusal>;
   /** Atomic commit: the staged unit lands at one offset; the lock
@@ -372,7 +366,7 @@ its owner: data-plane.md → The collective transaction.
   future read-scope decisions change the value, not the port.
 - **Derivations** are pure functions over port state, in a shared,
   pinned, content-addressed fold library (it is trusted computing
-  base — findings cite it by hash): `applyEntry` (total over `MessageType`)
+  base — findings cite it by hash): `applyAction` (total over the action vocabulary)
   and `membersAt` — one fold, two sites: the router folds lifecycle
   entries for delivery sets, the endpoint runs the identical fold to
   know the room. `Channel.startConversation` is a derivation.
@@ -403,13 +397,13 @@ Kinds per Conventions; citations name the governing doc.
 | L2.5 | `subscribe(c, o)` ≈ `read(c, o)` — resuming at an offset equals never disconnecting | P | control-plane.md guarantee 4; sessionless |
 | L2.6 | One send, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
 | L3.1 | `read(c, offset(append(f)), …)` contains exactly the appended message's record; offsets are dense and `from` is inclusive | P | control-plane.md guarantees 2, 3 |
-| L3.2 | `send` ≜ admit, commit, then best-effort deliver; `Offset` returned ⇒ committed (atomic, durable, ordered); every refusal precedes commitment | P | data-plane.md inv. 4; control-plane.md guarantee 1 |
+| L3.2 | `append` returns an `Offset` ⇒ the action is committed (atomic, durable, ordered); every refusal precedes commitment; `Transport.send` records nothing | P | data-plane.md inv. 4; control-plane.md guarantee 1 |
 | L3.3 | `append` takes one message — one entry, one commit; a collective commits as one unit (its transaction rides the message's body) | C+P | control-plane.md guarantee 9 |
 | L3.4 | No update, delete, or rewrite operation exists on any port | C | control-plane.md guarantee 6 |
 | L3.5 | A start message to a used id refuses with no side effect; to a fresh id it creates the log at offset zero | P | lifecycle-rides-l3 |
-| L3.6 | `membersAt` ≈ the fold of lifecycle entries at or before the offset; no membership write exists | C+P | data-plane.md inv. 8; guarantee 5 |
+| L3.6 | `membersAt` ≈ the fold of lifecycle actions at or before the offset; no membership write exists | C+P | data-plane.md inv. 8; control-plane.md guarantee 5 |
 | L3.7 | No create operation exists anywhere; `Channel.startConversation` is a derived term (fresh id, sign start, send) | C | lifecycle-rides-l3 |
-| L3.8 | Every *effective* write belongs to a transaction whose `begin` preceded it — holding the open `Txn` is the proof (typestate); round entries are effect-free and outside the lock | C | data-plane.md inv. 5 |
+| L3.8 | Every recorded action belongs to a transaction whose `begin` preceded it — holding the open `Txn` is the proof (typestate) — except a `START` to a fresh id, which has no conversation to lock; a protocol's messages need no grant and are never recorded | C | data-plane.md inv. 5 |
 | L3.9 | `commit`/`abort` consume the `Txn`: at most one commit per lock (linearity residual) | S | data-plane.md → Implementation notes |
 | L3.10 | Admission refusals never mutate membership | C+P | data-plane.md inv. 9 |
 | L5.1 | The hooks hold no signing authority; the message and its attribution pass through unaltered | C | screening.md inv. 2 |
@@ -423,7 +417,7 @@ Kinds per Conventions; citations name the governing doc.
 | L7.1 | `register` requires the operator arm; `Caller` has two arms and one minter | C | control-plane.md inv. 3, 7 |
 | L7.2 | `list` ≈ per-id `lookup`; cards only, no thinner projection | P | directory-serves-cards |
 | L7.3 | An institutional fact change (revocation the zero policy) changes what `lookup` returns and what callers can be derived — no consequence op | P | layers.md → L7; single-credential |
-| X.1 | Version exact-match refuses before any state change, on every entry operation | C+P | protocol-version-carriage |
+| X.1 | Version exact-match refuses before any state change, on every recorded action | C+P | protocol-version-carriage |
 | X.2 | Swap `TransportLive` for `TransportTestbed`: observationally equivalent, no other binding changes; every injection stays inside the tolerated failure envelope | S | data-plane.md inv. 11 |
 | X.3 | No signature names a lease, socket, connection, or session | C | sessionless-network |
 
@@ -436,8 +430,7 @@ mapping is v2's standard realization.
   `TransportTag`, `LedgerTag`, `RegistryTag`, `SignerTag` (endpoint) /
   `VerifierTag` (router), `HarnessTag`. The v1 idiom (`Context.Tag`
   class + `Layer.effect`), re-implemented never imported.
-- **One `Layer` per adapter**: `TransportLive` (requires Ledger +
-  Verifier), `TransportTestbed` (same tag; adds envelope-level
+- **One `Layer` per adapter**: `TransportLive` (requires Verifier only — it records nothing), `TransportTestbed` (same tag; adds envelope-level
   observation and a closed `FaultProfile` sum over data-plane.md's
   tolerated-fault envelope), `LedgerLive`, `RegistryLive`,
   `SignerInterim` / `SignerTarget`, `HarnessOpenClaw` /
