@@ -66,6 +66,9 @@ const IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;
 const INACTIVITY_MS = 60_000;
 const RECEIVER_BOUND_MS = 5_000;
 
+/** Bind host of every hermetic receiver: nothing dials it from a container. */
+export const LOOPBACK_BIND_HOST = "127.0.0.1";
+
 /** A valid encoded RunSpec input; overrides merge shallowly per section. */
 export function specInput(
   storeRoot: string,
@@ -77,6 +80,7 @@ export function specInput(
     contentVersion: string;
     timeouts: unknown;
     seed: number;
+    server: unknown;
   }> = {},
 ): unknown {
   return {
@@ -85,7 +89,7 @@ export function specInput(
       stubAgentInput(AGENT_ONE),
       stubAgentInput(AGENT_TWO),
     ],
-    server: { imageDigest: IMAGE_DIGEST },
+    server: overrides.server ?? { imageDigest: IMAGE_DIGEST },
     episode: overrides.episode ?? {
       steps: [{ by: PRINCIPAL_NAME, with: [AGENT_ONE], say: SAY_TEXT }],
       termination: {
@@ -113,10 +117,10 @@ function presentOnly(
   );
 }
 
-export function stubAgentInput(name: string): unknown {
+export function stubAgentInput(name: string, script = "quiet"): unknown {
   return {
     name,
-    runtime: { _tag: "stub", config: { script: "quiet" } },
+    runtime: { _tag: "stub", config: { script } },
     runsIn: "host",
     role: "standard",
   };
@@ -506,6 +510,8 @@ export function startHermetic(
     const principal = makeFakePrincipal();
     const internals: RunInternals = {
       makeDrain: () => Effect.succeed(quietDrain),
+      // A hermetic run launches no container, so the engine is never asked.
+      resolveBindHost: () => Effect.succeed(LOOPBACK_BIND_HOST),
       makeReceiver: (deps) =>
         makeReceiver(deps).pipe(
           Effect.tap((receiver: Receiver) =>

@@ -53,7 +53,12 @@ import {
 import { makeWorld, type World } from "./world.js";
 import { makeEnvironment, type Environment } from "./environment.js";
 import type { Principal } from "./episode.js";
-import { makeLauncher, type Launcher, type Society } from "./run-config.js";
+import {
+  makeLauncher,
+  resolveReceiverBindHost,
+  type Launcher,
+  type Society,
+} from "./run-config.js";
 import {
   makeLocalRecordingStore,
   mintSealedFromEvidence,
@@ -88,6 +93,8 @@ export type RunInternals = {
   readonly makeWorld?: typeof makeWorld;
   /** Receiver seam; hermetic tests wrap the real receiver to observe its endpoint or inject stalls. */
   readonly makeReceiver?: typeof makeReceiver;
+  /** Engine-topology seam; a hermetic run has no container to reach it, so it answers loopback without asking Docker. */
+  readonly resolveBindHost?: typeof resolveReceiverBindHost;
   /** Principal seam; hermetic runs stand in for the wire-speaking out-of-band principal. */
   readonly makePrincipal?: typeof makePrincipal;
   /** Attempt-phase notifications; the in-process queue mirrors them into `AttemptSnapshot`s. */
@@ -340,6 +347,7 @@ function bringUp(
       log,
       failBoundMs: live.spec.timeouts.otlpReceiverFailMs,
       secrets: live.secrets,
+      bindHost: yield* (internals.resolveBindHost ?? resolveReceiverBindHost)(),
     });
     live.receiver = receiver;
     const world = yield* (internals.makeWorld ?? makeWorld)();
@@ -585,13 +593,12 @@ function writeTraces(
   if (live.receiver === undefined) return Effect.succeed(outcome);
   return live.receiver.drainTraces().pipe(
     Effect.tap((traces) =>
-      // Zero spans is legal (a run need not export any) but on the live
-      // tier it is also the signature of an unreachable receiver — the
-      // Linux host-gateway caveat on `containerReachableEndpoint` — so
-      // the seal is loud about it instead of silent.
+      // Zero spans is legal (a run need not export any) but it is also
+      // the signature of a receiver the container cannot reach, so the
+      // seal is loud about it instead of silent.
       traces.spans.length === 0
         ? Effect.logWarning(
-            `run ${live.ref.runId}: no spans were captured; if the server container was expected to export spans, verify OTLP reachability from the container (the receiver binds host loopback; see containerReachableEndpoint)`,
+            `run ${live.ref.runId}: no spans were captured; if the server container was expected to export spans, verify OTLP reachability from the container against the address the receiver bound (see resolveReceiverBindHost)`,
           )
         : Effect.void,
     ),

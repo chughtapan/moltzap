@@ -131,3 +131,16 @@ export interface Launcher {
 export function makeLauncher(): Launcher {
   return makeLauncherLive();
 }
+
+/**
+ * Engine-facing knowledge this contract owns, asked for outside a launch:
+ * the host address the OTLP receiver binds so the launched container can
+ * export to it (the receiver is created before launch, so the composition
+ * root asks here and passes the endpoint in through
+ * `LaunchDeps.otlpEndpoint`), and the pinned server image a spec's
+ * `server.imageDigest` carries.
+ */
+export {
+  resolveReceiverBindHost,
+  resolveServerImagePin,
+} from "./launcher-live.js";

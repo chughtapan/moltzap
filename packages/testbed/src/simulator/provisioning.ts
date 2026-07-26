@@ -30,7 +30,13 @@ export type MintedIdentity = {
   readonly apiKey: AgentKey;
 };
 
-/** Derive the server's HTTP base URL from its WS URL (`ws://h:p/ws` -> `http://h:p`). */
+/**
+ * Derive the server's HTTP base URL from its WS URL (`ws://h:p/ws` ->
+ * `http://h:p`). Both the registration routes and `MoltZapAgentClient`
+ * take this form: a `ServerUrl` carries the `/ws` endpoint path the
+ * package's adapters use, while the client appends `/ws` to whatever
+ * base it is handed, so passing it a `ServerUrl` dials `/ws/ws`.
+ */
 export function httpBaseFromServerUrl(serverUrl: string): string {
   const url = new URL(serverUrl);
   const protocol = url.protocol === "wss:" ? "https:" : "http:";

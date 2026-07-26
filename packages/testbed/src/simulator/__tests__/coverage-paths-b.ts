@@ -14,7 +14,11 @@ import {
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
 import { buildOpenClawConfig } from "../../openclaw-adapter.js";
-import { buildNanoclawProcessPlan } from "../../nanoclaw-process.js";
+import { homedir, tmpdir } from "node:os";
+import {
+  buildNanoclawProcessPlan,
+  NANOCLAW_RUNTIME_DIR_ROOT,
+} from "../../nanoclaw-process.js";
 import { makeWorld, type AppliedFault, type World } from "../world.js";
 import {
   Agent,
@@ -51,6 +55,7 @@ import {
 import {
   AGENT_ONE,
   AGENT_TWO,
+  LOOPBACK_BIND_HOST,
   DONE_SPAN,
   PRINCIPAL_NAME,
   SAY_TEXT,
@@ -138,6 +143,13 @@ export function path14(): Effect.Effect<void, unknown, never> {
     expect(servers).toBeDefined();
     expect(JSON.stringify(JSON.parse(servers ?? "{}"))).toContain(MOUNT_NAME);
     expect(plan.env["MOLTZAP_AGENT_MODEL"]).toBe(TEST_MODEL);
+    // The per-agent runtime dirs are the container's bind-mount sources,
+    // so the root they live under has to be a path a VM-backed engine
+    // shares. Under the system temp directory the container silently gets
+    // a private directory instead of the host's, which is the same
+    // failure the server container's launch-time mount check refuses.
+    expect(NANOCLAW_RUNTIME_DIR_ROOT.startsWith(homedir())).toBe(true);
+    expect(NANOCLAW_RUNTIME_DIR_ROOT.startsWith(tmpdir())).toBe(false);
   });
 }
 
@@ -807,6 +819,8 @@ function makeQueueForTest(
       runOptions: { runner: launch.launcher },
       internals: {
         makeDrain: () => Effect.succeed(quietDrain),
+        // A hermetic run launches no container, so the engine is never asked.
+        resolveBindHost: () => Effect.succeed(LOOPBACK_BIND_HOST),
         makeReceiver,
         makePrincipal: () => Effect.succeed(principal.principal),
       },
