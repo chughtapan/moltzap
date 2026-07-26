@@ -6,7 +6,7 @@
  * dial `/ws/ws`, and the resulting socket never opens. `ServerBaseUrl` is the
  * type that makes such a value unconstructible.
  */
-import { Schema, type Brand } from "effect";
+import { ParseResult, Schema, type Brand } from "effect";
 
 /** Route the server serves the WebSocket upgrade on. */
 const SOCKET_ROUTE = "/ws";
@@ -23,25 +23,32 @@ const SERVER_SCHEMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Reduce a base or socket URL to scheme and authority.
+ * Reduce an address to scheme and authority, or `null` when it is not one this
+ * client can dial.
  *
- * Discarding the socket route loses nothing a client could reach: the route
- * this appends is fixed, so a server published under a path prefix is not
- * addressable through this package at all. Every other path survives here and
- * is rejected by the refinement rather than silently dropped.
+ * Discarding the socket route loses nothing reachable: the route `webSocketUrl`
+ * appends is fixed, so a server published under a path prefix is not
+ * addressable through this package at all. Every other path is rejected rather
+ * than silently dropped, and so are credentials, which the authority form
+ * cannot carry.
+ *
+ * The result is rebuilt from the parsed URL rather than sliced out of the
+ * input, so the scheme reaches `webSocketUrl` in the lower-case spelling its
+ * swap matches. `HTTP://host` would otherwise survive validation and then dial
+ * an `HTTP://` URL that no WebSocket can open.
  */
-const toOrigin = (value: string): string =>
-  value.replace(SOCKET_ROUTE_SUFFIX, "").replace(TRAILING_SLASH, "");
-
-const isOrigin = (value: string): boolean => {
-  const url = URL.parse(value);
-  if (url === null) return false;
-  return (
-    SERVER_SCHEMES.has(url.protocol) &&
-    url.pathname === "/" &&
-    url.search === "" &&
-    url.hash === ""
-  );
+const toOrigin = (value: string): string | null => {
+  const trimmed = value
+    .replace(SOCKET_ROUTE_SUFFIX, "")
+    .replace(TRAILING_SLASH, "");
+  // `URL.canParse` rather than `URL.parse`: the package's engine floor is Node
+  // 22.0 and `parse` only exists from 22.1.
+  if (!URL.canParse(trimmed)) return null;
+  const url = new URL(trimmed);
+  if (!SERVER_SCHEMES.has(url.protocol)) return null;
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") return null;
+  if (url.username !== "" || url.password !== "") return null;
+  return `${url.protocol}//${url.host}`;
 };
 
 /**
@@ -55,15 +62,25 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
  * socket endpoint — into the path-free base. Any other path fails.
  */
 export const ServerBaseUrl: Schema.Schema<ServerBaseUrl, string> =
-  Schema.transform(
-    Schema.String.pipe(
-      Schema.filter((value) => isOrigin(toOrigin(value)), {
-        message: (issue) =>
-          `Expected a MoltZap server base URL (scheme and host, no path), got ${JSON.stringify(issue.actual)}`,
-      }),
-    ),
+  Schema.transformOrFail(
+    Schema.String,
     Schema.String.pipe(Schema.brand("ServerBaseUrl")),
-    { strict: true, decode: toOrigin, encode: (base) => base },
+    {
+      strict: true,
+      decode: (value, _options, ast) => {
+        const origin = toOrigin(value);
+        return origin === null
+          ? ParseResult.fail(
+              new ParseResult.Type(
+                ast,
+                value,
+                `Expected a MoltZap server base URL (scheme and host, no path), got ${JSON.stringify(value)}`,
+              ),
+            )
+          : ParseResult.succeed(origin);
+      },
+      encode: ParseResult.succeed,
+    },
   ).pipe(
     Schema.annotations({ description: "Path-free MoltZap server base URL" }),
   );

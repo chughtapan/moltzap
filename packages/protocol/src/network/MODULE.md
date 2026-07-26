@@ -252,7 +252,7 @@ Reason discriminant carried in `ProtocolMismatchError.data.reason`:
 `maxProtocol`; the client must update. `server-below-client-min` — the
 client is newer than the server supports.
 
-### [`serverBaseUrl`](./server-url.ts#L77)
+### [`serverBaseUrl`](./server-url.ts#L94)
 
 _Variable_
 
@@ -265,7 +265,7 @@ such as one a locally started server just reported. Decode with
 `Schema.decodeEither(ServerBaseUrl)` wherever the value comes from
 configuration or another package.
 
-### [`ServerBaseUrl`](./server-url.ts#L51)
+### [`ServerBaseUrl`](./server-url.ts#L58)
 
 _TypeAlias_
 
@@ -276,7 +276,7 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
 A MoltZap server address carrying no path, query, or fragment, over
 `http`, `https`, `ws`, or `wss`.
 
-### [`ServerBaseUrl`](./server-url.ts#L51)
+### [`ServerBaseUrl`](./server-url.ts#L58)
 
 _Variable_
 
@@ -287,7 +287,7 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">
 Decodes either address a caller is likely to hold — the base URL or the
 socket endpoint — into the path-free base. Any other path fails.
 
-### [`webSocketUrl`](./server-url.ts#L80)
+### [`webSocketUrl`](./server-url.ts#L97)
 
 _Function_
 
