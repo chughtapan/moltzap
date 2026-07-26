@@ -71,6 +71,7 @@ export {
   type LaunchDeps,
   type Launcher,
   makeLauncher,
+  resolveServerImagePin,
 } from "./run-config.js";
 
 export {

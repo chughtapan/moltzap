@@ -22,6 +22,7 @@ import {
 } from "./trace-capture-payload.js";
 import {
   buildTraceBundle,
+  EXCHANGE_SPAN_COUNT,
   projectRecordedConversation,
   RecordingUnattributable,
   type RecordedConversation,
@@ -41,8 +42,6 @@ const PLAN_TARGET_AGENT_ID = "target-agent";
 const PLACEHOLDER_IMAGE = "managed/by-moltzap-trace-capture";
 const PRINCIPAL_NAME = "eval-sender";
 const DELIVERED_SPAN = "moltzap.message.delivered";
-/** The injection delivered to the target, then the target's answer delivered back. */
-const EXCHANGE_SPAN_COUNT = 2;
 
 class ExecutionFailed extends Data.TaggedError("ExecutionFailed")<{
   readonly message: string;

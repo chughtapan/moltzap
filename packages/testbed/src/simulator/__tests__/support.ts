@@ -110,10 +110,10 @@ function presentOnly(
   );
 }
 
-export function stubAgentInput(name: string): unknown {
+export function stubAgentInput(name: string, script = "quiet"): unknown {
   return {
     name,
-    runtime: { _tag: "stub", config: { script: "quiet" } },
+    runtime: { _tag: "stub", config: { script } },
     runsIn: "host",
     role: "standard",
   };
