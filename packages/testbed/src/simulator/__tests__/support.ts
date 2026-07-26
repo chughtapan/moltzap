@@ -117,13 +117,13 @@ function presentOnly(
   );
 }
 
+/** A host-isolated standard agent; the runtime assignment is the axis these fixtures vary. */
+export function agentInput(name: string, runtime: unknown): unknown {
+  return { name, runtime, runsIn: "host", role: "standard" };
+}
+
 export function stubAgentInput(name: string, script = "quiet"): unknown {
-  return {
-    name,
-    runtime: { _tag: "stub", config: { script } },
-    runsIn: "host",
-    role: "standard",
-  };
+  return agentInput(name, { _tag: "stub", config: { script } });
 }
 
 function decodeSpec(input: unknown): RunSpec {
