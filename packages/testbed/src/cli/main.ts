@@ -58,6 +58,7 @@ import {
   run,
   type AttemptSnapshot,
   type InProcessQueue,
+  type RunOptions,
   type RunOutcome,
   type SealedAttempt,
 } from "../simulator/index.js";
@@ -109,7 +110,9 @@ const USAGE = `moltzap-testbed <verb>
 
 Options:
   --json                         emit one JSON record per result
-  --store <dir>                  recording store root (default ./recordings)
+  --store <dir>                  recording store root; queue and demo default
+                                 to ./recordings, run and rerun to the root
+                                 the spec names
   --condition <label>            condition label recording check compares against
   --require-completed            refuse a recording whose run did not complete
 
@@ -128,12 +131,17 @@ type Args = {
   readonly store: string | undefined;
   readonly condition: string | undefined;
   readonly requireCompleted: boolean;
+  /** A value flag whose value never arrived, which no verb may act on. */
+  readonly valueless: string | undefined;
 };
 
 const JSON_FLAG = "--json";
 const REQUIRE_COMPLETED_FLAG = "--require-completed";
-const STORE_FLAG = "--store";
+/** The recording-store flag, named here because callers and tests key on it. */
+export const STORE_FLAG = "--store";
 const CONDITION_FLAG = "--condition";
+
+const DEFAULT_STORE_ROOT = "./recordings";
 
 const BOOLEAN_FLAGS = new Set([JSON_FLAG, REQUIRE_COMPLETED_FLAG]);
 const VALUE_FLAGS = new Set([STORE_FLAG, CONDITION_FLAG]);
@@ -144,6 +152,8 @@ type Tokens = {
   readonly values: ReadonlyMap<string, string>;
   /** The value flag whose value the next token supplies. */
   readonly pending: string | undefined;
+  /** The first value flag whose value turned out to be another flag. */
+  readonly valueless: string | undefined;
 };
 
 const EMPTY_TOKENS: Tokens = {
@@ -151,36 +161,55 @@ const EMPTY_TOKENS: Tokens = {
   flags: new Set(),
   values: new Map(),
   pending: undefined,
+  valueless: undefined,
 };
 
+function isFlag(token: string): boolean {
+  return BOOLEAN_FLAGS.has(token) || VALUE_FLAGS.has(token);
+}
+
 /**
- * Absorb one token. `pending` carries the value flag whose value the next
- * token supplies, so a trailing value flag ends the fold still pending
- * and its value is simply absent — the same as not passing the flag.
+ * Absorb one token. A value flag takes the next token as its value only
+ * when that token is not itself a flag: `--store --json` otherwise reads
+ * as a store root named `--json`, which is a directory nobody meant and a
+ * `--json` nobody gets. Such a flag is recorded valueless instead, and a
+ * fold that ends still pending is the same case at the end of the line.
  */
 function absorb(tokens: Tokens, token: string): Tokens {
-  if (tokens.pending !== undefined) {
+  if (tokens.pending !== undefined && !isFlag(token)) {
     return {
       ...tokens,
       values: new Map(tokens.values).set(tokens.pending, token),
       pending: undefined,
     };
   }
+  const carried: Tokens =
+    tokens.pending === undefined
+      ? tokens
+      : {
+          ...tokens,
+          pending: undefined,
+          valueless: tokens.valueless ?? tokens.pending,
+        };
   if (BOOLEAN_FLAGS.has(token)) {
-    return { ...tokens, flags: new Set(tokens.flags).add(token) };
+    return { ...carried, flags: new Set(carried.flags).add(token) };
   }
-  if (VALUE_FLAGS.has(token)) return { ...tokens, pending: token };
-  return { ...tokens, words: [...tokens.words, token] };
+  if (VALUE_FLAGS.has(token)) return { ...carried, pending: token };
+  return { ...carried, words: [...carried.words, token] };
 }
 
 function parseArgs(argv: ReadonlyArray<string>): Args {
-  const { words, flags, values } = argv.reduce(absorb, EMPTY_TOKENS);
+  const { words, flags, values, pending, valueless } = argv.reduce(
+    absorb,
+    EMPTY_TOKENS,
+  );
   return {
     words,
     json: flags.has(JSON_FLAG),
     store: values.get(STORE_FLAG),
     condition: values.get(CONDITION_FLAG),
     requireCompleted: flags.has(REQUIRE_COMPLETED_FLAG),
+    valueless: valueless ?? pending,
   };
 }
 
@@ -212,6 +241,9 @@ function dispatch(argv: ReadonlyArray<string>): Verb {
   const [group, ...rest] = args.words;
   if (group === undefined || HELP_WORDS.has(group)) {
     return Effect.succeed({ lines: [USAGE], code: 0 });
+  }
+  if (args.valueless !== undefined) {
+    return usage(`${args.valueless} needs a value.`);
   }
   const handler = GROUPS[group];
   return handler === undefined
@@ -318,6 +350,23 @@ function specToTs(operands: ReadonlyArray<string>): Verb {
 // ---------------------------------------------------------------------------
 
 /**
+ * Where a run's evidence lands. `--store` supplies the store rather than
+ * rewriting `recording.storeRoot`, because the store root is inside the
+ * spec hash: editing it would give the same bundle a different recording
+ * identity per invocation, and two runs of one spec would stop being
+ * comparable. Without the flag the spec's own root stands.
+ */
+function runStore(args: Args): RunOptions {
+  const root = storeRootFlag(args);
+  return root === undefined ? {} : { store: makeLocalRecordingStore(root) };
+}
+
+/** The root `--store` names, absolute; absent when the flag was not passed. */
+function storeRootFlag(args: Args): string | undefined {
+  return args.store === undefined ? undefined : resolve(args.store);
+}
+
+/**
  * Fan-out over given specs, never a matrix: each spec gets its own
  * attempt and its own record, and the process exits with the worst of
  * theirs. Every spec materializes before the first one launches, so a
@@ -328,6 +377,7 @@ function runVerb(operands: ReadonlyArray<string>, args: Args): Verb {
   if (operands.length === 0) {
     return usage("run: name a spec, several specs, or a directory.");
   }
+  const store = runStore(args);
   return collectSpecPaths(operands).pipe(
     Effect.flatMap((paths) =>
       Effect.forEach(paths, loadSpec, { concurrency: 1 }).pipe(
@@ -347,7 +397,7 @@ function runVerb(operands: ReadonlyArray<string>, args: Args): Verb {
       Effect.forEach(
         entries,
         (entry) =>
-          Effect.scoped(run(entry.spec)).pipe(
+          Effect.scoped(run(entry.spec, store)).pipe(
             Effect.map((attempt) => ({ path: entry.path, attempt })),
           ),
         { concurrency: 1 },
@@ -396,7 +446,7 @@ function rerunVerb(operands: ReadonlyArray<string>, args: Args): Verb {
   if (path === undefined) return usage("rerun: name a recording directory.");
   return openAny(path).pipe(
     Effect.flatMap((recording) =>
-      Effect.scoped(run(recording.manifest.materializedSpec)),
+      Effect.scoped(run(recording.manifest.materializedSpec, runStore(args))),
     ),
     Effect.map((attempt) => renderRuns([{ path, attempt }], args)),
   );
@@ -406,8 +456,9 @@ function rerunVerb(operands: ReadonlyArray<string>, args: Args): Verb {
 // queue
 // ---------------------------------------------------------------------------
 
+/** The store root for verbs that have no spec to take one from. */
 function configuredStoreRoot(args: Args): string {
-  return resolve(args.store ?? "./recordings");
+  return storeRootFlag(args) ?? resolve(DEFAULT_STORE_ROOT);
 }
 
 /**
