@@ -40,6 +40,14 @@ export interface ConversationRun {
   readonly responses: ReadonlyArray<ConversationResponse>;
 }
 
+/**
+ * Deliveries in one graded exchange: the principal's injection reaching
+ * the target, then the target's answer reaching the principal. The fold's
+ * done-signal counts them, so a run that never reaches this many
+ * deliveries ends on the inactivity bound with nothing to grade.
+ */
+export const EXCHANGE_SPAN_COUNT = 2;
+
 /** Who spoke, what came back, and the message timeline, read off one recording. */
 export interface RecordedConversation {
   readonly targetAgentId: AgentId;

@@ -21,6 +21,10 @@ import { makeLocalRecordingStore } from "./local-store.js";
 import { resolveServerImagePin } from "./run-config.js";
 import { RunSpec } from "./run-spec.js";
 import {
+  EXCHANGE_SPAN_COUNT,
+  projectRecordedConversation,
+} from "../trace-capture-bundle.js";
+import {
   AGENT_ONE,
   PRINCIPAL_NAME,
   TASK_CONTENT,
@@ -51,12 +55,18 @@ const buildServerImage = resolveServerImagePin().pipe(
   Effect.orDie,
 );
 
-/** The hermetic spec, re-pointed at the real image and a real delivery span. */
+/**
+ * The hermetic spec, re-pointed at the real image and a real delivery
+ * span. The agent answers, and the done-signal counts the same two
+ * deliveries the cc-judge fold counts — the injection reaching the agent
+ * and the agent's answer reaching the principal — so this run is the
+ * evidence that the fold's termination condition is reachable at all.
+ */
 function liveSpec(storeRoot: string): RunSpec {
   return Schema.decodeUnknownSync(RunSpec)(
     specInput(storeRoot, {
       seed: 1,
-      agents: [stubAgentInput(AGENT_ONE)],
+      agents: [stubAgentInput(AGENT_ONE, "echo")],
       server: { imageDigest },
       episode: {
         task: {
@@ -67,7 +77,10 @@ function liveSpec(storeRoot: string): RunSpec {
         termination: {
           inactivityTimeoutMs: INACTIVITY_MS,
           onAgentCrash: "halt",
-          doneSignal: { name: "span-name", config: { name: DELIVERED_SPAN } },
+          doneSignal: {
+            name: "span-name",
+            config: { name: DELIVERED_SPAN, minCount: EXCHANGE_SPAN_COUNT },
+          },
         },
       },
     }),
@@ -105,6 +118,22 @@ const substrateRun = Effect.gen(function* () {
     (event) => event._tag === "transcript.message",
   );
   expect(JSON.stringify(transcripts)).toContain(TASK_CONTENT);
+
+  // The cc-judge fold reads recordings through this projection, so it
+  // runs here over a real one: the target's answer has to come back
+  // attributed to the agent, not to the principal who spoke first.
+  const conversation = yield* projectRecordedConversation({
+    events,
+    targetSlot: AGENT_ONE,
+    principalName: PRINCIPAL_NAME,
+  });
+  expect(conversation.responses.length).toBeGreaterThan(0);
+  expect(
+    conversation.responses.every(
+      (response) => response.senderId === conversation.targetAgentId,
+    ),
+  ).toBe(true);
+  expect(conversation.participants.length).toBeGreaterThan(0);
 }).pipe(Effect.orDie);
 
 describe.skipIf(!SIM_INTEGRATION_ENABLED)(
