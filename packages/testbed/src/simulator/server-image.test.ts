@@ -39,6 +39,18 @@ describe("simulator server image", () => {
     expect(dockerfile).toContain(`VOLUME ["${SERVER_DATA_MOUNT}"]`);
   });
 
+  it("names the boot admin the server requires", () => {
+    // The absence assertions below pass on an empty file; this one does
+    // not, so a gutted config fails the suite instead of reading as
+    // "nothing forbidden is present".
+    const adminUserId = configLines.find((line) =>
+      line.startsWith("admin_user_id:"),
+    );
+    expect(adminUserId).toMatch(
+      /^admin_user_id: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
   it("carries no at-rest encryption secret, so the drain can read messages", () => {
     expect(configLines.some((line) => line.startsWith("encryption:"))).toBe(
       false,

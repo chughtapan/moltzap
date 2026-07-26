@@ -15,11 +15,11 @@
  * that source file, so the path does not depend on build order.
  */
 /* eslint-disable agent-code-guard/require-span-on-exported-effect -- exported path bodies run under vitest only; spans would be dead weight in the inventory runs */
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Effect, Either } from "effect";
+import { Effect, Either, Schema } from "effect";
 import { expect } from "vitest";
 import traceCaptureHarness from "../../trace-capture-harness.js";
 import { InvalidPayload } from "../../trace-capture-payload.js";
@@ -30,7 +30,9 @@ const packageRoot = dirname(
 const scenarioDir = join(dirname(packageRoot), "evals", "scenarios");
 const fixturePath = join(scenarioDir, "EVAL-005.yaml");
 const distEntry = join(packageRoot, "dist", "trace-capture-harness.js");
-const sourceEntry = join(packageRoot, "src", "trace-capture-harness.ts");
+const PackageManifest = Schema.parseJson(
+  Schema.Struct({ files: Schema.Array(Schema.String) }),
+);
 
 const TARGET_AGENT_NAME = "openclaw-eval-agent";
 const HARNESS_NAME = "moltzap-trace-capture";
@@ -108,10 +110,17 @@ function readFixture(): Effect.Effect<string, unknown, FileSystem.FileSystem> {
   );
 }
 
-function fileExists(
-  path: string,
-): Effect.Effect<boolean, unknown, FileSystem.FileSystem> {
-  return FileSystem.FileSystem.pipe(Effect.flatMap((fs) => fs.exists(path)));
+function readManifest(): Effect.Effect<
+  { readonly files: ReadonlyArray<string> },
+  unknown,
+  FileSystem.FileSystem
+> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.readFileString(join(packageRoot, "package.json")),
+    ),
+    Effect.flatMap(Schema.decodeUnknown(PackageManifest)),
+  );
 }
 
 function planFor(scenario: Scalars) {
@@ -132,9 +141,13 @@ function expectEntryPoint(
     expect(
       resolve(scenarioDir, scalar(scalarsAt(fixture, ["harness"]), "module")),
     ).toBe(distEntry);
-    // The built file is this path's subject compiled, so asserting the
-    // mirrored source keeps the check independent of build order.
-    expect(yield* fileExists(sourceEntry)).toBe(true);
+    // The entry point is a published file, not just a built one: a
+    // consumer resolves it out of the package's `files`, so the path the
+    // fixture names has to sit under a published directory.
+    const manifest = yield* readManifest();
+    expect(manifest.files).toContain(
+      relative(packageRoot, distEntry).split("/")[0],
+    );
   });
 }
 
@@ -173,21 +186,25 @@ function expectAssembledPlan(
   });
 }
 
-/** A payload outside the scenario grammar fails the load rather than reaching a run. */
-function expectRejectedPayload(): Effect.Effect<void, unknown, never> {
+function loadPayload(payload: unknown) {
   return Effect.either(
     traceCaptureHarness.load({
       sourcePath: fixturePath,
       plan: {
         project: "moltzap",
         scenarioId: "EVAL-000",
-        name: "invalid",
-        description: "invalid",
+        name: "probe",
+        description: "probe",
         requirements: {},
       },
-      payload: { runtime: { kind: "nope" }, conversation: {} },
+      payload,
     }),
-  ).pipe(
+  );
+}
+
+/** A payload outside the scenario grammar fails the load rather than reaching a run. */
+function expectRejectedPayload(): Effect.Effect<void, unknown, never> {
+  return loadPayload({ runtime: { kind: "nope" }, conversation: {} }).pipe(
     Effect.map(
       Either.match({
         onLeft: (failure) => {
@@ -201,6 +218,58 @@ function expectRejectedPayload(): Effect.Effect<void, unknown, never> {
   );
 }
 
+/**
+ * The conversation shapes this fold cannot express are refused at load,
+ * where cc-judge reports a scenario problem, rather than at execute,
+ * where the same scenario would have already spent a container. One
+ * principal speaking once is what the v0 episode carries, so a
+ * follow-up, a group, or a cross-conversation probe has no run spec.
+ */
+function expectShapePartition(): Effect.Effect<void, unknown, never> {
+  const direct = {
+    runtime: { kind: "openclaw" },
+    conversation: { kind: "direct", setupMessage: "hello" },
+  };
+  const refused = [
+    {
+      ...direct,
+      conversation: { ...direct.conversation, followUpMessages: ["and then?"] },
+    },
+    {
+      runtime: { kind: "openclaw" },
+      conversation: { kind: "group", setupMessage: "hello", bystanders: [] },
+    },
+    {
+      runtime: { kind: "openclaw" },
+      conversation: {
+        kind: "cross",
+        setupMessage: "hello",
+        probeMessage: "what did they say?",
+      },
+    },
+  ];
+  return Effect.gen(function* () {
+    yield* loadPayload(direct).pipe(Effect.map(expectLoads(true)));
+    yield* Effect.forEach(
+      refused,
+      (payload) => loadPayload(payload).pipe(Effect.map(expectLoads(false))),
+      { concurrency: 1, discard: true },
+    );
+  });
+}
+
+/** Assert whether a payload produced a plan, without naming the failure shape. */
+function expectLoads(loads: boolean) {
+  return Either.match({
+    onLeft: () => {
+      expect(loads).toBe(false);
+    },
+    onRight: () => {
+      expect(loads).toBe(true);
+    },
+  });
+}
+
 /** Path 24a: the entry point loads the fixture and assembles its plan. */
 export function path24a(): Effect.Effect<void, unknown, never> {
   return Effect.gen(function* () {
@@ -208,5 +277,6 @@ export function path24a(): Effect.Effect<void, unknown, never> {
     yield* expectEntryPoint(fixture);
     yield* expectAssembledPlan(fixture);
     yield* expectRejectedPayload();
+    yield* expectShapePartition();
   }).pipe(Effect.provide(NodeContext.layer));
 }
