@@ -11,8 +11,8 @@
  * spec key, which is what lets the run path and the grade path read one
  * file without either knowing the other's shape.
  */
-import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Effect, Schema } from "effect";
 import { JsonObject } from "./grader.js";
 import { RunSpecInvalid } from "../simulator/errors.js";
@@ -63,18 +63,14 @@ export type CcJudgePlan = {
 };
 
 /**
- * Resolve the harness module cc-judge should load: the sibling of the
- * `./grader` entry point in this package's dist directory. Resolution
- * goes through the exports map, because that subpath is the one the
- * package publishes; asking for `package.json` is rejected by the same
- * map.
+ * Resolve the harness module cc-judge should load: this module's own
+ * sibling in the same directory. The path comes from `import.meta.url`
+ * rather than from a package specifier, because the harness is
+ * deliberately absent from the export map — a specifier lookup would ask
+ * the map for a subpath the map is designed not to carry.
  */
 export function resolveRecordingHarness(): string {
-  const require = createRequire(import.meta.url);
-  return join(
-    dirname(require.resolve("@moltzap/testbed/grader")),
-    RECORDING_HARNESS_FILE,
-  );
+  return fileURLToPath(new URL(RECORDING_HARNESS_FILE, import.meta.url));
 }
 
 export type EmitPlanOptions = {
