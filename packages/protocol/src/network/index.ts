@@ -14,6 +14,8 @@ export type { HelloOk, ProtocolMismatchReason } from "./connect.js";
 
 export { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
 
+export { ServerBaseUrl, serverBaseUrl, webSocketUrl } from "./server-url.js";
+
 import { AgentConnect, AppConnect } from "./connect.js";
 import { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
 

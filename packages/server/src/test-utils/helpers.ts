@@ -28,6 +28,7 @@ import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
+import { serverBaseUrl } from "@moltzap/protocol/network";
 import type {
   AgentId,
   AgentKey,
@@ -229,8 +230,10 @@ export function connectTestClient(opts: {
   }).pipe(Effect.withSpan("connectTestClient"));
 }
 
+// The harness hands out the server's socket endpoint; the client takes the
+// base and dials the route itself.
 function testClientServerUrl(wsUrl: string): string {
-  return wsUrl.replace(/\/ws$/, "").replace(/^ws:/, "http:");
+  return serverBaseUrl(wsUrl).replace(/^ws/, "http");
 }
 
 class AppRegistrationError extends Data.TaggedError("AppRegistrationError")<{

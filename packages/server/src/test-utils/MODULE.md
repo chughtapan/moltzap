@@ -24,7 +24,7 @@ task-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L56)
+### [`AwaitNotificationError`](./helpers.ts#L57)
 
 _TypeAlias_
 
@@ -32,55 +32,9 @@ _TypeAlias_
 export type AwaitNotificationError =
   | AwaitNotificationTimeoutError
   | AwaitNotificationClosedError;
-
-/**
- * Stream-based one-shot waiter. Consumes `client.subscribe(def)` via
- * `Stream.runHead`, failing with `AwaitNotificationTimeoutError` on timeout
- * and `AwaitNotificationClosedError` when the transport closed before a
- * matching frame arrived. Distinguishing close from timeout keeps a dead
- * connection from masquerading as a missing notification.
- */
-export function awaitOneNotification<D extends AnyNotificationDefinition>(
-  client: Pick<TestAgentClient, "subscribe">,
-  definition: D,
-  timeoutMs: number = DEFAULT_AWAIT_NOTIFICATION_TIMEOUT_MS,
-): Effect.Effect<NotificationDelivery<D>, AwaitNotificationError> {
-  const closed = () =>
-    new AwaitNotificationClosedError({
-      definition: definition.name,
-    });
-  return client.subscribe(definition).pipe(
-    Stream.map(
-      (params): NotificationDelivery<D> => ({
-        definition,
-        method: definition.name,
-        params,
-      }),
-    ),
-    Stream.runHead,
-    Effect.either,
-    Effect.flatMap(
-      Either.match({
-        onLeft: () => Effect.fail(closed()),
-        onRight: Option.match({
-          onNone: () => Effect.fail(closed()),
-          onSome: (notification) => Effect.succeed(notification),
-        }),
-      }),
-    ),
-    Effect.timeoutFail({
-      duration: Duration.millis(timeoutMs),
-      onTimeout: () =>
-        new AwaitNotificationTimeoutError({
-          definition: definition.name,
-          durationMs: timeoutMs,
-        }),
-    }),
-  );
-}
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L67)
+### [`awaitOneNotification`](./helpers.ts#L68)
 
 _Function_
 
@@ -98,7 +52,7 @@ and `AwaitNotificationClosedError` when the transport closed before a
 matching frame arrived. Distinguishing close from timeout keeps a dead
 connection from masquerading as a missing notification.
 
-### [`closeAllClients`](./helpers.ts#L170)
+### [`closeAllClients`](./helpers.ts#L171)
 
 _Function_
 
@@ -106,7 +60,7 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`connectAppClient`](./helpers.ts#L278)
+### [`connectAppClient`](./helpers.ts#L281)
 
 _Function_
 
@@ -118,7 +72,7 @@ export function connectAppClient(
 ): Effect.Effect<TestAppClient, Error>
 ```
 
-### [`ConnectedAgent`](./helpers.ts#L106)
+### [`ConnectedAgent`](./helpers.ts#L107)
 
 _Interface_
 
@@ -131,7 +85,7 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L219)
+### [`connectTestClient`](./helpers.ts#L220)
 
 _Function_
 
@@ -151,8 +105,6 @@ _TypeAlias_
 export type CoreSchemaSqlLoadError =
   | CoreSchemaSqlAccessError
   | CoreSchemaSqlReadError;
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 ```
 
 ### [`CoreTestDatabasePort`](./ports.ts#L22)
@@ -198,19 +150,6 @@ _TypeAlias_
 
 ```ts
 export type CoreTestServer = CoreTestServerPort;
-
-/**
- * Start a test server and expose its package-owned integration ports.
- * @param opts Test server configuration.
- * @returns A promise for the running server's integration ports.
- */
-export function startCoreTestServer(opts: StartCoreTestServerOptions = {}) {
-  return Effect.runPromise(
-    startCoreTestServerEffect(opts).pipe(
-      Effect.map((server) => server.testPort),
-    ),
-  );
-}
 ```
 
 Canonical published handle for a running core test server.
@@ -290,7 +229,7 @@ export interface CoreTestSpanExporterPort {
 
 Trace-capture operations available to test-harness consumers.
 
-### [`createTestAgent`](./helpers.ts#L196)
+### [`createTestAgent`](./helpers.ts#L197)
 
 _Function_
 
@@ -451,15 +390,9 @@ export type PgliteHarnessError =
   | PgliteCreateError
   | PgliteExecError
   | PgliteCloseError;
-
-const SQL_PREVIEW_MAX_CHARS = 160;
-
-function sqlPreview(sql: string): string {
-  return sql.replace(/\s+/g, " ").trim().slice(0, SQL_PREVIEW_MAX_CHARS);
-}
 ```
 
-### [`postJson`](./helpers.ts#L311)
+### [`postJson`](./helpers.ts#L314)
 
 _Function_
 
@@ -475,7 +408,7 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 `{status, json}`. HTTP integration tests import this helper to avoid
 repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L177)
+### [`registerAgent`](./helpers.ts#L178)
 
 _Function_
 
@@ -487,7 +420,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L295)
+### [`registerAndConnect`](./helpers.ts#L298)
 
 _Function_
 
@@ -499,7 +432,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L253)
+### [`registerApp`](./helpers.ts#L256)
 
 _Function_
 
@@ -522,7 +455,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`setupAgentGroup`](./helpers.ts#L411)
+### [`setupAgentGroup`](./helpers.ts#L414)
 
 _Function_
 
@@ -542,7 +475,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L399)
+### [`setupAgentPair`](./helpers.ts#L402)
 
 _Function_
 
@@ -607,7 +540,7 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L166)
+### [`trackClient`](./helpers.ts#L167)
 
 _Function_
 

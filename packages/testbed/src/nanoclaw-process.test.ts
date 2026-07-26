@@ -17,6 +17,7 @@ import {
   nanoclawInstallSlug,
   NANOCLAW_EVAL_AGENT_GROUP_ID,
 } from "./nanoclaw-process.js";
+import { ServerUrl } from "./runtime.js";
 
 const FIRST_RUNTIME_DIR = "isolated/moltzap-nanoclaw-first";
 const SECOND_RUNTIME_DIR = "isolated/moltzap-nanoclaw-second";
@@ -193,7 +194,7 @@ function normalizesServerUrlForRuntime() {
           TEST_BASE_CHILD_ENVIRONMENT,
         );
         const secure = buildNanoclawProcessPlan(
-          { ...stubStartOptions(), serverUrl: SECURE_SERVER_URL },
+          { ...stubStartOptions(), serverUrl: ServerUrl(SECURE_SERVER_URL) },
           path.resolve(SECOND_RUNTIME_DIR),
           install,
           TEST_BASE_CHILD_ENVIRONMENT,
@@ -299,7 +300,7 @@ function stubStartOptions(
     agentName: TEST_AGENT_NAME,
     agentId: agentId(id),
     apiKey: redactedAgentKey(agentKeyString(91)),
-    serverUrl: "ws://localhost:9999/ws",
+    serverUrl: ServerUrl("ws://localhost:9999/ws"),
     autoRegisterConversations,
   };
 }
