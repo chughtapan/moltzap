@@ -4,12 +4,7 @@
  */
 import { expect } from "vitest";
 import type { Exit } from "effect";
-import {
-  AGENT_ONE,
-  DONE_SPAN,
-  PRINCIPAL_NAME,
-  TASK_CONTENT,
-} from "./support.js";
+import { AGENT_ONE, DONE_SPAN, PRINCIPAL_NAME, SAY_TEXT } from "./support.js";
 import { EXIT } from "./tags.js";
 
 export const SHORT_INACTIVITY = 300;
@@ -20,7 +15,7 @@ export function doneEpisode(
   onAgentCrash = "halt",
 ): unknown {
   return {
-    task: { principal: PRINCIPAL_NAME, to: AGENT_ONE, content: TASK_CONTENT },
+    steps: [{ by: PRINCIPAL_NAME, with: [AGENT_ONE], say: SAY_TEXT }],
     termination: {
       inactivityTimeoutMs: inactivityMs,
       onAgentCrash,

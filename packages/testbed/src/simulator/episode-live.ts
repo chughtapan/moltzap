@@ -1,33 +1,74 @@
 /**
  * @file Episode controller internals (contract 4): the v0 loop behind
- * `makeEpisode`. Task injection fires at its scheduled logical time as
- * principal speech; fault windows execute against the world with both
- * boundaries evented; the done-signal predicate and the inactivity bound
- * observe the drained event stream through the event log's internal tap;
- * agent exits apply the on-agent-crash policy. Termination executes the
- * outstanding fault reverts (a revert firing after episode end is still
- * executed and recorded) before the controller returns.
+ * `makeEpisode`. Speech steps are delivered in array order as principal
+ * speech, each held by its reply gate; fault windows execute against the
+ * world with both boundaries evented; the done-signal predicate and the
+ * inactivity bound observe the drained event stream through the event
+ * log's internal tap; agent exits apply the on-agent-crash policy.
+ * Termination executes the outstanding fault reverts (a revert firing
+ * after episode end is still executed and recorded) before the controller
+ * returns.
  */
 import { Deferred, Effect, Either, Option, Schema, Stream } from "effect";
-import { CorrelationId, EpisodeId, wallTimeNow } from "./ids.js";
+import type { AgentId } from "@moltzap/protocol/identity";
+import {
+  CorrelationId,
+  EpisodeId,
+  wallTimeNow,
+  type LogicalSequence,
+} from "./ids.js";
 import type {
   AgentFacingRunSpec,
+  AgentName,
   FaultScheduleEntry,
   LogicalTime,
+  SpeechStep,
+  StepName,
 } from "./run-spec.js";
 import { getEventTaps, type SimulatorEvent } from "./event-log.js";
 import type { EpisodeTermination } from "./recording.js";
-import type { EpisodeDeps } from "./episode.js";
-import { makeDonePredicate, type DonePredicate } from "./drivers.js";
+import type { EpisodeDeps, ChannelRef, SpeechReceipt } from "./episode.js";
+import {
+  agentIdsOf,
+  makeDonePredicate,
+  type DonePredicate,
+} from "./drivers.js";
+import {
+  makeDeliveredLog,
+  type AnswerCriteria,
+  type DeliveredLog,
+} from "./span-attrs.js";
 import type {
   DriverCrashed,
   FaultApplyFailed,
   FaultRevertFailed,
   InfraError,
-  TaskInjectionFailed,
+  SpeechFailed,
 } from "./errors.js";
 
 const INACTIVITY_POLL_MS = 50;
+
+/**
+ * The reply gate's state: every delivered-message span of this episode,
+ * plus the step waiting on one. The tap is forked before any step speaks,
+ * so the gate is a stateful predicate over the episode's whole span
+ * history rather than a subscription that can be established too late — a
+ * reply is matchable whenever its span arrives, before or after the
+ * receipt that names the conversation to look in.
+ *
+ * At most one step waits at a time: `deliverSteps` is a single sequential
+ * fiber that blocks on its gate before advancing. The done-signal
+ * predicates read `delivered` too, through `PredicateContext`.
+ */
+type ReplyGate = {
+  readonly delivered: DeliveredLog;
+  waiting: ReplyWaiter | undefined;
+};
+
+type ReplyWaiter = {
+  readonly criteria: AnswerCriteria;
+  readonly release: Deferred.Deferred<LogicalSequence, never>;
+};
 
 type EpisodeContext = {
   readonly spec: AgentFacingRunSpec;
@@ -36,6 +77,11 @@ type EpisodeContext = {
   readonly startedAt: LogicalTime;
   readonly done: Deferred.Deferred<EpisodeTermination, InfraError>;
   readonly activity: { lastAt: number };
+  readonly gate: ReplyGate;
+  /** Spec-level agent names to the identities the wire reports. */
+  readonly agentIds: ReadonlyMap<string, AgentId>;
+  /** The last step's receipt, once it has spoken; what `last-step-answered` waits on. */
+  readonly lastSpoken: { receipt: SpeechReceipt | undefined };
   readonly outstandingReverts: Array<{
     readonly entry: FaultScheduleEntry;
     readonly revert: Effect.Effect<void, FaultRevertFailed, never>;
@@ -58,6 +104,9 @@ export function episodeRun(
         startedAt: deps.clock.now(),
         done: yield* Deferred.make<EpisodeTermination, InfraError>(),
         activity: { lastAt: deps.clock.now() },
+        gate: { delivered: makeDeliveredLog(), waiting: undefined },
+        agentIds: agentIdsOf(deps.world),
+        lastSpoken: { receipt: undefined },
         outstandingReverts: [],
       };
       yield* enqueueScheduler(ctx, {
@@ -66,7 +115,7 @@ export function episodeRun(
       });
       yield* Effect.forkScoped(observeEvents(ctx));
       yield* Effect.forkScoped(watchAgentExits(ctx));
-      yield* Effect.forkScoped(injectSeedTask(ctx));
+      yield* Effect.forkScoped(deliverSteps(ctx));
       yield* Effect.forkScoped(runFaultWindows(ctx));
       yield* Effect.forkScoped(enforceInactivity(ctx));
       const termination = yield* Deferred.await(ctx.done);
@@ -100,11 +149,14 @@ function enqueueScheduler(
         readonly termination: EpisodeTermination;
       }
     | {
-        readonly _tag: "task.injected";
+        readonly _tag: "step.spoken";
         readonly episodeId: EpisodeId;
-        readonly principal: AgentFacingRunSpec["episode"]["task"]["principal"];
-        readonly to: AgentFacingRunSpec["episode"]["task"]["to"];
+        readonly principal: SpeechStep["by"];
         readonly content: string;
+        readonly taskId: string;
+        readonly conversationId: string;
+        readonly messageId: string;
+        readonly causationId?: LogicalSequence;
       }
     | {
         readonly _tag: "trigger.predicate-fired";
@@ -194,20 +246,42 @@ function resolveDonePredicate(
   const ref = ctx.spec.episode.termination.doneSignal;
   if (ref === undefined) return Effect.succeed(undefined);
   // Materialization already validated the ref; failure here is a defect.
-  return makeDonePredicate(ref).pipe(Effect.orDie);
+  return makeDonePredicate(ref, {
+    agentIds: ctx.agentIds,
+    steps: ctx.spec.episode.steps,
+    delivered: ctx.gate.delivered,
+    lastSpoken: ctx.lastSpoken,
+  }).pipe(Effect.orDie);
 }
 
+/**
+ * One event, in the order the rest of the episode depends on: record the
+ * evidence, then let the done-signal read it, then release a gated step.
+ * The predicate shares the gate's delivered log, so it must run after the
+ * record and not before.
+ */
 function observeOne(
   ctx: EpisodeContext,
   predicate: DonePredicate | undefined,
   event: SimulatorEvent,
 ): Effect.Effect<void, never, never> {
-  if (ACTIVITY_SOURCES.has(event.source)) {
-    ctx.activity.lastAt = ctx.deps.clock.now();
-  }
-  if (predicate === undefined || !predicate.observe(event)) {
-    return Effect.void;
-  }
+  return Effect.suspend(() => {
+    if (ACTIVITY_SOURCES.has(event.source)) {
+      ctx.activity.lastAt = ctx.deps.clock.now();
+    }
+    const recorded = recordDelivered(ctx, event);
+    if (predicate !== undefined && predicate.observe(event)) {
+      return fireDoneSignal(ctx, predicate, event);
+    }
+    return recorded ? releaseWaiting(ctx) : Effect.void;
+  });
+}
+
+function fireDoneSignal(
+  ctx: EpisodeContext,
+  predicate: DonePredicate,
+  event: SimulatorEvent,
+): Effect.Effect<void, never, never> {
   return enqueueScheduler(ctx, {
     _tag: "trigger.predicate-fired",
     episodeId: ctx.episodeId,
@@ -217,6 +291,75 @@ function observeOne(
     Effect.zipRight(Deferred.succeed(ctx.done, "completed")),
     Effect.asVoid,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Reply gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Retain one delivered-message span, reporting whether it was one.
+ * Retention is what removes the arming race: a step gated on a reply can
+ * be armed after that reply's span already arrived and still match it.
+ */
+function recordDelivered(ctx: EpisodeContext, event: SimulatorEvent): boolean {
+  if (event._tag !== "span.accepted") return false;
+  return ctx.gate.delivered.record(
+    event.logicalSequence,
+    event.spanName,
+    event.raw,
+  );
+}
+
+/** Release the waiting step if the span just recorded answers it. */
+function releaseWaiting(
+  ctx: EpisodeContext,
+): Effect.Effect<void, never, never> {
+  return Effect.suspend(() => {
+    const waiter = ctx.gate.waiting;
+    if (waiter === undefined) return Effect.void;
+    const matched = ctx.gate.delivered.answer(waiter.criteria);
+    if (matched === undefined) return Effect.void;
+    ctx.gate.waiting = undefined;
+    return Deferred.succeed(waiter.release, matched).pipe(Effect.asVoid);
+  });
+}
+
+/**
+ * Hold until the named agent has replied to the previous step. Sequencing
+ * a probe by clock offset instead fails toward a false pass: a probe that
+ * lands before the agent ingested the setup makes the run prove nothing
+ * while still producing a clean verdict.
+ */
+function awaitReply(
+  ctx: EpisodeContext,
+  from: AgentName,
+  previous: SpeechReceipt,
+): Effect.Effect<LogicalSequence, never, never> {
+  const senderId = ctx.agentIds.get(from);
+  if (senderId === undefined) {
+    // Materialization requires `awaitReplyFrom` to name a declared agent.
+    return Effect.dieMessage(
+      `awaitReplyFrom names "${from}", which no launched agent answers to`,
+    );
+  }
+  const criteria: AnswerCriteria = {
+    conversationId: previous.conversationId,
+    afterMessageId: previous.messageId,
+    senders: new Set([senderId]),
+  };
+  return Effect.gen(function* () {
+    const release = yield* Deferred.make<LogicalSequence, never>();
+    // Register before asking. The observing fiber releases whoever is
+    // waiting when it records a span, so a span recorded between the
+    // question and the registration would find no one to release and this
+    // step would park forever on an answer that had already arrived.
+    ctx.gate.waiting = { criteria, release };
+    const answered = ctx.gate.delivered.answer(criteria);
+    if (answered === undefined) return yield* Deferred.await(release);
+    ctx.gate.waiting = undefined;
+    return answered;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -263,46 +406,99 @@ function watchOneAgent(
 }
 
 // ---------------------------------------------------------------------------
-// Task injection (principal speech)
+// Speech steps (principal speech)
 // ---------------------------------------------------------------------------
 
-function injectSeedTask(
+/**
+ * Deliver the episode's steps in array order. Order is the only
+ * sequencing mechanism, so one sequential fiber drives them all; each
+ * step's receipt stays addressable by name, because that is the only
+ * thing that ties a later `into:` to the conversation an earlier step
+ * created.
+ */
+function deliverSteps(ctx: EpisodeContext): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
+    const spoken = new Map<StepName, SpeechReceipt>();
+    const steps = ctx.spec.episode.steps;
+    let previous: SpeechReceipt | undefined;
+    for (const [index, step] of steps.entries()) {
+      previous = yield* deliverOneStep(ctx, step, spoken, previous);
+      // Publishing the last receipt is what arms `last-step-answered`.
+      if (index === steps.length - 1) ctx.lastSpoken.receipt = previous;
+    }
+  }).pipe(Effect.catchTag("SpeechFailed", (cause) => failEpisode(ctx, cause)));
+}
+
+function deliverOneStep(
   ctx: EpisodeContext,
-): Effect.Effect<void, never, never> {
-  const task = ctx.spec.episode.task;
-  return sleepUntilLogical(ctx, task.atMs).pipe(
-    Effect.zipRight(
-      ctx.deps.principal.deliverTask({
-        episodeId: ctx.episodeId,
-        task,
-        world: ctx.deps.world,
-      }),
-    ),
-    Effect.zipRight(
-      enqueueScheduler(ctx, {
-        _tag: "task.injected",
-        episodeId: ctx.episodeId,
-        principal: task.principal,
-        to: task.to,
-        content: task.content,
-      }),
-    ),
-    Effect.tap(() =>
-      Effect.sync(() => {
-        ctx.activity.lastAt = ctx.deps.clock.now();
-      }),
-    ),
-    Effect.catchTag("TaskInjectionFailed", (cause) => failEpisode(ctx, cause)),
-  );
+  step: SpeechStep,
+  spoken: Map<StepName, SpeechReceipt>,
+  previous: SpeechReceipt | undefined,
+): Effect.Effect<SpeechReceipt, SpeechFailed, never> {
+  return Effect.gen(function* () {
+    yield* sleepUntilLogical(ctx, step.atMs);
+    const causationId = yield* holdForReply(ctx, step, previous);
+    const into = yield* channelOf(step, spoken);
+    const receipt = yield* ctx.deps.principal.deliver({
+      episodeId: ctx.episodeId,
+      step,
+      world: ctx.deps.world,
+      into,
+    });
+    if (step.name !== undefined) spoken.set(step.name, receipt);
+    yield* enqueueScheduler(ctx, {
+      _tag: "step.spoken",
+      episodeId: ctx.episodeId,
+      principal: step.by,
+      content: step.say,
+      taskId: receipt.taskId,
+      conversationId: receipt.conversationId,
+      messageId: receipt.messageId,
+      // An absent optional stays absent: an explicit `undefined` is
+      // outside the JSON value space the event line is serialized in.
+      ...(causationId === undefined ? {} : { causationId }),
+    });
+    ctx.activity.lastAt = ctx.deps.clock.now();
+    return receipt;
+  });
+}
+
+/** The conversation a `send` step speaks into, resolved from the receipt of the step it names. */
+function channelOf(
+  step: SpeechStep,
+  spoken: ReadonlyMap<StepName, SpeechReceipt>,
+): Effect.Effect<ChannelRef | undefined, never, never> {
+  if (step.into === undefined) return Effect.succeed(undefined);
+  const receipt = spoken.get(step.into);
+  if (receipt === undefined) {
+    // Materialization requires `into` to name an earlier step, and steps
+    // run in order, so the receipt exists by the time this one speaks.
+    return Effect.dieMessage(
+      `step \`into: ${step.into}\` resolved to no receipt`,
+    );
+  }
+  return Effect.succeed({
+    taskId: receipt.taskId,
+    conversationId: receipt.conversationId,
+  });
+}
+
+function holdForReply(
+  ctx: EpisodeContext,
+  step: SpeechStep,
+  previous: SpeechReceipt | undefined,
+): Effect.Effect<LogicalSequence | undefined, never, never> {
+  if (step.awaitReplyFrom === undefined) return Effect.succeed(undefined);
+  if (previous === undefined) {
+    // Materialization rejects a gate on the first step.
+    return Effect.dieMessage("a gated first step escaped materialization");
+  }
+  return awaitReply(ctx, step.awaitReplyFrom, previous);
 }
 
 function failEpisode(
   ctx: EpisodeContext,
-  cause:
-    | TaskInjectionFailed
-    | FaultApplyFailed
-    | FaultRevertFailed
-    | DriverCrashed,
+  cause: SpeechFailed | FaultApplyFailed | FaultRevertFailed | DriverCrashed,
 ): Effect.Effect<void, never, never> {
   return Deferred.fail(ctx.done, cause).pipe(Effect.asVoid);
 }

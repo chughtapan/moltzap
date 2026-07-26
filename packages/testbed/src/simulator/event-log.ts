@@ -221,18 +221,38 @@ export class EpisodeStarted extends Schema.TaggedClass<EpisodeStarted>()(
   },
 ) {}
 
-/** Seed task delivered as principal speech (generative; root). */
-export class TaskInjected extends Schema.TaggedClass<TaskInjected>()(
-  "task.injected",
+/**
+ * One speech step delivered as principal speech. The three ids are what
+ * ties a conversation back to the step that spoke into it, so an offline
+ * grader can tell which conversation each step used. `causationId` is
+ * present exactly when the step carried `awaitReplyFrom`: a gated step is
+ * released by a predicate, so it is caused by the reply span it matched,
+ * while an ungated step is a root event.
+ */
+export class StepSpoken extends Schema.TaggedClass<StepSpoken>()(
+  "step.spoken",
   {
     ...envelopeFields,
     source: Schema.Literal("scheduler"),
     episodeId: EpisodeId,
     principal: PrincipalName,
-    to: AgentName,
     content: Schema.String.annotations({
-      description: "Task content, redaction policy applied",
+      description: "What the principal said, redaction policy applied",
     }),
+    taskId: Schema.String.annotations({
+      description: "Task the speech landed under",
+    }),
+    conversationId: Schema.String.annotations({
+      description: "Conversation the speech landed in",
+    }),
+    messageId: Schema.String.annotations({
+      description: "The delivered message's identity",
+    }),
+    causationId: Schema.optional(
+      LogicalSequence.annotations({
+        description: "The reply span that released a gated step",
+      }),
+    ),
   },
 ) {}
 
@@ -437,7 +457,7 @@ const SimulatorEvent = Schema.Union(
   RunTerminated,
   TeardownCompleted,
   EpisodeStarted,
-  TaskInjected,
+  StepSpoken,
   TriggerGenerativeFired,
   TriggerPredicateFired,
   EpisodeTerminated,
