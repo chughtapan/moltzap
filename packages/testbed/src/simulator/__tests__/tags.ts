@@ -6,6 +6,12 @@
  */
 export const EXIT = { success: "Success", failure: "Failure" } as const;
 
+export const RUNTIME_KIND = {
+  openclaw: "openclaw",
+  nanoclaw: "nanoclaw",
+  stub: "stub",
+} as const;
+
 export const OUTCOME = {
   episode: "episode",
   infrastructure: "infrastructure-failure",

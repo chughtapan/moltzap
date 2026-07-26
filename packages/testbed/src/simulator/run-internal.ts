@@ -11,6 +11,7 @@
  * substitute drains; the public default stays `makeTranscriptDrain`.
  */
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { Brand, Effect, Option, Schema, type Scope } from "effect";
 import { LogicalSequence, wallTimeNow } from "./ids.js";
 import {
@@ -66,6 +67,7 @@ import {
 import { makePrincipal } from "./drivers.js";
 import { episodeRun } from "./episode-live.js";
 import { NANOCLAW_PINNED_SHA } from "../nanoclaw-install.js";
+import { resolveInstalledPackageRoot } from "../package-resolution.js";
 import {
   SealFailed,
   TranscriptDrainFailed,
@@ -733,10 +735,15 @@ function simulatorVersion(): string {
   return metadata.version;
 }
 
+/**
+ * A dependency's export map need not name `./package.json`, so the
+ * manifest reads the version through the package resolver and an
+ * absolute path rather than a subpath specifier the map can refuse.
+ */
 function resolvedPackageVersion(name: string): string {
-  const require = createRequire(import.meta.url);
+  const packageRoot = resolveInstalledPackageRoot(name, import.meta.url);
   const metadata = Schema.decodeUnknownSync(PackageMetadata)(
-    require(`${name}/package.json`),
+    createRequire(import.meta.url)(join(packageRoot, "package.json")),
   );
   return `${name}@${metadata.version}`;
 }
