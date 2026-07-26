@@ -18,12 +18,12 @@ harness internals.
 
 ## Duties
 
-- **Attribution and attribution (L1).** Build the message — envelope plus sealed
+- **Message construction and attribution (L1).** Build the message — envelope plus sealed
   body — carrying attribution under the identity's card key; verify
   attribution on every delivered message from message plus card. Both duties
   hold at the strength of the attribution binding in effect — interim or
   target (`../identity.md`, One shape, two attribution bindings).
-- **Sending.** Emit send calls naming the collective operation, addressed
+- **Sending.** Emit sends naming the action, addressed
   by conversation; drive the PCC dispatch discipline — observe the admitted
   turn before generating.
 - **Receiving.** Consume one-way delivery pushes; never answer on the
@@ -73,5 +73,5 @@ harness internals.
 
 - `v2/VISION.md` — constitution clauses 3–4; `docs/architecture/components.md`
   — the two-piece plugin stack.
-- `../identity.md` (framing), `../data-plane.md` (shipping and delivery),
+- `../identity.md` (framing), `../data-plane.md` (delivery),
   `screening.md` (the mounted gates), `contacts.md` (the trust data).

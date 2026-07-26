@@ -13,8 +13,8 @@ Status: DRAFT (deepening doc; feeds the spec set)
 The control plane is the network's administrative half: the shared state everything else routes on, and nothing more. It comprises exactly:
 
 - **Identity registry.** Mints and resolves agent identities — the L1 attribution anchors. Admission is operator-controlled; the registry answers who exists. Each identity's card key is its credential: the plane verifies every request's signature against the registered public key (`docs/decisions/20260721-single-credential.md`); issuance and custody belong to the identity deepening doc.
-- **Conversation index.** Resolves conversation ids — L3's opaque group handles — and their membership, derived from the in-band lifecycle entries; conversation ids are client-minted, and the plane mints nothing here (`docs/decisions/20260723-lifecycle-rides-l3.md`).
-- **Transcript store.** The conversation's ledger: the durable, ordered chain of committed entries — the substrate delivery recovers from and L6 reads.
+- **Conversation index.** Resolves conversation ids — L3's opaque group handles — and their membership, derived from the in-band lifecycle actions; conversation ids are client-minted, and the plane mints nothing here (`docs/decisions/20260723-lifecycle-rides-l3.md`).
+- **Transcript store.** The conversation's ledger: the durable, ordered chain of recorded actions — the substrate delivery recovers from and L6 reads.
 - **Per-request caller authentication.** The network is sessionless (`docs/decisions/20260721-sessionless-network.md`): each request individually authenticates its caller by card-key signature — a registered identity or the operator — and is attributed to exactly that caller. No establishment op exists, on either plane; the plane retains nothing about a caller between requests.
 
 What the control plane is **not**:
@@ -36,7 +36,7 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 - *Directory read* — resolve and enumerate identities as their cards, paginated; the card is the directory entry (`docs/decisions/20260723-directory-serves-cards.md`). Caller: any registered identity.
 - There is no plane-side contacts surface: server-side contacts dissolve by recorded decision (`docs/decisions/20260720-the-network-is-a-router.md`); contacts are each endpoint's own trust data (`endpoints/contacts.md` → Recorded decisions). The router likewise retains no reachability role; selectivity is purely endpoint-side.
 
-**Conversation lifecycle: no ops.** Lifecycle rides the data plane as L3 entry types — a conversation begins as its transcript's genesis entry, and membership changes and departures are subsequent in-band entries, ordered against message flow (`docs/decisions/20260723-lifecycle-rides-l3.md`). Which creations and invitations are legitimate is a task norm (L4) screened at each invitee's gate (L5); the plane checks attribution and id freshness only.
+**Conversation lifecycle: no ops.** Lifecycle rides the data plane as L3 action types — a conversation begins as its transcript's genesis entry, and membership changes and departures are subsequent in-band entries, ordered against message flow (`docs/decisions/20260723-lifecycle-rides-l3.md`). Which creations and invitations are legitimate is a task norm (L4) screened at each invitee's gate (L5); the plane checks attribution and id freshness only.
 - *List* — a member enumerates the conversations it belongs to. Caller: the member.
 
 **Transcript reads.**
@@ -51,7 +51,7 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 
 ## Transcript storage guarantees
 
-1. **Atomic commit.** An entry is committed for every member or for none; a send acknowledgment implies commitment — durable, in the conversation's total order. Pre-commit round entries are ordered and attributed but effect-free; whether any delivery precedes durability is realization (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
+1. **Atomic commit.** An action is committed for every member or for none; the append acknowledgment implies commitment — durable, in the conversation's total order. The store holds actions only: a protocol's messages are delivered by L2 and never recorded; whether any delivery precedes durability is realization (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 2. **Store-owned total order.** Each conversation has one total order over its records, assigned by the store; deliveries and reads are both consistent with it. Delivery order and read order are that one store-owned order spanning L2 and L3; fan-out is an optimization over it.
 3. **Ordered reads.** A read returns a contiguous window of that order; overlapping reads never disagree on order or content.
 4. **Recovery by reading.** A member that missed deliveries — offline, partitioned, or newly added — recovers everything it is entitled to see through transcript reads alone. Fan-out is an optimization over the store, never the source of truth.
@@ -67,7 +67,7 @@ The partition below reframes v1's protocol+server surface: each wire item surviv
 
 ## Dissolution notes
 
-The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 5 control, 8 data, 1 open, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery. Lifecycle items marked *data* ride in-band as L3 entry types (`docs/decisions/20260723-lifecycle-rides-l3.md`).
+The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 5 control, 8 data, 1 open, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery. Lifecycle items marked *data* ride in-band as L3 action types (`docs/decisions/20260723-lifecycle-rides-l3.md`).
 
 | v1 surface | verdict | note |
 |---|---|---|

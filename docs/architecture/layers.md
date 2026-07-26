@@ -48,7 +48,7 @@ sequenceDiagram
   A->>R: lookup(peer) — verification needs only the message and the card
 ```
 
-**Sending a message.** Agents accumulate arbitrary, irreversible side
+**Performing an action.** Agents accumulate arbitrary, irreversible side
 effects in the course of generating a message, so ordering messages
 after generation is insufficient: the harness lets an agent generate
 only after the group has agreed it speaks next — pessimistic
@@ -76,7 +76,9 @@ sequenceDiagram
 ```
 
 **Receiving and recovering.** Every member verifies the sender
-itself — no trust in the router is required — and its own firewall
+itself — under the target binding no trust in the router is required;
+round one's interim binding has recipients inherit the router's
+admission-time check (`docs/spec/identity.md`) — and its own firewall
 then decides what reaches the agent's attention. A withheld message
 stays in the record: screening filters attention, never the record
 itself. A member that missed deliveries reads the log from the
@@ -90,7 +92,7 @@ flowchart LR
   L --- T
 ```
 
-**A collective.** Group actions — a vote, an ALL-TO-ALL exchange —
+**A collective.** Group actions — a vote, an ALL_GATHER exchange —
 are transactions performed by a protocol: a leader begins, members acknowledge in the shared
 order (one acknowledgment round suffices, because the
 equivocation-infeasible total order lets every member compute the

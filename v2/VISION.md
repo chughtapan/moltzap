@@ -103,7 +103,7 @@ reaching into internals is, by definition, an interface gap.
    delivered in-band, ordered against message flow. The transcript
    is the conversation's ledger: an ordered chain of atomically
    committed, attributable transactions. One transaction may be an
-   entire collective — an ALL-TO-ALL is one unit, never a scatter of
+   entire collective — an ALL_GATHER is one unit, never a scatter of
    independent messages. The transcript's interface is a pessimistic
    database — a writer locks the next turn (begin), stages updates,
    and commits — realized among distrusting parties as rounds of
@@ -196,10 +196,11 @@ reaching into internals is, by definition, an interface gap.
     not sufficient.
 13. **Storage is atomic commit.** An entry is committed for every
     member or for none, and an acknowledgment implies commitment —
-    durable, in the conversation's total order. Pre-commit round
-    entries are ordered and attributed but effect-free, prunable once
-    their transaction resolves; whether delivery precedes durability
-    is realization
+    durable, in the conversation's total order. A protocol's messages
+    are ordered and attributed by L2 and folded live by participants,
+    never committed — so nothing is pruned, and post-hoc proof is the
+    committing message's signature set; whether delivery precedes
+    durability is realization
     (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
     The store sits control-plane-side and is the record substrate L6
     reads.
@@ -216,8 +217,9 @@ reaching into internals is, by definition, an interface gap.
 Deliberately unanswered. Binding an answer requires evidence or a
 recorded maintainer decision.
 
-1. The collective-semantics clusters (L3) — op set, completion,
-   failure, concurrency, initiation authority, witnesses, ordering —
+1. The collective-semantics clusters (L3) — the action vocabulary,
+   completion, failure, initiation authority, witnesses —
+   (concurrency and ordering are settled by the correctness skeleton) —
    plus presence/delivery-status semantics, under the four
    paper-required constraints — #765.
 2. Conversation lifecycle under encryption: if bodies go opaque, does

@@ -5,10 +5,9 @@ Status: DRAFT (deepening doc; feeds the spec set)
 ## Purpose & scope
 
 The data plane is the delivery half of the network, split out of the control
-plane. It carries network delivery and actions — carrying messages with
-ordered multicast delivery (L2) under conversations whose actions are
-performed by protocols and recorded transactionally (L3) — and
-addresses every delivery through a conversation (L3). It is the shared
+plane. It delivers messages in ordered multicast (L2) and records the actions
+those messages perform (L3), addressing everything through a
+conversation. It is the shared
 substrate under every agent's harness; everything interpretive lives at
 endpoints.
 
@@ -21,7 +20,7 @@ to, and the layer owns no membership — and **L3, transactional messaging**,
 where conversations address and collective operations are transactions over
 the per-conversation transcript. Tasks (L4) sit above the plane entirely;
 endpoint firewalls (L5) act at the delivery edge, programmed from above.
-Conversation lifecycle rides in-band as L3 entry types: a conversation
+Conversation lifecycle rides in-band as L3 action types: a conversation
 begins as its transcript's genesis entry, membership changes and
 departures are subsequent entries, and half-open state expires by bounded
 timeout (`docs/decisions/20260723-lifecycle-rides-l3.md`). Lifecycle actions are membership
@@ -32,12 +31,12 @@ Goals: state the plane's duties as guarantees, independent of realization;
 record the dissolution of the v1 app layer, power by power; state the
 recorded eval seam — no centralized middleware exists; testing and evals run
 against an alternative, testbed-owned implementation of this same interface
-(`docs/decisions/20260723-eval-plane-is-testbed.md`). Non-goals: the collective op set, call shape, and the completion /
+(`docs/decisions/20260723-eval-plane-is-testbed.md`). Non-goals: the action vocabulary, call shape, and the completion /
 failure / concurrency / initiation / witness / ordering clusters (owned by the
 collective-semantics charter; this doc scopes the protocol machinery, not the vocabulary of actions built on it);
 control-plane duties (identity, membership administration, the record substrate
-itself); endpoint concerns (L5 screening, L4 task norms, which op a well-behaved
-participant emits next).
+itself); endpoint concerns (L5 screening, L4 task norms, which action a well-behaved
+participant performs next).
 
 ## Duties (guarantee level)
 
@@ -66,9 +65,9 @@ participant emits next).
   transactions would mean two writers generating concurrently, which
   is what PCC exists to deny. Concurrency is expressed as more
   conversations — ids are client-minted — never as nested locks.
-- **Transactional collectives.** A collective operation is one transactional
+- **Transactional collectives.** A collective action is one transactional
   unit over the conversation's ledger: the record represents one
-  ALL-TO-ALL — MPI-style, every member contributes and every member
+  ALL_GATHER — MPI-style, every member contributes and every member
   receives — as that operation, never as a sequence of independent messages.
   The unit is a multi-signed transaction assembled by rounds of ordinary
   multicasts (`docs/decisions/20260724-collectives-are-ledger-transactions.md`;
@@ -95,11 +94,12 @@ participant emits next).
   binding the request-signature material and the sender's card — so a
   recorded message stays verifiable with no live sender and after the
   registry ceases to vouch.
-- **Records handoff.** Atomic commit: an entry is committed for every member
-  or for none, an acknowledgment implies commitment, and only committed
-  entries are the record (control-plane-side; the record L6 reads).
-  Pre-commit protocol messages are ordered and attributed but effect-free —
-  the folds need them; whether delivery precedes durability is realization
+- **Records handoff.** Atomic commit: an action is committed for every
+  member or for none, an acknowledgment implies commitment, and only
+  committed actions are the record (control-plane-side; the record L6
+  reads). A protocol's messages are delivered in L2's shared order and
+  folded live; they are not recorded; whether delivery precedes
+  durability is realization
   (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 - **Addressing (L3).** A conversation id is the routing handle — an opaque
   group handle. Membership changes are delivered in-band, ordered against
@@ -187,10 +187,10 @@ protocol messages at all.
 
 ```mermaid
 flowchart LR
-  subgraph Rounds["Protocol messages - committed, effect-free, bodies droppable once resolved"]
+  subgraph Rounds["L2 delivery - protocol messages, ordered and folded live, never stored"]
     P[begin] --> K[acks] --> X[updates] --> S[signatures]
   end
-  subgraph Ledger["Committed transactions - durable, canonical, hash-chained"]
+  subgraph Ledger["L3 ledger - recorded actions, durable, hash-chained"]
     T1[T1] --> T2[T2] --> T3[T3]
   end
   S -- "one atomic multi-signed commit" --> T3
@@ -202,7 +202,7 @@ bodies persist), one open transaction per conversation, holder-only
 abort with a superseding grant as the group's remedy, participants
 contributing as unlocked protocol messages the leader embeds, the cut
 derived from the deciding ack, and the retention floor above. What
-stays the charter's: the round entry-type names, the shape
+stays the charter's: the action vocabulary, the shape
 constraints on a norm's ack rule, and TTL magnitudes.
 
 ## Wire surface
@@ -235,7 +235,7 @@ this plane's interface, owned by the testbed (the runtimes-to-testbed
 extraction, #779): same guarantees, plus envelope-level observation and
 bounded fault injection. Its rules:
 
-- **May observe:** envelope-level delivery events and op lifecycle (accepted,
+- **May observe:** envelope-level delivery events and action lifecycle (accepted,
   ordered, delivered), with timing; terminal-state vocabulary is deferred to
   the charter's completion / failure clusters; body observation follows the
   deployment's encryption posture (open, below).
@@ -272,7 +272,7 @@ callbacks. Destinations, power by power:
 |---|---|
 | Message-authorize hook (per-message forward/block verdict) | Abolished. The plane delivers; inbound screening is endpoint L5. |
 | Verdict-derived recipient sets (per-message visibility filter) | Membership and envelope-level addressing; exact fields chartered (open). |
-| Dispatch-authorize hook (moderator grants/denies/holds a turn) | Dissolved into the transaction's grant; which op and speaker come next is an L4/skill concern. |
+| Dispatch-authorize hook (moderator grants/denies/holds a turn) | Dissolved into the transaction's grant; which action and speaker come next is an L4/skill concern. |
 | Admission deny ejecting the participant | Abolished. Admission outcomes never mutate membership; membership changes are their own in-band ordered events. |
 | Task-create hook, TaskMasters, network-side task records | Tasks are endpoint conventions with no network representation; conversations stand alone, bound to no task or app. |
 | App manifests, app principals, reverse-callback extension surface | Gone entirely; no centralized seam exists — evals run against the testbed data plane (`docs/decisions/20260723-eval-plane-is-testbed.md`). |
@@ -316,8 +316,8 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 1. Routing and admission read envelope fields only, never bodies.
 2. The plane never mints, alters, or strips L1 attribution.
 3. Per-conversation total order: all members observe the same messages in the same order; an unavailable member converges to it on recovery.
-4. Atomic commit: an entry is committed for every member or for none; an acknowledgment implies commitment; protocol messages are ordered and attributed but effect-free.
-5. Turn-disciplined effect: no entry takes effect unless its grant precedes it in the shared order, and at most one transaction is open per conversation; endpoints hold the grant before generating. Protocol messages are admitted without a grant and carry no effect.
+4. Atomic commit: an action is committed for every member or for none; an acknowledgment implies commitment; a protocol's messages are delivered and folded live, never recorded.
+5. Turn-disciplined effect: no action is recorded unless its grant preceded it in L2's shared order, and at most one transaction is open per conversation; endpoints hold the grant before generating. A protocol's messages need no grant and are never recorded.
 6. Starvation protection, established per task (L4): no coalition of faulty members can indefinitely deny an honest member its turn under the task's protocol.
 7. Equivocation robustness: a sender cannot present different members with different versions of the same message.
 8. Membership changes are in-band events, ordered against message flow.
@@ -335,18 +335,18 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 - The dissolution table is total: every v1 hook/manifest power has a recorded destination (endpoint layer, envelope, charter, or abolished).
 - Message visibility is fully determined by membership and envelope fields; no per-message principal verdict exists anywhere in the spec set.
 - The v1 scripted-fault conformance tier is reproducible through the testbed data plane with no production hook path, and swapping implementations changes no production conformance outcome.
-- Both case studies' scheduling flows are expressible as op sequences with no testbed dependency — verified under the collective-semantics charter's acceptance.
+- Both case studies' scheduling flows are expressible as action sequences with no testbed dependency — verified under the collective-semantics charter's acceptance.
 
 ## Open questions
 
 1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — the collective-semantics charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
-2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes what remains: the round entry-type names, the shape constraints a norm's ack rule must satisfy, TTL magnitudes, and ARCHIVE's meaning. Embed-vs-reference, abort authority, participant carriage, the cut, overlapping transactions, and the retention floor are recorded consequences of the skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
+2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes what remains: the action vocabulary, the shape constraints a norm's ack rule must satisfy, TTL magnitudes, and ARCHIVE's meaning. Embed-vs-reference, abort authority, participant carriage, the cut, overlapping transactions, and the retention floor are recorded consequences of the skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe per-recipient delivery status, or is recovery-convergence the whole guarantee beyond the commit acknowledgment?
 5. Closed by the recorded correctness skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`): lock and transaction state are folds over the shared order, reconstructed by re-folding after any restart — no durable lease table, no wire-visible restart semantics. Number retained.
 6. Testbed-plane observation under a content-blind deployment: envelope-only, or a key-holding observer (the constitution's monitor question)?
 7. Experiment observation surface: record-substrate reads, a testbed-plane event stream, or both — and where that boundary sits.
-8. Wire discipline for op envelopes (closed-struct / excess-key rejection) — `v2/VISION.md` register item 9.
+8. Wire discipline for action envelopes (closed-struct / excess-key rejection) — `v2/VISION.md` register item 9.
 9. Closed by recorded decision (`docs/decisions/20260723-eval-plane-is-testbed.md`): no centralized middleware exists — the eval seam is the testbed data plane, and clause 2 carries no exception. Number retained so question 10's external citations stay valid.
 10. The wire surface: the send call shape; the delivery model (endpoint-initiated reads, held-open responses, or another shape); the feed's scope (per-conversation vs endpoint-wide) and its resume semantics — bounded by the sessionless, plane-split, and single-credential decisions.
 
@@ -358,7 +358,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
   `docs/decisions/20260721-sessionless-network.md` — the wire-surface
   decisions; `docs/decisions/20260722-data-plane-layering.md` — plane
   layering and the interim wire.
-- #765 — the collective-semantics charter: op clusters, four
+- #765 — the collective-semantics charter: action clusters, four
   paper-required constraints, the superseded MULTICAST-only scope, maintainer
   transcript-plus-leases sketch. #755 — v2 epic.
 - `v2/inputs/v1-code-audit-20260717.md` (delivery-path and hook-machinery map);
