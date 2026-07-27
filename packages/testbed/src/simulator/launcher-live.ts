@@ -60,6 +60,7 @@ import {
   type AgentName,
 } from "./run-spec.js";
 import type { MountHandle } from "./environment.js";
+import type { Secrets } from "./recording.js";
 import type {
   LaunchDeps,
   LaunchedAgent,
@@ -786,7 +787,7 @@ function launchOneAgent(
       agentId: minted.agentId,
     });
     const ready = yield* runtime.waitUntilReady(spec.timeouts.readyTimeoutMs);
-    yield* readyOrFail(agent.name, runtime, ready);
+    yield* readyOrFail(agent.name, runtime, deps.secrets, ready);
     yield* enqueueLifecycle(deps, {
       _tag: "agent.ready",
       agent: agent.name,
@@ -850,13 +851,22 @@ function agentLaunchFailed(
 /**
  * Append the tail of a child's output to a failure detail.
  *
- * The attached text reaches the recording through `AgentLaunchFailed`'s
- * `detail` and `message`, both of which seal through the run's secret
- * redaction — which is what makes it safe to carry raw child output that
- * may quote the credentials the launcher minted for it.
+ * Redaction runs before the cut, not after. The seal redacts whole
+ * registered values, so a cut that lands inside one of the credentials
+ * the launcher minted would leave a fragment that matches no registered
+ * value and seals in the clear. Cutting redacted text can only ever
+ * split a `[REDACTED:kN]` marker.
  */
-function attachChildOutput(detail: string, output: string): string {
-  const tail = output.trimEnd().slice(-CHILD_OUTPUT_TAIL_CHARS).trimStart();
+function attachChildOutput(
+  detail: string,
+  output: string,
+  secrets: Pick<Secrets, "redact">,
+): string {
+  const tail = secrets
+    .redact(output)
+    .trimEnd()
+    .slice(-CHILD_OUTPUT_TAIL_CHARS)
+    .trimStart();
   return tail.length === 0
     ? detail
     : `${detail}; last output from the agent process:\n${tail}`;
@@ -872,6 +882,7 @@ function attachChildOutput(detail: string, output: string): string {
 export function readyOrFail(
   slot: AgentName,
   runtime: Pick<Runtime, "getLogs">,
+  secrets: Pick<Secrets, "redact">,
   ready: ReadyOutcome,
 ): Effect.Effect<void, AgentLaunchFailed, never> {
   switch (ready._tag) {
@@ -885,6 +896,7 @@ export function readyOrFail(
           attachChildOutput(
             `no authenticated connection within ${String(ready.timeoutMs)}ms`,
             runtime.getLogs(LOG_START_OFFSET).text,
+            secrets,
           ),
         ),
       );
@@ -896,6 +908,7 @@ export function readyOrFail(
           attachChildOutput(
             `exit code ${String(ready.exitCode)}`,
             ready.stderr,
+            secrets,
           ),
         ),
       );
