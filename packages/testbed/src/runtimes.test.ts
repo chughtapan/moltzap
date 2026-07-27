@@ -1,5 +1,6 @@
 import { FileSystem, Path } from "@effect/platform";
 import type { Signal } from "@effect/platform/CommandExecutor";
+import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
 import { tmpdir } from "node:os";
 import { describe, it, expect, vi } from "vitest";
@@ -10,6 +11,7 @@ import {
   Fiber,
   Option,
   Redacted,
+  Schema,
   Scope,
 } from "effect";
 import {
@@ -27,6 +29,7 @@ import { OpenClawSchema } from "openclaw/plugin-sdk/config-schema";
 import {
   buildOpenClawConfig,
   buildOpenClawProcessPlan,
+  configureOpenClawStateDir,
   createOpenClawAdapter,
   OpenClawAdapter,
   type OpenClawAdapterDeps,
@@ -164,6 +167,23 @@ const DISABLED_MDNS_MODE = "off";
 // openclaw treats this file's presence in a workspace as "onboarding pending".
 const OPENCLAW_BOOTSTRAP_FILENAME = "BOOTSTRAP.md";
 const OPENCLAW_STATE_DIR_VAR = "OPENCLAW_STATE_DIR";
+const OPENCLAW_HOME_VAR = "OPENCLAW_HOME";
+const OPENCLAW_WORKSPACE_DIRNAME = "workspace";
+const OPENCLAW_SCRATCH_FILENAME = "notes.txt";
+// Where openclaw keeps the attestation the adapter's sentinel occupies. The
+// blocked arm below asserts this is the path openclaw reads, so a rename here
+// or in the adapter's derivation fails rather than passing quietly.
+const OPENCLAW_ATTESTATION_DIRNAME = "workspace-attestations";
+
+// openclaw stamps this code on the throw its workspace-vanished guard raises.
+const decodeWorkspaceVanished = Schema.decodeUnknown(
+  Schema.Struct({ code: Schema.Literal("WORKSPACE_VANISHED") }),
+);
+
+type WorkspaceTurn = "ok" | "vanished";
+
+/** What occupies openclaw's attestation path before the turns run. */
+type AttestationSentinel = "adapter" | "blocked" | "none";
 
 describe("buildOpenClawConfig", () => {
   it("keys the moltzap account under the testbed profile", () => {
@@ -269,7 +289,7 @@ function bootstrapPromptSeeded(
         prefix: "testbed-openclaw-state-",
       });
       yield* scopedOpenClawStateDir(stateDir);
-      const workspaceDir = path.join(stateDir, "workspace");
+      const workspaceDir = path.join(stateDir, OPENCLAW_WORKSPACE_DIRNAME);
 
       yield* Effect.tryPromise(() =>
         ensureAgentWorkspace({ dir: workspaceDir, ensureBootstrapFiles }),
@@ -283,19 +303,176 @@ function bootstrapPromptSeeded(
 }
 
 // Seeding a workspace writes an attestation next to openclaw's state, which
-// defaults to the operator's own `~/.openclaw` and is never cleaned up. Point
-// it inside the scoped temp dir so the test leaves nothing behind.
+// defaults to the operator's own `~/.openclaw` and is never cleaned up.
+// `OPENCLAW_HOME` moves the legacy state dirs openclaw also consults, so both
+// are pointed inside the scoped temp dir and the test leaves nothing behind.
 function scopedOpenClawStateDir(
   stateDir: string,
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.acquireRelease(
     Effect.sync(() => {
       vi.stubEnv(OPENCLAW_STATE_DIR_VAR, stateDir);
+      vi.stubEnv(OPENCLAW_HOME_VAR, stateDir);
     }),
     () =>
       Effect.sync(() => {
         vi.unstubAllEnvs();
       }),
+  );
+}
+
+describe("configureOpenClawStateDir attestation sentinel", () => {
+  it(
+    "keeps openclaw serving turns after an agent empties its own workspace",
+    expectWorkspaceTurns("adapter", ["ok", "ok", "ok", "ok"]),
+  );
+
+  // The control. Openclaw attests a workspace the moment it holds content, and
+  // never withdraws the attestation, so without the sentinel one
+  // create-then-delete makes every later turn of the episode throw.
+  it(
+    "reproduces the guard's permanent throw with no sentinel in place",
+    expectWorkspaceTurns("none", ["ok", "ok", "vanished", "vanished"]),
+  );
+
+  // The inversion, and the reason the sentinel has to be a directory.
+  // `hasRecentWorkspaceAttestation` reads the primary path as attested
+  // whenever it fails for anything other than ENOENT, so blocking that path
+  // arms the guard on the first turn rather than disarming it.
+  it(
+    "arms the guard when the attestation path is blocked instead of occupied",
+    expectWorkspaceTurns("blocked", ["vanished", "ok", "vanished", "vanished"]),
+  );
+});
+
+function expectWorkspaceTurns(
+  sentinel: AttestationSentinel,
+  expected: ReadonlyArray<WorkspaceTurn>,
+) {
+  return () =>
+    runTest(
+      workspaceTurnsUnder(sentinel).pipe(
+        Effect.map((turns) => {
+          expect(turns).toEqual(expected);
+        }),
+      ),
+    );
+}
+
+// Drives the real `ensureAgentWorkspace` through the sequence an agent that
+// writes a scratch file and later removes it produces, on the gate the adapter
+// derives from `skipBootstrap`.
+function workspaceTurnsUnder(
+  sentinel: AttestationSentinel,
+): Effect.Effect<ReadonlyArray<WorkspaceTurn>, never, never> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "testbed-openclaw-state-",
+      });
+      yield* scopedOpenClawStateDir(stateDir);
+      const workspaceDir = path.join(stateDir, OPENCLAW_WORKSPACE_DIRNAME);
+      yield* fileSystem.makeDirectory(workspaceDir, { recursive: true });
+      yield* applyAttestationSentinel(sentinel, stateDir);
+
+      const scratchFile = path.join(workspaceDir, OPENCLAW_SCRATCH_FILENAME);
+      const mutations = [
+        Effect.void,
+        fileSystem.writeFileString(scratchFile, "notes"),
+        fileSystem.remove(scratchFile),
+        Effect.void,
+      ];
+
+      return yield* Effect.forEach(
+        mutations,
+        (mutate) =>
+          mutate.pipe(Effect.zipRight(ensureWorkspaceTurn(workspaceDir))),
+        { concurrency: 1 },
+      );
+    }),
+  ).pipe(Effect.provide(NodeContext.layer), Effect.orDie);
+}
+
+function applyAttestationSentinel(
+  sentinel: AttestationSentinel,
+  stateDir: string,
+): Effect.Effect<
+  void,
+  unknown,
+  FileSystem.FileSystem | Path.Path | Scope.Scope
+> {
+  switch (sentinel) {
+    case "adapter":
+      return configureStateDirThroughAdapter(stateDir);
+    case "blocked":
+      return configureStateDirThroughAdapter(stateDir).pipe(
+        Effect.zipRight(blockOpenClawAttestationPath(stateDir)),
+      );
+    case "none":
+      return Effect.void;
+    default:
+      return absurd(sentinel);
+  }
+}
+
+// Entering through the adapter's own state-dir setup is what puts the
+// production derivation under test: a sentinel the adapter stops writing, or
+// writes at a path openclaw does not read, shows up as a throw below.
+function configureStateDirThroughAdapter(
+  stateDir: string,
+): Effect.Effect<
+  void,
+  unknown,
+  FileSystem.FileSystem | Path.Path | Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const fixture = yield* createOpenClawChannelFixture();
+    yield* configureOpenClawStateDir(
+      { ...stubDeps(), channelDistDir: fixture.channelDist },
+      stubSpawnInput(),
+      stateDir,
+    );
+  });
+}
+
+// Leaves a file where openclaw expects the directory holding its attestation,
+// so every read of that path fails with ENOTDIR rather than ENOENT.
+function blockOpenClawAttestationPath(
+  stateDir: string,
+): Effect.Effect<void, PlatformError, FileSystem.FileSystem | Path.Path> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const attestationDir = path.join(stateDir, OPENCLAW_ATTESTATION_DIRNAME);
+    yield* fileSystem.remove(attestationDir, { recursive: true, force: true });
+    yield* fileSystem.writeFileString(attestationDir, "");
+  });
+}
+
+// Openclaw throws its own Error subclass out of `ensureAgentWorkspace`, so the
+// code it stamps on the throw is the only contract this test can hold it to.
+// Anything else keeps its original error rather than collapsing into a turn
+// outcome, so an unrelated failure reports itself instead of the assertion.
+function ensureWorkspaceTurn(
+  workspaceDir: string,
+): Effect.Effect<WorkspaceTurn, unknown, never> {
+  return Effect.tryPromise({
+    try: () =>
+      ensureAgentWorkspace({
+        dir: workspaceDir,
+        ensureBootstrapFiles: false,
+      }),
+    catch: (thrown) => thrown,
+  }).pipe(
+    Effect.as<WorkspaceTurn>("ok"),
+    Effect.catchAll((thrown) =>
+      decodeWorkspaceVanished(thrown).pipe(
+        Effect.as<WorkspaceTurn>("vanished"),
+        Effect.orElseFail(() => thrown),
+      ),
+    ),
   );
 }
 
@@ -602,7 +779,7 @@ function openClawProcessSpawnFailureCleansState() {
     Effect.scoped(
       Effect.gen(function* () {
         const path = yield* Path.Path;
-        const fixture = yield* createOpenClawSpawnFailureFixture();
+        const fixture = yield* createOpenClawChannelFixture();
 
         const stateDirsBefore = yield* listTestStateDirs(
           PROCESS_SPAWN_AGENT_NAME,
@@ -642,12 +819,12 @@ function openClawProcessSpawnFailureCleansState() {
   );
 }
 
-function createOpenClawSpawnFailureFixture() {
+function createOpenClawChannelFixture() {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const root = yield* fileSystem.makeTempDirectory({
-      prefix: "testbed-openclaw-spawn-fixture-",
+      prefix: "testbed-openclaw-channel-fixture-",
     });
     yield* Effect.addFinalizer(() =>
       fileSystem
@@ -662,7 +839,7 @@ function createOpenClawSpawnFailureFixture() {
       fileSystem.writeFileString(
         path.join(channelPackage, "package.json"),
         JSON.stringify({
-          name: "testbed-openclaw-spawn-fixture",
+          name: "testbed-openclaw-channel-fixture",
           type: "module",
           dependencies: {},
         }),
