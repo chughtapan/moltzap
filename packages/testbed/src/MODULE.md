@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createOpenClawAdapter`](./openclaw-adapter.ts#L576)
+### [`createOpenClawAdapter`](./openclaw-adapter.ts#L636)
 
 _Function_
 
@@ -300,7 +300,7 @@ export interface NanoclawAdapterOptions {
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L479)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L539)
 
 _Class_
 
@@ -414,7 +414,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L176)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L181)
 
 _Interface_
 
@@ -427,7 +427,7 @@ export interface OpenClawAdapterDeps {
 }
 ```
 
-### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L183)
+### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L188)
 
 _Interface_
 
