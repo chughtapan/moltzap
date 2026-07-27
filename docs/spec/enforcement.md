@@ -25,9 +25,9 @@ monitors and registries in a given deployment.
   any party that trusts the registry and the store. Evidentiary strength
   beyond that trust anchor is the key-model question (register item 5: rotation and revocation).
 - **Monitors (L6)** hold a global read view over records. Their access shape
-  under a content-blind plane is register item 3 — key-holding L1 parties,
-  operator-mediated, or another shape — mirrored at `control-plane.md`
-  invariant 7 (the plane knows exactly two caller classes).
+  under a content-blind plane is register item 3 — key-holding L1 parties or
+  another shape — mirrored at `control-plane.md` invariant 7 (the plane knows
+  exactly one caller class, so a monitor reads as an identity or not at all).
 - **A monitor is a deterministic contract; judgment is testimony**
   (`docs/decisions/20260724-monitors-are-deterministic-contracts.md`).
   A monitor is a pinned, terminating, deterministic program over the

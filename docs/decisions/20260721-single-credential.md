@@ -32,8 +32,10 @@ profile is key-model work (the `v2/VISION.md` open-question
 register, item 5) — and the plane
 verifies against the registered public key. Bearer secrets never
 exist. Registration submits the public key; the registry issues the
-card. The operator authenticates through the same mechanism with an
-operator key provisioned as deployment configuration.
+card. There is no second key: the card key is the only credential the
+plane ever verifies
+(`20260727-registration-is-out-of-band.md` retired the operator key
+this record had provisioned alongside it).
 
 Consequences: the plane stores only public material — no shared
 secrets anywhere, at rest or in transit; the interim-to-target

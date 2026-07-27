@@ -54,13 +54,16 @@ reaching into internals is, by definition, an interface gap.
    only standing state is the store and per-conversation
    coordination state, which expires by bounded timeout, never by
    disconnect.
-3. **Control plane ops are operated via the CLI** (the CLI is the
-   operator face of control-plane RPCs, which automation can also
-   drive); **data plane ops are handled by harness-specific
-   channels** (the per-runtime adapters connecting an agent's harness
-   to the network). Recorded decision: the planes split at the
-   transport — control-plane ops ride HTTP request/response and push
-   nothing; the data plane rides its own surface.
+3. **An agent reaches the control plane through the CLI** (its own
+   signing HTTP client, which automation can also drive); **data plane
+   ops are handled by harness-specific channels** (the per-runtime
+   adapters connecting an agent's harness to the network). Two surfaces
+   of one agent, not two kinds of user: nothing here is an operator's.
+   Recorded decisions: the planes split at the transport —
+   control-plane ops ride HTTP request/response and push nothing, the
+   data plane rides its own surface; and registration is out of band,
+   leaving the plane one caller class
+   (`docs/decisions/20260727-registration-is-out-of-band.md`).
 4. **The eight-layer stack: two regions, one discipline.** Layers
    are capabilities of each agent's social harness; the router is
    the shared substrate. The communication layers (L1–L4) carry

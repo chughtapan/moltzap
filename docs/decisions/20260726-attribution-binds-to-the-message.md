@@ -68,6 +68,7 @@ revocation, the key model proper. How a signature binds to a message
 is answered here.
 
 Supersedes `20260723-interim-signature-profile.md` on the binding and
-its covered components; the profile's algorithm choice (Ed25519), the
-keyid convention (`moltzap://agent/<id>`), and the operator-key
-provisioning stand.
+its covered components; the profile's algorithm choice (Ed25519) and
+keyid convention (`moltzap://agent/<id>`) stand. The operator key it
+also carried forward is retired separately by
+`20260727-registration-is-out-of-band.md`.

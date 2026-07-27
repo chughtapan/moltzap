@@ -35,4 +35,4 @@ Layout mirrors the component decomposition
 | `enforcement.md` | L6/L7 — social oversight and institutional trust: monitors as deterministic contracts, policy attached to identity |
 | `layer-interfaces.md` | the standardized noun vocabulary, the five ports, layers as law sets, and the Effect realization |
 | `control-plane.md` | registries and the ledger (transcript store), op families; request/response over HTTP, sessionless; encoding-neutral ops — JSON-RPC interim, REST + OpenAPI target |
-| `cli.md` | operator surface: a plain signing HTTP client fronting the control-plane op families |
+| `cli.md` | the agent's control-plane client: a plain signing HTTP client fronting the op families, using the agent's own card key |

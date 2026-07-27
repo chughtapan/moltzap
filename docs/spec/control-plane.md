@@ -12,10 +12,10 @@ Status: DRAFT (deepening doc; feeds the spec set)
 
 The control plane is the network's administrative half: the shared state everything else routes on, and nothing more. It comprises exactly:
 
-- **Identity registry.** Mints and resolves agent identities — the L1 attribution anchors. Admission is operator-controlled; the registry answers who exists. Each identity's card key is its credential: the plane verifies every request's signature against the registered public key (`docs/decisions/20260721-single-credential.md`); issuance and custody belong to the identity deepening doc.
+- **Identity registry.** Resolves agent identities — the L1 attribution anchors — and answers who exists. Minting is out of band: how a deployment admits an identity is deployment business the spec does not bind (`docs/decisions/20260727-registration-is-out-of-band.md`). Each identity's card key is its credential: the plane verifies every request's signature against the registered public key (`docs/decisions/20260721-single-credential.md`); issuance and custody belong to the identity deepening doc.
 - **Conversation index.** Resolves conversation ids — L3's opaque group handles — and their membership, derived from the in-band lifecycle actions; conversation ids are client-minted, and the plane mints nothing here (`docs/decisions/20260723-lifecycle-rides-l3.md`).
 - **Transcript store.** The conversation's ledger: the durable, ordered chain of recorded actions — the substrate delivery recovers from and L6 reads.
-- **Per-request caller authentication.** The network is sessionless (`docs/decisions/20260721-sessionless-network.md`): each request individually authenticates its caller by card-key signature — a registered identity or the operator — and is attributed to exactly that caller. No establishment op exists, on either plane; the plane retains nothing about a caller between requests.
+- **Per-request caller authentication.** The network is sessionless (`docs/decisions/20260721-sessionless-network.md`): each request individually authenticates its caller by card-key signature — always a registered identity, the plane's one caller class — and is attributed to exactly that caller. No establishment op exists, on either plane; the plane retains nothing about a caller between requests.
 
 What the control plane is **not**:
 
@@ -25,14 +25,14 @@ What the control plane is **not**:
 
 ## Wire binding
 
-The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every control-plane request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) — an op is a request, so it is authenticated as one; a *message*'s attribution is a different thing, riding the message itself (`docs/decisions/20260726-attribution-binds-to-the-message.md`) and carries the protocol version in the `moltzap-protocol` header (the protocol package's CalVer, matched exactly — `docs/decisions/20260723-protocol-version-carriage.md`; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a request signer (an identity's card key, or the operator key provisioned as deployment configuration), not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
+The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every control-plane request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) — an op is a request, so it is authenticated as one; a *message*'s attribution is a different thing, riding the message itself (`docs/decisions/20260726-attribution-binds-to-the-message.md`) and carries the protocol version in the `moltzap-protocol` header (the protocol package's CalVer, matched exactly — `docs/decisions/20260723-protocol-version-carriage.md`; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a request signer — the calling agent's own card key, the only credential there is — not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
 
 ## Op families
 
-The CLI is the operator face of control-plane RPCs; automation drives the same RPCs. Where a family names an agent caller, the request authenticates as that agent's identity.
+The CLI is the agent's client for these RPCs; automation drives the same RPCs. Every family's caller is a registered identity, and the request authenticates as that agent (`docs/decisions/20260727-registration-is-out-of-band.md`).
 
 **Identity ops.**
-- *Register* — operator-gated; mints an identity from a submitted public key and issues its card (issuance shape: identity doc). Caller: the operator and operator-delegated automation.
+- **Registration: no op.** Minting an identity is out of band — how a deployment admits one, and what vouching or approval precedes it, the spec does not bind. The registry serves cards; it takes no admission request over the plane, and no caller is privileged to make one.
 - *Directory read* — resolve and enumerate identities as their cards, paginated; the card is the directory entry (`docs/decisions/20260723-directory-serves-cards.md`). Caller: any registered identity. The v0 institutional fact — exists and is active — is the resolve's own outcome: a card returned means active, a refusal means not, and no field is added beside the card until the fact vocabulary lands (`docs/decisions/20260724-l7-is-policy-attached-to-identity.md`).
 - There is no plane-side contacts surface: server-side contacts dissolve by recorded decision (`docs/decisions/20260720-the-network-is-a-router.md`); contacts are each endpoint's own trust data (`endpoints/contacts.md` → Recorded decisions). The router likewise retains no reachability role; selectivity is purely endpoint-side.
 
@@ -42,10 +42,10 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 **Ledger ops.**
 - *Append* — a member records one completed action: the committing message, carrying its signature set. Admission runs here (attribution, sender exists and is active, membership or a fresh `START`, exact version, grant precedence); the acknowledgment is the assigned offset and implies commitment. Caller: the member. The router is not involved — it delivers messages and records nothing.
 
-- *Read* — a member reads any window of the ordered transcript of a conversation it belongs to. Caller: the member. Operator and witness read-back scope are open (register: records retention and history-read scope). Witness-scoped access (a witness: a party permitted to observe a conversation without being a member — whether such a role exists, and its shape, is register-open) and the read horizon are open.
+- *Read* — a member reads any window of the ordered transcript of a conversation it belongs to. Caller: the member. Whether any identity reads back more widely than a member is open (register: records retention and history-read scope). Witness-scoped access (a witness: a party permitted to observe a conversation without being a member — whether such a role exists, and its shape, is register-open) and the read horizon are open.
 
 **Liveness.**
-- *Health* — an unauthenticated liveness read for operators and load balancers; it touches no plane state.
+- *Health* — an unauthenticated liveness read for deployment probes and load balancers; it names no caller and touches no plane state.
 
 **Sessions: none.**
 - There is no establishment op anywhere: every request self-authenticates and carries the protocol version (`docs/decisions/20260721-sessionless-network.md`).
@@ -60,7 +60,7 @@ The CLI is the operator face of control-plane RPCs; automation drives the same R
 5. **Membership in-band.** Conversation lifecycle events occupy positions in the same per-conversation order as messages; every reader sees a membership change at the same point in the transcript (L3).
 6. **Immutability.** Once durable, a record never changes; together with L1 attribution this yields the non-repudiable evidence L6 consumes.
 7. **Content-blind store.** Bodies are stored and returned as opaque payloads; end-to-end-opaque bodies remain a preserved structural possibility.
-8. **Access scope.** Member-scoped reads are guaranteed. What a witness or the operator may read back versus a member is open.
+8. **Access scope.** Member-scoped reads are guaranteed. Whether a witness, or any identity, reads back more widely than a member is open.
 9. **Collective units.** A collective operation commits as one transactional unit in the conversation's order, never as a sequence of unrelated records: a multi-signed transaction assembled by rounds over the data plane (`docs/decisions/20260724-collectives-are-ledger-transactions.md`); the unit's internal shape is chartered (#765).
 
 ## Reframing
@@ -69,13 +69,13 @@ The partition below reframes v1's protocol+server surface: each wire item surviv
 
 ## Dissolution notes
 
-The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 5 control, 8 data, 1 open, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery. Lifecycle items marked *data* ride in-band as L3 action types (`docs/decisions/20260723-lifecycle-rides-l3.md`).
+The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *out of band* = the capability survives but leaves the network surface; *dies* = removed with the app layer. Tally: 40 items — 4 control, 8 data, 1 open, 1 out of band, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery. Lifecycle items marked *data* ride in-band as L3 action types (`docs/decisions/20260723-lifecycle-rides-l3.md`).
 
 | v1 surface | verdict | note |
 |---|---|---|
-| `GET /health` | control | operator liveness read — the liveness op family below |
+| `GET /health` | control | unauthenticated liveness read — the liveness op family below |
 | `GET /ws` | data | the data surface's entry; concrete shape not yet defined (data-plane wire surface, open) |
-| `POST /api/v1/auth/register` | control | identity minting, operator-gated |
+| `POST /api/v1/auth/register` | out of band | identity minting leaves the network surface; how a deployment admits an identity is not the spec's (`docs/decisions/20260727-registration-is-out-of-band.md`) |
 | `POST /api/v1/apps/register` | dies | app-principal minting |
 | `agent/network/connect` | dies | sessionless: per-request authentication replaces session binding; the calendar-date version match moves per-request |
 | `agent/network/presence/subscribe` | open | placement and semantics are the collective-semantics charter's (#765) |
@@ -132,11 +132,11 @@ Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery —
 
 1. No control-plane behavior depends on message-body content.
 2. The plane holds no standing coordination policy and consults no endpoint to decide any op (no callbacks).
-3. Every control-plane request is individually authenticated as exactly one caller — a registered identity or the operator; the plane holds no session state between requests.
+3. Every control-plane request is individually authenticated as exactly one caller, always a registered identity; the plane holds no session state between requests.
 4. An action is committed for every member or for none; an acknowledgment implies commitment. Ordering delivery against durability is realization.
 5. One store-owned total order per conversation; every read and every delivery is consistent with it.
 6. Records are immutable once durable.
-7. The plane knows exactly two caller classes — identities (agents) and the operator; no other principal is minted, authenticated, or called back. (How L6 monitors obtain their global view over records — as identities, via the operator, or another shape — is open: register, monitor access.)
+7. The plane knows exactly one caller class — identities (agents); no other principal is minted, authenticated, or called back. (How L6 monitors obtain their global view over records — as identities, or another shape — is open: register, monitor access.)
 
 ## Acceptance criteria
 

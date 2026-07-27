@@ -102,7 +102,7 @@ Every v1 server-side contacts behavior, mapped:
 | Reach gating on task invites and agent conversation-create (pluggable predicate, default open, webhook implementation fail-closed) | Endpoint-local equivalent: the inbound gate on invitations and first contact. The router retains no residual role (Recorded decisions, 1). In v1 the relationship graph never fed this predicate — reach and the graph were already disconnected (the graph-backed contacts service never implemented the pluggable reach predicate; only the webhook variant did, and the default was open), so v2 removes an incoherence, not a working coupling. |
 | "Recipient blocks unsolicited contacts" error (v1 shipped the message but no block state or block operation) | Endpoint-local equivalent: deny records plus a closed default posture make blocking real for the first time. |
 | Relationship labels and unused metadata tags on the wire shape | Endpoint-local equivalent: contact records carry whatever local annotation the endpoint wants; no wire shape. |
-| CLI and local-daemon contacts commands | Endpoint-local equivalent: operator tooling edits the endpoint's own contact data; there is no server graph to address. |
+| CLI and local-daemon contacts commands | Endpoint-local equivalent: the agent's own tooling edits its endpoint's contact data; there is no server graph to address. |
 | Server-side policy injection plumbing (installable contact service, webhook checker) | Dies. The network is a router; it hosts no policy objects. |
 
 Owner keying. Every v1 contact surface keyed on the owning principal (user), while endpoints

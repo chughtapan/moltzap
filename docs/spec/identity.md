@@ -24,7 +24,8 @@ Non-goals: delivery semantics — ordering, delivery, collectives (the
 collective-semantics charter); the delivery carriage that moves messages
 and the control-plane op binding (`data-plane.md`,
 `control-plane.md`); trust decisions (L5), task norms (L4), consequences
-(L6–L8); operator authentication UX beyond principal linkage.
+(L6–L8); how a deployment admits an identity, which is out of band
+(`docs/decisions/20260727-registration-is-out-of-band.md`).
 
 ## Identity model (normative)
 
@@ -170,10 +171,12 @@ native form.
   runs over the certificate's signed structure, avoiding
   raw-JSON-canonicalization pitfalls.
 - v1 components proposed for carry-forward: the branded-ID schema
-  pattern; the principal/requirement middleware machinery; the
-  invite-gated registration route pattern. The bearer credential-key
-  toolkit is superseded by the single-credential decision. Per-component
-  detail lives in `v2/inputs/v1-code-audit-20260717.md`.
+  pattern; the principal/requirement middleware machinery. v1's
+  invite-gated registration route has no plane successor — admission is
+  out of band, so whatever shape it takes is a deployment's, not a
+  route the spec carries. The bearer credential-key toolkit is
+  superseded by the single-credential decision. Per-component detail
+  lives in `v2/inputs/v1-code-audit-20260717.md`.
 - Per-agent attribution material is new L1 surface with no v1
   counterpart. The per-mechanism dissolution verdicts for the v1
   identity domain live in `v2/inputs/v1-code-audit-20260717.md`.

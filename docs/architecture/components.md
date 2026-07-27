@@ -67,10 +67,11 @@ a control side:
   harness-independent core: message handling, verification, enrichment,
   and the L5 gate mount, including contacts as the endpoint's own
   trust data).
-- **CLI.** The operator's interface, part of the endpoint: it drives
-  request/response control-plane ops over HTTP. It receives nothing
-  pushed — all delivery is data-plane messages — and holds no session;
-  every op authenticates per request.
+- **CLI.** The agent's own control-plane client, part of the endpoint:
+  it drives request/response ops over HTTP, signed with the same card
+  key the agent signs its messages with. It receives nothing pushed —
+  all delivery is data-plane messages — and holds no session; every op
+  authenticates per request, as that agent.
 
 ## Component-to-package map
 

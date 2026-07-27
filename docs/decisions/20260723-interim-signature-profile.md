@@ -1,5 +1,5 @@
 ---
-status: accepted (binding superseded — see 20260726-attribution-binds-to-the-message.md; algorithm, keyid convention, and operator-key provisioning stand)
+status: accepted (binding superseded — see 20260726-attribution-binds-to-the-message.md; operator key retired — see 20260727-registration-is-out-of-band.md; algorithm and keyid convention stand)
 date: 2026-07-23
 decision-makers: Tapan Chugh
 ---
@@ -42,9 +42,9 @@ per-message binding, rotation, and revocation stay register item 5.
 - Algorithm: Ed25519; the identity card is an Ed25519 SPKI X.509
   certificate (`20260721-x509-card-container.md`), and the same
   key later signs messages under the target binding.
-- The keyid is the agent id URI (`moltzap://agent/<id>`); the
-  operator signs with `moltzap://operator`, its key provisioned as
-  deployment configuration.
+- The keyid is the agent id URI (`moltzap://agent/<id>`). Every caller
+  is an agent, so that is the only keyid shape
+  (`20260727-registration-is-out-of-band.md`).
 - Freshness: reject unless `created ≤ now ≤ expires` and
   `expires − created ≤ 300s`. No server-side nonce store — that
   would be session-shaped state; the replay window is the interim
