@@ -25,7 +25,7 @@
  * ```
  */
 import { resolve } from "node:path";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { absurd } from "effect/Function";
 import { decodeEvent, type SimulatorEvent } from "../simulator/event-log.js";
 import {
@@ -37,7 +37,11 @@ import {
   type SealMarker,
   type TracesJson,
 } from "../simulator/index.js";
-import type { AgentName } from "../simulator/run-spec.js";
+import type {
+  AgentName,
+  JsonValue as JsonValueType,
+  PrincipalName,
+} from "../simulator/run-spec.js";
 import {
   RecordingInvalid,
   RecordingUnsealed,
@@ -110,12 +114,13 @@ export type GradingPreconditions = {
 };
 
 /**
- * Server-registered agent id to the slot name the spec declared. Ids the
- * run never launched — principals speaking into a conversation — are
- * absent by design; a caller that finds no entry is looking at a sender
- * the society did not spawn.
+ * Server-registered sender id to the name the spec declared for it: a
+ * slot name for an agent the run launched, a principal name for a
+ * principal that spoke. Both identities are minted at run time, so a
+ * caller that finds no entry is looking at a sender no event in the
+ * recording accounts for.
  */
-export type SenderAttribution = ReadonlyMap<string, AgentName>;
+export type SenderAttribution = ReadonlyMap<string, AgentName | PrincipalName>;
 
 /**
  * A recording that passed every stage-1 check. `seal` and `result` are
@@ -345,35 +350,143 @@ function checkConversationSeq(
 }
 
 /**
- * Join transcript senders to the slot names the spec declared, through the
- * identities the launcher provisioned and recorded on `agent.ready`. Ids
- * do not exist when the manifest persists, which is why the join reads
- * events rather than the manifest's slots.
+ * Join transcript senders to the names the spec declared, through the
+ * identities the run minted. Neither id exists when the manifest
+ * persists, which is why both joins read events rather than slots.
+ *
+ * An agent's identity is provisioned before its runtime starts and
+ * announced on `agent.ready`, so that event names it directly. A
+ * principal's is minted on its first speech and announced nowhere: the
+ * only record binding it to a spec name is `step.spoken`, which carries
+ * the principal and the id of the message that speech produced. Matching
+ * that id against the transcript names the principal's sender id, and
+ * from then on every row it sent is named — including rows no step
+ * spoke, such as the task request that opens a conversation.
+ *
+ * Both joins feed one map, so a name reaches a grader the same way
+ * whichever side of the society spoke.
  */
 function attributeSenders(
   timeline: ReadonlyArray<SimulatorEvent>,
 ): Effect.Effect<SenderAttribution, RecordingInvalid, never> {
-  const byAgentId = new Map<string, AgentName>();
+  return principalByMessageId(timeline).pipe(
+    Effect.flatMap((spokenBy) => bindEveryClaim(timeline, spokenBy)),
+  );
+}
+
+function bindEveryClaim(
+  timeline: ReadonlyArray<SimulatorEvent>,
+  spokenBy: ReadonlyMap<string, PrincipalName>,
+): Effect.Effect<SenderAttribution, RecordingInvalid, never> {
+  const bySenderId = new Map<string, AgentName | PrincipalName>();
   for (const event of timeline) {
-    if (event._tag !== "agent.ready") continue;
-    const claimed = byAgentId.get(event.agentId);
-    if (claimed !== undefined && claimed !== event.agent) {
+    const claim = claimOf(event, spokenBy);
+    const conflict =
+      claim === undefined ? undefined : bindSender(bySenderId, claim);
+    if (conflict !== undefined) return Effect.fail(conflict);
+  }
+  return Effect.succeed(bySenderId);
+}
+
+/** One binding the recording states: this sender id belongs to this name. */
+type SenderClaim = {
+  readonly senderId: string;
+  readonly name: AgentName | PrincipalName;
+};
+
+function claimOf(
+  event: SimulatorEvent,
+  spokenBy: ReadonlyMap<string, PrincipalName>,
+): SenderClaim | undefined {
+  if (event._tag === "agent.ready") {
+    return { senderId: event.agentId, name: event.agent };
+  }
+  if (event._tag !== "transcript.message") return undefined;
+  const principal = spokenPrincipal(event.message, spokenBy);
+  return principal === undefined
+    ? undefined
+    : { senderId: event.senderId, name: principal };
+}
+
+/** The principal that spoke this body, when a recorded step names its message. */
+function spokenPrincipal(
+  message: JsonValueType,
+  spokenBy: ReadonlyMap<string, PrincipalName>,
+): PrincipalName | undefined {
+  // A run with no recorded speech has no join to make, and skipping the
+  // check here spares every transcript body a decode that cannot match.
+  if (spokenBy.size === 0) return undefined;
+  const messageId = messageIdOf(message);
+  return messageId === undefined ? undefined : spokenBy.get(messageId);
+}
+
+/**
+ * Bind one sender id to one name, reporting the conflict when the
+ * recording disagrees with itself about who spoke: every attribution it
+ * carries is then unsound rather than merely incomplete.
+ */
+function bindSender(
+  bySenderId: Map<string, AgentName | PrincipalName>,
+  claim: SenderClaim,
+): RecordingInvalid | undefined {
+  const claimed = bySenderId.get(claim.senderId);
+  if (claimed !== undefined && claimed !== claim.name) {
+    return new RecordingInvalid({
+      file: "events.ndjson",
+      issues: [
+        {
+          path: ["senderId"],
+          message: `sender id ${claim.senderId} is claimed by both ${claimed} and ${claim.name}`,
+        },
+      ],
+      message: `Sender id ${claim.senderId} is claimed by ${claimed} and ${claim.name}. The run mints one identity per agent slot and per principal, so transcript senders cannot be attributed from this recording.`,
+    });
+  }
+  bySenderId.set(claim.senderId, claim.name);
+  return undefined;
+}
+
+/**
+ * The principal each recorded speech step spoke as, keyed by the message
+ * it produced. Two steps claiming one message id would make the join
+ * order-dependent, so that is a refusal rather than a last-writer rule:
+ * the server mints one id per send, and a log that repeats one is
+ * describing a send that did not happen the way it says.
+ */
+function principalByMessageId(
+  timeline: ReadonlyArray<SimulatorEvent>,
+): Effect.Effect<ReadonlyMap<string, PrincipalName>, RecordingInvalid, never> {
+  const byMessageId = new Map<string, PrincipalName>();
+  for (const event of timeline) {
+    if (event._tag !== "step.spoken") continue;
+    const claimed = byMessageId.get(event.messageId);
+    if (claimed !== undefined && claimed !== event.principal) {
       return Effect.fail(
         new RecordingInvalid({
           file: "events.ndjson",
           issues: [
             {
-              path: ["agentId"],
-              message: `agent id ${event.agentId} is claimed by both ${claimed} and ${event.agent}`,
+              path: ["messageId"],
+              message: `message ${event.messageId} is spoken by both ${claimed} and ${event.principal}`,
             },
           ],
-          message: `Agent id ${event.agentId} is claimed by slots ${claimed} and ${event.agent}. Provisioning mints one identity per slot, so transcript senders cannot be attributed from this recording.`,
+          message: `Message ${event.messageId} is claimed by steps spoken as ${claimed} and ${event.principal}. One send produces one message id, so this log cannot say which principal spoke it.`,
         }),
       );
     }
-    byAgentId.set(event.agentId, event.agent);
+    byMessageId.set(event.messageId, event.principal);
   }
-  return Effect.succeed(byAgentId);
+  return Effect.succeed(byMessageId);
+}
+
+/** The wire message's own identity, the field both sides of the speech join share. */
+const MessageIdentity = Schema.Struct({ id: Schema.String });
+const decodeMessageIdentity = Schema.decodeUnknownOption(MessageIdentity);
+
+function messageIdOf(message: JsonValueType): string | undefined {
+  return Option.getOrUndefined(
+    Option.map(decodeMessageIdentity(message), (body) => body.id),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -402,5 +515,10 @@ export {
   RecordingInvalid,
 } from "../simulator/errors.js";
 
-export { AgentName, JsonValue, JsonObject } from "../simulator/run-spec.js";
+export {
+  AgentName,
+  PrincipalName,
+  JsonValue,
+  JsonObject,
+} from "../simulator/run-spec.js";
 export type { CanonicalJson } from "../simulator/run-spec.js";

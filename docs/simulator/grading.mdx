@@ -41,9 +41,15 @@ agents:
   - name: target
     runsIn: host
     role: standard
-    runtime: { kind: openclaw, config: {} }
-server: { imageDigest: "sha256:..." }
+    runtime: { _tag: openclaw, config: {} }
+server:
+  # The pin your build produced; `moltzap-testbed lock` prints it.
+  imageDigest: sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0
 episode:
+  steps:                    # a principal speaks; agents speak for themselves
+    - by: outreach
+      with: [target]
+      say: Saw your post about scheduling. Mind if I ask two questions?
   termination:
     inactivityTimeoutMs: 120000
     onAgentCrash: halt
@@ -124,12 +130,19 @@ const program = Effect.gen(function* () {
     outcome: "completed-only",
   });
 
-  return recording.timeline
-    .filter((event) => event._tag === "transcript.message")
-    .map((event) => ({
-      sender: recording.senders.get(event.senderId) ?? event.senderId,
-      message: event.message,
-    }));
+  return yield* Effect.forEach(
+    recording.timeline.filter(
+      (event) => event._tag === "transcript.message",
+    ),
+    (event) => {
+      const sender = recording.senders.get(event.senderId);
+      // A rubric about who said what cannot be scored on an id, so a
+      // sender the recording does not name is refused, not substituted.
+      return sender === undefined
+        ? Effect.fail(new Error(`unattributed sender ${event.senderId}`))
+        : Effect.succeed({ sender, message: event.message });
+    },
+  );
 });
 ```
 
@@ -148,13 +161,20 @@ check set, so the command and the library cannot drift.
 ## Reading a transcript message
 
 `transcript.message.message` holds the wire message verbatim under the
-redaction policy: its id, its parts, its reply target, its tags. The join
-to agent names goes through the identities provisioning minted, recorded
-on `agent.ready` — ids do not exist yet when the manifest is written,
-which is why the join reads events.
+redaction policy: its id, its parts, its reply target, its tags.
 
-Senders the run never launched, such as principals speaking into a
-conversation, have no entry. That is by construction, not a gap.
+`recording.senders` names every sender, and both halves of that join read
+events rather than the manifest, because neither identity exists when the
+manifest is written. An agent's is provisioned before its runtime starts
+and announced on `agent.ready`. A principal's is minted on its first
+speech and announced nowhere, so the binding comes from `step.spoken`,
+which carries the principal's name and the id of the message that speech
+produced; matching that id against the transcript names the principal's
+sender id, and every row it sent from then on.
+
+Names are what a rubric about who learned what is decided on, so a sender
+with no entry is a recording that cannot support one. A grader should
+treat it as such rather than substituting the id.
 
 ## Ordering
 

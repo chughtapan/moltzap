@@ -35,6 +35,9 @@ import {
 /** Placeholder image for slots the coordinator never launches. */
 const PLACEHOLDER_IMAGE = "managed/by-moltzap-recording";
 
+/** Which side of the society a roster entry speaks for. */
+const PARTICIPANT_ROLE = { agent: "agent", principal: "principal" } as const;
+
 type PlanEnvelope = {
   readonly project: string;
   readonly scenarioId: string;
@@ -215,30 +218,79 @@ function messageText(message: JsonValue): string {
   });
 }
 
-function eventsOf(recording: GradeableRecording): ReadonlyArray<TraceEvent> {
+/**
+ * The transcript as the judge reads it. `from` carries the name the
+ * recording attributes to the sender, never the id: rubrics about who
+ * learned what, or about who a group conversation excluded, are decided
+ * on that field, and a judge handed opaque ids can only guess. A sender
+ * the recording cannot name is therefore a refusal — the same promise the
+ * outcome policy makes, applied to attribution.
+ */
+function eventsOf(
+  recording: GradeableRecording,
+): Effect.Effect<ReadonlyArray<TraceEvent>, HarnessFailure, never> {
   const events: Array<TraceEvent> = [];
   for (const event of recording.timeline) {
     if (event._tag !== "transcript.message") continue;
+    const from = recording.senders.get(event.senderId);
+    if (from === undefined) {
+      return Effect.fail(
+        coordinationFailure(
+          `${recording.path} has no name for transcript sender ${event.senderId}, so its messages would reach the judge as an opaque id. A run names every agent slot on \`agent.ready\` and every principal on \`step.spoken\`; a sender in neither is evidence the recording cannot attribute.`,
+        ),
+      );
+    }
     events.push({
       type: "message",
-      from: recording.senders.get(event.senderId) ?? event.senderId,
+      from,
       channel: event.conversationId,
       text: messageText(event.message),
       ts: event.createdAtWallTime,
     });
   }
-  return events;
+  return Effect.succeed(events);
 }
 
-function agentsOf(recording: GradeableRecording): ReadonlyArray<AgentRef> {
-  return recording.manifest.slots.map((slot) => ({
+/**
+ * Everyone the judge sees speak, in one roster: the manifest's agent
+ * slots, then the principals the episode's steps spoke as, in the order
+ * they first spoke. Principals are not in the manifest — they exist only
+ * as speakers — so the timeline is the only place to read them from, and
+ * a roster that omitted them would name the transcript's other half
+ * nowhere.
+ */
+function participantsOf(
+  recording: GradeableRecording,
+): ReadonlyArray<AgentRef> {
+  const slots = recording.manifest.slots.map((slot) => ({
     id: slot.agent,
     name: slot.agent,
     metadata: {
+      role: PARTICIPANT_ROLE.agent,
       runtimeKind: slot.runtimeKind,
       modelId: slot.modelId ?? null,
       isolation: slot.isolation,
     },
+  }));
+  return [...slots, ...principalsOf(recording)];
+}
+
+/**
+ * Read from the steps rather than from `senders` minus the slots: a run
+ * whose manifest names no slot still has agents in `senders`, and the
+ * subtraction would enter them on the roster as principals instead of
+ * leaving it empty for the decode to refuse.
+ */
+function principalsOf(recording: GradeableRecording): ReadonlyArray<AgentRef> {
+  const spoken = new Set<string>();
+  for (const event of recording.timeline) {
+    if (event._tag !== "step.spoken") continue;
+    spoken.add(event.principal);
+  }
+  return [...spoken].map((principal) => ({
+    id: principal,
+    name: principal,
+    metadata: { role: PARTICIPANT_ROLE.principal },
   }));
 }
 
@@ -275,14 +327,20 @@ function lifecycleStatus(outcome: RunOutcome): AgentLifecycleStatus {
   }
 }
 
+/**
+ * One outcome per roster entry, all carrying the run's single outcome:
+ * a recording seals one termination for the whole society, and cc-judge
+ * pairs outcomes with the roster it was given.
+ */
 function outcomesOf(
-  recording: GradeableRecording,
+  participants: ReadonlyArray<AgentRef>,
+  outcome: RunOutcome,
   startedAt: string,
   endedAt: string,
 ): ReadonlyArray<AgentOutcome> {
-  const status = lifecycleStatus(recording.result.outcome);
-  return recording.manifest.slots.map((slot) => ({
-    agentId: slot.agent,
+  const status = lifecycleStatus(outcome);
+  return participants.map((participant) => ({
+    agentId: participant.id,
     status,
     startedAt,
     endedAt,
@@ -336,6 +394,7 @@ function buildBundle(
       "result.endedAtWallTime",
       recording.result.endedAtWallTime,
     );
+    const participants = participantsOf(recording);
     const bundle: JudgmentBundle = {
       runId: recording.manifest.runId,
       project: plan.project,
@@ -343,10 +402,15 @@ function buildBundle(
       name: plan.name,
       description: plan.description,
       requirements: plan.requirements,
-      agents: agentsOf(recording),
-      events: eventsOf(recording),
+      agents: participants,
+      events: yield* eventsOf(recording),
       context: contextOf(recording),
-      outcomes: outcomesOf(recording, startedAt, endedAt),
+      outcomes: outcomesOf(
+        participants,
+        recording.result.outcome,
+        startedAt,
+        endedAt,
+      ),
     };
     yield* Schema.decodeUnknown(JudgmentBundleShape)(bundle).pipe(
       Effect.mapError((cause) =>
