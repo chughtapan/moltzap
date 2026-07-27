@@ -6,7 +6,22 @@ the testbed surface.
 
 ## Structure
 
-Single-tier `src/` — no subdirectories; each adapter is a peer.
+`src/` holds adapter peers plus three subdirectories layered above them,
+in one direction of knowledge — `cli/` → `grading/` → `simulator/` → the
+root's runtime contract. The root imports from none of the three; the
+layer order is declared in `safer-architecture.config.json`.
+
+- `simulator/` — the society-simulator surface (five public contracts +
+  recording schema; design doc: chughtapan/moltzap#812), exported as
+  `@moltzap/testbed/simulator`
+- `grading/` — `grader.ts` is the published `./grader` entry;
+  `cc-judge-{bundle-plan,recording-harness}.ts` are dist siblings a plan
+  points at by path, which is what keeps a consumer's name off the
+  export map
+- `cli/` — the `moltzap-testbed` verb tree (`main.ts`), its document
+  loader and exit-code vocabulary, and the scripted `demo` fixture
+
+The package root export is unchanged.
 
 - `runtime.ts` — `Runtime` contract, `SpawnInput`, `ReadyOutcome`, branded
   `AgentName` / `ServerUrl`
@@ -38,6 +53,13 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
   escalation (`escalatingKill`) used by both adapters
 - `errors.ts` — `SpawnFailed`, `RuntimeExitedBeforeReady`,
   `RuntimeReadyTimedOut`, `RuntimeLaunchFailed`
+- `simulator/` — tree-shaped: `episode.ts` (`run`) is the
+  composition root over four peer contracts (`run-config.ts`,
+  `environment-mount.ts`, `world-driver.ts`, `event-log.ts` +
+  `recording.ts` + `attempts.ts`), with `run-spec.ts` as the single
+  schema registry, `ids.ts`/`errors.ts` as shared kernels, and
+  `stub-runtime.ts` (`makeStubRuntime`) as the scripted
+  hermetic-CI/demo runtime; see `simulator/README.md`
 
 ## Concepts
 
@@ -58,16 +80,17 @@ Single-tier `src/` — no subdirectories; each adapter is a peer.
 - **Trace-capture harness** — `trace-capture-{bundle,harness,payload}.ts`,
   compiled by this package, loaded from `dist/` by the external `cc-judge`
   runner (its only consumer), and run against `packages/evals/scenarios/*.yaml`.
-  Wire-side signal: OpenTelemetry spans (`moltzap.message.delivered` /
-  `moltzap.message.blocked`) from `@moltzap/server-core`, readable in tests
-  via `CoreTestServer.spanExporter` (see `packages/evals/README.md`).
+  A compat adapter over the simulator: a scenario payload becomes a `RunSpec`,
+  `run` seals a recording, and the bundle cc-judge grades is projected from that
+  recording's events. Capture belongs to the recording; the harness starts no
+  server and drives no wire.
 
 ## Code
 
 - Adapters and testbed APIs do not speak the wire protocol; they spawn
-  processes that do. The trace-capture harness is the one exception — it
-  drives the server's HTTP/WS API directly through dynamically loaded
-  client test modules.
+  processes that do. The simulator's own provisioning, observer, and
+  principal seams are the exception: they register identities over HTTP
+  and speak as a principal over WS, which is what makes a run a run.
 - `openclaw` is a runtime dependency: an external CLI binary referenced
   for its plugin protocol.
 

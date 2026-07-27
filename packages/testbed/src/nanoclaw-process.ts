@@ -95,6 +95,15 @@ interface StartNanoclawRuntimeOptions {
     relativePath: string;
     content: string;
   }>;
+  /** Honored through the eval agent group's container config (moltzap channel). */
+  modelId?: string;
+  /** Stdio MCP servers mounted into the container via the container config. */
+  mcpServers?: ReadonlyArray<{
+    readonly name: string;
+    readonly command: string;
+    readonly args: ReadonlyArray<string>;
+    readonly env: Readonly<Record<string, string>>;
+  }>;
 }
 
 export interface NanoclawProcessPlan {
@@ -278,7 +287,7 @@ function nanoclawHttpServerUrl(serverUrl: string): string {
 // session dirs), and macOS VM-backed engines only share paths under the
 // user home by default — the system temp dir is invisible to containers —
 // so per-agent dirs live under the testbed cache root instead.
-const NANOCLAW_RUNTIME_DIR_ROOT = join(
+export const NANOCLAW_RUNTIME_DIR_ROOT = join(
   MOLTZAP_TESTBED_CACHE_ROOT,
   "nanoclaw-runtimes",
 );
@@ -416,6 +425,33 @@ function buildNanoclawChildEnvironment(
   };
 }
 
+/** The simulator's per-agent model and MCP mounts, as the env pairs the eval provisioner materializes into the container config. */
+function buildContainerDefaultsEnvironment(
+  opts: StartNanoclawRuntimeOptions,
+): Readonly<Record<string, string>> {
+  return {
+    ...(opts.modelId === undefined || opts.modelId.length === 0
+      ? {}
+      : { MOLTZAP_AGENT_MODEL: opts.modelId }),
+    ...(opts.mcpServers === undefined || opts.mcpServers.length === 0
+      ? {}
+      : {
+          MOLTZAP_MCP_SERVERS: JSON.stringify(
+            Object.fromEntries(
+              opts.mcpServers.map((server) => [
+                server.name,
+                {
+                  command: server.command,
+                  args: [...server.args],
+                  env: { ...server.env },
+                },
+              ]),
+            ),
+          ),
+        }),
+  };
+}
+
 export function buildNanoclawProcessPlan(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
@@ -427,16 +463,25 @@ export function buildNanoclawProcessPlan(
     command: "node",
     args: [entrypoint],
     cwd: runtimeDir,
-    env: buildNanoclawChildEnvironment(
-      opts,
-      runtimeDir,
-      install,
-      baseEnvironment,
-    ),
+    env: {
+      ...buildContainerDefaultsEnvironment(opts),
+      ...buildNanoclawChildEnvironment(
+        opts,
+        runtimeDir,
+        install,
+        baseEnvironment,
+      ),
+    },
   };
 }
 
-/** @internal */
+/**
+ * The provision plan carries the same container defaults as the runtime
+ * plan: the provisioner applies `MOLTZAP_AGENT_MODEL` /
+ * `MOLTZAP_MCP_SERVERS` to the seeded container-config row before the
+ * first container spawn reads it.
+ * @internal
+ */
 export function buildNanoclawEvalProvisionPlan(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
@@ -452,12 +497,15 @@ export function buildNanoclawEvalProvisionPlan(
       NANOCLAW_EVAL_AGENT_GROUP_ID,
     ],
     cwd: runtimeDir,
-    env: buildNanoclawChildEnvironment(
-      opts,
-      runtimeDir,
-      install,
-      baseEnvironment,
-    ),
+    env: {
+      ...buildContainerDefaultsEnvironment(opts),
+      ...buildNanoclawChildEnvironment(
+        opts,
+        runtimeDir,
+        install,
+        baseEnvironment,
+      ),
+    },
   };
 }
 

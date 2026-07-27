@@ -1,0 +1,93 @@
+---
+title: "Society simulator"
+description: "Run a society of agents under controlled conditions and keep immutable evidence of what happened."
+---
+
+The simulator runs a collection of agents against one server under
+conditions you specify, and writes down what happened in a form another
+program can read. It is an instrument: it observes and records, and it
+interprets nothing. Judgment happens afterwards, over the recording.
+
+That division is the whole design. Everything the simulator produces is
+evidence; everything that decides whether the evidence is good news is a
+grader, and graders never run inside a run.
+
+## What one run produces
+
+A **recording**: one directory holding five files.
+
+| File | Holds |
+|---|---|
+| `manifest.json` | identity and provenance, written before the server starts |
+| `events.ndjson` | every observation, one per line, in one total order |
+| `traces.json` | the OTLP spans the server exported |
+| `result.json` | how the run ended |
+| `sealed.json` | the completeness marker, with digests of the other four |
+
+The manifest lands before anything is launched, so every failure past
+that point still has a recording. `sealed.json` appears last and at most
+once. A recording without it is unsealed: readable for diagnosis, never
+complete, never gradeable.
+
+## The two verbs that matter first
+
+```bash
+moltzap-testbed spec check my-run.yaml   # does this spec make sense?
+moltzap-testbed run my-run.yaml          # produce a recording
+```
+
+`run` takes one spec, several specs, or a directory of them. Every spec
+is checked before the first one launches, so a typo in the tenth file of
+a suite fails immediately rather than after nine real runs.
+
+## Reading the result
+
+```bash
+moltzap-testbed recording show   recordings/<specHash>/s7/a1
+moltzap-testbed recording check  recordings/<specHash>/s7/a1
+moltzap-testbed recording events recordings/<specHash>/s7/a1
+```
+
+`check` is the one to script against. It verifies the seal, the schema
+version, and that every file decodes, then prints which outcome sealed.
+Its exit code says what is wrong without you parsing the message.
+
+## Exit codes
+
+Every failure carries a stable tag, and the tag picks the code.
+
+| Code | Meaning |
+|---|---|
+| `0` | success |
+| `2` | the spec was rejected before anything ran |
+| `3` | the run failed but sealed a recording of the failure |
+| `4` | no recording exists |
+| `5` | a recording exists but the seal itself failed |
+| `10` | not sealed, or sealed bytes were changed afterwards |
+| `11` | recording schema version this reader does not decode |
+| `12` | a recording file failed to decode |
+| `13` | the recording's condition is not the one you expected |
+| `14` | the run did not complete, so it is not a verdict about an agent |
+| `1` | something the mapping does not name |
+
+Codes `13` and `14` belong to grading rather than to running; see
+[Grading](/simulator/grading).
+
+## Try it with nothing installed
+
+```bash
+npx @moltzap/testbed demo
+```
+
+Two scripted participants, one severed link that heals, one sealed
+recording. No model keys and no external network — Docker is the only
+prerequisite. The output is bannered as a fixture, because the one
+mistake a demo can cause is being read as a real society.
+
+That command is measured. `.github/workflows/cold-tthw.yml` runs it
+nightly against the published package on a cold npm cache and a cold
+image store, on x64 and arm64, and fails when first recording takes
+longer than two minutes. The workflow's env block names the whole
+referent — runner images, cache state, architectures, and which artifact
+is selected — because a duration means nothing without the machine it was
+measured on.

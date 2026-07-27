@@ -1,0 +1,41 @@
+# Bundle form of packages/evals/scenarios/EVAL-018.yaml.
+# The scenario file stays as it is; this is a sibling, never a replacement.
+seed: 1
+contentVersion: moltzap-evals/EVAL-018/1
+condition:
+  label: EVAL-018
+  notes: Agent DM greeting response. Send a greeting to the agent and verify it responds with a relevant reply through MoltZap
+agents:
+  - name: openclaw-eval-agent
+    runtime:
+      _tag: openclaw
+      config: {}
+    runsIn: host
+    role: standard
+server:
+  imageDigest: sha256:fc405312b965a5a137bc6992cec561d76162121e1af678efe2864f64a14c8426
+episode:
+  steps:
+    - by: eval-sender
+      with:
+        - openclaw-eval-agent
+      say: Hello! I'm another agent on this MoltZap server. Can you tell me a bit about yourself?
+  termination:
+    inactivityTimeoutMs: 120000
+    onAgentCrash: halt
+    doneSignal:
+      name: replies
+      config:
+        from: openclaw-eval-agent
+        minCount: 1
+timeouts:
+  readyTimeoutMs: 120000
+grade:
+  grader: cc-judge
+  config:
+    expectedBehavior: The agent should respond with a coherent greeting or self-introduction through the MoltZap channel. The response must arrive as a valid MoltZap message with correct sender ref and conversation ID. The content should be relevant to the greeting, not an error message or empty.
+    validationChecks:
+      - Response is a valid MoltZap message with non-empty text parts
+      - Sender ref type is 'agent' with a valid agent ID
+      - Conversation ID matches the DM conversation used for the test
+      - Message has a valid snowflake ID and timestamp

@@ -37,7 +37,7 @@ export function awaitAgentReadyByPolling(
 ): Effect.Effect<ReadyOutcome, never, never>
 ```
 
-### [`createOpenClawAdapter`](./openclaw-adapter.ts#L586)
+### [`createOpenClawAdapter`](./openclaw-adapter.ts#L695)
 
 _Function_
 
@@ -147,7 +147,7 @@ export interface LogSlice {
 }
 ```
 
-### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L114)
+### [`NanoclawAdapter`](./nanoclaw-adapter.ts#L131)
 
 _Class_
 
@@ -196,19 +196,32 @@ export class NanoclawAdapter implements Runtime {
     return "New messages";
   }
 
+  /** Resolves once, on the runtime process's exit (the simulator's ongoing exit signal). */
+  awaitExit(): Effect.Effect<
+    { readonly exitCode: number | null; readonly signal: string | undefined },
+    never,
+    never
+  > {
+    const state = this.state;
+    if (!state) {
+      return Effect.succeed({ exitCode: null, signal: undefined });
+    }
+    return Fiber.join(state.handle.exitFiber).pipe(
+      Effect.map((exitCode) =>
+        exitCode >= 0
+          ? { exitCode, signal: undefined }
+          : { exitCode: null, signal: undefined },
+      ),
+    );
+  }
+
   private launchRuntime(input: SpawnInput) {
     const lease = { committed: false };
     return Effect.uninterruptibleMask((restore) =>
       Effect.scoped(
         Effect.gen(this, function* () {
           const handle = yield* Effect.acquireRelease(
-            restore(
-              acquireNanoclawRuntime(
-                input,
-                this.options.autoRegisterConversations ?? false,
-                this.options.installMode,
-              ),
-            ),
+            restore(acquireNanoclawRuntime(input, this.options)),
             (acquired) =>
               lease.committed
                 ? Effect.void
@@ -292,10 +305,24 @@ export interface NanoclawAdapterOptions {
    * accept conversations without a pre-provisioned NanoClaw registration.
    */
   readonly autoRegisterConversations?: boolean;
+
+  /**
+   * Stdio MCP servers wired into the container workspace as `.mcp.json`
+   * (the container-mount half of the simulator's Environment contract).
+   */
+  readonly mcpServers?: ReadonlyArray<{
+    readonly name: string;
+    readonly command: string;
+    readonly args: ReadonlyArray<string>;
+    readonly env: Readonly<Record<string, string>>;
+  }>;
+
+  /** Model identifier honored per spawn; `SpawnInput.modelId` takes precedence. */
+  readonly modelId?: string;
 }
 ```
 
-### [`OpenClawAdapter`](./openclaw-adapter.ts#L508)
+### [`OpenClawAdapter`](./openclaw-adapter.ts#L598)
 
 _Class_
 
@@ -362,6 +389,25 @@ export class OpenClawAdapter implements Runtime {
   getInboundMarker(): string {
     return "inbound from agent:";
   }
+
+  /** Resolves once, on the gateway process's exit (the simulator's ongoing exit signal). */
+  awaitExit(): Effect.Effect<
+    { readonly exitCode: number | null; readonly signal: string | undefined },
+    never,
+    never
+  > {
+    const state = this.state;
+    if (!state) {
+      return Effect.succeed({ exitCode: null, signal: undefined });
+    }
+    return Fiber.join(state.process.exitFiber).pipe(
+      Effect.map((exitCode) =>
+        exitCode >= 0
+          ? { exitCode, signal: undefined }
+          : { exitCode: null, signal: undefined },
+      ),
+    );
+  }
 }
 ```
 
@@ -373,7 +419,7 @@ readiness via the server-side WS authentication event.
 flowchart TD
   OCS["OpenClawAdapter.spawn(input)"]
   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
-  OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seed workspace + model auth"]
+  OC2["2. lease + configure state dir<br>write config + MCP mounts,<br>seed workspace + model auth + sentinel"]
   OCM{"install mode"}
   OCW["workspace<br>validate local channel build<br>copy channel dist + dependency links<br>pin plugins.allow"]
   OCP["published<br>reuse or build pinned npm project cache<br>materialize project + OpenClaw peer link<br>omit plugins.allow"]
@@ -398,7 +444,7 @@ Readiness signal: server-side WS authentication event surfaces via
 (boot) or `RuntimeExitedBeforeReady` / `RuntimeReadyTimedOut`
 (post-spawn, surfaced by `processExitLoop`).
 
-### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L176)
+### [`OpenClawAdapterDeps`](./openclaw-adapter.ts#L191)
 
 _Interface_
 
@@ -408,10 +454,11 @@ export interface OpenClawAdapterDeps {
   readonly openclawBin: string;
   readonly channelDistDir: string;
   readonly installMode: InstallMode;
+  readonly mcpServers?: ReadonlyArray<McpServerMount>;
 }
 ```
 
-### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L183)
+### [`OpenClawAdapterOptions`](./openclaw-adapter.ts#L199)
 
 _Interface_
 
@@ -421,6 +468,7 @@ export interface OpenClawAdapterOptions {
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
   readonly installMode: InstallMode;
+  readonly mcpServers?: ReadonlyArray<McpServerMount>;
 }
 ```
 

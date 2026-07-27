@@ -10,6 +10,7 @@
   "type": "module",
   "files": [
     "dist",
+    "simulator-assets",
     "!dist/tsconfig.tsbuildinfo"
   ],
   "main": "./dist/index.js",
@@ -18,7 +19,18 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./simulator": {
+      "import": "./dist/simulator/index.js",
+      "types": "./dist/simulator/index.d.ts"
+    },
+    "./grader": {
+      "import": "./dist/grading/grader.js",
+      "types": "./dist/grading/grader.d.ts"
     }
+  },
+  "bin": {
+    "moltzap-testbed": "./dist/cli/main.js"
   },
   "scripts": {
     "build": "nx run @moltzap/testbed:build",
@@ -81,14 +93,14 @@
   "dependencies": {
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
+    "@electric-sql/pglite": "0.4.4",
     "@moltzap/openclaw-channel": "workspace:^",
     "@moltzap/protocol": "workspace:^",
     "effect": "^3.22.0",
-    "openclaw": "2026.6.33"
+    "openclaw": "2026.6.33",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@moltzap/client": "workspace:*",
-    "@moltzap/server-core": "workspace:*",
     "@types/node": "^25.5.0",
     "eslint": "^9",
     "typescript": "^5.7.0",
