@@ -201,7 +201,10 @@ describe("the `replies` done-signal", () => {
   it("completes on the Nth message from the named agent", () =>
     Effect.runPromise(
       repliesBody(
-        [reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST), reply(FIRST, AGENT_ONE, "m2", AFTER_SECOND)],
+        [
+          reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST),
+          reply(FIRST, AGENT_ONE, "m2", AFTER_SECOND),
+        ],
         PATIENT_MS,
         TERMINATION.completed,
       ).pipe(Effect.orDie),
@@ -219,7 +222,10 @@ describe("the `replies` done-signal", () => {
   it("counts only the named agent, never the silent agent's peer", () =>
     Effect.runPromise(
       repliesBody(
-        [reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST), reply(FIRST, AGENT_TWO, "m2", AFTER_SECOND)],
+        [
+          reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST),
+          reply(FIRST, AGENT_TWO, "m2", AFTER_SECOND),
+        ],
         QUIET_MS,
         TERMINATION.timeout,
       ).pipe(Effect.orDie),
@@ -228,7 +234,10 @@ describe("the `replies` done-signal", () => {
   it("does not double-count one message redelivered", () =>
     Effect.runPromise(
       repliesBody(
-        [reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST), reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST)],
+        [
+          reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST),
+          reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST),
+        ],
         QUIET_MS,
         TERMINATION.timeout,
       ).pipe(Effect.orDie),

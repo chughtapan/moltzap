@@ -372,7 +372,6 @@ function startOneFake(
   });
 }
 
-
 // ---------------------------------------------------------------------------
 // Drain + principal test doubles
 // ---------------------------------------------------------------------------
@@ -497,11 +496,7 @@ type FakeWireObserver = {
  * message arrived when — which is the whole termination lever once no
  * done-signal reads telemetry.
  */
-function makeFakeWireObserver(): Effect.Effect<
-  FakeWireObserver,
-  never,
-  never
-> {
+function makeFakeWireObserver(): Effect.Effect<FakeWireObserver, never, never> {
   return Effect.gen(function* () {
     const wired = yield* Deferred.make<EventLog>();
     const tracked: Array<SpeechReceipt> = [];

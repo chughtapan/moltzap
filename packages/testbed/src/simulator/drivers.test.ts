@@ -18,14 +18,13 @@ import {
 import { LogicalSequence, RunId, WallTimeMs } from "./ids.js";
 import { AgentName, LogicalTime, PrincipalName } from "./run-spec.js";
 import { WireMessage, type SimulatorEvent } from "./event-log.js";
-import { makeDonePredicate, LAST_STEP_ANSWERED_DONE_SIGNAL } from "./drivers.js";
+import {
+  makeDonePredicate,
+  LAST_STEP_ANSWERED_DONE_SIGNAL,
+} from "./drivers.js";
 import type { PredicateContext, PredicateOutcome } from "./drivers.js";
 import type { SpeechReceipt } from "./episode.js";
-import {
-  makeMessageLog,
-  observedFrom,
-  observedFromEvent,
-} from "./wire-log.js";
+import { makeMessageLog, observedFrom, observedFromEvent } from "./wire-log.js";
 import { deterministicUuid as uuid } from "./__tests__/ids.js";
 import { OUTCOME_TAG, STALL_REASON } from "./__tests__/tags.js";
 

@@ -82,8 +82,14 @@ describe("the answer rule", () => {
   it("answers with the first message committed after the floor", () => {
     const log = makeMessageLog();
     log.record({ origin: "sent" }, floorMessage);
-    log.record({ origin: "received", at: seq(2) }, observed("reply", { createdAt: AT(2000) }));
-    log.record({ origin: "received", at: seq(3) }, observed("later", { createdAt: AT(3000) }));
+    log.record(
+      { origin: "received", at: seq(2) },
+      observed("reply", { createdAt: AT(2000) }),
+    );
+    log.record(
+      { origin: "received", at: seq(3) },
+      observed("later", { createdAt: AT(3000) }),
+    );
     expect(log.answer(AFTER_FLOOR)).toMatchObject({
       _tag: "answered",
       at: 2,
@@ -94,7 +100,10 @@ describe("the answer rule", () => {
     const log = makeMessageLog();
     // Observation order is not commit order: the server schedules its
     // notification writes before the sender's own send returns.
-    log.record({ origin: "received", at: seq(1) }, observed("reply", { createdAt: AT(2000) }));
+    log.record(
+      { origin: "received", at: seq(1) },
+      observed("reply", { createdAt: AT(2000) }),
+    );
     log.record({ origin: "sent" }, floorMessage);
     expect(log.answer(AFTER_FLOOR)).toMatchObject({ _tag: "answered", at: 1 });
   });
@@ -132,14 +141,18 @@ function assertAnswerIsAlwaysAdmissible(
   log.record({ origin: "sent" }, floorMessage);
   const records = senders.map((sender, index) => ({
     observedMessage: observed(`m${String(index)}`, {
-      conversationId: conversations[index % conversations.length] ?? CONVERSATION,
+      conversationId:
+        conversations[index % conversations.length] ?? CONVERSATION,
       senderId: sender,
       createdAt: AT(2000 + index),
     }),
     sequence: index + 2,
   }));
   for (const record of records) {
-    log.record({ origin: "received", at: seq(record.sequence) }, record.observedMessage);
+    log.record(
+      { origin: "received", at: seq(record.sequence) },
+      record.observedMessage,
+    );
   }
   const answer = log.answer(AFTER_FLOOR);
   if (answer._tag !== "answered") return;
@@ -153,7 +166,10 @@ describe("an unorderable pair", () => {
   it("waits rather than guessing when a candidate shares the floor's millisecond", () => {
     const log = makeMessageLog();
     log.record({ origin: "sent" }, floorMessage);
-    log.record({ origin: "received", at: seq(2) }, observed("tied", { createdAt: FLOOR_AT }));
+    log.record(
+      { origin: "received", at: seq(2) },
+      observed("tied", { createdAt: FLOOR_AT }),
+    );
     expect(log.answer(AFTER_FLOOR)).toStrictEqual({
       _tag: "ambiguous",
       tiedWith: message("tied"),
@@ -163,8 +179,14 @@ describe("an unorderable pair", () => {
   it("prefers a strictly later candidate over a tied one", () => {
     const log = makeMessageLog();
     log.record({ origin: "sent" }, floorMessage);
-    log.record({ origin: "received", at: seq(2) }, observed("tied", { createdAt: FLOOR_AT }));
-    log.record({ origin: "received", at: seq(3) }, observed("after", { createdAt: AT(2000) }));
+    log.record(
+      { origin: "received", at: seq(2) },
+      observed("tied", { createdAt: FLOOR_AT }),
+    );
+    log.record(
+      { origin: "received", at: seq(3) },
+      observed("after", { createdAt: AT(2000) }),
+    );
     expect(log.answer(AFTER_FLOOR)).toMatchObject({ _tag: "answered", at: 3 });
   });
 });
@@ -211,7 +233,10 @@ describe("retention", () => {
     const log = makeMessageLog();
     log.record({ origin: "received", at: seq(1) }, observed("one"));
     log.record({ origin: "received", at: seq(2) }, observed("two"));
-    log.record({ origin: "received", at: seq(3) }, observed("other", { senderId: OTHER_SENDER }));
+    log.record(
+      { origin: "received", at: seq(3) },
+      observed("other", { senderId: OTHER_SENDER }),
+    );
     expect(log.countFrom(SENDER)).toBe(2);
     expect(log.countFrom(OTHER_SENDER)).toBe(1);
     expect(log.countFrom(agent("never-spoke"))).toBe(0);
@@ -220,7 +245,10 @@ describe("retention", () => {
   it("counts exactly the distinct ids it accepted (property)", () => {
     fc.assert(
       fc.property(
-        fc.array(fc.integer({ min: 0, max: 4 }), { minLength: 1, maxLength: 12 }),
+        fc.array(fc.integer({ min: 0, max: 4 }), {
+          minLength: 1,
+          maxLength: 12,
+        }),
         assertCountMatchesDistinctIds,
       ),
       { numRuns: 40 },
@@ -233,7 +261,12 @@ function assertCountMatchesDistinctIds(ids: ReadonlyArray<number>): void {
   const log = makeMessageLog();
   let accepted = 0;
   for (const id of ids) {
-    if (log.record({ origin: "received", at: seq(accepted + 1) }, observed(`m${String(id)}`))) {
+    if (
+      log.record(
+        { origin: "received", at: seq(accepted + 1) },
+        observed(`m${String(id)}`),
+      )
+    ) {
       accepted += 1;
     }
   }

@@ -21,9 +21,7 @@ import { makeLocalRecordingStore } from "./local-store.js";
 import { resolveServerImagePin } from "./run-config.js";
 import { RunSpec } from "./run-spec.js";
 import { MESSAGE_DELIVERED_SPAN } from "./span-attrs.js";
-import {
-  projectRecordedConversation,
-} from "../trace-capture-bundle.js";
+import { projectRecordedConversation } from "../trace-capture-bundle.js";
 import {
   AGENT_ONE,
   PRINCIPAL_NAME,
@@ -116,7 +114,8 @@ const substrateRun = Effect.gen(function* () {
   expect(
     events.filter(
       (event) =>
-        event._tag === "span.accepted" && event.spanName === MESSAGE_DELIVERED_SPAN,
+        event._tag === "span.accepted" &&
+        event.spanName === MESSAGE_DELIVERED_SPAN,
     ).length,
   ).toBeGreaterThan(0);
   expect(snapshot.traces?.spans.length ?? 0).toBeGreaterThan(0);

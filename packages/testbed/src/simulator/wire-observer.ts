@@ -395,8 +395,7 @@ function recoverChannel(
             principal,
             `reconnect backfill of conversation ${channel.conversationId} could not be read: ${cause.message}`,
           ),
-        onSuccess: (page) =>
-          backfill(state, principal, channel, page.messages),
+        onSuccess: (page) => backfill(state, principal, channel, page.messages),
       }),
     );
 }

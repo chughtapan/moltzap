@@ -86,7 +86,9 @@ function armReplies(client, matchers, addressed) {
     .subscribe(MessageReceivedNotificationDefinition)
     .pipe(
       Stream.runForEach((notification) =>
-        Effect.promise(() => onInbound(client, matchers, notification, addressed)),
+        Effect.promise(() =>
+          onInbound(client, matchers, notification, addressed),
+        ),
       ),
     );
   Effect.runPromise(consume).catch(() => {
