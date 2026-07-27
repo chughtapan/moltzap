@@ -377,6 +377,11 @@ function workspaceTurnsUnder(
       yield* fileSystem.makeDirectory(workspaceDir, { recursive: true });
       yield* applyAttestationSentinel(sentinel, stateDir);
 
+      // A sentinel that landed inside the workspace would be content evidence
+      // to openclaw, which suppresses the guard for a reason the turns below
+      // cannot tell apart from the sentinel working.
+      expect(yield* fileSystem.readDirectory(workspaceDir)).toEqual([]);
+
       const scratchFile = path.join(workspaceDir, OPENCLAW_SCRATCH_FILENAME);
       const mutations = [
         Effect.void,
