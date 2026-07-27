@@ -10,6 +10,7 @@ import { Effect, FastCheck as fc, Schema } from "effect";
 import { CHILD_OUTPUT_TAIL_CHARS, readyOrFail } from "./launcher-live.js";
 import { AgentName } from "./run-spec.js";
 import type { AgentLaunchFailed } from "./errors.js";
+import type { Secrets } from "./recording.js";
 import type { ReadyOutcome, Runtime } from "../runtime.js";
 
 const SLOT = Schema.decodeSync(AgentName)("openclaw-one");
@@ -19,8 +20,11 @@ const TIMED_OUT: ReadyOutcome = {
   timeoutMs: READY_TIMEOUT_MS,
 };
 const TIMEOUT_CAUSE: AgentLaunchFailed["cause"] = "ready-timeout";
+const EXITED_CAUSE: AgentLaunchFailed["cause"] = "exited-before-ready";
 const TIMEOUT_DETAIL = `no authenticated connection within ${String(READY_TIMEOUT_MS)}ms`;
 const ATTACHED_LABEL = "; last output from the agent process:\n";
+const REDACTION_MARKER = "[REDACTED:k0]";
+const NO_SECRETS: Pick<Secrets, "redact"> = { redact: (text) => text };
 
 /** The one line in the fixture below that names why readiness never arrives. */
 const CONNECTION_FAILURE =
@@ -55,12 +59,22 @@ function runtimeSaying(said: string): Pick<Runtime, "getLogs"> {
   return { getLogs: () => ({ text: said, nextOffset: said.length }) };
 }
 
-function failureFrom(ready: ReadyOutcome, said: string) {
+/** The run's registry replaces whole registered values; this is that rule, for one value. */
+function registryHolding(secret: string): Pick<Secrets, "redact"> {
+  return { redact: (text) => text.split(secret).join(REDACTION_MARKER) };
+}
+
+function failureFrom(
+  ready: ReadyOutcome,
+  said: string,
+  secrets: Pick<Secrets, "redact"> = NO_SECRETS,
+) {
   return Effect.runSync(
-    readyOrFail(SLOT, runtimeSaying(said), ready).pipe(Effect.flip),
+    readyOrFail(SLOT, runtimeSaying(said), secrets, ready).pipe(Effect.flip),
   );
 }
 
+// @agent-code-guard/regression-only: one entry per ReadyOutcome variant plus the silent-child boundary; the union is closed, so the generative evidence lives in the sibling "attached child output" scope
 describe("launch failure diagnostics", () => {
   it("names the child's connection errors in a ready-timeout", () => {
     const failure = failureFrom(TIMED_OUT, RETRYING_CHILD);
@@ -75,17 +89,41 @@ describe("launch failure diagnostics", () => {
     expect(failure.message.endsWith(TIMEOUT_DETAIL)).toBe(true);
   });
 
+  it("carries the same tail when the child exits before ready", () => {
+    const failure = failureFrom(
+      { _tag: "ProcessExited", exitCode: 1, stderr: RETRYING_CHILD },
+      "",
+    );
+    expect(failure.cause).toBe(EXITED_CAUSE);
+    expect(failure.message).toContain(CONNECTION_FAILURE);
+  });
+
   it("keeps the readiness outcome the discriminator, not the output", () => {
     expect(
       Effect.runSync(
-        readyOrFail(SLOT, runtimeSaying(RETRYING_CHILD), {
+        readyOrFail(SLOT, runtimeSaying(RETRYING_CHILD), NO_SECRETS, {
           _tag: "Ready",
         }),
       ),
     ).toBeUndefined();
   });
+});
 
-  it("attaches a bounded suffix of whatever the child said", () => {
+describe("attached child output", () => {
+  it("redacts before cutting, so the bound cannot split a credential", () => {
+    // Sized so the cut falls inside the credential: cutting first would leave
+    // `leaked` behind, and it matches no registered value, so the seal's own
+    // redaction pass would not catch it.
+    const secret = "sk-live-0123456789abcdef";
+    const leaked = secret.slice(4);
+    const trailer = "x".repeat(CHILD_OUTPUT_TAIL_CHARS - leaked.length);
+    const said = `${"noise\n".repeat(200)}${secret}${trailer}`;
+    const failure = failureFrom(TIMED_OUT, said, registryHolding(secret));
+    expect(failure.detail).not.toContain(leaked);
+    expect(failure.detail).toContain(REDACTION_MARKER);
+  });
+
+  it("is a bounded suffix of whatever the child said", () => {
     fc.assert(
       fc.property(childOutput, (said) => {
         const detail = failureFrom(TIMED_OUT, said).detail;
