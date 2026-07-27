@@ -9,31 +9,30 @@
  */
 import { describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { AgentId } from "@moltzap/protocol/identity";
-import { TaskId } from "@moltzap/protocol/task";
+import {
+  agentId,
+  conversationId,
+  messageId,
+  taskId,
+} from "@moltzap/protocol/testing";
 import { LogicalSequence, RunId, WallTimeMs } from "./ids.js";
 import { AgentName, LogicalTime, PrincipalName } from "./run-spec.js";
 import { WireMessage, type SimulatorEvent } from "./event-log.js";
 import { makeDonePredicate, LAST_STEP_ANSWERED_DONE_SIGNAL } from "./drivers.js";
 import type { PredicateContext, PredicateOutcome } from "./drivers.js";
 import type { SpeechReceipt } from "./episode.js";
-import { makeMessageLog, observedFrom } from "./wire-log.js";
+import {
+  makeMessageLog,
+  observedFrom,
+  observedFromEvent,
+} from "./wire-log.js";
+import { deterministicUuid as uuid } from "./__tests__/ids.js";
 import { OUTCOME_TAG, STALL_REASON } from "./__tests__/tags.js";
 
-function uuid(seedText: string): string {
-  const hex = [...seedText]
-    .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
-    .join("")
-    .padEnd(32, "0")
-    .slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
-const TASK = Schema.decodeSync(TaskId)(uuid("task"));
-const CONVERSATION = Schema.decodeSync(ConversationId)(uuid("conversation"));
-const AGENT = Schema.decodeSync(AgentId)(uuid("agent-one"));
-const PRINCIPAL = Schema.decodeSync(AgentId)(uuid("principal"));
+const TASK = taskId(uuid("task"));
+const CONVERSATION = conversationId(uuid("conversation"));
+const AGENT = agentId(uuid("agent-one"));
+const PRINCIPAL = agentId(uuid("principal"));
 
 const STEP_AT = "2026-01-01T00:00:01.000Z";
 const ANSWER_AT = "2026-01-01T00:00:02.000Z";
@@ -42,7 +41,7 @@ const receipt: SpeechReceipt = {
   taskId: TASK,
   conversationId: CONVERSATION,
   message: {
-    id: Schema.decodeSync(MessageId)(uuid("step")),
+    id: messageId(uuid("step")),
     conversationId: CONVERSATION,
     senderId: PRINCIPAL,
     parts: [{ type: "text", text: "the step" }],
@@ -59,7 +58,7 @@ function wireEvent(name: string, createdAt: string): WireMessage {
     source: "wire",
     observedBy: Schema.decodeSync(PrincipalName)("operator"),
     observation: "live",
-    messageId: Schema.decodeSync(MessageId)(uuid(name)),
+    messageId: messageId(uuid(name)),
     conversationId: CONVERSATION,
     taskId: TASK,
     senderId: AGENT,
@@ -104,18 +103,14 @@ function armed(): Fixture {
 function withAnswer(name: string, createdAt: string): Answered {
   const fixture = armed();
   fixture.context.messages.record(
-    undefined,
-    "sent",
+    { origin: "sent" },
     observedFrom(receipt.message),
   );
   const event = wireEvent(name, createdAt);
-  fixture.context.messages.record(event.logicalSequence, "received", {
-    messageId: event.messageId,
-    conversationId: event.conversationId,
-    senderId: event.senderId,
-    replyToId: undefined,
-    createdAt: event.createdAt,
-  });
+  fixture.context.messages.record(
+    { origin: "received", at: event.logicalSequence },
+    observedFromEvent(event),
+  );
   return { ...fixture, event };
 }
 

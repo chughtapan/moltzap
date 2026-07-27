@@ -3,8 +3,11 @@
  * verbatim OTLP spans the server exports.
  *
  * Spans are evidence, never control: nothing here decides whether an
- * episode completed. Reconciling the captured span set against the
- * messages the server actually forwarded is what reads it.
+ * episode completed, and no production caller reads this yet. It is the
+ * reader a completeness assertion needs — reconciling the captured span
+ * set against the messages the server actually forwarded — and that
+ * reconciliation is a separate row, so what is here is the attribute
+ * encoding and its tests.
  */
 // safer-arch-ignore file-implicit-boundary-module: a shared kernel alongside ids.ts and errors.ts, not a facade; it owns one span's attribute encoding and nothing else.
 import type { JsonValue } from "./run-spec.js";

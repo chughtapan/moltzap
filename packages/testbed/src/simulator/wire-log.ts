@@ -54,8 +54,40 @@ export function observedFrom(message: Message): ObservedMessage {
   };
 }
 
-/** How the run learned of a message. */
-type MessageOrigin = "sent" | "received";
+/**
+ * Project a `wire.message` event's own fields into the log's record. The
+ * parameter is structural rather than the event class, which is what
+ * keeps this module a leaf: the episode records what it drained and a
+ * test records the same shape through the same projection, so neither can
+ * drift from the other.
+ */
+export function observedFromEvent(event: {
+  readonly messageId: MessageId;
+  readonly conversationId: ConversationId;
+  readonly senderId: AgentId;
+  readonly replyToId?: MessageId | undefined;
+  readonly createdAt: string;
+}): ObservedMessage {
+  return {
+    messageId: event.messageId,
+    conversationId: event.conversationId,
+    senderId: event.senderId,
+    replyToId: event.replyToId,
+    createdAt: event.createdAt,
+  };
+}
+
+/**
+ * How the run learned of a message, and — for a received one — the
+ * observing event that carried it. The two travel together because they
+ * are one fact: the run's own sends have no event of their own, and every
+ * received message arrives as one. Splitting them into a tag and an
+ * optional position would admit two states the domain does not have and
+ * force every reader to re-check for them.
+ */
+type Observation =
+  | { readonly origin: "sent" }
+  | { readonly origin: "received"; readonly at: LogicalSequence };
 
 /**
  * What counts as an answer: a sender in `senders`, in this conversation,
@@ -98,37 +130,26 @@ export type AnswerOutcome =
  */
 export type MessageLog = {
   /**
-   * Retain one observed message. `logicalSequence` is the observing
-   * event's sequence, absent for a synchronous send record which has no
-   * event of its own. Reports whether the record is new; a repeated
-   * message id collapses, so reconnect backfill re-delivering history
-   * cannot double-count.
+   * Retain one observed message. Reports whether the record is new; a
+   * repeated message id collapses, so reconnect backfill re-delivering
+   * history cannot double-count.
    */
-  record(
-    logicalSequence: LogicalSequence | undefined,
-    origin: MessageOrigin,
-    message: ObservedMessage,
-  ): boolean;
+  record(observation: Observation, message: ObservedMessage): boolean;
   answer(criteria: AnswerCriteria): AnswerOutcome;
   /** Messages observed from one sender; idempotent under redelivery. */
   countFrom(senderId: AgentId): number;
 };
 
-type ObservedRecord = {
-  readonly origin: MessageOrigin;
-  /** The observing event's position; absent for the synchronous send record. */
-  readonly at: LogicalSequence | undefined;
-  readonly message: ObservedMessage;
-};
+type ObservedRecord = Observation & { readonly message: ObservedMessage };
 
 export function makeMessageLog(): MessageLog {
   const records: Array<ObservedRecord> = [];
   const byMessageId = new Map<MessageId, ObservedRecord>();
   const countBySender = new Map<AgentId, number>();
   return {
-    record: (logicalSequence, origin, message) => {
+    record: (observation, message) => {
       if (byMessageId.has(message.messageId)) return false;
-      const record: ObservedRecord = { origin, at: logicalSequence, message };
+      const record: ObservedRecord = { ...observation, message };
       records.push(record);
       byMessageId.set(message.messageId, record);
       countBySender.set(
@@ -167,34 +188,34 @@ function findAnswer(
     return { _tag: "no-floor", awaited: criteria.afterMessageId };
   }
   const floorAt = floor.message.createdAt;
-  const candidates = records.filter((record) => isCandidate(record, criteria));
-  const answer = candidates.find(
-    (record) => record.message.createdAt > floorAt,
-  );
-  if (answer?.at !== undefined) {
-    return { _tag: "answered", at: answer.at, message: answer.message };
+  let tied: ObservedRecord | undefined;
+  for (const record of candidatesOf(records, criteria)) {
+    if (record.message.createdAt > floorAt) {
+      return { _tag: "answered", at: record.at, message: record.message };
+    }
+    if (record.message.createdAt === floorAt) tied ??= record;
   }
-  const tied = candidates.find(
-    (record) => record.message.createdAt === floorAt,
-  );
   return tied === undefined
     ? { _tag: "unanswered" }
     : { _tag: "ambiguous", tiedWith: tied.message.messageId };
 }
 
 /**
- * Only a received message can answer: the run's own sends are the
- * questions, and a record without an observing event carries no position
- * a firing could cite.
+ * The records that could answer, in observation order: a received message
+ * in the awaited conversation, from a sender the criteria accept. The
+ * run's own sends are the questions, never answers, and only a received
+ * record carries the position a firing can cite.
  */
-function isCandidate(
-  record: ObservedRecord,
+function candidatesOf(
+  records: ReadonlyArray<ObservedRecord>,
   criteria: AnswerCriteria,
-): boolean {
-  return (
+): ReadonlyArray<Extract<ObservedRecord, { origin: "received" }>> {
+  return records.flatMap((record) =>
     record.origin === "received" &&
-    record.at !== undefined &&
     record.message.conversationId === criteria.conversationId &&
     criteria.senders.has(record.message.senderId)
+      ? [record]
+      : [],
   );
 }
+

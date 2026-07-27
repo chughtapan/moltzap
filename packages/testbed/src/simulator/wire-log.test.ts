@@ -11,9 +11,11 @@
 import { describe, expect, it } from "vitest";
 /* eslint-disable sonarjs/assertions-in-tests -- property bodies are extracted to named top-level functions to satisfy the nesting caps; every property test delegates to one */
 import { FastCheck as fc, Schema } from "effect";
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { AgentId } from "@moltzap/protocol/identity";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import { LogicalSequence } from "./ids.js";
+import { deterministicUuid } from "./__tests__/ids.js";
 import {
   makeMessageLog,
   type AnswerCriteria,
@@ -23,20 +25,9 @@ import {
 const seq = (value: number): LogicalSequence =>
   Schema.decodeSync(LogicalSequence)(value);
 
-function uuid(seedText: string): string {
-  const hex = [...seedText]
-    .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
-    .join("")
-    .padEnd(32, "0")
-    .slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
-const message = (name: string): MessageId =>
-  Schema.decodeSync(MessageId)(uuid(name));
-const conversation = (name: string): ConversationId =>
-  Schema.decodeSync(ConversationId)(uuid(name));
-const agent = (name: string): AgentId => Schema.decodeSync(AgentId)(uuid(name));
+const message = (name: string) => messageId(deterministicUuid(name));
+const conversation = (name: string) => conversationId(deterministicUuid(name));
+const agent = (name: string) => agentId(deterministicUuid(name));
 
 const CONVERSATION = conversation("conversation-1");
 const OTHER_CONVERSATION = conversation("conversation-2");
@@ -81,7 +72,7 @@ const AFTER_FLOOR: AnswerCriteria = {
 describe("the answer rule", () => {
   it("names the awaited message when no floor was ever recorded", () => {
     const log = makeMessageLog();
-    log.record(seq(1), "received", observed("reply"));
+    log.record({ origin: "received", at: seq(1) }, observed("reply"));
     expect(log.answer(AFTER_FLOOR)).toStrictEqual({
       _tag: "no-floor",
       awaited: FLOOR,
@@ -90,9 +81,9 @@ describe("the answer rule", () => {
 
   it("answers with the first message committed after the floor", () => {
     const log = makeMessageLog();
-    log.record(undefined, "sent", floorMessage);
-    log.record(seq(2), "received", observed("reply", { createdAt: AT(2000) }));
-    log.record(seq(3), "received", observed("later", { createdAt: AT(3000) }));
+    log.record({ origin: "sent" }, floorMessage);
+    log.record({ origin: "received", at: seq(2) }, observed("reply", { createdAt: AT(2000) }));
+    log.record({ origin: "received", at: seq(3) }, observed("later", { createdAt: AT(3000) }));
     expect(log.answer(AFTER_FLOOR)).toMatchObject({
       _tag: "answered",
       at: 2,
@@ -103,8 +94,8 @@ describe("the answer rule", () => {
     const log = makeMessageLog();
     // Observation order is not commit order: the server schedules its
     // notification writes before the sender's own send returns.
-    log.record(seq(1), "received", observed("reply", { createdAt: AT(2000) }));
-    log.record(undefined, "sent", floorMessage);
+    log.record({ origin: "received", at: seq(1) }, observed("reply", { createdAt: AT(2000) }));
+    log.record({ origin: "sent" }, floorMessage);
     expect(log.answer(AFTER_FLOOR)).toMatchObject({ _tag: "answered", at: 1 });
   });
 
@@ -138,7 +129,7 @@ function assertAnswerIsAlwaysAdmissible(
   conversations: ReadonlyArray<ConversationId>,
 ): void {
   const log = makeMessageLog();
-  log.record(undefined, "sent", floorMessage);
+  log.record({ origin: "sent" }, floorMessage);
   const records = senders.map((sender, index) => ({
     observedMessage: observed(`m${String(index)}`, {
       conversationId: conversations[index % conversations.length] ?? CONVERSATION,
@@ -148,7 +139,7 @@ function assertAnswerIsAlwaysAdmissible(
     sequence: index + 2,
   }));
   for (const record of records) {
-    log.record(seq(record.sequence), "received", record.observedMessage);
+    log.record({ origin: "received", at: seq(record.sequence) }, record.observedMessage);
   }
   const answer = log.answer(AFTER_FLOOR);
   if (answer._tag !== "answered") return;
@@ -161,8 +152,8 @@ function assertAnswerIsAlwaysAdmissible(
 describe("an unorderable pair", () => {
   it("waits rather than guessing when a candidate shares the floor's millisecond", () => {
     const log = makeMessageLog();
-    log.record(undefined, "sent", floorMessage);
-    log.record(seq(2), "received", observed("tied", { createdAt: FLOOR_AT }));
+    log.record({ origin: "sent" }, floorMessage);
+    log.record({ origin: "received", at: seq(2) }, observed("tied", { createdAt: FLOOR_AT }));
     expect(log.answer(AFTER_FLOOR)).toStrictEqual({
       _tag: "ambiguous",
       tiedWith: message("tied"),
@@ -171,9 +162,9 @@ describe("an unorderable pair", () => {
 
   it("prefers a strictly later candidate over a tied one", () => {
     const log = makeMessageLog();
-    log.record(undefined, "sent", floorMessage);
-    log.record(seq(2), "received", observed("tied", { createdAt: FLOOR_AT }));
-    log.record(seq(3), "received", observed("after", { createdAt: AT(2000) }));
+    log.record({ origin: "sent" }, floorMessage);
+    log.record({ origin: "received", at: seq(2) }, observed("tied", { createdAt: FLOOR_AT }));
+    log.record({ origin: "received", at: seq(3) }, observed("after", { createdAt: AT(2000) }));
     expect(log.answer(AFTER_FLOOR)).toMatchObject({ _tag: "answered", at: 3 });
   });
 });
@@ -181,15 +172,13 @@ describe("an unorderable pair", () => {
 describe("what the answer rule refuses", () => {
   it("gives no answer for another conversation, another sender, or no sender", () => {
     const log = makeMessageLog();
-    log.record(undefined, "sent", floorMessage);
+    log.record({ origin: "sent" }, floorMessage);
     log.record(
-      seq(2),
-      "received",
+      { origin: "received", at: seq(2) },
       observed("elsewhere", { conversationId: OTHER_CONVERSATION }),
     );
     log.record(
-      seq(3),
-      "received",
+      { origin: "received", at: seq(3) },
       observed("wrong-agent", { senderId: OTHER_SENDER }),
     );
     expect(log.answer(AFTER_FLOOR)).toStrictEqual({ _tag: "unanswered" });
@@ -200,10 +189,9 @@ describe("what the answer rule refuses", () => {
 
   it("never answers with a message the run sent itself", () => {
     const log = makeMessageLog();
-    log.record(undefined, "sent", floorMessage);
+    log.record({ origin: "sent" }, floorMessage);
     log.record(
-      undefined,
-      "sent",
+      { origin: "sent" },
       observed("own-follow-up", { createdAt: AT(2000) }),
     );
     expect(log.answer(AFTER_FLOOR)).toStrictEqual({ _tag: "unanswered" });
@@ -214,16 +202,16 @@ describe("retention", () => {
   it("collapses a repeated message id, so backfill cannot double-count", () => {
     const log = makeMessageLog();
     const reply = observed("reply");
-    expect(log.record(seq(1), "received", reply)).toBe(true);
-    expect(log.record(seq(2), "received", reply)).toBe(false);
+    expect(log.record({ origin: "received", at: seq(1) }, reply)).toBe(true);
+    expect(log.record({ origin: "received", at: seq(2) }, reply)).toBe(false);
     expect(log.countFrom(SENDER)).toBe(1);
   });
 
   it("counts messages per sender across origins", () => {
     const log = makeMessageLog();
-    log.record(seq(1), "received", observed("one"));
-    log.record(seq(2), "received", observed("two"));
-    log.record(seq(3), "received", observed("other", { senderId: OTHER_SENDER }));
+    log.record({ origin: "received", at: seq(1) }, observed("one"));
+    log.record({ origin: "received", at: seq(2) }, observed("two"));
+    log.record({ origin: "received", at: seq(3) }, observed("other", { senderId: OTHER_SENDER }));
     expect(log.countFrom(SENDER)).toBe(2);
     expect(log.countFrom(OTHER_SENDER)).toBe(1);
     expect(log.countFrom(agent("never-spoke"))).toBe(0);
@@ -245,7 +233,7 @@ function assertCountMatchesDistinctIds(ids: ReadonlyArray<number>): void {
   const log = makeMessageLog();
   let accepted = 0;
   for (const id of ids) {
-    if (log.record(seq(accepted + 1), "received", observed(`m${String(id)}`))) {
+    if (log.record({ origin: "received", at: seq(accepted + 1) }, observed(`m${String(id)}`))) {
       accepted += 1;
     }
   }

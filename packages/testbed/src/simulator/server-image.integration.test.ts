@@ -20,6 +20,7 @@ import { run } from "./episode.js";
 import { makeLocalRecordingStore } from "./local-store.js";
 import { resolveServerImagePin } from "./run-config.js";
 import { RunSpec } from "./run-spec.js";
+import { MESSAGE_DELIVERED_SPAN } from "./span-attrs.js";
 import {
   projectRecordedConversation,
 } from "../trace-capture-bundle.js";
@@ -41,7 +42,6 @@ const SIM_INTEGRATION_ENABLED = Effect.runSync(
   ),
 );
 
-const DELIVERED_SPAN = "moltzap.message.delivered";
 const IMAGE_BUILD_TIMEOUT_MS = 900_000;
 const RUN_TIMEOUT_MS = 300_000;
 const INACTIVITY_MS = 60_000;
@@ -100,14 +100,13 @@ const substrateRun = Effect.gen(function* () {
   // a message this run's own connection observed, not a span. Spans are
   // asserted below as evidence, and the run would have completed without
   // any of them arriving.
-  const firings = events.filter(
-    (event) => event._tag === EVENT.predicateFired,
+  const firings = events.flatMap((event) =>
+    event._tag === EVENT.predicateFired ? [event] : [],
   );
   expect(firings).toHaveLength(1);
+  const firing = firings[0];
   const cause = events.find(
-    (event) =>
-      firings[0]?._tag === EVENT.predicateFired &&
-      event.logicalSequence === firings[0].causationId,
+    (event) => event.logicalSequence === firing?.causationId,
   );
   expect(cause?._tag).toBe(EVENT.wireMessage);
 
@@ -117,7 +116,7 @@ const substrateRun = Effect.gen(function* () {
   expect(
     events.filter(
       (event) =>
-        event._tag === "span.accepted" && event.spanName === DELIVERED_SPAN,
+        event._tag === "span.accepted" && event.spanName === MESSAGE_DELIVERED_SPAN,
     ).length,
   ).toBeGreaterThan(0);
   expect(snapshot.traces?.spans.length ?? 0).toBeGreaterThan(0);

@@ -338,7 +338,19 @@ export type PredicateContext = {
   readonly lastSpoken: { receipt: SpeechReceipt | undefined };
 };
 
-const PENDING: PredicateOutcome = { _tag: "pending" };
+export const PENDING: PredicateOutcome = { _tag: "pending" };
+
+/**
+ * The only two events that can change what the message log says: a new
+ * observed message, and the step whose send wrote the floor and armed the
+ * predicate. Everything else — a span above all, the highest-volume
+ * producer in a live run — cannot, so it costs one tag compare rather
+ * than a walk of the log.
+ */
+const RE_READS_THE_LOG: ReadonlySet<SimulatorEvent["_tag"]> = new Set([
+  "wire.message",
+  "step.spoken",
+]);
 
 /** Instantiate the done-signal predicate for one episode; the ref is already materialization-checked. */
 export function makeDonePredicate(
@@ -434,7 +446,8 @@ function makeLastStepAnsweredPredicate(
       );
       return {
         driverName: ref.name,
-        observe: (): PredicateOutcome => {
+        observe: (event: SimulatorEvent): PredicateOutcome => {
+          if (!RE_READS_THE_LOG.has(event._tag)) return PENDING;
           const receipt = context.lastSpoken.receipt;
           if (receipt === undefined) return PENDING;
           return answerOutcome(

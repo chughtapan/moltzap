@@ -293,16 +293,18 @@ function enqueueWire(
     );
 }
 
+/** Conversations a reconnecting connection backfills at once. */
+const RECOVERY_CONCURRENCY = 4;
+
+const decodeJsonValue = Schema.decodeUnknownOption(JsonValue);
+
 /**
  * Parts arrive already decoded against the protocol's part schema, which
  * lives inside the JSON value space. `null` marks the shape this reader
  * cannot represent rather than dropping the message that carried it.
  */
 function partsJson(parts: unknown): JsonValue {
-  return Option.getOrElse(
-    Schema.decodeUnknownOption(JsonValue)(parts),
-    (): JsonValue => null,
-  );
+  return Option.getOrElse(decodeJsonValue(parts), (): JsonValue => null);
 }
 
 // ---------------------------------------------------------------------------
@@ -361,10 +363,15 @@ function recoverPrincipal(
 ): Effect.Effect<void, never, never> {
   const client = state.clients.get(principal);
   if (client === undefined) return Effect.void;
+  // Conversations recover independently and the run is blind to the gap
+  // until they all have, so they overlap; order matters only within one
+  // conversation, which `backfill` keeps. The bound is the connection's,
+  // not the conversation count's: a reconnecting client should not open
+  // its recovery with an unbounded burst.
   return Effect.forEach(
     [...channelsOf(state, principal).values()],
     (channel) => recoverChannel(state, principal, client, channel),
-    { concurrency: 1, discard: true },
+    { concurrency: RECOVERY_CONCURRENCY, discard: true },
   );
 }
 

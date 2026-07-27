@@ -21,6 +21,7 @@ import {
   waitUntil,
 } from "@moltzap/protocol/testing";
 import { ServerUrl } from "../../runtime.js";
+import { deterministicUuid } from "./ids.js";
 import { PrincipalName, RunSpec, materializeRunSpec } from "../run-spec.js";
 import type { AgentFacingRunSpec } from "../run-spec.js";
 import { AttemptId, wallTimeNow } from "../ids.js";
@@ -64,7 +65,7 @@ export const AGENT_ONE = "agent-one";
 export const AGENT_TWO = "agent-two";
 
 /** The done-signal every default fixture completes on: one reply from the first agent. */
-export const REPLIES_ONCE: unknown = {
+export const REPLIES_ONCE = {
   name: "replies",
   config: { from: AGENT_ONE, minCount: 1 },
 };
@@ -74,6 +75,9 @@ const RECEIVER_BOUND_MS = 5_000;
 
 /** Bind host of every hermetic receiver: nothing dials it from a container. */
 export const LOOPBACK_BIND_HOST = "127.0.0.1";
+
+/** The principal whose connection every fixture message is observed on. */
+const OBSERVING_PRINCIPAL = Schema.decodeSync(PrincipalName)(PRINCIPAL_NAME);
 
 /** A valid encoded RunSpec input; overrides merge shallowly per section. */
 export function specInput(
@@ -368,14 +372,6 @@ function startOneFake(
   });
 }
 
-function deterministicUuid(seedText: string): string {
-  const hex = [...seedText]
-    .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
-    .join("")
-    .padEnd(32, "0")
-    .slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
 
 // ---------------------------------------------------------------------------
 // Drain + principal test doubles
@@ -438,10 +434,11 @@ export function afterNthSend(nth: number): string {
   return new Date(FIXTURE_EPOCH_MS + nth * 1000 + 500).toISOString();
 }
 
-/** A commit time after every send this fixture mints, so an answer clears any floor. */
-const ANSWER_CREATED_AT = new Date(
-  FIXTURE_EPOCH_MS + 3_600_000,
-).toISOString();
+/**
+ * More sends than any fixture makes, so `afterNthSend(LAST_SEND)` is a
+ * commit time later than every send and clears any floor.
+ */
+const LAST_SEND = 3600;
 
 /**
  * The receipt the fake principal answers the nth `start` delivery with.
@@ -469,14 +466,21 @@ export function nthReceipt(nth: number): SpeechReceipt {
 // In-band observation double
 // ---------------------------------------------------------------------------
 
-/** One message a test drives into the run's in-band observation channel. */
+/**
+ * One message a test drives into the run's in-band observation channel.
+ * Names, not ids: the fixture derives the wire identity the same way the
+ * fake launcher derives an agent's, so a test names what it means and
+ * cannot spell an id two ways.
+ */
 export type WireInput = {
-  readonly messageId: string;
+  /** Name this message's identity derives from; unique within a case. */
+  readonly named: string;
   readonly conversationId: string;
   readonly taskId: string;
   /** Agent slot whose wire identity sent it. */
   readonly sender: string;
-  readonly createdAt?: string;
+  /** Server commit time; ordering against the step it answers is the point. */
+  readonly createdAt: string;
 };
 
 type FakeWireObserver = {
@@ -533,14 +537,14 @@ function enqueueWire(
         _tag: "wire.message",
         source: "wire",
         wallTime: wallTimeNow(),
-        observedBy: Schema.decodeSync(PrincipalName)(PRINCIPAL_NAME),
+        observedBy: OBSERVING_PRINCIPAL,
         observation: "live",
-        messageId: messageId(input.messageId),
+        messageId: messageId(deterministicUuid(input.named)),
         conversationId: conversationId(input.conversationId),
         taskId: taskId(input.taskId),
         senderId: fakeAgentId(input.sender),
         parts: [{ type: "text", text: "reply" }],
-        createdAt: input.createdAt ?? ANSWER_CREATED_AT,
+        createdAt: input.createdAt,
       }),
     ),
     Effect.asVoid,
@@ -728,6 +732,17 @@ export function postSpansWhenLive(
   );
 }
 
+/** Drive messages into the run in the order given; each is one observation. */
+export function observeAll(
+  started: StartedHermetic,
+  messages: ReadonlyArray<WireInput>,
+): Effect.Effect<void, never, never> {
+  return Effect.forEach(messages, (one) => started.wire.observe(one), {
+    concurrency: 1,
+    discard: true,
+  });
+}
+
 /**
  * Wait until the episode is observing, then answer its first step as the
  * default `replies` done-signal expects. The receipt is the fake
@@ -742,10 +757,11 @@ export function signalDoneWhenLive(
   return whenLive(started, agentCount).pipe(
     Effect.flatMap(() =>
       started.wire.observe({
-        messageId: deterministicUuid("done-reply"),
+        named: "done-reply",
         conversationId: step.conversationId,
         taskId: step.taskId,
         sender: AGENT_ONE,
+        createdAt: afterNthSend(LAST_SEND),
       }),
     ),
   );

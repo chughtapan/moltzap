@@ -30,6 +30,7 @@ import {
   expectedAttemptPath,
   makeHeldPrincipal,
   nthReceipt,
+  observeAll,
   specInput,
   startHermetic,
   tempStoreRoot,
@@ -92,29 +93,24 @@ const SECOND = nthReceipt(2);
 const AFTER_FIRST = afterNthSend(1);
 const AFTER_SECOND = afterNthSend(2);
 
-/** A message from `sender` in the conversation the nth step opened. */
+/**
+ * A message from `sender` in the conversation the nth step opened.
+ * `createdAt` is required: it is the only ordering the answer rule reads,
+ * so which step a reply answers is stated at the call site.
+ */
 function reply(
   step: typeof FIRST,
   sender: string,
-  id: string,
-  createdAt = AFTER_SECOND,
+  named: string,
+  createdAt: string,
 ): WireInput {
   return {
-    messageId: uuidOf(id),
+    named,
     conversationId: step.conversationId,
     taskId: step.taskId,
     sender,
     createdAt,
   };
-}
-
-function uuidOf(seedText: string): string {
-  const hex = [...seedText]
-    .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
-    .join("")
-    .padEnd(32, "0")
-    .slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 function eventsOf(
@@ -163,12 +159,7 @@ function runWithMessages(
   return startHermetic(input, root).pipe(
     Effect.tap((started) =>
       whenLive(started, AGENT_COUNT).pipe(
-        Effect.flatMap(() =>
-          Effect.forEach(messages, (one) => started.wire.observe(one), {
-            concurrency: 1,
-            discard: true,
-          }),
-        ),
+        Effect.flatMap(() => observeAll(started, messages)),
       ),
     ),
   );
@@ -210,7 +201,7 @@ describe("the `replies` done-signal", () => {
   it("completes on the Nth message from the named agent", () =>
     Effect.runPromise(
       repliesBody(
-        [reply(FIRST, AGENT_ONE, "m1"), reply(FIRST, AGENT_ONE, "m2")],
+        [reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST), reply(FIRST, AGENT_ONE, "m2", AFTER_SECOND)],
         PATIENT_MS,
         TERMINATION.completed,
       ).pipe(Effect.orDie),
@@ -219,7 +210,7 @@ describe("the `replies` done-signal", () => {
   it("does not complete one message short: the run ends timeout", () =>
     Effect.runPromise(
       repliesBody(
-        [reply(FIRST, AGENT_ONE, "m1")],
+        [reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST)],
         QUIET_MS,
         TERMINATION.timeout,
       ).pipe(Effect.orDie),
@@ -228,7 +219,7 @@ describe("the `replies` done-signal", () => {
   it("counts only the named agent, never the silent agent's peer", () =>
     Effect.runPromise(
       repliesBody(
-        [reply(FIRST, AGENT_ONE, "m1"), reply(FIRST, AGENT_TWO, "m2")],
+        [reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST), reply(FIRST, AGENT_TWO, "m2", AFTER_SECOND)],
         QUIET_MS,
         TERMINATION.timeout,
       ).pipe(Effect.orDie),
@@ -237,7 +228,7 @@ describe("the `replies` done-signal", () => {
   it("does not double-count one message redelivered", () =>
     Effect.runPromise(
       repliesBody(
-        [reply(FIRST, AGENT_ONE, "m1"), reply(FIRST, AGENT_ONE, "m1")],
+        [reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST), reply(FIRST, AGENT_ONE, "m1", AFTER_FIRST)],
         QUIET_MS,
         TERMINATION.timeout,
       ).pipe(Effect.orDie),
@@ -284,8 +275,30 @@ function gatedBody(
     const started = yield* runWithMessages(input, root, messages);
     const sealed = yield* started.join;
     expectTermination(sealed, expectedTermination);
-    expectSpoken(spokenOf(yield* eventsOf(started.store, input, root)));
+    const spoken = spokenOf(yield* eventsOf(started.store, input, root));
+    expectSpoken(spoken);
+    // Both gated steps speak into the setup's conversation, so every
+    // registered channel is that one.
+    expectEveryStepTracked(
+      started,
+      spoken.map(() => FIRST.conversationId),
+    );
   });
+}
+
+/**
+ * Every step registers the channel it spoke into. Reconnect recovery
+ * lists per conversation and the notification stream never names one the
+ * run created, so a step whose channel went unregistered leaves a gap
+ * recovery cannot even detect.
+ */
+function expectEveryStepTracked(
+  started: StartedHermetic,
+  conversations: ReadonlyArray<string>,
+): void {
+  expect(started.wire.tracked.map((one) => one.conversationId)).toStrictEqual(
+    conversations,
+  );
 }
 
 function expectBothSpoken(
@@ -321,15 +334,9 @@ function drainedBeforeReceiptBody(): Effect.Effect<void, unknown, never> {
     });
     yield* whenLive(started, AGENT_COUNT);
     yield* held.requested(1);
-    yield* Effect.forEach(SETUP_ANSWERED, (one) => started.wire.observe(one), {
-      concurrency: 1,
-      discard: true,
-    });
+    yield* observeAll(started, SETUP_ANSWERED);
     yield* held.release;
-    yield* Effect.forEach(PROBE_ANSWERED, (one) => started.wire.observe(one), {
-      concurrency: 1,
-      discard: true,
-    });
+    yield* observeAll(started, PROBE_ANSWERED);
     const sealed = yield* started.join;
     expectTermination(sealed, TERMINATION.completed);
     expect(spokenOf(yield* eventsOf(started.store, input, root))).toHaveLength(
