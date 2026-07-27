@@ -127,6 +127,8 @@ type ObserverState = {
   readonly channels: Map<PrincipalName, Map<ConversationId, TrackedChannel>>;
   /** Principals whose connection dropped; only these have a gap to recover. */
   readonly disconnected: Set<PrincipalName>;
+  /** Principals with a recovery already queued or running; one at a time each. */
+  readonly recovering: Set<PrincipalName>;
 };
 
 export function makeWireObserver(deps: {
@@ -150,6 +152,7 @@ export function makeWireObserver(deps: {
       clients: new Map(),
       channels: new Map(),
       disconnected: new Set(),
+      recovering: new Set(),
     };
     yield* Effect.forkIn(recoveryLoop(state), scope);
     const observer: WireObserver = {
@@ -175,6 +178,12 @@ function hooksFor(
       // A reconnect with no preceding drop has no gap behind it; only a
       // connection that actually lost frames needs the backfill.
       if (!state.disconnected.delete(principal)) return;
+      // One recovery per principal at a time. A flapping connection would
+      // otherwise queue a full per-conversation `agent/message/list` sweep
+      // per flap, and each sweep re-reads the same window; the pending one
+      // already covers everything a later flap would ask for.
+      if (state.recovering.has(principal)) return;
+      state.recovering.add(principal);
       Queue.unsafeOffer(state.reconnects, principal);
     },
   };
@@ -372,6 +381,12 @@ function recoverPrincipal(
     [...channelsOf(state, principal).values()],
     (channel) => recoverChannel(state, principal, client, channel),
     { concurrency: RECOVERY_CONCURRENCY, discard: true },
+  ).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        state.recovering.delete(principal);
+      }),
+    ),
   );
 }
 
@@ -381,23 +396,32 @@ function recoverChannel(
   client: MoltZapAgentClient,
   channel: TrackedChannel,
 ): Effect.Effect<void, never, never> {
-  return client
-    .callDefinition(MessagesList, {
-      taskId: channel.taskId,
-      conversationId: channel.conversationId,
-      limit: state.recoveryLimit,
-    })
-    .pipe(
-      Effect.matchEffect({
-        onFailure: (cause) =>
-          observationLost(
-            state,
-            principal,
-            `reconnect backfill of conversation ${channel.conversationId} could not be read: ${cause.message}`,
-          ),
-        onSuccess: (page) => backfill(state, principal, channel, page.messages),
-      }),
-    );
+  // The anchor is read before the page is asked for, not after it comes
+  // back. A live notification arriving while the list is in flight moves
+  // the mark to a message the server had not committed when it built the
+  // page, and reading the mark afterwards would report a gap wider than
+  // the window over a conversation that lost nothing.
+  return Effect.suspend(() => {
+    const anchoredAt = channel.lastObservedMessageId;
+    return client
+      .callDefinition(MessagesList, {
+        taskId: channel.taskId,
+        conversationId: channel.conversationId,
+        limit: state.recoveryLimit,
+      })
+      .pipe(
+        Effect.matchEffect({
+          onFailure: (cause) =>
+            observationLost(
+              state,
+              principal,
+              `reconnect backfill of conversation ${channel.conversationId} could not be read: ${cause.message}`,
+            ),
+          onSuccess: (page) =>
+            backfill(state, { principal, channel, anchoredAt }, page.messages),
+        }),
+      );
+  });
 }
 
 /**
@@ -411,13 +435,16 @@ function recoverChannel(
  */
 function backfill(
   state: ObserverState,
-  principal: PrincipalName,
-  channel: TrackedChannel,
+  recovery: {
+    readonly principal: PrincipalName;
+    readonly channel: TrackedChannel;
+    /** The mark as it stood before the page was asked for. */
+    readonly anchoredAt: MessageId;
+  },
   messages: ReadonlyArray<Message>,
 ): Effect.Effect<void, never, never> {
-  const anchor = messages.findIndex(
-    (message) => message.id === channel.lastObservedMessageId,
-  );
+  const { principal, channel, anchoredAt } = recovery;
+  const anchor = messages.findIndex((message) => message.id === anchoredAt);
   if (anchor < 0) {
     return Deferred.fail(
       state.failure,
@@ -425,7 +452,7 @@ function backfill(
         principal,
         conversationId: channel.conversationId,
         windowLimit: state.recoveryLimit,
-        lastObservedMessageId: channel.lastObservedMessageId,
+        lastObservedMessageId: anchoredAt,
         message: `Reconnect backfill for principal "${principal}" read the newest ${String(state.recoveryLimit)} messages of conversation ${channel.conversationId} and none of them is the last message the run observed, so the gap is wider than the window and the recording would be missing messages it cannot name. Raise the conversation's traffic bound or shorten the run.`,
       }),
     ).pipe(Effect.asVoid);

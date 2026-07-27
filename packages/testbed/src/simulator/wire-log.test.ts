@@ -69,43 +69,54 @@ const AFTER_FLOOR: AnswerCriteria = {
   senders: new Set([SENDER]),
 };
 
+function assertNoFloorNamesTheAwaitedMessage(): void {
+  const log = makeMessageLog();
+  log.record({ origin: "received", at: seq(1) }, observed("reply"));
+  expect(log.answer(AFTER_FLOOR)).toStrictEqual({
+    _tag: "no-floor",
+    awaited: FLOOR,
+  });
+}
+
+function assertAnswersWithTheFirstLaterMessage(): void {
+  const log = makeMessageLog();
+  log.record({ origin: "sent" }, floorMessage);
+  log.record(
+    { origin: "received", at: seq(2) },
+    observed("reply", { createdAt: AT(2000) }),
+  );
+  log.record(
+    { origin: "received", at: seq(3) },
+    observed("later", { createdAt: AT(3000) }),
+  );
+  expect(log.answer(AFTER_FLOOR)).toMatchObject({ _tag: "answered", at: 2 });
+}
+
+/**
+ * Observation order is not commit order: the server schedules its
+ * notification writes before the sender's own send returns.
+ */
+function assertAnswersAMessageObservedFirst(): void {
+  const log = makeMessageLog();
+  log.record(
+    { origin: "received", at: seq(1) },
+    observed("reply", { createdAt: AT(2000) }),
+  );
+  log.record({ origin: "sent" }, floorMessage);
+  expect(log.answer(AFTER_FLOOR)).toMatchObject({ _tag: "answered", at: 1 });
+}
+
 describe("the answer rule", () => {
   it("names the awaited message when no floor was ever recorded", () => {
-    const log = makeMessageLog();
-    log.record({ origin: "received", at: seq(1) }, observed("reply"));
-    expect(log.answer(AFTER_FLOOR)).toStrictEqual({
-      _tag: "no-floor",
-      awaited: FLOOR,
-    });
+    assertNoFloorNamesTheAwaitedMessage();
   });
 
   it("answers with the first message committed after the floor", () => {
-    const log = makeMessageLog();
-    log.record({ origin: "sent" }, floorMessage);
-    log.record(
-      { origin: "received", at: seq(2) },
-      observed("reply", { createdAt: AT(2000) }),
-    );
-    log.record(
-      { origin: "received", at: seq(3) },
-      observed("later", { createdAt: AT(3000) }),
-    );
-    expect(log.answer(AFTER_FLOOR)).toMatchObject({
-      _tag: "answered",
-      at: 2,
-    });
+    assertAnswersWithTheFirstLaterMessage();
   });
 
   it("answers a message observed before the floor was written", () => {
-    const log = makeMessageLog();
-    // Observation order is not commit order: the server schedules its
-    // notification writes before the sender's own send returns.
-    log.record(
-      { origin: "received", at: seq(1) },
-      observed("reply", { createdAt: AT(2000) }),
-    );
-    log.record({ origin: "sent" }, floorMessage);
-    expect(log.answer(AFTER_FLOOR)).toMatchObject({ _tag: "answered", at: 1 });
+    assertAnswersAMessageObservedFirst();
   });
 
   it("only ever answers with an admissible message (property)", () => {
