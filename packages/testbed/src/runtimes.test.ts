@@ -17,6 +17,11 @@ import {
   agentKeyString,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
+// The seeding function has no focused plugin-sdk subpath, so the compat bridge
+// is the only public surface for it. It drags openclaw's embedded agent runtime
+// along, which is seconds of module load; that cost belongs to collection,
+// where there is no per-test timeout to blow.
+import { ensureAgentWorkspace } from "openclaw/extension-api";
 import { OpenClawSchema } from "openclaw/plugin-sdk/config-schema";
 
 import {
@@ -262,14 +267,6 @@ function bootstrapPromptSeeded(
       const workspaceDir = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "testbed-openclaw-workspace-",
       });
-      // openclaw exports the seeding function only from its compat bridge,
-      // which drags the whole embedded agent runtime along; importing it here
-      // keeps several seconds of module load out of the collection of every
-      // other test in this file.
-      const { ensureAgentWorkspace } = yield* Effect.tryPromise(
-        () => import("openclaw/extension-api"),
-      );
-
       yield* Effect.tryPromise(() =>
         ensureAgentWorkspace({ dir: workspaceDir, ensureBootstrapFiles }),
       );
