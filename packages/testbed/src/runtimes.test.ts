@@ -216,45 +216,69 @@ describe("buildOpenClawConfig bootstrap", () => {
     "leaves openclaw's bootstrap prompt out of a fresh workspace",
     openClawSeedsNoBootstrapPrompt,
   );
+
+  // Without this control the assertion above would hold just as well if
+  // openclaw had stopped seeding for a reason that has nothing to do with the
+  // config this package writes.
+  it(
+    "still seeds the prompt when the gate is left open",
+    openClawSeedsBootstrapPromptWhenGated,
+  );
 });
 
 function openClawSeedsNoBootstrapPrompt() {
+  const config = buildOpenClawConfig(
+    { agentName: "alice" },
+    CONFIG_WORKSPACE_DIR,
+  );
   return runTest(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const workspaceDir = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "testbed-openclaw-workspace-",
-        });
-        const config = buildOpenClawConfig(
-          { agentName: "alice" },
-          workspaceDir,
-        );
-        // openclaw exports the seeding function only from its compat bridge,
-        // which drags the whole embedded agent runtime along; importing it
-        // here keeps several seconds of module load out of the collection of
-        // every other test in this file.
-        const { ensureAgentWorkspace } = yield* Effect.tryPromise(
-          () => import("openclaw/extension-api"),
-        );
-
-        yield* Effect.tryPromise(() =>
-          ensureAgentWorkspace({
-            dir: workspaceDir,
-            // The gate openclaw derives from this key when it prepares a
-            // workspace for a reply.
-            ensureBootstrapFiles: !config.agents?.defaults?.skipBootstrap,
-          }),
-        );
-
-        const seeded = yield* fileSystem.exists(
-          path.join(workspaceDir, OPENCLAW_BOOTSTRAP_FILENAME),
-        );
+    bootstrapPromptSeeded(!config.agents?.defaults?.skipBootstrap).pipe(
+      Effect.map((seeded) => {
         expect(seeded).toBe(false);
       }),
-    ).pipe(Effect.provide(NodeContext.layer), Effect.orDie),
+    ),
   );
+}
+
+function openClawSeedsBootstrapPromptWhenGated() {
+  return runTest(
+    bootstrapPromptSeeded(true).pipe(
+      Effect.map((seeded) => {
+        expect(seeded).toBe(true);
+      }),
+    ),
+  );
+}
+
+// `ensureBootstrapFiles` is what openclaw's reply path derives from
+// `agents.defaults.skipBootstrap` before it prepares a workspace.
+function bootstrapPromptSeeded(
+  ensureBootstrapFiles: boolean,
+): Effect.Effect<boolean, never, never> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "testbed-openclaw-workspace-",
+      });
+      // openclaw exports the seeding function only from its compat bridge,
+      // which drags the whole embedded agent runtime along; importing it here
+      // keeps several seconds of module load out of the collection of every
+      // other test in this file.
+      const { ensureAgentWorkspace } = yield* Effect.tryPromise(
+        () => import("openclaw/extension-api"),
+      );
+
+      yield* Effect.tryPromise(() =>
+        ensureAgentWorkspace({ dir: workspaceDir, ensureBootstrapFiles }),
+      );
+
+      return yield* fileSystem.exists(
+        path.join(workspaceDir, OPENCLAW_BOOTSTRAP_FILENAME),
+      );
+    }),
+  ).pipe(Effect.provide(NodeContext.layer), Effect.orDie);
 }
 
 // The gateway child reads MOLTZAP_SERVER_URL through the moltzap client,
