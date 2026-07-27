@@ -20,6 +20,15 @@ const QUIET = new StubScript({
 const DEMO_ASKER = new StubScript({
   name: "demo-asker",
   steps: [
+    // The report the operator asked for. It goes back into the operator's
+    // own conversation, which is what makes it observable to the run: a
+    // message in the conversation this agent opens with the responder is
+    // between the two of them and no principal is a participant.
+    {
+      _tag: "replyOnMatch",
+      pattern: "report back",
+      content: "Responder check under way.",
+    },
     {
       _tag: "send",
       to: "responder",

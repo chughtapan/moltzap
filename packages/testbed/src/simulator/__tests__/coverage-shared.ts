@@ -4,7 +4,12 @@
  */
 import { expect } from "vitest";
 import type { Exit } from "effect";
-import { AGENT_ONE, DONE_SPAN, PRINCIPAL_NAME, SAY_TEXT } from "./support.js";
+import {
+  AGENT_ONE,
+  PRINCIPAL_NAME,
+  REPLIES_ONCE,
+  SAY_TEXT,
+} from "./support.js";
 import { EXIT } from "./tags.js";
 
 export const SHORT_INACTIVITY = 300;
@@ -19,7 +24,7 @@ export function doneEpisode(
     termination: {
       inactivityTimeoutMs: inactivityMs,
       onAgentCrash,
-      doneSignal: { name: "span-name", config: { name: DONE_SPAN } },
+      doneSignal: REPLIES_ONCE,
     },
   };
 }

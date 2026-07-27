@@ -28,8 +28,18 @@ export const REASON = {
   driverCrashed: "driver-crashed",
 } as const;
 
+export const OUTCOME_TAG = {
+  pending: "pending",
+  fired: "fired",
+  stalled: "stalled",
+  defective: "defective",
+} as const;
+
+export const STALL_REASON = { ambiguousOrder: "ambiguous-order" } as const;
+
 export const EVENT = {
   checkpoint: "checkpoint",
+  wireMessage: "wire.message",
   spanAccepted: "span.accepted",
   agentExited: "agent.exited",
   stepSpoken: "step.spoken",
