@@ -110,8 +110,14 @@ export type AnswerCriteria = {
  *
  * `ambiguous` is the honest residue of ordering by a millisecond
  * timestamp assigned in application code: two messages sharing a
- * `createdAt`, or a clock that moved backwards, cannot be ordered by it.
- * It resolves as not-yet-answered, so a tie waits rather than guessing.
+ * `createdAt` cannot be ordered by it. It resolves as not-yet-answered,
+ * so a tie waits rather than guessing.
+ *
+ * A backwards clock produces the other residue, and this type cannot name
+ * it: a candidate stamped before the floor is indistinguishable from a
+ * message the conversation genuinely committed earlier, so it reads
+ * `unanswered`. Only an ordering key the server assigns monotonically
+ * would separate them.
  */
 export type AnswerOutcome =
   | {
