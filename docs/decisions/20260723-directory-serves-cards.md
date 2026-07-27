@@ -8,8 +8,8 @@ decision-makers: Tapan Chugh
 
 ## Context and Problem Statement
 
-Recipient verification needs the sender's card — a frame verifies
-from frame plus card — and the interim signature profile's
+Recipient verification needs the sender's card — a message verifies
+from message plus card — and the interim signature profile's
 verification path resolves a keyid to "the registry card." But the
 control plane's directory read said only "resolve and enumerate
 identities," leaving the payload open: two implementers would ship

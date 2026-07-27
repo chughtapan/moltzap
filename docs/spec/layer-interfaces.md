@@ -172,9 +172,12 @@ interface Transport {
 Collective rounds ride this port as ordinary sends — one ack round
 replaces gossip because the shared order is equivocation-infeasible
 (protocol and diagrams: data-plane.md → The collective transaction).
-The `Offset` ack is not a layer leak: delivery order IS the log order —
-one ledger-owned order spans L2 and L3, and fan-out is an
-optimization over the ledger.
+The two orders are one order and its restriction: L2 delivers every
+message, a protocol's included, and the ledger records the actions
+among them in that same sequence. An `Offset` is therefore not a
+second order leaking upward but the position a record occupies in the
+one order — and a protocol's messages, which no record holds, simply
+never acquire one.
 
 ### Ledger (L3; swap axis: storage engine)
 
@@ -204,11 +207,13 @@ type Scope = (record: TranscriptRecord) => Effect<boolean>;
 Members reach the ledger directly — appending a completed action and
 reading history are both L3 acts, carried as control-plane calls
 (control-plane.md → Op families). The router is not involved: it
-delivers messages and records nothing. Admission therefore runs at
-the ledger's front door — attribution verifies, the sender exists and
-is active, the sender is a member or this is a `START` to a fresh id,
-the version matches exactly, and the grant precedes — since the
-delivery adapter is not on the append path.
+delivers messages and records nothing. Each path admits what crosses
+it, on the same envelope-only terms (data-plane.md → Admission):
+attribution verifies, the sender exists and is active, the sender is a
+member or this is a `START` to a fresh id, the version matches
+exactly. The grant is the append path's check alone — a protocol's
+messages need none and never reach the ledger — so what the delivery
+adapter cannot meaningfully check is exactly what only a record needs.
 
 ### Registry (L1 material + L7 mechanism; swap axis: card custody)
 
@@ -310,7 +315,7 @@ discipline — one interface, lock first. `begin` acquires the
 conversation's write lock: it resolves only when the group's write
 discipline grants this writer the next turn, so
 observe-before-generate (data-plane.md inv. 5) is simply holding an
-open `Txn` before generating. `update` stages entries; `commit` lands
+open `Txn` before generating. `update` stages the parts; `commit` lands
 the staged unit atomically at one offset and releases the lock;
 `abort` releases without effect. A plain message is the autocommit
 case (`begin` then `Txn.send`). The lock is TTL-expiring
@@ -322,7 +327,7 @@ quorum suffices, is the committer's call under the task's norms. That
 line is what keeps this the opposite of the rejected escrow model.
 
 The lock disciplines **effect, at collective granularity**: the
-leader's lock covers the whole transaction, and round entries — acks,
+leader's lock covers the whole transaction, and round messages — acks,
 contributions, signatures — are ordinary effect-free sends outside
 the lock (their carriage is the charter's), so agreement precedes
 generation at the granularity of the collective, not of every round
@@ -350,21 +355,23 @@ The send path — every arrow a call, every refusal before commitment:
 
 ```mermaid
 sequenceDiagram
-  participant P as Harness plugin
   participant E as Protocol engine
-  participant F as Outbound hook (L5)
-  participant T as Transport (L2)
-  participant L as Ledger (L3)
-  P->>H: begin(conversation) — lock the turn
-  H->>T: lock request (PCC, carriage chartered)
-  T-->>P: Txn — the turn is held
-  P->>H: txn.send(body) — or updates then commit, or a committing tool call
-  H->>S: admit
-  S->>T: sign(conversation, type, body) then send(Message)
-  T->>T: admission: verify, member or fresh start, version
-  T->>L: append(Message)
-  T-->>P: Offset — the commit ack
-  T--)T: fan out to membership (optimization over the ledger)
+  participant P as Harness plugin
+  participant F as Outbound hook - L5
+  participant T as Transport - L2
+  participant L as Ledger - L3
+  participant M as Members
+  E->>T: begin — lock the turn, carriage chartered
+  T-->>E: Txn — the turn is held, granted by the folded acks
+  E->>P: dispatch — the agent generates, only under the grant
+  P-->>E: body
+  E->>F: each message the protocol emits
+  F->>T: the hook passes — the endpoint signs, then sends
+  T--)M: delivered in the shared order — nothing recorded
+  E->>L: append the committing message
+  L->>L: admission — verify, member or fresh START, version, grant
+  L-->>E: Offset — the commit acknowledgment
+  L--)M: the recorded action reaches members
 ```
 
 Receive and recovery — push is convenience, the log is truth:
@@ -400,7 +407,7 @@ its owner: data-plane.md → The collective transaction.
   pinned, content-addressed fold library (it is trusted computing
   base — findings cite it by hash): `applyAction` (total over the action vocabulary)
   and `membersAt` — one fold, two sites: the router folds lifecycle
-  entries for delivery sets, the endpoint runs the identical fold to
+  records for delivery sets, the endpoint runs the identical fold to
   know the room. `Channel.startConversation` is a derivation.
   `evidence` = `verify` over `read`, packaged as a recomputation
   certificate (law L6.1; register 3 open;
@@ -430,7 +437,7 @@ Kinds per Conventions; citations name the governing doc.
 | L2.6 | One send, one byte-image, identical to every member (equivocation robustness) | S | data-plane.md inv. 7 |
 | L3.1 | `read(c, offset(append(f)), …)` contains exactly the appended message's record; offsets are dense and `from` is inclusive | P | control-plane.md guarantees 2, 3 |
 | L3.2 | `append` returns an `Offset` ⇒ the action is committed (atomic, durable, ordered); every refusal precedes commitment; `Transport.send` records nothing | P | data-plane.md inv. 4; control-plane.md guarantee 1 |
-| L3.3 | `append` takes one message — one entry, one commit; a collective commits as one unit (its transaction rides the message's body) | C+P | control-plane.md guarantee 9 |
+| L3.3 | `append` takes one message — one record, one commit; a collective commits as one unit (its transaction rides the message's body) | C+P | control-plane.md guarantee 9 |
 | L3.4 | No update, delete, or rewrite operation exists on any port | C | control-plane.md guarantee 6 |
 | L3.5 | A start message to a used id refuses with no side effect; to a fresh id it creates the log at offset zero | P | lifecycle-rides-l3 |
 | L3.6 | `membersAt` ≈ the fold of lifecycle actions at or before the offset; no membership write exists | C+P | data-plane.md inv. 8; control-plane.md guarantee 5 |

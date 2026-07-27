@@ -9,7 +9,7 @@ decision-makers: Tapan Chugh
 ## Context and Problem Statement
 
 L1 needs a card: the published material a recipient uses to verify a
-frame's attribution and that the sender acts for a known principal.
+message's attribution and that the sender acts for a known principal.
 The obvious reuse candidate was A2A v1.0's AgentCard.
 
 ## Considered Options

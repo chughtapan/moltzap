@@ -21,8 +21,8 @@ where conversations address and collective operations are transactions over
 the per-conversation transcript. Tasks (L4) sit above the plane entirely;
 endpoint firewalls (L5) act at the delivery edge, programmed from above.
 Conversation lifecycle rides in-band as L3 action types: a conversation
-begins as its transcript's genesis entry, membership changes and
-departures are subsequent entries, and half-open state expires by bounded
+begins as its transcript's genesis record, membership changes and
+departures are subsequent records, and half-open state expires by bounded
 timeout (`docs/decisions/20260723-lifecycle-rides-l3.md`). Lifecycle actions are membership
 mechanics; like every action they are performed by a protocol and
 recorded once.
@@ -144,15 +144,15 @@ sequenceDiagram
 ```
 
 **The correctness skeleton.** Locks and effects are folds over the
-shared order; entries are the only reality. The grant is the fold
+shared order; that order is the only reality. The grant is the fold
 "the ack rule is met by the signed acks following BEGIN" — no router
 utterance, no lock table. A commit's validity — quorum per the pinned
 norm, signatures verifying, result recomputing — is a deterministic
-fold too: the plane admits the commit entry without judging it, and
+fold too: the plane admits the commit record without judging it, and
 every same-pinned party computes the identical effective/ineffective
 verdict, so an invalid commit is admitted, ineffective, and L6
 evidence. Resolution and effect are separate folds over the same
-entries: any commit or abort from the holder **resolves** the
+order: any commit or abort from the holder **resolves** the
 transaction and releases the lock whatever its validity — otherwise a
 holder emitting garbage would hold the conversation hostage to its
 TTL — while validity decides only whether the transaction enters the
@@ -160,8 +160,9 @@ canonical chain. Failure handling follows: timeouts are local observations
 whose consequence — a superseding BEGIN or an abort — is resolved by
 the order, so whichever grant completes first wins and a late commit
 against a superseded grant is deterministically ineffective; restart
-recovers lock and transaction state by re-folding (this doc's open
-question 5, closed below); one effective commit per txn id, so
+abandons the in-flight transaction and re-syncs from committed state
+(this doc's open question 5, closed below); one effective commit per
+txn id, so
 retries are harmless — which is also the norm compile step's
 idempotency key (`endpoints/tasks.md`).
 
@@ -204,8 +205,10 @@ What the skeleton already settles is recorded with it: contributions
 are embedded in the commit message (references bind in the digest,
 bodies persist), one open transaction per conversation, holder-only
 abort with a superseding grant as the group's remedy, participants
-contributing as unlocked protocol messages the leader embeds, the cut
-derived from the deciding ack, and the retention floor above. What
+contributing as unlocked protocol messages the leader embeds, and the
+cut derived from the deciding ack. Round traffic raises no retention
+question at all: it is never recorded, so there is nothing to keep or
+drop. What
 stays the charter's: the action vocabulary, the shape
 constraints on a norm's ack rule, and TTL magnitudes.
 
@@ -304,10 +307,10 @@ the connection is never semantic state), and replacement needs no spec change.
 
 Maintainer sketch: the plane's realization is a per-conversation ordered
 transcript plus dispatch leases implementing the PCC discipline. Frames are
-transcript entries; the lease is the turn instrument, bracketing the durable
+transcript records; the lease is the turn instrument, bracketing the durable
 append (claim, append, finalize; rollback on failure), with a TTL that never
 expires a claim mid-append and disconnect cleanup that never rolls back a
-committed entry. Gaps observed in the v1 realization, recorded for salvage:
+committed record. Gaps observed in the v1 realization, recorded for salvage:
 sequence assigned at insert start breaks gap-free catch-up under concurrent
 commits; no per-conversation exclusivity invariant on active leases; lease
 state in-memory and single-node (whether this is a gap is contingent on open
@@ -347,7 +350,7 @@ conformance suite's toxic-profile DSL (transport faults) and scripted app
 ## Open questions
 
 1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — the collective-semantics charter, jointly with register Q4/Q6 (witness read-back; records retention and history-read scope).
-2. The seven charter clusters (the action vocabulary, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 entry types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes what remains: the action vocabulary, the shape constraints a norm's ack rule must satisfy, TTL magnitudes, and ARCHIVE's meaning. Embed-vs-reference, abort authority, participant carriage, the cut, overlapping transactions, and the retention floor are recorded consequences of the skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
+2. The seven charter clusters (the action vocabulary, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter. Lifecycle's carriage is recorded (in-band L3 action types — `docs/decisions/20260723-lifecycle-rides-l3.md`), and the collective's execution shape is recorded (rounds over L2, one multi-signed transaction — `docs/decisions/20260724-collectives-are-ledger-transactions.md`); the charter owes what remains: the action vocabulary, the shape constraints a norm's ack rule must satisfy, TTL magnitudes, and ARCHIVE's meaning. Embed-vs-reference, abort authority, participant carriage, the cut, and overlapping transactions are recorded consequences of the skeleton (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
 3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
 4. Does the plane owe per-recipient delivery status, or is recovery-convergence the whole guarantee beyond the commit acknowledgment?
 5. Closed: lock and transaction state are live coordination folded from L2's delivered order, never stored — so a restart or reconnect does not re-fold, it abandons the in-flight transaction and re-syncs from committed state (`docs/decisions/20260724-collectives-are-ledger-transactions.md`). No durable lease table, no wire-visible restart semantics. Number retained.

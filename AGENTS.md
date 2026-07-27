@@ -38,7 +38,7 @@ publishes from main only. `v2/*` imports nothing from `packages/*`
    configuration flows down.
 5. The data plane can become content-blind; e2e encryption stays
    possible, not required.
-6. Storage is atomic commit: an entry is committed for every
+6. Storage is atomic commit: a record is committed for every
    member or for none, and an acknowledgment implies commitment.
 7. Interfaces before implementation; guarantees, not mechanisms;
    questions stay questions absent evidence or a recorded decision;

@@ -22,22 +22,22 @@ contradictory. Who creates conversations, and through what surface?
 - Lifecycle as an L4 protocol over ordinary messaging, like contact
   formation.
 - Lifecycle as L3 message types — TCP-style in-band initiation: the
-  transcript's own entries create and reshape the conversation.
+  transcript's own records create and reshape the conversation.
 
 ## Decision Outcome
 
 Chosen: **lifecycle rides in-band at L3**, with authority above it.
-A conversation begins as its transcript's genesis entry — a
-CONVERSATION-START frame addressed to a fresh, client-minted
+A conversation begins as its transcript's genesis record — a
+`START` message addressed to a fresh, client-minted
 conversation id (collision-free by size), whose admission creates
-the transcript with that frame as entry zero. Membership changes,
-departures, and any acceptance are subsequent in-band entries, as
+the transcript with that message as the record at offset zero. Membership changes,
+departures, and any acceptance are subsequent in-band records, as
 membership ordering already required. There is no control-plane
 create op; the conversation registry becomes an index the store
-derives from lifecycle entries, and the control plane keeps only
+derives from lifecycle records, and the control plane keeps only
 reads (a member lists its conversations; members read transcripts).
 
-Admission of a genesis entry checks attribution and id freshness —
+Admission of a genesis record checks attribution and id freshness —
 nothing else. Authority is not the plane's: which creations and
 invitations are legitimate is a task norm (L4), published upward
 and screened by each invitee's gate (L5), exactly as contact
@@ -48,16 +48,16 @@ Escrow: an initiated conversation may be half-open — durable
 genesis, invitees yet to speak — and half-open state is
 per-conversation coordination state, expiring by bounded timeout
 per the sessionless decision; an acceptance, where a norm wants
-one, is the invitee's own in-band entry. Escrow semantics,
+one, is the invitee's own in-band record. Escrow semantics,
 acceptance quorums, and what ARCHIVE means to non-archivers are
 the collective-semantics charter's (#765, its lifecycle-as-collective
 cluster — direction now recorded).
 
-v0 implements genesis entries directly — no interim control-plane
+v0 implements genesis records directly — no interim control-plane
 create op is built (option b): v1's creation surface was
 app-authored and dies regardless, so there is no baseline worth
-migrating. v0's lifecycle entry types are START, member-add, and
-leave; escrow and archive ship with the charter.
+migrating. v0's lifecycle actions are `START`, `ADD`, and
+`LEAVE`; escrow and archive ship with the charter.
 
 Consequences: five dissolution verdicts flip from control to data
 (the lifecycle notifications were already "in-band,

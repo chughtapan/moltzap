@@ -25,9 +25,9 @@ or gives each plane its own.
 
 Chosen: **physical split, normative**. The control plane is
 request/response over HTTP: administrative ops only, nothing pushed.
-The data plane rides its own surface — frame shipping and delivery,
+The data plane rides its own surface — message shipping and delivery,
 concrete shape not yet defined — and carries only data-plane
-traffic, with L1 frames as byte-preserved payloads. Neither surface
+traffic, with L1 messages as byte-preserved payloads. Neither surface
 carries the other's ops.
 
 Consequences: the CLI is a plain HTTP client, not a privileged

@@ -24,7 +24,7 @@ sessionless decisions exclude.
 
 - Store-side escrow: the router brackets contributions into a unit.
 - Peer certificate: contributions exchanged, one self-certifying
-  entry committed.
+  record committed.
 - Rounds over the multicast, ledger as a transaction chain — the
   certificate model with an explicit round structure and the ledger
   off the critical path.
@@ -33,7 +33,7 @@ sessionless decisions exclude.
 
 Chosen: **a collective is a transaction, assembled by rounds of
 ordinary L2 multicasts and committed atomically to the ledger as one
-multi-signed entry.**
+multi-signed record.**
 
 - **The rounds.** The leader — the current turn holder — proposes the
   collective; members acknowledge; the leader fixes the cut and opens
@@ -53,14 +53,14 @@ multi-signed entry.**
   the rounds' critical path — "centralized DB now, blockchain later"
   becomes a substrate swap that touches no round.
 - **Storage is atomic commit** (constitution clause 13, amended). The
-  guarantee durable-then-deliver was carrying is atomicity: an entry
+  guarantee durable-then-deliver was carrying is atomicity: a record
   is committed for every member or for none, and an acknowledgment
   implies commitment — durable, in the conversation's total order.
-  Pre-commit round entries are ordered and attributed but effect-free,
-  prunable once their transaction resolves; recovery converges on
-  committed entries. Whether any delivery precedes durability is
-  realization — durable-then-deliver remains a valid v0 posture, no
-  longer a law.
+  A protocol's messages are ordered and attributed but effect-free and
+  never recorded: L2 delivers them and participants fold them live, so
+  recovery converges on committed records without them. Whether any
+  delivery precedes durability is realization — durable-then-deliver
+  remains a valid v0 posture, no longer a law.
 - **Leadership.** The turn holder initiates. Next-leader selection is
   open — there may be multiple eligible next leaders contending; in
   v0 the PCC turn instrument arbitrates, and a task's norms may
@@ -70,7 +70,7 @@ multi-signed entry.**
   the lock comes first: `begin` **acquires the conversation's write
   lock** — it resolves only when the group's write discipline grants
   this writer the next turn, so observe-before-generate is holding an
-  open transaction before generating; `update` stages entries within
+  open transaction before generating; `update` stages the parts within
   it (a collective's contributions); `commit` lands the unit
   atomically at one place in the order and releases the lock;
   `abort` releases without effect. An ordinary message is the
@@ -84,10 +84,10 @@ multi-signed entry.**
   realize `commit`. Lock TTLs, abort authority, participant-update
   carriage, and overlapping open transactions are the charter's.
 - **The correctness skeleton** (refinement, 2026-07-24). Locks and
-  effects are folds over the shared order; entries are the only
+  effects are folds over the shared order; that order is the only
   reality. The transaction id is the hash of its BEGIN message —
   client-minted, content-bound. The grant is the fold "the ack rule
-  is met by the signed ack entries following BEGIN"; the acks in the
+  is met by the signed ack messages following BEGIN"; the acks in the
   order are its certificate — nothing separate is minted. An update
   binds the txn id and a grant reference under its contributor's
   signature, killing replay and misbinding. The signature round signs
@@ -100,23 +100,23 @@ multi-signed entry.**
   observations whose consequence — a superseding BEGIN or an abort —
   is resolved by the order: whichever grant completes first wins, and
   a late commit against a superseded grant is deterministically
-  ineffective. Restart recovers lock and transaction state by
-  re-folding. One effective commit per txn id — retries are
+  ineffective. Restart abandons the in-flight transaction and re-syncs
+  from committed state — the live fold is gone with the process, and
+  nothing recorded it. One effective commit per txn id — retries are
   harmless — which is also the norm compile step's idempotency key.
-  Round entries are ordered, attributed, and committed like any other
-  entry (the folds need them) but effect-free; once a transaction
-  resolves their bodies may be dropped under the retention policy,
-  while offsets and message hashes are permanent so density and the
-  chain survive. The committing message carries everything post-hoc
-  verification needs — contributions, signature set, ack
-  certificate — so no verifier depends on an unpruned round entry.
+  Round messages are ordered and attributed but effect-free and never
+  recorded: participants fold them live off L2's shared order, so
+  there is nothing to prune and no retention policy to write. The
+  committing message carries everything post-hoc verification needs —
+  contributions, signature set, ack certificate — so no verifier ever
+  re-folds the acks.
   Recorded consequences of the skeleton, settled with it: contributions
   are embedded in the committing message (references bind in the digest,
   bodies persist); one transaction is open per conversation, and
   concurrency is more conversations, never nested locks; abort is
   holder-only, the group's remedy being a superseding grant, since the
   acks are already its evidence; participants contribute as unlocked
-  round entries the leader embeds; the cut is the position of the
+  round messages the leader embeds; the cut is the position of the
   deciding ack, with no separate GO minted — reopened only if a norm
   needs stragglers past quorum; sealed rounds need no new mechanism
   (commit-reveal is two update waves in bodies the plane cannot read);
@@ -130,14 +130,8 @@ multi-signed entry.**
   member would hold a veto) and why a norm's rule must be monotone and
   evaluated against membership at the BEGIN's offset.
 
-**Retention consequence (2026-07-26).** The correctness skeleton above
-describes a protocol's messages as committed, effect-free entries whose
-bodies may later be pruned. That is superseded: L2 delivers them in one
-shared order which participants fold **live**, and the ledger records
-**actions only**. Nothing is stored, so nothing is pruned, and post-hoc
-verification never re-folds acks — the committing message's signature
-set is the proof. The ledger is a chain of agreements, not a
-write-ahead log of coordination.
+The ledger is a chain of agreements, not a write-ahead log of
+coordination.
 
 **Scope consequence (2026-07-26).** The MULTICAST-only v0 scope
 (`20260722-data-plane-layering.md`) existed because collective
@@ -152,9 +146,9 @@ parameters, not the mechanism.
 Still chartered (#765): quorum rules, liveness and safety machinery,
 abort and timeout semantics, sealed rounds (commit-reveal), whether
 the cut is an explicit GO or the position of the deciding ack,
-embedding vs referencing contributions in the transaction, retention
-of round traffic (register item 6), overlapping collectives, and the
-encryption interaction.
+embedding vs referencing contributions in the transaction,
+overlapping collectives, and the encryption interaction. Retention of
+round traffic is no longer among them: nothing records it.
 
 Consequences: the member write surface is `send` (autocommit) plus
 the transaction verbs; the committed log advances one unit per

@@ -11,15 +11,15 @@ decision-makers: Tapan Chugh
 The identity card binds a verification key
 (`20260721-native-principal-shaped-card.md`,
 `20260721-x509-card-container.md`) whose target duty is verifying
-per-frame signatures. Interim plane authentication was drafted as
+per-message signatures. Interim plane authentication was drafted as
 bearer keys (carrying v1's mechanism forward), giving every identity
 two credentials: a
 plane-side shared secret plus the card keypair, with the card key
-dormant until frame signing ships.
+dormant until message signing ships.
 
 ## Considered Options
 
-- Bearer secret for requests; card key dormant until frame signing.
+- Bearer secret for requests; card key dormant until message signing.
 - Proof-of-possession: every request signed with the card key.
 - Short-lived tokens derived from a card-key challenge.
 
@@ -38,7 +38,7 @@ operator key provisioned as deployment configuration.
 Consequences: the plane stores only public material — no shared
 secrets anywhere, at rest or in transit; the interim-to-target
 attribution migration shrinks to a change of scope — sign the
-request becomes sign the frame — with the same key; endpoints hold
-their private key from day one (frame signing requires it
+request becomes sign the message — with the same key; endpoints hold
+their private key from day one (message signing requires it
 eventually anyway); v1's bearer credential-key toolkit is not
 salvaged; rotation and revocation remain register item 5.

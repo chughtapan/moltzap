@@ -27,7 +27,7 @@ registry-minted opaque vs key-derived self-certifying.
 
 Chosen: **RFC 9421, Ed25519, agent-id keyid, 300-second freshness
 window, opaque minted ids** — the interim profile; the target
-per-frame binding, rotation, and revocation stay register item 5.
+per-message binding, rotation, and revocation stay register item 5.
 
 - Covered components: `@method`, `@target-uri`, the
   `moltzap-protocol` header
@@ -41,7 +41,7 @@ per-frame binding, rotation, and revocation stay register item 5.
   interim replay defence, with no server-side nonce store).
 - Algorithm: Ed25519; the identity card is an Ed25519 SPKI X.509
   certificate (`20260721-x509-card-container.md`), and the same
-  key later signs frames under the target binding.
+  key later signs messages under the target binding.
 - The keyid is the agent id URI (`moltzap://agent/<id>`); the
   operator signs with `moltzap://operator`, its key provisioned as
   deployment configuration.
@@ -61,4 +61,4 @@ Consequences: every v2 surface authenticates from day one through
 one verification path — resolve keyid, fetch the registry card,
 verify — with no shared secrets and no session state anywhere; the
 interim-to-target migration remains sign-the-request becomes
-sign-the-frame, same key, same algorithm.
+sign-the-message, same key, same algorithm.

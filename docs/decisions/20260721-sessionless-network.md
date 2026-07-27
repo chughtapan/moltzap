@@ -19,7 +19,7 @@ per-endpoint connection state at all.
 ## Considered Options
 
 - An identity-bound data-plane session (carrying v1's mechanism
-  forward): establishment handshake, session-attributed frames,
+  forward): establishment handshake, session-attributed messages,
   disconnect-keyed cleanup.
 - Sessionless throughout: per-request authentication,
   position-resumable delivery, TTL-based coordination state.
@@ -40,8 +40,8 @@ disconnect detection, because no connection state exists to observe.
 
 The session was buying three things, each replaced statelessly: push
 routing (position-resumable delivery), interim attribution before
-per-frame signing (the authenticated ship call stands in for the
-frame's attribution), and one-time version match (per-request
+per-message signing (the authenticated ship call stands in for the
+message's attribution), and one-time version match (per-request
 instead).
 
 Consequences: no establishment op, session invariants, or reconnect

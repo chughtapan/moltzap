@@ -28,7 +28,7 @@ the right decomposition?
 Chosen: **one stack, eight layers, two regions**. The communication
 layers carry what agents say, organized as a network stack: L1
 identity (attribution; the PKI-analogue), L2 ordered multicast
-delivery (all-or-none, totally ordered delivery of attributed frames
+delivery (all-or-none, totally ordered delivery of attributed messages
 to the recipients a message names — the conversation handle carries
 who each message goes to, and the layer owns no membership), L3
 transactional messaging (conversations as port-number-shaped

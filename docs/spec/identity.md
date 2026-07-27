@@ -67,7 +67,7 @@ recipient can verify — the named sender produced this message and acts
 for its registered principal; the addressing; the message type (an action being recorded — `MULTICAST`, `START`,
 `ADD`, `LEAVE` — or a protocol step performing one; carrier-readable
 so admission and the membership fold never touch the body; a
-lifecycle entry also carries the participants it names, for the same
+lifecycle record also carries the participants it names, for the same
 reason — a content-blind router must fold membership without reading
 bodies); an opaque
 body the network never interprets; the protocol version (a calendar

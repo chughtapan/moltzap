@@ -16,25 +16,25 @@ one flat delivery surface, or layers with fixed duties?
 
 ## Considered Options
 
-- One flat plane: ship and deliver frames; all structure chartered.
+- One flat plane: ship and deliver messages; all structure chartered.
 - Bind the full stack now, collective op set included.
 - Layered minimum: an atomic-multicast delivery layer and a
   transactional messaging layer; the op set stays chartered.
 
 ## Decision Outcome
 
-Chosen: **layered minimum**. Above L1's signed frames, the delivery
-layer provides exactly one primitive: atomic multicast — a frame is
+Chosen: **layered minimum**. Above L1's signed messages, the delivery
+layer provides exactly one primitive: atomic multicast — a message is
 delivered to the conversation's membership all-or-none, in the
 conversation's single total order. Above it, the messaging layer
 addresses by conversation (L2.5's port-number-shaped handle) and
 realizes collective operations as transactions over the
-per-conversation transcript: one ALL-TO-ALL is one transactional
+per-conversation transcript: one `ALL_TO_ALL` is one transactional
 unit in the record, never a sequence of independent messages.
 Endpoints drive each collective's exchange with the PCC dispatch
 discipline; the network contributes the primitive and the
 transactional representation, nothing more. The collective
-vocabulary (CONVERSATION-START, ALL-GATHER, ALL-TO-ALL, …) and its
+vocabulary (`START`, `ALL_GATHER`, `ALL_TO_ALL`, …) and its
 semantics stay the charter's ground (#765), including whether
 conversation lifecycle itself rides as a collective type. Tasks sit
 above the data plane entirely: norms, contracts, and what counts as

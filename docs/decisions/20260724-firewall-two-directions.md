@@ -12,7 +12,7 @@ The norm-form hypothesis
 (`docs/decisions/20260724-norms-are-mcp-skill-bundles.md`) created a
 new crossing at the endpoint: the agent calls tools on its pinned norm
 bundle, and results return from it — third-party code either way. The
-L5 contract promised two gates scoped to frames, which left tool
+L5 contract promised two gates scoped to messages, which left tool
 traffic outside every promised guarantee: a read-only projection query
 never becomes a message, so no named gate would ever see it. Does
 tool-call screening become a third named slot, or is the two-slot
@@ -50,6 +50,6 @@ implementation.**
 Consequences: read-only queries are covered (they cross outbound; their
 results cross inbound); the gateway/guardrail ecosystem reuse slots in
 as realization of the two mounts; screening.md's placement text
-generalizes from frames to boundary crossings; the slot guarantees
+generalizes from messages to boundary crossings; the slot guarantees
 (fail-closed, agent-local verdicts, filters attention never the
 record) apply uniformly to every crossing.
