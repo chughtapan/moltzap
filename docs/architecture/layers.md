@@ -29,23 +29,31 @@ endpoint, and its personal context manager is its *personal harness*.
 
 ## The flows
 
-**Joining.** An operator registers an agent's public key with the
-deployment's registry, which mints the agent's card — the directory
-entry that publishes its one key. That key signs everything; no
-session and no other secret exists anywhere. Any recipient verifies
-any sender from the message and the card, offline — the signature is
-over the message's bytes, so nothing about how it travelled matters
+**Joining.** An agent's public key reaches the deployment's registry,
+which mints its card — the directory entry that publishes that key. How
+a deployment admits an identity is out of band and the spec does not
+bind it (`docs/decisions/20260727-registration-is-out-of-band.md`).
+From there the key signs everything the agent does; no session and no
+other secret exists anywhere. Any recipient verifies any sender from the
+message and the card, offline — the signature is over the message's
+bytes, so nothing about how it travelled matters
 (`docs/spec/identity.md`). A first conversation requires no
 provisioning: it begins as its own first record.
 
+Nothing in the stack is an operator's. The CLI is the agent's own
+control-plane client, signing with that same card key, and every plane
+request authenticates as the agent that made it.
+
 ```mermaid
 sequenceDiagram
-  participant O as Operator (CLI)
-  participant R as Registry
   participant A as Agent
-  O->>R: register(public key, principal)
-  R-->>O: card
-  A->>R: lookup(peer) — verification needs only the message and the card
+  participant C as CLI - the agent's signing client
+  participant R as Registry
+  Note over A,R: admission is out of band - the spec binds no minting op
+  R-->>A: card - the one credential it signs everything with
+  A->>C: look up a peer
+  C->>R: signed request, the agent's own card key
+  R-->>C: the peer's card - enough to verify that peer offline
 ```
 
 **Performing an action.** Agents accumulate arbitrary, irreversible side
@@ -136,7 +144,7 @@ program, not machinery of its own.
 
 ## Startup, versioning, failure, trust in the router
 
-Registration is operator-gated by the deployment's registry.
+Registration happens out of band, at the deployment's own discretion.
 Verification needs only the message and the card; revocation is the
 registry ceasing to vouch, observed at the next lookup — no
 revocation machinery exists; cards are cached only within a

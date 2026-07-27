@@ -198,9 +198,9 @@ interface Ledger {
   readonly read: (conversation: ConversationId, from: Offset, limit: number, scope: Scope) => Effect<readonly TranscriptRecord[], StoreError>;
   readonly list: (of: AgentId, page: PageToken) => Effect<Page<ConversationId>, StoreError>;
 }
-/** The one entitlement seam. v0 checks membership; witness, operator,
- *  horizon, and monitor policy (registers 3/4/6) are future predicate
- *  values, not new methods. */
+/** The one entitlement seam. v0 checks membership; witness, horizon,
+ *  and monitor policy (registers 3/4/6) are future predicate values,
+ *  not new methods. */
 type Scope = (record: TranscriptRecord) => Effect<boolean>;
 ```
 
@@ -219,19 +219,20 @@ adapter cannot meaningfully check is exactly what only a record needs.
 
 ```ts
 interface Registry {
-  /** Operator-gated; the caller must be the operator arm. */
-  readonly register: (caller: Caller, key: PublicKey, principal: Principal) => Effect<AgentCard, RegistryError>;
   /** The card is the directory entry; no thinner projection. */
   readonly lookup: (id: AgentId) => Effect<AgentCard, RegistryError>;
   readonly list: (page: PageToken) => Effect<Page<AgentCard>, RegistryError>;
 }
 ```
 
-`Caller` is a two-arm value (`identity | operator`) with one minter in
-the router composition (law L7.1). Per-request authentication derives
-its caller through `lookup`, so "L7 reconfigures L1" is an
-institutional fact change at the directory — revocation the zero
-policy (law L7.3;
+Reads only: minting a card is out of band, so it is a library call a
+deployment makes and no method here
+(`docs/decisions/20260727-registration-is-out-of-band.md`). With no
+privileged op left, there is no caller value to distinguish either —
+every request authenticates as an `AgentId`, the plane's one caller
+class (law L7.1). Per-request authentication derives its caller through
+`lookup`, so "L7 reconfigures L1" is an institutional fact change at
+the directory — revocation the zero policy (law L7.3;
 `20260724-l7-is-policy-attached-to-identity.md`). v0's fact set is the
 single active bit; the lookup surface grows facts when the vocabulary
 lands, without a new port.
@@ -453,7 +454,7 @@ Kinds per Conventions; citations name the governing doc.
 | L5.6 | An illegal committing action is refused at the outbound hook before compilation begins — refusal never strands an in-flight round | P | screening.md inv. 5 |
 | L4.1 | No port has a task sort; norms enter only as firewall and turn configuration, shape unbound (tasks.md open question 1); same-version agreement is two endpoints pinning one bundle digest | C | tasks.md inv. 1–3; data-plane.md inv. 10 |
 | L6.1 | `evidence` = the recipient's `verify` over `read`, post facto; no monitor port, principal, or caller arm exists | C | identity.md → Verification duties; enforcement.md |
-| L7.1 | `register` requires the operator arm; `Caller` has two arms and one minter | C | control-plane.md inv. 3, 7 |
+| L7.1 | Every plane request authenticates as exactly one `AgentId`; no second caller arm and no minting method exist | C | control-plane.md inv. 3, 7; registration-is-out-of-band |
 | L7.2 | `list` ≈ per-id `lookup`; cards only, no thinner projection | P | directory-serves-cards |
 | L7.3 | An institutional fact change (revocation the zero policy) changes what `lookup` returns and what callers can be derived — no consequence op | P | layers.md → L7; l7-is-policy-attached-to-identity |
 | X.1 | Version exact-match refuses before any state change, on every recorded action | C+P | protocol-version-carriage |
@@ -483,7 +484,7 @@ mapping is v2's standard realization.
   Verifier, and provides Transport; `EndpointComposition` holds
   Signer, the Transport client, a control-plane client for reads, and
   whatever state its firewall implementation owns. Leaf code holds
-  values (`Channel`, `Txn`, `Caller`, `Scope`); folds and transaction
+  values (`Channel`, `Txn`, `AgentId`, `Scope`); folds and transaction
   handles are plain values with no tag.
 - **Three static checks** under the W1 boundary machinery: no exported
   function outside a composition names a port tag in its
