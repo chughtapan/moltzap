@@ -9,7 +9,15 @@
  * after episode end is still executed and recorded) before the controller
  * returns.
  */
-import { Cause, Deferred, Effect, Either, Option, Schema, Stream } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Either,
+  Option,
+  Schema,
+  Stream,
+} from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
   CorrelationId,
@@ -626,10 +634,7 @@ function deliverOneStep(
       world: ctx.deps.world,
       into,
     });
-    ctx.gate.messages.record(
-      { origin: "sent" },
-      observedFrom(receipt.message),
-    );
+    ctx.gate.messages.record({ origin: "sent" }, observedFrom(receipt.message));
     if (isLast) ctx.lastSpoken.receipt = receipt;
     if (step.name !== undefined) ctx.spoken.set(step.name, receipt);
     yield* ctx.deps.observer.track(step.by, receipt);

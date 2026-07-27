@@ -10,10 +10,7 @@
 import { describe, expect, it } from "vitest";
 /* eslint-disable sonarjs/assertions-in-tests -- property bodies are extracted to named top-level functions to satisfy the nesting caps; every property test delegates to one */
 import { FastCheck as fc } from "effect";
-import {
-  MESSAGE_DELIVERED_SPAN,
-  readDeliveredMessage,
-} from "./span-attrs.js";
+import { MESSAGE_DELIVERED_SPAN, readDeliveredMessage } from "./span-attrs.js";
 import type { JsonValue } from "./run-spec.js";
 
 const CONVERSATION = "conversation-1";
