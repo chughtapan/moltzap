@@ -43,6 +43,9 @@ import {
   Stream,
   type Scope,
 } from "effect";
+import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { AgentId } from "@moltzap/protocol/identity";
+import { TaskId } from "@moltzap/protocol/task";
 import {
   CorrelationId,
   EpisodeId,
@@ -90,6 +93,7 @@ export const EventSource = Schema.Literal(
   "span",
   "transcript",
   "proxy",
+  "wire",
 ).annotations({ description: "Producer that enqueued the event" });
 export type EventSource = typeof EventSource.Type;
 
@@ -405,6 +409,43 @@ export class TranscriptMessage extends Schema.TaggedClass<TranscriptMessage>()(
   },
 ) {}
 
+/**
+ * A message observed in band by one of the run's own connections. This is
+ * the control-path evidence: the done-signal and the reply gate read it,
+ * and episode completion depends on no telemetry arriving.
+ * `logicalSequence` is the run's observation order, which is not the
+ * server's commit order — `createdAt` carries that. `transcript.message`
+ * is the durable counterpart swept from storage after the run; the two
+ * relate by `messageId`.
+ */
+export class WireMessage extends Schema.TaggedClass<WireMessage>()(
+  "wire.message",
+  {
+    ...envelopeFields,
+    source: Schema.Literal("wire"),
+    observedBy: PrincipalName,
+    /** `live` for a pushed notification, `recovery` for a backfilled row. */
+    observation: Schema.Literal("live", "recovery"),
+    // Wire identities stay branded here, unlike the transcript drain's
+    // storage rows: these arrive already decoded from the protocol, so
+    // the brand costs nothing and keeps the projection into the message
+    // log free of a second decode that could fail.
+    messageId: MessageId,
+    conversationId: ConversationId,
+    taskId: TaskId,
+    senderId: AgentId,
+    replyToId: Schema.optional(MessageId),
+    parts: JsonValue.annotations({
+      description: "The message body verbatim, redaction applied",
+    }),
+    createdAt: Schema.String.annotations({
+      description:
+        "Server-assigned commit time, ISO-8601; the only ordering the answer rule trusts",
+    }),
+    episodeId: Schema.optional(EpisodeId),
+  },
+) {}
+
 /** A tool call captured at the MCP logging proxy (calls never traverse moltzap). */
 export class ToolCallRequested extends Schema.TaggedClass<ToolCallRequested>()(
   "proxy.tool-call",
@@ -465,6 +506,7 @@ const SimulatorEvent = Schema.Union(
   FaultReverted,
   SpanAccepted,
   TranscriptMessage,
+  WireMessage,
   ToolCallRequested,
   ToolCallCompleted,
 );
@@ -801,16 +843,23 @@ function registerEventTaps(
  * Observation channel over the drained, stamped event stream. The
  * episode's predicate triggers, done-signal, and inactivity bound read
  * it. Available exactly for logs built by `makeEventLog` (the contract's
- * one v0 implementation); the composition root guarantees that, so a
- * miss is a precondition violation, not an expected failure.
+ * one v0 implementation); the composition root guarantees that, so a miss
+ * is a precondition violation, not an expected failure.
+ *
+ * Subscribing is scoped and separate from consuming, because the tap does
+ * not replay: an event published between forking the observer and its
+ * subscription landing is lost, and the episode has to be able to prove
+ * it is listening before the first step speaks.
  */
 export function getEventTaps(
   log: EventLog,
-): Option.Option<Stream.Stream<SimulatorEvent>> {
+): Option.Option<
+  Effect.Effect<Stream.Stream<SimulatorEvent>, never, Scope.Scope>
+> {
   const taps = EVENT_TAPS.get(log);
   return taps === undefined
     ? Option.none()
-    : Option.some(Stream.fromPubSub(taps));
+    : Option.some(Stream.fromPubSub(taps, { scoped: true }));
 }
 
 // ---------------------------------------------------------------------------

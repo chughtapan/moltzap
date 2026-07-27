@@ -26,6 +26,8 @@ const DEMO_ASKER = new StubScript({
       content: "Are you still reachable?",
       afterMs: 500,
     },
+    // After the fault window has opened and healed, so the demo's
+    // recording holds both boundaries before the run completes.
     { _tag: "signalDone", afterMs: 12_000 },
   ],
 });

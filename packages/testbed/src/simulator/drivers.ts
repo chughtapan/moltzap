@@ -28,17 +28,14 @@ import {
 import type {
   ChannelRef,
   Principal,
+  PrincipalContext,
   SpeechDelivery,
   SpeechReceipt,
 } from "./episode.js";
 import type { Society } from "./run-config.js";
 import type { SimulatorEvent } from "./event-log.js";
-import {
-  MESSAGE_DELIVERED_SPAN,
-  readDeliveredMessage,
-  type DeliveredLog,
-} from "./span-attrs.js";
-import type { Secrets } from "./recording.js";
+import type { LogicalSequence } from "./ids.js";
+import type { AnswerOutcome, MessageLog } from "./wire-log.js";
 import {
   DoneSignalUnsafe,
   DriverConfigRejected,
@@ -57,7 +54,6 @@ import {
 // ---------------------------------------------------------------------------
 
 const OUT_OF_BAND_PRINCIPAL = "out-of-band";
-const SPAN_NAME_DONE_SIGNAL = "span-name";
 export const REPLIES_DONE_SIGNAL = "replies";
 
 /** The one done-signal that tracks the schedule rather than the traffic. */
@@ -65,26 +61,15 @@ export const LAST_STEP_ANSWERED_DONE_SIGNAL = "last-step-answered";
 
 export type DriverKind = "principal" | "done-signal";
 
-/** Config of the `span-name` done-signal predicate. */
-const SpanNameDoneConfig = Schema.Struct({
-  name: Schema.NonEmptyString.annotations({
-    description: "Span name that signals episode completion",
-  }),
-  minCount: Schema.optionalWith(
-    Schema.Int.pipe(
-      Schema.positive(),
-      Schema.annotations({
-        description: "Number of matching spans required before firing",
-      }),
-    ),
-    { default: () => 1 },
-  ),
-}).annotations({
-  description:
-    "Completes the episode once the named span has been accepted minCount times",
-});
-
-/** Config of the `replies` done-signal predicate. */
+/**
+ * Config of the `replies` done-signal predicate.
+ *
+ * The count is of messages observable to the run's principals. Spans saw
+ * every committed message on the server; in band the run sees the
+ * conversations its principals participate in. For a one-step spec — the
+ * only shape this driver is allowed on — those coincide, because the only
+ * conversation is the one the principal created and was seeded into.
+ */
 const RepliesDoneConfig = Schema.Struct({
   from: Schema.NonEmptyString.annotations({
     description: "Agent whose committed messages are counted",
@@ -98,6 +83,9 @@ const RepliesDoneConfig = Schema.Struct({
     ),
     { default: () => 1 },
   ),
+}).annotations({
+  description:
+    "Completes the episode once the named agent has sent minCount messages the run's principals can observe",
 });
 
 /** Config of the `last-step-answered` done-signal predicate. */
@@ -131,11 +119,6 @@ const REGISTERED_DRIVERS: Readonly<
     kind: "principal",
     config: OutOfBandPrincipalConfig,
     tracksTraffic: false,
-  },
-  [SPAN_NAME_DONE_SIGNAL]: {
-    kind: "done-signal",
-    config: SpanNameDoneConfig,
-    tracksTraffic: true,
   },
   [REPLIES_DONE_SIGNAL]: {
     kind: "done-signal",
@@ -317,26 +300,57 @@ function describeSchema(schema: Schema.Schema.AnyNoContext): string {
 // Done-signal predicates
 // ---------------------------------------------------------------------------
 
-/** A stateful completion predicate; `observe` reports whether this event completes the episode. */
+/**
+ * What one observation tells the episode. A boolean cannot carry any of
+ * it: `fired` names the recorded event the firing cites, `stalled` is the
+ * case where the predicate cannot judge and the episode has to say why
+ * rather than wait silently, and `defective` is the composition error
+ * that must fail the episode instead of dying in an unjoined fiber.
+ */
+export type PredicateOutcome =
+  | { readonly _tag: "pending" }
+  | { readonly _tag: "fired"; readonly at: LogicalSequence }
+  | {
+      readonly _tag: "stalled";
+      readonly reason: "ambiguous-order";
+      readonly detail: string;
+    }
+  | { readonly _tag: "defective"; readonly detail: string };
+
+/** A stateful completion predicate; `observe` reports what this event decides. */
 export type DonePredicate = {
   readonly driverName: string;
-  observe(event: SimulatorEvent): boolean;
+  observe(event: SimulatorEvent): PredicateOutcome;
 };
 
 /**
  * What a predicate needs beyond the event itself: the spec's names
  * resolved to wire identities, the schedule it is judging, and the
- * episode's delivered-span log. The log is the episode's, not the
- * predicate's — the gate and `last-step-answered` read the same evidence,
- * so it is recorded once, by the episode, before any predicate observes.
+ * episode's message log. The log is the episode's, not the predicate's —
+ * the gate and `last-step-answered` read the same evidence, so it is
+ * recorded once, by the episode, before any predicate observes.
  */
 export type PredicateContext = {
   readonly agentIds: ReadonlyMap<string, AgentId>;
   readonly steps: ReadonlyArray<SpeechStep>;
-  readonly delivered: DeliveredLog;
+  readonly messages: MessageLog;
   /** Filled by the episode once the last step has spoken; empty until then. */
   readonly lastSpoken: { receipt: SpeechReceipt | undefined };
 };
+
+export const PENDING: PredicateOutcome = { _tag: "pending" };
+
+/**
+ * The only two events that can change what the message log says: a new
+ * observed message, and the step whose send wrote the floor and armed the
+ * predicate. Everything else — a span above all, the highest-volume
+ * producer in a live run — cannot, so it costs one tag compare rather
+ * than a walk of the log.
+ */
+const RE_READS_THE_LOG: ReadonlySet<SimulatorEvent["_tag"]> = new Set([
+  "wire.message",
+  "step.spoken",
+]);
 
 /** Instantiate the done-signal predicate for one episode; the ref is already materialization-checked. */
 export function makeDonePredicate(
@@ -357,8 +371,6 @@ function donePredicateFor(
       return makeRepliesPredicate(ref, context);
     case LAST_STEP_ANSWERED_DONE_SIGNAL:
       return makeLastStepAnsweredPredicate(ref, context);
-    case SPAN_NAME_DONE_SIGNAL:
-      return makeSpanNamePredicate(ref);
     default:
       // Registering a done-signal without a factory here would otherwise
       // decode its config against another driver's schema.
@@ -368,26 +380,16 @@ function donePredicateFor(
   }
 }
 
-function makeSpanNamePredicate(
-  ref: DriverRef,
-): Effect.Effect<DonePredicate, DriverConfigRejected> {
-  return decodeDriverConfig(ref, SpanNameDoneConfig).pipe(
-    Effect.map((config) =>
-      countingPredicate(
-        ref.name,
-        config.minCount,
-        (event) =>
-          event._tag === "span.accepted" && event.spanName === config.name,
-      ),
-    ),
-  );
-}
-
 /**
- * Counts the messages the named agent committed, read off the delivered
- * spans the server already emits. An agent's own name resolves to the id
- * the spans carry through the launch-time registration; an unlaunched
- * name cannot match, and materialization is what keeps that unreachable.
+ * Counts the messages the named agent committed, read off the message log
+ * the episode fills from its own connections. An agent's own name
+ * resolves to the wire identity through the launch-time registration; an
+ * unlaunched name cannot match, and materialization is what keeps that
+ * unreachable.
+ *
+ * The count is of distinct messages, not of observations: the log
+ * collapses a repeated message id, so a reconnect backfill overlapping
+ * the live stream cannot push the count over on its own.
  */
 function makeRepliesPredicate(
   ref: DriverRef,
@@ -397,18 +399,21 @@ function makeRepliesPredicate(
     Effect.map((config) => {
       const senderId = context.agentIds.get(config.from);
       if (senderId === undefined) return neverFires(ref.name);
-      return countingPredicate(ref.name, config.minCount, (event) => {
-        if (event._tag !== "span.accepted") return false;
-        if (event.spanName !== MESSAGE_DELIVERED_SPAN) return false;
-        return readDeliveredMessage(event.raw)?.senderId === senderId;
-      });
+      return {
+        driverName: ref.name,
+        observe: (event: SimulatorEvent): PredicateOutcome =>
+          event._tag === "wire.message" &&
+          context.messages.countFrom(senderId) >= config.minCount
+            ? { _tag: "fired", at: event.logicalSequence }
+            : PENDING,
+      };
     }),
   );
 }
 
 /** A name that resolves to no launched agent can never be the sender of anything. */
 function neverFires(driverName: string): DonePredicate {
-  return { driverName, observe: () => false };
+  return { driverName, observe: () => PENDING };
 }
 
 /**
@@ -422,10 +427,10 @@ function neverFires(driverName: string): DonePredicate {
  * missed would otherwise shift the arming point one step earlier and
  * complete the run before the last step ever speaks.
  *
- * An answer must clear the floor set by the last step's own message span,
- * and spans are ordered as they arrive, so a span recorded before that
- * floor can never match. Every candidate therefore arrives after it, and
- * checking on each delivered span is enough.
+ * The floor is the last step's own message, written into the log in the
+ * same call frame that produced the receipt. Nothing has to arrive for it
+ * to exist, so a missing floor is a composition defect and says so
+ * instead of quietly refusing every candidate for the rest of the run.
  */
 function makeLastStepAnsweredPredicate(
   ref: DriverRef,
@@ -441,21 +446,45 @@ function makeLastStepAnsweredPredicate(
       );
       return {
         driverName: ref.name,
-        observe: (event: SimulatorEvent): boolean => {
-          if (event._tag !== "span.accepted") return false;
+        observe: (event: SimulatorEvent): PredicateOutcome => {
+          if (!RE_READS_THE_LOG.has(event._tag)) return PENDING;
           const receipt = context.lastSpoken.receipt;
-          if (receipt === undefined) return false;
-          return (
-            context.delivered.answer({
+          if (receipt === undefined) return PENDING;
+          return answerOutcome(
+            context.messages.answer({
               conversationId: receipt.conversationId,
-              afterMessageId: receipt.messageId,
+              afterMessageId: receipt.message.id,
               senders,
-            }) !== undefined
+            }),
           );
         },
       };
     }),
   );
+}
+
+function answerOutcome(answer: AnswerOutcome): PredicateOutcome {
+  switch (answer._tag) {
+    case "answered":
+      return { _tag: "fired", at: answer.at };
+    case "unanswered":
+      return PENDING;
+    case "ambiguous":
+      return {
+        _tag: "stalled",
+        reason: "ambiguous-order",
+        detail: `message ${answer.tiedWith} shares the awaited message's commit millisecond, so the two cannot be ordered by the only key the wire carries; the episode keeps waiting rather than guessing which came first`,
+      };
+    case "no-floor":
+      return {
+        _tag: "defective",
+        detail: `the awaited message ${answer.awaited} is absent from the episode's message log, which the send that produced it writes synchronously; the done-signal cannot judge any candidate`,
+      };
+    default: {
+      const exhaustive: never = answer;
+      return exhaustive;
+    }
+  }
 }
 
 /**
@@ -466,7 +495,7 @@ function makeLastStepAnsweredPredicate(
 function wireIdentities(
   context: PredicateContext,
   names: ReadonlyArray<string>,
-): ReadonlySet<string> {
+): ReadonlySet<AgentId> {
   return new Set(
     names.flatMap((name) => {
       const id = context.agentIds.get(name);
@@ -502,22 +531,6 @@ function precedingStepIndex(
   if (target === undefined) return undefined;
   const next = steps.findIndex((candidate) => candidate.name === target);
   return next >= 0 && next < cursor ? next : undefined;
-}
-
-function countingPredicate(
-  driverName: string,
-  minCount: number,
-  matches: (event: SimulatorEvent) => boolean,
-): DonePredicate {
-  let seen = 0;
-  return {
-    driverName,
-    observe: (event: SimulatorEvent): boolean => {
-      if (!matches(event)) return false;
-      seen += 1;
-      return seen >= minCount;
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -609,7 +622,12 @@ function startAndSpeak(
   );
 }
 
-/** Send the step's text into an existing conversation and report where it landed. */
+/**
+ * Send the step's text into an existing conversation and report where it
+ * landed. The whole committed `Message` travels back, not just its id:
+ * the server assigns `createdAt` here, synchronously, and that is the key
+ * the answer rule orders by.
+ */
 function speakInto(
   client: MoltZapAgentClient,
   delivery: SpeechDelivery,
@@ -625,7 +643,7 @@ function speakInto(
       Effect.catchAll(
         onSpeechError(delivery, "speak", "message send", channel),
       ),
-      Effect.map((sent) => ({ ...channel, messageId: sent.message.id })),
+      Effect.map((sent) => ({ ...channel, message: sent.message })),
     );
 }
 
@@ -638,7 +656,7 @@ function speakInto(
  * exist when the inviting step speaks.
  */
 type PrincipalPool = {
-  readonly secrets: Secrets;
+  readonly context: PrincipalContext;
   readonly identities: Map<string, MintedIdentity>;
   readonly clients: Map<string, MoltZapAgentClient>;
 };
@@ -659,13 +677,20 @@ function mintedIdentity(
     ),
     Effect.tap((minted) =>
       Effect.sync(() => {
-        pool.secrets.register(agentKeyValue(minted.apiKey));
+        pool.context.secrets.register(agentKeyValue(minted.apiKey));
         pool.identities.set(name, minted);
       }),
     ),
   );
 }
 
+/**
+ * The connection is observing before it ever speaks: the observer's
+ * reconnect hooks are constructor arguments, and its subscription is
+ * attached between `connect()` and the first send. A subscription started
+ * after the first send would miss an answer to it, which is the failure
+ * mode the whole in-band channel exists to remove.
+ */
 function connectedClient(
   pool: PrincipalPool,
   delivery: SpeechDelivery,
@@ -679,6 +704,7 @@ function connectedClient(
         const client = new MoltZapAgentClient({
           serverUrl: httpBaseFromServerUrl(delivery.world.server.serverUrl),
           agentKey: minted.apiKey,
+          ...pool.context.observer.clientHooks(speaker),
         });
         // Registered before connecting, not after: a connect that fails
         // partway, or an interrupt between connecting and registering,
@@ -694,6 +720,7 @@ function connectedClient(
               Effect.catchAll(
                 onSpeechError(delivery, "open", "principal connect"),
               ),
+              Effect.zipRight(pool.context.observer.attach(speaker, client)),
               Effect.as(client),
             ),
         ),
@@ -744,12 +771,12 @@ function makeOutOfBandPrincipal(pool: PrincipalPool): Principal {
  */
 export function makePrincipal(
   ref: DriverRef | undefined,
-  context: { readonly secrets: Secrets },
+  context: PrincipalContext,
 ): Effect.Effect<Principal, UnknownDriver | DriverConfigRejected, Scope.Scope> {
   return Effect.gen(function* () {
     if (ref !== undefined) yield* checkDriverRef(ref, "principal");
     const pool: PrincipalPool = {
-      secrets: context.secrets,
+      context,
       identities: new Map(),
       clients: new Map(),
     };

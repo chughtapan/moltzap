@@ -60,6 +60,12 @@ grade:
 moltzap-testbed run cold-outreach.bundle.yaml
 ```
 
+`replies` counts messages observable to the run's principals: the run
+decides completion from what its own connections see, not from telemetry,
+so an agent that only ever talks to a peer moves no count. On a one-step
+spec — the only shape this driver is allowed on — the two coincide,
+because the only conversation is the one the principal opened.
+
 Two readers, one file, and they never meet. `run` reads the spec and
 ignores `grade:`; the grader reads `grade:` and the sealed recording.
 

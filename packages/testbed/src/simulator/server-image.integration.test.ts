@@ -20,10 +20,8 @@ import { run } from "./episode.js";
 import { makeLocalRecordingStore } from "./local-store.js";
 import { resolveServerImagePin } from "./run-config.js";
 import { RunSpec } from "./run-spec.js";
-import {
-  EXCHANGE_SPAN_COUNT,
-  projectRecordedConversation,
-} from "../trace-capture-bundle.js";
+import { MESSAGE_DELIVERED_SPAN } from "./span-attrs.js";
+import { projectRecordedConversation } from "../trace-capture-bundle.js";
 import {
   AGENT_ONE,
   PRINCIPAL_NAME,
@@ -33,6 +31,7 @@ import {
   stubAgentInput,
   tempStoreRoot,
 } from "./__tests__/support.js";
+import { EVENT } from "./__tests__/tags.js";
 
 const SIM_INTEGRATION_ENABLED = Effect.runSync(
   Config.string("MOLTZAP_SIM_ITEST").pipe(
@@ -41,7 +40,6 @@ const SIM_INTEGRATION_ENABLED = Effect.runSync(
   ),
 );
 
-const DELIVERED_SPAN = "moltzap.message.delivered";
 const IMAGE_BUILD_TIMEOUT_MS = 900_000;
 const RUN_TIMEOUT_MS = 300_000;
 const INACTIVITY_MS = 60_000;
@@ -56,11 +54,11 @@ const buildServerImage = resolveServerImagePin().pipe(
 );
 
 /**
- * The hermetic spec, re-pointed at the real image and a real delivery
- * span. The agent answers, and the done-signal counts the same two
- * deliveries the cc-judge fold counts — the injection reaching the agent
- * and the agent's answer reaching the principal — so this run is the
- * evidence that the fold's termination condition is reachable at all.
+ * The hermetic spec, re-pointed at the real image. The echo agent answers
+ * the principal in the conversation the step opened, and the done-signal
+ * waits for exactly that message, so this run is the evidence that the
+ * fold's termination condition is reachable over a real wire — and that
+ * it is reachable without any span arriving.
  */
 function liveSpec(storeRoot: string): RunSpec {
   return Schema.decodeUnknownSync(RunSpec)(
@@ -74,8 +72,8 @@ function liveSpec(storeRoot: string): RunSpec {
           inactivityTimeoutMs: INACTIVITY_MS,
           onAgentCrash: "halt",
           doneSignal: {
-            name: "span-name",
-            config: { name: DELIVERED_SPAN, minCount: EXCHANGE_SPAN_COUNT },
+            name: "replies",
+            config: { from: AGENT_ONE, minCount: 1 },
           },
         },
       },
@@ -96,13 +94,28 @@ const substrateRun = Effect.gen(function* () {
   expect(snapshot.manifest.serverImageDigest).toBe(imageDigest);
 
   const events = yield* decodedEvents(snapshot);
+  // Completion is decided in band, over a real wire: the one firing cites
+  // a message this run's own connection observed, not a span. Spans are
+  // asserted below as evidence, and the run would have completed without
+  // any of them arriving.
+  const firings = events.flatMap((event) =>
+    event._tag === EVENT.predicateFired ? [event] : [],
+  );
+  expect(firings).toHaveLength(1);
+  const firing = firings[0];
+  const cause = events.find(
+    (event) => event.logicalSequence === firing?.causationId,
+  );
+  expect(cause?._tag).toBe(EVENT.wireMessage);
+
   // A captured delivery span proves the container reached the receiver:
   // that export travels container -> host, the half of the wiring no
   // fixture can stand in for.
   expect(
     events.filter(
       (event) =>
-        event._tag === "span.accepted" && event.spanName === DELIVERED_SPAN,
+        event._tag === "span.accepted" &&
+        event.spanName === MESSAGE_DELIVERED_SPAN,
     ).length,
   ).toBeGreaterThan(0);
   expect(snapshot.traces?.spans.length ?? 0).toBeGreaterThan(0);

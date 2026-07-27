@@ -347,7 +347,6 @@ const FOLLOW_UP_STEP = {
 function assertDoneSignalShapeRule(): void {
   for (const doneSignal of [
     { name: "replies", config: { from: AGENT_ONE, minCount: 2 } },
-    { name: "span-name", config: { name: "any.span" } },
   ]) {
     const rejected = materializeExit(
       specInput(STORE_ROOT, {
@@ -360,7 +359,7 @@ function assertDoneSignalShapeRule(): void {
 }
 
 /**
- * Every legal spec has a legal way to reach `completed`: all three
+ * Every legal spec has a legal way to reach `completed`: both
  * done-signals on a one-step spec, and `last-step-answered` on a
  * multi-step one. The fix line the guard prints names a driver that
  * actually resolves.
@@ -370,7 +369,6 @@ function assertEveryShapeCanComplete(): void {
   const multiStep = [SETUP_STEP, FOLLOW_UP_STEP];
   const forOneStep = [
     { name: "replies", config: { from: AGENT_ONE } },
-    { name: "span-name", config: { name: "any.span" } },
     { name: LAST_STEP_ANSWERED_DONE_SIGNAL, config: {} },
   ];
   for (const doneSignal of forOneStep) {

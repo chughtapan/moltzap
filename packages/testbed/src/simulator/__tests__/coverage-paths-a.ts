@@ -26,10 +26,10 @@ import { dialForEcho } from "../node-net-relay.js";
 import {
   AGENT_ONE,
   AGENT_TWO,
-  DONE_SPAN,
   decodedEvents,
   expectedAttemptPath,
   postSpansWhenLive,
+  signalDoneWhenLive,
   runHermetic,
   specInput,
   startHermetic,
@@ -96,7 +96,7 @@ export function path2(): Effect.Effect<void, unknown, never> {
     const root = yield* tempStoreRoot();
     const input = specInput(root, { episode: doneEpisode(60_000) });
     const started = yield* startHermetic(input, root);
-    yield* postSpansWhenLive(started, 2, [DONE_SPAN]);
+    yield* signalDoneWhenLive(started, 2);
     const sealed = yield* started.join;
     expect(outcomeOf(sealed)).toMatchObject({ _tag: OUTCOME.episode });
     const path = yield* expectedAttemptPath(input, root);
@@ -114,7 +114,7 @@ export function path3(): Effect.Effect<void, unknown, never> {
     const root = yield* tempStoreRoot();
     const input = specInput(root, { episode: doneEpisode(60_000) });
     const started = yield* startHermetic(input, root);
-    yield* postSpansWhenLive(started, 2, [DONE_SPAN]);
+    yield* signalDoneWhenLive(started, 2);
     const sealed = yield* started.join;
     expect(outcomeOf(sealed)).toMatchObject({
       _tag: OUTCOME.episode,
@@ -178,7 +178,7 @@ export function path6(): Effect.Effect<void, unknown, never> {
     const controls = started.launch.runtimes.get(AGENT_TWO);
     yield* controls!.exit(1);
     yield* Effect.sleep("100 millis");
-    yield* postSpansWhenLive(started, 2, [DONE_SPAN]);
+    yield* signalDoneWhenLive(started, 2);
     const sealed = yield* started.join;
     expect(outcomeOf(sealed)).toMatchObject({
       _tag: OUTCOME.episode,
@@ -284,8 +284,10 @@ export function path9(): Effect.Effect<void, unknown, never> {
     const endpointA = yield* startedA.endpoint;
     const endpointB = yield* startedB.endpoint;
     expect(endpointA).not.toBe(endpointB);
-    yield* postSpansWhenLive(startedA, 2, [RUN_A_SPAN, DONE_SPAN]);
-    yield* postSpansWhenLive(startedB, 2, [RUN_B_SPAN, DONE_SPAN]);
+    yield* postSpansWhenLive(startedA, 2, [RUN_A_SPAN]);
+    yield* postSpansWhenLive(startedB, 2, [RUN_B_SPAN]);
+    yield* signalDoneWhenLive(startedA, 2);
+    yield* signalDoneWhenLive(startedB, 2);
     const pathA = sealedPathOf(yield* startedA.join);
     const pathB = sealedPathOf(yield* startedB.join);
     expect(pathA).not.toBe(pathB);
