@@ -1,8 +1,10 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
 import type { Process } from "@effect/platform/CommandExecutor";
+import type { PlatformError } from "@effect/platform/Error";
 import { Config, Data, Effect, Exit, Fiber, Option, Scope } from "effect";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
@@ -46,6 +48,9 @@ const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 const TOKEN_RADIX = 36;
 const JSON_INDENT_SPACES = 2;
+const OPENCLAW_WORKSPACE_DIRNAME = "workspace";
+const OPENCLAW_ATTESTATION_DIRNAME = "workspace-attestations";
+const OPENCLAW_ATTESTATION_SUFFIX = ".attested";
 
 class PortAllocationFailed extends Data.TaggedError("PortAllocationFailed")<{
   readonly message: string;
@@ -325,7 +330,61 @@ function seedModelAuthProfile(
   );
 }
 
-function configureOpenClawStateDir(
+function openClawWorkspaceDir(stateDir: string): string {
+  return join(stateDir, OPENCLAW_WORKSPACE_DIRNAME);
+}
+
+/**
+ * Occupies the attestation paths OpenClaw derives for this run's workspace
+ * with directories. `lstat` succeeds and `isFile()` is false, so OpenClaw
+ * reads the workspace as never attested and writes no marker of its own.
+ *
+ * OpenClaw's guard refuses to reseed a workspace that was attested recently
+ * and is now empty, which protects a durable operator workspace from silent
+ * reseeding. A simulated agent's workspace is per-run, empty unless the
+ * scenario declares files, and the agent may delete anything in it: one
+ * create-then-delete otherwise leaves the guard throwing for the rest of the
+ * episode, uncaught, and the run records that as agent silence.
+ *
+ * OpenClaw consults a third candidate under its legacy home state dir. That
+ * path is the operator's rather than the run's, so it is left alone. Of the
+ * two occupied here only the first is one OpenClaw ever writes; the sibling
+ * marker it reads but never writes is held defensively.
+ *
+ * The derivation is OpenClaw's own, recomputed because no public entry
+ * exports it, and it fails unsafely: a sentinel at the wrong path leaves
+ * OpenClaw free to write a real attestation at the right one. Only directories
+ * work. Blocking a path instead, by permissions or by an `ENOTDIR` parent,
+ * makes OpenClaw trust what it cannot read as attested and arms the guard on
+ * the first turn.
+ */
+function disarmOpenClawAttestationGuard(
+  stateDir: string,
+): Effect.Effect<void, PlatformError, FileSystem.FileSystem> {
+  const resolvedWorkspaceDir = resolve(openClawWorkspaceDir(stateDir));
+  const key = createHash("sha256").update(resolvedWorkspaceDir).digest("hex");
+  const sentinels = [
+    join(
+      stateDir,
+      OPENCLAW_ATTESTATION_DIRNAME,
+      `${key}${OPENCLAW_ATTESTATION_SUFFIX}`,
+    ),
+    `${resolvedWorkspaceDir}${OPENCLAW_ATTESTATION_SUFFIX}`,
+  ];
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      Effect.all(
+        sentinels.map((sentinel) =>
+          fileSystem.makeDirectory(sentinel, { recursive: true }),
+        ),
+        { concurrency: sentinels.length, discard: true },
+      ),
+    ),
+  );
+}
+
+/** @internal */
+export function configureOpenClawStateDir(
   deps: OpenClawAdapterDeps,
   input: SpawnInput,
   stateDir: string,
@@ -340,10 +399,11 @@ function configureOpenClawStateDir(
         modelId: input.modelId,
         mcpServers: deps.mcpServers,
       }),
-      seedWorkspaceFiles(join(stateDir, "workspace"), input.workspaceFiles),
+      seedWorkspaceFiles(openClawWorkspaceDir(stateDir), input.workspaceFiles),
       seedModelAuthProfile(stateDir),
+      disarmOpenClawAttestationGuard(stateDir),
     ],
-    { concurrency: 3, discard: true },
+    { concurrency: 4, discard: true },
   ).pipe(
     Effect.zipRight(
       installChannelPlugin({
@@ -627,7 +687,7 @@ function writeOpenClawConfig(opts: {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
     const fileSystem = yield* FileSystem.FileSystem;
-    const workspaceDir = path.join(opts.stateDir, "workspace");
+    const workspaceDir = openClawWorkspaceDir(opts.stateDir);
     const config = buildOpenClawConfig(opts, workspaceDir);
 
     yield* Effect.all([
@@ -683,6 +743,10 @@ export function buildOpenClawConfig(
         model: { primary: opts.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
         workspace: workspaceDir,
         compaction: { mode: "safeguard" },
+        // Left unset, openclaw seeds BOOTSTRAP.md into the empty per-agent
+        // workspace and runs its first-run onboarding ritual, whose scripted
+        // opening line the agent sends in place of answering the step.
+        skipBootstrap: true,
       },
     },
     commands: { native: "auto", nativeSkills: "auto", restart: true },
