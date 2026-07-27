@@ -30,9 +30,9 @@ flowchart TB
 ## Control plane + storage
 
 Registries and the transcript store. Minted here: identities;
-conversations begin in-band as transcript genesis entries, the
+conversations begin in-band as transcript genesis records, the
 registry keeping only the derived index. Stored here: the committed
-record (atomic commit — an entry is committed for every member or
+record (atomic commit — a record is committed for every member or
 none; `docs/decisions/20260724-collectives-are-ledger-transactions.md`). Request/response
 ops over HTTP, each individually signed with the caller's card key
 (the identity card's verification key, `docs/spec/identity.md`) —

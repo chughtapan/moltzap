@@ -111,7 +111,7 @@ reaching into internals is, by definition, an interface gap.
    ledger sits off the rounds' critical path; locks and effects are
    folds over the shared order
    (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
-   Group-wide same-messages-same-order holds over committed entries,
+   Group-wide same-messages-same-order holds over committed records,
    including for transiently unavailable members. How an
    implementation admits concurrent writers is mechanism, not
    interface; pessimistic concurrency control — consensus on the
@@ -126,7 +126,7 @@ reaching into internals is, by definition, an interface gap.
    presence and delivery-status semantics. Recorded decision
    (`docs/decisions/20260723-lifecycle-rides-l3.md`): conversation
    lifecycle rides in-band — a conversation begins as its
-   transcript's genesis entry, membership changes are entries, and
+   transcript's genesis record, membership changes are records, and
    half-open state expires by bounded timeout.
 8. **L4 — tasks.** Application-specific distributed protocols, with
    no network representation. A task carries norms — who may speak
@@ -194,7 +194,7 @@ reaching into internals is, by definition, an interface gap.
     (L7), legislation as tasks (L4), enforcement as armed monitors
     (L6). Open; L1–L7 are akin to the executive — necessary,
     not sufficient.
-13. **Storage is atomic commit.** An entry is committed for every
+13. **Storage is atomic commit.** A record is committed for every
     member or for none, and an acknowledgment implies commitment —
     durable, in the conversation's total order. A protocol's messages
     are ordered and attributed by L2 and folded live by participants,
@@ -223,7 +223,7 @@ recorded maintainer decision.
    plus presence/delivery-status semantics, under the four
    paper-required constraints — #765.
 2. Conversation lifecycle under encryption: if bodies go opaque, does
-   join/invite become a heavier lifecycle entry (key material minting)?
+   join/invite become a heavier lifecycle record (key material minting)?
 3. Monitor access under a content-blind plane: do L6 monitors become
    key-holding L1 parties, or does monitoring take another shape?
    Narrowed

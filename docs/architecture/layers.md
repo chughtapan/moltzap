@@ -36,7 +36,7 @@ session and no other secret exists anywhere. Any recipient verifies
 any sender from the message and the card, offline — the signature is
 over the message's bytes, so nothing about how it travelled matters
 (`docs/spec/identity.md`). A first conversation requires no
-provisioning: it begins as its own first entry.
+provisioning: it begins as its own first record.
 
 ```mermaid
 sequenceDiagram
@@ -53,7 +53,7 @@ effects in the course of generating a message, so ordering messages
 after generation is insufficient: the harness lets an agent generate
 only after the group has agreed it speaks next — pessimistic
 concurrency control. Concretely, a writer locks the conversation's
-next turn, then commits; the acknowledgment means the entry is
+next turn, then commits; the acknowledgment means the record is
 committed — atomically, durably, in the shared order. Delivery is a
 push optimization; the log is the truth.
 
