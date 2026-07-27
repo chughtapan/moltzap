@@ -63,9 +63,12 @@ async function main() {
   log("[stub-runtime] connected");
 
   const matchers = script.steps.filter((step) => step._tag === "replyOnMatch");
-  armReplies(client, matchers);
+  // The channel whoever last addressed this agent used; `signalDone`
+  // answers there, and only the inbound stream can learn it.
+  const addressed = { channel: undefined };
+  armReplies(client, matchers, addressed);
   for (const step of script.steps) {
-    await executeStep(client, step);
+    await executeStep(client, step, addressed);
   }
   // Matchers stay armed; the adapter's teardown ends the process.
   await new Promise(() => {});
@@ -78,12 +81,14 @@ function textOf(message) {
     .join("\n");
 }
 
-function armReplies(client, matchers) {
+function armReplies(client, matchers, addressed) {
   const consume = client
     .subscribe(MessageReceivedNotificationDefinition)
     .pipe(
       Stream.runForEach((notification) =>
-        Effect.promise(() => onInbound(client, matchers, notification)),
+        Effect.promise(() =>
+          onInbound(client, matchers, notification, addressed),
+        ),
       ),
     );
   Effect.runPromise(consume).catch(() => {
@@ -91,9 +96,16 @@ function armReplies(client, matchers) {
   });
 }
 
-async function onInbound(client, matchers, notification) {
+async function onInbound(client, matchers, notification, addressed) {
   const text = textOf(notification.message);
   log(`[stub-runtime] received: ${text}`);
+  // The conversation whoever spoke last used. A reply into a conversation
+  // this agent opened itself reaches only the peer it invited, so it is
+  // invisible to the run driving the episode.
+  addressed.channel = {
+    taskId: notification.taskId,
+    conversationId: notification.message.conversationId,
+  };
   for (const matcher of matchers) {
     if (!text.includes(matcher.pattern)) continue;
     await Effect.runPromise(
@@ -146,7 +158,7 @@ function sleep(ms) {
     : Promise.resolve();
 }
 
-async function executeStep(client, step) {
+async function executeStep(client, step, addressed) {
   switch (step._tag) {
     case "replyOnMatch":
       return;
@@ -155,17 +167,21 @@ async function executeStep(client, step) {
       await sendTo(client, step.to, step.content);
       return;
     case "signalDone": {
-      // The done signal's wire-observable trace is one more delivered
-      // message; done-signal predicates count delivered spans.
+      // Back into the conversation this agent was spoken to in. A run
+      // observes the conversations its principals participate in, so a
+      // signal sent anywhere else reaches nobody who is waiting for it.
       await sleep(step.afterMs);
-      const self = process.env.MOLTZAP_STUB_AGENT_NAME;
-      const listed = await Effect.runPromise(
-        client.callDefinition(AgentsList, { limit: AGENTS_LIST_LIMIT }),
-      );
-      const peer = listed.agents.find((agent) => agent.name !== self);
-      if (peer !== undefined) {
-        await sendTo(client, peer.name, "[stub done-signal]");
+      const channel = addressed.channel;
+      if (channel === undefined) {
+        log("[stub-runtime] done-signal skipped: nobody addressed this agent");
+        return;
       }
+      await Effect.runPromise(
+        client.callDefinition(MessagesSend, {
+          ...channel,
+          parts: [{ type: "text", text: "[stub done-signal]" }],
+        }),
+      );
       log("[stub-runtime] done-signal emitted");
       return;
     }

@@ -95,8 +95,8 @@ function demoSpec(storeRoot: string, imageDigest: string): RunSpec {
         inactivityTimeoutMs: INACTIVITY_TIMEOUT_MS,
         onAgentCrash: "halt",
         doneSignal: {
-          name: "span-name",
-          config: { name: "moltzap.message.delivered", minCount: 2 },
+          name: "replies",
+          config: { from: "asker", minCount: 1 },
         },
       },
     },

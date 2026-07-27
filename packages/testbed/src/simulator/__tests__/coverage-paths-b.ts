@@ -56,7 +56,6 @@ import {
   AGENT_ONE,
   AGENT_TWO,
   LOOPBACK_BIND_HOST,
-  DONE_SPAN,
   PRINCIPAL_NAME,
   SAY_TEXT,
   decodedEvents,
@@ -65,6 +64,7 @@ import {
   makeFakePrincipal,
   postSpans,
   postSpansWhenLive,
+  signalDoneWhenLive,
   quietDrain,
   runHermetic,
   specInput,
@@ -175,8 +175,7 @@ export function path16(): Effect.Effect<void, unknown, never> {
     const input = specInput(root, { episode: doneEpisode(60_000) });
     const started = yield* startHermetic(input, root);
     yield* postSpansWhenLive(started, 2, names);
-    const endpoint = yield* started.endpoint;
-    yield* postSpans(endpoint, [DONE_SPAN]);
+    yield* signalDoneWhenLive(started, 2);
     const sealed = yield* started.join;
     expect(sealed._tag).toBe(EXIT.success);
     const path = yield* expectedAttemptPath(input, root);

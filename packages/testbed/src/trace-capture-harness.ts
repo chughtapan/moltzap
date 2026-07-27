@@ -22,7 +22,6 @@ import {
 } from "./trace-capture-payload.js";
 import {
   buildTraceBundle,
-  EXCHANGE_SPAN_COUNT,
   projectRecordedConversation,
   RecordingUnattributable,
   type RecordedConversation,
@@ -41,8 +40,6 @@ const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;
 const PLAN_TARGET_AGENT_ID = "target-agent";
 const PLACEHOLDER_IMAGE = "managed/by-moltzap-trace-capture";
 const PRINCIPAL_NAME = "eval-sender";
-const DELIVERED_SPAN = "moltzap.message.delivered";
-
 class ExecutionFailed extends Data.TaggedError("ExecutionFailed")<{
   readonly message: string;
 }> {}
@@ -169,11 +166,12 @@ function encodedSpec(input: {
         inactivityTimeoutMs:
           runtime.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS,
         onAgentCrash: "halt",
-        // One injection and one answer: counting deliveries is safe on a
-        // single-injection spec, where nothing later can be pre-empted.
+        // The target's answer, named by sender rather than counted as
+        // anonymous traffic. Safe on a single-injection spec, where
+        // nothing later can be pre-empted.
         doneSignal: {
-          name: "span-name",
-          config: { name: DELIVERED_SPAN, minCount: EXCHANGE_SPAN_COUNT },
+          name: "replies",
+          config: { from: target, minCount: 1 },
         },
       },
     },

@@ -17,8 +17,14 @@ schema (design doc: chughtapan/moltzap#812):
 - `event-log.ts` + `recording.ts` + `attempts.ts` — the single ordered
   event stream, the four-file recording schema with sealing, and the
   attempt state machine with queue/Runner seams (contract 5)
-- `ids.ts`, `errors.ts` — shared kernels (branded runtime ids, tagged
-  errors with stable `_tag`s)
+- `wire-observer.ts` + `wire-log.ts` — in-band observation: the run's own
+  principal connections subscribe to `agent/message/received` and enqueue
+  `wire.message`; the log retains what was observed and owns the answer
+  rule the reply gate and the done-signals read. Completion never depends
+  on a span arriving.
+- `ids.ts`, `errors.ts`, `span-attrs.ts` — shared kernels (branded runtime
+  ids, tagged errors with stable `_tag`s, the delivered-span attribute
+  reader)
 - `stub-runtime.ts` — scripted hermetic-CI/demo runtime; the `Runtime`
   contract's reference implementation
 

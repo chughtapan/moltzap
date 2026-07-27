@@ -12,7 +12,8 @@
  * seed-derived; each is recorded in the log.
  */
 import { Effect, type Scope } from "effect";
-import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
 import type {
   AgentFacingRunSpec,
@@ -29,6 +30,7 @@ import {
 } from "./run-internal.js";
 import type { EpisodeId } from "./ids.js";
 import type { LogicalClock, EventLog } from "./event-log.js";
+import type { WireObserver } from "./wire-observer.js";
 import type { Launcher, Society } from "./run-config.js";
 import type { Environment } from "./environment.js";
 import type { World } from "./world.js";
@@ -38,6 +40,7 @@ import type {
   RecordingStore,
   RunOutcome,
   SealedRecordingRef,
+  Secrets,
 } from "./recording.js";
 import type {
   ConfigTimeError,
@@ -111,11 +114,27 @@ export type SpeechDelivery = {
  * Where the speech landed. The episode resolves a later step's `into:`
  * against it, and it is the only place a conversation is tied back to the
  * step that created it — the join an offline grader needs.
+ *
+ * It carries the committed `Message` rather than its id alone because
+ * `MessagesSend` returns the whole row synchronously, server-assigned
+ * `createdAt` included. That is what lets the episode write the answer
+ * rule's floor in the same call frame as the send, with nothing to wait
+ * for and nothing that can go missing.
  */
 export type SpeechReceipt = {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly messageId: MessageId;
+  readonly message: Message;
+};
+
+/**
+ * What `makePrincipal` needs beyond the driver ref. The pool applies
+ * `clientHooks` when it constructs a client and awaits `attach` after
+ * `connect()` succeeds and before that client sends anything.
+ */
+export type PrincipalContext = {
+  readonly secrets: Secrets;
+  readonly observer: Pick<WireObserver, "clientHooks" | "attach">;
 };
 
 /**
@@ -142,6 +161,8 @@ export type EpisodeDeps = {
   readonly log: EventLog;
   readonly principal: Principal;
   readonly clock: LogicalClock;
+  /** Every step's channel is registered here, which is what reconnect recovery lists against. */
+  readonly observer: Pick<WireObserver, "track">;
 };
 
 /**
