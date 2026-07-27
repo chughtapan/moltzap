@@ -163,6 +163,7 @@ const CUSTOM_MODEL_ID = "custom/model";
 const DISABLED_MDNS_MODE = "off";
 // openclaw treats this file's presence in a workspace as "onboarding pending".
 const OPENCLAW_BOOTSTRAP_FILENAME = "BOOTSTRAP.md";
+const OPENCLAW_STATE_DIR_VAR = "OPENCLAW_STATE_DIR";
 
 describe("buildOpenClawConfig", () => {
   it("keys the moltzap account under the testbed profile", () => {
@@ -264,9 +265,12 @@ function bootstrapPromptSeeded(
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "testbed-openclaw-workspace-",
+      const stateDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "testbed-openclaw-state-",
       });
+      yield* scopedOpenClawStateDir(stateDir);
+      const workspaceDir = path.join(stateDir, "workspace");
+
       yield* Effect.tryPromise(() =>
         ensureAgentWorkspace({ dir: workspaceDir, ensureBootstrapFiles }),
       );
@@ -276,6 +280,23 @@ function bootstrapPromptSeeded(
       );
     }),
   ).pipe(Effect.provide(NodeContext.layer), Effect.orDie);
+}
+
+// Seeding a workspace writes an attestation next to openclaw's state, which
+// defaults to the operator's own `~/.openclaw` and is never cleaned up. Point
+// it inside the scoped temp dir so the test leaves nothing behind.
+function scopedOpenClawStateDir(
+  stateDir: string,
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.acquireRelease(
+    Effect.sync(() => {
+      vi.stubEnv(OPENCLAW_STATE_DIR_VAR, stateDir);
+    }),
+    () =>
+      Effect.sync(() => {
+        vi.unstubAllEnvs();
+      }),
+  );
 }
 
 // The gateway child reads MOLTZAP_SERVER_URL through the moltzap client,
