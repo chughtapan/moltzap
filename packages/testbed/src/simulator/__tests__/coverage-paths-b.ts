@@ -103,6 +103,7 @@ export function path13(): Effect.Effect<void, unknown, never> {
     const config = buildOpenClawConfig(
       {
         agentName: AGENT_ONE,
+        installMode: "workspace",
         mcpServers: [
           { name: MOUNT_NAME, command: "node", args: ["notes.mjs"], env: {} },
         ],

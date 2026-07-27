@@ -35,6 +35,8 @@ export const AGENT_ID_TWO = "agent-id-two";
 export const AGENT_ONE = "agent-one";
 export const AGENT_TWO = "agent-two";
 export const CONVERSATION = "conv-1";
+const EPISODE = "e1";
+const SPOKEN_CONTENT = "spoken";
 export const FIXTURE_RUN_ID = "aaaaaaaaaaaa-s7-a1";
 const IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;
 
@@ -118,6 +120,30 @@ export function ready(
   });
 }
 
+export type SpokenStep = {
+  readonly runId: string;
+  readonly logicalSequence: number;
+  readonly principal: string;
+  /** The message the speech produced; the right side of the principal join. */
+  readonly messageId: string;
+  readonly conversationId?: string;
+};
+
+/** A recorded speech step, the only place a principal's name is written down. */
+export function spoken(step: SpokenStep): Record<string, unknown> {
+  const conversationId = step.conversationId ?? CONVERSATION;
+  return envelope(step.runId, step.logicalSequence, {
+    _tag: "step.spoken",
+    source: "scheduler",
+    episodeId: EPISODE,
+    principal: step.principal,
+    content: SPOKEN_CONTENT,
+    taskId: `task-${conversationId}`,
+    conversationId,
+    messageId: step.messageId,
+  });
+}
+
 export type TranscriptRow = {
   readonly runId: string;
   readonly logicalSequence: number;
@@ -127,7 +153,14 @@ export type TranscriptRow = {
   readonly conversationId?: string;
   /** Replaces the single text part, for bodies that carry no readable text. */
   readonly parts?: ReadonlyArray<Record<string, unknown>>;
+  /** Wire message identity; name it when a `step.spoken` has to match it. */
+  readonly messageId?: string;
 };
+
+/** Message ids are unique across the whole log, so the default keys on the sequence. */
+function defaultMessageId(logicalSequence: number): string {
+  return `m${String(logicalSequence)}`;
+}
 
 export function transcript(row: TranscriptRow): Record<string, unknown> {
   return envelope(row.runId, row.logicalSequence, {
@@ -137,7 +170,7 @@ export function transcript(row: TranscriptRow): Record<string, unknown> {
     conversationSeq: row.conversationSeq,
     senderId: row.senderId,
     message: {
-      id: `m${String(row.conversationSeq)}`,
+      id: row.messageId ?? defaultMessageId(row.logicalSequence),
       parts: row.parts ?? [{ type: "text", text: row.text }],
     },
     createdAtWallTime: CREATED_AT + row.logicalSequence,

@@ -41,6 +41,7 @@ import {
 } from "../runtime.js";
 import { createOpenClawAdapter } from "../openclaw-adapter.js";
 import { NanoclawAdapter } from "../nanoclaw-adapter.js";
+import { resolveInstallMode, type InstallMode } from "../install-mode.js";
 import { MoltZapAgentClient } from "@moltzap/protocol/socket";
 import { AgentPresenceSubscribe } from "@moltzap/protocol/network";
 import type { AgentId } from "@moltzap/protocol/identity";
@@ -126,13 +127,20 @@ function launch(
   deps: LaunchDeps,
 ): Effect.Effect<Society, LaunchError, Scope.Scope> {
   return Effect.gen(function* () {
+    const installMode = yield* resolveInstallMode();
     const server = yield* startServerContainer(spec, deps.otlpEndpoint);
     yield* enqueueLifecycle(deps, {
       _tag: "server.started",
       serverUrl: server.handle.serverUrl,
     });
     const observer = yield* provisionObserver(server.handle, deps);
-    const society = yield* launchAgents(spec, deps, server, observer);
+    const society = yield* launchAgents(
+      spec,
+      deps,
+      server,
+      observer,
+      installMode,
+    );
     yield* Effect.addFinalizer(() => society.teardown().pipe(Effect.asVoid));
     return society;
   }).pipe(Effect.withSpan("Launcher.launch"));
@@ -657,6 +665,7 @@ function launchAgents(
   deps: LaunchDeps,
   server: StartedServer,
   observer: Observer,
+  installMode: InstallMode,
 ): Effect.Effect<Society, LaunchError, Scope.Scope> {
   return Effect.gen(function* () {
     const agents: Array<LaunchedAgent> = [];
@@ -665,7 +674,7 @@ function launchAgents(
       started: false,
       report: yield* Deferred.make<TeardownReport>(),
     };
-    const ctx: LaunchContext = { spec, deps, server, observer };
+    const ctx: LaunchContext = { spec, deps, server, observer, installMode };
     yield* Effect.forEach(
       spec.agents,
       (agent) =>
@@ -759,6 +768,7 @@ type LaunchContext = {
   readonly deps: LaunchDeps;
   readonly server: StartedServer;
   readonly observer: Observer;
+  readonly installMode: InstallMode;
 };
 
 function launchOneAgent(
@@ -777,7 +787,7 @@ function launchOneAgent(
       deps.log,
       deps.secrets,
     );
-    const runtime = yield* runtimeFor(agent, mount, observer);
+    const runtime = yield* runtimeFor(agent, mount, observer, ctx.installMode);
     yield* spawnAgent(runtime, agent, minted, endpoint);
     // `agent.launched` asserts the runtime process was spawned, so it
     // enqueues only after the spawn succeeds.
@@ -931,18 +941,20 @@ function runtimeFor(
   agent: Agent,
   mount: MountHandle,
   observer: Observer,
+  installMode: InstallMode,
 ): Effect.Effect<SimulatorRuntime, AgentLaunchFailed, never> {
   const runtime = agent.runtime;
   switch (runtime._tag) {
     case "stub":
       return stubRuntimeFor(runtime.config.script);
     case "openclaw":
-      return openclawRuntimeFor(agent, mount, observer);
+      return openclawRuntimeFor(agent, mount, observer, installMode);
     case "nanoclaw":
       return Effect.sync(() =>
         withExit(
           new NanoclawAdapter({
             server: observer.serverHandle,
+            installMode,
             autoRegisterConversations: runtime.config.autoRegisterConversations,
             mcpServers: mount.plan.proxiedServers,
             ...(runtime.config.modelId === undefined
@@ -977,6 +989,7 @@ function openclawRuntimeFor(
   agent: Agent,
   mount: MountHandle,
   observer: Observer,
+  installMode: InstallMode,
 ): Effect.Effect<SimulatorRuntime, AgentLaunchFailed, never> {
   if (agent.runtime._tag !== "openclaw") {
     return Effect.dieMessage(
@@ -997,6 +1010,7 @@ function openclawRuntimeFor(
     withExit(
       createOpenClawAdapter({
         server: observer.serverHandle,
+        installMode,
         ...(config.openclawBin === undefined
           ? {}
           : { openclawBin: config.openclawBin }),
