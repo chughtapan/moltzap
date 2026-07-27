@@ -21,9 +21,10 @@ import {
   waitUntil,
 } from "@moltzap/protocol/testing";
 import { ServerUrl } from "../../runtime.js";
-import { RunSpec, materializeRunSpec } from "../run-spec.js";
+import { PrincipalName, RunSpec, materializeRunSpec } from "../run-spec.js";
 import type { AgentFacingRunSpec } from "../run-spec.js";
-import { AttemptId } from "../ids.js";
+import { AttemptId, wallTimeNow } from "../ids.js";
+import type { WireObserver } from "../wire-observer.js";
 import { RecordingIdentity, recordingPath } from "../recording.js";
 import { decodeEventLine, type SimulatorEvent } from "../event-log.js";
 import type {
@@ -35,7 +36,7 @@ import type {
   TeardownReport,
 } from "../run-config.js";
 import type { MountHandle } from "../environment.js";
-import type { Receiver, TranscriptDrain } from "../event-log.js";
+import type { EventLog, Receiver, TranscriptDrain } from "../event-log.js";
 import { makeReceiver } from "../event-log.js";
 import { makeLocalRecordingStore } from "../local-store.js";
 import {
@@ -57,11 +58,16 @@ import {
 } from "../errors.js";
 import type { Principal, SpeechDelivery, SpeechReceipt } from "../episode.js";
 
-export const DONE_SPAN = "test.done";
 export const SAY_TEXT = "seed task: reply when done";
 export const PRINCIPAL_NAME = "principal-primary";
 export const AGENT_ONE = "agent-one";
 export const AGENT_TWO = "agent-two";
+
+/** The done-signal every default fixture completes on: one reply from the first agent. */
+export const REPLIES_ONCE: unknown = {
+  name: "replies",
+  config: { from: AGENT_ONE, minCount: 1 },
+};
 const IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;
 const INACTIVITY_MS = 60_000;
 const RECEIVER_BOUND_MS = 5_000;
@@ -95,7 +101,7 @@ export function specInput(
       termination: {
         inactivityTimeoutMs: INACTIVITY_MS,
         onAgentCrash: "halt",
-        doneSignal: { name: "span-name", config: { name: DONE_SPAN } },
+        doneSignal: REPLIES_ONCE,
       },
     },
     ...presentOnly({
@@ -402,12 +408,40 @@ export function makeFakePrincipal(): FakePrincipal {
           const opened = nthReceipt(deliveries.length);
           return delivery.into === undefined
             ? opened
-            : { ...delivery.into, messageId: opened.messageId };
+            : {
+                ...delivery.into,
+                message: {
+                  ...opened.message,
+                  conversationId: delivery.into.conversationId,
+                },
+              };
         }),
     },
     deliveries,
   };
 }
+
+/** Base of every fixture commit time; a fixed epoch keeps the ordering predictable. */
+const FIXTURE_EPOCH_MS = Date.UTC(2026, 0, 1);
+
+/** Commit time of the nth fixture send, one second apart. */
+function nthCreatedAt(nth: number): string {
+  return new Date(FIXTURE_EPOCH_MS + nth * 1000).toISOString();
+}
+
+/**
+ * Commit time of an answer to the nth send: after that send and before
+ * the next one. Fixture timestamps are the server's ordering key, so a
+ * reply stamped past a later send would clear a floor it never answered.
+ */
+export function afterNthSend(nth: number): string {
+  return new Date(FIXTURE_EPOCH_MS + nth * 1000 + 500).toISOString();
+}
+
+/** A commit time after every send this fixture mints, so an answer clears any floor. */
+const ANSWER_CREATED_AT = new Date(
+  FIXTURE_EPOCH_MS + 3_600_000,
+).toISOString();
 
 /**
  * The receipt the fake principal answers the nth `start` delivery with.
@@ -415,17 +449,109 @@ export function makeFakePrincipal(): FakePrincipal {
  * produce it — a second spelling would drift silently.
  */
 export function nthReceipt(nth: number): SpeechReceipt {
+  const conversation = conversationId(
+    deterministicUuid(`conversation-${String(nth)}`),
+  );
   return {
     taskId: taskId(deterministicUuid(`task-${String(nth)}`)),
-    conversationId: conversationId(
-      deterministicUuid(`conversation-${String(nth)}`),
-    ),
-    messageId: messageId(deterministicUuid(`message-${String(nth)}`)),
+    conversationId: conversation,
+    message: {
+      id: messageId(deterministicUuid(`message-${String(nth)}`)),
+      conversationId: conversation,
+      senderId: fakeAgentId(PRINCIPAL_NAME),
+      parts: [{ type: "text", text: SAY_TEXT }],
+      createdAt: nthCreatedAt(nth),
+    },
   };
 }
 
+// ---------------------------------------------------------------------------
+// In-band observation double
+// ---------------------------------------------------------------------------
+
+/** One message a test drives into the run's in-band observation channel. */
+export type WireInput = {
+  readonly messageId: string;
+  readonly conversationId: string;
+  readonly taskId: string;
+  /** Agent slot whose wire identity sent it. */
+  readonly sender: string;
+  readonly createdAt?: string;
+};
+
+type FakeWireObserver = {
+  readonly makeWireObserver: NonNullable<RunInternals["makeWireObserver"]>;
+  /** Enqueue one observed message, as though a principal's connection reported it. */
+  readonly observe: (input: WireInput) => Effect.Effect<void, never, never>;
+  /** Channels the episode registered for reconnect recovery, in delivery order. */
+  readonly tracked: ReadonlyArray<SpeechReceipt>;
+};
+
+/**
+ * A hermetic run launches no society, so nothing answers its steps. This
+ * stands in for the observation channel and lets a test say exactly which
+ * message arrived when — which is the whole termination lever once no
+ * done-signal reads telemetry.
+ */
+function makeFakeWireObserver(): Effect.Effect<
+  FakeWireObserver,
+  never,
+  never
+> {
+  return Effect.gen(function* () {
+    const wired = yield* Deferred.make<EventLog>();
+    const tracked: Array<SpeechReceipt> = [];
+    const observer: WireObserver = {
+      clientHooks: () => ({
+        onDisconnect: () => tracked.length,
+        onReconnect: () => tracked.length,
+      }),
+      attach: () => Effect.void,
+      track: (_principal, receipt) =>
+        Effect.sync(() => {
+          tracked.push(receipt);
+        }),
+      awaitFailure: () => Effect.never,
+    };
+    const fake: FakeWireObserver = {
+      makeWireObserver: (deps) =>
+        Deferred.succeed(wired, deps.log).pipe(Effect.as(observer)),
+      observe: (input) => enqueueWire(wired, input),
+      tracked,
+    };
+    return fake;
+  }).pipe(Effect.withSpan("makeFakeWireObserver"));
+}
+
+function enqueueWire(
+  wired: Deferred.Deferred<EventLog>,
+  input: WireInput,
+): Effect.Effect<void, never, never> {
+  return Deferred.await(wired).pipe(
+    Effect.flatMap((log) =>
+      log.enqueue({
+        _tag: "wire.message",
+        source: "wire",
+        wallTime: wallTimeNow(),
+        observedBy: Schema.decodeSync(PrincipalName)(PRINCIPAL_NAME),
+        observation: "live",
+        messageId: messageId(input.messageId),
+        conversationId: conversationId(input.conversationId),
+        taskId: taskId(input.taskId),
+        senderId: fakeAgentId(input.sender),
+        parts: [{ type: "text", text: "reply" }],
+        createdAt: input.createdAt ?? ANSWER_CREATED_AT,
+      }),
+    ),
+    Effect.asVoid,
+    // A sealed log means the run already ended; a late fixture message is
+    // not the thing under test.
+    Effect.catchTag("EventLogSealed", () => Effect.void),
+  );
+}
+
 /** The wire identity the fake launcher mints for a slot. */
-export function fakeAgentId(slot: string): AgentId {
+function fakeAgentId(slot: string): AgentId {
   return agentId(deterministicUuid(slot));
 }
 
@@ -488,6 +614,7 @@ export type StartedHermetic = {
   readonly principal: FakePrincipal;
   /** Resolves once the run's OTLP receiver is up. */
   readonly endpoint: Effect.Effect<string, never, never>;
+  readonly wire: FakeWireObserver;
 };
 
 export type HermeticOptions = {
@@ -508,6 +635,7 @@ export function startHermetic(
     const store = hermetic.store ?? makeLocalRecordingStore(storeRoot);
     const endpointLatch = yield* Deferred.make<string>();
     const principal = makeFakePrincipal();
+    const wire = yield* makeFakeWireObserver();
     const internals: RunInternals = {
       makeDrain: () => Effect.succeed(quietDrain),
       // A hermetic run launches no container, so the engine is never asked.
@@ -519,6 +647,7 @@ export function startHermetic(
           ),
         ),
       makePrincipal: () => Effect.succeed(principal.principal),
+      makeWireObserver: wire.makeWireObserver,
       ...hermetic.internals,
     };
     const fiber = yield* Effect.forkDaemon(
@@ -539,6 +668,7 @@ export function startHermetic(
       store,
       principal,
       endpoint: Deferred.await(endpointLatch),
+      wire,
     };
   }).pipe(Effect.withSpan("startHermetic"));
 }
@@ -598,6 +728,29 @@ export function postSpansWhenLive(
   );
 }
 
+/**
+ * Wait until the episode is observing, then answer its first step as the
+ * default `replies` done-signal expects. The receipt is the fake
+ * principal's first, so the answer lands in the conversation that step
+ * opened.
+ */
+export function signalDoneWhenLive(
+  started: StartedHermetic,
+  agentCount: number,
+): Effect.Effect<void, never, never> {
+  const step = nthReceipt(1);
+  return whenLive(started, agentCount).pipe(
+    Effect.flatMap(() =>
+      started.wire.observe({
+        messageId: deterministicUuid("done-reply"),
+        conversationId: step.conversationId,
+        taskId: step.taskId,
+        sender: AGENT_ONE,
+      }),
+    ),
+  );
+}
+
 /** Await the fake launcher having started every expected runtime. */
 export function awaitAgents(
   launch: FakeLaunch,
@@ -646,43 +799,6 @@ export function postSpans(
   return postExport(
     endpoint,
     names.map((name) => spanBody(name, [])),
-  );
-}
-
-/** One message a delivered-message span reports. */
-export type DeliveredSpanInput = {
-  readonly messageId: string;
-  readonly conversationId: string;
-  readonly senderId: string;
-};
-
-/**
- * POST delivered-message spans shaped the way the server exports them:
- * OTLP's `[{key, value: {stringValue}}]` attribute encoding, which is
- * what the reader under test has to walk.
- */
-export function postDeliveredSpans(
-  endpoint: string,
-  messages: ReadonlyArray<DeliveredSpanInput>,
-): Effect.Effect<number, never, never> {
-  return postExport(
-    endpoint,
-    messages.map((message) =>
-      spanBody("moltzap.message.delivered", [
-        {
-          key: "moltzap.message.id",
-          value: { stringValue: message.messageId },
-        },
-        {
-          key: "moltzap.message.conversation_id",
-          value: { stringValue: message.conversationId },
-        },
-        {
-          key: "moltzap.message.sender_id",
-          value: { stringValue: message.senderId },
-        },
-      ]),
-    ),
   );
 }
 

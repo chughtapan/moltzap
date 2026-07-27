@@ -215,6 +215,39 @@ export class DriverCrashed extends Schema.TaggedError<DriverCrashed>()(
   },
 ) {}
 
+/**
+ * The in-band observation channel for one principal ended before the run
+ * did. Episode completion is decided from the messages the run's own
+ * connections observe, so a connection that stops observing cannot be
+ * distinguished from a society that stopped talking; the run seals with
+ * reason `wire-observation-lost` rather than burning its inactivity bound.
+ */
+export class WireObservationLost extends Schema.TaggedError<WireObservationLost>()(
+  "WireObservationLost",
+  {
+    principal: Schema.String,
+    detail: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+/**
+ * Reconnect recovery could not prove it saw everything it missed.
+ * `agent/message/list` is newest-N with no cursor, so a gap wider than the
+ * window is unrecoverable; this fires when the returned page does not
+ * reach back to the last message the run had already observed.
+ */
+export class WireRecoveryTruncated extends Schema.TaggedError<WireRecoveryTruncated>()(
+  "WireRecoveryTruncated",
+  {
+    principal: Schema.String,
+    conversationId: Schema.String,
+    windowLimit: Schema.Int,
+    lastObservedMessageId: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
 // ---------------------------------------------------------------------------
 // EventLog / recording (contract 5)
 // ---------------------------------------------------------------------------
@@ -402,6 +435,8 @@ export type InfraError =
   | FaultRevertFailed
   | SpeechFailed
   | DriverCrashed
+  | WireObservationLost
+  | WireRecoveryTruncated
   | TraceCaptureFailed
   | TranscriptDrainFailed
   | RecordingStoreFailed;

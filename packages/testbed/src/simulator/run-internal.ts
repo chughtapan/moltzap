@@ -13,6 +13,7 @@
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { Brand, Effect, Option, Schema, type Scope } from "effect";
+import { MAX_PAGE_LIMIT } from "@moltzap/protocol/rpc";
 import { LogicalSequence, wallTimeNow } from "./ids.js";
 import {
   JsonValue,
@@ -65,6 +66,7 @@ import {
   mintSealedFromEvidence,
 } from "./local-store.js";
 import { makePrincipal } from "./drivers.js";
+import { makeWireObserver, type WireObserver } from "./wire-observer.js";
 import { episodeRun } from "./episode-live.js";
 import { NANOCLAW_PINNED_SHA } from "../nanoclaw-install.js";
 import { resolveInstalledPackageRoot } from "../package-resolution.js";
@@ -79,6 +81,15 @@ import {
 
 const SEAL_RACE_POLL_MS = 50;
 const SEAL_RACE_WAIT_MS = 10_000;
+
+/**
+ * Newest-N window a reconnect backfill reads per conversation. It is the
+ * protocol's own page ceiling, because `agent/message/list` has no cursor:
+ * a page is the only thing recovery can ask for, so it asks for the
+ * largest one and fails loudly when even that does not reach back to the
+ * last message the run observed.
+ */
+const MESSAGE_RECOVERY_LIMIT = MAX_PAGE_LIMIT;
 
 // ---------------------------------------------------------------------------
 // Internal seams
@@ -99,6 +110,13 @@ export type RunInternals = {
   readonly resolveBindHost?: typeof resolveReceiverBindHost;
   /** Principal seam; hermetic runs stand in for the wire-speaking out-of-band principal. */
   readonly makePrincipal?: typeof makePrincipal;
+
+  /**
+   * In-band observation seam. A hermetic run has no society to answer it,
+   * so this is where a run with no wire gets the messages its done-signal
+   * waits on — beside the other seams, where a consumer cannot reach it.
+   */
+  readonly makeWireObserver?: typeof makeWireObserver;
   /** Attempt-phase notifications; the in-process queue mirrors them into `AttemptSnapshot`s. */
   readonly onPhase?: (
     phase: "launching" | "running" | "draining" | "sealing",
@@ -317,18 +335,24 @@ function prepareAndRace(
 ): Effect.Effect<EpisodeTermination, InfraError, Scope.Scope> {
   return Effect.gen(function* () {
     const world = yield* bringUp(live, options, internals);
+    // Before the principal: the pool passes the observer's reconnect hooks
+    // to every client it constructs, so the observer has to exist first.
+    const observer = yield* (internals.makeWireObserver ?? makeWireObserver)({
+      log: mustLog(live),
+      recoveryLimit: MESSAGE_RECOVERY_LIMIT,
+    });
     // Materialization already validated the driver refs; a failure here
     // is a registry defect, not an expressible run failure.
     const principal = yield* (internals.makePrincipal ?? makePrincipal)(
       live.spec.episode.principalDriver,
-      { secrets: live.secrets },
+      { secrets: live.secrets, observer },
     ).pipe(Effect.orDie);
     yield* notifyPhase(internals, "running");
     // raceAll settles on the first SUCCESS; failure channels fail typed,
     // so each contender races as its Either and the first completion of
     // any kind wins (losers are interrupted).
     const first = yield* Effect.raceAll(
-      contendersOf(live, world, principal).map((contender) =>
+      contendersOf(live, world, principal, observer).map((contender) =>
         Effect.either(contender),
       ),
     );
@@ -375,6 +399,7 @@ function contendersOf(
   live: LiveRun,
   world: World,
   principal: Principal,
+  observer: WireObserver,
 ): ReadonlyArray<Effect.Effect<EpisodeTermination, InfraError, never>> {
   const log = mustLog(live);
   const society = live.society;
@@ -390,10 +415,12 @@ function contendersOf(
       log,
       principal,
       clock: live.clock,
+      observer,
     }),
     log.awaitFailure(),
     receiver.awaitFailure(),
     drain.awaitFailure(),
+    observer.awaitFailure(),
     ...society.mounts.map((mount) => mount.awaitFailure()),
   ];
 }
@@ -450,6 +477,8 @@ const FAILURE_REASON_BY_TAG: Record<InfraError["_tag"], FailureReason> = {
   FaultRevertFailed: "fault-revert-failed",
   SpeechFailed: "speech-failed",
   DriverCrashed: "driver-crashed",
+  WireObservationLost: "wire-observation-lost",
+  WireRecoveryTruncated: "wire-recovery-truncated",
   TraceCaptureFailed: "span-acceptance-lost",
   TranscriptDrainFailed: "transcript-drain-failed",
   RecordingStoreFailed: "recording-store-failed",

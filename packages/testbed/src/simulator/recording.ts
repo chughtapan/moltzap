@@ -186,6 +186,8 @@ export const FailureReason = Schema.Literal(
   "fault-revert-failed",
   "speech-failed",
   "driver-crashed",
+  "wire-observation-lost",
+  "wire-recovery-truncated",
   "recording-store-failed",
 ).annotations({ description: "Why infrastructure ended the run; closed set" });
 export type FailureReason = typeof FailureReason.Type;

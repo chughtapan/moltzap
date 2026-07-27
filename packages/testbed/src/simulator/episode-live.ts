@@ -9,7 +9,7 @@
  * after episode end is still executed and recorded) before the controller
  * returns.
  */
-import { Deferred, Effect, Either, Option, Schema, Stream } from "effect";
+import { Cause, Deferred, Effect, Either, Option, Schema, Stream } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
   CorrelationId,
@@ -32,14 +32,16 @@ import {
   agentIdsOf,
   makeDonePredicate,
   type DonePredicate,
+  type PredicateOutcome,
 } from "./drivers.js";
 import {
-  makeDeliveredLog,
+  makeMessageLog,
+  observedFrom,
   type AnswerCriteria,
-  type DeliveredLog,
-} from "./span-attrs.js";
+  type MessageLog,
+} from "./wire-log.js";
+import { DriverCrashed } from "./errors.js";
 import type {
-  DriverCrashed,
   FaultApplyFailed,
   FaultRevertFailed,
   InfraError,
@@ -49,19 +51,18 @@ import type {
 const INACTIVITY_POLL_MS = 50;
 
 /**
- * The reply gate's state: every delivered-message span of this episode,
- * plus the step waiting on one. The tap is forked before any step speaks,
- * so the gate is a stateful predicate over the episode's whole span
- * history rather than a subscription that can be established too late — a
- * reply is matchable whenever its span arrives, before or after the
- * receipt that names the conversation to look in.
+ * The reply gate's state: every message this episode has observed, plus
+ * the step waiting on one. The gate is a stateful predicate over the
+ * whole message history rather than a subscription that can be
+ * established too late — a reply is matchable whenever it is observed,
+ * before or after the receipt that names the conversation to look in.
  *
  * At most one step waits at a time: `deliverSteps` is a single sequential
  * fiber that blocks on its gate before advancing. The done-signal
- * predicates read `delivered` too, through `PredicateContext`.
+ * predicates read `messages` too, through `PredicateContext`.
  */
 type ReplyGate = {
-  readonly delivered: DeliveredLog;
+  readonly messages: MessageLog;
   waiting: ReplyWaiter | undefined;
 };
 
@@ -104,7 +105,7 @@ export function episodeRun(
         startedAt: deps.clock.now(),
         done: yield* Deferred.make<EpisodeTermination, InfraError>(),
         activity: { lastAt: deps.clock.now() },
-        gate: { delivered: makeDeliveredLog(), waiting: undefined },
+        gate: { messages: makeMessageLog(), waiting: undefined },
         agentIds: agentIdsOf(deps.world),
         lastSpoken: { receipt: undefined },
         outstandingReverts: [],
@@ -113,9 +114,13 @@ export function episodeRun(
         _tag: "episode.started",
         episodeId: ctx.episodeId,
       });
-      yield* Effect.forkScoped(observeEvents(ctx));
+      // The tap does not replay, so a step spoken before the observer's
+      // subscription lands is invisible to the done-signal for the rest of
+      // the episode. Delivery waits for the subscription, not for the fork.
+      const observing = yield* Deferred.make<void>();
+      yield* Effect.forkScoped(observeEvents(ctx, observing));
       yield* Effect.forkScoped(watchAgentExits(ctx));
-      yield* Effect.forkScoped(deliverSteps(ctx));
+      yield* Effect.forkScoped(deliverSteps(ctx, observing));
       yield* Effect.forkScoped(runFaultWindows(ctx));
       yield* Effect.forkScoped(enforceInactivity(ctx));
       const termination = yield* Deferred.await(ctx.done);
@@ -214,29 +219,61 @@ const ACTIVITY_SOURCES: ReadonlySet<SimulatorEvent["source"]> = new Set([
   "span",
   "transcript",
   "proxy",
+  "wire",
 ]);
 
 /**
  * The v0 episode observes drained events through `makeEventLog`'s
  * internal tap; `EpisodeDeps.log` coming from anywhere else is a
- * composition-precondition violation, reported as a defect rather than
- * an expressible run failure.
+ * composition-precondition violation, reported as a defect rather than an
+ * expressible run failure.
+ *
+ * Nothing on this path is allowed to end quietly. Observation is what
+ * decides completion, so a failure or a defect here resolves the
+ * episode's termination with a typed cause; swallowing it would leave the
+ * run to burn its inactivity bound with nothing in the record saying why.
  */
-function observeEvents(ctx: EpisodeContext): Effect.Effect<void, never, never> {
+function observeEvents(
+  ctx: EpisodeContext,
+  observing: Deferred.Deferred<void, never>,
+): Effect.Effect<void, never, never> {
   const taps = getEventTaps(ctx.deps.log);
   if (Option.isNone(taps)) {
     return Effect.dieMessage(
       "EpisodeDeps.log lacks the v0 observation tap; construct it with makeEventLog",
     );
   }
-  return resolveDonePredicate(ctx).pipe(
-    Effect.flatMap((predicate) =>
-      Stream.runForEach(taps.value, (event) =>
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const predicate = yield* resolveDonePredicate(ctx);
+      const events = yield* taps.value;
+      yield* Deferred.succeed(observing, undefined);
+      yield* Stream.runForEach(events, (event) =>
         observeOne(ctx, predicate, event),
-      ),
+      );
+    }),
+  ).pipe(
+    Effect.catchAllCause((cause) =>
+      observationDefect(ctx, Cause.pretty(cause)),
     ),
-    Effect.asVoid,
-    Effect.catchAll(() => Effect.void),
+  );
+}
+
+/**
+ * The observing fiber is not joined, so a defect in it would otherwise
+ * kill the fiber alone and leave the episode waiting on a predicate that
+ * has stopped running.
+ */
+function observationDefect(
+  ctx: EpisodeContext,
+  detail: string,
+): Effect.Effect<void, never, never> {
+  return failEpisode(
+    ctx,
+    new DriverCrashed({
+      driver: ctx.spec.episode.termination.doneSignal?.name ?? "done-signal",
+      message: `The episode's event observation stopped before the episode did: ${detail}. Completion is decided from observed events, so the run seals failed rather than waiting out its inactivity bound.`,
+    }),
   );
 }
 
@@ -249,15 +286,36 @@ function resolveDonePredicate(
   return makeDonePredicate(ref, {
     agentIds: ctx.agentIds,
     steps: ctx.spec.episode.steps,
-    delivered: ctx.gate.delivered,
+    messages: ctx.gate.messages,
     lastSpoken: ctx.lastSpoken,
-  }).pipe(Effect.orDie);
+  }).pipe(Effect.orDie, Effect.map(latch));
+}
+
+/**
+ * One termination, one recorded firing. The predicates are re-read on
+ * every observation and on the step that arms them, so a satisfied
+ * condition stays satisfied and would emit a `trigger.predicate-fired`
+ * per later event; a reader counting firings would see causes that never
+ * existed. Latching here rather than in each driver covers the whole
+ * registry, present and future.
+ */
+function latch(predicate: DonePredicate): DonePredicate {
+  let fired = false;
+  return {
+    driverName: predicate.driverName,
+    observe: (event: SimulatorEvent): PredicateOutcome => {
+      if (fired) return { _tag: "pending" };
+      const outcome = predicate.observe(event);
+      if (outcome._tag === "fired") fired = true;
+      return outcome;
+    },
+  };
 }
 
 /**
  * One event, in the order the rest of the episode depends on: record the
  * evidence, then let the done-signal read it, then release a gated step.
- * The predicate shares the gate's delivered log, so it must run after the
+ * The predicate shares the gate's message log, so it must run after the
  * record and not before.
  */
 function observeOne(
@@ -269,24 +327,54 @@ function observeOne(
     if (ACTIVITY_SOURCES.has(event.source)) {
       ctx.activity.lastAt = ctx.deps.clock.now();
     }
-    const recorded = recordDelivered(ctx, event);
-    if (predicate !== undefined && predicate.observe(event)) {
-      return fireDoneSignal(ctx, predicate, event);
+    const recorded = recordObserved(ctx, event);
+    if (predicate === undefined) {
+      return recorded ? releaseWaiting(ctx) : Effect.void;
     }
-    return recorded ? releaseWaiting(ctx) : Effect.void;
+    return applyOutcome(ctx, predicate, predicate.observe(event), recorded);
   });
+}
+
+function applyOutcome(
+  ctx: EpisodeContext,
+  predicate: DonePredicate,
+  outcome: PredicateOutcome,
+  recorded: boolean,
+): Effect.Effect<void, never, never> {
+  switch (outcome._tag) {
+    case "fired":
+      return fireDoneSignal(ctx, predicate, outcome.at);
+    case "defective":
+      return failEpisode(
+        ctx,
+        new DriverCrashed({
+          driver: predicate.driverName,
+          message: `Done-signal driver "${predicate.driverName}" cannot judge this episode: ${outcome.detail}. The run seals failed rather than reporting an unanswered society.`,
+        }),
+      );
+    case "stalled":
+      return Effect.logWarning(
+        `done-signal "${predicate.driverName}" cannot order this candidate (${outcome.reason}): ${outcome.detail}`,
+      ).pipe(Effect.zipRight(recorded ? releaseWaiting(ctx) : Effect.void));
+    case "pending":
+      return recorded ? releaseWaiting(ctx) : Effect.void;
+    default: {
+      const exhaustive: never = outcome;
+      return exhaustive;
+    }
+  }
 }
 
 function fireDoneSignal(
   ctx: EpisodeContext,
   predicate: DonePredicate,
-  event: SimulatorEvent,
+  causationId: LogicalSequence,
 ): Effect.Effect<void, never, never> {
   return enqueueScheduler(ctx, {
     _tag: "trigger.predicate-fired",
     episodeId: ctx.episodeId,
     predicate: predicate.driverName,
-    causationId: event.logicalSequence,
+    causationId,
   }).pipe(
     Effect.zipRight(Deferred.succeed(ctx.done, "completed")),
     Effect.asVoid,
@@ -298,30 +386,34 @@ function fireDoneSignal(
 // ---------------------------------------------------------------------------
 
 /**
- * Retain one delivered-message span, reporting whether it was one.
- * Retention is what removes the arming race: a step gated on a reply can
- * be armed after that reply's span already arrived and still match it.
+ * Retain one observed message, reporting whether it was new. Retention is
+ * what removes the arming race: a step gated on a reply can be armed
+ * after that reply already arrived and still match it. Received messages
+ * are recorded here and nowhere else, from drained events only, so every
+ * one of them carries the position a firing can cite.
  */
-function recordDelivered(ctx: EpisodeContext, event: SimulatorEvent): boolean {
-  if (event._tag !== "span.accepted") return false;
-  return ctx.gate.delivered.record(
-    event.logicalSequence,
-    event.spanName,
-    event.raw,
-  );
+function recordObserved(ctx: EpisodeContext, event: SimulatorEvent): boolean {
+  if (event._tag !== "wire.message") return false;
+  return ctx.gate.messages.record(event.logicalSequence, "received", {
+    messageId: event.messageId,
+    conversationId: event.conversationId,
+    senderId: event.senderId,
+    replyToId: event.replyToId,
+    createdAt: event.createdAt,
+  });
 }
 
-/** Release the waiting step if the span just recorded answers it. */
+/** Release the waiting step if the message just recorded answers it. */
 function releaseWaiting(
   ctx: EpisodeContext,
 ): Effect.Effect<void, never, never> {
   return Effect.suspend(() => {
     const waiter = ctx.gate.waiting;
     if (waiter === undefined) return Effect.void;
-    const matched = ctx.gate.delivered.answer(waiter.criteria);
-    if (matched === undefined) return Effect.void;
+    const matched = ctx.gate.messages.answer(waiter.criteria);
+    if (matched._tag !== "answered") return Effect.void;
     ctx.gate.waiting = undefined;
-    return Deferred.succeed(waiter.release, matched).pipe(Effect.asVoid);
+    return Deferred.succeed(waiter.release, matched.at).pipe(Effect.asVoid);
   });
 }
 
@@ -345,20 +437,20 @@ function awaitReply(
   }
   const criteria: AnswerCriteria = {
     conversationId: previous.conversationId,
-    afterMessageId: previous.messageId,
+    afterMessageId: previous.message.id,
     senders: new Set([senderId]),
   };
   return Effect.gen(function* () {
     const release = yield* Deferred.make<LogicalSequence, never>();
     // Register before asking. The observing fiber releases whoever is
-    // waiting when it records a span, so a span recorded between the
-    // question and the registration would find no one to release and this
-    // step would park forever on an answer that had already arrived.
+    // waiting when it records a message, so a message recorded between
+    // the question and the registration would find no one to release and
+    // this step would park forever on an answer that had already arrived.
     ctx.gate.waiting = { criteria, release };
-    const answered = ctx.gate.delivered.answer(criteria);
-    if (answered === undefined) return yield* Deferred.await(release);
+    const answered = ctx.gate.messages.answer(criteria);
+    if (answered._tag !== "answered") return yield* Deferred.await(release);
     ctx.gate.waiting = undefined;
-    return answered;
+    return answered.at;
   });
 }
 
@@ -416,28 +508,52 @@ function watchOneAgent(
  * thing that ties a later `into:` to the conversation an earlier step
  * created.
  */
-function deliverSteps(ctx: EpisodeContext): Effect.Effect<void, never, never> {
+function deliverSteps(
+  ctx: EpisodeContext,
+  observing: Deferred.Deferred<void, never>,
+): Effect.Effect<void, never, never> {
   return Effect.gen(function* () {
-    const spoken = new Map<StepName, SpeechReceipt>();
+    yield* Deferred.await(observing);
+    const position: StepPosition = {
+      spoken: new Map<StepName, SpeechReceipt>(),
+      previous: undefined,
+      isLast: false,
+    };
     const steps = ctx.spec.episode.steps;
-    let previous: SpeechReceipt | undefined;
     for (const [index, step] of steps.entries()) {
-      previous = yield* deliverOneStep(ctx, step, spoken, previous);
-      // Publishing the last receipt is what arms `last-step-answered`.
-      if (index === steps.length - 1) ctx.lastSpoken.receipt = previous;
+      position.isLast = index === steps.length - 1;
+      position.previous = yield* deliverOneStep(ctx, step, position);
     }
   }).pipe(Effect.catchTag("SpeechFailed", (cause) => failEpisode(ctx, cause)));
 }
 
+/** Where the delivery loop stands: what has spoken, what spoke last, and whether this is the end. */
+type StepPosition = {
+  readonly spoken: Map<StepName, SpeechReceipt>;
+  previous: SpeechReceipt | undefined;
+  isLast: boolean;
+};
+
+/**
+ * The order here is the fix for a done-signal that could never fire.
+ *
+ * The floor an answer has to clear is the step's own message, and it is
+ * written into the log from the send's own synchronous result, in the
+ * same call frame, before anything is awaited. Nothing has to arrive for
+ * it to exist. Arming precedes the `step.spoken` enqueue for the same
+ * reason: an answer already recorded emits no further event, so the
+ * predicate has to be re-read after the arm, and the drained
+ * `step.spoken` is that re-read.
+ */
 function deliverOneStep(
   ctx: EpisodeContext,
   step: SpeechStep,
-  spoken: Map<StepName, SpeechReceipt>,
-  previous: SpeechReceipt | undefined,
+  position: StepPosition,
 ): Effect.Effect<SpeechReceipt, SpeechFailed, never> {
+  const spoken = position.spoken;
   return Effect.gen(function* () {
     yield* sleepUntilLogical(ctx, step.atMs);
-    const causationId = yield* holdForReply(ctx, step, previous);
+    const causationId = yield* holdForReply(ctx, step, position.previous);
     const into = yield* channelOf(step, spoken);
     const receipt = yield* ctx.deps.principal.deliver({
       episodeId: ctx.episodeId,
@@ -445,7 +561,10 @@ function deliverOneStep(
       world: ctx.deps.world,
       into,
     });
+    ctx.gate.messages.record(undefined, "sent", observedFrom(receipt.message));
+    if (position.isLast) ctx.lastSpoken.receipt = receipt;
     if (step.name !== undefined) spoken.set(step.name, receipt);
+    yield* ctx.deps.observer.track(step.by, receipt);
     yield* enqueueScheduler(ctx, {
       _tag: "step.spoken",
       episodeId: ctx.episodeId,
@@ -453,7 +572,7 @@ function deliverOneStep(
       content: step.say,
       taskId: receipt.taskId,
       conversationId: receipt.conversationId,
-      messageId: receipt.messageId,
+      messageId: receipt.message.id,
       // An absent optional stays absent: an explicit `undefined` is
       // outside the JSON value space the event line is serialized in.
       ...(causationId === undefined ? {} : { causationId }),
