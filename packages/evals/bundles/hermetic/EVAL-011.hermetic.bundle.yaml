@@ -1,0 +1,60 @@
+# Hermetic sibling of ../EVAL-011.bundle.yaml: the same episode, the same
+# rubric, with the target answered by a StubRuntime process instead of a
+# model. It runs with no model credentials, so it exercises the
+# instrument rather than agent behaviour.
+seed: 1
+contentVersion: moltzap-evals/EVAL-011/1
+condition:
+  label: EVAL-011/hermetic
+  notes: Group context awareness. Ask the agent to identify the conversation type and participant count in a group
+agents:
+  - name: openclaw-eval-agent
+    runtime:
+      _tag: stub
+      config:
+        script: echo
+    runsIn: host
+    role: standard
+  - name: group-bystander-1
+    runtime:
+      _tag: stub
+      config:
+        script: quiet
+    runsIn: host
+    role: standard
+  - name: group-bystander-2
+    runtime:
+      _tag: stub
+      config:
+        script: quiet
+    runsIn: host
+    role: standard
+server:
+  imageDigest: sha256:fc405312b965a5a137bc6992cec561d76162121e1af678efe2864f64a14c8426
+episode:
+  steps:
+    - by: eval-sender
+      with:
+        - openclaw-eval-agent
+        - group-bystander-1
+        - group-bystander-2
+      say: Is this a group conversation or a direct message? How many of us are here?
+  termination:
+    inactivityTimeoutMs: 120000
+    onAgentCrash: halt
+    doneSignal:
+      name: replies
+      config:
+        from: openclaw-eval-agent
+        minCount: 1
+timeouts:
+  readyTimeoutMs: 120000
+grade:
+  grader: cc-judge
+  config:
+    expectedBehavior: The agent correctly identifies this as a group conversation. It indicates there are multiple participants (at least 3). The response should be factual and concise.
+    validationChecks:
+      - Response is a valid MoltZap message with non-empty text parts
+      - Response identifies this as a group conversation (not a DM)
+      - Response mentions multiple participants or group members
+      - Response is concise and factual

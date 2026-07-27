@@ -230,13 +230,39 @@ const packageDefinitions = {
       packageRuntime: "node",
       maxPublicExports: 32,
       minPublicFacadeModules: 7,
-      folderChildCountOverrides: [
+      layers: [
         {
-          folder: ".",
-          maxChildren: 16,
+          name: "cli",
+          folders: ["cli"],
           reason:
-            "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, install-mode resolution, cache lifecycle, and trace-capture modules as deliberate peers in its documented single-tier source layout",
+            "The command line operates the instrument: it reads documents, runs and queues attempts, and renders outcomes. Nothing below it knows a terminal exists",
         },
+        {
+          name: "grading",
+          folders: ["grading"],
+          reason:
+            "Reading a sealed recording as evidence: the published ./grader entry and the dist-sibling cc-judge adapters. It reads recordings and never runs one",
+        },
+        {
+          name: "simulator",
+          folders: ["simulator"],
+          reason:
+            "The instrument itself: spec, launch, episode, log, recording, queue. It knows nothing about who operates or grades it (chughtapan/moltzap#812 §2)",
+        },
+      ],
+        folderChildCountOverrides: [
+          {
+            folder: ".",
+            maxChildren: 16,
+            reason:
+              "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, install-mode resolution, cache lifecycle, and trace-capture modules as deliberate peers, with three named boundaries above them for simulator, command-line, and grading surfaces",
+          },
+          {
+            folder: "simulator",
+            maxChildren: 18,
+            reason:
+              "The five-contract surface plus its implementation peers stays flat: contract modules, id/error kernels, per-contract live implementations, the local store, the queue, driver/provisioning/validation internals, and isolated raw-node modules",
+          },
       ],
       facadeFiles: [
         {
@@ -263,6 +289,69 @@ const packageDefinitions = {
           file: "openclaw-adapter.ts",
           reason:
             "OpenClaw runtime adapter boundary that composes channel installation, process lifecycle, and readiness behind the Runtime contract",
+        },
+        {
+          file: "grading/grader.ts",
+          reason:
+            "The published ./grader subpath entry: the package export map already names it the grading boundary, and the cc-judge adapters ship as its dist siblings",
+        },
+        {
+          file: "simulator/run-config.ts",
+          reason:
+            "Contract 1 (RunConfig / agent-runner) launch boundary of the simulator surface",
+        },
+        {
+          file: "simulator/environment.ts",
+          reason: "Contract 2 (Environment) boundary of the simulator surface",
+        },
+        {
+          file: "simulator/world.ts",
+          reason: "Contract 3 (World) boundary of the simulator surface",
+        },
+        {
+          file: "simulator/event-log.ts",
+          reason:
+            "Contract 5 (EventLog) event-stream boundary of the simulator surface",
+        },
+        {
+          file: "simulator/recording.ts",
+          reason:
+            "Contract 5 (recording) schema and store boundary of the simulator surface",
+        },
+        {
+          file: "simulator/run-spec.ts",
+          reason:
+            "Contract 1 (RunSpec) data-half boundary: the single schema registry every module and the public facade consume",
+        },
+        {
+          file: "simulator/episode.ts",
+          reason:
+            "Contract 4 (Episode lifecycle) boundary and the composition root's public face (run, makeSchedule, Principal)",
+        },
+        {
+          file: "simulator/attempts.ts",
+          reason:
+            "Contract 5 attempt-state-machine boundary with the RunQueue/Runner seams",
+        },
+        {
+          file: "simulator/stub-runtime.ts",
+          reason:
+            "Contract 1 reference-runtime boundary (makeStubRuntime is design-pinned public surface)",
+        },
+        {
+          file: "simulator/drivers.ts",
+          reason:
+            "Deliberate internal facade: the registered driver set consumed by materialization, the episode controller, and the launcher",
+        },
+        {
+          file: "simulator/run-internal.ts",
+          reason:
+            "Deliberate internal facade: the composition-root seam (runAttempt, RunInternals) shared by run and the queue worker",
+        },
+        {
+          file: "simulator/local-store.ts",
+          reason:
+            "The RecordingStore seam's v0 binding: makeLocalRecordingStore is named on the published ./simulator facade and composed by the run's composition root",
         },
       ],
     },

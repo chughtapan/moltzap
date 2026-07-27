@@ -1,8 +1,10 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
 import type { Process } from "@effect/platform/CommandExecutor";
+import type { PlatformError } from "@effect/platform/Error";
 import { Config, Data, Effect, Exit, Fiber, Option, Scope } from "effect";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
@@ -11,6 +13,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type {
   Runtime,
   RuntimeServerHandle,
+  ServerUrl,
   SpawnInput,
   LogSlice,
   ReadyOutcome,
@@ -18,6 +21,7 @@ import type {
 import { SpawnFailed, spawnFailed } from "./errors.js";
 import { raceReadiness } from "./adapter-readiness.js";
 import {
+  type BaseChildEnvironment,
   BaseChildEnvironmentConfig,
   BoundedLogBuffer,
   escalatingKill,
@@ -46,6 +50,9 @@ const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 const TOKEN_RADIX = 36;
 const JSON_INDENT_SPACES = 2;
+const OPENCLAW_WORKSPACE_DIRNAME = "workspace";
+const OPENCLAW_ATTESTATION_DIRNAME = "workspace-attestations";
+const OPENCLAW_ATTESTATION_SUFFIX = ".attested";
 
 class PortAllocationFailed extends Data.TaggedError("PortAllocationFailed")<{
   readonly message: string;
@@ -173,11 +180,20 @@ function spawnOpenClawProcess(opts: {
   );
 }
 
+/** One stdio MCP server wired into the runtime at spawn time (the simulator's mount plan shape). */
+export interface McpServerMount {
+  readonly name: string;
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly env: Readonly<Record<string, string>>;
+}
+
 export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
   readonly openclawBin: string;
   readonly channelDistDir: string;
   readonly installMode: InstallMode;
+  readonly mcpServers?: ReadonlyArray<McpServerMount>;
 }
 
 export interface OpenClawAdapterOptions {
@@ -185,6 +201,7 @@ export interface OpenClawAdapterOptions {
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
   readonly installMode: InstallMode;
+  readonly mcpServers?: ReadonlyArray<McpServerMount>;
 }
 
 interface AdapterState {
@@ -210,22 +227,49 @@ interface OpenClawSpawnLease {
 interface OpenClawProcessPlan {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string>>;
 }
 
-function buildOpenClawProcessPlan(
-  openclawBin: string,
-  port: number,
-): OpenClawProcessPlan {
+// A `ServerUrl` carries the server's `/ws` endpoint path, while the moltzap
+// client appends `/ws` to whatever base it reads from the environment, so a
+// child handed the path verbatim dials `/ws/ws` and its upgrade answers 404.
+function normalizeOpenClawServerUrl(serverUrl: ServerUrl): string {
+  return serverUrl
+    .replace(/\/ws$/, "")
+    .replace(/^ws:/, "http:")
+    .replace(/^wss:/, "https:");
+}
+
+/** @internal */
+export function buildOpenClawProcessPlan(opts: {
+  readonly openclawBin: string;
+  readonly port: number;
+  readonly stateDir: string;
+  readonly input: SpawnInput;
+  readonly baseEnvironment: BaseChildEnvironment;
+}): OpenClawProcessPlan {
   const openclawArgs = [
     "gateway",
     "run",
     "--allow-unconfigured",
     "--port",
-    String(port),
+    String(opts.port),
   ];
-  return openclawBin.endsWith(".mjs")
-    ? { command: "node", args: [openclawBin, ...openclawArgs] }
-    : { command: openclawBin, args: openclawArgs };
+  const entrypoint = opts.openclawBin.endsWith(".mjs")
+    ? { command: "node", args: [opts.openclawBin, ...openclawArgs] }
+    : { command: opts.openclawBin, args: openclawArgs };
+  return {
+    ...entrypoint,
+    cwd: opts.stateDir,
+    env: {
+      ...opts.baseEnvironment,
+      OPENCLAW_STATE_DIR: opts.stateDir,
+      OPENCLAW_CONFIG_PATH: join(opts.stateDir, "openclaw.json"),
+      MOLTZAP_CONFIG_HOME: join(opts.stateDir, ".moltzap"),
+      MOLTZAP_SERVER_URL: normalizeOpenClawServerUrl(opts.input.serverUrl),
+    },
+  };
 }
 
 function allocateOpenClawStateDir(
@@ -298,7 +342,61 @@ function seedModelAuthProfile(
   );
 }
 
-function configureOpenClawStateDir(
+function openClawWorkspaceDir(stateDir: string): string {
+  return join(stateDir, OPENCLAW_WORKSPACE_DIRNAME);
+}
+
+/**
+ * Occupies the attestation paths OpenClaw derives for this run's workspace
+ * with directories. `lstat` succeeds and `isFile()` is false, so OpenClaw
+ * reads the workspace as never attested and writes no marker of its own.
+ *
+ * OpenClaw's guard refuses to reseed a workspace that was attested recently
+ * and is now empty, which protects a durable operator workspace from silent
+ * reseeding. A simulated agent's workspace is per-run, empty unless the
+ * scenario declares files, and the agent may delete anything in it: one
+ * create-then-delete otherwise leaves the guard throwing for the rest of the
+ * episode, uncaught, and the run records that as agent silence.
+ *
+ * OpenClaw consults a third candidate under its legacy home state dir. That
+ * path is the operator's rather than the run's, so it is left alone. Of the
+ * two occupied here only the first is one OpenClaw ever writes; the sibling
+ * marker it reads but never writes is held defensively.
+ *
+ * The derivation is OpenClaw's own, recomputed because no public entry
+ * exports it, and it fails unsafely: a sentinel at the wrong path leaves
+ * OpenClaw free to write a real attestation at the right one. Only directories
+ * work. Blocking a path instead, by permissions or by an `ENOTDIR` parent,
+ * makes OpenClaw trust what it cannot read as attested and arms the guard on
+ * the first turn.
+ */
+function disarmOpenClawAttestationGuard(
+  stateDir: string,
+): Effect.Effect<void, PlatformError, FileSystem.FileSystem> {
+  const resolvedWorkspaceDir = resolve(openClawWorkspaceDir(stateDir));
+  const key = createHash("sha256").update(resolvedWorkspaceDir).digest("hex");
+  const sentinels = [
+    join(
+      stateDir,
+      OPENCLAW_ATTESTATION_DIRNAME,
+      `${key}${OPENCLAW_ATTESTATION_SUFFIX}`,
+    ),
+    `${resolvedWorkspaceDir}${OPENCLAW_ATTESTATION_SUFFIX}`,
+  ];
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      Effect.all(
+        sentinels.map((sentinel) =>
+          fileSystem.makeDirectory(sentinel, { recursive: true }),
+        ),
+        { concurrency: sentinels.length, discard: true },
+      ),
+    ),
+  );
+}
+
+/** @internal */
+export function configureOpenClawStateDir(
   deps: OpenClawAdapterDeps,
   input: SpawnInput,
   stateDir: string,
@@ -312,11 +410,13 @@ function configureOpenClawStateDir(
         apiKey: input.apiKey,
         modelId: input.modelId,
         installMode: deps.installMode,
+        mcpServers: deps.mcpServers,
       }),
-      seedWorkspaceFiles(join(stateDir, "workspace"), input.workspaceFiles),
+      seedWorkspaceFiles(openClawWorkspaceDir(stateDir), input.workspaceFiles),
       seedModelAuthProfile(stateDir),
+      disarmOpenClawAttestationGuard(stateDir),
     ],
-    { concurrency: 3, discard: true },
+    { concurrency: 4, discard: true },
   ).pipe(Effect.zipRight(installConfiguredChannel(deps, stateDir)));
 }
 
@@ -390,27 +490,17 @@ function spawnConfiguredOpenClaw(options: {
   readonly onStarted: (
     process: SpawnedProcess,
   ) => Effect.Effect<void, never, never>;
-}): Effect.Effect<SpawnedProcess, Error, Path.Path> {
+}): Effect.Effect<SpawnedProcess, Error, never> {
   return Effect.gen(function* () {
-    const platformPath = yield* Path.Path;
     const baseEnvironment = yield* BaseChildEnvironmentConfig;
-    const plan = buildOpenClawProcessPlan(
-      options.deps.openclawBin,
-      options.port,
-    );
     return yield* spawnOpenClawProcess({
-      ...plan,
-      cwd: options.stateDir,
-      env: {
-        ...baseEnvironment,
-        OPENCLAW_STATE_DIR: options.stateDir,
-        OPENCLAW_CONFIG_PATH: platformPath.join(
-          options.stateDir,
-          "openclaw.json",
-        ),
-        MOLTZAP_CONFIG_HOME: platformPath.join(options.stateDir, ".moltzap"),
-        MOLTZAP_SERVER_URL: options.input.serverUrl,
-      },
+      ...buildOpenClawProcessPlan({
+        openclawBin: options.deps.openclawBin,
+        port: options.port,
+        stateDir: options.stateDir,
+        input: options.input,
+        baseEnvironment,
+      }),
       logBuffer: options.logBuffer,
       onStarted: options.onStarted,
     });
@@ -480,7 +570,7 @@ function startOpenClawAdapter(
  * flowchart TD
  *   OCS["OpenClawAdapter.spawn(input)"]
  *   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
- *   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seed workspace + model auth"]
+ *   OC2["2. lease + configure state dir<br>write config + MCP mounts,<br>seed workspace + model auth + sentinel"]
  *   OCM{"install mode"}
  *   OCW["workspace<br>validate local channel build<br>copy channel dist + dependency links<br>pin plugins.allow"]
  *   OCP["published<br>reuse or build pinned npm project cache<br>materialize project + OpenClaw peer link<br>omit plugins.allow"]
@@ -567,6 +657,25 @@ export class OpenClawAdapter implements Runtime {
   getInboundMarker(): string {
     return "inbound from agent:";
   }
+
+  /** Resolves once, on the gateway process's exit (the simulator's ongoing exit signal). */
+  awaitExit(): Effect.Effect<
+    { readonly exitCode: number | null; readonly signal: string | undefined },
+    never,
+    never
+  > {
+    const state = this.state;
+    if (!state) {
+      return Effect.succeed({ exitCode: null, signal: undefined });
+    }
+    return Fiber.join(state.process.exitFiber).pipe(
+      Effect.map((exitCode) =>
+        exitCode >= 0
+          ? { exitCode, signal: undefined }
+          : { exitCode: null, signal: undefined },
+      ),
+    );
+  }
 }
 
 /**
@@ -634,11 +743,12 @@ function writeOpenClawConfig(opts: {
   apiKey: SpawnInput["apiKey"];
   modelId?: string;
   installMode: InstallMode;
+  mcpServers?: ReadonlyArray<McpServerMount>;
 }): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
     const fileSystem = yield* FileSystem.FileSystem;
-    const workspaceDir = path.join(opts.stateDir, "workspace");
+    const workspaceDir = openClawWorkspaceDir(opts.stateDir);
     const config = buildOpenClawConfig(opts, workspaceDir);
 
     yield* Effect.all([
@@ -658,11 +768,33 @@ function writeOpenClawConfig(opts: {
 }
 
 /** @internal */
+function mcpConfigSection(
+  mcpServers: ReadonlyArray<McpServerMount> | undefined,
+): Pick<OpenClawConfig, "mcp"> {
+  if (mcpServers === undefined || mcpServers.length === 0) return {};
+  return {
+    mcp: {
+      servers: Object.fromEntries(
+        mcpServers.map((server) => [
+          server.name,
+          {
+            transport: "stdio" as const,
+            command: server.command,
+            args: [...server.args],
+            env: { ...server.env },
+          },
+        ]),
+      ),
+    },
+  };
+}
+
 export function buildOpenClawConfig(
   opts: {
     readonly agentName: string;
     readonly modelId?: string;
     readonly installMode: InstallMode;
+    readonly mcpServers?: ReadonlyArray<McpServerMount>;
   },
   workspaceDir: string,
 ): OpenClawConfig {
@@ -675,11 +807,16 @@ export function buildOpenClawConfig(
         }
       : {};
   return {
+    ...mcpConfigSection(opts.mcpServers),
     agents: {
       defaults: {
         model: { primary: opts.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
         workspace: workspaceDir,
         compaction: { mode: "safeguard" },
+        // Left unset, openclaw seeds BOOTSTRAP.md into the empty per-agent
+        // workspace and runs its first-run onboarding ritual, whose scripted
+        // opening line the agent sends in place of answering the step.
+        skipBootstrap: true,
       },
     },
     commands: { native: "auto", nativeSkills: "auto", restart: true },

@@ -1,0 +1,45 @@
+# Bundle form of packages/evals/scenarios/EVAL-034.yaml.
+# The scenario file stays as it is; this is a sibling, never a replacement.
+seed: 1
+contentVersion: moltzap-evals/EVAL-034/1
+condition:
+  label: EVAL-034
+  notes: Cross-conversation awareness - multi-message context. Establish a multi-turn fact in one conversation, then probe from another. Tests that full transcript preserves useful context.
+agents:
+  - name: openclaw-eval-agent
+    runtime:
+      _tag: openclaw
+      config: {}
+    runsIn: host
+    role: standard
+server:
+  imageDigest: sha256:fc405312b965a5a137bc6992cec561d76162121e1af678efe2864f64a14c8426
+episode:
+  steps:
+    - name: setup
+      by: eval-sender
+      with:
+        - openclaw-eval-agent
+      say: Let me tell you about Freedonia. The capital is Zenda, the population is 2.3 million, and the currency is the Freedonian Mark. Confirm you got all three facts.
+    - by: eval-probe-sender
+      with:
+        - openclaw-eval-agent
+      awaitReplyFrom: openclaw-eval-agent
+      say: What do you know about Freedonia? Tell me everything.
+  termination:
+    inactivityTimeoutMs: 120000
+    onAgentCrash: halt
+    doneSignal:
+      name: last-step-answered
+      config: {}
+timeouts:
+  readyTimeoutMs: 120000
+grade:
+  grader: cc-judge
+  config:
+    expectedBehavior: The agent should mention Zenda, 2.3 million, and the Freedonian Mark - all three facts from the full transcript.
+    validationChecks:
+      - Response contains 'Zenda'
+      - Response contains '2.3 million' or '2,300,000'
+      - Response contains 'Mark' or 'Freedonian Mark'
+      - Response does not mention 'another conversation' or 'system reminder'
