@@ -31,13 +31,16 @@ import type { EpisodeDeps, ChannelRef, SpeechReceipt } from "./episode.js";
 import {
   agentIdsOf,
   makeDonePredicate,
+  PENDING,
   type DonePredicate,
   type PredicateOutcome,
 } from "./drivers.js";
 import {
   makeMessageLog,
   observedFrom,
+  observedFromEvent,
   type AnswerCriteria,
+  type AnswerOutcome,
   type MessageLog,
 } from "./wire-log.js";
 import { DriverCrashed } from "./errors.js";
@@ -49,6 +52,15 @@ import type {
 } from "./errors.js";
 
 const INACTIVITY_POLL_MS = 50;
+
+/**
+ * Who a failure of the episode's own machinery is attributed to. Neither
+ * of these is a driver a spec can name: a failure here is the controller's
+ * own, and blaming the configured done-signal would send a reader to a
+ * config that did nothing wrong.
+ */
+const EPISODE_OBSERVER = "episode-observer";
+const REPLY_GATE = "reply-gate";
 
 /**
  * The reply gate's state: every message this episode has observed, plus
@@ -83,6 +95,8 @@ type EpisodeContext = {
   readonly agentIds: ReadonlyMap<string, AgentId>;
   /** The last step's receipt, once it has spoken; what `last-step-answered` waits on. */
   readonly lastSpoken: { receipt: SpeechReceipt | undefined };
+  /** Each named step's receipt: the only thing tying a later `into:` to the conversation it names. */
+  readonly spoken: Map<StepName, SpeechReceipt>;
   readonly outstandingReverts: Array<{
     readonly entry: FaultScheduleEntry;
     readonly revert: Effect.Effect<void, FaultRevertFailed, never>;
@@ -108,6 +122,7 @@ export function episodeRun(
         gate: { messages: makeMessageLog(), waiting: undefined },
         agentIds: agentIdsOf(deps.world),
         lastSpoken: { receipt: undefined },
+        spoken: new Map<StepName, SpeechReceipt>(),
         outstandingReverts: [],
       };
       yield* enqueueScheduler(ctx, {
@@ -271,7 +286,7 @@ function observationDefect(
   return failEpisode(
     ctx,
     new DriverCrashed({
-      driver: ctx.spec.episode.termination.doneSignal?.name ?? "done-signal",
+      driver: EPISODE_OBSERVER,
       message: `The episode's event observation stopped before the episode did: ${detail}. Completion is decided from observed events, so the run seals failed rather than waiting out its inactivity bound.`,
     }),
   );
@@ -304,7 +319,7 @@ function latch(predicate: DonePredicate): DonePredicate {
   return {
     driverName: predicate.driverName,
     observe: (event: SimulatorEvent): PredicateOutcome => {
-      if (fired) return { _tag: "pending" };
+      if (fired) return PENDING;
       const outcome = predicate.observe(event);
       if (outcome._tag === "fired") fired = true;
       return outcome;
@@ -328,11 +343,16 @@ function observeOne(
       ctx.activity.lastAt = ctx.deps.clock.now();
     }
     const recorded = recordObserved(ctx, event);
-    if (predicate === undefined) {
-      return recorded ? releaseWaiting(ctx) : Effect.void;
-    }
+    if (predicate === undefined) return releaseIfRecorded(ctx, recorded);
     return applyOutcome(ctx, predicate, predicate.observe(event), recorded);
   });
+}
+
+function releaseIfRecorded(
+  ctx: EpisodeContext,
+  recorded: boolean,
+): Effect.Effect<void, never, never> {
+  return recorded ? releaseWaiting(ctx) : Effect.void;
 }
 
 function applyOutcome(
@@ -353,16 +373,32 @@ function applyOutcome(
         }),
       );
     case "stalled":
-      return Effect.logWarning(
-        `done-signal "${predicate.driverName}" cannot order this candidate (${outcome.reason}): ${outcome.detail}`,
-      ).pipe(Effect.zipRight(recorded ? releaseWaiting(ctx) : Effect.void));
+      return unorderable(ctx, predicate.driverName, outcome.detail).pipe(
+        Effect.zipRight(releaseIfRecorded(ctx, recorded)),
+      );
     case "pending":
-      return recorded ? releaseWaiting(ctx) : Effect.void;
+      return releaseIfRecorded(ctx, recorded);
     default: {
       const exhaustive: never = outcome;
       return exhaustive;
     }
   }
+}
+
+/**
+ * A tie in the only ordering the wire carries. The run keeps waiting
+ * rather than guessing which of the two the server committed first, and
+ * says so, because a tie means the ordering assumption is weaker than
+ * measured.
+ */
+function unorderable(
+  ctx: EpisodeContext,
+  waiter: string,
+  detail: string,
+): Effect.Effect<void, never, never> {
+  return Effect.logWarning(
+    `episode ${ctx.episodeId}: ${waiter} cannot order this candidate: ${detail}`,
+  );
 }
 
 function fireDoneSignal(
@@ -394,13 +430,10 @@ function fireDoneSignal(
  */
 function recordObserved(ctx: EpisodeContext, event: SimulatorEvent): boolean {
   if (event._tag !== "wire.message") return false;
-  return ctx.gate.messages.record(event.logicalSequence, "received", {
-    messageId: event.messageId,
-    conversationId: event.conversationId,
-    senderId: event.senderId,
-    replyToId: event.replyToId,
-    createdAt: event.createdAt,
-  });
+  return ctx.gate.messages.record(
+    { origin: "received", at: event.logicalSequence },
+    observedFromEvent(event),
+  );
 }
 
 /** Release the waiting step if the message just recorded answers it. */
@@ -411,10 +444,46 @@ function releaseWaiting(
     const waiter = ctx.gate.waiting;
     if (waiter === undefined) return Effect.void;
     const matched = ctx.gate.messages.answer(waiter.criteria);
-    if (matched._tag !== "answered") return Effect.void;
+    if (matched._tag !== "answered") return gateCannotJudge(ctx, matched);
     ctx.gate.waiting = undefined;
     return Deferred.succeed(waiter.release, matched.at).pipe(Effect.asVoid);
   });
+}
+
+/**
+ * The gate reads the same evidence as the done-signal and owes the same
+ * answers. Its floor is the previous step's own message, written from
+ * that send's synchronous result, so a missing one is the same
+ * composition defect and ends the run rather than parking a step forever
+ * on a question nothing can answer.
+ */
+function gateCannotJudge(
+  ctx: EpisodeContext,
+  outcome: AnswerOutcome,
+): Effect.Effect<void, never, never> {
+  switch (outcome._tag) {
+    case "no-floor":
+      return failEpisode(
+        ctx,
+        new DriverCrashed({
+          driver: REPLY_GATE,
+          message: `The step gate awaits a reply to message ${outcome.awaited}, which is absent from the episode's message log although the send that produced it writes it synchronously. The run seals failed rather than holding a step on a question nothing can answer.`,
+        }),
+      );
+    case "ambiguous":
+      return unorderable(
+        ctx,
+        REPLY_GATE,
+        `message ${outcome.tiedWith} shares the awaited message's commit millisecond`,
+      );
+    case "unanswered":
+    case "answered":
+      return Effect.void;
+    default: {
+      const exhaustive: never = outcome;
+      return exhaustive;
+    }
+  }
 }
 
 /**
@@ -448,7 +517,10 @@ function awaitReply(
     // this step would park forever on an answer that had already arrived.
     ctx.gate.waiting = { criteria, release };
     const answered = ctx.gate.messages.answer(criteria);
-    if (answered._tag !== "answered") return yield* Deferred.await(release);
+    if (answered._tag !== "answered") {
+      yield* gateCannotJudge(ctx, answered);
+      return yield* Deferred.await(release);
+    }
     ctx.gate.waiting = undefined;
     return answered.at;
   });
@@ -514,25 +586,18 @@ function deliverSteps(
 ): Effect.Effect<void, never, never> {
   return Effect.gen(function* () {
     yield* Deferred.await(observing);
-    const position: StepPosition = {
-      spoken: new Map<StepName, SpeechReceipt>(),
-      previous: undefined,
-      isLast: false,
-    };
     const steps = ctx.spec.episode.steps;
+    let previous: SpeechReceipt | undefined;
     for (const [index, step] of steps.entries()) {
-      position.isLast = index === steps.length - 1;
-      position.previous = yield* deliverOneStep(ctx, step, position);
+      previous = yield* deliverOneStep(
+        ctx,
+        step,
+        previous,
+        index === steps.length - 1,
+      );
     }
   }).pipe(Effect.catchTag("SpeechFailed", (cause) => failEpisode(ctx, cause)));
 }
-
-/** Where the delivery loop stands: what has spoken, what spoke last, and whether this is the end. */
-type StepPosition = {
-  readonly spoken: Map<StepName, SpeechReceipt>;
-  previous: SpeechReceipt | undefined;
-  isLast: boolean;
-};
 
 /**
  * The order here is the fix for a done-signal that could never fire.
@@ -548,22 +613,25 @@ type StepPosition = {
 function deliverOneStep(
   ctx: EpisodeContext,
   step: SpeechStep,
-  position: StepPosition,
+  previous: SpeechReceipt | undefined,
+  isLast: boolean,
 ): Effect.Effect<SpeechReceipt, SpeechFailed, never> {
-  const spoken = position.spoken;
   return Effect.gen(function* () {
     yield* sleepUntilLogical(ctx, step.atMs);
-    const causationId = yield* holdForReply(ctx, step, position.previous);
-    const into = yield* channelOf(step, spoken);
+    const causationId = yield* holdForReply(ctx, step, previous);
+    const into = yield* channelOf(ctx, step);
     const receipt = yield* ctx.deps.principal.deliver({
       episodeId: ctx.episodeId,
       step,
       world: ctx.deps.world,
       into,
     });
-    ctx.gate.messages.record(undefined, "sent", observedFrom(receipt.message));
-    if (position.isLast) ctx.lastSpoken.receipt = receipt;
-    if (step.name !== undefined) spoken.set(step.name, receipt);
+    ctx.gate.messages.record(
+      { origin: "sent" },
+      observedFrom(receipt.message),
+    );
+    if (isLast) ctx.lastSpoken.receipt = receipt;
+    if (step.name !== undefined) ctx.spoken.set(step.name, receipt);
     yield* ctx.deps.observer.track(step.by, receipt);
     yield* enqueueScheduler(ctx, {
       _tag: "step.spoken",
@@ -584,11 +652,11 @@ function deliverOneStep(
 
 /** The conversation a `send` step speaks into, resolved from the receipt of the step it names. */
 function channelOf(
+  ctx: EpisodeContext,
   step: SpeechStep,
-  spoken: ReadonlyMap<StepName, SpeechReceipt>,
 ): Effect.Effect<ChannelRef | undefined, never, never> {
   if (step.into === undefined) return Effect.succeed(undefined);
-  const receipt = spoken.get(step.into);
+  const receipt = ctx.spoken.get(step.into);
   if (receipt === undefined) {
     // Materialization requires `into` to name an earlier step, and steps
     // run in order, so the receipt exists by the time this one speaks.

@@ -50,7 +50,8 @@ export const StubStep = Schema.Union(
   }),
   Schema.TaggedStruct("signalDone", {
     afterMs: Schema.Int.annotations({
-      description: "Wall delay before emitting the done signal",
+      description:
+        "Wall delay before answering, into the conversation this agent was last addressed in",
     }),
   }),
   Schema.TaggedStruct("exit", {
