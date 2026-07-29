@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the production server image and proves OpenClaw, NanoClaw, Effect,
   and customer-defined participants can exchange messages in one run.
 
+- **A grader vocabulary customers can reach.** `@moltzap/evals` now exports the
+  checks a grader composes — `detectsFailure`, `requiresJudgment`,
+  `exactFinalText`, `atMostWords`, `validMessages`, `responseText`, and
+  `defineCodeGrader` — alongside `CodeCheck`, `CodeGraderDefinition`, and
+  `EvaluationEvidence`. The package documented composing graders while the
+  checks stayed module-private. A reference page states every outcome, report
+  type, and constructor, and a how-to walks the files an evaluation touches.
+
 ### Changed: explicit networking and lifecycle boundaries
 
 - **BREAKING (`@moltzap/protocol`, `@moltzap/client`).** Client connections no

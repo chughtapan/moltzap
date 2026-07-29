@@ -1,7 +1,7 @@
 /**
- * @file Gated mixed-runtime proof over one production router and ledger.
+ * @file Opt-in mixed-roster measurement over one production router and ledger.
  *
- * Gate with `MOLTZAP_AGENT_EVAL_ITEST=1`. Optional model overrides are read
+ * Enable with `MOLTZAP_AGENT_EVAL_ITEST=1`. Optional model overrides are read
  * from `MOLTZAP_OPENCLAW_EVAL_MODEL` and `MOLTZAP_NANOCLAW_EVAL_MODEL`.
  */
 import { assert, it } from "@effect/vitest";
@@ -21,27 +21,15 @@ import {
   openClawRuntime,
   simulatorLayer,
   type AgentHandle,
-  type Network,
-  type NetworkFailure,
 } from "@moltzap/simulator";
 import type { CompletedRunLedger } from "@moltzap/simulator/ledger";
-import {
-  Cause,
-  Chunk,
-  Config,
-  Duration,
-  Effect,
-  Exit,
-  Schema,
-  type Scope,
-  Stream,
-} from "effect";
+import { Chunk, Config, Duration, Effect, Exit, Stream } from "effect";
 import {
   EvaluationEvents,
   EvaluationResponseSelected,
   selectEvaluationResponse,
 } from "./evaluation-events.js";
-import { directEpisode, type EpisodeResponse } from "./episodes.js";
+import { directEpisode } from "./episodes.js";
 
 const INTEGRATION_ENABLED = Effect.runSync(
   Config.string("MOLTZAP_AGENT_EVAL_ITEST").pipe(
@@ -57,14 +45,32 @@ const RESPONSE_TIMEOUT = Duration.minutes(10);
 const RUN_TIMEOUT = Duration.minutes(40);
 const TEST_RUNNER_MARGIN_MS = 5 * 60_000;
 const LEDGER_ROOT = "../../eval-results";
-const SCENARIO_ID = "MIXED-RUNTIME-E2E";
+const MEASUREMENT_ID = "MIXED-ROSTER";
+const RUNTIME_PROBES = Object.freeze({
+  openclaw: {
+    runtime: "openclaw",
+    response: "MOLTZAP_OPENCLAW_E2E_OK_9F2C",
+  },
+  nanoclaw: {
+    runtime: "nanoclaw",
+    response: "MOLTZAP_NANOCLAW_E2E_OK_7B4D",
+  },
+  effect: {
+    runtime: "effect",
+    response: "MOLTZAP_EFFECT_E2E_OK_5A8E",
+  },
+  customer: {
+    runtime: "customer-defined",
+    response: "MOLTZAP_CUSTOM_E2E_OK_3C6F",
+  },
+});
 
 const Society = Simulator.define(
-  "moltzap.mixed-runtime-e2e/v1",
+  "moltzap.mixed-runtime-e2e/v2",
   EvaluationEvents,
 );
 const customerRuntimeDelegate = effectRuntime({
-  onMessage: (context) => Effect.succeed(`customer:${context.agent.name}`),
+  onMessage: () => Effect.succeed(RUNTIME_PROBES.customer.response),
 });
 const customerDefinedRuntime = defineRuntime({
   name: "customer-defined",
@@ -83,18 +89,10 @@ const agents = Society.agents({
     ...(NANOCLAW_MODEL === undefined ? {} : { modelId: NANOCLAW_MODEL }),
   }),
   effect: effectRuntime({
-    onMessage: (context) => Effect.succeed(`effect:${context.agent.name}`),
+    onMessage: () => Effect.succeed(RUNTIME_PROBES.effect.response),
   }),
   customer: customerDefinedRuntime,
 });
-
-class AgentResponseTimedOut extends Schema.TaggedError<AgentResponseTimedOut>()(
-  "AgentResponseTimedOut",
-  {
-    agent: Schema.NonEmptyString,
-    timeout: Schema.NonEmptyString,
-  },
-) {}
 
 function optionalConfig(name: string): string | undefined {
   const value = Effect.runSync(
@@ -103,71 +101,91 @@ function optionalConfig(name: string): string | undefined {
   return value.length === 0 ? undefined : value;
 }
 
-function probe(
-  target: AgentHandle,
-): Effect.Effect<
-  ReadonlyArray<EpisodeResponse>,
-  NetworkFailure | AgentResponseTimedOut,
-  Network | Scope.Scope
-> {
+function probe(target: AgentHandle, expectedResponse: string) {
   return directEpisode(
     target,
-    `Hello ${target.name}. Reply with one brief, non-empty greeting.`,
-  ).pipe(
-    Effect.timeoutFail({
-      duration: RESPONSE_TIMEOUT,
-      onTimeout: () =>
-        AgentResponseTimedOut.make({
-          agent: target.name,
-          timeout: Duration.format(RESPONSE_TIMEOUT),
-        }),
-    }),
-  );
+    `Reply with exactly this token and no other text or attachments: ${expectedResponse}`,
+  ).pipe(Effect.timeout(RESPONSE_TIMEOUT));
 }
 
 function mixedProgram() {
   return Effect.gen(function* () {
     const started = yield* agents.Agents;
+    const probes = [
+      {
+        target: started.openclaw,
+        expectedResponse: RUNTIME_PROBES.openclaw.response,
+      },
+      {
+        target: started.nanoclaw,
+        expectedResponse: RUNTIME_PROBES.nanoclaw.response,
+      },
+      {
+        target: started.effect,
+        expectedResponse: RUNTIME_PROBES.effect.response,
+      },
+      {
+        target: started.customer,
+        expectedResponse: RUNTIME_PROBES.customer.response,
+      },
+    ] as const;
     const responses = yield* Effect.forEach(
-      [started.openclaw, started.nanoclaw, started.effect, started.customer],
-      probe,
+      probes,
+      ({ target, expectedResponse }) => probe(target, expectedResponse),
       { concurrency: 1 },
     );
     const events = yield* Society.Events;
     yield* Effect.forEach(
       responses.flat(),
       (response) =>
-        events.emit(selectEvaluationResponse(SCENARIO_ID, response)),
+        events.emit(selectEvaluationResponse(MEASUREMENT_ID, response)),
       { concurrency: 1, discard: true },
     );
   });
 }
 
-function namesOf(
-  events: ReadonlyArray<{ readonly agentName: string }>,
-): ReadonlyArray<string> {
-  return [...new Set(events.map((event) => event.agentName))].sort();
+function probeResponseFor(agentName: string): string | undefined {
+  return Object.entries(RUNTIME_PROBES).find(
+    ([name]) => name === agentName,
+  )?.[1].response;
 }
 
-function nonEmptyResponse(
+function matchesProbe(
   selected: EvaluationResponseSelected,
   received: ReadonlyArray<EndpointMessageReceived>,
 ): boolean {
+  const expected = probeResponseFor(selected.targetName);
   const message = received.find(
     (event) =>
       event.messageId === selected.messageId &&
+      event.taskId === selected.taskId &&
       event.senderId === selected.targetId &&
       event.endpointId === selected.endpointId,
   );
-  return (
-    message !== undefined &&
-    message.parts.some(
-      (part) => part.type === "text" && part.text.trim().length > 0,
-    )
+  if (
+    expected === undefined ||
+    message === undefined ||
+    message.parts.length !== 1
+  ) {
+    return false;
+  }
+  const [part] = message.parts;
+  return part.type === "text" && part.text.trim() === expected;
+}
+
+function matchesRouterCommit(
+  selected: EvaluationResponseSelected,
+  committed: ReadonlyArray<RouterMessageCommitted>,
+): boolean {
+  return committed.some(
+    (event) =>
+      event.messageId === selected.messageId &&
+      event.taskId === selected.taskId &&
+      event.senderId === selected.targetId,
   );
 }
 
-function collectProofEvidence(
+function collectMeasurementEvidence(
   ledger: CompletedRunLedger<typeof Society.catalog>,
 ) {
   return Effect.all({
@@ -183,32 +201,36 @@ function collectProofEvidence(
   });
 }
 
-type ProofEvidence = Effect.Effect.Success<
-  ReturnType<typeof collectProofEvidence>
+type MeasurementEvidence = Effect.Effect.Success<
+  ReturnType<typeof collectMeasurementEvidence>
 >;
 
-function assertProofEvidence(evidence: ProofEvidence): void {
-  const expectedNames = ["customer", "effect", "nanoclaw", "openclaw"];
+function assertMeasurementEvidence(evidence: MeasurementEvidence): void {
   const ready = Chunk.toReadonlyArray(evidence.ready);
   const received = Chunk.toReadonlyArray(evidence.received);
   const selected = Chunk.toReadonlyArray(evidence.selected);
+  const committed = Chunk.toReadonlyArray(evidence.router);
   const terminal = [
     ...Chunk.toReadonlyArray(evidence.processExited),
     ...Chunk.toReadonlyArray(evidence.processSignaled),
     ...Chunk.toReadonlyArray(evidence.runtimeCompleted),
     ...Chunk.toReadonlyArray(evidence.runtimeFailed),
   ];
-  const committedIds = new Set(
-    Chunk.toReadonlyArray(evidence.router).map((event) => event.messageId),
-  );
 
-  assert.deepStrictEqual(namesOf(ready), expectedNames);
-  assert.lengthOf(selected, expectedNames.length);
+  assert.deepStrictEqual(
+    ready
+      .map((event) => [String(event.agentName), event.runtime] as const)
+      .sort(([left], [right]) => left.localeCompare(right)),
+    Object.entries(RUNTIME_PROBES)
+      .map(([name, probe]) => [name, probe.runtime] as const)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+  assert.lengthOf(selected, Object.keys(RUNTIME_PROBES).length);
   assert.isTrue(
-    selected.every((selection) => nonEmptyResponse(selection, received)),
+    selected.every((selection) => matchesProbe(selection, received)),
   );
   assert.isTrue(
-    selected.every((selection) => committedIds.has(selection.messageId)),
+    selected.every((selection) => matchesRouterCommit(selection, committed)),
   );
   assert.strictEqual(Chunk.size(evidence.succeeded), 1);
   assert.lengthOf(
@@ -218,23 +240,22 @@ function assertProofEvidence(evidence: ProofEvidence): void {
   );
 }
 
-const architectureProof = Effect.fn("evals.mixedRuntimeProof")(function* () {
-  const run = yield* Society.run(agents, mixedProgram(), {
-    provenance: {
-      evaluation: SCENARIO_ID,
-      condition: "production-mixed-runtime",
-    },
-  });
-  assert.isTrue(
-    Exit.isSuccess(run.exit),
-    Exit.isFailure(run.exit)
-      ? `mixed runtime program failed:\n${Cause.pretty(run.exit.cause)}`
-      : undefined,
-  );
+const mixedRosterMeasurement = Effect.fn("evals.measureMixedRoster")(
+  function* () {
+    const run = yield* Society.run(agents, mixedProgram(), {
+      provenance: {
+        evaluation: MEASUREMENT_ID,
+        condition: "production-mixed-runtime",
+      },
+    });
+    if (Exit.isFailure(run.exit)) {
+      return yield* Effect.failCause(run.exit.cause);
+    }
 
-  const ledger = yield* Society.openLedger(run.ledger);
-  assertProofEvidence(yield* collectProofEvidence(ledger));
-});
+    const ledger = yield* Society.openLedger(run.ledger);
+    assertMeasurementEvidence(yield* collectMeasurementEvidence(ledger));
+  },
+);
 
 const PlatformLayer = simulatorLayer({
   ledgerDirectory: LEDGER_ROOT,
@@ -244,15 +265,9 @@ const PlatformLayer = simulatorLayer({
 it.scopedLive.skipIf(!INTEGRATION_ENABLED)(
   "runs OpenClaw, NanoClaw, built-in code, and customer-defined agents together",
   () =>
-    architectureProof().pipe(
+    mixedRosterMeasurement().pipe(
       Effect.provide(PlatformLayer),
-      Effect.timeoutFail({
-        duration: RUN_TIMEOUT,
-        onTimeout: () =>
-          new Error(
-            `mixed runtime proof did not complete within ${Duration.format(RUN_TIMEOUT)}`,
-          ),
-      }),
+      Effect.timeout(RUN_TIMEOUT),
     ),
   Duration.toMillis(RUN_TIMEOUT) + TEST_RUNNER_MARGIN_MS,
 );
