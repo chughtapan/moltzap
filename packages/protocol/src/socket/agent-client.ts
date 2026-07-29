@@ -2,13 +2,20 @@ import type { RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
 import type { AgentKey } from "#identity/agents";
-import { MessagesAuthorize } from "#message";
-import { DispatchAuthorize } from "#message/dispatch";
-import { AgentConnect, PROTOCOL_VERSION } from "#network";
-import { AgentCallableGroup } from "#socket/catalog";
-import { TaskCreate } from "#task";
-import { type CloseInfo } from "./close-info.js";
-import { NotConnectedError, RpcTimeoutError } from "#transport";
+import { messagesAuthorize } from "#message";
+import { dispatchAuthorize } from "#message/dispatch";
+import { agentConnect, PROTOCOL_VERSION } from "#network";
+import type { agentCallableGroup } from "#socket/catalog";
+import { taskCreate } from "#task";
+import type { CloseInfo } from "./close-info.js";
+import type {
+  ErrorForTag,
+  NotConnectedError,
+  PayloadForTag,
+  RpcTimeoutError,
+  SuccessForTag,
+  TypedDispatchMap,
+} from "#transport";
 import {
   openProtocolAgentClientSocket,
   RPC_TIMEOUT_MS,
@@ -17,14 +24,8 @@ import {
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
 } from "./lifecycle.js";
-import {
-  type ErrorForTag,
-  type PayloadForTag,
-  type SuccessForTag,
-  type TypedDispatchMap,
-} from "#transport";
 
-type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
 type AgentCallableTag = AgentCallableRpcs["_tag"];
 type AgentClientDispatch = TypedDispatchMap<AgentCallableRpcs, RpcClientError>;
 
@@ -32,12 +33,13 @@ const makeAgentCallbackHandlers = (): ReverseCallbackHandlers => {
   const reject = (method: string) => () =>
     Effect.dieMessage(`agent client received unexpected callback ${method}`);
   return {
-    [DispatchAuthorize.name]: reject(DispatchAuthorize.name),
-    [MessagesAuthorize.name]: reject(MessagesAuthorize.name),
-    [TaskCreate.name]: reject(TaskCreate.name),
+    [dispatchAuthorize.name]: reject(dispatchAuthorize.name),
+    [messagesAuthorize.name]: reject(messagesAuthorize.name),
+    [taskCreate.name]: reject(taskCreate.name),
   };
 };
 
+/** Configures agent client. */
 export interface AgentClientOptions {
   readonly serverUrl: string;
   readonly agentKey: AgentKey;
@@ -45,6 +47,7 @@ export interface AgentClientOptions {
   readonly onReconnect?: (helloOk: ConnectResult) => void;
 }
 
+/** Implements molt zap agent client. */
 export class MoltZapAgentClient extends ProtocolClientLifecycle<
   AgentCallableRpcs,
   AgentClientDispatch
@@ -52,7 +55,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
   constructor(options: AgentClientOptions) {
     super({
       serverUrl: options.serverUrl,
-      connectTag: AgentConnect.name,
+      connectTag: agentConnect.name,
       connectPayload: {
         agentKey: options.agentKey,
         minProtocol: PROTOCOL_VERSION,

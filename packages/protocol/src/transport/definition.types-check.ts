@@ -32,16 +32,21 @@ const definition = defineRpc({
   requires: [],
   errors: [DeclaredError],
 });
+void definition;
 
 type Handler = Rpc.ToHandlerFn<typeof definition.serverRpc, never>;
 type IsAny<A> = 0 extends 1 & A ? true : false;
 type ExpectFalse<A extends false> = A;
-type _HandlerErrorIsNotAny = ExpectFalse<
+type HandlerErrorIsNotAny = ExpectFalse<
   IsAny<Rpc.Error<typeof definition.serverRpc>>
 >;
-type _ClientErrorIsNotAny = ExpectFalse<
+type ClientErrorIsNotAny = ExpectFalse<
   IsAny<Rpc.Error<typeof definition.clientRpc>>
 >;
+const handlerErrorIsNotAny: HandlerErrorIsNotAny = false;
+const clientErrorIsNotAny: ClientErrorIsNotAny = false;
+void handlerErrorIsNotAny;
+void clientErrorIsNotAny;
 
 const succeeds: Handler = () => Effect.void;
 const failsDeclared: Handler = () =>

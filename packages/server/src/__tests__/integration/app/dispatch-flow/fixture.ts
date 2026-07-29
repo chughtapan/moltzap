@@ -1,11 +1,11 @@
 import {
-  DispatchAuthorize,
-  DispatchRelease,
-  DispatchRequest,
+  dispatchAuthorize,
+  dispatchRelease,
+  dispatchRequest,
 } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize, MessagesSend } from "@moltzap/protocol/message";
-import { ConversationParticipantsRemovedNotificationDefinition } from "@moltzap/protocol/conversation";
-import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
+import { messagesAuthorize, messagesSend } from "@moltzap/protocol/message";
+import { conversationParticipantsRemovedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { taskCreate, taskRequest } from "@moltzap/protocol/task";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
@@ -86,7 +86,7 @@ export function createConversationOnApp(
 ): Effect.Effect<ConversationBinding, unknown> {
   return Effect.gen(function* () {
     const appId = yield* ensureModeratorApp(manifest);
-    const result = yield* alice.client.sendRpc(TaskRequest, {
+    const result = yield* alice.client.sendRpc(taskRequest, {
       appId,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -146,8 +146,8 @@ function ensureModeratorApp(
 
 function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    [DispatchAuthorize.name]: {
-      definition: DispatchAuthorize,
+    [dispatchAuthorize.name]: {
+      definition: dispatchAuthorize,
       handle: () =>
         Effect.gen(function* () {
           if (attachedFixture === null) return yield* Effect.never;
@@ -156,12 +156,12 @@ function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
           return { admission: verdict };
         }).pipe(Effect.withSpan("dispatchFlow.dispatchAuthorize")),
     },
-    [MessagesAuthorize.name]: {
-      definition: MessagesAuthorize,
+    [messagesAuthorize.name]: {
+      definition: messagesAuthorize,
       handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
-    [TaskCreate.name]: {
-      definition: TaskCreate,
+    [taskCreate.name]: {
+      definition: taskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
@@ -221,7 +221,7 @@ export function requestDispatch(
   sender: ConnectedAgent,
   text = "probe",
 ) {
-  return recipient.client.sendRpc(DispatchRequest, {
+  return recipient.client.sendRpc(dispatchRequest, {
     conversationId,
     messageId: makeProbeMessageId(),
     senderAgentId: protocolAgentId(sender.agentId),
@@ -235,7 +235,7 @@ export function sendMessageWithLease(
   leaseId: LeaseId,
   text: string,
 ) {
-  return sender.client.sendRpc(MessagesSend, {
+  return sender.client.sendRpc(messagesSend, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
@@ -264,7 +264,7 @@ export function waitForDispatchRelease(
   timeoutMs = DISPATCH_RELEASE_TIMEOUT_MS,
 ) {
   return Effect.fork(
-    awaitOneNotification(recipient.client, DispatchRelease, timeoutMs).pipe(
+    awaitOneNotification(recipient.client, dispatchRelease, timeoutMs).pipe(
       Effect.map((notification) => notification.params),
       Effect.withSpan("waitForDispatchRelease"),
     ),
@@ -278,7 +278,7 @@ export function waitForParticipantsRemoved(
   return Effect.fork(
     awaitOneNotification(
       recipient.client,
-      ConversationParticipantsRemovedNotificationDefinition,
+      conversationParticipantsRemovedNotificationDefinition,
       timeoutMs,
     ).pipe(
       Effect.map((notification) => notification.params),

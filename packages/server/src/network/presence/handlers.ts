@@ -1,7 +1,7 @@
 import type { AgentContext } from "#socket";
 import {
-  AgentPresenceSubscribe,
-  AppPresenceSubscribe,
+  agentPresenceSubscribe as agentPresenceSubscribeDefinition,
+  appPresenceSubscribe as appPresenceSubscribeDefinition,
 } from "@moltzap/protocol/network";
 import { NotInContactsError } from "@moltzap/protocol/identity";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
@@ -59,7 +59,7 @@ function visiblePresenceAgentIds(
 // ── @effect/rpc handler body ─────────────────────────────────────────
 
 export const agentPresenceSubscribe: ServerHandler<
-  typeof AgentPresenceSubscribe
+  typeof agentPresenceSubscribeDefinition
 > = (params) =>
   Effect.gen(function* () {
     const subscribedIds = yield* visiblePresenceAgentIds(
@@ -70,7 +70,7 @@ export const agentPresenceSubscribe: ServerHandler<
   }).pipe(Effect.withSpan("agentPresenceSubscribe"));
 
 export const appPresenceSubscribe: ServerHandler<
-  typeof AppPresenceSubscribe
+  typeof appPresenceSubscribeDefinition
 > = (params) =>
   Effect.gen(function* () {
     yield* appArm;

@@ -2,8 +2,8 @@ import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Option, Redacted, Schema } from "effect";
-import { AgentId, Register } from "@moltzap/protocol/identity";
-import { AgentKey } from "@moltzap/protocol/identity";
+import { agentId as agentIdSchema, register } from "@moltzap/protocol/identity";
+import { agentKey } from "@moltzap/protocol/identity";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
   agentId,
@@ -23,15 +23,15 @@ const TEST_SERVER_URL = "wss://test.example";
 const AGENT_ID = agentId("00000000-0000-4000-8000-000000000123");
 const API_KEY = redactedAgentKey(agentKeyString(11));
 
-type RegisterResult = ResultOf<typeof Register>;
+type RegisterResult = ResultOf<typeof register>;
 
 const MoltzapConfigText = Schema.parseJson(
   Schema.Struct({
     profiles: Schema.Record({
       key: Schema.String,
       value: Schema.Struct({
-        agentId: AgentId,
-        apiKey: AgentKey,
+        agentId: agentIdSchema,
+        apiKey: agentKey,
         agentName: Schema.String,
       }),
     }),

@@ -10,11 +10,11 @@ import {
   textOfPart,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesList,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";
 
 const PART_ONE_TEXT = "Part 1: Introduction";
@@ -31,7 +31,7 @@ it("message with multiple text parts preserves all parts in order", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -46,10 +46,10 @@ it("message with multiple text parts preserves all parts in order", () =>
     ];
 
     const bobEventFiber = yield* Effect.fork(
-      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
 
-    const sendResult = yield* alice.client.sendRpc(MessagesSend, {
+    const sendResult = yield* alice.client.sendRpc(messagesSend, {
       taskId,
       conversationId,
       parts,
@@ -67,7 +67,7 @@ it("message with multiple text parts preserves all parts in order", () =>
     expect(textOfPart(received.parts[2])).toBe(PART_THREE_TEXT);
 
     // Verify via message listing
-    const history = yield* bob.client.sendRpc(MessagesList, {
+    const history = yield* bob.client.sendRpc(messagesList, {
       taskId,
       conversationId,
     });

@@ -1,6 +1,6 @@
 import { Data, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import type { DispatchId, LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { Part } from "@moltzap/protocol/message";
 import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
@@ -22,7 +22,7 @@ import type {
   ModeratorBoundLeaseBinding,
 } from "./lease-registry.js";
 
-export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
+export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
 
 interface AppBoundConversationLookup {
   readonly _tag: "AppBound";
@@ -352,7 +352,7 @@ export class DispatchAdmissionService {
         const timeoutMs = policy.timeoutMs;
         return wrapHookEffectWithEnvelope({
           raw: callAppRpc(entry, {
-            definition: DispatchAuthorize,
+            definition: dispatchAuthorize,
             params: this.dispatchAuthorizeParamsForWire(ctx),
           }).pipe(Effect.map((envelope) => envelope.admission)),
           timeoutMs,
@@ -375,7 +375,7 @@ export class DispatchAdmissionService {
 
   private dispatchAuthorizeParamsForWire(
     ctx: DispatchAuthorizeContext,
-  ): ParamsOf<typeof DispatchAuthorize> {
+  ): ParamsOf<typeof dispatchAuthorize> {
     return {
       taskId: ctx.taskId,
       appId: ctx.appId,

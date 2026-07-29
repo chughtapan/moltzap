@@ -11,8 +11,8 @@ import {
   getEncryptionEnvelope,
   type ConnectedAgent,
 } from "../helpers.js";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { messagesList, messagesSend } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import { rotateKek } from "#db/crypto";
@@ -62,7 +62,7 @@ function createEncryptedFixture(
   return Effect.gen(function* () {
     const sender = yield* registerAndConnect(senderName);
     const peer = yield* registerAndConnect(peerName);
-    const result = yield* sender.client.sendRpc(TaskRequest, {
+    const result = yield* sender.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [peer.agentId],
       initialConversation: {
@@ -83,7 +83,7 @@ function sendEncryptedProbe(
   fixture: EncryptedFixture,
   text = ENCRYPTED_MESSAGE_TEXT,
 ) {
-  return fixture.sender.client.sendRpc(MessagesSend, {
+  return fixture.sender.client.sendRpc(messagesSend, {
     taskId: fixture.taskId,
     conversationId: fixture.conversationId,
     parts: [{ type: "text", text }],
@@ -129,7 +129,7 @@ function readEncryptionKeyRows() {
 
 function readMessageTexts(fixture: EncryptedFixture) {
   return fixture.sender.client
-    .sendRpc(MessagesList, {
+    .sendRpc(messagesList, {
       taskId: fixture.taskId,
       conversationId: fixture.conversationId,
     })

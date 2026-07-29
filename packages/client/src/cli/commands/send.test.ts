@@ -29,7 +29,7 @@ function runSendCommand(input: {
   readonly options: { readonly replyToId?: MessageId };
 }) {
   const fixture = makeFakeTransport({
-    [LocalDaemonCommands.Send]: () => ({
+    [LocalDaemonCommands.send]: () => ({
       messageId: makeMessageId(SENT_MSG),
     }),
   });
@@ -59,7 +59,7 @@ describe("send command handler", () => {
       yield* run.effect;
       expect(run.calls).toEqual([
         {
-          method: LocalDaemonCommands.Send,
+          method: LocalDaemonCommands.send,
           params: {
             target: { taskId, conversationId },
             message: HELLO_WORLD,
@@ -78,7 +78,7 @@ describe("send command handler", () => {
       yield* run.effect;
       expect(run.calls).toEqual([
         {
-          method: LocalDaemonCommands.Send,
+          method: LocalDaemonCommands.send,
           params: {
             target: { taskId, conversationId },
             message: REPLY_TEXT,

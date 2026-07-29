@@ -36,20 +36,24 @@ export interface ContactCreateInput {
 }
 ```
 
-### [`contactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L105)
+### [`contactsAccept`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L109)
 
 _Variable_
 
 ```ts
-export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params)
+export const contactsAccept: ServerHandler<typeof contactsAcceptDefinition> = (
+  params,
+)
 ```
 
-### [`contactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L100)
+### [`contactsAdd`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/handlers.ts#L102)
 
 _Variable_
 
 ```ts
-export const contactsAdd: ServerHandler<typeof ContactsAdd> = (params)
+export const contactsAdd: ServerHandler<typeof contactsAddDefinition> = (
+  params,
+)
 ```
 
 ### [`ContactService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/contact-policy.ts#L18)
@@ -67,7 +71,9 @@ export interface ContactService {
 _Variable_
 
 ```ts
-export const contactsList: ServerHandler<typeof ContactsList> = (params)
+export const contactsList: ServerHandler<typeof contactsListDefinition> = (
+  params,
+)
 ```
 
 ### [`ContactsListInput`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/contact.service.ts#L23)

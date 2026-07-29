@@ -10,8 +10,8 @@ import {
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
-import { AgentsList } from "@moltzap/protocol/identity";
-import { MessagesSend } from "@moltzap/protocol/message";
+import { agentsList } from "@moltzap/protocol/identity";
+import { messagesSend } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ParamsOf, ResultOf, RpcDefinition } from "@moltzap/protocol/rpc";
@@ -234,12 +234,12 @@ function createTestService(fixture: FakeChannelService): TestService {
 function sendRpcDefault<D extends RpcDefinition<string, any, any>>(
   definition: D,
 ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
-  if (definition.name === AgentsList.name) {
+  if (definition.name === agentsList.name) {
     return Effect.succeed({
       agents: [{ id: SENDER_AGENT_ID, name: "Atlas" }],
     } as ResultOf<D>);
   }
-  if (definition.name === MessagesSend.name) {
+  if (definition.name === messagesSend.name) {
     return Effect.succeed({ message: { id: "sent-1" } } as ResultOf<D>);
   }
   return Effect.succeed({} as ResultOf<D>);

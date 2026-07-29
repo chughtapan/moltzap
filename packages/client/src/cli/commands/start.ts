@@ -57,7 +57,7 @@ const logStartResult = (result: StartTaskCommandResult): Effect.Effect<void> =>
 const startCommandHandler = (
   args: StartCommandArgs,
 ): Effect.Effect<void, StartCommandError, Transport> =>
-  command(LocalDaemonCommands.StartTask, {
+  command(LocalDaemonCommands.startTask, {
     name: args.name,
     participants: args.participants,
     ...(args.message === undefined ? {} : { message: args.message }),

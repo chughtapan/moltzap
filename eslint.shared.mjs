@@ -1,10 +1,9 @@
 // Package ESLint configs load this shared module, so the root owns its plugins.
-import guard from "eslint-plugin-agent-code-guard";
-import tsParser from "@typescript-eslint/parser";
+import { plugin as guard } from "eslint-plugin-agent-code-guard";
 import comments from "@eslint-community/eslint-plugin-eslint-comments";
 
-const tsLanguageOptions = {
-  parser: tsParser,
+const makeTsLanguageOptions = (tsconfigRootDir, project) => ({
+  ...guard.configs.strict.languageOptions,
   globals: {
     AbortController: "readonly",
     AbortSignal: "readonly",
@@ -22,8 +21,11 @@ const tsLanguageOptions = {
     setInterval: "readonly",
     setTimeout: "readonly",
   },
-  parserOptions: { ecmaVersion: 2022, sourceType: "module" },
-};
+  parserOptions: {
+    project,
+    tsconfigRootDir,
+  },
+});
 
 const packageIgnores = {
   ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts"],
@@ -114,6 +116,19 @@ const TAG_CLASS_FACTORIES = [
 
 const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   ...guard.configs.strict.rules,
+  "@typescript-eslint/no-invalid-void-type": [
+    "error",
+    {
+      allowAsThisParameter: false,
+      allowInGenericTypeArguments: [
+        "Deferred.Deferred",
+        "Effect.Effect",
+        "Either.Either",
+        "Exit.Exit",
+        "Fiber.RuntimeFiber",
+      ],
+    },
+  ],
   "agent-code-guard/max-non-trivial-classes-per-file": [
     "error",
     { max: 1, factories: TAG_CLASS_FACTORIES },
@@ -128,7 +143,7 @@ const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   "local-guard/gen-finally": "error",
 });
 
-const makeTestSupportRules = (strictRules) => ({
+const makeTestSupportRules = (strictRules, languageOptions) => ({
   files: [
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
@@ -139,34 +154,34 @@ const makeTestSupportRules = (strictRules) => ({
     "src/testing/**/*.ts",
     "src/test-utils/**/*.ts",
   ],
-  languageOptions: tsLanguageOptions,
+  languageOptions,
   plugins: { ...guard.configs.strict.plugins, "local-guard": localGuardPlugin },
   settings: guard.configs.strict.settings,
   rules: strictRules,
 });
 
-const eslintDisableCommentRules = {
+const makeEslintDisableCommentRules = (languageOptions) => ({
   files: ["**/*.ts"],
-  languageOptions: tsLanguageOptions,
+  languageOptions,
   plugins: { "eslint-comments": comments },
   rules: {
     "eslint-comments/require-description": ["error", { ignore: [] }],
   },
-};
+});
 
-const integrationTestRules = {
+const makeIntegrationTestRules = (languageOptions) => ({
   files: ["src/**/*.integration.test.ts"],
-  languageOptions: tsLanguageOptions,
+  languageOptions,
   plugins: guard.configs.integrationTests.plugins,
   rules: guard.configs.integrationTests.rules,
-};
+});
 
-const documentationRules = {
+const makeDocumentationRules = (languageOptions) => ({
   files: ["src/**/index.ts"],
-  languageOptions: tsLanguageOptions,
+  languageOptions,
   plugins: guard.configs.documentation.plugins,
   rules: guard.configs.documentation.rules,
-};
+});
 
 // `@failure` is the project-wide convention for Effect error-channel
 // documentation (see workspace AGENTS.md). Every package gets it for
@@ -175,6 +190,10 @@ const DEFAULT_CUSTOM_JSDOC_TAGS = ["failure"];
 
 export function packageEslintConfig(options = {}) {
   const strictRules = makeStrictRules(options);
+  const languageOptions = makeTsLanguageOptions(options.tsconfigRootDir, [
+    "./tsconfig.json",
+    "./tsconfig.test.json",
+  ]);
   const customTags = [
     ...DEFAULT_CUSTOM_JSDOC_TAGS,
     ...(options.customJsDocTags ?? []),
@@ -187,7 +206,7 @@ export function packageEslintConfig(options = {}) {
     {
       files: ["src/**/*.ts", "scripts/**/*.ts", "*.ts"],
       ignores: ["**/*.test.ts", "**/*.spec.ts"],
-      languageOptions: tsLanguageOptions,
+      languageOptions,
       plugins: {
         ...guard.configs.strict.plugins,
         "local-guard": localGuardPlugin,
@@ -195,20 +214,36 @@ export function packageEslintConfig(options = {}) {
       settings: guard.configs.strict.settings,
       rules: { ...strictRules, ...tagRules },
     },
-    makeTestSupportRules(strictRules),
-    integrationTestRules,
-    documentationRules,
-    eslintDisableCommentRules,
+    makeTestSupportRules(strictRules, languageOptions),
+    makeIntegrationTestRules(languageOptions),
+    makeDocumentationRules(languageOptions),
+    makeEslintDisableCommentRules(languageOptions),
   ];
 }
 
-export function rootEslintConfig() {
-  const strictRules = makeStrictRules();
+export function rootEslintConfig(options = {}) {
+  const strictRules = {
+    ...makeStrictRules(),
+    "agent-code-guard/require-typescript-quality-gate": [
+      "error",
+      {
+        scriptNames: ["lint:root"],
+        tsconfigPath: "./tsconfig.eslint.json",
+      },
+    ],
+  };
+  const languageOptions = makeTsLanguageOptions(
+    options.tsconfigRootDir,
+    "./tsconfig.eslint.json",
+  );
   return [
+    {
+      ignores: ["packages/**", "scripts/**", "v2/**"],
+    },
     packageIgnores,
     {
       files: ["*.ts"],
-      languageOptions: tsLanguageOptions,
+      languageOptions,
       plugins: {
         ...guard.configs.strict.plugins,
         "local-guard": localGuardPlugin,
@@ -216,6 +251,6 @@ export function rootEslintConfig() {
       settings: guard.configs.strict.settings,
       rules: strictRules,
     },
-    eslintDisableCommentRules,
+    makeEslintDisableCommentRules(languageOptions),
   ];
 }

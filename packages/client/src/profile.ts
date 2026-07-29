@@ -7,8 +7,8 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Data, Effect, Either, Schema } from "effect";
-import { AgentId } from "@moltzap/protocol/identity";
-import { AgentKey } from "@moltzap/protocol/identity";
+import { agentId } from "@moltzap/protocol/identity";
+import { agentKey } from "@moltzap/protocol/identity";
 import { getMoltZapConfigDir, getMoltZapConfigPath } from "./local-paths.js";
 
 // ─── Branded names ─────────────────────────────────────────────────────────
@@ -36,8 +36,8 @@ export const ProfileName = Schema.String.pipe(
 export type ProfileName = Schema.Schema.Type<typeof ProfileName>;
 
 const ProfileRecordSchema = Schema.Struct({
-  agentId: AgentId,
-  apiKey: AgentKey,
+  agentId: agentId,
+  apiKey: agentKey,
   agentName: Schema.String,
 });
 

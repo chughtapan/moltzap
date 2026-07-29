@@ -6,7 +6,7 @@ import type {
 } from "@moltzap/protocol/message";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import {
-  MessageId as MessageIdSchema,
+  messageId as MessageIdSchema,
   type ConversationId,
   type MessageId,
 } from "@moltzap/protocol/conversation";
@@ -25,7 +25,7 @@ import {
 import { HookBlockedError } from "@moltzap/protocol/task";
 import {
   MessageNotFoundError,
-  MessageReceivedNotificationDefinition,
+  messageReceivedNotificationDefinition,
 } from "@moltzap/protocol/message";
 import { Cause, Effect, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
@@ -462,7 +462,7 @@ export class MessageService {
     return this.networkSendService
       .broadcastNotification(
         audience,
-        MessageReceivedNotificationDefinition,
+        messageReceivedNotificationDefinition,
         {
           taskId: input.carrier.conv.task_id,
           message: input.carrier.message,

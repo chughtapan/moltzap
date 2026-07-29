@@ -9,14 +9,18 @@ import {
   withDriver,
 } from "./_helpers.js";
 
+/**
+ * Registers slow first does not delay second ack.
+ * @param ctx Context for the operation.
+ */
 export function registerSlowFirstDoesNotDelaySecondAck(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "slow-first-moderator-call-does-not-delay-second-ack";
+  const name = "slow-first-moderator-call-does-not-delay-second-ack";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "first moderator round-trip blocks for N seconds; second agent/dispatch/request ack arrives within << N (server-side fork, not blocking on first)",
     withDriver(
       ctx,
@@ -29,15 +33,15 @@ export function registerSlowFirstDoesNotDelaySecondAck(
           // observed below MUST land before the moderator's hold
           // elapses; the test bounds the second ack's latency well
           // under the hold window.
-          const HOLD_MS = 5_000;
+          const holdMs = 5_000;
           yield* driver.moderator.handleAuthorize({
             respondWith: { _tag: "grant" },
-            holdResponseFor: HOLD_MS,
+            holdResponseFor: holdMs,
           });
           const conv = driver.fixtures.conversationId;
           const tStart = Date.now();
           // First agent/dispatch/request (acked immediately by server; the
-          // forked moderator round-trip is now blocked for HOLD_MS).
+          // forked moderator round-trip is now blocked for holdMs).
           yield* driver.recipient.requestDispatch({
             conversationId: conv,
             messageId: freshMessageId(),
@@ -51,17 +55,17 @@ export function registerSlowFirstDoesNotDelaySecondAck(
           });
           const elapsed = Date.now() - tStart;
           // Both acks under FAST_ACK_THRESHOLD_MS — must be much less
-          // than HOLD_MS.
+          // than the configured hold.
           if (elapsed > FAST_ACK_THRESHOLD_MS) {
             return yield* Effect.fail(
               dispatchAdmissionViolation(
-                NAME,
+                name,
                 `second ack arrived after ${elapsed}ms (>${FAST_ACK_THRESHOLD_MS}ms); server-side serialization detected`,
               ),
             );
           }
         }),
-      // Use a moderator timeout long enough to outlast HOLD_MS so the
+      // Use a moderator timeout long enough to outlast the configured hold so the
       // verdicts eventually settle (and the property's scope-close
       // tear-down is not blocked).
       { moderatorTimeoutMs: 15_000 },

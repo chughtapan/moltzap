@@ -19,7 +19,9 @@ export class ConversationInTask extends RpcMiddleware.Tag<ConversationInTask>()(
 ) {}
 ```
 
-### [`ConversationInTaskValue`](./conversation-in-task.ts#L10)
+Implements conversation in task.
+
+### [`ConversationInTaskValue`](./conversation-in-task.ts#L9)
 
 _Interface_
 
@@ -32,7 +34,7 @@ export interface ConversationInTaskValue {
 
 Requirement: proves `conversation.task_id === taskId`.
 
-### [`ConversationSendAccess`](./conversation-send-access.ts#L20)
+### [`ConversationSendAccess`](./conversation-send-access.ts#L21)
 
 _Class_
 
@@ -42,6 +44,8 @@ export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAc
   { failure: Schema.Union(ForbiddenError) },
 ) {}
 ```
+
+Implements conversation send access.
 
 ### [`ConversationSendAccessValue`](./conversation-send-access.ts#L12)
 

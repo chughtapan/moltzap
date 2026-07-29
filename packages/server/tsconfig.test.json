@@ -6,10 +6,13 @@
     "declarationMap": false,
     "noEmit": true,
     "incremental": true,
+    "rootDir": ".",
     "tsBuildInfoFile": "./tsconfig.test.tsbuildinfo"
   },
   "include": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "*.ts"
   ],
   "exclude": [
     "dist"

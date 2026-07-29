@@ -11,17 +11,21 @@ import {
 } from "./_helpers.js";
 import type { DispatchTestDriver } from "./_driver.js";
 
+/**
+ * Registers dispatch lease consumed suppressed on second send.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchLeaseConsumedSuppressedOnSecondSend(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-lease-consumed-suppressed-on-second-send";
+  const name = "dispatch-lease-consumed-suppressed-on-second-send";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "second agent/message/send(dispatchLeaseId=X) with X in CONSUMED state returns typed LeaseInvalidError and does NOT emit a duplicate app/dispatch/lease-consumed",
     withDriver(ctx, (driver) =>
-      runConsumedSuppressedOnSecond(NAME, driver),
+      runConsumedSuppressedOnSecond(name, driver),
     ).pipe(
       Effect.withSpan("registerDispatchLeaseConsumedSuppressedOnSecondSend"),
     ),

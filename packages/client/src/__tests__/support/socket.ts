@@ -29,7 +29,7 @@ export const socketHistory = (
           sessionKey,
           limit,
         };
-  return requestDaemonCommand(LocalDaemonCommands.History, params).pipe(
+  return requestDaemonCommand(LocalDaemonCommands.history, params).pipe(
     Effect.withSpan("socketHistory"),
   );
 };

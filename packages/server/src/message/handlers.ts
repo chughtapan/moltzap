@@ -1,5 +1,8 @@
 import { DispatchNotFoundError } from "@moltzap/protocol/message/dispatch";
-import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import {
+  messagesList as messagesListDefinition,
+  messagesSend as messagesSendDefinition,
+} from "@moltzap/protocol/message";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
@@ -21,7 +24,7 @@ import { catchSqlErrorAsDefect } from "#db";
 import type { LeaseRegistry } from "#dispatch";
 import type { MessageService } from "./message.service.js";
 
-type MessagesSendParams = ParamsOf<typeof MessagesSend>;
+type MessagesSendParams = ParamsOf<typeof messagesSendDefinition>;
 
 function claimDispatchLease(leaseRegistry: LeaseRegistry, leaseId: LeaseId) {
   return leaseRegistry.claim(leaseId).pipe(
@@ -134,7 +137,7 @@ function handleMessageSend(params: MessagesSendParams, ctx: AgentContext) {
 }
 
 function handleMessageList(
-  params: ParamsOf<typeof MessagesList>,
+  params: ParamsOf<typeof messagesListDefinition>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -151,7 +154,9 @@ function handleMessageList(
 // narrow the arm via `agentArm`, run the same domain work as the live slot path,
 // and leave `ConnectionTag` + domain services to the request runtime.
 
-export const messagesSend: ServerHandler<typeof MessagesSend> = (params) =>
+export const messagesSend: ServerHandler<typeof messagesSendDefinition> = (
+  params,
+) =>
   Effect.gen(function* () {
     // The send-permission requirements gated this frame in the engine stack
     // before this handler runs. `agentArm` reads the narrowed principal off
@@ -160,7 +165,9 @@ export const messagesSend: ServerHandler<typeof MessagesSend> = (params) =>
     return yield* handleMessageSend(params, ctx);
   }).pipe(Effect.withSpan("messagesSend"));
 
-export const messagesList: ServerHandler<typeof MessagesList> = (params) =>
+export const messagesList: ServerHandler<typeof messagesListDefinition> = (
+  params,
+) =>
   Effect.gen(function* () {
     // Gated by the `TaskReadAccess` + `ConversationInTask` requirements in the
     // engine stack; the body trusts the gated `params`.

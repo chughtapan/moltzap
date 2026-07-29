@@ -9,14 +9,18 @@ import {
   withDriver,
 } from "./_helpers.js";
 
+/**
+ * Registers dispatch request ack mints lease.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchRequestAckMintsLease(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-request-ack-mints-lease";
+  const name = "dispatch-request-ack-mints-lease";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "agent/dispatch/request ack returns {leaseId, dispatchId}, both well-formed UUIDv4 (>=122 bits entropy) and distinct from each other",
     withDriver(ctx, (driver) =>
       Effect.gen(function* () {
@@ -33,7 +37,7 @@ export function registerDispatchRequestAckMintsLease(
         if (typeof ack.leaseId !== "string" || !isUuidV4(ack.leaseId)) {
           return yield* Effect.fail(
             dispatchAdmissionViolation(
-              NAME,
+              name,
               `leaseId not UUIDv4: ${String(ack.leaseId)}`,
             ),
           );
@@ -41,7 +45,7 @@ export function registerDispatchRequestAckMintsLease(
         if (typeof ack.dispatchId !== "string" || !isUuidV4(ack.dispatchId)) {
           return yield* Effect.fail(
             dispatchAdmissionViolation(
-              NAME,
+              name,
               `dispatchId not UUIDv4: ${String(ack.dispatchId)}`,
             ),
           );
@@ -49,7 +53,7 @@ export function registerDispatchRequestAckMintsLease(
         if ((ack.leaseId as string) === (ack.dispatchId as string)) {
           return yield* Effect.fail(
             dispatchAdmissionViolation(
-              NAME,
+              name,
               "leaseId and dispatchId must differ",
             ),
           );

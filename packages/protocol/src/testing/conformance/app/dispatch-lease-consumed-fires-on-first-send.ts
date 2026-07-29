@@ -1,7 +1,9 @@
 import { Effect } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
-import { registerProperty } from "../_shared/registry.js";
-import type { PropertyInvariantViolation } from "../_shared/registry.js";
+import {
+  registerProperty,
+  type PropertyInvariantViolation,
+} from "../_shared/registry.js";
 import {
   DISPATCH_ADMISSION_CATEGORY,
   type ConsumedFrameView,
@@ -11,16 +13,20 @@ import {
   withDriver,
 } from "./_helpers.js";
 
+/**
+ * Registers dispatch lease consumed fires on first send.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchLeaseConsumedFiresOnFirstSend(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-lease-consumed-fires-on-first-send";
+  const name = "dispatch-lease-consumed-fires-on-first-send";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "first agent/message/send(dispatchLeaseId=X) with X in GRANTED state emits app/dispatch/lease-consumed with the right messageId to the moderator's connection",
-    dispatchLeaseConsumedFiresOnFirstSend(ctx, NAME),
+    dispatchLeaseConsumedFiresOnFirstSend(ctx, name),
   );
 }
 

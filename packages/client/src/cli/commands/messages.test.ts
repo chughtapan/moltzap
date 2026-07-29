@@ -79,11 +79,11 @@ describe("messages list", () => {
       // `senderName` is the CLI display fallback the handler reads; it is
       // not part of `MessageSchema` itself (see WireMessage in messages.ts).
       const { calls, transport } = makeFakeTransport({
-        [LocalDaemonCommands.MessagesList]: messagesListSuccess,
+        [LocalDaemonCommands.messagesList]: messagesListSuccess,
       });
       yield* runMessagesList(transport, DEFAULT_LIMIT);
       expect(calls[0]).toEqual({
-        method: LocalDaemonCommands.MessagesList,
+        method: LocalDaemonCommands.messagesList,
         params: {
           taskId: TASK_ID,
           conversationId: CONVERSATION_ID,
@@ -95,7 +95,7 @@ describe("messages list", () => {
   it("omits limit when absent", () =>
     Effect.gen(function* () {
       const { calls, transport } = makeFakeTransport({
-        [LocalDaemonCommands.MessagesList]: emptyMessagesList,
+        [LocalDaemonCommands.messagesList]: emptyMessagesList,
       });
       yield* runMessagesList(transport);
       expect(calls[0]?.params).toEqual({
@@ -107,7 +107,7 @@ describe("messages list", () => {
   it("surfaces TransportRpcError", () =>
     Effect.gen(function* () {
       const { transport } = makeFakeTransport({
-        [LocalDaemonCommands.MessagesList]: transportFailure,
+        [LocalDaemonCommands.messagesList]: transportFailure,
       });
       const result = yield* Effect.exit(runMessagesList(transport));
       expect(Exit.isFailure(result)).toBe(true);

@@ -16,9 +16,9 @@ import { userId } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
 
 import {
-  AgentsList,
-  ContactsAccept,
-  ContactsAdd,
+  agentsList,
+  contactsAccept,
+  contactsAdd,
 } from "@moltzap/protocol/identity";
 
 const it = effectIt.live;
@@ -156,7 +156,7 @@ function connectCarol(name: string, description?: string) {
 
 function listAgents(agent: OwnedConnectedAgent) {
   return agent.client.sendRpc(
-    AgentsList,
+    agentsList,
     {},
   ) as Effect.Effect<AgentsListResult>;
 }
@@ -167,10 +167,10 @@ function acceptContact(
   contactUserId: UserId,
 ) {
   return Effect.gen(function* () {
-    const added = yield* requester.client.sendRpc(ContactsAdd, {
+    const added = yield* requester.client.sendRpc(contactsAdd, {
       contactUserId,
     });
-    yield* accepter.client.sendRpc(ContactsAccept, {
+    yield* accepter.client.sendRpc(contactsAccept, {
       contactId: added.contact.id,
     });
   });
@@ -252,7 +252,7 @@ function pendingContactDoesNotExposeAgents() {
     const alice = yield* connectAlice("alice-pending");
     const bob = yield* connectBob("bob-pending");
 
-    yield* alice.client.sendRpc(ContactsAdd, {
+    yield* alice.client.sendRpc(contactsAdd, {
       contactUserId: BOB_USER_ID,
     });
 
@@ -279,7 +279,7 @@ function returnsContactVisibleCardFields() {
   });
 }
 
-describe(`${AgentsList.name} — owner visibility`, () => {
+describe(`${agentsList.name} — owner visibility`, () => {
   it(
     "returns own agents (siblings under same ownerUserId), without contacts setup",
     returnsOwnAgents,
@@ -296,7 +296,7 @@ describe(`${AgentsList.name} — owner visibility`, () => {
   );
 });
 
-describe(`${AgentsList.name} — contact metadata`, () => {
+describe(`${agentsList.name} — contact metadata`, () => {
   it(
     "pending contact request does NOT yet expose the requester's agents to the recipient (and vice versa)",
     pendingContactDoesNotExposeAgents,

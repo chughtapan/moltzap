@@ -368,11 +368,11 @@ export function callAppRpc(
   entry: AppRegistration,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof DispatchAuthorize }
+    { readonly definition: typeof dispatchAuthorize }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof DispatchAuthorize>,
-  ReverseCallbackError<typeof DispatchAuthorize> | ReverseCallError
+  ReverseCallbackSuccess<typeof dispatchAuthorize>,
+  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError
 >
 ```
 

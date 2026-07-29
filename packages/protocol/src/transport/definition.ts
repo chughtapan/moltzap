@@ -7,6 +7,8 @@ import type { NotConnectedError, RpcTimeoutError } from "./rpc-errors.js";
  * Internal factory for descriptor construction (`defineRpc`,
  * `defineNotification`). Callers pass plain strings to descriptors, and the
  * literal type is preserved in every method/key position.
+ * @param method Wire method name.
+ * @returns The json rpc method result.
  */
 export const jsonRpcMethod = <const Name extends string>(method: Name): Name =>
   method;
@@ -40,12 +42,12 @@ type ErrorSchemaOf<Member extends Schema.Schema.All> = Schema.Schema<
   Schema.Schema.Context<Member>
 >;
 
-type HandlerErrorSchemaOf<Errors extends ReadonlyArray<RpcErrorClass>> =
+type HandlerErrorSchemaOf<Errors extends readonly RpcErrorClass[]> =
   ErrorSchemaOf<Errors[number]>;
 
 type EffectiveErrorSchemaOf<
-  Requires extends ReadonlyArray<RequirementShape>,
-  Errors extends ReadonlyArray<RpcErrorClass>,
+  Requires extends readonly RequirementShape[],
+  Errors extends readonly RpcErrorClass[],
 > = ErrorSchemaOf<Requires[number]["failure"] | Errors[number]>;
 
 /**
@@ -70,9 +72,8 @@ export interface RpcDefinition<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
-  Requires extends
-    ReadonlyArray<RequirementShape> = ReadonlyArray<RequirementShape>,
-  Errs extends ReadonlyArray<RpcErrorClass> = ReadonlyArray<RpcErrorClass>,
+  Requires extends readonly RequirementShape[] = readonly RequirementShape[],
+  Errs extends readonly RpcErrorClass[] = readonly RpcErrorClass[],
 > {
   readonly name: Name;
   readonly paramsSchema: P;
@@ -137,7 +138,27 @@ export interface RpcDefinition<
   readonly validateResult: (data: unknown) => data is Schema.Schema.Type<R>;
 }
 
-export type RpcDefinitionAny = RpcDefinition<any, any, any, any, any>;
+/**
+ * Variance-safe structural surface shared by every RPC definition.
+ *
+ * `Rpc.Rpc` is invariant in its tag and schemas, so instantiating
+ * `RpcDefinition` with broad generic arguments is not a valid existential
+ * definition type. This surface retains the fields consumers need while
+ * representing the RPC members through Effect's own existential `Rpc.Any`.
+ */
+export interface RpcDefinitionAny {
+  readonly name: string;
+  readonly paramsSchema: Schema.Schema.AnyNoContext;
+  readonly resultSchema: Schema.Schema.AnyNoContext;
+  readonly clientRpc: Rpc.Any;
+  readonly serverRpc: Rpc.Any;
+  readonly requires: readonly RequirementShape[];
+  readonly errors: readonly RpcErrorClass[];
+  readonly errorSchema: Schema.Schema.All;
+  readonly handlerErrorSchema: Schema.Schema.All;
+  readonly validateParams: (data: unknown) => boolean;
+  readonly validateResult: (data: unknown) => boolean;
+}
 
 /** Type-only accessor for a definition's params payload. */
 export type ParamsOf<D extends RpcDefinitionAny> = Schema.Schema.Type<
@@ -162,20 +183,21 @@ export type ResponseErrorsOf = NotConnectedError | RpcTimeoutError;
  * The union of every requirement middleware's failure type for a `requires`
  * tuple. Empty `requires` yields `never`.
  */
-export type RequirementErrorsOf<
-  Requires extends ReadonlyArray<RequirementShape>,
-> =
-  Requires[number] extends RpcMiddleware.TagClass<any, string, infer Options>
+export type RequirementErrorsOf<Requires extends readonly RequirementShape[]> =
+  Requires[number] extends RpcMiddleware.TagClass<
+    unknown,
+    string,
+    infer Options
+  >
     ? RpcMiddleware.TagClass.Failure<Options>
     : never;
 
 /**
  * The handler-domain error instance union a descriptor declares.
  */
-export type DomainErrorsOf<D extends RpcDefinitionAny> =
-  D extends RpcDefinition<any, any, any, any, infer Errs>
-    ? InstanceType<Errs[number]>
-    : never;
+export type DomainErrorsOf<D extends RpcDefinitionAny> = InstanceType<
+  D["errors"][number]
+>;
 
 /**
  * The full typed error channel of a per-method call: the method's handler-domain
@@ -185,19 +207,22 @@ export type DomainErrorsOf<D extends RpcDefinitionAny> =
  * `errorSchema` decodes, plus transport.
  */
 export type CallErrorsOf<D extends RpcDefinitionAny> =
-  D extends RpcDefinition<any, any, any, infer Requires, any>
-    ? DomainErrorsOf<D> | RequirementErrorsOf<Requires> | ResponseErrorsOf
-    : never;
+  | DomainErrorsOf<D>
+  | RequirementErrorsOf<D["requires"]>
+  | ResponseErrorsOf;
 
 /**
  * The effective wire-error schema list for a method: every requirement
  * middleware's failure schema (in `requires` order) then the handler-domain
  * errors. This is the single source the wire `errorSchema`, the server gate,
  * and the typed client all read.
+ * @param requires Ordered requirement middleware declarations.
+ * @param handlerErrors Handler error classes to aggregate.
+ * @returns The effective error classes result.
  */
 export function effectiveErrorClasses<
-  const Requires extends ReadonlyArray<RequirementShape>,
-  const Errors extends ReadonlyArray<RpcErrorClass>,
+  const Requires extends readonly RequirementShape[],
+  const Errors extends readonly RpcErrorClass[],
 >(
   requires: Requires,
   handlerErrors: Errors,
@@ -239,13 +264,20 @@ export function effectiveErrorClasses<
  *
  * Sibling: {@link defineNotification}; same pipeline minus the
  * result schema and the error union.
+ * @param def Definition to process.
+ * @param def.name Wire method name.
+ * @param def.params Schema for the request payload.
+ * @param def.result Schema for the success payload.
+ * @param def.requires Ordered requirement middleware declarations.
+ * @param def.errors Handler error classes declared by the definition.
+ * @returns The define rpc result.
  */
 export function defineRpc<
   const Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
-  const Requires extends ReadonlyArray<RequirementShape>,
-  const Errs extends ReadonlyArray<RpcErrorClass>,
+  const Requires extends readonly RequirementShape[],
+  const Errs extends readonly RpcErrorClass[],
 >(def: {
   name: Name;
   params: P;
@@ -305,7 +337,7 @@ function applyRequirementMiddlewares<
   Payload extends Schema.Schema.Any,
   Success extends Schema.Schema.Any,
   Error extends Schema.Schema.All,
-  const Requires extends ReadonlyArray<RequirementShape>,
+  const Requires extends readonly RequirementShape[],
 >(
   member: Rpc.Rpc<Name, Payload, Success, Error>,
   requirements: Requires,
@@ -349,20 +381,19 @@ export interface NotificationDefinition<
 > {
   readonly name: Name;
   readonly paramsSchema: P;
-  readonly notificationRpc: Rpc.Rpc<
-    Name,
-    RpcMemberPayload<P>,
-    typeof Schema.Void,
-    typeof Schema.Never
-  >;
+  readonly notificationRpc: Rpc.Rpc<Name, RpcMemberPayload<P>>;
   readonly validateParams: (data: unknown) => data is Params;
 }
 
-export type NotificationDefinitionAny = NotificationDefinition<
-  any,
-  any,
-  unknown
->;
+/**
+ * Variance-safe structural surface shared by every notification definition.
+ */
+export interface NotificationDefinitionAny {
+  readonly name: string;
+  readonly paramsSchema: Schema.Schema.AnyNoContext;
+  readonly notificationRpc: Rpc.Any;
+  readonly validateParams: (data: unknown) => boolean;
+}
 
 /** Type-only accessor for a notification's outbound call payload. */
 export type NotificationPayloadOf<D extends NotificationDefinitionAny> =
@@ -385,6 +416,12 @@ export interface NotificationDelivery<
   readonly params: NotificationParamsOf<D>;
 }
 
+/**
+ * Checks whether notification delivery for.
+ * @param delivery Value supplied to the operation.
+ * @param definition Protocol definition to process.
+ * @returns Whether notification delivery for.
+ */
 export function isNotificationDeliveryFor<D extends NotificationDefinitionAny>(
   delivery: NotificationDelivery,
   definition: D,
@@ -399,6 +436,10 @@ export function isNotificationDeliveryFor<D extends NotificationDefinitionAny>(
  * Sibling of {@link defineRpc} for server-to-client notifications.
  * Same pipeline minus the result schema; notifications are
  * fire-and-forget, no `id` field, no `result`.
+ * @param def Definition to process.
+ * @param def.name Wire method name.
+ * @param def.params Schema for the request payload.
+ * @returns The define notification result.
  */
 export function defineNotification<
   Name extends string,
@@ -428,12 +469,18 @@ class RpcResultDecodeError extends Data.TaggedError("RpcResultDecodeError")<{
   readonly data: unknown;
 }> {}
 
+/**
+ * Decodes rpc result.
+ * @param definition Protocol definition to process.
+ * @param data Unknown value to decode.
+ * @returns The decoded rpc result.
+ */
 export function decodeRpcResult<
   Name extends string,
   P extends Schema.Schema.AnyNoContext,
   R extends Schema.Schema.AnyNoContext,
-  Requires extends ReadonlyArray<RequirementShape>,
-  Errs extends ReadonlyArray<RpcErrorClass>,
+  Requires extends readonly RequirementShape[],
+  Errs extends readonly RpcErrorClass[],
 >(
   definition: RpcDefinition<Name, P, R, Requires, Errs>,
   data: unknown,

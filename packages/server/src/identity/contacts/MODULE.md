@@ -31,20 +31,24 @@ export interface ContactCreateInput {
 }
 ```
 
-### [`contactsAccept`](./handlers.ts#L105)
+### [`contactsAccept`](./handlers.ts#L109)
 
 _Variable_
 
 ```ts
-export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params)
+export const contactsAccept: ServerHandler<typeof contactsAcceptDefinition> = (
+  params,
+)
 ```
 
-### [`contactsAdd`](./handlers.ts#L100)
+### [`contactsAdd`](./handlers.ts#L102)
 
 _Variable_
 
 ```ts
-export const contactsAdd: ServerHandler<typeof ContactsAdd> = (params)
+export const contactsAdd: ServerHandler<typeof contactsAddDefinition> = (
+  params,
+)
 ```
 
 ### [`ContactService`](./contact-policy.ts#L18)
@@ -62,7 +66,9 @@ export interface ContactService {
 _Variable_
 
 ```ts
-export const contactsList: ServerHandler<typeof ContactsList> = (params)
+export const contactsList: ServerHandler<typeof contactsListDefinition> = (
+  params,
+)
 ```
 
 ### [`ContactsListInput`](./contact.service.ts#L23)

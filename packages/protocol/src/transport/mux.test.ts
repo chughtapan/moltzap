@@ -30,7 +30,9 @@ const noopInject = () => Effect.void;
 function soleChunk(written: readonly string[]): string {
   expect(written).toHaveLength(1);
   const [chunk] = written;
-  if (chunk === undefined) throw new Error("no chunk written");
+  if (chunk === undefined) {
+    throw new Error("no chunk written");
+  }
   return chunk;
 }
 
@@ -143,8 +145,12 @@ const responseRoutesToClient = (value: unknown) =>
 // reject the `-0` outliers so the property pins exactly that, without asserting
 // the wire preserves a distinction JSON does not carry.
 const hasNegativeZero = (value: unknown): boolean => {
-  if (Object.is(value, -0)) return true;
-  if (Array.isArray(value)) return value.some(hasNegativeZero);
+  if (Object.is(value, -0)) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.some(hasNegativeZero);
+  }
   if (value !== null && typeof value === "object") {
     return Object.values(value).some(hasNegativeZero);
   }
@@ -155,13 +161,15 @@ describe("mux send", () => {
   it("server send writes a bare frame that roundtrips", () => {
     const property = fc.property(
       fc.jsonValue().filter((v) => !hasNegativeZero(v)),
-      (value) => Effect.runSync(serverSendRoundtrips(value)),
+      (value) => {
+        Effect.runSync(serverSendRoundtrips(value));
+      },
     );
     fc.assert(property, { numRuns: 50 });
     expect(true).toBe(true);
   });
 
-  it("client send writes a bare frame", () =>
+  it("client send writes a bare frame", () => {
     Effect.runSync(
       Effect.gen(function* () {
         const wire = recordingWire();
@@ -174,20 +182,23 @@ describe("mux send", () => {
           exit: { _tag: "Success", value: { hello: "world" } },
         });
       }),
-    ));
+    );
+  });
 });
 
 describe("mux routeInbound", () => {
   it("routes any response-family frame verbatim to the client sink", () => {
     const property = fc.property(
       fc.jsonValue().filter((v) => !hasNegativeZero(v)),
-      (value) => Effect.runSync(responseRoutesToClient(value)),
+      (value) => {
+        Effect.runSync(responseRoutesToClient(value));
+      },
     );
     fc.assert(property, { numRuns: 50 });
     expect(true).toBe(true);
   });
 
-  it("routes a request-family frame to the server sink", () =>
+  it("routes a request-family frame to the server sink", () => {
     Effect.runSync(
       Effect.gen(function* () {
         const server = recordingSink();
@@ -202,18 +213,20 @@ describe("mux routeInbound", () => {
         expect(server.received).toHaveLength(1);
         expect(client.received).toEqual([]);
       }),
-    ));
+    );
+  });
 
-  it("drops a non-JSON chunk without failing", () =>
+  it("drops a non-JSON chunk without failing", () => {
     Effect.runSync(
       Effect.gen(function* () {
         const client = recordingSink();
         yield* routeInbound("not json at all", { client: client.sink });
         expect(client.received).toEqual([]);
       }),
-    ));
+    );
+  });
 
-  it("drops a frame with no sink for its family", () =>
+  it("drops a frame with no sink for its family", () => {
     Effect.runSync(
       Effect.gen(function* () {
         const client = recordingSink();
@@ -225,5 +238,6 @@ describe("mux routeInbound", () => {
         yield* routeInbound(encoded, { client: client.sink });
         expect(client.received).toEqual([]);
       }),
-    ));
+    );
+  });
 });

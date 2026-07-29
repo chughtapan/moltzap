@@ -1,7 +1,7 @@
 import { Effect, Match, Option } from "effect";
 import {
-  AgentConnect,
-  AppConnect,
+  agentConnect,
+  appConnect,
   PROTOCOL_VERSION,
   checkProtocolRange,
 } from "@moltzap/protocol/network";
@@ -36,8 +36,8 @@ import { catchSqlErrorAsDefect } from "#db";
 import type { Connection, ConnectionManager, Originator } from "#socket";
 import type { AppEndpointRegistry } from "#identity/apps";
 
-type AgentConnectParams = ParamsOf<typeof AgentConnect>;
-type AppConnectParams = ParamsOf<typeof AppConnect>;
+type AgentConnectParams = ParamsOf<typeof agentConnect>;
+type AppConnectParams = ParamsOf<typeof appConnect>;
 type ConnectParams = AgentConnectParams | AppConnectParams;
 
 /** The empty HelloOk — success is the only payload. */
@@ -445,10 +445,10 @@ function handleAppConnect(params: AppConnectParams) {
 // `agent/network/connect` and `app/network/connect` are the unauthenticated methods. The
 // method tag selects the principal kind; the body only unwraps the redacted
 // key at the auth-service boundary.
-export const connectAgent: ServerHandler<typeof AgentConnect> = (params) =>
+export const connectAgent: ServerHandler<typeof agentConnect> = (params) =>
   handleAgentConnect(params).pipe(Effect.withSpan("connect.agent"));
 
-export const connectApp: ServerHandler<typeof AppConnect> = (params) =>
+export const connectApp: ServerHandler<typeof appConnect> = (params) =>
   handleAppConnect(params).pipe(Effect.withSpan("connect.app"));
 
 // safer-arch-ignore no-fat-orchestrator: Connect handlers coordinate authentication, connection-arm transitions, endpoint registration, and presence as one atomic handshake boundary.

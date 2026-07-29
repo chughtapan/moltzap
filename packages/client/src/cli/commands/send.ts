@@ -90,7 +90,7 @@ export const sendCommand: Command.Command<
   { target: targetArg, message: messageArg, options: sendOptions },
   ({ target, message, options }) => {
     return runHandler(
-      command(LocalDaemonCommands.Send, {
+      command(LocalDaemonCommands.send, {
         target,
         message,
         ...options,

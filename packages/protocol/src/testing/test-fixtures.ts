@@ -15,12 +15,24 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import { Data, Effect, Either, FastCheck, Schema } from "effect";
-import { AgentId, AgentKey, AppId, AppKey, ContactId, UserId } from "#identity";
+import {
+  agentId as agentIdSchema,
+  type AgentKey,
+  agentKey,
+  appId as appIdSchema,
+  type AppKey,
+  appKey,
+  contactId as contactIdSchema,
+  userId as userIdSchema,
+} from "#identity";
 import { connectionId as decodeConnectionId } from "#socket";
 import type { AppManifest } from "#identity/apps";
-import { ConversationId, MessageId } from "#conversation";
-import { LeaseId } from "#message/dispatch";
-import { TaskId } from "#task";
+import {
+  conversationId as conversationIdSchema,
+  messageId as messageIdSchema,
+} from "#conversation";
+import { leaseId as leaseIdSchema } from "#message/dispatch";
+import { taskId as taskIdSchema } from "#task";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
@@ -66,44 +78,109 @@ function uniqueSuffixFragment(): string {
 // eval harnesses use these to construct branded values from UUID string
 // literals.
 
-export const userId = (value: string): Schema.Schema.Type<typeof UserId> =>
-  Schema.decodeUnknownSync(UserId)(value);
-export const agentId = (value: string): Schema.Schema.Type<typeof AgentId> =>
-  Schema.decodeUnknownSync(AgentId)(value);
+/**
+ * Validates and decodes user id values.
+ * @param value Value to process.
+ * @returns The user id result.
+ */
+export const userId = (
+  value: string,
+): Schema.Schema.Type<typeof userIdSchema> =>
+  Schema.decodeUnknownSync(userIdSchema)(value);
+/**
+ * Validates and decodes agent id values.
+ * @param value Value to process.
+ * @returns The agent id result.
+ */
+export const agentId = (
+  value: string,
+): Schema.Schema.Type<typeof agentIdSchema> =>
+  Schema.decodeUnknownSync(agentIdSchema)(value);
+/**
+ * Validates and decodes contact id values.
+ * @param value Value to process.
+ * @returns The contact id result.
+ */
 export const contactId = (
   value: string,
-): Schema.Schema.Type<typeof ContactId> =>
-  Schema.decodeUnknownSync(ContactId)(value);
+): Schema.Schema.Type<typeof contactIdSchema> =>
+  Schema.decodeUnknownSync(contactIdSchema)(value);
+/**
+ * Validates and decodes conversation id values.
+ * @param value Value to process.
+ * @returns The conversation id result.
+ */
 export const conversationId = (
   value: string,
-): Schema.Schema.Type<typeof ConversationId> =>
-  Schema.decodeUnknownSync(ConversationId)(value);
+): Schema.Schema.Type<typeof conversationIdSchema> =>
+  Schema.decodeUnknownSync(conversationIdSchema)(value);
+/**
+ * Validates and decodes message id values.
+ * @param value Value to process.
+ * @returns The message id result.
+ */
 export const messageId = (
   value: string,
-): Schema.Schema.Type<typeof MessageId> =>
-  Schema.decodeUnknownSync(MessageId)(value);
-export const taskId = (value: string): Schema.Schema.Type<typeof TaskId> =>
-  Schema.decodeUnknownSync(TaskId)(value);
-export const leaseId = (value: string): Schema.Schema.Type<typeof LeaseId> =>
-  Schema.decodeUnknownSync(LeaseId)(value);
-export const appId = (value: string): Schema.Schema.Type<typeof AppId> =>
-  Schema.decodeUnknownSync(AppId)(value);
+): Schema.Schema.Type<typeof messageIdSchema> =>
+  Schema.decodeUnknownSync(messageIdSchema)(value);
+/**
+ * Validates and decodes task id values.
+ * @param value Value to process.
+ * @returns The task id result.
+ */
+export const taskId = (
+  value: string,
+): Schema.Schema.Type<typeof taskIdSchema> =>
+  Schema.decodeUnknownSync(taskIdSchema)(value);
+/**
+ * Validates and decodes lease id values.
+ * @param value Value to process.
+ * @returns The lease id result.
+ */
+export const leaseId = (
+  value: string,
+): Schema.Schema.Type<typeof leaseIdSchema> =>
+  Schema.decodeUnknownSync(leaseIdSchema)(value);
+/**
+ * Validates and decodes app id values.
+ * @param value Value to process.
+ * @returns The app id result.
+ */
+export const appId = (value: string): Schema.Schema.Type<typeof appIdSchema> =>
+  Schema.decodeUnknownSync(appIdSchema)(value);
+/**
+ * Validates and decodes redacted agent key values.
+ * @param value Value to process.
+ * @returns The redacted agent key result.
+ */
 export const redactedAgentKey = (value: string): AgentKey =>
-  Schema.decodeUnknownSync(AgentKey)(value);
+  Schema.decodeUnknownSync(agentKey)(value);
+/**
+ * Validates and decodes redacted app key values.
+ * @param value Value to process.
+ * @returns The redacted app key result.
+ */
 export const redactedAppKey = (value: string): AppKey =>
-  Schema.decodeUnknownSync(AppKey)(value);
+  Schema.decodeUnknownSync(appKey)(value);
 const hexStringArbitrary = (length: number): FastCheck.Arbitrary<string> =>
   FastCheck.array(FastCheck.constantFrom(...HEX_DIGITS), {
     minLength: length,
     maxLength: length,
   }).map((chars) => chars.join(""));
+/** Provides the agent key string arbitrary runtime value. */
 export const agentKeyStringArbitrary: FastCheck.Arbitrary<string> =
   FastCheck.tuple(
     hexStringArbitrary(KEY_ID_HEX_CHARS),
     hexStringArbitrary(SECRET_HEX_CHARS),
   ).map(([keyId, secret]) => `${AGENT_KEY_PREFIX}${keyId}_${secret}`);
+/** Provides the agent key arbitrary runtime value. */
 export const agentKeyArbitrary: FastCheck.Arbitrary<AgentKey> =
   agentKeyStringArbitrary.map(redactedAgentKey);
+/**
+ * Provides the agent key string runtime value.
+ * @param seed Value supplied to the operation.
+ * @returns The agent key string result.
+ */
 export const agentKeyString = (seed: number): string => {
   const [value] = FastCheck.sample(agentKeyStringArbitrary, {
     seed,
@@ -111,6 +188,7 @@ export const agentKeyString = (seed: number): string => {
   });
   return value ?? FALLBACK_AGENT_KEY_STRING;
 };
+/** Provides the connection id runtime value. */
 export const connectionId = decodeConnectionId;
 
 // --- Real-server agent registration ---
@@ -120,8 +198,9 @@ export const connectionId = decodeConnectionId;
 // part of the protocol contract, and doing it here keeps the consumer-side
 // wrapper thin.
 
+/** Describes test agent. */
 export interface TestAgent {
-  readonly agentId: Schema.Schema.Type<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof agentIdSchema>;
   readonly apiKey: AgentKey;
   readonly name: string;
 }
@@ -134,14 +213,14 @@ interface RegisterTestAgentOptions {
   readonly uniqueSuffix?: string | false;
 }
 
-const RegistrationResponseSchema = Schema.Struct({
-  agentId: AgentId,
-  apiKey: AgentKey,
+const registrationResponseSchema = Schema.Struct({
+  agentId: agentIdSchema,
+  apiKey: agentKey,
 });
 type RegistrationResponse = Schema.Schema.Type<
-  typeof RegistrationResponseSchema
+  typeof registrationResponseSchema
 >;
-const RegistrationResponseText = Schema.parseJson(RegistrationResponseSchema);
+const registrationResponseText = Schema.parseJson(registrationResponseSchema);
 
 /** HTTP registration failed (network, non-2xx, malformed response). */
 export class AgentRegistrationError extends Data.TaggedError(
@@ -160,6 +239,8 @@ export class AgentRegistrationError extends Data.TaggedError(
  * Every call uses a unique suffix so replays don't collide on the
  * server's "duplicate name" check; seeded replays pass a stable
  * `uniqueSuffix` to make the name deterministic.
+ * @param opts Value supplied to the operation.
+ * @returns The registration name result.
  */
 function registrationName(opts: RegisterTestAgentOptions): string {
   const suffix =
@@ -176,10 +257,10 @@ function registrationRequestBody(
 ): Record<string, string> {
   const requestBody: Record<string, string> = { name };
   if (opts.description !== undefined) {
-    requestBody["description"] = opts.description;
+    requestBody.description = opts.description;
   }
   if (opts.inviteCode !== undefined) {
-    requestBody["inviteCode"] = opts.inviteCode;
+    requestBody.inviteCode = opts.inviteCode;
   }
   return requestBody;
 }
@@ -187,7 +268,9 @@ function registrationRequestBody(
 const registrationErrorMapper =
   (opts: RegisterTestAgentOptions, agentName: string) =>
   (cause: unknown): AgentRegistrationError => {
-    if (cause instanceof AgentRegistrationError) return cause;
+    if (cause instanceof AgentRegistrationError) {
+      return cause;
+    }
     return new AgentRegistrationError({
       baseUrl: opts.baseUrl,
       agentName,
@@ -219,7 +302,7 @@ const parseRegistrationResponse = (
   body: string,
   toRegistrationError: (cause: unknown) => AgentRegistrationError,
 ): Effect.Effect<RegistrationResponse, AgentRegistrationError> =>
-  Schema.decodeUnknown(RegistrationResponseText)(body).pipe(
+  Schema.decodeUnknown(registrationResponseText)(body).pipe(
     Effect.mapError(toRegistrationError),
   );
 
@@ -233,7 +316,7 @@ const parseRegistrationResponse = (
 
 /** Server-minted app principal credentials. */
 export interface TestAppCredential {
-  readonly appId: Schema.Schema.Type<typeof AppId>;
+  readonly appId: Schema.Schema.Type<typeof appIdSchema>;
   readonly appKey: AppKey;
 }
 
@@ -244,15 +327,15 @@ interface RegisterTestAppOptions {
   readonly inviteCode?: string;
 }
 
-const AppRegistrationResponseSchema = Schema.Struct({
-  appId: AppId,
-  appKey: AppKey,
+const appRegistrationResponseSchema = Schema.Struct({
+  appId: appIdSchema,
+  appKey: appKey,
 });
 type AppRegistrationResponse = Schema.Schema.Type<
-  typeof AppRegistrationResponseSchema
+  typeof appRegistrationResponseSchema
 >;
-const AppRegistrationResponseText = Schema.parseJson(
-  AppRegistrationResponseSchema,
+const appRegistrationResponseText = Schema.parseJson(
+  appRegistrationResponseSchema,
 );
 
 /** HTTP app registration failed (network, non-2xx, malformed response). */
@@ -274,7 +357,9 @@ const appRegistrationBody = (
 const appRegistrationError =
   (opts: RegisterTestAppOptions) =>
   (cause: unknown): TestAppHttpRegistrationError => {
-    if (cause instanceof TestAppHttpRegistrationError) return cause;
+    if (cause instanceof TestAppHttpRegistrationError) {
+      return cause;
+    }
     return new TestAppHttpRegistrationError({
       baseUrl: opts.baseUrl,
       status: 0,
@@ -289,6 +374,8 @@ const appRegistrationError =
  * {@link registerTestAgent}; the `appKey` is handed to a `TestClient` whose
  * `appKey` Connect arm binds an `AppConnection` through the implicit
  * moderator-endpoint registration path.
+ * @param opts Value supplied to the operation.
+ * @returns The mint test app credential result.
  */
 export function mintTestAppCredential(
   opts: RegisterTestAppOptions,
@@ -326,7 +413,7 @@ function parseAppRegistration(
   if (status < HTTP_SUCCESS_MIN || status >= HTTP_SUCCESS_MAX_EXCLUSIVE) {
     return fail();
   }
-  return Schema.decodeUnknown(AppRegistrationResponseText)(body).pipe(
+  return Schema.decodeUnknown(appRegistrationResponseText)(body).pipe(
     Effect.either,
     Effect.flatMap(
       Either.match({
@@ -337,6 +424,11 @@ function parseAppRegistration(
   );
 }
 
+/**
+ * Registers test agent.
+ * @param opts Value supplied to the operation.
+ * @returns The register test agent result.
+ */
 export function registerTestAgent(
   opts: RegisterTestAgentOptions,
 ): Effect.Effect<TestAgent, AgentRegistrationError> {

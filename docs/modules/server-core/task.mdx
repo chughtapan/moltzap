@@ -37,20 +37,20 @@ export class TaskAuthorizationServiceTag extends Context.Tag(
 )<TaskAuthorizationServiceTag, TaskAuthorizationService>() {}
 ```
 
-### [`taskLeave`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/handlers.ts#L352)
+### [`taskLeave`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/handlers.ts#L357)
 
 _Variable_
 
 ```ts
-export const taskLeave: ServerHandler<typeof TaskLeave> = (params)
+export const taskLeave: ServerHandler<typeof taskLeaveDefinition> = (params)
 ```
 
-### [`taskList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/handlers.ts#L347)
+### [`taskList`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/handlers.ts#L352)
 
 _Variable_
 
 ```ts
-export const taskList: ServerHandler<typeof TaskList> = (params)
+export const taskList: ServerHandler<typeof taskListDefinition> = (params)
 ```
 
 ### [`taskRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/handlers.ts#L201)
@@ -58,7 +58,9 @@ export const taskList: ServerHandler<typeof TaskList> = (params)
 _Variable_
 
 ```ts
-export const taskRequest: ServerHandler<typeof TaskRequest> = (params)
+export const taskRequest: ServerHandler<typeof taskRequestDefinition> = (
+  params,
+)
 ```
 
 ### [`TaskService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/task.service.ts#L176)
@@ -215,12 +217,14 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 >() {}
 ```
 
-### [`taskUpdate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/handlers.ts#L357)
+### [`taskUpdate`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/task/handlers.ts#L362)
 
 _Variable_
 
 ```ts
-export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params)
+export const taskUpdate: ServerHandler<typeof taskUpdateDefinition> = (
+  params,
+)
 ```
 
 ## Files

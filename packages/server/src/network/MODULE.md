@@ -189,7 +189,7 @@ ack); the client's reverse `RpcServer` routes it into its
 _Variable_
 
 ```ts
-export const connectAgent: ServerHandler<typeof AgentConnect> = (params)
+export const connectAgent: ServerHandler<typeof agentConnect> = (params)
 ```
 
 ### [`connectApp`](./connect.handlers.ts#L451)
@@ -197,7 +197,7 @@ export const connectAgent: ServerHandler<typeof AgentConnect> = (params)
 _Variable_
 
 ```ts
-export const connectApp: ServerHandler<typeof AppConnect> = (params)
+export const connectApp: ServerHandler<typeof appConnect> = (params)
 ```
 
 ### [`connectionId`](./agent-endpoint-resolver.ts#L37)

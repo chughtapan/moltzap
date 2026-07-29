@@ -44,13 +44,13 @@ type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
 // call sites. Validated by compilation of a concrete `subscribe(def,
 // type-guard)` call: the third-argument `params is R` shape must match the
 // overload in `stream.ts`.
-import { TaskFailedNotificationDefinition } from "@moltzap/protocol/task";
+import { taskFailedNotificationDefinition } from "@moltzap/protocol/task";
 declare const _canary1bRegistry: NotificationSubscriberRegistry<
   NotConnectedError,
   AnyNotificationDefinition
 >;
 type _Canary1bTaskFailedParams = NotificationParamsOf<
-  typeof TaskFailedNotificationDefinition
+  typeof taskFailedNotificationDefinition
 >;
 type _Canary1bRetryableTaskFailure = _Canary1bTaskFailedParams & {
   readonly reason: "retryable";
@@ -60,7 +60,7 @@ declare const _canary1bIsRetryable: (
 ) => params is _Canary1bRetryableTaskFailure;
 const _canary1bStream = subscribe(
   _canary1bRegistry,
-  TaskFailedNotificationDefinition,
+  taskFailedNotificationDefinition,
   _canary1bIsRetryable,
 );
 // The stream MUST carry the narrowed params shape.

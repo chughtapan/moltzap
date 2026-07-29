@@ -14,6 +14,7 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 
 import { registerAuthorityPositive } from "./authority-positive.js";
 
+/** Re-exports the public API from `current module`. */
 export { registerAuthorityPositive };
 
 /**

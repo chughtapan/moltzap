@@ -57,7 +57,7 @@ _Variable_
 
 ```ts
 export const agentPresenceSubscribe: ServerHandler<
-  typeof AgentPresenceSubscribe
+  typeof agentPresenceSubscribeDefinition
 > = (params)
 ```
 
@@ -67,7 +67,7 @@ _Variable_
 
 ```ts
 export const appPresenceSubscribe: ServerHandler<
-  typeof AppPresenceSubscribe
+  typeof appPresenceSubscribeDefinition
 > = (params)
 ```
 

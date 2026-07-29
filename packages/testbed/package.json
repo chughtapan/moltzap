@@ -22,7 +22,7 @@
   },
   "scripts": {
     "build": "nx run @moltzap/testbed:build",
-    "lint": "nx run @moltzap/testbed:lint",
+    "lint": "tsc --build && eslint . --cache --max-warnings=0",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
@@ -46,7 +46,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/testbed",
-          "command": "eslint src *.ts --cache --max-warnings=0"
+          "command": "pnpm lint"
         }
       },
       "test:integration": {

@@ -1,13 +1,13 @@
 import { Args, Command } from "@effect/cli";
 import { Effect } from "effect";
-import { ContactId, UserId } from "@moltzap/protocol/identity";
+import { contactId, userId } from "@moltzap/protocol/identity";
 import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import { logJson } from "../output.js";
 
 const listContacts = Command.make("list", {}, () =>
   runHandler(
-    command(LocalDaemonCommands.ContactsList, {}).pipe(
+    command(LocalDaemonCommands.contactsList, {}).pipe(
       Effect.flatMap(logJson),
       Effect.asVoid,
     ),
@@ -15,13 +15,13 @@ const listContacts = Command.make("list", {}, () =>
 ).pipe(Command.withDescription("List contacts"));
 
 const userIdArg = Args.text({ name: "userId" }).pipe(
-  Args.withSchema(UserId),
+  Args.withSchema(userId),
   Args.withDescription("User ID to add as a contact"),
 );
 
 const addContact = Command.make("add", { userId: userIdArg }, ({ userId: u }) =>
   runHandler(
-    command(LocalDaemonCommands.ContactsAdd, {
+    command(LocalDaemonCommands.contactsAdd, {
       userId: u,
     }).pipe(
       Effect.flatMap((r) => Effect.log(`Contact added (id: ${r.contact.id})`)),
@@ -31,7 +31,7 @@ const addContact = Command.make("add", { userId: userIdArg }, ({ userId: u }) =>
 ).pipe(Command.withDescription("Add a contact by user ID"));
 
 const contactIdArg = Args.text({ name: "contactId" }).pipe(
-  Args.withSchema(ContactId),
+  Args.withSchema(contactId),
   Args.withDescription("Contact ID"),
 );
 
@@ -40,7 +40,7 @@ const acceptContact = Command.make(
   { contactId: contactIdArg },
   ({ contactId }) =>
     runHandler(
-      command(LocalDaemonCommands.ContactsAccept, {
+      command(LocalDaemonCommands.contactsAccept, {
         contactId,
       }).pipe(
         Effect.flatMap((r) => Effect.log(`Contact accepted: ${r.contact.id}`)),

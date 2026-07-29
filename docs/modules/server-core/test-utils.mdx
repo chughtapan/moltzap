@@ -159,7 +159,7 @@ export type CoreTestServer = CoreTestServerPort;
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L105)
+### [`CoreTestServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L106)
 
 _Interface_
 
@@ -245,17 +245,17 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent, never>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L47)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L48)
 
 _Variable_
 
 ```ts
 export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
-  UserId,
+  userId,
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L412)
+### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L413)
 
 _Function_
 
@@ -263,7 +263,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L397)
+### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L398)
 
 _Function_
 
@@ -271,7 +271,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L405)
+### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L406)
 
 _Function_
 
@@ -279,7 +279,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L417)
+### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L418)
 
 _Function_
 
@@ -452,7 +452,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L371)
+### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L372)
 
 _Function_
 
@@ -505,7 +505,7 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServerEffect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L328)
+### [`startCoreTestServerEffect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L329)
 
 _Function_
 
@@ -515,7 +515,7 @@ export function startCoreTestServerEffect(
 )
 ```
 
-### [`startCoreTestServerFull`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L341)
+### [`startCoreTestServerFull`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L342)
 
 _Function_
 
@@ -537,7 +537,7 @@ export interface StartCoreTestServerOptions {
 }
 ```
 
-### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L345)
+### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L346)
 
 _Function_
 

@@ -154,7 +154,7 @@ export type CoreTestServer = CoreTestServerPort;
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServerHandle`](./server.ts#L105)
+### [`CoreTestServerHandle`](./server.ts#L106)
 
 _Interface_
 
@@ -240,17 +240,17 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent, never>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L47)
+### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L48)
 
 _Variable_
 
 ```ts
 export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
-  UserId,
+  userId,
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](./server.ts#L412)
+### [`getBaseUrl`](./server.ts#L413)
 
 _Function_
 
@@ -258,7 +258,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](./server.ts#L397)
+### [`getCoreDb`](./server.ts#L398)
 
 _Function_
 
@@ -266,7 +266,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L405)
+### [`getCoreEncryptionEnvelope`](./server.ts#L406)
 
 _Function_
 
@@ -274,7 +274,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L417)
+### [`getWsUrl`](./server.ts#L418)
 
 _Function_
 
@@ -447,7 +447,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](./server.ts#L371)
+### [`resetCoreTestDb`](./server.ts#L372)
 
 _Function_
 
@@ -500,7 +500,7 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServerEffect`](./server.ts#L328)
+### [`startCoreTestServerEffect`](./server.ts#L329)
 
 _Function_
 
@@ -510,7 +510,7 @@ export function startCoreTestServerEffect(
 )
 ```
 
-### [`startCoreTestServerFull`](./server.ts#L341)
+### [`startCoreTestServerFull`](./server.ts#L342)
 
 _Function_
 
@@ -532,7 +532,7 @@ export interface StartCoreTestServerOptions {
 }
 ```
 
-### [`stopCoreTestServer`](./server.ts#L345)
+### [`stopCoreTestServer`](./server.ts#L346)
 
 _Function_
 

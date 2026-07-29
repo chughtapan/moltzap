@@ -1,8 +1,8 @@
 /**
  * @file The cast-free typed dispatch over a non-flat `@effect/rpc` client.
  *
- * A non-flat `RpcClient.make(group)` is a per-method record keyed by wire tag;
- * each value is `(payload) => Effect&lt;success, error>` with the result and error
+ * A non-flat `RpcClient.make(group)` is a per-method record keyed by wire tag.
+ * Every value is `(payload) => Effect&lt;success, error>` with the result and error
  * recovered PER TAG. {@link TypedDispatchMap} names that record shape as a
  * mapped type, and {@link dispatchCall} indexes it at a concrete tag `K` so the
  * result and the method's `errorSchema` error union flow with no cast.
@@ -57,6 +57,10 @@ export type TypedDispatchMap<Rpcs extends Rpc.Any, E> = {
  * error. Leaf call sites pass a literal tag and recover the precise types; a
  * caller generic over `K` keeps the correlation because the map is keyed on the
  * literal tag, not on a widened def union.
+ * @param map Value supplied to the operation.
+ * @param tag Value supplied to the operation.
+ * @param payload Value supplied to the operation.
+ * @returns The dispatch call result.
  */
 export function dispatchCall<Rpcs extends Rpc.Any, E, K extends Rpcs["_tag"]>(
   map: TypedDispatchMap<Rpcs, E>,
@@ -77,6 +81,9 @@ export function dispatchCall<Rpcs extends Rpc.Any, E, K extends Rpcs["_tag"]>(
  * no value-boundary cast. Every endpoint that stands a non-flat client (the
  * agent + app clients, the server's reverse client) shares this one bridge, so
  * the transport-error fold is written once.
+ * @param client Client used for the operation.
+ * @param onTransportError Value supplied to the operation.
+ * @returns The created typed transport call.
  */
 export function makeTypedTransportCall<Rpcs extends Rpc.Any, TransportError>(
   client: TypedDispatchMap<Rpcs, RpcClientError>,

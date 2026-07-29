@@ -11,10 +11,10 @@ import {
   type ConnectedAgent,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
@@ -40,7 +40,7 @@ beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 /** Fork a "drop the first frame, then collect any extras" collector. */
 function forkExtraCollector(receiver: ConnectedAgent) {
   return receiver.client
-    .subscribe(MessageReceivedNotificationDefinition)
+    .subscribe(messageReceivedNotificationDefinition)
     .pipe(
       Stream.drop(1),
       Stream.interruptAfter(Duration.millis(EXTRA_EVENT_SETTLE_MS)),
@@ -63,7 +63,7 @@ function setupDmConversations(
     receivers,
     (receiver, i) =>
       Effect.map(
-        sender.client.sendRpc(TaskRequest, {
+        sender.client.sendRpc(taskRequest, {
           appId: DEFAULT_APP_ID,
           invitedAgentIds: [receiver.agentId],
           initialConversation: {
@@ -86,7 +86,7 @@ function sendToAll(
 ) {
   return Effect.all(
     conversations.map((conv, i) =>
-      sender.client.sendRpc(MessagesSend, {
+      sender.client.sendRpc(messagesSend, {
         taskId: conv.taskId,
         conversationId: conv.conversationId,
         parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
@@ -113,7 +113,7 @@ it("multiple DMs receive messages simultaneously without cross-talk", () =>
         Effect.fork(
           awaitOneNotification(
             receiver.client,
-            MessageReceivedNotificationDefinition,
+            messageReceivedNotificationDefinition,
           ),
         ),
       ),

@@ -10,6 +10,9 @@ import type { TaskReadAccessValue } from "./task-read-access.js";
  * One-line guard at the start of every service method that consumes the
  * requirement plus a separate `taskId` handler-input — catches the "handler
  * obtained requirement for task A but passed task B" bug for one comparison.
+ * @param requirement Value supplied to the operation.
+ * @param expectedTaskId Value supplied to the operation.
+ * @returns The assert task read access matches task result.
  */
 export const assertTaskReadAccessMatchesTask = (
   requirement: TaskReadAccessValue,
@@ -33,6 +36,9 @@ const ERR_NOT_TASK_APP = "Caller is not the app that owns this task";
  * system, so the equality check compares the branded `appId` argument to
  * the row value directly. Fails with `ForbiddenError` (wire -32001) when
  * the app does not own the task.
+ * @param appId Value supplied to the operation.
+ * @param task Value supplied to the operation.
+ * @returns The assert app owns task result.
  */
 export const assertAppOwnsTask = (
   appId: AppId,

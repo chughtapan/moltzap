@@ -26,6 +26,10 @@ const RPC_DEFINITION_FIELDS: readonly RpcDefinitionField[] = [
   ["validateResult", isFunction],
 ];
 
+/**
+ * Executes the protocol rpc definitions operation.
+ * @returns The protocol rpc definitions result.
+ */
 export function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
   const ordered = [
     ...serverInboundMethods,
@@ -98,24 +102,50 @@ function methodSortKey(method: string): string {
 // `$defs`/`$ref`), so no `$ref` dereference is needed.
 
 function getStringTypeName(node: JsonSchemaNode): string {
-  if (node.format === "uuid") return "string (UUID)";
-  if (node.format === "uri") return "string (URI)";
-  if (node.format === "date-time") return "string (ISO 8601)";
-  if (node.enum) return node.enum.join(" | ");
+  if (node.format === "uuid") {
+    return "string (UUID)";
+  }
+  if (node.format === "uri") {
+    return "string (URI)";
+  }
+  if (node.format === "date-time") {
+    return "string (ISO 8601)";
+  }
+  if (node.enum) {
+    return node.enum.join(" | ");
+  }
   return "string";
 }
 
 function getTypeName(node: JsonSchemaNode): string {
-  if (node.anyOf) return "union";
-  if (node.const !== undefined) return String(node.const);
-  if (node.enum && node.type !== "string") return node.enum.join(" | ");
+  if (node.anyOf) {
+    return "union";
+  }
+  if (node.const !== undefined) {
+    return String(node.const);
+  }
+  if (node.enum && node.type !== "string") {
+    return node.enum.join(" | ");
+  }
   const type = node.type;
-  if (type === "string") return getStringTypeName(node);
-  if (type === "integer") return "integer";
-  if (type === "number") return "number";
-  if (type === "boolean") return "boolean";
-  if (type === "array") return "array";
-  if (type === "null") return "null";
+  if (type === "string") {
+    return getStringTypeName(node);
+  }
+  if (type === "integer") {
+    return "integer";
+  }
+  if (type === "number") {
+    return "number";
+  }
+  if (type === "boolean") {
+    return "boolean";
+  }
+  if (type === "array") {
+    return "array";
+  }
+  if (type === "null") {
+    return "null";
+  }
   if (type === "object") {
     // A `Schema.Record` renders `{ type: "object", additionalProperties: V }`
     // with no `properties`; a struct renders with `properties`. Split those as
@@ -164,7 +194,9 @@ function schemaPropertyDoc(
 }
 
 function extractObjectProperties(node: JsonSchemaNode): SchemaPropertyDoc[] {
-  if (node.type !== "object" || !node.properties) return [];
+  if (node.type !== "object" || !node.properties) {
+    return [];
+  }
   const requiredSet = new Set<string>(node.required ?? []);
   return Object.entries(node.properties).map(([name, prop]) =>
     schemaPropertyDoc(name, prop, requiredSet.has(name)),
@@ -175,7 +207,9 @@ function extractUnionProperties(node: JsonSchemaNode): SchemaPropertyDoc[] {
   const seen = new Map<string, SchemaPropertyDoc>();
   for (const member of node.anyOf ?? []) {
     for (const prop of extractObjectProperties(member)) {
-      if (!seen.has(prop.name)) seen.set(prop.name, prop);
+      if (!seen.has(prop.name)) {
+        seen.set(prop.name, prop);
+      }
     }
   }
   return Array.from(seen.values()).map((prop) => ({
@@ -184,12 +218,19 @@ function extractUnionProperties(node: JsonSchemaNode): SchemaPropertyDoc[] {
   }));
 }
 
+/**
+ * Executes the extract properties operation.
+ * @param schema Value supplied to the operation.
+ * @returns The extract properties result.
+ */
 export function extractProperties(
   schema: Schema.Schema.AnyNoContext,
 ): SchemaPropertyDoc[] {
   // `JSONSchema.make` emits a draft-07 root; read it through the structural
   // `JsonSchemaNode` reader interface (the shapes overlap, no `unknown`).
   const node = JSONSchema.make(schema) as JsonSchemaNode;
-  if (node.anyOf) return extractUnionProperties(node);
+  if (node.anyOf) {
+    return extractUnionProperties(node);
+  }
   return extractObjectProperties(node);
 }

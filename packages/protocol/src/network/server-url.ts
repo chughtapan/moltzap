@@ -36,6 +36,8 @@ const SERVER_SCHEMES: ReadonlySet<string> = new Set([
  * input, so the scheme reaches `webSocketUrl` in the lower-case spelling its
  * swap matches. `HTTP://host` would otherwise survive validation and then dial
  * an `HTTP://` URL that no WebSocket can open.
+ * @param value Value to process.
+ * @returns The to origin result.
  */
 const toOrigin = (value: string): string | null => {
   const trimmed = value
@@ -43,11 +45,19 @@ const toOrigin = (value: string): string | null => {
     .replace(TRAILING_SLASH, "");
   // `URL.canParse` rather than `URL.parse`: the package's engine floor is Node
   // 22.0 and `parse` only exists from 22.1.
-  if (!URL.canParse(trimmed)) return null;
+  if (!URL.canParse(trimmed)) {
+    return null;
+  }
   const url = new URL(trimmed);
-  if (!SERVER_SCHEMES.has(url.protocol)) return null;
-  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") return null;
-  if (url.username !== "" || url.password !== "") return null;
+  if (!SERVER_SCHEMES.has(url.protocol)) {
+    return null;
+  }
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
+    return null;
+  }
+  if (url.username !== "" || url.password !== "") {
+    return null;
+  }
   return `${url.protocol}//${url.host}`;
 };
 
@@ -61,13 +71,14 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
  * Decodes either address a caller is likely to hold — the base URL or the
  * socket endpoint — into the path-free base. Any other path fails.
  */
-export const ServerBaseUrl: Schema.Schema<ServerBaseUrl, string> =
+export const serverBaseUrlSchema: Schema.Schema<ServerBaseUrl, string> =
   Schema.transformOrFail(
     Schema.String,
     Schema.String.pipe(Schema.brand("ServerBaseUrl")),
     {
       strict: true,
-      decode: (value, _options, ast) => {
+      decode: (value, options, ast) => {
+        void options;
         const origin = toOrigin(value);
         return origin === null
           ? ParseResult.fail(
@@ -91,8 +102,12 @@ export const ServerBaseUrl: Schema.Schema<ServerBaseUrl, string> =
  * `Schema.decodeEither(ServerBaseUrl)` wherever the value comes from
  * configuration or another package.
  */
-export const serverBaseUrl = Schema.decodeSync(ServerBaseUrl);
+export const serverBaseUrl = Schema.decodeSync(serverBaseUrlSchema);
 
-/** The socket endpoint a client dials for the given server. */
+/**
+ * The socket endpoint a client dials for the given server.
+ * @param base Value supplied to the operation.
+ * @returns The web socket url result.
+ */
 export const webSocketUrl = (base: ServerBaseUrl): string =>
   base.replace(WS_SCHEME_PREFIX, "ws") + SOCKET_ROUTE;

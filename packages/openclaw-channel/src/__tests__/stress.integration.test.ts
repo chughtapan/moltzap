@@ -21,8 +21,8 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { Message } from "@moltzap/protocol/message";
 import { agentId, waitForValue } from "@moltzap/protocol/testing";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
 interface StressAgent {
   readonly apiKey: AgentKey;
@@ -182,7 +182,7 @@ function createConversation(
   receiverAgentId: AgentId,
 ) {
   return client
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [receiverAgentId],
       initialConversation: { participants: [receiverAgentId] },
@@ -211,7 +211,7 @@ function sendBatch(
   count: number,
 ) {
   return Array.from({ length: count }, (_, i) =>
-    client.call(MessagesSend.name, {
+    client.call(messagesSend.name, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
       parts: [{ type: TEXT_PART_TYPE, text: `${prefix}-msg-${i}` }],
@@ -283,7 +283,7 @@ function listMatchingReplies(params: {
   readonly receiverAgentId: AgentId;
 }) {
   return params.client
-    .call(MessagesList.name, {
+    .call(messagesList.name, {
       taskId: params.binding.taskId,
       conversationId: params.binding.conversationId,
       limit: TOTAL_STRESS_MESSAGE_COUNT,

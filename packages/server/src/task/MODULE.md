@@ -32,20 +32,20 @@ export class TaskAuthorizationServiceTag extends Context.Tag(
 )<TaskAuthorizationServiceTag, TaskAuthorizationService>() {}
 ```
 
-### [`taskLeave`](./handlers.ts#L352)
+### [`taskLeave`](./handlers.ts#L357)
 
 _Variable_
 
 ```ts
-export const taskLeave: ServerHandler<typeof TaskLeave> = (params)
+export const taskLeave: ServerHandler<typeof taskLeaveDefinition> = (params)
 ```
 
-### [`taskList`](./handlers.ts#L347)
+### [`taskList`](./handlers.ts#L352)
 
 _Variable_
 
 ```ts
-export const taskList: ServerHandler<typeof TaskList> = (params)
+export const taskList: ServerHandler<typeof taskListDefinition> = (params)
 ```
 
 ### [`taskRequest`](./handlers.ts#L201)
@@ -53,7 +53,9 @@ export const taskList: ServerHandler<typeof TaskList> = (params)
 _Variable_
 
 ```ts
-export const taskRequest: ServerHandler<typeof TaskRequest> = (params)
+export const taskRequest: ServerHandler<typeof taskRequestDefinition> = (
+  params,
+)
 ```
 
 ### [`TaskService`](./task.service.ts#L176)
@@ -210,12 +212,14 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
 >() {}
 ```
 
-### [`taskUpdate`](./handlers.ts#L357)
+### [`taskUpdate`](./handlers.ts#L362)
 
 _Variable_
 
 ```ts
-export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params)
+export const taskUpdate: ServerHandler<typeof taskUpdateDefinition> = (
+  params,
+)
 ```
 
 ## Files

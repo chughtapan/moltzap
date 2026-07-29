@@ -8,8 +8,8 @@ import {
   registerAndConnect,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
 const TEST_GROUP_NAME = "Test Group";
 const FIRST_MESSAGE_TEXT = "Message 1";
@@ -39,7 +39,7 @@ it("create group, send messages, verify seq monotonicity", () =>
     const eve = yield* registerAndConnect("eve-grp");
 
     // Alice creates a group (3+ participants ⇒ "group", not "dm")
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, eve.agentId],
       initialConversation: {
@@ -55,7 +55,7 @@ it("create group, send messages, verify seq monotonicity", () =>
 
     // Alice sends multiple messages
     for (let i = 0; i < 3; i++) {
-      yield* alice.client.sendRpc(MessagesSend, {
+      yield* alice.client.sendRpc(messagesSend, {
         taskId,
         conversationId,
         parts: [{ type: "text", text: `Message ${i + 1}` }],
@@ -63,7 +63,7 @@ it("create group, send messages, verify seq monotonicity", () =>
     }
 
     // List messages
-    const messages = yield* alice.client.sendRpc(MessagesList, {
+    const messages = yield* alice.client.sendRpc(messagesList, {
       taskId,
       conversationId,
     });

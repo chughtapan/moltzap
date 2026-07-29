@@ -14,16 +14,20 @@ import type { DispatchTestDriver } from "./_driver.js";
 
 const HOLD_MS = 3_000;
 
+/**
+ * Registers release for one lease does not wait on another.
+ * @param ctx Context for the operation.
+ */
 export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "release-for-one-lease-does-not-wait-on-another";
+  const name = "release-for-one-lease-does-not-wait-on-another";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "emit-time independence of leases",
-    withDriver(ctx, (driver) => assertReleaseIndependence(NAME, driver), {
+    withDriver(ctx, (driver) => assertReleaseIndependence(name, driver), {
       moderatorTimeoutMs: 15_000,
     }).pipe(Effect.withSpan("registerReleaseForOneLeaseDoesNotWaitOnAnother")),
   );

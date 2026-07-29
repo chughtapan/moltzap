@@ -2,12 +2,13 @@
  * @file Public message-domain barrel.
  */
 
+/** Re-exports the public API from `./messages.js`. */
 export {
   MessageNotFoundError,
-  MessagesSend,
-  MessagesList,
-  MessagesAuthorize,
-  MessageReceivedNotificationDefinition,
+  messagesSend,
+  messagesList,
+  messagesAuthorize,
+  messageReceivedNotificationDefinition,
   agentCallableMessageRpcMethods,
   messageCallbackMethods,
   messageNotifications,
@@ -17,6 +18,7 @@ export {
   decodeMessagePartsText,
   validateTextPart,
 } from "./messages.js";
+/** Re-exports the public API from `./messages.js`. */
 export type {
   DispatchDecision,
   Message,

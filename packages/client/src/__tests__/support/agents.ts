@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { MessagesSend } from "@moltzap/protocol/message";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { messagesSend } from "@moltzap/protocol/message";
 import type { AgentKey } from "@moltzap/protocol/identity";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
@@ -45,7 +45,7 @@ export function sendAndSettle(
   text: string,
 ) {
   return Effect.gen(function* () {
-    yield* client.call(MessagesSend.name, {
+    yield* client.call(messagesSend.name, {
       taskId,
       conversationId,
       parts: [{ type: "text", text }],
@@ -63,7 +63,7 @@ type TestClient = Effect.Effect.Success<
 
 export const createDm = (service: ConnectedService, agentId: AgentId) =>
   service
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agentId],
       initialConversation: { participants: [agentId] },

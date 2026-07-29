@@ -11,12 +11,12 @@ import type { Message } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
 import { registerTestAgent, waitFor } from "./test-helpers.js";
 
-import { AgentsList } from "@moltzap/protocol/identity";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { agentsList } from "@moltzap/protocol/identity";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesList,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";
 
 let baseUrl: string;
@@ -114,7 +114,7 @@ function createDmConversation(
   invitee: AgentId,
 ): Effect.Effect<DmBinding, unknown> {
   return client
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [invitee],
       initialConversation: { participants: [invitee] },
@@ -132,7 +132,7 @@ function sendText(
   binding: DmBinding,
   text: string,
 ) {
-  return client.call(MessagesSend.name, {
+  return client.call(messagesSend.name, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: TEXT_PART_TYPE, text }],
@@ -141,7 +141,7 @@ function sendText(
 
 function listMessageTexts(client: MoltZapAgentClient, binding: DmBinding) {
   return client
-    .call(MessagesList.name, {
+    .call(messagesList.name, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     })
@@ -272,7 +272,7 @@ function eventsAfterReconnect() {
 function captureMessages(receivedMessages: Message[]) {
   return (event: { readonly definition: unknown; readonly params: unknown }) =>
     Effect.sync(() => {
-      if (event.definition === MessageReceivedNotificationDefinition) {
+      if (event.definition === messageReceivedNotificationDefinition) {
         const params = event.params as { readonly message?: Message };
         const message = params.message;
         if (message !== undefined) receivedMessages.push(message);
@@ -324,7 +324,7 @@ function rpcCallsWorkAfterReconnect() {
     yield* client.connect();
     yield* client.disconnect();
     yield* waitUntil(() => reconnected, RECONNECT_WAIT_MS, "reconnect");
-    const result = yield* client.call(AgentsList.name, {
+    const result = yield* client.call(agentsList.name, {
       limit: AGENT_LIST_PAGE_SIZE,
     });
     const bobCard = result.agents.find((agent) => agent.id === bob.agentId);

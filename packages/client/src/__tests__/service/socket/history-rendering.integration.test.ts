@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -20,7 +20,7 @@ it("lastRead tracks seen message IDs across reads", () =>
     yield* service.startSocketServer();
     // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
     yield* Effect.gen(function* () {
-      const conv = yield* service.call(TaskRequest.name, {
+      const conv = yield* service.call(taskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
@@ -72,7 +72,7 @@ it("non-text message parts render as markers in socket history", () =>
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
-      const conv = yield* service.call(TaskRequest.name, {
+      const conv = yield* service.call(taskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
@@ -107,7 +107,7 @@ it("socketPath is stable after connect (cached at startSocketServer time)", () =
     const pathAtStart = service.socketPath;
     yield* Effect.gen(function* () {
       const result = yield* H.requestDaemonCommand(
-        H.LocalDaemonCommands.Status,
+        H.LocalDaemonCommands.status,
         {},
         pathAtStart,
       );

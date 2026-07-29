@@ -5,7 +5,7 @@
  * newly-registered agent), and asserts a Right outcome.
  */
 import { Effect } from "effect";
-import { TaskList } from "@moltzap/protocol/task";
+import { taskList } from "@moltzap/protocol/task";
 import { makeAgentTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -15,7 +15,7 @@ import {
 } from "../_shared/registry.js";
 import { leftOrNull } from "../_shared/_helpers.js";
 
-const CATEGORY = "rpc-semantics" as const;
+const CATEGORY = "rpc-semantics";
 const PROPERTY = "authority-positive";
 const DEFAULT_TIMEOUT_MS = 3000;
 
@@ -26,6 +26,10 @@ const invariant = (reason: string): PropertyInvariantViolation =>
     reason,
   });
 
+/**
+ * Registers authority positive.
+ * @param ctx Context for the operation.
+ */
 export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -51,7 +55,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
             invariant(`client acquire failed: ${String(e)}`),
           ),
         );
-        const outcome = yield* client.sendRpc(TaskList, {}).pipe(Effect.either);
+        const outcome = yield* client.sendRpc(taskList, {}).pipe(Effect.either);
         const failure = leftOrNull(outcome);
         if (failure !== null) {
           return yield* Effect.fail(

@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -25,7 +25,7 @@ it("agent/conversation/list returns existing conversations after connect", () =>
 
     // Connect agent-a and create a conversation before agent-b connects as service
     yield* regA.client.connect();
-    const conv = yield* regA.client.call(TaskRequest.name, {
+    const conv = yield* regA.client.call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regB.agentId],
       initialConversation: { participants: [regB.agentId] },
@@ -58,7 +58,7 @@ it("on('message') fires for incoming message from another agent", () =>
       regReceiver.agentId,
     );
 
-    const conv = yield* regSender.client.call(TaskRequest.name, {
+    const conv = yield* regSender.client.call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regReceiver.agentId],
       initialConversation: { participants: [regReceiver.agentId] },

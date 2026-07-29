@@ -1,13 +1,13 @@
 import { Effect } from "effect";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationCreate,
-  ConversationCreatedNotificationDefinition,
-  ConversationList,
-  ConversationParticipantsAddedNotificationDefinition,
-  ConversationParticipantsRemovedNotificationDefinition,
-  ConversationUpdate,
-  ConversationUnarchivedNotificationDefinition,
+  conversationArchivedNotificationDefinition,
+  conversationCreate as conversationCreateDefinition,
+  conversationCreatedNotificationDefinition,
+  conversationList as conversationListDefinition,
+  conversationParticipantsAddedNotificationDefinition,
+  conversationParticipantsRemovedNotificationDefinition,
+  conversationUpdate as conversationUpdateDefinition,
+  conversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import type {
   Conversation,
@@ -28,7 +28,7 @@ import { authorizeConversationCreateCapacityOnly } from "#conversation/requireme
 import { broadcastNotificationToAgents } from "#network";
 import { assertCallerAppOwnsTask } from "#task/requirements";
 
-type ConversationUpdateParams = ParamsOf<typeof ConversationUpdate>;
+type ConversationUpdateParams = ParamsOf<typeof conversationUpdateDefinition>;
 type ConversationArchiveParams = Extract<
   ConversationUpdateParams,
   { action: "archive" }
@@ -49,7 +49,7 @@ type ConversationRemoveParticipantParams = Extract<
 function conversationCreateBody(
   appId: AppContext["appId"],
   params: {
-    readonly taskId: ParamsOf<typeof ConversationCreate>["taskId"];
+    readonly taskId: ParamsOf<typeof conversationCreateDefinition>["taskId"];
     readonly name?: string;
     readonly participants: ReadonlyArray<AgentId>;
   },
@@ -81,7 +81,7 @@ function conversationCreateBody(
 }
 
 interface ConversationCreateInput {
-  readonly taskId: ParamsOf<typeof ConversationCreate>["taskId"];
+  readonly taskId: ParamsOf<typeof conversationCreateDefinition>["taskId"];
   readonly conversation: Conversation;
   readonly participants: ReadonlyArray<AgentId>;
   readonly name?: string;
@@ -90,7 +90,7 @@ interface ConversationCreateInput {
 function fanoutConversationCreate(input: ConversationCreateInput) {
   return broadcastNotificationToAgents(
     [...input.participants],
-    ConversationCreatedNotificationDefinition,
+    conversationCreatedNotificationDefinition,
     {
       taskId: input.taskId,
       conversationId: input.conversation.id,
@@ -135,7 +135,7 @@ function fanoutToConversationParticipants<D extends AnyNotificationDefinition>(
 function fanoutArchive(input: ArchiveFanoutInput) {
   return fanoutToConversationParticipants(
     input.conversationId,
-    ConversationArchivedNotificationDefinition,
+    conversationArchivedNotificationDefinition,
     {
       taskId: input.taskId,
       conversationId: input.conversationId,
@@ -152,7 +152,7 @@ interface UnarchiveFanoutInput {
 function fanoutUnarchive(input: UnarchiveFanoutInput) {
   return fanoutToConversationParticipants(
     input.conversationId,
-    ConversationUnarchivedNotificationDefinition,
+    conversationUnarchivedNotificationDefinition,
     {
       taskId: input.taskId,
       conversationId: input.conversationId,
@@ -161,7 +161,7 @@ function fanoutUnarchive(input: UnarchiveFanoutInput) {
 }
 
 function conversationListBody(
-  params: ParamsOf<typeof ConversationList>,
+  params: ParamsOf<typeof conversationListDefinition>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -250,7 +250,7 @@ function conversationAddParticipantBody(
       );
     yield* broadcastNotificationToAgents(
       postMutationParticipants,
-      ConversationParticipantsAddedNotificationDefinition,
+      conversationParticipantsAddedNotificationDefinition,
       {
         taskId: params.taskId,
         conversationId: params.conversationId,
@@ -277,7 +277,7 @@ function conversationRemoveParticipantBody(
     if (!wasParticipant) return {};
     yield* broadcastNotificationToAgents(
       preMutationParticipants,
-      ConversationParticipantsRemovedNotificationDefinition,
+      conversationParticipantsRemovedNotificationDefinition,
       {
         taskId: params.taskId,
         conversationId: params.conversationId,
@@ -305,23 +305,23 @@ function conversationUpdateBody(
   }
 }
 
-export const conversationList: ServerHandler<typeof ConversationList> = (
-  params,
-) =>
+export const conversationList: ServerHandler<
+  typeof conversationListDefinition
+> = (params) =>
   Effect.gen(function* () {
     return yield* conversationListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("conversationList"));
 
-export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
-  params,
-) =>
+export const conversationCreate: ServerHandler<
+  typeof conversationCreateDefinition
+> = (params) =>
   Effect.gen(function* () {
     return yield* conversationCreateBody((yield* appArm).appId, params);
   }).pipe(Effect.withSpan("conversationCreate"));
 
-export const conversationUpdate: ServerHandler<typeof ConversationUpdate> = (
-  params,
-) =>
+export const conversationUpdate: ServerHandler<
+  typeof conversationUpdateDefinition
+> = (params) =>
   Effect.gen(function* () {
     return yield* conversationUpdateBody(params, yield* appArm);
   }).pipe(Effect.withSpan("conversationUpdate"));

@@ -1,11 +1,11 @@
 /**
- * slow_close — close-frames are delayed by the toxic. The scope
+ * Slow_close — close-frames are delayed by the toxic. The scope
  * release must still complete within a bounded window so the suite
  * doesn't leak descriptors.
  */
 import { Clock, Effect } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
-import { TaskList } from "@moltzap/protocol/task";
+import { taskList } from "@moltzap/protocol/task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
@@ -17,13 +17,17 @@ import {
 const SLOW_CLOSE_CLIENT_TIMEOUT_MS = 2_000;
 const SLOW_CLOSE_BUDGET_MS = 5_000;
 
+/**
+ * Registers slow close cleanup.
+ * @param ctx Context for the operation.
+ */
 export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
   withToxicProxy({
     ctx,
     propertyName: "slow-close-cleanup",
     description: "slow_close toxic does not leak descriptors beyond 2s",
     proxyName: proxyName("sc", ctx.seed),
-    profile: defaultToxicProfile.slow_close,
+    profile: defaultToxicProfile.slowClose,
     body: ({ proxy, unavailable, attachToxic }) =>
       Effect.gen(function* () {
         const start = yield* Clock.currentTimeMillis;
@@ -33,7 +37,7 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
         // 2s budget even though the toxic delays its close-frame.
         yield* Effect.scoped(
           Effect.gen(function* () {
-            const _client = yield* acquireProxiedClient({
+            const client = yield* acquireProxiedClient({
               ctx,
               proxy,
               name: `sc-${ctx.seed}-c`,
@@ -41,7 +45,7 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
               unavailable,
             });
             // A single RPC proves the socket is alive before close.
-            yield* _client.client.sendRpc(TaskList, {}).pipe(Effect.either);
+            yield* client.client.sendRpc(taskList, {}).pipe(Effect.either);
           }),
         );
         const elapsed = (yield* Clock.currentTimeMillis) - start;

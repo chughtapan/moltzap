@@ -3,15 +3,22 @@ import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";
 import type { AppCallbackHandlers, HandlerSlot } from "./app-callbacks.js";
 import type { AppKey } from "#identity/apps";
-import { MessagesAuthorize } from "#message";
-import { DispatchAuthorize } from "#message/dispatch";
-import { AppConnect, PROTOCOL_VERSION } from "#network";
-import {
-  AppCallableGroup,
-  type AnyAppCallbackRpcDefinition,
+import { messagesAuthorize } from "#message";
+import { dispatchAuthorize } from "#message/dispatch";
+import { appConnect, PROTOCOL_VERSION } from "#network";
+import type {
+  appCallableGroup,
+  AnyAppCallbackRpcDefinition,
 } from "#socket/catalog";
-import { type CloseInfo } from "./close-info.js";
-import { NotConnectedError, RpcTimeoutError } from "#transport";
+import type { CloseInfo } from "./close-info.js";
+import type {
+  ErrorForTag,
+  NotConnectedError,
+  PayloadForTag,
+  RpcTimeoutError,
+  SuccessForTag,
+  TypedDispatchMap,
+} from "#transport";
 import {
   openProtocolAppClientSocket,
   RPC_TIMEOUT_MS,
@@ -20,18 +27,13 @@ import {
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
 } from "./lifecycle.js";
-import {
-  type ErrorForTag,
-  type PayloadForTag,
-  type SuccessForTag,
-  type TypedDispatchMap,
-} from "#transport";
-import { TaskCreate } from "#task";
+import { taskCreate } from "#task";
 
-type AppCallableRpcs = RpcGroup.Rpcs<typeof AppCallableGroup>;
+type AppCallableRpcs = RpcGroup.Rpcs<typeof appCallableGroup>;
 type AppCallableTag = AppCallableRpcs["_tag"];
 type AppClientDispatch = TypedDispatchMap<AppCallableRpcs, RpcClientError>;
 
+/** Carries context for app callback. */
 export interface AppCallbackContext {
   readonly requestId: string;
 }
@@ -63,12 +65,13 @@ function makeAppCallbackHandlers(
       return slot.handle(params, CALLBACK_CONTEXT);
     };
   return {
-    [DispatchAuthorize.name]: adapt(handlers[DispatchAuthorize.name]),
-    [MessagesAuthorize.name]: adapt(handlers[MessagesAuthorize.name]),
-    [TaskCreate.name]: adapt(handlers[TaskCreate.name]),
+    [dispatchAuthorize.name]: adapt(handlers[dispatchAuthorize.name]),
+    [messagesAuthorize.name]: adapt(handlers[messagesAuthorize.name]),
+    [taskCreate.name]: adapt(handlers[taskCreate.name]),
   };
 }
 
+/** Configures app client. */
 export interface AppClientOptions {
   readonly serverUrl: string;
   readonly appKey: AppKey;
@@ -77,6 +80,7 @@ export interface AppClientOptions {
   readonly handlers: AppCallbackHandlers<AppCallbackContext>;
 }
 
+/** Implements molt zap app client. */
 export class MoltZapAppClient extends ProtocolClientLifecycle<
   AppCallableRpcs,
   AppClientDispatch
@@ -84,7 +88,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
   constructor(options: AppClientOptions) {
     super({
       serverUrl: options.serverUrl,
-      connectTag: AppConnect.name,
+      connectTag: appConnect.name,
       connectPayload: {
         appKey: options.appKey,
         minProtocol: PROTOCOL_VERSION,

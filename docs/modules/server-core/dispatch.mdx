@@ -204,27 +204,27 @@ export class DispatchAdmissionServiceTag extends Context.Tag(
 _TypeAlias_
 
 ```ts
-export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
+export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
 ```
 
-### [`dispatchLeaseGet`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/handlers.ts#L73)
+### [`dispatchLeaseGet`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/handlers.ts#L75)
 
 _Variable_
 
 ```ts
-export const dispatchLeaseGet: ServerHandler<typeof DispatchLeaseGet> = (
-  params,
-)
+export const dispatchLeaseGet: ServerHandler<
+  typeof dispatchLeaseGetDefinition
+> = (params)
 ```
 
-### [`dispatchRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/handlers.ts#L66)
+### [`dispatchRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/handlers.ts#L68)
 
 _Variable_
 
 ```ts
-export const dispatchRequest: ServerHandler<typeof DispatchRequest> = (
-  params,
-)
+export const dispatchRequest: ServerHandler<
+  typeof dispatchRequestDefinition
+> = (params)
 ```
 
 ### [`EnqueueDispatchRequestArgs`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/dispatch/admission.service.ts#L88)

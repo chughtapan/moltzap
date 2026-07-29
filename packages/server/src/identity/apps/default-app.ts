@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import type { RpcSerialization } from "@effect/rpc";
 import { DEFAULT_APP_ID, type AppManifest } from "@moltzap/protocol/identity";
-import { ConnectionId } from "@moltzap/protocol/socket";
+import { connectionIdSchema } from "@moltzap/protocol/socket";
 import type { AppEndpointRegistry } from "./endpoint-registry.js";
 import type { AppEndpoint } from "./registry.js";
 import type { Originator } from "#socket";
@@ -11,7 +11,7 @@ import type { Originator } from "#socket";
  * no client `crypto.randomUUID()` can ever collide with the default
  * app's registered endpoint connId.
  */
-const DEFAULT_APP_CONNECTION_ID = Schema.decodeUnknownSync(ConnectionId)(
+const DEFAULT_APP_CONNECTION_ID = Schema.decodeUnknownSync(connectionIdSchema)(
   "00000000-0000-4000-8000-000000000001",
 );
 

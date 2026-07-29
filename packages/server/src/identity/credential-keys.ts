@@ -6,7 +6,12 @@
  */
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Redacted, Schema } from "effect";
-import { AgentKey, AppKey } from "@moltzap/protocol/identity";
+import {
+  type AgentKey,
+  agentKey,
+  type AppKey,
+  appKey,
+} from "@moltzap/protocol/identity";
 
 /**
  * Stable string prefix on every agent API key. Encoded once here;
@@ -29,7 +34,7 @@ export function generateApiKey(): {
 } {
   const { apiKey, keyId, secretHash } = generateKeyWithPrefix(API_KEY_PREFIX);
   return {
-    apiKey: Schema.decodeUnknownSync(AgentKey)(apiKey),
+    apiKey: Schema.decodeUnknownSync(agentKey)(apiKey),
     keyId,
     secretHash,
   };
@@ -47,7 +52,7 @@ export function generateAppKey(): {
 } {
   const { apiKey, keyId, secretHash } = generateKeyWithPrefix(APP_KEY_PREFIX);
   return {
-    appKey: Schema.decodeUnknownSync(AppKey)(apiKey),
+    appKey: Schema.decodeUnknownSync(appKey)(apiKey),
     keyId,
     secretHash,
   };

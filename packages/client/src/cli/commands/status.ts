@@ -12,7 +12,7 @@ import { logLines } from "../output.js";
  */
 export const statusCommand = Command.make("status", {}, () =>
   runHandler(
-    command(LocalDaemonCommands.Status, {}).pipe(
+    command(LocalDaemonCommands.status, {}).pipe(
       Effect.flatMap((result) =>
         logLines([
           `Agent ID:       ${result.agentId ?? "none"}`,

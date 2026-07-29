@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect, Either } from "effect";
 import * as H from "../../support/index.js";
 import {
@@ -20,7 +20,7 @@ it("status returns connection info", () =>
     // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
     yield* Effect.gen(function* () {
       const result = yield* H.requestDaemonCommand(
-        H.LocalDaemonCommands.Status,
+        H.LocalDaemonCommands.status,
         {},
       );
       expect(result.agentId).toBe(reg.agentId);
@@ -36,14 +36,14 @@ it("send command works via socket", () =>
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
-      const conv = yield* service.call(TaskRequest.name, {
+      const conv = yield* service.call(taskRequest.name, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [regB.agentId],
         initialConversation: { participants: [regB.agentId] },
       });
       expect(conv.conversation!.id).toBeDefined();
 
-      const msg = yield* H.requestDaemonCommand(H.LocalDaemonCommands.Send, {
+      const msg = yield* H.requestDaemonCommand(H.LocalDaemonCommands.send, {
         target: {
           taskId: conv.task.id,
           conversationId: conv.conversation!.id,
@@ -61,7 +61,7 @@ it("command preserves protocol error tag over socket", () =>
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
       const result = yield* Effect.either(
-        H.requestDaemonCommand(H.LocalDaemonCommands.MessagesList, {
+        H.requestDaemonCommand(H.LocalDaemonCommands.messagesList, {
           taskId: makeTaskId("00000000-0000-4000-8000-00000000f001"),
           conversationId: makeConversationId(
             "00000000-0000-4000-8000-00000000f002",

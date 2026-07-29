@@ -79,7 +79,7 @@ export class MessageAuthorizationService {
     const taskId = ctx.taskId;
     return wrapHookEffectWithEnvelope({
       raw: callAppRpc(entry, {
-        definition: MessagesAuthorize,
+        definition: messagesAuthorize,
         params: this.messageAuthorizeParamsForWire(ctx),
       }).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
@@ -94,7 +94,7 @@ export class MessageAuthorizationService {
 
   private messageAuthorizeParamsForWire(
     ctx: MessageAuthorizeContext,
-  ): ParamsOf<typeof MessagesAuthorize> {
+  ): ParamsOf<typeof messagesAuthorize> {
     return {
       taskId: ctx.taskId,
       appId: ctx.appId,
@@ -142,7 +142,7 @@ export class MessageAuthorizationServiceTag extends Context.Tag(
 _TypeAlias_
 
 ```ts
-export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
+export type MessageAuthorizeContext = ParamsOf<typeof messagesAuthorize>;
 ```
 
 ### [`MessageAuthorizeResult`](./authorization.ts#L15)
@@ -335,20 +335,24 @@ export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
 >() {}
 ```
 
-### [`messagesList`](./handlers.ts#L163)
+### [`messagesList`](./handlers.ts#L168)
 
 _Variable_
 
 ```ts
-export const messagesList: ServerHandler<typeof MessagesList> = (params)
+export const messagesList: ServerHandler<typeof messagesListDefinition> = (
+  params,
+)
 ```
 
-### [`messagesSend`](./handlers.ts#L154)
+### [`messagesSend`](./handlers.ts#L157)
 
 _Variable_
 
 ```ts
-export const messagesSend: ServerHandler<typeof MessagesSend> = (params)
+export const messagesSend: ServerHandler<typeof messagesSendDefinition> = (
+  params,
+)
 ```
 
 ## Files

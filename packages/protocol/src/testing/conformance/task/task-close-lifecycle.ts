@@ -6,17 +6,14 @@
  */
 import { Effect } from "effect";
 import {
-  TaskClosedNotificationDefinition,
-  TaskRequest,
-  TaskUpdate,
+  taskClosedNotificationDefinition,
+  taskRequest,
+  taskUpdate,
+  type TaskId,
 } from "#task";
-import { ConversationCreate } from "#conversation";
-import type { TaskId } from "#task";
-import type { ModeratedHandle } from "./_helpers.js";
-import type { ConformanceRunContext } from "../_shared/runner.js";
-import { registerProperty } from "../_shared/registry.js";
-import { requireRight } from "../_shared/_helpers.js";
+import { conversationCreate } from "#conversation";
 import {
+  type ModeratedHandle,
   DELIVERY_DEFAULT_TIMEOUT_MS,
   acquireClient,
   assertConversationRejectsMessages,
@@ -26,12 +23,19 @@ import {
   waitForArchivedEvent,
   type ConversationActor,
 } from "./_helpers.js";
+import type { ConformanceRunContext } from "../_shared/runner.js";
+import { registerProperty } from "../_shared/registry.js";
+import { requireRight } from "../_shared/_helpers.js";
 
 // Property ID stays `delivery/task-close-lifecycle`: the registry
 // `category` derives from the call-site, not the file path.
-const CATEGORY = "delivery" as const;
+const CATEGORY = "delivery";
 const PROPERTY = "task-close-lifecycle";
 
+/**
+ * Registers task close lifecycle.
+ * @param ctx Context for the operation.
+ */
 export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -44,12 +48,12 @@ export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void {
   );
 }
 
-type TaskClosedEventData = {
+interface TaskClosedEventData {
   readonly task?: {
     readonly id?: unknown;
     readonly status?: unknown;
   };
-};
+}
 
 function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
   return Effect.scoped(
@@ -58,7 +62,7 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
       // tasks/close heads its `requires` with `AppPrincipal` — drive it through
       // the moderator app principal, not the agent owner.
       const close = yield* fixture.moderatorClient
-        .sendRpc(TaskUpdate, { action: "close", taskId: fixture.taskId })
+        .sendRpc(taskUpdate, { action: "close", taskId: fixture.taskId })
         .pipe(Effect.either);
       const closed = yield* requireRight(close, (error) =>
         deliveryViolation(PROPERTY, `tasks/close failed: ${error._tag}`),
@@ -74,7 +78,6 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
       yield* waitForArchivedEvent(
         fixture.participant,
         fixture.conversationId,
-        fixture.owner.agent.agentId,
         PROPERTY,
       );
       yield* waitForTaskClosedEvent(
@@ -140,7 +143,7 @@ function createTaskAndAddParticipant(
 ) {
   return Effect.gen(function* () {
     const taskResult = yield* owner.client
-      .sendRpc(TaskRequest, {
+      .sendRpc(taskRequest, {
         appId: moderator.appId,
         invitedAgentIds: [participant.agent.agentId],
       })
@@ -149,7 +152,7 @@ function createTaskAndAddParticipant(
       deliveryViolation(PROPERTY, `agent/task/request failed: ${error._tag}`),
     );
     const addResult = yield* moderator.client
-      .sendRpc(TaskUpdate, {
+      .sendRpc(taskUpdate, {
         action: "add-participant",
         taskId: task.task.id,
         agentId: participant.agent.agentId,
@@ -175,7 +178,7 @@ function createTaskCloseConversation(
 ) {
   return Effect.gen(function* () {
     const conversationResult = yield* moderator.client
-      .sendRpc(ConversationCreate, {
+      .sendRpc(conversationCreate, {
         taskId,
         participants: [owner.agent.agentId, participant.agent.agentId],
       })
@@ -197,7 +200,7 @@ function waitForTaskClosedEvent(
   return Effect.gen(function* () {
     const event = yield* awaitOneNotification(
       observer.notifications,
-      TaskClosedNotificationDefinition,
+      taskClosedNotificationDefinition,
       DELIVERY_DEFAULT_TIMEOUT_MS,
     ).pipe(
       Effect.mapError((reason) =>

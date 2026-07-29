@@ -13,16 +13,16 @@ import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import type {
-  DispatchLeaseGet,
+  dispatchLeaseGet,
   DispatchId,
 } from "@moltzap/protocol/message/dispatch";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
-  DispatchId as DispatchIdSchema,
-  LeaseId as LeaseIdSchema,
-  DispatchRelease,
-  DispatchLeaseConsumed,
-  DispatchLeaseExpired,
+  dispatchId as DispatchIdSchema,
+  leaseId as LeaseIdSchema,
+  dispatchRelease,
+  dispatchLeaseConsumed,
+  dispatchLeaseExpired,
 } from "@moltzap/protocol/message/dispatch";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
@@ -31,7 +31,7 @@ import type { ConnectionManager } from "#socket";
 import type { LeaseTransitionObserver } from "#network/presence";
 
 /** Wire-side LeaseRecord shape (flat). */
-type LeaseRecordWire = ResultOf<typeof DispatchLeaseGet>["lease"];
+type LeaseRecordWire = ResultOf<typeof dispatchLeaseGet>["lease"];
 const decodeDispatchId = Schema.decodeUnknownSync(DispatchIdSchema);
 const decodeLeaseId = Schema.decodeUnknownSync(LeaseIdSchema);
 
@@ -650,7 +650,7 @@ function emitDispatchRelease(
   return fireNotification(
     state,
     record.binding.recipientConnectionId,
-    DispatchRelease,
+    dispatchRelease,
     {
       dispatchId: record.dispatchId,
       leaseId: record.leaseId,
@@ -671,7 +671,7 @@ function emitDispatchLeaseConsumed(
   return fireNotification(
     state,
     record.binding.moderatorConnectionId,
-    DispatchLeaseConsumed,
+    dispatchLeaseConsumed,
     {
       dispatchId: record.dispatchId,
       leaseId: record.leaseId,
@@ -690,7 +690,7 @@ function emitDispatchLeaseExpired(
   return fireNotification(
     state,
     record.binding.moderatorConnectionId,
-    DispatchLeaseExpired,
+    dispatchLeaseExpired,
     {
       dispatchId: record.dispatchId,
       leaseId: record.leaseId,

@@ -2,8 +2,8 @@ import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit, Redacted, Schema } from "effect";
-import { AgentId } from "@moltzap/protocol/identity";
-import { AgentKey } from "@moltzap/protocol/identity";
+import { agentId as agentIdSchema } from "@moltzap/protocol/identity";
+import { agentKey } from "@moltzap/protocol/identity";
 import {
   agentId,
   agentKeyString,
@@ -29,8 +29,8 @@ const ConfigFixtureSchema = Schema.parseJson(
       Schema.Record({
         key: Schema.String,
         value: Schema.Struct({
-          agentId: AgentId,
-          apiKey: AgentKey,
+          agentId: agentIdSchema,
+          apiKey: agentKey,
           agentName: Schema.String,
         }),
       }),

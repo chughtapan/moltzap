@@ -30,7 +30,7 @@
   },
   "scripts": {
     "build": "nx run @moltzap/server-core:build",
-    "lint": "nx run @moltzap/server-core:lint",
+    "lint": "tsc --build && eslint . --cache --max-warnings=0",
     "dev": "tsx watch src/standalone.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",
@@ -55,7 +55,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/server",
-          "command": "eslint src *.ts --cache --max-warnings=0"
+          "command": "pnpm lint"
         }
       },
       "arch:check": {

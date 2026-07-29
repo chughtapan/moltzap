@@ -11,14 +11,18 @@ import {
   withDriver,
 } from "./_helpers.js";
 
+/**
+ * Registers dispatch authorize timeout synthesizes deny.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-authorize-timeout-synthesizes-deny";
+  const name = "dispatch-authorize-timeout-synthesizes-deny";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     'moderator never replies within the hook policy timeoutMs; server emits agent/dispatch/released{deny, reason: "timeout"} (and removes the recipient as a participant)',
     withDriver(
       ctx,
@@ -41,7 +45,7 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
           if (params.verdict.decision !== "deny") {
             return yield* Effect.fail(
               dispatchAdmissionViolation(
-                NAME,
+                name,
                 `expected synthesized deny, got ${params.verdict.decision}`,
               ),
             );
@@ -52,7 +56,7 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
           ) {
             return yield* Effect.fail(
               dispatchAdmissionViolation(
-                NAME,
+                name,
                 `expected reason mentioning "timeout", got: ${String(params.verdict.reason)}`,
               ),
             );

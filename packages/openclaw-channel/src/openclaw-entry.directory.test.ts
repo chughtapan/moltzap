@@ -6,7 +6,7 @@ import {
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
 import type { ChannelService } from "@moltzap/client/channel-base";
-import { AgentsList } from "@moltzap/protocol/identity";
+import { agentsList } from "@moltzap/protocol/identity";
 import type { ParamsOf, ResultOf, RpcDefinition } from "@moltzap/protocol/rpc";
 import { Data, Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
@@ -101,7 +101,7 @@ function directoryCallDefinition<D extends RpcDefinition<string, any, any>>(
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
-  if (definition.name === AgentsList.name) {
+  if (definition.name === agentsList.name) {
     agentsCallCount++;
     if (byzantineConstantCursor) {
       // Always claims "more" with the same cursor — never advances.

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
-import { TaskCreate } from "@moltzap/protocol/task";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { messagesAuthorize } from "@moltzap/protocol/message";
+import { taskCreate } from "@moltzap/protocol/task";
 import type {
   ReverseCallError,
   ReverseCallbackError,
@@ -19,31 +19,31 @@ export function callAppRpc(
   entry: AppRegistration,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof DispatchAuthorize }
+    { readonly definition: typeof dispatchAuthorize }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof DispatchAuthorize>,
-  ReverseCallbackError<typeof DispatchAuthorize> | ReverseCallError
+  ReverseCallbackSuccess<typeof dispatchAuthorize>,
+  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError
 >;
 export function callAppRpc(
   entry: AppRegistration,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof MessagesAuthorize }
+    { readonly definition: typeof messagesAuthorize }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof MessagesAuthorize>,
-  ReverseCallbackError<typeof MessagesAuthorize> | ReverseCallError
+  ReverseCallbackSuccess<typeof messagesAuthorize>,
+  ReverseCallbackError<typeof messagesAuthorize> | ReverseCallError
 >;
 export function callAppRpc(
   entry: AppRegistration,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof TaskCreate }
+    { readonly definition: typeof taskCreate }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof TaskCreate>,
-  ReverseCallbackError<typeof TaskCreate> | ReverseCallError
+  ReverseCallbackSuccess<typeof taskCreate>,
+  ReverseCallbackError<typeof taskCreate> | ReverseCallError
 >;
 export function callAppRpc(
   entry: AppRegistration,

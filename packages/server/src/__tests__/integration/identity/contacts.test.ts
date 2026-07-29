@@ -2,11 +2,11 @@ import * as fc from "fast-check";
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Chunk, Duration, Effect, Fiber, Stream } from "effect";
 import {
-  ContactAcceptedNotificationDefinition,
-  ContactRequestNotificationDefinition,
-  ContactsAccept,
-  ContactsAdd,
-  ContactsList,
+  contactAcceptedNotificationDefinition,
+  contactRequestNotificationDefinition,
+  contactsAccept,
+  contactsAdd,
+  contactsList,
 } from "@moltzap/protocol/identity";
 import {
   it,
@@ -95,7 +95,7 @@ function setupAliceAndBob(): Effect.Effect<
 
 function collectContactRequests(client: TestAgentClient) {
   return client
-    .subscribe(ContactRequestNotificationDefinition)
+    .subscribe(contactRequestNotificationDefinition)
     .pipe(
       Stream.interruptAfter(Duration.millis(FRAME_SETTLE_MS)),
       Stream.runCollect,
@@ -106,7 +106,7 @@ function collectContactRequests(client: TestAgentClient) {
 
 function collectContactAccepted(client: TestAgentClient) {
   return client
-    .subscribe(ContactAcceptedNotificationDefinition)
+    .subscribe(contactAcceptedNotificationDefinition)
     .pipe(
       Stream.interruptAfter(Duration.millis(FRAME_SETTLE_MS)),
       Stream.runCollect,
@@ -133,7 +133,7 @@ it("agent/identity/contacts/add fans contact/request to the recipient", () =>
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
     const bobRequestsFiber = yield* collectContactRequests(bobClient);
     const aliceRequestsFiber = yield* collectContactRequests(aliceClient);
-    const result = yield* aliceClient.sendRpc(ContactsAdd, {
+    const result = yield* aliceClient.sendRpc(contactsAdd, {
       contactUserId: BOB_USER_ID,
     });
     expect(result.contact.contactUserId).toBe(BOB_USER_ID);
@@ -147,12 +147,12 @@ it("agent/identity/contacts/add fans contact/request to the recipient", () =>
 it("agent/identity/contacts/accept fans contact/accepted to the requester", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
-    const added = yield* aliceClient.sendRpc(ContactsAdd, {
+    const added = yield* aliceClient.sendRpc(contactsAdd, {
       contactUserId: BOB_USER_ID,
     });
     const aliceAcceptedFiber = yield* collectContactAccepted(aliceClient);
     const bobAcceptedFiber = yield* collectContactAccepted(bobClient);
-    yield* bobClient.sendRpc(ContactsAccept, {
+    yield* bobClient.sendRpc(contactsAccept, {
       contactId: added.contact.id,
     });
 
@@ -166,14 +166,14 @@ it("agent/identity/contacts/accept fans contact/accepted to the requester", () =
 it("agent/identity/contacts/accept is idempotent", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
-    const added = yield* aliceClient.sendRpc(ContactsAdd, {
+    const added = yield* aliceClient.sendRpc(contactsAdd, {
       contactUserId: BOB_USER_ID,
     });
     const aliceAcceptedFiber = yield* collectContactAccepted(aliceClient);
-    yield* bobClient.sendRpc(ContactsAccept, {
+    yield* bobClient.sendRpc(contactsAccept, {
       contactId: added.contact.id,
     });
-    yield* bobClient.sendRpc(ContactsAccept, {
+    yield* bobClient.sendRpc(contactsAccept, {
       contactId: added.contact.id,
     });
 
@@ -184,15 +184,15 @@ it("agent/identity/contacts/accept is idempotent", () =>
 it("agent/identity/contacts/list returns both accepted rows", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
-    const added = yield* aliceClient.sendRpc(ContactsAdd, {
+    const added = yield* aliceClient.sendRpc(contactsAdd, {
       contactUserId: BOB_USER_ID,
     });
-    yield* bobClient.sendRpc(ContactsAccept, {
+    yield* bobClient.sendRpc(contactsAccept, {
       contactId: added.contact.id,
     });
 
-    const aliceList = yield* aliceClient.sendRpc(ContactsList, {});
-    const bobList = yield* bobClient.sendRpc(ContactsList, {});
+    const aliceList = yield* aliceClient.sendRpc(contactsList, {});
+    const bobList = yield* bobClient.sendRpc(contactsList, {});
     expect(aliceList.contacts.map((c) => c.contactUserId)).toContain(
       BOB_USER_ID,
     );
@@ -216,7 +216,7 @@ it("agent/identity/contacts/add rejects self-add", () =>
     });
     trackClient(aliceClient);
     const exit = yield* Effect.either(
-      aliceClient.sendRpc(ContactsAdd, {
+      aliceClient.sendRpc(contactsAdd, {
         contactUserId: ALICE_USER_ID,
       }),
     );

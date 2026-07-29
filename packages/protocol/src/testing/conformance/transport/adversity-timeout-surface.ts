@@ -1,12 +1,12 @@
 /**
- * timeout — the toxic black-holes forwarding; the client must surface
+ * Timeout — the toxic black-holes forwarding; the client must surface
  * a typed `RpcTimeoutError` within its own timeout budget (not hang).
  */
 import { Clock, Effect, Either } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { RpcTimeoutError } from "../_shared/errors.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
-import { TaskList } from "#task";
+import { taskList } from "#task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
@@ -20,6 +20,10 @@ const TIMEOUT_SURFACE_PROPERTY = "timeout-surface";
 const TIMEOUT_CLIENT_TIMEOUT_MS = 1_500;
 const TIMEOUT_EXPECTED_BUDGET_MS = 3_000;
 
+/**
+ * Registers timeout surface.
+ * @param ctx Context for the operation.
+ */
 export function registerTimeoutSurface(ctx: ConformanceRunContext): void {
   withToxicProxy({
     ctx,
@@ -55,10 +59,10 @@ function runTimeoutSurface(
   });
 }
 
-type TimeoutResult = {
+interface TimeoutResult {
   readonly error: unknown | null;
   readonly elapsed: number;
-};
+}
 
 function measureTimeoutOutcome(
   client: AgentTestClient,
@@ -68,7 +72,7 @@ function measureTimeoutOutcome(
     Effect.gen(function* () {
       yield* attachToxic;
       const start = yield* Clock.currentTimeMillis;
-      const outcome = yield* client.sendRpc(TaskList, {}).pipe(Effect.either);
+      const outcome = yield* client.sendRpc(taskList, {}).pipe(Effect.either);
       const elapsed = (yield* Clock.currentTimeMillis) - start;
       const error = Either.match(outcome, {
         onLeft: (failure) => failure,

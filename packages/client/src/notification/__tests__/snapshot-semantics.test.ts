@@ -54,8 +54,8 @@ import {
   NotConnectedError,
   makeNotificationSubscriberRegistry,
 } from "@moltzap/protocol/rpc";
-import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import { TaskFailedNotificationDefinition } from "@moltzap/protocol/task";
+import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import { taskFailedNotificationDefinition } from "@moltzap/protocol/task";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type {
   NotificationDelivery,
@@ -68,7 +68,7 @@ const PROP_TEST_FRAME_COUNT = 6;
 const PROP_TEST_CANCEL_AT = 3;
 
 type TaskFailedParams = NotificationParamsOf<
-  typeof TaskFailedNotificationDefinition
+  typeof taskFailedNotificationDefinition
 >;
 
 const taskIds = Array.from({ length: PROP_TEST_FRAME_COUNT }, (_, seq) =>
@@ -92,10 +92,10 @@ const makeSubscriberRegistry = () =>
 
 function taskFailedDelivery(
   seq: number,
-): NotificationDelivery<typeof TaskFailedNotificationDefinition> {
+): NotificationDelivery<typeof taskFailedNotificationDefinition> {
   return {
-    definition: TaskFailedNotificationDefinition,
-    method: TaskFailedNotificationDefinition.name,
+    definition: taskFailedNotificationDefinition,
+    method: taskFailedNotificationDefinition.name,
     params: {
       taskId: taskIds[seq] ?? testTaskId(`task-${seq}`),
       reason: seq % 2 === 0 ? "even" : "odd",
@@ -104,11 +104,11 @@ function taskFailedDelivery(
 }
 
 function messageReceivedDelivery(): NotificationDelivery<
-  typeof MessageReceivedNotificationDefinition
+  typeof messageReceivedNotificationDefinition
 > {
   return {
-    definition: MessageReceivedNotificationDefinition,
-    method: MessageReceivedNotificationDefinition.name,
+    definition: messageReceivedNotificationDefinition,
+    method: messageReceivedNotificationDefinition.name,
     params: {
       taskId: testTaskId("task-1"),
       message: buildMessage({
@@ -128,7 +128,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const targetSeen = yield* Ref.make<ReadonlyArray<number>>([]);
 
         const observerFiber = yield* Effect.fork(
-          subscribe(registry, TaskFailedNotificationDefinition).pipe(
+          subscribe(registry, taskFailedNotificationDefinition).pipe(
             Stream.runForEach((params) =>
               Ref.update(observerSeen, (xs) => [
                 ...xs,
@@ -141,7 +141,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         const targetStream = subscribe(
           registry,
-          TaskFailedNotificationDefinition,
+          taskFailedNotificationDefinition,
         );
         const targetFiber = yield* Effect.fork(
           targetStream.pipe(
@@ -204,19 +204,19 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const receivedByS2 = yield* Ref.make<ReadonlyArray<number>>([]);
 
         const s1Fiber = yield* Effect.fork(
-          subscribe(registry, TaskFailedNotificationDefinition).pipe(
+          subscribe(registry, taskFailedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
         );
         const s3Fiber = yield* Effect.fork(
-          subscribe(registry, TaskFailedNotificationDefinition).pipe(
+          subscribe(registry, taskFailedNotificationDefinition).pipe(
             Stream.runDrain,
             Effect.catchAll(() => Effect.void),
           ),
         );
 
-        const s2Stream = subscribe(registry, TaskFailedNotificationDefinition);
+        const s2Stream = subscribe(registry, taskFailedNotificationDefinition);
         const s2Fiber = yield* Effect.fork(
           s2Stream.pipe(
             Stream.runForEach((params) =>
@@ -277,7 +277,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
         const releaseS1 = yield* Deferred.make<void>();
         const s2Received = yield* Ref.make<ReadonlyArray<number>>([]);
 
-        yield* registry.register(TaskFailedNotificationDefinition, undefined, {
+        yield* registry.register(taskFailedNotificationDefinition, {
           onFrame: () =>
             Effect.gen(function* () {
               yield* Deferred.succeed(enteredS1, void 0);
@@ -286,8 +286,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
           onClose: () => Effect.void,
         });
         const s2Handle = yield* registry.register(
-          TaskFailedNotificationDefinition,
-          undefined,
+          taskFailedNotificationDefinition,
           {
             onFrame: (params) =>
               Ref.update(s2Received, (xs) => [
@@ -333,7 +332,7 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
       Effect.gen(function* () {
         const registry = yield* makeSubscriberRegistry();
         const fiber = yield* Effect.fork(
-          subscribe(registry, MessageReceivedNotificationDefinition).pipe(
+          subscribe(registry, messageReceivedNotificationDefinition).pipe(
             Stream.runDrain,
             // Catch nothing — we want the fiber to exit with the failure
             // so we can pattern-match on it.
@@ -393,8 +392,8 @@ describe("subscribe snapshot semantics — Stream cancellation", () => {
 
         const names = yield* Ref.get(observed);
         expect(names).toEqual([
-          TaskFailedNotificationDefinition.name,
-          MessageReceivedNotificationDefinition.name,
+          taskFailedNotificationDefinition.name,
+          messageReceivedNotificationDefinition.name,
         ]);
       }),
     ));

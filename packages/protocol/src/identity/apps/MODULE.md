@@ -8,7 +8,20 @@ App identity descriptors, identifiers, and credentials.
 
 ## Public surface
 
-### [`AppId`](./ids.ts#L5)
+### [`appId`](./ids.ts#L8)
+
+_Variable_
+
+```ts
+export const appId: Schema.Schema<AppId, string> = formatString("uuid").pipe(
+  Schema.brand("AppId"),
+  Schema.annotations({ description: "Branded AppId" }),
+)
+```
+
+Validates and decodes app id values.
+
+### [`AppId`](./ids.ts#L6)
 
 _TypeAlias_
 
@@ -16,15 +29,20 @@ _TypeAlias_
 export type AppId = string & Brand.Brand<"AppId">;
 ```
 
-### [`AppId`](./ids.ts#L5)
+Represents app id values.
+
+### [`appKey`](./credentials.ts#L23)
 
 _Variable_
 
 ```ts
-export type AppId = string & Brand.Brand<"AppId">
+export const appKey: Schema.Schema<AppKey, string> =
+  Schema.Redacted(appKeyValue)
 ```
 
-### [`AppKey`](./credentials.ts#L20)
+Validates and decodes app key values.
+
+### [`AppKey`](./credentials.ts#L21)
 
 _TypeAlias_
 
@@ -32,23 +50,19 @@ _TypeAlias_
 export type AppKey = Redacted.Redacted<AppKeyValue>;
 ```
 
-### [`AppKey`](./credentials.ts#L20)
+Represents app key values.
 
-_Variable_
-
-```ts
-export type AppKey = Redacted.Redacted<AppKeyValue>
-```
-
-### [`AppManifest`](./manifest.ts#L129)
+### [`AppManifest`](./manifest.ts#L130)
 
 _TypeAlias_
 
 ```ts
-export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
+export type AppManifest = Schema.Schema.Type<typeof appManifestSchema>;
 ```
 
-### [`AppManifestValidationResult`](./manifest.ts#L138)
+Represents app manifest values.
+
+### [`AppManifestValidationResult`](./manifest.ts#L140)
 
 _TypeAlias_
 
@@ -59,17 +73,21 @@ export type AppManifestValidationResult = Either.Either<
 >;
 ```
 
-### [`DEFAULT_APP_ID`](./ids.ts#L11)
+Represents the result of app manifest validation.
+
+### [`DEFAULT_APP_ID`](./ids.ts#L14)
 
 _Variable_
 
 ```ts
-export const DEFAULT_APP_ID = Schema.decodeSync(AppId)(
+export const DEFAULT_APP_ID = Schema.decodeSync(appId)(
   "e12fe562-ed1f-4d2d-bed5-68b8edfa41cb",
 )
 ```
 
-### [`manifestPolicyCanaries`](./manifest-policy.types-check.ts#L102)
+Validates and decodes default app id values.
+
+### [`manifestPolicyCanaries`](./manifest-policy.types-check.ts#L107)
 
 _Variable_
 
@@ -79,7 +97,7 @@ export const manifestPolicyCanaries =
 
 Aggregate so each binding is referenced (no unused-variable lint).
 
-### [`validateAppManifest`](./manifest.ts#L150)
+### [`validateAppManifest`](./manifest.ts#L154)
 
 _Function_
 
@@ -94,6 +112,8 @@ an extra key rejects the manifest at this trust boundary (an app manifest is
 operator-supplied configuration, not wire traffic). On failure surfaces every
 `ParseError` leaf via `ParseResult.ArrayFormatter.formatErrorSync` (one issue
 → one string).
+
+**Returns:** The validate app manifest result.
 
 ## Files
 

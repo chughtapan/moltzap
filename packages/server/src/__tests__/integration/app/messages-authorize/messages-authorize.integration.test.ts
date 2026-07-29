@@ -2,15 +2,15 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { taskCreate, taskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesAuthorize,
-  MessagesList,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesAuthorize,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";
-import { ConversationCreate } from "@moltzap/protocol/conversation";
+import { conversationCreate } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type {
   AppCallbackContext,
@@ -138,12 +138,12 @@ beforeEach(() =>
  */
 function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    [DispatchAuthorize.name]: {
-      definition: DispatchAuthorize,
+    [dispatchAuthorize.name]: {
+      definition: dispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
-    [MessagesAuthorize.name]: {
-      definition: MessagesAuthorize,
+    [messagesAuthorize.name]: {
+      definition: messagesAuthorize,
       handle: () =>
         Effect.gen(function* () {
           appHookState.calls += 1;
@@ -154,8 +154,8 @@ function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
           return { verdict: verdict as MessageAuthorizeVerdict };
         }),
     },
-    [TaskCreate.name]: {
-      definition: TaskCreate,
+    [taskCreate.name]: {
+      definition: taskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
@@ -242,7 +242,7 @@ function forkMessageReceivedCollector(
   settle: Duration.DurationInput,
 ) {
   return agent.client
-    .subscribe(MessageReceivedNotificationDefinition)
+    .subscribe(messageReceivedNotificationDefinition)
     .pipe(
       Stream.interruptAfter(Duration.decode(settle)),
       Stream.runCollect,
@@ -321,7 +321,7 @@ function createAppManagedTask(
       moderatorHandlers(),
     );
     moderatorApp = { client, sender: agent };
-    return yield* agent.client.sendRpc(TaskRequest, {
+    return yield* agent.client.sendRpc(taskRequest, {
       appId: registered.appId,
       invitedAgentIds: invited.map((a) => a.agentId),
     });
@@ -337,7 +337,7 @@ function createManagedGroup(
   participants: ReadonlyArray<ConnectedAgent>,
 ) {
   const app = currentModeratorApp();
-  return app.client.sendRpc(ConversationCreate, {
+  return app.client.sendRpc(conversationCreate, {
     taskId,
     name,
     participants: [app.sender.agentId, ...participants.map((p) => p.agentId)],
@@ -346,7 +346,7 @@ function createManagedGroup(
 
 function createManagedDm(taskId: TaskId, participant: ConnectedAgent) {
   const app = currentModeratorApp();
-  return app.client.sendRpc(ConversationCreate, {
+  return app.client.sendRpc(conversationCreate, {
     taskId,
     participants: [app.sender.agentId, participant.agentId],
   });
@@ -357,7 +357,7 @@ function sendText(
   binding: ConversationBinding,
   text: string,
 ) {
-  return agent.client.sendRpc(MessagesSend, {
+  return agent.client.sendRpc(messagesSend, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
@@ -371,7 +371,7 @@ function sendTextWithTimeout(
   timeoutMs: number,
 ) {
   return agent.client.sendRpc(
-    MessagesSend,
+    messagesSend,
     {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
@@ -541,7 +541,7 @@ interface VisibilityCheckInput {
 function expectPerCallerVisibility(input: VisibilityCheckInput) {
   const { alice, bob, carol, binding, forwarded } = input;
   return Effect.gen(function* () {
-    const aliceList = yield* alice.client.sendRpc(MessagesList, {
+    const aliceList = yield* alice.client.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
@@ -551,14 +551,14 @@ function expectPerCallerVisibility(input: VisibilityCheckInput) {
       .slice()
       .sort();
     expect(aliceList.messages.map((m) => m.id).sort()).toEqual(allIds);
-    const bobList = yield* bob.client.sendRpc(MessagesList, {
+    const bobList = yield* bob.client.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
     expect(bobList.messages.map((m) => m.id)).toEqual([
       forwarded.bobForward.message.id,
     ]);
-    const carolList = yield* carol.client.sendRpc(MessagesList, {
+    const carolList = yield* carol.client.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
