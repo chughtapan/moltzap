@@ -1,5 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
-import { describe, expect } from "vitest";
+import { describe, expect, vi } from "vitest";
 import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
@@ -198,6 +198,13 @@ function rejectsInvalidPort() {
 }
 
 const INTERPOLATION_YAML = `registration:\n  secret: \${MY_SECRET}\n`;
+const ENV_BACKED_REGISTRATION_YAML = `admin_user_id: ${ADMIN_USER_ID}
+server:
+  cors_origins:
+    - ${APP_ORIGIN}
+registration:
+  secret: \${MOLTZAP_REGISTRATION_SECRET}
+`;
 
 function envInterpolation() {
   return withTempConfig(INTERPOLATION_YAML, (configPath) =>
@@ -212,6 +219,23 @@ function envInterpolation() {
       expect(result.registrationSecret).not.toBeUndefined();
       expect(Redacted.value(result.registrationSecret!)).toBe(INTERPOLATED);
     }),
+  );
+}
+
+function envBackedRegistrationInterpolation() {
+  vi.stubEnv("MOLTZAP_REGISTRATION_SECRET", INTERPOLATED);
+  return withTempConfig(ENV_BACKED_REGISTRATION_YAML, (configPath) =>
+    Effect.gen(function* () {
+      const result = yield* loadStandaloneConfig({ configPath });
+      expect(result.registrationSecret).not.toBeUndefined();
+      expect(Redacted.value(result.registrationSecret!)).toBe(INTERPOLATED);
+    }),
+  ).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        vi.unstubAllEnvs();
+      }),
+    ),
   );
 }
 
@@ -317,6 +341,10 @@ describe("loadStandaloneConfig YAML", () => {
   it("rejects an out-of-range port with a validation ConfigLoadError", () =>
     rejectsInvalidPort());
   it("env interpolation: ${VAR} resolves against processEnv", envInterpolation);
+  it(
+    "loads the registration secret used by env-backed YAML interpolation",
+    envBackedRegistrationInterpolation,
+  );
   it("apps[] passes through to bootPlan", appsPassthrough);
   it(
     "services.contacts: webhook produces contactWebhook binding",

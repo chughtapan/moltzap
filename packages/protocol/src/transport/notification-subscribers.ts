@@ -387,13 +387,12 @@ export function notificationSubscribe<
     const handle = Effect.runSync(
       registry.register(definition, refinement, {
         onFrame: (params) =>
-          Effect.sync(() => {
-            emit.single(params);
-          }),
+          Effect.tryPromise({
+            try: () => emit.single(params),
+            catch: (cause) => cause,
+          }).pipe(Effect.orDie),
         onClose: (cause) =>
-          Effect.sync(() => {
-            emit.fail(cause);
-          }),
+          Effect.sync(() => emit.fail(cause)).pipe(Effect.asVoid),
       }),
     );
     return Effect.suspend(() => handle.unregister);
@@ -411,13 +410,12 @@ export function notificationSubscribeAll<
     const handle = Effect.runSync(
       registry.registerAll(refinement, {
         onFrame: (delivery) =>
-          Effect.sync(() => {
-            emit.single(delivery);
-          }),
+          Effect.tryPromise({
+            try: () => emit.single(delivery),
+            catch: (cause) => cause,
+          }).pipe(Effect.orDie),
         onClose: (cause) =>
-          Effect.sync(() => {
-            emit.fail(cause);
-          }),
+          Effect.sync(() => emit.fail(cause)).pipe(Effect.asVoid),
       }),
     );
     return Effect.suspend(() => handle.unregister);

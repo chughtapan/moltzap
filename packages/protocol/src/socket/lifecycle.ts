@@ -1,10 +1,10 @@
+/* eslint-disable max-lines -- lifecycle state and scope ownership stay together so every socket-closing transition remains auditable */
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import { RpcClient, RpcServer, type Rpc, type RpcGroup } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import {
   Cause,
-  Data,
   Deferred,
   Duration,
   Effect,
@@ -14,9 +14,7 @@ import {
   Layer,
   Mailbox,
   ManagedRuntime,
-  Option,
   Ref,
-  Schedule,
   Schema,
   Scope,
   Stream,
@@ -61,6 +59,7 @@ import {
   extractCloseInfo,
   type CloseInfo,
 } from "./close-info.js";
+import { clientRuntimeLoggerLayer } from "./client-runtime.config.js";
 import type {
   NotificationDelivery,
   NotificationParamsOf,
@@ -90,13 +89,11 @@ import {
 
 export const RPC_TIMEOUT_MS = 30_000;
 
-const BASE_RECONNECT_DELAY_MS = 1000;
-const MAX_RECONNECT_DELAY_MS = 30_000;
-const RECONNECT_BACKOFF_FACTOR = 2;
 const WEB_SOCKET_OPEN_TIMEOUT_SECONDS = 10;
 const NORMAL_CLOSE_CODE = 1000;
 const GRACEFUL_CLOSE_WRITE_TIMEOUT = Duration.seconds(1);
 const MSG_NOT_CONNECTED = "WebSocket not connected";
+const SCOPED_SUBSCRIPTION_CAPACITY = 1_024;
 
 export interface RpcCallOptions {
   readonly timeoutMs?: number;
@@ -145,48 +142,23 @@ const socketUrl = (
     onRight: (base) => Effect.succeed(webSocketUrl(base)),
   });
 
-const openSocket = (
+const makeSocket = (
   url: string,
-  scope: Scope.CloseableScope,
-): Effect.Effect<
-  ClientWebSocket,
-  NotConnectedError,
-  Socket.WebSocketConstructor
-> => {
+): Effect.Effect<ClientWebSocket, never, Socket.WebSocketConstructor> => {
   const openTimeout = Duration.seconds(WEB_SOCKET_OPEN_TIMEOUT_SECONDS);
-  return Scope.extend(Socket.makeWebSocket(url, { openTimeout }), scope).pipe(
-    Effect.timeoutFail({
-      duration: openTimeout,
-      onTimeout: makeNotConnectedError,
-    }),
-    Effect.catchAllCause((cause) =>
-      Effect.zipRight(
-        Effect.logWarning("WebSocket open failed", cause),
-        Scope.close(scope, Exit.void).pipe(
-          Effect.ignore,
-          Effect.zipRight(Effect.fail(makeNotConnectedError())),
-        ),
-      ),
-    ),
-  );
+  return Socket.makeWebSocket(url, { openTimeout });
 };
 
-const drainConnectionEffect = (input: {
+const requestGracefulClose = (input: {
   readonly write: (
     chunk: Socket.CloseEvent,
   ) => Effect.Effect<void, Socket.SocketError>;
-  readonly scope: Scope.CloseableScope;
   readonly hasCompletedHandshake: boolean;
 }): Effect.Effect<void> => {
-  const closeScope = Scope.close(input.scope, Exit.void);
-  if (!input.hasCompletedHandshake) return closeScope;
+  if (!input.hasCompletedHandshake) return Effect.void;
   return input
     .write(new Socket.CloseEvent(NORMAL_CLOSE_CODE, "normal"))
-    .pipe(
-      Effect.timeout(GRACEFUL_CLOSE_WRITE_TIMEOUT),
-      Effect.ignore,
-      Effect.zipRight(closeScope),
-    );
+    .pipe(Effect.timeout(GRACEFUL_CLOSE_WRITE_TIMEOUT), Effect.ignore);
 };
 
 const callWithTimeout = <A, E>(
@@ -212,17 +184,13 @@ const callWithTimeout = <A, E>(
     return yield* exit;
   }).pipe(Effect.withSpan("callWithTimeout"));
 
-interface ClientConnection<Rpcs extends ProtocolRpc, Client> {
+interface ClientConnection<Client> {
   readonly write: (
     chunk: string | Socket.CloseEvent,
   ) => Effect.Effect<void, Socket.SocketError>;
-  readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
-  readonly scope: Scope.CloseableScope;
+  readonly reader: Effect.Effect<void, Socket.SocketError>;
+  readonly scope: Scope.Scope;
   readonly client: Client;
-  readonly handshakeSettled: Deferred.Deferred<
-    ConnectResult,
-    ClientConnectError<Rpcs>
-  >;
 }
 
 export interface ClientLifecycleOptions<
@@ -233,33 +201,21 @@ export interface ClientLifecycleOptions<
   readonly connectTag: ConnectTag<Rpcs>;
   readonly connectPayload: PayloadForTag<Rpcs, ConnectTag<Rpcs>>;
   readonly openSession: (
-    options: ClientSocketSessionOptions<Rpcs>,
+    options: ClientSocketSessionOptions,
   ) => Effect.Effect<
-    ClientConnection<Rpcs, Client>,
+    ClientConnection<Client>,
     NotConnectedError,
     Socket.WebSocketConstructor
   >;
   readonly callbackHandlers: () => ReverseCallbackHandlers;
   readonly onDisconnect?: (close: CloseInfo) => void;
-  readonly onReconnect?: (helloOk: ConnectResult) => void;
-  readonly failConnectWhenClosed: boolean;
 }
 
-interface ClientSocketSessionOptions<Rpcs extends ProtocolRpc> {
+interface ClientSocketSessionOptions {
   readonly serverUrl: string;
   readonly registry: SubscriberRegistry;
   readonly callbackHandlers: ReverseCallbackHandlers;
-  readonly handshakeSettled: Deferred.Deferred<
-    ConnectResult,
-    ClientConnectError<Rpcs>
-  >;
-  readonly forkReader: (
-    effect: Effect.Effect<void, Socket.SocketError>,
-  ) => Fiber.RuntimeFiber<void, Socket.SocketError>;
-  readonly onReaderExit: (
-    exit: Exit.Exit<void, Socket.SocketError>,
-    scope: Scope.CloseableScope,
-  ) => Effect.Effect<void>;
+  readonly scope?: Scope.Scope;
 }
 
 type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
@@ -509,14 +465,14 @@ const buildReverseRpcServer = (options: {
   readonly registry: SubscriberRegistry;
   readonly callbackHandlers: ReverseCallbackHandlers;
   readonly write: WireWrite;
+  readonly disconnects: Mailbox.Mailbox<number>;
   readonly scope: Scope.Scope;
 }): Effect.Effect<{ readonly sink: ChannelSink }> =>
   Effect.gen(function* () {
     const sinkReady = yield* Deferred.make<ChannelSink>();
-    const disconnects = yield* Mailbox.make<number>();
     const protocolLayer = makeServerProtocolLayer({
       write: flattenReverseErrors(options.write),
-      disconnects,
+      disconnects: options.disconnects,
       sinkReady,
     });
     const handlers = buildReverseHandlers(options);
@@ -529,56 +485,53 @@ const buildReverseRpcServer = (options: {
     return { sink };
   }).pipe(Effect.withSpan("buildReverseRpcServer"));
 
-const openClientSocketSession = <Rpcs extends ProtocolRpc>(
-  options: ClientSocketSessionOptions<Rpcs> & {
+type GroupedClientSocketSessionOptions<Rpcs extends ProtocolRpc> =
+  ClientSocketSessionOptions & {
     readonly group: RpcGroup.RpcGroup<Rpcs>;
-  },
+  };
+
+const openClientSocketSession = <Rpcs extends ProtocolRpc>(
+  options: GroupedClientSocketSessionOptions<Rpcs>,
 ): Effect.Effect<
-  ClientConnection<Rpcs, RpcClient.RpcClient<Rpcs, RpcClientError>>,
+  ClientConnection<RpcClient.RpcClient<Rpcs, RpcClientError>>,
   NotConnectedError,
   Socket.WebSocketConstructor
 > =>
   Effect.gen(function* () {
     const url = yield* socketUrl(options.serverUrl);
-    const scope = yield* Scope.make();
-    const socket = yield* openSocket(url, scope);
+    const scope = options.scope ?? (yield* Scope.make());
+    const socket = yield* makeSocket(url);
     const write = yield* Scope.extend(socket.writer, scope);
     const wireWrite: WireWrite = (chunk) => write(chunk);
-
     const outbound = yield* buildSocketRpcClient({
       group: options.group,
       write: wireWrite,
       scope,
     });
+    const disconnects = yield* Mailbox.make<number>();
     const reverse = yield* buildReverseRpcServer({
       registry: options.registry,
       callbackHandlers: options.callbackHandlers,
       write: wireWrite,
+      disconnects,
       scope,
     });
-
-    const disconnects = yield* Mailbox.make<number>();
-    const readerFiber = options.forkReader(
-      runMuxReader(
+    return {
+      write,
+      scope,
+      client: outbound.client,
+      reader: runMuxReader(
         socket,
         { client: outbound.sink, server: reverse.sink },
         disconnects,
-      ).pipe(Effect.onExit((exit) => options.onReaderExit(exit, scope))),
-    );
-
-    return {
-      write,
-      readerFiber,
-      scope,
-      client: outbound.client,
-      handshakeSettled: options.handshakeSettled,
+      ),
     };
   }).pipe(Effect.withSpan("openProtocolClientSocket"));
 
 export const openProtocolAgentClientSocket = (
-  options: ClientSocketSessionOptions<AgentCallableRpcs>,
+  options: ClientSocketSessionOptions,
 ): Effect.Effect<
-  ClientConnection<AgentCallableRpcs, AgentClientDispatch>,
+  ClientConnection<AgentClientDispatch>,
   NotConnectedError,
   Socket.WebSocketConstructor
 > =>
@@ -588,9 +541,9 @@ export const openProtocolAgentClientSocket = (
   });
 
 export const openProtocolAppClientSocket = (
-  options: ClientSocketSessionOptions<AppCallableRpcs>,
+  options: ClientSocketSessionOptions,
 ): Effect.Effect<
-  ClientConnection<AppCallableRpcs, AppClientDispatch>,
+  ClientConnection<AppClientDispatch>,
   NotConnectedError,
   Socket.WebSocketConstructor
 > =>
@@ -599,96 +552,158 @@ export const openProtocolAppClientSocket = (
     group: AppCallableGroup,
   });
 
-class ReconnectAttemptFailedError extends Data.TaggedError(
-  "ReconnectAttemptFailedError",
-)<{
-  readonly reason: string;
-}> {}
+type ConnectWaiter<Rpcs extends ProtocolRpc> = Deferred.Deferred<
+  ConnectResult,
+  ClientConnectError<Rpcs>
+>;
 
-const makeReconnectSchedule = () =>
-  Schedule.exponential(
-    Duration.millis(BASE_RECONNECT_DELAY_MS),
-    RECONNECT_BACKOFF_FACTOR,
-  ).pipe(
-    Schedule.either(Schedule.spaced(Duration.millis(MAX_RECONNECT_DELAY_MS))),
-    Schedule.jittered,
-  );
+interface ClientGeneration<Rpcs extends ProtocolRpc> {
+  readonly token: object;
+  readonly owner: Fiber.RuntimeFiber<void, never>;
+  readonly connectWaiters: Array<ConnectWaiter<Rpcs>>;
+  readonly disconnectWaiters: Array<Deferred.Deferred<void, never>>;
+}
 
-const makeReconnectLoop = <HelloOk>(input: {
-  readonly connectEffect: () => Effect.Effect<
-    HelloOk,
-    unknown,
-    Socket.WebSocketConstructor
-  >;
-  readonly onReconnect: (helloOk: HelloOk) => void;
-  readonly onLoopEnd: () => void;
-}): Effect.Effect<void, never> => {
-  const attempt = input.connectEffect().pipe(
-    Effect.tap((helloOk) =>
-      Effect.gen(function* () {
-        try {
-          input.onReconnect(helloOk);
-        } catch (err) {
-          yield* Effect.logWarning("onReconnect handler threw", err);
-        }
-      }),
-    ),
-    Effect.either,
-    Effect.flatMap(
-      Either.match({
-        onLeft: () =>
-          Effect.fail(
-            new ReconnectAttemptFailedError({
-              reason: "reconnect attempt failed",
-            }),
-          ),
-        onRight: (value) => Effect.succeed(value),
-      }),
-    ),
-  );
-  return attempt.pipe(
-    Effect.retry(makeReconnectSchedule()),
-    Effect.asVoid,
-    Effect.catchAll(() => Effect.void),
-    Effect.ensuring(Effect.sync(input.onLoopEnd)),
-    Effect.provide(NodeSocket.layerWebSocketConstructor),
-    Effect.withSpan("makeReconnectLoop"),
-  );
-};
+type ClientLifecycleState<
+  Rpcs extends ProtocolRpc,
+  Client extends TypedDispatchMap<Rpcs, RpcClientError>,
+> =
+  | { readonly _tag: "Idle" }
+  | {
+      readonly _tag: "Opening";
+      readonly generation: ClientGeneration<Rpcs>;
+    }
+  | {
+      readonly _tag: "Connected";
+      readonly generation: ClientGeneration<Rpcs>;
+      readonly connection: ClientConnection<Client>;
+    }
+  | {
+      readonly _tag: "Stopping";
+      readonly generation: ClientGeneration<Rpcs>;
+      readonly terminal: boolean;
+    }
+  | { readonly _tag: "Stopped" };
 
+type ClientLifecycleCommand<
+  Rpcs extends ProtocolRpc,
+  Client extends TypedDispatchMap<Rpcs, RpcClientError>,
+> =
+  | {
+      readonly _tag: "Connect";
+      readonly reply: ConnectWaiter<Rpcs>;
+    }
+  | {
+      readonly _tag: "SessionOpened";
+      readonly token: object;
+      readonly connection: ClientConnection<Client>;
+      readonly startReader: Deferred.Deferred<void, never>;
+    }
+  | {
+      readonly _tag: "AuthenticationSettled";
+      readonly token: object;
+      readonly exit: Exit.Exit<ConnectResult, ClientConnectError<Rpcs>>;
+    }
+  | {
+      readonly _tag: "ReaderExited";
+      readonly token: object;
+      readonly exit: Exit.Exit<void, Socket.SocketError>;
+      readonly close: CloseInfo;
+      readonly acknowledged: Deferred.Deferred<void, never>;
+    }
+  | {
+      readonly _tag: "OwnerDone";
+      readonly token: object;
+      readonly openError: NotConnectedError | null;
+    }
+  | {
+      readonly _tag: "Disconnect";
+      readonly acknowledged: Deferred.Deferred<void, never>;
+    }
+  | {
+      readonly _tag: "Close";
+      readonly hasCompletedHandshake: boolean;
+    };
+
+/**
+ * Serializes connection generations through one controller. Each generation
+ * has one scoped owner that acquires the socket, runs its reader, and reports
+ * `OwnerDone` only after every session finalizer has completed. The start gate
+ * prevents an acquired reader from running unless its generation is still
+ * current.
+ *
+ * ```mermaid
+ * stateDiagram-v2
+ *   [*] --> Idle
+ *   Idle --> Opening: Connect
+ *   Opening --> Connected: SessionOpened starts reader and authentication
+ *   Opening --> Idle: OwnerDone after opening failure
+ *   Opening --> Stopping: Close interrupts owner
+ *   Connected --> Stopping: ReaderExited
+ *   Connected --> Stopping: Close or disconnect interrupts owner
+ *   Stopping --> Idle: OwnerDone permits explicit connect
+ *   Stopping --> Stopped: OwnerDone completes terminal close
+ * ```
+ */
 export class ProtocolClientLifecycle<
   Rpcs extends ProtocolRpc,
   Client extends TypedDispatchMap<Rpcs, RpcClientError>,
 > {
-  private readonly stateRef: Ref.Ref<
-    Option.Option<ClientConnection<Rpcs, Client>>
+  private readonly connectionRef: Ref.Ref<ClientConnection<Client> | null>;
+  private readonly commands: Mailbox.Mailbox<
+    ClientLifecycleCommand<Rpcs, Client>
   >;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
   >;
   private readonly subscribers: SubscriberRegistry;
+  private readonly controllerDone: Deferred.Deferred<void, never>;
+  private readonly closeCompletion: Deferred.Deferred<void, never>;
   private closed = false;
-  private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
   private _helloOk: ConnectResult | null = null;
 
   protected constructor(
     private readonly options: ClientLifecycleOptions<Rpcs, Client>,
   ) {
-    this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
-    this.stateRef = this.runtime.runSync(
-      Ref.make<Option.Option<ClientConnection<Rpcs, Client>>>(Option.none()),
+    this.runtime = ManagedRuntime.make(
+      Layer.merge(
+        NodeSocket.layerWebSocketConstructor,
+        clientRuntimeLoggerLayer,
+      ),
     );
-    this.subscribers = this.runtime.runSync(
-      makeNotificationSubscriberRegistry<
-        NotConnectedError,
-        AnyNotificationDefinition
-      >({
-        closeCause: makeNotConnectedError,
-        logPrefix: "subscriber",
-        spanName: "makeSubscriberRegistry",
+    const initialized = this.runtime.runSync(
+      Effect.gen(function* () {
+        const connectionRef = yield* Ref.make<ClientConnection<Client> | null>(
+          null,
+        );
+        const commands =
+          yield* Mailbox.make<ClientLifecycleCommand<Rpcs, Client>>();
+        const subscribers = yield* makeNotificationSubscriberRegistry<
+          NotConnectedError,
+          AnyNotificationDefinition
+        >({
+          closeCause: makeNotConnectedError,
+          logPrefix: "subscriber",
+          spanName: "makeSubscriberRegistry",
+        });
+        const controllerDone = yield* Deferred.make<void, never>();
+        const closeCompletion = yield* Deferred.make<void, never>();
+        return {
+          connectionRef,
+          commands,
+          subscribers,
+          controllerDone,
+          closeCompletion,
+        };
       }),
     );
+    this.connectionRef = initialized.connectionRef;
+    this.commands = initialized.commands;
+    this.subscribers = initialized.subscribers;
+    this.controllerDone = initialized.controllerDone;
+    this.closeCompletion = initialized.closeCompletion;
+    this.runtime.runFork(this.runController());
   }
 
   get helloOk(): ConnectResult | null {
@@ -696,14 +711,9 @@ export class ProtocolClientLifecycle<
   }
 
   connect(): Effect.Effect<ConnectResult, ClientConnectError<Rpcs>> {
-    return Effect.suspend(() => {
-      if (this.closed && this.options.failConnectWhenClosed) {
-        return Effect.fail(makeNotConnectedError());
-      }
-      return this.connectEffect().pipe(
-        Effect.provide(NodeSocket.layerWebSocketConstructor),
-      );
-    });
+    return Effect.suspend(() =>
+      this.closed ? Effect.fail(makeNotConnectedError()) : this.connectEffect(),
+    );
   }
 
   subscribe<
@@ -725,6 +735,41 @@ export class ProtocolClientLifecycle<
       return notificationSubscribe(this.subscribers, definition);
     }
     return notificationSubscribe(this.subscribers, definition, refinement);
+  }
+
+  /**
+   * Acquire a notification subscription before exposing its Stream.
+   * The returned Stream is ready to receive immediately, and the caller's
+   * Scope owns both unregistration and mailbox termination.
+   */
+  subscribeScoped<D extends AnyNotificationDefinition>(
+    definition: D,
+  ): Effect.Effect<
+    Stream.Stream<NotificationParamsOf<D>, NotConnectedError>,
+    never,
+    Scope.Scope
+  > {
+    return Effect.gen(this, function* () {
+      const mailbox = yield* Mailbox.make<
+        NotificationParamsOf<D>,
+        NotConnectedError
+      >(SCOPED_SUBSCRIPTION_CAPACITY);
+      const subscription = yield* this.subscribers.register(
+        definition,
+        undefined,
+        {
+          onFrame: (params) => mailbox.offer(params).pipe(Effect.asVoid),
+          onClose: (cause) => mailbox.fail(cause).pipe(Effect.asVoid),
+        },
+      );
+      yield* Effect.addFinalizer(() =>
+        subscription.unregister.pipe(
+          Effect.zipRight(mailbox.end),
+          Effect.asVoid,
+        ),
+      );
+      return Mailbox.toStream(mailbox);
+    }).pipe(Effect.withSpan("ProtocolClientLifecycle.subscribeScoped"));
   }
 
   subscribeAll(
@@ -749,37 +794,45 @@ export class ProtocolClientLifecycle<
   }
 
   close(): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      if (this.closed) return;
-      const hasCompletedHandshake = this._helloOk !== null;
-      this.closed = true;
-      this._helloOk = null;
-      if (this.reconnectFiber !== null) {
-        const f = this.reconnectFiber;
-        this.reconnectFiber = null;
-        this.runtime.runFork(Fiber.interrupt(f));
-      }
-      const state = this.runtime.runSync(
-        Ref.getAndSet(this.stateRef, Option.none()),
-      );
-      const drainConnection = Option.isSome(state)
-        ? drainConnectionEffect({
-            write: state.value.write,
-            scope: state.value.scope,
-            hasCompletedHandshake,
-          })
-        : Effect.void;
-      this.runtime.runFork(
-        this.subscribers.closeAll.pipe(
-          Effect.zipRight(drainConnection),
-          Effect.ensuring(Effect.sync(() => this.runtime.dispose())),
-        ),
-      );
-    });
+    return Effect.uninterruptible(
+      Effect.suspend(() => {
+        if (this.closed) return Deferred.await(this.closeCompletion);
+        const closeCompletion = this.closeCompletion;
+        const controllerDone = this.controllerDone;
+        const runtime = this.runtime;
+        this.closed = true;
+        const hasCompletedHandshake = this._helloOk !== null;
+        this._helloOk = null;
+        this.commands.unsafeOffer({
+          _tag: "Close",
+          hasCompletedHandshake,
+        });
+        return Deferred.await(controllerDone).pipe(
+          Effect.zipRight(runtime.disposeEffect),
+          Effect.ensuring(
+            Deferred.succeed(closeCompletion, undefined).pipe(Effect.asVoid),
+          ),
+        );
+      }),
+    );
   }
 
   disconnect(): Effect.Effect<void, never> {
-    return Effect.sync(() => this.disconnectSync());
+    return Effect.uninterruptibleMask((restore) =>
+      Effect.gen(this, function* () {
+        if (this.closed) return;
+        const acknowledged = yield* Deferred.make<void, never>();
+        const offered = yield* Effect.sync(() => {
+          if (this.closed) return false;
+          return this.commands.unsafeOffer({
+            _tag: "Disconnect",
+            acknowledged,
+          });
+        });
+        if (!offered) return;
+        yield* restore(Deferred.await(acknowledged));
+      }),
+    );
   }
 
   protected callEffect<Tag extends Rpcs["_tag"]>(
@@ -790,19 +843,22 @@ export class ProtocolClientLifecycle<
     SuccessForTag<Rpcs, Tag>,
     ErrorForTag<Rpcs, Tag> | NotConnectedError | RpcTimeoutError
   > {
-    return Ref.get(this.stateRef).pipe(
-      Effect.flatMap((state) => {
-        if (Option.isNone(state)) return Effect.fail(makeNotConnectedError());
-        return callWithTimeout(
-          state.value.scope,
-          makeTypedTransportCall(state.value.client, makeNotConnectedError)(
-            tag,
-            payload,
-          ),
-          { method: tag, timeoutMs },
-        );
-      }),
-    );
+    return Effect.suspend(() => {
+      if (this.closed) return Effect.fail(makeNotConnectedError());
+      return Ref.get(this.connectionRef).pipe(
+        Effect.flatMap((connection) => {
+          if (connection === null) return Effect.fail(makeNotConnectedError());
+          return callWithTimeout(
+            connection.scope,
+            makeTypedTransportCall(connection.client, makeNotConnectedError)(
+              tag,
+              payload,
+            ),
+            { method: tag, timeoutMs },
+          );
+        }),
+      );
+    });
   }
 
   callDefinition<D extends ClientRpcDefinition<Rpcs>>(
@@ -825,12 +881,480 @@ export class ProtocolClientLifecycle<
     return this.callEffect(member._tag, payload, timeoutMs);
   }
 
-  private disconnectSync(): void {
-    const state = this.runtime.runSync(Ref.get(this.stateRef));
-    if (Option.isNone(state)) return;
-    this.runtime.runSync(Ref.set(this.stateRef, Option.none()));
-    this.runtime.runFork(Fiber.interrupt(state.value.readerFiber));
-    this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
+  private connectEffect(): Effect.Effect<
+    ConnectResult,
+    ClientConnectError<Rpcs>
+  > {
+    return Effect.uninterruptibleMask((restore) =>
+      Effect.gen(this, function* () {
+        const reply = yield* Deferred.make<
+          ConnectResult,
+          ClientConnectError<Rpcs>
+        >();
+        const offered = yield* Effect.sync(() => {
+          if (this.closed) return false;
+          return this.commands.unsafeOffer({ _tag: "Connect", reply });
+        });
+        if (!offered) return yield* Effect.fail(makeNotConnectedError());
+        return yield* restore(Deferred.await(reply));
+      }),
+    );
+  }
+
+  private runController(): Effect.Effect<
+    void,
+    never,
+    Socket.WebSocketConstructor
+  > {
+    return Effect.scoped(this.controllerLoop()).pipe(
+      Effect.catchAllCause((cause) =>
+        Effect.logError("Protocol client lifecycle controller failed", cause),
+      ),
+      Effect.ensuring(this.commands.end.pipe(Effect.asVoid)),
+      Effect.ensuring(
+        Deferred.succeed(this.controllerDone, undefined).pipe(Effect.asVoid),
+      ),
+    );
+  }
+
+  private controllerLoop(): Effect.Effect<
+    void,
+    never,
+    Socket.WebSocketConstructor | Scope.Scope
+  > {
+    return Effect.gen(this, function* () {
+      let state: ClientLifecycleState<Rpcs, Client> = { _tag: "Idle" };
+      while (state._tag !== "Stopped") {
+        const command = yield* this.commands.take.pipe(Effect.orDie);
+        state = yield* this.handleCommand(state, command);
+      }
+    });
+  }
+
+  private handleCommand(
+    state: ClientLifecycleState<Rpcs, Client>,
+    command: ClientLifecycleCommand<Rpcs, Client>,
+  ): Effect.Effect<
+    ClientLifecycleState<Rpcs, Client>,
+    never,
+    Socket.WebSocketConstructor | Scope.Scope
+  > {
+    switch (command._tag) {
+      case "Connect":
+        return this.handleConnect(state, command.reply);
+      case "SessionOpened":
+        return this.handleSessionOpened(state, command);
+      case "AuthenticationSettled":
+        return this.handleAuthenticationSettled(state, command);
+      case "ReaderExited":
+        return this.handleReaderExited(state, command);
+      case "OwnerDone":
+        return this.handleOwnerDone(state, command.token, command.openError);
+      case "Disconnect":
+        return this.handleDisconnect(state, command.acknowledged);
+      case "Close":
+        return this.handleClose(state, command.hasCompletedHandshake);
+    }
+  }
+
+  private handleConnect(
+    state: ClientLifecycleState<Rpcs, Client>,
+    reply: ConnectWaiter<Rpcs>,
+  ): Effect.Effect<
+    ClientLifecycleState<Rpcs, Client>,
+    never,
+    Socket.WebSocketConstructor | Scope.Scope
+  > {
+    switch (state._tag) {
+      case "Idle":
+        return Effect.gen(this, function* () {
+          const token = {};
+          const owner = yield* Effect.forkScoped(
+            this.superviseConnection(token),
+          );
+          return {
+            _tag: "Opening",
+            generation: {
+              token,
+              owner,
+              connectWaiters: [reply],
+              disconnectWaiters: [],
+            },
+          } satisfies ClientLifecycleState<Rpcs, Client>;
+        });
+      case "Opening":
+        return Effect.sync(() => {
+          state.generation.connectWaiters.push(reply);
+          return state;
+        });
+      case "Connected":
+        if (this._helloOk !== null) {
+          return Deferred.succeed(reply, this._helloOk).pipe(Effect.as(state));
+        }
+        return Effect.sync(() => {
+          state.generation.connectWaiters.push(reply);
+          return state;
+        });
+      case "Stopping":
+      case "Stopped":
+        return Deferred.fail(reply, makeNotConnectedError()).pipe(
+          Effect.as(state),
+        );
+    }
+  }
+
+  private handleSessionOpened(
+    state: ClientLifecycleState<Rpcs, Client>,
+    command: Extract<
+      ClientLifecycleCommand<Rpcs, Client>,
+      { readonly _tag: "SessionOpened" }
+    >,
+  ): Effect.Effect<ClientLifecycleState<Rpcs, Client>, never, Scope.Scope> {
+    if (state._tag !== "Opening" || state.generation.token !== command.token) {
+      return Deferred.interrupt(command.startReader).pipe(Effect.as(state));
+    }
+    return Effect.gen(this, function* () {
+      yield* Ref.set(this.connectionRef, command.connection);
+      yield* Deferred.succeed(command.startReader, undefined);
+      yield* Effect.forkScoped(
+        this.authenticate(command.token, command.connection),
+      );
+      return {
+        _tag: "Connected",
+        generation: state.generation,
+        connection: command.connection,
+      } satisfies ClientLifecycleState<Rpcs, Client>;
+    });
+  }
+
+  private handleAuthenticationSettled(
+    state: ClientLifecycleState<Rpcs, Client>,
+    command: Extract<
+      ClientLifecycleCommand<Rpcs, Client>,
+      { readonly _tag: "AuthenticationSettled" }
+    >,
+  ): Effect.Effect<ClientLifecycleState<Rpcs, Client>, never, Scope.Scope> {
+    if (
+      state._tag !== "Connected" ||
+      state.generation.token !== command.token
+    ) {
+      return Effect.succeed(state);
+    }
+    if (Exit.isSuccess(command.exit)) {
+      const helloOk = command.exit.value;
+      return Effect.gen(this, function* () {
+        this._helloOk = helloOk;
+        yield* this.settleWaiters(state.generation, command.exit);
+        return state;
+      });
+    }
+    return Effect.gen(this, function* () {
+      this._helloOk = null;
+      yield* Ref.set(this.connectionRef, null);
+      yield* this.settleWaiters(state.generation, command.exit);
+      yield* this.interruptOwner(state.generation.owner);
+      return {
+        _tag: "Stopping",
+        generation: state.generation,
+        terminal: false,
+      } satisfies ClientLifecycleState<Rpcs, Client>;
+    });
+  }
+
+  private handleReaderExited(
+    state: ClientLifecycleState<Rpcs, Client>,
+    command: Extract<
+      ClientLifecycleCommand<Rpcs, Client>,
+      { readonly _tag: "ReaderExited" }
+    >,
+  ): Effect.Effect<ClientLifecycleState<Rpcs, Client>> {
+    return Effect.gen(this, function* () {
+      let next = state;
+      if (
+        state._tag === "Connected" &&
+        state.generation.token === command.token
+      ) {
+        this._helloOk = null;
+        yield* Ref.set(this.connectionRef, null);
+        yield* this.failWaiters(state.generation, makeNotConnectedError());
+        next = {
+          _tag: "Stopping",
+          generation: state.generation,
+          terminal: this.closed,
+        };
+      }
+      if (
+        !this.closed &&
+        Exit.isFailure(command.exit) &&
+        !Cause.isInterruptedOnly(command.exit.cause) &&
+        command.close.code !== DEFAULT_GRACEFUL_CLOSE.code
+      ) {
+        yield* Effect.logWarning("WebSocket error", command.exit.cause);
+      }
+      yield* this.notifyDisconnect(command.close);
+      return next;
+    }).pipe(
+      Effect.ensuring(
+        Deferred.succeed(command.acknowledged, undefined).pipe(Effect.asVoid),
+      ),
+    );
+  }
+
+  private handleOwnerDone(
+    state: ClientLifecycleState<Rpcs, Client>,
+    token: object,
+    openError: NotConnectedError | null,
+  ): Effect.Effect<ClientLifecycleState<Rpcs, Client>, never, Scope.Scope> {
+    if (
+      state._tag === "Idle" ||
+      state._tag === "Stopped" ||
+      state.generation.token !== token
+    ) {
+      return Effect.succeed(state);
+    }
+    if (state._tag === "Opening") {
+      return this.failWaiters(
+        state.generation,
+        openError ?? makeNotConnectedError(),
+      ).pipe(Effect.as({ _tag: "Idle" }));
+    }
+    if (state._tag === "Connected") {
+      return Effect.gen(this, function* () {
+        this._helloOk = null;
+        yield* Ref.set(this.connectionRef, null);
+        yield* this.failWaiters(state.generation, makeNotConnectedError());
+        return { _tag: "Idle" } as const;
+      });
+    }
+    return Effect.gen(this, function* () {
+      yield* this.completeDisconnects(state.generation);
+      if (state.terminal) return { _tag: "Stopped" } as const;
+      return { _tag: "Idle" } as const;
+    });
+  }
+
+  private handleDisconnect(
+    state: ClientLifecycleState<Rpcs, Client>,
+    acknowledged: Deferred.Deferred<void, never>,
+  ): Effect.Effect<ClientLifecycleState<Rpcs, Client>, never, Scope.Scope> {
+    switch (state._tag) {
+      case "Idle":
+      case "Stopped":
+        return Deferred.succeed(acknowledged, undefined).pipe(Effect.as(state));
+      case "Opening":
+        return Effect.gen(this, function* () {
+          yield* this.failWaiters(state.generation, makeNotConnectedError());
+          state.generation.disconnectWaiters.push(acknowledged);
+          yield* this.interruptOwner(state.generation.owner);
+          return {
+            _tag: "Stopping",
+            generation: state.generation,
+            terminal: false,
+          } satisfies ClientLifecycleState<Rpcs, Client>;
+        });
+      case "Stopping":
+        return Effect.sync(() => {
+          state.generation.disconnectWaiters.push(acknowledged);
+          return state;
+        });
+      case "Connected":
+        return Effect.gen(this, function* () {
+          this._helloOk = null;
+          yield* Ref.set(this.connectionRef, null);
+          yield* this.failWaiters(state.generation, makeNotConnectedError());
+          state.generation.disconnectWaiters.push(acknowledged);
+          yield* this.interruptOwner(state.generation.owner);
+          return {
+            _tag: "Stopping",
+            generation: state.generation,
+            terminal: false,
+          } satisfies ClientLifecycleState<Rpcs, Client>;
+        });
+    }
+  }
+
+  private handleClose(
+    state: ClientLifecycleState<Rpcs, Client>,
+    hasCompletedHandshake: boolean,
+  ): Effect.Effect<ClientLifecycleState<Rpcs, Client>, never, Scope.Scope> {
+    return Effect.gen(this, function* () {
+      this._helloOk = null;
+      yield* Ref.set(this.connectionRef, null);
+      yield* this.subscribers.closeAll;
+
+      switch (state._tag) {
+        case "Idle":
+        case "Stopped":
+          return { _tag: "Stopped" } as const;
+        case "Opening":
+          yield* this.failWaiters(state.generation, makeNotConnectedError());
+          yield* this.interruptOwner(state.generation.owner);
+          return {
+            _tag: "Stopping",
+            generation: state.generation,
+            terminal: true,
+          } satisfies ClientLifecycleState<Rpcs, Client>;
+        case "Connected":
+          yield* this.failWaiters(state.generation, makeNotConnectedError());
+          yield* this.interruptOwner(
+            state.generation.owner,
+            hasCompletedHandshake ? state.connection : null,
+          );
+          return {
+            _tag: "Stopping",
+            generation: state.generation,
+            terminal: true,
+          } satisfies ClientLifecycleState<Rpcs, Client>;
+        case "Stopping":
+          return {
+            ...state,
+            terminal: true,
+          };
+      }
+    });
+  }
+
+  private superviseConnection(
+    token: object,
+  ): Effect.Effect<void, never, Socket.WebSocketConstructor> {
+    let openError: NotConnectedError | null = null;
+    const session = Effect.scoped(
+      this.acquireConnection().pipe(
+        Effect.matchEffect({
+          onFailure: (error) =>
+            Effect.sync(() => {
+              openError = error;
+            }),
+          onSuccess: (connection) =>
+            Effect.gen(this, function* () {
+              const startReader = yield* Deferred.make<void, never>();
+              yield* this.commands.offer({
+                _tag: "SessionOpened",
+                token,
+                connection,
+                startReader,
+              });
+              yield* Deferred.await(startReader);
+              yield* connection.reader.pipe(
+                Effect.onExit((exit) => this.reportReaderExit(token, exit)),
+                Effect.ignore,
+              );
+            }),
+        }),
+      ),
+    );
+    return session.pipe(
+      Effect.ensuring(
+        Effect.suspend(() =>
+          this.commands
+            .offer({ _tag: "OwnerDone", token, openError })
+            .pipe(Effect.asVoid),
+        ),
+      ),
+      Effect.catchAllCause((cause) =>
+        Cause.isInterruptedOnly(cause)
+          ? Effect.void
+          : Effect.logError("Connection supervisor failed", cause),
+      ),
+    );
+  }
+
+  private acquireConnection(): Effect.Effect<
+    ClientConnection<Client>,
+    NotConnectedError,
+    Socket.WebSocketConstructor | Scope.Scope
+  > {
+    return Effect.scopeWith((scope) =>
+      this.options.openSession({
+        serverUrl: this.options.serverUrl,
+        registry: this.subscribers,
+        callbackHandlers: this.options.callbackHandlers(),
+        scope,
+      }),
+    );
+  }
+
+  private reportReaderExit(
+    token: object,
+    exit: Exit.Exit<void, Socket.SocketError>,
+  ): Effect.Effect<void> {
+    return Effect.gen(this, function* () {
+      const acknowledged = yield* Deferred.make<void, never>();
+      yield* this.commands.offer({
+        _tag: "ReaderExited",
+        token,
+        exit,
+        close: extractCloseInfo(exit),
+        acknowledged,
+      });
+      yield* Deferred.await(acknowledged);
+    });
+  }
+
+  private authenticate(
+    token: object,
+    connection: ClientConnection<Client>,
+  ): Effect.Effect<void> {
+    const call = callWithTimeout(
+      connection.scope,
+      makeTypedTransportCall(connection.client, makeNotConnectedError)(
+        this.options.connectTag,
+        this.options.connectPayload,
+      ),
+      { method: this.options.connectTag, timeoutMs: RPC_TIMEOUT_MS },
+    );
+    return Effect.exit(call).pipe(
+      Effect.flatMap((exit) =>
+        this.commands.offer({
+          _tag: "AuthenticationSettled",
+          token,
+          exit,
+        }),
+      ),
+      Effect.asVoid,
+    );
+  }
+
+  private interruptOwner(
+    owner: Fiber.RuntimeFiber<void, never>,
+    connection: ClientConnection<Client> | null = null,
+  ): Effect.Effect<void, never, Scope.Scope> {
+    const cleanup =
+      connection === null
+        ? Fiber.interrupt(owner)
+        : requestGracefulClose({
+            write: connection.write,
+            hasCompletedHandshake: true,
+          }).pipe(Effect.zipRight(Fiber.interrupt(owner)));
+    return Effect.forkScoped(cleanup).pipe(Effect.asVoid);
+  }
+
+  private settleWaiters(
+    generation: ClientGeneration<Rpcs>,
+    exit: Exit.Exit<ConnectResult, ClientConnectError<Rpcs>>,
+  ): Effect.Effect<void> {
+    return Effect.gen(function* () {
+      for (const waiter of generation.connectWaiters.splice(0)) {
+        yield* Deferred.done(waiter, exit);
+      }
+    });
+  }
+
+  private failWaiters(
+    generation: ClientGeneration<Rpcs>,
+    error: ClientConnectError<Rpcs>,
+  ): Effect.Effect<void> {
+    return this.settleWaiters(generation, Exit.fail(error));
+  }
+
+  private completeDisconnects(
+    generation: ClientGeneration<Rpcs>,
+  ): Effect.Effect<void> {
+    return Effect.gen(function* () {
+      for (const waiter of generation.disconnectWaiters.splice(0)) {
+        yield* Deferred.succeed(waiter, undefined);
+      }
+    });
   }
 
   private notifyDisconnect(close: CloseInfo): Effect.Effect<void> {
@@ -841,89 +1365,5 @@ export class ProtocolClientLifecycle<
         yield* Effect.logWarning("onDisconnect handler threw", err);
       }
     });
-  }
-
-  private connectEffect(): Effect.Effect<
-    ConnectResult,
-    ClientConnectError<Rpcs>,
-    Socket.WebSocketConstructor
-  > {
-    return Effect.gen(this, function* () {
-      const handshakeSettled = yield* Deferred.make<
-        ConnectResult,
-        ClientConnectError<Rpcs>
-      >();
-      const session = yield* this.options.openSession({
-        serverUrl: this.options.serverUrl,
-        registry: this.subscribers,
-        callbackHandlers: this.options.callbackHandlers(),
-        handshakeSettled,
-        forkReader: (effect) => this.runtime.runFork(effect),
-        onReaderExit: (exit, scope) =>
-          this.handleReaderExit(exit, handshakeSettled, scope),
-      });
-
-      yield* Ref.set(this.stateRef, Option.some(session));
-      return yield* this.awaitConnectAuth(handshakeSettled);
-    });
-  }
-
-  private handleReaderExit(
-    exit: Exit.Exit<void, Socket.SocketError>,
-    handshakeSettled: Deferred.Deferred<
-      ConnectResult,
-      ClientConnectError<Rpcs>
-    >,
-    scope: Scope.CloseableScope,
-  ): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
-      const closeInfo = extractCloseInfo(exit);
-      if (
-        Exit.isFailure(exit) &&
-        closeInfo.code !== DEFAULT_GRACEFUL_CLOSE.code
-      ) {
-        yield* Effect.logWarning("WebSocket error", exit.cause);
-      }
-      this._helloOk = null;
-      yield* Deferred.fail(handshakeSettled, makeNotConnectedError()).pipe(
-        Effect.ignore,
-      );
-      yield* Ref.set(this.stateRef, Option.none());
-      yield* Scope.close(scope, Exit.void);
-      yield* this.notifyDisconnect(closeInfo);
-      if (!this.closed) this.scheduleReconnect();
-    });
-  }
-
-  private awaitConnectAuth(
-    handshakeSettled: Deferred.Deferred<
-      ConnectResult,
-      ClientConnectError<Rpcs>
-    >,
-  ): Effect.Effect<ConnectResult, ClientConnectError<Rpcs>> {
-    const authEffect = this.callEffect(
-      this.options.connectTag,
-      this.options.connectPayload,
-      RPC_TIMEOUT_MS,
-    );
-    return Effect.raceFirst(authEffect, Deferred.await(handshakeSettled)).pipe(
-      Effect.tap((value) =>
-        Effect.sync(() => {
-          this._helloOk = value;
-        }),
-      ),
-    );
-  }
-
-  private scheduleReconnect(): void {
-    if (this.closed || this.reconnectFiber !== null) return;
-    const loop = makeReconnectLoop({
-      connectEffect: () => this.connectEffect(),
-      onReconnect: (helloOk) => this.options.onReconnect?.(helloOk),
-      onLoopEnd: () => {
-        this.reconnectFiber = null;
-      },
-    });
-    this.reconnectFiber = this.runtime.runFork(loop);
   }
 }

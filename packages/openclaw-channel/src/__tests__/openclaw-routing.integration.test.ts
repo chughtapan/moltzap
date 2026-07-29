@@ -47,7 +47,7 @@ const CROSS_CONTAINER_SCENARIO_TIMEOUT_MS = 180_000;
 const CONVERSATION_EVENT_SETTLE_MS = 500;
 const LARGE_MESSAGE_CHARS = 5_000;
 const MIN_LARGE_REPLY_CHARS = 4_096;
-const RECONNECT_SETTLE_MS = 1_000;
+const CONNECTION_SETTLE_MS = 1_000;
 const RAPID_MESSAGE_COUNT = 3;
 const TWO_CONTAINER_COUNT = 2;
 const AGENT_LIST_PAGE_SIZE = 100;
@@ -67,7 +67,7 @@ const PROACTIVE_TEXT = "proactive hello";
 const FIRST_TEXT = "first";
 const SECOND_TEXT = "second";
 const BEFORE_DROP_TEXT = "before drop";
-const AFTER_RECONNECT_TEXT = "after reconnect";
+const AFTER_NEW_CONNECTION_TEXT = "after new connection";
 const LARGE_MESSAGE_CHARACTER = "A";
 const INTEGRATION_GROUP_NAME = "Integration Group";
 const MISSING_AGENT_NAME = "nonexistent-agent-xyz";
@@ -109,8 +109,8 @@ function defineGatewayIntegrationSuite() {
   it("send to nonexistent agent returns error", missingAgentLookupFails);
   it("large message (>4096 chars) is delivered intact", () =>
     largeMessageDelivered(harness.containerAAgentId));
-  it("reconnection during dispatch recovers after WebSocket drop", () =>
-    reconnectDuringDispatchRecovers(harness.containerAAgentId));
+  it("a new explicit connection recovers after WebSocket close", () =>
+    explicitConnectionRecovers(harness.containerAAgentId));
   it(
     "property: scenario timeouts exceed notification waits",
     timeoutsCoverNotificationWait,
@@ -313,7 +313,7 @@ function largeMessageDelivered(containerAAgentId: AgentId) {
   });
 }
 
-function reconnectDuringDispatchRecovers(containerAAgentId: AgentId) {
+function explicitConnectionRecovers(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const alice = yield* registerAgent("rd-alice");
     const aliceClient = connectedClient(alice.apiKey);
@@ -324,13 +324,13 @@ function reconnectDuringDispatchRecovers(containerAAgentId: AgentId) {
     yield* sendText(aliceClient, binding, BEFORE_DROP_TEXT);
     expect(extractText(yield* Fiber.join(replyFiber1))).toContain(ECHO_PREFIX);
     yield* aliceClient.close();
-    yield* Effect.sleep(`${RECONNECT_SETTLE_MS} millis`);
+    yield* Effect.sleep(`${CONNECTION_SETTLE_MS} millis`);
     const aliceClient2 = connectedClient(alice.apiKey);
     yield* aliceClient2.connect();
     const replyFiber2 = yield* Effect.fork(
       waitForReceivedMessage(aliceClient2),
     );
-    yield* sendText(aliceClient2, binding, AFTER_RECONNECT_TEXT);
+    yield* sendText(aliceClient2, binding, AFTER_NEW_CONNECTION_TEXT);
     const reply2 = yield* Fiber.join(replyFiber2);
     expect(extractText(reply2)).toContain(ECHO_PREFIX);
     expect(reply2.conversationId).toBe(binding.conversationId);

@@ -517,10 +517,9 @@ function buildInboundDispatchContext(
 function logDispatchError(
   log: OpenClawLogger | undefined,
   err: unknown,
-): Effect.Effect<null> {
+): Effect.Effect<void> {
   return Effect.sync(() => {
     log?.error?.(`MoltZap: dispatch error: ${err}`);
-    return null;
   });
 }
 
@@ -530,7 +529,7 @@ function dispatchInboundReply(params: {
   readonly core: MoltZapChannelCore;
   readonly log: OpenClawLogger | undefined;
   readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
-}): Effect.Effect<{ queuedFinal: boolean } | null> {
+}): Effect.Effect<{ queuedFinal: boolean }, unknown> {
   return Effect.tryPromise({
     try: () =>
       params.dispatch({
@@ -546,7 +545,7 @@ function dispatchInboundReply(params: {
         },
       }),
     catch: (err: unknown) => err,
-  }).pipe(Effect.catchAll((err) => logDispatchError(params.log, err)));
+  }).pipe(Effect.tapError((err) => logDispatchError(params.log, err)));
 }
 
 function disconnectCoreOnAbort(
@@ -1001,9 +1000,9 @@ function logDispatchFinished(
 function logUnqueuedDispatch(
   log: OpenClawLogger | undefined,
   enriched: EnrichedInboundMessage,
-  result: { readonly queuedFinal: boolean } | null,
+  result: { readonly queuedFinal: boolean },
 ): void {
-  if (!result || result.queuedFinal) return;
+  if (result.queuedFinal) return;
   log?.debug?.(
     `MoltZap: dispatch completed without final reply for ${enriched.conversationId}`,
   );
@@ -1019,14 +1018,6 @@ function registerConnectionStatus(
       accountId: ctx.accountId,
       connected: false,
       lastDisconnect: { at: Date.now() },
-    });
-  });
-  core.onReconnect(() => {
-    ctx.log?.info?.("MoltZap: reconnected");
-    ctx.setStatus({
-      accountId: ctx.accountId,
-      connected: true,
-      lastConnectedAt: Date.now(),
     });
   });
 }

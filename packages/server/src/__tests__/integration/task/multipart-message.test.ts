@@ -43,7 +43,7 @@ it("message with multiple text parts preserves all parts in order", () =>
       { type: "text" as const, text: PART_ONE_TEXT },
       { type: "text" as const, text: PART_TWO_TEXT },
       { type: "text" as const, text: PART_THREE_TEXT },
-    ];
+    ] as const;
 
     const bobEventFiber = yield* Effect.fork(
       awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),

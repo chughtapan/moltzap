@@ -17,6 +17,7 @@ export type {
   ConversationParticipant,
   ConversationSummary,
 } from "./types.js";
+export { ConversationNameSchema } from "./name.js";
 
 export {
   ConversationInTask,

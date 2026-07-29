@@ -6,9 +6,6 @@
  * inbound messages, and verifies the host-facing callbacks
  * (`setup.onInbound`, `setup.onMetadata`) fire with the expected shape
  * and `deliver(jid, null, message)` round-trips back to the peer.
- *
- * Modeled on `packages/openclaw-channel/src/__tests__/echo.integration.test.ts`
- * (per arch sub-issue #605 §4.4).
  */
 
 /* eslint-disable agent-code-guard/no-effect-error-coalescing -- test scaffolding coalesces wire-level Service/Rpc errors into a single test-context error class for cleaner diagnostic output; production rule does not apply to integration test scaffolding. */
@@ -20,6 +17,7 @@ import { MoltZapService } from "@moltzap/client";
 import { withTestServiceConfig } from "@moltzap/client/test-utils";
 import { AgentKey } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
+import { serverBaseUrl } from "@moltzap/protocol/network";
 import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
@@ -214,7 +212,7 @@ function bootPeerService(
     MoltZapService.fromConfig({
       agentId: config.peerAgentId,
       agentKey: config.peerApiKey,
-      serverUrl: config.wsUrl,
+      serverUrl: serverBaseUrl(config.wsUrl),
     }),
   ).pipe(
     Effect.tap((peerService) =>
