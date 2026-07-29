@@ -20,7 +20,10 @@
     "build": "nx run @moltzap/evals:build",
     "lint": "nx run @moltzap/evals:lint",
     "test": "vitest run",
-    "test:agents": "nx run @moltzap/evals:test:agents",
+    "measure:live": "nx run @moltzap/evals:measure:live",
+    "measure:roster": "nx run @moltzap/evals:measure:roster",
+    "measure:behavior": "nx run @moltzap/evals:measure:behavior",
+    "measure:conversation": "nx run @moltzap/evals:measure:conversation",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "dependencies": {

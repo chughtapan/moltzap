@@ -23,15 +23,52 @@
         "command": "vitest run"
       }
     },
-    "test:agents": {
+    "measure:live": {
       "cache": false,
+      "parallelism": false,
       "dependsOn": [
         "build"
       ],
       "executor": "nx:run-commands",
       "options": {
         "cwd": "packages/evals",
-        "command": "MOLTZAP_AGENT_EVAL_ITEST=1 vitest run src/full-runtime.integration.test.ts"
+        "command": "MOLTZAP_AGENT_EVAL_ITEST=1 MOLTZAP_BEHAVIORAL_EVAL_ITEST=1 MOLTZAP_SHARED_CONVERSATION_ITEST=1 vitest run --no-file-parallelism src/mixed-roster.integration.test.ts src/behavioral-runtime.integration.test.ts src/shared-conversation.integration.test.ts"
+      }
+    },
+    "measure:roster": {
+      "cache": false,
+      "parallelism": false,
+      "dependsOn": [
+        "build"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/evals",
+        "command": "MOLTZAP_AGENT_EVAL_ITEST=1 vitest run src/mixed-roster.integration.test.ts"
+      }
+    },
+    "measure:behavior": {
+      "cache": false,
+      "parallelism": false,
+      "dependsOn": [
+        "build"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/evals",
+        "command": "MOLTZAP_BEHAVIORAL_EVAL_ITEST=1 vitest run src/behavioral-runtime.integration.test.ts"
+      }
+    },
+    "measure:conversation": {
+      "cache": false,
+      "parallelism": false,
+      "dependsOn": [
+        "build"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/evals",
+        "command": "MOLTZAP_SHARED_CONVERSATION_ITEST=1 vitest run src/shared-conversation.integration.test.ts"
       }
     },
     "typecheck:tests": {
