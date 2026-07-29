@@ -1,15 +1,25 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
+superseded-by: 20260728-gate-1-identity-profile.md
 ---
 
 # The identity card is moltzap-native and principal-shaped
 
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-native-principal-shaped-card).
+
+## Supersession
+
+The Moltzap-native, principal-shaped card remains accepted. The Gate 1
+identity profile now closes the previously open key model, makes the
+card immutable, adds endpoint routing information, and fixes complete
+Registry lookup behavior.
+
 ## Context and Problem Statement
 
 L1 needs a card: the published material a recipient uses to verify a
-frame's attribution and that the sender acts for a known principal.
+message's attribution and that the sender acts for a known principal.
 The obvious reuse candidate was A2A v1.0's AgentCard.
 
 ## Considered Options
