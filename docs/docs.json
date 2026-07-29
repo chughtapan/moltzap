@@ -65,6 +65,8 @@
               "development/protocol-organization",
               "development/testing",
               "development/evals",
+              "development/eval-add-evaluation",
+              "development/eval-grading-reference",
               "development/contributing"
             ]
           },

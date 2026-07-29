@@ -47,13 +47,7 @@ const gradeLedger = (
       consensusReached: !Chunk.isEmpty(collected.consensus),
     };
 
-    return {
-      passed:
-        evidence.programSucceeded &&
-        evidence.replyCount > 0 &&
-        evidence.consensusReached,
-      evidence,
-    };
+    return { evidence };
   });
 
 const report = yield* Society.openLedger(ledgerRef).pipe(
@@ -68,6 +62,14 @@ do not share a hidden cursor or one-shot reader.
 
 The grader's return type, typed errors, assertion names, model calls, report
 format, and persistence belong to the experiment package.
+
+A boolean verdict is one option and rarely the best one. Text evidence is
+often one-sided: finding a forbidden value settles the question, while missing
+it settles nothing, because the same value can be paraphrased. A report that
+collapses to `true` cannot say which of those happened. `@moltzap/evals` keeps
+a third outcome for exactly that case — see the
+[grading vocabulary reference](/development/eval-grading-reference) for a
+worked shape.
 
 ## Validation precedes interpretation
 
