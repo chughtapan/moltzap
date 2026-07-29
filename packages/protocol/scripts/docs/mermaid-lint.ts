@@ -226,12 +226,16 @@ function interpretResult(
   });
 }
 
-/** Indent the leading lines of mmdc stderr under the failure's header. */
+/**
+ * Indent the leading lines of mmdc stderr under the failure's header.
+ * Stack frames are dropped: a browser launch failure buries its one useful
+ * line under a deep trace, and that trace repeats for every block.
+ */
 function formatStderr(stderr: string): string {
   const lines = stderr
     .split("\n")
     .map((l) => l.trimEnd())
-    .filter((l) => l.length > 0)
+    .filter((l) => l.length > 0 && !/^\s*at\s/.test(l))
     .slice(0, STDERR_LINES_KEPT);
   if (lines.length === 0) return "";
   return `\n${lines.map((l) => `    ${l}`).join("\n")}`;
