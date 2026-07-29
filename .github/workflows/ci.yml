@@ -33,6 +33,7 @@ jobs:
       - run: pnpm format:check
       - run: pnpm docs:check:drift
       - run: pnpm docs:check
+      - run: pnpm docs:check:mermaid
       - run: pnpm docs:check:gates-test
 
   test:

@@ -1,194 +1,284 @@
-# Data plane
+# L2 — globally ordered multicast transport
 
-Status: DRAFT (deepening doc; feeds the spec set)
+Status: **Gate 1 normative**
 
-## Purpose & scope
+## Purpose and boundary
 
-The data plane is the delivery half of the network, split out of the control
-plane. It carries network delivery and collective operations — shipping L1
-frames under L2 semantics: ordered, with pessimistic concurrency control (PCC),
-MULTICAST-only in the first version per the constitution's recorded decision —
-and addresses every delivery through a conversation (L2.5). It is the shared
-substrate under every agent's harness; everything interpretive lives at
-endpoints.
+L2 accepts one attributed message, assigns it a position in one global
+Router order, and makes the identical delivery visible to every
+explicit recipient. It is an unprogrammable, content-blind transport.
 
-Goals: state the plane's duties as guarantees, independent of realization;
-record the dissolution of the v1 app layer, power by power; propose the one
-centralized middleware that would remain — a fault-injection /
-capability-evaluation (measuring agent behavior under controlled adversity)
-seam for experiments and evals — pending a recorded maintainer decision (open
-question 9). Non-goals: the collective op set, call shape, and the completion /
-failure / concurrency / initiation / witness / ordering clusters (owned by the
-L2 semantics charter; this doc scopes only the v0 MULTICAST + PCC slice);
-control-plane duties (identity, membership administration, the record substrate
-itself); endpoint concerns (L3 screening, L4 norms, which op a well-behaved
-participant emits next).
+L2 does not own ConversationId, membership, action validity,
+persistence, replay, offline convergence, retransmission, durable
+recovery, or task-specific quorum policy. L3 endpoints own those
+responsibilities using Ledger and opaque protocol messages.
 
-## Duties (guarantee level)
+The Gate 1 network data plane is individually authenticated HTTP POST
+send plus bounded POST polling. It has no WebSocket, network SSE,
+reverse callback, MCP method, server notification, or connection-bound
+session.
 
-- **Delivery.** The plane accepts a signed L1 frame naming a collective
-  operation from a conversation member and delivers it to the members the
-  envelope addresses; the v0 slice's only operation is MULTICAST to the
-  membership. Prompt push is best-effort; convergence is guaranteed
-  (timeliness and delivery-status semantics are chartered): a member that
-  misses a push recovers the history and reaches the same observed sequence as
-  one that never disconnected.
-- **Ordering.** Deliveries within a conversation are totally ordered: every
-  member observes the same messages in the same order, including members
-  transiently unavailable at send time.
-- **Turn discipline (PCC).** In the v0 slice the plane admits contributions one
-  at a time per conversation, only under the group's agreed next operation and
-  next speaker. An endpoint observes that its turn is admitted before it
-  generates — agreement precedes generation, not merely delivery.
-  Overlapping-collective concurrency is chartered, not decided here.
-- **Attribution in transit.** Frames arrive carrying the L1 attribution they
-  were emitted with, verifiable by the recipient; the plane never mints,
-  alters, or strips it.
-- **Admission.** At admission the plane verifies, at minimum, that the
-  frame's attribution verifies per L1 and its sender identity exists
-  and is active; failing frames are refused before durability.
-  Recorded decision: admission checks nothing relationship-shaped —
-  the router has no reachability role.
-- **Content-blindness.** Routing and admission read envelope fields only, never
-  bodies. End-to-end encryption stays a preserved possibility.
-- **Records handoff.** Durable-then-deliver: no frame fans out before it is
-  durable in the record substrate (control-plane-side; the record L5 reads).
-- **Addressing (L2.5).** A conversation id is the routing handle — an opaque
-  group handle. Membership changes are delivered in-band, ordered against
-  message flow. Read-back is scoped by membership and envelope fields; the
-  exact fields are chartered.
+## Processes and trust model
 
-## Wire surface
+Gate 1 runs exactly one Router process with one volatile ordering
+instance. It assumes that Router is correct and non-equivocating.
+Byzantine-resistant ordering, fork detection, and multi-process
+sequencing are not claimed.
 
-**Not defined yet** (open question 10). What is decided bounds any future
-definition (`docs/decisions/20260721-physical-plane-split.md`,
-`docs/decisions/20260721-sessionless-network.md`,
-`docs/decisions/20260721-single-credential.md`): data-plane traffic rides its
-own surface, never the control endpoint; the plane keeps no per-endpoint
-connection or session state, so whatever shape delivery takes must be
-resumable from a position the endpoint owns; every call is signed with the
-caller's card key and carries the protocol version; and frames cross the
-surface byte-exact (`identity.md`). Turn-signal carriage is the charter's
-ground (#765); whatever its shape, turn state is per-conversation
-coordination state that expires by a bounded timeout, never by disconnect —
-no connection state exists to observe.
+Router outage may halt progress. Router restart loses volatile feeds
+and changes `RouterInstanceId`; it is a safety boundary, not transparent
+recovery.
 
-## The eval middleware (proposed)
+Endpoints may be Byzantine. L2 prevents one accepted send from being
+delivered as different bytes or positions to different recipients, but
+does not judge its opaque body.
 
-Proposed, pending a recorded maintainer decision (open question 9): at most
-one centralized middleware exists — a fault-injection / capability-evaluation
-seam for experiments and evals, explicitly not a production app layer.
+## Operations
 
-- **May observe:** envelope-level delivery events and op lifecycle (accepted,
-  ordered, delivered), with timing; terminal-state vocabulary is deferred to
-  the charter's completion / failure clusters; body observation follows the
-  deployment's encryption posture (open, below).
-- **May inject:** only faults inside the failure envelope the L2 semantics
-  already tolerate — delay, missed push (recoverable by catch-up), disconnect,
-  partition, an unresponsive counterparty. Injected faults are
-  indistinguishable, to production semantics, from natural ones.
-- **May never:** mint or alter attribution, rewrite or reorder committed order,
-  mutate membership, author policy verdicts, or carry standing policies.
-- **Production never depends on it:** no guarantee here is conditioned on its
-  presence; it is absent by default, and when present its configuration is part
-  of the experiment's recorded run configuration (the run artifact the
-  experiment publishes).
+The Router exposes unauthenticated `GET /healthz` for readiness only.
+It returns no feed, cursor, ordering, identity, or conversation data.
+Every domain operation below is an authenticated POST.
 
-## Reuse (where directed; non-normative)
+### Send
 
-Recorded (maintainer comment on #765, 2026-07-21 — labeled architecture
-guidance, not normative interface text): the v1 dispatch-lease turn discipline
-is reused as the PCC instrument inside delivery semantics — an instrument, not
-an interface: no lease concept appears on the wire surface or in normative
-guarantees (sketch in Implementation notes). Proposed, pending a recorded
-decision: the v1 conversation machinery (participant sets, subscription-scoped
-delivery) as the L2.5 addressing primitive, and the v1 conformance pattern —
-adversity as a suite-invocation parameter, plus scripted-counterparty faults —
-as the shape of the proposed eval middleware's injection surface.
+`POST /v1/messages:send`
 
-## Dissolution notes
+The closed request contains one valid L1 attributed message from
+`identity.md`. Router:
 
-The app layer dissolves: no app principals, no manifests, no hooks, no reverse
-callbacks. Destinations, power by power:
+1. authenticates the request with the `moltzap-data-v1` RFC 9421
+   profile;
+2. verifies the exact MoltZap version, closed L1 structure,
+   attribution, nonempty explicit recipients, and MessageId retry
+   identity;
+3. checks the caller's expected `RouterInstanceId` and the request's
+   `initial` or `retry` send mode;
+4. atomically assigns the next global `RouterSequence`;
+5. creates one `Delivery` containing the current `RouterInstanceId`,
+   assigned sequence, and exact message bytes;
+6. appends that identical delivery to every explicit recipient's
+   volatile feed;
+7. acknowledges only after the complete in-memory multicast is
+   visible.
 
-| v1 power | Destination |
-|---|---|
-| Message-authorize hook (per-message forward/block verdict) | Abolished. The plane delivers; inbound screening is endpoint L3. |
-| Verdict-derived recipient sets (per-message visibility filter) | Membership and envelope-level addressing; exact fields chartered (open). |
-| Dispatch-authorize hook (moderator grants/denies/holds a turn) | Dissolved into PCC delivery semantics; which op/speaker comes next is an L4/skill concern. |
-| Admission deny ejecting the participant | Abolished. Admission outcomes never mutate membership; membership changes are their own in-band ordered events. |
-| Task-create hook, TaskMasters, network-side task records | Tasks are endpoint conventions with no network representation; conversations stand alone, bound to no task or app. |
-| App manifests, app principals, reverse-callback extension surface | Gone entirely; the proposed eval middleware would be the only centralized seam (open question 9). |
-| Moderator lease notifications and moderator-scoped lease reads | Die with the moderator principal; member-facing delivery-status semantics chartered (open). |
-| Lease-derived presence ("working") | Presence semantics chartered (open). |
-| Fail-closed blocking when an app is unreachable | Gone; no network-side gatekeeper exists to be unreachable. |
+Every send request carries the Router instance most recently learned
+from polling. A mismatch returns `router_restarted`, including the
+current instance, and performs no delivery.
 
-## Implementation notes (non-normative)
+`initial` asserts a fresh MessageId. If that key is absent from the
+current instance's bounded idempotency cache, Router may deliver it and
+retain the exact attributed L1 message bytes with the ordering result.
+A retained key makes another `initial` a conflict. `retry` never creates
+a delivery: a retained byte-identical `(AgentId, MessageId)` returns the
+original instance and sequence, changed L1 message bytes return
+`idempotency_conflict`, and an absent or evicted key returns
+`retry_identity_unknown`.
 
-Maintainer sketch: the plane's realization is a per-conversation ordered
-transcript plus dispatch leases implementing the PCC discipline. Frames are
-transcript entries; the lease is the turn instrument, bracketing the durable
-append (claim, append, finalize; rollback on failure), with a TTL that never
-expires a claim mid-append and disconnect cleanup that never rolls back a
-committed entry. Gaps observed in the v1 realization, recorded for salvage:
-sequence assigned at insert start breaks gap-free catch-up under concurrent
-commits; no per-conversation exclusivity invariant on active leases; lease
-state in-memory and single-node (whether this is a gap is contingent on open
-question 5); grant coalescing lets one lease consume several messages, while
-consensus ops need exact accounting. Under the sessionless decision the
-sketch's disconnect cleanup has no signal to key on: lease expiry is TTL-only.
-Eval-middleware precedent: the v1
-conformance suite's toxic-profile DSL (transport faults) and scripted app
-(verdict / hold / silence — semantic faults).
+After `retry_identity_unknown`, a live L3 attempt may wrap the same
+signed L3 evidence in a freshly signed L1 message with a fresh
+MessageId and send it as `initial`. This does not mint a new grant,
+protocol signature, or action; endpoints deduplicate the inner L3
+evidence. Router idempotency is therefore precise within a retained
+current-instance entry, not a durable replay guarantee.
+
+Router does not resolve or attach AgentCards and never decodes the
+opaque body.
+
+### Poll
+
+`POST /v1/deliveries:poll`
+
+Each endpoint-wide poll:
+
+- is independently authenticated for one `AgentId`;
+- may remain open for at most 25 seconds;
+- returns earlier with the next bounded feed batch;
+- returns the authenticated current `RouterInstanceId` and an opaque
+  next `PollCursor`, including for an empty tail-anchor or timeout;
+- creates no connection-scoped semantic state.
+
+The endpoint immediately issues another POST when it wants continued
+delivery. Optional transport keepalive has no protocol meaning.
+
+A retry with the same PollCursor may return an already observed
+complete batch. The endpoint deduplicates L3 evidence and advances its
+volatile cursor only after accepting the whole successful batch. Router
+never treats an HTTP write or connection close as cursor advancement.
+
+An omitted-cursor poll is also how a newly started daemon learns the
+instance it must bind into new L3 evidence and subsequent sends. A
+`router_restarted` poll or send result includes the authenticated
+current instance separately from any opaque cursor so recovery never
+has to parse a cursor or send a message merely to discover the
+instance.
+
+## Message and Delivery
+
+The signed L1 message contains only:
+
+- exact MoltZap version;
+- sender `AgentId` and immutable AgentCard thumbprint;
+- nonempty explicit recipient `AgentId`s;
+- `MessageId`;
+- opaque signed body bytes.
+
+`ConversationId`, MembershipEpoch, TxnId, BEGIN/ACK, START/MULTICAST,
+and content exist only within the body and at endpoints.
+
+Router wraps, but never rewrites, that message in:
+
+- `RouterInstanceId`;
+- global `RouterSequence`;
+- exact message bytes.
+
+All recipients named by one send observe the same instance, sequence,
+and message bytes. A recipient's feed may skip global sequence values
+addressed only to other agents; retained deliveries remain ordered by
+the global sequence.
+
+Generic L3 quorum evidence travels as ordinary opaque L2 messages.
+Router neither aggregates signatures nor decides which signer set is
+sufficient.
+
+A post-commit notice is likewise an ordinary opaque L2 message. Its
+meaning and recovery behavior belong to L3; Router provides no special
+durability or wake-up guarantee.
+
+## PollCursor
+
+`PollCursor` is a distinct branded value from durable `LedgerOffset`.
+It binds:
+
+- current `RouterInstanceId`;
+- authenticated recipient `AgentId`;
+- next feed sequence.
+
+No route accepts `LedgerOffset` where `PollCursor` is required or vice
+versa.
+
+### Tail anchor
+
+An omitted cursor atomically anchors at the current recipient feed
+tail. The endpoint does this only after reconciling durable Ledger
+state. It does not request replay of retained volatile history.
+
+### Retention loss
+
+A current-instance cursor older than configured feed retention returns
+`feed_gap` and no partial batch. The endpoint:
+
+1. abandons volatile protocol folds;
+2. reconciles every known conversation from Ledger;
+3. opens fresh eligible protocol work from committed heads;
+4. re-anchors with an omitted cursor.
+
+L2 itself performs none of those L3 steps.
+
+### Router restart
+
+A cursor from a different instance returns `router_restarted`.
+Endpoints permanently fence conversations whose epoch descriptor names
+the old instance from new actions. New STARTs may use the new instance.
+A fully certified old-instance action may still be appended exactly
+once because its safety decision completed before the restart.
+
+The same fence applies without a stale-cursor error: after every
+successful poll, including an empty omitted-cursor anchor, an endpoint
+compares the returned current instance with all reconciled epoch
+descriptors and fences mismatches before opening protocol work. This
+covers simultaneous Router and endpoint restart.
+
+## Sessionlessness
+
+Every send and poll authenticates independently and carries exact
+version metadata. A held long poll is only an HTTP optimization; its
+closure does not revoke identity, expire protocol work, advance a
+cursor, or alter membership.
+
+Reconnect is not promised to be identical to never disconnecting:
+volatile retention may produce `feed_gap`, and restart produces a new
+ordering instance. Durable recovery belongs to L3.
+
+The local daemon's request-scoped MCP SSE response is outside both
+network planes and is not a Router push channel.
+
+## Operational bounds
+
+Wire-level maxima are not negotiated. A deployment configures finite:
+
+- HTTP body and decode limits;
+- poll batch and held-request limits;
+- feed retention;
+- nonce and idempotency caches;
+- concurrent sends and polls.
+
+Exceeding a configured bound yields a closed refusal or `feed_gap`, not
+partial decoding or silent truncation.
+
+The idempotency cache may evict completed send entries according to its
+configured bound; an evicted `retry` is refused with
+`retry_identity_unknown`, never guessed or redelivered. The Router
+retains every accepted RFC 9421 nonce until that request's validity
+window expires. If the nonce cache cannot accept another unexpired
+entry, it refuses new authenticated work instead of evicting an
+unexpired nonce. Nonce replay rejection is scoped to the current Router
+instance. Across restart, an old send is still fenced by its expected
+RouterInstanceId before delivery, while a replayed poll is read-only and
+cannot advance server-side cursor state.
 
 ## Invariants
 
-1. Routing and admission read envelope fields only, never bodies.
-2. The plane never mints, alters, or strips L1 attribution.
-3. Per-conversation total order: all members observe the same messages in the same order; an unavailable member converges to it on recovery.
-4. Durable-then-deliver: no delivery precedes durability in the record substrate.
-5. PCC: no contribution is admitted before the group agrees on the next operation and speaker; endpoints observe admission before generating.
-6. Starvation protection: no coalition of faulty members can indefinitely deny an honest member its turn.
-7. Equivocation robustness: a sender cannot present different members with different versions of the same message.
-8. Membership changes are in-band events, ordered against message flow.
-9. No network-side principal, hook, or policy vetoes, rewrites, redirects, or reorders delivery; admission outcomes never mutate membership.
-10. No data-plane interface names or carries a task.
-11. Middleware absence-equivalence: if the eval middleware exists (open question 9), production semantics are identical with it absent or present-and-idle; every injection stays inside the tolerated failure envelope.
-12. The plane keeps no per-endpoint connection or session state.
-13. Only data-plane traffic rides the data surface, and frames within it are carried byte-exact, never re-encoded.
+1. A successful send has one global position and identical bytes for
+   every explicit recipient.
+2. Router cannot route on or learn ConversationId.
+3. Recipient feed order is the restriction of one global Router order.
+4. Every successful poll reveals the current RouterInstanceId without
+   requiring cursor decoding or a delivery.
+5. A cursor advances only through an explicit successful poll result;
+   connection lifetime has no semantic effect.
+6. L2 provides no durable recovery guarantee.
+7. Router instance change is observable and fences new actions in old
+   conversations.
+8. Re-reading a retained batch is permitted and does not create a
+   second L3 fact.
 
 ## Acceptance criteria
 
-- Every normative statement in the plane's spec chapter is a guarantee or interface; mechanisms appear only in non-normative notes.
-- Each of the four paper-required constraints maps to at least one invariant testable over the v0 MULTICAST + PCC slice.
-- The dissolution table is total: every v1 hook/manifest power has a recorded destination (endpoint layer, envelope, charter, or abolished).
-- Message visibility is fully determined by membership and envelope fields; no per-message principal verdict exists anywhere in the spec set.
-- If the eval middleware is adopted (open question 9), the v1 scripted-fault conformance tier is reproducible through it with no production hook path, and removing the middleware changes no production conformance outcome.
-- Both case studies' scheduling flows are expressible as op sequences with no middleware dependency — verified under the L2 charter's acceptance.
+- Simultaneous sends receive a single total order and no duplicate
+  position.
+- Every recipient of one multicast receives byte-identical Delivery.
+- A non-recipient receives nothing and Router does not consult
+  conversation membership.
+- A retained byte-identical MessageId retry made with fresh HTTP
+  authentication returns the original position; changed L1 bytes
+  conflict.
+- An absent or evicted retry key returns `retry_identity_unknown`
+  without delivery; re-enveloping the same L3 evidence under a fresh
+  MessageId remains one L3 fact at recipients.
+- Long poll returns on data or at 25 seconds, exposes the current
+  RouterInstanceId even when empty, and does not retain a protocol
+  session.
+- Too-old cursor produces only `feed_gap`; instance mismatch produces
+  only `router_restarted` plus the current RouterInstanceId.
+- Router restart cannot deliver an old expected-instance send, and a
+  full nonce cache refuses work rather than evicting an unexpired
+  nonce.
+- No Registry, Router, or Ledger endpoint exposes WebSocket, SSE,
+  notification, or MCP behavior.
+- Conversation recovery can be implemented using Ledger without L2
+  replay.
 
-## Open questions
+## Explicitly deferred
 
-1. Visibility scoping: which envelope fields (participants, witnesses, membership epoch) scope delivery and history read-back — L2 charter, jointly with register Q5/Q7 (witness read-back; records retention and history-read scope).
-2. The seven charter clusters (op set, completion, failure, concurrency, initiation authority, witnesses, ordering) — deferred to the charter.
-3. Presence and delivery-status semantics, including what replaces lease-derived presence — charter.
-4. Does the plane owe positive delivery acknowledgment, or is recovery-convergence the whole guarantee?
-5. Does an admitted turn survive a plane restart, or is it reconstructed from the record substrate?
-6. Middleware observation under a content-blind plane: envelope-only, or a key-holding observer (the constitution's monitor question)?
-7. Experiment observation surface: record-substrate reads, a middleware event stream, or both — and where that boundary sits.
-8. Wire discipline for op envelopes (closed-struct / excess-key rejection) — `v2/VISION.md` register item 9.
-9. Does at most one centralized middleware — the fault-injection / capability-evaluation eval seam — exist at all? Needs a recorded maintainer decision (VISION register or #765); the seam is hook-shaped relative to constitution clause 2 (no hooks, no reverse callbacks), so the record must carve the exception explicitly.
-10. The wire surface: the ship call shape; the delivery model (endpoint-initiated reads, held-open responses, or another shape); the feed's scope (per-conversation vs endpoint-wide) and its cursor semantics — bounded by the sessionless, plane-split, and single-credential decisions.
+Persistent feeds, offline convergence, Router replication, ordering
+consensus, fork detection, transparent restart, negotiated resource
+limits, network push transports, and a required end-to-end encryption
+or key-distribution profile. Opaque bodies preserve the encryption
+option without making it a Gate 1 guarantee.
 
-## References
+## Decisions
 
-- `v2/VISION.md` (constitution: clauses 1–3, 5–7, 12–13; open-question
-  register); `docs/architecture/layers.md` (layer model, layering rules).
-- `docs/decisions/20260721-physical-plane-split.md`,
-  `docs/decisions/20260721-sessionless-network.md` — the wire-surface
-  decisions.
-- #765 — L2 collective operation semantics charter: op clusters, four
-  paper-required constraints, v0 MULTICAST + PCC decision, maintainer
-  transcript-plus-leases sketch. #755 — v2 epic.
-- `v2/inputs/v1-code-audit-20260717.md` (delivery-path and hook-machinery map);
-  `v2/inputs/case-study-audits-20260718.md` (arena/bench evidence for the eval
-  seam); `v2/inputs/debt-inventory-20260718.md` (eval-harness rebuild verdict).
+- `../decisions/20260720-the-network-is-a-router.md`
+- `../decisions/20260721-sessionless-network.md`
+- `../decisions/20260728-network-wire-is-http-post-polling.md`
+- `../decisions/20260728-layer-boundaries-and-fault-model.md`
