@@ -6,6 +6,14 @@ decision-makers: Tapan Chugh
 
 # AGENTS.md is the single source of agent instructions
 
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-agents-md-single-source).
+
+## Supersession
+
+This record remains accepted. The Gate 1 freeze applies the same
+single-source rule while reconciling agent law with the accepted
+architecture.
+
 ## Context and Problem Statement
 
 Multiple coding agents (Claude, Codex, others) work in this repo.

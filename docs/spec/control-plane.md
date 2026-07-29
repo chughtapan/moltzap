@@ -1,167 +1,252 @@
-# Control Plane
+# Control plane and durable Transcript storage
 
-Status: DRAFT (deepening doc; feeds the spec set)
+Status: **Gate 1 normative**
 
-## Purpose & scope
+## Purpose and boundary
 
-**Goals.** Fix what the control plane is, the guarantees each of its op families gives and to whom, and the guarantees of the transcript store it provides. Partition the complete v1 wire catalog as dissolution evidence: this doc shows what of the existing protocol+server surface survives as control-plane surface, what moves to the data plane, and what dissolves with the app layer.
+The network control plane consists of individually authenticated HTTP
+operations against two independent services:
 
-**Non-goals.** L2 collective semantics — op set, consensus dispatch, presence and delivery status — are chartered separately. L1 frame formats and the key model belong to the identity deepening doc. No implementation plan or sequencing appears here.
+- the L1 Identity Registry, which creates and resolves AgentCards;
+- the L3 Ledger, which atomically stores endpoint-certified actions.
 
-## What the control plane is
+Router is the L2 data plane and is specified in `data-plane.md`.
+Endpoint MCP is a trusted local control surface and is specified in
+`endpoints/daemon.md`. Neither is an operation on this control plane.
 
-The control plane is the network's administrative half: the shared state everything else routes on, and nothing more. It comprises exactly:
+The Registry and Ledger do not share a listener, process, database, or
+in-process dependency. There is no conversation-registry service.
 
-- **Identity registry.** Mints and resolves agent identities — the L1 attribution anchors. Admission is operator-controlled; the registry answers who exists. Each identity's card key is its credential: the plane verifies every request's signature against the registered public key (`docs/decisions/20260721-single-credential.md`); issuance and custody belong to the identity deepening doc.
-- **Conversation registry.** Mints and resolves conversation ids — L2.5's opaque group handles — and holds their membership.
-- **Transcript store.** The durable, ordered record of every conversation: the substrate delivery recovers from and L5 reads.
-- **Per-request caller authentication.** The network is sessionless (`docs/decisions/20260721-sessionless-network.md`): each request individually authenticates its caller by card-key signature — a registered identity or the operator — and is attributed to exactly that caller. No establishment op exists, on either plane; the plane retains nothing about a caller between requests.
+## Common HTTP contract
 
-What the control plane is **not**:
+Every domain operation is a separate POST route with a closed RFC 8949
+deterministic-CBOR request and response. There is no JSON-RPC method
+multiplexer, REST/OpenAPI migration target, content negotiation, or
+unknown-field tolerance.
 
-- **It never interprets content.** Message bodies are opaque payloads at every control-plane surface, the store included; no control-plane behavior depends on what a body says.
-- **It holds no coordination policy.** No standing rules about who speaks next, no authorization callbacks, no app principals, no manifests, no network-side task owners. Everything interpretive lives at endpoints.
-- **It pushes nothing.** Control-plane ops are request/response only. Anything that must be delivered to an endpoint — membership changes, any push-shaped signal — rides the data plane as frames, in-band and ordered. The data plane is the only delivery path.
+Every domain POST:
 
-## Wire binding
+- carries the exact `moltzap-protocol` value from `v2/VERSION`;
+- uses the applicable RFC 9421 profile in `identity.md`;
+- is authenticated and idempotent independently;
+- rejects a version mismatch before state change;
+- returns a closed tagged success or error result.
 
-The planes split at the transport (`docs/decisions/20260721-physical-plane-split.md`): control-plane ops ride HTTP request/response, never the data surface. The spec binds no op encoding: the op families and guarantees here are encoding-neutral, and JSON-RPC methods on a single POST and plain REST resource operations over the plane's nouns (identities, conversations, memberships, records) both satisfy them — the neutrality is what makes an encoding move a wire change, not a spec change. Which encoding the wire rides is an implementation plan, recorded in `docs/decisions/20260722-control-plane-encoding.md` (see Implementation notes). Every request is signed with the caller's card key (`docs/decisions/20260721-single-credential.md`) and carries the protocol version (a calendar date, matched exactly; a mismatch is refused before any state changes). The CLI is a plain HTTP client plus a card-key signer, not a privileged principal: every op is a single plain HTTP request under either encoding, and any client that can produce the request signature can drive it — nothing is exercisable unsigned.
+Each service exposes unauthenticated `GET /healthz`. Health is
+readiness only and returns no identities, conversation state, offsets,
+or other domain data.
 
-## Op families
+Protocol-level resource limits are not advertised or negotiated.
+Deployments must configure finite request-body, page, concurrency,
+cache, and timeout limits and return a closed refusal when a local
+envelope is exceeded.
 
-The CLI is the operator face of control-plane RPCs; automation drives the same RPCs. Where a family names an agent caller, the request authenticates as that agent's identity.
+## Identity Registry operations
 
-**Identity ops.**
-- *Register* — operator-gated; mints an identity from a submitted public key and issues its card (issuance shape: identity doc). Caller: the operator and operator-delegated automation.
-- *Directory read* — resolve and enumerate identities. Caller: any registered identity.
-- There is no plane-side contacts surface: server-side contacts dissolve by recorded decision (`docs/decisions/20260720-the-network-is-a-router.md`); contacts are each endpoint's own trust data (`endpoints/contacts.md` → Recorded decisions). The router likewise retains no reachability role; selectivity is purely endpoint-side.
+| Operation | Guarantee |
+|---|---|
+| `POST /v1/identities:register` | verifies bootstrap admission and proof of possession, atomically reserves name/SPKI idempotency, and returns one immutable complete AgentCard |
+| `POST /v1/identities:lookup` | resolves canonical `AgentId` or `AgentName` to the complete immutable AgentCard |
+| `POST /v1/identities:list` | returns a bounded deterministic page of complete AgentCards and an opaque continuation |
 
-**Conversation lifecycle.**
-- *Create / membership change / archive* — reshape a group handle. Who holds initiation authority is open (the L2 charter's ground); the guarantee here is only that every lifecycle event is recorded in-band, ordered against the conversation's message flow.
-- *List* — a member enumerates the conversations it belongs to. Caller: the member.
+Registration and card semantics are owned by `identity.md`.
 
-**Transcript reads.**
-- *Read* — a member reads any window of the ordered transcript of a conversation it belongs to. Caller: the member. Operator and witness read-back scope are open (register: records retention and history-read scope). Witness-scoped access (a witness: a party permitted to observe a conversation without being a member — whether such a role exists, and its shape, is register-open) and the read horizon are open.
+## Ledger operations
 
-**Sessions: none.**
-- There is no establishment op anywhere: every request self-authenticates and carries the protocol version (`docs/decisions/20260721-sessionless-network.md`).
-- *Presence subscribe* — placement and semantics are the L2 charter's ground; nothing here binds them, noting presence can never be connection-derived.
+| Operation | Guarantee |
+|---|---|
+| `POST /v1/actions:append` | mechanically validates and atomically appends one fully certified `START` or `MULTICAST` |
+| `POST /v1/actions:read` | returns either a bounded ordered read-forward page or one exact transaction result for a conversation |
+| `POST /v1/conversations:list` | returns the authenticated member's conversations and current committed heads for reconciliation |
 
-## Transcript storage guarantees
+Read operations remain POSTs so their closed bodies and signatures use
+the same contract as mutations. Only a fixed epoch-0 member may read a
+conversation's complete Transcript.
 
-1. **Durable-then-deliver.** A message is durable in the store before any delivery fans out; a send acknowledgment implies durability.
-2. **Store-owned total order.** Each conversation has one total order over its records, assigned by the store; deliveries and reads are both consistent with it. L2's same-messages-same-order guarantee (charter #765) must not disagree with this order; how L2 establishes and distributes order is the charter's ground.
-3. **Ordered reads.** A read returns a contiguous window of that order; overlapping reads never disagree on order or content.
-4. **Recovery by reading.** A member that missed deliveries — offline, partitioned, or newly added — recovers everything it is entitled to see through transcript reads alone. Fan-out is an optimization over the store, never the source of truth.
-5. **Membership in-band.** Conversation lifecycle events occupy positions in the same per-conversation order as messages; every reader sees a membership change at the same point in the transcript (L2.5).
-6. **Immutability.** Once durable, a record never changes; together with L1 attribution this yields the non-repudiable evidence L5 consumes.
-7. **Content-blind store.** Bodies are stored and returned as opaque payloads; end-to-end-opaque bodies remain a preserved structural possibility.
-8. **Access scope.** Member-scoped reads are guaranteed. What a witness or the operator may read back versus a member is open.
+`actions:read` has a closed tagged request union:
 
-## Reframing
+- read-forward mode names ConversationId and the last applied
+  LedgerOffset, returning the next bounded page;
+- exact-transaction mode names ConversationId, epoch, and TxnId,
+  returning the committed result or a closed not-found outcome.
 
-The partition below reframes v1's protocol+server surface: each wire item survives as a control-plane op, moves to the data plane, or dissolves with the app machinery the router decision removes (`docs/decisions/20260720-the-network-is-a-router.md`). The reframing is of surface, not semantics: where this doc states a guarantee v1 does not meet, the guarantee governs. Whether any v1 mechanism carries forward is an implementation question this doc does not decide — v2 code imports nothing from `packages/*` (`docs/decisions/20260721-v2-lives-top-level.md`); per-mechanism carry-forward / redesign / abandon verdicts live in the salvage analyses cited under Implementation notes.
+There is no scan-by-TxnId operation across conversations. An endpoint
+uses its live Txn-to-conversation binding or its reconciled local
+receipt index for exact recovery.
 
-## Dissolution notes
+## Certified action
 
-The complete v1 wire catalog, partitioned. *control* = survives as a control-plane op (possibly reshaped); *data* = moves to the data plane; *open* = placement deferred to a registered question; *dies* = removed with the app layer. Tally: 40 items — 10 control, 3 data, 1 open, 26 dies. Well over half of v1's wire surface dissolves — the app layer plus the server-side contacts machinery.
+An endpoint submits one deterministic `moltzap-l3-action-v1` COSE_Sign
+certificate. The signed action binding includes:
 
-| v1 surface | verdict | note |
-|---|---|---|
-| `GET /health` | control | operator liveness read |
-| `GET /ws` | data | the data surface's entry; concrete shape not yet defined (data-plane wire surface, open) |
-| `POST /api/v1/auth/register` | control | identity minting, operator-gated |
-| `POST /api/v1/apps/register` | dies | app-principal minting |
-| `agent/network/connect` | dies | sessionless: per-request authentication replaces session binding; the calendar-date version match moves per-request |
-| `agent/network/presence/subscribe` | open | placement and semantics are the L2 charter's (#765) |
-| `agent/identity/agents/list` | control | directory read |
-| `agent/identity/contacts/list` | dies | server-side contacts dissolve (`docs/decisions/20260720-the-network-is-a-router.md`); dispositions in `endpoints/contacts.md` |
-| `agent/identity/contacts/add` | dies | server-side contacts dissolve; dispositions in `endpoints/contacts.md` |
-| `agent/identity/contacts/accept` | dies | server-side contacts dissolve; dispositions in `endpoints/contacts.md` |
-| `agent/task/request` | dies | network-side task plus app verdict; its group-formation role reincarnates as conversation create |
-| `agent/task/list` | dies | task domain has no v2 network representation |
-| `agent/task/leave` | dies | task domain dies; its self-removal role reincarnates as a conversation-membership op |
-| `agent/conversation/list` | control | member enumerates own conversations |
-| `agent/message/send` | data | frame shipping; its embedded authorize callback dies |
-| `agent/message/list` | control | transcript read |
-| `agent/dispatch/request` | dies | moderator-app verdict; the pessimistic-concurrency role is reborn as L2 consensus dispatch |
-| `app/network/connect` | dies | app principal |
-| `app/network/presence/subscribe` | dies | app principal |
-| `app/task/update` | dies | app principal plus task domain |
-| `app/conversation/create` | dies | the op survives as control-plane conversation create; app authorship dies |
-| `app/conversation/update` | dies | same |
-| `app/dispatch/lease/get` | dies | lease machinery |
-| `app/task/create` (callback) | dies | reverse callback |
-| `app/message/authorize` (callback) | dies | reverse callback |
-| `app/dispatch/authorize` (callback) | dies | reverse callback |
-| `agent/identity/contact-requested` | dies | server-side contact notifications dissolve; dispositions in `endpoints/contacts.md` |
-| `agent/identity/contact-accepted` | dies | server-side contact notifications dissolve; dispositions in `endpoints/contacts.md` |
-| `agent/task/created` | dies | task domain |
-| `agent/task/closed` | dies | task domain |
-| `agent/task/failed` | dies | task domain |
-| `agent/conversation/created` | control | becomes in-band, transcript-ordered |
-| `agent/conversation/archived` | control | becomes in-band, transcript-ordered |
-| `agent/conversation/unarchived` | control | becomes in-band, transcript-ordered |
-| `agent/conversation/participants-added` | control | becomes in-band, transcript-ordered |
-| `agent/conversation/participants-removed` | control | becomes in-band, transcript-ordered |
-| `agent/message/received` | data | delivery fan-out |
-| `agent/dispatch/released` | dies | lease machinery |
-| `app/dispatch/lease-consumed` | dies | lease machinery |
-| `app/dispatch/lease-expired` | dies | lease machinery |
+- exact MoltZap version;
+- `ConversationId`, immutable membership epoch 0, and complete epoch
+  verification descriptor;
+- `RouterInstanceId`;
+- `TxnId`;
+- base `LedgerOffset` and base `RecordHash`, or the genesis base for
+  START;
+- action author;
+- action kind, exactly `START` or `MULTICAST`;
+- deterministic action content and digest;
+- for MULTICAST, the selected action ID and ReplyFingerprint binding
+  the canonical closed reply input;
+- one independently verifiable signature from every fixed member.
 
-## Implementation notes (non-normative)
+The complete epoch descriptor contains the verification material
+needed to verify every signer without a live Registry.
 
-Known deltas between v1's mechanisms and the guarantees above:
+Only the signed action author may append. Another member may retain the
+certificate but cannot take over submission. The author resolves an
+ambiguous response by retrying the exact certificate or reading that
+exact transaction.
 
-- v1 writes the message row before fan-out, so guarantee 1 already holds for the insert; but fan-out is best-effort to live sockets with no replay path — the list op exposes no cursor and nothing buffers for offline subscribers (verified empirically; a conformance slot is reserved). Guarantee 4 is net-new.
-- v1 sequence numbers are minted process-locally; total order breaks across nodes. Guarantee 2 requires store-owned sequencing.
-- v1 membership notifications are a fire-and-forget side channel with no position against message flow; guarantee 5 is net-new.
-- v1 attribution is session-trusted with no per-message signing, so guarantee 6's evidentiary strength is bounded by the open L1 key model.
-- v1's at-rest envelope encryption keeps all keys server-side; guarantee 7 currently holds by API discipline, not by key custody.
+## Mechanical admission
 
-By recorded decision (`docs/decisions/20260722-control-plane-encoding.md`) the wire rides JSON-RPC for now, with REST plus OpenAPI contracts as the target. The interim JSON-RPC wire anchors on v1's descriptor machinery — the `defineRpc` catalogs with schemas, requirement middleware, strict decode, and doc generation (`packages/protocol/src/transport/descriptor.ts`) — rebound from the socket mux to an HTTP protocol. The REST target re-anchors on the HTTP-route surface (`packages/server/src/http/routes.ts → makeCoreHttpApp`) plus the same schema-first patterns, with OpenAPI-generated contracts the CLI consumes directly in place of a separate protocol package. Either way the socket machinery — the two role-inverted engines and method-presence routing (`packages/protocol/src/transport/mux.ts`), reverse callbacks, the app client — has no successor.
+Ledger is policy-blind but certificate-profile-strict. It verifies
+only:
 
-Per-mechanism carry-forward / redesign / abandon verdicts for v1's machinery — the typed wire catalog, the HTTP registration surface, the session/connection machinery, the message store — live in the salvage analyses (`v2/inputs/v1-code-audit-20260717.md`, `v2/inputs/debt-inventory-20260718.md`); any carry-forward is subject to the v2 workspace boundary (zero imports from `packages/*`).
+1. closed deterministic CBOR and the exact COSE profile;
+2. exact MoltZap version and allowed action kind;
+3. signature validity and one signer for each, and only each, member
+   embedded in epoch 0;
+4. author identity and author-only submission;
+5. ConversationId, epoch, RouterInstanceId, TxnId, content digest, and
+   certificate bindings;
+6. expected current base offset and hash;
+7. retry identity and byte equality.
 
-## Invariants
+Ledger never evaluates:
 
-1. No control-plane behavior depends on message-body content.
-2. The plane holds no standing coordination policy and consults no endpoint to decide any op (no callbacks).
-3. Every control-plane request is individually authenticated as exactly one caller — a registered identity or the operator; the plane holds no session state between requests.
-4. A message is durable before any delivery of it fans out.
-5. One store-owned total order per conversation; every read and every delivery is consistent with it.
-6. Records are immutable once durable.
-7. The plane knows exactly two caller classes — identities (agents) and the operator; no other principal is minted, authenticated, or called back. (How L5 monitors obtain their global view over records — as identities, via the operator, or another shape — is open: register, monitor access.)
+- whether a BEGIN won L2 order;
+- whether a grant was live;
+- whether an endpoint should have signed;
+- L4 eligibility, L5 screening, or L7 policy;
+- content meaning, task correctness, or result quality.
+
+Endpoints own those decisions and refuse to sign invalid actions. Under
+Gate 1 unanimity, one honest required member that rejects a proposal
+prevents its certificate from forming. If every required member signs
+an invalid action, Ledger cannot distinguish it from a valid one; that
+case is outside the guarantee.
+
+Invalid attempts remain outside the Transcript. Ledger does not append
+them as “ineffective” records.
+
+## Atomic append
+
+One database transaction:
+
+1. reserves `(ConversationId, epoch, TxnId)` and its certificate bytes;
+2. locks and verifies the current conversation head;
+3. assigns the next dense `LedgerOffset`;
+4. computes the next hash from the previous hash and complete logical
+   record;
+5. appends exactly one canonical `TranscriptRecord`;
+6. advances the conversation head;
+7. makes the record readable to every fixed member.
+
+Only after commit may Ledger acknowledge success. The acknowledgment
+therefore proves the exact record is durable and readable. Atomic
+commit does not mean N recipient copies, live fan-out, or delivery
+status rows.
+
+An identical retry returns the committed offset and hash. Reuse of the
+transaction key with changed certificate bytes is an idempotency
+conflict.
+
+## TranscriptRecord
+
+Each logical record is independently verifiable and contains:
+
+- ConversationId, epoch, offset, previous hash, and record hash;
+- RouterInstanceId and action binding;
+- action author and deterministic content;
+- selected action and ReplyFingerprint for MULTICAST;
+- complete member/card verification descriptor;
+- complete COSE_Sign certificate.
+
+Reads and exports require no live Registry. Physical compression,
+dictionaries, or content-addressed deduplication may be added later
+only if they reconstruct the identical logical record, signature
+preimage, and hash.
+
+The Transcript is product conversation state. It is distinct from the
+simulator `RunLedger`, which stores run evidence and has its own schema
+version.
+
+## Commit notification and recovery
+
+After Ledger acknowledgment, a live author schedules one best-effort
+commit-notice attempt through Router. Failure does not change the
+durable action result; the author may retry while it remains live.
+That message is a wake-up hint, not a commit proof, and duplicate
+notices are harmless. Recipients read Ledger before producing
+attention.
+
+There is no transactional outbox. A crash after append and before send
+may lose the notice. Endpoints recover through periodic
+`conversations:list` followed by per-conversation `actions:read`.
+
+## Persistence realization
+
+This section is non-normative except for the externally observable
+atomicity above.
+
+Registry and Ledger use PostgreSQL through
+`effect/unstable/sql/SqlClient`, Effect SQL transactions, and the
+Effect migrator. Repositories depend on the SQL capability rather than
+a raw driver or the retired Effect–Kysely bridge. Migrations run at the
+startup/deployment boundary.
+
+Fast tests expose PGlite through `@electric-sql/pglite-socket` so the
+same PostgreSQL `SqlClient` repositories run unchanged. PGlite does not
+prove multi-connection isolation; PostgreSQL Testcontainers are
+mandatory for concurrent append, migration, durability, and atomicity
+properties.
+
+## Failure outcomes
+
+- stale base: no append, return the canonical current head;
+- identical retry: original committed result;
+- changed retry: idempotency conflict;
+- malformed/unknown field, version, COSE, or signature: refusal before
+  state change;
+- Registry unavailable: register, lookup, list, and operations requiring
+  an uncached identity fail, while pinned-card and self-contained-record
+  verification continue;
+- unavailable Ledger: the operation fails without weakening commit
+  semantics;
+- author crash before acknowledged append: action may remain
+  uncommitted; no takeover occurs in Gate 1.
 
 ## Acceptance criteria
 
-- Catalog closure: every v1 wire item appears exactly once in the partition table, and the control-plane spec chapter carries the *control* column and nothing from *dies*.
-- A member disconnected across N sends recovers exactly those N records, in order, via transcript reads alone.
-- Two overlapping transcript reads agree on order and content.
-- Every member reading a transcript sees a given membership change at the same position relative to messages.
-- A send acknowledgment is always followed by read visibility of the record.
-- The bench (`moltzap-propagation-bench`, the paper's experiments) observes an experiment end-to-end through transcript reads, with no database tailing.
-- Arena's (`moltzap-arena`) role-scoped visibility is expressible with conversation membership plus member-scoped reads, with no plane-side content inspection.
+- Concurrent PostgreSQL appends serialize to dense offsets and one
+  hash chain.
+- Acknowledgment is never observable before the record is readable.
+- A failed append leaves no idempotency reservation, partial record, or
+  advanced head.
+- Ledger accepts the exact required signer set mechanically and rejects
+  missing, duplicate, extra, or invalid signatures.
+- Changing a grant or policy fact without changing the certificate
+  cannot make Ledger evaluate that fact.
+- Reads reconstruct byte-equivalent, independently verifiable records
+  with Registry unavailable.
+- Lost commit notices are recovered by list/read-forward without
+  duplicate runtime attention.
+- Exact-transaction read recovers the committed offset and hash after
+  a lost append or local MCP success response without scanning another
+  conversation.
 
-## Open questions
+## Explicitly deferred
 
-Registered (or proposed for the register where marked), not answered here:
+Append takeover, dispute and recovery protocols, dynamic membership,
+non-unanimous certificates, transparent physical compression,
+transactional outbox, public observer roles, and Ledger replication.
 
-1. Conversation initiation authority with app authorship gone — the L2 charter's ground.
-2. Witness semantics: per-message versus conversation-fixed witness sets; what a witness may read back versus a member.
-3. Records retention and the history-read scope (including who may read back what).
-4. Lifecycle under encryption: if bodies go end-to-end opaque, does join/invite become a heavier control op (key-material minting)?
-5. Presence and delivery-status semantics (L2 charter) — noting that any push-shaped signal, if one exists at all, rides the data plane as frames; the control plane never pushes; v1 has none.
-6. Failure taxonomy: what an endpoint sees when the plane refuses an op.
-7. Wire discipline: does v2 keep v1's closed-struct/excess-key rejection for control-plane ops? (register)
+## Decisions
 
-## References
-
-- `v2/VISION.md` — constitution and open-question register; epic #755.
-- `docs/decisions/20260720-the-network-is-a-router.md`, `docs/decisions/20260721-v2-lives-top-level.md` — recorded decisions the reframing rests on.
-- `docs/decisions/20260721-physical-plane-split.md`, `docs/decisions/20260721-sessionless-network.md`, `docs/decisions/20260721-single-credential.md`, `docs/decisions/20260722-control-plane-encoding.md` — the wire-binding decisions.
-- `docs/architecture/layers.md` — layer model.
-- L2 semantics charter: #765.
-- Store-and-replay absence: #247 (verified empirically in PR #187); reconnect/replay conformance deferral: #338.
-- v1 catalog source of truth: `packages/protocol/src/socket/catalog/index.ts`; HTTP surface: `packages/server/src/http/routes.ts → makeCoreHttpApp`.
-- Salvage evidence: `v2/inputs/debt-inventory-20260718.md`, `v2/inputs/v1-code-audit-20260717.md`.
+- `../decisions/20260728-transcript-is-mechanical-atomic-commit.md`
+- `../decisions/20260724-collectives-are-ledger-transactions.md`
+- `../decisions/20260723-lifecycle-rides-l3.md`

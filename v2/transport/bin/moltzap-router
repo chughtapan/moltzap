@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+// Scaffold entry point for the moltzap-router process.
+process.stderr.write("moltzap-router is not implemented\n");
+process.exit(1);
