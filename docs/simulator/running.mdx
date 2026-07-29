@@ -74,6 +74,11 @@ const main = Society.run(
 void Effect.runPromise(main);
 ```
 
+Customer provenance is additive. The kernel always writes the reserved
+`agents` key last with each roster name, runtime name, and sanitized
+definition-time runtime configuration, so a caller-provided `agents` value
+cannot replace execution evidence.
+
 Run the module with the repository's build target, Node entrypoint, test
 runner, workflow system, or scheduler.
 
@@ -108,15 +113,22 @@ A runtime exit after readiness is committed as typed ledger evidence. It does
 not implicitly end the customer Effect. This lets one policy fail fast on an
 agent exit while another continues to observe the remaining society.
 
-## Interpret both Effect layers
+## Interpret allocation and run outcomes separately
 
-There are two distinct results:
+The outer `Society.run` Effect fails only when ledger allocation fails before
+a `LedgerRef` exists. Once allocation succeeds, the Effect returns one of two
+closed outcomes:
 
-- The outer `Society.run` Effect can fail while acquiring the router or
-  roster, or while writing and completing the ledger.
-- A successful outer Effect returns `SimulatorRunResult`, whose `exit` is the
-  customer program's `Exit`, `ledger` is the completed ledger reference, and
-  `completion` carries the record count and artifact digests.
+- `ProgramFinished` carries the customer program's `Exit` and a
+  `CompletedLedgerReceipt`.
+- `RunInfrastructureFailed` carries the exact infrastructure `Cause` and
+  either a completed or incomplete ledger receipt.
+
+Program failure and interruption are values inside `ProgramFinished.exit`.
+Router, runtime-acquisition, append, teardown, and completion failures are
+`RunInfrastructureFailed` values. In both cases, the caller receives the exact
+physical ledger reference retained after allocation; it never has to scan a
+directory to recover evidence.
 
 A customer command can map these typed values to its own exit codes,
 structured output, retries, and operator messages. The simulator package does

@@ -164,10 +164,12 @@ rubric selected. Declare those semantics as customer event classes before the
 run.
 
 For example, `packages/evals` emits
-`EvaluationResponseSelected` with the scenario id, endpoint and target roles,
-and the selected task and message ids. Its grader then joins that exact
-customer event to `EndpointMessageReceived`. This preserves the canonical
-network fact while making customer selection policy explicit and typed.
+`EvaluationParticipantAssigned` for episode-owned roles and
+`EvaluationResponseSelected` with the case, endpoint, target, task,
+conversation, and message identities. Its transcript projector joins that
+exact reference to `ConversationOpened`, `EndpointMessageSent`, and
+`EndpointMessageReceived`. This preserves canonical network facts while
+making customer topology and selection policy explicit and typed.
 
 ## Code graders compose
 
@@ -189,10 +191,17 @@ simulator kernel.
 
 ## Regrading and sweeps
 
-Store rubric version, grader build identity, model id, and report location in
-the grading system's metadata. Those values describe an interpretation, not
-the run, so regrading does not mutate completed evidence.
+Store rubric version, judge policy, source revision, native runtime
+configuration, and report location in the grading system's metadata. Those
+values describe an interpretation or execution plan, so regrading does not
+mutate completed evidence.
 
 Condition matrices and aggregation likewise live above the kernel. Each case
 produces one definition-bound ledger; customer code decides which grader to
 apply and how reports combine into a suite result.
+
+`packages/evals/src/sweep.ts → runEvaluationSweep` is one example. It
+checkpoints a Schema-backed report after every terminal matrix cell and
+validates the immutable plan before resume. Its separate
+`packages/evals/src/phoenix.ts → PhoenixPublisher` materializes completed
+reports in a results service without changing simulator evidence.

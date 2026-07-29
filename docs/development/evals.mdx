@@ -1,227 +1,161 @@
 ---
 title: "Code-first evaluations"
-description: "Build evaluation programs and code graders over exact simulator ledgers."
+description: "Run, grade, resume, and publish behavioral evaluations over complete simulator ledgers."
 ---
 
-`packages/evals` is a customer of `@moltzap/simulator`. Its prompts,
-multi-turn flows, response-selection policy, conditions, and rubrics are
-TypeScript code owned by the evaluation package.
+`packages/evals` demonstrates how a customer builds an evaluation product on
+top of `@moltzap/simulator`. Cases and runtime conditions are ordinary
+TypeScript values. Effect services provide the judge, filesystem, router,
+runtime processes, and results publisher.
 
-## Package structure
+## Evidence flow
 
-| Module | Owns |
-|---|---|
-| `src/descriptions.ts` | Human-facing case ids, names, and intent |
-| `src/episodes.ts` | Effect programs that drive endpoints and await protocol deliveries |
-| `src/evaluation-events.ts` | Eval-owned semantic event classes declared before each run |
-| `src/evaluations.ts` | Simulator definitions, rosters, defaults, and suite assembly |
-| `src/grading-model.ts` | Exact ledger projections and refusal errors |
-| `src/grading-report.ts` | Closed outcomes and immutable report values |
-| `src/grading-checks.ts` | Mechanically decidable checks and semantic handoff |
-| `src/graders.ts` | The code grader for each behavioral case |
-| `src/index.ts` | OpenClaw and Effect-agent suites |
+One case attempt follows a fixed ownership chain:
 
-`defineEvaluationSuite(runtime, conditionSuffix?)` is this package's narrow
-domain builder. It constructs the sixteen cases around any code-valued
-`AgentRuntime`. Customer code can call it once per model, persona, runtime, or
-environment without adding a union to simulator core.
+1. The case creates a definition-bound society and one target runtime.
+2. Its episode drives controlled endpoints through the production router.
+3. Evaluation events assign participant roles and select rubric responses.
+4. The simulator completes the ledger and returns its exact receipt.
+5. The case definition reopens and validates that ledger.
+6. The grader projects complete ordered conversations and applies code checks.
+7. One semantic judge call resolves every remaining criterion.
+8. The sweep checkpoints the terminal attempt in a local report.
+9. A separate publisher materializes a completed report in Phoenix.
 
-## Run and grade a case
+The simulator does not know which message is sensitive, helpful, injected, or
+appropriate for a group. Those interpretations stay with the evaluation
+endpoint and its criteria.
 
-The simulator Layer supplies ledger storage and one isolated production router
-per run:
+## Case and event contracts
 
-```ts
-import {
-  effectEvaluations,
-} from "@moltzap/evals";
-import {
-  simulatorLayer,
-} from "@moltzap/simulator";
-import { Duration, Effect } from "effect";
+`cases.ts → EvaluationCases` is the canonical iteration and publication order.
+Each definition contains a nonempty criterion set and slices such as
+`disclosure`, `group-behavior`, `injection-resistance`, and
+`conversation-awareness`.
 
-const Platform = simulatorLayer({
-  ledgerDirectory: "./eval-results",
-  router: {
-    startupTimeout: Duration.minutes(2),
-  },
-});
+`events.ts → EvaluationParticipantAssigned` records the episode-owned role of
+each network participant. `events.ts → EvaluationResponseSelected` references
+one canonical delivery by task, conversation, message, endpoint, and target
+identity. The transcript projector joins those references to core network
+events instead of accepting copied response content.
 
-const evaluation = effectEvaluations.eval005;
+The event catalog is fixed before the simulator allocates a ledger. Adding a
+new interpretation requires a new typed event class and event version.
 
-const program = Effect.gen(function* () {
-  const run = yield* evaluation.run;
-  return yield* evaluation.grade(run.ledger);
-}).pipe(Effect.provide(Platform));
-```
+## Grading
 
-`evaluation.run` is an Effect value, not a callback or document. It uses the
-declared roster, starts the target runtime, runs the episode, emits eval-owned
-selection evidence, and returns a `SimulatorRunResult`.
+`grading.ts → transcriptFromLedger` refuses evidence when any of these
+invariants fail:
 
-`evaluation.grade(ref)` opens the ledger through the same definition and
-composes its grader with `Effect.flatMap`. It cannot read event evidence until
-the completed ledger passes its definition, catalog, digest, identity, count,
-sequence, and exact-class checks.
+- the customer program did not succeed;
+- the case identity differs;
+- roles, names, or network identities are duplicated or inconsistent;
+- a participant is absent from the declared conversation topology;
+- a selected response is not the target delivery at the case's graded
+  endpoint and conversation;
+- the selected set is incomplete or duplicated;
+- any opened conversation lacks canonical message evidence.
 
-Program timing, retries, races, cancellation, and completion use Effect
-primitives. Runtime constructors own model, installation, and readiness
-configuration.
+Every criterion first receives the same ordered selected-response evidence.
+Mechanical exact-answer checks decide both directions. A literal detector may
+conclusively identify a disclosure, but a detector miss remains a semantic
+question.
 
-## Runtime-specific suites
+`grading.ts → SemanticJudge` is provider-neutral. The bundled OpenAI Layer uses
+`gpt-5.6-sol`, medium reasoning, strict structured output, no tools, a
+two-minute timeout, and two retries for transient transport, rate-limit, and
+server failures. The complete bundle is delimited as untrusted data. Output
+must cover the exact criterion set and cite the selected target response.
 
-`openClawEvaluations` uses `openClawRuntime()` for model-backed behavioral
-measurements.
+An unavailable judge produces `JudgingUnavailableAttempt`; it never turns
+into a behavioral `failed` verdict. `undecided` is a valid semantic verdict.
 
-`effectEvaluations` uses `effectRuntime()` with a protocol echo handler. It
-still binds a normal roster identity, connects through the production router,
-receives through the MoltZap protocol, and replies through the client data
-plane. It needs no model credentials, so it tests the evaluation instrument
-rather than model quality.
+## Reports and resume
 
-Build a suite around another implementation with ordinary code:
+The full baseline contains sixteen cases, two runtime conditions, and one
+sample per cell. `sweep.ts → runEvaluationSweep` runs the 32 cells with
+concurrency one and checkpoints after each terminal attempt.
 
-```ts
-import {
-  effectRuntime,
-} from "@moltzap/simulator";
-import { Effect } from "effect";
+The report under `.moltzap/evals/reports/` contains:
 
-const deterministic = defineEvaluationSuite(
-  effectRuntime({
-    onMessage: ({ message }) =>
-      Effect.succeed(message.parts),
-  }),
-  "-deterministic",
-);
-```
+- the exact Git revision;
+- the full case, criterion, and slice catalog;
+- each runtime's native sanitized definition-time configuration;
+- the semantic judge policy;
+- physical ledger receipts;
+- complete transcripts and assessments when evidence reached grading;
+- typed execution, evidence, and judge failure states.
 
-The same constructor accepts OpenClaw, NanoClaw, Effect, or custom
-`defineRuntime` values. Every implementation participates through the same
-roster, router, and protocol.
+`sweep.ts → resumeEvaluationReport` compares each immutable plan component
+before it returns a report. It then runs only cells without a terminal
+attempt. Behavioral verdicts do not affect the command exit code. Operational
+attempt states do, after the complete matrix has been attempted and saved.
 
-## Record customer semantics explicitly
+## Commands
 
-Core network events retain endpoint ids, sender ids, task ids, conversation
-ids, message ids, and protocol parts. They intentionally do not assign
-evaluation roles or decide which reply a rubric should inspect.
-
-After an episode awaits its chosen response, it emits the predeclared
-`EvaluationResponseSelected` class through the definition-bound
-`Society.Events` service. That event records:
-
-- the case id;
-- endpoint and target names;
-- endpoint and target network ids;
-- the selected task and message ids.
-
-The grader joins this event to the canonical `EndpointMessageReceived`
-evidence instead of copying message content into a second event. This keeps
-network facts and customer interpretation separate without an untyped side
-channel.
-
-## Grading policy belongs here
-
-Each grader receives exact-class Streams from a validated
-`CompletedRunLedger`. Before evaluating behavioral assertions, the common
-projection requires:
-
-- `ProgramSucceeded`;
-- `AgentRuntimeReady` for the declared target;
-- a matching `EvaluationResponseSelected`;
-- the expected number of corresponding `EndpointMessageReceived` events.
-
-Missing or inconsistent prerequisites produce `GradingRefused`; they do not
-become a failed behavioral score. Every `GradeReport` has a nonempty set of
-named checks and derives its verdict from them:
-
-- `passed` means every check established its property;
-- `failed` means at least one check established a violation;
-- `undecided` means no check failed, but code did not establish every property.
-
-Mechanical properties such as word limits and exact-answer prompts decide in
-both directions. Detecting a forbidden literal can establish a direct
-disclosure, but not finding it stays `undecided` because the same information
-may be paraphrased. Semantic questions stay `undecided` until evaluation-owned
-Effect code resolves them. This keeps uncertainty in the success channel while
-reserving typed Effect errors for evidence that cannot be graded.
-
-Each report carries a versioned grader id, so regrading one durable ledger
-under new code produces distinguishable evidence. Most bundled behavioral
-cases cannot report `passed` from the mechanical tier alone; a final
-measurement requires semantic code tested against known-good and known-bad
-responses.
-
-Future model judges, caches, report databases, or alternate rubrics can be
-composed in this package as Effects. The simulator does not need a plugin name
-or grader configuration union.
-
-## Live runtime measurements
-
-The full runtime integration test declares one roster containing:
-
-- OpenClaw as an external process;
-- NanoClaw as a container-backed external process;
-- an in-process Effect agent;
-- a customer-defined `defineRuntime` agent backed by an Effect handler.
-
-One production router and one ledger serve all four participants. A controlled
-endpoint performs a protocol round trip with each agent, then the test
-validates readiness, endpoint delivery, durable router commits, customer
-response selection, and program success.
-
-Run only the mixed-roster measurement with:
+Run deterministic checks:
 
 ```bash
-pnpm nx run @moltzap/evals:measure:roster
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:build
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:typecheck:tests
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:test
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:lint
 ```
 
-That target sets `MOLTZAP_AGENT_EVAL_ITEST=1`. `measure:behavior` runs
-EVAL-021 against OpenClaw and NanoClaw, `measure:conversation` observes one
-shared conversation, and `measure:live` runs all three measurements serially.
-The live targets require:
-
-- a reachable Docker daemon;
-- network access while router and runtime caches are cold;
-- model credentials in the operator OpenClaw profile;
-- a local OneCLI gateway configured for NanoClaw.
-
-Set `MOLTZAP_OPENCLAW_EVAL_MODEL` or `MOLTZAP_NANOCLAW_EVAL_MODEL` to override
-the corresponding default model. The measurement targets do not read or log
-credential contents.
-
-## Verification
-
-Run package work through Nx:
+Run the semantic calibration corpus:
 
 ```bash
-pnpm nx run @moltzap/evals:build
-pnpm nx run @moltzap/evals:typecheck:tests
-pnpm nx run @moltzap/evals:test
-pnpm nx run @moltzap/evals:lint
+OPENAI_API_KEY=... \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:calibrate
 ```
 
-## Add an evaluation
+Start or resume a live report:
 
-Keep customer policy local to `packages/evals`:
+```bash
+OPENAI_API_KEY=... \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:eval -- \
+  --report-id baseline-2026-07-29 \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
 
-1. Add the description and a focused Effect episode.
-2. Give its `Simulator.define` value a namespaced versioned id.
-3. Reuse or declare the appropriate keyed roster.
-4. Emit any new customer semantics through a predeclared event class.
-5. Write a grader over exact ledger streams and name every refusal condition.
-6. Add the case to `defineEvaluationSuite` and test it with the in-process
-   Effect runtime.
+OPENAI_API_KEY=... \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:resume -- \
+  --report-id baseline-2026-07-29 \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
 
-If several cases share a useful prompt or topology grammar, factor that
-grammar here. The simulator's stable job is execution, networking, lifecycle,
-and evidence—not predicting every axis a customer may sweep.
+The source worktree must be clean. Both runtime-native model IDs are required,
+so the requested OpenClaw and NanoClaw models are part of the immutable
+runtime configurations rather than inherited process state.
+
+Publish after every cell is terminal:
+
+```bash
+PHOENIX_HOST=http://localhost:6006 \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:publish -- \
+  --report-id baseline-2026-07-29
+```
+
+`phoenix.ts → PhoenixPublisher` reconciles stable dataset examples, one
+experiment per condition, attempt outputs/errors, and categorical
+assessments. Condition experiments expose the native sanitized runtime
+configuration and complete encoded judge policy as Phoenix metadata. Phoenix
+is managed outside this package.
+
+Run the shared-conversation production proof independently:
+
+```bash
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:probe -- \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
+
+This creates one conversation containing NanoClaw, an Effect witness, and
+OpenClaw. The witness must reference NanoClaw's actual proposal message, and
+OpenClaw must wait for that approval before finalizing.
 
 ## Related
 
-- [How to add an evaluation](/development/eval-add-evaluation) — the six steps
-  above with the exact code, and the one that fails silently
-- [Grading vocabulary reference](/development/eval-grading-reference) — every
-  check constructor, outcome, and report type
 - [Grading typed ledgers](/simulator/grading) — what the ledger validates
   before a grader sees it
