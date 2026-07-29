@@ -4,14 +4,7 @@
   "private": true,
   "description": "L2 message/delivery/poll contracts, Router client and in-memory server",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/chughtapan/moltzap.git"
-  },
   "type": "module",
-  "engines": {
-    "node": ">=22.0.0"
-  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

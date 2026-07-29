@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-// moltzap-router process entry point. The Router owns one globally ordered, volatile delivery feed per process incarnation and has no database.
+// Scaffold entry point for the moltzap-router process.
 process.stderr.write("moltzap-router is not implemented\n");
 process.exit(1);
