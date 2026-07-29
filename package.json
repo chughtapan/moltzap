@@ -25,7 +25,7 @@
     "docs:generate": "pnpm --filter @moltzap/protocol docs:generate && pnpm --filter @moltzap/client docs:generate && pnpm --filter @moltzap/server-core exec tsx ../../scripts/generate-constants-snippets.ts",
     "docs:check": "cd docs && mint broken-links",
     "docs:check:drift": "pnpm docs:generate && git diff --exit-code docs/ 'packages/**/MODULE.md' README.md && pnpm docs:check:no-hardcoded-constants && pnpm docs:check:doc-imports-resolve",
-    "docs:check:mermaid": "pnpm --filter @moltzap/protocol exec tsx scripts/check-mermaid.ts",
+    "docs:check:mermaid": "puppeteer browsers install chrome-headless-shell && pnpm --filter @moltzap/protocol exec tsx scripts/check-mermaid.ts",
     "docs:check:no-hardcoded-constants": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-no-hardcoded-constants.ts",
     "docs:check:doc-imports-resolve": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-doc-imports-resolve.ts",
     "docs:check:gates-test": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/__tests__/gates.test.ts",
@@ -48,6 +48,7 @@
     "nx": "^22.7.5",
     "oxfmt": "^0.7.0",
     "oxlint": "^0.16.0",
+    "puppeteer": "24.43.1",
     "typedoc": "^0.28.19",
     "typescript": "^5"
   }

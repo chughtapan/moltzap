@@ -34,8 +34,6 @@ jobs:
       - run: pnpm docs:check:drift
       - run: pnpm docs:check
       - run: pnpm docs:check:mermaid
-        env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome
       - run: pnpm docs:check:gates-test
 
   test:
