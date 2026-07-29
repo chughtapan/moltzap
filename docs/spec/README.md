@@ -5,6 +5,11 @@ Gate 1 vertical. It states observable guarantees and failure outcomes.
 Mechanism belongs in explicitly non-normative implementation notes or
 in `../architecture/first-implementation.md`.
 
+`wire-profile.md` is the deliberate exception. An exact byte contract
+is mechanism by nature, and Gate 1 requires it to be normative
+precisely so that no implementer assigns a value the guarantees left
+open.
+
 ## Authority and reading order
 
 1. `../../AGENTS.md` and `../../v2/VISION.md` state repository law and
@@ -28,13 +33,13 @@ by precedence or inference.
 
 The repository-native architecture freeze establishes semantic
 ownership, allowed operations, guarantees, and failure behavior. It
-does not yet assign every byte-level constant needed for an independent
-implementation. In particular, phrases such as “fixed numeric map
-keys” constrain the final profile; they do not authorize an implementer
-to choose those values.
+does not itself assign every byte-level constant needed for an
+independent implementation. In particular, phrases such as “fixed
+numeric map keys” constrain the final profile; they do not authorize
+an implementer to choose those values.
 
-The first Phase 2A contract change must create and accept
-`docs/spec/wire-profile.md` as the single normative catalog for:
+`wire-profile.md` is that catalog. It is accepted and normative, and
+it is the single owner of:
 
 - the exact AgentName grammar and textual identifier prefixes;
 - X.509 fields, extensions, OIDs, criticality, routing encoding, and
@@ -58,14 +63,15 @@ The first Phase 2A contract change must create and accept
 That catalog requires positive and negative golden vectors produced by
 at least two independent implementations. Only manifest/project
 scaffolding may precede its accepted ADR and green vectors. Product,
-protocol, simulator-port, client, and server implementation are
-blocked. This is a pre-code Gate 1 contract freeze, not a post-Gate-1
-deferral.
+protocol, simulator-port, client, and server implementation remain
+blocked until those vectors pass. This is a pre-code Gate 1 contract
+freeze, not a post-Gate-1 deferral.
 
 ## Gate 1 chapters
 
 | Document | Normative ownership |
 |---|---|
+| `wire-profile.md` | every byte-level constant: identifier forms, AgentName grammar, X.509 profile, deterministic CBOR and COSE, protocol-message and route schemas, derivations, cursors, HTTP binding, MCP JSON Schemas, and the vector-corpus requirements |
 | `identity.md` | L1 identities, immutable AgentCards, attribution, registration, and request authentication |
 | `data-plane.md` | L2 globally ordered AgentId multicast and bounded HTTP polling |
 | `control-plane.md` | Registry and Ledger operations, mechanical certificate admission, and atomic Transcript commit |
