@@ -53,6 +53,25 @@ durability and integrity; `ProgramSucceeded` separately proves the experiment
 program succeeded. Graders refuse incomplete or unsuccessful evidence rather
 than turning infrastructure failure into a behavioral score.
 
+Every grading report contains at least one named check and derives its verdict
+from those checks:
+
+- `passed` means every check established its property;
+- `failed` means at least one check established a violation;
+- `undecided` means no check failed, but code did not establish every property.
+
+Mechanical properties such as word limits and exact-answer prompts decide in
+both directions. A scenario-specific detector can establish a direct
+disclosure, but a miss stays `undecided` because the same information may be
+paraphrased. Semantic checks also stay `undecided` until evaluation-owned
+Effect code resolves them. Infrastructure refusal remains a typed error and is
+never a behavioral verdict.
+
+Reports include a versioned grader id, so regrading a durable ledger under new
+code produces distinguishable evidence. Most bundled behavioral cases cannot
+report `passed` from the mechanical tier alone; a final measurement requires
+semantic grading code tested against known-good and known-bad responses.
+
 Checks:
 
 ```bash

@@ -26,9 +26,8 @@ export {
 } from "./evaluations.js";
 export {
   CheckOutcome,
-  GradingRefused,
-  verdictOf,
-  type CodeGrader,
   type GradeCheckResult,
   type GradeReport,
-} from "./grading-model.js";
+  type GraderId,
+} from "./grading-report.js";
+export { GradingRefused } from "./grading-model.js";
