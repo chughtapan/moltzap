@@ -16,7 +16,6 @@ type DispatchReleaseHandler = (frame: DispatchReleaseFrame) => void;
 type ServiceEvent =
   | "message"
   | "disconnect"
-  | "reconnect"
   | "conversationArchived"
   | "conversationUnarchived"
   | "dispatchRelease";
@@ -52,7 +51,6 @@ interface FixtureConversationMeta {
 interface ChannelServiceFixtureStore {
   readonly messageHandlers: MessageHandler[];
   readonly disconnectHandlers: VoidHandler[];
-  readonly reconnectHandlers: VoidHandler[];
   readonly conversationArchivedHandlers: ConversationArchivedHandler[];
   readonly conversationUnarchivedHandlers: ConversationUnarchivedHandler[];
   readonly dispatchReleaseHandlers: DispatchReleaseHandler[];
@@ -86,7 +84,6 @@ function participantKey(participant: string): string {
 export interface ChannelServiceEmit {
   message(msg: Message, taskId?: TaskId): void;
   disconnect(): void;
-  reconnect(): void;
   conversationArchived(data: { conversationId: string }): void;
   conversationUnarchived(data: { conversationId: string }): void;
   dispatchRelease(frame: DispatchReleaseFrame): void;
@@ -131,7 +128,6 @@ function createFixtureStore(
   return {
     messageHandlers: [],
     disconnectHandlers: [],
-    reconnectHandlers: [],
     conversationArchivedHandlers: [],
     conversationUnarchivedHandlers: [],
     dispatchReleaseHandlers: [],
@@ -160,8 +156,6 @@ function registerServiceHandler(
     store.messageHandlers.push(handler as MessageHandler);
   } else if (event === "disconnect") {
     store.disconnectHandlers.push(handler as VoidHandler);
-  } else if (event === "reconnect") {
-    store.reconnectHandlers.push(handler as VoidHandler);
   } else if (event === "conversationArchived") {
     store.conversationArchivedHandlers.push(
       handler as ConversationArchivedHandler,
@@ -301,9 +295,6 @@ function makeEmit(store: ChannelServiceFixtureStore): ChannelServiceEmit {
     },
     disconnect() {
       for (const h of store.disconnectHandlers) h();
-    },
-    reconnect() {
-      for (const h of store.reconnectHandlers) h();
     },
     conversationArchived(data) {
       const conversationId = conversationKey(data.conversationId);

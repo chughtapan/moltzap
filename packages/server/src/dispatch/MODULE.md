@@ -233,7 +233,7 @@ export interface EnqueueDispatchRequestArgs {
   readonly recipientConnectionId: ConnectionId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
-  readonly parts?: ReadonlyArray<Part>;
+  readonly parts?: MessageParts;
   readonly attempt?: number;
   readonly receivedAt?: string;
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;
@@ -287,7 +287,7 @@ Snapshot of a lease for `app/dispatch/lease/get` and observability tests.
 Mirrors the wire `LeaseRecordSchema` shape; ISO-8601 timestamps for
 cross-boundary stability.
 
-### [`leaseRecordToWire`](./lease-registry.ts#L526)
+### [`leaseRecordToWire`](./lease-registry.ts#L532)
 
 _Function_
 
@@ -298,7 +298,7 @@ export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire
 Translation point between the in-process nested `LeaseRecord` and the wire
 `LeaseRecordSchema` shape.
 
-### [`LeaseRegistry`](./lease-registry.ts#L288)
+### [`LeaseRegistry`](./lease-registry.ts#L294)
 
 _Interface_
 
@@ -471,7 +471,13 @@ sequenceDiagram
   LR->>Recv: agent/dispatch/released {verdict}
   Recv->>MS: agent/message/send with dispatchLeaseId
   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
-  Note over MS: Effect.acquireUseRelease — use sendInsert returns carrier — release on Exit success claim.finalize CLAIMED → CONSUMED, on Exit failure claim.rollback CLAIMED → GRANTED
+  Note over MS: Effect.acquireUseRelease owns the claim
+  MS->>MS: sendInsert
+  alt insert succeeds
+    MS->>LR: finalize(messageId), CLAIMED to CONSUMED
+  else insert fails
+    MS->>LR: rollback, CLAIMED to GRANTED
+  end
   MS->>MS: sendCommit — post-insert side effects
 ```
 
@@ -490,7 +496,7 @@ the immutable record version that created it, so a stale pre-rollback timer
 cannot expire a newer GRANTED epoch. The timeout comes from the grant
 verdict's `leaseTimeoutMs`.
 
-### [`LeaseRegistryDeps`](./lease-registry.ts#L428)
+### [`LeaseRegistryDeps`](./lease-registry.ts#L434)
 
 _Interface_
 
@@ -581,7 +587,7 @@ export type LeaseVerdict =
 
 Verdict shapes accepted by `resolve` — mirrors the wire decision.
 
-### [`makeLeaseRegistry`](./lease-registry.ts#L1346)
+### [`makeLeaseRegistry`](./lease-registry.ts#L1352)
 
 _Function_
 

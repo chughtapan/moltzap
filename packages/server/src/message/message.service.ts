@@ -2,6 +2,7 @@ import type { Db } from "#db";
 import type {
   DispatchDecision,
   Message,
+  MessageParts,
   Part,
 } from "@moltzap/protocol/message";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
@@ -78,14 +79,14 @@ const decodeMessageId = Schema.decodeUnknownSync(MessageIdSchema);
 
 interface SendInsertResult {
   readonly message: Message;
-  readonly parts: ReadonlyArray<Part>;
+  readonly parts: MessageParts;
   readonly conv: SendConversationRow;
   readonly excludeConnectionId: ConnectionId | undefined;
 }
 
 interface SendMessageInput {
   readonly conversationId: ConversationId;
-  readonly parts: ReadonlyArray<Part>;
+  readonly parts: MessageParts;
   readonly senderAgentId: AgentId;
   readonly replyToId?: MessageId;
   readonly excludeConnectionId?: ConnectionId;
@@ -104,7 +105,7 @@ interface ResolveSendVerdictInput {
   readonly appId: AppId;
   readonly conversationId: ConversationId;
   readonly senderAgentId: AgentId;
-  readonly parts: ReadonlyArray<Part>;
+  readonly parts: MessageParts;
   readonly taskId: TaskId;
 }
 
@@ -246,7 +247,7 @@ export class MessageService {
       // stack before the handler runs, so `send` requires no permission token in
       // its Env and trusts `input` (the handler's already-gated params).
       const conv = yield* this.readSendConversation(input.conversationId);
-      const parts = [...input.parts];
+      const parts = input.parts;
       const encrypted = yield* this.encryptParts(input.conversationId, parts);
       const row = yield* this.insertMessageRow(input, conv, encrypted);
       return {
@@ -565,7 +566,7 @@ export class MessageService {
         message: {
           id: input.messageId,
           senderAgentId: input.senderAgentId,
-          parts: [...input.parts],
+          parts: input.parts,
         },
         taskId: input.taskId,
         appId: input.appId,
@@ -707,7 +708,7 @@ export class MessageService {
 
   private encryptParts(
     conversationId: ConversationId,
-    parts: Part[],
+    parts: MessageParts,
   ): Effect.Effect<EncryptedParts, never> {
     const encryption = this.encryption;
     if (encryption === null) {
@@ -879,7 +880,7 @@ export class MessageService {
   private decryptPartsWithCache(
     row: MessageRow,
     dekCache: Map<number, Dek>,
-  ): Effect.Effect<ReadonlyArray<Part>> {
+  ): Effect.Effect<MessageParts> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const dekVersion = row.dek_version;
@@ -943,7 +944,7 @@ export class MessageService {
     });
   }
 
-  private mapMessage(row: MessageRow, parts: ReadonlyArray<Part>): Message {
+  private mapMessage(row: MessageRow, parts: MessageParts): Message {
     return {
       id: row.id,
       conversationId: row.conversation_id,
@@ -960,7 +961,7 @@ function recipientsFromVerdict(verdict: DispatchDecision): readonly AgentId[] {
   return verdict.recipients as readonly AgentId[];
 }
 
-function plaintextEncryptedParts(parts: ReadonlyArray<Part>): EncryptedParts {
+function plaintextEncryptedParts(parts: MessageParts): EncryptedParts {
   return {
     encrypted: Buffer.from(JSON.stringify(parts), "utf-8"),
     iv: Buffer.alloc(PLAINTEXT_IV_BYTES),

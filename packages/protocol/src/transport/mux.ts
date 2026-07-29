@@ -47,7 +47,7 @@ import type {
   FromServerEncoded,
 } from "@effect/rpc/RpcMessage";
 import { RpcSerialization } from "@effect/rpc";
-import type * as Socket from "@effect/platform/Socket";
+import * as Socket from "@effect/platform/Socket";
 import { Effect, Mailbox, Option, Schema } from "effect";
 
 /**
@@ -80,58 +80,31 @@ export interface SocketSinks {
 }
 
 /**
- * The JSON-RPC reserved parse-error code (JSON-RPC 2.0 §5.1). The server
- * replies with this — rather than silently dropping — for a chunk it cannot
- * decode into a routable protocol frame, so a buggy or hostile client gets a
- * typed signal instead of a dead connection.
- */
-const JSON_RPC_PARSE_ERROR_CODE = -32700;
-
-/**
- * The bare reply the transport writes back when a chunk cannot be turned into
- * a protocol frame. The id is `null` (the frame was unparseable, so no request
- * id is recoverable). This is a fixed JSON-RPC shape, not an engine-encoded
- * frame: the inner parser already failed, so the engine never saw the request.
- */
-const PARSE_ERROR_REPLY = JSON.stringify({
-  jsonrpc: "2.0",
-  id: null,
-  error: {
-    code: JSON_RPC_PARSE_ERROR_CODE,
-    message: "invalid json",
-  },
-});
-
-/** A no-op writer: the default when a caller wires no parse-error reply path. */
-const dropWrite: WireWrite = () => Effect.void;
-
-/**
- * Encode one engine frame through `encode` and write it to the wire, demoting a
- * socket write failure to a warning so one failed send does not fault the
- * engine. Shared by both channel protocols' `send`.
+ * Encode one engine frame through `encode` and write it to the wire. A failed
+ * write remains a failure; treating it as success would let the RPC engine wait
+ * for a frame that never left this process.
  */
 const sendFrame = (
   encode: (frame: unknown) => Effect.Effect<string>,
   write: WireWrite,
-  failureMessage: string,
   frame: unknown,
-): Effect.Effect<void> =>
-  encode(frame).pipe(
-    Effect.flatMap(write),
-    Effect.catchAll((err) =>
-      Effect.logWarning(failureMessage).pipe(Effect.annotateLogs({ err })),
-    ),
-  );
+): Effect.Effect<void, Socket.SocketError> =>
+  encode(frame).pipe(Effect.flatMap(write));
 
-/** Log + write the `-32700` parse-error frame through the resolved writer. */
-const replyMalformed =
-  (reply: WireWrite) =>
-  (logMessage: string): Effect.Effect<void> =>
-    Effect.logWarning(logMessage).pipe(
-      Effect.zipRight(
-        reply(PARSE_ERROR_REPLY).pipe(Effect.catchAll(() => Effect.void)),
-      ),
-    );
+const socketReadFailure = (
+  failure: string,
+  cause: unknown,
+): Socket.SocketError =>
+  new Socket.SocketGenericError({
+    reason: "Read",
+    cause: { failure, cause },
+  });
+
+const failRead = (
+  failure: string,
+  cause: unknown = failure,
+): Effect.Effect<never, Socket.SocketError> =>
+  Effect.fail(socketReadFailure(failure, cause));
 
 /**
  * The decoded `method` of a chunk, or `None` when the chunk is not a JSON
@@ -179,53 +152,51 @@ const isFromServerEncoded = (frame: unknown): frame is FromServerEncoded => {
 /**
  * Route one raw socket chunk to the engine sink named by its frame family. A
  * chunk that does not decode into a routable protocol frame — non-JSON, a
- * non-object body, or an inner wire string the engine Parser rejects — is
- * answered with a JSON-RPC `-32700` parse-error reply (via `reply`) rather than
- * failing the socket: a single malformed frame must not tear down both engines
- * on the shared connection. When `reply` is omitted the chunk is dropped after
- * a warning. The engine's Parser may yield zero or more decoded frames per wire
- * string; every frame is injected in order.
+ * non-object body, an inner wire string the engine Parser rejects, or a frame
+ * the selected engine cannot accept — fails the socket read path. No
+ * transport-authored error frame is sent: replying to malformed input lets two
+ * peers bounce parse errors indefinitely. The engine's Parser may yield one or
+ * more decoded frames per wire string; every frame is injected in order.
  */
 export function routeInbound(
   raw: string | Uint8Array,
   sinks: SocketSinks,
-  reply?: WireWrite,
-): Effect.Effect<void> {
-  const onMalformed = replyMalformed(reply ?? dropWrite);
+): Effect.Effect<void, Socket.SocketError> {
   return Effect.gen(function* () {
-    const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
-    const parsed = yield* Effect.try((): unknown => JSON.parse(text)).pipe(
-      Effect.option,
-    );
-    if (Option.isNone(parsed)) {
-      return yield* onMalformed("mux: non-JSON socket chunk");
-    }
-    const probe = decodeRoutingProbe(parsed.value);
+    const text = yield* Effect.try({
+      try: () =>
+        typeof raw === "string"
+          ? raw
+          : new TextDecoder("utf-8", { fatal: true }).decode(raw),
+      catch: (cause) => socketReadFailure("mux: invalid UTF-8 chunk", cause),
+    });
+    const parsed = yield* Effect.try({
+      try: (): unknown => JSON.parse(text),
+      catch: (cause) => socketReadFailure("mux: non-JSON socket chunk", cause),
+    });
+    const probe = decodeRoutingProbe(parsed);
     if (Option.isNone(probe)) {
-      return yield* onMalformed("mux: non-object socket chunk");
+      return yield* failRead("mux: non-object socket chunk");
     }
     // A `method` marks the request family (Request/Ack/Interrupt/Eof) → the
     // local server; its absence marks the response family (Chunk/Exit/Defect)
     // → the local client.
     const sink = probe.value.method !== undefined ? sinks.server : sinks.client;
     if (sink === undefined) {
-      return yield* onMalformed("mux: no sink for frame family");
+      return yield* failRead("mux: no sink for frame family");
     }
-    const frames = yield* Effect.try(() => sink.parser.decode(text)).pipe(
-      Effect.option,
-    );
-    if (Option.isNone(frames)) {
-      return yield* onMalformed("mux: undecodable frame");
+    const frames = yield* Effect.try({
+      try: () => sink.parser.decode(text),
+      catch: (cause) => socketReadFailure("mux: undecodable frame", cause),
+    });
+    if (frames.length === 0) {
+      return yield* failRead("mux: parser produced no frame");
     }
-    for (const frame of frames.value) {
-      // A frame that parses into the right family but that the destination
-      // engine cannot accept (e.g. a response-family frame with no usable
-      // request id) makes the engine `write` throw — synchronously, while
-      // building the inject Effect. `Effect.suspend` pulls that synchronous
-      // throw into the Effect's defect channel so the catch below answers it as
-      // a malformed frame, and one bad frame does not tear down both engines.
+    for (const frame of frames) {
       yield* Effect.suspend(() => sink.inject(frame)).pipe(
-        Effect.catchAllDefect(() => onMalformed("mux: engine rejected frame")),
+        Effect.catchAllDefect((cause) =>
+          failRead("mux: engine rejected decoded frame", cause),
+        ),
       );
     }
   }).pipe(Effect.withSpan("mux.routeInbound"));
@@ -306,7 +277,7 @@ export function makeServerChannelProtocol(options: {
       impl: {
         disconnects: options.disconnects,
         send: (_clientId, response) =>
-          sendFrame(encode, options.write, "mux: server send failed", response),
+          sendFrame(encode, options.write, response).pipe(Effect.orDie),
         end: () => Effect.void,
         clientIds: Effect.succeed(new Set([MUX_CLIENT_ID])),
         initialMessage: Effect.succeedNone,
@@ -348,7 +319,7 @@ export function makeClientChannelProtocol(options: {
     Effect.succeed({
       impl: {
         send: (request) =>
-          sendFrame(encode, options.write, "mux: client send failed", request),
+          sendFrame(encode, options.write, request).pipe(Effect.orDie),
         // Acks off — see {@link makeServerChannelProtocol}: the peer's `Ack`
         // is a method-bearing frame the family split would misroute, and unary
         // RPCs never need it.
@@ -378,15 +349,16 @@ export function makeClientChannelProtocol(options: {
 function makeEncoder(
   parser: RpcSerialization.Parser,
 ): (frame: unknown) => Effect.Effect<string> {
-  return (frame) => {
-    const wire = parser.encode(frame);
-    if (typeof wire !== "string") {
-      return Effect.dieMessage(
-        "mux: jsonRpc parser produced a non-string frame",
-      );
-    }
-    return Effect.succeed(wire);
-  };
+  return (frame) =>
+    Effect.sync(() => parser.encode(frame)).pipe(
+      Effect.flatMap((wire) =>
+        typeof wire === "string"
+          ? Effect.succeed(wire)
+          : Effect.dieMessage(
+              "mux: jsonRpc parser produced a non-string frame",
+            ),
+      ),
+    );
 }
 
 /**
@@ -399,10 +371,9 @@ export function runMuxReader(
   socket: Socket.Socket,
   sinks: SocketSinks,
   disconnects: Mailbox.Mailbox<number>,
-  reply?: WireWrite,
 ): Effect.Effect<void, Socket.SocketError> {
   return socket
-    .runRaw((data) => routeInbound(data, sinks, reply))
+    .runRaw((data) => routeInbound(data, sinks))
     .pipe(
       Effect.ensuring(disconnects.offer(MUX_CLIENT_ID).pipe(Effect.asVoid)),
     );

@@ -1,5 +1,30 @@
+import { statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { extractMermaidBlocks } from "../mermaid-lint.js";
+import { extractMermaidBlocks, MERMAID_ROOTS } from "../mermaid-lint.js";
+
+const WORKSPACE_ROOT = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  "..",
+  "..",
+);
+
+describe("MERMAID_ROOTS", () => {
+  // A root naming a tree that does not exist contributes no blocks. The
+  // gate's own `requireRoots` turns that into a hard failure at runtime;
+  // this pins the same invariant at the list, where the typo would land.
+  it.each(MERMAID_ROOTS)("resolves %s to a real directory", (root) => {
+    expect(statSync(resolve(WORKSPACE_ROOT, root)).isDirectory()).toBe(true);
+  });
+
+  it("covers the v2 track", () => {
+    expect(MERMAID_ROOTS).toContain("v2");
+  });
+});
 
 describe("extractMermaidBlocks", () => {
   it("returns empty list when the source has no fenced blocks", () => {

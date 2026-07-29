@@ -30,9 +30,10 @@ import { messagePartsSchema } from "./parts.js";
 export {
   decodeMessageParts,
   decodeMessagePartsText,
+  messagePartsSchema,
   validateTextPart,
 } from "./parts.js";
-export type { Part } from "./parts.js";
+export type { MessageParts, Part } from "./parts.js";
 
 const DateTimeString = dateTimeStringSchema();
 const MessageParts = messagePartsSchema();
@@ -62,7 +63,12 @@ export type Message = Schema.Schema.Type<typeof MessageSchema>;
 /** Return true when the value is a closed message row. */
 export const validateMessage = closedStructGuard(MessageSchema);
 
-const DispatchDecisionSchema = Schema.Union(
+/**
+ * Canonical persisted dispatch-authorization contract. Recording evidence
+ * composes this schema directly so the two boundaries cannot drift.
+ */
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the recording boundary composes this schema directly
+export const DispatchDecisionSchema = Schema.Union(
   Schema.Struct({ tag: Schema.Literal("pending") }),
   Schema.Struct({
     tag: Schema.Literal("forward"),
