@@ -1,38 +1,94 @@
-# Spec set — drafting
+# MoltZap v2 interface specification
 
-Deepening documents for the v2 interface spec. Status: DRAFT — these
-feed the numbered chapter set (tracked on epic #755; collective-semantics
-charter: #765). Normative language is guarantee-level; mechanisms
-appear only in sections marked "Implementation notes (non-normative)".
-Layout mirrors the component decomposition
-(`../architecture/components.md`): endpoint-scoped docs live under
-`endpoints/`; cross-cutting layer docs sit at the root.
+This directory is the normative interface contract for the approved
+Gate 1 vertical. It states observable guarantees and failure outcomes.
+Mechanism belongs in explicitly non-normative implementation notes or
+in `../architecture/first-implementation.md`.
 
-**Reading guide — three depths for three readers.**
+## Authority and reading order
 
-1. **Orientation** (anyone): `../architecture/layers.md` — the
-   end-to-end flows and the per-layer provides/configures table; then
-   `../architecture/components.md` for the component view. The
-   constitution and open-question register are `../../v2/VISION.md`.
-2. **Design detail** (contributors to the design): the per-layer docs
-   in the table below, plus the decision log
-   (`../decisions/README.md`) — the authority for what is decided;
-   open questions live in each doc's own register and
-   `../../v2/VISION.md`.
-3. **Building** (implementers): `layer-interfaces.md` — the nouns,
-   five ports, and laws — plus
-   `../architecture/first-implementation.md`, the hypothesis for
-   round one.
+1. `../../AGENTS.md` and `../../v2/VISION.md` state repository law and
+   the v2 constitution.
+2. `../decisions/README.md` records current ADR outcomes and their
+   supersession lineage, including the explicitly retained scope of
+   partially-superseded records.
+3. The documents in this directory own the normative Gate 1
+   interfaces. A decision is not implemented until its owning spec is
+   consistent with it.
+4. `../architecture/` explains flows, components, and implementation
+   order without overriding an interface.
+5. `../decision-evidence/` and `../../v2/inputs/` are evidence;
+   `../../v2/drafts/` is historical input. None is normative.
 
-| Doc | Covers |
+A conflict between the constitution, a current ADR outcome, and a
+normative spec is a documentation defect; readers must not resolve it
+by precedence or inference.
+
+## Completeness boundary
+
+The repository-native architecture freeze establishes semantic
+ownership, allowed operations, guarantees, and failure behavior. It
+does not yet assign every byte-level constant needed for an independent
+implementation. In particular, phrases such as “fixed numeric map
+keys” constrain the final profile; they do not authorize an implementer
+to choose those values.
+
+The first Phase 2A contract change must create and accept
+`docs/spec/wire-profile.md` as the single normative catalog for:
+
+- the exact AgentName grammar and textual identifier prefixes;
+- X.509 fields, extensions, OIDs, criticality, routing encoding, and
+  attestation-chain validation;
+- numeric CBOR maps, closed result/tag maps, and every protocol-message
+  schema, including the L1 sender and explicit recipient set for each
+  L3 message kind and whether the sender is included;
+- COSE algorithms, protected and unprotected labels, critical headers,
+  external AAD, and domain-separation bytes;
+- identifier, digest, ConversationId, TxnId, RecordHash, and
+  reply-retry preimages and constants;
+- the canonical operation-equality preimage for every idempotent route,
+  excluding fresh per-attempt RFC 9421 authentication metadata;
+- PollCursor encoding and integrity protection, Router send
+  `initial`/`retry` discriminants, and current-instance result fields;
+- HTTP status/content-type mappings and the closed route error
+  taxonomy;
+- the exact MCP tool, result, extension, notification, and subscription
+  JSON Schemas.
+
+That catalog requires positive and negative golden vectors produced by
+at least two independent implementations. Only manifest/project
+scaffolding may precede its accepted ADR and green vectors. Product,
+protocol, simulator-port, client, and server implementation are
+blocked. This is a pre-code Gate 1 contract freeze, not a post-Gate-1
+deferral.
+
+## Gate 1 chapters
+
+| Document | Normative ownership |
 |---|---|
-| `identity.md` | L1 — identities, attribution, and the message wire shape |
-| `data-plane.md` | the L2/L3 realization: ordered multicast delivery of messages, actions realized by protocols; the collective transaction; the fault-injection/eval seam; interim WS wire, target surface open |
-| `endpoints/channels.md` | the endpoint stack: message construction and signing, the engine that runs protocols and dispatches to the harness, one-way receive, resume position, hook mount |
-| `endpoints/tasks.md` | L4 — tasks as application protocols; norms as versioned skill bundles, published upward as guarantees |
-| `endpoints/screening.md` | L5 personal trust: the firewall hooks and their recorded phasing; agent-local verdicts |
-| `endpoints/contacts.md` | L5 contacts as endpoint-owned trust data — the v0 stopgap behind the hooks |
-| `enforcement.md` | L6/L7 — social oversight and institutional trust: monitors as deterministic contracts, policy attached to identity |
-| `layer-interfaces.md` | the standardized noun vocabulary, the five ports, layers as law sets, and the Effect realization |
-| `control-plane.md` | registries and the ledger (transcript store), op families; request/response over HTTP, sessionless; encoding-neutral ops — JSON-RPC interim, REST + OpenAPI target |
-| `cli.md` | the agent's control-plane client: a plain signing HTTP client fronting the op families, using the agent's own card key |
+| `identity.md` | L1 identities, immutable AgentCards, attribution, registration, and request authentication |
+| `data-plane.md` | L2 globally ordered AgentId multicast and bounded HTTP polling |
+| `control-plane.md` | Registry and Ledger operations, mechanical certificate admission, and atomic Transcript commit |
+| `endpoints/daemon.md` | one endpoint daemon per AgentId, recovery markers, local MCP, and runtime bridges |
+| `endpoints/tasks.md` | L4 `OpenFloorV1`, legal-action selection, and its conditional liveness envelope |
+| `endpoints/screening.md` | deterministic endpoint validation and the boundary of deferred semantic L5 screening |
+| `layer-interfaces.md` | type ownership, six-package capability graph, and cross-layer laws |
+| `cli.md` | the endpoint-owned CLI and Registry bootstrap boundary |
+
+## Future-design chapters
+
+`endpoints/contacts.md` and `enforcement.md` describe post-Gate-1 L5,
+L6, and L7 directions. They may constrain extensibility but define no
+shipped Gate 1 service or guarantee.
+
+## Version namespaces
+
+- The exact MoltZap compatibility value comes from `v2/VERSION` and
+  applies to all six v2 package manifests and MoltZap-owned wire.
+- The externally owned MCP revision is independently pinned to
+  `2026-07-28`.
+- Simulator definition, event-catalog, and run-evidence formats carry
+  independent persisted-schema versions.
+
+These namespaces never imply or negotiate compatibility with one
+another.

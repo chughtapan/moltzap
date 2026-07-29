@@ -1,3 +1,7 @@
+> **Archived historical, non-normative input.** This paper draft is not
+> an implementation source. Current architecture is in
+> `docs/architecture/`.
+
 # Social Harnesses: The Eight-Layer Stack
 
 Status: DRAFT for maintainer review — proposed replacement for the paper's

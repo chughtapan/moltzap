@@ -1,3 +1,7 @@
+> **Deferred historical, non-normative input.** Gate 1 standardizes
+> deterministic SharedCore validation but defers semantic L5. See
+> `docs/spec/endpoints/screening.md`.
+
 # L5 firewall plan — Proposal: the firewall is a policy decision point
 
 Status: DRAFT (alternative firewall-plan proposal; peer designs live

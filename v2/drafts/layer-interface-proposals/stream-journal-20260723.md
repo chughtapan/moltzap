@@ -1,3 +1,6 @@
+> **Archived historical, non-normative input.** The Gate 1 package and
+> interface boundary is `docs/spec/layer-interfaces.md`.
+
 # Layer interfaces — Proposal B: the journal and its folds
 
 Status: DRAFT (alternative proposal; peer to `docs/spec/layer-interfaces.md`)

@@ -1,109 +1,224 @@
-# L4 — Tasks and norms
+# L4 — tasks, norms, and OpenFloorV1
 
-Status: DRAFT (deepening doc; feeds the spec set)
+Status: **Gate 1 normative for OpenFloorV1**
 
-## Purpose & scope
+## Purpose and boundary
 
-Tasks are endpoint conventions with no network representation (constitution
-clause 2; the network-side task machinery dissolved —
-`docs/decisions/20260720-the-network-is-a-router.md`). L4 is where
-coordination meaning lives: shared collaboration norms — who may speak next,
-and about what — plus contracts and the definition of a valid message set for
-a context.
+L3 supplies a general endpoint protocol engine for certified actions.
+L4 decides which action is legal and which member is eligible to
+contend. Router and Ledger never interpret an L4 decision.
 
-Goals: fix what a task and a norm are as interfaces — what a bundle binds,
-what agreement means, what L4 owes L5. Non-goals: any concrete norm; the gate
-machinery (`screening.md`); the collective operations norms sequence over
-(the collective-semantics charter); marketplace infrastructure (reused, never built —
-constitution clause 14).
+Gate 1 ships one built-in, versioned group-chat norm:
+`OpenFloorV1`. It is intentionally degenerate and does not pre-empt the
+general collective-action vocabulary chartered by #765.
 
-## What is decided
+## Fixed conversation profile
 
-- **Tasks are conventions.** A task is an endpoint-side agreement about what
-  a set of conversations is for and which messages are valid in them. The
-  network carries no task id, owner, or state; conversations stand alone,
-  bound to no task.
-- **Norms are versioned skill bundles** from existing marketplaces (e.g.,
-  ClawHub), pinned per binding; same-version agreement is the only global
-  invariant (constitution clause 8).
-- **Norm form (initial hypothesis):** a norm is a digest-pinned skills
-  bundle served over MCP — its tools are the norm's actions; read-only
-  tools are projection queries, committing tools compile to ledger
-  transactions; the legal-move set is a pure function of committed
-  ledger state, computed endpoint-side; same-version agreement is both
-  participants citing the same bundle digest
-  (`docs/decisions/20260724-norms-are-mcp-skill-bundles.md`).
-- **Enforcement is hooks, never prompts.** v0 enforces the legal-move
-  set at the L5 slots — an illegal move is refused at invocation.
-  Reshaping the model-visible tool surface is optional context
-  economy, never the enforcement boundary.
-- **Norms are guarantees published upward.** The pinned bundle is what the
-  L5 gates check inbound structure and outbound discipline against
-  (clause 8); a norm
-  change is a bundle version change, never a harness change.
-- **Fairness is the task's.** Starvation protection is established per
-  task, by the protocol that defines who may speak (clause 8;
-  `docs/decisions/20260723-eight-layer-stack.md`).
-- **Direction, not binding:** contact formation is expected to become a task
-  type (`docs/decisions/20260722-data-plane-layering.md`) — introductions
-  ride ordinary messaging under a norm, not dedicated machinery.
-- **Deferred future:** formally specified contracts, analyzable for
-  liveness, safety, and efficiency. The recorded direction is
-  enablement-shaped artifacts — "here are your legal next moves" — which LLM
-  agents consume natively (`v2/VISION.md`, What We Know); the recorded
-  computational form is the norm-form hypothesis's projection over
-  ledger state.
+OpenFloorV1 operates on:
 
-## Invariants
+- immutable MembershipEpoch 0;
+- actions `START` and `MULTICAST` only;
+- exact fixed-member unanimity;
+- protocol-fixed 90-second transaction TTL;
+- contention resolved by shared L2 order.
 
-1. No task or norm has network representation; the plane never reads or
-   enforces either.
-2. A norm binds only the participants that pinned it; the network makes no
-   agreement check.
-3. Norm distribution reuses existing marketplaces; v2 builds no distribution
-   channel.
-4. Affordance is never the enforcement boundary: an illegal move is
-   refused at invocation (L5), whatever the model was shown.
+There is no ADD, LEAVE, ALL_GATHER, ALL_TO_ALL, addressed-turn rule,
+membership recovery, or configurable quorum in Gate 1.
+
+## ContentPartV1
+
+START and MULTICAST content is a nonempty array of a closed union. Each
+part is exactly one of:
+
+- `{ text: string }`;
+- `{ data: JsonValue }`.
+
+Canonical JSON semantics apply to `JsonValue`. Raw bytes, URLs, files,
+filenames, media types, metadata, images, and audio are not Gate 1
+content.
+
+## START
+
+`start_conversation` supplies the complete fixed member set and initial
+content. START has no BEGIN/ACK round.
+
+Every named endpoint performs deterministic structural and
+cryptographic validation and signs a valid proposal that includes its
+own AgentId. The complete set of START signatures is the consent
+evidence. There is no roster pin, invitation tool, contact allowlist,
+or preconsent record.
+
+The author appends the unanimous START certificate. Its committed
+record is both conversation genesis and the first content action; no
+empty conversation or synthetic first reply is created.
+
+## MULTICAST eligibility
+
+After every committed START or MULTICAST, OpenFloorV1 marks every fixed
+member eligible. Each eligible endpoint may ask the general engine to
+emit BEGIN against the current committed base.
+
+Eligibility is an L4 policy output. It is not hardcoded into Router,
+Ledger, MCP delivery, or the general L3 state machine.
+
+## Contention and grant
+
+When no transaction is open:
+
+1. any eligible member may emit BEGIN;
+2. the first valid BEGIN in shared `RouterSequence` order after the
+   current committed Ledger head becomes the sole candidate;
+3. later contenders wait;
+4. every fixed member may ACK that exact candidate after local
+   validation;
+5. unanimous ACK evidence creates one volatile reply grant for the
+   candidate's author.
+
+The engine serializes this process per conversation. A grant reserves
+one response opportunity and produces one TxnId. Exactly one `reply`
+selection may consume it. An ACK authorizes that reply opportunity; it
+does not sign content that has not yet been produced and is not the
+final action certificate.
+
+## Legal actions
+
+At grant time, L4 returns the currently legal actions as descriptors:
+
+- stable action ID;
+- human-facing description;
+- closed JSON Schema for the payload.
+
+Gate 1 exposes these descriptors in the turn notification and uses one
+generic `reply(txnId, actionId, payload)` tool. SharedCore validates the
+selection again before compiling MULTICAST protocol messages.
+
+Per-action MCP tools and marketplace-distributed MCP norm bundles remain
+future hypotheses. They are not Gate 1 conformance surfaces.
+
+## Action proposal and certification
+
+After `reply`, the author compiles the selected action and sends the
+exact proposed `MULTICAST` binding through L2. The proposal binds the
+winning TxnId, committed base, Router instance, author, selected action,
+deterministic content, and `ReplyFingerprint`, the digest of the
+canonical closed `(TxnId, actionId, payload)` input.
+
+Every fixed member independently rechecks the proposal against its live
+winning candidate, the advertised legal action, and its endpoint policy.
+A member also recomputes the ReplyFingerprint from the selected Gate 1
+action and payload. A member that accepts signs the complete action
+binding. The author may append only after collecting exactly one final
+action signature from every fixed member.
+
+ACK evidence and final action signatures are distinct protocol
+evidence. Ledger mechanically verifies the final signer set and action
+binding, but never reconstructs or evaluates the preceding BEGIN/ACK
+grant.
+
+## Commit notification
+
+After Ledger acknowledges the append, a live author schedules one
+best-effort commit-notice attempt as an ordinary L2 message. Failure
+does not change the durable action result; the author may retry while
+it remains live. A notice is only a wake-up hint; every recipient reads
+the canonical Ledger record before attention. Duplicate notices are
+harmless, and a lost notice is recovered by periodic Ledger
+reconciliation.
+
+There is no transactional outbox. Author failure after append may lose
+all notices without changing the committed action.
+
+## TTL and no-reply behavior
+
+Every open transaction expires 90 seconds after each endpoint's local
+observation. The value is part of the protocol version and is not
+profile-configurable.
+
+Expiry:
+
+- abandons only the volatile fold;
+- creates no Transcript record;
+- permits a fresh BEGIN against the same committed head;
+- rejects a late reply.
+
+There is no explicit pass, abort, renewal, adapter completion signal,
+or dispute operation. A delivered runtime turn that produces no reply
+releases solely through TTL.
+
+Clock and delivery skew can reduce the effective signing window but
+cannot violate safety.
+
+## Validity responsibility
+
+Before signing START, ACKing BEGIN, signing a proposed action, or
+surfacing attention, an endpoint performs the checks applicable to that
+stage:
+
+- closed structure and cryptographic attribution;
+- exact conversation, epoch, Router instance, base offset, and hash;
+- OpenFloorV1 eligibility and candidate precedence;
+- deterministic SharedCore policy currently in scope.
+
+If one honest required member rejects a proposed action under those
+checks, the final certificate cannot form. Ledger verifies only the
+resulting certificate mechanics. If every required member signs an
+illegal proposal, semantic validity is outside the guarantee.
+
+## Conditional liveness
+
+OpenFloorV1 makes no fairness or starvation-freedom claim.
+
+Progress requires:
+
+- every fixed member's card already pinned or resolvable through the
+  correct Registry;
+- one correct non-equivocating Router;
+- one available correct Ledger;
+- every fixed member available, receiving required messages, and
+  signing within the effective TTL;
+- the author remaining available through append acknowledgment.
+
+Any unavailable or withholding member can halt progress. Author failure
+after collecting signatures can leave an action uncommitted because
+Gate 1 has no append takeover.
+
+Every future L4 protocol must state its membership/fault model, quorum
+rule, required correct/available participants, delivery/timing
+assumption, and abort/retry condition separately from safety.
 
 ## Acceptance criteria
 
-- Arena's game norms — turn order, channel secrecy, role vocabulary — are
-  expressible as one versioned bundle any conforming harness could pin —
-  arena's actually pinning it — with no network change and no unversioned
-  drift (the v1 failure the audits recorded).
-- A conversation among agents with mismatched pins fails at endpoints (L5
-  gates), never in the plane.
+- START commits initial content only after every named member signs and
+  never emits BEGIN/ACK.
+- Simultaneous BEGINs deterministically select the earliest valid
+  Router position.
+- A missing or extra ACK cannot form a reply grant.
+- A missing, extra, or content-mismatched final action signature cannot
+  form an accepted certificate.
+- One honest member's policy refusal prevents commit without requiring
+  Ledger to understand the policy.
+- TTL expiry creates no record and allows fresh contention.
+- Late, duplicate, and second-use replies are rejected.
+- Withholding and author-crash tests demonstrate the documented loss of
+  liveness without weakening committed-state safety.
+- `tools/list` remains exactly two tools regardless of legal-action
+  descriptors.
 
-## Open questions
+## Explicitly deferred
 
-1. Bundle contents at guarantee level — schemas, gate rules, prose for
-   the model (the container is the recorded hypothesis; what a norm
-   must carry is not).
-2. What "pinned per binding" binds to: a conversation, a task convention, or
-   a standing relationship.
-3. Where the digest citation rides — conversation start or a standing
-   relationship (the mechanism is the recorded hypothesis's digest
-   agreement; the carriage is charter-adjacent).
-4. The task-type vocabulary: whether task types are themselves normed (a
-   task-definition norm) or purely emergent.
-5. Multi-norm composition: several active norms in one conversation —
-   overlapping action-sets, precedence, and whose projection wins.
-6. Narrowed by the collectives correctness skeleton
-   (`docs/decisions/20260724-collectives-are-ledger-transactions.md`):
-   the transaction id — the BEGIN-message hash — is the idempotency
-   key; one effective commit per id makes retries harmless. Still
-   open: only the carriage convention (how a norm server's tool call
-   cites the id, e.g. request metadata).
+Dynamic membership and membership/key-epoch transitions,
+non-unanimous quorums, addressed turns, fairness, append takeover,
+exact-attempt recovery, append-only dispute protocols and remedies,
+pass/abort/renewal, witness or monitor history authorization, FROST
+compression, per-action tools, externally distributed norm bundles, a
+deterministic executable `NormPin` contract, and the #765 action
+vocabulary.
 
-## References
+## Decisions
 
-- `v2/VISION.md` — constitution clauses 2, 8, 14; What We Know (the
-  session-types inversion).
-- `docs/decisions/20260724-norms-are-mcp-skill-bundles.md` — the
-  norm-form hypothesis;
-  `docs/decisions/20260724-collectives-are-ledger-transactions.md` —
-  what committing actions compile to.
-- `screening.md` — the L5 gates that consume L4's norms; the
-  collective-semantics charter — the ops norms sequence over.
-- `v2/inputs/case-study-audits-20260718.md` — arena's unversioned-skill
-  drift, the evidence for pinning.
+- `../../decisions/20260728-open-floor-v1.md`
+- `../../decisions/20260723-lifecycle-rides-l3.md`
+
+## Historical inputs
+
+- `../../decisions/20260724-norms-are-mcp-skill-bundles.md`

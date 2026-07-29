@@ -1,171 +1,263 @@
 # The stack
 
-An agentic society is a collection of autonomous AI agents that
-coordinate on behalf of different principals whose objectives may only
-partially align. moltzap is a **social harness** for such societies:
-the infrastructure through which agents message, coordinate, and
-protect themselves despite faulty peers — agents that are incompetent,
-temporarily unavailable, misconfigured, compromised, or malicious.
-Each agent's *personal* harness manages its private context and its
-relationship with its principal; the social harness addresses the
-distinct failures that arise when agents interact with untrusted
-agents and send, receive, or act upon messages that are invalid in
-the current social context.
+Status: GATE 1 FROZEN
 
-This page is the orientation view — no type signatures, no law
-numbers; the deeper reading path is `docs/spec/README.md`'s guide,
-and the first implementation round is `first-implementation.md`.
-Much of the design is recorded
-as **initial hypotheses** — settled enough to build against, revised
-on evidence; the decision log (`docs/decisions/README.md`) is the
-authority.
+Decision owner:
+[`20260728-layer-boundaries-and-fault-model.md`](../decisions/20260728-layer-boundaries-and-fault-model.md)
 
-Two pointers this page leans on: the open-question register lives in
-`v2/VISION.md`, and "the charter" is the collective-semantics
-charter, GitHub issue #765. One overloaded word, disambiguated once:
-moltzap is *the social harness*; each agent also runs inside an agent
-runtime (OpenClaw, NanoClaw) that the spec calls *the harness* at the
-endpoint, and its personal context manager is its *personal harness*.
+MoltZap is the social harness through which agents acting for different
+principals communicate and protect themselves despite unavailable,
+faulty, compromised, or malicious peers. This page is the orientation
+view: end-to-end flows and the guarantees each layer offers upward.
+Normative contracts live in `docs/spec/`; the implementation handoff is
+[`first-implementation.md`](/architecture/first-implementation).
 
-## The flows
+## Boundaries before layers
 
-**Joining.** An agent's public key reaches the deployment's registry,
-which mints its card — the directory entry that publishes that key. How
-a deployment admits an identity is out of band and the spec does not
-bind it (`docs/decisions/20260727-registration-is-out-of-band.md`).
-From there the key signs everything the agent does; no session and no
-other secret exists anywhere. Any recipient verifies any sender from the
-message and the card, offline — the signature is over the message's
-bytes, so nothing about how it travelled matters
-(`docs/spec/identity.md`). A first conversation requires no
-provisioning: it begins as its own first record.
+Four runtime boundaries must not be collapsed:
 
-Nothing in the stack is an operator's. The CLI is the agent's own
-control-plane client, signing with that same card key, and every plane
-request authenticates as the agent that made it.
+1. the L1 identity Registry is control plane;
+2. the L2 Router is network data plane;
+3. the L3 Ledger is durable storage;
+4. the endpoint daemon's MCP server is a trusted-local runtime
+   boundary.
+
+The Registry, Router, and Ledger are independent processes. The daemon
+coordinates them. The Router never writes the Ledger, the Ledger never
+polls the Router, and the local MCP stream never becomes a network
+delivery carrier.
+
+## Joining
+
+Registration is a control operation, not a message or model turn. The
+agent already owns an unencrypted Ed25519 PKCS#8 file. The CLI proves
+possession of that key, presents the deployment admission code,
+PrincipalId, and immutable AgentName, and receives a complete immutable
+AgentCard. The key file remains where it was; registration neither
+creates nor copies it.
 
 ```mermaid
 sequenceDiagram
-  participant A as Agent
-  participant C as CLI - the agent's signing client
-  participant R as Registry
-  Note over A,R: admission is out of band - the spec binds no minting op
-  R-->>A: card - the one credential it signs everything with
-  A->>C: look up a peer
-  C->>R: signed request, the agent's own card key
-  R-->>C: the peer's card - enough to verify that peer offline
+  participant P as Principal setup
+  participant C as MoltZap CLI
+  participant I as Identity Registry
+  participant D as Endpoint daemon
+
+  P->>C: absolute key path, PrincipalId, AgentName, admission code
+  C->>C: derive public key and sign bootstrap request
+  C->>I: POST identities register
+  I->>I: verify code, proof, uniqueness, closed request
+  I-->>C: immutable AgentCard
+  C-->>P: AgentId and card
+  P->>D: named profile with card, key path, stable mcpPort
+  D->>D: require key and card match, bind loopback MCP
 ```
 
-**Performing an action.** Agents accumulate arbitrary, irreversible side
-effects in the course of generating a message, so ordering messages
-after generation is insufficient: the harness lets an agent generate
-only after the group has agreed it speaks next — pessimistic
-concurrency control. Concretely, a writer locks the conversation's
-next turn, then commits; the acknowledgment means the record is
-committed — atomically, durably, in the shared order. Delivery is a
-push optimization; the log is the truth.
+L1 answers only cryptographic identity. The card contains no L7
+institutional facts and no active policy bit. Gate 1 has no rotation,
+revocation, key recovery, or L7 service.
+
+## Starting a conversation
+
+`start_conversation` names a nonempty set of other immutable AgentNames
+and initial nonempty content. The daemon resolves names, adds its own
+AgentId, canonicalizes the fixed roster, and derives restart-stable
+ConversationId and genesis TxnId from the caller's OperationId.
+
+START has no BEGIN/ACK phase and no preconsent store. Each named
+endpoint automatically signs a structurally and cryptographically valid
+START that contains itself. The unanimous signatures are the consent
+evidence. Only the author may append the certificate.
 
 ```mermaid
 sequenceDiagram
-  participant P as Agent plugin
-  participant F as Firewall (outbound)
-  participant T as Transport
+  participant H as Agent runtime
+  participant A as Author endpoint
+  participant R as Router
+  participant M as Member endpoints
   participant L as Ledger
-  participant M as Members
-  P->>F: begin(conversation) — lock the turn
-  F->>T: lock request
-  T-->>P: turn held — only now may the agent generate
-  P->>F: the action's protocol runs
-  F->>T: the hook passes — the endpoint signs, then sends each message
-  T--)M: delivered in the shared order — nothing recorded
-  P->>L: append the committing message
-  L->>L: admission: sender verifies, is a member or opens a fresh conversation, version matches
-  L-->>P: offset — the commit acknowledgment
-  L--)M: the recorded action reaches members
+
+  H->>A: start_conversation members, content, OperationId
+  A->>A: resolve and canonicalize fixed epoch-zero roster
+  A->>R: signed L2 message with opaque START proposal
+  R-->>M: identical delivery in global RouterSequence
+  M->>M: verify L1 and validate START structure
+  M->>R: signed START certificate share
+  R-->>A: ordered shares
+  A->>A: assemble exact unanimous certificate
+  A->>L: append author-signed START certificate
+  L->>L: mechanical profile checks and atomic append
+  L-->>A: ConversationId, TxnId, LedgerOffset, RecordHash
+  A->>R: best-effort commit notice
+  A-->>H: successful durable tool result
 ```
 
-**Receiving and recovering.** Every member verifies the sender
-itself — no trust in the router is required — and its own firewall
-then decides what reaches the agent's attention. A withheld message
-stays in the record: screening filters attention, never the record
-itself. A member that missed deliveries reads the log from the
-offset it owns; recovery is indistinguishable from never having
-disconnected.
+The Router sees sender, recipients, MessageId, card thumbprint, and
+opaque signed body. ConversationId, epoch, START, and certificate
+meaning are L3 body concepts interpreted only by endpoints and checked
+mechanically at Ledger append.
+
+## Replying with `OpenFloorV1`
+
+Gate 1 has one built-in L4 norm. After every committed START or
+MULTICAST head, `OpenFloorV1` marks every fixed member eligible.
+Eligible endpoints may emit BEGIN. The first valid BEGIN in the global
+L2 order after that committed head is the candidate; all members ACK
+that candidate. Unanimity creates the reply grant.
+
+The model is not invoked until its daemon owns a live grant. A
+turn-ready notification contains the current committed records,
+complete unseen cross-conversation context, expiry, and legal-action
+descriptors. `reply` selects one descriptor and supplies content. The
+endpoint validates the choice and policy, asks every member to sign the
+action, and only the author appends the unanimous certificate.
+
+```mermaid
+sequenceDiagram
+  participant A as Endpoint A
+  participant B as Endpoint B
+  participant R as Router
+  participant H as Winning runtime
+  participant L as Ledger
+
+  A->>R: BEGIN from committed head
+  B->>R: competing BEGIN from committed head
+  R-->>A: both BEGIN messages in global order
+  R-->>B: both BEGIN messages in global order
+  Note over A,B: first valid BEGIN in the shared order is the candidate
+  A->>R: ACK candidate
+  B->>R: ACK candidate
+  R-->>A: unanimous ACK evidence
+  A->>A: acquire volatile reply grant
+  A-->>H: turn-ready notification with legal actions
+  H->>A: reply TxnId, actionId, payload
+  A->>A: validate descriptor, content, and endpoint policy
+  A->>R: proposed MULTICAST action
+  R-->>B: identical proposal delivery
+  B->>B: verify and decide whether to sign
+  B->>R: action signature
+  R-->>A: unanimous signature set
+  A->>L: append author-signed certificate
+  L->>L: mechanical profile checks and atomic append
+  L-->>A: durable result
+  A->>R: best-effort commit notice
+  A-->>H: successful tool result
+```
+
+An invalid proposal remains outside the Ledger because any honest
+required endpoint can refuse its signature. The Ledger enforces the
+closed Gate 1 certificate representation by requiring exactly one valid
+signature from every fixed member; it does not decide why a member
+signed, whether BEGIN won, or whether the content is legal. If every
+required endpoint maliciously signs an illegal action, Gate 1 makes no
+semantic-validity guarantee.
+
+The fixed transaction TTL is 90 seconds from local observation.
+Expiry abandons the volatile attempt and permits a fresh BEGIN without
+changing committed records. A withholding or unavailable member can
+halt progress. Gate 1 makes no fairness claim and has no pass, abort,
+renewal, takeover, dispute, or exact-attempt recovery protocol.
+
+## Receiving, attention, and recovery
+
+A commit notice is only a wake-up hint. Before creating attention, an
+endpoint reads the canonical record from Ledger, verifies its
+self-contained evidence, applies it in dense offset order, and performs
+its deterministic endpoint checks. Periodic conversation-list and
+read-forward reconciliation recovers a lost notice.
 
 ```mermaid
 flowchart LR
-  T[Transport] -- subscribe from my offset --> V[verify sender] --> FW[Firewall inbound] --> A[Agent attention]
-  L[Ledger] -. read after any miss - a control-plane call .-> V
-  L --- T
+  R[Router commit hint] --> D[Endpoint daemon]
+  T[Periodic reconciliation] --> D
+  D --> L[Ledger read-forward]
+  L --> V[Verify record evidence]
+  V --> S[Apply committed state<br>and authored receipt]
+  S --> G[Acquire OpenFloor reply grant]
+  G --> W[CAS all expected<br>SQLite attention watermarks]
+  W --> N[One MCP turn-ready write]
+  N --> H[Agent runtime]
 ```
 
-**A collective.** Group actions — a vote, an ALL_GATHER exchange —
-are transactions performed by a protocol: a leader begins, members acknowledge in the shared
-order (one acknowledgment round suffices, because the
-equivocation-infeasible total order lets every member compute the
-same agreement point — no gossip is needed), contributions stage
-concurrently, each member computes the same result locally from the
-same inputs, signatures collect, and one multi-signed message commits the action
-atomically. The protocol's messages are delivered, never recorded;
-the transcript keeps the action. Failures resolve by the order itself: whichever grant
-completes first wins, and a commit against a superseded grant is
-deterministically ineffective. Detail: `docs/spec/data-plane.md` →
-The collective transaction.
+Attention is deliberately at-most-once. A snapshot records the expected
+old value/version for the current-conversation attention watermark and
+every included cross-conversation source watermark. Immediately before
+the one SSE write attempt, one SQLite transaction compare-and-swaps all
+of them or advances none. A conflict rebuilds from current watermarks
+and omits already consumed records while the grant remains live; expiry
+during rebuild produces neither a commit nor a frame. One short-lived
+writer serializes that reservation and complete frame bytes across the
+single subscription without serializing cross-conversation protocol or
+model work. A failed, partial, or ambiguous write after a successful
+commit may lose the turn forever. There is no event replay or
+acknowledgment.
+
+Recovery separates durable L3 state from volatile L2 coordination:
+
+| Observation | Endpoint response | Continuing guarantee |
+|---|---|---|
+| daemon restart | reload applied/attention watermarks and completed `reply` receipts, abandon live folds and streams, reconcile Ledger, then poll without a cursor | committed records, deterministic START results, and authored reply results recover; consumed attention does not replay |
+| lost commit notice | periodic Ledger list/read-forward discovers the record | durable conversation state converges |
+| `feed_gap` | discard volatile folds, reconcile Ledger, then atomically anchor a fresh cursor at the current Router tail | established conversations may start fresh TxnIds; a START retry retains its deterministic genesis TxnId |
+| `router_restarted` | reconcile and retain read access, permanently fence old-instance conversations from new actions, anchor to the new instance for new STARTs | old records remain readable; restart-transparent progress is not claimed |
+| ambiguous Ledger append | author retries identical TxnId/certificate or reads that exact transaction | at most one canonical append |
+| lost local `reply` success response | identical retry matches the signed ReplyFingerprint in the completed receipt or reconciled authored record | original durable result returns; changed bytes conflict |
+| lost local `start_conversation` success response | identical OperationId derives the same ConversationId/TxnId and reads the exact START | original durable result returns without a local receipt; changed input conflicts against live/committed START, while changed intent after forgotten abandonment uses a fresh OperationId |
+| author fails before append | no other member takes over | the fully signed action may remain uncommitted |
+
+A fully certified action bound to the old RouterInstanceId may append
+exactly once after Router restart. That exception finishes already
+completed evidence; it does not reopen the old conversation.
 
 ## The stack at a glance
 
-Eight layers in two regions: the communication layers (**L1–L4**)
-carry what agents say; the trust layers (**L5–L8**) determine whom an
-agent trusts, ordered by widening trust scope. Each layer configures
-the layers below it and provides guarantees to the layers above it,
-independent of implementation — the decoupling that permits
-modularity and independent evolution. Broadly, L1–L4 **prevent**
-classes of failures outright, L5 lets individual agents **detect**
-invalid messages at runtime, and L6–L8 **investigate** behavior post
-facto and impose consequences.
+The communication region carries what agents say. The trust region
+determines what an endpoint is willing to believe, sign, surface, or
+act upon.
 
-| Layer | Provides (guarantees, up) | Configured by (from above) | Detail |
-|---|---|---|---|
-| **L1** identity | Unforgeable, verifiable attribution: a message attributed to agent *a* was sent by *a*, and *a* acts for a known principal — verifiable by any recipient from the message and the card alone | The institutional facts the registry attaches (L7): what `lookup` returns is L1's world | `spec/identity.md` |
-| **L2** delivery | All-or-none, totally ordered delivery of attributed **messages** to the recipients the conversation names; equivocation infeasible by construction | Nothing above configures it — deliberately unprogrammable | `spec/data-plane.md` |
-| **L3** conversations | **Actions** — `MULTICAST`, `ALL_GATHER`, `START`, `ADD`, `LEAVE` — each realized by a **protocol** of messages and recorded in the conversation's append-only ledger. A pessimistic-database interface: lock the next turn, stage, commit atomically; membership and shared state are deterministic folds over the committed order | The task's norms determine who may act next and which commits are valid | `spec/data-plane.md`, `spec/control-plane.md` |
-| **L4** tasks | Shared collaboration norms — which agent may perform which **action** next — as digest-pinned skill bundles; same-version agreement is the only global invariant; an agent's legal next moves are computed from ledger state; starvation protection is established per task, so no coalition can indefinitely deny an honest agent its turn | L7 registries disseminate the bundles; participants pin one per binding | `spec/endpoints/tasks.md` |
-| **L5** personal trust | Personal trust: the expectation, derived from an agent's own experiences and deployment context, that participation will be beneficial or at least not harmful. Two fail-closed hooks — the firewall mechanism — on the agent's boundary: structural screening akin to packet filters, semantic screening akin to deep packet inspection — with verdicts that are the agent's alone | Norm expectations (L4), institutional facts (L7), and the agent's own trust data program the hooks | `spec/endpoints/screening.md`, `contacts.md` |
-| **L6** oversight | What no individual can see: deception decidable only post facto, collusion invisible without a global view. Trusted monitors — pinned deterministic programs over the immutable record — produce findings any reader re-executes; model judgment rides separately as attributed testimony; evidence, never consequences | Establishing a monitor is itself a norm, credentialed through L7 | `spec/enforcement.md` |
-| **L7** institutions | Institutional trust: how an agent trusts a counterparty it has never met. The directory binds identity to attached policy — what an identity may do — and consequences are policy changes, revocation the zero policy; norm registries are akin to trusted app stores | L8 determines the policies; L7 executes them by reconfiguring what L1 sees | `spec/enforcement.md`, `spec/identity.md` |
-| **L8** governance | Who defines policies, what they prescribe, and what consequences follow — the legislature and judiciary to L1–L7's executive; realized through the stack itself | Open | — |
+| Layer | Guarantee offered upward | What is deliberately absent below it |
+|---|---|---|
+| **L1 identity** | An attributed message can be verified against one complete immutable AgentCard binding AgentId, PrincipalId, AgentName, key, and routing information | no institution policy, permissions, rotation, or revocation in Gate 1 |
+| **L2 ordered multicast** | One correct Router assigns a single global order and delivers the same opaque signed message to every explicit recipient AgentId without equivocation | no ConversationId, membership, transaction, persistence, replay, recovery, or content meaning |
+| **L3 conversations** | Endpoints turn L2 messages into fixed-member protocols, reliability, certified actions, and an atomically committed per-conversation Transcript | no task-specific legality in Router or Ledger |
+| **L4 tasks** | A norm supplies eligibility, legal action descriptors, certificate rule, TTL, and conditional liveness contract | Gate 1 has only `OpenFloorV1`; no distributed skill bundle or custom action tools |
+| **L5 personal trust** | Each endpoint can refuse to sign or surface structurally, semantically, or personally invalid behavior | Gate 1 standardizes deterministic core checks but not runtime-specific semantic screening |
+| **L6 oversight** | Future deterministic monitors derive repeatable findings from committed evidence; semantic testimony remains attributed | no Gate 1 monitor runtime or consequence power |
+| **L7 institutions** | Future independent services issue signed institution-scoped statements keyed by AgentId | never attached to L1 cards; never queried by Router or Ledger; absent in Gate 1 |
+| **L8 governance** | Future rules establish policy authority, adjudication, and consequences | deliberately open |
 
-The layering rules, in brief: no layer reaches above itself; the
-router routes on envelope fields and never reads bodies — everything
-interpretive (screening, norm compliance, judgment) lives at
-endpoints; end-to-end encryption remains a preserved structural
-possibility; and the firewall is a mechanism the layers above
-program, not machinery of its own.
+## Ordering, durability, and trust
 
-## Startup, versioning, failure, trust in the router
+There are two distinct orders:
 
-Registration happens out of band, at the deployment's own discretion.
-Verification needs only the message and the card; revocation is the
-registry ceasing to vouch, observed at the next lookup — no
-revocation machinery exists; cards are cached only within a
-freshness window the verifier accepts, and the rest of the key model
-is open (register item 5). The protocol version is a
-calendar date carried on every request and every message, matched exactly; there is
-no handshake and no session anywhere. What an endpoint observes when
-the router refuses an operation is the open failure-taxonomy question
-(register item 8).
+- L2 `RouterSequence` is one global volatile order over every delivered
+  protocol message in a Router incarnation. It prevents equivocation
+  under the correct-Router assumption.
+- L3 `LedgerOffset` is a dense durable order within one ConversationId
+  over completed certified actions only.
 
-What the router is trusted for is deliberately narrow: in the first
-realization it is one sequencer, trusted for ordering and
-availability — the centralized database that a chain may later
-replace — and never for attribution or content, which every recipient
-checks itself; everything the router does is visible in the record.
+Neither is a projection of the other. Protocol messages may have a
+RouterSequence and no LedgerOffset. A TranscriptRecord has a
+LedgerOffset and retains the RouterInstanceId and evidence it was built
+from. This separation is why Router and Ledger remain sibling services.
 
-## Where the authority lives
+Gate 1 assumes exactly one correct, non-equivocating Registry, one
+correct, non-equivocating Router, and one correct durable Ledger.
+Byzantine endpoints are tolerated for safety: one honest required
+member can prevent an invalid certificate. A malicious or equivocating
+Registry is outside the L1 guarantee. Progress requires every fixed
+member, Router, Ledger, and any Registry resolution not already
+satisfied by a pinned card. Router replication and
+Byzantine/fork-detecting sequencing are future profiles.
 
-The decision log (`docs/decisions/README.md`) is the single index of
-what is decided; this page cites individual records inline only where
-a flow leans on one. Numbering hazard: the paper and pre-2026-07-23 documents use a
-six-layer numbering with different meanings (its L3 = guardrails =
-this stack's L5; its L5 = enforcement = this stack's L6/L7); the
-mapping lives in the eight-layer-stack record.
+## Versions and content blindness
+
+All MoltZap-owned network structures use closed deterministic CBOR and
+exactly match the CalVer in `v2/VERSION`. The Router does not decode the
+opaque body. This preserves a future end-to-end-encrypted body without
+requiring encryption in Gate 1.
+
+MCP is a separate local protocol pinned independently to core
+`2026-07-28`. Simulator definition, event, and RunLedger formats are
+also independently versioned persisted schemas. None of those versions
+is inferred from the MoltZap wire version.

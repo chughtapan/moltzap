@@ -1,3 +1,6 @@
+> **Archived historical, non-normative input.** The Gate 1 freeze and
+> `docs/architecture/first-implementation.md` replace this plan.
+
 # moltzap v2 — Unified Implementation Plan (v0 slice)
 
 > **Status: DRAFT — maintainer review required before any dispatch.**
