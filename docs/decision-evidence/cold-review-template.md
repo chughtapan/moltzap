@@ -42,7 +42,7 @@ The reviewer attests:
 
 - [ ] I did not author or reconcile the candidate decision.
 - [ ] I received no inherited conversation, summary, memory, private
-      state, or earlier review output about the candidate.
+      state, or earlier blind-review output about the candidate.
 - [ ] I received only the clean candidate checkout and the fixed
       questions in this template.
 - [ ] I received no out-of-band tour, decision or file pointer, search
@@ -52,7 +52,9 @@ The reviewer attests:
       search, and repository history after discovering them myself.
 - [ ] I did not open, read, or search the contents of an earlier
       cold-review or invalid-review record. If an artifact path appeared
-      in a listing or history, no earlier answer or verdict was returned.
+      in a listing or history, no answer or verdict from that
+      quarantined record was returned. Engineering-review evidence
+      recorded in candidate ADRs or trajectories is allowed.
 - [ ] I did not ask the author for help or modify the candidate before
       submitting these answers.
 - [ ] The author interventions recorded below are complete.
