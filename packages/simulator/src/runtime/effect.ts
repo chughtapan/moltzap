@@ -63,6 +63,14 @@ export interface EffectRuntimeOptions<E = never, R = never> {
   ) => Effect.Effect<EffectMessageReply | undefined, E, R>;
 }
 
+/** Sanitized definition-time policy and defaults for an Effect runtime. */
+export class EffectRuntimeConfiguration extends Schema.Class<EffectRuntimeConfiguration>(
+  "EffectRuntimeConfiguration",
+)({
+  startupTimeout: Schema.DurationFromMillis,
+  messageHandlerPolicy: Schema.Literal("default", "custom"),
+}) {}
+
 interface EffectRuntimeState {
   readonly client: MoltZapAgentClient;
   readonly termination: Deferred.Deferred<RuntimeTermination>;
@@ -248,10 +256,23 @@ function snapshotOptions<E, R>(
  */
 export function effectRuntime<E = never, R = never>(
   options: EffectRuntimeOptions<E, R> = {},
-): AgentRuntime<EffectRuntimeStartFailed, R> {
+): AgentRuntime<
+  EffectRuntimeStartFailed,
+  R,
+  typeof EffectRuntimeConfiguration
+> {
   const capturedOptions = snapshotOptions(options);
   return defineRuntime({
     name: EFFECT_RUNTIME_NAME,
+    configuration: {
+      schema: EffectRuntimeConfiguration,
+      value: EffectRuntimeConfiguration.make({
+        startupTimeout:
+          capturedOptions.startupTimeout ?? DEFAULT_STARTUP_TIMEOUT,
+        messageHandlerPolicy:
+          capturedOptions.onMessage === undefined ? "default" : "custom",
+      }),
+    },
     acquire: (input) => acquireEffectRuntime(capturedOptions, input),
   });
 }

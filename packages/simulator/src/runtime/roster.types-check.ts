@@ -4,8 +4,12 @@
  * types let the run Layer provide one exact Agents service without erasure.
  */
 
-import { Context, Effect } from "effect";
-import { RuntimeCompleted, defineRuntime } from "./runtime.js";
+import { Context, Effect, Schema } from "effect";
+import {
+  RuntimeCompleted,
+  type AgentRuntimeInput,
+  defineRuntime,
+} from "./runtime.js";
 import {
   type AgentRosterRequirements,
   makeAgentRosterBuilder,
@@ -23,19 +27,34 @@ class BetaRequirement extends Context.Tag(
 const completed = {
   termination: Effect.succeed(RuntimeCompleted.make({})),
 };
+const RuntimeConfiguration = Schema.Struct({});
+const configuration = {
+  schema: RuntimeConfiguration,
+  value: {},
+};
 
-const alphaRuntime = defineRuntime<never, AlphaRequirement>({
+const alphaRuntime = defineRuntime<
+  never,
+  AlphaRequirement,
+  typeof RuntimeConfiguration
+>({
   name: "alpha",
-  acquire: () =>
+  configuration,
+  acquire: <Name extends string>(_input: AgentRuntimeInput<Name>) =>
     Effect.gen(function* () {
       yield* AlphaRequirement;
       return completed;
     }),
 });
 
-const betaRuntime = defineRuntime<never, BetaRequirement>({
+const betaRuntime = defineRuntime<
+  never,
+  BetaRequirement,
+  typeof RuntimeConfiguration
+>({
   name: "beta",
-  acquire: () =>
+  configuration,
+  acquire: <Name extends string>(_input: AgentRuntimeInput<Name>) =>
     Effect.gen(function* () {
       yield* BetaRequirement;
       return completed;
@@ -47,7 +66,12 @@ const roster = makeAgentRosterBuilder("acme.society/v1")({
   bob: betaRuntime,
 });
 
-type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends <
+    Value,
+  >() => Value extends Right ? 1 : 2
+    ? true
+    : false;
 type Expect<Value extends true> = Value;
 
 type Definitions = typeof roster.definitions;

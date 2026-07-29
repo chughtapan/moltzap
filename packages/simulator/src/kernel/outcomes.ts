@@ -93,23 +93,3 @@ export function programEvent<A, E>(exit: Exit.Exit<A, E>) {
         cause: nonEmptyCause(exit.cause),
       });
 }
-
-/**
- * Executes the combined failure operation.
- * @param exits Value supplied to the operation.
- * @returns The combined failure result.
- */
-export function combinedFailure(
-  exits: ReadonlyArray<Exit.Exit<unknown, unknown>>,
-): Cause.Cause<unknown> | undefined {
-  let combined: Cause.Cause<unknown> | undefined;
-  for (const exit of exits) {
-    if (Exit.isFailure(exit)) {
-      combined =
-        combined === undefined
-          ? exit.cause
-          : Cause.sequential(combined, exit.cause);
-    }
-  }
-  return combined;
-}

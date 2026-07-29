@@ -20,6 +20,7 @@ import {
   Fiber,
   Option,
   Ref,
+  Schema,
   Scope,
 } from "effect";
 import { describe } from "vitest";
@@ -364,6 +365,25 @@ function exactTerminationTest() {
   });
 }
 
+function sanitizedConfigurationTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeFixture(fullRuntimeOptions());
+    const encoded = yield* Schema.encode(fixture.runtime.configuration.schema)(
+      fixture.runtime.configuration.value,
+    );
+    const serialized = JSON.stringify(encoded);
+
+    assert.include(serialized, "contentDigest");
+    assert.include(serialized, "definitionDigest");
+    assert.include(serialized, "environmentValues");
+    assert.include(serialized, '"installPolicy":"workspace"');
+    assert.include(serialized, `"modelOverride":"${MODEL_ID}"`);
+    assert.notInclude(serialized, "Alice");
+    assert.notInclude(serialized, "MEMORY_SCOPE");
+    assert.notInclude(serialized, AGENT_KEY_TEXT);
+  });
+}
+
 // @agent-code-guard/regression-only: controlled handles expose process readiness, cancellation, teardown, and exact exit evidence deterministically
 describe("native NanoClaw runtime", () => {
   test(
@@ -391,4 +411,8 @@ describe("native NanoClaw runtime", () => {
     teardownIsNotTerminationTest,
   );
   test("reports the exact observed process exit status", exactTerminationTest);
+  test(
+    "publishes definition-time policy with digested workspace and MCP configuration",
+    sanitizedConfigurationTest,
+  );
 });
