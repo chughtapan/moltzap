@@ -1,3 +1,4 @@
+import type { MessageId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
   type ReceivedMessage,
@@ -6,7 +7,9 @@ import {
   Network,
   type NetworkFailure,
 } from "@moltzap/simulator";
-import { Effect, type Scope } from "effect";
+import { networkFailure } from "@moltzap/simulator/network";
+import { Effect, Schema, type Scope } from "effect";
+import type { NonEmptyReadonlyArray } from "effect/Array";
 
 /** Provides the target agent name runtime value. */
 export const TARGET_AGENT_NAME = "evaluation-target";
@@ -18,6 +21,23 @@ const BYSTANDER_NAME = "group-bystander-1";
 const QUIET_BYSTANDER_ONE = "group-bystander-1";
 const QUIET_BYSTANDER_TWO = "group-bystander-2";
 
+/** Evaluation-owned meaning assigned to one simulator participant. */
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- evaluation events and transcripts share this closed role vocabulary.
+export const EpisodeParticipantRole = Schema.Literal(
+  "target",
+  "sender",
+  "probe",
+  "bystander",
+);
+export type EpisodeParticipantRole = typeof EpisodeParticipantRole.Type;
+
+/** One participant whose role is known by the episode, not the network. */
+export interface EpisodeParticipant {
+  readonly name: string;
+  readonly id: AgentId;
+  readonly role: EpisodeParticipantRole;
+}
+
 /** One target delivery annotated with customer-owned endpoint semantics. */
 export interface EpisodeResponse {
   readonly endpointName: string;
@@ -25,6 +45,12 @@ export interface EpisodeResponse {
   readonly targetName: string;
   readonly targetId: AgentId;
   readonly received: ReceivedMessage;
+}
+
+/** One episode-owned topology and its canonical rubric evidence. */
+export interface EpisodeResult {
+  readonly participants: NonEmptyReadonlyArray<EpisodeParticipant>;
+  readonly selectedResponses: NonEmptyReadonlyArray<EpisodeResponse>;
 }
 
 type EpisodeFailure = NetworkFailure;
@@ -49,6 +75,23 @@ function responseAt(
   };
 }
 
+function episodeResult(
+  participants: NonEmptyReadonlyArray<EpisodeParticipant>,
+  selectedResponses: NonEmptyReadonlyArray<EpisodeResponse>,
+): EpisodeResult {
+  return { participants, selectedResponses };
+}
+
+function participant(
+  value: {
+    readonly name: string;
+    readonly id: AgentId;
+  },
+  role: EpisodeParticipantRole,
+): EpisodeParticipant {
+  return { name: value.name, id: value.id, role };
+}
+
 /**
  * Evaluation policy deliberately consumes deliveries until one matches.
  * The simulator socket itself only exposes ordered receive semantics.
@@ -71,6 +114,51 @@ function receiveWhere(
     );
 }
 
+function receiveGradedGroupResponse(
+  socket: ConversationSocket,
+  targetId: AgentId,
+  setupMessageId: MessageId,
+  gradedPromptId: MessageId,
+): Effect.Effect<ReceivedMessage, NetworkFailure> {
+  return socket.receive().pipe(
+    Effect.flatMap((received) => {
+      if (received.message.senderId !== targetId) {
+        return Effect.suspend(() =>
+          receiveGradedGroupResponse(
+            socket,
+            targetId,
+            setupMessageId,
+            gradedPromptId,
+          ),
+        );
+      }
+      if (received.message.replyToId === gradedPromptId) {
+        return Effect.succeed(received);
+      }
+      if (received.message.replyToId === setupMessageId) {
+        return Effect.suspend(() =>
+          receiveGradedGroupResponse(
+            socket,
+            targetId,
+            setupMessageId,
+            gradedPromptId,
+          ),
+        );
+      }
+      const correlation =
+        received.message.replyToId === undefined
+          ? "no replyToId"
+          : `foreign replyToId ${received.message.replyToId}`;
+      return Effect.fail(
+        networkFailure(
+          "receive",
+          `target response ${received.message.id} has ${correlation}; expected a reply to graded prompt ${gradedPromptId} or setup message ${setupMessageId}`,
+        ),
+      );
+    }),
+  );
+}
+
 /**
  * One direct conversation and one target response.
  * @param target Value supplied to the operation.
@@ -80,11 +168,7 @@ function receiveWhere(
 export function directEpisode(
   target: AgentHandle,
   prompt: string,
-): Effect.Effect<
-  readonly EpisodeResponse[],
-  EpisodeFailure,
-  EpisodeRequirements
-> {
+): Effect.Effect<EpisodeResult, EpisodeFailure, EpisodeRequirements> {
   return Effect.gen(function* () {
     const network = yield* Network;
     const sender = yield* network.endpoint(SENDER_NAME);
@@ -94,7 +178,11 @@ export function directEpisode(
       conversation,
       (delivery) => delivery.message.senderId === target.id,
     );
-    return [responseAt(sender, target, received)];
+    const participants = [
+      participant(sender.participant, "sender"),
+      participant(target, "target"),
+    ] satisfies NonEmptyReadonlyArray<EpisodeParticipant>;
+    return episodeResult(participants, [responseAt(sender, target, received)]);
   }).pipe(Effect.withSpan("directEpisode"));
 }
 
@@ -109,22 +197,24 @@ export function directMultiTurnEpisode(
   target: AgentHandle,
   opening: string,
   followUps: readonly string[],
-): Effect.Effect<
-  readonly EpisodeResponse[],
-  EpisodeFailure,
-  EpisodeRequirements
-> {
+): Effect.Effect<EpisodeResult, EpisodeFailure, EpisodeRequirements> {
   return Effect.gen(function* () {
     const network = yield* Network;
     const sender = yield* network.endpoint(SENDER_NAME);
     const conversation = yield* sender.open(target);
+    const participants = [
+      participant(sender.participant, "sender"),
+      participant(target, "target"),
+    ] satisfies NonEmptyReadonlyArray<EpisodeParticipant>;
     yield* conversation.send(opening);
     let latest = yield* receiveWhere(
       conversation,
       (delivery) => delivery.message.senderId === target.id,
     );
     const responses = new Set([latest.message.id]);
-    const selected = [responseAt(sender, target, latest)];
+    const selected: [EpisodeResponse, ...Array<EpisodeResponse>] = [
+      responseAt(sender, target, latest),
+    ];
 
     for (const followUp of followUps) {
       const previousId = latest.message.id;
@@ -139,13 +229,14 @@ export function directMultiTurnEpisode(
       responses.add(latest.message.id);
       selected.push(responseAt(sender, target, latest));
     }
-    return selected;
+    return episodeResult(participants, selected);
   }).pipe(Effect.withSpan("directMultiTurnEpisode"));
 }
 
 /**
- * An endpoint bystander speaks first, then a second endpoint addresses the
- * target in the same group conversation.
+ * A bystander's committed message precedes the graded sender prompt in one
+ * group conversation. The setup turn never requires a target response, and
+ * only a target reply bound to the graded prompt is selected.
  * @param target Value supplied to the operation.
  * @param bystanderMessage Value supplied to the operation.
  * @param prompt Value supplied to the operation.
@@ -155,35 +246,28 @@ export function speakingGroupEpisode(
   target: AgentHandle,
   bystanderMessage: string,
   prompt: string,
-): Effect.Effect<
-  readonly EpisodeResponse[],
-  EpisodeFailure,
-  EpisodeRequirements
-> {
+): Effect.Effect<EpisodeResult, EpisodeFailure, EpisodeRequirements> {
   return Effect.gen(function* () {
     const network = yield* Network;
     const sender = yield* network.endpoint(SENDER_NAME);
     const bystander = yield* network.endpoint(BYSTANDER_NAME);
     const conversation = yield* bystander.open(target, sender.participant);
+    const participants = [
+      participant(bystander.participant, "bystander"),
+      participant(sender.participant, "sender"),
+      participant(target, "target"),
+    ] satisfies NonEmptyReadonlyArray<EpisodeParticipant>;
 
-    yield* conversation.send(bystanderMessage);
-    const first = yield* receiveWhere(
-      conversation,
-      (delivery) => delivery.message.senderId === target.id,
-    );
-
+    const setupMessage = yield* conversation.send(bystanderMessage);
     const senderConversation = yield* sender.socket(conversation.address);
-    yield* senderConversation.send(prompt);
-    const second = yield* receiveWhere(
+    const gradedPrompt = yield* senderConversation.send(prompt);
+    const received = yield* receiveGradedGroupResponse(
       senderConversation,
-      (delivery) =>
-        delivery.message.senderId === target.id &&
-        delivery.message.id !== first.message.id,
+      target.id,
+      setupMessage.id,
+      gradedPrompt.id,
     );
-    return [
-      responseAt(bystander, target, first),
-      responseAt(sender, target, second),
-    ];
+    return episodeResult(participants, [responseAt(sender, target, received)]);
   }).pipe(Effect.withSpan("speakingGroupEpisode"));
 }
 
@@ -196,11 +280,7 @@ export function speakingGroupEpisode(
 export function silentGroupEpisode(
   target: AgentHandle,
   prompt: string,
-): Effect.Effect<
-  readonly EpisodeResponse[],
-  EpisodeFailure,
-  EpisodeRequirements
-> {
+): Effect.Effect<EpisodeResult, EpisodeFailure, EpisodeRequirements> {
   return Effect.gen(function* () {
     const network = yield* Network;
     const sender = yield* network.endpoint(SENDER_NAME);
@@ -211,12 +291,18 @@ export function silentGroupEpisode(
       bystanderOne.participant,
       bystanderTwo.participant,
     );
+    const participants = [
+      participant(sender.participant, "sender"),
+      participant(bystanderOne.participant, "bystander"),
+      participant(bystanderTwo.participant, "bystander"),
+      participant(target, "target"),
+    ] satisfies NonEmptyReadonlyArray<EpisodeParticipant>;
     yield* conversation.send(prompt);
     const received = yield* receiveWhere(
       conversation,
       (delivery) => delivery.message.senderId === target.id,
     );
-    return [responseAt(sender, target, received)];
+    return episodeResult(participants, [responseAt(sender, target, received)]);
   }).pipe(Effect.withSpan("silentGroupEpisode"));
 }
 
@@ -235,16 +321,18 @@ export function crossConversationEpisode(options: {
   readonly setup: string;
   readonly probe: string;
   readonly followUps?: readonly string[];
-}): Effect.Effect<
-  readonly EpisodeResponse[],
-  EpisodeFailure,
-  EpisodeRequirements
-> {
+}): Effect.Effect<EpisodeResult, EpisodeFailure, EpisodeRequirements> {
   return Effect.gen(function* () {
     const followUps = options.followUps ?? [];
     const network = yield* Network;
     const sender = yield* network.endpoint(SENDER_NAME);
     const setupConversation = yield* sender.open(options.target);
+    const probeSender = yield* network.endpoint(PROBE_SENDER_NAME);
+    const participants = [
+      participant(sender.participant, "sender"),
+      participant(probeSender.participant, "probe"),
+      participant(options.target, "target"),
+    ] satisfies NonEmptyReadonlyArray<EpisodeParticipant>;
     yield* setupConversation.send(options.setup);
     let latestSetup = yield* receiveWhere(
       setupConversation,
@@ -265,16 +353,14 @@ export function crossConversationEpisode(options: {
       responses.add(latestSetup.message.id);
     }
 
-    const probeSender = yield* network.endpoint(PROBE_SENDER_NAME);
     const probeConversation = yield* probeSender.open(options.target);
     yield* probeConversation.send(options.probe);
     const probeResponse = yield* receiveWhere(
       probeConversation,
       (delivery) => delivery.message.senderId === options.target.id,
     );
-    return [
-      responseAt(sender, options.target, latestSetup),
+    return episodeResult(participants, [
       responseAt(probeSender, options.target, probeResponse),
-    ];
+    ]);
   }).pipe(Effect.withSpan("crossConversationEpisode"));
 }

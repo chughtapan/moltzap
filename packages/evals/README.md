@@ -1,166 +1,125 @@
 # MoltZap evaluations
 
-This private workspace package owns executable society programs, typed case
-definitions, code graders, and the narrow `defineEvaluationSuite` builder.
-Evaluation teams compose model, persona, environment, sweep, and reporting
-policy around those code values.
+This private package is one code-first customer of `@moltzap/simulator`. It
+defines behavioral cases, drives real agent runtimes through the production
+router, grades complete simulator ledgers, checkpoints resumable reports, and
+publishes completed reports to Phoenix.
 
-`openClawEvaluations` runs the sixteen behavioral cases with OpenClaw.
-`effectEvaluations` runs the same programs with an in-process Effect agent
-that still communicates through the production MoltZap protocol.
-`defineEvaluationSuite(runtime)` creates the cases for any customer runtime,
-model, persona, or environment sweep.
+The first baseline is a fixed matrix of sixteen cases against OpenClaw and
+NanoClaw. The runner executes one cell at a time and writes a terminal attempt
+after every cell. Agent behavior is result data; only missing execution
+evidence, rejected evidence, or unavailable semantic judging makes the command
+exit nonzero.
 
-Each case owns:
+## Architecture
 
-- a versioned `Simulator.define` definition with its complete typed event
-  catalog;
-- an Effect program that opens conversations, sends messages, and awaits
-  target responses;
-- eval-owned response-selection events that attach grading semantics to core
-  network evidence;
-- a reusable run Effect;
-- a code grader over exact event streams from a validated completed ledger.
+| Module | Responsibility |
+|---|---|
+| `src/cases.ts` | Ordered case catalog, criteria, rubrics, and episodes |
+| `src/episodes.ts` | Endpoint-controlled protocol traffic |
+| `src/events.ts` | Closed evaluation event catalog for roles and selected responses |
+| `src/grading.ts` | Complete-ledger projection, code checks, semantic judge, and calibration |
+| `src/sweep.ts` | Schema-backed reports, atomic checkpoints, resume, and ordered execution |
+| `src/phoenix.ts` | Idempotent materialization into externally managed Phoenix |
+| `src/probes.ts` | Explicit shared-conversation proof across NanoClaw, Effect, and OpenClaw |
+| `src/cli.ts` | Operator commands and the built-in live baseline |
 
-Platform resources are supplied once at the application boundary:
+Each simulator ledger is the canonical network and lifecycle record. The local
+evaluation report is the durable handoff between grading and publication.
+Phoenix owns datasets, experiment views, comparisons, and retained visible
+results.
 
-```ts
-import { Duration, Effect } from "effect";
-import { effectEvaluations } from "@moltzap/evals";
-import { simulatorLayer } from "@moltzap/simulator";
+## Operator commands
 
-const Platform = simulatorLayer({
-  ledgerDirectory: "./eval-results",
-  router: {
-    startupTimeout: Duration.minutes(2),
-  },
-});
-
-const evaluation = effectEvaluations.eval005;
-
-const program = Effect.gen(function* () {
-  const run = yield* evaluation.run;
-  return yield* evaluation.grade(run.ledger);
-}).pipe(Effect.provide(Platform));
-```
-
-Runtime constructors own model, workspace, installation, and readiness
-configuration. The run Effect requires only the runtime's declared services
-plus the router and ledger Layers.
-
-The run result contains the customer program `Exit`. Ledger completion proves
-durability and integrity; `ProgramSucceeded` separately proves the experiment
-program succeeded. Graders refuse incomplete or unsuccessful evidence rather
-than turning infrastructure failure into a behavioral score.
-
-Every grading report contains at least one named check and derives its verdict
-from those checks:
-
-- `passed` means every check established its property;
-- `failed` means at least one check established a violation;
-- `undecided` means no check failed, but code did not establish every property.
-
-Mechanical properties such as word limits and exact-answer prompts decide in
-both directions. A scenario-specific detector can establish a direct
-disclosure, but a miss stays `undecided` because the same information may be
-paraphrased. Semantic checks also stay `undecided` until evaluation-owned
-Effect code resolves them. Infrastructure refusal remains a typed error and is
-never a behavioral verdict.
-
-Reports include a versioned grader id, so regrading a durable ledger under new
-code produces distinguishable evidence. Most bundled behavioral cases cannot
-report `passed` from the mechanical tier alone; a final measurement requires
-semantic grading code tested against known-good and known-bad responses.
-
-Checks:
+Run all package tasks through Nx:
 
 ```bash
-pnpm nx run @moltzap/evals:build
-pnpm nx run @moltzap/evals:typecheck:tests
-pnpm nx run @moltzap/evals:test
-pnpm nx run @moltzap/evals:lint
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:build
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:typecheck:tests
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:test
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:lint
 ```
 
-## Live runtime measurements
-
-The uncached `measure:live` target runs three live measurements serially:
-
-1. A mixed-roster protocol measurement starts OpenClaw, NanoClaw, an Effect
-   agent, and a customer-defined `defineRuntime` agent against one production
-   router. Exact per-runtime replies establish readiness, delivery, durable
-   router commits, customer selection, and program success.
-2. A behavioral measurement runs the existing two-turn EVAL-021 episode
-   independently against real OpenClaw and NanoClaw, opens each completed
-   ledger, and grades it with the versioned code grader. Infrastructure
-   success and a valid grading report are required; `passed`, `failed`, and
-   `undecided` verdicts are all result data rather than test-runner verdicts.
-3. A shared-conversation measurement puts OpenClaw, NanoClaw, and an Effect
-   witness in one conversation for a verified arithmetic task. NanoClaw
-   proposes the total without receiving the answer, the Effect runtime
-   validates that exact message and only then generates an approval receipt,
-   and OpenClaw returns the expected checksum with both the receipt and
-   NanoClaw's actual message id. One typed customer event records the
-   selection policy's consumed responses and either the selected sequence or
-   the elapsed observation window. The report derives OpenClaw's expected and
-   observed protocol reply target from that atomic measurement. Neither a
-   behavioral miss nor a missing reply target becomes an infrastructure
-   failure.
-
-The mixed-roster and shared-conversation measurements require the
-runtime-termination streams to remain empty. Scope cleanup is not autonomous
-termination evidence, and a runtime that exits before the customer program
-completes is an infrastructure failure.
+Calibrate the semantic judge before a live sweep:
 
 ```bash
-pnpm nx run @moltzap/evals:measure:behavior
-pnpm nx run @moltzap/evals:measure:conversation
-pnpm nx run @moltzap/evals:measure:roster
-pnpm nx run @moltzap/evals:measure:live
+OPENAI_API_KEY=... \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:calibrate
 ```
 
-### Recorded live measurements — 2026-07-29
+Start a new 32-cell report:
 
-The sanitized grading reports, observed response sequences, ledger metadata,
-completion digests, and incomplete-trial snapshot are committed in
-[`evidence/2026-07-29-live.json`](./evidence/2026-07-29-live.json).
+```bash
+OPENAI_API_KEY=... \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:eval -- \
+  --report-id baseline-2026-07-29 \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
 
-Real OpenClaw and NanoClaw each completed and were graded on EVAL-021. Both
-returned `OK` followed by the exact answer `BANANA7`; the versioned
-`moltzap.eval-021.grader/v1` report passed every check.
+The command requires a clean Git worktree and records the exact source
+revision. Omit `--report-id` to derive one from the current UTC time. Both
+model IDs are required because an inherited runtime choice cannot establish
+which model produced a result. The values are passed to their respective
+runtime constructors and captured in each runtime's native sanitized
+configuration.
 
-| Runtime | Ledger ref | Run id |
-|---|---|---|
-| OpenClaw | `9c9288da-3e43-41d3-9b16-6dae68ad44e5` | `32f78c29-e7a6-447c-a3c1-5067ed50a2d5` |
-| NanoClaw | `a15cb23c-b8f2-41b0-947a-f838c7115ded` | `26002731-52d7-4aa8-a724-50006d59934c` |
+Reports live at:
 
-The shared-conversation measurement completed the exact NanoClaw proposal →
-Effect approval → OpenClaw final content sequence in one four-participant
-conversation. Ledger `8913951a-6a76-473e-b300-9fce8b7cb059`, run
-`428cb265-565f-4e20-9a16-4c129b808d1a`, contains 16 records. Its manifest and
-record digests are
-`94b7292b0799e4b3939fab2f3993063e07d2e0b4d0087604ebb0efc3959252a9`
-and `e6b16b6d99d12a8b3d7767640ecc231391d9aca38f96b9ab4312f070dcc1e5cf`.
-The OpenClaw reply target was observed as `null` rather than the witness
-message id; [#904](https://github.com/chughtapan/moltzap/issues/904) tracks
-that transport defect.
+```text
+.moltzap/evals/reports/<report-id>.json
+```
 
-A complementary OpenClaw proposal → Effect approval → NanoClaw final trial
-showed a second transport defect. Operator-observed runtime diagnostics showed
-that NanoClaw generated the exact final response, but an earlier standby
-response consumed the newer dispatch lease and the final response was not
-delivered. Its incomplete ledger snapshot is
-`e6427600-8745-45dd-9804-c6dff00f6709`; it has no completion artifact or
-program terminal event.
-[#903](https://github.com/chughtapan/moltzap/issues/903) records that result
-and the required turn-correlation behavior.
+Ledgers live under `.moltzap/evals/ledgers/`. Both locations are ignored local
+artifacts.
 
-This requires:
+Resume validates the full immutable plan and executes only missing cells:
 
-- a reachable Docker daemon;
-- network access while the router and runtime caches are cold;
-- model credentials in the operator OpenClaw profile;
-- a local OneCLI gateway configured for NanoClaw.
+```bash
+OPENAI_API_KEY=... \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:resume -- \
+  --report-id baseline-2026-07-29 \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
 
-Set `MOLTZAP_OPENCLAW_EVAL_MODEL` or `MOLTZAP_NANOCLAW_EVAL_MODEL` to override
-the corresponding runtime's default model. The measurement targets do not read
-or log credential contents.
+Pass the same runtime model IDs used by the original run. Terminal cells are
+never retried automatically.
+
+## Publish and inspect results
+
+Phoenix is an external service. Point the publisher at a self-hosted or hosted
+instance and publish a completed report explicitly:
+
+```bash
+PHOENIX_HOST=http://localhost:6006 \
+  mise x node@24.18.0 -- pnpm nx run @moltzap/evals:publish -- \
+  --report-id baseline-2026-07-29
+```
+
+Set `PHOENIX_API_KEY` when the server requires bearer authentication. The
+publisher reconciles a stable case dataset, one experiment per runtime
+condition, every terminal attempt, and code/model/error assessment
+provenance. Each experiment exposes the condition's native sanitized runtime
+configuration and the complete encoded judge policy for comparison in the
+Phoenix UI. Repeating the command is idempotent when remote state matches.
+
+## Mixed-runtime network proof
+
+The probe puts a real NanoClaw process, an in-process Effect witness, and a
+real OpenClaw process in one shared conversation. Each participant must act
+only after the preceding participant's actual message:
+
+```bash
+mise x node@24.18.0 -- pnpm nx run @moltzap/evals:probe -- \
+  --openclaw-model "$OPENCLAW_MODEL" \
+  --nanoclaw-model "$NANOCLAW_MODEL"
+```
+
+Its ledger survives whether the protocol passes or fails.
+
+Live commands require Docker, network access for cold runtime caches, a
+configured OpenClaw profile, and a reachable OneCLI gateway for NanoClaw.
+NanoClaw or OpenClaw failures remain typed report or probe outcomes; defects in
+those external integrations are tracked independently from the evaluation
+instrument.
