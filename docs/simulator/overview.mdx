@@ -104,6 +104,15 @@ and scoped teardown policy. A custom runtime uses `defineRuntime` from
 address, readiness connection, and Scope as the shipped implementations.
 Deterministic mocks are ordinary code runtimes in the same roster.
 
+Every runtime also owns a Schema and sanitized value describing its
+definition-time policy, overrides, and defaults in its native shape. This
+configuration does not claim acquisition-resolved host facts. The kernel
+records a canonical encoded snapshot under the kernel-owned `agents`
+provenance key. Customer provenance is composed around that key and cannot
+replace agent, runtime, or configuration evidence. Runtime families do not
+normalize model or provider fields into a simulator-wide union, and
+credentials never enter this configuration.
+
 Runtime acquisition returns only after readiness. Once every runtime is
 ready, `roster.Agents` contains exact handles such as `agents.alice` and
 `agents.carol`. Keyed access carries the declared roster into the experiment's
@@ -220,7 +229,7 @@ const run = Society.run(
   },
 ).pipe(Effect.provide(Platform));
 
-const result = yield* run;
+const outcome = yield* run;
 ```
 
 Returning, failing, or interrupting the experiment ends its program scope.
@@ -229,10 +238,13 @@ Stream operators directly to express completion. Runtime termination is
 ledger evidence, not an implicit global stop rule; customer policy decides
 whether an agent exit should fail, finish, or leave the experiment running.
 
-`result.exit` preserves the customer program's `Exit`. `result.ledger` is the
-storage-owned reference to the completed ledger, and `result.completion`
-contains its record count and artifact digests. Infrastructure and
-acquisition failures remain typed failures of the outer run Effect.
+After ledger allocation, the run returns a closed outcome.
+`ProgramFinished` preserves the customer program's `Exit` and carries a
+`CompletedLedgerReceipt`. `RunInfrastructureFailed` preserves the exact
+infrastructure `Cause` and carries either a completed or incomplete receipt.
+Both receipts retain the storage-owned ledger reference. Only allocation
+failure, before such a reference exists, remains a typed failure of the outer
+Effect.
 
 Customer modules own scenario formats, operator commands, completion policy,
 sweep execution, and graders.
@@ -311,19 +323,26 @@ A commit is acknowledged only after the corresponding record bytes are
 durable. Live readers then observe the value decoded from those exact bytes.
 A failed append is never published to readers, and the failure ends the run.
 
-`Society.openLedger(result.ledger)` verifies the completed artifacts before
+`Society.openLedger(outcome.receipt.ledger)` verifies completed artifacts before
 exposing evidence:
 
 ```ts
+import {
+  ProgramFinished,
+} from "@moltzap/simulator";
 import { Effect, Stream } from "effect";
 
-const ledger = yield* Society.openLedger(result.ledger);
+if (!(outcome instanceof ProgramFinished)) {
+  return yield* Effect.failCause(outcome.cause);
+}
+
+const ledger = yield* Society.openLedger(outcome.receipt.ledger);
 
 const consensus = yield* ledger
   .events(ConsensusReached)
   .pipe(Stream.runCollect);
 
-const report = yield* Society.openLedger(result.ledger).pipe(
+const report = yield* Society.openLedger(outcome.receipt.ledger).pipe(
   Effect.flatMap(gradeLedger),
 );
 ```
