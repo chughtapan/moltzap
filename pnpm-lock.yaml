@@ -382,6 +382,104 @@ importers:
         specifier: ^3.2.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
 
+  v2/endpoint:
+    dependencies:
+      '@moltzap/v2-identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@moltzap/v2-transcript':
+        specifier: workspace:*
+        version: link:../transcript
+      '@moltzap/v2-transport':
+        specifier: workspace:*
+        version: link:../transport
+    devDependencies:
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  v2/identity:
+    devDependencies:
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  v2/simulator:
+    dependencies:
+      '@moltzap/v2-endpoint':
+        specifier: workspace:*
+        version: link:../endpoint
+      '@moltzap/v2-identity':
+        specifier: workspace:*
+        version: link:../identity
+    devDependencies:
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  v2/testbed:
+    dependencies:
+      '@moltzap/v2-endpoint':
+        specifier: workspace:*
+        version: link:../endpoint
+      '@moltzap/v2-identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@moltzap/v2-simulator':
+        specifier: workspace:*
+        version: link:../simulator
+      '@moltzap/v2-transcript':
+        specifier: workspace:*
+        version: link:../transcript
+      '@moltzap/v2-transport':
+        specifier: workspace:*
+        version: link:../transport
+    devDependencies:
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  v2/transcript:
+    dependencies:
+      '@moltzap/v2-identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@moltzap/v2-transport':
+        specifier: workspace:*
+        version: link:../transport
+    devDependencies:
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  v2/transport:
+    dependencies:
+      '@moltzap/v2-identity':
+        specifier: workspace:*
+        version: link:../identity
+    devDependencies:
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
 packages:
 
   '@agentclientprotocol/sdk@0.17.1':

@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+// Scaffold entry point for the moltzap-directory process.
+process.stderr.write("moltzap-directory is not implemented\n");
+process.exit(1);

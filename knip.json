@@ -66,6 +66,31 @@
         "vitest*.config.ts"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+    },
+    "v2/transport": {
+      "ignoreDependencies": ["@moltzap/v2-identity"]
+    },
+    "v2/transcript": {
+      "ignoreDependencies": ["@moltzap/v2-identity", "@moltzap/v2-transport"]
+    },
+    "v2/endpoint": {
+      "ignoreDependencies": [
+        "@moltzap/v2-identity",
+        "@moltzap/v2-transcript",
+        "@moltzap/v2-transport"
+      ]
+    },
+    "v2/simulator": {
+      "ignoreDependencies": ["@moltzap/v2-endpoint", "@moltzap/v2-identity"]
+    },
+    "v2/testbed": {
+      "ignoreDependencies": [
+        "@moltzap/v2-endpoint",
+        "@moltzap/v2-identity",
+        "@moltzap/v2-simulator",
+        "@moltzap/v2-transcript",
+        "@moltzap/v2-transport"
+      ]
     }
   }
 }
