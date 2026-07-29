@@ -1,7 +1,7 @@
 /**
- * @file Entry point for `pnpm docs:check:mermaid`. Walks docs/ +
- * packages/ for fenced ```mermaid blocks, pipes each through `mmdc`,
- * exits non-zero if any block fails to parse.
+ * @file Entry point for `pnpm docs:check:mermaid`. Walks every tree in
+ * `MERMAID_ROOTS` for fenced ```mermaid blocks, pipes each through
+ * `mmdc`, exits non-zero if any block fails to parse.
  */
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
   extractMermaidBlocks,
   lintBlock,
+  MERMAID_ROOTS,
   type MermaidBlock,
   type MermaidFailure,
 } from "./docs/mermaid-lint.js";
@@ -27,16 +28,42 @@ const TEMP_DIR = resolve(
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const roots = [
-    resolve(WORKSPACE_ROOT, "docs"),
-    resolve(WORKSPACE_ROOT, "packages"),
-  ];
+  const roots = MERMAID_ROOTS.map((r) => resolve(WORKSPACE_ROOT, r));
+  yield* requireRoots(fs, roots);
   const files = yield* collectMarkdownFiles(fs, path, roots);
   const blocks = yield* collectBlocks(fs, path, files);
   yield* announce(blocks.length, files.length);
   const failures = yield* lintAll(blocks);
   yield* report(failures);
 });
+
+/**
+ * Fail loudly when a configured root is missing. The walk tolerates
+ * unreadable directories, so a renamed or deleted root would otherwise
+ * shrink coverage silently and still exit zero.
+ */
+const requireRoots = (
+  fs: FileSystem.FileSystem,
+  roots: ReadonlyArray<string>,
+): Effect.Effect<void, never, never> =>
+  Effect.gen(function* () {
+    const missing: string[] = [];
+    for (const root of roots) {
+      const stat = yield* fs
+        .stat(root)
+        .pipe(Effect.catchAll(() => Effect.succeed(null)));
+      if (stat === null || stat.type !== "Directory") missing.push(root);
+    }
+    if (missing.length === 0) return;
+    yield* Effect.sync(() => {
+      for (const root of missing) {
+        process.stderr.write(
+          `Mermaid lint: configured root missing: ${root}\n`,
+        );
+      }
+      process.exit(1);
+    });
+  });
 
 const announce = (
   blocks: number,
