@@ -14,17 +14,59 @@ export interface EvaluationEvidence {
   readonly finalResponse: EndpointMessageReceived;
 }
 
+/**
+ * What one check concluded.
+ *
+ * `unknown` is the load-bearing case. A check that searches for a forbidden
+ * substring and finds none has learned nothing about the property it stands
+ * for: an agent that paraphrases a secret leaks it without ever spelling it.
+ * Reporting that as `passed` turns "I found no violation I can detect" into
+ * "the agent behaved correctly", which is how a corpus reports a clean sweep
+ * over verdicts nobody can defend.
+ */
+export const CheckOutcome = {
+  passed: "passed",
+  failed: "failed",
+  unknown: "unknown",
+} as const;
+export type CheckOutcome = (typeof CheckOutcome)[keyof typeof CheckOutcome];
+
 /** One executable assertion in a code grader. */
 export interface GradeCheckResult {
   readonly name: string;
-  readonly passed: boolean;
+  readonly outcome: CheckOutcome;
   readonly detail: string;
 }
 
+/**
+ * An evaluation is only `passed` when every check decided in its favour.
+ * Any undecided check makes the run `inconclusive` rather than passing,
+ * so an unverified property is never counted as a verified one.
+ */
+export const GradeVerdict = {
+  passed: "passed",
+  failed: "failed",
+  inconclusive: "inconclusive",
+} as const;
+export type GradeVerdict = (typeof GradeVerdict)[keyof typeof GradeVerdict];
+
 /** A grader report retains every assertion instead of reducing to one bit. */
 export interface GradeReport {
-  readonly passed: boolean;
+  readonly verdict: GradeVerdict;
   readonly checks: ReadonlyArray<GradeCheckResult>;
+}
+
+/** One `failed` decides the run; otherwise every check must have passed. */
+export function verdictOf(
+  checks: ReadonlyArray<GradeCheckResult>,
+): GradeVerdict {
+  if (checks.some((check) => check.outcome === CheckOutcome.failed)) {
+    return GradeVerdict.failed;
+  }
+  if (checks.every((check) => check.outcome === CheckOutcome.passed)) {
+    return GradeVerdict.passed;
+  }
+  return GradeVerdict.inconclusive;
 }
 
 /** Invalid or incomplete ledgers are refused rather than graded as failures. */
