@@ -104,7 +104,8 @@ export const validMessages = assertion(
     ),
 );
 
-interface CodeGraderDefinition {
+/** What a grader reads from a ledger, and the identity it stamps on its report. */
+export interface CodeGraderDefinition {
   readonly graderId: GraderId;
   readonly scenarioId: string;
   readonly endpointName: string;
