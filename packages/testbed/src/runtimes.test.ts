@@ -19,12 +19,14 @@ import {
 } from "@moltzap/protocol/testing";
 
 import {
+  assertWorkspaceChannelDist,
   buildOpenClawConfig,
   createOpenClawAdapter,
   OpenClawAdapter,
   type OpenClawAdapterDeps,
 } from "./openclaw-adapter.js";
 import { TESTBED_PROFILE_NAME } from "./channel-plugin-install.js";
+import { BoundedLogBuffer } from "./child-process.js";
 import {
   NanoclawAdapter,
   type NanoclawAdapterOptions,
@@ -53,12 +55,15 @@ const READY_LABEL = "ready";
 const MATCH_TIMEOUT_MS = 5_000;
 const TIMEOUT_MATCH_RESULT = `timeout:${MATCH_TIMEOUT_MS}`;
 const PROCESS_EXIT_MATCH_RESULT = "exit:null";
+const WORKSPACE_INSTALL_MODE = "workspace";
+const PUBLISHED_INSTALL_MODE = "published";
 const TEST_AGENT_NAME = "test-agent";
 const TEST_STATE_DIR_PREFIX = `openclaw-${TEST_AGENT_NAME}-`;
 const PROCESS_SPAWN_AGENT_NAME = "process-spawn-agent";
 const TEST_API_KEY = redactedAgentKey(agentKeyString(70));
 const TEST_AGENT_ID = agentId("11111111-1111-4111-8111-111111111111");
 const TEST_SERVER_URL = "ws://localhost:9999/ws";
+const TEST_SERVER_BASE_URL = "ws://localhost:9999";
 const ALICE_AGENT_NAME = "alice";
 const SPAWN_FAILED_MESSAGE = "ENOENT";
 const SIGTERM_SIGNAL = "SIGTERM";
@@ -92,6 +97,7 @@ function stubDeps(): OpenClawAdapterDeps {
     server: stubServer(),
     openclawBin: "/bin/false",
     channelDistDir: "/nonexistent/channel",
+    installMode: WORKSPACE_INSTALL_MODE,
   };
 }
 
@@ -130,6 +136,10 @@ describe("createOpenClawAdapter", () => {
     openClawFactoryUsesExplicitPaths,
   );
   it("resolves pinned installed defaults", openClawFactoryResolvesDefaults);
+  it(
+    "rejects an installed channel artifact in workspace mode",
+    openClawWorkspaceModeRejectsInstalledChannel,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -152,11 +162,14 @@ describe("OpenClawAdapter.spawn", () => {
 // serializer writes.
 const CONFIG_WORKSPACE_DIR = "/workspaces/testbed-agent";
 const CUSTOM_MODEL_ID = "custom/model";
+const DISABLED_MDNS_MODE = "off";
+const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 
+// @agent-code-guard/regression-only: each example pins one independent OpenClaw configuration contract
 describe("buildOpenClawConfig", () => {
   it("keys the moltzap account under the testbed profile", () => {
     const config = buildOpenClawConfig(
-      { agentName: "alice" },
+      { agentName: "alice", installMode: WORKSPACE_INSTALL_MODE },
       CONFIG_WORKSPACE_DIR,
     );
 
@@ -171,16 +184,39 @@ describe("buildOpenClawConfig", () => {
         model: { primary: expect.any(String) },
       },
     });
+    expect(config.plugins?.allow).toEqual([OPENCLAW_EXTENSION_NAME]);
   });
 
   it("prefers an explicit model id over the default", () => {
     const config = buildOpenClawConfig(
-      { agentName: "alice", modelId: CUSTOM_MODEL_ID },
+      {
+        agentName: "alice",
+        modelId: CUSTOM_MODEL_ID,
+        installMode: WORKSPACE_INSTALL_MODE,
+      },
       CONFIG_WORKSPACE_DIR,
     );
     expect(config.agents).toMatchObject({
       defaults: { model: { primary: CUSTOM_MODEL_ID } },
     });
+  });
+
+  it("disables mDNS discovery for colocated gateways", () => {
+    const config = buildOpenClawConfig(
+      { agentName: "alice", installMode: WORKSPACE_INSTALL_MODE },
+      CONFIG_WORKSPACE_DIR,
+    );
+
+    expect(config.discovery?.mdns?.mode).toBe(DISABLED_MDNS_MODE);
+  });
+
+  it("omits local plugin trust for registry-backed installs", () => {
+    const config = buildOpenClawConfig(
+      { agentName: "alice", installMode: PUBLISHED_INSTALL_MODE },
+      CONFIG_WORKSPACE_DIR,
+    );
+
+    expect(config).not.toHaveProperty("plugins");
   });
 });
 
@@ -234,6 +270,14 @@ describe("OpenClawAdapter.teardown", () => {
   it(
     "sends SIGTERM then SIGKILL when the process does not exit",
     openClawTeardownSendsTerminateThenKill,
+  );
+  it(
+    "sends SIGKILL to the process group after the leader exits",
+    openClawTeardownKillsDescendantsAfterLeaderExit,
+  );
+  it(
+    "performs only descendant cleanup when the leader already exited",
+    openClawTeardownKillsDescendantsAfterPreexistingLeaderExit,
   );
   it(
     "finishes process-scope cleanup when teardown is interrupted",
@@ -306,9 +350,9 @@ describe("branded types", () => {
     expect(Redacted.value(TEST_API_KEY)).toBe(agentKeyString(70));
   });
 
-  it("ServerUrl brand compiles and round-trips", () => {
-    const url = ServerUrl(TEST_SERVER_URL);
-    expect(url).toBe(TEST_SERVER_URL);
+  it("ServerUrl is the protocol's path-free base constructor", () => {
+    expect(ServerUrl(TEST_SERVER_URL)).toBe(TEST_SERVER_BASE_URL);
+    expect(() => ServerUrl(`${TEST_SERVER_BASE_URL}/elsewhere`)).toThrow();
   });
 });
 
@@ -335,7 +379,7 @@ describe("SpawnFailed", () => {
 // ---------------------------------------------------------------------------
 
 function stubNanoclawOptions(): NanoclawAdapterOptions {
-  return { server: stubServer() };
+  return { server: stubServer(), installMode: WORKSPACE_INSTALL_MODE };
 }
 
 describe("NanoclawAdapter", () => {
@@ -393,7 +437,10 @@ function openClawFactoryResolvesDefaults() {
   return runTest(
     FileSystem.FileSystem.pipe(
       Effect.flatMap((fileSystem) => {
-        const adapter = createOpenClawAdapter({ server: stubServer() });
+        const adapter = createOpenClawAdapter({
+          server: stubServer(),
+          installMode: WORKSPACE_INSTALL_MODE,
+        });
         const deps = Reflect.get(adapter, "deps") as OpenClawAdapterDeps;
         return Effect.all([
           fileSystem.exists(deps.openclawBin),
@@ -406,6 +453,40 @@ function openClawFactoryResolvesDefaults() {
       Effect.asVoid,
       Effect.provide(NodeContext.layer),
       Effect.orDie,
+    ),
+  );
+}
+
+function openClawWorkspaceModeRejectsInstalledChannel() {
+  return runTest(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "openclaw-installed-channel-test-",
+        });
+        const channelDistDir = path.join(
+          root,
+          "node_modules",
+          "@moltzap",
+          "openclaw-channel",
+          "dist",
+        );
+        yield* fileSystem.makeDirectory(channelDistDir, { recursive: true });
+        const resolvedChannelDistDir =
+          yield* fileSystem.realPath(channelDistDir);
+
+        const error = yield* assertWorkspaceChannelDist(channelDistDir).pipe(
+          Effect.flip,
+        );
+
+        expect(error).toMatchObject({
+          _tag: "OpenClawInstallModeError",
+          channelDistDir,
+          resolvedChannelDistDir,
+        });
+      }).pipe(Effect.provide(NodeContext.layer), Effect.orDie),
     ),
   );
 }
@@ -452,7 +533,11 @@ function openClawProcessSpawnFailureCleansState() {
           server: stubServer(),
           openclawBin: path.join(fixture.root, "missing-openclaw"),
           channelDistDir: fixture.channelDist,
+          installMode: WORKSPACE_INSTALL_MODE,
         });
+        // The launcher process starts even when the target binary is
+        // missing, so spawn commits and the death surfaces through the
+        // readiness race — which tears the runtime down.
         const result = yield* Effect.either(
           adapter.spawn(
             stubSpawnInput({
@@ -460,10 +545,17 @@ function openClawProcessSpawnFailureCleansState() {
             }),
           ),
         );
-
-        Either.match(result, {
-          onLeft: (error) => expect(error).toBeInstanceOf(SpawnFailed),
-          onRight: () => expect.fail(),
+        yield* Either.match(result, {
+          onLeft: (error) =>
+            Effect.sync(() => expect(error).toBeInstanceOf(SpawnFailed)),
+          onRight: () =>
+            adapter
+              .waitUntilReady(READY_TIMEOUT_MS)
+              .pipe(
+                Effect.map((outcome) =>
+                  expect(outcome._tag).toBe(PROCESS_EXITED_TAG),
+                ),
+              ),
         });
         expect(yield* listTestStateDirs(PROCESS_SPAWN_AGENT_NAME)).toEqual(
           stateDirsBefore,
@@ -535,19 +627,25 @@ function openClawTeardownSendsTerminateThenKill() {
       injectOpenClawAdapterState(adapter, {
         process: {
           exitFiber,
-          kill: (signal: Signal) =>
-            Effect.sync(() => {
-              killCalls.push(signal);
-            }),
+          // A stubborn process: the kill await never resolves and the exit
+          // fiber never completes, so both signal windows must lapse.
+          proc: {
+            kill: (signal: Signal) =>
+              Effect.sync(() => {
+                killCalls.push(signal);
+              }).pipe(Effect.andThen(Effect.never)),
+          },
           scope,
         },
         stateDir: TEARDOWN_STATE_DIR,
-        logBuffer: { value: "" },
+        logBuffer: new BoundedLogBuffer(),
         spawnInput: stubSpawnInput(),
         tornDown: false,
       });
 
-      try {
+      // Cleanup must be Effect.ensuring: a gen-body finally is skipped when
+      // a yielded effect fails.
+      yield* Effect.gen(function* () {
         const teardownPromise = Effect.runPromise(adapter.teardown());
         yield* Effect.tryPromise({
           try: () => vi.advanceTimersByTimeAsync(TEARDOWN_TIMER_ADVANCE_MS),
@@ -557,12 +655,88 @@ function openClawTeardownSendsTerminateThenKill() {
           try: () => teardownPromise,
           catch: (cause) => cause,
         }).pipe(Effect.orDie);
-      } finally {
-        vi.useRealTimers();
-        yield* Fiber.interrupt(exitFiber);
-      }
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            vi.useRealTimers();
+          }).pipe(Effect.zipRight(Fiber.interrupt(exitFiber))),
+        ),
+      );
 
       expect(killCalls).toEqual([SIGTERM_SIGNAL, SIGKILL_SIGNAL]);
+    }),
+  );
+}
+
+function openClawTeardownKillsDescendantsAfterLeaderExit() {
+  return runTest(
+    Effect.gen(function* () {
+      const killCalls: Signal[] = [];
+      const scope = yield* Scope.make();
+      const exitFiber = yield* Effect.fork(
+        Effect.never as Effect.Effect<number, never, never>,
+      );
+
+      const adapter = new OpenClawAdapter(stubDeps());
+      injectOpenClawAdapterState(adapter, {
+        process: {
+          exitFiber,
+          proc: {
+            kill: (signal: Signal) =>
+              Effect.sync(() => {
+                killCalls.push(signal);
+              }).pipe(
+                Effect.zipRight(
+                  signal === SIGTERM_SIGNAL
+                    ? Fiber.interrupt(exitFiber)
+                    : Effect.void,
+                ),
+              ),
+          },
+          scope,
+        },
+        stateDir: TEARDOWN_STATE_DIR,
+        logBuffer: new BoundedLogBuffer(),
+        spawnInput: stubSpawnInput(),
+        tornDown: false,
+      });
+
+      yield* adapter.teardown();
+
+      expect(killCalls).toEqual([SIGTERM_SIGNAL, SIGKILL_SIGNAL]);
+    }),
+  );
+}
+
+function openClawTeardownKillsDescendantsAfterPreexistingLeaderExit() {
+  return runTest(
+    Effect.gen(function* () {
+      const killCalls: Signal[] = [];
+      const scope = yield* Scope.make();
+      const exitFiber = yield* Effect.succeed(0).pipe(Effect.fork);
+      yield* Fiber.join(exitFiber);
+
+      const adapter = new OpenClawAdapter(stubDeps());
+      injectOpenClawAdapterState(adapter, {
+        process: {
+          exitFiber,
+          proc: {
+            kill: (signal: Signal) =>
+              Effect.sync(() => {
+                killCalls.push(signal);
+              }),
+          },
+          scope,
+        },
+        stateDir: TEARDOWN_STATE_DIR,
+        logBuffer: new BoundedLogBuffer(),
+        spawnInput: stubSpawnInput(),
+        tornDown: false,
+      });
+
+      yield* adapter.teardown();
+
+      expect(killCalls).toEqual([SIGKILL_SIGNAL]);
     }),
   );
 }
@@ -587,16 +761,18 @@ function openClawTeardownInterruptionFinishesCleanup() {
       injectOpenClawAdapterState(adapter, {
         process: {
           exitFiber,
-          kill: () =>
-            Deferred.succeed(killStarted, undefined).pipe(
-              Effect.zipRight(Deferred.await(allowKill)),
-              Effect.zipRight(Fiber.interrupt(exitFiber)),
-              Effect.asVoid,
-            ),
+          proc: {
+            kill: () =>
+              Deferred.succeed(killStarted, undefined).pipe(
+                Effect.zipRight(Deferred.await(allowKill)),
+                Effect.zipRight(Fiber.interrupt(exitFiber)),
+                Effect.asVoid,
+              ),
+          },
           scope,
         },
         stateDir: TEARDOWN_STATE_DIR,
-        logBuffer: { value: "" },
+        logBuffer: new BoundedLogBuffer(),
         spawnInput: stubSpawnInput(),
         tornDown: false,
       });
@@ -663,18 +839,20 @@ function nanoclawTeardownIsIdempotent() {
 interface InjectedOpenClawAdapterState {
   readonly process: {
     readonly exitFiber: Fiber.RuntimeFiber<number, never>;
-    readonly kill: (signal: Signal) => Effect.Effect<void, never, never>;
+    readonly proc: {
+      readonly kill: (signal: Signal) => Effect.Effect<void, never, never>;
+    };
     readonly scope: Scope.CloseableScope;
   };
   readonly stateDir: string;
-  readonly logBuffer: { readonly value: string };
+  readonly logBuffer: BoundedLogBuffer;
   readonly spawnInput: SpawnInput;
   tornDown: boolean;
 }
 
 // `OpenClawAdapter.state` is private; teardown is the only path that reads it.
 // `Reflect.set` writes the field without a privacy-defeating cast. The injected
-// process omits `proc` because the teardown path under test never reads it.
+// `proc` carries only `kill` — the sole raw-process member teardown reads.
 function injectOpenClawAdapterState(
   adapter: OpenClawAdapter,
   state: InjectedOpenClawAdapterState,

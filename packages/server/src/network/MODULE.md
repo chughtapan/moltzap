@@ -232,16 +232,6 @@ _TypeAlias_
 
 ```ts
 export type DeliveryError = RecipientNotResolved | WriteFailed;
-
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
-
-interface BroadcastOptions {
-  readonly forConversation?: ConversationId;
-  readonly excludeConnectionId?: ConnectionId;
-  readonly messageId?: MessageId;
-}
 ```
 
 ### [`NetworkSendService`](./network-send.ts#L87)

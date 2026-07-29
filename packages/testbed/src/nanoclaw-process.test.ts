@@ -1,4 +1,4 @@
-import { Path } from "@effect/platform";
+import { Command, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { Effect } from "effect";
 import {
@@ -8,21 +8,62 @@ import {
 } from "@moltzap/protocol/testing";
 import { describe, expect, it } from "vitest";
 
+import type { NanoclawRuntimeInstall } from "./nanoclaw-install.js";
 import {
-  patchNanoclawContainerIsolationSources,
-  type NanoclawRuntimeInstall,
-} from "./nanoclaw-install.js";
-import { buildNanoclawProcessPlan } from "./nanoclaw-process.js";
+  buildNanoclawContainerListCommand,
+  buildNanoclawContainerRemoveCommand,
+  buildNanoclawEvalProvisionPlan,
+  buildNanoclawProcessPlan,
+  nanoclawInstallSlug,
+  NANOCLAW_EVAL_AGENT_GROUP_ID,
+} from "./nanoclaw-process.js";
+import { ServerUrl } from "./runtime.js";
 
 const FIRST_RUNTIME_DIR = "isolated/moltzap-nanoclaw-first";
 const SECOND_RUNTIME_DIR = "isolated/moltzap-nanoclaw-second";
 const CONFIG_DIRECTORY = ".moltzap";
 const EVAL_MODE_ENV = "MOLTZAP_EVAL_MODE";
 const LEGACY_DATA_DIR_ENV = "DATA_DIR";
-const CONTAINER_PREFIX_FILTER = "name=${CONTAINER_NAME_PREFIX}";
-const CONTAINER_PREFIX_IMPORT = "  CONTAINER_NAME_PREFIX,";
-const NAMESPACED_CONTAINER_NAME =
-  "`${CONTAINER_NAME_PREFIX}${safeName}-${Date.now()}`";
+const TEST_PATH = "/test/bin:/usr/bin:/bin";
+const TEST_HOME = "/test/home";
+const TEST_BASE_CHILD_ENVIRONMENT = {
+  PATH: TEST_PATH,
+  HOME: TEST_HOME,
+};
+// Every variable a NanoClaw child may see; anything beyond this set leaks
+// operator state into the runtime.
+const EXPECTED_CHILD_ENV_KEYS = [
+  "PATH",
+  "HOME",
+  "MOLTZAP_PROFILE",
+  "MOLTZAP_CONFIG_HOME",
+  "MOLTZAP_SERVER_URL",
+  "MOLTZAP_EVAL_MODE",
+  "CONTAINER_RUNTIME",
+  "CONTAINER_IMAGE",
+  "ONECLI_URL",
+  "TMPDIR",
+  "LOG_LEVEL",
+];
+const EXPECTED_FIRST_RUNTIME_SLUG = "d3574d3e";
+const FIRST_CONTAINER_ID = "0123456789ab";
+const SECOND_CONTAINER_ID = "fedcba987654";
+const DOCKER_COMMAND = "docker";
+const NODE_COMMAND = "node";
+const EVAL_PROVISION_ENTRYPOINT = "dist/moltzap-eval-provision.js";
+const TEST_AGENT_NAME = "nanoclaw-agent";
+const EXPECTED_CONTAINER_LIST_ARGS = [
+  "ps",
+  "--quiet",
+  "--filter",
+  `label=nanoclaw-install=${EXPECTED_FIRST_RUNTIME_SLUG}`,
+];
+const EXPECTED_CONTAINER_REMOVE_ARGS = [
+  "rm",
+  "--force",
+  FIRST_CONTAINER_ID,
+  SECOND_CONTAINER_ID,
+];
 
 describe("NanoClaw process isolation", () => {
   it(
@@ -35,20 +76,21 @@ describe("NanoClaw process isolation", () => {
     configuresAutoRegistrationExplicitly,
   );
   it(
-    "patches container names and orphan cleanup with the same namespace",
-    patchesContainerNamespace,
-  );
-  it(
     "normalizes the ws server url into the runtime env",
     normalizesServerUrlForRuntime,
   );
+  it("uses only the explicit child environment", usesExplicitChildEnvironment);
   it(
-    "fails when an isolation patch anchor is missing",
-    failsOnMissingPatchAnchor,
+    "derives the upstream install slug from the runtime directory",
+    derivesRuntimeInstallSlug,
   );
   it(
-    "fails when an isolation patch anchor is ambiguous",
-    failsOnAmbiguousPatchAnchor,
+    "scopes Docker cleanup to the runtime install label",
+    scopesDockerContainerCleanup,
+  );
+  it(
+    "builds eval provisioning from the immutable install",
+    buildsEvalProvisioningPlan,
   );
 });
 
@@ -62,6 +104,7 @@ function usesAgentLocalProcessRoot() {
           stubStartOptions(),
           runtimeDir,
           install,
+          TEST_BASE_CHILD_ENVIRONMENT,
         );
         expect(plan.cwd).toBe(runtimeDir);
         expect(path.isAbsolute(plan.args[0] ?? "")).toBe(true);
@@ -70,7 +113,6 @@ function usesAgentLocalProcessRoot() {
           path.join(runtimeDir, CONFIG_DIRECTORY),
         );
         expect(plan.env.CONTAINER_IMAGE).toBe(install.containerImage);
-        expect(plan.env.NANOCLAW_RUNTIME_NAMESPACE).toBeTruthy();
         expect(plan.env).not.toHaveProperty(LEGACY_DATA_DIR_ENV);
       }),
       Effect.asVoid,
@@ -87,19 +129,18 @@ function isolatesAgents() {
           stubStartOptions(),
           path.resolve(FIRST_RUNTIME_DIR),
           stubInstall(path.resolve("cache/first")),
+          TEST_BASE_CHILD_ENVIRONMENT,
         );
         const second = buildNanoclawProcessPlan(
           stubStartOptions("22222222-2222-4222-8222-222222222222"),
           path.resolve(SECOND_RUNTIME_DIR),
           stubInstall(path.resolve("cache/second")),
+          TEST_BASE_CHILD_ENVIRONMENT,
         );
 
         expect(first.cwd).not.toBe(second.cwd);
         expect(first.env.MOLTZAP_CONFIG_HOME).not.toBe(
           second.env.MOLTZAP_CONFIG_HOME,
-        );
-        expect(first.env.NANOCLAW_RUNTIME_NAMESPACE).not.toBe(
-          second.env.NANOCLAW_RUNTIME_NAMESPACE,
         );
       }),
       Effect.asVoid,
@@ -119,11 +160,13 @@ function configuresAutoRegistrationExplicitly() {
           defaults,
           runtimeDir,
           install,
+          TEST_BASE_CHILD_ENVIRONMENT,
         );
         const enabled = buildNanoclawProcessPlan(
           { ...defaults, autoRegisterConversations: true },
           path.resolve(FIRST_RUNTIME_DIR),
           install,
+          TEST_BASE_CHILD_ENVIRONMENT,
         );
 
         expect(disabled.env[EVAL_MODE_ENV]).toBe("0");
@@ -131,37 +174,6 @@ function configuresAutoRegistrationExplicitly() {
       }),
       Effect.asVoid,
       Effect.provide(NodeContext.layer),
-    ),
-  );
-}
-
-function patchesContainerNamespace() {
-  const runtimeSource = [
-    "export const CONTAINER_RUNTIME_BIN = 'docker';",
-    "const command = `docker ps --filter name=nanoclaw-`;",
-  ].join("\n");
-  const runnerSource = [
-    "import {",
-    "  CONTAINER_RUNTIME_BIN,",
-    "  hostGatewayArgs,",
-    "} from './container-runtime.js';",
-    "const containerName = `nanoclaw-${safeName}-${Date.now()}`;",
-  ].join("\n");
-
-  return runTest(
-    patchNanoclawContainerIsolationSources(runtimeSource, runnerSource).pipe(
-      Effect.tap((patched) => {
-        expect(patched.containerRuntimeSource).toContain(
-          CONTAINER_PREFIX_FILTER,
-        );
-        expect(patched.containerRunnerSource).toContain(
-          CONTAINER_PREFIX_IMPORT,
-        );
-        expect(patched.containerRunnerSource).toContain(
-          NAMESPACED_CONTAINER_NAME,
-        );
-      }),
-      Effect.asVoid,
     ),
   );
 }
@@ -179,11 +191,13 @@ function normalizesServerUrlForRuntime() {
           stubStartOptions(),
           path.resolve(FIRST_RUNTIME_DIR),
           install,
+          TEST_BASE_CHILD_ENVIRONMENT,
         );
         const secure = buildNanoclawProcessPlan(
-          { ...stubStartOptions(), serverUrl: SECURE_SERVER_URL },
+          { ...stubStartOptions(), serverUrl: ServerUrl(SECURE_SERVER_URL) },
           path.resolve(SECOND_RUNTIME_DIR),
           install,
+          TEST_BASE_CHILD_ENVIRONMENT,
         );
 
         expect(insecure.env.MOLTZAP_SERVER_URL).toBe(
@@ -199,52 +213,81 @@ function normalizesServerUrlForRuntime() {
   );
 }
 
-const RUNTIME_BIN_ANCHOR = "export const CONTAINER_RUNTIME_BIN = 'docker';";
-const RUNNER_SOURCE_LINES = [
-  "import {",
-  "  CONTAINER_RUNTIME_BIN,",
-  "  hostGatewayArgs,",
-  "} from './container-runtime.js';",
-  "const containerName = `nanoclaw-${safeName}-${Date.now()}`;",
-];
-const ANCHOR_ERROR_MESSAGE = /isolation patch anchor/;
-const INSTALL_ERROR_TAG = "NanoclawInstallError";
-
-function failsOnMissingPatchAnchor() {
-  const runtimeSourceWithoutAnchor =
-    "const command = `docker ps --filter name=nanoclaw-`;";
+function usesExplicitChildEnvironment() {
   return runTest(
-    patchNanoclawContainerIsolationSources(
-      runtimeSourceWithoutAnchor,
-      RUNNER_SOURCE_LINES.join("\n"),
-    ).pipe(
-      Effect.flip,
-      Effect.tap((error) => {
-        expect(error._tag).toBe(INSTALL_ERROR_TAG);
-        expect(error.reason).toMatch(ANCHOR_ERROR_MESSAGE);
+    Path.Path.pipe(
+      Effect.tap((path) => {
+        const runtimeDir = path.resolve(FIRST_RUNTIME_DIR);
+        const plan = buildNanoclawProcessPlan(
+          stubStartOptions(),
+          runtimeDir,
+          stubInstall(path.resolve("cache/nanoclaw")),
+          TEST_BASE_CHILD_ENVIRONMENT,
+        );
+
+        expect(Object.keys(plan.env).sort()).toEqual(
+          [...EXPECTED_CHILD_ENV_KEYS].sort(),
+        );
+        expect(plan.env.PATH).toBe(TEST_PATH);
+        expect(plan.env.HOME).toBe(TEST_HOME);
+        expect(plan.env.TMPDIR).toBe(path.join(runtimeDir, "tmp"));
       }),
       Effect.asVoid,
+      Effect.provide(NodeContext.layer),
     ),
   );
 }
 
-function failsOnAmbiguousPatchAnchor() {
-  const runtimeSourceWithDuplicateAnchor = [
-    RUNTIME_BIN_ANCHOR,
-    RUNTIME_BIN_ANCHOR,
-    "const command = `docker ps --filter name=nanoclaw-`;",
-  ].join("\n");
+function derivesRuntimeInstallSlug() {
+  expect(nanoclawInstallSlug(FIRST_RUNTIME_DIR)).toBe(
+    EXPECTED_FIRST_RUNTIME_SLUG,
+  );
+}
+
+function scopesDockerContainerCleanup() {
+  const [listCommand] = Command.flatten(
+    buildNanoclawContainerListCommand(FIRST_RUNTIME_DIR),
+  );
+  const [removeCommand] = Command.flatten(
+    buildNanoclawContainerRemoveCommand([
+      FIRST_CONTAINER_ID,
+      SECOND_CONTAINER_ID,
+    ]),
+  );
+
+  expect(listCommand.command).toBe(DOCKER_COMMAND);
+  expect(listCommand.args).toEqual(EXPECTED_CONTAINER_LIST_ARGS);
+  expect(removeCommand.command).toBe(DOCKER_COMMAND);
+  expect(removeCommand.args).toEqual(EXPECTED_CONTAINER_REMOVE_ARGS);
+}
+
+function buildsEvalProvisioningPlan() {
   return runTest(
-    patchNanoclawContainerIsolationSources(
-      runtimeSourceWithDuplicateAnchor,
-      RUNNER_SOURCE_LINES.join("\n"),
-    ).pipe(
-      Effect.flip,
-      Effect.tap((error) => {
-        expect(error._tag).toBe(INSTALL_ERROR_TAG);
-        expect(error.reason).toMatch(ANCHOR_ERROR_MESSAGE);
+    Path.Path.pipe(
+      Effect.tap((path) => {
+        const runtimeDir = path.resolve(FIRST_RUNTIME_DIR);
+        const install = stubInstall(path.resolve("cache/nanoclaw"));
+        const plan = buildNanoclawEvalProvisionPlan(
+          stubStartOptions(undefined, true),
+          runtimeDir,
+          install,
+          TEST_BASE_CHILD_ENVIRONMENT,
+        );
+
+        expect(plan.command).toBe(NODE_COMMAND);
+        expect(plan.args).toEqual([
+          path.join(install.cacheDir, EVAL_PROVISION_ENTRYPOINT),
+          NANOCLAW_EVAL_AGENT_GROUP_ID,
+          TEST_AGENT_NAME,
+          NANOCLAW_EVAL_AGENT_GROUP_ID,
+        ]);
+        expect(plan.cwd).toBe(runtimeDir);
+        expect(Object.keys(plan.env).sort()).toEqual(
+          [...EXPECTED_CHILD_ENV_KEYS].sort(),
+        );
       }),
       Effect.asVoid,
+      Effect.provide(NodeContext.layer),
     ),
   );
 }
@@ -254,10 +297,10 @@ function stubStartOptions(
   autoRegisterConversations = false,
 ) {
   return {
-    agentName: "nanoclaw-agent",
+    agentName: TEST_AGENT_NAME,
     agentId: agentId(id),
     apiKey: redactedAgentKey(agentKeyString(91)),
-    serverUrl: "ws://localhost:9999/ws",
+    serverUrl: ServerUrl("ws://localhost:9999/ws"),
     autoRegisterConversations,
   };
 }

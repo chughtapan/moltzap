@@ -1,21 +1,40 @@
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Data, Duration, Effect, Option } from "effect";
+import { Data, Duration, Effect, Ref } from "effect";
 import { makeCommandHelpers } from "./child-process.js";
+import {
+  cacheFingerprint,
+  CACHE_BUILD_PERMIT,
+  makeImmutableCache,
+  MOLTZAP_TESTBED_CACHE_ROOT,
+} from "./immutable-cache.js";
+import { findWorkspacePackagesDir, type InstallMode } from "./install-mode.js";
+import { makeJsonGuards } from "./json-guards.js";
 
-const NANOCLAW_SHA = "934f063aff5c30e7b49ce58b53b41901d3472a3e";
+const NANOCLAW_SHA = "641963c1e4b7ba4f000a18dfc5e2fea29069feec";
 const NANOCLAW_URL =
-  "https://github.com/qwibitai/nanoclaw/archive/" + NANOCLAW_SHA + ".tar.gz";
-const NANOCLAW_CACHE_SCHEMA_VERSION = 3;
+  "https://github.com/nanocoai/nanoclaw/archive/" + NANOCLAW_SHA + ".tar.gz";
+const NANOCLAW_CACHE_SCHEMA_VERSION = 5;
 const NANOCLAW_IMAGE_REPOSITORY = "nanoclaw-agent";
 const NANOCLAW_IMAGE_TAG_PREFIX = "moltzap";
-const BUILDING_CACHE_PREFIX = ".building-";
-const CACHE_GENERATION_PREFIX = "generation-";
-const INSTALL_PERMIT = Effect.runSync(Effect.makeSemaphore(1));
+const CLIENT_PACKAGE_NAME = "@moltzap/client";
+const PROTOCOL_PACKAGE_NAME = "@moltzap/protocol";
+const WORKSPACE_VENDOR_DIRECTORY = "vendor";
+const WORKSPACE_DIST_ENTRY = join("dist", "index.js");
+const WORKSPACE_PACK_TIMEOUT_MS = 120_000;
+const WORKSPACE_LOCK_TIMEOUT_MS = 120_000;
+const TARBALL_EXTENSION = ".tgz";
+const SHA512_INTEGRITY_PREFIX = "sha512-";
+const JSON_INDENT_SPACES = 2;
+const REGISTRY_MOLTZAP_PATTERN = /registry\.npmjs\.org\/@moltzap(?:\/|%2f)/i;
+
+// A verified install is process-invariant for one mode and fingerprint, so
+// matching spawns skip docker/filesystem re-verification.
+// Only success is cached — a failed attempt retries fresh.
+const WARM_INSTALL = Effect.runSync(Ref.make<WarmNanoclawInstall | null>(null));
 
 export interface NanoclawRuntimeInstall {
   readonly cacheDir: string;
@@ -23,9 +42,63 @@ export interface NanoclawRuntimeInstall {
   readonly containerImage: string;
 }
 
-interface NanoclawCacheTarget {
+interface BaseNanoclawCacheTarget {
   readonly cacheRoot: string;
   readonly cacheFingerprint: string;
+}
+
+interface PublishedNanoclawCacheTarget extends BaseNanoclawCacheTarget {
+  readonly installMode: "published";
+}
+
+interface WorkspaceNanoclawCacheTarget extends BaseNanoclawCacheTarget {
+  readonly installMode: "workspace";
+  readonly workspaceDependencies: NanoclawWorkspaceDependencies;
+}
+
+type NanoclawCacheTarget =
+  | PublishedNanoclawCacheTarget
+  | WorkspaceNanoclawCacheTarget;
+
+interface WarmNanoclawInstall {
+  readonly installMode: InstallMode;
+  readonly install: NanoclawRuntimeInstall;
+}
+
+interface NanoclawFingerprintInput {
+  readonly channelHash: string;
+  readonly evalProvisionHash: string;
+  readonly skillHash: string;
+  readonly packageJsonHash: string;
+  readonly packageLockHash: string;
+  readonly platform: string;
+  readonly architecture: string;
+  readonly nodeAbi: string;
+}
+
+export interface NanoclawWorkspaceTarball {
+  readonly packageName: string;
+  readonly version: string;
+  readonly tarballPath: string;
+  readonly tarballFileName: string;
+  readonly sha256: string;
+  readonly integrity: string;
+}
+
+export interface NanoclawWorkspaceDependencies {
+  readonly client: NanoclawWorkspaceTarball;
+  readonly protocol: NanoclawWorkspaceTarball;
+}
+
+interface WorkspacePackageManifest {
+  readonly name: string;
+  readonly version: string;
+  readonly dependencies: Readonly<Record<string, unknown>>;
+}
+
+interface PreparedWorkspaceTarball {
+  readonly manifest: WorkspacePackageManifest;
+  readonly tarball: NanoclawWorkspaceTarball;
 }
 
 class NanoclawInstallError extends Data.TaggedError("NanoclawInstallError")<{
@@ -44,10 +117,19 @@ function installError(reason: string, cause?: unknown) {
   });
 }
 
-const { execEffect, fsEffect } = makeCommandHelpers(installError);
+const { commandOutputEffect, execEffect, fsEffect } =
+  makeCommandHelpers(installError);
+const { requireExactValue, requireRecord, requireSoleEntry, requireString } =
+  makeJsonGuards(installError);
 
 function sha256Hex(data: string | Uint8Array): string {
   return createHash("sha256").update(data).digest("hex");
+}
+
+function sha512Integrity(data: Uint8Array): string {
+  return (
+    SHA512_INTEGRITY_PREFIX + createHash("sha512").update(data).digest("base64")
+  );
 }
 
 function sha256OfFile(filePath: string) {
@@ -70,48 +152,379 @@ function bundledAssetPath(assetName: string): string {
   );
 }
 
-// Bundled assets and host ABI are process-constant, so the fingerprint is
-// computed once and reused by every spawn.
-const cachedCacheTarget = Effect.runSync(
+// Bundled assets and host ABI are process-constant, while workspace package
+// tarballs are rebuilt before lookup so their exact bytes can extend this
+// stable fingerprint input.
+const cachedFingerprintInput = Effect.runSync(
   Effect.cached(
     Effect.gen(function* () {
-      const [channelHash, skillHash, packageJsonHash, packageLockHash] =
-        yield* Effect.all(
-          [
-            sha256OfFile(bundledAssetPath("moltzap.ts")),
-            sha256OfFile(bundledAssetPath("SKILL.md")),
-            sha256OfFile(bundledAssetPath("package.json")),
-            sha256OfFile(bundledAssetPath("package-lock.json")),
-          ],
-          { concurrency: 4 },
-        );
-      const cacheFingerprint = sha256Hex(
-        JSON.stringify({
-          cacheSchema: NANOCLAW_CACHE_SCHEMA_VERSION,
-          nanoclawSha: NANOCLAW_SHA,
-          channelHash,
-          skillHash,
-          packageJsonHash,
-          packageLockHash,
-          platform: process.platform,
-          architecture: process.arch,
-          nodeAbi: process.versions.modules,
-        }),
+      const [
+        channelHash,
+        evalProvisionHash,
+        skillHash,
+        packageJsonHash,
+        packageLockHash,
+      ] = yield* Effect.all(
+        [
+          sha256OfFile(bundledAssetPath("moltzap.ts")),
+          sha256OfFile(bundledAssetPath("moltzap-eval-provision.ts")),
+          sha256OfFile(bundledAssetPath("SKILL.md")),
+          sha256OfFile(bundledAssetPath("package.json")),
+          sha256OfFile(bundledAssetPath("package-lock.json")),
+        ],
+        { concurrency: 5 },
       );
       return {
-        cacheRoot: join(
-          homedir(),
-          ".cache/moltzap-testbed/nanoclaw",
-          cacheFingerprint,
-        ),
-        cacheFingerprint,
-      };
+        channelHash,
+        evalProvisionHash,
+        skillHash,
+        packageJsonHash,
+        packageLockHash,
+        platform: process.platform,
+        architecture: process.arch,
+        nodeAbi: process.versions.modules,
+      } satisfies NanoclawFingerprintInput;
     }),
   ),
 );
 
-function resolveCacheTarget() {
-  return cachedCacheTarget;
+/** @internal */
+export function nanoclawCacheFingerprint(
+  input: NanoclawFingerprintInput,
+  workspaceHashes?: {
+    readonly clientTarballHash: string;
+    readonly protocolTarballHash: string;
+  },
+): string {
+  return cacheFingerprint(NANOCLAW_CACHE_SCHEMA_VERSION, {
+    nanoclawSha: NANOCLAW_SHA,
+    channelHash: input.channelHash,
+    evalProvisionHash: input.evalProvisionHash,
+    skillHash: input.skillHash,
+    packageJsonHash: input.packageJsonHash,
+    packageLockHash: input.packageLockHash,
+    platform: input.platform,
+    architecture: input.architecture,
+    nodeAbi: input.nodeAbi,
+    ...(workspaceHashes === undefined ? {} : workspaceHashes),
+  });
+}
+
+function nanoclawCacheRoot(cacheFingerprint: string): string {
+  return join(MOLTZAP_TESTBED_CACHE_ROOT, "nanoclaw", cacheFingerprint);
+}
+
+function resolvePublishedCacheTarget() {
+  return cachedFingerprintInput.pipe(
+    Effect.map((input) => {
+      const fingerprint = nanoclawCacheFingerprint(input);
+      return {
+        installMode: "published",
+        cacheRoot: nanoclawCacheRoot(fingerprint),
+        cacheFingerprint: fingerprint,
+      } satisfies PublishedNanoclawCacheTarget;
+    }),
+  );
+}
+
+function resolveWorkspaceCacheTarget() {
+  return Effect.gen(function* () {
+    const input = yield* cachedFingerprintInput;
+    const workspaceDependencies = yield* cachedWorkspaceDependencies;
+    const fingerprint = nanoclawCacheFingerprint(input, {
+      clientTarballHash: workspaceDependencies.client.sha256,
+      protocolTarballHash: workspaceDependencies.protocol.sha256,
+    });
+    return {
+      installMode: "workspace",
+      cacheRoot: nanoclawCacheRoot(fingerprint),
+      cacheFingerprint: fingerprint,
+      workspaceDependencies,
+    } satisfies WorkspaceNanoclawCacheTarget;
+  });
+}
+
+function resolveCacheTarget(installMode: InstallMode) {
+  return installMode === "published"
+    ? resolvePublishedCacheTarget()
+    : resolveWorkspaceCacheTarget();
+}
+
+function prepareNanoclawWorkspaceDependencies() {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const packagesDir = findWorkspacePackagesDir(import.meta.url);
+    if (packagesDir === null) {
+      return yield* Effect.fail(
+        installError(
+          "Workspace install mode requires a MoltZap source checkout with packages/client and packages/protocol",
+        ),
+      );
+    }
+    // The pack directory outlives the request that creates it: its tarballs
+    // back the fingerprint every later spawn compares against, and a cold
+    // build vendors those exact bytes in.
+    const packRoot = yield* fsEffect(
+      "create temporary NanoClaw workspace pack directory",
+      fileSystem.makeTempDirectory({
+        prefix: "moltzap-nanoclaw-workspace-",
+      }),
+    );
+    const [client, protocol] = yield* Effect.all(
+      [
+        packWorkspacePackage(
+          join(packagesDir, "client"),
+          CLIENT_PACKAGE_NAME,
+          packRoot,
+        ),
+        packWorkspacePackage(
+          join(packagesDir, "protocol"),
+          PROTOCOL_PACKAGE_NAME,
+          packRoot,
+        ),
+      ],
+      { concurrency: 2 },
+    );
+    yield* assertPackedWorkspaceVersions({
+      clientManifest: client.manifest,
+      protocolManifest: protocol.manifest,
+      clientVersion: client.tarball.version,
+      protocolVersion: protocol.tarball.version,
+    });
+    return {
+      client: client.tarball,
+      protocol: protocol.tarball,
+    } satisfies NanoclawWorkspaceDependencies;
+  });
+}
+
+// Packing runs `pnpm pack` twice and hashes both tarballs before any warm
+// install can be recognized. The workspace build backing it cannot change
+// under a running testbed, so one preparation answers for every spawn.
+const cachedWorkspaceDependencies = Effect.runSync(
+  Effect.cached(prepareNanoclawWorkspaceDependencies()),
+);
+
+function packWorkspacePackage(
+  packageDir: string,
+  packageName: string,
+  packRoot: string,
+) {
+  return Effect.gen(function* () {
+    const sourceManifest = yield* readWorkspacePackageManifest(
+      join(packageDir, "package.json"),
+      packageName,
+    );
+    yield* requireBuiltWorkspacePackage(packageDir, packageName);
+    const tarballPath = yield* createWorkspaceTarball(
+      packageDir,
+      packageName,
+      packRoot,
+    );
+    const manifest = yield* readPackedWorkspaceManifest(
+      tarballPath,
+      packageName,
+    );
+    if (manifest.version !== sourceManifest.version) {
+      return yield* Effect.fail(
+        installError(
+          `Packed ${packageName} version ${manifest.version} does not match workspace version ${sourceManifest.version}`,
+        ),
+      );
+    }
+    const fileSystem = yield* FileSystem.FileSystem;
+    const bytes = yield* fsEffect(
+      `read packed workspace dependency ${tarballPath}`,
+      fileSystem.readFile(tarballPath),
+    );
+    return {
+      manifest,
+      tarball: {
+        packageName,
+        version: manifest.version,
+        tarballPath,
+        tarballFileName: basename(tarballPath),
+        sha256: sha256Hex(bytes),
+        integrity: sha512Integrity(bytes),
+      },
+    } satisfies PreparedWorkspaceTarball;
+  });
+}
+
+function requireBuiltWorkspacePackage(packageDir: string, packageName: string) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const distEntry = join(packageDir, WORKSPACE_DIST_ENTRY);
+    const exists = yield* fsEffect(
+      `check built workspace dependency ${distEntry}`,
+      fileSystem.exists(distEntry),
+    );
+    if (!exists) {
+      return yield* Effect.fail(
+        installError(
+          `Build ${packageName} before using NanoClaw workspace install mode; expected ${distEntry}`,
+        ),
+      );
+    }
+  });
+}
+
+function createWorkspaceTarball(
+  packageDir: string,
+  packageName: string,
+  packRoot: string,
+) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const outputDir = join(packRoot, basename(packageDir));
+    yield* fsEffect(
+      `create ${packageName} pack output directory`,
+      fileSystem.makeDirectory(outputDir, { recursive: true }),
+    );
+    const command = Command.make(
+      "pnpm",
+      "pack",
+      "--pack-destination",
+      outputDir,
+    ).pipe(Command.workingDirectory(packageDir));
+    yield* commandOutputEffect(
+      `pack workspace package ${packageName}`,
+      command,
+      {
+        timeout: WORKSPACE_PACK_TIMEOUT_MS,
+      },
+    );
+    const entries = (yield* fsEffect(
+      `list packed workspace package ${packageName}`,
+      fileSystem.readDirectory(outputDir),
+    )).filter((entry) => entry.endsWith(TARBALL_EXTENSION));
+    const entry = yield* requireSoleEntry(
+      entries,
+      `packed tarball for ${packageName}`,
+    );
+    return join(outputDir, entry);
+  });
+}
+
+function readPackedWorkspaceManifest(tarballPath: string, packageName: string) {
+  return commandOutputEffect(
+    `read packed ${packageName} manifest`,
+    Command.make("tar", "-xOf", tarballPath, "package/package.json"),
+    { timeout: WORKSPACE_PACK_TIMEOUT_MS },
+  ).pipe(
+    Effect.flatMap((output) =>
+      decodeWorkspacePackageManifest(output.stdout, packageName),
+    ),
+  );
+}
+
+function readWorkspacePackageManifest(
+  manifestPath: string,
+  packageName: string,
+) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fsEffect(
+        `read workspace package manifest ${manifestPath}`,
+        fileSystem.readFileString(manifestPath, "utf8"),
+      ),
+    ),
+    Effect.flatMap((contents) =>
+      decodeWorkspacePackageManifest(contents, packageName),
+    ),
+  );
+}
+
+function decodeWorkspacePackageManifest(contents: string, packageName: string) {
+  return Effect.try({
+    try: () => {
+      const value: unknown = JSON.parse(contents);
+      const manifest = requireRecord(value, `${packageName} package.json`);
+      const name = requireString(manifest.name, `${packageName} name`);
+      const version = requireString(manifest.version, `${packageName} version`);
+      if (name !== packageName) {
+        throw installError(
+          `Expected packed workspace package ${packageName}; found ${name}`,
+        );
+      }
+      return {
+        name,
+        version,
+        dependencies: optionalRecord(
+          manifest.dependencies,
+          `${packageName} dependencies`,
+        ),
+      } satisfies WorkspacePackageManifest;
+    },
+    catch: (cause) =>
+      cause instanceof NanoclawInstallError
+        ? cause
+        : installError(`Unable to decode ${packageName} package.json`, cause),
+  });
+}
+
+/** @internal */
+export function assertPackedWorkspaceVersions(input: {
+  readonly clientManifest: WorkspacePackageManifest;
+  readonly protocolManifest: WorkspacePackageManifest;
+  readonly clientVersion: string;
+  readonly protocolVersion: string;
+}) {
+  return Effect.try({
+    try: () => {
+      requireExactValue(
+        input.clientManifest.name,
+        CLIENT_PACKAGE_NAME,
+        "packed client name",
+      );
+      requireExactValue(
+        input.protocolManifest.name,
+        PROTOCOL_PACKAGE_NAME,
+        "packed protocol name",
+      );
+      requireExactValue(
+        input.clientManifest.version,
+        input.clientVersion,
+        "packed client version",
+      );
+      requireExactValue(
+        input.protocolManifest.version,
+        input.protocolVersion,
+        "packed protocol version",
+      );
+      requireExactValue(
+        input.clientManifest.dependencies[PROTOCOL_PACKAGE_NAME],
+        input.protocolManifest.version,
+        "packed client protocol dependency",
+      );
+    },
+    catch: (cause) =>
+      cause instanceof NanoclawInstallError
+        ? cause
+        : installError(
+            "Unable to validate packed NanoClaw workspace versions",
+            cause,
+          ),
+  });
+}
+
+/**
+ * Resolves a ready generation without building so integration probes can
+ * guarantee they exercise the warm install path.
+ * @internal
+ */
+export function findWarmNanoclawRuntimeInstallEffect(installMode: InstallMode) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const target = yield* resolveCacheTarget(installMode);
+      const generationDir = yield* nanoclawInstallCache(
+        target.cacheRoot,
+      ).findCacheGeneration(target.cacheFingerprint);
+      return generationDir === null
+        ? null
+        : runtimeInstall(generationDir, target.cacheFingerprint);
+    }),
+  ).pipe(Effect.withSpan("findWarmNanoclawRuntimeInstallEffect"));
 }
 
 function runtimeInstall(
@@ -130,94 +543,13 @@ function containerImageTag(cacheFingerprint: string): string {
   return NANOCLAW_IMAGE_TAG_PREFIX + "-" + cacheFingerprint;
 }
 
-function readyMarkerPath(cacheDir: string): string {
-  return join(cacheDir, ".ready");
-}
-
-function readReadyFingerprint(readyMarker: string) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const exists = yield* fsEffect(
-      "check nanoclaw ready marker " + readyMarker,
-      fileSystem.exists(readyMarker),
-    );
-    if (!exists) return null;
-    return yield* fileSystem
-      .readFileString(readyMarker, "utf8")
-      .pipe(
-        Effect.catchAll((cause) =>
-          Effect.logDebug(
-            "ignoring unreadable NanoClaw ready marker",
-            cause,
-          ).pipe(Effect.as(null)),
-        ),
-      );
-  });
-}
-
-function createBuildingCache(cacheRoot: string) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    yield* fsEffect(
-      "create nanoclaw cache root " + cacheRoot,
-      fileSystem.makeDirectory(cacheRoot, { recursive: true }),
-    );
-    return yield* fsEffect(
-      "create unique nanoclaw building cache",
-      fileSystem.makeTempDirectory({
-        directory: cacheRoot,
-        prefix: BUILDING_CACHE_PREFIX,
-      }),
-    );
-  });
-}
-
-function removeBuildingCacheBestEffort(buildingDir: string) {
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) =>
-      fileSystem.remove(buildingDir, { recursive: true, force: true }),
-    ),
-    Effect.catchAll((cause) =>
-      Effect.logWarning("failed to remove NanoClaw building cache", cause),
-    ),
-  );
-}
-
-// Building dirs from hard-killed installers (SIGKILL skips the ensuring
-// cleanup) would otherwise accumulate full checkouts forever. The age gate
-// keeps the sweep from deleting a concurrent process's in-progress build.
-const STALE_BUILDING_CACHE_MAX_AGE_MS = 86_400_000;
-
-/** @internal */
-export function sweepStaleBuildingCaches(
-  cacheRoot: string,
-  maxAgeMs: number = STALE_BUILDING_CACHE_MAX_AGE_MS,
-) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const exists = yield* fileSystem.exists(cacheRoot);
-    if (!exists) return;
-    const entries = yield* fileSystem.readDirectory(cacheRoot);
-    const cutoff = Date.now() - maxAgeMs;
-    const buildingDirs = entries
-      .filter((entry) => entry.startsWith(BUILDING_CACHE_PREFIX))
-      .map((entry) => join(cacheRoot, entry));
-    for (const buildingDir of buildingDirs) {
-      const info = yield* fileSystem.stat(buildingDir);
-      const mtime = Option.getOrNull(info.mtime);
-      if (mtime !== null && mtime.getTime() <= cutoff) {
-        yield* fileSystem.remove(buildingDir, { recursive: true, force: true });
-      }
-    }
-  }).pipe(
-    Effect.catchAll((cause) =>
-      Effect.logWarning(
-        "failed to sweep stale NanoClaw building caches",
-        cause,
-      ),
-    ),
-    Effect.withSpan("sweepStaleBuildingCaches"),
-  );
+/**
+ * Binds the immutable cache lifecycle to this installer's error channel for
+ * one cache root.
+ * @internal
+ */
+export function nanoclawInstallCache(cacheRoot: string) {
+  return makeImmutableCache(cacheRoot, installError);
 }
 
 function ensureBundledAssetExists(assetPath: string) {
@@ -258,6 +590,10 @@ function injectBundledAssets(tmpDir: string) {
       "moltzap.ts",
       join(tmpDir, "src/channels/moltzap.ts"),
     );
+    yield* copyBundledAsset(
+      "moltzap-eval-provision.ts",
+      join(tmpDir, "src/moltzap-eval-provision.ts"),
+    );
 
     const barrelPath = join(tmpDir, "src/channels/index.ts");
     const barrel = yield* fsEffect(
@@ -280,6 +616,11 @@ function injectBundledAssets(tmpDir: string) {
       fileSystem.makeDirectory(skillDir, { recursive: true }),
     );
     yield* copyBundledAsset("SKILL.md", join(skillDir, "SKILL.md"));
+    // The bundled manifest mirrors upstream's with two deliberate
+    // divergences: @moltzap/{client,protocol} are added for the channel,
+    // and better-sqlite3 rides the v12 line because upstream's exact 11.x
+    // pin has no prebuilds for current host Node and its source no longer
+    // compiles against modern V8.
     yield* copyBundledAsset("package.json", join(tmpDir, "package.json"));
     yield* copyBundledAsset(
       "package-lock.json",
@@ -288,114 +629,233 @@ function injectBundledAssets(tmpDir: string) {
   });
 }
 
-function replacePinnedSource(
-  source: string,
-  expected: string,
-  replacement: string,
-  fileName: string,
-) {
-  const index = source.indexOf(expected);
-  if (index < 0 || index !== source.lastIndexOf(expected)) {
-    return Effect.fail(
-      installError(
-        "Pinned NanoClaw " +
-          fileName +
-          " no longer matches its isolation patch anchor",
-      ),
-    );
-  }
-  return Effect.succeed(
-    source.slice(0, index) +
-      replacement +
-      source.slice(index + expected.length),
+function workspaceTarballSpec(tarball: NanoclawWorkspaceTarball): string {
+  return (
+    "file:" + posix.join(WORKSPACE_VENDOR_DIRECTORY, tarball.tarballFileName)
   );
 }
 
-export function patchNanoclawContainerIsolationSources(
-  containerRuntimeSource: string,
-  containerRunnerSource: string,
+function copyWorkspaceDependencyTarballs(
+  stagingDir: string,
+  dependencies: NanoclawWorkspaceDependencies,
 ) {
   return Effect.gen(function* () {
-    const runtimeWithNamespace = yield* replacePinnedSource(
-      containerRuntimeSource,
-      "export const CONTAINER_RUNTIME_BIN = 'docker';",
-      [
-        "export const CONTAINER_RUNTIME_BIN = 'docker';",
-        "",
-        "const containerNamespace = (",
-        "  process.env.NANOCLAW_RUNTIME_NAMESPACE || 'default'",
-        ").replace(/[^a-zA-Z0-9_.-]/g, '-');",
-        "export const CONTAINER_NAME_PREFIX =",
-        "  'nanoclaw-' + containerNamespace + '-';",
-      ].join("\n"),
-      "src/container-runtime.ts",
-    );
-    // The "$" + "{...}" concatenations below emit literal template-placeholder
-    // text into the patched NanoClaw sources; writing "${...}" directly here
-    // would trip no-template-curly-in-string and read as an intended
-    // interpolation of this file.
-    const patchedRuntime = yield* replacePinnedSource(
-      runtimeWithNamespace,
-      "name=nanoclaw-",
-      "name=" + "$" + "{CONTAINER_NAME_PREFIX}",
-      "src/container-runtime.ts",
-    );
-    const runnerWithImport = yield* replacePinnedSource(
-      containerRunnerSource,
-      "  CONTAINER_RUNTIME_BIN,\n  hostGatewayArgs,",
-      "  CONTAINER_NAME_PREFIX,\n  CONTAINER_RUNTIME_BIN,\n  hostGatewayArgs,",
-      "src/container-runner.ts",
-    );
-    const patchedRunner = yield* replacePinnedSource(
-      runnerWithImport,
-      "nanoclaw-" + "$" + "{safeName}-",
-      "$" + "{CONTAINER_NAME_PREFIX}" + "$" + "{safeName}-",
-      "src/container-runner.ts",
-    );
-    return {
-      containerRuntimeSource: patchedRuntime,
-      containerRunnerSource: patchedRunner,
-    };
-  }).pipe(Effect.withSpan("patchNanoclawContainerIsolationSources"));
-}
-
-function patchContainerIsolation(tmpDir: string) {
-  return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const containerRuntimePath = join(tmpDir, "src/container-runtime.ts");
-    const containerRunnerPath = join(tmpDir, "src/container-runner.ts");
-    const [containerRuntimeSource, containerRunnerSource] = yield* Effect.all(
-      [
-        fsEffect(
-          "read pinned NanoClaw source " + containerRuntimePath,
-          fileSystem.readFileString(containerRuntimePath, "utf8"),
-        ),
-        fsEffect(
-          "read pinned NanoClaw source " + containerRunnerPath,
-          fileSystem.readFileString(containerRunnerPath, "utf8"),
-        ),
-      ],
-      { concurrency: 2 },
-    );
-    const patched = yield* patchNanoclawContainerIsolationSources(
-      containerRuntimeSource,
-      containerRunnerSource,
-    );
+    const vendorDir = join(stagingDir, WORKSPACE_VENDOR_DIRECTORY);
     yield* fsEffect(
-      "patch NanoClaw container isolation " + containerRuntimePath,
-      fileSystem.writeFileString(
-        containerRuntimePath,
-        patched.containerRuntimeSource,
-      ),
+      "create NanoClaw workspace vendor directory",
+      fileSystem.makeDirectory(vendorDir, { recursive: true }),
     );
-    yield* fsEffect(
-      "patch NanoClaw container isolation " + containerRunnerPath,
-      fileSystem.writeFileString(
-        containerRunnerPath,
-        patched.containerRunnerSource,
-      ),
+    yield* Effect.forEach(
+      [dependencies.client, dependencies.protocol],
+      (tarball) =>
+        fsEffect(
+          `copy ${tarball.packageName} workspace tarball`,
+          fileSystem.copyFile(
+            tarball.tarballPath,
+            join(vendorDir, tarball.tarballFileName),
+          ),
+        ),
+      { concurrency: 2, discard: true },
     );
   });
+}
+
+/** @internal */
+export function rewriteNanoclawWorkspaceManifest(
+  stagingDir: string,
+  dependencies: NanoclawWorkspaceDependencies,
+) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const manifestPath = join(stagingDir, "package.json");
+    const manifestText = yield* fsEffect(
+      "read staged NanoClaw package.json",
+      fileSystem.readFileString(manifestPath, "utf8"),
+    );
+    const rewrittenText = yield* Effect.try({
+      try: () => rewriteWorkspaceManifestText(manifestText, dependencies),
+      catch: (cause) =>
+        cause instanceof NanoclawInstallError
+          ? cause
+          : installError(
+              "Unable to rewrite staged NanoClaw package.json",
+              cause,
+            ),
+    });
+    yield* fsEffect(
+      "write staged NanoClaw workspace package.json",
+      fileSystem.writeFileString(manifestPath, rewrittenText),
+    );
+  }).pipe(Effect.withSpan("rewriteNanoclawWorkspaceManifest"));
+}
+
+function rewriteWorkspaceManifestText(
+  manifestText: string,
+  dependencies: NanoclawWorkspaceDependencies,
+): string {
+  const parsed: unknown = JSON.parse(manifestText);
+  const manifest = requireRecord(parsed, "staged NanoClaw package.json");
+  const manifestDependencies = requireRecord(
+    manifest.dependencies,
+    "staged NanoClaw dependencies",
+  );
+  const rewritten = {
+    ...manifest,
+    dependencies: {
+      ...manifestDependencies,
+      [CLIENT_PACKAGE_NAME]: workspaceTarballSpec(dependencies.client),
+      [PROTOCOL_PACKAGE_NAME]: workspaceTarballSpec(dependencies.protocol),
+    },
+  };
+  return JSON.stringify(rewritten, null, JSON_INDENT_SPACES) + "\n";
+}
+
+/** @internal */
+export function materializeNanoclawWorkspaceDependencies(
+  stagingDir: string,
+  dependencies: NanoclawWorkspaceDependencies,
+) {
+  return Effect.gen(function* () {
+    yield* copyWorkspaceDependencyTarballs(stagingDir, dependencies);
+    yield* rewriteNanoclawWorkspaceManifest(stagingDir, dependencies);
+    yield* execEffect(
+      "HUSKY=0 npm install --package-lock-only --ignore-scripts",
+      {
+        cwd: stagingDir,
+        timeout: WORKSPACE_LOCK_TIMEOUT_MS,
+      },
+    );
+    yield* assertNanoclawWorkspaceLock(stagingDir, dependencies);
+  }).pipe(Effect.withSpan("materializeNanoclawWorkspaceDependencies"));
+}
+
+/** @internal */
+export function assertNanoclawWorkspaceLock(
+  stagingDir: string,
+  dependencies: NanoclawWorkspaceDependencies,
+) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fsEffect(
+        "read staged NanoClaw workspace package-lock.json",
+        fileSystem.readFileString(
+          join(stagingDir, "package-lock.json"),
+          "utf8",
+        ),
+      ),
+    ),
+    Effect.flatMap((lockText) =>
+      Effect.try({
+        try: () => validateNanoclawWorkspaceLock(lockText, dependencies),
+        catch: (cause) =>
+          cause instanceof NanoclawInstallError
+            ? cause
+            : installError(
+                "Unable to validate staged NanoClaw workspace package-lock.json",
+                cause,
+              ),
+      }),
+    ),
+    Effect.withSpan("assertNanoclawWorkspaceLock"),
+  );
+}
+
+function validateNanoclawWorkspaceLock(
+  lockText: string,
+  dependencies: NanoclawWorkspaceDependencies,
+): void {
+  if (REGISTRY_MOLTZAP_PATTERN.test(lockText)) {
+    throw installError(
+      "NanoClaw workspace lock contains a MoltZap registry artifact",
+    );
+  }
+  const parsed: unknown = JSON.parse(lockText);
+  const lock = requireRecord(parsed, "NanoClaw workspace package lock");
+  const packages = requireRecord(
+    lock.packages,
+    "NanoClaw workspace lock packages",
+  );
+  const root = requireRecord(packages[""], "NanoClaw workspace lock root");
+  const rootDependencies = requireRecord(
+    root.dependencies,
+    "NanoClaw workspace lock root dependencies",
+  );
+  requireExactValue(
+    rootDependencies[CLIENT_PACKAGE_NAME],
+    workspaceTarballSpec(dependencies.client),
+    "NanoClaw lock client dependency",
+  );
+  requireExactValue(
+    rootDependencies[PROTOCOL_PACKAGE_NAME],
+    workspaceTarballSpec(dependencies.protocol),
+    "NanoClaw lock protocol dependency",
+  );
+  requireExactMoltzapPackageKeys(packages);
+  validateWorkspaceLockEntry(packages, dependencies.client);
+  validateWorkspaceLockEntry(packages, dependencies.protocol);
+  const clientEntry = requireRecord(
+    packages[`node_modules/${CLIENT_PACKAGE_NAME}`],
+    "NanoClaw lock client entry",
+  );
+  const clientDependencies = requireRecord(
+    clientEntry.dependencies,
+    "NanoClaw lock client dependencies",
+  );
+  requireExactValue(
+    clientDependencies[PROTOCOL_PACKAGE_NAME],
+    dependencies.protocol.version,
+    "NanoClaw lock client protocol dependency",
+  );
+}
+
+function requireExactMoltzapPackageKeys(
+  packages: Readonly<Record<string, unknown>>,
+): void {
+  const actual = Object.keys(packages)
+    .filter((location) => location.includes("node_modules/@moltzap/"))
+    .sort();
+  const expected = [
+    `node_modules/${CLIENT_PACKAGE_NAME}`,
+    `node_modules/${PROTOCOL_PACKAGE_NAME}`,
+  ].sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some((location, index) => location !== expected[index])
+  ) {
+    throw installError(
+      `Expected only direct MoltZap workspace lock entries; found ${actual.join(", ") || "none"}`,
+    );
+  }
+}
+
+function validateWorkspaceLockEntry(
+  packages: Readonly<Record<string, unknown>>,
+  tarball: NanoclawWorkspaceTarball,
+): void {
+  const location = `node_modules/${tarball.packageName}`;
+  const entry = requireRecord(
+    packages[location],
+    `NanoClaw lock entry ${location}`,
+  );
+  requireExactValue(entry.version, tarball.version, `${location} version`);
+  requireExactValue(
+    entry.resolved,
+    workspaceTarballSpec(tarball),
+    `${location} resolved`,
+  );
+  requireExactValue(
+    entry.integrity,
+    tarball.integrity,
+    `${location} integrity`,
+  );
+}
+
+function optionalRecord(
+  value: unknown,
+  label: string,
+): Readonly<Record<string, unknown>> {
+  return value === undefined ? {} : requireRecord(value, label);
 }
 
 function downloadPinnedSource(destDir: string) {
@@ -461,15 +921,16 @@ function dockerImageExists(containerImage: string) {
   );
 }
 
-function buildContainerImage(
-  sourceDir: string,
-  install: NanoclawRuntimeInstall,
-) {
+function buildContainerImage(install: NanoclawRuntimeInstall) {
+  // Upstream's container/build.sh derives the image name from its own
+  // checkout path; the testbed owns naming (one fingerprint-tagged image
+  // shared by every per-agent runtime dir, selected via the CONTAINER_IMAGE
+  // env override), so it drives `docker build` directly. A cold build pulls
+  // the base image and apt/CLI layers — multi-minute single-layer steps the
+  // hang guard must not trip on.
   return execEffect(
-    'bash container/build.sh "' +
-      containerImageTag(install.cacheFingerprint) +
-      '"',
-    { cwd: sourceDir, timeout: 300_000 },
+    'docker build -t "' + install.containerImage + '" container',
+    { cwd: install.cacheDir, timeout: 900_000 },
   );
 }
 
@@ -490,98 +951,50 @@ function requireContainerImage(containerImage: string) {
 function ensureContainerImage(install: NanoclawRuntimeInstall) {
   return Effect.gen(function* () {
     if (yield* dockerImageExists(install.containerImage)) return;
-    yield* buildContainerImage(install.cacheDir, install);
+    yield* buildContainerImage(install);
     yield* requireContainerImage(install.containerImage);
   });
 }
 
-function buildRuntime(tmpDir: string, install: NanoclawRuntimeInstall) {
-  return Effect.gen(function* () {
-    yield* execEffect("HUSKY=0 npm ci", {
-      cwd: tmpDir,
-      timeout: 300_000,
-    });
-    yield* execEffect("npm run build", { cwd: tmpDir, timeout: 120_000 });
-    yield* buildContainerImage(tmpDir, install);
-    yield* requireContainerImage(install.containerImage);
-  });
-}
-
-function writeReadyMarker(tmpDir: string, cacheFingerprint: string) {
-  const readyMarker = readyMarkerPath(tmpDir);
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) =>
-      fsEffect(
-        "write nanoclaw ready marker " + readyMarker,
-        fileSystem.writeFileString(readyMarker, cacheFingerprint),
+// The npm leg (host deps, dist, upgrade marker) and the image leg share
+// only the immutable container/ build context, so they run concurrently.
+function buildRuntime(install: NanoclawRuntimeInstall) {
+  return Effect.all(
+    [
+      execEffect("HUSKY=0 npm ci", {
+        cwd: install.cacheDir,
+        timeout: 300_000,
+      }).pipe(
+        Effect.andThen(
+          execEffect("npm run build", {
+            cwd: install.cacheDir,
+            timeout: 120_000,
+          }),
+        ),
+        Effect.andThen(stampUpgradeMarker(install.cacheDir)),
       ),
-    ),
+      buildContainerImage(install).pipe(
+        Effect.andThen(requireContainerImage(install.containerImage)),
+      ),
+    ],
+    { concurrency: 2, discard: true },
   );
 }
 
-/**
- * Finds an immutable generation whose ready marker matches the full cache
- * fingerprint. Partial builds and corrupt generations are never selected.
- * @internal
- */
-export function findNanoclawCacheGeneration(
-  cacheRoot: string,
-  cacheFingerprint: string,
-) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const exists = yield* fsEffect(
-      "check nanoclaw cache root " + cacheRoot,
-      fileSystem.exists(cacheRoot),
-    );
-    if (!exists) return null;
-    const entries = yield* fsEffect(
-      "list nanoclaw cache generations " + cacheRoot,
-      fileSystem.readDirectory(cacheRoot),
-    );
-    for (const entry of entries.filter(isCacheGeneration).sort()) {
-      const generationDir = join(cacheRoot, entry);
-      const readyFingerprint = yield* readReadyFingerprint(
-        readyMarkerPath(generationDir),
-      );
-      if (readyFingerprint === cacheFingerprint) return generationDir;
-    }
-    return null;
-  }).pipe(Effect.withSpan("findNanoclawCacheGeneration"));
-}
-
-function isCacheGeneration(entry: string): boolean {
-  return entry.startsWith(CACHE_GENERATION_PREFIX);
-}
-
-/**
- * Publishes a completed build under a unique immutable generation name.
- * @internal
- */
-export function publishNanoclawCacheGeneration(
-  buildingDir: string,
-  cacheRoot: string,
-) {
-  const generationDir = join(
-    cacheRoot,
-    CACHE_GENERATION_PREFIX +
-      basename(buildingDir).slice(BUILDING_CACHE_PREFIX.length),
-  );
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fileSystem) =>
-      fsEffect(
-        "publish nanoclaw cache generation " + generationDir,
-        fileSystem.rename(buildingDir, generationDir),
-      ),
-    ),
-    Effect.as(generationDir),
-    Effect.withSpan("publishNanoclawCacheGeneration"),
+// NanoClaw's startup tripwire requires data/upgrade-state.json to match the
+// code version; stamping through upstream's own writer keeps the marker
+// schema tracking upstream across SHA bumps.
+function stampUpgradeMarker(sourceDir: string) {
+  return execEffect(
+    '"node_modules/.bin/tsx" scripts/upgrade-state.ts set "" moltzap-testbed',
+    { cwd: sourceDir, timeout: 60_000 },
   );
 }
 
 function buildAndPublish(target: NanoclawCacheTarget) {
+  const cache = nanoclawInstallCache(target.cacheRoot);
   return Effect.gen(function* () {
-    const buildingDir = yield* createBuildingCache(target.cacheRoot);
+    const buildingDir = yield* cache.createBuildingCache();
     return yield* Effect.gen(function* () {
       const buildingInstall = runtimeInstall(
         buildingDir,
@@ -589,32 +1002,52 @@ function buildAndPublish(target: NanoclawCacheTarget) {
       );
       yield* downloadPinnedSource(buildingDir);
       yield* injectBundledAssets(buildingDir);
-      yield* patchContainerIsolation(buildingDir);
-      yield* buildRuntime(buildingDir, buildingInstall);
-      yield* writeReadyMarker(buildingDir, target.cacheFingerprint);
-      const generationDir = yield* publishNanoclawCacheGeneration(
-        buildingDir,
-        target.cacheRoot,
-      );
+      if (target.installMode === "workspace") {
+        yield* materializeNanoclawWorkspaceDependencies(
+          buildingDir,
+          target.workspaceDependencies,
+        );
+      }
+      yield* buildRuntime(buildingInstall);
+      yield* cache.writeReadyMarker(buildingDir, target.cacheFingerprint);
+      const generationDir = yield* cache.publishCacheGeneration(buildingDir);
       return runtimeInstall(generationDir, target.cacheFingerprint);
-    }).pipe(Effect.ensuring(removeBuildingCacheBestEffort(buildingDir)));
+    }).pipe(Effect.ensuring(cache.removeBuildingCacheBestEffort(buildingDir)));
   });
 }
 
-export function ensureNanoclawRuntimeInstalledEffect() {
-  return INSTALL_PERMIT.withPermits(1)(
+export function ensureNanoclawRuntimeInstalledEffect(installMode: InstallMode) {
+  return Effect.scoped(
     Effect.gen(function* () {
-      const target = yield* resolveCacheTarget();
-      yield* sweepStaleBuildingCaches(target.cacheRoot);
-      yield* preflightDocker();
-      const generationDir = yield* findNanoclawCacheGeneration(
-        target.cacheRoot,
-        target.cacheFingerprint,
+      const target = yield* resolveCacheTarget(installMode);
+      const warm = yield* Ref.get(WARM_INSTALL);
+      if (
+        warm !== null &&
+        warm.installMode === installMode &&
+        warm.install.cacheFingerprint === target.cacheFingerprint
+      ) {
+        return warm.install;
+      }
+      const install = yield* CACHE_BUILD_PERMIT.withPermits(1)(
+        verifyOrBuildInstall(target),
       );
-      if (generationDir === null) return yield* buildAndPublish(target);
-      const install = runtimeInstall(generationDir, target.cacheFingerprint);
-      yield* ensureContainerImage(install);
+      yield* Ref.set(WARM_INSTALL, { installMode, install });
       return install;
     }),
   ).pipe(Effect.withSpan("ensureNanoclawRuntimeInstalledEffect"));
+}
+
+function verifyOrBuildInstall(target: NanoclawCacheTarget) {
+  const cache = nanoclawInstallCache(target.cacheRoot);
+  return Effect.gen(function* () {
+    yield* cache.sweepStaleBuildingCaches();
+    yield* preflightDocker();
+    const generationDir = yield* cache.findCacheGeneration(
+      target.cacheFingerprint,
+    );
+    if (generationDir === null) return yield* buildAndPublish(target);
+    const install = runtimeInstall(generationDir, target.cacheFingerprint);
+    yield* ensureContainerImage(install);
+    return install;
+  });
 }

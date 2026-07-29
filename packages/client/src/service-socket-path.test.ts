@@ -1,12 +1,24 @@
-import { describe, expect, it } from "vitest";
-import { getMoltZapAgentServiceSocketPath } from "./local-paths.js";
+import { FileSystem, Path } from "@effect/platform";
+import { NodeContext } from "@effect/platform-node";
+import { it as effectIt } from "@effect/vitest";
+import { Effect } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  getMoltZapAgentServiceSocketPath,
+  getMoltZapServiceSocketPath,
+} from "./local-paths.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
+
+const scopedIt = effectIt.scoped;
 
 const SAFE_AGENT_ID = "agent-abc_123";
 const DEFAULT_SOCKET_SEGMENT = "default";
 const SAFE_SOCKET_NAME = "service-agent-abc_123.sock";
 const DEFAULT_SOCKET_NAME = "service-default.sock";
+const DISCOVERY_SOCKET_NAME = "service.sock";
 const ETC_PASSWD_SEGMENT = "etc/passwd";
+const CONFIG_HOME_PREFIX = "moltzap-socket-config-";
+const OPERATOR_HOME_PREFIX = "moltzap-socket-operator-";
 const EXPECTED_DEFAULT_SOCKET_PATH = getMoltZapAgentServiceSocketPath(
   DEFAULT_SOCKET_SEGMENT,
 );
@@ -90,6 +102,37 @@ function rejectedSocketPathsStayInMoltzapDir() {
   }
 }
 
+function socketPathsFollowConfigHome() {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const configHome = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: CONFIG_HOME_PREFIX,
+    });
+    const operatorHome = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: OPERATOR_HOME_PREFIX,
+    });
+    vi.stubEnv("HOME", operatorHome);
+    vi.stubEnv("MOLTZAP_CONFIG_HOME", configHome);
+
+    const service = new FakeMoltZapService();
+    setOwnAgentId(service, SAFE_AGENT_ID);
+
+    expect(service.socketPath).toBe(path.join(configHome, SAFE_SOCKET_NAME));
+    expect(getMoltZapServiceSocketPath()).toBe(
+      path.join(configHome, DISCOVERY_SOCKET_NAME),
+    );
+  }).pipe(Effect.provide(NodeContext.layer));
+}
+
+beforeEach(() => {
+  vi.unstubAllEnvs();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("MoltZapService.socketPath safe ids", () => {
   it(
     "accepts safe alphanumeric agent ids verbatim",
@@ -127,7 +170,12 @@ describe("MoltZapService.socketPath fallback ids", () => {
 
 describe("MoltZapService.socketPath containment", () => {
   it(
-    "keeps the socket inside ~/.moltzap/ for every rejected id",
+    "keeps the socket inside the configured MoltZap directory",
     rejectedSocketPathsStayInMoltzapDir,
+  );
+
+  scopedIt(
+    "uses MOLTZAP_CONFIG_HOME for agent and discovery sockets",
+    socketPathsFollowConfigHome,
   );
 });

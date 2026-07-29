@@ -1,16 +1,24 @@
 import { Brand, type Effect } from "effect";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import { serverBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import type { SpawnFailed } from "./errors.js";
 
 // Branded types for Runtime inputs.
 
 export type AgentName = string & Brand.Brand<"AgentName">;
-export type ServerUrl = string & Brand.Brand<"ServerUrl">;
 const AgentNameBrand = Brand.nominal<AgentName>();
-const ServerUrlBrand = Brand.nominal<ServerUrl>();
 
 export const AgentName = (value: string): AgentName => AgentNameBrand(value);
-export const ServerUrl = (value: string): ServerUrl => ServerUrlBrand(value);
+
+/**
+ * The address an adapter hands its child process: the protocol's path-free
+ * base, under this package's long-standing name. The child's client appends
+ * the socket route itself, so a value carrying one dials `/ws/ws` and never
+ * authenticates. Accepts either form a caller is likely to hold — the base
+ * URL or the socket endpoint — and throws on any other path.
+ */
+export type ServerUrl = ServerBaseUrl;
+export const ServerUrl = serverBaseUrl;
 
 export interface WorkspaceFile {
   readonly relativePath: string;
@@ -41,13 +49,20 @@ export interface SpawnInput {
   readonly agentName: AgentName;
   readonly apiKey: AgentKey;
   readonly agentId: AgentId;
-  readonly serverUrl: ServerUrl;
+  readonly serverUrl: ServerBaseUrl;
   readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
   readonly modelId?: string;
 }
 
 export interface LogSlice {
-  /** stdout+stderr bytes starting from the requested offset. */
+  /**
+   * stdout+stderr from the requested offset. Adapters retain a bounded
+   * window (startup head + rolling tail); when the offset falls into a
+   * dropped region, the missing middle is replaced by a
+   * `[... log window elided ...]` marker, so a stale cursor can observe
+   * non-contiguous text and marker-matching consumers must poll faster
+   * than the tail window fills.
+   */
   readonly text: string;
   /** Byte offset to pass on the next call to continue reading. */
   readonly nextOffset: number;

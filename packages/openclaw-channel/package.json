@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/openclaw-channel",
-  "version": "2026.718.0",
+  "version": "2026.726.0",
   "description": "OpenClaw channel plugin for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -13,12 +13,12 @@
     "!dist/__tests__",
     "openclaw.plugin.json"
   ],
-  "main": "./dist/openclaw-entry.js",
+  "main": "./dist/index.js",
   "types": "./dist/openclaw-entry.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/openclaw-entry.d.ts",
-      "import": "./dist/openclaw-entry.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "scripts": {
@@ -44,6 +44,13 @@
           "cwd": "packages/openclaw-channel",
           "command": "eslint src *.ts --cache --max-warnings=0"
         }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/openclaw-channel",
+          "command": "safer-architecture-lsp check ."
+        }
       }
     }
   },
@@ -60,7 +67,6 @@
     "@types/node": "^25.5.0",
     "@types/pg": "^8.11.0",
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^3.23.1",
     "pg": "^8.13.0",
     "typescript": "^5.7.0",

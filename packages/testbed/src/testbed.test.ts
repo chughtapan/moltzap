@@ -1,5 +1,13 @@
-import { describe, expect, expectTypeOf, it, afterEach, vi } from "vitest";
-import { Deferred, Effect, Either, Exit, Fiber, Option } from "effect";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
+import { Cause, Deferred, Effect, Either, Exit, Fiber, Option } from "effect";
 import {
   agentId,
   agentKeyString,
@@ -15,11 +23,20 @@ import {
   type TestbedAgentSpec,
   type TestbedLaunchOptions,
 } from "./testbed.js";
-import type { ReadyOutcome, Runtime, RuntimeServerHandle } from "./runtime.js";
-import { RuntimeReadyTimedOut } from "./errors.js";
+import type {
+  ReadyOutcome,
+  Runtime,
+  RuntimeServerHandle,
+  SpawnInput,
+} from "./runtime.js";
+import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
+import { createOpenClawAdapter } from "./openclaw-adapter.js";
 
 const testbedRuntimeFactoryState = vi.hoisted(() => ({
   nextRuntime: null as null | (() => Runtime),
+}));
+const installModeMocks = vi.hoisted(() => ({
+  resolveInstallMode: vi.fn(),
 }));
 
 const READY_TAG = "Ready";
@@ -30,6 +47,8 @@ const TEST_AGENT_NAME = "test-agent";
 const TEST_API_KEY = redactedAgentKey(agentKeyString(80));
 const TEST_AGENT_ID = agentId("11111111-1111-4111-8111-111111111111");
 const TEST_SERVER_URL = "ws://localhost:9999/ws";
+const TEST_SERVER_BASE_URL = "ws://localhost:9999";
+const PATH_BEARING_SERVER_URL = "ws://localhost:9999/elsewhere";
 const ALPHA_AGENT_NAME = "alpha";
 const ALPHA_AGENT_ID = agentId("22222222-2222-4222-8222-222222222222");
 const BETA_AGENT_NAME = "beta";
@@ -38,6 +57,8 @@ const STARTUP_SIGNAL = "SIGUSR2";
 const READY_TIMEOUT_MS = 1_000;
 const LONG_READY_TIMEOUT_MS = 60_000;
 const SHORT_READY_TIMEOUT_MS = 250;
+const PUBLISHED_INSTALL_MODE = "published";
+const WORKSPACE_INSTALL_MODE = "workspace";
 
 type RuntimeStartOptionsBase = {
   readonly server: RuntimeServerHandle;
@@ -73,6 +94,16 @@ vi.mock("./openclaw-adapter.js", () => ({
   }),
 }));
 
+vi.mock("./install-mode.js", () => installModeMocks);
+
+beforeEach(() => {
+  installModeMocks.resolveInstallMode.mockReset();
+  installModeMocks.resolveInstallMode.mockImplementation((installMode) =>
+    Effect.succeed(installMode ?? WORKSPACE_INSTALL_MODE),
+  );
+  vi.mocked(createOpenClawAdapter).mockClear();
+});
+
 afterEach(() => {
   testbedRuntimeFactoryState.nextRuntime = null;
 });
@@ -104,7 +135,26 @@ describe("testbed lifecycle", () => {
   );
 });
 
+describe("testbed server URL", () => {
+  it(
+    "hands the adapter a path-free address whichever form the caller holds",
+    adapterReceivesPathFreeServerUrl,
+  );
+  it(
+    "fails the launch when the address carries any other path",
+    launchFailsOnServerUrlWithPath,
+  );
+  it(
+    "rejects every agent's address before starting the first one",
+    launchRejectsBadAddressBeforeAnySpawn,
+  );
+});
+
 describe("testbed runtime options", () => {
+  it(
+    "resolves one install mode and shares it with every adapter",
+    testbedSharesOneInstallModeAcrossAdapters,
+  );
   it("rejects adapter options from the other runtime kind", () => {
     expectTypeOf<
       RuntimeStartOptionsBase & NanoclawWithOpenClawOptions
@@ -120,6 +170,123 @@ describe("testbed runtime options", () => {
     >().not.toMatchTypeOf<TestbedLaunchOptions>();
   });
 });
+
+function adapterReceivesPathFreeServerUrl() {
+  return runTest(
+    Effect.gen(function* () {
+      for (const held of [
+        TEST_SERVER_URL,
+        `${TEST_SERVER_URL}/`,
+        TEST_SERVER_BASE_URL,
+      ]) {
+        const mock = yield* createMockRuntime({
+          readyEffect: Effect.succeed({ _tag: READY_TAG }),
+        });
+        setMockTestbedRuntimes(mock.runtime);
+
+        yield* startRuntimeAgent({
+          kind: OPENCLAW_KIND,
+          server: stubServer(),
+          agent: stubTestbedAgentSpec({ serverUrl: held }),
+          readyTimeoutMs: READY_TIMEOUT_MS,
+        }).pipe(Effect.orDie);
+
+        expect(mock.stats.spawnInputs.map((input) => input.serverUrl)).toEqual([
+          TEST_SERVER_BASE_URL,
+        ]);
+      }
+    }),
+  );
+}
+
+function launchFailsOnServerUrlWithPath() {
+  return runTest(
+    Effect.gen(function* () {
+      const mock = yield* createMockRuntime({
+        readyEffect: Effect.succeed({ _tag: READY_TAG }),
+      });
+      setMockTestbedRuntimes(mock.runtime);
+
+      const exit = yield* startRuntimeAgent({
+        kind: OPENCLAW_KIND,
+        server: stubServer(),
+        agent: stubTestbedAgentSpec({ serverUrl: PATH_BEARING_SERVER_URL }),
+        readyTimeoutMs: READY_TIMEOUT_MS,
+      }).pipe(Effect.exit);
+
+      const failure = Exit.isFailure(exit)
+        ? Option.getOrNull(Cause.failureOption(exit.cause))
+        : null;
+      expect(failure).toBeInstanceOf(SpawnFailed);
+      expect(failure?.message).toContain(PATH_BEARING_SERVER_URL);
+      expect(mock.stats.spawnCalls).toBe(0);
+    }),
+  );
+}
+
+function launchRejectsBadAddressBeforeAnySpawn() {
+  return runTest(
+    Effect.gen(function* () {
+      const first = yield* createMockRuntime({
+        readyEffect: Effect.succeed({ _tag: READY_TAG }),
+      });
+      const second = yield* createMockRuntime({
+        readyEffect: Effect.succeed({ _tag: READY_TAG }),
+      });
+      setMockTestbedRuntimes(first.runtime, second.runtime);
+
+      const exit = yield* launchTestbed({
+        kind: OPENCLAW_KIND,
+        server: stubServer(),
+        agents: [
+          stubTestbedAgentSpec({ agentName: ALPHA_AGENT_NAME }),
+          stubTestbedAgentSpec({
+            agentName: BETA_AGENT_NAME,
+            serverUrl: PATH_BEARING_SERVER_URL,
+          }),
+        ],
+        readyTimeoutMs: READY_TIMEOUT_MS,
+      }).pipe(Effect.exit);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(first.stats.spawnCalls).toBe(0);
+      expect(second.stats.spawnCalls).toBe(0);
+    }),
+  );
+}
+
+function testbedSharesOneInstallModeAcrossAdapters() {
+  return runTest(
+    Effect.gen(function* () {
+      const first = yield* createMockRuntime({
+        readyEffect: Effect.succeed({ _tag: READY_TAG }),
+      });
+      const second = yield* createMockRuntime({
+        readyEffect: Effect.succeed({ _tag: READY_TAG }),
+      });
+      setMockTestbedRuntimes(first.runtime, second.runtime);
+
+      const testbed = yield* launchTestbed({
+        kind: OPENCLAW_KIND,
+        openclaw: { installMode: PUBLISHED_INSTALL_MODE },
+        server: stubServer(),
+        agents: alphaBetaAgentSpecs(),
+        readyTimeoutMs: READY_TIMEOUT_MS,
+      }).pipe(Effect.orDie);
+
+      expect(installModeMocks.resolveInstallMode).toHaveBeenCalledTimes(1);
+      expect(installModeMocks.resolveInstallMode).toHaveBeenCalledWith(
+        PUBLISHED_INSTALL_MODE,
+      );
+      expect(createOpenClawAdapter).toHaveBeenCalledTimes(2);
+      for (const [options] of vi.mocked(createOpenClawAdapter).mock.calls) {
+        expect(options.installMode).toBe(PUBLISHED_INSTALL_MODE);
+      }
+
+      yield* testbed.stopAll();
+    }),
+  );
+}
 
 function successfulTestbedLaunchKeepsRuntimesUntilStopAll() {
   return runTest(
@@ -340,6 +507,7 @@ interface MockRuntimeStats {
   spawnCalls: number;
   waitCalls: number;
   teardownCalls: number;
+  spawnInputs: SpawnInput[];
 }
 
 interface MockRuntimeHandle {
@@ -403,13 +571,15 @@ function createMockRuntime(options: {
       spawnCalls: 0,
       waitCalls: 0,
       teardownCalls: 0,
+      spawnInputs: [],
     };
     const waitStarted = yield* Deferred.make<void, never>();
 
     const runtime: Runtime = {
-      spawn: () =>
+      spawn: (input) =>
         Effect.sync(() => {
           stats.spawnCalls += 1;
+          stats.spawnInputs.push(input);
         }),
       waitUntilReady: () =>
         Deferred.succeed(waitStarted, undefined).pipe(

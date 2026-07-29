@@ -18,7 +18,9 @@ Package subpaths (`imports`/`exports` in `package.json`) mirror this layout:
   subscribers, pagination cursors, shared wire errors.
 - `src/identity/` — agents, apps, users, contacts, principal middleware tags,
   `ActiveAgent`, identity RPCs.
-- `src/network/` — `agent/network/connect`, `app/network/connect`, presence.
+- `src/network/` — `agent/network/connect`, `app/network/connect`, presence,
+  and the server address: path-free `ServerBaseUrl` plus the `webSocketUrl`
+  endpoint derived from it.
 - `src/task/`, `src/conversation/`, `src/message/` — task-domain RPCs,
   identifiers, notifications, requirement descriptors, dispatch
   RPCs/callbacks.

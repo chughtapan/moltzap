@@ -72,6 +72,13 @@
         "{workspaceRoot}/eslint.shared.mjs"
       ],
       "cache": true
+    },
+    "arch:check": {
+      "inputs": [
+        "default",
+        "{projectRoot}/safer-architecture.config.json"
+      ],
+      "cache": true
     }
   },
   "defaultBase": "main",

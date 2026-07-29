@@ -649,9 +649,10 @@ function extractFunctionSignature(
  * (parens, brackets, angles, braces) returns to zero after at least
  * one opening token, checked at line boundaries so a single-line
  * declaration like `class X extends Y()&lt;...&gt;() {}` whose depth dips
- * through zero mid-line stays intact. For one-line declarations with
- * no brace block (e.g. `export type Foo = string;`) falls back to
- * cutting at the first top-level `;` outside strings/comments.
+ * through zero mid-line stays intact. A declaration with no opening
+ * token at all (e.g. `export type Foo = Bar;`) ends at its own top-level
+ * `;`; without that cut the scan runs on until some *later* declaration
+ * opens a bracket, swallowing everything in between.
  *
  * Tokenization (string/line-comment/block-comment skipping plus the
  * `=>`/`&lt;=`/`&gt;=`/`==`/`!=` digraph carve-out) is shared with
@@ -669,23 +670,24 @@ function extractBalancedBody(
   let depth = 0;
   let opened = false;
   let returnIx = -1;
+  let semiIx = -1;
   scanTopLevel(text, (ch, i) => {
     if (ch === "(" || ch === "[" || ch === "<" || ch === "{") {
       depth++;
       opened = true;
     } else if (ch === ")" || ch === "]" || ch === ">" || ch === "}") {
       depth--;
+    } else if (ch === ";" && !opened) {
+      semiIx = i;
+      return "stop";
     } else if (ch === "\n" && opened && depth <= 0) {
       returnIx = i;
       return "stop";
     }
     return "continue";
   });
+  if (semiIx >= 0) return text.slice(0, semiIx + 1).trimEnd();
   if (returnIx >= 0) return text.slice(0, returnIx).trimEnd();
-  if (!opened) {
-    const semi = findOutsideStrings(text, ";");
-    if (semi >= 0) return text.slice(0, semi + 1).trimEnd();
-  }
   return text.trimEnd();
 }
 
@@ -733,18 +735,6 @@ function pickFirstCut(text: string, needles: ReadonlyArray<string>): number {
     else if (ch === "}") braceDepth--;
     return "continue";
   });
-}
-
-function findOutsideStrings(text: string, needle: string): number {
-  let result = -1;
-  scanTopLevel(text, (_ch, i) => {
-    if (text.startsWith(needle, i)) {
-      result = i;
-      return "stop";
-    }
-    return "continue";
-  });
-  return result;
 }
 
 /**

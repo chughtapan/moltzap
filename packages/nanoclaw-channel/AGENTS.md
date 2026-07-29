@@ -7,19 +7,31 @@ channel plugins.
 
 ## Structure
 
-- `src/channels/moltzap.ts` — `MoltZapChannel`, the entry point
-  (package `main`); wraps `MoltZapChannelCore` from
-  `@moltzap/client/channel-base`.
-- `src/types.ts` — stub nanoclaw types (`Channel`, `NewMessage`,
-  `RegisteredGroup`), pinned to nanoclaw 1.2.52.
+- `src/channels/moltzap.ts` — `MoltZapAdapter`, the entry point
+  (package `main`); implements nanoclaw's `ChannelAdapter` contract
+  over `MoltZapChannelCore` from `@moltzap/client/channel-base` and
+  self-registers via `registerChannelAdapter`.
+- `src/channels/adapter.ts`, `src/channels/channel-registry.ts`,
+  `src/db/messaging-groups.ts`, `src/types.ts` — stub mirrors of the
+  nanoclaw modules the channel imports, pinned to the commit in `NANOCLAW_SHA`
+  (`packages/testbed/src/nanoclaw-install.ts`). Inside a real nanoclaw
+  checkout the same relative imports resolve against nanoclaw's own
+  modules; the messaging-group stub is an in-memory map so unit tests
+  can observe eval-mode conversation wiring.
 
 ## Concepts
 
-- **JID** — channel-level addressing string, `mz:<conversationId>`;
-  `jidFromConversationId` / `conversationIdFromJid` convert.
-- **Eval mode** — `MOLTZAP_EVAL_MODE=1` auto-registers unknown
-  conversations as wildcard `eval-*` groups (agent-evaluation
-  pipelines).
+- **Platform id (JID)** — channel-level addressing string,
+  `mz:<conversationId>`; `jidFromConversationId` converts one way, and
+  replies read the branded conversation id back from the per-jid map.
+- **Wiring** — nanoclaw routes by `(channel_type, platform_id)` →
+  `messaging_groups` → `messaging_group_agents`. Production wirings
+  are provisioned out of band.
+- **Eval mode** — the testbed provisions `eval-agent` and its
+  container-config row before NanoClaw starts. `MOLTZAP_EVAL_MODE=1`
+  creates only the per-conversation messaging group and wiring before
+  first-inbound delivery, because the router drops an unknown or
+  unwired conversation. NanoClaw's sender resolver owns user rows.
 
 ## Code
 
@@ -27,7 +39,10 @@ channel plugins.
   `LeaseAlreadyConsumed` is the canonical consumed-lease error (the
   local `MoltZapChannelError` covers only non-lease host failures);
   `LeaseStore` is peek-style — the stale entry on retry is deliberate;
-  `catchLeaseInvalid` projects the wire error at `sendMessage`.
+  `catchLeaseInvalid` projects the wire error at `deliver`.
+- Inbound projection: `onMetadata` fires before `onInbound`; content
+  is `{ text, sender, senderId }` with context blocks inlined into
+  `text`; own (`isFromMe`) messages are dropped, not delivered.
 - Context formatting: `formatCrossConv`, `formatGroupBlock`,
   `getGroupFields`, markup `"xml-system-reminder"`.
 

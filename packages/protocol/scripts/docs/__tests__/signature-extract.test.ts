@@ -83,6 +83,19 @@ describe("extractSignatureText", () => {
     expect(sig).toBe("export type Foo = string;");
   });
 
+  it("stops a bracket-free alias before the next declaration", () => {
+    const source = [
+      "export type Foo = Bar;",
+      "",
+      "export interface Baz {",
+      "  readonly qux: string;",
+      "}",
+      "",
+    ].join("\n");
+    const sig = extractSignatureText(source, 1, ReflectionKind.TypeAlias);
+    expect(sig).toBe("export type Foo = Bar;");
+  });
+
   it("returns null when the line is out of range", () => {
     const source = "line one\nline two\n";
     expect(

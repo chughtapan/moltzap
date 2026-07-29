@@ -85,7 +85,6 @@ _Property_
 
 ```ts
   readonly proxy: ToxiproxyProxy;
-  readonly unavailable: (reason: string) => PropertyUnavailable;
 ```
 
 ### [`proxyName`](./_helpers.ts#L48)
