@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-// moltzap process entry point. The CLI performs explicit signed control operations and holds no service state.
+// Scaffold entry point for the moltzap process.
 process.stderr.write("moltzap is not implemented\n");
 process.exit(1);

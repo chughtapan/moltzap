@@ -1,21 +1,91 @@
 #!/usr/bin/env node
+/**
+ * Architecture boundary checks for both tracks.
+ *
+ * v1 (`packages/*`) rules cover wildcard exports, barrel discipline, and the
+ * published export maps. v2 (`v2/*`) rules cover the frozen package set, the
+ * shared compatibility value, the export and binary maps, and the three
+ * import rules that keep the clean slate clean.
+ *
+ * The v2 table below is a hand transcription of frozen law in
+ * docs/architecture/components.md. It is written down rather than derived so
+ * that drift fails whichever side moves, but it is not self-certifying:
+ * re-verify it against that document whenever the document changes.
+ *
+ * Every rule asserts its input set is non-empty before reporting success. A
+ * check that walks nothing passes vacuously and is indistinguishable from no
+ * check at all.
+ */
 const fs = require("node:fs");
 const path = require("node:path");
 
 const repo = process.cwd();
+const v2Root = path.join(repo, "v2");
+const packagesRoot = path.join(repo, "packages");
 const failures = [];
 
-function walk(dir, out) {
-  if (!fs.existsSync(dir)) return;
+// `deps` lists the only v2 packages a package may reach, in package.json, in
+// TypeScript project references, in knip's ignore list, and in source imports
+// alike.
+const V2_PACKAGES = {
+  identity: {
+    npmName: "@moltzap/v2-identity",
+    deps: [],
+    exports: [".", "./server"],
+    bin: ["moltzap-directory"],
+  },
+  transport: {
+    npmName: "@moltzap/v2-transport",
+    deps: ["identity"],
+    exports: [".", "./server"],
+    bin: ["moltzap-router"],
+  },
+  transcript: {
+    npmName: "@moltzap/v2-transcript",
+    deps: ["identity", "transport"],
+    exports: [".", "./server"],
+    bin: ["moltzap-ledger"],
+  },
+  endpoint: {
+    npmName: "@moltzap/v2-endpoint",
+    deps: ["identity", "transport", "transcript"],
+    exports: [".", "./server"],
+    bin: ["moltzap", "moltzap-agentd"],
+  },
+  simulator: {
+    npmName: "@moltzap/v2-simulator",
+    deps: ["identity", "endpoint"],
+    exports: [".", "./adapter", "./ledger"],
+    bin: [],
+  },
+  testbed: {
+    npmName: "@moltzap/v2-testbed",
+    deps: ["identity", "transport", "transcript", "endpoint", "simulator"],
+    exports: ["."],
+    bin: [],
+  },
+};
+
+// Simulator and testbed are experiment and acquisition machinery. The
+// packages that ship the product must never reach for them.
+const NON_PRODUCTION = ["simulator", "testbed"];
+const PRODUCTION = Object.keys(V2_PACKAGES).filter(
+  (dir) => !NON_PRODUCTION.includes(dir),
+);
+
+const v2DirByNpmName = new Map(
+  Object.entries(V2_PACKAGES).map(([dir, meta]) => [meta.npmName, dir]),
+);
+
+function walk(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === "dist" || entry.name === "node_modules") continue;
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walk(full, out);
-    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
-      out.push(full);
-    }
+    if (entry.isDirectory()) walk(full, out);
+    else if (entry.isFile() && entry.name.endsWith(".ts")) out.push(full);
   }
+  return out;
 }
 
 function rel(file) {
@@ -29,6 +99,45 @@ function lineAt(text, index) {
 function fail(file, line, message) {
   failures.push(`${rel(file)}:${line}: ${message}`);
 }
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+// Every boundary rule compares two name sets, so every one reports drift the
+// same way: what was expected, and what the tree actually carries.
+function failOnSetDrift(where, what, actual, wanted) {
+  const got = [...actual].sort();
+  const expected = [...wanted].sort();
+  if (got.join(" ") === expected.join(" ")) return;
+  failures.push(
+    `${where}: ${what}; expected ${expected.join(", ") || "none"}, got ${got.join(", ") || "none"}`,
+  );
+}
+
+// Static, dynamic, re-export, and bare side-effect imports all name a module.
+// Missing any one form would let a violating import in through that keyword.
+const IMPORT_SPECIFIER =
+  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["']([^"']+)["']/g;
+
+function importSpecifiers(text) {
+  const found = [];
+  for (const match of text.matchAll(IMPORT_SPECIFIER)) {
+    found.push({ specifier: match[1], index: match.index });
+  }
+  return found;
+}
+
+// The package a specifier addresses, ignoring any subpath export.
+function packageRoot(specifier) {
+  const parts = specifier.split("/");
+  if (specifier.startsWith("@")) {
+    return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : specifier;
+  }
+  return parts[0];
+}
+
+// ─── v1 source rules ──────────────────────────────────────────────────────
 
 function checkSourceFile(file) {
   const text = fs.readFileSync(file, "utf8");
@@ -70,28 +179,40 @@ function checkSourceFile(file) {
       );
     }
   }
-}
 
-function assertExportMap(pkgPath, expected) {
-  const file = path.join(repo, pkgPath, "package.json");
-  const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
-  const actual = Object.keys(pkg.exports ?? {}).sort();
-  const wanted = [...expected].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(wanted)) {
-    failures.push(
-      `${pkgPath}/package.json: exports changed; expected ${wanted.join(", ")}, got ${actual.join(", ")}`,
-    );
+  // v1 ships the product too, so the no-simulator/testbed rule binds it. The
+  // literal guard keeps the common case to one substring scan.
+  if (text.includes("@moltzap/v2-")) {
+    for (const { specifier, index } of importSpecifiers(text)) {
+      const target = v2DirByNpmName.get(packageRoot(specifier));
+      if (target !== undefined && NON_PRODUCTION.includes(target)) {
+        fail(
+          file,
+          lineAt(text, index),
+          `production package must not import non-production package "${target}"`,
+        );
+      }
+    }
   }
 }
 
-const sourceFiles = [];
-walk(path.join(repo, "packages"), sourceFiles);
-for (const file of sourceFiles) checkSourceFile(file);
+function assertExportMap(pkgPath, expected) {
+  const pkg = readJson(path.join(repo, pkgPath, "package.json"));
+  failOnSetDrift(
+    `${pkgPath}/package.json`,
+    "exports changed",
+    Object.keys(pkg.exports ?? {}),
+    expected,
+  );
+}
 
-// The v2 boundary law — package set, version, exports, binaries, the
-// dependency DAG, and the v1/v2 import rules — lives in
-// scripts/check-v2-boundaries.js, which resolves package names against the
-// real workspace layout instead of matching the shared @moltzap/ scope.
+const sourceFiles = walk(packagesRoot);
+if (sourceFiles.length === 0) {
+  failures.push(
+    "packages/: no TypeScript sources scanned; the v1 rules would pass vacuously",
+  );
+}
+for (const file of sourceFiles) checkSourceFile(file);
 
 assertExportMap("packages/protocol", [
   ".",
@@ -109,6 +230,241 @@ assertExportMap("packages/protocol", [
 ]);
 assertExportMap("packages/server", [".", "./test-utils"]);
 
+// ─── v2 package set ───────────────────────────────────────────────────────
+
+const v2Dirs = fs.existsSync(v2Root)
+  ? fs
+      .readdirSync(v2Root, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          fs.existsSync(path.join(v2Root, entry.name, "package.json")),
+      )
+      .map((entry) => entry.name)
+      .sort()
+  : [];
+
+failOnSetDrift("v2/", "package set drifted", v2Dirs, Object.keys(V2_PACKAGES));
+
+// ─── One CalVer, carried by v2/VERSION and all six manifests ──────────────
+
+const versionFile = path.join(v2Root, "VERSION");
+let v2Version = null;
+if (!fs.existsSync(versionFile)) {
+  failures.push(
+    "v2/VERSION: missing; it is the sole MoltZap compatibility value",
+  );
+} else {
+  v2Version = fs.readFileSync(versionFile, "utf8").trim();
+  if (!/^\d{4}\.\d{3,4}\.\d+$/.test(v2Version)) {
+    failures.push(`v2/VERSION: "${v2Version}" is not a YYYY.MDD.PATCH CalVer`);
+  }
+}
+
+// ─── v2 manifests, project references, and knip ignores ───────────────────
+
+const knipWorkspaces = readJson(path.join(repo, "knip.json")).workspaces ?? {};
+
+for (const dir of v2Dirs) {
+  const expected = V2_PACKAGES[dir];
+  if (expected === undefined) continue;
+
+  const where = `v2/${dir}/package.json`;
+  const manifest = readJson(path.join(v2Root, dir, "package.json"));
+
+  if (manifest.name !== expected.npmName) {
+    failures.push(
+      `${where}: name is "${manifest.name}", expected "${expected.npmName}"`,
+    );
+  }
+
+  if (v2Version !== null && manifest.version !== v2Version) {
+    failures.push(
+      `${where}: version "${manifest.version}" does not match v2/VERSION "${v2Version}"`,
+    );
+  }
+
+  if (manifest.private !== true) {
+    failures.push(`${where}: must set "private": true; v2 publishes nothing`);
+  }
+
+  failOnSetDrift(
+    where,
+    "exports drifted",
+    Object.keys(manifest.exports ?? {}),
+    expected.exports,
+  );
+  failOnSetDrift(
+    where,
+    "binaries drifted",
+    Object.keys(manifest.bin ?? {}),
+    expected.bin,
+  );
+
+  // Binaries are checked in rather than built, so the target exists at
+  // install time and a declared binary is never a dangling link.
+  for (const [name, target] of Object.entries(manifest.bin ?? {})) {
+    const binPath = path.join(v2Root, dir, target);
+    if (!fs.existsSync(binPath)) {
+      failures.push(
+        `${where}: binary "${name}" points at missing file "${target}"`,
+      );
+      continue;
+    }
+    if (!fs.readFileSync(binPath, "utf8").startsWith("#!/usr/bin/env node")) {
+      failures.push(`${where}: binary "${name}" lacks a node shebang`);
+    }
+    if ((fs.statSync(binPath).mode & 0o111) === 0) {
+      failures.push(`${where}: binary "${name}" is not executable`);
+    }
+  }
+
+  const wantedDeps = expected.deps.map((d) => V2_PACKAGES[d].npmName);
+  failOnSetDrift(
+    where,
+    "v2 dependencies violate the frozen DAG",
+    Object.keys(manifest.dependencies ?? {}).filter((name) =>
+      v2DirByNpmName.has(name),
+    ),
+    wantedDeps,
+  );
+
+  // Project references must encode the same DAG, or `tsc -b` and the manifest
+  // disagree about what this package may reach.
+  const tsconfigPath = path.join(v2Root, dir, "tsconfig.json");
+  if (!fs.existsSync(tsconfigPath)) {
+    failures.push(`v2/${dir}/tsconfig.json: missing`);
+  } else {
+    failOnSetDrift(
+      `v2/${dir}/tsconfig.json`,
+      "project references violate the frozen DAG",
+      (readJson(tsconfigPath).references ?? []).map((ref) =>
+        path.basename(ref.path),
+      ),
+      expected.deps,
+    );
+  }
+
+  // knip must ignore exactly the DAG edges, no more: a stale ignore would
+  // hide a dependency that no longer belongs.
+  failOnSetDrift(
+    `knip.json workspaces["v2/${dir}"]`,
+    "ignoreDependencies drifted from the frozen DAG",
+    knipWorkspaces[`v2/${dir}`]?.ignoreDependencies ?? [],
+    wantedDeps,
+  );
+}
+
+// ─── v2 import rules ──────────────────────────────────────────────────────
+
+// Workspace packages whose source lives under packages/ are v1. Resolving the
+// rule against the real layout keeps it correct however either track names
+// its packages.
+const v1PackageNames = new Set();
+if (fs.existsSync(packagesRoot)) {
+  for (const entry of fs.readdirSync(packagesRoot, { withFileTypes: true })) {
+    const manifestPath = path.join(packagesRoot, entry.name, "package.json");
+    if (entry.isDirectory() && fs.existsSync(manifestPath)) {
+      v1PackageNames.add(readJson(manifestPath).name);
+    }
+  }
+}
+if (v1PackageNames.size === 0) {
+  failures.push(
+    "packages/: no v1 workspace manifests found; the v2-imports-no-v1 rule would pass vacuously",
+  );
+}
+
+let v2SourceCount = 0;
+for (const dir of v2Dirs) {
+  const files = walk(path.join(v2Root, dir));
+  if (files.length === 0) {
+    failures.push(
+      `v2/${dir}: no TypeScript sources scanned; the import rules would pass vacuously here`,
+    );
+    continue;
+  }
+  v2SourceCount += files.length;
+
+  const allowed = new Set(V2_PACKAGES[dir]?.deps ?? []);
+  const isProduction = PRODUCTION.includes(dir);
+
+  for (const file of files) {
+    const text = fs.readFileSync(file, "utf8");
+    for (const { specifier, index } of importSpecifiers(text)) {
+      // Rule 1 — v2 imports nothing from v1, by package name or by reaching
+      // into the packages/ tree with a relative path.
+      const root = packageRoot(specifier);
+      if (v1PackageNames.has(root)) {
+        fail(
+          file,
+          lineAt(text, index),
+          `v2 must not import v1 package "${root}"`,
+        );
+        continue;
+      }
+      if (/(^|\/)\.\.\/packages\//.test(specifier)) {
+        fail(
+          file,
+          lineAt(text, index),
+          `v2 must not reach into packages/ by relative path ("${specifier}")`,
+        );
+        continue;
+      }
+
+      const target = v2DirByNpmName.get(root);
+      if (target === undefined || target === dir) continue;
+
+      // Rule 2 — nothing that ships the product may import the simulator or
+      // the testbed. Checked before the DAG so the violation is named for
+      // what it actually is.
+      if (isProduction && NON_PRODUCTION.includes(target)) {
+        fail(
+          file,
+          lineAt(text, index),
+          `production package "${dir}" must not import non-production package "${target}"`,
+        );
+        continue;
+      }
+
+      // Rule 3 — every remaining cross-package import follows the DAG.
+      if (!allowed.has(target)) {
+        fail(
+          file,
+          lineAt(text, index),
+          `dependency DAG violation: "${dir}" may not import "${target}" (allowed: ${[...allowed].join(", ") || "none"})`,
+        );
+      }
+    }
+  }
+}
+
+// ─── The compatibility value is exported, and matches ─────────────────────
+
+const identityIndex = path.join(v2Root, "identity", "src", "index.ts");
+if (v2Version !== null) {
+  if (!fs.existsSync(identityIndex)) {
+    failures.push(
+      "v2/identity/src/index.ts: missing; it exports the compatibility value",
+    );
+  } else {
+    const match = fs
+      .readFileSync(identityIndex, "utf8")
+      .match(/export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']+)["']/);
+    if (match === null) {
+      failures.push(
+        "v2/identity/src/index.ts: must export MOLTZAP_VERSION, the MoltZap compatibility value",
+      );
+    } else if (match[1] !== v2Version) {
+      failures.push(
+        `v2/identity/src/index.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${v2Version}"`,
+      );
+    }
+  }
+}
+
+// ─── Report ───────────────────────────────────────────────────────────────
+
 if (failures.length > 0) {
   console.error("[check-architecture-boundaries] FAIL");
   for (const failure of failures) console.error(`  ${failure}`);
@@ -116,5 +472,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} source files scanned`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} v1 sources, ${v2Dirs.length} v2 packages and ${v2SourceCount} v2 sources scanned at version ${v2Version}`,
 );

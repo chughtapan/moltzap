@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-// moltzap-ledger process entry point. The Ledger is the Router's sibling: endpoints coordinate the two, and there is no direct runtime edge between them.
+// Scaffold entry point for the moltzap-ledger process.
 process.stderr.write("moltzap-ledger is not implemented\n");
 process.exit(1);

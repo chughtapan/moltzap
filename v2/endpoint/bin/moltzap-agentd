@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-// moltzap-agentd process entry point. One daemon serves one AgentId and alone holds continuous protocol and action signing authority.
+// Scaffold entry point for the moltzap-agentd process.
 process.stderr.write("moltzap-agentd is not implemented\n");
 process.exit(1);
