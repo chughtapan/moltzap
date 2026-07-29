@@ -20,12 +20,20 @@ interface ValidatedAgentDefinition {
 }
 
 type RuntimeAcquisitionErrorOf<Runtime> =
-  Runtime extends AgentRuntime<infer AcquisitionError, unknown>
+  Runtime extends AgentRuntime<
+    infer AcquisitionError,
+    infer _Requirements,
+    infer _ConfigurationSchema
+  >
     ? AcquisitionError
     : never;
 
 type RuntimeRequirementsOf<Runtime> =
-  Runtime extends AgentRuntime<unknown, infer Requirements>
+  Runtime extends AgentRuntime<
+    infer _AcquisitionError,
+    infer Requirements,
+    infer _ConfigurationSchema
+  >
     ? Requirements
     : never;
 

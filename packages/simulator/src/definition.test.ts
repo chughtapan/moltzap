@@ -1,10 +1,17 @@
 import { assert, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { simulator, SimulatorDefinitionError } from "./definition.js";
 import { RuntimeCompleted, defineRuntime } from "./runtime/runtime.js";
 
+const TestRuntimeConfiguration = Schema.Struct({});
+const configuration = {
+  schema: TestRuntimeConfiguration,
+  value: {},
+};
+
 const runtime = defineRuntime({
   name: "definition-binding-test",
+  configuration,
   acquire: () =>
     Effect.succeed({
       termination: Effect.succeed(RuntimeCompleted.make({})),

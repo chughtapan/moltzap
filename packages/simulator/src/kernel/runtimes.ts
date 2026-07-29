@@ -112,20 +112,23 @@ function monitorRuntime(
       onFailure: (cause) =>
         Cause.isInterruptedOnly(cause)
           ? Effect.void
-          : writer.write({
-              event: runtimeEvent(
-                acquired,
-                RuntimeFailed.make({
-                  detail: nonEmptyCause(cause),
-                }),
-              ),
-            }),
+          : writer
+              .write({
+                event: runtimeEvent(
+                  acquired,
+                  RuntimeFailed.make({
+                    detail: nonEmptyCause(cause),
+                  }),
+                ),
+              })
+              .pipe(Effect.asVoid),
       onSuccess: (termination) =>
-        writer.write({
-          event: runtimeEvent(acquired, termination),
-        }),
+        writer
+          .write({
+            event: runtimeEvent(acquired, termination),
+          })
+          .pipe(Effect.asVoid),
     }),
-    Effect.asVoid,
     Effect.withSpan("Simulator.runtimeTermination", {
       attributes: {
         "agent.name": acquired.name,
@@ -219,6 +222,18 @@ function startedHandles<
   ) as StartedAgentHandles<Definitions>;
 }
 
+function withoutPeerCancellation<Failure>(
+  cause: Cause.Cause<Failure>,
+): Cause.Cause<Failure> {
+  // Parallel acquisition cancels unfinished peers after a primary failure.
+  // A primary interruption has no non-interrupt cause and remains unchanged.
+  const primary = Cause.filter(
+    cause,
+    (current) => !Cause.isInterruptType(current),
+  );
+  return Cause.isEmpty(primary) ? cause : primary;
+}
+
 /**
  * Executes the acquire roster operation.
  * @param input Input value to process.
@@ -240,5 +255,10 @@ export function acquireRoster<
         writer: input.writer,
       }),
     { concurrency: MAX_PARALLEL_RUNTIME_ACQUISITIONS },
-  ).pipe(Effect.map(startedHandles<Definitions>));
+  ).pipe(
+    Effect.catchAllCause((cause) =>
+      Effect.failCause(withoutPeerCancellation(cause)),
+    ),
+    Effect.map(startedHandles<Definitions>),
+  );
 }

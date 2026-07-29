@@ -1,14 +1,6 @@
 /** @file Allocation, execution, and ordered finalization of one run. */
 
-import {
-  type Context,
-  Effect,
-  Exit,
-  Layer,
-  Ref,
-  type Schema,
-  type Scope,
-} from "effect";
+import { Cause, Data, Effect, Exit, Layer, Ref, Schema } from "effect";
 import {
   endpointEvents,
   linkEvents,
@@ -24,27 +16,25 @@ import {
   type LedgerFailure,
   type LedgerWriter,
 } from "../ledger/live.js";
-import type {
-  JsonObject,
+import {
   LedgerCompletion,
-  LedgerRef,
+  ledgerRef,
+  type JsonObject,
 } from "../ledger/model.js";
-import type { LedgerStorage } from "../ledger/storage.js";
+import { type LedgerStorageError } from "../ledger/storage.js";
 import { LinkController, type LinkControllerService } from "../network/link.js";
 import { Network, type NetworkService } from "../network/endpoint.js";
-import type {
-  RouterProvider,
-  NetworkFailure,
-  Router,
-} from "../network/router.js";
+import type { NetworkFailure, Router } from "../network/router.js";
 import type {
   AgentRoster,
   AgentRosterAcquisitionError,
-  AgentRosterRequirements,
   StartedAgentHandles,
 } from "../runtime/roster.js";
-import type { AgentRuntimeLike } from "../runtime/runtime.js";
-import { combinedFailure, programEvent } from "./outcomes.js";
+import {
+  runtimeConfigurationProjection,
+  type AgentRuntimeLike,
+} from "../runtime/runtime.js";
+import { programEvent } from "./outcomes.js";
 import { makeNetworkService } from "./endpoints.js";
 import { makeLinkController } from "./links.js";
 import { acquireRoster } from "./runtimes.js";
@@ -67,12 +57,50 @@ export interface SimulatorRunOptions {
   readonly metadata?: JsonObject;
 }
 
-/** The program Exit plus the durable ledger that proves the run. */
-export interface SimulatorRunResult<A, E> {
+/** Physical receipt for a ledger whose completion marker is durable. */
+export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerReceipt>()(
+  "CompletedLedgerReceipt",
+  {
+    ledger: ledgerRef,
+    completion: LedgerCompletion,
+  },
+) {}
+
+/** Physical receipt retained when ledger completion could not be published. */
+export class IncompleteLedgerReceipt extends Schema.TaggedClass<IncompleteLedgerReceipt>()(
+  "IncompleteLedgerReceipt",
+  {
+    ledger: ledgerRef,
+  },
+) {}
+
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- persisted evaluation reports compose this closed physical-receipt union at their Schema boundary.
+export const LedgerReceipt = Schema.Union(
+  CompletedLedgerReceipt,
+  IncompleteLedgerReceipt,
+);
+export type LedgerReceipt = typeof LedgerReceipt.Type;
+
+/** Customer-program completion plus its complete durable evidence. */
+export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
   readonly exit: Exit.Exit<A, E>;
-  readonly ledger: LedgerRef;
-  readonly completion: LedgerCompletion;
-}
+  readonly receipt: CompletedLedgerReceipt;
+}> {}
+
+/** Post-allocation infrastructure failure plus all durable evidence retained. */
+export class RunInfrastructureFailed<
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+> extends Data.TaggedClass("RunInfrastructureFailed")<{
+  readonly cause: Cause.Cause<SimulatorRunFailure<Definitions>>;
+  readonly receipt: LedgerReceipt;
+}> {}
+
+/** Closed result of every run whose ledger allocation succeeded. */
+export type SimulatorRunOutcome<
+  A,
+  E,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+> = ProgramFinished<A, E> | RunInfrastructureFailed<Definitions>;
 
 /** Represents simulator run failure conditions. */
 export type SimulatorRunFailure<
@@ -98,30 +126,6 @@ interface RunInput<
   readonly program: Effect.Effect<A, E, R>;
   readonly options: SimulatorRunOptions;
 }
-
-type RunRequirements<
-  Id extends string,
-  CustomerSchema extends CatalogSchema,
-  CustomerClasses extends EventClass,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  R,
-> =
-  | AgentRosterRequirements<Definitions>
-  | Exclude<
-      R,
-      | Context.Tag.Identifier<
-          DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["ledger"]
-        >
-      | Context.Tag.Identifier<
-          DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["events"]
-        >
-      | Context.Tag.Identifier<AgentRoster<Id, Definitions>["startedAgents"]>
-      | Network
-      | LinkController
-      | Scope.Scope
-    >
-  | RouterProvider
-  | LedgerStorage;
 
 interface ProgramLayerInput<
   Id extends string,
@@ -190,14 +194,19 @@ interface KernelContext<
   readonly router: Ref.Ref<Router | undefined>;
 }
 
-function defaultProvenance<
+function composeProvenance<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(roster: AgentRoster<Id, Definitions>) {
+>(
+  roster: AgentRoster<Id, Definitions>,
+  customerProvenance: JsonObject | undefined,
+) {
   return {
+    ...customerProvenance,
     agents: Object.entries(roster.definitions).map(([name, runtime]) => ({
       name,
       runtime: runtime.name,
+      configuration: runtimeConfigurationProjection(runtime),
     })),
   };
 }
@@ -213,7 +222,7 @@ function allocateRunLedger<
 >(input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>) {
   return makeRunLedger(input.eventServices.catalog, {
     definitionId: input.definitionId,
-    provenance: input.options.provenance ?? defaultProvenance(input.roster),
+    provenance: composeProvenance(input.roster, input.options.provenance),
     metadata: input.options.metadata ?? {},
   });
 }
@@ -226,18 +235,18 @@ function makeContext<
   A,
   E,
   R,
->(input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>) {
+>(
+  input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>,
+  active: ActiveRunLedger<
+    DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["catalog"]
+  >,
+) {
   return Effect.gen(function* () {
-    const active = yield* allocateRunLedger(input);
     const router = yield* Ref.make<Router | undefined>(undefined);
-    const runWriter = active.writerFor("kernel.run", runEvents);
-    yield* runWriter.write({
-      event: RunStarted.make({ definitionId: input.definitionId }),
-    });
     return {
       input,
       active,
-      runWriter,
+      runWriter: active.writerFor("kernel.run", runEvents),
       routerWriter: active.writerFor("kernel.router", routerEvents),
       runtimeWriter: active.writerFor("kernel.runtime", runtimeEvents),
       endpointWriter: active.writerFor("kernel.endpoint", endpointEvents),
@@ -267,6 +276,9 @@ function executeProgram<
   >,
 ) {
   return Effect.gen(function* () {
+    yield* context.runWriter.write({
+      event: RunStarted.make({ definitionId: context.input.definitionId }),
+    });
     const router = yield* acquireRouter(context.routerWriter);
     yield* Ref.set(context.router, router);
     const agents = yield* acquireRoster({
@@ -321,6 +333,50 @@ function recordRouterStop<
   });
 }
 
+function appendFailure<Failure>(
+  cause: Cause.Cause<Failure>,
+  exit: Exit.Exit<unknown, Failure>,
+): Cause.Cause<Failure> {
+  return Exit.isFailure(exit) ? Cause.sequential(cause, exit.cause) : cause;
+}
+
+function collectInterruptions(
+  cause: Cause.Cause<unknown>,
+): Cause.Cause<never> | undefined {
+  let interruptions: Cause.Cause<never> | undefined;
+  for (const interruptor of Cause.interruptors(cause)) {
+    const interruption = Cause.interrupt(interruptor);
+    interruptions =
+      interruptions === undefined
+        ? interruption
+        : Cause.parallel(interruptions, interruption);
+  }
+  return interruptions;
+}
+
+/**
+ * Cancellation remains an Effect interrupt after durable finalization. Run
+ * outcomes describe completed execution paths, not control-plane cancellation.
+ */
+function preserveCancellation<
+  A,
+  E,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  Failure,
+>(
+  execution: Exit.Exit<unknown, Failure>,
+  outcome: SimulatorRunOutcome<A, E, Definitions>,
+): Effect.Effect<SimulatorRunOutcome<A, E, Definitions>> {
+  if (Exit.isSuccess(execution) || !Cause.isInterrupted(execution.cause)) {
+    return Effect.succeed(outcome);
+  }
+  const interruptions = collectInterruptions(execution.cause);
+  return interruptions === undefined
+    ? Effect.interrupt
+    : Effect.failCause(interruptions);
+}
+
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- the generic signature states the exact definition-bound outcome contract while the body keeps ordered stop/completion handling together.
 function finalizeRun<
   Id extends string,
   CustomerSchema extends CatalogSchema,
@@ -339,27 +395,52 @@ function finalizeRun<
     E,
     R
   >,
-  execution: Exit.Exit<Exit.Exit<A, E>, unknown>,
+  execution: Exit.Exit<Exit.Exit<A, E>, SimulatorRunFailure<Definitions>>,
 ) {
   return Effect.gen(function* () {
     const routerStop = yield* Effect.exit(recordRouterStop(context));
     const completion = yield* Effect.exit(context.active.complete());
-    const failure = combinedFailure([execution, routerStop, completion]);
-    if (
-      failure !== undefined ||
-      Exit.isFailure(execution) ||
-      Exit.isFailure(completion)
-    ) {
-      return yield* failure === undefined
-        ? Effect.dieMessage("a failed finalization Exit had no Cause")
-        : Effect.failCause(failure);
+    const receipt = Exit.isSuccess(completion)
+      ? CompletedLedgerReceipt.make({
+          ledger: context.active.ledger.ref,
+          completion: completion.value,
+        })
+      : IncompleteLedgerReceipt.make({
+          ledger: context.active.ledger.ref,
+        });
+    if (Exit.isFailure(execution)) {
+      return new RunInfrastructureFailed<Definitions>({
+        cause: appendFailure(
+          appendFailure(execution.cause, routerStop),
+          completion,
+        ),
+        receipt,
+      });
     }
-    return {
+    if (Exit.isFailure(routerStop)) {
+      return new RunInfrastructureFailed<Definitions>({
+        cause: appendFailure(routerStop.cause, completion),
+        receipt,
+      });
+    }
+    if (Exit.isFailure(completion)) {
+      return new RunInfrastructureFailed<Definitions>({
+        cause: completion.cause,
+        receipt,
+      });
+    }
+    return new ProgramFinished({
       exit: execution.value,
-      ledger: context.active.ledger.ref,
-      completion: completion.value,
-    };
+      receipt: CompletedLedgerReceipt.make({
+        ledger: context.active.ledger.ref,
+        completion: completion.value,
+      }),
+    });
   });
+}
+
+interface RestoreInterruptibility {
+  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
 }
 
 function runContext<
@@ -380,20 +461,27 @@ function runContext<
     E,
     R
   >,
+  restore: RestoreInterruptibility,
 ) {
-  return Effect.uninterruptibleMask((restore) =>
-    restore(
-      Effect.raceFirst(
-        Effect.scoped(executeProgram(context)),
-        context.active.failure,
+  return restore(
+    Effect.raceFirst(
+      Effect.scoped(executeProgram(context)),
+      context.active.failure,
+    ),
+  ).pipe(
+    Effect.exit,
+    Effect.flatMap((execution) =>
+      finalizeRun(context, execution).pipe(
+        Effect.flatMap((outcome) => preserveCancellation(execution, outcome)),
       ),
-    ).pipe(
-      Effect.exit,
-      Effect.flatMap((execution) => finalizeRun(context, execution)),
     ),
   );
 }
 
+/**
+ * Ledger allocation and context construction form one ownership handoff.
+ * Interruptibility resumes only after the kernel can finalize that ledger.
+ */
 function executeRun<
   Id extends string,
   CustomerSchema extends CatalogSchema,
@@ -404,9 +492,28 @@ function executeRun<
   R,
 >(input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>) {
   return Effect.scoped(
-    makeContext(input).pipe(Effect.flatMap(runContext)),
+    Effect.uninterruptibleMask((restore) =>
+      allocateRunLedger(input).pipe(
+        Effect.flatMap((active) => makeContext(input, active)),
+        Effect.flatMap((context) => runContext(context, restore)),
+      ),
+    ),
   ).pipe(Effect.withSpan("Simulator.run"));
 }
+
+type RunRequirements<
+  Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+> = Effect.Effect.Context<
+  ReturnType<
+    typeof executeRun<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>
+  >
+>;
 
 /**
  * Execute one definition against one mixed roster. Nested scopes stop
@@ -425,15 +532,9 @@ export function runSociety<
 >(
   input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>,
 ): Effect.Effect<
-  SimulatorRunResult<A, E>,
-  SimulatorRunFailure<Definitions>,
-  RunRequirements<Id, CustomerSchema, CustomerClasses, Definitions, R>
+  SimulatorRunOutcome<A, E, Definitions>,
+  LedgerStorageError,
+  RunRequirements<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>
 > {
-  return /* Safe because the surrounding invariant establishes this asserted shape. */ executeRun(
-    input,
-  ) as Effect.Effect<
-    SimulatorRunResult<A, E>,
-    SimulatorRunFailure<Definitions>,
-    RunRequirements<Id, CustomerSchema, CustomerClasses, Definitions, R>
-  >;
+  return executeRun(input);
 }

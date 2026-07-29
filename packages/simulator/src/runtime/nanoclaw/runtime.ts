@@ -1,6 +1,7 @@
 /** @file Scoped NanoClaw runtime. */
 
 import type { FileSystem, HttpClient, Path } from "@effect/platform";
+import { createHash } from "node:crypto";
 import type {
   CommandExecutor,
   ExitCode,
@@ -14,7 +15,7 @@ import {
   type AgentRuntimeInput,
   type RunningAgent,
 } from "../runtime.js";
-import { Duration, Effect, Fiber, type Scope } from "effect";
+import { Duration, Effect, Fiber, Schema, type Scope } from "effect";
 import { resolveInstallMode, type InstallMode } from "../packages.js";
 import {
   ensureNanoclawRuntimeInstalledEffect,
@@ -46,6 +47,46 @@ interface NanoclawMcpServer {
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
 }
+
+const ConfigurationDigest = Schema.String.pipe(
+  Schema.pattern(/^[\da-f]{64}$/u),
+  Schema.brand("NanoclawConfigurationDigest"),
+);
+
+class NanoclawWorkspaceFileConfiguration extends Schema.Class<NanoclawWorkspaceFileConfiguration>(
+  "NanoclawWorkspaceFileConfiguration",
+)({
+  relativePath: Schema.String,
+  contentDigest: ConfigurationDigest,
+  redacted: Schema.Tuple(Schema.Literal("content")),
+}) {}
+
+class NanoclawMcpServerConfiguration extends Schema.Class<NanoclawMcpServerConfiguration>(
+  "NanoclawMcpServerConfiguration",
+)({
+  name: Schema.String,
+  definitionDigest: ConfigurationDigest,
+  redacted: Schema.Tuple(
+    Schema.Literal("command"),
+    Schema.Literal("args"),
+    Schema.Literal("environmentValues"),
+  ),
+}) {}
+
+/**
+ * Sanitized definition-time policy and overrides for a NanoClaw runtime.
+ * Acquisition may resolve different host facts from automatic policy.
+ */
+export class NanoclawRuntimeConfiguration extends Schema.Class<NanoclawRuntimeConfiguration>(
+  "NanoclawRuntimeConfiguration",
+)({
+  startupTimeout: Schema.DurationFromMillis,
+  workspaceFiles: Schema.Array(NanoclawWorkspaceFileConfiguration),
+  modelOverride: Schema.optional(Schema.String),
+  installPolicy: Schema.Literal("automatic", "published", "workspace"),
+  autoRegisterConversations: Schema.Boolean,
+  mcpServers: Schema.Array(NanoclawMcpServerConfiguration),
+}) {}
 
 /** Configuration captured by one reusable NanoClaw runtime value. */
 export interface NanoclawRuntimeOptions {
@@ -179,6 +220,60 @@ function snapshotOptions(
     ...(modelId === undefined ? {} : { modelId }),
     ...(installMode === undefined ? {} : { installMode }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
+  });
+}
+
+function digestText(value: string): typeof ConfigurationDigest.Type {
+  return Schema.decodeUnknownSync(ConfigurationDigest)(
+    createHash("sha256").update(value, "utf8").digest("hex"),
+  );
+}
+
+function workspaceConfiguration(
+  files: ReadonlyArray<NanoclawWorkspaceFile>,
+): ReadonlyArray<NanoclawWorkspaceFileConfiguration> {
+  return files.map((file) =>
+    NanoclawWorkspaceFileConfiguration.make({
+      relativePath: file.relativePath,
+      contentDigest: digestText(file.content),
+      redacted: ["content"],
+    }),
+  );
+}
+
+function mcpServerDefinition(server: NanoclawMcpServer): string {
+  return JSON.stringify({
+    name: server.name,
+    command: server.command,
+    args: server.args,
+    environmentKeys: Object.keys(server.env).sort(),
+  });
+}
+
+function mcpConfiguration(
+  servers: ReadonlyArray<NanoclawMcpServer> | undefined,
+): ReadonlyArray<NanoclawMcpServerConfiguration> {
+  return (servers ?? []).map((server) =>
+    NanoclawMcpServerConfiguration.make({
+      name: server.name,
+      definitionDigest: digestText(mcpServerDefinition(server)),
+      redacted: ["command", "args", "environmentValues"],
+    }),
+  );
+}
+
+function runtimeConfiguration(
+  settings: NanoclawRuntimeSettings,
+): NanoclawRuntimeConfiguration {
+  return NanoclawRuntimeConfiguration.make({
+    startupTimeout: settings.startupTimeout,
+    workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
+    installPolicy: settings.installMode ?? "automatic",
+    autoRegisterConversations: settings.autoRegisterConversations,
+    mcpServers: mcpConfiguration(settings.mcpServers),
+    ...(settings.modelId === undefined
+      ? {}
+      : { modelOverride: settings.modelId }),
   });
 }
 
@@ -340,10 +435,18 @@ export function makeNanoclawRuntimeWith<
 >(
   options: NanoclawRuntimeOptions,
   driver: NanoclawRuntimeDriver<Install, Handle, WaitFailure, Requirements>,
-): AgentRuntime<NanoclawRuntimeAcquisitionError, Requirements> {
+): AgentRuntime<
+  NanoclawRuntimeAcquisitionError,
+  Requirements,
+  typeof NanoclawRuntimeConfiguration
+> {
   const settings = snapshotOptions(options);
-  return defineRuntime<NanoclawRuntimeAcquisitionError, Requirements>({
+  return defineRuntime({
     name: NANOCLAW_RUNTIME_NAME,
+    configuration: {
+      schema: NanoclawRuntimeConfiguration,
+      value: runtimeConfiguration(settings),
+    },
     acquire: (input) => acquireNanoclawRuntime(settings, driver, input),
   });
 }
@@ -356,6 +459,10 @@ export function makeNanoclawRuntimeWith<
  */
 export function nanoclawRuntime(
   options: NanoclawRuntimeOptions = {},
-): AgentRuntime<NanoclawRuntimeAcquisitionError, NanoclawHostServices> {
+): AgentRuntime<
+  NanoclawRuntimeAcquisitionError,
+  NanoclawHostServices,
+  typeof NanoclawRuntimeConfiguration
+> {
   return makeNanoclawRuntimeWith(options, nativeNanoclawDriver);
 }

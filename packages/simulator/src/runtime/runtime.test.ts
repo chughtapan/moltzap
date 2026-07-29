@@ -8,6 +8,7 @@ import {
   AgentRuntimeDefinitionError,
   RuntimeCompleted,
   defineRuntime,
+  runtimeConfigurationProjection,
 } from "./runtime.js";
 import { makeAgentRosterBuilder } from "./roster.js";
 
@@ -18,6 +19,23 @@ const key = redactedAgentKey(
 const routerUrl = Schema.decodeUnknownSync(serverBaseUrlSchema)(
   "http://127.0.0.1:3000",
 );
+const TestRuntimeConfiguration = Schema.Struct({
+  label: Schema.String,
+});
+const configuration = {
+  schema: TestRuntimeConfiguration,
+  value: { label: "test" },
+};
+
+function isDeeplyFrozen(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return true;
+  }
+  return (
+    Object.isFrozen(value) &&
+    Object.values(value).every((member) => isDeeplyFrozen(member))
+  );
+}
 
 const connection: AgentConnection<"alice"> = {
   agent: makeAgentHandle("alice", ALICE_ID),
@@ -30,8 +48,13 @@ const connection: AgentConnection<"alice"> = {
 it.effect("releases an acquired runtime with its caller scope", () =>
   Effect.gen(function* () {
     const released = yield* Ref.make(false);
-    const runtime = defineRuntime<never, never>({
+    const runtime = defineRuntime<
+      never,
+      never,
+      typeof TestRuntimeConfiguration
+    >({
       name: "scoped",
+      configuration,
       acquire: () =>
         Effect.acquireRelease(
           Effect.succeed({
@@ -56,8 +79,9 @@ it.effect("releases an acquired runtime with its caller scope", () =>
 );
 
 it("validates roster keys when the definition constructs its roster", () => {
-  const runtime = defineRuntime<never, never>({
+  const runtime = defineRuntime<never, never, typeof TestRuntimeConfiguration>({
     name: "test",
+    configuration,
     acquire: () =>
       Effect.succeed({
         termination: Effect.succeed(RuntimeCompleted.make({})),
@@ -77,6 +101,7 @@ it("rejects empty runtime names before a run starts", () => {
     () =>
       defineRuntime({
         name: "",
+        configuration,
         acquire: () =>
           Effect.succeed({
             termination: Effect.succeed(RuntimeCompleted.make({})),
@@ -91,6 +116,7 @@ it.effect("captures runtime behavior when the definition is constructed", () =>
     const calls: string[] = [];
     const source = {
       name: "captured",
+      configuration,
       acquire: () =>
         Effect.sync(() => {
           calls.push("original");
@@ -117,6 +143,7 @@ it.effect("captures runtime behavior when the definition is constructed", () =>
 it("copies and freezes roster declarations without mutating caller input", () => {
   const runtime = defineRuntime({
     name: "immutable",
+    configuration,
     acquire: () =>
       Effect.succeed({
         termination: Effect.succeed(RuntimeCompleted.make({})),
@@ -129,4 +156,64 @@ it("copies and freezes roster declarations without mutating caller input", () =>
   assert.notStrictEqual(roster.definitions, definitions);
   assert.strictEqual(roster.definitions.alice, runtime);
   assert.isTrue(Object.isFrozen(roster.definitions));
+});
+
+it("rejects runtime configurations that do not encode to JSON", () => {
+  assert.throws(
+    () =>
+      defineRuntime({
+        name: "invalid-configuration",
+        configuration: {
+          schema: Schema.Undefined,
+          value: undefined,
+        },
+        acquire: () =>
+          Effect.succeed({
+            termination: Effect.succeed(RuntimeCompleted.make({})),
+          }),
+      }),
+    AgentRuntimeDefinitionError,
+  );
+});
+
+it("isolates a deeply frozen canonical projection from native mutations", () => {
+  const MutableConfiguration = Schema.Struct({
+    nested: Schema.Struct({
+      labels: Schema.Array(Schema.String),
+    }),
+  });
+  const source = {
+    nested: {
+      labels: ["original"],
+    },
+  };
+  const runtime = defineRuntime({
+    name: "snapshotted-configuration",
+    configuration: {
+      schema: MutableConfiguration,
+      value: source,
+    },
+    acquire: () =>
+      Effect.succeed({
+        termination: Effect.succeed(RuntimeCompleted.make({})),
+      }),
+  });
+
+  source.nested.labels.push("source-mutation");
+  const first = runtime.configuration.value;
+  const projection = runtimeConfigurationProjection(runtime);
+
+  assert.isTrue(isDeeplyFrozen(first));
+  assert.isTrue(isDeeplyFrozen(projection));
+  assert.isFalse(Reflect.set(first.nested.labels, "0", "native-mutation"));
+  if (typeof projection === "object" && projection !== null) {
+    assert.isFalse(Reflect.set(projection, "nested", null));
+  }
+  assert.deepStrictEqual(runtime.configuration.value, {
+    nested: { labels: ["original"] },
+  });
+  assert.deepStrictEqual(runtimeConfigurationProjection(runtime), {
+    nested: { labels: ["original"] },
+  });
+  assert.notStrictEqual(runtime.configuration.value, first);
 });

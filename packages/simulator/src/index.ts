@@ -78,6 +78,7 @@ export {
   RuntimeFailed,
   RuntimeSignaled,
   defineRuntime,
+  runtimeConfigurationProjection,
   type AgentRuntime,
   type AgentRuntimeDefinition,
   type AgentRuntimeInput,
@@ -95,9 +96,14 @@ export type {
 
 /** Re-exports the public API from `./kernel/run.js`. */
 export {
+  CompletedLedgerReceipt,
+  IncompleteLedgerReceipt,
+  LedgerReceipt,
+  ProgramFinished,
+  RunInfrastructureFailed,
   type SimulatorRunFailure,
+  type SimulatorRunOutcome,
   type SimulatorRunOptions,
-  type SimulatorRunResult,
 } from "./kernel/run.js";
 
 /** Re-exports the public API from `./layer.js`. */

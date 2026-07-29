@@ -6,7 +6,14 @@
  * before returning, so its in-memory streams cannot fail.
  */
 
-import { Context, Data, Effect, type Exit, type Stream } from "effect";
+import {
+  Context,
+  Data,
+  Effect,
+  type Exit,
+  Schema,
+  type Stream,
+} from "effect";
 import type { MessageParts } from "@moltzap/protocol/message";
 import {
   LinkController,
@@ -17,7 +24,7 @@ import {
 import { RuntimeCompleted, defineRuntime } from "./runtime/runtime.js";
 import type { LedgerStorage } from "./ledger/storage.js";
 import { simulator } from "./definition.js";
-import type { SimulatorRunOptions } from "./kernel/run.js";
+import type { ProgramFinished, SimulatorRunOptions } from "./kernel/run.js";
 
 class RuntimeRequirement extends Context.Tag(
   "@moltzap/simulator/test/RuntimeRequirement",
@@ -31,8 +38,17 @@ class RuntimeUnavailable extends Data.TaggedError("RuntimeUnavailable")<{
   readonly detail: string;
 }> {}
 
-const runtime = defineRuntime<RuntimeUnavailable, RuntimeRequirement>({
+const RuntimeConfiguration = Schema.Struct({});
+const runtime = defineRuntime<
+  RuntimeUnavailable,
+  RuntimeRequirement,
+  typeof RuntimeConfiguration
+>({
   name: "type-canary",
+  configuration: {
+    schema: RuntimeConfiguration,
+    value: {},
+  },
   acquire: () =>
     Effect.gen(function* () {
       yield* RuntimeRequirement;
@@ -67,7 +83,11 @@ export const definitionCanaryRun = society.run(roster, program);
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 type ExitSuccess<Outcome> =
-  Outcome extends Exit.Success<infer Success, unknown> ? Success : never;
+  Outcome extends Exit.Exit<infer Success, infer _Failure> ? Success : never;
+type ProgramExit<Outcome> =
+  Outcome extends ProgramFinished<infer Success, infer Failure>
+    ? Exit.Exit<Success, Failure>
+    : never;
 
 type RunRequirementsAreExact = Expect<
   Equal<
@@ -81,7 +101,9 @@ type RunRequirementsAreExact = Expect<
 >;
 type ResultKeepsLiteralNames = Expect<
   Equal<
-    ExitSuccess<Effect.Effect.Success<typeof definitionCanaryRun>["exit"]>,
+    ExitSuccess<
+      ProgramExit<Effect.Effect.Success<typeof definitionCanaryRun>>
+    >,
     readonly ["alice", "probe"]
   >
 >;

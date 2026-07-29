@@ -1,6 +1,7 @@
 /** @file Scoped OpenClaw runtime. */
 
 import type { FileSystem, Path } from "@effect/platform";
+import { createHash } from "node:crypto";
 import type {
   CommandExecutor,
   ExitCode,
@@ -12,7 +13,7 @@ import {
   type AgentRuntimeInput,
   type RunningAgent,
 } from "../runtime.js";
-import { Cause, Duration, Effect, type Scope } from "effect";
+import { Cause, Duration, Effect, Schema, type Scope } from "effect";
 import { resolveInstallMode, type InstallMode } from "../packages.js";
 import {
   acquireOpenClawProcess,
@@ -43,6 +44,54 @@ interface OpenClawMcpServer {
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
 }
+
+const ConfigurationDigest = Schema.String.pipe(
+  Schema.pattern(/^[\da-f]{64}$/u),
+  Schema.brand("OpenClawConfigurationDigest"),
+);
+
+class OpenClawWorkspaceFileConfiguration extends Schema.Class<OpenClawWorkspaceFileConfiguration>(
+  "OpenClawWorkspaceFileConfiguration",
+)({
+  relativePath: Schema.String,
+  contentDigest: ConfigurationDigest,
+  redacted: Schema.Tuple(Schema.Literal("content")),
+}) {}
+
+class OpenClawMcpServerConfiguration extends Schema.Class<OpenClawMcpServerConfiguration>(
+  "OpenClawMcpServerConfiguration",
+)({
+  name: Schema.String,
+  definitionDigest: ConfigurationDigest,
+  redacted: Schema.Tuple(
+    Schema.Literal("command"),
+    Schema.Literal("args"),
+    Schema.Literal("environmentValues"),
+  ),
+}) {}
+
+class OpenClawHostPathConfiguration extends Schema.Class<OpenClawHostPathConfiguration>(
+  "OpenClawHostPathConfiguration",
+)({
+  digest: ConfigurationDigest,
+  redacted: Schema.Tuple(Schema.Literal("path")),
+}) {}
+
+/**
+ * Sanitized definition-time policy and overrides for an OpenClaw runtime.
+ * Acquisition may resolve different host facts from automatic policy.
+ */
+export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeConfiguration>(
+  "OpenClawRuntimeConfiguration",
+)({
+  startupTimeout: Schema.DurationFromMillis,
+  workspaceFiles: Schema.Array(OpenClawWorkspaceFileConfiguration),
+  modelOverride: Schema.optional(Schema.String),
+  installPolicy: Schema.Literal("automatic", "published", "workspace"),
+  openclawBinOverride: Schema.optional(OpenClawHostPathConfiguration),
+  channelDistDirOverride: Schema.optional(OpenClawHostPathConfiguration),
+  mcpServers: Schema.Array(OpenClawMcpServerConfiguration),
+}) {}
 
 /** Configuration captured by one reusable OpenClaw runtime value. */
 export interface OpenClawRuntimeOptions {
@@ -150,6 +199,75 @@ function snapshotOptions(
     ...(openclawBin === undefined ? {} : { openclawBin }),
     ...(channelDistDir === undefined ? {} : { channelDistDir }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
+  });
+}
+
+function digestText(value: string): typeof ConfigurationDigest.Type {
+  return Schema.decodeUnknownSync(ConfigurationDigest)(
+    createHash("sha256").update(value, "utf8").digest("hex"),
+  );
+}
+
+function workspaceConfiguration(
+  files: ReadonlyArray<OpenClawWorkspaceFile>,
+): ReadonlyArray<OpenClawWorkspaceFileConfiguration> {
+  return files.map((file) =>
+    OpenClawWorkspaceFileConfiguration.make({
+      relativePath: file.relativePath,
+      contentDigest: digestText(file.content),
+      redacted: ["content"],
+    }),
+  );
+}
+
+function mcpServerDefinition(server: OpenClawMcpServer): string {
+  return JSON.stringify({
+    name: server.name,
+    command: server.command,
+    args: server.args,
+    environmentKeys: Object.keys(server.env).sort(),
+  });
+}
+
+function mcpConfiguration(
+  servers: ReadonlyArray<OpenClawMcpServer> | undefined,
+): ReadonlyArray<OpenClawMcpServerConfiguration> {
+  return (servers ?? []).map((server) =>
+    OpenClawMcpServerConfiguration.make({
+      name: server.name,
+      definitionDigest: digestText(mcpServerDefinition(server)),
+      redacted: ["command", "args", "environmentValues"],
+    }),
+  );
+}
+
+function runtimeConfiguration(
+  settings: OpenClawRuntimeSettings,
+): OpenClawRuntimeConfiguration {
+  return OpenClawRuntimeConfiguration.make({
+    startupTimeout: settings.startupTimeout,
+    workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
+    installPolicy: settings.installMode ?? "automatic",
+    mcpServers: mcpConfiguration(settings.mcpServers),
+    ...(settings.modelId === undefined
+      ? {}
+      : { modelOverride: settings.modelId }),
+    ...(settings.openclawBin === undefined
+      ? {}
+      : {
+          openclawBinOverride: OpenClawHostPathConfiguration.make({
+            digest: digestText(settings.openclawBin),
+            redacted: ["path"],
+          }),
+        }),
+    ...(settings.channelDistDir === undefined
+      ? {}
+      : {
+          channelDistDirOverride: OpenClawHostPathConfiguration.make({
+            digest: digestText(settings.channelDistDir),
+            redacted: ["path"],
+          }),
+        }),
   });
 }
 
@@ -306,10 +424,18 @@ export function makeOpenClawRuntimeWith<
 >(
   options: OpenClawRuntimeOptions,
   driver: OpenClawRuntimeDriver<Session, WaitFailure, Requirements>,
-): AgentRuntime<OpenClawRuntimeAcquisitionError, Requirements> {
+): AgentRuntime<
+  OpenClawRuntimeAcquisitionError,
+  Requirements,
+  typeof OpenClawRuntimeConfiguration
+> {
   const settings = snapshotOptions(options);
-  return defineRuntime<OpenClawRuntimeAcquisitionError, Requirements>({
+  return defineRuntime({
     name: OPENCLAW_RUNTIME_NAME,
+    configuration: {
+      schema: OpenClawRuntimeConfiguration,
+      value: runtimeConfiguration(settings),
+    },
     acquire: (input) => acquireOpenClawRuntime(settings, driver, input),
   });
 }
@@ -322,6 +448,10 @@ export function makeOpenClawRuntimeWith<
  */
 export function openClawRuntime(
   options: OpenClawRuntimeOptions = {},
-): AgentRuntime<OpenClawRuntimeAcquisitionError, OpenClawHostServices> {
+): AgentRuntime<
+  OpenClawRuntimeAcquisitionError,
+  OpenClawHostServices,
+  typeof OpenClawRuntimeConfiguration
+> {
   return makeOpenClawRuntimeWith(options, nativeOpenClawDriver);
 }

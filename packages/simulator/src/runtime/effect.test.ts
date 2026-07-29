@@ -14,7 +14,15 @@ import {
   redactedAgentKey,
   taskId,
 } from "@moltzap/protocol/testing";
-import { Deferred, Duration, Effect, Fiber, Option, Stream } from "effect";
+import {
+  Deferred,
+  Duration,
+  Effect,
+  Fiber,
+  Option,
+  Schema,
+  Stream,
+} from "effect";
 import { vi } from "vitest";
 import { effectRuntime, type EffectMessageContext } from "./effect.js";
 
@@ -122,6 +130,21 @@ function connection(
       }),
   };
 }
+
+it("publishes definition-time policy without exposing the handler", () => {
+  const runtime = effectRuntime({
+    startupTimeout: STARTUP_TIMEOUT,
+    onMessage: () => Effect.succeed("pong"),
+  });
+  const encoded = Schema.encodeSync(runtime.configuration.schema)(
+    runtime.configuration.value,
+  );
+
+  expect(encoded).toStrictEqual({
+    startupTimeout: Duration.toMillis(STARTUP_TIMEOUT),
+    messageHandlerPolicy: "custom",
+  });
+});
 
 // @agent-code-guard/regression-only: controlled client lifecycles expose protocol routing, termination, and scope cleanup order directly
 it.effect("uses the wire protocol for readiness, delivery, and replies", () =>

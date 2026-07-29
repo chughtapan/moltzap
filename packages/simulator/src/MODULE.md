@@ -86,7 +86,7 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
 
 A roster runtime process terminated because it received a signal.
 
-### [`AgentRoster`](./runtime/roster.ts#L62)
+### [`AgentRoster`](./runtime/roster.ts#L68)
 
 _Interface_
 
@@ -161,7 +161,7 @@ export class AgentRoster<
 A roster is both the keyed runtime definition and the owner of the exact
 handles service used by the experiment Effect.
 
-### [`AgentRosterAcquisitionError`](./runtime/roster.ts#L33)
+### [`AgentRosterAcquisitionError`](./runtime/roster.ts#L40)
 
 _TypeAlias_
 
@@ -173,7 +173,7 @@ export type AgentRosterAcquisitionError<
 
 Represents agent roster acquisition error conditions.
 
-### [`AgentRosterRequirements`](./runtime/roster.ts#L38)
+### [`AgentRosterRequirements`](./runtime/roster.ts#L45)
 
 _TypeAlias_
 
@@ -185,12 +185,29 @@ export type AgentRosterRequirements<
 
 The union of every heterogeneous runtime's Effect requirements.
 
-### [`AgentRuntime`](./runtime/runtime.ts#L84)
+### [`AgentRuntime`](./runtime/runtime.ts#L112)
 
 _Interface_
 
 ```ts
-export interface AgentRuntime<AcquisitionError = never, Requirements = never>
+export interface AgentRuntime<
+  AcquisitionError = never,
+  Requirements = never,
+  ConfigurationSchema extends
+    Schema.Schema.AnyNoContext = Schema.Schema.AnyNoContext,
+> extends AgentRuntimeDefinition<
+    AcquisitionError,
+    Requirements,
+    ConfigurationSchema
+  > {
+  readonly [AgentRuntimeTypeId]: typeof AgentRuntimeTypeId;
+  readonly [RuntimeConfigurationProjectionTypeId]: JsonValueType;
+  readonly [AgentRuntimeTypesTypeId]: AgentRuntimeTypes<
+    AcquisitionError,
+    Requirements,
+    ConfigurationSchema
+  >;
+}
 ```
 
 A runtime definition accepted by keyed society rosters.
@@ -212,7 +229,7 @@ export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeComple
 
 An autonomous runtime completed normally.
 
-### [`AgentRuntimeDefinition`](./runtime/runtime.ts#L73)
+### [`AgentRuntimeDefinition`](./runtime/runtime.ts#L98)
 
 _Interface_
 
@@ -220,8 +237,11 @@ _Interface_
 export interface AgentRuntimeDefinition<
   AcquisitionError = never,
   Requirements = never,
+  ConfigurationSchema extends
+    Schema.Schema.AnyNoContext = Schema.Schema.AnyNoContext,
 > {
   readonly name: string;
+  readonly configuration: AgentRuntimeConfiguration<ConfigurationSchema>;
   acquire<Name extends string>(
     input: AgentRuntimeInput<Name>,
   ): Effect.Effect<RunningAgent, AcquisitionError, Scope.Scope | Requirements>;
@@ -232,7 +252,7 @@ Scoped acquisition returns only after the runtime is ready. Implementations
 own runtime-specific configuration and startup deadlines in their
 constructors and register teardown in the acquisition Scope.
 
-### [`AgentRuntimeDefinitionError`](./runtime/runtime.ts#L11)
+### [`AgentRuntimeDefinitionError`](./runtime/runtime.ts#L28)
 
 _Class_
 
@@ -265,7 +285,7 @@ export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()
 
 An autonomous runtime completed with a recorded failure.
 
-### [`AgentRuntimeInput`](./runtime/runtime.ts#L64)
+### [`AgentRuntimeInput`](./runtime/runtime.ts#L81)
 
 _Interface_
 
@@ -311,7 +331,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`AgentsService`](./runtime/roster.ts#L50)
+### [`AgentsService`](./runtime/roster.ts#L56)
 
 _Interface_
 
@@ -327,7 +347,23 @@ export interface AgentsService<
 
 Describes agents service.
 
-### [`ConversationAddress`](./network/conversation.ts#L39)
+### [`CompletedLedgerReceipt`](./kernel/run.ts#L61)
+
+_Class_
+
+```ts
+export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerReceipt>()(
+  "CompletedLedgerReceipt",
+  {
+    ledger: LedgerRef,
+    completion: LedgerCompletion,
+  },
+) {}
+```
+
+Physical receipt for a ledger whose completion marker is durable.
+
+### [`ConversationAddress`](./network/conversation.ts#L40)
 
 _Class_
 
@@ -505,14 +541,22 @@ export interface CustomerEvents<Catalog extends AnyEventCatalog> {
 
 Definition-bound emission of customer-owned event classes only.
 
-### [`defineRuntime`](./runtime/runtime.ts#L103)
+### [`defineRuntime`](./runtime/runtime.ts#L215)
 
 _Function_
 
 ```ts
-export function defineRuntime<AcquisitionError, Requirements>(
-  runtime: AgentRuntimeDefinition<AcquisitionError, Requirements>,
-): AgentRuntime<AcquisitionError, Requirements>
+export function defineRuntime<
+  AcquisitionError,
+  Requirements,
+  ConfigurationSchema extends Schema.Schema.AnyNoContext,
+>(
+  runtime: AgentRuntimeDefinition<
+    AcquisitionError,
+    Requirements,
+    ConfigurationSchema
+  >,
+): AgentRuntime<AcquisitionError, Requirements, ConfigurationSchema>
 ```
 
 Preserve inferred attachment, error, and requirement types.
@@ -543,14 +587,18 @@ export type EffectMessageReply = string | MessageParts;
 
 A message handler reply containing text or structured parts.
 
-### [`effectRuntime`](./runtime/effect.ts#L249)
+### [`effectRuntime`](./runtime/effect.ts#L258)
 
 _Function_
 
 ```ts
 export function effectRuntime<E = never, R = never>(
   options: EffectRuntimeOptions<E, R> = {},
-): AgentRuntime<EffectRuntimeStartFailed, R>
+): AgentRuntime<
+  EffectRuntimeStartFailed,
+  R,
+  typeof EffectRuntimeConfiguration
+>
 ```
 
 Create a scoped in-process agent that communicates exclusively through the
@@ -955,6 +1003,21 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
+### [`IncompleteLedgerReceipt`](./kernel/run.ts#L70)
+
+_Class_
+
+```ts
+export class IncompleteLedgerReceipt extends Schema.TaggedClass<IncompleteLedgerReceipt>()(
+  "IncompleteLedgerReceipt",
+  {
+    ledger: LedgerRef,
+  },
+) {}
+```
+
+Physical receipt retained when ledger completion could not be published.
+
 ### [`InstallMode`](./runtime/packages.ts#L533)
 
 _TypeAlias_
@@ -977,6 +1040,28 @@ export type LedgerFailure =
 ```
 
 Represents ledger failure conditions.
+
+### [`LedgerReceipt`](./kernel/run.ts#L78)
+
+_TypeAlias_
+
+```ts
+export const LedgerReceipt = Schema.Union(
+  CompletedLedgerReceipt,
+  IncompleteLedgerReceipt,
+);
+```
+
+### [`LedgerReceipt`](./kernel/run.ts#L78)
+
+_Variable_
+
+```ts
+export const LedgerReceipt = Schema.Union(
+  CompletedLedgerReceipt,
+  IncompleteLedgerReceipt,
+)
+```
 
 ### [`LinkController`](./network/link.ts#L49)
 
@@ -1048,14 +1133,18 @@ export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
 
 Nonempty protocol message content.
 
-### [`nanoclawRuntime`](./runtime/nanoclaw/runtime.ts#L357)
+### [`nanoclawRuntime`](./runtime/nanoclaw/runtime.ts#L455)
 
 _Function_
 
 ```ts
 export function nanoclawRuntime(
   options: NanoclawRuntimeOptions = {},
-): AgentRuntime<NanoclawRuntimeAcquisitionError, NanoclawHostServices>
+): AgentRuntime<
+  NanoclawRuntimeAcquisitionError,
+  NanoclawHostServices,
+  typeof NanoclawRuntimeConfiguration
+>
 ```
 
 Construct a NanoClaw runtime that binds each roster identity to one
@@ -1063,7 +1152,7 @@ scoped container-backed process and waits for router-visible readiness.
 
 **Returns:** The nanoclaw runtime result.
 
-### [`NanoclawRuntimeAcquisitionError`](./runtime/nanoclaw/runtime.ts#L119)
+### [`NanoclawRuntimeAcquisitionError`](./runtime/nanoclaw/runtime.ts#L160)
 
 _TypeAlias_
 
@@ -1073,7 +1162,7 @@ export type NanoclawRuntimeAcquisitionError = RuntimeAcquisitionFailed;
 
 Failure returned when NanoClaw cannot become router-visible.
 
-### [`NanoclawRuntimeOptions`](./runtime/nanoclaw/runtime.ts#L51)
+### [`NanoclawRuntimeOptions`](./runtime/nanoclaw/runtime.ts#L92)
 
 _Interface_
 
@@ -1144,14 +1233,18 @@ export interface NetworkService {
 
 Controlled endpoint operations installed for one run scope.
 
-### [`openClawRuntime`](./runtime/openclaw/runtime.ts#L323)
+### [`openClawRuntime`](./runtime/openclaw/runtime.ts#L444)
 
 _Function_
 
 ```ts
 export function openClawRuntime(
   options: OpenClawRuntimeOptions = {},
-): AgentRuntime<OpenClawRuntimeAcquisitionError, OpenClawHostServices>
+): AgentRuntime<
+  OpenClawRuntimeAcquisitionError,
+  OpenClawHostServices,
+  typeof OpenClawRuntimeConfiguration
+>
 ```
 
 Construct an OpenClaw runtime that binds each roster identity to one
@@ -1159,7 +1252,7 @@ scoped gateway process and waits for router-visible readiness.
 
 **Returns:** The open claw runtime result.
 
-### [`OpenClawRuntimeAcquisitionError`](./runtime/openclaw/runtime.ts#L94)
+### [`OpenClawRuntimeAcquisitionError`](./runtime/openclaw/runtime.ts#L143)
 
 _TypeAlias_
 
@@ -1169,7 +1262,7 @@ export type OpenClawRuntimeAcquisitionError = RuntimeAcquisitionFailed;
 
 Failure returned when OpenClaw cannot become router-visible.
 
-### [`OpenClawRuntimeOptions`](./runtime/openclaw/runtime.ts#L48)
+### [`OpenClawRuntimeOptions`](./runtime/openclaw/runtime.ts#L97)
 
 _Interface_
 
@@ -1230,6 +1323,19 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
+### [`ProgramFinished`](./kernel/run.ts#L85)
+
+_Class_
+
+```ts
+export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
+  readonly exit: Exit.Exit<A, E>;
+  readonly receipt: CompletedLedgerReceipt;
+}> {}
+```
+
+Customer-program completion plus its complete durable evidence.
+
 ### [`ProgramInterrupted`](./events/core.ts#L184)
 
 _Class_
@@ -1275,7 +1381,7 @@ export interface ReadableRunLedger<Catalog extends AnyEventCatalog> {
 
 Definition-bound read access to every committed core and customer event.
 
-### [`ReceivedMessage`](./network/router.ts#L77)
+### [`ReceivedMessage`](./network/router.ts#L72)
 
 _Interface_
 
@@ -1349,7 +1455,22 @@ export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
 
 Router release or stopped-router evidence collection failed.
 
-### [`RunningAgent`](./runtime/runtime.ts#L59)
+### [`RunInfrastructureFailed`](./kernel/run.ts#L91)
+
+_Class_
+
+```ts
+export class RunInfrastructureFailed<
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+> extends Data.TaggedClass("RunInfrastructureFailed")<{
+  readonly cause: Cause.Cause<SimulatorRunFailure<Definitions>>;
+  readonly receipt: LedgerReceipt;
+}> {}
+```
+
+Post-allocation infrastructure failure plus all durable evidence retained.
+
+### [`RunningAgent`](./runtime/runtime.ts#L76)
 
 _Interface_
 
@@ -1398,7 +1519,7 @@ export class RuntimeAcquisitionFailed extends Schema.TaggedError<RuntimeAcquisit
 
 An external runtime did not become a ready participant.
 
-### [`RuntimeCompleted`](./runtime/runtime.ts#L19)
+### [`RuntimeCompleted`](./runtime/runtime.ts#L36)
 
 _Class_
 
@@ -1411,7 +1532,19 @@ export class RuntimeCompleted extends Schema.TaggedClass<RuntimeCompleted>()(
 
 An autonomous runtime completed normally.
 
-### [`RuntimeExited`](./runtime/runtime.ts#L33)
+### [`runtimeConfigurationProjection`](./runtime/runtime.ts#L208)
+
+_Function_
+
+```ts
+export function runtimeConfigurationProjection(
+  runtime: AgentRuntimeLike,
+): JsonValueType
+```
+
+Encode-free projection used by the kernel after definition validation.
+
+### [`RuntimeExited`](./runtime/runtime.ts#L50)
 
 _Class_
 
@@ -1426,7 +1559,7 @@ export class RuntimeExited extends Schema.TaggedClass<RuntimeExited>()(
 
 A runtime process exited with an operating-system exit code.
 
-### [`RuntimeFailed`](./runtime/runtime.ts#L25)
+### [`RuntimeFailed`](./runtime/runtime.ts#L42)
 
 _Class_
 
@@ -1441,7 +1574,7 @@ export class RuntimeFailed extends Schema.TaggedClass<RuntimeFailed>()(
 
 An autonomous runtime completed with a recorded failure.
 
-### [`RuntimeSignaled`](./runtime/runtime.ts#L41)
+### [`RuntimeSignaled`](./runtime/runtime.ts#L58)
 
 _Class_
 
@@ -1456,7 +1589,7 @@ export class RuntimeSignaled extends Schema.TaggedClass<RuntimeSignaled>()(
 
 A runtime process terminated in response to an operating-system signal.
 
-### [`RuntimeTermination`](./runtime/runtime.ts#L49)
+### [`RuntimeTermination`](./runtime/runtime.ts#L66)
 
 _TypeAlias_
 
@@ -1573,7 +1706,7 @@ export interface SimulatorLayerOptions {
 
 Host configuration shared by every run provided with this Layer.
 
-### [`SimulatorRunFailure`](./kernel/run.ts#L78)
+### [`SimulatorRunFailure`](./kernel/run.ts#L105)
 
 _TypeAlias_
 
@@ -1585,7 +1718,7 @@ export type SimulatorRunFailure<
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOptions`](./kernel/run.ts#L65)
+### [`SimulatorRunOptions`](./kernel/run.ts#L55)
 
 _Interface_
 
@@ -1598,21 +1731,21 @@ export interface SimulatorRunOptions {
 
 Optional run metadata; platform and runtime policy belong in Layers.
 
-### [`SimulatorRunResult`](./kernel/run.ts#L71)
+### [`SimulatorRunOutcome`](./kernel/run.ts#L99)
 
-_Interface_
+_TypeAlias_
 
 ```ts
-export interface SimulatorRunResult<A, E> {
-  readonly exit: Exit.Exit<A, E>;
-  readonly ledger: LedgerRef;
-  readonly completion: LedgerCompletion;
-}
+export type SimulatorRunOutcome<
+  A,
+  E,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+> = ProgramFinished<A, E> | RunInfrastructureFailed<Definitions>;
 ```
 
-The program Exit plus the durable ledger that proves the run.
+Closed result of every run whose ledger allocation succeeded.
 
-### [`StartedAgentHandles`](./runtime/roster.ts#L43)
+### [`StartedAgentHandles`](./runtime/roster.ts#L50)
 
 _TypeAlias_
 
