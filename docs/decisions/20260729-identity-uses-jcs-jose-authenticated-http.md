@@ -79,7 +79,11 @@ scheme. Deployment supplies transport protection where its threat model
 requires confidentiality or ingress integrity. In particular, a
 deployment carrying a registration admission credential protects that
 credential before traffic reaches Registry. HTTP message signatures
-authenticate and bind requests; they do not encrypt plaintext.
+authenticate and bind requests; they do not encrypt plaintext or
+authenticate unsigned responses. Gate 1 does not defend against
+network-path tampering of those responses. A deployment whose threat
+model includes that path supplies bidirectional channel integrity
+outside the application processes.
 
 ### Guarantee
 
@@ -106,10 +110,11 @@ representations remain outside this decision.
 
 ## Consequences
 
-X.509, deterministic CBOR, COSE, MessagePack, and a custom standards
-stack are non-current alternatives. Registry stores and returns exact
-canonical AgentCards. Router can validate and route SignedMessage
-values while remaining blind to their body. Deployments remain free to
-use loopback, container networking, a sidecar, a proxy, or another
-transport-security boundary without changing the MoltZap application
-contract.
+For L1 artifacts and Registry or Router HTTP representations, X.509,
+deterministic CBOR, COSE, MessagePack, and a custom standards stack are
+non-current alternatives. This decision does not replace the retained
+L3 representation. Registry stores and returns exact canonical
+AgentCards. Router can validate and route SignedMessage values while
+remaining blind to their body. Deployments remain free to use loopback,
+container networking, a sidecar, a proxy, or another transport-security
+boundary without changing the MoltZap application contract.

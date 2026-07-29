@@ -37,6 +37,13 @@ Endpoints may be Byzantine. L2 prevents one accepted send from becoming
 different bytes or a different relative position for different
 recipients. It does not judge the opaque body.
 
+The L2 ordering guarantee assumes an endpoint receives the correct
+Router response without network-path modification. Router responses
+are unsigned, so Gate 1 does not defend against a path attacker that
+reorders a batch or substitutes response fields. A deployment whose
+threat model includes that path supplies channel integrity outside the
+Router application.
+
 ## Operations
 
 The Router exposes:
@@ -107,11 +114,18 @@ One process instance owns:
 - one random RouterInstanceId;
 - one random 256-bit PollCursor key;
 - one private monotonically increasing bigint order;
+- one private greatest-evicted order;
 - one count-and-byte-bounded global ring;
 - one retry index coupled to retained ring entries;
 - one bounded accepted-nonce set;
 - one bounded positive AgentCard cache; and
 - request-scoped poll waiters grouped by AgentId.
+
+Private order `0` is the empty-tail sentinel. The first accepted
+SignedMessage receives order `1`; each later accepted message increments
+the private order by one within that process instance. The
+greatest-evicted order starts at `0` and advances to each evicted
+entry's order.
 
 Each ring entry stores one exact encoded SignedMessage, its verified
 recipient set, SignedMessageDigest, private order, and retry identity.
@@ -201,10 +215,11 @@ future private order, noncanonical order text, or a cursor from a
 previous process key returns only `cursor_invalid`. It does not reveal
 the current instance.
 
-A valid current-instance cursor whose scan boundary is older than the
-global eviction floor returns `feed_gap` with the current instance and
-no partial batch. Unrelated traffic may cause this conservative result
-because the Router keeps no per-recipient retention index.
+A valid current-instance cursor returns `feed_gap` exactly when its
+last scanned order is less than the greatest-evicted order. Equality is
+safe. The result contains the current instance and no partial batch.
+Unrelated traffic may cause this conservative result because the Router
+keeps no per-recipient retention index.
 
 ## Feed gap and restart recovery
 
@@ -256,9 +271,24 @@ A deployment configures finite:
 The representation depth bound and 25-second poll hold are fixed Gate 1
 values, not deployment configuration.
 
-Exceeding a bound yields a closed refusal, overload response, or
-`feed_gap`. Router does not partially decode, silently truncate, or
-evict an accepted unexpired nonce.
+Router maps each finite bound exactly:
+
+| Condition | Outcome |
+|---|---|
+| HTTP request body exceeds the route bound | 413 `payload_too_large` before authentication or domain handling |
+| request queue, early concurrency, held-poll, per-AgentId held-poll, live-nonce, or Registry-lookup capacity is unavailable | 429 `overloaded` |
+| post-authentication complete SignedMessage, opaque body, or recipient count exceeds its bound | 200 `message_invalid` |
+| a positive AgentCard cache insertion exceeds capacity | evict the least-recently-used positive entry |
+| an uncached required Registry lookup is unavailable or times out | 503 `unavailable` |
+| an accepted append exceeds feed count or byte retention | evict oldest entries until both bounds hold and advance greatest-evicted order |
+| continuation reaches poll message-count or response-byte capacity | return the bounded prefix and a cursor at the last scanned order; do not skip the first addressed message that did not fit |
+| an unexpected implementation failure occurs | 500 `internal` |
+
+Cross-field configuration ensures one accepted SignedMessage and its
+response envelope can fit the feed and one-message poll bounds. Router
+does not partially decode, silently truncate an artifact, or evict an
+accepted unexpired nonce. A novel nonce refused for capacity is not
+claimed.
 
 Nonce replay rejection is scoped to the current Router instance.
 Across restart, an old send remains fenced by expected

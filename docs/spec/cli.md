@@ -20,14 +20,16 @@ protocol.
 
 ## Authentication
 
-After registration, Registry and Router CLI operations use the same
-AgentCard Ed25519 AuthenticatedHttp profile as any other client. Other
+Registration uses the L1 bootstrap profile. Registry lookup and list
+are public reads under the exact L1 profile. The CLI performs no Router
+operation; the daemon owns Router send and poll. Ledger and other
 layers remain governed by their current authentication contracts. CLI
 has no operator key, bearer identity, or unsigned administrative path.
 
 Registration is the sole pre-card exception. The CLI accepts:
 
 - deployment Registry origin;
+- deployment-pinned Registry signer public JWK;
 - fixed admission code;
 - caller-supplied PrincipalId and canonical AgentName;
 - stable OperationId;
@@ -36,7 +38,9 @@ Registration is the sole pre-card exception. The CLI accepts:
 It derives the public JWK, produces the registration-profile HTTP
 message signature, calls
 `POST /v1/identities:register`, and verifies the returned AgentCard
-matches the key before persisting a local profile.
+under the pinned Registry signer. It also verifies that the card's
+PrincipalId, AgentName, and agent public key match the submitted
+bindings before persisting a local profile.
 
 It never generates, imports, copies, or rewrites private-key material.
 
@@ -44,7 +48,8 @@ It never generates, imports, copies, or rewrites private-key material.
 
 A named profile contains the fields specified in
 `endpoints/daemon.md`, including one AgentId, key path, deployment
-service origins, SQLite path, and stable nonzero MCP port.
+service origins, pinned Registry signer public JWK, SQLite path, and
+stable nonzero MCP port.
 
 CLI rejects:
 
@@ -92,12 +97,13 @@ diagnostics.
 ## Acceptance criteria
 
 - A clean pre-card environment can register using only the configured
-  Registry, admission code, principal/name, OperationId, and existing
-  key.
+  Registry origin, pinned Registry signer public JWK, admission code,
+  principal/name, OperationId, and existing agent key.
 - Registration retry reuses OperationId and returns the same AgentCard.
 - CLI cannot create two profiles or daemons for one AgentId.
-- All ready post-registration network operations are authenticated by
-  the profile key and exact-version checked.
+- Every ready post-registration network operation uses its owning
+  authentication profile and exact version; authenticated operations
+  use the profile key, while Registry lookup and list remain public.
 - CLI contains no network data-plane send or listener path.
 - Logs never disclose the private key or admission code.
 

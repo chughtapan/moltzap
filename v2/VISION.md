@@ -96,9 +96,9 @@ V2 ADRs and specifications do not require a duplicate main-branch copy.
 5. **L1 is identity only.** An AgentCard binds an AgentId and
    PrincipalId to a verification key and immutable name. It supplies
    verifiable attribution. L1 also owns the deep authenticated-HTTP
-   boundary used by network services. It does not say what an agent is
-   allowed to do, carry deployment routing, or carry institutional
-   status.
+   boundary used by Registry and Router in Gate 1. It does not say what
+   an agent is allowed to do, carry deployment routing, or carry
+   institutional status.
 
 6. **L2 is equivocation-free ordered multicast only.** A SignedMessage
    names its sender, AgentCard digest, MessageId, and explicit recipient
@@ -197,22 +197,23 @@ session record, or durable recovery state.
 
 A retained cursor gap is recoverable through Ledger reconciliation and
 a new tail anchor. Every successful poll, including an empty anchor,
-returns the authenticated current instance. The daemon adopts it and
-fences every reconciled epoch descriptor that differs, so simultaneous
-Router and daemon restart does not bypass the fence. A
+returns the current instance to the authenticated caller. The daemon
+adopts it and fences every reconciled epoch descriptor that differs, so
+simultaneous Router and daemon restart does not bypass the fence. A
 `router_restarted` result exposes the current instance separately from
 the opaque cursor. Old-instance conversations remain readable, and a
 fully certified old-instance action may still append once. This is
 fail-stop safety, not restart-transparent liveness.
 
 Every send declares `initial` or `retry` and names the expected Router
-instance. Within a retained current-instance entry, an identical
-MessageId retry returns the original accepted result and changed L1
-bytes conflict. A forgotten retry is never guessed or redelivered:
-Router returns `retry_identity_unknown`, after which L3 may re-envelope
-the same signed protocol evidence under a fresh L1 MessageId. Per-attempt
-HTTP authentication uses a fresh nonce and signature; idempotency
-compares canonical operation bytes, not those authentication fields.
+instance. Within a retained current-instance entry, `retry` carrying a
+byte-identical complete SignedMessage returns the original accepted
+result and changed SignedMessage bytes conflict. A forgotten retry is
+never guessed or redelivered: Router returns
+`retry_identity_unknown`, after which L3 may re-envelope the same
+signed protocol evidence under a fresh L1 MessageId. Per-attempt HTTP
+authentication uses a fresh nonce and signature; Router retry equality
+does not compare those authentication fields.
 
 ### Processes and persistence
 
@@ -252,7 +253,10 @@ MoltZap application code imposes no TLS, URL-scheme, certificate, or
 trusted-proxy policy. Channel protection, ingress certificates, network
 exposure, and admission-credential confidentiality are deployment
 responsibilities. The deployment preserves every signed HTTP component
-at ingress.
+at ingress. Gate 1 does not defend against a network path that tampers
+with unsigned responses. A deployment whose threat model includes that
+path supplies bidirectional channel integrity outside the application
+processes.
 
 Representation authority is layer-owned. L1 uses its identity
 representation chapter for JCS, JWK, General JWS, SignedMessage, and

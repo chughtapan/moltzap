@@ -68,7 +68,10 @@ record, or server-side poll advancement.
 - A deployment that carries a registration admission credential must
   protect it in transit before traffic reaches the Registry process.
   HTTP message signatures authenticate and bind a request; they do not
-  make plaintext confidential.
+  make plaintext confidential or authenticate unsigned responses.
+- Gate 1 does not defend against network-path response tampering. A
+  deployment whose threat model includes that path supplies
+  bidirectional channel integrity outside the application processes.
 - Application listeners default to loopback. Container deployments may
   explicitly bind `0.0.0.0`.
 - Publishing, deployment, cutover, and v1 retirement remain out of
@@ -316,10 +319,78 @@ The implementation follows these rules in every slice:
 
 - Private Effect Schema refinements construct semantic values.
 - Each public concept has one validator and one vocabulary term.
+- Every closed struct boundary decodes with
+  `onExcessProperty: "error"`; defining a `Schema.Struct` without that
+  parse option is not treated as closed validation.
 - Distinct identifiers and digests remain distinctly branded through
   every internal and public signature.
 - Runtime data is decoded at network, environment, SQL, persistence,
   and package boundaries.
+- Registry and Router declare each domain operation once as a private
+  `@effect/rpc` `RpcGroup` over the route-owned request, success, and
+  failure schemas used by their public capabilities. Each member
+  declares its success schema, closed operation-level server-error
+  schema, and ordered
+  `RpcMiddleware` requirements.
+- Authentication middleware consumes the nominal proof produced by
+  AuthenticatedHttp and provides verified request context to the
+  handler. Registration has its distinct verified bootstrap context;
+  public Registry reads have no authentication requirement. A
+  layer-local capability requirement may be middleware only when its
+  failure belongs in the operation's typed error channel. Router never
+  gains conversation, membership, task, norm, or policy requirements.
+  Required authentication and held-poll middleware is never optional.
+- Each operation-level server-error schema contains every closed HTTP
+  failure that its fixed client call can receive, including failures
+  produced before private RPC dispatch and the closed status 500
+  response. Native Effect RPC error schemas add each declared
+  middleware failure. Handler and middleware failures travel from the
+  server `E` channel to the corresponding client `E` channel; the
+  client adapter converts an earlier server-envelope response into the
+  same declared operation `E`. Closed domain refusals such as
+  `name_taken`,
+  `message_invalid`, and `router_restarted` remain values in the
+  success result union.
+- Connection and timeout failures remain distinct typed client
+  transport errors. A response that has an invalid status/body pairing,
+  fails its exact schema, or fails required Registry response binding
+  or AgentCard verification is a separate typed client response error.
+  Its exact public type name remains blocked on the vocabulary gate.
+- Requirement order means execution order: authenticated context,
+  then any layer-local capability, then the handler. Effect RPC 0.76
+  wraps later-attached middleware around earlier-attached middleware,
+  so one tiny private composer attaches an operation's declared
+  requirements right-to-left. A test pins execution and
+  short-circuiting; the ordering is not left to incidental `Set`
+  iteration at each call site.
+- `RpcGroup.toLayer` composes handlers. The production adapters use
+  `RpcServer.makeNoSerialization` and `RpcClient.makeNoSerialization`
+  so native middleware execution, schema correlation, and typed exits
+  are retained while the adapters map each call to its exact
+  layer-owned HTTP route. `RpcTest.makeClient` exercises the same group
+  in process.
+- Effect RPC types, tags, request IDs, tracing fields, and
+  serialization envelopes remain private. Production HTTP uses Effect
+  Platform's router and the exact layer-owned routes and bytes; it does
+  not use `RpcServer.layerProtocolHttp`, `/rpc`, NDJSON, JSON-RPC, or
+  `RpcSerialization`. AuthenticatedHttp still owns the normative
+  framing and validation order before an RPC handler can run.
+- On the server, the exact HTTP adapter carries the nominal
+  AuthenticatedHttp proof into private RPC execution as request-local
+  Effect context; the proof is never a body field, header, process
+  cache entry, or client-supplied value. On the client, the exact HTTP
+  adapter maps the private RPC tag to one fixed route and maps the
+  validated response back to that call's private exit. Both adapters
+  preserve the operation's `A` and `E` correlation. The server
+  validates and encodes the public success or failure representation;
+  the client decodes and validates it. No-serialization RPC itself is
+  not treated as a boundary decoder.
+- The v1 transport is a feature reference, not an implementation
+  dependency. V2 retains native middleware gates and typed server
+  failures but does not copy v1's dual client/server RPC definitions,
+  aggregate error reconstruction, method catalog, multiplexing,
+  generic typed dispatcher, or payload re-guards. One native RPC
+  member remains the source of the operation's `A` and `E` types.
 - Secrets use `Schema.Redacted` or an equally explicit redacted type.
 - Expected failures use closed tagged errors or closed result unions.
 - Export barrels are explicit.
@@ -332,6 +403,34 @@ The implementation follows these rules in every slice:
 - Generic public `Id`, `Digest`, `Timestamp`, `Base64Url`, wire,
   serialization, JWS, HTTP-signature, cursor, or database-row APIs do
   not exist.
+
+The Gate 1 operation requirements are:
+
+| Operation | Private RPC middleware execution order |
+|---|---|
+| Registry register | verified bootstrap request context |
+| Registry lookup | none |
+| Registry list | none |
+| Router send | verified agent request context |
+| Router poll | verified agent request context, then one request-scoped held-poll permit |
+
+Health routes remain direct HTTP routes outside the RPC groups.
+The held-poll permit is native `wrap: true` middleware. It enforces both
+the per-AgentId exclusion and global held-poll capacity, fails with the
+closed `overloaded` server error, and releases on success, typed
+failure, defect, interruption, or client cancellation. No other
+capability gate is invented for L1 or L2.
+
+The server HTTP adapter scopes one private `FiberRef` containing the
+nominal AuthenticatedHttp proof around `RpcServer.write`. Handler fibers
+inherit it. The first authenticated middleware reads the proof, checks
+the expected authentication profile, and provides the narrower handler
+context. The `FiberRef` defaults to absent, so a direct or incorrectly
+adapted private call fails closed. Public lookup and list bypass this
+path because their operations deliberately have no authentication
+middleware. Handlers use the context or permit supplied by middleware;
+they do not repeat the authentication, identity lookup, or capacity
+work that obtained it.
 
 The implementation does not carry forward these v1 debt patterns:
 
@@ -369,13 +468,24 @@ Validated constructors used to simplify fixtures remain test-only.
 MoltZap-owned signed JSON uses RFC 8785 JSON Canonicalization Scheme.
 Received signed JSON is:
 
-1. decoded as UTF-8;
-2. parsed as JSON with duplicate-key rejection;
-3. decoded through an exact closed schema;
-4. re-encoded into its logical JSON value;
-5. canonicalized with JCS; and
-6. accepted only when the representation that must be canonical equals
-   the canonical bytes.
+1. bounded and decoded as fatal UTF-8;
+2. parsed as one unknown JSON value through `Schema.parseJson()`;
+3. checked by a private Effect Schema refinement for depth at most 16
+   and well-formed Unicode;
+4. compared byte-for-byte with the JCS encoding of that value; and
+5. decoded through an exact closed schema.
+
+No semantic value escapes before every step succeeds.
+AuthenticatedHttp performs the canonical envelope prelude before
+authentication and the complete route-owned schema decode at its
+specified later stage.
+
+Effect Schema owns parsing failures, structural refinement, and every
+semantic decode. No second JSON parser is used. Although
+`Schema.parseJson()` delegates to native `JSON.parse`, a duplicate
+member cannot survive the mandatory JCS byte comparison: parsing
+collapses it and JCS emits only one member. That same comparison rejects
+noncanonical whitespace, member order, and number spelling.
 
 Canonicalization is an internal identity mechanism. No general-purpose
 JCS or JSON codec is exported.
@@ -569,6 +679,10 @@ the Router domain handler, where failures become `message_invalid` and
 A wrong version after otherwise valid authentication consumes the
 nonce.
 
+An already claimed live nonce is `authentication_failed`. A novel
+nonce presented when the live-nonce store is full returns status 429
+`overloaded`, is not claimed, and never evicts an unexpired nonce.
+
 Public lookup and list skip authentication and replay stages. They
 check route and method, framing and bounds, version, canonical body and
 schema, then the domain handler. The earliest failing stage determines
@@ -597,6 +711,11 @@ driver failures, and secret material do not appear in public errors.
 The Registry is an independent L1 HTTP process. It is the control-plane
 service in this implementation.
 
+Every Registry client receives the deployment-pinned Registry signer
+public JWK. It verifies each returned AgentCard and the register,
+lookup, or list response binding before returning a nominal verified
+domain value.
+
 ### Routes
 
 - `POST /v1/identities:register`
@@ -609,7 +728,8 @@ list are public reads. Health has no domain body.
 
 ### Requests
 
-Registration request:
+Registration inner domain request, placed at `request` inside the
+AuthenticatedHttp registration envelope:
 
 ```json
 {
@@ -691,9 +811,11 @@ The Registry uses Effect SQL with PostgreSQL and owns:
 Startup serializes against the metadata row. A database created for a
 different signer or MoltZap version fails closed.
 
-Registration, idempotency, identity uniqueness, result persistence,
-and nonce claims are atomic. No driver-specific error string crosses
-the repository boundary.
+Nonce claim is a separately committed atomic replay step before
+version, complete schema, and domain handling. Registration then commits
+idempotency, identity uniqueness, the exact card, and the exact result
+in one later transaction. A later refusal does not roll back a claimed
+nonce. No driver-specific error string crosses the repository boundary.
 
 Tests run the same repository and migrations against PGlite through
 its PostgreSQL socket. Real PostgreSQL Testcontainers cover
@@ -733,7 +855,8 @@ local readiness only and does not depend on Registry availability.
 
 ### Send
 
-Request:
+Send inner domain request, placed at `request` inside the normal
+AuthenticatedHttp envelope whose `callerAgentId` is the sender:
 
 ```json
 {
@@ -778,6 +901,10 @@ One Router process instance owns:
 
 - one random 16-byte `RouterInstanceId`;
 - one random 256-bit cursor-encryption key;
+- one private bigint order whose empty-tail sentinel is `0`, whose first
+  accepted entry is `1`, and which increments by one for each later
+  accepted entry;
+- one private greatest-evicted order initialized to `0`;
 - one global count-and-byte-bounded ring containing one copy of each
   accepted SignedMessage;
 - one O(1) retry index whose entries are removed with their ring item;
@@ -839,8 +966,9 @@ that would exceed a batch count or byte bound.
 Tampering, wrong caller, wrong instance, a future order, malformed
 plaintext, a noncanonical decimal, or an old cursor key returns
 `cursor_invalid` without disclosing the current instance. A cursor
-behind global eviction returns conservative `feed_gap` with the current
-instance.
+whose last scanned order is less than the greatest-evicted order
+returns conservative `feed_gap` with the current instance; equality is
+safe.
 
 Long polling uses request-scoped `Deferred` waiters. Cancellation
 removes the waiter. The Router enforces one held poll per AgentId and a
@@ -857,30 +985,30 @@ workspace dependencies stay on the repository's Effect 3.22 family.
 
 Production mechanisms:
 
-| Dependency | Version | Purpose |
-|---|---:|---|
-| `effect` | `3.22.0` | typed effects, services, schemas, concurrency |
-| `jose` | `6.2.4` | General JWS, JWK thumbprints, Compact JWE |
-| `canonicalize` | `3.0.0` | RFC 8785 JCS |
-| `http-message-signatures` | `1.0.6` | RFC 9421 signing and verification |
-| `structured-headers` | `2.0.3` | exact structured-field parsing |
-| `@effect/sql-pg` | `0.53.0` | PostgreSQL implementation for Effect SQL |
-
-The implementation uses the compatible repository versions of
-`@effect/platform`, `@effect/platform-node`, `@effect/sql`, and related
-Effect packages. It verifies the exact resolved versions before
-editing manifests.
+| Dependency | Version | License | Purpose |
+|---|---:|---|---|
+| `effect` | `3.22.0` | MIT | typed effects, services, schemas, concurrency |
+| `@effect/platform` | `0.97.0` | MIT | platform-neutral HTTP capabilities |
+| `@effect/platform-node` | `0.108.0` | MIT | Node HTTP process composition |
+| `@effect/rpc` | `0.76.0` | MIT | private typed operation groups, handlers, and in-process contract clients |
+| `@effect/experimental` | `0.61.0` | MIT | compatible Effect SQL peer |
+| `@effect/sql` | `0.52.0` | MIT | SQL capability, transactions, migrator |
+| `@effect/sql-pg` | `0.53.0` | MIT | PostgreSQL implementation for Effect SQL |
+| `jose` | `6.2.4` | MIT | General JWS, JWK thumbprints, Compact JWE |
+| `canonicalize` | `3.0.0` | Apache-2.0 | RFC 8785 JCS |
+| `http-message-signatures` | `1.0.6` | ISC | RFC 9421 signing and verification |
+| `structured-headers` | `2.0.3` | MIT | exact structured-field parsing |
 
 Test mechanisms:
 
-| Dependency | Version | Purpose |
-|---|---:|---|
-| `vitest` | `3.2.x` | test runner |
-| `@effect/vitest` | compatible Effect 3.22 release | Effect test integration |
-| `fast-check` | compatible existing release | property tests |
-| `@electric-sql/pglite` | `0.4.4` | embedded PostgreSQL engine |
-| `@electric-sql/pglite-socket` | `0.1.4` | PostgreSQL socket compatibility |
-| `@testcontainers/postgresql` | `10.x` | real PostgreSQL integration |
+| Dependency | Version | License | Purpose |
+|---|---:|---|---|
+| `vitest` | `3.2.4` | MIT | test runner |
+| `@effect/vitest` | `0.30.0` | MIT | Effect test integration |
+| `fast-check` | `3.23.2` | MIT | property tests |
+| `@electric-sql/pglite` | `0.4.4` | Apache-2.0 | embedded PostgreSQL engine |
+| `@electric-sql/pglite-socket` | `0.1.4` | Apache-2.0 | PostgreSQL socket compatibility |
+| `@testcontainers/postgresql` | `10.28.0` | MIT | real PostgreSQL integration |
 
 No dependency is added until its license, maintenance status, runtime
 format, and compatibility with Node and the selected Effect versions
@@ -892,6 +1020,15 @@ mechanisms.
 Environment data is decoded once at process startup through a closed
 Effect Schema. Every numeric bound is a positive integer in its valid
 cross-field range.
+
+Registry server composition requires its bind settings, PostgreSQL
+URL, admission credential, and absolute Registry-signing private-key
+path. Every Registry client receives the Registry origin and the
+deployment-pinned exact Registry signer public JWK. Router server
+composition therefore receives those two Registry client inputs in
+addition to its own bind and bound settings. These are conceptual
+inputs only: exact public environment suffixes and exported
+configuration type names remain blocked on the human vocabulary gate.
 
 Both processes enforce the fixed 16-container JSON depth bound defined
 by their representation chapters. Gate 1 exposes no environment key
@@ -946,7 +1083,9 @@ an enclosing bound is smaller than the value it must contain.
 There is no application TLS, certificate, scheme, or trusted-proxy
 configuration. The deployment preserves the request body and the
 signed method, authority, path, query, content digest, content type,
-version, and registration authorization fields at ingress.
+version, and registration authorization fields at ingress. It also
+protects unsigned responses when network-path tampering is in its
+threat model.
 
 ## Implementation slices
 
@@ -1057,6 +1196,36 @@ At minimum, the implementation includes:
 - absent-query enforcement and combined-failure precedence;
 - proof that a validly authenticated wrong-version request consumes
   its nonce;
+- private RPC middleware executes authenticated context before each
+  declared layer-local capability and both before the handler;
+- an authentication or capability refusal short-circuits every later
+  middleware and the handler;
+- middleware-provided context reaches the handler without repeating
+  the lookup or admission work that produced it;
+- every declared middleware or handler failure crosses the exact HTTP
+  adapter from the server `E` channel to the client's corresponding
+  typed `E` channel;
+- every fixed-route server-envelope response, including a pre-RPC
+  refusal and the closed status 500 response, reaches the declared
+  operation `E`;
+- per-operation type canaries prove the concrete client `E` is exactly
+  its closed operation server failures, middleware failures, client
+  transport failures, and client response-validation failure rather
+  than `unknown`, a widened global union, or an untyped exception;
+- type tests reject a handler that emits an error absent from its RPC
+  member and reject authenticated operations missing their required
+  middleware;
+- domain refusals remain success values, declared server failures
+  remain typed errors, and connection or timeout failures remain
+  distinct client transport errors;
+- an undeclared defect becomes the closed status 500 envelope without
+  leaking its cause or being fabricated as a domain result;
+- malformed responses, invalid status/body pairings, and Registry
+  response-verification failures produce the distinct typed client
+  response error;
+- separate black-box HTTP tests prove strict excess-property rejection
+  and the exact status/body representation because in-process
+  `RpcTest.makeClient` performs no public serialization;
 - Registry registration idempotency and exact-result replay;
 - Registry conflict precedence and concurrent uniqueness;
 - byte-identical Registry reads across restart;

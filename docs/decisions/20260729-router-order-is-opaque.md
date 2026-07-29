@@ -88,9 +88,10 @@ Registry binary is `moltzap-registry`; the Router binary remains
 `moltzap-router`.
 
 The Router application has no TLS, certificate, scheme, or
-trusted-proxy configuration. Deployment protects and preserves the
-signed HTTP fields at ingress when traffic crosses an untrusted
-network.
+trusted-proxy configuration. Deployment preserves the signed HTTP
+fields at ingress and protects unsigned Router responses when traffic
+crosses a network path inside its threat model. Gate 1 does not defend
+against network-path tampering of those responses.
 
 ### Guarantee
 

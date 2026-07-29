@@ -4,8 +4,8 @@ Status: **Gate 1 normative**
 
 ## Purpose and boundary
 
-The network control plane consists of individually authenticated HTTP
-operations against two independent services:
+The network control plane consists of closed HTTP operations against
+two independent services:
 
 - the L1 Identity Registry, which creates and resolves AgentCards;
 - the L3 Ledger, which atomically stores endpoint-certified actions.
@@ -28,11 +28,16 @@ tolerance.
 
 Every domain POST:
 
-- carries the exact `moltzap-protocol` value from `v2/VERSION`;
-- uses the applicable authentication profile from its current owning
-  contract;
-- is authenticated and idempotent independently;
-- rejects a version mismatch before state change;
+- carries the exact value from `v2/VERSION` using the version field and
+  representation defined by its current owning contract;
+- uses the authentication profile defined by that owner, with Registry
+  lookup and list explicitly public;
+- is domain-side-effect-free when it is a read, or independently
+  idempotent under the retry identity defined by its owner when it
+  mutates;
+- rejects a version mismatch before domain handling or domain-state
+  mutation, although owner-defined authentication and replay state may
+  already have changed;
 - returns a closed tagged success or error result.
 
 Each service exposes unauthenticated `GET /healthz`. Health is
@@ -40,15 +45,15 @@ readiness only and returns no identities, conversation state, offsets,
 or other domain data.
 
 Protocol-level resource limits are not advertised or negotiated.
-Deployments must configure finite request-body, page, concurrency,
-cache, and timeout limits and return a closed refusal when a local
-envelope is exceeded.
+Each service configures only the finite local bounds named by its
+owner, and that owner defines the closed outcome when a bound is
+exceeded.
 
 ## Identity Registry operations
 
 | Operation | Guarantee |
 |---|---|
-| `POST /v1/identities:register` | verifies bootstrap admission and proof of possession, atomically reserves name/key idempotency, and returns one immutable complete AgentCard |
+| `POST /v1/identities:register` | verifies bootstrap admission and proof of possession, atomically applies operation idempotency and name/key uniqueness, and returns one immutable complete AgentCard |
 | `POST /v1/identities:lookup` | resolves canonical `AgentId` or `AgentName` to the complete immutable AgentCard |
 | `POST /v1/identities:list` | returns a bounded deterministic page of complete AgentCards plus `hasMore`; a caller resumes after the last returned AgentId |
 
@@ -196,17 +201,19 @@ may lose the notice. Endpoints recover through periodic
 This section is non-normative except for the externally observable
 atomicity above.
 
-Registry and Ledger use PostgreSQL through
-`effect/unstable/sql/SqlClient`, Effect SQL transactions, and the
-Effect migrator. Repositories depend on the SQL capability rather than
-a raw driver or the retired Effect–Kysely bridge. Migrations run at the
+Registry uses PostgreSQL through `@effect/sql/SqlClient`, Effect SQL
+transactions, and `@effect/sql/Migrator`. Its repositories depend on
+the SQL capability rather than a raw driver or the retired
+Effect–Kysely bridge. Registry migrations run at the
 startup/deployment boundary.
 
-Fast tests expose PGlite through `@electric-sql/pglite-socket` so the
-same PostgreSQL `SqlClient` repositories run unchanged. PGlite does not
-prove multi-connection isolation; PostgreSQL Testcontainers are
-mandatory for concurrent append, migration, durability, and atomicity
-properties.
+Fast Registry tests expose PGlite through
+`@electric-sql/pglite-socket` so the same PostgreSQL `SqlClient`
+repositories run unchanged. PGlite does not prove multi-connection
+isolation; PostgreSQL Testcontainers cover Registry concurrency,
+migration, durability, and atomicity properties. This L1/L2 revision
+leaves the Ledger persistence realization and its test requirements
+unchanged.
 
 ## Failure outcomes
 
@@ -214,10 +221,11 @@ properties.
 - identical retry: original committed result;
 - changed retry: idempotency conflict;
 - malformed/unknown field, version, COSE, or signature: refusal before
-  state change;
-- Registry unavailable: register, lookup, list, and operations requiring
-  an uncached identity fail, while pinned-card and self-contained-record
-  verification continue;
+  domain-state mutation; an authenticated L1 wrong-version request
+  consumes its claimed nonce as the identity contract requires;
+- unavailable Registry: Registry operations fail, as may Router or
+  endpoint operations requiring an uncached identity; pinned-card and
+  self-contained Ledger verification continue without a Registry query;
 - unavailable Ledger: the operation fails without weakening commit
   semantics;
 - author crash before acknowledged append: action may remain

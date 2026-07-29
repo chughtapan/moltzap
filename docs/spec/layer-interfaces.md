@@ -154,7 +154,25 @@ production alternative.
 
 Offers registration, lookup, and list operations from `identity.md`.
 Callers receive complete domain values, never raw HTTP responses or
-database rows.
+database rows. The client is configured with the deployment-pinned
+Registry signer public JWK and verifies every returned AgentCard before
+constructing the nominal verified value.
+
+Registration verifies that the returned PrincipalId, AgentName, and
+agent public key equal the submitted bindings. Lookup verifies that a
+found card equals the requested AgentId or AgentName. List verifies
+every card, strict AgentId ordering, uniqueness, and the requested
+lower bound. A valid Registry signature on a response-bound wrong card
+is rejected rather than returned.
+
+Closed registration and lookup outcomes remain values in the success
+channel. Envelope and declared server failures propagate in the
+client's typed Effect error channel. A client-side connection or
+timeout failure is a distinct typed transport error, never an
+unstructured substitute for a server failure. A malformed response, an
+invalid status/body pairing, or a response that fails the required
+Registry signature, request binding, or AgentCard verification is a
+distinct typed client response error.
 
 ### Router client
 
@@ -162,7 +180,17 @@ Offers send and bounded poll from `router.md`. The client owns request
 authentication and the Router representation without exposing its
 mechanisms. Send carries expected RouterInstanceId plus `initial` or
 `retry`. Every successful poll contains current RouterInstanceId,
-complete SignedMessages, and the next PollCursor.
+complete encoded, untrusted SignedMessage representations, and the next
+PollCursor. The endpoint verifies each representation through L1 before
+accepting the returned cursor. This contract does not introduce a new
+public type name before the human vocabulary gate.
+
+Closed send and poll outcomes remain values in the success channel.
+Envelope and declared server failures propagate in the client's typed
+Effect error channel. Client-only connection and timeout failures stay
+distinct from those server failures. A malformed response, invalid
+status/body pairing, or failed response-schema validation is a
+distinct typed client response error.
 
 ### Ledger client
 
@@ -274,11 +302,12 @@ database, key, daemon, or platform internals.
 5. Direct `reply` retry uses TxnId plus the canonical actionId/payload
    fingerprint. After commit, identical bytes recover the durable
    result and changed bytes conflict.
-6. Equality is over the owning operation's canonical domain bytes, not
-   fresh per-attempt RFC 9421 created/expires/nonce/signature metadata.
-   Within the owner's durability or retention scope, identical operation
-   bytes recover the original result and changed bytes under one retry
-   identity conflict.
+6. Equality projection is owner-specific. Registration compares its
+   canonical inner request. Router `retry` compares the complete
+   SignedMessage. Both exclude fresh per-attempt RFC 9421
+   created/expires/nonce/signature metadata. Other owners define their
+   own projection and result behavior; there is no cross-layer generic
+   equality rule.
 
 ### Endpoint attention
 
