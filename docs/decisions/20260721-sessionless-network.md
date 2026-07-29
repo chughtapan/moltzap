@@ -1,10 +1,21 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
+superseded-by: 20260728-network-wire-is-http-post-polling.md
 ---
 
 # The network is sessionless
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-sessionless-network).
+
+## Supersession
+
+Per-request authentication and the absence of identity-bound network
+sessions remain accepted. Position replay, offline convergence, and
+per-conversation coordination claims in this record are replaced:
+Router has a volatile endpoint-wide poll cursor, while L3 endpoints own
+reconciliation and recovery.
 
 ## Context and Problem Statement
 
@@ -19,7 +30,7 @@ per-endpoint connection state at all.
 ## Considered Options
 
 - An identity-bound data-plane session (carrying v1's mechanism
-  forward): establishment handshake, session-attributed frames,
+  forward): establishment handshake, session-attributed messages,
   disconnect-keyed cleanup.
 - Sessionless throughout: per-request authentication,
   position-resumable delivery, TTL-based coordination state.
@@ -40,8 +51,8 @@ disconnect detection, because no connection state exists to observe.
 
 The session was buying three things, each replaced statelessly: push
 routing (position-resumable delivery), interim attribution before
-per-frame signing (the authenticated ship call stands in for the
-frame's attribution), and one-time version match (per-request
+per-message signing (the authenticated ship call stands in for the
+message's attribution), and one-time version match (per-request
 instead).
 
 Consequences: no establishment op, session invariants, or reconnect
