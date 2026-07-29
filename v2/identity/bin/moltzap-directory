@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+// moltzap-directory process entry point. The identity Registry is an independent network service; this package owns the binary because it owns the abstraction the binary serves.
+process.stderr.write("moltzap-directory is not implemented\n");
+process.exit(1);
