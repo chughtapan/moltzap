@@ -184,6 +184,13 @@ injection. Focused simulator tests supply fake Layers for the same
 contract. Runtime subjects receive an `EndpointProfileRef`, never
 production internals.
 
+The accepted post-Gate-1 distributed target preserves this boundary. Testbed
+may acquire a one-container-per-AgentId cohort through Kubernetes/Kueue and
+coordinate it through Temporal, but the simulator still sees only its
+`StackProvider` and runtime contracts. The complete topology, phase split, and
+unselected first-scope questions live in
+[`distributed-society-execution.md`](/architecture/distributed-society-execution).
+
 ## Deep-module design rules
 
 - Public interfaces expose capabilities and guarantees, not SQL tables,

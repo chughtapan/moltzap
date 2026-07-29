@@ -13,7 +13,9 @@ higher one and must not contradict it.
 2. Current ADR outcomes in `docs/decisions/`—accepted records and the
    explicitly retained portions of partially-superseded records—
    beginning with `20260728-gate-1-architecture-freeze.md`.
-3. Normative Gate 1 chapters in `docs/spec/`.
+3. Normative chapters in `docs/spec/`: the frozen Gate 1 contract and
+   accepted post-Gate-1 targets explicitly indexed as such in
+   `docs/spec/README.md`.
 4. `docs/architecture/` — orientation and the durable execution plan.
 5. `docs/decision-evidence/` and `v2/inputs/` — decision context, review
    evidence, research, audits, and source provenance. These explain
@@ -21,6 +23,9 @@ higher one and must not contradict it.
 
 The freeze manifest assigns every Gate 1 decision a `G1-DEC-NNN`
 identifier and maps it to its normative owner and acceptance evidence.
+An accepted post-Gate-1 chapter does not alter Gate 1 completion or
+authorize implementation before its Gate 1 prerequisites and a separately
+recorded implementation-scope decision.
 No implementation may rely on a decision found only in chat, an issue,
 an agent-private directory, a fully superseded record, or a portion
 explicitly marked replaced.

@@ -180,6 +180,25 @@ not import the simulator. Runtime subjects acquired through either
 Layer receive only an `EndpointProfileRef`, never Router, Ledger,
 database, key, daemon, or platform internals.
 
+### Distributed society execution
+
+The accepted post-Gate-1 distributed execution contract is normative in
+[`distributed-society-execution.md`](/spec/distributed-society-execution).
+Portable definitions and the private run kernel remain in `simulator`.
+Scheduler selection, cohort acquisition, workload attestation, external
+runtime bootstrap, orchestration clients, and cleanup remain `testbed`
+mechanisms supplied through Layers.
+
+Distributed acquisition is phased behind the same `StackProvider` boundary:
+testbed first acquires the Registry, Router, and Ledger core, then roster
+resolution fixes the AgentIds, and cohort acquisition completes the stack with
+one daemon and runtime bridge per AgentId. The portable simulator does not
+receive Kubernetes or orchestration mechanisms from either phase.
+
+No scheduler operation becomes a Router operation. No distributed controller
+becomes an umbrella production server. The exact six-package, export, and
+binary tables above remain unchanged.
+
 ## Cross-layer laws
 
 ### Trust, safety, and progress
@@ -346,3 +365,8 @@ This section is non-normative implementation guidance.
 - `../decisions/20260728-layer-boundaries-and-fault-model.md`
 - `../decisions/20260728-six-deep-packages-one-version.md`
 - `../decisions/20260728-simulator-is-the-system-driver.md`
+- `../decisions/20260729-one-container-per-agent-gates-distributed-runs.md`
+- `../decisions/20260729-kubernetes-kueue-admits-agent-cohorts.md`
+- `../decisions/20260729-temporal-orchestrates-distributed-runs.md`
+- `../decisions/20260729-openclaw-experiments-are-late-bound.md`
+- `../decisions/20260729-pod-attestation-gates-agent-enrollment.md`

@@ -818,3 +818,17 @@ retrofit is implied by completion.
 - protocol-negotiated resource maxima and physical Transcript
   compression;
 - publishing, deployment, cutover, and v1 retirement.
+
+## Accepted post-Gate-1 distributed target
+
+The accepted
+[`distributed society execution`](../spec/distributed-society-execution.md)
+contract defines a later one-container-per-AgentId path with Kubernetes,
+Kueue, regional GKE Standard, Temporal orchestration, late-bound OpenClaw
+artifacts, and Pod-bound enrollment. It does not alter the Gate 1 phases,
+completion criteria, or deployment deferral above.
+
+Its first implementation slice is intentionally unselected. The architecture
+orientation in
+[`distributed-society-execution.md`](/architecture/distributed-society-execution)
+enumerates the remaining scope choices for the next maintainer discussion.

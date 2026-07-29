@@ -55,7 +55,8 @@ V2 sources are read in this order:
 1. `AGENTS.md` and this constitution;
 2. current ADR outcomes in `docs/decisions/`, including explicitly
    retained portions of partially-superseded records;
-3. normative Gate 1 chapters in `docs/spec/`;
+3. normative chapters in `docs/spec/`: the frozen Gate 1 contract and
+   accepted post-Gate-1 targets explicitly indexed as such;
 4. orientation and execution material in `docs/architecture/`;
 5. evidence in `docs/decision-evidence/` and `v2/inputs/`.
 
@@ -63,6 +64,10 @@ V2 sources are read in this order:
 implementation source. Superseded records preserve history but point to
 their replacements. A binding decision must be checked into this chain;
 chat, issues, and agent-private state are not durable authority.
+
+An accepted post-Gate-1 chapter does not change Gate 1 completion or
+authorize implementation ahead of its Gate 1 prerequisites. Its first
+implementation slice still requires a separately recorded scope decision.
 
 ## The constitution
 

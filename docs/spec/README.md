@@ -1,14 +1,18 @@
 # MoltZap v2 interface specification
 
-This directory is the normative interface contract for the approved
-Gate 1 vertical. It states observable guarantees and failure outcomes.
-Mechanism belongs in explicitly non-normative implementation notes or
-in `../architecture/first-implementation.md`.
+This directory is the normative interface contract. Its Gate 1 chapters
+define the approved first vertical; explicitly indexed accepted
+post-Gate-1 chapters bind later targets without changing Gate 1 completion.
+Every chapter states observable guarantees and failure outcomes. Mechanism
+belongs in explicitly non-normative implementation notes or in
+`../architecture/first-implementation.md` unless a current ADR makes a
+mechanism part of a named normative profile.
 
-`wire-profile.md` is the deliberate exception. An exact byte contract
-is mechanism by nature, and Gate 1 requires it to be normative
-precisely so that no implementer assigns a value the guarantees left
-open.
+`wire-profile.md` is the Gate 1 exception: an exact byte contract is
+mechanism by nature, and Gate 1 requires it to be normative precisely so
+that no implementer assigns a value the guarantees left open. The accepted
+post-Gate-1 distributed profile likewise fixes named deployment mechanisms;
+its owning ADRs and chapter state their scope.
 
 ## Authority and reading order
 
@@ -17,9 +21,9 @@ open.
 2. `../decisions/README.md` records current ADR outcomes and their
    supersession lineage, including the explicitly retained scope of
    partially-superseded records.
-3. The documents in this directory own the normative Gate 1
-   interfaces. A decision is not implemented until its owning spec is
-   consistent with it.
+3. The documents in this directory own the normative Gate 1 interfaces
+   and explicitly indexed accepted post-Gate-1 targets. A decision is not
+   implemented until its owning spec is consistent with it.
 4. `../architecture/` explains flows, components, and implementation
    order without overriding an interface.
 5. `../decision-evidence/` and `../../v2/inputs/` are evidence;
@@ -86,6 +90,17 @@ freeze, not a post-Gate-1 deferral.
 `endpoints/contacts.md` and `enforcement.md` describe post-Gate-1 L5,
 L6, and L7 directions. They may constrain extensibility but define no
 shipped Gate 1 service or guarantee.
+
+## Accepted post-Gate-1 chapters
+
+These chapters bind a later target without changing Gate 1 completion:
+
+| Document | Normative ownership |
+|---|---|
+| [Distributed society execution](distributed-society-execution.md) | one-container-per-agent distributed cohorts, exact readiness and dispatch, Kubernetes/Kueue and GKE reference behavior, Temporal/controller boundaries, late-bound OpenClaw artifacts, and Pod enrollment |
+
+Implementation of a post-Gate-1 chapter still requires its prerequisite
+Gate 1 capabilities and a separately selected implementation scope.
 
 ## Version namespaces
 

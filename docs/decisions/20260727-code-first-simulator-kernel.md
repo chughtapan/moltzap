@@ -1,10 +1,37 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-27
 decision-makers: Tapan Chugh
+superseded-by: 20260728-simulator-is-the-system-driver.md
 ---
 
 # The simulator is code-first with a closed event catalog
+
+Decision provenance: [lineage-correction trajectory](../decision-evidence/20260729-distributed-society-execution-trajectory.md#20260727-code-first-simulator-kernel-lineage-correction);
+[original-decision source-gap report](../decision-evidence/20260729-code-first-simulator-kernel-source-gap.md).
+
+## Supersession
+
+The code-first authoring decision remains current: preserve
+`Simulator.define`, immutable definition identity, the closed typed
+EventCatalog, typed RunLedger/LedgerStorage evidence, scoped runtime roster and
+lifecycle, runtime-exit evidence, and customer Effect policy.
+
+The v1 package, process, and concrete-mechanism ownership in the historical
+body is replaced by
+[`20260728-simulator-is-the-system-driver.md`](../decisions/20260728-simulator-is-the-system-driver.md).
+The current contract has separate `simulator` and `testbed` packages:
+`simulator` owns the portable kernel and `StackProvider` contract; `testbed`
+owns platform acquisition, production-process supervision, external runtime
+constructors, and fault controls. The replacement ADR and
+[`docs/spec/layer-interfaces.md`](../spec/layer-interfaces.md) own that base
+contract.
+
+[`docs/spec/distributed-society-execution.md`](../spec/distributed-society-execution.md)
+owns only the accepted post-Gate-1 distributed-execution profile.
+Statements below that retire `testbed`, place Node/Docker/OpenClaw/NanoClaw
+mechanisms in `simulator`, or describe the v1 Router/server topology are
+historical only.
 
 ## Context and Problem Statement
 
