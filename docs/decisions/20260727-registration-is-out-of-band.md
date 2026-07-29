@@ -2,19 +2,24 @@
 status: superseded
 date: 2026-07-27
 decision-makers: Tapan Chugh
-superseded-by: 20260728-gate-1-identity-profile.md
+superseded-by: 20260729-identity-uses-jcs-jose-authenticated-http.md
 ---
 
 # Registration is out of band; the plane knows one caller
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260727-registration-is-out-of-band).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260727-registration-is-out-of-band) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#identity-uses-jcs-jose-and-authenticatedhttp).
 
 ## Supersession
 
 This record is fully superseded. Registration is a concrete L1
-Registry control operation authenticated by a deployment admission code
-and proof of possession of the submitted key. It remains absent from
-Router, Ledger, daemon MCP, and runtime events.
+Registry HTTP control operation, not an out-of-band library call. It is
+authenticated by the `AuthenticatedHttp` bootstrap profile using a
+deployment admission credential and proof of possession of the
+submitted key. It remains absent from Router, Ledger, daemon MCP, and
+runtime events. The current outcome is
+`20260729-identity-uses-jcs-jose-authenticated-http.md`; exact behavior
+and representation live in `docs/spec/identity.md` and
+`docs/spec/identity-representation.md`.
 
 ## Context and Problem Statement
 

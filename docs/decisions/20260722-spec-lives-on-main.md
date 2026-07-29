@@ -1,18 +1,26 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-22
 decision-makers: Tapan Chugh
+superseded-by: 20260729-v2-authority-lives-with-v2.md
 ---
 
 # The spec set lives on main
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260722-spec-lives-on-main).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260722-spec-lives-on-main) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#v2-authority-lives-with-v2).
 
 ## Supersession
 
-This record remains accepted. The Gate 1 architecture freeze is the
-required reconciled spec change on `main` before simulator or
-implementation work begins.
+This record is fully superseded. V2 authority lives with the V2 track
+under `20260729-v2-authority-lives-with-v2.md`. The checked-in
+constitution, current ADR outcomes, normative specifications,
+architecture guidance, and evidence on the `v2` branch are sufficient
+to govern `v2/*`; they do not become current first on `main`.
+
+`main` remains the V1 production branch and continues to merge forward
+into `v2`. Npm publishing continues from `main` until a separate
+cutover decision. Those workflow facts do not restore a privileged
+main-branch copy of the V2 specification.
 
 ## Context and Problem Statement
 

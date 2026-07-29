@@ -11,6 +11,7 @@
  *
  * Constants watched (see `docs/snippets/constants/values.json`):
  *   - PROTOCOL_VERSION       — exact string match.
+ *   - V2_PROTOCOL_VERSION    — exact string match.
  *   - DEFAULT_APP_ID         — UUID string.
  *   - API_KEY_PREFIX         — string ("moltzap_agent_").
  *   - DEFAULT_SERVER_PORT    — port-shaped match (`:3000\b`).
@@ -175,6 +176,15 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
     });
   }
 
+  const v2pv = byName.get("V2_PROTOCOL_VERSION");
+  if (v2pv && v2pv.kind === "string") {
+    rules.push({
+      name: "V2_PROTOCOL_VERSION",
+      regex: new RegExp(escape(v2pv.value as string)),
+      hint: "Mark the file with `{/* @bake-constants: V2_PROTOCOL_VERSION */}` so the V2 value is baked from `v2/VERSION`.",
+    });
+  }
+
   const appId = byName.get("DEFAULT_APP_ID");
   if (appId && appId.kind === "string") {
     rules.push({
@@ -235,7 +245,7 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
   rules.push({
     name: "VERSION_SHAPED_LITERAL",
     regex: /\b\d{4}\.\d{3,4}\.\d+\b/,
-    hint: `Replace with the baked PROTOCOL_VERSION value (mark the file with \`{/* @bake-constants: PROTOCOL_VERSION */}\` so \`scripts/generate-constants-snippets.ts\` keeps it in sync). For non-version examples, use the placeholder string \`YYYY.MDD.patch\` on its own.`,
+    hint: `Replace with the appropriate baked version value (mark the file with \`{/* @bake-constants: PROTOCOL_VERSION */}\` or \`{/* @bake-constants: V2_PROTOCOL_VERSION */}\` so \`scripts/generate-constants-snippets.ts\` keeps it in sync). For non-version examples, use the placeholder string \`YYYY.MDD.patch\` on its own.`,
     skipLine: (line) =>
       line.includes("YYYY.MDD.patch") &&
       !/\b\d{4}\.\d{3,4}\.\d+\b/.test(line.replace(/YYYY\.MDD\.patch/g, "")),
@@ -258,28 +268,38 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
 const scanFile = (
   absPath: string,
   rules: readonly Rule[],
+  constants: readonly ConstantRecord[],
 ): readonly Violation[] => {
   const relPath = relative(workspaceRoot, absPath);
   if (isAllowed(relPath)) return [];
   const text = readFileSync(absPath, "utf8");
   const bakedConstants = readBakedConstants(text);
+  const bakedVersionValues = new Set(
+    constants
+      .filter(
+        (constant) =>
+          constant.kind === "string" &&
+          (constant.name === "PROTOCOL_VERSION" ||
+            constant.name === "V2_PROTOCOL_VERSION") &&
+          bakedConstants.has(constant.name),
+      )
+      .map((constant) => constant.value as string),
+  );
   const lines = text.split("\n");
   const violations: Violation[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     for (const rule of rules) {
       if (bakedConstants.has(rule.name)) continue;
-      // VERSION_SHAPED_LITERAL is a structural catch-all for the
-      // PROTOCOL_VERSION shape; a file that explicitly bakes
-      // PROTOCOL_VERSION owns its literals and shouldn't trip the
-      // structural rule.
-      if (
-        rule.name === "VERSION_SHAPED_LITERAL" &&
-        bakedConstants.has("PROTOCOL_VERSION")
-      )
-        continue;
-      if (rule.skipLine && rule.skipLine(line)) continue;
-      if (rule.regex.test(line)) {
+      let checkedLine = line;
+      if (rule.name === "VERSION_SHAPED_LITERAL") {
+        checkedLine = checkedLine.replace(
+          /\b\d{4}\.\d{3,4}\.\d+\b/g,
+          (token) => (bakedVersionValues.has(token) ? "" : token),
+        );
+      }
+      if (rule.skipLine && rule.skipLine(checkedLine)) continue;
+      if (rule.regex.test(checkedLine)) {
         violations.push({
           file: relPath,
           line: i + 1,
@@ -304,7 +324,7 @@ const main = (): void => {
 
   const violations: Violation[] = [];
   for (const f of targets) {
-    violations.push(...scanFile(f, rules));
+    violations.push(...scanFile(f, rules, constants));
   }
 
   if (violations.length === 0) {

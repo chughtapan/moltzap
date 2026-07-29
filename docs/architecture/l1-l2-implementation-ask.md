@@ -1,6 +1,8 @@
 # L1 and L2 implementation ask
 
-Status: **APPROVED IMPLEMENTATION ASK — BLOCKED ON AUTHORITY GATE**
+{/* @bake-constants: V2_PROTOCOL_VERSION */}
+
+Status: **APPROVED IMPLEMENTATION ASK — AUTHORITY REVIEW REQUIRED BEFORE CODE**
 
 Governing architecture:
 [`20260728-gate-1-architecture-freeze.md`](../decisions/20260728-gate-1-architecture-freeze.md)
@@ -18,6 +20,18 @@ chapters remain authoritative in the order stated by `AGENTS.md` and
 `v2/AGENTS.md`. Candidate ADR and specification changes in this ask
 must land atomically and pass the repository blind teammate review gate
 before implementation code starts.
+
+## Goal
+
+Ship the reviewed L1 Registry and L2 Router end to end: deep public
+capabilities, production clients and servers, persistence or bounded
+volatile state as each layer requires, runnable binaries, focused and
+integrated tests, documentation, and a human readability disposition
+for every implementation slice.
+
+This is the active implementation goal. L3 and L4 implementation and
+representation changes remain out of scope, and this ask introduces no
+public vocabulary that has not passed the human vocabulary gate.
 
 ## Outcome
 
@@ -105,6 +119,19 @@ Tests may use plain descriptions such as fixtures, examples, valid
 representations, and invalid representations. They do not create a
 public “test-vector” abstraction.
 
+### Staged public-name gate
+
+The approved `MOLTZAP_REGISTRY_` and `MOLTZAP_ROUTER_` prefixes do not
+approve configuration-key suffixes. Before Registry or Router process
+configuration enters source, the implementer presents one complete
+configuration-key table for literal maintainer approval. The same rule
+applies to any public export name not already present in the approved
+vocabulary or governing specifications.
+
+These are scheduled human decisions, not implementation discretion or
+post-Gate-1 deferrals. Internal work may proceed only until the next
+public name would enter source.
+
 ### Readability gate
 
 Each slice ends with a human readability review before the next slice
@@ -127,10 +154,11 @@ vocabulary change returns to the vocabulary gate.
 
 ## Authority gate
 
-The current repository still makes X.509, CBOR, COSE, a cross-layer
-wire profile, mandatory application-facing TLS, and the `transport`
-package current. Code against the replacement design is blocked until
-the following authority change is complete.
+Before this candidate, repository authority made X.509, CBOR, COSE, a
+cross-layer wire profile, mandatory application-facing TLS, and the
+`transport` package current. Code against the replacement design stays
+blocked until the following authority change and blind review are
+complete.
 
 ### Candidate ADRs
 
@@ -225,7 +253,8 @@ The candidate also:
 - renames `docs/spec/data-plane.md` to `docs/spec/router.md`;
 - updates the normative specification readiness matrix;
 - removes `docs/spec/wire-profile.md` from the current normative tree;
-- leaves L3 and later representation choices explicitly deferred; and
+- leaves current L3 and later semantic documents and focused ADRs
+  unchanged; and
 - revises architecture orientation and this implementation ask only
   where needed to agree with the new authority.
 
@@ -243,8 +272,8 @@ duration, unedited answers, independently discovered paths and
 headings, discovery trail, author interventions, per-question
 verdicts, blockers, and overall result.
 
-Implementation remains blocked until the review passes and the
-maintainer accepts the result.
+Implementation begins only after the review passes and the maintainer
+accepts the result.
 
 ## Package graph and release identity
 
@@ -277,8 +306,8 @@ generated surfaces change atomically.
 The identity binary becomes `moltzap-registry`. The Router binary
 remains `moltzap-router`.
 
-`v2/VERSION`, all six package manifests, and `MOLTZAP_VERSION` change
-from `2026.729.0` to `2026.729.1` in one slice. MCP and simulator
+`v2/VERSION`, all six package manifests, and `MOLTZAP_VERSION` advance
+together to `2026.729.1` in one slice. MCP and simulator
 persisted-schema versions remain independent.
 
 ## Shared implementation principles
@@ -329,7 +358,6 @@ The identity package owns these values:
 | `OperationId` | `opn_` plus canonical unpadded base64url for exactly 16 bytes |
 | `MessageId` | `msg_` plus canonical unpadded base64url for exactly 16 bytes |
 | `AgentCardDigest` | `acd_` plus the 43-character unpadded base64url SHA-256 digest |
-| `SignedMessageDigest` | `smd_` plus the 43-character unpadded base64url SHA-256 digest |
 | `AgentName` | 3 to 32 characters matching `^[a-z0-9]+(-[a-z0-9]+)*$` |
 | AgentCard issue time | whole-second UTC `YYYY-MM-DDTHH:mm:ssZ` |
 
@@ -432,8 +460,9 @@ An encoded SignedMessage is exactly one attached General JWS with the
 same closed shape as AgentCard. Its protected header is exactly
 `{"alg":"Ed25519","kid":"<RFC-9278-JWK-thumbprint-URI>","typ":"application/vnd.moltzap.signed-message+jws"}`.
 
-`SignedMessageDigest` is SHA-256 over the JCS representation of the
-complete General JWS.
+The Router-owned `SignedMessageDigest` is SHA-256 over the JCS
+representation of the complete General JWS and is defined by the L2
+representation.
 
 ## AuthenticatedHttp
 
@@ -470,6 +499,13 @@ Public Registry lookup and list requests are unauthenticated.
 - Bodies are read under route-specific byte bounds before parsing.
 - Successful responses use exact closed JSON schemas.
 - Envelope error bodies are exactly `{"error":"<code>"}`.
+- The request-target query component is absent on every route. Any
+  present query component, including an empty one, fails route lookup
+  as 404 `not_found`.
+- The raw request-target absence check is independent of signature
+  verification. Every accepted request signs the RFC 9421 `@query`
+  derived value `?`, which does not itself distinguish absence from a
+  present empty query.
 
 ### HTTP message signatures
 
@@ -524,8 +560,19 @@ Authenticated requests pass through this order:
 7. complete closed request schema; and
 8. domain handler.
 
+For Router send and poll, stage 7 closes the outer request but retains
+`signedMessage` as a bounded raw JSON object and `pollCursor` as a
+bounded string. Full SignedMessage and PollCursor decoding belongs to
+the Router domain handler, where failures become `message_invalid` and
+`cursor_invalid`.
+
 A wrong version after otherwise valid authentication consumes the
 nonce.
+
+Public lookup and list skip authentication and replay stages. They
+check route and method, framing and bounds, version, canonical body and
+schema, then the domain handler. The earliest failing stage determines
+the response.
 
 ### Envelope failures
 
@@ -555,7 +602,7 @@ service in this implementation.
 - `POST /v1/identities:register`
 - `POST /v1/identities:lookup`
 - `POST /v1/identities:list`
-- `GET /health`
+- `GET /healthz`
 
 Registration is authenticated with the bootstrap profile. Lookup and
 list are public reads. Health has no domain body.
@@ -603,9 +650,9 @@ Registration returns one of:
 
 Lookup returns `found` with the complete AgentCard or `not_found`.
 
-List returns `page` with `cards` and `hasMore`. Cards are ordered by
-decoded AgentId bytes. The repository reads page size plus one to
-derive `hasMore`.
+List returns `page` with `agentCards` and `hasMore`. AgentCards are
+ordered by decoded AgentId bytes. The repository reads page size plus
+one to derive `hasMore`.
 
 ### Registration transaction
 
@@ -652,7 +699,7 @@ Tests run the same repository and migrations against PGlite through
 its PostgreSQL socket. Real PostgreSQL Testcontainers cover
 multi-connection races, serialization retries, rollback, and restart.
 
-`GET /health` returns 204 only when configuration, signer, migrations,
+`GET /healthz` returns 204 only when configuration, signer, migrations,
 database, and listener are ready. Otherwise it returns 503.
 
 ## Router
@@ -668,8 +715,8 @@ interpreting their bodies.
 | `RouterInstanceId` | `rti_` plus canonical unpadded base64url for exactly 16 bytes |
 | `PollCursor` | `plc_` plus a Compact JWE |
 
-The Router owns `RouterInstanceId` and `PollCursor`.
-`SignedMessageDigest` remains owned by `identity`.
+The Router owns `RouterInstanceId`, `SignedMessageDigest`, and
+`PollCursor`.
 
 The internal global order is a private `bigint`. It never appears in a
 public request, result, log field intended as protocol data, or exported
@@ -679,7 +726,7 @@ type.
 
 - `POST /v1/messages:send`
 - `POST /v1/messages:poll`
-- `GET /health`
+- `GET /healthz`
 
 Send and poll use the normal authenticated HTTP profile. Health is
 local readiness only and does not depend on Registry availability.
@@ -743,9 +790,10 @@ copy, recipient queue, session, conversation, transaction, persisted
 cursor, or recipient-specific acknowledgment.
 
 The state lock covers only retry lookup, order assignment, append,
-eviction, and detaching addressed waiters. JSON parsing,
-canonicalization, hashing, Registry lookup, signature verification,
-response encoding, and network I/O remain outside the lock.
+eviction, scan snapshot, waiter registration, and detaching addressed
+waiters. JSON parsing, canonicalization, hashing, Registry lookup,
+signature verification, response encoding, network I/O, and waiter
+completion remain outside the lock.
 
 ### PollCursor
 
@@ -773,12 +821,12 @@ Its JCS plaintext is exactly:
 A `PollCursor` has the prefix `plc_` followed by the complete Compact
 JWE. It is opaque outside the Router package.
 
-Poll request contains optional `cursor`.
+Poll request contains optional `pollCursor`.
 
 Poll results:
 
-- `batch`, containing `routerInstanceId`, ordered `messages`, and the
-  next `cursor`;
+- `batch`, containing `routerInstanceId`, ordered `signedMessages`, and
+  the next `pollCursor`;
 - `feed_gap`, containing `routerInstanceId`; or
 - `cursor_invalid`.
 
@@ -799,7 +847,7 @@ removes the waiter. The Router enforces one held poll per AgentId and a
 global held-poll bound. It stores no continuation or response state
 after the request ends.
 
-`GET /health` returns 204 when the current process can accept local
+`GET /healthz` returns 204 when the current process can accept local
 work. It does not call Registry.
 
 ## Dependencies
@@ -845,6 +893,10 @@ Environment data is decoded once at process startup through a closed
 Effect Schema. Every numeric bound is a positive integer in its valid
 cross-field range.
 
+Both processes enforce the fixed 16-container JSON depth bound defined
+by their representation chapters. Gate 1 exposes no environment key
+for this bound.
+
 Common defaults:
 
 | Setting | Default |
@@ -883,16 +935,18 @@ Router defaults:
 | positive AgentCard cache | 10,000 |
 | concurrent Registry lookups | 32 |
 | Registry lookup timeout | 5 seconds |
-| long-poll hold | 25 seconds |
+
+The Router's 25-second long-poll hold is a fixed Gate 1 value and has
+no environment key.
 
 The public configuration prefixes are `MOLTZAP_REGISTRY_` and
 `MOLTZAP_ROUTER_`. Cross-field validation rejects configurations where
 an enclosing bound is smaller than the value it must contain.
 
 There is no application TLS, certificate, scheme, or trusted-proxy
-configuration. The deployment preserves the signed authority, path,
-query, content digest, content type, version, and registration
-authorization fields at ingress.
+configuration. The deployment preserves the request body and the
+signed method, authority, path, query, content digest, content type,
+version, and registration authorization fields at ingress.
 
 ## Implementation slices
 
@@ -1000,6 +1054,7 @@ At minimum, the implementation includes:
 - RFC 9421 signature-base examples and mutation tests;
 - media, encoding, size, method, route, digest, signature, timing,
   nonce, admission, version, and closed-schema failures;
+- absent-query enforcement and combined-failure precedence;
 - proof that a validly authenticated wrong-version request consumes
   its nonce;
 - Registry registration idempotency and exact-result replay;
@@ -1040,7 +1095,7 @@ The final handoff records:
 
 This ask does not decide or implement:
 
-- L3 and later representation formats;
+- any change to L3 and later representation formats;
 - conversations, reliability, transactions, replay, or recovery at L2;
 - `HarnessEndpoin` and any normalized spelling;
 - Registry malicious-equivocation tolerance;

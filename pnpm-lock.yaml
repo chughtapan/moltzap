@@ -390,9 +390,9 @@ importers:
       '@moltzap/v2-transcript':
         specifier: workspace:*
         version: link:../transcript
-      '@moltzap/v2-transport':
+      '@moltzap/v2-router':
         specifier: workspace:*
-        version: link:../transport
+        version: link:../router
     devDependencies:
       eslint:
         specifier: ^9
@@ -440,9 +440,9 @@ importers:
       '@moltzap/v2-transcript':
         specifier: workspace:*
         version: link:../transcript
-      '@moltzap/v2-transport':
+      '@moltzap/v2-router':
         specifier: workspace:*
-        version: link:../transport
+        version: link:../router
     devDependencies:
       eslint:
         specifier: ^9
@@ -456,9 +456,9 @@ importers:
       '@moltzap/v2-identity':
         specifier: workspace:*
         version: link:../identity
-      '@moltzap/v2-transport':
+      '@moltzap/v2-router':
         specifier: workspace:*
-        version: link:../transport
+        version: link:../router
     devDependencies:
       eslint:
         specifier: ^9
@@ -467,7 +467,7 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
-  v2/transport:
+  v2/router:
     dependencies:
       '@moltzap/v2-identity':
         specifier: workspace:*

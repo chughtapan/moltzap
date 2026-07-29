@@ -32,23 +32,23 @@ const V2_PACKAGES = {
     npmName: "@moltzap/v2-identity",
     deps: [],
     exports: [".", "./server"],
-    bin: ["moltzap-directory"],
+    bin: ["moltzap-registry"],
   },
-  transport: {
-    npmName: "@moltzap/v2-transport",
+  router: {
+    npmName: "@moltzap/v2-router",
     deps: ["identity"],
     exports: [".", "./server"],
     bin: ["moltzap-router"],
   },
   transcript: {
     npmName: "@moltzap/v2-transcript",
-    deps: ["identity", "transport"],
+    deps: ["identity", "router"],
     exports: [".", "./server"],
     bin: ["moltzap-ledger"],
   },
   endpoint: {
     npmName: "@moltzap/v2-endpoint",
-    deps: ["identity", "transport", "transcript"],
+    deps: ["identity", "router", "transcript"],
     exports: [".", "./server"],
     bin: ["moltzap", "moltzap-agentd"],
   },
@@ -60,7 +60,7 @@ const V2_PACKAGES = {
   },
   testbed: {
     npmName: "@moltzap/v2-testbed",
-    deps: ["identity", "transport", "transcript", "endpoint", "simulator"],
+    deps: ["identity", "router", "transcript", "endpoint", "simulator"],
     exports: ["."],
     bin: [],
   },

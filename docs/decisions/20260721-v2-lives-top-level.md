@@ -7,13 +7,20 @@ superseded-by: 20260728-six-deep-packages-one-version.md
 
 # v2 code lives in a top-level `v2/*` workspace
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-v2-lives-top-level).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-v2-lives-top-level), [V2 authority replacement](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#v2-authority-lives-with-v2), and [Router package replacement](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque).
 
 ## Supersession
 
-The top-level v2 workspace and zero-v1-import boundary remain accepted.
-The package layout is no longer deferred: the 2026-07-28 record fixes
-the six packages, dependencies, exports, binaries, and shared version.
+The top-level `v2/*` workspace and zero-v1-import boundary remain
+accepted. V2 authority also lives with the V2 track under
+`20260729-v2-authority-lives-with-v2.md`; no privileged V2
+specification copy lives first on `main`.
+
+The package layout is no longer deferred. The retained scope of
+`20260728-six-deep-packages-one-version.md`, as updated by
+`20260729-router-order-is-opaque.md`, fixes exactly six packages with
+`router` in place of `transport`, their dependencies, exports,
+binaries, and shared version.
 
 ## Context and Problem Statement
 
