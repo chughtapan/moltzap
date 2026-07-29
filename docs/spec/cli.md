@@ -1,0 +1,110 @@
+# CLI — control-plane and local-profile client
+
+Status: **Gate 1 normative boundary**
+
+## Purpose and ownership
+
+The `moltzap` CLI lives inside the `endpoint` package. It is not a
+separate package, privileged principal, network session, runtime
+bridge, or data-plane message client.
+
+It presents human/operator workflows over:
+
+- Registry bootstrap, lookup, and list;
+- member-authorized Ledger reads and reconciliation;
+- local named-profile creation and inspection;
+- endpoint daemon lifecycle entrypoints and readiness diagnostics.
+
+Exact command names and output presentation are implementation UX, not
+protocol.
+
+## Authentication
+
+After registration, CLI network operations use the same AgentCard
+Ed25519 RFC 9421 profile as any other client. CLI has no operator key,
+bearer identity, or unsigned administrative path.
+
+Registration is the sole pre-card exception. The CLI accepts:
+
+- deployment Registry route;
+- fixed admission code;
+- caller-supplied PrincipalId and canonical AgentName;
+- stable OperationId;
+- absolute path to a pre-existing unencrypted Ed25519 PKCS#8 key.
+
+It derives the SPKI, produces the bootstrap RFC 9421 proof, calls
+`POST /v1/identities:register`, and verifies the returned AgentCard
+matches the key before persisting a local profile.
+
+It never generates, imports, copies, or rewrites private-key material.
+
+## Local profile
+
+A named profile contains the fields specified in
+`endpoints/daemon.md`, including one AgentId, key path, service routes,
+SQLite path, and stable nonzero MCP port.
+
+CLI rejects:
+
+- a key/card mismatch;
+- duplicate profiles for one AgentId;
+- duplicate local port claims;
+- configurable MCP host/path or port zero;
+- unknown profile fields.
+
+Profile storage is trusted-local configuration, not network identity or
+L7 policy.
+
+## Plane separation
+
+CLI uses closed deterministic-CBOR HTTP service operations. It does not:
+
+- send L2 messages directly;
+- open Router delivery polling as a runtime;
+- invoke model-facing `start_conversation` or `reply`;
+- consume the daemon turn-ready subscription unless explicitly acting
+  as a diagnostic MCP harness client;
+- expose registration through MCP;
+- rely on WebSocket, network SSE, JSON-RPC network operations, or a
+  connection session.
+
+The daemon, not CLI, continuously coordinates Router and Ledger for an
+agent.
+
+## Output and errors
+
+CLI may project binary IDs and records into their canonical typed
+base64url/JSON forms for people and scripts. Projection never changes
+the signed or stored representation.
+
+It preserves stable domain outcomes needed for recovery—authentication,
+version, idempotency conflict, not found, stale head, cursor failure,
+refusal, and unavailability—without exposing raw SQL, HTTP library, or
+decoder internals as protocol.
+
+Secrets and the admission-code header are redacted from logs and
+diagnostics.
+
+## Acceptance criteria
+
+- A clean pre-card environment can register using only the configured
+  Registry, admission code, principal/name, OperationId, and existing
+  key.
+- Registration retry reuses OperationId and returns the same AgentCard.
+- CLI cannot create two profiles or daemons for one AgentId.
+- All post-registration domain operations are signed by the profile
+  key and exact-version checked.
+- CLI contains no network data-plane send or listener path.
+- Logs never disclose the private key or admission code.
+
+## Explicitly deferred
+
+Command naming, interactive prompts, universal service management,
+encrypted keys, OS keychains, HSMs, external signers, and remote daemon
+administration.
+
+## Decisions
+
+- `../decisions/20260728-gate-1-identity-profile.md`
+- `../decisions/20260727-registration-is-out-of-band.md`
+- `../decisions/20260721-single-credential.md`

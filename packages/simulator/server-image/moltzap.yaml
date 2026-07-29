@@ -1,0 +1,24 @@
+# Server config baked into the simulator's per-run server image.
+#
+# Three settings are load-bearing for the simulator and are not operator
+# taste:
+#   - `database.data_dir` sits under the image's `/data` volume, which the
+#     launcher bind-mounts from the run's storage directory; the transcript
+#     drain reads that PGlite directory after the container stops.
+#   - no `encryption:` block, so message content stays plaintext at rest and
+#     the drain can read it. The container is ephemeral and per-run; the
+#     launcher keeps credentials inside the scope that owns each runtime.
+#   - `registration.secret` comes from a per-run value held by the launcher,
+#     so only the production-server boundary can mint participant identities.
+admin_user_id: 5f1cbf1e-0d68-4b04-9c1a-2a0f5f0a1c31
+registration:
+  secret: "${MOLTZAP_REGISTRATION_SECRET}"
+server:
+  port: 3000
+  # The simulator's clients are processes, not browsers, and the container
+  # is per-run and published on host loopback only; the server still
+  # requires the setting outside dev mode.
+  cors_origins:
+    - "*"
+database:
+  data_dir: /data/pglite

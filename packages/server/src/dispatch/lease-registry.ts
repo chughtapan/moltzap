@@ -266,7 +266,13 @@ interface Claim {
  *   LR->>Recv: agent/dispatch/released {verdict}
  *   Recv->>MS: agent/message/send with dispatchLeaseId
  *   MS->>LR: claim(leaseId) — GRANTED → CLAIMED
- *   Note over MS: Effect.acquireUseRelease — use sendInsert returns carrier — release on Exit success claim.finalize CLAIMED → CONSUMED, on Exit failure claim.rollback CLAIMED → GRANTED
+ *   Note over MS: Effect.acquireUseRelease owns the claim
+ *   MS->>MS: sendInsert
+ *   alt insert succeeds
+ *     MS->>LR: finalize(messageId), CLAIMED to CONSUMED
+ *   else insert fails
+ *     MS->>LR: rollback, CLAIMED to GRANTED
+ *   end
  *   MS->>MS: sendCommit — post-insert side effects
  * ```
  *

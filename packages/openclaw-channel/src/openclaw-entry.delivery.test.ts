@@ -75,6 +75,7 @@ const PARENT_MESSAGE_ID = testMessageId("550e8400-e29b-41d4-a716-446655440410");
 const LOOKUP_FAILED_MESSAGE = "lookup failed";
 const SERVER_REJECTED_MESSAGE = "Server rejected";
 const INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error";
+const DISPATCH_REJECTED_MESSAGE = "dispatch rejected";
 const TEXT_PART_TYPE = "text";
 const FINAL_KIND = "final";
 const TOOL_KIND = "tool";
@@ -153,6 +154,7 @@ let started: {
 };
 let abortControllers: AbortController[] = [];
 let mockDispatch: ReturnType<typeof vi.fn>;
+let mockLogger: ReturnType<typeof testLogger>;
 
 beforeEach(() => {
   started = startGateway();
@@ -167,6 +169,10 @@ afterEach(() => {
 
 describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
   it("deliver callback returns true", deliverReturnsTrue);
+  it(
+    "does not report a rejected inbound dispatch as finished",
+    rejectedDispatchIsNotFinished,
+  );
   it(
     "deliver callback rejects duplicate final delivery",
     rejectsDuplicateFinal,
@@ -197,6 +203,7 @@ describe("Flow 6: Outbound delivery - deliver callback + sendText", () => {
 function startGateway() {
   vi.clearAllMocks();
   mockDispatch = vi.fn().mockResolvedValue({ queuedFinal: true });
+  mockLogger = testLogger();
   const fixture = createFakeChannelService({ ownAgentId: SELF_AGENT_ID });
   fixture.state.setConversation(DEFAULT_CONVERSATION_ID, defaultConversation());
   fixture.state.setAgentName(SENDER_AGENT_ID, "Atlas");
@@ -209,7 +216,7 @@ function startGateway() {
     accountId: ACCOUNT_ID,
     account: makeAccount(),
     abortSignal: abortController.signal,
-    log: testLogger(),
+    log: mockLogger,
     setStatus: vi.fn(),
     channelRuntime: {
       reply: {
@@ -390,6 +397,21 @@ function deliverReturnsTrue() {
     yield* waitForDispatchTimes(1);
     const result = yield* deliverFinal(REPLY_TEXT);
     expect(result).toBe(true);
+  });
+}
+
+function rejectedDispatchIsNotFinished() {
+  return Effect.gen(function* () {
+    mockDispatch.mockRejectedValueOnce(new Error(DISPATCH_REJECTED_MESSAGE));
+    yield* emitMessage();
+    yield* waitForExpectation(() => {
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining(DISPATCH_REJECTED_MESSAGE),
+      );
+    }, "dispatch error log");
+    expect(mockLogger.info).not.toHaveBeenCalledWith(
+      expect.stringContaining("dispatch finished"),
+    );
   });
 }
 

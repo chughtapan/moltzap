@@ -4,7 +4,7 @@
 // (same signatures).
 //
 // Mirrors the surface at the commit pinned by NANOCLAW_SHA in
-// packages/testbed/src/nanoclaw-install.ts; keep these stubs aligned when
+// packages/simulator/src/runtime/nanoclaw/install.ts; keep these stubs aligned when
 // bumping that pin.
 
 type EngageMode = "pattern" | "mention" | "mention-sticky";

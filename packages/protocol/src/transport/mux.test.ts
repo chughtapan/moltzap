@@ -6,12 +6,12 @@
  *     recovers the original frame (roundtrip), with no envelope wrapper;
  *   - `routeInbound` routes by frame family: a request-family frame (carries a
  *     top-level `method`) lands in the `server` sink, a response-family frame
- *     (no `method`) lands in the `client` sink, and non-JSON / non-object /
- *     no-sink chunks are dropped (or answered with a parse-error reply) without
- *     failing the socket.
+ *     (no `method`) lands in the `client` sink, while malformed, unroutable,
+ *     parser-rejected, and injector-rejected frames fail the read path.
  */
 import { RpcSerialization } from "@effect/rpc";
-import { Effect, Mailbox } from "effect";
+import * as Socket from "@effect/platform/Socket";
+import { Cause, Effect, Exit, Mailbox, Option } from "effect";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
@@ -97,6 +97,11 @@ const decodeOne = (wire: string): unknown => {
 // Number(requestId)`); an empty string collapses to `undefined`. Use a fixed
 // numeric request id and vary only the success value.
 const REQUEST_ID = "7";
+const READ_FAILURE = "Read";
+const WRITE_FAILURE = "Write";
+const PARSER_REJECTION = "fixture parser rejection";
+const INJECTOR_REJECTION = "fixture injector rejection";
+const WRITE_REJECTION = "fixture write rejection";
 
 // Drive the server engine-facing `send` with a response frame; assert the
 // captured chunk is the bare frame and decodes back to an Exit carrying the
@@ -137,6 +142,68 @@ const responseRoutesToClient = (value: unknown) =>
     expect(server.received).toEqual([]);
   });
 
+function rejectingSink(parser: RpcSerialization.Parser): ChannelSink {
+  return {
+    parser,
+    inject: () => {
+      throw new Error(INJECTOR_REJECTION);
+    },
+  };
+}
+
+function parserRejectingSink(): ChannelSink {
+  const parser = RpcSerialization.jsonRpc().unsafeMake();
+  return {
+    parser: {
+      encode: parser.encode,
+      decode: () => {
+        throw new Error(PARSER_REJECTION);
+      },
+    },
+    inject: noopInject,
+  };
+}
+
+function encodedResponse(parser: RpcSerialization.Parser): string {
+  const encoded = parser.encode(exitFrame(REQUEST_ID, { accepted: false }));
+  if (typeof encoded !== "string") {
+    throw new Error("expected JSON-RPC text encoding");
+  }
+  return encoded;
+}
+
+function readFailure(
+  effect: Effect.Effect<void, Socket.SocketError>,
+): Socket.SocketError {
+  const failure = Effect.runSync(effect.pipe(Effect.flip));
+  expect(failure.reason).toBe(READ_FAILURE);
+  return failure;
+}
+
+function failingWire(): {
+  readonly failure: Socket.SocketError;
+  readonly write: () => Effect.Effect<never, Socket.SocketError>;
+} {
+  const failure = new Socket.SocketGenericError({
+    reason: WRITE_FAILURE,
+    cause: WRITE_REJECTION,
+  });
+  return {
+    failure,
+    write: () => Effect.fail(failure),
+  };
+}
+
+function expectWriteDefect(
+  exit: Exit.Exit<void, never>,
+  expected: Socket.SocketError,
+): void {
+  expect(Exit.isFailure(exit)).toBe(true);
+  if (Exit.isFailure(exit)) {
+    expect(Option.getOrUndefined(Cause.dieOption(exit.cause))).toBe(expected);
+  }
+}
+
 // `fc.jsonValue()` can produce `-0`, which `JSON.stringify` renders as `"0"`
 // and parses back to `+0` — a value the JSON wire genuinely cannot preserve.
 // The bare frame's contract is that a JSON-serializable frame round-trips;
@@ -151,7 +218,7 @@ const hasNegativeZero = (value: unknown): boolean => {
   return false;
 };
 
-describe("mux send", () => {
+describe("mux send encoding", () => {
   it("server send writes a bare frame that roundtrips", () => {
     const property = fc.property(
       fc.jsonValue().filter((v) => !hasNegativeZero(v)),
@@ -177,7 +244,39 @@ describe("mux send", () => {
     ));
 });
 
-describe("mux routeInbound", () => {
+describe("mux send failures", () => {
+  it("server send defects when the socket write fails", () =>
+    Effect.runSync(
+      Effect.gen(function* () {
+        const wire = failingWire();
+        const disconnects = yield* Mailbox.make<number>();
+        const builder = makeServerChannelProtocol({
+          write: wire.write,
+          disconnects,
+        });
+        const built = yield* builder(noopInject);
+        const exit = yield* built.impl
+          .send(0, exitFrame(REQUEST_ID, null))
+          .pipe(Effect.exit);
+        expectWriteDefect(exit, wire.failure);
+      }),
+    ));
+
+  it("client send defects when the socket write fails", () =>
+    Effect.runSync(
+      Effect.gen(function* () {
+        const wire = failingWire();
+        const builder = makeClientChannelProtocol({ write: wire.write });
+        const built = yield* builder(noopInject);
+        const exit = yield* built.impl
+          .send(requestFrame(REQUEST_ID, "agent/network/connect"))
+          .pipe(Effect.exit);
+        expectWriteDefect(exit, wire.failure);
+      }),
+    ));
+});
+
+describe("mux routeInbound routing", () => {
   it("routes any response-family frame verbatim to the client sink", () => {
     const property = fc.property(
       fc.jsonValue().filter((v) => !hasNegativeZero(v)),
@@ -203,27 +302,42 @@ describe("mux routeInbound", () => {
         expect(client.received).toEqual([]);
       }),
     ));
+});
 
-  it("drops a non-JSON chunk without failing", () =>
-    Effect.runSync(
-      Effect.gen(function* () {
-        const client = recordingSink();
-        yield* routeInbound("not json at all", { client: client.sink });
-        expect(client.received).toEqual([]);
-      }),
-    ));
+// @agent-code-guard/regression-only: each entry is one closed transport failure boundary; arbitrary valid-frame routing is covered in the generative sibling scope
+describe("mux routeInbound failures", () => {
+  it("fails the read path on non-JSON instead of replying or continuing", () => {
+    const client = recordingSink();
+    readFailure(routeInbound("not json at all", { client: client.sink }));
+    expect(client.received).toEqual([]);
+  });
 
-  it("drops a frame with no sink for its family", () =>
-    Effect.runSync(
-      Effect.gen(function* () {
-        const client = recordingSink();
-        const encoded = client.sink.parser.encode(
-          requestFrame("1", "agent/network/connect"),
-        ) as string;
-        // A request-family frame with only a `client` sink registered has no
-        // `server` sink to route to.
-        yield* routeInbound(encoded, { client: client.sink });
-        expect(client.received).toEqual([]);
-      }),
-    ));
+  it("fails the read path on a non-object JSON body", () => {
+    const client = recordingSink();
+    readFailure(routeInbound("[]", { client: client.sink }));
+    expect(client.received).toEqual([]);
+  });
+
+  it("fails the read path when the frame family has no sink", () => {
+    const client = recordingSink();
+    const encoded = client.sink.parser.encode(
+      requestFrame("1", "agent/network/connect"),
+    ) as string;
+    // A request-family frame with only a `client` sink registered has no
+    // `server` sink to route to.
+    readFailure(routeInbound(encoded, { client: client.sink }));
+    expect(client.received).toEqual([]);
+  });
+
+  it("fails the read path when the selected parser rejects the frame", () => {
+    const parser = RpcSerialization.jsonRpc().unsafeMake();
+    const encoded = encodedResponse(parser);
+    readFailure(routeInbound(encoded, { client: parserRejectingSink() }));
+  });
+
+  it("fails the read path when the engine injector rejects a decoded frame", () => {
+    const parser = RpcSerialization.jsonRpc().unsafeMake();
+    const encoded = encodedResponse(parser);
+    readFailure(routeInbound(encoded, { client: rejectingSink(parser) }));
+  });
 });

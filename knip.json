@@ -43,13 +43,19 @@
       ],
       "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"]
     },
-    "packages/testbed": {
+    "packages/evals": {
+      "entry": ["src/**/*.test.ts", "src/**/*.types-check.ts"],
+      "project": ["src/**/*.ts", "*.mjs"]
+    },
+    "packages/simulator": {
       "entry": [
-        "src/trace-capture-harness.ts",
         "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
+        "src/**/*.types-check.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.ts"],
+      "ignoreDependencies": ["@moltzap/server-core"]
     },
     "packages/server": {
       "entry": [
@@ -60,6 +66,31 @@
         "vitest*.config.ts"
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+    },
+    "v2/transport": {
+      "ignoreDependencies": ["@moltzap/v2-identity"]
+    },
+    "v2/transcript": {
+      "ignoreDependencies": ["@moltzap/v2-identity", "@moltzap/v2-transport"]
+    },
+    "v2/endpoint": {
+      "ignoreDependencies": [
+        "@moltzap/v2-identity",
+        "@moltzap/v2-transcript",
+        "@moltzap/v2-transport"
+      ]
+    },
+    "v2/simulator": {
+      "ignoreDependencies": ["@moltzap/v2-endpoint", "@moltzap/v2-identity"]
+    },
+    "v2/testbed": {
+      "ignoreDependencies": [
+        "@moltzap/v2-endpoint",
+        "@moltzap/v2-identity",
+        "@moltzap/v2-simulator",
+        "@moltzap/v2-transcript",
+        "@moltzap/v2-transport"
+      ]
     }
   }
 }
