@@ -1,7 +1,7 @@
 /**
  * @file Compile-time canary for the three-arm `Connection` discriminated union
  * and the principal context arms. These assertions encode the type-level
- * invariants the runtime never re-checks: the nominal brand seal, per-arm
+ * invariants the runtime never re-checks: the nominal brand boundary, per-arm
  * `auth` narrowing, and exhaustive `Match.tag` discrimination. A regression in
  * `connection.ts` / `context.ts` surfaces here as a compile error, not at
  * runtime.
@@ -46,7 +46,7 @@ const _noAgentIdOnApp = appConn.auth.agentId;
 // @ts-expect-error - the unauthenticated arm carries no auth
 const _noAuthOnUnauth = unauthConn.auth;
 
-// --- nominal brand seal (structural forgery rejected) ------------------
+// --- nominal brand boundary (structural forgery rejected) --------------
 
 // An object literal matching the public field shape cannot satisfy any arm —
 // the module-private `__brand: never` member is unreachable from outside the

@@ -1,6 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
-import { Effect, Either, Exit } from "effect";
+import { Effect, Either, Exit, Schema } from "effect";
 import type { Message } from "@moltzap/protocol/message";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
@@ -24,7 +24,7 @@ import {
   testTaskId,
 } from "./test-utils/index.js";
 
-import { AgentsList } from "@moltzap/protocol/identity";
+import { AgentName, AgentsList } from "@moltzap/protocol/identity";
 import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 
 const effectTest = effectIt.effect;
@@ -55,8 +55,9 @@ const MESSAGE_TWO_ID = testMessageId("m-2");
 const MESSAGE_THREE_ID = testMessageId("m-3");
 const DISPATCH_LEASE_ID = testAgentId("lease-1");
 const DISPATCH_ID = testAgentId("dispatch-1");
-const SEND_TO_AGENT_NAME = "alice";
-const BOB_AGENT_NAME = "bob";
+const decodeAgentName = Schema.decodeSync(AgentName);
+const SEND_TO_AGENT_NAME = decodeAgentName("alice");
+const BOB_AGENT_NAME = decodeAgentName("bob");
 const ALICE_DISPLAY_NAME = "Alice";
 const BOB_DISPLAY_NAME = "Bob";
 const ARCHIVED_DISPLAY_NAME = "Archived";

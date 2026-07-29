@@ -7,19 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed: runtimes becomes the moltzap testbed
+### Added: code-first society simulation
 
-- **Package rename.** `@moltzap/runtimes` is now `@moltzap/testbed`: the
-  supported harness for launching a collection of agents connected over
-  MoltZap. The fleet surface follows the rename (`launchRuntimeFleet` →
-  `launchTestbed`, `RuntimeFleet` → `Testbed`, `RuntimeFleetStartupInterrupted`
-  → `TestbedStartupInterrupted`), and the package joins the npm publish
-  workflow so external consumers can pin a published version instead of
-  vendoring the source.
-- **Works from an npm install.** Adapter factories no longer assume a
+- **One mixed network.** The new `@moltzap/simulator` package runs real
+  OpenClaw and NanoClaw processes, in-process Effect agents, and
+  customer-defined runtimes through the same router and protocol.
+  Each society declares its exact event catalog, keyed agent roster, Effect
+  program, and completion policy in TypeScript.
+- **Typed run evidence.** Every run writes a durable-then-deliver ledger whose
+  event values are limited to the society's declared catalog. Code-based
+  graders open and validate completed ledgers. Evaluation packages own their
+  scenario vocabulary, completion policy, sweeps, and grader composition.
+- **Production-path architecture gate.** The mixed-runtime evaluation launches
+  the production server image and proves OpenClaw, NanoClaw, Effect,
+  and customer-defined participants can exchange messages in one run.
+
+- **A grader vocabulary customers can reach.** `@moltzap/evals` now exports the
+  checks a grader composes — `detectsFailure`, `requiresJudgment`,
+  `exactFinalText`, `atMostWords`, `validMessages`, `responseText`, and
+  `defineCodeGrader` — alongside `CodeCheck`, `CodeGraderDefinition`, and
+  `EvaluationEvidence`. The package documented composing graders while the
+  checks stayed module-private. A reference page states every outcome, report
+  type, and constructor, and a how-to walks the files an evaluation touches.
+
+### Changed: explicit networking and lifecycle boundaries
+
+- **BREAKING (`@moltzap/protocol`, `@moltzap/client`).** Client connections no
+  longer reconnect implicitly or expose reconnect callbacks. Callers own
+  connection retry policy and create a fresh scoped client for each attempt.
+  Server addresses use the branded `ServerBaseUrl` constructor so paths,
+  queries, and fragments cannot cross the transport boundary.
+- **One simulator package.** `@moltzap/simulator` now owns the typed kernel,
+  network and ledger contracts, production router, filesystem storage,
+  process host, and OpenClaw, NanoClaw, and Effect runtimes. Network and ledger
+  implementation contracts remain explicit public entry points within that
+  single package.
+- **Direct runtime rosters and ledger opening.** `Society.agents` maps names
+  directly to `AgentRuntime` values, and typed offline analysis begins with
+  `Society.openLedger`. Deterministic agents use `effectRuntime`; other
+  implementations use the same customer-facing `defineRuntime` contract.
+- **Explicit simulator Node floor.** The workspace and `@moltzap/simulator`
+  declare Node.js 22.19+, matching the bundled OpenClaw runtime instead of
+  discovering that constraint after a child process starts.
+
+### Changed: customer-owned experiment policy
+
+- **Code-defined experiments.** Customers express scenarios, terminal policy,
+  parameter sweeps, and graders as TypeScript and Effect programs. The legacy
+  simulator documents, bundles, CLI, recording layer, and their bespoke
+  storage and queue machinery are retired.
+
+### Fixed: scoped shutdown
+
+- **Protocol close completes.** The socket reader and reverse RPC server now
+  share one disconnect signal, so an interrupted callback cannot leave client
+  shutdown waiting forever.
+- **Opening disconnect owns its generation.** Disconnecting while a client is
+  still opening fails pending connection waiters and awaits scoped finalizers
+  before acknowledging shutdown, so authentication cannot race in after the
+  disconnect completes.
+- **Container ownership stays scoped.** Timed-out server observation and
+  cleanup remain attached to their owning Effect scope, preventing background
+  fibers from outliving a simulator run.
+- **Actionable process startup failures.** External runtime readiness errors
+  carry bounded child-process output while redacting the per-agent credential,
+  so launch failures identify their actual cause without leaking secrets.
+- **Installed router image inputs.** The published simulator carries its router
+  image builder and configuration, pins the matching server package, and
+  resolves that server's exact protocol dependency without assuming a
+  monorepo checkout.
+- **Clean simulator artifacts.** Simulator builds reset `dist` before
+  compilation, so removed CLI and grader modules cannot survive into an npm
+  tarball.
+
+### Changed: runtimes join the simulator
+
+- **Package consolidation.** The useful process, installation, router, and
+  autonomous-runtime implementations from `@moltzap/runtimes` now live in
+  `@moltzap/simulator`. The intermediate `@moltzap/testbed` package and its
+  fleet, adapter, and compatibility surfaces are removed.
+- **Works from an npm install.** Runtime constructors no longer assume a
   monorepo checkout: installed `openclaw` and `@moltzap/openclaw-channel`
-  packages are the default binary/plugin sources, explicit paths remain
-  available as overrides, and channel plugin installation resolves
+  packages are the default binary and channel sources, explicit paths remain
+  available as overrides, and channel installation resolves
   `@moltzap/protocol` / `@moltzap/client` through `createRequire` from the
   channel package instead of hardcoded `repoRoot/packages/*` symlinks.
 - **Reproducible NanoClaw runtime.** NanoClaw installs from an exact pinned

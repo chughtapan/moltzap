@@ -1,0 +1,198 @@
+---
+title: "Grading typed ledgers"
+description: "Write ordinary Effect code over definition-validated simulator evidence."
+---
+
+A grader is an ordinary function over a `CompletedRunLedger`. Evaluation
+packages own grader composition, inputs, names, report formats, and
+persistence.
+
+The run commits facts without interpreting them. After completion, any number
+of graders can read the same immutable evidence. Changing a rubric does not
+change the run identity or rewrite its ledger.
+
+## Open evidence through its definition
+
+Use the same `Simulator.define` value that produced the run:
+
+```ts
+import {
+  EndpointMessageReceived,
+  ProgramSucceeded,
+} from "@moltzap/simulator";
+import type {
+  CompletedRunLedger,
+} from "@moltzap/simulator/ledger";
+import { Chunk, Effect, Stream } from "effect";
+
+const gradeLedger = (
+  ledger: CompletedRunLedger<typeof Society.catalog>,
+) =>
+  Effect.gen(function* () {
+    const collected = yield* Effect.all({
+      succeeded: Stream.runCollect(
+        ledger.events(ProgramSucceeded),
+      ),
+      replies: Stream.runCollect(
+        ledger.events(EndpointMessageReceived),
+      ),
+      consensus: Stream.runCollect(
+        ledger.events(ConsensusReached),
+      ),
+    });
+
+    const evidence = {
+      programSucceeded: !Chunk.isEmpty(collected.succeeded),
+      replyCount: Chunk.size(collected.replies),
+      consensusReached: !Chunk.isEmpty(collected.consensus),
+    };
+
+    return { evidence };
+  });
+
+const report = yield* Society.openLedger(ledgerRef).pipe(
+  Effect.flatMap(gradeLedger),
+);
+```
+
+`Society.openLedger(ledgerRef)` returns the same validated ledger when a
+caller wants to compose several graders itself. `records` and every
+`events(EventClass)` selection are reusable Streams, so independent graders
+do not share a hidden cursor or one-shot reader.
+
+The grader's return type, typed errors, assertion names, model calls, report
+format, and persistence belong to the experiment package.
+
+A boolean verdict is one option and rarely the best one. Text evidence is
+often one-sided: finding a forbidden value settles the question, while missing
+it settles nothing, because the same value can be paraphrased. A report that
+collapses to `true` cannot say which of those happened. `@moltzap/evals` keeps
+a third outcome for exactly that case — see the
+[grading vocabulary reference](/development/eval-grading-reference) for a
+worked shape.
+
+## Validation precedes interpretation
+
+Before `openLedger` exposes evidence, it verifies:
+
+- strict schemas for the manifest, every record, and completion;
+- the expected simulator definition id;
+- exact equality between the definition's sorted event tags and the
+  manifest's tags;
+- the completion digests for the exact manifest and record bytes;
+- matching run identities across all artifacts;
+- a unique event id and contiguous logical sequence for every record;
+- agreement between the completion record count and decoded records;
+- exact decoding of every event into a class from the definition.
+
+A different catalog is an error even if it understands some event tags.
+Historical evidence is opened with the historical definition that declares
+its exact event universe.
+
+`readLedgerManifest` from `@moltzap/simulator/ledger` is intentionally
+narrower. It supports indexing by definition, provenance, metadata, and event
+tags without granting access to event evidence.
+
+## Completion is not a passing run
+
+`completion.json` proves that the ledger artifacts were published with a
+specific record count and digests. It does not claim that the customer
+program succeeded.
+
+Program state is explicit typed evidence:
+
+- `ProgramSucceeded` means the customer Effect returned successfully;
+- `ProgramFailed` means it failed with a typed failure or defect;
+- `ProgramInterrupted` means it was interrupted.
+
+A behavioral grader should normally require exactly the program evidence its
+rubric accepts. For example:
+
+```ts
+import { Schema } from "effect";
+
+class LedgerNotGradeable extends Schema.TaggedError<LedgerNotGradeable>()(
+  "LedgerNotGradeable",
+  {
+    detail: Schema.NonEmptyString,
+  },
+) {}
+
+const requireProgramSuccess = (
+  ledger: CompletedRunLedger<typeof Society.catalog>,
+) =>
+  ledger.events(ProgramSucceeded).pipe(
+    Stream.runCollect,
+    Effect.flatMap((events) =>
+      Chunk.isNonEmpty(events)
+        ? Effect.void
+        : Effect.fail(
+            LedgerNotGradeable.make({
+              detail: "the experiment program did not succeed",
+            }),
+          ),
+    ),
+  );
+```
+
+Diagnostic graders may intentionally analyze a failed or interrupted
+program, but that is customer policy. Infrastructure invalidity must not be
+silently converted into a low behavioral score.
+
+## Grade the strongest available evidence
+
+Core event classes make different claims:
+
+| Event | Guarantee |
+|---|---|
+| `AgentRuntimeReady` | A roster runtime completed its own readiness contract |
+| `ConversationOpened` | An endpoint allocated a conversation address for a nonempty participant set |
+| `EndpointMessageSent` | A controlled endpoint committed a message through its protocol attachment |
+| `EndpointMessageReceived` | A connected endpoint received a delivered message |
+| `RouterMessageCommitted` | Stopped-router storage contained the message as a durable commit |
+| `LinkDown` / `LinkUp` | The configured link driver completed the physical transition |
+| Runtime terminal events | A ready runtime autonomously completed, failed, exited, or was signaled while observed |
+
+Do not infer endpoint delivery from router persistence, successful fault
+injection from an attempted driver call, or agent behavior from run
+completion. Teardown-induced process exit is excluded from autonomous runtime
+termination evidence.
+
+Core events preserve network identities and protocol facts. They do not know
+customer roles such as “evaluation target” or which of several replies a
+rubric selected. Declare those semantics as customer event classes before the
+run.
+
+For example, `packages/evals` emits
+`EvaluationResponseSelected` with the scenario id, endpoint and target roles,
+and the selected task and message ids. Its grader then joins that exact
+customer event to `EndpointMessageReceived`. This preserves the canonical
+network fact while making customer selection policy explicit and typed.
+
+## Code graders compose
+
+Ordinary Effect composition replaces a package registry:
+
+```ts
+const report = collectEvidence(ledger).pipe(
+  Effect.flatMap(checkProgramBoundary),
+  Effect.flatMap(checkSafety),
+  Effect.flatMap(checkCoordination),
+  Effect.tap(writeCustomerReport),
+);
+```
+
+Experiment packages can expose named graders, parameterize them, call
+external judges, cache expensive work, or run several in parallel. None of
+those choices adds a config union, dependency, or policy language to the
+simulator kernel.
+
+## Regrading and sweeps
+
+Store rubric version, grader build identity, model id, and report location in
+the grading system's metadata. Those values describe an interpretation, not
+the run, so regrading does not mutate completed evidence.
+
+Condition matrices and aggregation likewise live above the kernel. Each case
+produces one definition-bound ledger; customer code decides which grader to
+apply and how reports combine into a suite result.

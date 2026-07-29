@@ -30,8 +30,8 @@ export class NotificationTimeoutError extends Data.TaggedError(
  *   (the registry's `closeAll` fired each subscription's `onClose`).
  * - `"stream-completed"` — the Stream source completed normally with no
  *   further frames pending (graceful end-of-stream, not an error condition).
- * - `"transport-disconnected"` — the transport dropped and is NOT going to
- *   reconnect (terminal disconnect), so no further frames can arrive.
+ * - `"transport-disconnected"` — the transport dropped. The current
+ *   subscription is terminal even if its owner later starts a new connection.
  */
 export type StreamCloseReason =
   | "client-closed"

@@ -8,7 +8,7 @@ Agent identity descriptors, schemas, and credentials.
 
 ## Public surface
 
-### [`Agent`](./types.ts#L52)
+### [`Agent`](./types.ts#L49)
 
 _TypeAlias_
 
@@ -16,7 +16,7 @@ _TypeAlias_
 export type Agent = Schema.Schema.Type<typeof AgentSchema>;
 ```
 
-### [`AgentCard`](./types.ts#L53)
+### [`AgentCard`](./types.ts#L50)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ _TypeAlias_
 export type AgentCard = Schema.Schema.Type<typeof AgentCardSchema>;
 ```
 
-### [`AgentCardSchema`](./types.ts#L45)
+### [`AgentCardSchema`](./types.ts#L42)
 
 _Variable_
 
@@ -64,7 +64,25 @@ _Variable_
 export type AgentKey = Redacted.Redacted<AgentKeyValue>
 ```
 
-### [`AgentNotFoundError`](./types.ts#L14)
+### [`AgentName`](./name.ts#L4)
+
+_TypeAlias_
+
+```ts
+export type AgentName = string & Brand.Brand<"AgentName">;
+```
+
+Wire-safe agent name shared by registration input and agent records.
+
+### [`AgentName`](./name.ts#L4)
+
+_Variable_
+
+```ts
+export type AgentName = string & Brand.Brand<"AgentName">
+```
+
+### [`AgentNotFoundError`](./types.ts#L15)
 
 _Class_
 
@@ -77,7 +95,7 @@ export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()
 }
 ```
 
-### [`agentOwnershipSchema`](./types.ts#L58)
+### [`agentOwnershipSchema`](./types.ts#L55)
 
 _Function_
 
@@ -105,7 +123,7 @@ export const AgentsList = defineRpc({
 })
 ```
 
-### [`InviteCode`](./registration.ts#L16)
+### [`InviteCode`](./registration.ts#L17)
 
 _TypeAlias_
 
@@ -113,7 +131,7 @@ _TypeAlias_
 export type InviteCode = Redacted.Redacted<InviteCodeValue>;
 ```
 
-### [`InviteCode`](./registration.ts#L16)
+### [`InviteCode`](./registration.ts#L17)
 
 _Variable_
 
@@ -121,7 +139,7 @@ _Variable_
 export type InviteCode = Redacted.Redacted<InviteCodeValue>
 ```
 
-### [`Register`](./registration.ts#L20)
+### [`Register`](./registration.ts#L21)
 
 _Variable_
 
@@ -129,9 +147,7 @@ _Variable_
 export const Register = defineRpc({
   name: "agent/identity/register",
   params: Schema.Struct({
-    name: Schema.String.pipe(
-      Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
-    ),
+    name: AgentName,
     description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
     inviteCode: Schema.optional(InviteCode),
   }),
@@ -144,7 +160,7 @@ export const Register = defineRpc({
 })
 ```
 
-### [`validateAgent`](./types.ts#L55)
+### [`validateAgent`](./types.ts#L52)
 
 _Variable_
 
@@ -152,7 +168,7 @@ _Variable_
 export const validateAgent = closedStructGuard(AgentSchema)
 ```
 
-### [`validateAgentCard`](./types.ts#L56)
+### [`validateAgentCard`](./types.ts#L53)
 
 _Variable_
 
@@ -165,5 +181,6 @@ export const validateAgentCard = closedStructGuard(AgentCardSchema)
 - `agents.ts`
 - `credentials.ts`
 - `ids.ts`
+- `name.ts`
 - `registration.ts`
 - `types.ts`

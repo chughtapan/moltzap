@@ -448,6 +448,11 @@ function loadProcessEnvSnapshot(): Effect.Effect<ProcessEnvSnapshot, never> {
     MOLTZAP_ADMIN_USER_ID: opt(Config.string("MOLTZAP_ADMIN_USER_ID")),
     MOLTZAP_CONFIG: opt(Config.string("MOLTZAP_CONFIG")),
     MOLTZAP_DEV_MODE: opt(Config.string("MOLTZAP_DEV_MODE")),
+    MOLTZAP_REGISTRATION_SECRET: opt(
+      Config.redacted("MOLTZAP_REGISTRATION_SECRET").pipe(
+        Config.map(Redacted.value),
+      ),
+    ),
     PORT: opt(Config.string("PORT")),
   }).pipe(
     Effect.withConfigProvider(ConfigProvider.fromEnv()),
