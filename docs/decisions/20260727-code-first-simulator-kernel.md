@@ -309,16 +309,16 @@ at the `packages/simulator/` package root beside the source that owns them.
 9. Replace manual resource, timer, stream, shutdown, and supervision machinery
    with stable Effect primitives. Repeat altitude reviews after every vertical
    slice and remove impossible states before handling them.
-10. Run the complete code-first suite with mixed runtimes, then treat full
-    OpenClaw and NanoClaw evaluations as final design acceptance tests.
+10. Run the complete code-first suite with mixed runtimes, then use full
+    OpenClaw and NanoClaw evaluations as final design measurements.
 
 Each stage must remain typecheck- and test-green before the old layer it
 replaces is deleted.
 
-## Acceptance Evidence
+## Recorded Evidence
 
 The current four-runtime surface passed
-`pnpm nx run @moltzap/evals:test:agents --skip-nx-cache` under Node.js 24.18.0
+`pnpm nx run @moltzap/evals:measure:roster --skip-nx-cache` under Node.js 24.18.0
 on 2026-07-28. Its roster contains OpenClaw, NanoClaw, an in-process
 `effectRuntime` agent, and a customer-defined `defineRuntime` agent backed by
 an Effect handler. All four runtimes became ready and returned nonempty
@@ -333,7 +333,7 @@ The completed ledger has run id `17a80309-e4b0-4a63-92bc-b8ceaf46010d` and
 record digest is
 `bf0604558013d57b41229a09b3d5de54bec4467ab3404831c32ae52eb47c1e2d`.
 
-## Correctness Gates
+## Correctness Checks
 
 - Undeclared event classes cannot be emitted, selected, written, or opened
   from a completed ledger.

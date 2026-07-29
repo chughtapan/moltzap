@@ -1,0 +1,218 @@
+{
+  "type": "moltzap.live-evaluation-evidence/v1",
+  "recordedOn": "2026-07-29",
+  "digestAlgorithm": "sha256",
+  "behavioral": {
+    "scenarioId": "EVAL-021",
+    "definitionId": "moltzap.eval-021/v1",
+    "grader": {
+      "graderId": "moltzap.eval-021.grader/v1",
+      "checks": [
+        {
+          "name": "valid non-empty messages",
+          "outcome": "passed",
+          "detail": "Every selected protocol message contains non-empty text."
+        },
+        {
+          "name": "exactly BANANA7",
+          "outcome": "passed",
+          "detail": "The final response contains only the text BANANA7."
+        }
+      ]
+    },
+    "runs": [
+      {
+        "runtime": "openclaw",
+        "status": "completed",
+        "responses": ["OK", "BANANA7"],
+        "verdict": "passed",
+        "ledger": {
+          "ref": "9c9288da-3e43-41d3-9b16-6dae68ad44e5",
+          "manifest": {
+            "ledgerFormatVersion": 1,
+            "runId": "32f78c29-e7a6-447c-a3c1-5067ed50a2d5",
+            "createdAt": "2026-07-29T17:51:43.759Z",
+            "provenance": {
+              "condition": "EVAL-021-openclaw-live",
+              "evaluation": "EVAL-021",
+              "runtime": "openclaw"
+            }
+          },
+          "completion": {
+            "ledgerFormatVersion": 1,
+            "runId": "32f78c29-e7a6-447c-a3c1-5067ed50a2d5",
+            "recordCount": 15,
+            "artifacts": {
+              "manifest": "1deedfefbd75592c83ccc97e4697cbba3a3fe08b1a25cb3ecf21d779a25631cb",
+              "records": "8de6105443670e1497815050ac38c7f4ee155d80cd3b8859e6c3eb68402f212a"
+            }
+          }
+        }
+      },
+      {
+        "runtime": "nanoclaw",
+        "status": "completed",
+        "responses": ["OK", "BANANA7"],
+        "verdict": "passed",
+        "ledger": {
+          "ref": "a15cb23c-b8f2-41b0-947a-f838c7115ded",
+          "manifest": {
+            "ledgerFormatVersion": 1,
+            "runId": "26002731-52d7-4aa8-a724-50006d59934c",
+            "createdAt": "2026-07-29T17:52:58.127Z",
+            "provenance": {
+              "condition": "EVAL-021-nanoclaw-live",
+              "evaluation": "EVAL-021",
+              "runtime": "nanoclaw"
+            }
+          },
+          "completion": {
+            "ledgerFormatVersion": 1,
+            "runId": "26002731-52d7-4aa8-a724-50006d59934c",
+            "recordCount": 15,
+            "artifacts": {
+              "manifest": "268296356bf15ceb084d916ae49730daefd9b9bc9f235cbd6942f671feb79388",
+              "records": "270da5c63d6400e08b0524d775e54a9a98fcbb4254e5eee5bc5e9a7456625b37"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "sharedConversation": {
+    "completedMeasurement": {
+      "status": "completed",
+      "outcome": "content-sequence-selected",
+      "programSucceeded": true,
+      "runtimeTerminalEventCount": 0,
+      "ledger": {
+        "ref": "8913951a-6a76-473e-b300-9fce8b7cb059",
+        "manifest": {
+          "ledgerFormatVersion": 1,
+          "definitionId": "moltzap.shared-conversation-measurement/v1",
+          "runId": "428cb265-565f-4e20-9a16-4c129b808d1a",
+          "createdAt": "2026-07-29T17:56:20.364Z",
+          "provenance": {
+            "condition": "production-openclaw-effect-nanoclaw",
+            "evaluation": "shared-conversation-content-sequence"
+          }
+        },
+        "completion": {
+          "ledgerFormatVersion": 1,
+          "runId": "428cb265-565f-4e20-9a16-4c129b808d1a",
+          "recordCount": 16,
+          "artifacts": {
+            "manifest": "94b7292b0799e4b3939fab2f3993063e07d2e0b4d0087604ebb0efc3959252a9",
+            "records": "e6b16b6d99d12a8b3d7767640ecc231391d9aca38f96b9ab4312f070dcc1e5cf"
+          }
+        }
+      },
+      "conversation": {
+        "taskId": "97299c44-699e-41d3-8179-42272bb23b39",
+        "conversationId": "5f125984-8a83-4c6f-a90b-10ccd026b234",
+        "participants": {
+          "controller": "f861678c-4934-475d-ad50-ccc2797fae0b",
+          "openclaw": "e0172150-4fbd-426d-aaff-74c99ffbad38",
+          "effectWitness": "3fa35e25-8666-492a-9df6-9278728231e4",
+          "nanoclaw": "817757c1-dac0-484d-8670-22a7ebc66ba3"
+        },
+        "triggerMessageId": "5fa5e96d-c3e7-4581-ada0-0d58b1613f9d",
+        "responses": [
+          {
+            "ordinal": 0,
+            "runtime": "nanoclaw",
+            "messageId": "9f73d5d8-9354-4924-bae0-6f3e45e74064",
+            "parts": [
+              {
+                "type": "text",
+                "text": "PROPOSED_TOTAL:42"
+              }
+            ]
+          },
+          {
+            "ordinal": 1,
+            "runtime": "effect",
+            "messageId": "6c2bb78f-117c-429f-a673-b69d2704c106",
+            "replyToId": "9f73d5d8-9354-4924-bae0-6f3e45e74064",
+            "parts": [
+              {
+                "type": "text",
+                "text": "OpenClaw, the automated witness accepted NanoClaw's proposal. verified_total=42 proposal_id=9f73d5d8-9354-4924-bae0-6f3e45e74064 receipt=EFFECT_RECEIPT_13292C2D1049 Independently calculate checksum=(first item)+(2*second item). Reply exactly in the requested final-result form."
+              }
+            ]
+          },
+          {
+            "ordinal": 2,
+            "runtime": "openclaw",
+            "messageId": "6747d0c0-8f0a-448d-b522-314aee38109e",
+            "parts": [
+              {
+                "type": "text",
+                "text": "OPENCLAW_FINAL total=42 checksum=65 proposal_id=9f73d5d8-9354-4924-bae0-6f3e45e74064 receipt=EFFECT_RECEIPT_13292C2D1049"
+              }
+            ]
+          }
+        ],
+        "routerCommitOrder": [
+          "5fa5e96d-c3e7-4581-ada0-0d58b1613f9d",
+          "9f73d5d8-9354-4924-bae0-6f3e45e74064",
+          "6c2bb78f-117c-429f-a673-b69d2704c106",
+          "6747d0c0-8f0a-448d-b522-314aee38109e"
+        ],
+        "transport": {
+          "expectedOpenClawReplyToId": "6c2bb78f-117c-429f-a673-b69d2704c106",
+          "actualOpenClawReplyToId": null,
+          "matched": false,
+          "issue": "https://github.com/chughtapan/moltzap/issues/904"
+        }
+      }
+    },
+    "incompleteNanoClawTrial": {
+      "status": "incomplete",
+      "programTerminalEventObserved": false,
+      "ledger": {
+        "ref": "e6427600-8745-45dd-9804-c6dff00f6709",
+        "manifest": {
+          "ledgerFormatVersion": 1,
+          "definitionId": "moltzap.shared-conversation-acceptance/v1",
+          "runId": "c9b71b57-a010-4339-abb8-ea35dc2a4190",
+          "createdAt": "2026-07-29T16:13:15.369Z",
+          "provenance": {
+            "condition": "production-openclaw-effect-nanoclaw",
+            "evaluation": "shared-conversation-causal-chain"
+          }
+        },
+        "completion": null,
+        "observedRecordCount": 10,
+        "snapshotArtifacts": {
+          "manifest": "fe28332bb739240b10ba6c49d56b294cd55ffb79bebf7083298c7a00ed169ca7",
+          "records": "d9ce04cd806480bc5aca918cf6b6cd24ebedc264d5d6ea64d2e72c4ccd4d68dd"
+        }
+      },
+      "conversation": {
+        "taskId": "db1067af-12ef-4c5e-b470-ce4cf0cce98d",
+        "conversationId": "78120ae4-ae2f-4e60-9bc6-95b000f3674f",
+        "participantCount": 4,
+        "triggerMessageId": "a8a52379-333f-479c-b1e0-cd4c9e661d9e",
+        "openClawProposal": {
+          "messageId": "d1647dc9-ea1d-4bcc-8ccc-61bd1ad52b47",
+          "text": "PROPOSED_TOTAL:42"
+        },
+        "witnessApproval": {
+          "messageId": "995c08ff-9770-444d-aa2d-7151513f321b",
+          "approvalReceipt": "EFFECT_RECEIPT_9F4023BF2D39"
+        },
+        "deliveredNanoClawMessage": {
+          "messageId": "3f3d2f89-4e93-485f-b53f-b896e5e72077",
+          "text": "Standing by — will verify and reply once witness sends the approved total and receipt."
+        }
+      },
+      "runtimeDiagnostic": {
+        "evidenceScope": "operator-observed NanoClaw outbox and delivery logs; not present in the incomplete ledger",
+        "generatedFinal": "NANOCLAW_FINAL total=42 checksum=65 proposal_id=d1647dc9-ea1d-4bcc-8ccc-61bd1ad52b47 receipt=EFFECT_RECEIPT_9F4023BF2D39",
+        "delivered": false,
+        "issue": "https://github.com/chughtapan/moltzap/issues/903"
+      }
+    }
+  }
+}
