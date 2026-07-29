@@ -189,7 +189,7 @@ before landing.
 - Freeze the candidate as a commit or reproducible content digest. The
   reviewer is a teammate or fresh agent session that did not author or
   reconcile the change and receives no inherited conversation,
-  compaction, memory, private state, or earlier review output.
+  compaction, memory, private state, or earlier blind-review output.
 - Give the reviewer only the candidate repository root and the fixed
   questions below. Do not supply a design summary, diff tour, ADR or
   file pointer, search term, expected answer, or out-of-band index.
@@ -198,8 +198,11 @@ before landing.
   records and invalid-review records remain checked in for auditability,
   but they are quarantined inputs: the reviewer must not open, read, or
   search their contents during the run. Merely seeing an artifact path
-  in a directory listing or history is allowed. If a command returns
-  any earlier review answer or verdict, invalidate the run immediately.
+  in a directory listing or history is allowed. If a command returns an
+  answer or verdict from one of those quarantined records, invalidate
+  the run immediately. Engineering-review evidence recorded in the
+  candidate ADRs or trajectories is not a quarantined blind-review
+  record.
 - Do not coach the reviewer or answer questions during the run.
   `Not discoverable` is a valid result. A material author hint
   invalidates the run. Bound the review to one uninterrupted fresh-agent
