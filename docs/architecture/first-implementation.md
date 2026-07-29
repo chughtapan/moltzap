@@ -5,6 +5,9 @@ Status: APPROVED EXECUTION PLAN
 Architecture freeze:
 [`20260728-gate-1-architecture-freeze.md`](../decisions/20260728-gate-1-architecture-freeze.md)
 
+Current L1 and L2 implementation ask:
+[`l1-l2-implementation-ask.md`](./l1-l2-implementation-ask.md)
+
 Package map: [`components.md`](/architecture/components)
 
 Layer and flow orientation: [`layers.md`](/architecture/layers)
