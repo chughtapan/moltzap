@@ -15,9 +15,9 @@ code-first simulator kernel into `v2/simulator`. The port may begin only
 after this document names a landed, reconstructible source commit and
 records green, non-vacuous verification.
 
-The current candidate work is not eligible: it is in progress on
-`integration/rebase-2026-07-27` and includes untracked simulator
-sources. Neither the candidate branch name nor its current HEAD is a
+The candidate lineage has merged into `v2`, but it has not landed on the
+required `main` branch and follow-up correctness and evaluation work remains
+unlanded. Neither a `v2` merge, a branch name, nor a dirty-worktree HEAD is a
 handoff.
 
 ## Source identity
@@ -25,7 +25,7 @@ handoff.
 | Field | Required value |
 |---|---|
 | Source repository | this repository |
-| Candidate lineage | `integration/rebase-2026-07-27` |
+| Candidate lineage | `integration/rebase-2026-07-27` plus `evals/check-outcome` |
 | Required landing branch | `main` after the Gate 0 architecture freeze |
 | Landed source SHA | _unset_ |
 | Source tree clean at SHA | _unverified_ |
@@ -74,7 +74,8 @@ row passed from a cached or vacuous invocation.
 | eval test typecheck | `pnpm nx run @moltzap/evals:typecheck:tests --skip-nx-cache` | pending |
 | eval lint | `pnpm nx run @moltzap/evals:lint --skip-nx-cache` | pending |
 | eval unit tests | `pnpm nx run @moltzap/evals:test --skip-nx-cache` | pending |
-| mixed agent evaluation | `pnpm nx run @moltzap/evals:test:agents --skip-nx-cache` | pending |
+| mixed-roster measurement | `pnpm nx run @moltzap/evals:measure:roster --skip-nx-cache` | pending |
+| all live measurements | `pnpm nx run @moltzap/evals:measure:live --skip-nx-cache` | pending |
 
 ## Preserve in the v2 port
 
@@ -82,8 +83,8 @@ The landed source review must identify the exact owning symbols. These
 are behavioral requirements, not permission to copy untracked files.
 
 - `Simulator.define` remains the code-first public authoring surface.
-- Definition identity and resolved configuration are immutable run
-  evidence.
+- Definition identity, exact catalog tags, provenance, and metadata are
+  immutable run evidence.
 - EventCatalog is closed, typed, and versioned for persisted replay.
 - RunLedger and `LedgerStorage` retain typed append/read and artifact
   digest evidence.
@@ -122,22 +123,21 @@ are behavioral requirements, not permission to copy untracked files.
 
 ## Required run evidence
 
-The verified handoff records at least one run containing all four
-runtime classes. The exact names and run representation come from the
+The verified handoff records at least one run containing all four roster
+implementations. The exact names and run representation come from the
 landed source; no placeholder here defines a new API.
 
 | Evidence | Value |
 |---|---|
-| Simulator definition ID and schema version | pending |
+| Simulator definition ID | pending |
 | Run ID | pending |
-| Scripted runtime present | pending |
+| Customer-defined `defineRuntime` agent present | pending |
 | Effect-native runtime present | pending |
 | OpenClaw runtime present | pending |
 | NanoClaw runtime present | pending |
-| RunLedger root digest | pending |
-| Resolved configuration digest | pending |
-| Event catalog/schema version | pending |
-| Process and artifact digest bundle | pending |
+| Manifest digest | pending |
+| Records digest | pending |
+| Ledger format version and exact event catalog tags | pending |
 | Clean scoped teardown | pending |
 
 ## Status transition

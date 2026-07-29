@@ -1,24 +1,29 @@
 /** @file Reusable code checks and exact-ledger grader construction. */
 
 import type { EndpointMessageReceived } from "@moltzap/simulator";
-import { Effect } from "effect";
+import { Array as Arr, Effect } from "effect";
+import type { NonEmptyReadonlyArray } from "effect/Array";
 import {
-  type CodeCheck,
-  type CodeGrader,
   type EvaluationEvidence,
-  type GradeCheckResult,
+  type EvaluationLedgerView,
+  type GradingRefused,
   evidenceFromLedger,
 } from "./grading-model.js";
+import {
+  CheckOutcome,
+  GradeReport,
+  type GradeCheckResult,
+  type GraderId,
+} from "./grading-report.js";
+
+/** One executable property over validated customer-selected evidence. */
+export type CodeCheck = (evidence: EvaluationEvidence) => GradeCheckResult;
 
 export function responseText(message: EndpointMessageReceived): string {
   return message.parts
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("\n");
-}
-
-function normalizedFinal(evidence: EvaluationEvidence): string {
-  return responseText(evidence.finalResponse).toLocaleLowerCase("en-US");
 }
 
 function words(value: string): ReadonlyArray<string> {
@@ -28,65 +33,55 @@ function words(value: string): ReadonlyArray<string> {
     .filter((word) => word.length > 0);
 }
 
-export function sentences(value: string): ReadonlyArray<string> {
-  return value
-    .split(/[.!?]+/u)
-    .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.length > 0);
-}
-
-export function assertion(
+/** Build a two-sided check for a property that code can decide exactly. */
+function assertion(
   name: string,
   detail: string,
   evaluate: (evidence: EvaluationEvidence) => boolean,
 ): CodeCheck {
   return (evidence): GradeCheckResult => ({
     name,
-    passed: evaluate(evidence),
+    outcome: evaluate(evidence) ? CheckOutcome.passed : CheckOutcome.failed,
     detail,
   });
 }
 
-export function includesEvery(...needles: ReadonlyArray<string>): CodeCheck {
-  return assertion(
-    `contains ${needles.join(", ")}`,
-    `The final response contains ${needles.join(", ")}.`,
-    (evidence) => {
-      const text = normalizedFinal(evidence);
-      return needles.every((needle) =>
-        text.includes(needle.toLocaleLowerCase("en-US")),
-      );
-    },
-  );
+/**
+ * Preserve a semantic question in the report without claiming that lexical
+ * evidence decided it.
+ */
+export function requiresJudgment(name: string, detail: string): CodeCheck {
+  return (): GradeCheckResult => ({
+    name,
+    outcome: CheckOutcome.undecided,
+    detail,
+  });
 }
 
-export function includesOneOf(
+/** Build a one-sided detector for a mechanically conclusive violation. */
+export function detectsFailure(
   name: string,
-  ...needles: ReadonlyArray<string>
+  detail: string,
+  violated: (evidence: EvaluationEvidence) => boolean,
 ): CodeCheck {
-  return assertion(
+  return (evidence): GradeCheckResult => ({
     name,
-    `The final response contains one of: ${needles.join(", ")}.`,
-    (evidence) => {
-      const text = normalizedFinal(evidence);
-      return needles.some((needle) =>
-        text.includes(needle.toLocaleLowerCase("en-US")),
-      );
-    },
-  );
+    outcome: violated(evidence) ? CheckOutcome.failed : CheckOutcome.undecided,
+    detail,
+  });
 }
 
-export function excludes(
-  name: string,
-  ...needles: ReadonlyArray<string>
-): CodeCheck {
+/** Require the final text to satisfy a literal output constraint. */
+export function exactFinalText(expected: string): CodeCheck {
   return assertion(
-    name,
-    `The final response excludes: ${needles.join(", ")}.`,
+    `exactly ${expected}`,
+    `The final response contains only the text ${expected}.`,
     (evidence) => {
-      const text = normalizedFinal(evidence);
-      return needles.every(
-        (needle) => !text.includes(needle.toLocaleLowerCase("en-US")),
+      const [part] = evidence.finalResponse.parts;
+      return (
+        evidence.finalResponse.parts.length === 1 &&
+        part.type === "text" &&
+        part.text.trim() === expected
       );
     },
   );
@@ -104,36 +99,33 @@ export const validMessages = assertion(
   "valid non-empty messages",
   "Every selected protocol message contains non-empty text.",
   (evidence) =>
-    evidence.responses.length > 0 &&
     evidence.responses.every(
       (message) => responseText(message).trim().length > 0,
     ),
 );
 
-export const stableConversation = assertion(
-  "one conversation",
-  "Every selected response belongs to the same conversation.",
-  (evidence) =>
-    evidence.responses.every(
-      (message) =>
-        message.conversationId === evidence.finalResponse.conversationId,
-    ),
-);
+interface CodeGraderDefinition {
+  readonly graderId: GraderId;
+  readonly scenarioId: string;
+  readonly endpointName: string;
+  readonly targetName: string;
+  readonly expectedResponses: number;
+}
 
 export function defineCodeGrader(
-  scenarioId: string,
-  endpointName: string,
-  targetName: string,
-  ...checks: ReadonlyArray<CodeCheck>
-): CodeGrader {
+  definition: CodeGraderDefinition,
+  ...checks: NonEmptyReadonlyArray<CodeCheck>
+): (
+  ledger: EvaluationLedgerView,
+) => Effect.Effect<GradeReport, GradingRefused> {
   return (ledger) =>
-    evidenceFromLedger(ledger, scenarioId, endpointName, targetName).pipe(
+    evidenceFromLedger(ledger, definition).pipe(
       Effect.map((evidence) => {
-        const results = checks.map((check) => check(evidence));
-        return {
-          passed: results.every((result) => result.passed),
+        const results = Arr.map(checks, (check) => check(evidence));
+        return GradeReport.make({
+          graderId: definition.graderId,
           checks: results,
-        };
+        });
       }),
     );
 }

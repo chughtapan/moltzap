@@ -1,30 +1,28 @@
-/** @file Exact-class ledger projection and grading result contracts. */
+/** @file Exact-class ledger projection and refusal semantics. */
 
 import {
   AgentRuntimeReady,
   EndpointMessageReceived,
   ProgramSucceeded,
 } from "@moltzap/simulator";
-import { Chunk, Effect, Schema, Stream } from "effect";
+import { Array as Arr, Chunk, Effect, Schema, Stream } from "effect";
+import type { NonEmptyReadonlyArray } from "effect/Array";
 import { EvaluationResponseSelected } from "./evaluation-events.js";
 
 /** Typed protocol evidence selected from a validated ledger. */
-export interface EvaluationEvidence {
-  readonly responses: ReadonlyArray<EndpointMessageReceived>;
+export class EvaluationEvidence {
+  readonly responses: NonEmptyReadonlyArray<EndpointMessageReceived>;
   readonly finalResponse: EndpointMessageReceived;
-}
 
-/** One executable assertion in a code grader. */
-export interface GradeCheckResult {
-  readonly name: string;
-  readonly passed: boolean;
-  readonly detail: string;
-}
-
-/** A grader report retains every assertion instead of reducing to one bit. */
-export interface GradeReport {
-  readonly passed: boolean;
-  readonly checks: ReadonlyArray<GradeCheckResult>;
+  constructor({
+    responses,
+  }: {
+    readonly responses: NonEmptyReadonlyArray<EndpointMessageReceived>;
+  }) {
+    this.responses = Object.freeze(Arr.map(responses, (response) => response));
+    this.finalResponse = Arr.lastNonEmpty(this.responses);
+    Object.freeze(this);
+  }
 }
 
 /** Invalid or incomplete ledgers are refused rather than graded as failures. */
@@ -47,12 +45,13 @@ export interface EvaluationLedgerView {
   readonly responsesSelected: Stream.Stream<EvaluationResponseSelected>;
 }
 
-/** A grader is ordinary code over exact typed streams from a validated ledger. */
-export interface CodeGrader {
-  (ledger: EvaluationLedgerView): Effect.Effect<GradeReport, GradingRefused>;
+/** The exact customer-selected deliveries required by one grader. */
+interface EvidenceRequest {
+  readonly scenarioId: string;
+  readonly endpointName: string;
+  readonly targetName: string;
+  readonly expectedResponses: number;
 }
-
-export type CodeCheck = (evidence: EvaluationEvidence) => GradeCheckResult;
 
 function refused(scenarioId: string, detail: string): GradingRefused {
   return GradingRefused.make({ scenarioId, detail });
@@ -151,14 +150,52 @@ function relevantSelections(
   );
 }
 
+function resolveSelectedResponses(
+  request: EvidenceRequest,
+  target: AgentRuntimeReady,
+  selections: ReadonlyArray<EvaluationResponseSelected>,
+  messages: ReadonlyArray<EndpointMessageReceived>,
+): Effect.Effect<
+  NonEmptyReadonlyArray<EndpointMessageReceived>,
+  GradingRefused
+> {
+  const relevant = relevantSelections(
+    request.scenarioId,
+    request.endpointName,
+    target,
+    selections,
+  );
+  const responses = selectedResponses(relevant, messages);
+  if (responses.length !== relevant.length) {
+    return Effect.fail(
+      refused(
+        request.scenarioId,
+        "selected response does not match canonical delivery evidence",
+      ),
+    );
+  }
+  if (responses.length !== request.expectedResponses) {
+    return Effect.fail(
+      refused(
+        request.scenarioId,
+        `ledger has ${String(responses.length)} selected target responses at ${request.endpointName}; expected ${String(request.expectedResponses)}`,
+      ),
+    );
+  }
+  if (!Arr.isNonEmptyReadonlyArray(responses)) {
+    return Effect.fail(
+      refused(
+        request.scenarioId,
+        `ledger has no selected target response at ${request.endpointName}`,
+      ),
+    );
+  }
+  return Effect.succeed(responses);
+}
+
 /** Resolve customer selection policy against canonical network deliveries. */
 export const evidenceFromLedger = Effect.fn("evals.evidenceFromLedger")(
-  function* (
-    ledger: EvaluationLedgerView,
-    scenarioId: string,
-    endpointName: string,
-    targetName: string,
-  ) {
+  function* (ledger: EvaluationLedgerView, request: EvidenceRequest) {
     const collected = yield* Effect.all({
       succeeded: Stream.runCollect(ledger.programSucceeded),
       ready: Stream.runCollect(ledger.runtimesReady),
@@ -166,39 +203,18 @@ export const evidenceFromLedger = Effect.fn("evals.evidenceFromLedger")(
       selected: Stream.runCollect(ledger.responsesSelected),
     });
     const succeeded = Chunk.toReadonlyArray(collected.succeeded);
-    yield* ensureProgramSucceeded(scenarioId, succeeded);
+    yield* ensureProgramSucceeded(request.scenarioId, succeeded);
     const target = yield* ensureTargetReady(
-      scenarioId,
-      targetName,
+      request.scenarioId,
+      request.targetName,
       Chunk.toReadonlyArray(collected.ready),
     );
-    const selections = relevantSelections(
-      scenarioId,
-      endpointName,
+    const responses = yield* resolveSelectedResponses(
+      request,
       target,
       Chunk.toReadonlyArray(collected.selected),
-    );
-    const responses = selectedResponses(
-      selections,
       Chunk.toReadonlyArray(collected.messages),
     );
-    const finalResponse = responses.at(-1);
-    if (finalResponse === undefined) {
-      return yield* Effect.fail(
-        refused(
-          scenarioId,
-          `ledger has no selected target response at ${endpointName}`,
-        ),
-      );
-    }
-    if (responses.length !== selections.length) {
-      return yield* Effect.fail(
-        refused(
-          scenarioId,
-          "selected response does not match canonical delivery evidence",
-        ),
-      );
-    }
-    return { responses, finalResponse };
+    return new EvaluationEvidence({ responses });
   },
 );
