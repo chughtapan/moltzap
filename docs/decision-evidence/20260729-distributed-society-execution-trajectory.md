@@ -692,13 +692,24 @@ No earlier retained user event independently selects those enrollment
 mechanisms or states a rationale for them. E20 directs their treatment in the
 ADR process; their engineering detail originates in the agent proposal.
 
-## Candidate repository effects pending freeze
+## Candidate repository effects frozen
 
-The working tree proposes five linked ADRs, this trajectory, a
-distributed-execution normative chapter and architecture orientation,
-decision/spec index updates, and the pre-existing simulator ADR lineage
-correction. These changes have not yet been frozen as a commit or reproducible
-content digest and are not recorded here as landed repository events.
+The semantic candidate was frozen on branch
+`architect/v2-society-execution` by commit
+`26e81c8175dff900151c755ab9f63c778377ff77` (tree
+`ede6a829a9f564a8f5bd86405a3ce082225d0383`) at
+`2026-07-29T21:43:21Z`. Its sole parent and v2 base is
+`0508955433b59f98ca3315b5631eb23ffa907cb1`. The commit contains the five
+linked ADRs, the normative distributed-execution chapter, architecture
+orientation, decision and specification index updates, the pre-existing
+simulator ADR lineage correction, this compacted trajectory, and its recorded
+source gap.
+
+A following trace-only commit may add this mechanical event to the trajectory.
+That trace commit changes evidence about the semantic freeze, not the frozen
+semantic decisions themselves. The exact trace commit is the candidate supplied
+to blind review so a cold reader receives both the decisions and their frozen
+repository identity.
 
 ## Source gaps and omissions
 
