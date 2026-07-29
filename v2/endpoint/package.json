@@ -1,0 +1,62 @@
+{
+  "name": "@moltzap/v2-endpoint",
+  "version": "2026.729.0",
+  "private": true,
+  "description": "Protocol engine, OpenFloorV1, recovery/reconciliation, SQLite state, daemon MCP, CLI",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chughtapan/moltzap.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "bin": {
+    "moltzap": "./bin/moltzap",
+    "moltzap-agentd": "./bin/moltzap-agentd"
+  },
+  "scripts": {
+    "build": "nx run @moltzap/v2-endpoint:build",
+    "lint": "nx run @moltzap/v2-endpoint:lint"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "v2/endpoint",
+          "command": "tsc -b"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "v2/endpoint",
+          "command": "eslint src --cache --max-warnings=0"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@moltzap/v2-identity": "workspace:*",
+    "@moltzap/v2-transcript": "workspace:*",
+    "@moltzap/v2-transport": "workspace:*"
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "typescript": "^5.7.0"
+  }
+}
