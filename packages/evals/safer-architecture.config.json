@@ -2,8 +2,16 @@
   "maxPublicExports": 22,
   "facadeFiles": [
     {
-      "file": "grading-checks.ts",
-      "reason": "Published check vocabulary a customer grader composes; the grading reference cites each constructor by name"
+      "file": "src/events.ts",
+      "reason": "Closed evaluation event catalog shared by episodes, transcript projection, and the simulator definition"
+    },
+    {
+      "file": "src/grading.ts",
+      "reason": "Evaluation-owned transcript, assessment, semantic judge, and calibration boundary"
+    },
+    {
+      "file": "src/sweep.ts",
+      "reason": "Durable report and sequential matrix execution boundary shared by the CLI and Phoenix publisher"
     }
   ],
   "publicTypePackages": [
@@ -37,7 +45,7 @@
     },
     {
       "package": "@moltzap/simulator",
-      "reason": "Simulator contracts, implementations, and executable evaluations share one public package"
+      "reason": "The private evaluation application consumes the simulator's public contract"
     }
   ],
   "allowedTestPublicSubpaths": [
