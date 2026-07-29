@@ -153,9 +153,10 @@ MoltZap card, which is intended: a card is unusable without its routes
 and is not a TLS credential. Pinning the Registry attestation key as
 deployment configuration means a deployment that loses that key cannot
 verify existing cards, and Gate 1 has no rotation or recovery path for
-it. Requiring `https` outside loopback puts the mandatory-TLS rule in
-the card itself, so a deployment cannot quietly run a plaintext Router
-between two agents that both hold conforming cards.
+it. Admitting only `https` in a service route puts the mandatory-TLS
+rule of `identity.md` in the card itself, with no loopback carve-out,
+so a testbed or a local run acquires TLS at the platform edge like any
+other deployment rather than downgrading the wire.
 
 The `moltzap.xyz`-derived OID arc, the identifier prefixes, and the
 `openfloor.v1.speak` action identifier are public namespace choices
