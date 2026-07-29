@@ -1,10 +1,19 @@
 /**
- * @file Validate every fenced ```mermaid block under the docs +
- * packages trees by piping each block through `mmdc` (the official
+ * @file Validate every fenced ```mermaid block under the trees named by
+ * `MERMAID_ROOTS` by piping each block through `mmdc` (the official
  * Mermaid CLI). Returns the list of failures grouped by file.
  */
 import { Command, FileSystem, Path } from "@effect/platform";
-import { Effect, Either } from "effect";
+import { Effect, Either, Stream } from "effect";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Workspace-relative trees the gate walks. Every documented tree must be
+ * listed here: a tree left out is not reported as skipped, it simply
+ * contributes zero blocks and the gate passes without having looked.
+ */
+export const MERMAID_ROOTS = ["docs", "packages", "v2"] as const;
 
 export interface MermaidBlock {
   readonly file: string;
@@ -95,6 +104,23 @@ function handleFence(
 const MMDC_BIN = "mmdc";
 
 /**
+ * Chrome launch flags for the renderer. `mmdc` merges this file into its
+ * `puppeteer.launch()` options.
+ */
+const PUPPETEER_CONFIG = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "mermaid-puppeteer.json",
+);
+
+/** Lines of mmdc stderr kept in a failure message; the rest is stack noise. */
+const STDERR_LINES_KEPT = 6;
+
+interface MmdcRun {
+  readonly exitCode: number;
+  readonly stderr: string;
+}
+
+/**
  * Validate `block.body` by writing it to a temp file and shelling out
  * to `mmdc`. Returns null on success or a `MermaidFailure` carrying
  * mmdc's exit context on failure.
@@ -134,22 +160,45 @@ const prepareInput = (
       .pipe(Effect.catchAll(() => Effect.void));
   });
 
+/**
+ * Run one block through `mmdc`, keeping its stderr. mmdc reports both
+ * diagram syntax errors and browser launch failures there, and the exit
+ * code alone cannot tell those apart.
+ */
 const runMmdc = (
   inputPath: string,
   outputPath: string,
 ): Effect.Effect<
-  Either.Either<number, unknown>,
+  Either.Either<MmdcRun, unknown>,
   never,
   Command.CommandExecutor
 > =>
-  Command.make(
-    MMDC_BIN,
-    "--input",
-    inputPath,
-    "--output",
-    outputPath,
-    "--quiet",
-  ).pipe(Command.exitCode, Effect.either);
+  Effect.scoped(
+    Effect.gen(function* () {
+      const proc = yield* Command.make(
+        MMDC_BIN,
+        "--input",
+        inputPath,
+        "--output",
+        outputPath,
+        "--puppeteerConfigFile",
+        PUPPETEER_CONFIG,
+        "--quiet",
+      ).pipe(
+        // stdout stays inherited so only stderr needs draining; a piped
+        // stdout nobody reads can wedge the child once its buffer fills.
+        Command.stdout("inherit"),
+        Command.stderr("pipe"),
+        Command.start,
+      );
+      const stderr = yield* proc.stderr.pipe(
+        Stream.decodeText(),
+        Stream.mkString,
+      );
+      const exitCode = yield* proc.exitCode;
+      return { exitCode, stderr } satisfies MmdcRun;
+    }),
+  ).pipe(Effect.either);
 
 const cleanup = (
   fs: FileSystem.FileSystem,
@@ -163,11 +212,27 @@ const cleanup = (
 
 function interpretResult(
   block: MermaidBlock,
-  result: Either.Either<number, unknown>,
+  result: Either.Either<MmdcRun, unknown>,
 ): MermaidFailure | null {
   return Either.match(result, {
     onLeft: (e) => ({ block, message: `mmdc launch failed: ${String(e)}` }),
-    onRight: (code) =>
-      code === 0 ? null : { block, message: `mmdc exited ${String(code)}` },
+    onRight: (run) =>
+      run.exitCode === 0
+        ? null
+        : {
+            block,
+            message: `mmdc exited ${String(run.exitCode)}${formatStderr(run.stderr)}`,
+          },
   });
+}
+
+/** Indent the leading lines of mmdc stderr under the failure's header. */
+function formatStderr(stderr: string): string {
+  const lines = stderr
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .filter((l) => l.length > 0)
+    .slice(0, STDERR_LINES_KEPT);
+  if (lines.length === 0) return "";
+  return `\n${lines.map((l) => `    ${l}`).join("\n")}`;
 }
