@@ -117,6 +117,16 @@ const packageDefinitions = {
     },
   },
   evals: {
+    beforeShared: {
+      maxPublicExports: 22,
+      facadeFiles: [
+        {
+          file: "grading-checks.ts",
+          reason:
+            "Published check vocabulary a customer grader composes; the grading reference cites each constructor by name",
+        },
+      ],
+    },
     afterShared: {
       publicTypePackages: [...publicTypePackages, publicTypePackage.simulator],
     },

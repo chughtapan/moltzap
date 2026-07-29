@@ -25,8 +25,26 @@ export {
   type EvaluationSuite,
 } from "./evaluations.js";
 export {
-  GradingRefused,
-  type CodeGrader,
+  CheckOutcome,
   type GradeCheckResult,
   type GradeReport,
-} from "./grading-model.js";
+  type GraderId,
+} from "./grading-report.js";
+export { GradingRefused, type EvaluationEvidence } from "./grading-model.js";
+
+/**
+ * The check vocabulary a grader composes. A check reports what it
+ * established, so a detector that finds nothing says `undecided` rather
+ * than claiming the property holds.
+ */
+export {
+  atMostWords,
+  defineCodeGrader,
+  detectsFailure,
+  exactFinalText,
+  requiresJudgment,
+  responseText,
+  validMessages,
+  type CodeCheck,
+  type CodeGraderDefinition,
+} from "./grading-checks.js";
