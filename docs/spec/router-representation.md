@@ -14,8 +14,11 @@ mechanisms.
 
 Every Router request and result body uses RFC 8785 JCS UTF-8 bytes.
 Router repeats the same strict canonical-input rule at its boundary:
-fatal UTF-8, one JSON value, duplicate-name rejection, exact closed
-schema decode, and byte equality with the JCS re-encoding.
+fatal UTF-8, one JSON value, duplicate-name rejection, and byte equality
+with the JCS encoding of the parsed syntax tree precede the exact
+closed-schema decode. AuthenticatedHttp closes the outer request;
+Router later decodes its explicitly retained nested SignedMessage or
+PollCursor artifact.
 
 Unknown members, duplicate members, trailing data, byte-order marks,
 lone surrogate code points, and alternate number spellings are
@@ -79,7 +82,9 @@ The encrypted plaintext is the JCS UTF-8 representation of exactly:
 `lastScannedOrder` matches `0|[1-9][0-9]*`. It has no sign, leading
 zero, whitespace, exponent, fraction, or numeric JSON representation.
 The decimal is a private Router value and never leaves the encrypted
-plaintext.
+plaintext. Order `0` is the empty-tail sentinel, the first accepted
+SignedMessage has order `1`, and later accepted messages increment by
+one within the process instance.
 
 Compact-JWE parse failure, noncanonical protected header or plaintext,
 authentication failure, wrong caller or instance, future order, and a
@@ -107,9 +112,11 @@ Requests use `Content-Type: application/json`,
 imposes no URL scheme or TLS requirement.
 
 The `kind` field is the common closed-union discriminator already used
-by L1. Every well-formed, authenticated, version-matched domain request
-returns status 200 with one closed result. Envelope failures use the
-status and exact `{"error":"..."}` bodies in
+by L1. Every well-formed, authenticated, version-matched request that
+reaches a Router domain outcome without owner overload or an
+infrastructure failure returns status 200 with one closed result.
+Envelope, overload, and infrastructure failures use the status and
+exact `{"error":"..."}` bodies in
 `identity-representation.md`.
 
 ## Send
@@ -217,7 +224,9 @@ caller. It may be empty only for an initial anchor or continuation
 timeout.
 
 `cursor_invalid` has no RouterInstanceId. `feed_gap` has no partial
-batch or PollCursor.
+batch or PollCursor. The Router returns `feed_gap` exactly when the
+decoded `lastScannedOrder` is less than its greatest-evicted order,
+which starts at `0`; equality does not create a gap.
 
 ## Health
 

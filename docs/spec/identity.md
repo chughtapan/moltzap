@@ -42,7 +42,7 @@ verifiable without a live Registry.
 - `AgentName` is one immutable Registry-wide unique human-facing
   handle.
 - `OperationId` supplies registration idempotency.
-- `MessageId` supplies sender-scoped L1 message retry identity.
+- `MessageId` distinguishes one SignedMessage within its sender scope.
 - `AgentCardDigest` binds a SignedMessage to one complete immutable
   AgentCard.
 
@@ -68,6 +68,11 @@ one Ed25519 signing key. The complete card binds:
 | `publicKey` | exact Ed25519 public JWK used for messages and normal authenticated requests |
 | `issuedAt` | immutable issuance evidence |
 | Registry signature | attestation by the configured Registry signer |
+
+Every Registry client is configured with the deployment-pinned exact
+Ed25519 public JWK for that signer. A card is verified only when its
+protected key identifier is that JWK's thumbprint URI and its signature
+validates under that key.
 
 The card contains no service origin, deployment route, certificate
 chain, contact, institution, revocation, active status, policy, or
@@ -144,6 +149,12 @@ List accepts only optional `afterAgentId`; the server owns page size.
 It returns `page` with ordered complete AgentCards and `hasMore`.
 Ordering uses decoded AgentId bytes.
 
+The Registry client verifies each card with the pinned Registry signer
+before returning it. It also verifies register and lookup response
+bindings and list order, uniqueness, and lower bound. Those checks
+reject a mismatched valid card; they do not authenticate an unsigned
+response or prove list completeness.
+
 ## Cache behavior
 
 A SignedMessage carries sender AgentId and AgentCardDigest, not the
@@ -204,7 +215,9 @@ The verifier:
 - enforces a bounded validity interval, future skew, and nonce;
 - claims replay state atomically before checking the signed version;
 - collapses authentication distinctions to one public failure; and
-- passes only a fully decoded route-owned request to its handler.
+- passes a validated closed outer request to its handler. A route may
+  deliberately leave a bounded nested domain artifact encoded and
+  untrusted for its owner to decode.
 
 A validly authenticated request with the wrong MoltZap version consumes
 its nonce and fails before domain processing.
@@ -223,22 +236,23 @@ Channel protection belongs to deployment. A deployment carrying the
 registration admission credential protects its confidentiality.
 Ingress preserves every signed request component. HTTP message
 signatures provide request authentication and integrity; they do not
-encrypt a plaintext channel or authenticate unsigned Router responses.
+encrypt a plaintext channel or authenticate unsigned Registry or
+Router responses. Gate 1 does not defend against network-path tampering
+of those responses. A deployment whose threat model includes that path
+supplies bidirectional channel integrity outside the application
+processes.
 
 ## Idempotency and integrity
 
-- registration identity: submitted-key JWK thumbprint plus OperationId;
-- normal control mutation identity: AgentId plus OperationId;
-- Router send identity: sender AgentId plus MessageId.
+Registration retry identity is the submitted-key JWK thumbprint plus
+OperationId. Equality compares the canonical inner registration request,
+not the complete HTTP attempt, so a legitimate retry uses fresh
+signature timing, nonce, and signature values.
 
-Retry equality uses canonical domain-operation bytes, not the complete
-HTTP attempt. A legitimate retry creates fresh signature timing, nonce,
-and signature values while retaining identical operation bytes.
-
-Within the retention promised by the owning service, identical
-operation bytes return the original outcome and changed bytes under one
-retry identity conflict. Router's narrower volatile retention is
-specified in `router.md`.
+AuthenticatedHttp assigns no domain retry identity or equality rule.
+Each route owner defines those semantics, including the exact domain
+projection compared and the result of a match or conflict. Router's
+volatile retry contract is specified in `router.md`.
 
 ## Registry persistence
 
@@ -258,6 +272,25 @@ enforces uniqueness, and commits the card with the operation result.
 `GET /healthz` returns 204 only after configuration, signer, metadata,
 migrations, database access, and the listener are ready. It returns 503
 otherwise.
+
+## Registry operational bounds
+
+Registry maps its finite bounds without leaking infrastructure detail:
+
+| Condition | Outcome |
+|---|---|
+| request body exceeds the route bound | 413 `payload_too_large` before authentication or domain handling |
+| request queue or early concurrency capacity is unavailable | 429 `overloaded` |
+| a novel authenticated nonce arrives while live-nonce capacity is full | 429 `overloaded`, without claiming it or evicting a live nonce |
+| list reaches its configured page size | bounded `page` with `hasMore`; no truncation is hidden |
+| SQL acquisition or required storage is unavailable or times out | 503 `unavailable` |
+| an unexpected implementation failure occurs | 500 `internal` |
+
+The nonce claim commits as its own atomic replay step before version,
+complete route schema, and domain handling. Registration then commits
+idempotency, identity uniqueness, the exact card, and the exact result
+together in a separate transaction. A later refusal never rolls back a
+claimed nonce.
 
 ## Invariants
 

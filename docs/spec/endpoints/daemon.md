@@ -36,6 +36,7 @@ local profile. The profile stores:
 - AgentId;
 - absolute Ed25519 PKCS#8 key path;
 - Registry, Router, and Ledger routes;
+- deployment-pinned Registry signer public JWK;
 - stable nonzero `mcpPort`;
 - endpoint SQLite path;
 - finite operational limits.

@@ -15,16 +15,26 @@ Every L1 JSON request, result, signed payload, protected header, and
 complete General JWS object uses RFC 8785 JSON Canonicalization Scheme
 UTF-8 bytes.
 
-A decoder:
+A complete decoder:
 
-1. reads within the configured byte bound and fixed depth bound;
+1. reads within the configured byte bound;
 2. decodes fatal UTF-8;
-3. parses one JSON value while rejecting duplicate object names;
-4. decodes through the exact closed schema;
-5. encodes that decoded value back to JSON;
-6. canonicalizes it with JCS; and
-7. rejects a representation required to be canonical unless its input
-   bytes equal the JCS bytes.
+3. parses one unknown JSON value with Effect `Schema.parseJson()`;
+4. applies a private Effect Schema refinement that rejects container
+   depth over 16 and unpaired Unicode surrogates;
+5. canonicalizes that value with JCS and requires the input bytes to
+   match; and
+6. decodes through the exact closed schema.
+
+No semantic value escapes before every step succeeds.
+AuthenticatedHttp deliberately performs steps 1 through 4 as its
+parse prelude, performs step 5 before authentication, then performs the
+complete route-owned schema decode at its specified later stage.
+
+Duplicate object names require no second parser. Native JSON parsing
+collapses them, so the resulting value's JCS bytes cannot equal input
+bytes that contain the repeated member. The mandatory byte comparison
+therefore rejects every duplicate-name input.
 
 The maximum decoded JSON container depth is 16. A root object or array
 has depth 1, each nested object or array adds 1, and scalar values add
@@ -149,6 +159,11 @@ The decoded protected header is exactly:
 `Ed25519` is the fully specified JOSE algorithm identifier from RFC
 9864.
 
+An AgentCard verifier receives the deployment-pinned Registry signer
+public JWK. It requires the protected `kid` to equal that key's RFC 9278
+thumbprint URI and verifies the signature with that key. The JWS never
+supplies its own trust root.
+
 The outer object, signature object, protected header, and payload are
 closed. `signatures` has exactly one member. The signature object has no
 unprotected `header`.
@@ -239,7 +254,7 @@ Registration:
 
 The route supplies the exact closed schema replacing `{}`.
 
-Requests:
+Registry and Router domain POST requests:
 
 - have exactly one `Content-Type` field whose field value is
   `application/json`, with no parameter;
@@ -269,7 +284,9 @@ digest algorithm are rejected.
 
 Responses with JSON bodies use `Content-Type: application/json` and JCS
 bytes. `GET /healthz` has no body. Application code imposes no URL
-scheme or TLS requirement.
+scheme or TLS requirement. L1 and L2 responses carry no
+application-layer response signature; their network-path assumption is
+specified in `identity.md`.
 
 ## HTTP message signatures
 
@@ -358,6 +375,11 @@ to `message_invalid` or `cursor_invalid`, respectively.
 
 An otherwise valid wrong-version request consumes its nonce.
 
+At stage 5, an already claimed live nonce is
+`authentication_failed`. A novel nonce that cannot be retained because
+the live-nonce capacity is full is `overloaded` with status 429; it is
+not claimed, and no unexpired nonce is evicted.
+
 ### Public Registry read validation order
 
 Lookup and list perform:
@@ -370,11 +392,65 @@ Lookup and list perform:
    JCS re-encoding, and byte comparison; and
 5. domain handling.
 
+Public lookup and list reject `Content-Digest`, `Signature-Input`,
+`Signature`, or `Authorization` as stage-2 400 `malformed`. They do not
+ignore or verify an authentication profile that the route does not own.
+
 When multiple conditions fail, the earliest stage determines the
 response. Framing failures therefore precede `version_mismatch`, and
 `version_mismatch` precedes `malformed` body or schema failures. Public
 reads perform no key resolution, signature verification, admission
 check, or nonce claim.
+
+### Exact envelope precedence
+
+Each profile evaluates its numbered stages in order. Within one stage,
+the first matching row below determines the response. `GET /healthz`
+uses the common stage-1 route and method rules, then only its
+route-specific 204 or 503 readiness contract.
+
+Common route and framing outcomes are:
+
+| Stage | First matching condition | Outcome |
+|---:|---|---|
+| 1 | no exact route, including any present query component | 404 `not_found` |
+| 1 | exact route with a different method | 405 `method_not_allowed` |
+| 2 | malformed HTTP framing or a duplicate field required to be single-valued | 400 `malformed` |
+| 2 | public read carries `Content-Digest`, `Signature-Input`, `Signature`, or `Authorization` | 400 `malformed` |
+| 2 | missing, parameterized, or unsupported `Content-Type`, or any `Content-Encoding` | 415 `unsupported_media_type` |
+| 2 | body exceeds the route byte bound | 413 `payload_too_large` |
+| 2 | request queue or early concurrency capacity is unavailable | 429 `overloaded` |
+
+Authenticated-profile outcomes after common framing are:
+
+| Stage | First matching condition | Outcome |
+|---:|---|---|
+| 3 | fatal UTF-8, JSON syntax, duplicate name, depth, canonical-byte, or minimum-identity extraction failure | 400 `malformed` |
+| 4 | required Registry resolution cannot start because lookup capacity is full | 429 `overloaded` |
+| 4 | required Registry resolution is unavailable or times out | 503 `unavailable` |
+| 4 | missing or invalid digest, signature fields, covered component, key binding, card, admission credential, proof, algorithm, tag, or time window | 401 `authentication_failed` |
+| 5 | nonce is already live | 401 `authentication_failed` |
+| 5 | nonce is novel but live-nonce capacity is full | 429 `overloaded`; do not claim it |
+| 6 | the authenticated signed MoltZap version differs | 412 `version_mismatch`; retain the nonce claim |
+| 7 | complete closed route-owned schema fails | 400 `malformed`; retain the nonce claim |
+| 8 | owner request capacity, including held-poll capacity, is unavailable | 429 `overloaded` |
+| 8 | a required domain dependency is unavailable or times out | 503 `unavailable` |
+| 8 | an unexpected implementation failure occurs | 500 `internal` |
+
+Public Registry read outcomes after common framing are:
+
+| Stage | First matching condition | Outcome |
+|---:|---|---|
+| 3 | `MoltZap-Version` is absent or differs | 412 `version_mismatch` |
+| 4 | fatal UTF-8, JSON syntax, duplicate name, depth, canonical-byte, or complete closed-schema failure | 400 `malformed` |
+| 5 | Registry storage is unavailable or times out | 503 `unavailable` |
+| 5 | an unexpected implementation failure occurs | 500 `internal` |
+
+Reaching a domain refusal or success returns the route's closed status
+200 result. Router-owned post-authentication SignedMessage artifact and
+message-bound failures are domain results specified in
+`router-representation.md`; owner saturation remains the 429 envelope
+outcome above.
 
 Normal authentication, AgentCard resolution, key binding, digest,
 signature, timing, and replay failures all become:
