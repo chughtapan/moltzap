@@ -7,10 +7,13 @@ alone.
 
 The reviewer receives a clean checkout at the candidate revision and
 the six questions below. Checked-in entry points and repository-native
-indexes are ordinary discoverable repository content. The reviewer is
-not given an out-of-band design summary, diff tour, architecture
-decision record or file pointer, search term, expected answer, or answer
-key.
+indexes are ordinary discoverable repository content. Earlier
+`*-cold-review.md` records and invalid-review records are quarantined:
+their paths may appear during navigation, but the reviewer must not
+open, read, or search their contents before submitting the new result.
+The reviewer is not given an out-of-band design summary, diff tour,
+architecture decision record or file pointer, search term, expected
+answer, or answer key.
 
 Keep the reviewer's answers verbatim. Do not repair, summarize, or
 reinterpret them before the maintainer evaluates the result.
@@ -47,6 +50,9 @@ The reviewer attests:
 - [ ] I navigated the repository independently. I may have used
       checked-in entry points, repository-native indexes, ordinary
       search, and repository history after discovering them myself.
+- [ ] I did not open, read, or search the contents of an earlier
+      cold-review or invalid-review record. If an artifact path appeared
+      in a listing or history, no earlier answer or verdict was returned.
 - [ ] I did not ask the author for help or modify the candidate before
       submitting these answers.
 - [ ] The author interventions recorded below are complete.

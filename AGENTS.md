@@ -194,7 +194,12 @@ before landing.
   questions below. Do not supply a design summary, diff tour, ADR or
   file pointer, search term, expected answer, or out-of-band index.
   Normal repository navigation, history, search, and discovery of the
-  checked-in decision index are allowed.
+  checked-in decision index are allowed. Earlier `*-cold-review.md`
+  records and invalid-review records remain checked in for auditability,
+  but they are quarantined inputs: the reviewer must not open, read, or
+  search their contents during the run. Merely seeing an artifact path
+  in a directory listing or history is allowed. If a command returns
+  any earlier review answer or verdict, invalidate the run immediately.
 - Do not coach the reviewer or answer questions during the run.
   `Not discoverable` is a valid result. A material author hint
   invalidates the run. Bound the review to one uninterrupted fresh-agent

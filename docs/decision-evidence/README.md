@@ -18,6 +18,12 @@ an artifact here conflicts with them.
   [`cold-review-template.md`](cold-review-template.md) and retain failed
   or invalid attempts rather than overwriting them.
 
+Prior review records are quarantined during a fresh blind review. They
+remain checked in and may appear in directory listings or history, but
+the reviewer must not open, read, or search their contents until after
+submitting the new result. A command that returns an earlier answer or
+verdict invalidates the fresh run.
+
 ## Event-ledger rules
 
 Each retained row contains:
