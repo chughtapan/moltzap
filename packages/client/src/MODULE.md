@@ -8,6 +8,26 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
+### [`AgentClientOptions`](./../../../protocol/dist/socket/agent-client.d.ts#L13)
+
+_Interface_
+
+### [`AppCallbackContext`](./../../../protocol/dist/socket/app-client.d.ts#L14)
+
+_Interface_
+
+### [`AppCallbackHandlers`](./../../../protocol/dist/socket/app-callbacks.d.ts#L26)
+
+_TypeAlias_
+
+Closed handler table for an app moderating one or more tasks. Every
+app callback member is required; vacuous-deny moderators still write the
+handler explicitly.
+
+### [`AppClientOptions`](./../../../protocol/dist/socket/app-client.d.ts#L17)
+
+_Interface_
+
 ### [`ContextOptions`](./service.ts#L196)
 
 _Interface_
@@ -33,7 +53,53 @@ export interface ConversationMeta {
 }
 ```
 
-### [`MoltZapService`](./service.ts#L325)
+### [`MoltZapAgentClient`](./../../../protocol/dist/socket/agent-client.d.ts#L18)
+
+_Class_
+
+Serializes connection generations through one controller. Each generation
+has one scoped owner that acquires the socket, runs its reader, and reports
+`OwnerDone` only after every session finalizer has completed. The start gate
+prevents an acquired reader from running unless its generation is still
+current.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Opening: Connect
+  Opening --> Connected: SessionOpened starts reader and authentication
+  Opening --> Idle: OwnerDone after opening failure
+  Opening --> Stopping: Close interrupts owner
+  Connected --> Stopping: ReaderExited
+  Connected --> Stopping: Close or disconnect interrupts owner
+  Stopping --> Idle: OwnerDone permits explicit connect
+  Stopping --> Stopped: OwnerDone completes terminal close
+```
+
+### [`MoltZapAppClient`](./../../../protocol/dist/socket/app-client.d.ts#L23)
+
+_Class_
+
+Serializes connection generations through one controller. Each generation
+has one scoped owner that acquires the socket, runs its reader, and reports
+`OwnerDone` only after every session finalizer has completed. The start gate
+prevents an acquired reader from running unless its generation is still
+current.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Opening: Connect
+  Opening --> Connected: SessionOpened starts reader and authentication
+  Opening --> Idle: OwnerDone after opening failure
+  Opening --> Stopping: Close interrupts owner
+  Connected --> Stopping: ReaderExited
+  Connected --> Stopping: Close or disconnect interrupts owner
+  Stopping --> Idle: OwnerDone permits explicit connect
+  Stopping --> Stopped: OwnerDone completes terminal close
+```
+
+### [`MoltZapService`](./service.ts#L324)
 
 _Class_
 
@@ -103,7 +169,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    reconnect: [],
     conversationArchived: [],
     conversationUnarchived: [],
     dispatchRelease: [],
@@ -158,6 +223,7 @@ export class MoltZapService {
     return Effect.gen(this, function* () {
       const client = new MoltZapAgentClient({
         serverUrl: this.opts.serverUrl,
+        agentKey: this.opts.agentKey,
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -167,6 +233,10 @@ API contract: **every fallible method returns `Effect`.** No `*Async`
 Promise siblings — async/await consumers run the Effect at the edge
 with `Effect.runPromise`. Keep this class Effect-only so downstream
 callers compose failures and cancellation explicitly.
+
+### [`RpcCallOptions`](./../../../protocol/dist/socket/lifecycle.d.ts#L13)
+
+_Interface_
 
 ### [`ServiceRpcError`](./service.ts#L178)
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { validateAgent, validateAgentCard } from "./agents/index.js";
+import * as fc from "fast-check";
+import { Register, validateAgent, validateAgentCard } from "./agents/index.js";
 
 const VALID_AGENT = {
   id: "550e8400-e29b-41d4-a716-446655440000",
@@ -17,6 +18,18 @@ const VALID_CARD = {
 describe("AgentSchema acceptance", () => {
   it("accepts valid agent", () => {
     expect(validateAgent(VALID_AGENT)).toBe(true);
+  });
+});
+
+describe("agent-name boundary", () => {
+  it("registration and persisted agent records accept the same names", () => {
+    fc.assert(
+      fc.property(fc.string({ maxLength: 40 }), (name) => {
+        expect(Register.validateParams({ name })).toBe(
+          validateAgentCard({ ...VALID_CARD, name }),
+        );
+      }),
+    );
   });
 });
 

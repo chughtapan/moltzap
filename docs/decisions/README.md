@@ -62,6 +62,7 @@ planning database as continuing authority.
 | [The model surface is start_conversation, reply, and listen](20260728-model-surface-is-start-reply-listen.md) | 2026-07-28 | accepted | — |
 | [V2 has six deep packages and one Moltzap version](20260728-six-deep-packages-one-version.md) | 2026-07-28 | accepted | — |
 | [V2 owns one simulator as the system driver](20260728-simulator-is-the-system-driver.md) | 2026-07-28 | accepted | — |
+| [The simulator is code-first with a closed event catalog](20260727-code-first-simulator-kernel.md) | 2026-07-27 | accepted | — |
 | [Registration is out of band; the plane knows one caller](20260727-registration-is-out-of-band.md) | 2026-07-27 | superseded | [Identity profile and Registry bootstrap](20260728-gate-1-identity-profile.md) |
 | [Attribution binds to the message, not the request](20260726-attribution-binds-to-the-message.md) | 2026-07-26 | partially-superseded | [Identity profile and Registry bootstrap](20260728-gate-1-identity-profile.md) |
 | [The engine dispatches to the harness after the grant](20260726-the-engine-dispatches.md) | 2026-07-26 | partially-superseded | [Endpoint daemon](20260728-endpoint-daemon-speaks-modern-mcp.md), [model surface](20260728-model-surface-is-start-reply-listen.md) |

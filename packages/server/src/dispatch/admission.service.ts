@@ -2,7 +2,7 @@ import { Data, Effect, Option } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
 import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import type { DispatchId, LeaseId } from "@moltzap/protocol/message/dispatch";
-import type { Part } from "@moltzap/protocol/message";
+import type { MessageParts } from "@moltzap/protocol/message";
 import type { AgentId, AppId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { ConnectionId } from "@moltzap/protocol/socket";
@@ -82,7 +82,7 @@ type PendingDispatchMessage = Readonly<{
   senderAgentId: AgentId;
   createdAt: string;
   receivedAt: string;
-  parts?: ReadonlyArray<Part>;
+  parts?: MessageParts;
 }>;
 
 export interface EnqueueDispatchRequestArgs {
@@ -91,7 +91,7 @@ export interface EnqueueDispatchRequestArgs {
   readonly recipientConnectionId: ConnectionId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
-  readonly parts?: ReadonlyArray<Part>;
+  readonly parts?: MessageParts;
   readonly attempt?: number;
   readonly receivedAt?: string;
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;
@@ -109,7 +109,7 @@ interface DispatchRoundTripParams {
   readonly recipientAgentId: AgentId;
   readonly messageId: MessageId;
   readonly senderAgentId: AgentId;
-  readonly parts?: ReadonlyArray<Part>;
+  readonly parts?: MessageParts;
   readonly attempt?: number;
   readonly receivedAt?: string;
   readonly pending?: ReadonlyArray<PendingDispatchMessage>;

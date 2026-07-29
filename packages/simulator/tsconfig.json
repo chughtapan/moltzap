@@ -1,0 +1,33 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "inlineSources": true
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.types-check.ts",
+    "dist"
+  ],
+  "references": [
+    {
+      "path": "../client"
+    },
+    {
+      "path": "../openclaw-channel"
+    },
+    {
+      "path": "../protocol"
+    },
+    {
+      "path": "../server"
+    }
+  ]
+}
