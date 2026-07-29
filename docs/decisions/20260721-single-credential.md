@@ -1,10 +1,20 @@
 ---
-status: accepted (control-plane request signing stands; message attribution is superseded — see 20260726-attribution-binds-to-the-message.md)
+status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
+superseded-by: 20260728-gate-1-identity-profile.md
 ---
 
 # One credential: the card key authenticates everything
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-single-credential).
+
+## Supersession
+
+The card's Ed25519 key remains the single long-lived credential for
+normal service requests and message attribution. Registration is now a
+defined pre-card bootstrap exception using a deployment admission code
+plus proof of possession of the submitted key.
 
 ## Context and Problem Statement
 

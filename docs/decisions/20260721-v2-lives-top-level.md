@@ -1,10 +1,19 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
+superseded-by: 20260728-six-deep-packages-one-version.md
 ---
 
 # v2 code lives in a top-level `v2/*` workspace
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-v2-lives-top-level).
+
+## Supersession
+
+The top-level v2 workspace and zero-v1-import boundary remain accepted.
+The package layout is no longer deferred: the 2026-07-28 record fixes
+the six packages, dependencies, exports, binaries, and shared version.
 
 ## Context and Problem Statement
 

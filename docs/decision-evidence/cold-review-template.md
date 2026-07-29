@@ -1,0 +1,233 @@
+# Blind decision review record
+
+Use this template after an admitted architecture decision record is
+added or changed. The review tests whether a teammate can discover,
+understand, challenge, and apply the decision from the repository
+alone.
+
+The reviewer receives a clean checkout at the candidate revision and
+the six questions below. Checked-in entry points and repository-native
+indexes are ordinary discoverable repository content. The reviewer is
+not given an out-of-band design summary, diff tour, architecture
+decision record or file pointer, search term, expected answer, or answer
+key.
+
+Keep the reviewer's answers verbatim. Do not repair, summarize, or
+reinterpret them before the maintainer evaluates the result.
+
+## Review identity
+
+| Field | Value |
+|---|---|
+| Review run ID | `_fill_` |
+| Candidate commit | `_fill exact commit SHA_` |
+| Candidate tree | `_fill exact tree SHA_` |
+| Candidate content digest | `_fill algorithm and digest_` |
+| Digest scope and command | `_fill exact scope and reproducible command_` |
+| Reviewer | `_fill human name or agent identity_` |
+| Reviewer session | `_fill fresh-session identifier_` |
+| Review started | `_fill ISO 8601 timestamp_` |
+| Review finished | `_fill ISO 8601 timestamp_` |
+| Review duration | `_fill elapsed time_` |
+| Review budget | `_fill budget fixed before the review_` |
+| Rerun of | `_none_` or `_fill prior review run ID_` |
+| Rerun reason | `_none_` or `_fill reason the prior result became invalid_` |
+
+## Fresh-context attestation
+
+The reviewer attests:
+
+- [ ] I did not author or reconcile the candidate decision.
+- [ ] I received no inherited conversation, summary, memory, private
+      state, or earlier review output about the candidate.
+- [ ] I received only the clean candidate checkout and the fixed
+      questions in this template.
+- [ ] I received no out-of-band tour, decision or file pointer, search
+      term, expected answer, or answer key.
+- [ ] I navigated the repository independently. I may have used
+      checked-in entry points, repository-native indexes, ordinary
+      search, and repository history after discovering them myself.
+- [ ] I did not ask the author for help or modify the candidate before
+      submitting these answers.
+- [ ] The author interventions recorded below are complete.
+
+An unchecked attestation or a material author hint invalidates the
+review. “Not discoverable” is a valid answer and must not be repaired
+with an author hint.
+
+## Fixed questions and verbatim answers
+
+### 1. Current decision
+
+> What decision does this candidate make current, what problem does it
+> resolve, and which statements are binding versus context or
+> non-normative explanation?
+
+#### Reviewer answer — verbatim
+
+_Paste the reviewer's complete answer without editing._
+
+#### Independently discovered evidence
+
+| Repository path | Heading | What the reviewer used it to establish |
+|---|---|---|
+| `_fill_` | `_fill_` | `_fill_` |
+
+Verdict: **_PASS or FAIL_**
+
+### 2. Lineage and authority
+
+> What earlier outcomes does it replace, retain, or leave untouched,
+> and where does the current normative contract live?
+
+#### Reviewer answer — verbatim
+
+_Paste the reviewer's complete answer without editing._
+
+#### Independently discovered evidence
+
+| Repository path | Heading | What the reviewer used it to establish |
+|---|---|---|
+| `_fill_` | `_fill_` | `_fill_` |
+
+Verdict: **_PASS or FAIL_**
+
+### 3. Implementation effects and assumptions
+
+> What must an implementer now do or avoid, which layers or consumers are
+> affected, and under what fault, trust, safety, liveness, and
+> compatibility assumptions?
+
+#### Reviewer answer — verbatim
+
+_Paste the reviewer's complete answer without editing._
+
+#### Independently discovered evidence
+
+| Repository path | Heading | What the reviewer used it to establish |
+|---|---|---|
+| `_fill_` | `_fill_` | `_fill_` |
+
+Verdict: **_PASS or FAIL_**
+
+### 4. Source-event attribution
+
+> Which humans are named as decision-makers, which source events does
+> the compacted trajectory cite for their calls, alternatives,
+> reversals, and deferrals, and what source gaps does it explicitly
+> record? Report only what the event ledger states; do not infer
+> motives, confidence, urgency, or rationale.
+
+#### Reviewer answer — verbatim
+
+_Paste the reviewer's complete answer without editing._
+
+#### Independently discovered evidence
+
+| Repository path | Heading | What the reviewer used it to establish |
+|---|---|---|
+| `_fill_` | `_fill_` | `_fill_` |
+
+Verdict: **_PASS or FAIL_**
+
+### 5. Adversarial consistency check
+
+> Find the strongest apparent contradiction, stale instruction, or
+> broken lineage elsewhere in the repository. Resolve it using the
+> authority order or report it as a blocker.
+
+#### Reviewer answer — verbatim
+
+_Paste the reviewer's complete answer without editing._
+
+#### Independently discovered evidence
+
+| Repository path | Heading | What the reviewer used it to establish |
+|---|---|---|
+| `_fill_` | `_fill_` | `_fill_` |
+
+Verdict: **_PASS or FAIL_**
+
+### 6. Implementation readiness
+
+> Could a teammate implement the decision without chat or guessing?
+> List every missing link or unresolved choice and classify each as a
+> deliberate deferral or an accidental gap.
+
+#### Reviewer answer — verbatim
+
+_Paste the reviewer's complete answer without editing._
+
+#### Independently discovered evidence
+
+| Repository path | Heading | What the reviewer used it to establish |
+|---|---|---|
+| `_fill_` | `_fill_` | `_fill_` |
+
+Verdict: **_PASS or FAIL_**
+
+## Discovery trail
+
+Record how the reviewer found the relevant material, including failed
+or misleading paths. This is a concise navigation trail, not a
+retrospective ideal reading order.
+
+| Order | Entry point, search, or navigation step | Path and heading discovered | Result |
+|---:|---|---|---|
+| 1 | `_fill_` | `_fill_` | `_fill_` |
+
+## Author interventions
+
+A valid blind review normally records `none`. Record every accidental
+or deliberate interaction, including hints that did not change an
+answer.
+
+| Time | Intervention | Effect on review |
+|---|---|---|
+| `_none_` | `_none_` | `_none_` |
+
+## Blockers
+
+| ID | Finding | Evidence | Required reconciliation |
+|---|---|---|---|
+| `_none_` | `_none_` | `_none_` | `_none_` |
+
+## Overall result
+
+Result: **_PASS, FAIL, or INVALID_**
+
+Rationale:
+
+_Fill with the reviewer's overall rationale. PASS requires all six
+answers to be accurate and independently discoverable, complete
+lineage and authority, discoverable source-event attribution, no unresolved
+contradiction, and no binding choice that an implementer must invent._
+
+## Maintainer acceptance
+
+The reviewer result is evidence, not self-certifying acceptance. The
+maintainer verifies that it applies to the exact candidate identity
+above and records the gate decision.
+
+| Field | Value |
+|---|---|
+| Maintainer | `_fill_` |
+| Reviewed result | `_fill review run ID_` |
+| Candidate identity matches | `_yes or no_` |
+| Gate decision | `_ACCEPTED or REJECTED_` |
+| Decision time | `_fill ISO 8601 timestamp_` |
+| Rationale | `_fill_` |
+
+## Rerun identity
+
+If the review fails or becomes stale, preserve this record and start a
+new one with a new run ID, exact candidate identity, and fresh reviewer
+session. Record the prior run ID and rerun reason in the new record.
+Do not overwrite a failed, invalid, or superseded review.
+
+| Field | Value |
+|---|---|
+| Superseded by review run | `_none_` or `_fill new review run ID_` |
+| Superseded candidate commit | `_none_` or `_fill exact commit SHA_` |
+| Superseded candidate content digest | `_none_` or `_fill algorithm and digest_` |
+| Reason a rerun was required | `_none_` or `_fill_` |

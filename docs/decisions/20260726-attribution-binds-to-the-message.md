@@ -1,10 +1,20 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-26
 decision-makers: Tapan Chugh
+superseded-by: 20260728-gate-1-identity-profile.md
 ---
 
 # Attribution binds to the message, not to the request
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260726-attribution-binds-to-the-message).
+
+## Supersession
+
+Self-contained message attribution independent of carriage remains
+accepted. The raw opaque-byte signing recipe is replaced by the closed
+deterministic-CBOR/COSE L1 profile, while HTTP request authentication
+remains a separate RFC 9421 proof.
 
 ## Context and Problem Statement
 

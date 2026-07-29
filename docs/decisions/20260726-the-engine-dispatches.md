@@ -1,10 +1,21 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-26
 decision-makers: Tapan Chugh
+superseded-by: 20260728-model-surface-is-start-reply-listen.md
 ---
 
 # The engine dispatches to the harness after the grant
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260726-the-engine-dispatches).
+
+## Supersession
+
+Grant-before-generation, autonomous protocol mechanics, and
+endpoint-side validation remain accepted. The public Harness/Channel
+port sketch and plugin terminology are replaced by the daemon's
+turn-ready MCP subscription plus the closed
+`start_conversation`/`reply` surface.
 
 ## Context and Problem Statement
 

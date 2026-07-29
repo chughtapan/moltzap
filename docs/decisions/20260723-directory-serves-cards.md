@@ -1,10 +1,19 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
+superseded-by: 20260728-gate-1-identity-profile.md
 ---
 
 # Directory read serves cards
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-directory-serves-cards).
+
+## Supersession
+
+Serving complete native cards directly remains accepted. Gate 1 now
+makes each card immutable, includes endpoint routing information, and
+separates all future L7 institutional statements from Registry entries.
 
 ## Context and Problem Statement
 

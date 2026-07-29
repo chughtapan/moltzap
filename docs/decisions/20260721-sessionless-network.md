@@ -1,10 +1,21 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
+superseded-by: 20260728-network-wire-is-http-post-polling.md
 ---
 
 # The network is sessionless
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-sessionless-network).
+
+## Supersession
+
+Per-request authentication and the absence of identity-bound network
+sessions remain accepted. Position replay, offline convergence, and
+per-conversation coordination claims in this record are replaced:
+Router has a volatile endpoint-wide poll cursor, while L3 endpoints own
+reconciliation and recovery.
 
 ## Context and Problem Statement
 

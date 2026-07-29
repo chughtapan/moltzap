@@ -1,10 +1,21 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
+superseded-by: 20260728-transcript-is-mechanical-atomic-commit.md
 ---
 
 # Collectives are ledger transactions, assembled by rounds over L2
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260724-collectives-are-ledger-transactions).
+
+## Supersession
+
+One endpoint-certified action becoming one atomic, ordered Transcript
+record remains accepted. Ledger-enforced grants, invalid-but-ineffective
+commits, store-owned lock policy, and the general v0 collective profile
+are replaced. Gate 1 endpoints run OpenFloorV1 and Ledger checks only
+the exact mechanical certificate format.
 
 ## Context and Problem Statement
 

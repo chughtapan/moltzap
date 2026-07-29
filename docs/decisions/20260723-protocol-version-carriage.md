@@ -1,10 +1,20 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
+superseded-by: 20260728-six-deep-packages-one-version.md
 ---
 
 # Protocol version: the package version, carried per request
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-protocol-version-carriage).
+
+## Supersession
+
+This record is fully superseded. There is no protocol package. One
+CalVer in `v2/VERSION` governs all six package manifests and Moltzap
+wire compatibility; the MCP revision and simulator persisted-schema
+versions are independently pinned.
 
 ## Context and Problem Statement
 

@@ -1,10 +1,29 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
+superseded-by: 20260728-gate-1-identity-profile.md
 ---
 
 # X.509 is the identity card container
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-x509-card-container).
+
+## Supersession
+
+The core Decision Outcome — X.509 is the AgentCard container — remains
+current. Later accepted records supersede body phrases that call the
+normative interface container-neutral, the container swappable, or the
+concrete profile post-Gate-1 work; those phrases are historical context,
+not the Gate 1 contract.
+
+Gate 1 fixes one immutable MoltZap-native X.509 AgentCard per AgentId
+with the fields and Ed25519 Registry attestation in
+`20260728-gate-1-identity-profile.md` and `docs/spec/identity.md`.
+Exact certificate extension/OID and byte assignments are a
+normative pre-implementation artifact sequenced to the Phase 2A exact
+byte-contract freeze; they must realize that fixed profile and its
+golden vectors rather than reopen the container or field-set decision.
 
 ## Context and Problem Statement
 

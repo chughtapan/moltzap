@@ -1,67 +1,110 @@
-# CLI — the agent's control-plane client
+# CLI — control-plane and local-profile client
 
-Status: DRAFT (deepening doc; feeds the spec set)
+Status: **Gate 1 normative boundary**
 
-## Purpose & scope
+## Purpose and ownership
 
-The CLI is how an agent reaches the control plane (constitution
-clause 3): a plain HTTP client plus a request signer, using the agent's
-own card key (`docs/decisions/20260721-single-credential.md`) — not a
-privileged principal. Automation drives the same RPCs.
+The `moltzap` CLI lives inside the `endpoint` package. It is not a
+separate package, privileged principal, network session, runtime
+bridge, or data-plane message client.
 
-Goals: fix what the CLI is and the flows it fronts. Non-goals: the op
-families' semantics (`control-plane.md` owns them); data-plane traffic
-(the CLI receives nothing pushed); command syntax and packaging.
+It presents human/operator workflows over:
 
-## What is decided
+- Registry bootstrap, lookup, and list;
+- member-authorized Ledger reads and reconciliation;
+- local named-profile creation and inspection;
+- endpoint daemon lifecycle entrypoints and readiness diagnostics.
 
-- **Plain client.** Every CLI action is a signed control-plane request;
-  the spec binds no op encoding
-  (`docs/decisions/20260722-control-plane-encoding.md`).
-- **Whose client it is: the agent's.** It fronts the control-plane op
-  families — resolve and enumerate cards, list the conversations it
-  belongs to, read a transcript window, append a committing message —
-  each authenticating as that agent's identity
-  (`docs/decisions/20260727-registration-is-out-of-band.md`).
-  `control-plane.md` owns the catalog.
-- **Registration is not among them.** How a deployment admits an
-  identity is out of band; the CLI fronts no minting op and needs no
-  second credential.
-- **No sessions, no push.** Per-request signatures
-  (`docs/decisions/20260721-sessionless-network.md`); nothing is
-  delivered to the CLI — delivery is data-plane messages, reaching the
-  agent through its harness channel.
+Exact command names and output presentation are implementation UX, not
+protocol.
 
-## Invariants
+## Authentication
 
-1. The CLI holds no capability an ordinary signing HTTP client lacks.
-2. Every CLI request authenticates as exactly one registered identity:
-   the agent whose card key signed it. Losing the CLI loses nothing —
-   the key is the authority.
+After registration, CLI network operations use the same AgentCard
+Ed25519 RFC 9421 profile as any other client. CLI has no operator key,
+bearer identity, or unsigned administrative path.
 
-## Implementation notes (non-normative)
+Registration is the sole pre-card exception. The CLI accepts:
 
-Under the recorded interim the request rides JSON-RPC on a single POST;
-under the REST + OpenAPI target the CLI integrates generated contracts in
-place of a hand-maintained protocol package
-(`docs/decisions/20260722-control-plane-encoding.md`).
+- deployment Registry route;
+- fixed admission code;
+- caller-supplied PrincipalId and canonical AgentName;
+- stable OperationId;
+- absolute path to a pre-existing unencrypted Ed25519 PKCS#8 key.
+
+It derives the SPKI, produces the bootstrap RFC 9421 proof, calls
+`POST /v1/identities:register`, and verifies the returned AgentCard
+matches the key before persisting a local profile.
+
+It never generates, imports, copies, or rewrites private-key material.
+
+## Local profile
+
+A named profile contains the fields specified in
+`endpoints/daemon.md`, including one AgentId, key path, service routes,
+SQLite path, and stable nonzero MCP port.
+
+CLI rejects:
+
+- a key/card mismatch;
+- duplicate profiles for one AgentId;
+- duplicate local port claims;
+- configurable MCP host/path or port zero;
+- unknown profile fields.
+
+Profile storage is trusted-local configuration, not network identity or
+L7 policy.
+
+## Plane separation
+
+CLI uses closed deterministic-CBOR HTTP service operations. It does not:
+
+- send L2 messages directly;
+- open Router delivery polling as a runtime;
+- invoke model-facing `start_conversation` or `reply`;
+- consume the daemon turn-ready subscription unless explicitly acting
+  as a diagnostic MCP harness client;
+- expose registration through MCP;
+- rely on WebSocket, network SSE, JSON-RPC network operations, or a
+  connection session.
+
+The daemon, not CLI, continuously coordinates Router and Ledger for an
+agent.
+
+## Output and errors
+
+CLI may project binary IDs and records into their canonical typed
+base64url/JSON forms for people and scripts. Projection never changes
+the signed or stored representation.
+
+It preserves stable domain outcomes needed for recovery—authentication,
+version, idempotency conflict, not found, stale head, cursor failure,
+refusal, and unavailability—without exposing raw SQL, HTTP library, or
+decoder internals as protocol.
+
+Secrets and the admission-code header are redacted from logs and
+diagnostics.
 
 ## Acceptance criteria
 
-- Every control-plane op family is exercisable through the CLI and equally
-  through any signing HTTP client, with identical results.
-- No CLI action requires a credential other than the calling agent's own
-  card key.
+- A clean pre-card environment can register using only the configured
+  Registry, admission code, principal/name, OperationId, and existing
+  key.
+- Registration retry reuses OperationId and returns the same AgentCard.
+- CLI cannot create two profiles or daemons for one AgentId.
+- All post-registration domain operations are signed by the profile
+  key and exact-version checked.
+- CLI contains no network data-plane send or listener path.
+- Logs never disclose the private key or admission code.
 
-## Open questions
+## Explicitly deferred
 
-1. Whether the CLI fronts monitor/L6 reads, or those get a separate face —
-   adjacent to register item 3.
-2. Card-key custody UX for an agent's own key.
+Command naming, interactive prompts, universal service management,
+encrypted keys, OS keychains, HSMs, external signers, and remote daemon
+administration.
 
-## References
+## Decisions
 
-- `v2/VISION.md` — constitution clauses 3, 14; `control-plane.md` — the op
-  families and wire binding; `identity.md` — the card and what
-  registration establishes;
-  `docs/decisions/20260727-registration-is-out-of-band.md`.
+- `../decisions/20260728-gate-1-identity-profile.md`
+- `../decisions/20260727-registration-is-out-of-band.md`
+- `../decisions/20260721-single-credential.md`

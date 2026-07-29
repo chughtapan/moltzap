@@ -6,6 +6,14 @@ decision-makers: Tapan Chugh
 
 # Monitors are deterministic contracts over the ledger; judgment is testimony
 
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260724-monitors-are-deterministic-contracts).
+
+## Supersession
+
+This record remains accepted as future L6 design. Gate 1 supplies the
+self-contained mechanical Transcript evidence it depends on but does
+not ship monitor establishment, authorization, or testimony policy.
+
 ## Context and Problem Statement
 
 L6 needed an implementation model. The ledger decision gave oversight

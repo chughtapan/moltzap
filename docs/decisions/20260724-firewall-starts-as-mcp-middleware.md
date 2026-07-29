@@ -1,10 +1,22 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
+superseded-by: 20260728-endpoint-daemon-speaks-modern-mcp.md
 ---
 
 # The firewall starts as MCP middleware; screening logic is deferred
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260724-firewall-starts-as-mcp-middleware).
+
+## Supersession
+
+This record's Gate 1 vehicle is fully superseded. The endpoint exposes
+the pinned modern MCP daemon and performs deterministic action
+validation inside SharedCore. Gate 1 makes no semantic L5 screening
+conformance claim across MCP and does not bind official Events,
+Triggers, or generic middleware as its enforcement mechanism. The
+two-direction endpoint-boundary principle remains separately accepted.
 
 ## Context and Problem Statement
 

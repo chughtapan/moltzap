@@ -1,10 +1,21 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
+superseded-by: 20260728-simulator-is-the-system-driver.md
 ---
 
 # The eval seam is a testbed data-plane implementation
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-eval-plane-is-testbed).
+
+## Supersession
+
+The testbed's role in substitution, fault injection, and black-box
+evaluation remains accepted. It is no longer an alternative production
+data-plane implementation: v2 owns a separate portable simulator
+kernel, and testbed owns platform and process composition around public
+capabilities.
 
 ## Context and Problem Statement
 

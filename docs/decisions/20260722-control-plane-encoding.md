@@ -1,10 +1,20 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-22
 decision-makers: Tapan Chugh
+superseded-by: 20260728-network-wire-is-http-post-polling.md
 ---
 
 # Control-plane encoding: neutral spec, JSON-RPC interim, REST + OpenAPI target
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260722-control-plane-encoding).
+
+## Supersession
+
+This record is fully superseded. Gate 1 uses closed per-operation HTTP
+routes with deterministic CBOR bodies from its first implementation;
+there is no interim JSON-RPC multiplexer, separate protocol package, or
+recorded REST/OpenAPI migration.
 
 ## Context and Problem Statement
 

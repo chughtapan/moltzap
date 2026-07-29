@@ -1,3 +1,6 @@
+> **Archived historical, non-normative input.** The Gate 1 package and
+> interface boundary is `docs/spec/layer-interfaces.md`.
+
 # Layer interfaces, Proposal B: minimal ports, layers as laws
 
 Status: DRAFT (alternative to `docs/spec/layer-interfaces.md`, Proposal A)

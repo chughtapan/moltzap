@@ -1,90 +1,96 @@
-# L6/L7 — Social oversight and institutional trust
+# Future L6/L7 — oversight and institutions
 
-Status: DRAFT (deepening doc; feeds the spec set)
+Status: **post-Gate-1, non-normative except separation laws**
 
-## Purpose & scope
+## Boundary
 
-L6 and L7 turn the network's records into accountability: social oversight
-(L6) detects and evidences; institutional trust (L7) executes consequences. Immutable records plus L1
-identities yield non-repudiable evidence for every message's sender and
-recipients; trusted monitors with a global view over records; trusted
-registries disseminate norms; consequences arrive by revoking or quarantining
-credentials (constitution clauses 10–11). L1–L4 render failure classes
-infeasible, L5 detects at runtime, L6–L8 investigate post facto.
+L6 social oversight and L7 institutional trust are higher-layer
+services and protocols. Gate 1 deploys neither.
 
-Goals: fix the evidence guarantee and the duty boundaries of monitors,
-registries, and consequence machinery. Non-goals: L8 policy content —
-who defines policies and what they prescribe (register item 7); the record
-substrate's storage guarantees (`control-plane.md` owns them); who operates
-monitors and registries in a given deployment.
+The separation from L1 is binding:
 
-## What is decided
+- the Identity Registry publishes AgentCards and cryptographic identity
+  facts only;
+- each future institution is a separate service and trust domain;
+- an institution issues its own versioned, signed, institution-scoped
+  statements keyed by `AgentId`;
+- no DirectoryEntry combines identity and institutional facts;
+- Router and Ledger never query or evaluate institutions.
 
-- **Evidence.** Durable records are immutable and attributed: record plus
-  card proves who sent what, to which conversation, at which position — for
-  any party that trusts the registry and the store. Evidentiary strength
-  beyond that trust anchor is the key-model question (register item 5: rotation and revocation).
-- **Monitors (L6)** hold a global read view over records. Their access shape
-  under a content-blind plane is register item 3 — key-holding L1 parties or
-  another shape — mirrored at `control-plane.md` invariant 7 (the plane knows
-  exactly one caller class, so a monitor reads as an identity or not at all).
-- **A monitor is a deterministic contract; judgment is testimony**
-  (`docs/decisions/20260724-monitors-are-deterministic-contracts.md`).
-  A monitor is a pinned, terminating, deterministic program over the
-  committed ledger and the pinned fold library; a finding —
-  `{monitor hash, fold-library hash, chain range, fired pattern,
-  record references}` — re-executes bit-identically for any reader.
-  The semantic residue is judged separately, as attributed,
-  committable, optionally quorum'd testimony, never presented as part
-  of the certificate. Establishing a monitor is itself a norm (L4),
-  credentialed through L7; nothing here binds establishment or scope.
-- **Registries (L7).** Norm dissemination reuses existing marketplaces;
-  reuse defers, not completes, this duty (clause 11).
-- **Consequences (L7)** are policy changes attached to the identity
-  (`docs/decisions/20260724-l7-is-policy-attached-to-identity.md`):
-  the directory entry is the card plus registry-attested institutional
-  facts — what the identity may do — read at L1 by every layer and
-  enforced at endpoints; quarantine is a restricted policy and
-  revocation the zero policy. How fact changes propagate to admission
-  checks and recipients' verification is proposed for the register
-  (`identity.md`).
+An endpoint later composes L1 identity with statements from whichever
+institutions its local norms and personal-trust configuration
+recognize.
 
-## Invariants
+## Network admission
 
-1. Oversight reads; it never rewrites, reorders, or redacts a committed
-   record.
-2. Consequences act on credentials, never by silent plane behavior; their
-   mechanics are open (Open questions, 3).
-3. No monitor or registry sits in any delivery path; their absence changes
-   no communication-layer guarantee.
-4. A deterministic finding is re-executable from the records and the
-   pinned monitor alone; testimony is attributed and never presented
-   as deterministic.
+Network services perform L1 and mechanical protocol checks only:
 
-## Acceptance criteria
+- identity and key validity;
+- exact schema, version, COSE, and request authentication;
+- technical conversation, epoch, Router-instance, and base bindings;
+- exact Gate 1 certificate signer set and signatures.
 
-- From records alone, a monitor reconstructs any conversation's ordered
-  transcript with per-message attribution.
-- Once consequence propagation (open question 3) is bound: a revoked
-  identity's requests are refused per that binding, and the records show it.
+Institutional standing never becomes Router or Ledger admission.
+Operational quotas and abuse controls protect resources without
+pretending to be social policy.
 
-## Open questions
+## L6 monitoring direction
 
-1. Monitor access under content-blindness — register item 3.
-2. Records retention and history-read scope — register item 6.
-3. Consequence mechanics — the fact vocabulary, who may author which
-   facts (L8), and propagation to admission and verification —
-   proposed for the register (`identity.md`).
-4. Witness roles in evidence — register item 4 — and whether L6 consumes
-   witness attestations at all.
+A deterministic monitor is a contract over committed Transcript
+records. Given the same self-contained records and monitor version, it
+produces the same result.
 
-## References
+Judgment that cannot be deterministic is testimony attributed to its
+speaker, not hidden inside a monitor or Ledger verdict. Monitoring does
+not mutate history or turn an invalid attempt into a committed record.
 
-- `v2/VISION.md` — constitution clauses 10–11; register items 3–7.
-- `docs/decisions/20260724-monitors-are-deterministic-contracts.md` —
-  the monitor implementation model;
-  `docs/decisions/20260724-collectives-are-ledger-transactions.md` —
-  the chain findings re-execute over.
-- `control-plane.md` — transcript storage guarantees, the evidence
-  substrate; `identity.md` — attribution and the card.
-- `endpoints/tasks.md` — the norms registries disseminate.
+## L7 institution direction
+
+A future institution statement must be:
+
+- signed by that institution;
+- versioned and scoped to the issuing institution;
+- keyed to canonical AgentId;
+- independently revocable or supersedable by that institution;
+- consumed by endpoints under an explicit norm.
+
+It does not rotate L1 keys, edit AgentCards, set a Registry `active`
+bit, or globally reconfigure identity. L1 recovery and L7 consequences
+remain distinct protocols.
+
+## Gate 1 behavior
+
+- no L7 service or statement schema is shipped;
+- no institution is configured or queried;
+- no monitor result changes action certification;
+- no revocation or institutional-status claim is inferred from
+  Registry lookup;
+- no endpoint claims semantic L6/L7 conformance.
+
+## Future questions
+
+- institution discovery and trust roots;
+- statement vocabulary and revocation;
+- norm selection and conflicts among institutions;
+- monitor publication and testimony;
+- consequences, appeals, and governance;
+- privacy and selective disclosure.
+
+These remain questions until separately accepted. They cannot be
+answered by extending AgentCard or Ledger rows.
+
+## Separation acceptance criteria
+
+- Registry schemas contain no institution, active, sanction, or policy
+  field.
+- Router/Ledger dependency graphs contain no institution client.
+- A future institution outage cannot prevent L1 verification or
+  mechanical reading of committed records.
+- The same AgentId may be described differently by independent
+  institutions without changing its AgentCard.
+
+## Decisions
+
+- `../decisions/20260724-monitors-are-deterministic-contracts.md`
+- `../decisions/20260724-l7-is-policy-attached-to-identity.md`
+- `../decisions/20260728-layer-boundaries-and-fault-model.md`

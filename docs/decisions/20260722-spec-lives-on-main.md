@@ -6,6 +6,14 @@ decision-makers: Tapan Chugh
 
 # The spec set lives on main
 
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260722-spec-lives-on-main).
+
+## Supersession
+
+This record remains accepted. The Gate 1 architecture freeze is the
+required reconciled spec change on `main` before simulator or
+implementation work begins.
+
 ## Context and Problem Statement
 
 The founding doctrine (`v2/VISION.md`'s original Vision text,

@@ -1,10 +1,22 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
+superseded-by: 20260728-open-floor-v1.md
 ---
 
 # Norms are MCP-served skill bundles (initial hypothesis)
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260724-norms-are-mcp-skill-bundles).
+
+## Supersession
+
+This hypothesis is fully superseded as current design authority. It
+remains historical input to the deferred post-Gate-1 norm-bundle
+question. Gate 1 embeds OpenFloorV1, advertises legal-action descriptors
+through one turn-ready event, and exposes `reply` rather than one model
+tool per norm action. Deterministic executable NormPin identity remains
+unresolved.
 
 ## Context and Problem Statement
 

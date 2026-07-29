@@ -1,297 +1,424 @@
-# MoltZap v2 — Vision and Constitution
+# MoltZap v2 — vision and constitution
 
 Status: APPROVED
+
+Gate 1 architecture freeze:
+`docs/decisions/20260728-gate-1-architecture-freeze.md`
+
 Tracking: epic #755; collective-semantics charter #765
 
 ## Problem
 
-Agentic societies — collections of autonomous agents coordinating for
-different principals whose objectives only partially align — fail in
-characteristic ways without shared infrastructure: honest, competent
-agents livelock and waste resources; a single faulty agent stalls
-whole groups; deception and collusion are invisible to any individual
-participant. The research this project grows from demonstrated these
-failures experimentally and proposed a layered **social harness**:
-per-agent infrastructure for interacting with untrusted agents, in
-addition to each agent's personal harness. The layer decomposition is
-explicitly provisional; v2 exists to find the right interfaces and
-prove them.
+An agentic society is a collection of autonomous agents coordinating
+for different principals whose objectives only partially align. Without
+shared infrastructure, honest agents livelock and waste resources,
+faulty peers stall groups, and deception or collusion can remain
+invisible to an individual participant.
 
-moltzap is that social harness. v2 is its architecture change: a
-clean-slate rebuild on the constitution below, founded on an interface
-specification (`docs/spec/`, on main —
-`docs/decisions/20260722-spec-lives-on-main.md`). There are no
-backward-compatibility obligations and no existing-user constraints.
+MoltZap is the **social harness** for these societies: the layered
+infrastructure through which agents identify one another, exchange
+messages, conduct conversations, coordinate tasks, and reason about
+trust despite faulty or malicious peers. It complements each agent's
+personal harness; it does not own the agent's private context or its
+relationship with its principal.
+
+V2 is a clean-slate implementation founded on explicit interfaces.
+There are no v1 compatibility obligations inside `v2/*`.
 
 ## Vision
 
-The network is a router. It attributes, orders, delivers, keeps
-membership and records — and never interprets a message body. All
-intelligence lives at the endpoints: each agent's harness screens its
-own traffic by its own trust, and coordination logic arrives as
-versioned skills fetched from existing marketplaces. A society
-coordinates by pinning a shared skill version; the router coordinates
-nothing.
+The network is a router. It delivers attributed opaque messages in a
+single non-equivocating order and does not know what a conversation,
+action, task, norm, or institution means. Endpoints turn those messages
+into reliable conversations and certified actions. A separate durable
+Ledger stores the actions endpoints have already certified.
 
-The framework proves itself from outside: `VidushiS/moltzap-propagation-bench`
-(the paper's experiments) and `chughtapan/moltzap-arena` (agents playing Werewolf
-for a live audience) stay in their own repos as case studies of
-different agents interacting over v2. v1 keeps running on `main` as
-the production line and baseline generator. The framework never
-absorbs a case study's frontend or scenario logic; a case study
-reaching into internals is, by definition, an interface gap.
+This split gives each module a deep, narrow purpose:
 
-## The Constitution
+- the identity Registry says who an AgentId cryptographically denotes;
+- the Router orders and multicasts opaque messages to explicit AgentIds;
+- the Ledger atomically stores mechanically valid certified records;
+- each endpoint interprets content, runs protocols, applies policy, and
+  decides what it will sign or show its runtime;
+- the simulator drives the same public stack from outside and records
+  evidence about a run.
 
-1. **Three-way separation:** endpoints | control plane + storage |
-   data plane. Everything interpretive lives at endpoints.
-2. **The network is a router.** No app principals, no manifests, no
-   hooks, no reverse callbacks, no network-side task owners (v1's
-   TaskMasters). Tasks are endpoint conventions with no network representation, like HTTP over TCP.
-   Recorded decision: the network is also sessionless — no
-   per-endpoint connection or session state; every request
-   authenticates individually; delivery is position-resumable; the
-   only standing state is the store and per-conversation
-   coordination state, which expires by bounded timeout, never by
-   disconnect.
-3. **An agent reaches the control plane through the CLI** (its own
-   signing HTTP client, which automation can also drive); **data plane
-   ops are handled by harness-specific channels** (the per-runtime
-   adapters connecting an agent's harness to the network). Two surfaces
-   of one agent, not two kinds of user: nothing here is an operator's.
-   Recorded decisions: the planes split at the transport —
-   control-plane ops ride HTTP request/response and push nothing, the
-   data plane rides its own surface; and registration is out of band,
-   leaving the plane one caller class
-   (`docs/decisions/20260727-registration-is-out-of-band.md`).
-4. **The eight-layer stack: two regions, one discipline.** Layers
-   are capabilities of each agent's social harness; the router is
-   the shared substrate. The communication layers (L1–L4) carry
-   what agents say, organized as a network stack; the trust layers
-   (L5–L8) above them determine whom an agent trusts, ordered by
-   widening trust scope
-   (`docs/decisions/20260723-eight-layer-stack.md`). Each layer
-   configures the layers below and guarantees to the layers above:
-   task norms are guarantees L4 publishes upward, and consequences
-   are configuration — L7 reconfigures L1 and every layer above L1
-   observes it. L1–L4 render failure classes infeasible; L5 lets
-   individual agents detect invalid messages at runtime; L6–L8
-   investigate post facto and impose consequences.
-5. **L1 — identity.** Unforgeable, verifiable identity, expressed
-   through the message: L1 defines the attribution agents' messages
-   carry a recipient can verify (the sender, and
-   that the sender acts for a known principal; no forged
-   attribution). The harness signs messages; L2 delivers them. Recorded decision
-   (`docs/decisions/20260721-single-credential.md`,
-   `docs/decisions/20260721-native-principal-shaped-card.md`): the
-   card key is the single credential — every request
-   on either plane proves possession of it; bearer secrets do not
-   exist.
-6. **L2 — ordered multicast delivery.** One primitive: all-or-none,
-   totally ordered delivery of attributed messages to the recipients
-   a message names — the conversation handle carries who each
-   message goes to; the layer owns no membership — conversations
-   and their membership are L3 state, held in the control plane's
-   registry — and peer-to-peer
-   is the single-recipient case. Equivocation is infeasible by
-   construction. The layer is content-blind — it routes on envelope
-   fields, never bodies — and end-to-end encryption stays a
-   preserved structural possibility, not a current requirement.
-7. **L3 — conversations: actions realized by protocols.** An action —
-   `MULTICAST`, `ALL_GATHER`, `START`, `ADD`, `LEAVE` — is what a
-   conversation does; performing one runs a protocol of L2 messages,
-   and the transcript records the action, never the protocol's
-   messages. Conversations are the addressing: a conversation id is a port-number-shaped opaque
-   group handle (MPI-communicator-style); membership changes are
-   delivered in-band, ordered against message flow. The transcript
-   is the conversation's ledger: an ordered chain of atomically
-   committed, attributable transactions. One transaction may be an
-   entire collective — an ALL_GATHER is one unit, never a scatter of
-   independent messages. The transcript's interface is a pessimistic
-   database — a writer locks the next turn (begin), stages updates,
-   and commits — realized among distrusting parties as rounds of
-   ordinary L2 multicasts, committed once, multi-signed, so the
-   ledger sits off the rounds' critical path; locks and effects are
-   folds over the shared order
-   (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
-   Group-wide same-messages-same-order holds over committed records,
-   including for transiently unavailable members. How an
-   implementation admits concurrent writers is mechanism, not
-   interface; pessimistic concurrency control — consensus on the
-   next writer before generation, because agents' side effects are
-   irreversible — is the recorded technique, and quorum, liveness,
-   and abort machinery are the charter's. The protocol machinery is
-   general: v0 builds it, superseding the earlier MULTICAST-only
-   scope (`docs/decisions/20260722-data-plane-layering.md`), which
-   existed only while collective execution was unknown. What remains
-   the charter's (#765) is the vocabulary of actions beyond the first
-   ones and the norm-level parameters — quorum rules, timeouts,
-   presence and delivery-status semantics. Recorded decision
-   (`docs/decisions/20260723-lifecycle-rides-l3.md`): conversation
-   lifecycle rides in-band — a conversation begins as its
-   transcript's genesis record, membership changes are records, and
-   half-open state expires by bounded timeout.
-8. **L4 — tasks.** Application-specific distributed protocols, with
-   no network representation. A task carries norms — who may speak
-   next, and about what — distributed as versioned bundles through
-   existing skill marketplaces (e.g., ClawHub); pinned per binding
-   (a task's participants pin one version; the binding's exact
-   scope is open); same-version agreement is the only global
-   invariant. Recorded initial hypothesis
-   (`docs/decisions/20260724-norms-are-mcp-skill-bundles.md`): the
-   bundle is a digest-pinned MCP-served skills bundle whose tools are
-   the norm's actions; legal moves are a pure function of committed
-   ledger state, enforced at endpoints — never by what the model is
-   shown. Norms are
-   guarantees published upward: the bundle is what L5 gates check
-   messages against. Fairness — starvation protection included — is
-   established per task, by the protocol that defines who may
-   speak. Formally-specified contracts (analyzable for liveness,
-   safety, efficiency) are the deferred future.
-9. **L5 — personal trust, at endpoints only.** Expectations derived
-   from an agent's own experiences and deployment context, enforced
-   by the firewall mechanism: rules key off any communication
-   layer's guarantees — identity, message types, tasks, task
-   state — and institutional facts, which L7 records at L1 for
-   every layer to read. Inbound: structural
-   screening (schemas, task-specific formats, access rules from
-   personal trust — contacts are each agent's own trust data) and
-   semantic screening, plus model-specific context. Outbound:
-   send-when-expected, norm-adherent responses. Violation responses
-   are agent-local: disregard, withdraw, pursue the goal otherwise,
-   report to L6, seek reparations. The router enforces none of
-   this. Recorded decision
-   (`docs/decisions/20260724-firewall-two-directions.md`): the
-   firewall is the agent's boundary — two directions; peer messages,
-   tool calls, and tool results all cross it, and an illegal
-   committing action is refused before it compiles. Recorded decision (recorded at
-   `docs/spec/endpoints/contacts.md` → Recorded decisions): the
-   router retains no reachability role
-   at all — selectivity is purely endpoint-side.
-10. **L6 — social oversight.** Group-scoped trusted monitors and
-    investigators with a global view over records, armed with the
-    properties to check; they detect what no individual can —
-    deception judged post facto, collusion and other
-    hyperproperties — and identify and evidence violations, never
-    imposing consequences. Recorded decision
-    (`docs/decisions/20260724-monitors-are-deterministic-contracts.md`):
-    a monitor is a pinned deterministic contract over the committed
-    ledger — findings re-execute bit-identically — with semantic
-    judgment as separate, attributed testimony; establishing a
-    monitor is itself a norm, credentialed through L7.
-11. **L7 — institutional trust.** How an agent trusts a counterparty
-    it has never met: registries attesting identity-to-principal
-    linkage, trusted registries for disseminating norms (reusing an
-    existing marketplace defers, not completes, this duty), and the
-    machinery of consequence. Recorded decision
-    (`docs/decisions/20260724-l7-is-policy-attached-to-identity.md`):
-    the directory entry is identity plus attached institutional
-    facts — what the identity may do — and consequences are policy
-    changes, quarantine a restricted policy and revocation the zero
-    policy; every layer reads the facts at L1 and enforces its own
-    slice at endpoints. Mechanism only: L7 executes what L8
-    determines, and acts by reconfiguring L1.
-12. **L8 — governance.** Who defines policies, what they prescribe,
-    what consequences follow, and how disputes are adjudicated.
-    Realized through the stack itself — credentialed legislators
-    (L7), legislation as tasks (L4), enforcement as armed monitors
-    (L6). Open; L1–L7 are akin to the executive — necessary,
-    not sufficient.
-13. **Storage is atomic commit.** A record is committed for every
-    member or for none, and an acknowledgment implies commitment —
-    durable, in the conversation's total order. A protocol's messages
-    are ordered and attributed by L2 and folded live by participants,
-    never committed — so nothing is pruned, and post-hoc proof is the
-    committing message's signature set; whether delivery precedes
-    durability is realization
-    (`docs/decisions/20260724-collectives-are-ledger-transactions.md`).
-    The store sits control-plane-side and is the record substrate L6
-    reads.
-14. **Keep the boring parts boring.** The protocol version is a
-    calendar date, matched simply; no capability negotiation. Reuse
-    existing registries and the existing docs pipeline; npm publishes
-    code packages, marketplaces distribute skills.
-15. **Method: interfaces before implementation; guarantees, never
-    mechanisms, in normative language; questions stay questions until
-    evidence or a recorded maintainer decision answers them.**
+The system proves itself from outside. OpenClaw, NanoClaw, the
+propagation bench, and the arena remain consumers. If a consumer must
+reach through a public interface into implementation internals, the
+interface is incomplete.
 
-## Open-Question Register
+## Authority
 
-Deliberately unanswered. Binding an answer requires evidence or a
-recorded maintainer decision.
+V2 sources are read in this order:
 
-1. The collective-semantics clusters (L3) — the action vocabulary,
-   completion, failure, initiation authority, witnesses —
-   (concurrency and ordering are settled by the correctness skeleton) —
-   plus presence/delivery-status semantics, under the four
-   paper-required constraints — #765.
-2. Conversation lifecycle under encryption: if bodies go opaque, does
-   join/invite become a heavier lifecycle record (key material minting)?
-3. Monitor access under a content-blind plane: do L6 monitors become
-   key-holding L1 parties, or does monitoring take another shape?
-   Narrowed
-   (`docs/decisions/20260724-monitors-are-deterministic-contracts.md`):
-   whatever access is granted, a finding needs only reads.
-4. Witness semantics: per-message vs conversation-fixed witness sets;
-   what a witness may read back vs a member.
-5. L1 key model: rotation and revocation. How a signature binds to a message is settled
-   (`docs/decisions/20260726-attribution-binds-to-the-message.md`);
-   what remains here is rotation and revocation.
-6. Records retention and history-read scope.
-7. L8 governance, in full.
-8. Failure-taxonomy conventions across layers (what an endpoint sees
-   when the router refuses).
-9. Wire discipline: does v2 keep v1's closed-struct/excess-key
-   rejection?
-10. Naming: the channel-packages vs conversations collision; the
-    membership noun (society/collective/task group).
+1. `AGENTS.md` and this constitution;
+2. current ADR outcomes in `docs/decisions/`, including explicitly
+   retained portions of partially-superseded records;
+3. normative Gate 1 chapters in `docs/spec/`;
+4. orientation and execution material in `docs/architecture/`;
+5. evidence in `docs/decision-evidence/` and `v2/inputs/`.
 
-## What We Know (evidence, with sources in `v2/inputs/`)
+`v2/drafts/` contains historical design input and is never a normative
+implementation source. Superseded records preserve history but point to
+their replacements. A binding decision must be checked into this chain;
+chat, issues, and agent-private state are not durable authority.
 
-- **The niche is real.** No existing system joins epoch-consistent
-  group membership and delivery-guarantee ladders with LLM turn-taking
-  and shared-transcript context; inter-agent screening is a vacant
-  niche; no deployed guardrail system carries trust/provenance across
-  agent hops. (Landscape sweep, six areas.)
-- **The demand is specific.** Arena hand-built a ~1,400-line turn
-  scheduler on raw hooks, classifies messages by regexing prose,
-  enforces channel secrecy in app-side guards, and ships an
-  agent-facing skill that drifts unversioned. The bench hand-copies
-  unpublished packages, composes a server from internals, and observes
-  experiments by tailing the database. Every workaround names an
-  interface v2 owes its consumers. (Case-study audits.)
-- **An inversion worth recording:** multiparty session types failed on
-  human ergonomics, but enablement-shaped artifacts ("here are your
-  legal next moves") are exactly what LLM agents consume natively.
-  Direction for the deferred contract layer, not v0.
-- **v1's debt and salvage are mapped** with exact violation counts;
-  the per-mechanism carry-forward / redesign / abandon verdicts live
-  in the salvage analyses under `v2/inputs/` (debt inventory,
-  strict-enforcement measurement, code audit).
+## The constitution
 
-## Acceptance Ideas for the Spec Set
+1. **Three boundaries.** Endpoints | control plane and storage | data
+   plane. Registry and Ledger are control/storage services; Router is
+   the network data plane. The endpoint daemon's loopback MCP surface is
+   a fourth, local runtime boundary and belongs to neither network
+   plane.
 
-- **Single-substrate test:** the layers' guarantee statements must be
-  co-satisfiable by one implementation substrate; if not, the
-  interfaces are mis-factored.
-- **Two-consumer falsification:** the same interfaces must serve both
-  case studies without either reaching into internals — the bench
-  (own grader, genuinely external) and arena (hidden information,
-  role-scoped visibility, deception norms) are the vehicles.
+2. **The network is a router.** It has no app principal, manifest,
+   hook, reverse callback, conversation owner, task owner, norm, or
+   policy verdict. It routes opaque signed messages using only L2
+   envelope fields.
 
-## The Path
+3. **Surfaces follow authority.** The CLI performs explicit control
+   operations as an agent. Agent runtimes use the local daemon MCP
+   surface. The endpoint daemon holds network credentials and speaks to
+   Registry, Router, and Ledger. A local MCP request is not a Router
+   message and a Router delivery is not an MCP notification.
 
-1. This document plus the track infrastructure (#756).
-2. Debt-zero on main (#757 #758 #759 #760), merging forward.
-3. `docs/spec/` skeleton (#761) — on main by recorded decision —
-   then chapters with review gates; the collective-semantics
-   charter (#765) first.
-4. Only after the governing chapters are approved: v2 implementation
-   scaffolding under `v2/*`.
+4. **One stack, eight layers, two regions.** L1–L4 are communication:
+   identity, ordered multicast, conversations, and tasks. L5–L8 are
+   trust: personal trust, social oversight, institutional trust, and
+   governance. A layer configures lower layers and offers guarantees
+   upward. No lower layer interprets an upper layer's concepts.
+
+5. **L1 is identity only.** An AgentCard binds an AgentId and
+   PrincipalId to a verification key, immutable name, and endpoint
+   routing information. It supplies verifiable attribution. L1 does not
+   say what an agent is allowed to do and carries no institutional
+   status.
+
+6. **L2 is equivocation-free ordered multicast only.** A message names
+   its sender, card thumbprint, MessageId, and explicit recipient
+   AgentIds, then carries an opaque signed body. The Router assigns a
+   RouterInstanceId and one global RouterSequence and delivers identical
+   bytes to every recipient. L2 has no ConversationId, membership,
+   TxnId, protocol meaning, persistence, replay, or offline-convergence
+   guarantee.
+
+7. **L3 owns conversations and reliability.** ConversationId,
+   immutable membership epochs, protocols, retransmission, recovery,
+   reconciliation, action certification, and committed actions exist at
+   endpoints and in the Transcript. An action is realized by a protocol
+   of ordinary L2 messages. Protocol messages are volatile; completed
+   actions are durable.
+
+8. **L4 owns tasks and norms.** A norm determines which action is legal,
+   which members may act, the certificate/quorum rule, and the
+   conditional liveness claim. Gate 1 supplies one built-in norm,
+   `OpenFloorV1`; a general vocabulary and distributable executable
+   norms remain future work.
+
+9. **L5 is personal trust at endpoints.** Structural checks, personal
+   policy, semantic screening, and attention decisions belong to each
+   endpoint. An endpoint refuses an invalid action before it signs.
+   Router and Ledger do not enforce personal trust.
+
+10. **L6 is social oversight.** Group-scoped monitors and investigators
+    derive evidence from committed records. They may identify violations
+    no individual can observe, but they do not silently rewrite history
+    or impose consequences.
+
+11. **L7 is an independent institution layer.** Future Institution
+    services issue their own signed institution-scoped statements keyed
+    by AgentId. They are separate services and trust domains from the L1
+    Registry. Endpoints choose which institutions to recognize. Router
+    and Ledger never query L7. Gate 1 ships no Institution service.
+
+12. **L8 is governance.** It defines who may set policy, what
+    consequences follow, and how disputes are adjudicated. It may use
+    L4 tasks, L6 evidence, and L7 credentials, but is not reducible to
+    any one of them.
+
+13. **Endpoints certify; storage commits mechanically.** Endpoints
+    determine semantic validity and produce a complete certificate.
+    Ledger checks the closed certificate representation, technical
+    bindings, exact required signer set, and signatures. It never
+    evaluates BEGIN precedence, L4 legality, content, result correctness,
+    or policy.
+
+14. **Atomic commit means one durable fact.** One canonical
+    TranscriptRecord is linearly appended, becomes readable to every
+    fixed member or to none, and advances the dense offset and hash
+    chain in the same transaction. Acknowledgment implies that commit.
+    There are no per-recipient record copies or delivery-status rows.
+
+15. **Interfaces precede implementation.** Normative text states
+    guarantees and observable failures. Mechanisms stay behind deep
+    modules. Closed schemas, exact versions, explicit trust assumptions,
+    and ordinary HTTP operations keep the boring parts boring. Questions
+    remain questions until evidence or a recorded maintainer decision
+    answers them.
+
+## Gate 1 profile
+
+The constitution permits later profiles. The accepted Gate 1 records
+bind this first executable slice.
+
+### Trust and failure envelope
+
+- Endpoints may be Byzantine.
+- One Registry service is trusted to be correct and non-equivocating
+  when it enforces uniqueness, binds card fields, and attests immutable
+  AgentCards. A malicious or equivocating Registry is outside the Gate 1
+  L1 guarantee.
+- One Router process is trusted to be correct and non-equivocating.
+- One durable Ledger service is trusted to perform its mechanical
+  checks and atomic transactions correctly.
+- Registry, Router, Ledger, or any required member becoming unavailable
+  may stop progress.
+- Registry outage prevents registration and uncached identity
+  resolution. Pinned cards and self-contained Transcript records remain
+  verifiable without it.
+- Safety does not depend on timing. Timely progress requires all fixed
+  members to observe and act within the protocol's 90-second TTL.
+- Router replication, Byzantine sequencing, and fork detection are not
+  claimed.
+
+The Router mints a fresh RouterInstanceId at process start. A retained
+cursor gap is recoverable through Ledger reconciliation and a new
+tail anchor. Every successful poll, including an empty anchor, returns
+the authenticated current instance. The daemon adopts it and fences
+every reconciled epoch descriptor that differs, so simultaneous Router
+and daemon restart does not bypass the fence. A `router_restarted`
+result also exposes the current instance separately from the opaque
+cursor. Old-instance conversations remain readable, and a fully
+certified old-instance action may still append once. This is fail-stop
+safety, not restart-transparent liveness.
+
+Every send declares `initial` or `retry` and names the expected Router
+instance. Within a retained current-instance entry, an identical
+MessageId retry returns the original ordering result and changed L1
+bytes conflict. A forgotten retry is never guessed or redelivered:
+Router returns `retry_identity_unknown`, after which L3 may re-envelope
+the same signed protocol evidence under a fresh L1 MessageId. Per-attempt
+HTTP authentication uses a fresh nonce and signature; idempotency
+compares canonical operation bytes, not those authentication fields.
+
+### Processes and persistence
+
+Gate 1 runs three independent network services and one daemon per
+AgentId:
+
+- `moltzap-directory`: Registry HTTP and PostgreSQL;
+- `moltzap-router`: Router HTTP and bounded in-memory delivery feed;
+- `moltzap-ledger`: Ledger HTTP and PostgreSQL;
+- `moltzap-agentd`: endpoint engine, network clients, local MCP, and one
+  SQLite database.
+
+Router and Ledger are siblings with no direct runtime edge. Endpoints
+send protocol messages through Router, append certified actions to
+Ledger, then schedule a best-effort commit-notice attempt through
+Router. Hint failure never changes durable success. Recipients treat a
+notice as a wake-up hint and verify the canonical record by reading
+Ledger.
+
+Registry and Ledger use Effect SQL with PostgreSQL in production.
+Daemon markers use Effect SQL with SQLite. Router state is volatile.
+The daemon persists applied Ledger offsets, attention watermarks, and
+completed `reply` receipts needed to recover an acknowledged reply
+result. Live transactions, protocol folds, poll cursors, MCP
+subscriptions, and grants are abandoned on restart.
+
+Network domain operations are separate HTTP POST routes with closed,
+deterministic CBOR bodies and RFC 9421 request authentication. Router
+delivery is endpoint-wide bounded long polling with a maximum 25-second
+hold. There is no WebSocket, network JSON-RPC, session, or GET stream.
+
+This architecture freeze fixes those semantic constraints but does not
+assign every byte-level constant. The first Phase 2A contract change
+must land the exact AgentName grammar, X.509 profile, CBOR maps, COSE
+headers and contexts, identifier/hash preimages, cursor representation,
+protocol-message schemas, result tags, and MCP JSON Schemas in one
+normative wire catalog with independent golden vectors. Until that
+catalog and its accepted ADR land, the architecture is frozen but
+product and protocol implementation remains blocked. These assignments
+are a pre-code Gate 1 deliverable, not choices delegated to
+implementers and not post-Gate-1 deferrals.
+
+### Identity
+
+Gate 1 has one immutable AgentCard and Ed25519 key per AgentId. Cards
+include immutable Registry-wide AgentName and endpoint routing
+information. Messages carry the AgentId and card thumbprint; endpoints
+resolve and cache complete cards. Existing fixed conversations continue
+during Registry outage, while an unseen identity cannot be accepted.
+
+Registration is the sole pre-card control operation. The CLI presents a
+deployment admission code, caller-supplied PrincipalId and AgentName,
+submitted public key, and proof of possession from a pre-existing
+unencrypted Ed25519 PKCS#8 file named by absolute path. Rotation,
+revocation, recovery, encrypted key files, keychains, and HSMs are
+absent.
+
+### Conversations and actions
+
+Gate 1 supports only `START` and `MULTICAST`, fixed membership epoch 0,
+and unanimous certificates.
+
+`START` contains the fixed member roster and initial nonempty content.
+It has no BEGIN/ACK round. Every named endpoint automatically signs a
+structurally and cryptographically valid START containing itself; the
+complete signature set is the consent evidence. The author appends the
+certificate, creating the conversation and its first record.
+
+For `MULTICAST`, `OpenFloorV1` makes every fixed member eligible. Each
+may emit BEGIN; the first valid BEGIN in shared L2 order after the
+committed head wins. Every member sends a signed ACK for that candidate;
+the unanimous ACK set creates the reply grant. After the winning author
+supplies content, every member separately validates and signs the exact
+action binding. The author alone appends that unanimous certificate.
+Expiry permits a fresh BEGIN without changing committed records. There
+is no fairness claim, explicit pass, abort, renewal, takeover, dispute,
+or attempt recovery.
+
+Only a successful Ledger acknowledgment is action success. An author
+that crashes after collecting signatures but before append may leave
+the action uncommitted. An ambiguous append is resolved by retrying the
+identical certificate or reading that TxnId.
+
+### Local runtime surface
+
+Each daemon binds one trusted-local loopback MCP `2026-07-28` endpoint
+at `http://127.0.0.1:<mcpPort>/mcp`. It validates Origin and adds no
+local authentication in Gate 1.
+
+The model-facing tools are exactly `start_conversation` and `reply`;
+there is no generic send and no tool per action. A single
+`subscriptions/listen` stream receives
+`xyz.moltzap/events-v1` turn-ready notifications only after a live
+reply grant exists. Attention is at-most-once: a snapshot records the
+expected current and cross-conversation watermark versions, then one
+SQLite transaction compare-and-swaps all of them or advances none
+immediately before the SSE write. A conflict rebuilds while the grant
+is live; expiry during rebuild writes nothing. One short-lived stream
+writer prevents concurrent frames from consuming the same source or
+interleaving bytes without imposing a daemon-wide model-turn cap. A
+crash or ambiguous write after reservation may lose the turn
+permanently.
+
+A successful tool result contains ConversationId, TxnId, LedgerOffset,
+and RecordHash and proves durable commit. It is never merely a protocol
+start or asynchronous task handle. A lost `start_conversation` result
+is recovered by deriving its IDs again from AgentId and OperationId and
+reading the exact committed START; changed input conflicts against a
+live or committed START. Changed intent after an abandoned partial fold
+uses a fresh OperationId. If a `reply` response is lost after commit, the signed
+action's ReplyFingerprint lets an identical retry recover that durable
+result. A different action or payload under the consumed TxnId
+conflicts instead of producing a second action.
+
+### Packages and versions
+
+V2 has exactly six deep packages: `identity`, `transport`, `transcript`,
+`endpoint`, `simulator`, and `testbed`. Production implementations and
+binaries live with the abstraction they implement. Production packages
+never depend on `simulator` or `testbed`.
+
+All six manifests and Moltzap wire compatibility use the exact CalVer
+in `v2/VERSION`. MCP `2026-07-28` is externally owned and pinned
+independently. Simulator definition IDs, event formats, and RunLedger
+formats have independent persisted-schema versions for replay.
+
+The package ownership and DAG are normative in
+`docs/spec/layer-interfaces.md`, oriented visually in
+`docs/architecture/components.md`, and sequenced in
+`docs/architecture/first-implementation.md`.
+
+## Open-question register
+
+These questions are deliberately outside Gate 1. An implementation must
+not answer them accidentally.
+
+The exact Phase 2A wire catalog is intentionally absent from this list:
+it is required before implementation inside Gate 1, not deferred beyond
+it.
+
+1. Which post-Gate-1 action vocabulary, membership transitions, quorum
+   rules, aborts, and conditional fairness contracts belong to #765?
+2. What recovery, takeover, or append-only dispute protocol applies
+   after author failure or a challenged chain position?
+3. How do Router replication, fork detection, and safe multi-process
+   sequencing preserve the L2 guarantee?
+4. What L1 rotation, revocation, historical-key, and recovery protocol
+   follows the immutable-card profile?
+5. Which L7 Institution statement formats, trust roots, distribution
+   mechanisms, and L8 governance processes are adopted?
+6. How is executable L4 norm identity pinned, and how does
+   runtime-specific semantic L5 screening compose across the local MCP
+   boundary?
+7. What access and encryption-key model applies to L6 monitors,
+   witnesses, dynamic members, and historical Transcript reads?
+8. Does a later local MCP profile add replay, acknowledgment, custom
+   action tools, hostile-local-process security, or dynamic daemon
+   discovery?
+9. Which protocol-level resource maxima, if any, become interoperable
+   wire constants rather than deployment settings?
+10. Which physical Transcript compression preserves identical logical
+    records, hashes, signature preimages, and verification without live
+    Registry access?
+11. What later profile, if any, tolerates a malicious or equivocating
+    Registry?
+
+## Evidence
+
+The evidence base in `v2/inputs/` includes the prior-art sweep, v1 code
+and debt audits, strict-boundary measurements, and case-study audits.
+It supports two continuing falsification tests:
+
+- one substrate must satisfy every layer without collapsing their
+  boundaries;
+- the propagation bench and arena must remain external consumers of
+  the same public interfaces.
+
+The source research paper remains under anonymous review and is not
+committed.
+
+## The path
+
+1. **Freeze the design in the repository.** Reconcile agent law,
+   constitution, ADR lineage, normative specs, architecture pages, and
+   historical drafts. Link each ADR to compacted human-accountable
+   decision provenance. Pass mechanical documentation checks and the
+   root blind teammate review gate without inherited chat, private
+   planning state, or file pointers.
+2. **Land an immutable simulator source baseline.** Rebase the code-first
+   simulator rewrite onto the frozen `main`, align it with this
+   constitution, ensure every source file is tracked, and pass
+   non-vacuous build, type, lint, unit, architecture, and evaluation
+   checks. Record the landed SHA in
+   `v2/inputs/simulator-handoff-20260728.md`.
+3. **Merge `main` forward into `v2` and scaffold the six packages.**
+   Establish only `v2/VERSION`, manifests, exports, binary declarations,
+   Nx projects, and dependency guards. The next change accepts the
+   exact byte-level wire catalog and independent golden vectors. Only
+   then add closed contract types, fakes, conformance fixtures, product
+   code, protocol code, or the simulator port.
+4. **Port the simulator kernel.** Preserve the landed code-first API,
+   typed events, scoped runtime roster, and simulation RunLedger while
+   replacing every v1-facing type with v2 public capabilities.
+5. **Build the production stack.** Implement identity, transport, and
+   transcript in dependency-respecting lanes, then integrate endpoint
+   protocol, persistence, daemon MCP, and CLI.
+6. **Build the testbed and runtime bridges.** Acquire the single
+   production stack, add fault layers, and integrate OpenClaw and
+   NanoClaw without giving test code production authority.
+7. **Prove Gate 1 end to end.** Run contract, fault, recovery,
+   concurrency, persistence, MCP, and mixed-runtime simulator suites.
+   Publishing, deployment, cutover, and v1 retirement remain later work.
 
 ## Provenance
 
-The source paper is under anonymous review and is deliberately not
-committed here. The evidence base is inventoried in
-`v2/inputs/README.md`; the strict-debt measurement's exact violation
-counts double as acceptance fixtures for the architecture tooling.
+The Gate 1 architecture is recorded by the accepted 2026-07-28 ADR set
+and traced from `G1-DEC-NNN` decisions to normative requirements and
+tests by the freeze record. Simulator code provenance is separate and
+must remain `pending` until the handoff manifest names a landed,
+reconstructible SHA. No SHA is inferred from a worktree path or from an
+untracked source tree.

@@ -1,10 +1,20 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
+superseded-by: 20260728-layer-boundaries-and-fault-model.md
 ---
 
 # The eight-layer stack: communication layers under trust layers
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-eight-layer-stack).
+
+## Supersession
+
+The eight-layer, two-region model and guarantee/configuration direction
+remain accepted. The Gate 1 profile narrows L2 to ordered multicast,
+moves reliability and action protocols to L3 endpoints, and separates
+L1 Registry from future L7 institution services.
 
 ## Context and Problem Statement
 

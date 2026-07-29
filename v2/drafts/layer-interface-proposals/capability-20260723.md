@@ -1,3 +1,6 @@
+> **Archived historical, non-normative input.** The Gate 1 package and
+> interface boundary is `docs/spec/layer-interfaces.md`.
+
 # Layer interfaces — Proposal: object-capability discipline, authority as unforgeable references
 
 Status: DRAFT (alternative standardization proposal; peer to

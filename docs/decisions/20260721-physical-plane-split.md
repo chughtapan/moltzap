@@ -1,10 +1,29 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
+superseded-by: 20260728-network-wire-is-http-post-polling.md
 ---
 
 # The planes split at the transport
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-physical-plane-split).
+
+## Supersession
+
+The core Decision Outcome — a normative physical split between control
+and data planes — remains current. Later accepted records supersede the
+body phrases about v1 WebSocket muxing, a data-plane shape “not yet
+defined,” disconnect, and socket replay; those phrases are historical
+context, not the Gate 1 contract.
+
+Gate 1 binds Registry and Ledger operations to their closed,
+individually authenticated HTTP POST routes. Router traffic uses
+`POST /v1/messages:send` and endpoint-wide bounded long polling at
+`POST /v1/deliveries:poll`. The separate local runtime boundary is
+loopback MCP `POST /mcp`, including request-scoped
+`subscriptions/listen`; it is neither network plane. There is no
+network WebSocket, shared mux, or generic notification surface.
 
 ## Context and Problem Statement
 

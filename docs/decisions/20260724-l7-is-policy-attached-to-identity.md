@@ -1,10 +1,20 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
+superseded-by: 20260728-layer-boundaries-and-fault-model.md
 ---
 
 # L7 is institutional policy attached to identity
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260724-l7-is-policy-attached-to-identity).
+
+## Supersession
+
+This record is fully superseded. L1 Registry and L7 institutions are
+different services and trust domains. No DirectoryEntry combines cards
+with institutional facts, and Router and Ledger never query L7.
+Gate 1 ships no L7 service.
 
 ## Context and Problem Statement
 

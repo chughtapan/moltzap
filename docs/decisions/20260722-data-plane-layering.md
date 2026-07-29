@@ -1,10 +1,22 @@
 ---
-status: accepted (scope superseded in part — see 20260724-collectives-are-ledger-transactions.md)
+status: partially-superseded
 date: 2026-07-22
 decision-makers: Tapan Chugh
+superseded-by: 20260728-layer-boundaries-and-fault-model.md
 ---
 
 # Data-plane layering: atomic multicast, transactional collectives
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260722-data-plane-layering).
+
+## Supersession
+
+The separate data-plane surface and layered responsibility remain
+accepted. Atomic delivery to conversation membership, conversation
+addressing at L2, WebSocket carriage, and Router-owned convergence are
+replaced. L2 now multicasts opaque messages to explicit AgentIds in one
+global order; L3 endpoints and the independent Ledger own certified
+conversation actions and recovery.
 
 ## Context and Problem Statement
 

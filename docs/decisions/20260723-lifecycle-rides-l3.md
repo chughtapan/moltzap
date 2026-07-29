@@ -1,10 +1,20 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
+superseded-by: 20260728-open-floor-v1.md
 ---
 
 # Conversation lifecycle rides in-band at L3
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-lifecycle-rides-l3).
+
+## Supersession
+
+In-band L3 START genesis remains accepted. Gate 1 fixes membership at
+epoch 0, includes initial content in START, and implements no ADD,
+LEAVE, or empty-conversation lifecycle. The model initiates genesis
+only through `start_conversation`.
 
 ## Context and Problem Statement
 

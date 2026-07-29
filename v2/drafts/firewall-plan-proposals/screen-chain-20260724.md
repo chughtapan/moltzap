@@ -1,3 +1,7 @@
+> **Deferred historical, non-normative input.** Gate 1 standardizes
+> deterministic SharedCore validation but defers semantic L5. See
+> `docs/spec/endpoints/screening.md`.
+
 # Firewall plan, Proposal: the firewall is a screen chain
 
 Status: DRAFT (alternative for the undesigned firewall plan —

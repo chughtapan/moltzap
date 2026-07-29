@@ -1,10 +1,20 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-27
 decision-makers: Tapan Chugh
+superseded-by: 20260728-gate-1-identity-profile.md
 ---
 
 # Registration is out of band; the plane knows one caller
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260727-registration-is-out-of-band).
+
+## Supersession
+
+This record is fully superseded. Registration is a concrete L1
+Registry control operation authenticated by a deployment admission code
+and proof of possession of the submitted key. It remains absent from
+Router, Ledger, daemon MCP, and runtime events.
 
 ## Context and Problem Statement
 

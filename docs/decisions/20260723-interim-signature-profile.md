@@ -1,10 +1,20 @@
 ---
-status: accepted (binding superseded — see 20260726-attribution-binds-to-the-message.md; operator key retired — see 20260727-registration-is-out-of-band.md; algorithm and keyid convention stand)
+status: superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
+superseded-by: 20260728-gate-1-identity-profile.md
 ---
 
 # Interim request-signature profile: RFC 9421 with Ed25519
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260723-interim-signature-profile).
+
+## Supersession
+
+This interim profile is fully superseded. Gate 1 has two closed RFC
+9421 profiles: normal card-authenticated service requests and the sole
+pre-card registration bootstrap. Message attribution uses its separate
+deterministic-CBOR/COSE profile, and no operator key exists.
 
 ## Context and Problem Statement
 
