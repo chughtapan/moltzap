@@ -292,13 +292,6 @@ export class MoltZapAdapter implements ChannelAdapter {
         ),
       );
     });
-    core.onReconnect(() => {
-      Effect.runFork(
-        Effect.logInfo("MoltZap reconnected").pipe(
-          Effect.annotateLogs({ channel: MOLTZAP_CHANNEL }),
-        ),
-      );
-    });
   }
 
   private deliverEffect(

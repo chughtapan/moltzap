@@ -1,0 +1,234 @@
+import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import { AgentId, AgentName } from "@moltzap/protocol/identity";
+import { messagePartsSchema } from "@moltzap/protocol/message";
+import { ServerBaseUrl } from "@moltzap/protocol/network";
+import { TaskId } from "@moltzap/protocol/task";
+import { Schema } from "effect";
+import { EventCatalog } from "./catalog.js";
+import { CommittedRouterMessage } from "../network/router.js";
+
+const MessageParts = messagePartsSchema();
+
+/** The run ledger is allocated and run-scoped acquisition has begun. */
+export class RunStarted extends Schema.TaggedClass<RunStarted>()(
+  "moltzap.run-started/v1",
+  {
+    definitionId: Schema.NonEmptyString,
+  },
+) {}
+
+/** The run-scoped router is accepting participant connections. */
+export class RouterStarted extends Schema.TaggedClass<RouterStarted>()(
+  "moltzap.router-started/v1",
+  {
+    routerUrl: ServerBaseUrl,
+  },
+) {}
+
+/** Router acquisition failed before the data plane became available. */
+export class RouterStartFailed extends Schema.TaggedClass<RouterStartFailed>()(
+  "moltzap.router-start-failed/v1",
+  {
+    cause: Schema.NonEmptyString,
+  },
+) {}
+
+/** Router release or stopped-router evidence collection failed. */
+export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
+  "moltzap.router-stop-failed/v1",
+  {
+    cause: Schema.NonEmptyString,
+  },
+) {}
+
+/** A roster runtime has acquired its identity and completed readiness. */
+export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
+  "moltzap.agent-runtime-ready/v1",
+  {
+    agentName: AgentName,
+    agentId: AgentId,
+    runtime: Schema.NonEmptyString,
+  },
+) {}
+
+/** A roster runtime failed before it established readiness. */
+export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStartFailed>()(
+  "moltzap.agent-runtime-start-failed/v1",
+  {
+    agentName: AgentName,
+    runtime: Schema.NonEmptyString,
+    cause: Schema.NonEmptyString,
+  },
+) {}
+
+/** An autonomous runtime completed normally. */
+export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeCompleted>()(
+  "moltzap.agent-runtime-completed/v1",
+  {
+    agentName: AgentName,
+    agentId: AgentId,
+    runtime: Schema.NonEmptyString,
+  },
+) {}
+
+/** An autonomous runtime completed with a recorded failure. */
+export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()(
+  "moltzap.agent-runtime-failed/v1",
+  {
+    agentName: AgentName,
+    agentId: AgentId,
+    runtime: Schema.NonEmptyString,
+    cause: Schema.NonEmptyString,
+  },
+) {}
+
+/** A roster runtime process terminated with an operating-system exit code. */
+export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()(
+  "moltzap.agent-process-exited/v1",
+  {
+    agentName: AgentName,
+    agentId: AgentId,
+    runtime: Schema.NonEmptyString,
+    code: Schema.NonNegativeInt,
+  },
+) {}
+
+/** A roster runtime process terminated because it received a signal. */
+export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignaled>()(
+  "moltzap.agent-process-signaled/v1",
+  {
+    agentName: AgentName,
+    agentId: AgentId,
+    runtime: Schema.NonEmptyString,
+    signal: Schema.NonEmptyString,
+  },
+) {}
+
+/** A participant allocated a conversation address for a nonempty group. */
+export class ConversationOpened extends Schema.TaggedClass<ConversationOpened>()(
+  "moltzap.conversation-opened/v1",
+  {
+    openedBy: AgentId,
+    taskId: TaskId,
+    conversationId: ConversationId,
+    participants: Schema.NonEmptyArray(AgentId),
+  },
+) {}
+
+/** A controlled endpoint committed a message through the data plane. */
+export class EndpointMessageSent extends Schema.TaggedClass<EndpointMessageSent>()(
+  "moltzap.endpoint-message-sent/v1",
+  {
+    endpointId: AgentId,
+    taskId: TaskId,
+    conversationId: ConversationId,
+    messageId: MessageId,
+    parts: MessageParts,
+  },
+) {}
+
+/** A controlled endpoint received a message through the data plane. */
+export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageReceived>()(
+  "moltzap.endpoint-message-received/v1",
+  {
+    endpointId: AgentId,
+    taskId: TaskId,
+    conversationId: ConversationId,
+    messageId: MessageId,
+    senderId: AgentId,
+    parts: MessageParts,
+  },
+) {}
+
+/**
+ * The router durably committed one message. Payload content remains an
+ * endpoint concern so this evidence also works with content-blind routers.
+ */
+export class RouterMessageCommitted extends Schema.TaggedClass<RouterMessageCommitted>()(
+  "moltzap.router-message-committed/v1",
+  {
+    ...CommittedRouterMessage.fields,
+  },
+) {}
+
+/** A directed participant link transitioned from available to unavailable. */
+export class LinkDown extends Schema.TaggedClass<LinkDown>()(
+  "moltzap.link-down/v1",
+  {
+    from: AgentId,
+    to: AgentId,
+  },
+) {}
+
+/** A directed participant link transitioned from unavailable to available. */
+export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
+  from: AgentId,
+  to: AgentId,
+}) {}
+
+/** The customer program returned successfully. */
+export class ProgramSucceeded extends Schema.TaggedClass<ProgramSucceeded>()(
+  "moltzap.program-succeeded/v1",
+  {},
+) {}
+
+/** The customer program failed with a typed failure or defect. */
+export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
+  "moltzap.program-failed/v1",
+  {
+    cause: Schema.NonEmptyString,
+  },
+) {}
+
+/** The customer program was interrupted. */
+export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()(
+  "moltzap.program-interrupted/v1",
+  {
+    cause: Schema.NonEmptyString,
+  },
+) {}
+
+/** Run lifecycle events emitted by the run kernel. */
+export const RunEvents = EventCatalog.make(
+  RunStarted,
+  ProgramSucceeded,
+  ProgramFailed,
+  ProgramInterrupted,
+);
+
+/** Router events emitted by the run-scoped router integration. */
+export const RouterEvents = EventCatalog.make(
+  RouterStarted,
+  RouterStartFailed,
+  RouterStopFailed,
+  RouterMessageCommitted,
+);
+
+/** Runtime lifecycle events emitted by the roster supervisor. */
+export const RuntimeEvents = EventCatalog.make(
+  AgentRuntimeReady,
+  AgentRuntimeStartFailed,
+  AgentRuntimeCompleted,
+  AgentRuntimeFailed,
+  AgentProcessExited,
+  AgentProcessSignaled,
+);
+
+/** Data-plane events emitted by controlled endpoint operations. */
+export const EndpointEvents = EventCatalog.make(
+  ConversationOpened,
+  EndpointMessageSent,
+  EndpointMessageReceived,
+);
+
+/** Directed-link state events emitted by the network controller. */
+export const LinkEvents = EventCatalog.make(LinkDown, LinkUp);
+
+/** The exact event classes readable from every simulator run ledger. */
+export const CoreEvents = EventCatalog.merge(
+  RunEvents,
+  RouterEvents,
+  RuntimeEvents,
+  EndpointEvents,
+  LinkEvents,
+);

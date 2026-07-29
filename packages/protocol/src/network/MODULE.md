@@ -8,7 +8,7 @@ Public barrel for connect and presence protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](./index.ts#L23)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L28)
 
 _Variable_
 
@@ -69,7 +69,7 @@ export const AgentPresenceSubscribe = defineRpc({
 })
 ```
 
-### [`appCallableNetworkRpcMethods`](./index.ts#L29)
+### [`appCallableNetworkRpcMethods`](./index.ts#L34)
 
 _Variable_
 
@@ -157,6 +157,16 @@ _TypeAlias_
 export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
 ```
 
+### [`httpBaseUrl`](./server-url.ts#L98)
+
+_Function_
+
+```ts
+export const httpBaseUrl = (base: ServerBaseUrl): string
+```
+
+The HTTP control-plane origin for the same server.
+
 ### [`InvalidProtocolVersionError`](./connect.ts#L65)
 
 _Class_
@@ -171,7 +181,7 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 }
 ```
 
-### [`networkNotifications`](./index.ts#L43)
+### [`networkNotifications`](./index.ts#L48)
 
 _Variable_
 
@@ -181,7 +191,7 @@ export const networkNotifications = [] as const
 
 Network notifications emitted by the server.
 
-### [`networkRpcMethods`](./index.ts#L35)
+### [`networkRpcMethods`](./index.ts#L40)
 
 _Variable_
 
@@ -252,7 +262,7 @@ Reason discriminant carried in `ProtocolMismatchError.data.reason`:
 `maxProtocol`; the client must update. `server-below-client-min` — the
 client is newer than the server supports.
 
-### [`serverBaseUrl`](./server-url.ts#L94)
+### [`serverBaseUrl`](./server-url.ts#L95)
 
 _Variable_
 
@@ -265,7 +275,7 @@ such as one a locally started server just reported. Decode with
 `Schema.decodeEither(ServerBaseUrl)` wherever the value comes from
 configuration or another package.
 
-### [`ServerBaseUrl`](./server-url.ts#L58)
+### [`ServerBaseUrl`](./server-url.ts#L59)
 
 _TypeAlias_
 
@@ -276,7 +286,7 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
 A MoltZap server address carrying no path, query, or fragment, over
 `http`, `https`, `ws`, or `wss`.
 
-### [`ServerBaseUrl`](./server-url.ts#L58)
+### [`ServerBaseUrl`](./server-url.ts#L59)
 
 _Variable_
 
@@ -287,7 +297,7 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">
 Decodes either address a caller is likely to hold — the base URL or the
 socket endpoint — into the path-free base. Any other path fails.
 
-### [`webSocketUrl`](./server-url.ts#L97)
+### [`webSocketUrl`](./server-url.ts#L102)
 
 _Function_
 

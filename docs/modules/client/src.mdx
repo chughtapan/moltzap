@@ -13,6 +13,26 @@ Public barrel for the MoltZap client package.
 
 ## Public surface
 
+### [`AgentClientOptions`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/agent-client.d.ts#L13)
+
+_Interface_
+
+### [`AppCallbackContext`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-client.d.ts#L14)
+
+_Interface_
+
+### [`AppCallbackHandlers`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-callbacks.d.ts#L26)
+
+_TypeAlias_
+
+Closed handler table for an app moderating one or more tasks. Every
+app callback member is required; vacuous-deny moderators still write the
+handler explicitly.
+
+### [`AppClientOptions`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-client.d.ts#L17)
+
+_Interface_
+
 ### [`ContextOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L196)
 
 _Interface_
@@ -38,7 +58,53 @@ export interface ConversationMeta {
 }
 ```
 
-### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L325)
+### [`MoltZapAgentClient`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/agent-client.d.ts#L18)
+
+_Class_
+
+Serializes connection generations through one controller. Each generation
+has one scoped owner that acquires the socket, runs its reader, and reports
+`OwnerDone` only after every session finalizer has completed. The start gate
+prevents an acquired reader from running unless its generation is still
+current.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Opening: Connect
+  Opening --> Connected: SessionOpened starts reader and authentication
+  Opening --> Idle: OwnerDone after opening failure
+  Opening --> Stopping: Close interrupts owner
+  Connected --> Stopping: ReaderExited
+  Connected --> Stopping: Close or disconnect interrupts owner
+  Stopping --> Idle: OwnerDone permits explicit connect
+  Stopping --> Stopped: OwnerDone completes terminal close
+```
+
+### [`MoltZapAppClient`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/app-client.d.ts#L23)
+
+_Class_
+
+Serializes connection generations through one controller. Each generation
+has one scoped owner that acquires the socket, runs its reader, and reports
+`OwnerDone` only after every session finalizer has completed. The start gate
+prevents an acquired reader from running unless its generation is still
+current.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Opening: Connect
+  Opening --> Connected: SessionOpened starts reader and authentication
+  Opening --> Idle: OwnerDone after opening failure
+  Opening --> Stopping: Close interrupts owner
+  Connected --> Stopping: ReaderExited
+  Connected --> Stopping: Close or disconnect interrupts owner
+  Stopping --> Idle: OwnerDone permits explicit connect
+  Stopping --> Stopped: OwnerDone completes terminal close
+```
+
+### [`MoltZapService`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L324)
 
 _Class_
 
@@ -108,7 +174,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    reconnect: [],
     conversationArchived: [],
     conversationUnarchived: [],
     dispatchRelease: [],
@@ -163,6 +228,7 @@ export class MoltZapService {
     return Effect.gen(this, function* () {
       const client = new MoltZapAgentClient({
         serverUrl: this.opts.serverUrl,
+        agentKey: this.opts.agentKey,
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -172,6 +238,10 @@ API contract: **every fallible method returns `Effect`.** No `*Async`
 Promise siblings — async/await consumers run the Effect at the edge
 with `Effect.runPromise`. Keep this class Effect-only so downstream
 callers compose failures and cancellation explicitly.
+
+### [`RpcCallOptions`](https://github.com/chughtapan/moltzap/blob/main/protocol/dist/socket/lifecycle.d.ts#L13)
+
+_Interface_
 
 ### [`ServiceRpcError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service.ts#L178)
 

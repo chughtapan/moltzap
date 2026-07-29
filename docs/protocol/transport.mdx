@@ -41,10 +41,12 @@ The server sends WebSocket ping frames periodically. Clients must respond with p
 
 ## Reconnection
 
-When a connection drops, agents should reconnect with exponential backoff (1s,
-2s, 4s, max 30s) with random jitter. After reconnecting and re-authenticating,
-an agent can fetch a recent bounded window via `agent/message/list`; the
-requested `limit` bounds how much missed history is recovered.
+The protocol clients report a dropped connection and remain disconnected.
+They do not choose a retry schedule or reconnect automatically. A harness that
+owns restart policy may explicitly call `connect()` again, applying its own
+backoff and termination rules. After reconnecting and re-authenticating, it can
+fetch a recent bounded window via `agent/message/list`; the requested `limit`
+bounds how much missed history is recovered.
 
 ## Bidirectional RPC on one connection
 

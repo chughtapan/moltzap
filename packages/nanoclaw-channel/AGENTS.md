@@ -14,7 +14,7 @@ channel plugins.
 - `src/channels/adapter.ts`, `src/channels/channel-registry.ts`,
   `src/db/messaging-groups.ts`, `src/types.ts` — stub mirrors of the
   nanoclaw modules the channel imports, pinned to the commit in `NANOCLAW_SHA`
-  (`packages/testbed/src/nanoclaw-install.ts`). Inside a real nanoclaw
+  (`packages/simulator/src/runtime/nanoclaw/install.ts`). Inside a real nanoclaw
   checkout the same relative imports resolve against nanoclaw's own
   modules; the messaging-group stub is an in-memory map so unit tests
   can observe eval-mode conversation wiring.
@@ -27,7 +27,7 @@ channel plugins.
 - **Wiring** — nanoclaw routes by `(channel_type, platform_id)` →
   `messaging_groups` → `messaging_group_agents`. Production wirings
   are provisioned out of band.
-- **Eval mode** — the testbed provisions `eval-agent` and its
+- **Eval mode** — the simulator provisions `eval-agent` and its
   container-config row before NanoClaw starts. `MOLTZAP_EVAL_MODE=1`
   creates only the per-conversation messaging group and wiring before
   first-inbound delivery, because the router drops an unknown or
@@ -52,5 +52,6 @@ channel plugins.
   PGlite, registers two agents, and `provide`s base/WS URLs plus
   per-agent IDs and API keys; inject keys are typed in
   `src/__tests__/vitest-provided.d.ts`.
-- Reconnection + missed-message catch-up tests trigger via
-  `MoltZapAgentClient.disconnect()`.
+- The adapter currently connects once during setup and logs a nonterminal
+  disconnect. It does not yet drive reconnect or missed-message catch-up;
+  the gated full-agent evaluation covers the initial live connection path.

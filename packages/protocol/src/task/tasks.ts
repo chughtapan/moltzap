@@ -10,7 +10,11 @@ import { ActiveAgent } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { ForbiddenError, InvalidParamsError } from "#transport";
 import { defineRpc, defineNotification } from "#transport/descriptor";
-import { conversationSchema, ConversationFullError } from "#conversation";
+import {
+  conversationSchema,
+  ConversationFullError,
+  ConversationNameSchema,
+} from "#conversation";
 import { AppId } from "#identity/apps";
 import { ContactPolicyAllowsReach } from "#identity/contacts/requirements";
 import { TaskId, TaskNotFoundError } from "./ids.js";
@@ -142,9 +146,7 @@ export const TaskList = defineRpc({
 // ═══════════════════════════════════════════════════════════════════
 
 const InitialConversationSchema = Schema.Struct({
-  name: Schema.optional(
-    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
-  ),
+  name: Schema.optional(ConversationNameSchema),
   participants: Schema.optional(Schema.Array(AgentId).pipe(Schema.minItems(1))),
 });
 
@@ -212,14 +214,17 @@ const TaskCreateContextSchema = Schema.Struct({
   receivedAt: Schema.optional(DateTimeString),
 });
 
+const TaskFailureReasonSchema = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(256),
+);
+
 const TaskCreateVerdictSchema = Schema.Union(
   Schema.Struct({ decision: Schema.Literal("accept") }),
   Schema.Struct({
     decision: Schema.Literal("reject"),
     // Bound matches `TaskFailedNotificationDefinition.reason`.
-    reason: Schema.optional(
-      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
-    ),
+    reason: Schema.optional(TaskFailureReasonSchema),
   }),
 );
 
@@ -328,9 +333,7 @@ const TaskFailedNotificationSchema = Schema.Struct({
   // `reject.reason`, the synthesized `"app_unreachable"` / `"timeout"`
   // strings from the fail-closed envelope, and any future caller-supplied
   // failure reason all flow through here.
-  reason: Schema.optional(
-    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
-  ),
+  reason: Schema.optional(TaskFailureReasonSchema),
 });
 
 const TaskCreatedNotificationSchema = Schema.Struct({ task: TaskSchema });

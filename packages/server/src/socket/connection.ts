@@ -101,21 +101,21 @@ interface ConnectionBase {
 // Module-private classes with private members keep external modules from
 // forging connection arms structurally. Callers receive arm values only through
 // `ConnectionManager`.
-// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS marker, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class UnauthenticatedConnection extends Data.TaggedClass(
   "UnauthenticatedConnection",
 )<ConnectionBase> {
   private readonly __brand!: never;
 }
 
-// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS marker, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class AgentConnection extends Data.TaggedClass("AgentConnection")<
   ConnectionBase & { readonly auth: AgentContext }
 > {
   private readonly __brand!: never;
 }
 
-// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS seal, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS marker, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class AppConnection extends Data.TaggedClass("AppConnection")<
   ConnectionBase & { readonly auth: AppContext }
 > {
