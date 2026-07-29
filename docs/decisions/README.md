@@ -52,6 +52,7 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
+| [Evaluation runs produce typed reports published to Phoenix](20260729-effect-native-evaluation-results.md) | 2026-07-29 | accepted | — |
 | [Representation limits are fixed or derived](20260729-representation-limits-are-fixed-or-derived.md) | 2026-07-29 | accepted | — |
 | [Identity and Router expose deep Effect capabilities](20260729-identity-and-router-expose-deep-effect-capabilities.md) | 2026-07-29 | accepted | — |
 | [Registration is Registry bootstrap admission](20260729-registration-is-registry-bootstrap-admission.md) | 2026-07-29 | accepted | — |
