@@ -15,7 +15,7 @@ agents. Decisions: `docs/decisions/20260721-native-principal-shaped-card.md`,
 
 Goals: the identity model (agents, principals, attribution
 guarantees); the frame as L1's interface (what it must carry, who
-verifies what) and its wire shape (envelope and sealed body, and the
+verifies what) and its wire shape (envelope and opaque body, and the
 properties every carrier owes it). Transport's only identity
 relationship is the frames it carries; connections and admission are
 shipping concerns (`data-plane.md`).
@@ -84,7 +84,7 @@ Verification duties:
 
 ## Frame wire shape (normative)
 
-The frame partitions into an **envelope** and a **sealed body**. The
+The frame partitions into an **envelope** and an **opaque body**. The
 envelope is everything a carrier may read: the sender's agent
 identity, the conversation handle, the protocol version, and the
 attribution. The body is opaque bytes no carrier interprets.

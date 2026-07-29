@@ -1,71 +1,197 @@
 ---
-title: Behavioral Traces
-description: Server-emitted OpenTelemetry spans plus external cc-judge execution
+title: "Code-first evaluations"
+description: "Build evaluation programs and code graders over exact simulator ledgers."
 ---
 
-# Behavioral Traces
+`packages/evals` is a customer of `@moltzap/simulator`. Its prompts,
+multi-turn flows, response-selection policy, conditions, and rubrics are
+TypeScript code owned by the evaluation package.
 
-`packages/evals/` no longer ships a local eval CLI, local YAML ingress, local judge stack, or local bundle/report pipeline.
+## Package structure
 
-The current split is:
+| Module | Owns |
+|---|---|
+| `src/descriptions.ts` | Human-facing case ids, names, and intent |
+| `src/episodes.ts` | Effect programs that drive endpoints and await protocol deliveries |
+| `src/evaluation-events.ts` | Eval-owned semantic event classes declared before each run |
+| `src/evaluations.ts` | Simulator definitions, rosters, defaults, and suite assembly |
+| `src/grading-model.ts` | Exact ledger projections, refusal errors, and report contracts |
+| `src/grading-checks.ts` | Reusable code assertions |
+| `src/graders.ts` | The code grader for each behavioral case |
+| `src/index.ts` | OpenClaw and Effect-agent suites |
 
-1. `@moltzap/server-core` emits behavioral traces as OpenTelemetry spans (Effect's `withSpan`).
-2. The server records message-delivery and hook-block traces directly where they happen, as the `moltzap.message.delivered` and `moltzap.message.blocked` spans.
-3. `packages/evals/` only keeps the scenario YAML catalog.
-4. `@moltzap/testbed` launches and supervises agent collections and owns the compiled `trace-capture-harness` module loaded by `cc-judge`.
-5. External `cc-judge` runners own scenario loading, harness dispatch, scoring, and report emission.
+`defineEvaluationSuite(runtime, conditionSuffix?)` is this package's narrow
+domain builder. It constructs the sixteen cases around any code-valued
+`AgentRuntime`. Customer code can call it once per model, persona, runtime, or
+environment without adding a union to simulator core.
 
-## Trace emission
+## Run and grade a case
 
-- `MessageService` emits `moltzap.message.delivered` and `moltzap.message.blocked` OTel spans (Effect `withSpan`). Spans carry message-shape **metadata only**, never message body content: message id, conversation id, sender id, created-at, part count, text-part count, total text length, channel key, sender display name, recipients/delivered (delivered) or block reason (blocked). Message body plaintext is deliberately redacted from telemetry — the envelope is encrypted at rest and spans can egress to an operator OTLP collector, so the body never belongs on a span.
-- `core/tracing.ts` wires the OTel SDK Layer; production exports via batch OTLP when an OTLP endpoint env var is set (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` used verbatim, else `OTEL_EXPORTER_OTLP_ENDPOINT` suffixed with `/v1/traces`), otherwise spans stay in-process.
-- Tests inject an `InMemorySpanExporter` via `CoreConfig.spanProcessor` and read finished spans from `CoreTestServer.spanExporter`.
+The simulator Layer supplies ledger storage and one isolated production router
+per run:
+
+```ts
+import {
+  effectEvaluations,
+} from "@moltzap/evals";
+import {
+  simulatorLayer,
+} from "@moltzap/simulator";
+import { Duration, Effect } from "effect";
+
+const Platform = simulatorLayer({
+  ledgerDirectory: "./eval-results",
+  router: {
+    startupTimeout: Duration.minutes(2),
+  },
+});
+
+const evaluation = effectEvaluations.eval005;
+
+const program = Effect.gen(function* () {
+  const run = yield* evaluation.run;
+  return yield* evaluation.grade(run.ledger);
+}).pipe(Effect.provide(Platform));
+```
+
+`evaluation.run` is an Effect value, not a callback or document. It uses the
+declared roster, starts the target runtime, runs the episode, emits eval-owned
+selection evidence, and returns a `SimulatorRunResult`.
+
+`evaluation.grade(ref)` opens the ledger through the same definition and
+composes its grader with `Effect.flatMap`. It cannot read event evidence until
+the completed ledger passes its definition, catalog, digest, identity, count,
+sequence, and exact-class checks.
+
+Program timing, retries, races, cancellation, and completion use Effect
+primitives. Runtime constructors own model, installation, and readiness
+configuration.
+
+## Runtime-specific suites
+
+`openClawEvaluations` uses `openClawRuntime()` for model-backed behavioral
+measurements.
+
+`effectEvaluations` uses `effectRuntime()` with a protocol echo handler. It
+still binds a normal roster identity, connects through the production router,
+receives through the MoltZap protocol, and replies through the client data
+plane. It needs no model credentials, so it tests the evaluation instrument
+rather than model quality.
+
+Build a suite around another implementation with ordinary code:
+
+```ts
+import {
+  effectRuntime,
+} from "@moltzap/simulator";
+import { Effect } from "effect";
+
+const deterministic = defineEvaluationSuite(
+  effectRuntime({
+    onMessage: ({ message }) =>
+      Effect.succeed(message.parts),
+  }),
+  "-deterministic",
+);
+```
+
+The same constructor accepts OpenClaw, NanoClaw, Effect, or custom
+`defineRuntime` values. Every implementation participates through the same
+roster, router, and protocol.
+
+## Record customer semantics explicitly
+
+Core network events retain endpoint ids, sender ids, task ids, conversation
+ids, message ids, and protocol parts. They intentionally do not assign
+evaluation roles or decide which reply a rubric should inspect.
+
+After an episode awaits its chosen response, it emits the predeclared
+`EvaluationResponseSelected` class through the definition-bound
+`Society.Events` service. That event records:
+
+- the case id;
+- endpoint and target names;
+- endpoint and target network ids;
+- the selected task and message ids.
+
+The grader joins this event to the canonical `EndpointMessageReceived`
+evidence instead of copying message content into a second event. This keeps
+network facts and customer interpretation separate without an untyped side
+channel.
+
+## Grading policy belongs here
+
+Each grader receives exact-class Streams from a validated
+`CompletedRunLedger`. Before evaluating behavioral assertions, the common
+projection requires:
+
+- `ProgramSucceeded`;
+- `AgentRuntimeReady` for the declared target;
+- a matching `EvaluationResponseSelected`;
+- the corresponding `EndpointMessageReceived`.
+
+Missing or inconsistent prerequisites produce `GradingRefused`; they do not
+become a failed behavioral score. The returned `GradeReport` retains every
+named assertion and its detail plus the aggregate result.
+
+Future model judges, caches, report databases, or alternate rubrics can be
+composed in this package as Effects. The simulator does not need a plugin name
+or grader configuration union.
+
+## Mixed-runtime architecture gate
+
+The full runtime integration test declares one roster containing:
+
+- OpenClaw as an external process;
+- NanoClaw as a container-backed external process;
+- an in-process Effect agent;
+- a customer-defined `defineRuntime` agent backed by an Effect handler.
+
+One production router and one ledger serve all four participants. A controlled
+endpoint performs a protocol round trip with each agent, then the test
+validates readiness, endpoint delivery, durable router commits, customer
+response selection, and program success.
+
+Run the gated target with:
+
+```bash
+pnpm nx run @moltzap/evals:test:agents
+```
+
+The target sets `MOLTZAP_AGENT_EVAL_ITEST=1`. It also requires:
+
+- a reachable Docker daemon;
+- network access while router and runtime caches are cold;
+- model credentials in the operator OpenClaw profile;
+- a local OneCLI gateway configured for NanoClaw.
+
+Set `MOLTZAP_OPENCLAW_EVAL_MODEL` or `MOLTZAP_NANOCLAW_EVAL_MODEL` to override
+the corresponding default model. The gate does not read or log credential
+contents.
 
 ## Verification
 
-MoltZap-side verification now lives in package builds/tests plus the real `cc-judge` path, not a local eval CLI:
+Run package work through Nx:
 
 ```bash
-pnpm --filter @moltzap/testbed test
-pnpm --filter @moltzap/testbed build
-
-pnpm --filter @moltzap/server-core exec vitest run \
-  src/core/layers.test.ts \
-  src/core/tracing.test.ts
-
-pnpm --filter @moltzap/server-core exec vitest run \
-  --config vitest.integration.config.ts \
-  src/__tests__/integration/task/trace-spans.test.ts
-
-pnpm --filter @moltzap/server-core build
+pnpm nx run @moltzap/evals:build
+pnpm nx run @moltzap/evals:typecheck:tests
+pnpm nx run @moltzap/evals:test
+pnpm nx run @moltzap/evals:lint
 ```
 
-Behavioral traces are verified at the span-exporter level: `trace-spans.test.ts` reads finished OTel spans from `CoreTestServer.spanExporter` and asserts on span name and the metadata attributes, and asserts that no span attribute carries message body plaintext. `tracing.test.ts` covers the OTLP endpoint env-var resolution (trace-specific precedence + URL normalization).
+## Add an evaluation
 
-## cc-judge
+Keep customer policy local to `packages/evals`:
 
-`cc-judge` owns scenario loading, harness dispatch, scoring, and report
-emission. `@moltzap/cc-judge` is a workspace devDependency, so the whole
-suite runs with one command:
+1. Add the description and a focused Effect episode.
+2. Give its `Simulator.define` value a namespaced versioned id.
+3. Reuse or declare the appropriate keyed roster.
+4. Emit any new customer semantics through a predeclared event class.
+5. Write a grader over exact ledger streams and name every refusal condition.
+6. Add the case to `defineEvaluationSuite` and test it with the in-process
+   Effect runtime.
 
-```bash
-pnpm evals
-```
-
-That means:
-
-- MoltZap scenario YAML stays in `packages/evals/scenarios/`
-- the server emits trace data as OpenTelemetry spans (`moltzap.message.delivered` / `moltzap.message.blocked`)
-- the harness module is `packages/testbed/dist/trace-capture-harness.js`
-- results land in `./eval-results` (gitignored)
-
-To run a single scenario:
-
-```bash
-pnpm build
-pnpm exec cc-judge run packages/evals/scenarios/EVAL-005.yaml --results ./eval-results
-```
-
-OpenClaw-backed eval runs use `createOpenClawAdapter`'s default agent model
-unless a harness payload or runtime caller overrides it. The judge needs
-either `claude auth login` or `ANTHROPIC_API_KEY`.
+If several cases share a useful prompt or topology grammar, factor that
+grammar here. The simulator's stable job is execution, networking, lifecycle,
+and evidence—not predicting every axis a customer may sweep.

@@ -48,12 +48,8 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
   UserId,
 )("00000000-0000-4000-8000-00000000ad00");
 
-// Minimal duplicate of `@moltzap/testbed`'s `awaitAgentReadyByPolling` and
-// `RuntimeServerHandle`/`ReadyOutcome` shapes. We can't import from
-// `@moltzap/testbed` here without making server-core depend on the higher-level
-// orchestration package. Structural typing keeps both sides honest — consumers
-// thread `runtimeServer` directly into the adapter's `RuntimeServerHandle`
-// slot, so any drift surfaces at compile time.
+// Server integration fixtures keep their readiness polling local so the
+// production server package does not depend on the higher-level simulator.
 function awaitAgentReadyByPolling(
   connections: {
     agentConnections(
@@ -109,11 +105,9 @@ export interface CoreTestServerHandle {
   coreApp: CoreApp;
 
   /**
-   * Pre-wired `RuntimeServerHandle` for runtime-adapter tests. Implements
-   * `awaitAgentReady` by polling the live `ConnectionManager` — the same
-   * pattern `@moltzap/testbed`'s `awaitAgentReadyByPolling` exports for
-   * downstream in-process consumers. Out-of-process consumers (zapbot's
-   * orchestrator) construct their own handle over WebSocket presence.
+   * Pre-wired server handle that reports readiness from the live
+   * `ConnectionManager`. Out-of-process consumers construct their own handle
+   * over WebSocket presence.
    */
   runtimeServer: CoreTestRuntimeServerHandle;
 

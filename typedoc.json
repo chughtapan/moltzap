@@ -5,7 +5,7 @@
     "packages/protocol",
     "packages/server",
     "packages/client",
-    "packages/testbed",
+    "packages/simulator",
     "packages/nanoclaw-channel",
     "packages/openclaw-channel"
   ],

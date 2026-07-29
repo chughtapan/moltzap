@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, inject } from "vitest";
 import { Data, Effect } from "effect";
+import { serverBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   resetCoreTestDb,
   startCoreTestServer,
@@ -51,8 +52,8 @@ export function setupServiceIntegration(): void {
   );
 }
 
-export function coreBaseUrl(): string {
-  return baseUrl;
+export function coreBaseUrl(): ServerBaseUrl {
+  return serverBaseUrl(baseUrl);
 }
 
 export function coreWsUrl(): string {

@@ -6,7 +6,7 @@
  * stable section order.
  */
 import { FileSystem, Path } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   folderOf,
   ReflectionKind,
@@ -249,7 +249,15 @@ const renderFolder = (
       .pipe(Effect.catchAll(() => Effect.succeed("")));
     const purpose = readLeadingJsDoc(indexSource);
     if (purpose === null) return yield* Effect.fail(MissingJsDoc(folder));
-    const exports = (cache.byFolder.get(folder) ?? []).filter(isBehavioral);
+    const packageRoot = isPackageRoot(folder, path);
+    const exports = (
+      packageRoot
+        ? exportsForPackageRoot(
+            cache,
+            yield* readPackageName(folder, config, fs, path),
+          )
+        : exportsForModuleFolder(cache, folder)
+    ).filter(isBehavioral);
     const enriched = yield* enrichWithSignatures(exports, fs, path, config);
     const pkg = packageSlugFor(folder, path);
     const pageSlug = `${pkg}/${pathFromPackageSrc(folder, path) || path.basename(folder)}`;
@@ -284,6 +292,46 @@ const renderFolder = (
     );
     return { folder, h1, pageSlug };
   });
+
+/**
+ * A package-root module documents its entry point, so it owns every public
+ * symbol TypeDoc associates with that package even when the declaration lives
+ * in a nested capability folder. Nested module pages continue to own symbols
+ * by declaration folder.
+ */
+export function exportsForPackageRoot(
+  cache: TypeDocCache,
+  packageName: string,
+): ReadonlyArray<TypeDocExport> {
+  return cache.byPackageEntrypoint.get(packageName) ?? [];
+}
+
+export function exportsForModuleFolder(
+  cache: TypeDocCache,
+  folder: string,
+): ReadonlyArray<TypeDocExport> {
+  return cache.byFolder.get(folder) ?? [];
+}
+
+const PackageManifest = Schema.parseJson(
+  Schema.Struct({ name: Schema.NonEmptyString }),
+);
+
+const readPackageName = (
+  folder: string,
+  config: ModuleRenderConfig,
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+): Effect.Effect<string, never, never> =>
+  fs
+    .readFileString(
+      path.resolve(config.workspaceRoot, folder, "..", "package.json"),
+    )
+    .pipe(
+      Effect.flatMap(Schema.decodeUnknown(PackageManifest)),
+      Effect.map((manifest) => manifest.name),
+      Effect.orDie,
+    );
 
 const enrichWithSignatures = (
   exports: ReadonlyArray<TypeDocExport>,

@@ -54,10 +54,10 @@ surface.
   non-message notifications update channel state. Sender identity
   (`agent/identity/agents/list`) and conversation metadata
   (`ConversationList`) resolve through in-memory caches.
-- Reconnection uses exponential backoff, `1s, 2s, 4s, ... max 30s`,
-  with random jitter. The notification stream does not replay
-  messages sent while disconnected; catch-up is an explicit
-  `agent/message/list` call after reconnect.
+- Account startup connects once. A nonterminal disconnect updates channel
+  status, but the plugin does not yet drive reconnect or
+  `agent/message/list` catch-up. Do not claim delivery across a disconnected
+  window until both behaviors have a full-agent fault test.
 - Single agent per service: each `MoltZapService` maps to exactly
   one agent; the daemon binds `~/.moltzap/service-<agentId>.sock`
   and symlinks `~/.moltzap/service.sock` to it for CLI discovery.
