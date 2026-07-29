@@ -12,7 +12,7 @@ against server-side services live in `@moltzap/server-core`.
 
 ## Public surface
 
-### [`assertAppOwnsTask`](./assert-requirement-matches-task.ts#L37)
+### [`assertAppOwnsTask`](./assert-requirement-matches-task.ts#L43)
 
 _Function_
 
@@ -31,7 +31,9 @@ system, so the equality check compares the branded `appId` argument to
 the row value directly. Fails with `ForbiddenError` (wire -32001) when
 the app does not own the task.
 
-### [`assertTaskReadAccessMatchesTask`](./assert-requirement-matches-task.ts#L14)
+**Returns:** The assert app owns task result.
+
+### [`assertTaskReadAccessMatchesTask`](./assert-requirement-matches-task.ts#L17)
 
 _Function_
 
@@ -47,7 +49,9 @@ One-line guard at the start of every service method that consumes the
 requirement plus a separate `taskId` handler-input — catches the "handler
 obtained requirement for task A but passed task B" bug for one comparison.
 
-### [`TaskReadAccess`](./task-read-access.ts#L22)
+**Returns:** The assert task read access matches task result.
+
+### [`TaskReadAccess`](./task-read-access.ts#L23)
 
 _Class_
 
@@ -59,6 +63,8 @@ export class TaskReadAccess extends RpcMiddleware.Tag<TaskReadAccess>()(
   { failure: Schema.Union(TaskNotFoundError) },
 ) {}
 ```
+
+Implements task read access.
 
 ### [`TaskReadAccessValue`](./task-read-access.ts#L17)
 

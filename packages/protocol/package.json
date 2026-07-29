@@ -91,7 +91,7 @@
   },
   "scripts": {
     "build": "nx run @moltzap/protocol:build",
-    "lint": "nx run @moltzap/protocol:lint",
+    "lint": "tsc --build && eslint . --cache --max-warnings=0",
     "docs:generate": "tsx scripts/generate-docs.ts && (cd ../.. && pnpm exec typedoc) && tsx scripts/generate-modules.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -115,7 +115,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/protocol",
-          "command": "eslint src scripts *.ts --cache --max-warnings=0"
+          "command": "pnpm lint"
         }
       },
       "arch:check": {

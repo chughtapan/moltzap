@@ -1,7 +1,7 @@
 /** @file Task service tags and live layers. */
 
 import { Context, Effect, Layer } from "effect";
-import { TaskCreate } from "@moltzap/protocol/task";
+import { taskCreate } from "@moltzap/protocol/task";
 import type { AppId } from "@moltzap/protocol/identity";
 import type { ParamsOf, ResultOf } from "@moltzap/protocol/rpc";
 
@@ -17,14 +17,14 @@ import { MessageServiceTag } from "#message";
 
 import { TaskService } from "./task.service.js";
 
-type TaskCreateVerdict = ResultOf<typeof TaskCreate>["verdict"];
+type TaskCreateVerdict = ResultOf<typeof taskCreate>["verdict"];
 
 class TaskAuthorizationService {
   constructor(private readonly apps: AppEndpointRegistry) {}
 
   authorizeCreate(
     appId: AppId,
-    ctx: ParamsOf<typeof TaskCreate>,
+    ctx: ParamsOf<typeof taskCreate>,
   ): Effect.Effect<TaskCreateVerdict, never> {
     const entry = this.apps.lookupApp(appId);
     if (entry === undefined) {
@@ -46,7 +46,7 @@ class TaskAuthorizationService {
         const timeoutMs = policy.timeoutMs;
         return wrapHookEffectWithEnvelope({
           raw: callAppRpc(entry, {
-            definition: TaskCreate,
+            definition: taskCreate,
             params: ctx,
           }).pipe(Effect.map((envelope) => envelope.verdict)),
           timeoutMs,

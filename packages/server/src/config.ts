@@ -34,7 +34,7 @@ import {
   ServerEncryptionMasterSecret,
 } from "#config/secrets";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { UserId } from "@moltzap/protocol/identity";
+import { type UserId, userId } from "@moltzap/protocol/identity";
 import type { Db } from "#db";
 
 // ─────────────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ const AppRefShape = Schema.Struct({
 });
 
 const MoltZapConfigShape = Schema.Struct({
-  admin_user_id: Schema.optional(UserId),
+  admin_user_id: Schema.optional(userId),
   server: Schema.optional(
     Schema.Struct({
       port: Schema.optional(PortNumber),
@@ -611,7 +611,7 @@ function resolveAdminUserId(
 ): Effect.Effect<UserId, ConfigLoadError> {
   const raw = processEnv["MOLTZAP_ADMIN_USER_ID"];
   if (raw !== undefined && raw.length > 0) {
-    return Either.match(Schema.decodeUnknownEither(UserId)(raw), {
+    return Either.match(Schema.decodeUnknownEither(userId)(raw), {
       onLeft: (cause) =>
         Effect.fail(
           makeInvalidEnvError(

@@ -24,7 +24,7 @@ import {
   Schema,
 } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { UserId } from "@moltzap/protocol/identity";
+import { userId } from "@moltzap/protocol/identity";
 import {
   RealServerAcquireError,
   runConformanceSuite,
@@ -39,7 +39,7 @@ import {
 const ENABLED_ENV_VALUE = "1";
 const DEFAULT_TOXIPROXY_URL = "http://127.0.0.1:8474";
 const COMPOSE_FILE_NAME = "docker-compose.conformance.yml";
-const CONFORMANCE_ADMIN_USER_ID = Schema.decodeUnknownSync(UserId)(
+const CONFORMANCE_ADMIN_USER_ID = Schema.decodeUnknownSync(userId)(
   "00000000-0000-4000-8000-000000000340",
 );
 const TOXIPROXY_PROBE_INTERVAL = "500 millis";

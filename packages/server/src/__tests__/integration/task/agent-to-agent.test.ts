@@ -10,13 +10,13 @@ import {
   registerAndConnect,
   type ConnectedAgent,
 } from "../helpers.js";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesList,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";
-import { ConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 
@@ -48,7 +48,7 @@ function createDm(
   unknown
 > {
   return creator.client
-    .sendRpc(TaskRequest, {
+    .sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [participant.agentId],
       initialConversation: { participants: [participant.agentId] },
@@ -70,7 +70,7 @@ function createGroup(
 > {
   const ids = participants.map((p) => p.agentId);
   return creator.client
-    .sendRpc(TaskRequest, {
+    .sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: ids,
       initialConversation: { name: GROUP_NAME, participants: ids },
@@ -89,7 +89,7 @@ function sendText(
   conversationId: ConversationId,
   text: string,
 ) {
-  return sender.client.sendRpc(MessagesSend, {
+  return sender.client.sendRpc(messagesSend, {
     taskId,
     conversationId,
     parts: [textPart(text)],
@@ -105,7 +105,7 @@ function notificationText(notification: { params: unknown }): string {
 function waitForMessageText(agent: ConnectedAgent) {
   return awaitOneNotification(
     agent.client,
-    MessageReceivedNotificationDefinition,
+    messageReceivedNotificationDefinition,
   ).pipe(Effect.map(notificationText));
 }
 
@@ -115,7 +115,7 @@ function messageTextsFor(
   conversationId: ConversationId,
 ) {
   return agent.client
-    .sendRpc(MessagesList, { taskId, conversationId })
+    .sendRpc(messagesList, { taskId, conversationId })
     .pipe(
       Effect.map((result) =>
         result.messages.map((message) => firstTextPart(message.parts)),
@@ -188,7 +188,7 @@ function connectedParticipantReceivesWithoutReconnect() {
     const createdEventFiber = yield* Effect.fork(
       awaitOneNotification(
         bob.client,
-        ConversationCreatedNotificationDefinition,
+        conversationCreatedNotificationDefinition,
       ),
     );
     const conv = yield* createDm(alice, bob);
@@ -215,7 +215,7 @@ function liveSubscriptionDeliversSequentialEvents() {
     const conv = yield* createDm(alice, bob);
 
     const messages = yield* bob.client
-      .subscribe(MessageReceivedNotificationDefinition)
+      .subscribe(messageReceivedNotificationDefinition)
       .pipe(
         Stream.take(2),
         Stream.map((params) => firstTextPart(params.message.parts)),
@@ -243,7 +243,7 @@ function senderDoesNotReceiveOwnMessage() {
     // that arrives in flight. `Stream.interruptAfter` bounds the collection
     // window.
     const aliceEcho = yield* alice.client
-      .subscribe(MessageReceivedNotificationDefinition)
+      .subscribe(messageReceivedNotificationDefinition)
       .pipe(
         Stream.interruptAfter(Duration.millis(NO_ECHO_SETTLE_MS)),
         Stream.runCollect,
@@ -251,7 +251,7 @@ function senderDoesNotReceiveOwnMessage() {
       );
 
     const bobEvent = yield* Effect.fork(
-      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
 
     yield* sendText(alice, conv.task.id, conv.conversation.id, NO_ECHO_MESSAGE);

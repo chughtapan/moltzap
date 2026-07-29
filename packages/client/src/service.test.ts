@@ -4,15 +4,15 @@ import { Effect, Either, Exit } from "effect";
 import type { Message } from "@moltzap/protocol/message";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationList,
-  ConversationUnarchivedNotificationDefinition,
+  conversationArchivedNotificationDefinition,
+  conversationCreatedNotificationDefinition,
+  conversationList,
+  conversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
-import { DispatchRequest } from "@moltzap/protocol/message/dispatch";
+import { dispatchRequest } from "@moltzap/protocol/message/dispatch";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
@@ -24,8 +24,8 @@ import {
   testTaskId,
 } from "./test-utils/index.js";
 
-import { AgentsList } from "@moltzap/protocol/identity";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { agentsList } from "@moltzap/protocol/identity";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 
 const effectTest = effectIt.effect;
 
@@ -76,13 +76,13 @@ const NOBODY_AGENT_NAME = "nobody";
 const missingCannedResponseFor = (method: string): RegExp =>
   new RegExp(`no canned response for ${method}`);
 const LOOKUP_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  AgentsList.name,
+  agentsList.name,
 );
 const CREATE_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  TaskRequest.name,
+  taskRequest.name,
 );
 const SEND_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  MessagesSend.name,
+  messagesSend.name,
 );
 const PLAIN_NAME = "Alice";
 const PLAIN_TEXT = "hello world";
@@ -149,7 +149,7 @@ const contextHeader = (conversationId: string): string =>
   `Recent updates (you are in conv:${conversationId}):`;
 
 function seedMessageSendResponse(service: FakeMoltZapService): void {
-  service.setResponse(MessagesSend, {
+  service.setResponse(messagesSend, {
     message: buildMessage({
       id: MESSAGE_ONE_ID,
       conversationId: CONVERSATION_ALICE_ID,
@@ -165,7 +165,7 @@ function seedAgentLookup(
   id = AGENT_ALICE_ID,
   name = SEND_TO_AGENT_NAME,
 ): void {
-  service.setResponse(AgentsList, {
+  service.setResponse(agentsList, {
     agents: [{ id, name, status: "active" }],
   });
 }
@@ -173,13 +173,13 @@ function seedAgentLookup(
 function makeSendToAgentService(): FakeMoltZapService {
   const service = new FakeMoltZapService();
   seedAgentLookup(service);
-  service.setResponse(TaskRequest, taskCreateResponse());
+  service.setResponse(taskRequest, taskCreateResponse());
   seedMessageSendResponse(service);
   return service;
 }
 
 function findSendCall(service: FakeMoltZapService) {
-  return service.calls.find((call) => call.method === MessagesSend.name);
+  return service.calls.find((call) => call.method === messagesSend.name);
 }
 
 function sendToAgentCreatesConversation() {
@@ -190,11 +190,11 @@ function sendToAgentCreatesConversation() {
 
     expect(service.calls).toEqual([
       {
-        method: AgentsList.name,
+        method: agentsList.name,
         params: { limit: 100 },
       },
       {
-        method: TaskRequest.name,
+        method: taskRequest.name,
         params: {
           appId: DEFAULT_APP_ID,
           invitedAgentIds: [AGENT_ALICE_ID],
@@ -202,7 +202,7 @@ function sendToAgentCreatesConversation() {
         },
       },
       {
-        method: MessagesSend.name,
+        method: messagesSend.name,
         params: {
           taskId: TASK_ALICE_ID,
           conversationId: CONVERSATION_ALICE_ID,
@@ -223,7 +223,7 @@ function sendToAgentCachesConversation() {
 
     expect(service.calls).toEqual([
       {
-        method: MessagesSend.name,
+        method: messagesSend.name,
         params: {
           taskId: TASK_ALICE_ID,
           conversationId: CONVERSATION_ALICE_ID,
@@ -259,7 +259,7 @@ function sendToAgentCachesPerAgentName() {
 
     seedAgentLookup(service, AGENT_BOB_ID, BOB_AGENT_NAME);
     service.setResponse(
-      TaskRequest,
+      taskRequest,
       taskCreateResponse(TASK_BOB_ID, CONVERSATION_BOB_ID),
     );
     yield* service.sendToAgent(BOB_AGENT_NAME, HELLO_BOB_TEXT);
@@ -269,7 +269,7 @@ function sendToAgentCachesPerAgentName() {
     yield* service.sendToAgent(BOB_AGENT_NAME, BOB_AGAIN_TEXT);
 
     const sendCalls = service.calls.filter(
-      (call) => call.method === MessagesSend.name,
+      (call) => call.method === messagesSend.name,
     );
     expect(sendCalls).toHaveLength(2);
     const [firstSend, secondSend] = sendCalls as [
@@ -288,7 +288,7 @@ function sendToAgentCachesPerAgentName() {
 function sendToAgentMissingAgentFails() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.setResponse(AgentsList, { agents: [] });
+    service.setResponse(agentsList, { agents: [] });
 
     const exit = yield* Effect.exit(
       service.sendToAgent(NOBODY_AGENT_NAME, HI_TEXT),
@@ -302,7 +302,7 @@ function sendToAgentMissingAgentFails() {
 function sendToAgentLookupFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(AgentsList);
+    service.deleteResponse(agentsList);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
@@ -315,7 +315,7 @@ function sendToAgentLookupFailurePropagates() {
 function sendToAgentCreateFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(TaskRequest);
+    service.deleteResponse(taskRequest);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
@@ -328,7 +328,7 @@ function sendToAgentCreateFailurePropagates() {
 function sendToAgentSendFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(MessagesSend);
+    service.deleteResponse(messagesSend);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
@@ -442,12 +442,12 @@ describe("sanitizeForSystemReminder containment", () => {
   );
 });
 
-function dispatchRequestAck(): ResultOf<typeof DispatchRequest> {
+function dispatchRequestAck(): ResultOf<typeof dispatchRequest> {
   const value: unknown = {
     leaseId: DISPATCH_LEASE_ID,
     dispatchId: DISPATCH_ID,
   };
-  if (!DispatchRequest.validateResult(value)) {
+  if (!dispatchRequest.validateResult(value)) {
     expect.fail("invalid agent/dispatch/request ack fixture");
   }
   return value;
@@ -457,7 +457,7 @@ function requestDispatchReturnsAck() {
   return Effect.gen(function* () {
     const service = new FakeMoltZapService();
     const ack = dispatchRequestAck();
-    service.setResponse(DispatchRequest, ack);
+    service.setResponse(dispatchRequest, ack);
 
     const result = yield* service.requestDispatch({
       conversationId: CONVERSATION_ALICE_ID,
@@ -473,7 +473,7 @@ function requestDispatchReturnsAck() {
     expect(result.dispatchId).toBe(ack.dispatchId);
     expect(service.calls).toHaveLength(1);
     expect(service.calls[0]).toMatchObject({
-      method: DispatchRequest.name,
+      method: dispatchRequest.name,
     });
     expect(service.calls[0]?.opts).toBeUndefined();
   });
@@ -1034,7 +1034,7 @@ const archivedConversation = () => ({
 });
 
 function seedArchivedConversation(service: FakeMoltZapService): void {
-  service.setResponse(ConversationList, {
+  service.setResponse(conversationList, {
     items: [
       {
         taskId: TASK_ARCHIVED_ID,
@@ -1043,7 +1043,7 @@ function seedArchivedConversation(service: FakeMoltZapService): void {
       },
     ],
   });
-  service.setResponse(MessagesSend, {
+  service.setResponse(messagesSend, {
     message: buildMessage({
       id: "msg-unreachable",
       conversationId: CONVERSATION_ARCHIVED_ID,
@@ -1052,7 +1052,7 @@ function seedArchivedConversation(service: FakeMoltZapService): void {
       createdAt: ARCHIVED_TIMESTAMP,
     }),
   });
-  service.emitEvent(ConversationCreatedNotificationDefinition, {
+  service.emitEvent(conversationCreatedNotificationDefinition, {
     taskId: TASK_ARCHIVED_ID,
     conversationId: CONVERSATION_ARCHIVED_ID,
     name: ARCHIVED_DISPLAY_NAME,
@@ -1100,7 +1100,7 @@ function archiveLifecyclePurgesAndRejectsSends() {
       archivedAt: ARCHIVED_AT,
     };
     service.emitEvent(
-      ConversationArchivedNotificationDefinition,
+      conversationArchivedNotificationDefinition,
       archivedParams,
     );
 
@@ -1118,7 +1118,7 @@ function archiveLifecyclePurgesAndRejectsSends() {
     );
     expectArchivedSendFailure(lateSend);
     expect(
-      service.calls.filter((call) => call.method === MessagesSend.name),
+      service.calls.filter((call) => call.method === messagesSend.name),
     ).toEqual([]);
 
     const unarchivedParams = {
@@ -1126,7 +1126,7 @@ function archiveLifecyclePurgesAndRejectsSends() {
       conversationId: CONVERSATION_ARCHIVED_ID,
     };
     service.emitEvent(
-      ConversationUnarchivedNotificationDefinition,
+      conversationUnarchivedNotificationDefinition,
       unarchivedParams,
     );
 
@@ -1168,7 +1168,7 @@ describe("MoltZapService.fanout — message handlers", () => {
       message: msg,
     };
 
-    service.emitEvent(MessageReceivedNotificationDefinition, event);
+    service.emitEvent(messageReceivedNotificationDefinition, event);
 
     // Second handler still fired despite first handler throwing.
     expect(seen).toEqual([msg]);

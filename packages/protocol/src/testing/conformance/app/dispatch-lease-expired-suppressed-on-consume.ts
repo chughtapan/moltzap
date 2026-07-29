@@ -12,17 +12,21 @@ import {
 } from "./_helpers.js";
 import type { DispatchTestDriver } from "./_driver.js";
 
+/**
+ * Registers dispatch lease expired suppressed on consume before ttl.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-lease-expired-suppressed-on-consume-before-ttl";
+  const name = "dispatch-lease-expired-suppressed-on-consume-before-ttl";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "lease consumed before TTL emits app/dispatch/lease-consumed (not expired); no app/dispatch/lease-expired ever fires for this lease",
     withDriver(ctx, (driver) =>
-      runExpiredSuppressedOnConsumeBeforeTtl(NAME, driver),
+      runExpiredSuppressedOnConsumeBeforeTtl(name, driver),
     ).pipe(
       Effect.withSpan(
         "registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl",

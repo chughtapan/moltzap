@@ -3,7 +3,7 @@ import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Option, Schema } from "effect";
 import { describe, expect, expectTypeOf } from "vitest";
-import { TaskId } from "@moltzap/protocol/task";
+import { taskId as taskIdSchema } from "@moltzap/protocol/task";
 import { messagesListOptions } from "./commands/messages.js";
 import { sendOptions } from "./commands/send.js";
 import { startOptions } from "./commands/start.js";
@@ -36,7 +36,7 @@ describe("schema option presentation", () => {
   it("derives renamed and kebab-cased scalar options", () =>
     Effect.gen(function* () {
       const Params = Schema.Struct({
-        taskId: TaskId,
+        taskId: taskIdSchema,
         sessionKey: Schema.optional(Schema.String),
         limit: Schema.optional(PageLimit),
       });
@@ -70,7 +70,7 @@ describe("schema option validation", () => {
   it("omits absent fields and retains whole-schema validation", () =>
     Effect.gen(function* () {
       const Params = Schema.Struct({
-        taskId: TaskId,
+        taskId: taskIdSchema,
         limit: Schema.optional(PageLimit),
       });
       const options = optionsFromSchema(Params, {

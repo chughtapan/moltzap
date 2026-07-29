@@ -285,11 +285,11 @@ export function sendRpcToClient(
   originator: Originator,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof DispatchAuthorize }
+    { readonly definition: typeof dispatchAuthorize }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof DispatchAuthorize>,
-  ReverseCallbackError<typeof DispatchAuthorize> | ReverseCallError,
+  ReverseCallbackSuccess<typeof dispatchAuthorize>,
+  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError,
   never
 >
 ```

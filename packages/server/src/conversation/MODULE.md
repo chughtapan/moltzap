@@ -13,9 +13,9 @@ Conversation-domain service barrel.
 _Variable_
 
 ```ts
-export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
-  params,
-)
+export const conversationCreate: ServerHandler<
+  typeof conversationCreateDefinition
+> = (params)
 ```
 
 ### [`conversationList`](./handlers.ts#L308)
@@ -23,9 +23,9 @@ export const conversationCreate: ServerHandler<typeof ConversationCreate> = (
 _Variable_
 
 ```ts
-export const conversationList: ServerHandler<typeof ConversationList> = (
-  params,
-)
+export const conversationList: ServerHandler<
+  typeof conversationListDefinition
+> = (params)
 ```
 
 ### [`ConversationService`](./conversation.service.ts#L261)
@@ -190,9 +190,9 @@ export class ConversationServiceTag extends Context.Tag(
 _Variable_
 
 ```ts
-export const conversationUpdate: ServerHandler<typeof ConversationUpdate> = (
-  params,
-)
+export const conversationUpdate: ServerHandler<
+  typeof conversationUpdateDefinition
+> = (params)
 ```
 
 ## Files

@@ -1,11 +1,11 @@
 import { Effect, Option } from "effect";
 import type { Db } from "#db";
 import type { AgentKey } from "@moltzap/protocol/identity";
-import type { Register } from "@moltzap/protocol/identity";
+import type { register } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 
-type RegisterParams = ParamsOf<typeof Register>;
+type RegisterParams = ParamsOf<typeof register>;
 import {
   generateApiKey,
   parseApiKey,

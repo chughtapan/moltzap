@@ -1,5 +1,5 @@
 /**
- * reset_peer — mid-flight the toxic forcibly resets the connection.
+ * Reset_peer — mid-flight the toxic forcibly resets the connection.
  * Sender RPCs surface a typed `TransportClosedError`, never hang, and never
  * crash. Full store-and-replay is a consumer-side concern driven by each real
  * lifecycle client; the protocol-level guarantee is that the agent client
@@ -9,7 +9,7 @@ import { Clock, Effect, Either } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { TransportClosedError } from "../_shared/errors.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
-import { TaskList } from "#task";
+import { taskList } from "#task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable } from "../_shared/registry.js";
 import {
@@ -24,13 +24,17 @@ const RESET_CLIENT_TIMEOUT_MS = 4_000;
 const RESET_POLL_ATTEMPTS = 10;
 const RESET_CLOSE_BUDGET_MS = 3_500;
 
+/**
+ * Registers reset peer recovery.
+ * @param ctx Context for the operation.
+ */
 export function registerResetPeerRecovery(ctx: ConformanceRunContext): void {
   withToxicProxy({
     ctx,
     propertyName: "reset-peer-recovery",
     description: "reset_peer surfaces TransportClosedError without hanging",
     proxyName: proxyName("rst", ctx.seed),
-    profile: defaultToxicProfile.reset_peer,
+    profile: defaultToxicProfile.resetPeer,
     body: (params) =>
       runResetPeerRecovery(ctx, params).pipe(
         Effect.withSpan("registerResetPeerRecovery"),
@@ -69,9 +73,13 @@ function observeResetClose(
       yield* attachToxic;
       const start = yield* Clock.currentTimeMillis;
       for (let i = 0; i < RESET_POLL_ATTEMPTS; i++) {
-        if (yield* rpcClosedByTransport(client)) return true;
+        if (yield* rpcClosedByTransport(client)) {
+          return true;
+        }
         yield* Effect.sleep("300 millis");
-        if (yield* resetBudgetExceeded(start)) return false;
+        if (yield* resetBudgetExceeded(start)) {
+          return false;
+        }
       }
       return false;
     }),
@@ -80,7 +88,7 @@ function observeResetClose(
 
 function rpcClosedByTransport(client: AgentTestClient) {
   return Effect.gen(function* () {
-    const outcome = yield* client.sendRpc(TaskList, {}).pipe(Effect.either);
+    const outcome = yield* client.sendRpc(taskList, {}).pipe(Effect.either);
     return Either.match(outcome, {
       onLeft: (error) => error instanceof TransportClosedError,
       onRight: () => false,

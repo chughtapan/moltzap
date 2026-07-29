@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
+import { messagesAuthorize } from "@moltzap/protocol/message";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
@@ -10,7 +10,7 @@ import {
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
 
-export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
+export type MessageAuthorizeContext = ParamsOf<typeof messagesAuthorize>;
 
 export type MessageAuthorizeResult =
   | {
@@ -85,7 +85,7 @@ export class MessageAuthorizationService {
     const taskId = ctx.taskId;
     return wrapHookEffectWithEnvelope({
       raw: callAppRpc(entry, {
-        definition: MessagesAuthorize,
+        definition: messagesAuthorize,
         params: this.messageAuthorizeParamsForWire(ctx),
       }).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
@@ -100,7 +100,7 @@ export class MessageAuthorizationService {
 
   private messageAuthorizeParamsForWire(
     ctx: MessageAuthorizeContext,
-  ): ParamsOf<typeof MessagesAuthorize> {
+  ): ParamsOf<typeof messagesAuthorize> {
     return {
       taskId: ctx.taskId,
       appId: ctx.appId,

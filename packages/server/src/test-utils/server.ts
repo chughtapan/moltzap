@@ -7,7 +7,8 @@ import {
   ServerEncryptionMasterSecret,
 } from "#config/secrets";
 import {
-  UserId,
+  type UserId,
+  userId,
   type AgentId,
   type UserId as UserIdValue,
 } from "@moltzap/protocol/identity";
@@ -45,7 +46,7 @@ class CoreTestServerError extends Error {
 const ENCRYPTION_MASTER_SECRET_BYTES = 32;
 const PGLITE_BOOT_DELAY_MS = 200;
 export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
-  UserId,
+  userId,
 )("00000000-0000-4000-8000-00000000ad00");
 
 // Minimal duplicate of `@moltzap/testbed`'s `awaitAgentReadyByPolling` and

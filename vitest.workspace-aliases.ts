@@ -19,7 +19,7 @@ function alias(specifier: string, ...segments: string[]): WorkspaceSourceAlias {
   };
 }
 
-// Specific subpath matchers must precede each package's root matcher.
+/** Source aliases, ordered with specific subpaths before package roots. */
 export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   alias(
     "@moltzap/server-core/test-utils",
@@ -107,11 +107,13 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
 
 const protocolSourceRoot = fromRoot("packages/protocol/src");
 
+/** Source aliases for suites that consume the built protocol package. */
 export const workspaceSourceAliasesWithoutProtocol: WorkspaceSourceAlias[] =
   workspaceSourceAliases.filter(
     (entry) => !entry.replacement.startsWith(protocolSourceRoot),
   );
 
+/** Source aliases for server-internal package imports. */
 export const serverCoreSourceAliases: WorkspaceSourceAlias[] = [
   alias("#core", "packages/server/src/core/index.ts"),
   alias("#moltzap", "packages/server/src/moltzap/index.ts"),

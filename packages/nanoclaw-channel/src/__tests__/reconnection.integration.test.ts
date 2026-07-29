@@ -27,11 +27,11 @@ import { beforeAll, describe, expect, inject } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Data, Effect, Schema } from "effect";
 import { MoltZapAgentClient } from "@moltzap/client";
-import { AgentKey } from "@moltzap/protocol/identity";
-import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import { type AgentKey, agentKey } from "@moltzap/protocol/identity";
+import { messagesList, messagesSend } from "@moltzap/protocol/message";
 import type { Message } from "@moltzap/protocol/message";
 import {
-  TaskRequest,
+  taskRequest,
   DEFAULT_APP_ID,
   type TaskId,
 } from "@moltzap/protocol/task";
@@ -88,7 +88,7 @@ function createClient(
 }
 
 function decodeInjectedAgentKey(key: string): AgentKey {
-  return Schema.decodeUnknownSync(AgentKey)(injectString(key));
+  return Schema.decodeUnknownSync(agentKey)(injectString(key));
 }
 
 function waitFor(
@@ -133,7 +133,7 @@ function listMessageTexts(
   taskId: TaskId,
   conversationId: ConversationId,
 ): Effect.Effect<readonly string[], ReconnectionIntegrationError> {
-  return client.call(MessagesList.name, { taskId, conversationId }).pipe(
+  return client.call(messagesList.name, { taskId, conversationId }).pipe(
     Effect.map((result) => messageTexts(result.messages)),
     Effect.mapError(
       (cause) =>
@@ -162,7 +162,7 @@ function peerSendText(
   text: string,
 ): Effect.Effect<void, ReconnectionIntegrationError> {
   return peerClient
-    .call(MessagesSend.name, {
+    .call(messagesSend.name, {
       taskId,
       conversationId,
       parts: [{ type: TEXT_PART_TYPE, text }],
@@ -196,7 +196,7 @@ function createDm(
   ReconnectionIntegrationError
 > {
   return peerClient
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },

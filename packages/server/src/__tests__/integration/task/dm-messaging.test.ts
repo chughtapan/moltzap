@@ -9,8 +9,8 @@ import {
   getKyselyDb,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
 let _baseUrl: string;
 let _wsUrl: string;
@@ -35,7 +35,7 @@ it("send and receive a DM, list messages", () =>
     const bob = yield* registerAndConnect("bob-dm");
 
     // Alice creates a DM conversation with Bob
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -45,7 +45,7 @@ it("send and receive a DM, list messages", () =>
     const conversationId = conv.conversation!.id;
 
     // Alice sends a message
-    const sendResult = yield* alice.client.sendRpc(MessagesSend, {
+    const sendResult = yield* alice.client.sendRpc(messagesSend, {
       taskId,
       conversationId,
       parts: [{ type: "text", text: "Hello Bob!" }],
@@ -57,7 +57,7 @@ it("send and receive a DM, list messages", () =>
     ]);
 
     // Alice lists messages
-    const messages = yield* alice.client.sendRpc(MessagesList, {
+    const messages = yield* alice.client.sendRpc(messagesList, {
       taskId,
       conversationId,
     });

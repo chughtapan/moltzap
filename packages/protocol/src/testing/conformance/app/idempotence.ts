@@ -10,8 +10,8 @@
  * requires "identical results", not "identical outcome kinds".
  */
 import { Effect, Either } from "effect";
-import { AgentsList } from "#identity";
-import { TaskList } from "#task";
+import { agentsList } from "#identity";
+import { taskList } from "#task";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
 import {
   makeAgentTestClient,
@@ -32,10 +32,10 @@ import {
 } from "../_shared/registry.js";
 import { eitherTag } from "../_shared/_helpers.js";
 
-const CATEGORY = "rpc-semantics" as const;
+const CATEGORY = "rpc-semantics";
 const PROPERTY = "idempotence";
 const DEFAULT_TIMEOUT_MS = 3000;
-const EMPTY_PARAM_IDEMPOTENTS = [AgentsList, TaskList] as const;
+const EMPTY_PARAM_IDEMPOTENTS = [agentsList, taskList] as const;
 
 type EmptyParamIdempotentDefinition = (typeof EMPTY_PARAM_IDEMPOTENTS)[number];
 type ReplayError =
@@ -43,11 +43,15 @@ type ReplayError =
   | RpcTimeoutError
   | TransportClosedError
   | TransportIoError;
-type ReplayPair = {
+interface ReplayPair {
   readonly a: Either.Either<unknown, ReplayError>;
   readonly b: Either.Either<unknown, ReplayError>;
-};
+}
 
+/**
+ * Registers idempotence.
+ * @param ctx Context for the operation.
+ */
 export function registerIdempotence(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -128,7 +132,7 @@ function unavailable(reason: string): PropertyUnavailable {
 }
 
 function assertReplayOutcomeTags(
-  method: typeof AgentsList.name | typeof TaskList.name,
+  method: typeof agentsList.name | typeof taskList.name,
   pair: ReplayPair,
 ) {
   const aTag = eitherTag(pair.a);
@@ -145,11 +149,13 @@ function assertReplayOutcomeTags(
 }
 
 function assertReplayBodies(
-  method: typeof AgentsList.name | typeof TaskList.name,
+  method: typeof agentsList.name | typeof taskList.name,
   pair: ReplayPair,
 ) {
   const successPair = successPairOrNull(pair);
-  if (successPair === null) return Effect.void;
+  if (successPair === null) {
+    return Effect.void;
+  }
   const aCanon = canonIdempotenceResult(method, successPair.a);
   const bCanon = canonIdempotenceResult(method, successPair.b);
   return aCanon === bCanon
@@ -187,12 +193,15 @@ function successPairOrNull(pair: ReplayPair) {
  * normalizes object-key order but preserves every remaining array's
  * order). A real re-ordering regression inside nested arrays still
  * fails the property.
+ * @param method Wire method name.
+ * @param result Value supplied to the operation.
+ * @returns Whether on idempotence result.
  */
 function canonIdempotenceResult(
-  method: typeof AgentsList.name | typeof TaskList.name,
+  method: typeof agentsList.name | typeof taskList.name,
   result: unknown,
 ): string {
-  if (method === AgentsList.name) {
+  if (method === agentsList.name) {
     const r = result as { agents?: unknown[] };
     return canonicalJson({
       ...r,

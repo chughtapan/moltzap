@@ -3,7 +3,7 @@ import { describe, expect } from "vitest";
 import { Effect, Schema } from "effect";
 
 const it = effectIt.effect;
-import { AgentId, AgentsList } from "@moltzap/protocol/identity";
+import { agentId, agentsList } from "@moltzap/protocol/identity";
 import { listCursorSchema } from "@moltzap/protocol/rpc";
 import type { ClientDefinitionSuccess } from "@moltzap/protocol/socket";
 import {
@@ -22,10 +22,10 @@ const PAGE_SIZE = 2;
 const TOTAL = 5;
 const EXPECTED_PAGE_CALLS = Math.ceil(TOTAL / PAGE_SIZE);
 const decodeCursor = Schema.decodeSync(listCursorSchema());
-const decodeAgentId = Schema.decodeSync(AgentId);
+const decodeAgentId = Schema.decodeSync(agentId);
 const CONSTANT_CURSOR = decodeCursor("stuck-cursor");
 
-type AgentListPage = ClientDefinitionSuccess<typeof AgentsList>;
+type AgentListPage = ClientDefinitionSuccess<typeof agentsList>;
 type FakeAgent = AgentListPage["agents"][number];
 type AgentListCursor = NonNullable<AgentListPage["nextCursor"]>;
 
@@ -42,11 +42,11 @@ const ALL_AGENTS: ReadonlyArray<FakeAgent> = Array.from(
 // the first row of the NEXT page. `nextCursor` present iff more rows
 // remain (Invariant 1: a present cursor means a further page exists).
 function pagingSendRpc(): {
-  readonly send: SendRpcFn<never, typeof AgentsList>;
+  readonly send: SendRpcFn<never, typeof agentsList>;
   callCount: () => number;
 } {
   let calls = 0;
-  const send: SendRpcFn<never, typeof AgentsList> = (_definition, params) => {
+  const send: SendRpcFn<never, typeof agentsList> = (_definition, params) => {
     calls++;
     const cursor = params.cursor;
     const start = cursor === undefined ? 0 : Number(cursor);
@@ -64,11 +64,11 @@ function pagingSendRpc(): {
 // Byzantine server: always claims "more" with the SAME cursor — the
 // drain must terminate via the cycle guard rather than loop forever.
 function nonAdvancingSendRpc(): {
-  readonly send: SendRpcFn<never, typeof AgentsList>;
+  readonly send: SendRpcFn<never, typeof agentsList>;
   callCount: () => number;
 } {
   let calls = 0;
-  const send: SendRpcFn<never, typeof AgentsList> = () => {
+  const send: SendRpcFn<never, typeof agentsList> = () => {
     calls++;
     const page: AgentListPage = {
       agents: ALL_AGENTS.slice(0, PAGE_SIZE),
@@ -103,12 +103,12 @@ describe("drainPaginatedList", () => {
       const fake = pagingSendRpc();
       const contacts = yield* drainPaginatedList<
         never,
-        typeof AgentsList,
+        typeof agentsList,
         FakeAgent,
         AgentListCursor
       >({
         sendRpc: fake.send,
-        definition: AgentsList,
+        definition: agentsList,
         paramsForCursor: agentListParams,
         rowsForPage: agentRows,
         nextCursorForPage: agentNextCursor,
@@ -125,18 +125,18 @@ describe("drainPaginatedList", () => {
       const fake = nonAdvancingSendRpc();
       const error = yield* drainPaginatedList<
         never,
-        typeof AgentsList,
+        typeof agentsList,
         FakeAgent,
         AgentListCursor
       >({
         sendRpc: fake.send,
-        definition: AgentsList,
+        definition: agentsList,
         paramsForCursor: agentListParams,
         rowsForPage: agentRows,
         nextCursorForPage: agentNextCursor,
       }).pipe(Effect.flip);
       expect(error).toBeInstanceOf(NonAdvancingCursorError);
-      expect(error.method).toBe(AgentsList.name);
+      expect(error.method).toBe(agentsList.name);
       // Page 1 records cursor C; page 2 (sent with cursor=C) returns C
       // again → already seen → typed fail. Bounded at 2 calls, no loop.
       expect(fake.callCount()).toBe(2);

@@ -19,6 +19,7 @@ export interface TaskReadAccessValue {
   readonly callerAgentId: AgentId;
 }
 
+/** Implements task read access. */
 export class TaskReadAccess extends RpcMiddleware.Tag<TaskReadAccess>()(
   "@moltzap/protocol/TaskReadAccess",
   // Fails closed as not-found so the obtain does not leak task existence to a

@@ -32,27 +32,31 @@ interface TypeDocComment {
   }>;
 }
 
+/** Describes type doc export. */
 export interface TypeDocExport {
   readonly id: number;
   readonly name: string;
   readonly kind: number;
   readonly kindString: string;
   readonly packageName: string;
-  readonly sources: ReadonlyArray<TypeDocSource>;
+  readonly sources: readonly TypeDocSource[];
   readonly comment: TypeDocComment | null;
   readonly signatureReturnTypeName: string | null;
 }
 
+/** Describes type doc cache. */
 export interface TypeDocCache {
-  readonly all: ReadonlyArray<TypeDocExport>;
-  readonly byPackage: ReadonlyMap<string, ReadonlyArray<TypeDocExport>>;
-  readonly byFolder: ReadonlyMap<string, ReadonlyArray<TypeDocExport>>;
+  readonly all: readonly TypeDocExport[];
+  readonly byPackage: ReadonlyMap<string, readonly TypeDocExport[]>;
+  readonly byFolder: ReadonlyMap<string, readonly TypeDocExport[]>;
 }
 
+/** Reports type doc cache missing failures. */
 export class TypeDocCacheMissingError extends Data.TaggedError(
   "TypeDocCacheMissingError",
 )<{ readonly path: string }> {}
 
+/** Reports type doc cache malformed failures. */
 export class TypeDocCacheMalformedError extends Data.TaggedError(
   "TypeDocCacheMalformedError",
 )<{ readonly path: string; readonly reason: string }> {}
@@ -82,7 +86,7 @@ interface RawReflection {
   readonly name?: string;
   readonly kind?: number;
   readonly variant?: string;
-  readonly children?: ReadonlyArray<RawReflection>;
+  readonly children?: readonly RawReflection[];
   readonly signatures?: ReadonlyArray<{
     readonly comment?: RawComment;
     readonly type?: RawTypeRef;
@@ -103,6 +107,8 @@ interface RawReflection {
  * Fails with `TypeDocCacheMissingError` when the cache file is absent
  * (caller forgot to run TypeDoc first) and
  * `TypeDocCacheMalformedError` when the JSON cannot be parsed.
+ * @param cachePath Value supplied to the operation.
+ * @returns The load type doc result.
  */
 export const loadTypeDoc = (
   cachePath: string,
@@ -144,14 +150,18 @@ export const loadTypeDoc = (
  * Workspace-relative folder of an export's primary declaration.
  * Returns empty string for exports without a source location (rare —
  * mostly synthesized re-exports).
+ * @param e Value supplied to the operation.
+ * @returns The folder of result.
  */
 export function folderOf(e: TypeDocExport): string {
   const first = e.sources[0];
-  if (!first) return "";
+  if (!first) {
+    return "";
+  }
   return dirname(first.fileName);
 }
 
-function collectExports(root: RawReflection): ReadonlyArray<TypeDocExport> {
+function collectExports(root: RawReflection): readonly TypeDocExport[] {
   const out: TypeDocExport[] = [];
   for (const pkg of root.children ?? []) {
     const packageName = pkg.name ?? "<unknown>";
@@ -165,18 +175,30 @@ function walk(
   packageName: string,
   out: TypeDocExport[],
 ): void {
-  if (shouldEmit(node)) out.push(toExport(node, packageName));
-  if (isStructuralLeaf(node)) return;
+  if (shouldEmit(node)) {
+    out.push(toExport(node, packageName));
+  }
+  if (isStructuralLeaf(node)) {
+    return;
+  }
   for (const child of node.children ?? []) {
     walk(child, packageName, out);
   }
 }
 
 function shouldEmit(node: RawReflection): boolean {
-  if (!node.name) return false;
-  if (!node.sources || node.sources.length === 0) return false;
-  if (node.variant === "project") return false;
-  if (node.kind === ReflectionKind.Reference) return false;
+  if (!node.name) {
+    return false;
+  }
+  if (!node.sources || node.sources.length === 0) {
+    return false;
+  }
+  if (node.variant === "project") {
+    return false;
+  }
+  if (node.kind === ReflectionKind.Reference) {
+    return false;
+  }
   return true;
 }
 
@@ -212,16 +234,22 @@ function toExport(node: RawReflection, packageName: string): TypeDocExport {
 
 function extractReturnTypeName(node: RawReflection): string | null {
   const sigType = node.signatures?.[0]?.type;
-  if (sigType?.name) return sigType.name;
-  if (node.type?.name) return node.type.name;
+  if (sigType?.name) {
+    return sigType.name;
+  }
+  if (node.type?.name) {
+    return node.type.name;
+  }
   return null;
 }
 
-function normalizeSourcePath(p: string, url: string | undefined): string {
+function normalizeSourcePath(p: string, url?: string): string {
   // TypeDoc sometimes emits absolute paths via workspace symlinks —
   // trim anything above `packages/` for workspace-relative output.
   const ix = p.indexOf("packages/");
-  if (ix !== -1) return p.slice(ix);
+  if (ix !== -1) {
+    return p.slice(ix);
+  }
   // Some packages surface a bare package-relative `fileName` (e.g.
   // `entry.ts` instead of `packages/foo/src/entry.ts`). Reconstruct
   // from the source URL, which carries the full repo-relative path
@@ -229,8 +257,10 @@ function normalizeSourcePath(p: string, url: string | undefined): string {
   // on the `packages/`-prefix check and the package is silently
   // dropped from generated MODULE docs.
   if (url) {
-    const m = url.match(/\/blob\/[^/]+\/(packages\/[^#?]+)/);
-    if (m && m[1]) return m[1];
+    const m = /\/blob\/[^/]+\/(packages\/[^#?]+)/.exec(url);
+    if (m?.[1]) {
+      return m[1];
+    }
   }
   return p;
 }
@@ -238,17 +268,19 @@ function normalizeSourcePath(p: string, url: string | undefined): string {
 function extractComment(node: RawReflection): TypeDocComment | null {
   // Functions/Methods carry JSDoc on the first call-signature.
   const c = node.signatures?.[0]?.comment ?? node.comment;
-  if (!c) return null;
+  if (!c) {
+    return null;
+  }
   const summary = joinParts(c.summary);
   const tags = (c.blockTags ?? []).map(toTag);
-  if (summary === "" && tags.length === 0) return null;
+  if (summary === "" && tags.length === 0) {
+    return null;
+  }
   const remarks = tags.find((t) => t.tag === "@remarks")?.content;
   return { summary, remarks, tags };
 }
 
-function joinParts(
-  parts: ReadonlyArray<{ readonly text?: string }> | undefined,
-): string {
+function joinParts(parts?: ReadonlyArray<{ readonly text?: string }>): string {
   return (parts ?? []).map(renderInline).join("").trim();
 }
 
@@ -268,16 +300,18 @@ function renderInline(part: {
 
 function kindToString(kind: number): string {
   if (kind in ReflectionKind) {
-    const name = ReflectionKind[kind as ReflectionKind];
-    if (typeof name === "string") return name;
+    const name = ReflectionKind[kind];
+    if (typeof name === "string") {
+      return name;
+    }
   }
   return `Unknown(${kind})`;
 }
 
 function indexBy<T, K>(
-  items: ReadonlyArray<T>,
+  items: readonly T[],
   key: (item: T) => K,
-): ReadonlyMap<K, ReadonlyArray<T>> {
+): ReadonlyMap<K, readonly T[]> {
   const map = new Map<K, T[]>();
   for (const item of items) {
     const k = key(item);

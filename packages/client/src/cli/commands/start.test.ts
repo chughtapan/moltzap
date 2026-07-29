@@ -33,11 +33,11 @@ afterEach(() => {
 });
 
 const runWith = (
-  respond: TestTransportResponder<typeof LocalDaemonCommands.StartTask>,
+  respond: TestTransportResponder<typeof LocalDaemonCommands.startTask>,
   args: Parameters<typeof runStartHandler>[0],
 ) => {
   const fixture = makeFakeTransport({
-    [LocalDaemonCommands.StartTask]: respond,
+    [LocalDaemonCommands.startTask]: respond,
   });
   return {
     calls: fixture.calls,
@@ -69,7 +69,7 @@ function sendsStartTaskDaemonCommand() {
 
     expect(run.calls).toEqual([
       {
-        method: LocalDaemonCommands.StartTask,
+        method: LocalDaemonCommands.startTask,
         params: {
           name: "demo",
           participants: [BOB_PARTICIPANT],

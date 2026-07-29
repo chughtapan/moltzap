@@ -6,12 +6,14 @@
 import { Command, FileSystem, Path } from "@effect/platform";
 import { Effect, Either } from "effect";
 
+/** Describes mermaid block. */
 export interface MermaidBlock {
   readonly file: string;
   readonly startLine: number;
   readonly body: string;
 }
 
+/** Describes mermaid failure. */
 export interface MermaidFailure {
   readonly block: MermaidBlock;
   readonly message: string;
@@ -26,15 +28,18 @@ interface ExtractorState {
 }
 
 /**
- * Locate every fenced ```mermaid block in the given file. Returns the
+ * Locate every fenced `mermaid` block in the given file. Returns the
  * block's 1-based start line (the opening fence) and raw body text.
  * Skips blocks whose fence is preceded by 4+ spaces (markdown
  * indented-code) and blocks fenced in a different language.
+ * @param file Source file path.
+ * @param source Source text to process.
+ * @returns The extract mermaid blocks result.
  */
 export function extractMermaidBlocks(
   file: string,
   source: string,
-): ReadonlyArray<MermaidBlock> {
+): readonly MermaidBlock[] {
   const lines = source.split("\n");
   const state: ExtractorState = {
     inFence: false,
@@ -55,7 +60,7 @@ function processLine(
   lineIx: number,
   state: ExtractorState,
 ): void {
-  const fenceMatch = line.match(/^([ \t]*)(```+|~~~+)([A-Za-z0-9_-]*)\s*$/);
+  const fenceMatch = /^([ \t]*)(```+|~~~+)([A-Za-z0-9_-]*)\s*$/.exec(line);
   if (fenceMatch) {
     handleFence(file, fenceMatch, lineIx, state);
     return;
@@ -74,7 +79,9 @@ function handleFence(
   const indent = match[1] ?? "";
   const lang = match[3] ?? "";
   if (!state.inFence) {
-    if (indent.length >= 4) return;
+    if (indent.length >= 4) {
+      return;
+    }
     state.inFence = true;
     state.fenceLang = lang || null;
     state.blockStart = lineIx + 1;
@@ -98,6 +105,9 @@ const MMDC_BIN = "mmdc";
  * Validate `block.body` by writing it to a temp file and shelling out
  * to `mmdc`. Returns null on success or a `MermaidFailure` carrying
  * mmdc's exit context on failure.
+ * @param block Mermaid source block to validate.
+ * @param tempDir Temporary directory for generated artifacts.
+ * @returns The lint block result.
  */
 export const lintBlock = (
   block: MermaidBlock,
@@ -124,7 +134,7 @@ const prepareInput = (
   tempDir: string,
   inputPath: string,
   body: string,
-): Effect.Effect<void, never, never> =>
+): Effect.Effect<void> =>
   Effect.gen(function* () {
     yield* fs
       .makeDirectory(tempDir, { recursive: true })
@@ -155,7 +165,7 @@ const cleanup = (
   fs: FileSystem.FileSystem,
   inputPath: string,
   outputPath: string,
-): Effect.Effect<void, never, never> =>
+): Effect.Effect<void> =>
   Effect.gen(function* () {
     yield* fs.remove(inputPath).pipe(Effect.catchAll(() => Effect.void));
     yield* fs.remove(outputPath).pipe(Effect.catchAll(() => Effect.void));

@@ -22,9 +22,9 @@ import {
   isMessagesAuthorizeRequest,
   isTaskCreateRequest,
 } from "@moltzap/protocol/socket";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
-import { TaskCreate } from "@moltzap/protocol/task";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { messagesAuthorize } from "@moltzap/protocol/message";
+import { taskCreate } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { RpcSerialization } from "@effect/rpc";
 import type { AppEndpoint } from "#identity/apps";
@@ -101,13 +101,13 @@ export function makeHandlerAppEndpoint(args: {
     request: ReverseCallbackRequest,
   ): ReturnType<Originator["callback"]> => {
     if (isDispatchAuthorizeRequest(request)) {
-      return args.handlers[DispatchAuthorize.name](request.params);
+      return args.handlers[dispatchAuthorize.name](request.params);
     }
     if (isMessagesAuthorizeRequest(request)) {
-      return args.handlers[MessagesAuthorize.name](request.params);
+      return args.handlers[messagesAuthorize.name](request.params);
     }
     if (isTaskCreateRequest(request)) {
-      return args.handlers[TaskCreate.name](request.params);
+      return args.handlers[taskCreate.name](request.params);
     }
     return defect("originator.callback");
   };

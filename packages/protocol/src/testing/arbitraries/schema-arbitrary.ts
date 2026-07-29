@@ -19,6 +19,8 @@ import { Arbitrary, type FastCheck, type Schema } from "effect";
  * re-exported `FastCheck.Arbitrary` — the SAME `fast-check` module the rest of
  * the suite samples with (both pinned to fast-check v3, the version Effect's
  * `Arbitrary.make` binds to), so no cross-module cast is needed.
+ * @param schema Value supplied to the operation.
+ * @returns The arbitrary from schema result.
  */
 export function arbitraryFromSchema<S extends Schema.Schema.AnyNoContext>(
   schema: S,

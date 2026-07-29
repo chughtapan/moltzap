@@ -135,6 +135,9 @@ const expectInvalidVersion = (
  * defect (`Die` cause). The two acceptable outcomes are typed
  * `Right` (in-range) or typed `Left` (`ProtocolMismatchError` or
  * `InvalidProtocolVersionError`). Reused by the property test below.
+ * @param min Value supplied to the operation.
+ * @param max Value supplied to the operation.
+ * @returns The check input is not defect result.
  */
 const checkInputIsNotDefect = (min: string, max: string): boolean => {
   const exit = Effect.runSyncExit(
@@ -143,7 +146,9 @@ const checkInputIsNotDefect = (min: string, max: string): boolean => {
       PROTOCOL_VERSION,
     ),
   );
-  if (Exit.isSuccess(exit)) return true;
+  if (Exit.isSuccess(exit)) {
+    return true;
+  }
   // A `Die` cause means a sync throw escaped past the Effect.try
   // wrapper — the invariant we want to falsify if violated. `Fail`
   // (a typed E-channel error) is the desired shape.

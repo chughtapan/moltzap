@@ -19,7 +19,7 @@ properties draw on the cross-impl driver in `app/_driver.ts`.
 
 ## Public surface
 
-### [`ABANDON_OBSERVATION_BUFFER_MS`](./_helpers.ts#L20)
+### [`ABANDON_OBSERVATION_BUFFER_MS`](./_helpers.ts#L25)
 
 _Variable_
 
@@ -27,7 +27,9 @@ _Variable_
 export const ABANDON_OBSERVATION_BUFFER_MS = 1_000
 ```
 
-### [`ABANDON_POLL_EXTRA_MS`](./_helpers.ts#L27)
+Provides the abandon observation buffer ms runtime value.
+
+### [`ABANDON_POLL_EXTRA_MS`](./_helpers.ts#L35)
 
 _Variable_
 
@@ -35,7 +37,9 @@ _Variable_
 export const ABANDON_POLL_EXTRA_MS = 2_000
 ```
 
-### [`APP_PROPERTIES`](./index.ts#L58)
+Provides the abandon poll extra ms runtime value.
+
+### [`APP_PROPERTIES`](./index.ts#L59)
 
 _Variable_
 
@@ -66,26 +70,30 @@ All app-layer property registrars: dispatch-admission registrars first,
 then the cross-category registrars (boundary unavailable,
 rpc-semantics idempotence).
 
-### [`ConsumedFrameView`](./_helpers.ts#L67)
+### [`ConsumedFrameView`](./_helpers.ts#L91)
 
-_TypeAlias_
+_Interface_
 
 ```ts
-export type ConsumedFrameView = {
+export interface ConsumedFrameView {
   readonly messageId: string;
   readonly leaseId: string;
-};
+}
 ```
 
-### [`DISPATCH_ADMISSION_CATEGORY`](./_helpers.ts#L15)
+Describes consumed frame view.
+
+### [`DISPATCH_ADMISSION_CATEGORY`](./_helpers.ts#L16)
 
 _Variable_
 
 ```ts
-export const DISPATCH_ADMISSION_CATEGORY = "dispatch-admission" as const
+export const DISPATCH_ADMISSION_CATEGORY = "dispatch-admission"
 ```
 
-### [`dispatchAdmissionViolation`](./_helpers.ts#L49)
+Provides the dispatch admission category runtime value.
+
+### [`dispatchAdmissionViolation`](./_helpers.ts#L68)
 
 _Function_
 
@@ -96,7 +104,11 @@ export function dispatchAdmissionViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`DispatchTestDriver`](./_driver.ts#L263)
+Executes the dispatch admission violation operation.
+
+**Returns:** The dispatch admission violation result.
+
+### [`DispatchTestDriver`](./_driver.ts#L268)
 
 _Interface_
 
@@ -105,8 +117,8 @@ export interface DispatchTestDriver {
   readonly recipient: RecipientHandle;
   readonly moderator: ModeratorHandle;
   readonly fixtures: {
-    readonly taskId: Schema.Schema.Type<typeof TaskId>;
-    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
+    readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
+    readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
   };
 
   /**
@@ -127,7 +139,7 @@ export interface DispatchTestDriver {
    * defaults to 5 s.
    */
   readonly assertLeaseState: (
-    dispatchId: Schema.Schema.Type<typeof DispatchId>,
+    dispatchId: Schema.Schema.Type<typeof dispatchIdSchema>,
     expected: LeaseState,
     opts?: { readonly timeoutMs?: number },
   ) => Effect.Effect<void, PropertyFailure>;
@@ -146,7 +158,7 @@ acquired under the property's `Scope`. Wires up the real server,
 recipient + moderator clients, and shared task / conversation
 fixtures.
 
-### [`DispatchVerdict`](./_driver.ts#L84)
+### [`DispatchVerdict`](./_driver.ts#L89)
 
 _TypeAlias_
 
@@ -160,7 +172,7 @@ Properties that need to script a moderator's reply pass a
 `DispatchVerdict` value to `recipient.expectAuthorize` /
 `respondWith`; the driver encodes it to the wire shape internally.
 
-### [`FAST_ACK_THRESHOLD_MS`](./_helpers.ts#L40)
+### [`FAST_ACK_THRESHOLD_MS`](./_helpers.ts#L51)
 
 _Variable_
 
@@ -168,7 +180,9 @@ _Variable_
 export const FAST_ACK_THRESHOLD_MS = 1_000
 ```
 
-### [`FORBIDDEN_ERROR_TAG`](./_helpers.ts#L22)
+Provides the fast ack threshold ms runtime value.
+
+### [`FORBIDDEN_ERROR_TAG`](./_helpers.ts#L29)
 
 _Variable_
 
@@ -176,15 +190,21 @@ _Variable_
 export const FORBIDDEN_ERROR_TAG = "Forbidden"
 ```
 
-### [`freshMessageId`](./_helpers.ts#L72)
+Provides the forbidden error tag runtime value.
+
+### [`freshMessageId`](./_helpers.ts#L100)
 
 _Function_
 
 ```ts
-export function freshMessageId(): Schema.Schema.Type<typeof MessageId>
+export function freshMessageId(): Schema.Schema.Type<typeof messageId>
 ```
 
-### [`HOLD_DRAIN_BUFFER_MS`](./_helpers.ts#L47)
+Executes the fresh message id operation.
+
+**Returns:** The fresh message id result.
+
+### [`HOLD_DRAIN_BUFFER_MS`](./_helpers.ts#L60)
 
 _Variable_
 
@@ -192,7 +212,9 @@ _Variable_
 export const HOLD_DRAIN_BUFFER_MS = 2_000
 ```
 
-### [`HOLD_RELEASE_MARGIN_MS`](./_helpers.ts#L44)
+Provides the hold drain buffer ms runtime value.
+
+### [`HOLD_RELEASE_MARGIN_MS`](./_helpers.ts#L56)
 
 _Variable_
 
@@ -200,7 +222,9 @@ _Variable_
 export const HOLD_RELEASE_MARGIN_MS = 500
 ```
 
-### [`isUuidV4`](./_helpers.ts#L81)
+Provides the hold release margin ms runtime value.
+
+### [`isUuidV4`](./_helpers.ts#L114)
 
 _Function_
 
@@ -208,39 +232,23 @@ _Function_
 export function isUuidV4(s: string): boolean
 ```
 
-### [`leaseId`](./_helpers.ts#L69)
+Checks whether uuid v4.
 
-_Property_
+**Returns:** Whether uuid v4.
+
+### [`LeaseIdOnlyView`](./_helpers.ts#L87)
+
+_Interface_
 
 ```ts
+export interface LeaseIdOnlyView {
   readonly leaseId: string;
+}
 ```
 
-### [`leaseId`](./_helpers.ts#L66)
+Describes lease id only view.
 
-_Property_
-
-```ts
-export type LeaseIdOnlyView = { readonly leaseId: string };
-```
-
-### [`leaseId`](./_helpers.ts#L63)
-
-_Property_
-
-```ts
-  readonly leaseId: string;
-```
-
-### [`LeaseIdOnlyView`](./_helpers.ts#L66)
-
-_TypeAlias_
-
-```ts
-export type LeaseIdOnlyView = { readonly leaseId: string };
-```
-
-### [`LeaseState`](./_driver.ts#L95)
+### [`LeaseState`](./_driver.ts#L100)
 
 _TypeAlias_
 
@@ -261,7 +269,7 @@ Closed lease-state union mirroring `LeaseStateSchema`. The driver's
 to the named state or the bound elapses (the bound is per-property;
 default 5 s).
 
-### [`makeDispatchTestDriver`](./_driver.ts#L898)
+### [`makeDispatchTestDriver`](./_driver.ts#L927)
 
 _Function_
 
@@ -279,21 +287,15 @@ Property authors call this from inside their property body; the driver
 is per-property, never shared. Cross-property state leakage is the
 exact failure mode the per-property scope prevents.
 
-### [`messageId`](./_helpers.ts#L68)
+**Returns:** The created dispatch test driver.
 
-_Property_
-
-```ts
-  readonly messageId: string;
-```
-
-### [`ModeratorHandle`](./_driver.ts#L190)
+### [`ModeratorHandle`](./_driver.ts#L195)
 
 _Interface_
 
 ```ts
 export interface ModeratorHandle {
-  readonly agentId: Schema.Schema.Type<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof agentId>;
   readonly appId: string;
 
   /**
@@ -309,9 +311,9 @@ export interface ModeratorHandle {
   readonly handleAuthorize: (opts: {
     readonly respondWith: DispatchVerdict;
     readonly predicate?: (params: {
-      readonly taskId: Schema.Schema.Type<typeof TaskId>;
-      readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
-      readonly messageId: Schema.Schema.Type<typeof MessageId>;
+      readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
+      readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
+      readonly messageId: Schema.Schema.Type<typeof messageId>;
     }) => boolean;
     readonly holdResponseFor?: number;
   }) => Effect.Effect<void, PropertyFailure>;
@@ -330,13 +332,13 @@ export interface ModeratorHandle {
   readonly waitForObservability: <K extends "consumed" | "expired">(
     kind: K,
     opts: {
-      readonly dispatchId?: Schema.Schema.Type<typeof DispatchId>;
+      readonly dispatchId?: Schema.Schema.Type<typeof dispatchIdSchema>;
       readonly timeoutMs?: number;
     },
   ) => Effect.Effect<
     K extends "consumed"
-      ? NotificationDelivery<typeof DispatchLeaseConsumed>
-      : NotificationDelivery<typeof DispatchLeaseExpired>,
+      ? NotificationDelivery<typeof dispatchLeaseConsumed>
+      : NotificationDelivery<typeof dispatchLeaseExpired>,
     PropertyFailure
   >;
 
@@ -346,12 +348,12 @@ export interface ModeratorHandle {
    * `assertLeaseState` poll.
    */
   readonly getLease: (
-    dispatchId: Schema.Schema.Type<typeof DispatchId>,
+    dispatchId: Schema.Schema.Type<typeof dispatchIdSchema>,
   ) => Effect.Effect<
     {
       readonly state: LeaseState;
       readonly verdict: DispatchVerdict | null;
-      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
+      readonly leaseId: Schema.Schema.Type<typeof leaseId>;
     },
     PropertyFailure
   >;
@@ -363,7 +365,7 @@ server under a moderator app identity, with HTTP registration plus
 `app/network/connect` already driven to install a `dispatch_authorize` hook. Holds
 the registered `appId` for `app/dispatch/lease/get` scope assertions.
 
-### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](./_helpers.ts#L21)
+### [`NEGATIVE_OBSERVABILITY_WINDOW_MS`](./_helpers.ts#L27)
 
 _Variable_
 
@@ -371,7 +373,9 @@ _Variable_
 export const NEGATIVE_OBSERVABILITY_WINDOW_MS = 750
 ```
 
-### [`NO_SECOND_RELEASE_WINDOW_MS`](./_helpers.ts#L36)
+Provides the negative observability window ms runtime value.
+
+### [`NO_SECOND_RELEASE_WINDOW_MS`](./_helpers.ts#L46)
 
 _Variable_
 
@@ -379,13 +383,15 @@ _Variable_
 export const NO_SECOND_RELEASE_WINDOW_MS = 250
 ```
 
-### [`RecipientHandle`](./_driver.ts#L113)
+Provides the no second release window ms runtime value.
+
+### [`RecipientHandle`](./_driver.ts#L118)
 
 _Interface_
 
 ```ts
 export interface RecipientHandle {
-  readonly agentId: Schema.Schema.Type<typeof AgentId>;
+  readonly agentId: Schema.Schema.Type<typeof agentId>;
 
   /**
    * Issue `agent/dispatch/request` for the given inbound. Returns the ack
@@ -394,14 +400,14 @@ export interface RecipientHandle {
    * own assertions.
    */
   readonly requestDispatch: (params: {
-    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
-    readonly messageId: Schema.Schema.Type<typeof MessageId>;
-    readonly senderAgentId: Schema.Schema.Type<typeof AgentId>;
+    readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
+    readonly messageId: Schema.Schema.Type<typeof messageId>;
+    readonly senderAgentId: Schema.Schema.Type<typeof agentId>;
     readonly attempt?: number;
   }) => Effect.Effect<
     {
-      readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
-      readonly dispatchId: Schema.Schema.Type<typeof DispatchId>;
+      readonly leaseId: Schema.Schema.Type<typeof leaseId>;
+      readonly dispatchId: Schema.Schema.Type<typeof dispatchIdSchema>;
     },
     PropertyFailure
   >;
@@ -414,11 +420,11 @@ export interface RecipientHandle {
    */
   readonly waitForRelease: (
     predicate?: (
-      frame: NotificationDelivery<typeof DispatchRelease>,
+      frame: NotificationDelivery<typeof dispatchRelease>,
     ) => boolean,
     timeoutMs?: number,
   ) => Effect.Effect<
-    NotificationDelivery<typeof DispatchRelease>,
+    NotificationDelivery<typeof dispatchRelease>,
     PropertyFailure
   >;
 
@@ -430,13 +436,13 @@ export interface RecipientHandle {
    * the wire-error code + `LeaseInvalid` data tag the server returned.
    */
   readonly sendWithLease: (params: {
-    readonly taskId: Schema.Schema.Type<typeof TaskId>;
-    readonly conversationId: Schema.Schema.Type<typeof ConversationId>;
-    readonly leaseId: Schema.Schema.Type<typeof LeaseId>;
+    readonly taskId: Schema.Schema.Type<typeof taskIdSchema>;
+    readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
+    readonly leaseId: Schema.Schema.Type<typeof leaseId>;
     readonly text: string;
   }) => Effect.Effect<
     {
-      readonly messageId: Schema.Schema.Type<typeof MessageId>;
+      readonly messageId: Schema.Schema.Type<typeof messageId>;
       readonly errorTag?: string;
       readonly errorState?: string;
     },
@@ -459,7 +465,7 @@ server under a recipient agent identity. All methods return Effects
 scoped to the surrounding `Scope`; releasing the scope closes the
 underlying agent client.
 
-### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L45)
+### [`registerAppDisconnectFailPolicy`](./app-disconnect-fail-policy.ts#L49)
 
 _Function_
 
@@ -469,7 +475,9 @@ export function registerAppDisconnectFailPolicy(
 ): void
 ```
 
-### [`registerDispatchAuthorizeTimeoutSynthesizesDeny`](./dispatch-authorize-timeout.ts#L14)
+Registers app disconnect fail policy.
+
+### [`registerDispatchAuthorizeTimeoutSynthesizesDeny`](./dispatch-authorize-timeout.ts#L18)
 
 _Function_
 
@@ -479,7 +487,9 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
 ): void
 ```
 
-### [`registerDispatchAuthorizeVerdictResolves`](./dispatch-authorize-verdict.ts#L24)
+Registers dispatch authorize timeout synthesizes deny.
+
+### [`registerDispatchAuthorizeVerdictResolves`](./dispatch-authorize-verdict.ts#L28)
 
 _Function_
 
@@ -489,7 +499,9 @@ export function registerDispatchAuthorizeVerdictResolves(
 ): void
 ```
 
-### [`registerDispatchLeaseConsumedFiresOnFirstSend`](./dispatch-lease-consumed-fires-on-first-send.ts#L14)
+Registers dispatch authorize verdict resolves.
+
+### [`registerDispatchLeaseConsumedFiresOnFirstSend`](./dispatch-lease-consumed-fires-on-first-send.ts#L20)
 
 _Function_
 
@@ -499,7 +511,9 @@ export function registerDispatchLeaseConsumedFiresOnFirstSend(
 ): void
 ```
 
-### [`registerDispatchLeaseConsumedSuppressedOnSecondSend`](./dispatch-lease-consumed-suppressed-on-second.ts#L14)
+Registers dispatch lease consumed fires on first send.
+
+### [`registerDispatchLeaseConsumedSuppressedOnSecondSend`](./dispatch-lease-consumed-suppressed-on-second.ts#L18)
 
 _Function_
 
@@ -509,7 +523,9 @@ export function registerDispatchLeaseConsumedSuppressedOnSecondSend(
 ): void
 ```
 
-### [`registerDispatchLeaseExpiredFiresOnTtl`](./dispatch-lease-expired-fires-on-ttl.ts#L14)
+Registers dispatch lease consumed suppressed on second send.
+
+### [`registerDispatchLeaseExpiredFiresOnTtl`](./dispatch-lease-expired-fires-on-ttl.ts#L18)
 
 _Function_
 
@@ -519,7 +535,9 @@ export function registerDispatchLeaseExpiredFiresOnTtl(
 ): void
 ```
 
-### [`registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl`](./dispatch-lease-expired-suppressed-on-consume.ts#L15)
+Registers dispatch lease expired fires on ttl.
+
+### [`registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl`](./dispatch-lease-expired-suppressed-on-consume.ts#L19)
 
 _Function_
 
@@ -529,7 +547,9 @@ export function registerDispatchLeaseExpiredSuppressedOnConsumeBeforeTtl(
 ): void
 ```
 
-### [`registerDispatchLeaseGetModeratorSeesRecord`](./dispatch-lease-get-moderator-sees.ts#L13)
+Registers dispatch lease expired suppressed on consume before ttl.
+
+### [`registerDispatchLeaseGetModeratorSeesRecord`](./dispatch-lease-get-moderator-sees.ts#L17)
 
 _Function_
 
@@ -539,7 +559,9 @@ export function registerDispatchLeaseGetModeratorSeesRecord(
 ): void
 ```
 
-### [`registerDispatchReleaseFiresAfterResolve`](./dispatch-release-after-resolve.ts#L33)
+Registers dispatch lease get moderator sees record.
+
+### [`registerDispatchReleaseFiresAfterResolve`](./dispatch-release-after-resolve.ts#L41)
 
 _Function_
 
@@ -549,7 +571,9 @@ export function registerDispatchReleaseFiresAfterResolve(
 ): void
 ```
 
-### [`registerDispatchReleaseSkippedOnAbandoned`](./dispatch-release-skipped-on-abandoned.ts#L12)
+Registers dispatch release fires after resolve.
+
+### [`registerDispatchReleaseSkippedOnAbandoned`](./dispatch-release-skipped-on-abandoned.ts#L16)
 
 _Function_
 
@@ -559,7 +583,9 @@ export function registerDispatchReleaseSkippedOnAbandoned(
 ): void
 ```
 
-### [`registerDispatchRequestAckMintsLease`](./dispatch-request-ack.ts#L12)
+Registers dispatch release skipped on abandoned.
+
+### [`registerDispatchRequestAckMintsLease`](./dispatch-request-ack.ts#L16)
 
 _Function_
 
@@ -569,7 +595,9 @@ export function registerDispatchRequestAckMintsLease(
 ): void
 ```
 
-### [`registerDispatchRequestRecipientDisconnectAbandons`](./dispatch-request-recipient-disconnect.ts#L12)
+Registers dispatch request ack mints lease.
+
+### [`registerDispatchRequestRecipientDisconnectAbandons`](./dispatch-request-recipient-disconnect.ts#L16)
 
 _Function_
 
@@ -579,7 +607,9 @@ export function registerDispatchRequestRecipientDisconnectAbandons(
 ): void
 ```
 
-### [`registerIdempotence`](./idempotence.ts#L51)
+Registers dispatch request recipient disconnect abandons.
+
+### [`registerIdempotence`](./idempotence.ts#L55)
 
 _Function_
 
@@ -587,7 +617,9 @@ _Function_
 export function registerIdempotence(ctx: ConformanceRunContext): void
 ```
 
-### [`registerReleaseForOneLeaseDoesNotWaitOnAnother`](./release-for-one-lease-does-not-wait.ts#L17)
+Registers idempotence.
+
+### [`registerReleaseForOneLeaseDoesNotWaitOnAnother`](./release-for-one-lease-does-not-wait.ts#L21)
 
 _Function_
 
@@ -597,7 +629,9 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
 ): void
 ```
 
-### [`registerSameConversationDispatchRequestsConcurrent`](./same-conv-dispatch-requests-concurrent.ts#L13)
+Registers release for one lease does not wait on another.
+
+### [`registerSameConversationDispatchRequestsConcurrent`](./same-conv-dispatch-requests-concurrent.ts#L17)
 
 _Function_
 
@@ -607,7 +641,9 @@ export function registerSameConversationDispatchRequestsConcurrent(
 ): void
 ```
 
-### [`registerSlowFirstDoesNotDelaySecondAck`](./slow-first-does-not-delay-second-ack.ts#L12)
+Registers same conversation dispatch requests concurrent.
+
+### [`registerSlowFirstDoesNotDelaySecondAck`](./slow-first-does-not-delay-second-ack.ts#L16)
 
 _Function_
 
@@ -617,18 +653,22 @@ export function registerSlowFirstDoesNotDelaySecondAck(
 ): void
 ```
 
-### [`ReleaseFrameView`](./_helpers.ts#L62)
+Registers slow first does not delay second ack.
 
-_TypeAlias_
+### [`ReleaseFrameView`](./_helpers.ts#L82)
+
+_Interface_
 
 ```ts
-export type ReleaseFrameView = {
+export interface ReleaseFrameView {
   readonly leaseId: string;
   readonly verdict: { decision: string; reason?: string };
-};
+}
 ```
 
-### [`SHORT_LEASE_TIMEOUT_MS`](./_helpers.ts#L17)
+Describes release frame view.
+
+### [`SHORT_LEASE_TIMEOUT_MS`](./_helpers.ts#L19)
 
 _Variable_
 
@@ -636,7 +676,9 @@ _Variable_
 export const SHORT_LEASE_TIMEOUT_MS = 250
 ```
 
-### [`TIMEOUT_RELEASE_WAIT_MS`](./_helpers.ts#L32)
+Provides the short lease timeout ms runtime value.
+
+### [`TIMEOUT_RELEASE_WAIT_MS`](./_helpers.ts#L41)
 
 _Variable_
 
@@ -644,7 +686,9 @@ _Variable_
 export const TIMEOUT_RELEASE_WAIT_MS = 3_000
 ```
 
-### [`TINY_MODERATOR_TIMEOUT_MS`](./_helpers.ts#L18)
+Provides the timeout release wait ms runtime value.
+
+### [`TINY_MODERATOR_TIMEOUT_MS`](./_helpers.ts#L21)
 
 _Variable_
 
@@ -652,7 +696,9 @@ _Variable_
 export const TINY_MODERATOR_TIMEOUT_MS = 200
 ```
 
-### [`TTL_OBSERVATION_BUFFER_MS`](./_helpers.ts#L19)
+Provides the tiny moderator timeout ms runtime value.
+
+### [`TTL_OBSERVATION_BUFFER_MS`](./_helpers.ts#L23)
 
 _Variable_
 
@@ -660,15 +706,9 @@ _Variable_
 export const TTL_OBSERVATION_BUFFER_MS = 1_500
 ```
 
-### [`verdict`](./_helpers.ts#L64)
+Provides the ttl observation buffer ms runtime value.
 
-_Property_
-
-```ts
-  readonly verdict: { decision: string; reason?: string };
-```
-
-### [`withDriver`](./_helpers.ts#L89)
+### [`withDriver`](./_helpers.ts#L126)
 
 _Function_
 
@@ -684,6 +724,8 @@ export function withDriver(
 
 Run a property body inside a fresh per-property scope; acquires the
 driver, runs `body`, releases on completion.
+
+**Returns:** The with driver result.
 
 ## Files
 

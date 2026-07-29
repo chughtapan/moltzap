@@ -25,8 +25,8 @@ import {
   NotConnectedError,
   makeNotificationSubscriberRegistry,
 } from "@moltzap/protocol/rpc";
-import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
-import { TaskFailedNotificationDefinition } from "@moltzap/protocol/task";
+import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import { taskFailedNotificationDefinition } from "@moltzap/protocol/task";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type {
   NotificationDelivery,
@@ -40,7 +40,7 @@ const VALUE_POOL_SIZE = 8;
 const PROPERTY_RUN_COUNT = 25;
 
 type TaskFailedParams = NotificationParamsOf<
-  typeof TaskFailedNotificationDefinition
+  typeof taskFailedNotificationDefinition
 >;
 
 const makeSubscriberRegistry = () =>
@@ -106,10 +106,10 @@ function oracle(
 
 function decodedTaskFailure(
   generated: GeneratedFrame,
-): NotificationDelivery<typeof TaskFailedNotificationDefinition> {
+): NotificationDelivery<typeof taskFailedNotificationDefinition> {
   return {
-    definition: TaskFailedNotificationDefinition,
-    method: TaskFailedNotificationDefinition.name,
+    definition: taskFailedNotificationDefinition,
+    method: taskFailedNotificationDefinition.name,
     params: {
       taskId: generated.taskId,
       reason: generated.reason,
@@ -118,14 +118,14 @@ function decodedTaskFailure(
 }
 
 function otherFrame(): NotificationDelivery<
-  typeof MessageReceivedNotificationDefinition
+  typeof messageReceivedNotificationDefinition
 > {
   // A frame whose `.definition` reference does NOT match
   // A frame with a different descriptor reference verifies that the registry's
   // definition-identity filter drops it before the predicate runs.
   return {
-    definition: MessageReceivedNotificationDefinition,
-    method: MessageReceivedNotificationDefinition.name,
+    definition: messageReceivedNotificationDefinition,
+    method: messageReceivedNotificationDefinition.name,
     params: { taskId: testTaskId("task-1"), message: buildMessage() },
   };
 }
@@ -146,7 +146,7 @@ describe("subscribe filter-equivalence oracle", () => {
             const fiber = yield* Effect.fork(
               subscribe(
                 registry,
-                TaskFailedNotificationDefinition,
+                taskFailedNotificationDefinition,
                 predicate,
               ).pipe(
                 Stream.runForEach((params) =>
@@ -200,7 +200,7 @@ describe("subscribe filter-equivalence oracle", () => {
         const fiber = yield* Effect.fork(
           subscribe(
             registry,
-            TaskFailedNotificationDefinition,
+            taskFailedNotificationDefinition,
             isRetryable,
           ).pipe(
             Stream.runForEach((params) =>

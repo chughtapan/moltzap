@@ -6,9 +6,9 @@
 import { Effect, Exit, Fiber, Stream } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import type { AgentTestClient } from "../_shared/driver/test-client.js";
-import { TaskId } from "#task";
-import { ConversationId } from "#conversation";
-import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
+import type { TaskId } from "#task";
+import type { ConversationId } from "#conversation";
+import { messageReceivedNotificationDefinition, messagesSend } from "#message";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
@@ -21,6 +21,10 @@ import {
 
 const LATENCY_CLIENT_TIMEOUT_MS = 6_000;
 
+/**
+ * Registers latency resilience.
+ * @param ctx Context for the operation.
+ */
 export function registerLatencyResilience(ctx: ConformanceRunContext): void {
   withToxicProxy({
     ctx,
@@ -93,7 +97,7 @@ function sendLatencyProbe(
     Effect.gen(function* () {
       yield* attachToxic;
       yield* client
-        .sendRpc(MessagesSend, {
+        .sendRpc(messagesSend, {
           taskId,
           conversationId,
           parts: [{ type: "text", text: "lat-ping" }],
@@ -108,7 +112,7 @@ function waitForLatencyDelivery(
   client: AgentTestClient,
   conversationId: ConversationId,
 ) {
-  return client.subscribe(MessageReceivedNotificationDefinition).pipe(
+  return client.subscribe(messageReceivedNotificationDefinition).pipe(
     Stream.filter(
       (frame) => frame.params.message.conversationId === conversationId,
     ),

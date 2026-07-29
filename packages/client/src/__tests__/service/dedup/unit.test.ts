@@ -1,8 +1,8 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { Message } from "@moltzap/protocol/message";
-import { ConversationArchivedNotificationDefinition } from "@moltzap/protocol/conversation";
-import { MessageReceivedNotificationDefinition } from "@moltzap/protocol/message";
+import { conversationArchivedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import { FakeMoltZapService } from "../../../test-utils/fake-service.js";
 import {
   buildMessage,
@@ -160,7 +160,7 @@ function emitMessage(
     conversationId,
     senderId: SENDER,
   });
-  service.emitEvent(MessageReceivedNotificationDefinition, {
+  service.emitEvent(messageReceivedNotificationDefinition, {
     taskId: TASK_DEDUP,
     message: msg,
   });
@@ -174,7 +174,7 @@ function saturateDedupWindow(service: FakeMoltZapService): void {
 }
 
 function archiveConversation(service: FakeMoltZapService): void {
-  service.emitEvent(ConversationArchivedNotificationDefinition, {
+  service.emitEvent(conversationArchivedNotificationDefinition, {
     taskId: TASK_DEDUP,
     conversationId: CONV_A,
     archivedAt: ARCHIVED_AT,

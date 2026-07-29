@@ -12,7 +12,7 @@ import {
 } from "../../test-utils/server.js";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { AgentKey } from "@moltzap/protocol/identity";
-import { UserId } from "@moltzap/protocol/identity";
+import { type UserId, userId } from "@moltzap/protocol/identity";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { Part } from "@moltzap/protocol/message";
 import type { TestAgentClient, TestAppClient } from "@moltzap/protocol/testing";
@@ -246,7 +246,7 @@ export function createTestUser(
   id: string = crypto.randomUUID(),
 ) {
   return {
-    id: Schema.decodeUnknownSync(UserId)(id),
+    id: Schema.decodeUnknownSync(userId)(id),
     supabaseUid: crypto.randomUUID(),
     displayName,
   };

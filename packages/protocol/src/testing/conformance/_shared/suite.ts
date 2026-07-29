@@ -39,10 +39,7 @@ import { IDENTITY_PROPERTIES } from "../identity/index.js";
 import { NETWORK_PROPERTIES } from "../network/index.js";
 import { TASK_PROPERTIES } from "../task/index.js";
 import { APP_PROPERTIES } from "../app/index.js";
-import type {
-  RealServerAcquireError,
-  ToxicControlError,
-} from "../_shared/errors.js";
+import type { RealServerAcquireError, ToxicControlError } from "./errors.js";
 import {
   isAllowedCoverageGap,
   type AllowedCoverageGap,
@@ -50,39 +47,38 @@ import {
 import { conformanceArtifactDirFromEnv } from "./env.js";
 import type { ToxiproxyNetworkConfig } from "../../toxics/client.js";
 
-import { TaskRequest } from "#task";
+import { taskRequest } from "#task";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
-const BASE_ALLOWED_SERVER_COVERAGE_GAPS: ReadonlyArray<AllowedCoverageGap> = [
+const BASE_ALLOWED_SERVER_COVERAGE_GAPS: readonly AllowedCoverageGap[] = [
   {
     id: "adversity/reset-peer-recovery",
     reasonIncludes: "reset_peer toxic did not close",
   },
   {
     id: "boundary/app-disconnect-fail-policy",
-    reasonIncludes: TaskRequest.name,
+    reasonIncludes: taskRequest.name,
   },
 ];
-const TOXIPROXY_MISSING_ALLOWED_COVERAGE_GAPS: ReadonlyArray<AllowedCoverageGap> =
-  [
-    {
-      id: "adversity/latency-resilience",
-      reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
-    },
-    {
-      id: "adversity/reset-peer-recovery",
-      reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
-    },
-    {
-      id: "adversity/timeout-surface",
-      reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
-    },
-    {
-      id: "adversity/slow-close-cleanup",
-      reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
-    },
-  ];
+const TOXIPROXY_MISSING_ALLOWED_COVERAGE_GAPS: readonly AllowedCoverageGap[] = [
+  {
+    id: "adversity/latency-resilience",
+    reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
+  },
+  {
+    id: "adversity/reset-peer-recovery",
+    reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
+  },
+  {
+    id: "adversity/timeout-surface",
+    reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
+  },
+  {
+    id: "adversity/slow-close-cleanup",
+    reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
+  },
+];
 
 /**
  * Input shape — consumer names the concrete implementation under test and
@@ -106,9 +102,10 @@ export interface ConformanceSuiteOptions {
   readonly artifactDir?: string;
 }
 
+/** Describes the result of suite. */
 export interface SuiteResult {
   readonly seed: number;
-  readonly passed: ReadonlyArray<string>;
+  readonly passed: readonly string[];
   readonly unavailable: ReadonlyArray<{
     readonly name: string;
     readonly reason: string;
@@ -123,15 +120,15 @@ export interface SuiteResult {
 
 interface SuiteAccumulator {
   readonly passed: string[];
-  readonly unavailable: { name: string; reason: string }[];
-  readonly failed: SuiteResult["failed"][number][];
+  readonly unavailable: Array<{ name: string; reason: string }>;
+  readonly failed: Array<SuiteResult["failed"][number]>;
 }
 
 interface RunPropertyInput {
   readonly property: RegisteredProperty;
   readonly seed: number;
   readonly artifactDir: string;
-  readonly allowedCoverageGaps: ReadonlyArray<AllowedCoverageGap>;
+  readonly allowedCoverageGaps: readonly AllowedCoverageGap[];
   readonly acc: SuiteAccumulator;
 }
 
@@ -150,6 +147,7 @@ interface FailureRecordInput extends RunPropertyInput {
  * run build a `ConformanceRunContext` directly and call only the layer
  * subset they need; `runConformanceSuite` uses this helper to register
  * the full set across all layers.
+ * @param ctx Context for the operation.
  */
 export function registerAllProperties(ctx: ConformanceRunContext): void {
   for (const fn of [
@@ -167,11 +165,15 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
  * Run every registered property and collect a typed `SuiteResult`. Does
  * not throw: failures land in `result.failed`; a vitest boundary asserts
  * `result.failed.length === 0`.
+ * @param ctx Context for the operation.
+ * @param artifactDir Value supplied to the operation.
+ * @param allowedCoverageGaps Value supplied to the operation.
+ * @returns The run all properties result.
  */
 export function runAllProperties(
   ctx: ConformanceRunContext,
   artifactDir: string,
-  allowedCoverageGaps: ReadonlyArray<AllowedCoverageGap> = [],
+  allowedCoverageGaps: readonly AllowedCoverageGap[] = [],
 ): Effect.Effect<SuiteResult> {
   return Effect.gen(function* () {
     yield* ensureArtifactDir(artifactDir);
@@ -241,9 +243,11 @@ function recordTypedFailure(input: FailureRecordInput): Effect.Effect<void> {
     case "ConformancePropertyAssertionFailure":
     case "ConformancePropertyInvariantViolation":
       return recordFailedProperty(input);
+    default: {
+      const exhaustive: never = failure;
+      return Effect.succeed(exhaustive);
+    }
   }
-  const _exhaustive: never = failure;
-  return Effect.succeed(_exhaustive);
 }
 
 function recordUnavailableFailure(
@@ -276,6 +280,8 @@ function recordFailedProperty(input: FailureRecordInput): Effect.Effect<void> {
  *
  * The ambient `Scope` is internal — the outer scope closes when the
  * Effect completes. Consumers don't need to pass a Scope.
+ * @param opts Value supplied to the operation.
+ * @returns The run conformance suite result.
  */
 export function runConformanceSuite(
   opts: ConformanceSuiteOptions,
@@ -313,7 +319,7 @@ export function runConformanceSuite(
 
 function allowedServerCoverageGaps(
   toxiproxyUrl: string | null,
-): ReadonlyArray<AllowedCoverageGap> {
+): readonly AllowedCoverageGap[] {
   return toxiproxyUrl === null
     ? [
         ...BASE_ALLOWED_SERVER_COVERAGE_GAPS,
@@ -327,11 +333,15 @@ function allowedServerCoverageGaps(
  * `Cause.failures` so typed failures stay typed without bypassing the
  * type system; defects land as `null` and the caller reports them
  * under `_tag: "defect"`.
+ * @param exit Value supplied to the operation.
+ * @returns The first typed failure result.
  */
 function firstTypedFailure(
   exit: Exit.Exit<void, PropertyFailure>,
 ): PropertyFailure | null {
-  if (Exit.isSuccess(exit)) return null;
+  if (Exit.isSuccess(exit)) {
+    return null;
+  }
   const failures = Cause.failures(exit.cause);
   const head = Chunk.head(failures);
   return Option.getOrNull(head);
@@ -344,11 +354,13 @@ function failureArtifact(failure: PropertyFailure): Record<string, unknown> {
     case "ConformancePropertyInvariantViolation":
     case "ConformancePropertyUnavailable":
       return { tag: failure._tag, reason: failure.reason };
-    default: {
-      const _exhaustive: never = failure;
-      return { tag: "unknown", value: String(_exhaustive) };
-    }
+    default:
+      return absurdPropertyFailure(failure);
   }
+}
+
+function absurdPropertyFailure(failure: never): never {
+  throw new Error(`Unexpected property failure: ${JSON.stringify(failure)}`);
 }
 
 function ensureArtifactDir(dir: string): Effect.Effect<void> {

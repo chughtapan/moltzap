@@ -15,7 +15,7 @@
 
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
-  AgentCallableGroup,
+  agentCallableGroup,
   type AnyAgentCallableRpcDefinition,
   type AnyNotificationDefinition,
 } from "@moltzap/protocol/socket/catalog";
@@ -35,7 +35,7 @@ import { testAgentId } from "./ids.js";
 
 const TEST_AGENT_KEY = redactedAgentKey(agentKeyString(0));
 
-type FakeAgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+type FakeAgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
 type FakeAgentCallableTag = FakeAgentCallableRpcs["_tag"];
 type FakeResponseMap = {
   [Tag in FakeAgentCallableTag]?: () => Effect.Effect<

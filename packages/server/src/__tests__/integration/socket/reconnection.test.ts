@@ -13,11 +13,11 @@ import {
   type TestAgentClient,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesList,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
@@ -53,7 +53,7 @@ it("agent reconnects and retrieves messages sent while disconnected", () =>
 
     const binding = yield* createDm(alice.client, bob.agentId);
     const preDisconnectFiber = yield* Effect.fork(
-      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
     yield* sendText(alice.client, binding, PRE_DISCONNECT_TEXT);
     yield* Fiber.join(preDisconnectFiber);
@@ -70,7 +70,7 @@ it("agent reconnects and retrieves messages sent while disconnected", () =>
 
     yield* expectReconnectedHistory(bobClient2, binding);
     const aliceEventFiber = yield* Effect.fork(
-      awaitOneNotification(alice.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(alice.client, messageReceivedNotificationDefinition),
     );
     yield* sendText(bobClient2, binding, BACK_ONLINE_TEXT);
 
@@ -83,7 +83,7 @@ function createDm(
   participantAgentId: AgentId,
 ): Effect.Effect<DmBinding, unknown> {
   return Effect.gen(function* () {
-    const conv = yield* client.sendRpc(TaskRequest, {
+    const conv = yield* client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [participantAgentId],
       initialConversation: { participants: [participantAgentId] },
@@ -93,7 +93,7 @@ function createDm(
 }
 
 function sendText(client: TestAgentClient, binding: DmBinding, text: string) {
-  return client.sendRpc(MessagesSend, {
+  return client.sendRpc(messagesSend, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
@@ -102,7 +102,7 @@ function sendText(client: TestAgentClient, binding: DmBinding, text: string) {
 
 function expectReconnectedHistory(client: TestAgentClient, binding: DmBinding) {
   return Effect.gen(function* () {
-    const msgs = yield* client.sendRpc(MessagesList, {
+    const msgs = yield* client.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });

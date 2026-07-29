@@ -7,7 +7,7 @@ import {
   DEFAULT_PAGE_LIMIT,
   ForbiddenError,
 } from "@moltzap/protocol/rpc";
-import { ContactNotFoundError, ContactsAdd } from "@moltzap/protocol/identity";
+import { ContactNotFoundError, contactsAdd } from "@moltzap/protocol/identity";
 import type { ListCursor, ResultOf } from "@moltzap/protocol/rpc";
 import type { ContactId, UserId } from "@moltzap/protocol/identity";
 import {
@@ -18,7 +18,7 @@ import {
   type InvalidCursorError,
 } from "#db";
 
-type Contact = ResultOf<typeof ContactsAdd>["contact"];
+type Contact = ResultOf<typeof contactsAdd>["contact"];
 
 export interface ContactsListInput {
   readonly limit?: number;

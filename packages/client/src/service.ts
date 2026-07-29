@@ -1,17 +1,17 @@
 import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import {
-  AgentId as AgentIdSchema,
+  agentId as AgentIdSchema,
   AgentNotFoundError,
-  AgentsList,
+  agentsList,
   type AgentCard,
   type AgentId,
 } from "@moltzap/protocol/identity";
 import {
-  DispatchRequest,
-  DispatchRelease,
-  DispatchLeaseConsumed,
-  DispatchLeaseExpired,
+  dispatchRequest,
+  dispatchRelease,
+  dispatchLeaseConsumed,
+  dispatchLeaseExpired,
   type LeaseId,
 } from "@moltzap/protocol/message/dispatch";
 import type { HelloOk } from "@moltzap/protocol/network";
@@ -27,12 +27,12 @@ import {
   type ConversationCreatedNotification,
   type ConversationArchivedNotification,
   type ConversationUnarchivedNotification,
-  ConversationCreatedNotificationDefinition,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
-  ConversationList,
+  conversationCreatedNotificationDefinition,
+  conversationArchivedNotificationDefinition,
+  conversationUnarchivedNotificationDefinition,
+  conversationList,
 } from "@moltzap/protocol/conversation";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
   ConversationArchivedError,
   type ConversationId,
@@ -41,9 +41,9 @@ import {
 import {
   type Message,
   type MessageReceivedNotification,
-  MessageReceivedNotificationDefinition,
-  MessagesList,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import {
   NotConnectedError,
@@ -57,7 +57,7 @@ import {
   type ResultOf,
   type SuccessForTag,
 } from "@moltzap/protocol/rpc";
-import { AgentCallableGroup } from "@moltzap/protocol/socket/catalog";
+import { agentCallableGroup } from "@moltzap/protocol/socket/catalog";
 import type { RpcGroup, Rpc } from "@effect/rpc";
 import type { TaskId } from "@moltzap/protocol/task";
 import { BoundedMap } from "@moltzap/protocol/bounded-map";
@@ -163,7 +163,7 @@ function appendClientEventTrace(
 }
 
 /** The agent group's member `Rpc`s — the tag-keyed surface the service drives. */
-type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
 
 /** The branded wire tags the service may originate. */
 type AgentCallableTag = AgentCallableRpcs["_tag"];
@@ -260,12 +260,12 @@ interface ServiceHandlerPayloads {
   readonly reconnect: HelloOk;
   readonly conversationArchived: ConversationArchivedNotification;
   readonly conversationUnarchived: ConversationUnarchivedNotification;
-  readonly dispatchRelease: NotificationParamsOf<typeof DispatchRelease>;
+  readonly dispatchRelease: NotificationParamsOf<typeof dispatchRelease>;
   readonly dispatchLeaseConsumed: NotificationParamsOf<
-    typeof DispatchLeaseConsumed
+    typeof dispatchLeaseConsumed
   >;
   readonly dispatchLeaseExpired: NotificationParamsOf<
-    typeof DispatchLeaseExpired
+    typeof dispatchLeaseExpired
   >;
 }
 
@@ -603,7 +603,7 @@ export class MoltZapService {
     request: HistoryRequest,
   ): Effect.Effect<HistoryResponse, ServiceRpcError> {
     return Effect.gen(this, function* () {
-      const result = yield* this.call(MessagesList.name, {
+      const result = yield* this.call(messagesList.name, {
         taskId: request.taskId,
         conversationId: request.conversationId,
         limit: request.limit,
@@ -669,7 +669,7 @@ export class MoltZapService {
   private fetchHistoryConversationMeta(convId: ConversationId) {
     // The client filters `ConversationList` output for the matching
     // conversation id (there is no per-conversation get RPC).
-    return this.call(ConversationList.name, {}).pipe(
+    return this.call(conversationList.name, {}).pipe(
       Effect.map((result) => {
         const hit = result.items.find(
           (item) => item.conversation.id === convId,
@@ -826,7 +826,7 @@ export class MoltZapService {
       );
     }
     return Effect.asVoid(
-      this.call(MessagesSend.name, {
+      this.call(messagesSend.name, {
         taskId,
         conversationId,
         parts: [{ type: "text", text }],
@@ -844,9 +844,9 @@ export class MoltZapService {
    * verdict asynchronously via the `dispatchRelease` event.
    */
   requestDispatch(
-    params: ParamsOf<typeof DispatchRequest>,
-  ): Effect.Effect<ResultOf<typeof DispatchRequest>, ServiceRpcError> {
-    return this.call(DispatchRequest.name, params);
+    params: ParamsOf<typeof dispatchRequest>,
+  ): Effect.Effect<ResultOf<typeof dispatchRequest>, ServiceRpcError> {
+    return this.call(dispatchRequest.name, params);
   }
 
   sendToAgent(
@@ -862,7 +862,7 @@ export class MoltZapService {
         if (!agent) {
           return yield* Effect.fail(agentNotFound(agentName));
         }
-        const createResult = yield* this.call(TaskRequest.name, {
+        const createResult = yield* this.call(taskRequest.name, {
           appId: DEFAULT_APP_ID,
           invitedAgentIds: [agent.id],
           initialConversation: { participants: [agent.id] },
@@ -903,7 +903,7 @@ export class MoltZapService {
           limit: REUSABLE_CONVERSATION_LOOKUP_PAGE_SIZE,
         };
         if (cursor !== undefined) params.cursor = cursor;
-        const result = yield* this.call(ConversationList.name, params);
+        const result = yield* this.call(conversationList.name, params);
         const hit = result.items.find(
           (item) =>
             item.taskId === taskId &&
@@ -932,7 +932,7 @@ export class MoltZapService {
 
   private agentListParams(
     cursor: ListCursor | undefined,
-  ): ParamsOf<typeof AgentsList> {
+  ): ParamsOf<typeof agentsList> {
     return cursor === undefined
       ? { limit: AGENT_LOOKUP_PAGE_SIZE }
       : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor };
@@ -946,7 +946,7 @@ export class MoltZapService {
       let cursor: ListCursor | undefined = undefined;
       for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
         const params = this.agentListParams(cursor);
-        const result = yield* this.call(AgentsList.name, params);
+        const result = yield* this.call(agentsList.name, params);
         yield* this.cacheAgentNames(result.agents);
         for (const agent of result.agents) missing.delete(agent.id);
         if (missing.size === 0 || result.nextCursor === undefined) return;
@@ -962,7 +962,7 @@ export class MoltZapService {
       let cursor: ListCursor | undefined = undefined;
       for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
         const params = this.agentListParams(cursor);
-        const result = yield* this.call(AgentsList.name, params);
+        const result = yield* this.call(agentsList.name, params);
         yield* this.cacheAgentNames(result.agents);
         const hit = result.agents.find((agent) => agent.name === agentName);
         if (hit !== undefined || result.nextCursor === undefined) return hit;
@@ -1204,7 +1204,7 @@ export class MoltZapService {
     if (
       isNotificationDeliveryFor(
         notification,
-        MessageReceivedNotificationDefinition,
+        messageReceivedNotificationDefinition,
       )
     ) {
       this.handleMessageReceivedNotification(notification.params);
@@ -1219,7 +1219,7 @@ export class MoltZapService {
     if (
       isNotificationDeliveryFor(
         notification,
-        ConversationCreatedNotificationDefinition,
+        conversationCreatedNotificationDefinition,
       )
     ) {
       this.handleConversationCreatedNotification(notification.params);
@@ -1228,7 +1228,7 @@ export class MoltZapService {
     if (
       isNotificationDeliveryFor(
         notification,
-        ConversationArchivedNotificationDefinition,
+        conversationArchivedNotificationDefinition,
       )
     ) {
       this.handleConversationArchivedNotification(notification.params);
@@ -1237,7 +1237,7 @@ export class MoltZapService {
     if (
       isNotificationDeliveryFor(
         notification,
-        ConversationUnarchivedNotificationDefinition,
+        conversationUnarchivedNotificationDefinition,
       )
     ) {
       this.handleConversationUnarchivedNotification(notification.params);
@@ -1249,15 +1249,15 @@ export class MoltZapService {
   private dispatchAppNotification(
     notification: ClientNotificationDelivery,
   ): void {
-    if (isNotificationDeliveryFor(notification, DispatchRelease)) {
+    if (isNotificationDeliveryFor(notification, dispatchRelease)) {
       fanout(this.handlers.dispatchRelease, notification.params);
       return;
     }
-    if (isNotificationDeliveryFor(notification, DispatchLeaseConsumed)) {
+    if (isNotificationDeliveryFor(notification, dispatchLeaseConsumed)) {
       fanout(this.handlers.dispatchLeaseConsumed, notification.params);
       return;
     }
-    if (isNotificationDeliveryFor(notification, DispatchLeaseExpired)) {
+    if (isNotificationDeliveryFor(notification, dispatchLeaseExpired)) {
       fanout(this.handlers.dispatchLeaseExpired, notification.params);
     }
   }

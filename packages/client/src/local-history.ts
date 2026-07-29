@@ -1,6 +1,6 @@
-import { AgentId } from "@moltzap/protocol/identity";
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { TaskId } from "@moltzap/protocol/task";
+import { agentId } from "@moltzap/protocol/identity";
+import { conversationId, messageId } from "@moltzap/protocol/conversation";
+import { taskId } from "@moltzap/protocol/task";
 import type { Message } from "@moltzap/protocol/message";
 import { HashMap, Option, Schema } from "effect";
 import { renderPart } from "./message-rendering.js";
@@ -14,8 +14,8 @@ const HistoryLimit = Schema.Number.pipe(
 );
 
 const HistoryRequestSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
+  taskId: taskId,
+  conversationId: conversationId,
   limit: Schema.optionalWith(HistoryLimit, {
     default: () => DEFAULT_HISTORY_LIMIT,
   }),
@@ -23,8 +23,8 @@ const HistoryRequestSchema = Schema.Struct({
 });
 
 const HistoryMessageSummarySchema = Schema.Struct({
-  id: MessageId,
-  senderId: AgentId,
+  id: messageId,
+  senderId: agentId,
   senderName: Schema.String,
   isOwn: Schema.Boolean,
   text: Schema.String,
@@ -44,9 +44,9 @@ const ConversationMetadataSchema = Schema.Struct({
 });
 
 const HistoryConversationMetaSchema = Schema.Struct({
-  id: ConversationId,
+  id: conversationId,
   name: Schema.optional(Schema.String),
-  createdBy: AgentId,
+  createdBy: agentId,
   metadata: Schema.optional(ConversationMetadataSchema),
   lastMessageTimestamp: Schema.optional(Schema.String),
   createdAt: Schema.String,

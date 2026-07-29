@@ -42,7 +42,7 @@ export const messagesListHandler = (
   args: MessagesListArgs,
 ): Effect.Effect<void, MessagesCommandError, Transport> =>
   Effect.gen(function* () {
-    const result = yield* command(LocalDaemonCommands.MessagesList, args);
+    const result = yield* command(LocalDaemonCommands.messagesList, args);
     yield* logJson(result);
   }).pipe(Effect.withSpan("messagesListHandler"));
 

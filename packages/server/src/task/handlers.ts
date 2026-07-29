@@ -19,19 +19,19 @@
  */
 import { Effect } from "effect";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationParticipantsRemovedNotificationDefinition,
+  conversationArchivedNotificationDefinition,
+  conversationCreatedNotificationDefinition,
+  conversationParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import {
-  TaskClosedNotificationDefinition,
-  TaskCreatedNotificationDefinition,
-  TaskFailedNotificationDefinition,
-  TaskLeave,
-  TaskList,
+  taskClosedNotificationDefinition,
+  taskCreatedNotificationDefinition,
+  taskFailedNotificationDefinition,
+  taskLeave as taskLeaveDefinition,
+  taskList as taskListDefinition,
   TaskRejectedError,
-  TaskRequest,
-  TaskUpdate,
+  taskRequest as taskRequestDefinition,
+  taskUpdate as taskUpdateDefinition,
 } from "@moltzap/protocol/task";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { Task } from "@moltzap/protocol/task";
@@ -88,7 +88,7 @@ function mintInitialConversation(input: MintInitialInput) {
     ];
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
-      ConversationCreatedNotificationDefinition,
+      conversationCreatedNotificationDefinition,
       {
         taskId: input.task.id,
         conversationId: conversation.id,
@@ -127,7 +127,7 @@ function handleReject(
       reason !== undefined ? { reason } : {};
     yield* broadcastNotificationToAgents(
       recipients,
-      TaskFailedNotificationDefinition,
+      taskFailedNotificationDefinition,
       { taskId: failedTask.id, ...reasonField },
     );
     // `reason` rides in the wire error's `data` arm (RpcErrorPayload),
@@ -152,7 +152,7 @@ function handleAccept(
     const activeTask = yield* taskService.setStatus(waitingTaskId, "active");
     yield* broadcastNotificationToAgents(
       [ctx.agentId, ...params.invitedAgentIds],
-      TaskCreatedNotificationDefinition,
+      taskCreatedNotificationDefinition,
       { task: activeTask },
     );
     if (params.initialConversation === undefined) {
@@ -198,14 +198,16 @@ function taskRequestBody(params: TaskRequestParams, ctx: TaskRequestCtx) {
 //
 // The `ContactPolicyAllowsReach` requirement gates the frame before this body
 // runs. `agentArm` reads the narrowed principal.
-export const taskRequest: ServerHandler<typeof TaskRequest> = (params) =>
+export const taskRequest: ServerHandler<typeof taskRequestDefinition> = (
+  params,
+) =>
   Effect.gen(function* () {
     const ctx = yield* agentArm;
     return yield* taskRequestBody(params, ctx);
   }).pipe(Effect.withSpan("taskRequest"));
 
 function taskLeaveBody(
-  params: ParamsOf<typeof TaskLeave>,
+  params: ParamsOf<typeof taskLeaveDefinition>,
   ctx: { readonly agentId: AgentId },
 ) {
   return Effect.gen(function* () {
@@ -224,7 +226,7 @@ function taskLeaveBody(
     if (closedTask !== null) {
       yield* broadcastNotificationToAgents(
         [ctx.agentId],
-        TaskClosedNotificationDefinition,
+        taskClosedNotificationDefinition,
         { task: closedTask },
       );
     }
@@ -233,7 +235,7 @@ function taskLeaveBody(
 }
 
 interface LeaveParticipantFanoutInput {
-  readonly taskId: ParamsOf<typeof TaskLeave>["taskId"];
+  readonly taskId: ParamsOf<typeof taskLeaveDefinition>["taskId"];
   readonly conversationId: ConversationId;
   readonly leaver: AgentId;
 }
@@ -247,7 +249,7 @@ function fanoutLeaveParticipantRemoval(input: LeaveParticipantFanoutInput) {
     const recipientAgentIds: AgentId[] = [input.leaver, ...remaining];
     yield* broadcastNotificationToAgents(
       recipientAgentIds,
-      ConversationParticipantsRemovedNotificationDefinition,
+      conversationParticipantsRemovedNotificationDefinition,
       {
         taskId: input.taskId,
         conversationId: input.conversationId,
@@ -258,7 +260,10 @@ function fanoutLeaveParticipantRemoval(input: LeaveParticipantFanoutInput) {
   }).pipe(Effect.withSpan("task.leave.fanout"));
 }
 
-function taskListBody(params: ParamsOf<typeof TaskList>, ctx: AgentContext) {
+function taskListBody(
+  params: ParamsOf<typeof taskListDefinition>,
+  ctx: AgentContext,
+) {
   return Effect.gen(function* () {
     const taskService = yield* TaskServiceTag;
     const { tasks, nextCursor } = yield* taskService
@@ -275,7 +280,7 @@ function taskListBody(params: ParamsOf<typeof TaskList>, ctx: AgentContext) {
   }).pipe(Effect.withSpan("task.list"));
 }
 
-type TaskUpdateParams = ParamsOf<typeof TaskUpdate>;
+type TaskUpdateParams = ParamsOf<typeof taskUpdateDefinition>;
 type TaskUpdateCloseParams = Extract<TaskUpdateParams, { action: "close" }>;
 type TaskUpdateAddParticipantParams = Extract<
   TaskUpdateParams,
@@ -293,7 +298,7 @@ function taskCloseBody(params: TaskUpdateCloseParams) {
     for (const conversation of closed.archivedConversations) {
       yield* broadcastNotificationToAgents(
         conversation.participantAgentIds,
-        ConversationArchivedNotificationDefinition,
+        conversationArchivedNotificationDefinition,
         {
           taskId: params.taskId,
           conversationId: conversation.conversationId,
@@ -304,7 +309,7 @@ function taskCloseBody(params: TaskUpdateCloseParams) {
     }
     yield* broadcastNotificationToAgents(
       closed.participantAgentIds,
-      TaskClosedNotificationDefinition,
+      taskClosedNotificationDefinition,
       { task: closed.task },
     );
     return { action: "closed" as const, task: closed.task };
@@ -344,17 +349,19 @@ function taskUpdateBody(params: TaskUpdateParams, ctx: AppContext) {
   });
 }
 
-export const taskList: ServerHandler<typeof TaskList> = (params) =>
+export const taskList: ServerHandler<typeof taskListDefinition> = (params) =>
   Effect.gen(function* () {
     return yield* taskListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("taskList"));
 
-export const taskLeave: ServerHandler<typeof TaskLeave> = (params) =>
+export const taskLeave: ServerHandler<typeof taskLeaveDefinition> = (params) =>
   Effect.gen(function* () {
     return yield* taskLeaveBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("taskLeave"));
 
-export const taskUpdate: ServerHandler<typeof TaskUpdate> = (params) =>
+export const taskUpdate: ServerHandler<typeof taskUpdateDefinition> = (
+  params,
+) =>
   Effect.gen(function* () {
     return yield* taskUpdateBody(params, yield* appArm);
   }).pipe(Effect.withSpan("taskUpdate"));

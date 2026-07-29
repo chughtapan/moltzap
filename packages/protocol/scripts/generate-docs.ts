@@ -152,14 +152,18 @@ const deleteStaleGeneratedPages = (
   path: Path.Path,
   dir: string,
   expectedFileNames: ReadonlySet<string>,
-): Effect.Effect<void, never, never> =>
+): Effect.Effect<void> =>
   Effect.gen(function* () {
     const entries = yield* fs
       .readDirectory(dir)
-      .pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)));
+      .pipe(Effect.catchAll(() => Effect.succeed([] as readonly string[])));
     for (const name of entries) {
-      if (!name.endsWith(".mdx")) continue;
-      if (expectedFileNames.has(name)) continue;
+      if (!name.endsWith(".mdx")) {
+        continue;
+      }
+      if (expectedFileNames.has(name)) {
+        continue;
+      }
       yield* fs
         .remove(path.resolve(dir, name))
         .pipe(Effect.catchAll(() => Effect.void));
@@ -170,7 +174,7 @@ const writeGeneratedPage = (
   fs: FileSystem.FileSystem,
   file: string,
   content: string,
-): Effect.Effect<void, never, never> =>
+): Effect.Effect<void> =>
   fs
     .writeFileString(file, `${content.trimEnd()}\n`)
     .pipe(Effect.catchAll(() => Effect.void));

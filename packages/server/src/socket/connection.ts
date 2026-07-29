@@ -7,9 +7,9 @@ import type {
   ReverseCallbackSuccess,
   ReverseClient,
 } from "@moltzap/protocol/socket";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
-import { TaskCreate } from "@moltzap/protocol/task";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { messagesAuthorize } from "@moltzap/protocol/message";
+import { taskCreate } from "@moltzap/protocol/task";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
@@ -27,33 +27,33 @@ export function sendRpcToClient(
   originator: Originator,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof DispatchAuthorize }
+    { readonly definition: typeof dispatchAuthorize }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof DispatchAuthorize>,
-  ReverseCallbackError<typeof DispatchAuthorize> | ReverseCallError,
+  ReverseCallbackSuccess<typeof dispatchAuthorize>,
+  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError,
   never
 >;
 export function sendRpcToClient(
   originator: Originator,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof MessagesAuthorize }
+    { readonly definition: typeof messagesAuthorize }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof MessagesAuthorize>,
-  ReverseCallbackError<typeof MessagesAuthorize> | ReverseCallError,
+  ReverseCallbackSuccess<typeof messagesAuthorize>,
+  ReverseCallbackError<typeof messagesAuthorize> | ReverseCallError,
   never
 >;
 export function sendRpcToClient(
   originator: Originator,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof TaskCreate }
+    { readonly definition: typeof taskCreate }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof TaskCreate>,
-  ReverseCallbackError<typeof TaskCreate> | ReverseCallError,
+  ReverseCallbackSuccess<typeof taskCreate>,
+  ReverseCallbackError<typeof taskCreate> | ReverseCallError,
   never
 >;
 export function sendRpcToClient(

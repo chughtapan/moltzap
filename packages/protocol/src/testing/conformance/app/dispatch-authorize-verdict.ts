@@ -15,22 +15,26 @@ type AuthorizeVerdict =
   | { readonly _tag: "deny"; readonly reason: string }
   | { readonly _tag: "hold"; readonly reason: string };
 
-const VERDICTS: ReadonlyArray<AuthorizeVerdict> = [
+const VERDICTS: readonly AuthorizeVerdict[] = [
   { _tag: "grant" },
   { _tag: "deny", reason: "policy" },
   { _tag: "hold", reason: "queued" },
 ];
 
+/**
+ * Registers dispatch authorize verdict resolves.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchAuthorizeVerdictResolves(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-authorize-verdict-resolves-lease";
+  const name = "dispatch-authorize-verdict-resolves-lease";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "moderator's {grant|deny|hold} reply causes the server to emit agent/dispatch/released with the matching verdict to the recipient",
-    assertAllVerdictReleases(ctx, NAME).pipe(
+    assertAllVerdictReleases(ctx, name).pipe(
       Effect.withSpan("registerDispatchAuthorizeVerdictResolves"),
     ),
   );

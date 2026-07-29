@@ -1,6 +1,7 @@
 import { Data } from "effect";
 import { ToxicControlError } from "./toxics/errors.js";
 
+/** Re-exports the public API from `current module`. */
 export { ToxicControlError };
 
 /** Peer closed the underlying WS before a response arrived. */
@@ -53,6 +54,7 @@ export class RealServerAcquireError extends Data.TaggedError(
   }
 }
 
+/** Represents testing error conditions. */
 export type TestingError =
   | TransportClosedError
   | TransportIoError

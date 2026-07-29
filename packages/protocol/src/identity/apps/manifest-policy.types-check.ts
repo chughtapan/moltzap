@@ -1,6 +1,5 @@
 /**
- * @file Type canaries for the required manifest hook policies
- * (`identity/apps/manifest.ts -> AppManifestSchema`).
+ * @file Compile-time canaries for required manifest hook policies.
  *
  * The manifest's `hooks` block and each of its three policy slots are
  * required discriminated unions. That is the load-bearing invariant: an
@@ -71,6 +70,8 @@ const hookNoTimeout: DispatchPolicy = { kind: "hook" };
  * post-switch `never` binding type-checks today; feeding an extra arm to
  * the same shape fails the assignment (TS2322), so adding a policy kind
  * breaks every evaluator until it handles the new arm.
+ * @param policy Value supplied to the operation.
+ * @returns The evaluate task policy result.
  */
 function evaluateTaskPolicy(policy: TaskPolicy): string {
   switch (policy.kind) {
@@ -80,9 +81,11 @@ function evaluateTaskPolicy(policy: TaskPolicy): string {
       return policy.reason;
     case "hook":
       return `hook:${policy.timeoutMs}`;
+    default: {
+      const exhaustive: never = policy;
+      return exhaustive;
+    }
   }
-  const exhaustive: never = policy;
-  return exhaustive;
 }
 
 type TaskPolicyPlusFuture = TaskPolicy | { readonly kind: "future" };
@@ -92,10 +95,12 @@ function rejectsUnhandledArm(policy: TaskPolicyPlusFuture): string {
     case "reject":
     case "hook":
       return "handled";
+    default: {
+      // @ts-expect-error — `{ kind: "future" }` is not assignable to `never` (TS2322).
+      const exhaustive: never = policy;
+      return exhaustive;
+    }
   }
-  // @ts-expect-error — `{ kind: "future" }` is not assignable to `never` (TS2322).
-  const exhaustive: never = policy;
-  return exhaustive;
 }
 
 /** Aggregate so each binding is referenced (no unused-variable lint). */

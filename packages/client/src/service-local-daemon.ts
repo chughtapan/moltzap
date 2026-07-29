@@ -1,21 +1,21 @@
 import type { RpcGroup } from "@effect/rpc";
 import { Effect, Either } from "effect";
 import {
-  AgentsList,
-  ContactsAccept,
-  ContactsAdd,
-  ContactsList,
+  agentsList,
+  contactsAccept,
+  contactsAdd,
+  contactsList,
   type AgentId,
 } from "@moltzap/protocol/identity";
-import { AgentCallableGroup } from "@moltzap/protocol/socket/catalog";
-import { ConversationList } from "@moltzap/protocol/conversation";
+import { agentCallableGroup } from "@moltzap/protocol/socket/catalog";
+import { conversationList } from "@moltzap/protocol/conversation";
 import {
   DEFAULT_APP_ID,
-  TaskRequest,
+  taskRequest,
   type TaskId,
 } from "@moltzap/protocol/task";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import { messagesList, messagesSend } from "@moltzap/protocol/message";
 import type {
   ListCursor,
   PayloadForTag,
@@ -37,7 +37,7 @@ import {
   type StartTaskCommandResult,
 } from "./local-daemon-rpc.js";
 
-type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
 type AgentCallableTag = AgentCallableRpcs["_tag"];
 
 type ServiceCall = <Tag extends AgentCallableTag>(
@@ -125,14 +125,14 @@ function resolveStartParticipantIds(
 function lookupAgentsByNames(
   call: ServiceCall,
   names: readonly string[],
-): Effect.Effect<ResultOf<typeof AgentsList>, ServiceRpcError> {
+): Effect.Effect<ResultOf<typeof agentsList>, ServiceRpcError> {
   return Effect.gen(function* () {
     const wanted = new Set(names);
-    const agents: Array<ResultOf<typeof AgentsList>["agents"][number]> = [];
+    const agents: Array<ResultOf<typeof agentsList>["agents"][number]> = [];
     let cursor: ListCursor | undefined = undefined;
     for (let page = 0; page < AGENT_LOOKUP_MAX_PAGES; page++) {
-      const result: ResultOf<typeof AgentsList> = yield* call(
-        AgentsList.name,
+      const result: ResultOf<typeof agentsList> = yield* call(
+        agentsList.name,
         cursor === undefined
           ? { limit: AGENT_LOOKUP_PAGE_SIZE }
           : { limit: AGENT_LOOKUP_PAGE_SIZE, cursor },
@@ -157,7 +157,7 @@ function handleSendCommand(
   call: ServiceCall,
   params: SendCommandPayload,
 ): Effect.Effect<{ readonly messageId: MessageId }, ServiceRpcError> {
-  return call(MessagesSend.name, {
+  return call(messagesSend.name, {
     taskId: params.target.taskId,
     conversationId: params.target.conversationId,
     parts: [{ type: "text", text: params.message }],
@@ -196,8 +196,8 @@ function findReusableStartConversation(
   return Effect.gen(function* () {
     let cursor: string | undefined = undefined;
     for (let page = 0; page < 10; page++) {
-      const result: ResultOf<typeof ConversationList> = yield* call(
-        ConversationList.name,
+      const result: ResultOf<typeof conversationList> = yield* call(
+        conversationList.name,
         {
           limit: 100,
           ...(cursor === undefined ? {} : { cursor }),
@@ -226,7 +226,7 @@ function sendStartMessage({
   StartTaskPartialFailure | ServiceRpcError
 > {
   return Effect.either(
-    call(MessagesSend.name, {
+    call(messagesSend.name, {
       taskId,
       conversationId,
       parts: [{ type: "text", text }],
@@ -285,7 +285,7 @@ function handleStartTaskCommand(
       call,
       params.participants,
     );
-    const result = yield* call(TaskRequest.name, {
+    const result = yield* call(taskRequest.name, {
       appId,
       invitedAgentIds,
       initialConversation: initialStartConversation(
@@ -328,33 +328,33 @@ export function makeLocalDaemonHandlers({
   handleHistoryRequest,
 }: LocalDaemonHandlerOptions): LocalDaemonHandlers {
   return {
-    [LocalDaemonCommands.Status]: () =>
+    [LocalDaemonCommands.status]: () =>
       Effect.succeed({
         agentId: ownAgentId,
         connected,
         conversations: conversationCount(),
       }),
-    [LocalDaemonCommands.History]: handleHistoryRequest,
-    [LocalDaemonCommands.AgentsList]: (params) =>
+    [LocalDaemonCommands.history]: handleHistoryRequest,
+    [LocalDaemonCommands.agentsList]: (params) =>
       call(
-        AgentsList.name,
+        agentsList.name,
         params.limit === undefined ? {} : { limit: params.limit },
       ),
-    [LocalDaemonCommands.AgentsSearch]: (params) =>
+    [LocalDaemonCommands.agentsSearch]: (params) =>
       lookupAgentsByNames(call, params.names),
-    [LocalDaemonCommands.ContactsList]: () => call(ContactsList.name, {}),
-    [LocalDaemonCommands.ContactsAdd]: (params) =>
-      call(ContactsAdd.name, { contactUserId: params.userId }),
-    [LocalDaemonCommands.ContactsAccept]: (params) =>
-      call(ContactsAccept.name, { contactId: params.contactId }),
-    [LocalDaemonCommands.MessagesList]: (params) =>
-      call(MessagesList.name, {
+    [LocalDaemonCommands.contactsList]: () => call(contactsList.name, {}),
+    [LocalDaemonCommands.contactsAdd]: (params) =>
+      call(contactsAdd.name, { contactUserId: params.userId }),
+    [LocalDaemonCommands.contactsAccept]: (params) =>
+      call(contactsAccept.name, { contactId: params.contactId }),
+    [LocalDaemonCommands.messagesList]: (params) =>
+      call(messagesList.name, {
         taskId: params.taskId,
         conversationId: params.conversationId,
         ...(params.limit === undefined ? {} : { limit: params.limit }),
       }),
-    [LocalDaemonCommands.Send]: (params) => handleSendCommand(call, params),
-    [LocalDaemonCommands.StartTask]: (params) =>
+    [LocalDaemonCommands.send]: (params) => handleSendCommand(call, params),
+    [LocalDaemonCommands.startTask]: (params) =>
       handleStartTaskCommand(call, params),
   };
 }

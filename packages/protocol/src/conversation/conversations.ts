@@ -3,29 +3,29 @@
  */
 
 import { Schema } from "effect";
-import { AgentId, AgentNotFoundError } from "#identity/agents";
+import { agentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import {
   dateTimeStringSchema,
   ForbiddenError,
   InvalidParamsError,
-  ListLimitSchema,
+  listLimitSchema,
   stringEnum,
 } from "#transport";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import { ConversationInTask } from "#conversation/requirements";
-import { TaskId, TaskNotFoundError } from "#task";
+import { taskId, TaskNotFoundError } from "#task";
 import {
   ConversationFullError,
-  ConversationId,
+  conversationId,
   conversationSchema,
   ConversationNotFoundError,
   ParticipantNotAdmittedError,
 } from "./types.js";
 
-const DateTimeString = dateTimeStringSchema();
-const ConversationSchema = conversationSchema();
+const dateTimeString = dateTimeStringSchema();
+const conversationSchemaValue = conversationSchema();
 
 // ═══════════════════════════════════════════════════════════════════
 // app/conversation/create
@@ -48,16 +48,16 @@ const ConversationSchema = conversationSchema();
  * @error ParticipantNotAdmittedError when a participant is not admitted to the task
  * @error ConversationFullError when the conversation is at capacity
  */
-export const ConversationCreate = defineRpc({
+export const conversationCreate = defineRpc({
   name: "app/conversation/create",
   params: Schema.Struct({
-    taskId: TaskId,
+    taskId: taskId,
     name: Schema.optional(
       Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
     ),
-    participants: Schema.Array(AgentId).pipe(Schema.minItems(1)),
+    participants: Schema.Array(agentId).pipe(Schema.minItems(1)),
   }),
-  result: Schema.Struct({ conversation: ConversationSchema }),
+  result: Schema.Struct({ conversation: conversationSchemaValue }),
   requires: [AppPrincipal],
   errors: [
     ForbiddenError,
@@ -72,15 +72,15 @@ export const ConversationCreate = defineRpc({
 // agent/conversation/list
 // ═══════════════════════════════════════════════════════════════════
 
-const ConversationListItemSchema = Schema.Struct({
-  taskId: TaskId,
-  conversation: ConversationSchema,
-  participants: Schema.Array(AgentId),
+const conversationListItemSchema = Schema.Struct({
+  taskId: taskId,
+  conversation: conversationSchemaValue,
+  participants: Schema.Array(agentId),
 });
 
 /** Conversation list item returned by `agent/conversation/list`. */
 export type ConversationListItem = Schema.Schema.Type<
-  typeof ConversationListItemSchema
+  typeof conversationListItemSchema
 >;
 
 /**
@@ -92,47 +92,48 @@ export type ConversationListItem = Schema.Schema.Type<
  * @error InvalidParamsError when the `cursor` does not decode
  * @error ConversationNotFoundError when a listed conversation's row vanished mid-projection
  */
-export const ConversationList = defineRpc({
+export const conversationList = defineRpc({
   name: "agent/conversation/list",
   params: Schema.Struct({
-    limit: ListLimitSchema,
+    limit: listLimitSchema,
     cursor: Schema.optional(Schema.String),
   }),
   result: Schema.Struct({
-    items: Schema.Array(ConversationListItemSchema),
+    items: Schema.Array(conversationListItemSchema),
     nextCursor: Schema.optional(Schema.String),
   }),
   requires: [AgentPrincipal, ActiveAgent],
   errors: [InvalidParamsError, ConversationNotFoundError],
 });
 
-const ConversationUpdateParamsSchema = Schema.Union(
+const conversationUpdateParamsSchema = Schema.Union(
   Schema.Struct({
     action: Schema.Literal("archive"),
-    taskId: TaskId,
-    conversationId: ConversationId,
+    taskId: taskId,
+    conversationId: conversationId,
   }),
   Schema.Struct({
     action: Schema.Literal("unarchive"),
-    taskId: TaskId,
-    conversationId: ConversationId,
+    taskId: taskId,
+    conversationId: conversationId,
   }),
   Schema.Struct({
     action: Schema.Literal("add-participant"),
-    taskId: TaskId,
-    conversationId: ConversationId,
-    agentId: AgentId,
+    taskId: taskId,
+    conversationId: conversationId,
+    agentId: agentId,
   }),
   Schema.Struct({
     action: Schema.Literal("remove-participant"),
-    taskId: TaskId,
-    conversationId: ConversationId,
-    agentId: AgentId,
+    taskId: taskId,
+    conversationId: conversationId,
+    agentId: agentId,
   }),
 );
 
+/** Represents conversation update params values. */
 export type ConversationUpdateParams = Schema.Schema.Type<
-  typeof ConversationUpdateParamsSchema
+  typeof conversationUpdateParamsSchema
 >;
 
 /**
@@ -145,9 +146,9 @@ export type ConversationUpdateParams = Schema.Schema.Type<
  * @error ConversationNotFoundError when the conversation does not exist under the task
  * @error ParticipantNotAdmittedError when the agent is not admitted to the task
  */
-export const ConversationUpdate = defineRpc({
+export const conversationUpdate = defineRpc({
   name: "app/conversation/update",
-  params: ConversationUpdateParamsSchema,
+  params: conversationUpdateParamsSchema,
   result: Schema.Struct({}),
   requires: [AppPrincipal, ConversationInTask],
   errors: [
@@ -169,108 +170,108 @@ export const ConversationUpdate = defineRpc({
 //     still receives the notification)
 // ═══════════════════════════════════════════════════════════════════
 
-const ConversationCreatedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
+const conversationCreatedNotificationSchema = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
   name: Schema.optional(Schema.String),
-  participants: Schema.Array(AgentId),
+  participants: Schema.Array(agentId),
 });
 
-const ConversationArchivedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  archivedAt: DateTimeString,
+const conversationArchivedNotificationSchema = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
+  archivedAt: dateTimeString,
 });
 
-const ConversationUnarchivedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
+const conversationUnarchivedNotificationSchema = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
 });
 
-const ConversationParticipantsAddedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  addedAgentId: AgentId,
+const conversationParticipantsAddedNotificationSchema = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
+  addedAgentId: agentId,
 });
 
-const ConversationParticipantsRemovedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  removedAgentId: AgentId,
+const conversationParticipantsRemovedNotificationSchema = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
+  removedAgentId: agentId,
   reason: stringEnum(["app_remove", "task_leave"]),
 });
 
 /** Notification payload for `agent/conversation/created`. */
 export type ConversationCreatedNotification = Schema.Schema.Type<
-  typeof ConversationCreatedNotificationSchema
+  typeof conversationCreatedNotificationSchema
 >;
 
 /** Notification payload for `agent/conversation/archived`. */
 export type ConversationArchivedNotification = Schema.Schema.Type<
-  typeof ConversationArchivedNotificationSchema
+  typeof conversationArchivedNotificationSchema
 >;
 
 /** Notification payload for `agent/conversation/unarchived`. */
 export type ConversationUnarchivedNotification = Schema.Schema.Type<
-  typeof ConversationUnarchivedNotificationSchema
+  typeof conversationUnarchivedNotificationSchema
 >;
 
 /** Notification payload for `agent/conversation/participants-added`. */
 export type ConversationParticipantsAddedNotification = Schema.Schema.Type<
-  typeof ConversationParticipantsAddedNotificationSchema
+  typeof conversationParticipantsAddedNotificationSchema
 >;
 
 /** Notification payload for `agent/conversation/participants-removed`. */
 export type ConversationParticipantsRemovedNotification = Schema.Schema.Type<
-  typeof ConversationParticipantsRemovedNotificationSchema
+  typeof conversationParticipantsRemovedNotificationSchema
 >;
 
 /** Pushed when a task conversation is created. */
-export const ConversationCreatedNotificationDefinition = defineNotification({
+export const conversationCreatedNotificationDefinition = defineNotification({
   name: "agent/conversation/created",
-  params: ConversationCreatedNotificationSchema,
+  params: conversationCreatedNotificationSchema,
 });
 
 /** Pushed when a task conversation is archived. */
-export const ConversationArchivedNotificationDefinition = defineNotification({
+export const conversationArchivedNotificationDefinition = defineNotification({
   name: "agent/conversation/archived",
-  params: ConversationArchivedNotificationSchema,
+  params: conversationArchivedNotificationSchema,
 });
 
 /** Pushed when a task conversation is unarchived. */
-export const ConversationUnarchivedNotificationDefinition = defineNotification({
+export const conversationUnarchivedNotificationDefinition = defineNotification({
   name: "agent/conversation/unarchived",
-  params: ConversationUnarchivedNotificationSchema,
+  params: conversationUnarchivedNotificationSchema,
 });
 
 /** Pushed when a participant is added to a task conversation. */
-export const ConversationParticipantsAddedNotificationDefinition =
+export const conversationParticipantsAddedNotificationDefinition =
   defineNotification({
     name: "agent/conversation/participants-added",
-    params: ConversationParticipantsAddedNotificationSchema,
+    params: conversationParticipantsAddedNotificationSchema,
   });
 
 /** Pushed when a participant is removed from a task conversation. */
-export const ConversationParticipantsRemovedNotificationDefinition =
+export const conversationParticipantsRemovedNotificationDefinition =
   defineNotification({
     name: "agent/conversation/participants-removed",
-    params: ConversationParticipantsRemovedNotificationSchema,
+    params: conversationParticipantsRemovedNotificationSchema,
   });
 
 /** Agent-callable conversation RPC catalog. */
-export const agentCallableConversationRpcMethods = [ConversationList] as const;
+export const agentCallableConversationRpcMethods = [conversationList] as const;
 
 /** App-callable conversation RPC catalog. */
 export const appCallableConversationRpcMethods = [
-  ConversationCreate,
-  ConversationUpdate,
+  conversationCreate,
+  conversationUpdate,
 ] as const;
 
 /** Conversation notification catalog. */
 export const conversationNotifications = [
-  ConversationCreatedNotificationDefinition,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
-  ConversationParticipantsAddedNotificationDefinition,
-  ConversationParticipantsRemovedNotificationDefinition,
+  conversationCreatedNotificationDefinition,
+  conversationArchivedNotificationDefinition,
+  conversationUnarchivedNotificationDefinition,
+  conversationParticipantsAddedNotificationDefinition,
+  conversationParticipantsRemovedNotificationDefinition,
 ] as const;

@@ -11,7 +11,7 @@ import {
   connectTestClient,
 } from "../helpers.js";
 
-import { ConversationList } from "@moltzap/protocol/conversation";
+import { conversationList } from "@moltzap/protocol/conversation";
 
 const SUSPENDED_STATUS = "suspended";
 const AUTHENTICATION_FAILED_MESSAGE = "Authentication failed";
@@ -60,7 +60,7 @@ it("active agent works normally after registration", () =>
     const { client } = yield* registerAndConnect("active-agent");
 
     // Should work immediately — agents are active on registration in core
-    const result = yield* client.sendRpc(ConversationList, {});
+    const result = yield* client.sendRpc(conversationList, {});
     expect(result.items).toEqual([]);
 
     yield* client.close();

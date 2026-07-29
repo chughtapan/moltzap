@@ -16,16 +16,16 @@ import {
 } from "../helpers.js";
 import {
   DEFAULT_APP_ID,
-  TaskCreate,
-  TaskRequest,
+  taskCreate,
+  taskRequest,
 } from "@moltzap/protocol/task";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesAuthorize,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesAuthorize,
+  messagesSend,
 } from "@moltzap/protocol/message";
-import { ConversationCreate } from "@moltzap/protocol/conversation";
+import { conversationCreate } from "@moltzap/protocol/conversation";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
@@ -111,19 +111,19 @@ function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
 
 function blockingMessageHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    [DispatchAuthorize.name]: {
-      definition: DispatchAuthorize,
+    [dispatchAuthorize.name]: {
+      definition: dispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
-    [MessagesAuthorize.name]: {
-      definition: MessagesAuthorize,
+    [messagesAuthorize.name]: {
+      definition: messagesAuthorize,
       handle: () =>
         Effect.succeed({
           verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
         }),
     },
-    [TaskCreate.name]: {
-      definition: TaskCreate,
+    [taskCreate.name]: {
+      definition: taskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
@@ -135,7 +135,7 @@ function emitDeliveredMessageSpan() {
     const alice = yield* registerAndConnect("alice-trace-span");
     const bob = yield* registerAndConnect("bob-trace-span");
 
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -144,9 +144,9 @@ function emitDeliveredMessageSpan() {
 
     const messageText = "hello from trace span test";
     const bobEventFiber = yield* Effect.fork(
-      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
-    yield* alice.client.sendRpc(MessagesSend, {
+    yield* alice.client.sendRpc(messagesSend, {
       taskId: conv.task.id,
       conversationId,
       parts: [{ type: "text", text: messageText }],
@@ -193,7 +193,7 @@ function emitBlockedHookSpan() {
       blockingMessageHandlers(),
     );
 
-    const task = yield* alice.client.sendRpc(TaskRequest, {
+    const task = yield* alice.client.sendRpc(taskRequest, {
       appId: registered.appId,
       invitedAgentIds: [bob.agentId],
     });
@@ -202,12 +202,12 @@ function emitBlockedHookSpan() {
     // explicitly so her `agent/message/send` passes the participant gate and
     // reaches the `before_message_delivery` hook (vs. a participant-gate
     // ForbiddenError firing first).
-    const conv = yield* appClient.sendRpc(ConversationCreate, {
+    const conv = yield* appClient.sendRpc(conversationCreate, {
       taskId: task.task.id,
       participants: [alice.agentId, bob.agentId],
     });
     const outcome = yield* Effect.either(
-      alice.client.sendRpc(MessagesSend, {
+      alice.client.sendRpc(messagesSend, {
         taskId: task.task.id,
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: TRACE_BLOCKED_TEXT }],

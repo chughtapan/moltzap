@@ -1,5 +1,5 @@
 import { Effect, Either } from "effect";
-import { AppKey, validateAppManifest } from "@moltzap/protocol/identity";
+import { type AppKey, validateAppManifest } from "@moltzap/protocol/identity";
 import type { AppId, AppManifest } from "@moltzap/protocol/identity";
 import { UnauthorizedError } from "@moltzap/protocol/rpc";
 import type { Db } from "#db";

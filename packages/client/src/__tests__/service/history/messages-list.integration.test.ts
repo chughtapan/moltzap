@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -78,7 +78,7 @@ it("group conversation history shows all participants", () =>
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
     // Create group
-    const conv = yield* service.call(TaskRequest.name, {
+    const conv = yield* service.call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regB.agentId, regC.agentId],
       initialConversation: {

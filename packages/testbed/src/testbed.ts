@@ -4,7 +4,7 @@ export type { InstallMode } from "./install-mode.js";
 import { Data, Effect, Exit, Fiber, Schema } from "effect";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
-import { ServerBaseUrl } from "@moltzap/protocol/network";
+import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import {
   RuntimeExitedBeforeReady,
   RuntimeReadyTimedOut,
@@ -155,7 +155,7 @@ function installModeOverride(
   }
 }
 
-const decodeServerUrl = Schema.decodeEither(ServerBaseUrl);
+const decodeServerUrl = Schema.decodeEither(serverBaseUrlSchema);
 
 /** One agent's spec paired with the `SpawnInput` decoded from it. */
 interface DecodedAgent {

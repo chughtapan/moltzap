@@ -2,18 +2,18 @@ import { Rpc, RpcGroup } from "@effect/rpc";
 import { Effect, ParseResult, Schema } from "effect";
 import type * as SchemaAST from "effect/SchemaAST";
 import {
-  AgentId,
-  AgentsList,
-  ContactId,
-  ContactsAccept,
-  ContactsAdd,
-  ContactsList,
-  UserId,
+  agentId,
+  agentsList,
+  contactId,
+  contactsAccept,
+  contactsAdd,
+  contactsList,
+  userId,
 } from "@moltzap/protocol/identity";
 import { agentCallableMethods } from "@moltzap/protocol/socket/catalog";
-import { AppId, TaskId } from "@moltzap/protocol/task";
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { MessagesList } from "@moltzap/protocol/message";
+import { appId, taskId } from "@moltzap/protocol/task";
+import { conversationId, messageId } from "@moltzap/protocol/conversation";
+import { messagesList } from "@moltzap/protocol/message";
 import { NotConnectedError, RpcTimeoutError } from "@moltzap/protocol/rpc";
 import {
   historyRequestSchema,
@@ -29,7 +29,7 @@ const PARTICIPANT_PREFIX = "agent:";
 
 const EmptyPayload = Schema.Struct({});
 const LocalDaemonStatusResultSchema = Schema.Struct({
-  agentId: Schema.optional(AgentId),
+  agentId: Schema.optional(agentId),
   connected: Schema.Boolean,
   conversations: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
 });
@@ -39,7 +39,7 @@ const PageLimit = Schema.Number.pipe(
   Schema.lessThanOrEqualTo(MAX_PAGE_LIMIT),
 );
 
-export const AppIdV4 = AppId.pipe(
+export const AppIdV4 = appId.pipe(
   Schema.filter(
     (value) =>
       (typeof value === "string" && UUID_V4_RE.test(value)) ||
@@ -56,8 +56,8 @@ const parseStringIssue = (
   Effect.fail(new ParseResult.Type(ast, actual, message));
 
 const SendTargetParts = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
+  taskId: taskId,
+  conversationId: conversationId,
 });
 
 export const SendTarget = Schema.transformOrFail(
@@ -92,7 +92,7 @@ const AgentName = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32));
 
 const StartParticipantById = Schema.Struct({
   kind: Schema.Literal("id"),
-  id: AgentId,
+  id: agentId,
 });
 const StartParticipantByName = Schema.Struct({
   kind: Schema.Literal("name"),
@@ -119,7 +119,7 @@ export const StartParticipant = Schema.transformOrFail(
         return parseStringIssue(ast, raw, expected);
       }
       if (UUID_V4_RE.test(rest)) {
-        return Schema.decodeUnknown(AgentId)(rest).pipe(
+        return Schema.decodeUnknown(agentId)(rest).pipe(
           Effect.map((id) => ({ kind: "id" as const, id })),
           Effect.mapError(() => new ParseResult.Type(ast, raw, expected)),
         );
@@ -144,16 +144,16 @@ export const StartParticipant = Schema.transformOrFail(
 export type StartParticipant = Schema.Schema.Type<typeof StartParticipant>;
 
 export const LocalDaemonCommands = {
-  Status: "daemon/status",
-  History: "daemon/history",
-  AgentsList: "cli/agents/list",
-  AgentsSearch: "cli/agents/search",
-  ContactsList: "cli/contacts/list",
-  ContactsAdd: "cli/contacts/add",
-  ContactsAccept: "cli/contacts/accept",
-  MessagesList: "cli/messages/list",
-  Send: "cli/send",
-  StartTask: "cli/start-task",
+  status: "daemon/status",
+  history: "daemon/history",
+  agentsList: "cli/agents/list",
+  agentsSearch: "cli/agents/search",
+  contactsList: "cli/contacts/list",
+  contactsAdd: "cli/contacts/add",
+  contactsAccept: "cli/contacts/accept",
+  messagesList: "cli/messages/list",
+  send: "cli/send",
+  startTask: "cli/start-task",
 } as const;
 
 const AgentsListCommandPayload = Schema.Struct({
@@ -170,28 +170,28 @@ const AgentsSearchCommandPayload = Schema.Struct({
 const ContactsListCommandPayload = EmptyPayload;
 
 const ContactsAddCommandPayload = Schema.Struct({
-  userId: UserId,
+  userId: userId,
 });
 
 const ContactsAcceptCommandPayload = Schema.Struct({
-  contactId: ContactId,
+  contactId: contactId,
 });
 
 const MessagesListCommandPayload = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
+  taskId: taskId,
+  conversationId: conversationId,
   limit: Schema.optional(PageLimit),
 });
 
 const SendCommandPayload = Schema.Struct({
   target: SendTarget,
   message: Schema.String.pipe(Schema.minLength(1)),
-  replyToId: Schema.optional(MessageId),
+  replyToId: Schema.optional(messageId),
 });
 export type SendCommandPayload = Schema.Schema.Type<typeof SendCommandPayload>;
 
 const SendCommandResult = Schema.Struct({
-  messageId: MessageId,
+  messageId: messageId,
 });
 
 const StartTaskCommandPayload = Schema.Struct({
@@ -202,10 +202,10 @@ const StartTaskCommandPayload = Schema.Struct({
 });
 
 const StartTaskCommandResult = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
+  taskId: taskId,
+  conversationId: conversationId,
   reusedConversation: Schema.Boolean,
-  sentMessageId: Schema.optional(MessageId),
+  sentMessageId: Schema.optional(messageId),
 });
 
 export type StartTaskCommandPayload = Schema.Schema.Type<
@@ -228,8 +228,8 @@ export class StartTaskUsageError extends Schema.TaggedError<StartTaskUsageError>
 export class StartTaskPartialFailure extends Schema.TaggedError<StartTaskPartialFailure>()(
   "StartTaskPartialFailure",
   {
-    taskId: TaskId,
-    conversationId: ConversationId,
+    taskId: taskId,
+    conversationId: conversationId,
     reusedConversation: Schema.Boolean,
     message: Schema.String,
   },
@@ -265,60 +265,60 @@ export const toLocalDaemonError = (error: unknown): LocalDaemonError =>
     : new LocalDaemonInputError({ message: errorMessage(error) });
 
 export const MessagesListCommandRpc = Rpc.make(
-  LocalDaemonCommands.MessagesList,
+  LocalDaemonCommands.messagesList,
   {
     payload: MessagesListCommandPayload,
-    success: MessagesList.resultSchema,
+    success: messagesList.resultSchema,
     error: LocalDaemonErrorSchema,
   },
 );
 
-export const SendCommandRpc = Rpc.make(LocalDaemonCommands.Send, {
+export const SendCommandRpc = Rpc.make(LocalDaemonCommands.send, {
   payload: SendCommandPayload,
   success: SendCommandResult,
   error: LocalDaemonErrorSchema,
 });
 
-export const StartTaskCommandRpc = Rpc.make(LocalDaemonCommands.StartTask, {
+export const StartTaskCommandRpc = Rpc.make(LocalDaemonCommands.startTask, {
   payload: StartTaskCommandPayload,
   success: StartTaskCommandResult,
   error: LocalDaemonErrorSchema,
 });
 
 export class LocalDaemonRpcs extends RpcGroup.make(
-  Rpc.make(LocalDaemonCommands.Status, {
+  Rpc.make(LocalDaemonCommands.status, {
     payload: EmptyPayload,
     success: LocalDaemonStatusResultSchema,
     error: LocalDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.History, {
+  Rpc.make(LocalDaemonCommands.history, {
     payload: historyRequestSchema(),
     success: historyResponseSchema(),
     error: LocalDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.AgentsList, {
+  Rpc.make(LocalDaemonCommands.agentsList, {
     payload: AgentsListCommandPayload,
-    success: AgentsList.resultSchema,
+    success: agentsList.resultSchema,
     error: LocalDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.AgentsSearch, {
+  Rpc.make(LocalDaemonCommands.agentsSearch, {
     payload: AgentsSearchCommandPayload,
-    success: AgentsList.resultSchema,
+    success: agentsList.resultSchema,
     error: LocalDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.ContactsList, {
+  Rpc.make(LocalDaemonCommands.contactsList, {
     payload: ContactsListCommandPayload,
-    success: ContactsList.resultSchema,
+    success: contactsList.resultSchema,
     error: LocalDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.ContactsAdd, {
+  Rpc.make(LocalDaemonCommands.contactsAdd, {
     payload: ContactsAddCommandPayload,
-    success: ContactsAdd.resultSchema,
+    success: contactsAdd.resultSchema,
     error: LocalDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.ContactsAccept, {
+  Rpc.make(LocalDaemonCommands.contactsAccept, {
     payload: ContactsAcceptCommandPayload,
-    success: ContactsAccept.resultSchema,
+    success: contactsAccept.resultSchema,
     error: LocalDaemonErrorSchema,
   }),
   MessagesListCommandRpc,

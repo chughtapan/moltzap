@@ -13,7 +13,9 @@ Agent identity server internals.
 _Variable_
 
 ```ts
-export const agentsList: ServerHandler<typeof AgentsList> = (params)
+export const agentsList: ServerHandler<typeof agentsListDefinition> = (
+  params,
+)
 ```
 
 ### [`AuthService`](./auth.service.ts#L16)

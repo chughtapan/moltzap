@@ -12,7 +12,7 @@
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import { DispatchLeaseGet } from "@moltzap/protocol/message/dispatch";
+import { dispatchLeaseGet } from "@moltzap/protocol/message/dispatch";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { DispatchId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
@@ -137,7 +137,7 @@ function wireModeratorReadsGrantedLease() {
 
     // `app/dispatch/lease/get` is moderator-scoped: only the lease's
     // `moderatorConnectionId` (the fixture's app `AppConnection`) may read it.
-    const view = yield* moderatorAppClient().sendRpc(DispatchLeaseGet, {
+    const view = yield* moderatorAppClient().sendRpc(dispatchLeaseGet, {
       dispatchId: ack.dispatchId as DispatchId,
     });
     expect(view.lease.dispatchId).toBe(ack.dispatchId);

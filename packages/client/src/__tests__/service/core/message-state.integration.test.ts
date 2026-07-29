@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import * as H from "../../support/index.js";
 
@@ -41,7 +41,7 @@ it("getHistory() stores received messages", () =>
       regReceiver.agentId,
     );
 
-    const conv = yield* regSender.client.call(TaskRequest.name, {
+    const conv = yield* regSender.client.call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [regReceiver.agentId],
       initialConversation: { participants: [regReceiver.agentId] },

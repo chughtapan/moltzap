@@ -7,11 +7,11 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Fiber } from "effect";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesList,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import type { AgentKey } from "@moltzap/protocol/identity";
 import type { AgentId } from "@moltzap/protocol/identity";
@@ -107,7 +107,7 @@ function setupGroupConversation(
   agents: ThreeAgents,
 ): Effect.Effect<GroupBinding, unknown> {
   return Effect.gen(function* () {
-    const created = yield* agents.tm.sendRpc(TaskRequest, {
+    const created = yield* agents.tm.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [agents.senderAgentId, agents.recipientAgentId],
       initialConversation: {
@@ -138,7 +138,7 @@ function sendText(
   binding: GroupBinding,
   text: string,
 ) {
-  return client.sendRpc(MessagesSend, {
+  return client.sendRpc(messagesSend, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
@@ -168,7 +168,7 @@ function commitsWhenParticipantIsOffline() {
       agents.recipientAgentId,
       agents.recipientApiKey,
     );
-    const listed = yield* reconnectedRecipient.sendRpc(MessagesList, {
+    const listed = yield* reconnectedRecipient.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
@@ -183,7 +183,7 @@ function broadcastsWhenParticipantsAreOnline() {
     const receivedFiber = yield* Effect.fork(
       awaitOneNotification(
         agents.recipient,
-        MessageReceivedNotificationDefinition,
+        messageReceivedNotificationDefinition,
       ),
     );
     yield* Effect.sleep(SUBSCRIBE_SETTLE);

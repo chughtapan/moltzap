@@ -18,9 +18,9 @@ import { live as it } from "@effect/vitest";
 import { Data, Effect, Schema } from "effect";
 import { MoltZapService } from "@moltzap/client";
 import { withTestServiceConfig } from "@moltzap/client/test-utils";
-import { AgentKey } from "@moltzap/protocol/identity";
+import { type AgentKey, agentKey } from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
-import { TaskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
+import { taskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
@@ -98,7 +98,7 @@ function injectedConfig(): InjectedConfig {
 }
 
 function decodeInjectedAgentKey(key: string): AgentKey {
-  return Schema.decodeUnknownSync(AgentKey)(injectString(key));
+  return Schema.decodeUnknownSync(agentKey)(injectString(key));
 }
 
 function contentText(msg: InboundMessage): string {
@@ -235,7 +235,7 @@ function createDm(
   EchoIntegrationError
 > {
   return peerService
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [channelAgentId],
       initialConversation: { participants: [channelAgentId] },

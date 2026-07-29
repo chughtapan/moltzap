@@ -16,6 +16,7 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 
 import { registerSubscribeAfterConnect } from "./presence-subscribe-after-connect.js";
 
+/** Re-exports the public API from `current module`. */
 export { registerSubscribeAfterConnect };
 
 /**

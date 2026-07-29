@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Redacted, Schema } from "effect";
 import * as fc from "fast-check";
-import { AgentKey, AppKey } from "@moltzap/protocol/identity";
+import { agentKey, appKey } from "@moltzap/protocol/identity";
 import {
   generateApiKey,
   generateAppKey,
@@ -34,7 +34,7 @@ describe("generateApiKey / parseApiKey", () => {
   it("rejects an app key", () => {
     const { appKey } = generateAppKey();
     expect(() =>
-      Schema.decodeUnknownSync(AgentKey)(Redacted.value(appKey)),
+      Schema.decodeUnknownSync(agentKey)(Redacted.value(appKey)),
     ).toThrow();
   });
 });
@@ -56,17 +56,17 @@ describe("generateAppKey / parseAppKey", () => {
   it("rejects an agent key", () => {
     const { apiKey } = generateApiKey();
     expect(() =>
-      Schema.decodeUnknownSync(AppKey)(Redacted.value(apiKey)),
+      Schema.decodeUnknownSync(appKey)(Redacted.value(apiKey)),
     ).toThrow();
   });
 
   it("rejects malformed app keys", () => {
-    expect(() => Schema.decodeUnknownSync(AppKey)("")).toThrow();
+    expect(() => Schema.decodeUnknownSync(appKey)("")).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(AppKey)("moltzap_app_short"),
+      Schema.decodeUnknownSync(appKey)("moltzap_app_short"),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(AppKey)("moltzap_app_0123456789abcdef"),
+      Schema.decodeUnknownSync(appKey)("moltzap_app_0123456789abcdef"),
     ).toThrow();
   });
 });

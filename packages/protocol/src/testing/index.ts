@@ -12,6 +12,7 @@ import * as toxics from "./toxics/index.js";
 
 // Brand-decoders for test fixtures. Production code does not validate IDs
 // at the caller.
+/** Re-exports the public API from `./test-fixtures.js`. */
 export {
   userId,
   agentId,
@@ -31,28 +32,37 @@ export {
 
 // Effect RPC owns frame encoding/decoding. The testing surface exposes
 // descriptor-level helpers only.
+/** Re-exports the public API from `#transport/descriptor`. */
 export { decodeRpcResult } from "#transport/descriptor";
-export { TaskFailedNotificationDefinition } from "#task";
+/** Re-exports the public API from `#task`. */
+export { taskFailedNotificationDefinition } from "#task";
+/** Re-exports the public API from `./wire-error-tags.js`. */
 export { WIRE_ERROR_TAG } from "./wire-error-tags.js";
 
 // Starvation-immune async-wait primitives. Shared by every package's tests so
 // the parallel-flake fix (no wall-clock poll deadline) lives in one place.
+/** Re-exports the public API from `./wait.js`. */
 export { waitForValue, waitUntil } from "./wait.js";
 
+/** Re-exports the public API from `./lifecycle.js`. */
 export { makeTestAgentClient, makeTestAppClient } from "./lifecycle.js";
+/** Re-exports the public API from `./lifecycle.js`. */
 export type {
   TestAgentClient,
   TestAppClient,
   TestServer,
 } from "./lifecycle.js";
+/** Re-exports the public API from `./conformance/index.js`. */
 export {
   runConformanceSuite,
   type ConformanceSuiteOptions,
   type SuiteResult,
 } from "./conformance/index.js";
+/** Re-exports the public API from `./toxics/client.js`. */
 export type { ToxiproxyNetworkConfig } from "./toxics/client.js";
 
 // Errors.
+/** Re-exports the public API from `./errors.js`. */
 export {
   type TestingError,
   TransportClosedError,
@@ -63,6 +73,7 @@ export {
 } from "./errors.js";
 
 // Test-agent registration helper.
+/** Re-exports the public API from `./test-fixtures.js`. */
 export {
   type TestAgent,
   type TestAppCredential,
@@ -73,4 +84,5 @@ export {
 } from "./test-fixtures.js";
 
 // Arbitraries, toxics — namespaced to keep names scoped.
+/** Re-exports the public API from `current module`. */
 export { arbitraries, toxics };

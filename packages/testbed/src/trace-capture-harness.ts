@@ -20,12 +20,12 @@ import {
 
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import {
   DEFAULT_APP_ID,
-  TaskRequest,
+  taskRequest,
   type TaskId,
 } from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
@@ -268,7 +268,7 @@ function waitForTargetResponseStream(input: {
 }): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return input.client
     .subscribe(
-      MessageReceivedNotificationDefinition,
+      messageReceivedNotificationDefinition,
       (params) =>
         params.message.senderId === input.targetAgentId &&
         params.message.conversationId === input.conversationId,
@@ -328,7 +328,7 @@ function sendMessageAndWait(input: {
       }),
     );
     yield* input.sender.client
-      .sendRpc(MessagesSend, {
+      .sendRpc(messagesSend, {
         taskId: input.taskId,
         conversationId: input.conversationId,
         parts: [{ type: "text", text: input.message }],
@@ -366,7 +366,7 @@ function createDirectConversation(
   targetAgentId: AgentId,
 ): Effect.Effect<TaskScope, HarnessFailure, never> {
   return sender.client
-    .sendRpc(TaskRequest, {
+    .sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [targetAgentId],
       initialConversation: { participants: [targetAgentId] },
@@ -397,7 +397,7 @@ function createGroupConversation(input: {
     ...input.participants.map((p) => p.agentId),
   ];
   return input.sender.client
-    .sendRpc(TaskRequest, {
+    .sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: invited,
       initialConversation: { participants: invited },

@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "nx run @moltzap/openclaw-channel:build",
-    "lint": "nx run @moltzap/openclaw-channel:lint",
+    "lint": "tsc --build && eslint . --cache --max-warnings=0",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:conformance": "vitest run -c vitest.conformance.config.ts",
@@ -42,7 +42,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/openclaw-channel",
-          "command": "eslint src *.ts --cache --max-warnings=0"
+          "command": "pnpm lint"
         }
       },
       "arch:check": {

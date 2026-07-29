@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import {
-  ContactAcceptedNotificationDefinition,
-  ContactRequestNotificationDefinition,
-  ContactsAccept,
-  ContactsAdd,
-  ContactsList,
+  contactAcceptedNotificationDefinition,
+  contactRequestNotificationDefinition,
+  contactsAccept as contactsAcceptDefinition,
+  contactsAdd as contactsAddDefinition,
+  contactsList as contactsListDefinition,
 } from "@moltzap/protocol/identity";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
@@ -35,7 +35,7 @@ const fanOut = <D extends AnyNotificationDefinition>(
   }).pipe(Effect.withSpan("contacts.fanOut"));
 
 function contactsListBody(
-  params: ParamsOf<typeof ContactsList>,
+  params: ParamsOf<typeof contactsListDefinition>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -57,14 +57,14 @@ function contactsListBody(
 }
 
 function contactsAddBody(
-  params: ParamsOf<typeof ContactsAdd>,
+  params: ParamsOf<typeof contactsAddDefinition>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
     const contactService = yield* ContactsServiceTag;
     const owner = ctx.ownerUserId;
     const contact = yield* contactService.add(owner, params);
-    yield* fanOut(params.contactUserId, ContactRequestNotificationDefinition, {
+    yield* fanOut(params.contactUserId, contactRequestNotificationDefinition, {
       contact,
     });
     return { contact };
@@ -72,7 +72,7 @@ function contactsAddBody(
 }
 
 function contactsAcceptBody(
-  params: ParamsOf<typeof ContactsAccept>,
+  params: ParamsOf<typeof contactsAcceptDefinition>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -82,7 +82,7 @@ function contactsAcceptBody(
     if (result.transitioned) {
       yield* fanOut(
         result.requesterUserId,
-        ContactAcceptedNotificationDefinition,
+        contactAcceptedNotificationDefinition,
         { contact: result.contact },
       );
     }
@@ -92,17 +92,23 @@ function contactsAcceptBody(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const contactsList: ServerHandler<typeof ContactsList> = (params) =>
+export const contactsList: ServerHandler<typeof contactsListDefinition> = (
+  params,
+) =>
   Effect.gen(function* () {
     return yield* contactsListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsList"));
 
-export const contactsAdd: ServerHandler<typeof ContactsAdd> = (params) =>
+export const contactsAdd: ServerHandler<typeof contactsAddDefinition> = (
+  params,
+) =>
   Effect.gen(function* () {
     return yield* contactsAddBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsAdd"));
 
-export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params) =>
+export const contactsAccept: ServerHandler<typeof contactsAcceptDefinition> = (
+  params,
+) =>
   Effect.gen(function* () {
     return yield* contactsAcceptBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsAccept"));

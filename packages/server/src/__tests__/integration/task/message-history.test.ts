@@ -8,8 +8,8 @@ import {
   setupAgentPair,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
 const TOTAL_MESSAGES_TO_SEND = 15;
 const PAGE_SIZE = 10;
@@ -26,7 +26,7 @@ it("message listing returns bounded newest messages in ascending order", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
@@ -36,7 +36,7 @@ it("message listing returns bounded newest messages in ascending order", () =>
 
     // Send enough messages to exceed the bounded result window.
     for (let i = 1; i <= TOTAL_MESSAGES_TO_SEND; i++) {
-      yield* alice.client.sendRpc(MessagesSend, {
+      yield* alice.client.sendRpc(messagesSend, {
         taskId,
         conversationId,
         parts: [{ type: "text", text: `Message ${i}` }],
@@ -44,7 +44,7 @@ it("message listing returns bounded newest messages in ascending order", () =>
     }
 
     // List with limit=10 — should get the newest 10.
-    const page1 = yield* alice.client.sendRpc(MessagesList, {
+    const page1 = yield* alice.client.sendRpc(messagesList, {
       taskId,
       conversationId,
       limit: PAGE_SIZE,
@@ -70,7 +70,7 @@ it("message listing returns bounded newest messages in ascending order", () =>
     expect(new Set(ids).size).toBe(PAGE_SIZE);
 
     // List all — should get every message.
-    const all = yield* alice.client.sendRpc(MessagesList, {
+    const all = yield* alice.client.sendRpc(messagesList, {
       taskId,
       conversationId,
       limit: 100,

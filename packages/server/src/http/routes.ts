@@ -8,7 +8,7 @@ import * as Socket from "@effect/platform/Socket";
 import { Cause, Data, Effect, Either, Exit, Redacted, Schema } from "effect";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import {
-  Register,
+  register,
   validateAppManifest,
   type AgentKey,
   type AppManifest,
@@ -29,14 +29,14 @@ const HTTP_INTERNAL_SERVER_ERROR = 500;
 const ERROR_INVALID_JSON = "Invalid JSON";
 const ERROR_INVALID_PARAMETERS = "Invalid parameters";
 
-type RegisterParams = ParamsOf<typeof Register>;
+type RegisterParams = ParamsOf<typeof register>;
 
 const decodeHttpBody =
   <A, I>(schema: Schema.Schema<A, I>) =>
   (value: unknown): Effect.Effect<A, unknown> =>
     Schema.decodeUnknown(schema)(value, { onExcessProperty: "error" });
 
-const decodeRegisterBody = decodeHttpBody(Register.paramsSchema);
+const decodeRegisterBody = decodeHttpBody(register.paramsSchema);
 
 const optionalSecretValue = <A>(
   value: Redacted.Redacted<A> | undefined,

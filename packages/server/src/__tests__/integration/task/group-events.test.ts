@@ -10,8 +10,8 @@ import {
 } from "../helpers.js";
 import type { ConnectedAgent } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { ConversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { conversationCreatedNotificationDefinition } from "@moltzap/protocol/conversation";
 
 const GROUP_NAME = "Eval Group";
 
@@ -33,17 +33,17 @@ it("group creation notifies all participants with app/conversation/created event
     const bobCreatedFiber = yield* Effect.fork(
       awaitOneNotification(
         bob.client,
-        ConversationCreatedNotificationDefinition,
+        conversationCreatedNotificationDefinition,
       ),
     );
     const eveCreatedFiber = yield* Effect.fork(
       awaitOneNotification(
         eve.client,
-        ConversationCreatedNotificationDefinition,
+        conversationCreatedNotificationDefinition,
       ),
     );
 
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, eve.agentId],
       initialConversation: {

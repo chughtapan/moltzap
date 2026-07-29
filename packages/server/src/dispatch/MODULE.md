@@ -199,27 +199,27 @@ export class DispatchAdmissionServiceTag extends Context.Tag(
 _TypeAlias_
 
 ```ts
-export type DispatchAuthorizeContext = ParamsOf<typeof DispatchAuthorize>;
+export type DispatchAuthorizeContext = ParamsOf<typeof dispatchAuthorize>;
 ```
 
-### [`dispatchLeaseGet`](./handlers.ts#L73)
+### [`dispatchLeaseGet`](./handlers.ts#L75)
 
 _Variable_
 
 ```ts
-export const dispatchLeaseGet: ServerHandler<typeof DispatchLeaseGet> = (
-  params,
-)
+export const dispatchLeaseGet: ServerHandler<
+  typeof dispatchLeaseGetDefinition
+> = (params)
 ```
 
-### [`dispatchRequest`](./handlers.ts#L66)
+### [`dispatchRequest`](./handlers.ts#L68)
 
 _Variable_
 
 ```ts
-export const dispatchRequest: ServerHandler<typeof DispatchRequest> = (
-  params,
-)
+export const dispatchRequest: ServerHandler<
+  typeof dispatchRequestDefinition
+> = (params)
 ```
 
 ### [`EnqueueDispatchRequestArgs`](./admission.service.ts#L88)

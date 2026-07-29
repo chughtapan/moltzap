@@ -38,10 +38,7 @@ const program = Effect.gen(function* () {
   yield* report(failures);
 });
 
-const announce = (
-  blocks: number,
-  files: number,
-): Effect.Effect<void, never, never> =>
+const announce = (blocks: number, files: number): Effect.Effect<void> =>
   Effect.sync(() =>
     process.stdout.write(
       `Checking ${blocks} Mermaid block(s) across ${files} file(s)...\n`,
@@ -51,8 +48,8 @@ const announce = (
 const collectBlocks = (
   fs: FileSystem.FileSystem,
   path: Path.Path,
-  files: ReadonlyArray<string>,
-): Effect.Effect<ReadonlyArray<MermaidBlock>, never, never> =>
+  files: readonly string[],
+): Effect.Effect<readonly MermaidBlock[]> =>
   Effect.gen(function* () {
     const out: MermaidBlock[] = [];
     for (const file of files) {
@@ -66,9 +63,9 @@ const collectBlocks = (
   });
 
 const lintAll = (
-  blocks: ReadonlyArray<MermaidBlock>,
+  blocks: readonly MermaidBlock[],
 ): Effect.Effect<
-  ReadonlyArray<MermaidFailure>,
+  readonly MermaidFailure[],
   never,
   | FileSystem.FileSystem
   | Path.Path
@@ -83,9 +80,7 @@ const lintAll = (
     return results.filter((r): r is MermaidFailure => r !== null);
   });
 
-const report = (
-  failures: ReadonlyArray<MermaidFailure>,
-): Effect.Effect<void, never, never> =>
+const report = (failures: readonly MermaidFailure[]): Effect.Effect<void> =>
   Effect.sync(() => {
     if (failures.length === 0) {
       process.stdout.write("Mermaid lint: PASS\n");
@@ -103,8 +98,8 @@ const report = (
 const collectMarkdownFiles = (
   fs: FileSystem.FileSystem,
   path: Path.Path,
-  roots: ReadonlyArray<string>,
-): Effect.Effect<ReadonlyArray<string>, never, never> =>
+  roots: readonly string[],
+): Effect.Effect<readonly string[]> =>
   Effect.gen(function* () {
     const ctx: WalkCtx = { fs, path, out: [] };
     for (const root of roots) {
@@ -121,14 +116,11 @@ interface WalkCtx {
   readonly out: string[];
 }
 
-const walkInto = (
-  ctx: WalkCtx,
-  dir: string,
-): Effect.Effect<void, never, never> =>
+const walkInto = (ctx: WalkCtx, dir: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const entries = yield* ctx.fs
       .readDirectory(dir)
-      .pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)));
+      .pipe(Effect.catchAll(() => Effect.succeed([] as readonly string[])));
     for (const name of entries) {
       yield* visitEntry(ctx, dir, name);
     }
@@ -138,19 +130,25 @@ const visitEntry = (
   ctx: WalkCtx,
   dir: string,
   name: string,
-): Effect.Effect<void, never, never> =>
+): Effect.Effect<void> =>
   Effect.gen(function* () {
-    if (SKIP_DIRS.has(name)) return;
+    if (SKIP_DIRS.has(name)) {
+      return;
+    }
     const full = ctx.path.resolve(dir, name);
     const stat = yield* ctx.fs
       .stat(full)
       .pipe(Effect.catchAll(() => Effect.succeed(null)));
-    if (stat === null) return;
+    if (stat === null) {
+      return;
+    }
     if (stat.type === "Directory") {
       yield* walkInto(ctx, full);
       return;
     }
-    if (name.endsWith(".md") || name.endsWith(".mdx")) ctx.out.push(full);
+    if (name.endsWith(".md") || name.endsWith(".mdx")) {
+      ctx.out.push(full);
+    }
   });
 
 NodeRuntime.runMain(program.pipe(Effect.provide(NodeContext.layer)));

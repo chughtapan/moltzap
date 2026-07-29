@@ -12,7 +12,7 @@
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import { DispatchRelease } from "@moltzap/protocol/message/dispatch";
+import { dispatchRelease } from "@moltzap/protocol/message/dispatch";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { Chunk, Duration, Effect, Either, Fiber, Stream } from "effect";
@@ -74,7 +74,7 @@ function requestDispatchesInParallel(
 }
 
 function forkTwoReleaseCollector(recipient: ConnectedAgent) {
-  return recipient.client.subscribe(DispatchRelease).pipe(
+  return recipient.client.subscribe(dispatchRelease).pipe(
     Stream.take(2),
     Stream.runCollect,
     Effect.map(Chunk.toReadonlyArray),

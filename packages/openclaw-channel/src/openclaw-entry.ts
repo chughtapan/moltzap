@@ -42,14 +42,15 @@ import {
   writeOpenClawContextLog,
   type OpenClawContextLogInput,
 } from "./context-log.js";
-import { AgentsList } from "@moltzap/protocol/identity";
+import { agentsList } from "@moltzap/protocol/identity";
 import {
-  ConversationId,
-  ConversationList,
-  MessageId,
+  type ConversationId,
+  conversationId,
+  conversationList,
+  messageId,
 } from "@moltzap/protocol/conversation";
 import type { ResultOf } from "@moltzap/protocol/rpc";
-import { TaskClosedError, TaskId } from "@moltzap/protocol/task";
+import { TaskClosedError, type TaskId, taskId } from "@moltzap/protocol/task";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 
 const CHANNEL_ID = "moltzap" as const;
@@ -655,12 +656,12 @@ function listPeersEffect(
     // Drain ALL visible-agent pages so every peer in the directory resolves.
     const agents = yield* drainPaginatedList<
       ServiceRpcError,
-      typeof AgentsList,
-      ResultOf<typeof AgentsList>["agents"][number],
-      NonNullable<ResultOf<typeof AgentsList>["nextCursor"]>
+      typeof agentsList,
+      ResultOf<typeof agentsList>["agents"][number],
+      NonNullable<ResultOf<typeof agentsList>["nextCursor"]>
     >({
       sendRpc,
-      definition: AgentsList,
+      definition: agentsList,
       paramsForCursor: (cursor) => (cursor === undefined ? {} : { cursor }),
       rowsForPage: (page) => page.agents,
       nextCursorForPage: (page) => page.nextCursor,
@@ -688,12 +689,12 @@ function listGroupsEffect(
     // Drain ALL conversation pages so named groups past the first page resolve.
     const items = yield* drainPaginatedList<
       ServiceRpcError,
-      typeof ConversationList,
-      ResultOf<typeof ConversationList>["items"][number],
-      NonNullable<ResultOf<typeof ConversationList>["nextCursor"]>
+      typeof conversationList,
+      ResultOf<typeof conversationList>["items"][number],
+      NonNullable<ResultOf<typeof conversationList>["nextCursor"]>
     >({
       sendRpc,
-      definition: ConversationList,
+      definition: conversationList,
       paramsForCursor: (cursor) => (cursor === undefined ? {} : { cursor }),
       rowsForPage: (page) => page.items,
       nextCursorForPage: (page) => page.nextCursor,
@@ -1145,8 +1146,8 @@ function parseTaskTarget(
   }
   return Effect.try({
     try: () => ({
-      taskId: Schema.decodeUnknownSync(TaskId)(body.slice(0, sep)),
-      conversationId: Schema.decodeUnknownSync(ConversationId)(
+      taskId: Schema.decodeUnknownSync(taskId)(body.slice(0, sep)),
+      conversationId: Schema.decodeUnknownSync(conversationId)(
         body.slice(sep + 1),
       ),
     }),
@@ -1182,7 +1183,7 @@ function dispatchOutbound(
       parsed.conversationId,
       ctx.text,
       ctx.replyToId !== undefined
-        ? { replyTo: Schema.decodeUnknownSync(MessageId)(ctx.replyToId) }
+        ? { replyTo: Schema.decodeUnknownSync(messageId)(ctx.replyToId) }
         : {},
     );
   });

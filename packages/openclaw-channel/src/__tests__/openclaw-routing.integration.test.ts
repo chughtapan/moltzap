@@ -21,11 +21,11 @@ import {
   type TaskBinding,
 } from "./test-helpers.js";
 
-import { AgentsList } from "@moltzap/protocol/identity";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { agentsList } from "@moltzap/protocol/identity";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import type { ListCursor, ResultOf } from "@moltzap/protocol/rpc";
 import type { AgentId } from "@moltzap/protocol/identity";
@@ -285,7 +285,7 @@ function duplicateTargetReusesConversation() {
 function missingAgentLookupFails() {
   return Effect.gen(function* () {
     const agentClient = yield* connectedRegisteredClient("err-sender");
-    const result = yield* agentClient.call(AgentsList.name, {
+    const result = yield* agentClient.call(agentsList.name, {
       limit: AGENT_LIST_PAGE_SIZE,
     });
     expect(
@@ -367,7 +367,7 @@ function createDm(
   invitee: AgentId,
 ): Effect.Effect<TaskBinding, unknown> {
   return client
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [invitee],
       initialConversation: { participants: [invitee] },
@@ -381,7 +381,7 @@ function createGroup(
   agentIds: ReadonlyArray<AgentId>,
 ): Effect.Effect<TaskBinding, unknown> {
   return client
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: agentIds,
       initialConversation: { name, participants: agentIds },
@@ -394,7 +394,7 @@ function sendText(
   binding: TaskBinding,
   text: string,
 ) {
-  return client.call(MessagesSend.name, {
+  return client.call(messagesSend.name, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: TEXT_PART_TYPE, text }],
@@ -407,7 +407,7 @@ function sendText(
  * project the decoded payload with `extractMessage`.
  */
 function waitForReceivedMessage(client: MoltZapAgentClient) {
-  return client.subscribe(MessageReceivedNotificationDefinition).pipe(
+  return client.subscribe(messageReceivedNotificationDefinition).pipe(
     Stream.runHead,
     Effect.timeoutFail({
       duration: Duration.millis(NOTIFICATION_WAIT_TIMEOUT_MS),
@@ -432,7 +432,7 @@ function waitForReceivedMessage(client: MoltZapAgentClient) {
 }
 
 function waitForReceivedMessages(client: MoltZapAgentClient, count: number) {
-  return client.subscribe(MessageReceivedNotificationDefinition).pipe(
+  return client.subscribe(messageReceivedNotificationDefinition).pipe(
     Stream.take(count),
     Stream.runCollect,
     Effect.timeoutFail({
@@ -479,8 +479,8 @@ function lookupAgentId(client: MoltZapAgentClient, name: string) {
   return Effect.gen(function* () {
     let cursor: ListCursor | undefined = undefined;
     for (let page = 0; page < AGENT_LIST_MAX_PAGES; page++) {
-      const result: ResultOf<typeof AgentsList> = yield* client.call(
-        AgentsList.name,
+      const result: ResultOf<typeof agentsList> = yield* client.call(
+        agentsList.name,
         cursor === undefined
           ? { limit: AGENT_LIST_PAGE_SIZE }
           : { limit: AGENT_LIST_PAGE_SIZE, cursor },

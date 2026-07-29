@@ -68,7 +68,7 @@ it("socket request resolves without 10s hang (timer leak regression)", () =>
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
       const start = performance.now();
-      yield* H.requestDaemonCommand(H.LocalDaemonCommands.Status, {});
+      yield* H.requestDaemonCommand(H.LocalDaemonCommands.status, {});
       const elapsed = performance.now() - start;
       expect(elapsed).toBeLessThan(H.SOCKET_RESPONSE_TIMEOUT_MS);
     }).pipe(Effect.ensuring(H.closeAll([service], [reg.client])));
@@ -87,12 +87,12 @@ it("two services use separate socket paths", () =>
 
       // Both respond via their own socket path
       const resultA = yield* H.requestDaemonCommand(
-        H.LocalDaemonCommands.Status,
+        H.LocalDaemonCommands.status,
         {},
         serviceA.socketPath,
       );
       const resultB = yield* H.requestDaemonCommand(
-        H.LocalDaemonCommands.Status,
+        H.LocalDaemonCommands.status,
         {},
         serviceB.socketPath,
       );

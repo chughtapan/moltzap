@@ -20,7 +20,7 @@ import { AuthService } from "#identity/agents";
 
 import {
   DEFAULT_APP_ID,
-  TaskRequest,
+  taskRequest,
   type AppId,
   type TaskId,
 } from "@moltzap/protocol/task";
@@ -443,7 +443,7 @@ export function setupAgentGroup(
     if (opts?.groupName) {
       const creator = agents[0]!;
       const otherAgentIds = agents.slice(1).map((a) => a.agentId);
-      const created = yield* creator.client.sendRpc(TaskRequest, {
+      const created = yield* creator.client.sendRpc(taskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: otherAgentIds,
         initialConversation: {

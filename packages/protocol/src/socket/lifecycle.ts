@@ -19,75 +19,71 @@ import {
   Schedule,
   Schema,
   Scope,
-  Stream,
+  type Stream,
 } from "effect";
 import {
-  AgentConnect,
-  AppConnect,
-  ServerBaseUrl,
+  type agentConnect,
+  type appConnect,
+  serverBaseUrlSchema,
   webSocketUrl,
 } from "#network";
 import {
-  AgentCallableGroup,
-  AppCallableGroup,
-  ReverseRpcGroup,
-  appCallbackMethods,
+  agentCallableGroup,
+  appCallableGroup,
+  reverseRpcGroup,
+  type appCallbackMethods,
   type AnyNotificationDefinition,
 } from "#socket/catalog";
 import {
-  DispatchRelease,
-  DispatchLeaseConsumed,
-  DispatchLeaseExpired,
+  dispatchRelease,
+  dispatchLeaseConsumed,
+  dispatchLeaseExpired,
 } from "#message/dispatch";
 import {
-  ContactAcceptedNotificationDefinition,
-  ContactRequestNotificationDefinition,
+  contactAcceptedNotificationDefinition,
+  contactRequestNotificationDefinition,
 } from "#identity/contacts";
-import { MessageReceivedNotificationDefinition } from "#message";
+import { messageReceivedNotificationDefinition } from "#message";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationParticipantsAddedNotificationDefinition,
-  ConversationParticipantsRemovedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
+  conversationArchivedNotificationDefinition,
+  conversationCreatedNotificationDefinition,
+  conversationParticipantsAddedNotificationDefinition,
+  conversationParticipantsRemovedNotificationDefinition,
+  conversationUnarchivedNotificationDefinition,
 } from "#conversation";
 import {
-  TaskClosedNotificationDefinition,
-  TaskCreatedNotificationDefinition,
-  TaskFailedNotificationDefinition,
+  taskClosedNotificationDefinition,
+  taskCreatedNotificationDefinition,
+  taskFailedNotificationDefinition,
 } from "#task";
 import {
   DEFAULT_GRACEFUL_CLOSE,
   extractCloseInfo,
   type CloseInfo,
 } from "./close-info.js";
-import type {
-  NotificationDelivery,
-  NotificationParamsOf,
-  ResultOf,
-} from "#transport";
 import {
+  type NotificationDelivery,
+  type NotificationParamsOf,
+  type ResultOf,
   makeNotificationSubscriberRegistry,
   notificationSubscribe,
   notificationSubscribeAll,
   type NotificationSubscriberRegistry,
-} from "#transport";
-import { NotConnectedError, RpcTimeoutError } from "#transport";
-import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
-import {
+  NotConnectedError,
+  RpcTimeoutError,
   makeClientChannelProtocol,
   runMuxReader,
   type ChannelSink,
   type WireWrite,
-} from "#transport";
-import {
   makeTypedTransportCall,
   type ErrorForTag,
   type PayloadForTag,
   type SuccessForTag,
   type TypedDispatchMap,
 } from "#transport";
+import { makeServerProtocolLayer } from "./internal/protocol-layer.js";
 
+/** Provides the rpc timeout ms runtime value. */
 export const RPC_TIMEOUT_MS = 30_000;
 
 const BASE_RECONNECT_DELAY_MS = 1000;
@@ -98,28 +94,35 @@ const NORMAL_CLOSE_CODE = 1000;
 const GRACEFUL_CLOSE_WRITE_TIMEOUT = Duration.seconds(1);
 const MSG_NOT_CONNECTED = "WebSocket not connected";
 
+/** Configures rpc call. */
 export interface RpcCallOptions {
   readonly timeoutMs?: number;
 }
 
-export type ClientRpcDefinition<Rpcs extends Rpc.Any = Rpc.Any> = {
+/** Describes client rpc definition. */
+export interface ClientRpcDefinition<Rpcs extends Rpc.Any = Rpc.Any> {
   readonly clientRpc: Rpcs;
-};
+}
+/** Represents client definition payload values. */
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
   Rpc.PayloadConstructor<D["clientRpc"]>;
+/** Represents client definition success values. */
 export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
   Rpc.Success<D["clientRpc"]>;
+/** Represents client definition error conditions. */
 export type ClientDefinitionError<D extends ClientRpcDefinition> =
   | Rpc.Error<D["clientRpc"]>
   | NotConnectedError
   | RpcTimeoutError;
 
-export type ConnectResult = ResultOf<typeof AgentConnect>;
+/** Represents the result of connect. */
+export type ConnectResult = ResultOf<typeof agentConnect>;
 type ProtocolRpc = Rpc.Any & { readonly _tag: string };
 type ConnectTag<Rpcs extends ProtocolRpc> = Extract<
   Rpcs["_tag"],
-  typeof AgentConnect.name | typeof AppConnect.name
+  typeof agentConnect.name | typeof appConnect.name
 >;
+/** Represents client connect error conditions. */
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
   | ErrorForTag<Rpcs, ConnectTag<Rpcs>>
   | NotConnectedError
@@ -132,7 +135,7 @@ type ClientWebSocket = Effect.Effect.Success<
 const makeNotConnectedError = (): NotConnectedError =>
   new NotConnectedError({ message: MSG_NOT_CONNECTED });
 
-const decodeServerBaseUrl = Schema.decodeEither(ServerBaseUrl);
+const decodeServerBaseUrl = Schema.decodeEither(serverBaseUrlSchema);
 
 // Callers reach the lifecycle across a package boundary with a plain string,
 // so the address is decoded here rather than trusted.
@@ -179,7 +182,9 @@ const drainConnectionEffect = (input: {
   readonly hasCompletedHandshake: boolean;
 }): Effect.Effect<void> => {
   const closeScope = Scope.close(input.scope, Exit.void);
-  if (!input.hasCompletedHandshake) return closeScope;
+  if (!input.hasCompletedHandshake) {
+    return closeScope;
+  }
   return input
     .write(new Socket.CloseEvent(NORMAL_CLOSE_CODE, "normal"))
     .pipe(
@@ -225,6 +230,7 @@ interface ClientConnection<Rpcs extends ProtocolRpc, Client> {
   >;
 }
 
+/** Configures client lifecycle. */
 export interface ClientLifecycleOptions<
   Rpcs extends ProtocolRpc,
   Client extends TypedDispatchMap<Rpcs, RpcClientError>,
@@ -262,8 +268,8 @@ interface ClientSocketSessionOptions<Rpcs extends ProtocolRpc> {
   ) => Effect.Effect<void>;
 }
 
-type AgentCallableRpcs = RpcGroup.Rpcs<typeof AgentCallableGroup>;
-type AppCallableRpcs = RpcGroup.Rpcs<typeof AppCallableGroup>;
+type AgentCallableRpcs = RpcGroup.Rpcs<typeof agentCallableGroup>;
+type AppCallableRpcs = RpcGroup.Rpcs<typeof appCallableGroup>;
 type AgentClientDispatch = TypedDispatchMap<AgentCallableRpcs, RpcClientError>;
 type AppClientDispatch = TypedDispatchMap<AppCallableRpcs, RpcClientError>;
 type SubscriberRegistry = NotificationSubscriberRegistry<
@@ -272,6 +278,7 @@ type SubscriberRegistry = NotificationSubscriberRegistry<
 >;
 type ReverseCallbackDefinition = (typeof appCallbackMethods)[number];
 
+/** Represents reverse callback handlers values. */
 export type ReverseCallbackHandlers = {
   readonly [D in ReverseCallbackDefinition as D["name"]]: Rpc.ToHandlerFn<
     D["clientRpc"],
@@ -289,22 +296,22 @@ type ReverseNotificationHandlers =
   NotificationHandlersFor<AnyNotificationDefinition>;
 
 type IdentityNotificationDefinition =
-  | typeof ContactRequestNotificationDefinition
-  | typeof ContactAcceptedNotificationDefinition;
+  | typeof contactRequestNotificationDefinition
+  | typeof contactAcceptedNotificationDefinition;
 type TaskNotificationDefinition =
-  | typeof MessageReceivedNotificationDefinition
-  | typeof TaskClosedNotificationDefinition
-  | typeof TaskCreatedNotificationDefinition
-  | typeof TaskFailedNotificationDefinition
-  | typeof ConversationCreatedNotificationDefinition
-  | typeof ConversationArchivedNotificationDefinition
-  | typeof ConversationUnarchivedNotificationDefinition
-  | typeof ConversationParticipantsAddedNotificationDefinition
-  | typeof ConversationParticipantsRemovedNotificationDefinition;
+  | typeof messageReceivedNotificationDefinition
+  | typeof taskClosedNotificationDefinition
+  | typeof taskCreatedNotificationDefinition
+  | typeof taskFailedNotificationDefinition
+  | typeof conversationCreatedNotificationDefinition
+  | typeof conversationArchivedNotificationDefinition
+  | typeof conversationUnarchivedNotificationDefinition
+  | typeof conversationParticipantsAddedNotificationDefinition
+  | typeof conversationParticipantsRemovedNotificationDefinition;
 type DispatchNotificationDefinition =
-  | typeof DispatchRelease
-  | typeof DispatchLeaseConsumed
-  | typeof DispatchLeaseExpired;
+  | typeof dispatchRelease
+  | typeof dispatchLeaseConsumed
+  | typeof dispatchLeaseExpired;
 
 type IdentityNotificationHandlers =
   NotificationHandlersFor<IdentityNotificationDefinition>;
@@ -318,7 +325,7 @@ type NotificationHandlerDefinition =
   | TaskNotificationDefinition
   | DispatchNotificationDefinition;
 type ExpectTrue<T extends true> = T;
-type _NotificationCatalogCoversAll = ExpectTrue<
+type NotificationCatalogCoversAll = ExpectTrue<
   Exclude<
     AnyNotificationDefinition,
     NotificationHandlerDefinition
@@ -326,7 +333,7 @@ type _NotificationCatalogCoversAll = ExpectTrue<
     ? true
     : false
 >;
-type _NotificationCatalogHasNoExtra = ExpectTrue<
+type NotificationCatalogHasNoExtra = ExpectTrue<
   Exclude<
     NotificationHandlerDefinition,
     AnyNotificationDefinition
@@ -334,6 +341,10 @@ type _NotificationCatalogHasNoExtra = ExpectTrue<
     ? true
     : false
 >;
+const notificationCatalogCoversAll: NotificationCatalogCoversAll = true;
+const notificationCatalogHasNoExtra: NotificationCatalogHasNoExtra = true;
+void notificationCatalogCoversAll;
+void notificationCatalogHasNoExtra;
 
 type ReverseHandlers = ReverseCallbackHandlers & ReverseNotificationHandlers;
 
@@ -372,7 +383,7 @@ const notificationHandler =
     registry: SubscriberRegistry,
     definition: D,
   ) =>
-  (params: NotificationParamsOf<D>): Effect.Effect<void, never> =>
+  (params: NotificationParamsOf<D>): Effect.Effect<void> =>
     registry.dispatch({
       definition,
       method: definition.name,
@@ -385,30 +396,40 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const asObject = (value: unknown): Record<string, unknown> | undefined =>
   isRecord(value) ? value : undefined;
 
-const tagOf = (value: unknown): unknown => asObject(value)?.["_tag"];
+const tagOf = (value: unknown): unknown => asObject(value)?._tag;
 
 const taggedErrorFromCause = (frame: Record<string, unknown>): unknown => {
-  const error = asObject(frame["error"]);
-  if (error === undefined || error["_tag"] !== "Cause") return undefined;
-  const cause = asObject(error["data"]);
-  if (cause === undefined || cause["_tag"] !== "Fail") return undefined;
-  const tagged = cause["error"];
+  const error = asObject(frame.error);
+  if (error === undefined || error._tag !== "Cause") {
+    return undefined;
+  }
+  const cause = asObject(error.data);
+  if (cause === undefined || cause._tag !== "Fail") {
+    return undefined;
+  }
+  const tagged = cause.error;
   return typeof tagOf(tagged) === "string" ? tagged : undefined;
 };
 
 const flattenReverseErrors =
   (write: WireWrite): WireWrite =>
   (chunk) => {
-    if (!chunk.includes("Cause")) return write(chunk);
+    if (!chunk.includes("Cause")) {
+      return write(chunk);
+    }
     const rewritten = rewriteCauseFrame(chunk);
     return write(rewritten ?? chunk);
   };
 
 const rewriteCauseFrame = (chunk: string): string | undefined => {
   const frame = asObject(parseJson(chunk));
-  if (frame === undefined) return undefined;
+  if (frame === undefined) {
+    return undefined;
+  }
   const tagged = taggedErrorFromCause(frame);
-  if (tagged === undefined) return undefined;
+  if (tagged === undefined) {
+    return undefined;
+  }
   return JSON.stringify({ ...frame, error: tagged });
 };
 
@@ -430,70 +451,70 @@ const buildReverseHandlers = (options: {
 const buildIdentityNotificationHandlers = (
   registry: SubscriberRegistry,
 ): IdentityNotificationHandlers => ({
-  [ContactRequestNotificationDefinition.name]: notificationHandler(
+  [contactRequestNotificationDefinition.name]: notificationHandler(
     registry,
-    ContactRequestNotificationDefinition,
+    contactRequestNotificationDefinition,
   ),
-  [ContactAcceptedNotificationDefinition.name]: notificationHandler(
+  [contactAcceptedNotificationDefinition.name]: notificationHandler(
     registry,
-    ContactAcceptedNotificationDefinition,
+    contactAcceptedNotificationDefinition,
   ),
 });
 
 const buildTaskNotificationHandlers = (
   registry: SubscriberRegistry,
 ): TaskNotificationHandlers => ({
-  [MessageReceivedNotificationDefinition.name]: notificationHandler(
+  [messageReceivedNotificationDefinition.name]: notificationHandler(
     registry,
-    MessageReceivedNotificationDefinition,
+    messageReceivedNotificationDefinition,
   ),
-  [TaskClosedNotificationDefinition.name]: notificationHandler(
+  [taskClosedNotificationDefinition.name]: notificationHandler(
     registry,
-    TaskClosedNotificationDefinition,
+    taskClosedNotificationDefinition,
   ),
-  [TaskCreatedNotificationDefinition.name]: notificationHandler(
+  [taskCreatedNotificationDefinition.name]: notificationHandler(
     registry,
-    TaskCreatedNotificationDefinition,
+    taskCreatedNotificationDefinition,
   ),
-  [TaskFailedNotificationDefinition.name]: notificationHandler(
+  [taskFailedNotificationDefinition.name]: notificationHandler(
     registry,
-    TaskFailedNotificationDefinition,
+    taskFailedNotificationDefinition,
   ),
-  [ConversationCreatedNotificationDefinition.name]: notificationHandler(
+  [conversationCreatedNotificationDefinition.name]: notificationHandler(
     registry,
-    ConversationCreatedNotificationDefinition,
+    conversationCreatedNotificationDefinition,
   ),
-  [ConversationArchivedNotificationDefinition.name]: notificationHandler(
+  [conversationArchivedNotificationDefinition.name]: notificationHandler(
     registry,
-    ConversationArchivedNotificationDefinition,
+    conversationArchivedNotificationDefinition,
   ),
-  [ConversationUnarchivedNotificationDefinition.name]: notificationHandler(
+  [conversationUnarchivedNotificationDefinition.name]: notificationHandler(
     registry,
-    ConversationUnarchivedNotificationDefinition,
+    conversationUnarchivedNotificationDefinition,
   ),
-  [ConversationParticipantsAddedNotificationDefinition.name]:
+  [conversationParticipantsAddedNotificationDefinition.name]:
     notificationHandler(
       registry,
-      ConversationParticipantsAddedNotificationDefinition,
+      conversationParticipantsAddedNotificationDefinition,
     ),
-  [ConversationParticipantsRemovedNotificationDefinition.name]:
+  [conversationParticipantsRemovedNotificationDefinition.name]:
     notificationHandler(
       registry,
-      ConversationParticipantsRemovedNotificationDefinition,
+      conversationParticipantsRemovedNotificationDefinition,
     ),
 });
 
 const buildDispatchNotificationHandlers = (
   registry: SubscriberRegistry,
 ): DispatchNotificationHandlers => ({
-  [DispatchRelease.name]: notificationHandler(registry, DispatchRelease),
-  [DispatchLeaseConsumed.name]: notificationHandler(
+  [dispatchRelease.name]: notificationHandler(registry, dispatchRelease),
+  [dispatchLeaseConsumed.name]: notificationHandler(
     registry,
-    DispatchLeaseConsumed,
+    dispatchLeaseConsumed,
   ),
-  [DispatchLeaseExpired.name]: notificationHandler(
+  [dispatchLeaseExpired.name]: notificationHandler(
     registry,
-    DispatchLeaseExpired,
+    dispatchLeaseExpired,
   ),
 });
 
@@ -520,8 +541,8 @@ const buildReverseRpcServer = (options: {
       sinkReady,
     });
     const handlers = buildReverseHandlers(options);
-    const engineLayer = RpcServer.layer(ReverseRpcGroup).pipe(
-      Layer.provide(ReverseRpcGroup.toLayer(handlers)),
+    const engineLayer = RpcServer.layer(reverseRpcGroup).pipe(
+      Layer.provide(reverseRpcGroup.toLayer(handlers)),
       Layer.provide(protocolLayer),
     );
     yield* Layer.build(engineLayer).pipe(Scope.extend(options.scope));
@@ -575,6 +596,11 @@ const openClientSocketSession = <Rpcs extends ProtocolRpc>(
     };
   }).pipe(Effect.withSpan("openProtocolClientSocket"));
 
+/**
+ * Provides the open protocol agent client socket runtime value.
+ * @param options Options that control the operation.
+ * @returns The open protocol agent client socket result.
+ */
 export const openProtocolAgentClientSocket = (
   options: ClientSocketSessionOptions<AgentCallableRpcs>,
 ): Effect.Effect<
@@ -584,9 +610,14 @@ export const openProtocolAgentClientSocket = (
 > =>
   openClientSocketSession({
     ...options,
-    group: AgentCallableGroup,
+    group: agentCallableGroup,
   });
 
+/**
+ * Provides the open protocol app client socket runtime value.
+ * @param options Options that control the operation.
+ * @returns The open protocol app client socket result.
+ */
 export const openProtocolAppClientSocket = (
   options: ClientSocketSessionOptions<AppCallableRpcs>,
 ): Effect.Effect<
@@ -596,7 +627,7 @@ export const openProtocolAppClientSocket = (
 > =>
   openClientSocketSession({
     ...options,
-    group: AppCallableGroup,
+    group: appCallableGroup,
   });
 
 class ReconnectAttemptFailedError extends Data.TaggedError(
@@ -622,7 +653,7 @@ const makeReconnectLoop = <HelloOk>(input: {
   >;
   readonly onReconnect: (helloOk: HelloOk) => void;
   readonly onLoopEnd: () => void;
-}): Effect.Effect<void, never> => {
+}): Effect.Effect<void> => {
   const attempt = input.connectEffect().pipe(
     Effect.tap((helloOk) =>
       Effect.gen(function* () {
@@ -656,6 +687,7 @@ const makeReconnectLoop = <HelloOk>(input: {
   );
 };
 
+/** Implements protocol client lifecycle. */
 export class ProtocolClientLifecycle<
   Rpcs extends ProtocolRpc,
   Client extends TypedDispatchMap<Rpcs, RpcClientError>,
@@ -669,12 +701,12 @@ export class ProtocolClientLifecycle<
   >;
   private readonly subscribers: SubscriberRegistry;
   private closed = false;
-  private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
-  private _helloOk: ConnectResult | null = null;
+  private reconnectFiber: Fiber.RuntimeFiber<void> | null = null;
+  private helloResult: ConnectResult | null = null;
+  private readonly options: ClientLifecycleOptions<Rpcs, Client>;
 
-  protected constructor(
-    private readonly options: ClientLifecycleOptions<Rpcs, Client>,
-  ) {
+  protected constructor(options: ClientLifecycleOptions<Rpcs, Client>) {
+    this.options = options;
     this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ClientConnection<Rpcs, Client>>>(Option.none()),
@@ -692,7 +724,7 @@ export class ProtocolClientLifecycle<
   }
 
   get helloOk(): ConnectResult | null {
-    return this._helloOk;
+    return this.helloResult;
   }
 
   connect(): Effect.Effect<ConnectResult, ClientConnectError<Rpcs>> {
@@ -712,15 +744,15 @@ export class ProtocolClientLifecycle<
   >(
     definition: D,
     refinement: (params: NotificationParamsOf<D>) => params is R,
-  ): Stream.Stream<R, NotConnectedError, never>;
+  ): Stream.Stream<R, NotConnectedError>;
   subscribe<D extends AnyNotificationDefinition>(
     definition: D,
     refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never>;
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError>;
   subscribe<D extends AnyNotificationDefinition>(
     definition: D,
     refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never> {
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError> {
     if (refinement === undefined) {
       return notificationSubscribe(this.subscribers, definition);
     }
@@ -734,8 +766,7 @@ export class ProtocolClientLifecycle<
     ) => boolean,
   ): Stream.Stream<
     NotificationDelivery<AnyNotificationDefinition>,
-    NotConnectedError,
-    never
+    NotConnectedError
   > {
     if (refinement === undefined) {
       return notificationSubscribeAll(this.subscribers);
@@ -748,12 +779,14 @@ export class ProtocolClientLifecycle<
     return notificationSubscribeAll(this.subscribers, deliveryRefinement);
   }
 
-  close(): Effect.Effect<void, never> {
+  close(): Effect.Effect<void> {
     return Effect.sync(() => {
-      if (this.closed) return;
-      const hasCompletedHandshake = this._helloOk !== null;
+      if (this.closed) {
+        return;
+      }
+      const hasCompletedHandshake = this.helloResult !== null;
       this.closed = true;
-      this._helloOk = null;
+      this.helloResult = null;
       if (this.reconnectFiber !== null) {
         const f = this.reconnectFiber;
         this.reconnectFiber = null;
@@ -778,8 +811,10 @@ export class ProtocolClientLifecycle<
     });
   }
 
-  disconnect(): Effect.Effect<void, never> {
-    return Effect.sync(() => this.disconnectSync());
+  disconnect(): Effect.Effect<void> {
+    return Effect.sync(() => {
+      this.disconnectSync();
+    });
   }
 
   protected callEffect<Tag extends Rpcs["_tag"]>(
@@ -792,7 +827,9 @@ export class ProtocolClientLifecycle<
   > {
     return Ref.get(this.stateRef).pipe(
       Effect.flatMap((state) => {
-        if (Option.isNone(state)) return Effect.fail(makeNotConnectedError());
+        if (Option.isNone(state)) {
+          return Effect.fail(makeNotConnectedError());
+        }
         return callWithTimeout(
           state.value.scope,
           makeTypedTransportCall(state.value.client, makeNotConnectedError)(
@@ -827,16 +864,19 @@ export class ProtocolClientLifecycle<
 
   private disconnectSync(): void {
     const state = this.runtime.runSync(Ref.get(this.stateRef));
-    if (Option.isNone(state)) return;
+    if (Option.isNone(state)) {
+      return;
+    }
     this.runtime.runSync(Ref.set(this.stateRef, Option.none()));
     this.runtime.runFork(Fiber.interrupt(state.value.readerFiber));
     this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
   }
 
   private notifyDisconnect(close: CloseInfo): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
+    const { onDisconnect } = this.options;
+    return Effect.gen(function* () {
       try {
-        this.options.onDisconnect?.(close);
+        onDisconnect?.(close);
       } catch (err) {
         yield* Effect.logWarning("onDisconnect handler threw", err);
       }
@@ -848,23 +888,27 @@ export class ProtocolClientLifecycle<
     ClientConnectError<Rpcs>,
     Socket.WebSocketConstructor
   > {
-    return Effect.gen(this, function* () {
+    const { callbackHandlers, openSession, serverUrl } = this.options;
+    const { runtime, stateRef, subscribers } = this;
+    const handleReaderExit = this.handleReaderExit.bind(this);
+    const awaitConnectAuth = this.awaitConnectAuth.bind(this);
+    return Effect.gen(function* () {
       const handshakeSettled = yield* Deferred.make<
         ConnectResult,
         ClientConnectError<Rpcs>
       >();
-      const session = yield* this.options.openSession({
-        serverUrl: this.options.serverUrl,
-        registry: this.subscribers,
-        callbackHandlers: this.options.callbackHandlers(),
+      const session = yield* openSession({
+        serverUrl,
+        registry: subscribers,
+        callbackHandlers: callbackHandlers(),
         handshakeSettled,
-        forkReader: (effect) => this.runtime.runFork(effect),
+        forkReader: (effect) => runtime.runFork(effect),
         onReaderExit: (exit, scope) =>
-          this.handleReaderExit(exit, handshakeSettled, scope),
+          handleReaderExit(exit, handshakeSettled, scope),
       });
 
-      yield* Ref.set(this.stateRef, Option.some(session));
-      return yield* this.awaitConnectAuth(handshakeSettled);
+      yield* Ref.set(stateRef, Option.some(session));
+      return yield* awaitConnectAuth(handshakeSettled);
     });
   }
 
@@ -876,7 +920,14 @@ export class ProtocolClientLifecycle<
     >,
     scope: Scope.CloseableScope,
   ): Effect.Effect<void> {
-    return Effect.gen(this, function* () {
+    const { stateRef } = this;
+    const notifyDisconnect = this.notifyDisconnect.bind(this);
+    const scheduleReconnect = this.scheduleReconnect.bind(this);
+    const clearHelloResult = (): void => {
+      this.helloResult = null;
+    };
+    const shouldReconnect = (): boolean => !this.closed;
+    return Effect.gen(function* () {
       const closeInfo = extractCloseInfo(exit);
       if (
         Exit.isFailure(exit) &&
@@ -884,14 +935,16 @@ export class ProtocolClientLifecycle<
       ) {
         yield* Effect.logWarning("WebSocket error", exit.cause);
       }
-      this._helloOk = null;
+      clearHelloResult();
       yield* Deferred.fail(handshakeSettled, makeNotConnectedError()).pipe(
         Effect.ignore,
       );
-      yield* Ref.set(this.stateRef, Option.none());
+      yield* Ref.set(stateRef, Option.none());
       yield* Scope.close(scope, Exit.void);
-      yield* this.notifyDisconnect(closeInfo);
-      if (!this.closed) this.scheduleReconnect();
+      yield* notifyDisconnect(closeInfo);
+      if (shouldReconnect()) {
+        scheduleReconnect();
+      }
     });
   }
 
@@ -909,14 +962,16 @@ export class ProtocolClientLifecycle<
     return Effect.raceFirst(authEffect, Deferred.await(handshakeSettled)).pipe(
       Effect.tap((value) =>
         Effect.sync(() => {
-          this._helloOk = value;
+          this.helloResult = value;
         }),
       ),
     );
   }
 
   private scheduleReconnect(): void {
-    if (this.closed || this.reconnectFiber !== null) return;
+    if (this.closed || this.reconnectFiber !== null) {
+      return;
+    }
     const loop = makeReconnectLoop({
       connectEffect: () => this.connectEffect(),
       onReconnect: (helloOk) => this.options.onReconnect?.(helloOk),

@@ -19,7 +19,7 @@ import {
   ConversationFullError,
   ConversationNotFoundError,
   NotAParticipantError,
-  ConversationParticipantsRemovedNotificationDefinition,
+  conversationParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
 import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
 import { broadcastNotificationToAgents } from "#network";
@@ -391,7 +391,7 @@ export class ConversationService {
         if (taskId !== null) {
           yield* broadcastNotificationToAgents(
             participantsSnapshot,
-            ConversationParticipantsRemovedNotificationDefinition,
+            conversationParticipantsRemovedNotificationDefinition,
             {
               taskId,
               conversationId,

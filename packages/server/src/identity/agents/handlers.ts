@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { AgentsList } from "@moltzap/protocol/identity";
+import { agentsList as agentsListDefinition } from "@moltzap/protocol/identity";
 import { DEFAULT_PAGE_LIMIT, InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { AgentCard } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
@@ -107,7 +107,7 @@ function agentsListPage(input: AgentsListPageInput) {
 // limit then run on the `agents` row query so page order is stable regardless
 // of the visibility query's order.
 function agentsListBody(
-  params: ParamsOf<typeof AgentsList>,
+  params: ParamsOf<typeof agentsListDefinition>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -130,7 +130,9 @@ function agentsListBody(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const agentsList: ServerHandler<typeof AgentsList> = (params) =>
+export const agentsList: ServerHandler<typeof agentsListDefinition> = (
+  params,
+) =>
   Effect.gen(function* () {
     return yield* agentsListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("agentsList"));
