@@ -10,6 +10,7 @@ this log.** Do not add a record without that call.
 
 | Decision | Date |
 |---|---|
+| [The simulator is code-first with a closed event catalog](20260727-code-first-simulator-kernel.md) | 2026-07-27 |
 | [Control-plane encoding: neutral spec, JSON-RPC interim, REST + OpenAPI target](20260722-control-plane-encoding.md) | 2026-07-22 |
 | [One credential: the card key authenticates everything](20260721-single-credential.md) | 2026-07-21 |
 | [The network is sessionless](20260721-sessionless-network.md) | 2026-07-21 |

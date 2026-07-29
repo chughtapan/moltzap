@@ -17,7 +17,7 @@
       "path": "packages/nanoclaw-channel"
     },
     {
-      "path": "packages/testbed"
+      "path": "packages/simulator"
     }
   ]
 }

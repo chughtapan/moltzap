@@ -3,7 +3,7 @@ import {
   HttpClient,
   HttpClientRequest,
 } from "@effect/platform";
-import { Data, Duration, Effect, Either, Option, Stream } from "effect";
+import { Data, Duration, Effect, Either, Option, Schema, Stream } from "effect";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type { NotificationDelivery } from "@moltzap/protocol/rpc";
 import {
@@ -36,6 +36,7 @@ import type {
   AppManifest,
   UserId,
 } from "@moltzap/protocol/identity";
+import { AgentName } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 
 /** Default ceiling for `awaitOneNotification`. */
@@ -200,10 +201,11 @@ export function createTestAgent(
 ): Effect.Effect<TestAgent, never> {
   return Effect.gen(function* () {
     const authService = new AuthService(getCoreDb());
+    const agentName = Schema.decodeSync(AgentName)(name);
     const params =
       opts?.description === undefined
-        ? { name }
-        : { name, description: opts.description };
+        ? { name: agentName }
+        : { name: agentName, description: opts.description };
     const registered = yield* authService.registerAgent(
       params,
       opts?.ownerUserId ?? DEFAULT_TEST_ADMIN_USER_ID,
@@ -212,7 +214,7 @@ export function createTestAgent(
     return {
       agentId: registered.agentId,
       apiKey: registered.apiKey,
-      name,
+      name: agentName,
     };
   }).pipe(Effect.withSpan("createTestAgent"));
 }

@@ -1,199 +1,196 @@
 ---
-title: "Grading recordings"
-description: "Bundle a run with its grader, refuse invalid evidence, then judge what remains."
+title: "Grading typed ledgers"
+description: "Write ordinary Effect code over definition-validated simulator evidence."
 ---
 
-Grading runs after a run, over a sealed recording, never against a live
-world. The instrument produces evidence; a grader decides what the
-evidence means. Keeping those apart is what lets you re-grade an old
-recording with a stricter rubric and get an answer you can trust.
+A grader is an ordinary function over a `CompletedRunLedger`. Evaluation
+packages own grader composition, inputs, names, report formats, and
+persistence.
 
-## Invalidity is a refusal, never a verdict
+The run commits facts without interpreting them. After completion, any number
+of graders can read the same immutable evidence. Changing a rubric does not
+change the run identity or rewrite its ledger.
 
-A run that timed out seals correctly and passes every integrity check.
-Hand it to a grader anyway and it becomes a failed record — byte
-identical to an agent that answered and failed the rubric. A suite whose
-done-signals all miscounted then reads as "16 evals regressed" instead of
-"16 runs never terminated".
+## Open evidence through its definition
 
-The information that tells those apart is one field of `result.json`,
-available before any model is called. So the check happens there, and a
-non-completed run is **refused at exit 14** rather than scored.
-
-The same logic gives condition labels exit 13: a recording produced from
-different task text is not evidence about the experiment you are grading,
-and finding that out from a low rubric score is finding out the wrong
-thing.
-
-## A bundle: one run, one grader, one file
-
-A bundle is a spec with one more section. There is no envelope wrapping
-it: the experiment's name and notes are `condition`, which the spec
-already carries and the manifest already persists.
-
-```yaml
-# cold-outreach.bundle.yaml
-seed: 7
-condition:
-  label: cold-outreach/2
-  notes: Tests helpful response to a first-contact DM.
-agents:
-  - name: target
-    runsIn: host
-    role: standard
-    runtime: { _tag: openclaw, config: {} }
-server:
-  # The pin your build produced; `moltzap-testbed lock` prints it.
-  imageDigest: sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0
-episode:
-  steps:                    # a principal speaks; agents speak for themselves
-    - by: outreach
-      with: [target]
-      say: Saw your post about scheduling. Mind if I ask two questions?
-  termination:
-    inactivityTimeoutMs: 120000
-    onAgentCrash: halt
-    doneSignal:             # without one the run can only end `timeout`,
-      name: replies         # which exit 14 refuses and no grader judges
-      config: { from: target, minCount: 1 }
-grade:
-  grader: cc-judge
-  config:                   # grader-owned; the instrument never reads it
-    expectedBehavior: The agent should respond helpfully and coherently.
-```
-
-```bash
-moltzap-testbed run cold-outreach.bundle.yaml
-```
-
-`replies` counts messages observable to the run's principals: the run
-decides completion from what its own connections see, not from telemetry,
-so an agent that only ever talks to a peer moves no count. On a one-step
-spec — the only shape this driver is allowed on — the two coincide,
-because the only conversation is the one the principal opened.
-
-Two readers, one file, and they never meet. `run` reads the spec and
-ignores `grade:`; the grader reads `grade:` and the sealed recording.
-
-No grader half can influence a run, and the property holds structurally
-rather than by procedure: `grade:` is not a field of `RunSpec`, so
-materialization's decode drops it and nothing downstream can name it.
-Never being part of the spec, it never reaches the spec hash either —
-editing a rubric changes no recording identity and splits no comparable
-set. `condition` is the opposite case: it does decode, it does count
-toward the hash, and the manifest persists it; what it never reaches is
-the agent-facing projection.
-
-The grade half is a grader's own grammar and ships as that grader's
-emitter, beside the instrument rather than inside its export map.
-
-## Preflight, then judge
-
-The recipe ships in-repo at
-`packages/testbed/scripts/preflight-and-grade.mjs` and CI executes it:
-
-```bash
-preflight-and-grade.mjs recordings/<specHash>/s7/a1 \
-  --condition cold-outreach/2 \
-  --grade cc-judge run grade-plan.yaml
-```
-
-Stage 1 refuses at 10-14 and no grader starts. Stage 2 invokes the
-grader, whose exit codes stay its own: a graded fail is the grader's
-exit 1, not a convention code. The recipe composes the two stages; it
-does not re-key the grader.
-
-It also writes `grading-meta.json` into the recording directory — grader
-command, a digest of that command, condition label, timestamp — because
-unchanged grader artifacts cannot carry those fields and reproducibility
-needs them somewhere. The digest covers the invocation, not the rubric:
-which argument holds a rubric is the grader's business, so a rubric
-edited in place moves the grader's own artifacts rather than this field.
-The sidecar is not one of the four sealed files, so writing it leaves the
-seal intact.
-
-## Writing a grader in code
-
-`@moltzap/testbed/grader` is the generic surface. It carries no grader's
-name or types; a cc-judge-shaped binding is a separate file that consumes
-this like any other consumer would.
+Use the same `Simulator.define` value that produced the run:
 
 ```ts
-import { openRecording } from "@moltzap/testbed/grader";
-import { Effect } from "effect";
+import {
+  EndpointMessageReceived,
+  ProgramSucceeded,
+} from "@moltzap/simulator";
+import type {
+  CompletedRunLedger,
+} from "@moltzap/simulator/ledger";
+import { Chunk, Effect, Stream } from "effect";
 
-const program = Effect.gen(function* () {
-  // Sealed, this reader's schema, every line decodable and in order,
-  // the condition the caller holds, and the run outcome.
-  const recording = yield* openRecording(path, {
-    condition: "cold-outreach/2",
-    outcome: "completed-only",
+const gradeLedger = (
+  ledger: CompletedRunLedger<typeof Society.catalog>,
+) =>
+  Effect.gen(function* () {
+    const collected = yield* Effect.all({
+      succeeded: Stream.runCollect(
+        ledger.events(ProgramSucceeded),
+      ),
+      replies: Stream.runCollect(
+        ledger.events(EndpointMessageReceived),
+      ),
+      consensus: Stream.runCollect(
+        ledger.events(ConsensusReached),
+      ),
+    });
+
+    const evidence = {
+      programSucceeded: !Chunk.isEmpty(collected.succeeded),
+      replyCount: Chunk.size(collected.replies),
+      consensusReached: !Chunk.isEmpty(collected.consensus),
+    };
+
+    return {
+      passed:
+        evidence.programSucceeded &&
+        evidence.replyCount > 0 &&
+        evidence.consensusReached,
+      evidence,
+    };
   });
 
-  return yield* Effect.forEach(
-    recording.timeline.filter(
-      (event) => event._tag === "transcript.message",
-    ),
-    (event) => {
-      const sender = recording.senders.get(event.senderId);
-      // A rubric about who said what cannot be scored on an id, so a
-      // sender the recording does not name is refused, not substituted.
-      return sender === undefined
-        ? Effect.fail(new Error(`unattributed sender ${event.senderId}`))
-        : Effect.succeed({ sender, message: event.message });
-    },
-  );
-});
+const report = yield* Society.openLedger(ledgerRef).pipe(
+  Effect.flatMap(gradeLedger),
+);
 ```
 
-One function opens a recording. `events.ndjson` is written by one writer
-in `logicalSequence` order, so reading it in order is already the whole
-timeline — there is no merge step to call, and so no way to reach the
-events while skipping the checks that come with them.
+`Society.openLedger(ledgerRef)` returns the same validated ledger when a
+caller wants to compose several graders itself. `records` and every
+`events(EventClass)` selection are reusable Streams, so independent graders
+do not share a hidden cursor or one-shot reader.
 
-Both preconditions are required rather than defaulted. A caller that
-omits the outcome check should not discover the omission when a suite of
-timeouts reads as a suite of regressions.
+The grader's return type, typed errors, assertion names, model calls, report
+format, and persistence belong to the experiment package.
 
-`recording check` and `openRecording` are one implementation of the same
-check set, so the command and the library cannot drift.
+## Validation precedes interpretation
 
-## Reading a transcript message
+Before `openLedger` exposes evidence, it verifies:
 
-`transcript.message.message` holds the wire message verbatim under the
-redaction policy: its id, its parts, its reply target, its tags.
+- strict schemas for the manifest, every record, and completion;
+- the expected simulator definition id;
+- exact equality between the definition's sorted event tags and the
+  manifest's tags;
+- the completion digests for the exact manifest and record bytes;
+- matching run identities across all artifacts;
+- a unique event id and contiguous logical sequence for every record;
+- agreement between the completion record count and decoded records;
+- exact decoding of every event into a class from the definition.
 
-`recording.senders` names every sender, and both halves of that join read
-events rather than the manifest, because neither identity exists when the
-manifest is written. An agent's is provisioned before its runtime starts
-and announced on `agent.ready`. A principal's is minted on its first
-speech and announced nowhere, so the binding comes from `step.spoken`,
-which carries the principal's name and the id of the message that speech
-produced; matching that id against the transcript names the principal's
-sender id, and every row it sent from then on.
+A different catalog is an error even if it understands some event tags.
+Historical evidence is opened with the historical definition that declares
+its exact event universe.
 
-Names are what a rubric about who learned what is decided on, so a sender
-with no entry is a recording that cannot support one. A grader should
-treat it as such rather than substituting the id.
+`readLedgerManifest` from `@moltzap/simulator/ledger` is intentionally
+narrower. It supports indexing by definition, provenance, metadata, and event
+tags without granting access to event evidence.
 
-## Ordering
+## Completion is not a passing run
 
-`logicalSequence` is the one total order, stamped by a single writer
-across all six event sources. `conversationSeq` is the server's
-persistence sequence within a conversation; it is a consistency check on
-that order, not a second axis to sort by. When the two disagree, the
-recording is the corrupt party and `openRecording` fails rather than
-guessing.
+`completion.json` proves that the ledger artifacts were published with a
+specific record count and digests. It does not claim that the customer
+program succeeded.
 
-Per-recipient delivery order and times are not in storage. Grade them
-from the `moltzap.message.delivered` spans in `traces.json`, joined to
-transcript events by message id.
+Program state is explicit typed evidence:
 
-## Two axes
+- `ProgramSucceeded` means the customer Effect returned successfully;
+- `ProgramFailed` means it failed with a typed failure or defect;
+- `ProgramInterrupted` means it was interrupted.
 
-`recordingSchemaVersion` is the format axis, owned by the instrument, and
-a mismatch is a hard failure. `condition.label` is the content axis,
-owned by you: it names the gradeable content — task text, persona
-generation, environment assumptions — and explicitly **not** the rubric.
-Editing a rubric and re-grading the same recording is legal and moves no
-label.
+A behavioral grader should normally require exactly the program evidence its
+rubric accepts. For example:
+
+```ts
+import { Schema } from "effect";
+
+class LedgerNotGradeable extends Schema.TaggedError<LedgerNotGradeable>()(
+  "LedgerNotGradeable",
+  {
+    detail: Schema.NonEmptyString,
+  },
+) {}
+
+const requireProgramSuccess = (
+  ledger: CompletedRunLedger<typeof Society.catalog>,
+) =>
+  ledger.events(ProgramSucceeded).pipe(
+    Stream.runCollect,
+    Effect.flatMap((events) =>
+      Chunk.isNonEmpty(events)
+        ? Effect.void
+        : Effect.fail(
+            LedgerNotGradeable.make({
+              detail: "the experiment program did not succeed",
+            }),
+          ),
+    ),
+  );
+```
+
+Diagnostic graders may intentionally analyze a failed or interrupted
+program, but that is customer policy. Infrastructure invalidity must not be
+silently converted into a low behavioral score.
+
+## Grade the strongest available evidence
+
+Core event classes make different claims:
+
+| Event | Guarantee |
+|---|---|
+| `AgentRuntimeReady` | A roster runtime completed its own readiness contract |
+| `ConversationOpened` | An endpoint allocated a conversation address for a nonempty participant set |
+| `EndpointMessageSent` | A controlled endpoint committed a message through its protocol attachment |
+| `EndpointMessageReceived` | A connected endpoint received a delivered message |
+| `RouterMessageCommitted` | Stopped-router storage contained the message as a durable commit |
+| `LinkDown` / `LinkUp` | The configured link driver completed the physical transition |
+| Runtime terminal events | A ready runtime autonomously completed, failed, exited, or was signaled while observed |
+
+Do not infer endpoint delivery from router persistence, successful fault
+injection from an attempted driver call, or agent behavior from run
+completion. Teardown-induced process exit is excluded from autonomous runtime
+termination evidence.
+
+Core events preserve network identities and protocol facts. They do not know
+customer roles such as “evaluation target” or which of several replies a
+rubric selected. Declare those semantics as customer event classes before the
+run.
+
+For example, `packages/evals` emits
+`EvaluationResponseSelected` with the scenario id, endpoint and target roles,
+and the selected task and message ids. Its grader then joins that exact
+customer event to `EndpointMessageReceived`. This preserves the canonical
+network fact while making customer selection policy explicit and typed.
+
+## Code graders compose
+
+Ordinary Effect composition replaces a package registry:
+
+```ts
+const report = collectEvidence(ledger).pipe(
+  Effect.flatMap(checkProgramBoundary),
+  Effect.flatMap(checkSafety),
+  Effect.flatMap(checkCoordination),
+  Effect.tap(writeCustomerReport),
+);
+```
+
+Experiment packages can expose named graders, parameterize them, call
+external judges, cache expensive work, or run several in parallel. None of
+those choices adds a config union, dependency, or policy language to the
+simulator kernel.
+
+## Regrading and sweeps
+
+Store rubric version, grader build identity, model id, and report location in
+the grading system's metadata. Those values describe an interpretation, not
+the run, so regrading does not mutate completed evidence.
+
+Condition matrices and aggregation likewise live above the kernel. Each case
+produces one definition-bound ledger; customer code decides which grader to
+apply and how reports combine into a suite result.

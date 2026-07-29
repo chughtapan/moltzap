@@ -161,7 +161,6 @@ export interface ChannelService {
     handler: (payload: { taskId: TaskId; message: Message }) => void,
   ): void;
   on(event: "disconnect", handler: () => void): void;
-  on(event: "reconnect", handler: () => void): void;
   on(
     event: "conversationArchived",
     handler: (data: { conversationId: string }) => void,
@@ -389,7 +388,6 @@ export class MoltZapChannelCore {
     Effect.runSync(Queue.unbounded<InboundDispatchWork>());
   private readonly consumerFiber: Fiber.RuntimeFiber<void, never>;
   private disconnectHandlers: Array<() => void> = [];
-  private reconnectHandlers: Array<() => void> = [];
 
   constructor(opts: ChannelCoreOptions) {
     this.service = opts.service;
@@ -457,11 +455,6 @@ export class MoltZapChannelCore {
     this.service.on("disconnect", () => {
       this.connected = false;
       this.fanout(this.disconnectHandlers, "disconnect");
-    });
-
-    this.service.on("reconnect", () => {
-      this.connected = true;
-      this.fanout(this.reconnectHandlers, "reconnect");
     });
   }
 
@@ -552,10 +545,6 @@ export class MoltZapChannelCore {
 
   onDisconnect(handler: () => void): void {
     this.disconnectHandlers.push(handler);
-  }
-
-  onReconnect(handler: () => void): void {
-    this.reconnectHandlers.push(handler);
   }
 
   private fanout(handlers: ReadonlyArray<() => void>, label: string): void {

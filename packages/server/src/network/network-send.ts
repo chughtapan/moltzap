@@ -135,9 +135,9 @@ export class NetworkSendService {
    *   `agent/message/send` author uses this to avoid echoing the RPC reply
    *   back as a notification.
    *
-   * `delivered` lists agents whose at-least-one connection was
-   * scheduled to receive a write — drives trace-capture's
-   * offline-recipient accounting.
+   * `delivered` lists agents whose at-least-one connection was scheduled to
+   * receive a write; the message service records that set on its delivery
+   * trace.
    */
   broadcast(
     agentIds: readonly AgentId[],

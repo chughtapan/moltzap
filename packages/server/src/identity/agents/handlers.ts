@@ -1,5 +1,5 @@
-import { Effect } from "effect";
-import { AgentsList } from "@moltzap/protocol/identity";
+import { Effect, Schema } from "effect";
+import { AgentName, AgentsList } from "@moltzap/protocol/identity";
 import { DEFAULT_PAGE_LIMIT, InvalidParamsError } from "@moltzap/protocol/rpc";
 import type { AgentCard } from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
@@ -28,7 +28,7 @@ function toAgentCard(row: {
 }): AgentCard {
   return {
     id: row.id,
-    name: row.name,
+    name: Schema.decodeSync(AgentName)(row.name),
     displayName: row.display_name ?? undefined,
     description: row.description ?? undefined,
     status: row.status as AgentCard["status"],

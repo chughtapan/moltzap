@@ -62,10 +62,8 @@ function attachesGroupMetadataWhenConversationIsAGroup() {
   });
 }
 
-effectTest(
-  "attaches groupMetadata when conversation is a group",
-  attachesGroupMetadataWhenConversationIsAGroup,
-);
+it("attaches groupMetadata when conversation is a group", () =>
+  Effect.runPromise(attachesGroupMetadataWhenConversationIsAGroup()));
 
 function doesNOTAttachGroupMetadataForDMConversations() {
   return Effect.gen(function* () {
@@ -455,21 +453,6 @@ effectTest(
   "disconnect: running handlers continue after one throws",
   disconnectRunningHandlersContinueAfterOneThrowsLoggerErrorSeesDisconnectHandlerThrew,
 );
-
-it("reconnect: running handlers continue after one throws", () => {
-  const { fake, core } = customSetup();
-  const recorded: string[] = [];
-  core.onReconnect(() => {
-    throw new Error("first reconnect boom");
-  });
-  core.onReconnect(() => {
-    recorded.push(SECOND_TEXT);
-  });
-
-  fake.emit.reconnect();
-
-  expect(recorded).toEqual([SECOND_TEXT]);
-});
 
 function leavesMarkersUnadvancedWhenTheHandlerSEffectFailsSoTheNextMessageReSeesTheSameContextEntries() {
   return Effect.gen(function* () {

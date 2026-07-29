@@ -47,6 +47,6 @@
     "modules/server-core/task",
     "modules/server-core/task/requirements",
     "modules/server-core/test-utils",
-    "modules/testbed/src"
+    "modules/simulator/src"
   ]
 }

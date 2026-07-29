@@ -38,10 +38,8 @@ function connectDelegatesToServiceAndSetsConnected() {
   });
 }
 
-effectTest(
-  "connect() delegates to service and sets connected",
-  connectDelegatesToServiceAndSetsConnected,
-);
+it("connect() delegates to service and sets connected", () =>
+  Effect.runPromise(connectDelegatesToServiceAndSetsConnected()));
 
 function disconnectClosesTheServiceAndClearsTheConnectedFlag() {
   return Effect.gen(function* () {
@@ -70,11 +68,6 @@ effectTest(
   disconnectEventFromTheServiceClearsTheConnectedFlag,
 );
 
-it("reconnect event from the service sets the connected flag", () => {
-  fake.emit.reconnect();
-  expect(core.isConnected()).toBe(true);
-});
-
 function onDisconnectHandlersFireOnDisconnectEvent() {
   return Effect.gen(function* () {
     const spy = vi.fn();
@@ -89,13 +82,6 @@ effectTest(
   "onDisconnect handlers fire on disconnect event",
   onDisconnectHandlersFireOnDisconnectEvent,
 );
-
-it("onReconnect handlers fire on reconnect event", () => {
-  const spy = vi.fn();
-  core.onReconnect(spy);
-  fake.emit.reconnect();
-  expect(spy).toHaveBeenCalledOnce();
-});
 
 function mapsAMoltZapMessageToEnrichedInboundMessage() {
   return Effect.gen(function* () {

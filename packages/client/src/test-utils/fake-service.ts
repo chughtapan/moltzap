@@ -14,6 +14,7 @@
  */
 
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   AgentCallableGroup,
   type AnyAgentCallableRpcDefinition,
@@ -63,7 +64,7 @@ export class FakeMoltZapService extends MoltZapService {
     } = {},
   ) {
     super({
-      serverUrl: opts.serverUrl ?? "ws://test.invalid",
+      serverUrl: serverBaseUrl(opts.serverUrl ?? "ws://test.invalid"),
       agentKey: opts.agentKey ?? TEST_AGENT_KEY,
       agentId: opts.agentId ?? testAgentId("test-agent"),
     });

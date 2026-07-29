@@ -54,7 +54,7 @@
             "group": "Simulator",
             "pages": [
               "simulator/overview",
-              "simulator/cli",
+              "simulator/running",
               "simulator/grading"
             ]
           },
