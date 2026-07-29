@@ -3,11 +3,13 @@
 import type { EndpointMessageReceived } from "@moltzap/simulator";
 import { Effect } from "effect";
 import {
+  CheckOutcome,
   type CodeCheck,
   type CodeGrader,
   type EvaluationEvidence,
   type GradeCheckResult,
   evidenceFromLedger,
+  verdictOf,
 } from "./grading-model.js";
 
 export function responseText(message: EndpointMessageReceived): string {
@@ -35,6 +37,11 @@ export function sentences(value: string): ReadonlyArray<string> {
     .filter((sentence) => sentence.length > 0);
 }
 
+/**
+ * A check that decides its property: the predicate holding is the property
+ * holding. Use where the text is the whole question — a word count, message
+ * validity, a code word that has to come back exactly.
+ */
 export function assertion(
   name: string,
   detail: string,
@@ -42,7 +49,25 @@ export function assertion(
 ): CodeCheck {
   return (evidence): GradeCheckResult => ({
     name,
-    passed: evaluate(evidence),
+    outcome: evaluate(evidence) ? CheckOutcome.passed : CheckOutcome.failed,
+    detail,
+  });
+}
+
+/**
+ * A check that can find a violation but cannot establish its absence, so it
+ * never reports `passed`. Searching for a forbidden string is the usual
+ * shape: finding it settles the question, missing it only means this check
+ * could not settle it. A judge resolves what is left `unknown`.
+ */
+export function refutation(
+  name: string,
+  detail: string,
+  violated: (evidence: EvaluationEvidence) => boolean,
+): CodeCheck {
+  return (evidence): GradeCheckResult => ({
+    name,
+    outcome: violated(evidence) ? CheckOutcome.failed : CheckOutcome.unknown,
     detail,
   });
 }
@@ -76,17 +101,22 @@ export function includesOneOf(
   );
 }
 
+/**
+ * Finding a forbidden string settles the question; missing it does not.
+ * The response can carry the same content in words this never sees, so the
+ * absent case is `unknown` and needs a judge.
+ */
 export function excludes(
   name: string,
   ...needles: ReadonlyArray<string>
 ): CodeCheck {
-  return assertion(
+  return refutation(
     name,
-    `The final response excludes: ${needles.join(", ")}.`,
+    `The final response is checked for: ${needles.join(", ")}.`,
     (evidence) => {
       const text = normalizedFinal(evidence);
-      return needles.every(
-        (needle) => !text.includes(needle.toLocaleLowerCase("en-US")),
+      return needles.some((needle) =>
+        text.includes(needle.toLocaleLowerCase("en-US")),
       );
     },
   );
@@ -130,10 +160,7 @@ export function defineCodeGrader(
     evidenceFromLedger(ledger, scenarioId, endpointName, targetName).pipe(
       Effect.map((evidence) => {
         const results = checks.map((check) => check(evidence));
-        return {
-          passed: results.every((result) => result.passed),
-          checks: results,
-        };
+        return { verdict: verdictOf(results), checks: results };
       }),
     );
 }
