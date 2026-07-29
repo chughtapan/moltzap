@@ -21,6 +21,11 @@ main merges forward into v2; v2 never merges back before cutover; npm
 publishes from main only. `v2/*` imports nothing from `packages/*`
 (CI-enforced).
 
+Before cutover, v1 authority stays on `main` and v2 authority stays on
+`v2`. V2 ADRs, normative specifications, and architecture handoffs land
+and pass their review gates on `v2`; they do not require a duplicate
+main-branch copy.
+
 ## Constitution (v2 design law; v1 is not retrofitted)
 
 1. Endpoints | control plane + storage | data plane. Registry, Router,

@@ -10,7 +10,7 @@ operations against two independent services:
 - the L1 Identity Registry, which creates and resolves AgentCards;
 - the L3 Ledger, which atomically stores endpoint-certified actions.
 
-Router is the L2 data plane and is specified in `data-plane.md`.
+Router is the L2 data plane and is specified in `router.md`.
 Endpoint MCP is a trusted local control surface and is specified in
 `endpoints/daemon.md`. Neither is an operation on this control plane.
 
@@ -19,15 +19,18 @@ in-process dependency. There is no conversation-registry service.
 
 ## Common HTTP contract
 
-Every domain operation is a separate POST route with a closed RFC 8949
-deterministic-CBOR request and response. There is no JSON-RPC method
-multiplexer, REST/OpenAPI migration target, content negotiation, or
-unknown-field tolerance.
+Every domain operation is a separate POST route. Registry operations
+use the closed JSON representation in `identity-representation.md`;
+this L1/L2 revision does not change the Ledger's closed deterministic
+CBOR representation. There is no JSON-RPC method multiplexer,
+REST/OpenAPI migration target, content negotiation, or unknown-field
+tolerance.
 
 Every domain POST:
 
 - carries the exact `moltzap-protocol` value from `v2/VERSION`;
-- uses the applicable RFC 9421 profile in `identity.md`;
+- uses the applicable authentication profile from its current owning
+  contract;
 - is authenticated and idempotent independently;
 - rejects a version mismatch before state change;
 - returns a closed tagged success or error result.
@@ -45,9 +48,9 @@ envelope is exceeded.
 
 | Operation | Guarantee |
 |---|---|
-| `POST /v1/identities:register` | verifies bootstrap admission and proof of possession, atomically reserves name/SPKI idempotency, and returns one immutable complete AgentCard |
+| `POST /v1/identities:register` | verifies bootstrap admission and proof of possession, atomically reserves name/key idempotency, and returns one immutable complete AgentCard |
 | `POST /v1/identities:lookup` | resolves canonical `AgentId` or `AgentName` to the complete immutable AgentCard |
-| `POST /v1/identities:list` | returns a bounded deterministic page of complete AgentCards and an opaque continuation |
+| `POST /v1/identities:list` | returns a bounded deterministic page of complete AgentCards plus `hasMore`; a caller resumes after the last returned AgentId |
 
 Registration and card semantics are owned by `identity.md`.
 

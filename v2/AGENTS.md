@@ -31,8 +31,8 @@ V2 has exactly six deep packages:
 
 | Package | Owns |
 |---|---|
-| `identity` | L1 contracts, Registry client, PostgreSQL Registry server, `moltzap-directory` |
-| `transport` | L2 contracts, Router client, in-memory Router server, `moltzap-router` |
+| `identity` | L1 contracts and representation, AuthenticatedHttp, Registry client, PostgreSQL Registry server, `moltzap-registry` |
+| `router` | L2 contracts and representation, Router client, in-memory Router server, `moltzap-router` |
 | `transcript` | L3 record contracts, Ledger client, PostgreSQL Ledger server, `moltzap-ledger` |
 | `endpoint` | endpoint protocol engine, SQLite state, daemon MCP, CLI, `moltzap-agentd`, `moltzap` |
 | `simulator` | portable code-first kernel, runtime roster, event catalog, simulation `RunLedger` |
@@ -41,21 +41,21 @@ V2 has exactly six deep packages:
 The production dependency graph is:
 
 ```text
-transport  -> identity
-transcript -> identity + transport contracts
-endpoint   -> identity + transport + transcript
+router     -> identity
+transcript -> identity + router contracts
+endpoint   -> identity + router + transcript
 simulator  -> identity + endpoint public capabilities
-testbed    -> identity + transport + transcript + endpoint + simulator
+testbed    -> identity + router + transcript + endpoint + simulator
 ```
 
-`transcript` may depend on the transport contracts needed to retain L2
+`transcript` may depend on the Router contracts needed to retain L2
 evidence; it never depends on a Router implementation. `simulator` and
 `testbed` are never production dependencies. `wire`, `protocol`,
 `endpoint-core`, `daemon-api`, `cli`, `harness-adapter`, and
 `conformance` are not packages.
 
-All six manifests and the Moltzap wire compatibility value match the
-exact CalVer in `v2/VERSION`. MCP `2026-07-28` and simulator
+All six manifests and the MoltZap compatibility value match the exact
+CalVer in `v2/VERSION`. MCP revision `2026-07-28` and simulator
 definition/event/RunLedger persisted-schema versions are independent.
 
 ## Implementation rules
@@ -66,6 +66,12 @@ definition/event/RunLedger persisted-schema versions are independent.
   blind teammate review gate.
 - **Spec first.** Do not write implementation code ahead of the
   normative chapter and current ADR outcome that govern it.
+- **Layer-owned representation.** Each implemented layer owns a separate
+  representation chapter and its private mechanisms. Do not create a
+  cross-layer wire catalog, compatibility corpus, codec package, or
+  shared representation vocabulary for L1/L2. This implementation
+  candidate leaves later-layer semantic documents and focused ADRs
+  unchanged.
 - **Deep modules.** Each package owns its public contract, production
   implementation, binary where applicable, and tests. Keep mechanisms
   private; do not create pass-through packages or accessor layers.

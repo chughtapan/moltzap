@@ -1,8 +1,8 @@
 {
   "name": "@moltzap/v2-identity",
-  "version": "2026.729.0",
+  "version": "2026.729.1",
   "private": true,
-  "description": "L1 models, cards, identifiers, signing/request-auth profiles, Registry client and PostgreSQL server",
+  "description": "L1 identity contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,7 +18,7 @@
     }
   },
   "bin": {
-    "moltzap-directory": "./bin/moltzap-directory"
+    "moltzap-registry": "./bin/moltzap-registry"
   },
   "scripts": {
     "build": "nx run @moltzap/v2-identity:build",
