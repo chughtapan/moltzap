@@ -7,7 +7,9 @@
  * corresponding low-level `Protocol.make` extension point accepts. If
  * `@effect/rpc` changes either protocol-impl contract, these stop compiling
  * here rather than at the live-wiring site (`MoltZapServer`,
- * `socket/lifecycle.ts`).
+ * `socket/lifecycle.ts`). They also pin that inbound routing has no reply
+ * writer: malformed input can only fail the reader, never start a parse-error
+ * reply loop.
  *
  * `RpcServer.Protocol.make` / `RpcClient.Protocol.make` each take a callback
  * returning an Effect of the impl record; the canaries map the builder's
@@ -19,6 +21,7 @@ import { RpcClient, RpcServer } from "@effect/rpc";
 import {
   makeClientChannelProtocol,
   makeServerChannelProtocol,
+  routeInbound,
   type WireWrite,
 } from "./mux.js";
 
@@ -44,3 +47,6 @@ const clientBuilder = makeClientChannelProtocol({
 export const clientProtocolCanary = RpcClient.Protocol.make((write) =>
   clientBuilder(write).pipe(Effect.map((built) => built.impl)),
 );
+
+// @ts-expect-error a malformed-frame reply writer would reopen parse-error bouncing
+routeInbound("malformed", {}, wireWrite);

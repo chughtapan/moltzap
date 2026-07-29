@@ -46,6 +46,10 @@ export interface TypeDocExport {
 export interface TypeDocCache {
   readonly all: ReadonlyArray<TypeDocExport>;
   readonly byPackage: ReadonlyMap<string, ReadonlyArray<TypeDocExport>>;
+  readonly byPackageEntrypoint: ReadonlyMap<
+    string,
+    ReadonlyArray<TypeDocExport>
+  >;
   readonly byFolder: ReadonlyMap<string, ReadonlyArray<TypeDocExport>>;
 }
 
@@ -82,6 +86,7 @@ interface RawReflection {
   readonly name?: string;
   readonly kind?: number;
   readonly variant?: string;
+  readonly target?: number;
   readonly children?: ReadonlyArray<RawReflection>;
   readonly signatures?: ReadonlyArray<{
     readonly comment?: RawComment;
@@ -136,6 +141,7 @@ export const loadTypeDoc = (
     return {
       all,
       byPackage: indexBy(all, (e) => e.packageName),
+      byPackageEntrypoint: collectPackageEntrypointExports(raw),
       byFolder: indexBy(all, (e) => folderOf(e)),
     };
   }).pipe(Effect.withSpan("loadTypeDoc"));
@@ -158,6 +164,73 @@ function collectExports(root: RawReflection): ReadonlyArray<TypeDocExport> {
     walk(pkg, packageName, out);
   }
   return out;
+}
+
+/**
+ * TypeDoc represents package entrypoints in two shapes. A focused entrypoint
+ * contributes declarations directly beneath the package project, while an
+ * expanded package contributes an `index` module whose children are references
+ * to declarations elsewhere in the project. Normalize both shapes into the
+ * exact public surface owned by the package root.
+ */
+function collectPackageEntrypointExports(
+  root: RawReflection,
+): ReadonlyMap<string, ReadonlyArray<TypeDocExport>> {
+  const reflectionsById = indexReflectionsById(root);
+  const entries = new Map<string, ReadonlyArray<TypeDocExport>>();
+  for (const pkg of root.children ?? []) {
+    const packageName = pkg.name ?? "<unknown>";
+    const children = pkg.children ?? [];
+    const indexModule = children.find(
+      (child) => child.kind === ReflectionKind.Module && child.name === "index",
+    );
+    const owned = indexModule
+      ? (indexModule.children ?? [])
+      : children.filter((child) => child.kind !== ReflectionKind.Module);
+    entries.set(
+      packageName,
+      owned.flatMap((child) => {
+        const declaration = resolveReference(child, reflectionsById);
+        return declaration !== null && shouldEmit(declaration)
+          ? [toExport(declaration, packageName)]
+          : [];
+      }),
+    );
+  }
+  return entries;
+}
+
+function indexReflectionsById(
+  root: RawReflection,
+): ReadonlyMap<number, RawReflection> {
+  const reflections = new Map<number, RawReflection>();
+  const pending = [root];
+  while (pending.length > 0) {
+    const reflection = pending.pop();
+    if (reflection === undefined) continue;
+    if (reflection.id !== undefined) reflections.set(reflection.id, reflection);
+    pending.push(...(reflection.children ?? []));
+  }
+  return reflections;
+}
+
+function resolveReference(
+  reflection: RawReflection,
+  reflectionsById: ReadonlyMap<number, RawReflection>,
+): RawReflection | null {
+  const visited = new Set<number>();
+  let current = reflection;
+  while (
+    current.kind === ReflectionKind.Reference &&
+    current.target !== undefined
+  ) {
+    if (visited.has(current.target)) return null;
+    visited.add(current.target);
+    const target = reflectionsById.get(current.target);
+    if (target === undefined) return null;
+    current = target;
+  }
+  return current;
 }
 
 function walk(

@@ -23,6 +23,7 @@ import {
   ConversationNotFoundError,
   ParticipantNotAdmittedError,
 } from "./types.js";
+import { ConversationNameSchema } from "./name.js";
 
 const DateTimeString = dateTimeStringSchema();
 const ConversationSchema = conversationSchema();
@@ -52,9 +53,7 @@ export const ConversationCreate = defineRpc({
   name: "app/conversation/create",
   params: Schema.Struct({
     taskId: TaskId,
-    name: Schema.optional(
-      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
-    ),
+    name: Schema.optional(ConversationNameSchema),
     participants: Schema.Array(AgentId).pipe(Schema.minItems(1)),
   }),
   result: Schema.Struct({ conversation: ConversationSchema }),

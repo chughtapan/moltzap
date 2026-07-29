@@ -1,7 +1,49 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "evals",
+  "name": "@moltzap/evals",
   "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/evals",
+        "command": "tsc -b"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/evals",
+        "command": "eslint src --cache --max-warnings=0"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/evals",
+        "command": "vitest run"
+      }
+    },
+    "test:agents": {
+      "cache": false,
+      "dependsOn": [
+        "build"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/evals",
+        "command": "MOLTZAP_AGENT_EVAL_ITEST=1 vitest run src/full-runtime.integration.test.ts"
+      }
+    },
+    "typecheck:tests": {
+      "dependsOn": [
+        "build"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/evals",
+        "command": "tsc -p tsconfig.test.json"
+      }
+    },
     "arch:check": {
       "executor": "nx:run-commands",
       "options": {

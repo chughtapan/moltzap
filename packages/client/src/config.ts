@@ -1,6 +1,12 @@
-import { Config, ConfigProvider, Data, Effect, Option } from "effect";
+import { Config, ConfigProvider, Data, Effect, Option, Schema } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { AgentKey } from "@moltzap/protocol/identity";
+import {
+  httpBaseUrl,
+  serverBaseUrl,
+  ServerBaseUrl,
+  type ServerBaseUrl as ServerBaseUrlType,
+} from "@moltzap/protocol/network";
 import {
   loadLayeredConfig,
   parseProfileName,
@@ -10,12 +16,13 @@ import {
 } from "./profile.js";
 
 export interface MoltzapServiceConfig {
-  readonly serverUrl: string;
+  readonly serverUrl: ServerBaseUrlType;
   readonly agentKey: AgentKey;
   readonly agentId: AgentId;
 }
 
-const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
+const DEFAULT_SERVER_URL = serverBaseUrl("wss://api.moltzap.xyz");
+const SERVER_URL_ENV = "MOLTZAP_SERVER_URL";
 
 export type ServiceConfigError =
   | ConfigReadError
@@ -50,17 +57,23 @@ function configReadErrorFromProfile(
   return configReadError(error.path, error.cause, "read");
 }
 
-export const getServerUrl: Effect.Effect<string, never> = Config.option(
-  Config.string("MOLTZAP_SERVER_URL"),
-).pipe(
+const configuredServerUrl = Config.option(Config.string(SERVER_URL_ENV)).pipe(
   Effect.withConfigProvider(ConfigProvider.fromEnv()),
   Effect.map((value) => Option.getOrElse(value, () => DEFAULT_SERVER_URL)),
-  Effect.orElseSucceed(() => DEFAULT_SERVER_URL),
 );
 
-export const getHttpUrl: Effect.Effect<string, never> = getServerUrl.pipe(
-  Effect.map((url) => url.replace(/^wss:/, "https:").replace(/^ws:/, "http:")),
-);
+/** Canonical path-free server address from the environment or default. */
+export const getServerUrl: Effect.Effect<ServerBaseUrlType, ConfigReadError> =
+  configuredServerUrl.pipe(
+    Effect.flatMap(Schema.decodeUnknown(ServerBaseUrl)),
+    Effect.mapError((cause) =>
+      configReadError(SERVER_URL_ENV, cause, "read and validate"),
+    ),
+  );
+
+/** HTTP control-plane origin derived from the same canonical address. */
+export const getHttpUrl: Effect.Effect<string, ConfigReadError> =
+  getServerUrl.pipe(Effect.map(httpBaseUrl));
 
 export const loadServiceConfig = (
   profileName: string,

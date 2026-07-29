@@ -37,14 +37,14 @@ const messagesListSuccess = () => ({
       conversationId: CONVERSATION_ID,
       senderId: SENDER_A,
       createdAt: FIRST_CREATED_AT,
-      parts: [{ type: "text" as const, text: "hello" }],
+      parts: [{ type: "text" as const, text: "hello" }] as const,
     },
     {
       id: SECOND_MESSAGE_ID,
       conversationId: CONVERSATION_ID,
       senderId: SENDER_B,
       createdAt: SECOND_CREATED_AT,
-      parts: [{ type: "text" as const, text: "hi" }],
+      parts: [{ type: "text" as const, text: "hi" }] as const,
     },
   ],
 });

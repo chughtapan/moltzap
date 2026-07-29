@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1268)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1259)
 
 _Function_
 
@@ -64,7 +64,7 @@ a throw.
 `task:&lt;taskId>:&lt;conversationId>` (existing conversation). A target
 containing `:` in any other shape is rejected.
 
-### [`default`](./openclaw-entry.ts#L1297)
+### [`default`](./openclaw-entry.ts#L1288)
 
 _Variable_
 
@@ -72,7 +72,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1294)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1285)
 
 _Variable_
 
@@ -85,7 +85,7 @@ Shared singleton so a single registration reuses the same `activeClients`
 closure across `startAccount` and `sendText`. Tests import this directly
 to assert against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1285)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1276)
 
 _TypeAlias_
 

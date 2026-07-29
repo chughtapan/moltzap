@@ -12,7 +12,7 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
-### [`AgentClientOptions`](./agent-client.ts#L41)
+### [`AgentClientOptions`](./agent-client.ts#L40)
 
 _Interface_
 
@@ -21,11 +21,10 @@ export interface AgentClientOptions {
   readonly serverUrl: string;
   readonly agentKey: AgentKey;
   readonly onDisconnect?: (close: CloseInfo) => void;
-  readonly onReconnect?: (helloOk: ConnectResult) => void;
 }
 ```
 
-### [`AppCallbackContext`](./app-client.ts#L35)
+### [`AppCallbackContext`](./app-client.ts#L34)
 
 _Interface_
 
@@ -50,7 +49,7 @@ Closed handler table for an app moderating one or more tasks. Every
 app callback member is required; vacuous-deny moderators still write the
 handler explicitly.
 
-### [`AppClientOptions`](./app-client.ts#L72)
+### [`AppClientOptions`](./app-client.ts#L71)
 
 _Interface_
 
@@ -59,7 +58,6 @@ export interface AppClientOptions {
   readonly serverUrl: string;
   readonly appKey: AppKey;
   readonly onDisconnect?: (close: CloseInfo) => void;
-  readonly onReconnect?: (helloOk: ConnectResult) => void;
   readonly handlers: AppCallbackHandlers<AppCallbackContext>;
 }
 ```
@@ -74,7 +72,7 @@ export function classifyCloseCause(
 ): CloseKind
 ```
 
-### [`ClientConnectError`](./lifecycle.ts#L123)
+### [`ClientConnectError`](./lifecycle.ts#L120)
 
 _TypeAlias_
 
@@ -82,7 +80,7 @@ _TypeAlias_
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
 ```
 
-### [`ClientDefinitionError`](./lifecycle.ts#L112)
+### [`ClientDefinitionError`](./lifecycle.ts#L109)
 
 _TypeAlias_
 
@@ -90,7 +88,7 @@ _TypeAlias_
 export type ClientDefinitionError<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionPayload`](./lifecycle.ts#L108)
+### [`ClientDefinitionPayload`](./lifecycle.ts#L105)
 
 _TypeAlias_
 
@@ -98,7 +96,7 @@ _TypeAlias_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L110)
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L107)
 
 _TypeAlias_
 
@@ -106,7 +104,7 @@ _TypeAlias_
 export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L228)
+### [`ClientLifecycleOptions`](./lifecycle.ts#L196)
 
 _Interface_
 
@@ -119,20 +117,18 @@ export interface ClientLifecycleOptions<
   readonly connectTag: ConnectTag<Rpcs>;
   readonly connectPayload: PayloadForTag<Rpcs, ConnectTag<Rpcs>>;
   readonly openSession: (
-    options: ClientSocketSessionOptions<Rpcs>,
+    options: ClientSocketSessionOptions,
   ) => Effect.Effect<
-    ClientConnection<Rpcs, Client>,
+    ClientConnection<Client>,
     NotConnectedError,
     Socket.WebSocketConstructor
   >;
   readonly callbackHandlers: () => ReverseCallbackHandlers;
   readonly onDisconnect?: (close: CloseInfo) => void;
-  readonly onReconnect?: (helloOk: ConnectResult) => void;
-  readonly failConnectWhenClosed: boolean;
 }
 ```
 
-### [`clientRpc`](./lifecycle.ts#L106)
+### [`clientRpc`](./lifecycle.ts#L103)
 
 _Property_
 
@@ -140,7 +136,7 @@ _Property_
   readonly clientRpc: Rpcs;
 ```
 
-### [`ClientRpcDefinition`](./lifecycle.ts#L105)
+### [`ClientRpcDefinition`](./lifecycle.ts#L102)
 
 _TypeAlias_
 
@@ -219,7 +215,7 @@ _Variable_
 export type ConnectionId = string & Brand.Brand<"ConnectionId">
 ```
 
-### [`ConnectResult`](./lifecycle.ts#L117)
+### [`ConnectResult`](./lifecycle.ts#L114)
 
 _TypeAlias_
 
@@ -322,7 +318,7 @@ export type MessagesAuthorizeRequest = Extract<
 >;
 ```
 
-### [`MoltZapAgentClient`](./agent-client.ts#L48)
+### [`MoltZapAgentClient`](./agent-client.ts#L46)
 
 _Class_
 
@@ -343,8 +339,6 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
       openSession: openProtocolAgentClientSocket,
       callbackHandlers: makeAgentCallbackHandlers,
       onDisconnect: options.onDisconnect,
-      onReconnect: options.onReconnect,
-      failConnectWhenClosed: false,
     });
   }
 
@@ -362,7 +356,26 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 }
 ```
 
-### [`MoltZapAppClient`](./app-client.ts#L80)
+Serializes connection generations through one controller. Each generation
+has one scoped owner that acquires the socket, runs its reader, and reports
+`OwnerDone` only after every session finalizer has completed. The start gate
+prevents an acquired reader from running unless its generation is still
+current.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Opening: Connect
+  Opening --> Connected: SessionOpened starts reader and authentication
+  Opening --> Idle: OwnerDone after opening failure
+  Opening --> Stopping: Close interrupts owner
+  Connected --> Stopping: ReaderExited
+  Connected --> Stopping: Close or disconnect interrupts owner
+  Stopping --> Idle: OwnerDone permits explicit connect
+  Stopping --> Stopped: OwnerDone completes terminal close
+```
+
+### [`MoltZapAppClient`](./app-client.ts#L78)
 
 _Class_
 
@@ -383,8 +396,6 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
       openSession: openProtocolAppClientSocket,
       callbackHandlers: () => makeAppCallbackHandlers(options.handlers),
       onDisconnect: options.onDisconnect,
-      onReconnect: options.onReconnect,
-      failConnectWhenClosed: true,
     });
   }
 
@@ -400,6 +411,25 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
     return this.callEffect(tag, payload, timeoutMs);
   }
 }
+```
+
+Serializes connection generations through one controller. Each generation
+has one scoped owner that acquires the socket, runs its reader, and reports
+`OwnerDone` only after every session finalizer has completed. The start gate
+prevents an acquired reader from running unless its generation is still
+current.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Opening: Connect
+  Opening --> Connected: SessionOpened starts reader and authentication
+  Opening --> Idle: OwnerDone after opening failure
+  Opening --> Stopping: Close interrupts owner
+  Connected --> Stopping: ReaderExited
+  Connected --> Stopping: Close or disconnect interrupts owner
+  Stopping --> Idle: OwnerDone permits explicit connect
+  Stopping --> Stopped: OwnerDone completes terminal close
 ```
 
 ### [`MoltZapServer`](./server.ts#L300)
@@ -474,7 +504,6 @@ export class MoltZapServer<
         socket,
         { server: serverSink, client: session.originator.sink },
         disconnects,
-        session.write,
       );
       yield* this.runSocketReader(reader, session);
     }).pipe(Effect.withSpan("MoltZapServer.openSocketSession"));
@@ -567,35 +596,35 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L578)
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L531)
 
 _Function_
 
 ```ts
 export const openProtocolAgentClientSocket = (
-  options: ClientSocketSessionOptions<AgentCallableRpcs>,
+  options: ClientSocketSessionOptions,
 ): Effect.Effect<
-  ClientConnection<AgentCallableRpcs, AgentClientDispatch>,
+  ClientConnection<AgentClientDispatch>,
   NotConnectedError,
   Socket.WebSocketConstructor
 >
 ```
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L590)
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L543)
 
 _Function_
 
 ```ts
 export const openProtocolAppClientSocket = (
-  options: ClientSocketSessionOptions<AppCallableRpcs>,
+  options: ClientSocketSessionOptions,
 ): Effect.Effect<
-  ClientConnection<AppCallableRpcs, AppClientDispatch>,
+  ClientConnection<AppClientDispatch>,
   NotConnectedError,
   Socket.WebSocketConstructor
 >
 ```
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L659)
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L648)
 
 _Class_
 
@@ -604,35 +633,61 @@ export class ProtocolClientLifecycle<
   Rpcs extends ProtocolRpc,
   Client extends TypedDispatchMap<Rpcs, RpcClientError>,
 > {
-  private readonly stateRef: Ref.Ref<
-    Option.Option<ClientConnection<Rpcs, Client>>
+  private readonly connectionRef: Ref.Ref<ClientConnection<Client> | null>;
+  private readonly commands: Mailbox.Mailbox<
+    ClientLifecycleCommand<Rpcs, Client>
   >;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
   >;
   private readonly subscribers: SubscriberRegistry;
+  private readonly controllerDone: Deferred.Deferred<void, never>;
+  private readonly closeCompletion: Deferred.Deferred<void, never>;
   private closed = false;
-  private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
   private _helloOk: ConnectResult | null = null;
 
   protected constructor(
     private readonly options: ClientLifecycleOptions<Rpcs, Client>,
   ) {
-    this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
-    this.stateRef = this.runtime.runSync(
-      Ref.make<Option.Option<ClientConnection<Rpcs, Client>>>(Option.none()),
+    this.runtime = ManagedRuntime.make(
+      Layer.merge(
+        NodeSocket.layerWebSocketConstructor,
+        clientRuntimeLoggerLayer,
+      ),
     );
-    this.subscribers = this.runtime.runSync(
-      makeNotificationSubscriberRegistry<
-        NotConnectedError,
-        AnyNotificationDefinition
-      >({
-        closeCause: makeNotConnectedError,
-        logPrefix: "subscriber",
-        spanName: "makeSubscriberRegistry",
+    const initialized = this.runtime.runSync(
+      Effect.gen(function* () {
+        const connectionRef = yield* Ref.make<ClientConnection<Client> | null>(
+          null,
+        );
+        const commands =
+          yield* Mailbox.make<ClientLifecycleCommand<Rpcs, Client>>();
+        const subscribers = yield* makeNotificationSubscriberRegistry<
+          NotConnectedError,
+          AnyNotificationDefinition
+        >({
+          closeCause: makeNotConnectedError,
+          logPrefix: "subscriber",
+          spanName: "makeSubscriberRegistry",
+        });
+        const controllerDone = yield* Deferred.make<void, never>();
+        const closeCompletion = yield* Deferred.make<void, never>();
+        return {
+          connectionRef,
+          commands,
+          subscribers,
+          controllerDone,
+          closeCompletion,
+        };
       }),
     );
+    this.connectionRef = initialized.connectionRef;
+    this.commands = initialized.commands;
+    this.subscribers = initialized.subscribers;
+    this.controllerDone = initialized.controllerDone;
+    this.closeCompletion = initialized.closeCompletion;
+    this.runtime.runFork(this.runController());
   }
 
   get helloOk(): ConnectResult | null {
@@ -640,14 +695,9 @@ export class ProtocolClientLifecycle<
   }
 
   connect(): Effect.Effect<ConnectResult, ClientConnectError<Rpcs>> {
-    return Effect.suspend(() => {
-      if (this.closed && this.options.failConnectWhenClosed) {
-        return Effect.fail(makeNotConnectedError());
-      }
-      return this.connectEffect().pipe(
-        Effect.provide(NodeSocket.layerWebSocketConstructor),
-      );
-    });
+    return Effect.suspend(() =>
+      this.closed ? Effect.fail(makeNotConnectedError()) : this.connectEffect(),
+    );
   }
 
   subscribe<
@@ -671,55 +721,53 @@ export class ProtocolClientLifecycle<
     return notificationSubscribe(this.subscribers, definition, refinement);
   }
 
-  subscribeAll(
-    refinement?: (
-      definition: AnyNotificationDefinition,
-      params: NotificationParamsOf<AnyNotificationDefinition>,
-    ) => boolean,
-  ): Stream.Stream<
-    NotificationDelivery<AnyNotificationDefinition>,
-    NotConnectedError,
-    never
+  /**
+   * Acquire a notification subscription before exposing its Stream.
+   * The returned Stream is ready to receive immediately, and the caller's
+   * Scope owns both unregistration and mailbox termination.
+   */
+  subscribeScoped<D extends AnyNotificationDefinition>(
+    definition: D,
+  ): Effect.Effect<
+    Stream.Stream<NotificationParamsOf<D>, NotConnectedError>,
+    never,
+    Scope.Scope
   > {
-    if (refinement === undefined) {
-      return notificationSubscribeAll(this.subscribers);
-    }
-    const deliveryRefinement = (
-      delivery: NotificationDelivery<AnyNotificationDefinition>,
-    ): boolean => {
-      return refinement(delivery.definition, delivery.params);
-    };
-    return notificationSubscribeAll(this.subscribers, deliveryRefinement);
-  }
+    return Effect.gen(this, function* () {
+      const mailbox = yield* Mailbox.make<
+        NotificationParamsOf<D>,
+        NotConnectedError
+      >(SCOPED_SUBSCRIPTION_CAPACITY);
+      const subscription = yield* this.subscribers.register(
+        definition,
+        undefined,
+        {
+          onFrame: (params) => mailbox.offer(params).pipe(Effect.asVoid),
+          onClose: (cause) => mailbox.fail(cause).pipe(Effect.asVoid),
+        },
+      );
+      yield* Effect.addFinalizer(() =>
+        subscription.unregister.pipe(
+          Effect.zipRight(mailbox.end),
+```
 
-  close(): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      if (this.closed) return;
-      const hasCompletedHandshake = this._helloOk !== null;
-      this.closed = true;
-      this._helloOk = null;
-      if (this.reconnectFiber !== null) {
-        const f = this.reconnectFiber;
-        this.reconnectFiber = null;
-        this.runtime.runFork(Fiber.interrupt(f));
-      }
-      const state = this.runtime.runSync(
-        Ref.getAndSet(this.stateRef, Option.none()),
-      );
-      const drainConnection = Option.isSome(state)
-        ? drainConnectionEffect({
-            write: state.value.write,
-            scope: state.value.scope,
-            hasCompletedHandshake,
-          })
-        : Effect.void;
-      this.runtime.runFork(
-        this.subscribers.closeAll.pipe(
-          Effect.zipRight(drainConnection),
-          Effect.ensuring(Effect.sync(() => this.runtime.dispose())),
-        ),
-      );
-    });
+Serializes connection generations through one controller. Each generation
+has one scoped owner that acquires the socket, runs its reader, and reports
+`OwnerDone` only after every session finalizer has completed. The start gate
+prevents an acquired reader from running unless its generation is still
+current.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Opening: Connect
+  Opening --> Connected: SessionOpened starts reader and authentication
+  Opening --> Idle: OwnerDone after opening failure
+  Opening --> Stopping: Close interrupts owner
+  Connected --> Stopping: ReaderExited
+  Connected --> Stopping: Close or disconnect interrupts owner
+  Stopping --> Idle: OwnerDone permits explicit connect
+  Stopping --> Stopped: OwnerDone completes terminal close
 ```
 
 ### [`ReverseCallbackError`](./server.ts#L156)
@@ -730,7 +778,7 @@ _TypeAlias_
 export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L275)
+### [`ReverseCallbackHandlers`](./lifecycle.ts#L231)
 
 _TypeAlias_
 
@@ -817,7 +865,7 @@ export interface ReverseClient {
 }
 ```
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L91)
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L90)
 
 _Variable_
 
@@ -825,7 +873,7 @@ _Variable_
 export const RPC_TIMEOUT_MS = 30_000
 ```
 
-### [`RpcCallOptions`](./lifecycle.ts#L101)
+### [`RpcCallOptions`](./lifecycle.ts#L98)
 
 _Interface_
 

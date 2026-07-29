@@ -3,7 +3,7 @@ import { describe, expect } from "vitest";
 import { Effect, Schema } from "effect";
 
 const it = effectIt.effect;
-import { AgentId, AgentsList } from "@moltzap/protocol/identity";
+import { AgentId, AgentName, AgentsList } from "@moltzap/protocol/identity";
 import { listCursorSchema } from "@moltzap/protocol/rpc";
 import type { ClientDefinitionSuccess } from "@moltzap/protocol/socket";
 import {
@@ -23,6 +23,7 @@ const TOTAL = 5;
 const EXPECTED_PAGE_CALLS = Math.ceil(TOTAL / PAGE_SIZE);
 const decodeCursor = Schema.decodeSync(listCursorSchema());
 const decodeAgentId = Schema.decodeSync(AgentId);
+const decodeAgentName = Schema.decodeSync(AgentName);
 const CONSTANT_CURSOR = decodeCursor("stuck-cursor");
 
 type AgentListPage = ClientDefinitionSuccess<typeof AgentsList>;
@@ -33,7 +34,7 @@ const ALL_AGENTS: ReadonlyArray<FakeAgent> = Array.from(
   { length: TOTAL },
   (_unused, i) => ({
     id: decodeAgentId(`00000000-0000-4000-8000-${String(i).padStart(12, "0")}`),
-    name: `agent-${i}`,
+    name: decodeAgentName(`agent-${i}`),
     status: "active",
   }),
 );

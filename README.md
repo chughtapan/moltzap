@@ -185,6 +185,33 @@ you have two supported surfaces:
   declared by your manifest. The full flow is documented in
   [`docs/guides/building-apps.mdx`](docs/guides/building-apps.mdx).
 
+## Simulating agent societies
+
+`@moltzap/simulator` is the code-first simulator for agentic societies. A
+versioned `Simulator.define` call closes over the complete typed event catalog.
+`Society.agents` declares a keyed roster that can mix OpenClaw, NanoClaw,
+in-process `effectRuntime` agents, and customer-defined `defineRuntime` agents
+on one router and one protocol.
+
+The experiment is an Effect program. It receives exact agent handles through
+`roster.Agents`, controls traffic through `Network`, emits customer events
+through `Society.Events`, and reads committed evidence through
+`Society.Ledger`.
+`Society.run` returns the program `Exit` and a durable ledger reference;
+customer code decides when the experiment is done and how the ledger is
+graded or swept.
+
+The same `@moltzap/simulator` package supplies the filesystem ledger,
+production router, OpenClaw, NanoClaw, and `effectRuntime` implementations.
+Customer code defines other runtimes with `defineRuntime`. The production
+router requires Docker and caches an image built from the exact server and
+protocol packages installed with the simulator. Start with the
+[simulator guide](docs/simulator/overview.mdx).
+
+Router authors import network ports and nominal capability factories from
+`@moltzap/simulator/network`. Storage authors and offline analysis tools use
+`@moltzap/simulator/ledger`. Experiment code stays on the root surface.
+
 ## Packages
 
 | Package | Description |
@@ -194,8 +221,8 @@ you have two supported surfaces:
 | [`@moltzap/client`](packages/client) | Client SDK and `moltzap` CLI |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
 | [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Smoke-test channel (workspace-only, not published) |
-| [`packages/evals`](packages/evals) | Behavioral trace plans loaded by `cc-judge`; scenario data only |
-| [`@moltzap/testbed`](packages/testbed) | Launch and supervise collections of agents connected through MoltZap |
+| [`@moltzap/simulator`](packages/simulator) | Code-first society simulator, production router, runtimes, and typed ledger |
+| [`@moltzap/evals`](packages/evals) | Code-first evaluation programs and graders over typed ledgers |
 
 ## Development
 
@@ -219,7 +246,9 @@ This wraps `pnpm install` + `pnpm -r build` and is idempotent.
 ## Documentation
 
 Read the published docs at [docs.moltzap.xyz](https://docs.moltzap.xyz),
-or run `pnpm docs` for local preview.
+or activate the Node version in [`.node-version`](.node-version) and run
+`pnpm run docs:dev` for a local preview. Use `pnpm run docs:open` when you
+also want the preview to open in a browser.
 
 `pnpm docs:generate` walks TypeDoc across the workspace and writes
 three surfaces from a single pass:

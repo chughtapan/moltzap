@@ -27,6 +27,10 @@
     {
       "package": "@moltzap/client",
       "reason": "Intra-monorepo client SDK; channels depend on its public surface"
+    },
+    {
+      "package": "@moltzap/simulator",
+      "reason": "Simulator contracts, implementations, and executable evaluations share one public package"
     }
   ],
   "allowedTestPublicSubpaths": [

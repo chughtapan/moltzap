@@ -157,7 +157,7 @@ export type MessageAuthorizeResult =
     }
 ```
 
-### [`MessageService`](./message.service.ts#L170)
+### [`MessageService`](./message.service.ts#L171)
 
 _Class_
 
@@ -241,7 +241,7 @@ export class MessageService {
       // stack before the handler runs, so `send` requires no permission token in
       // its Env and trusts `input` (the handler's already-gated params).
       const conv = yield* this.readSendConversation(input.conversationId);
-      const parts = [...input.parts];
+      const parts = input.parts;
       const encrypted = yield* this.encryptParts(input.conversationId, parts);
       const row = yield* this.insertMessageRow(input, conv, encrypted);
       return {

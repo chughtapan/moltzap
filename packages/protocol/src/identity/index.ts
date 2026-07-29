@@ -4,6 +4,7 @@
 
 import {
   AgentId,
+  AgentName,
   AgentKey,
   InviteCode,
   Register,
@@ -28,6 +29,7 @@ import {
 
 export {
   AgentId,
+  AgentName,
   AgentKey,
   InviteCode,
   Register,

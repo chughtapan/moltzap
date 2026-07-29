@@ -31,9 +31,16 @@ const publicTypePackage = {
     package: "@moltzap/client",
     reason: "Intra-monorepo client SDK; channels depend on its public surface",
   },
+  simulator: {
+    package: "@moltzap/simulator",
+    reason:
+      "Simulator contracts, implementations, and executable evaluations share one public package",
+  },
 };
 
-const publicTypePackages = Object.values(publicTypePackage);
+const publicTypePackages = Object.entries(publicTypePackage)
+  .filter(([name]) => name !== "simulator")
+  .map(([, definition]) => definition);
 
 const allowedTestPublicSubpaths = [
   {
@@ -109,7 +116,11 @@ const packageDefinitions = {
       ],
     },
   },
-  evals: {},
+  evals: {
+    afterShared: {
+      publicTypePackages: [...publicTypePackages, publicTypePackage.simulator],
+    },
+  },
   "nanoclaw-channel": {
     beforeShared: {
       sharedFolderNames: [
@@ -153,9 +164,24 @@ const packageDefinitions = {
             "Stable lifecycle contract shared by the agent and app socket clients while socket/index.ts curates the published socket surface",
         },
         {
+          file: "socket/client-runtime.config.ts",
+          reason:
+            "Internal managed-runtime boot policy that sends protocol diagnostics to stderr so client applications can reserve stdout for structured output",
+        },
+        {
           file: "socket/server.ts",
           reason:
             "Stable server socket contract that composes transport and requirement layers behind MoltZapServer",
+        },
+        {
+          file: "identity/agents/types.ts",
+          reason:
+            "Agent record schemas and validation form the identity descriptor boundary consumed by the agent-list RPC while identity/agents/index.ts curates the published surface",
+        },
+        {
+          file: "task/tasks.ts",
+          reason:
+            "Task value schemas, errors, RPC descriptors, and notification catalogs form one protocol-domain boundary while task/index.ts curates the published surface",
         },
         {
           file: "task/requirements/task-read-access.ts",
@@ -225,46 +251,156 @@ const packageDefinitions = {
       ],
     },
   },
-  testbed: {
+  simulator: {
     beforeShared: {
       packageRuntime: "node",
-      maxPublicExports: 32,
-      minPublicFacadeModules: 7,
-      folderChildCountOverrides: [
-        {
-          folder: ".",
-          maxChildren: 16,
-          reason:
-            "The testbed keeps runtime adapters, orchestration, readiness, process support, locking, install-mode resolution, cache lifecycle, and trace-capture modules as deliberate peers in its documented single-tier source layout",
-        },
-      ],
+      minExportedSiblingModules: 5,
+      maxPublicExports: 84,
+      maxPublicReexports: 15,
+      minPublicFacadeModules: 16,
+      minFolderReadmeChildren: 100,
       facadeFiles: [
         {
-          file: "nanoclaw-install.ts",
+          file: "network.ts",
           reason:
-            "NanoClaw install boundary composing pinned-source download, bundled-asset injection, and dual-mode dependency materialization behind one immutable cache",
+            "Published network contract for participants, conversations, endpoints, links, and router implementations",
         },
         {
-          file: "channel-plugin-install.ts",
+          file: "ledger.ts",
           reason:
-            "Shared plugin-install and workspace-seed boundary both runtime adapters compose for on-disk channel provisioning",
+            "Published ledger contract for records, storage, live runs, and offline inspection",
         },
         {
-          file: "testbed.ts",
+          file: "events/catalog.ts",
           reason:
-            "Public testbed boundary for adapter selection, coordinated runtime startup, process-signal interruption, and reverse-order teardown",
+            "Nominal event-catalog boundary shared by definitions, ledger persistence, and event services",
         },
         {
-          file: "nanoclaw-adapter.ts",
+          file: "events/core.ts",
           reason:
-            "Nanoclaw runtime adapter boundary that composes installation, process lifecycle, and readiness behind the Runtime contract",
+            "Closed kernel event catalog and producer-bound event writer contracts",
         },
         {
-          file: "openclaw-adapter.ts",
+          file: "kernel/event-services.ts",
           reason:
-            "OpenClaw runtime adapter boundary that composes channel installation, process lifecycle, and readiness behind the Runtime contract",
+            "Definition-bound Effect services for readable ledgers and customer-owned event emission",
+        },
+        {
+          file: "ledger/model.ts",
+          reason:
+            "Durable record, manifest, completion, digest, and ledger-reference model",
+        },
+        {
+          file: "ledger/storage.ts",
+          reason:
+            "Storage port that keeps allocation, append, completion, and reading independent of the filesystem implementation",
+        },
+        {
+          file: "ledger/live.ts",
+          reason:
+            "Live-ledger boundary for ordered append, failure latching, completion, and typed event streams",
+        },
+        {
+          file: "ledger/open.ts",
+          reason: "Completed-ledger validation and offline opening boundary",
+        },
+        {
+          file: "kernel/outcomes.ts",
+          reason:
+            "Causal outcome conversion shared by runtime, router, and program lifecycle modules",
+        },
+        {
+          file: "kernel/router.ts",
+          reason:
+            "Router lifecycle boundary coupling scoped acquisition and shutdown with durable causal outcomes",
+        },
+        {
+          file: "kernel/run.ts",
+          reason:
+            "Run boundary composing definitions, scoped resources, lifecycle outcomes, and the customer Effect",
+        },
+        {
+          file: "network/endpoint.ts",
+          reason:
+            "Controlled endpoint and network service boundary over router transports and conversation receive cursors",
+        },
+        {
+          file: "network/link.ts",
+          reason:
+            "Link driver port and experiment-facing scoped link controller services",
+        },
+        {
+          file: "network/participant.ts",
+          reason:
+            "Nominal participant and agent handles shared by network, runtime, and kernel capabilities",
+        },
+        {
+          file: "network/conversation.ts",
+          reason: "Conversation addressing and endpoint-bound socket contract",
+        },
+        {
+          file: "network/router.ts",
+          reason:
+            "Router port, framed message model, connection contract, and typed network failures",
+        },
+        {
+          file: "network/server.ts",
+          reason:
+            "Scoped MoltZap server ownership for image, storage, process, observation, and identity resources",
+        },
+        {
+          file: "runtime/runtime.ts",
+          reason:
+            "Autonomous participant lifecycle contract implemented by every runtime family",
+        },
+        {
+          file: "runtime/roster.ts",
+          reason:
+            "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements",
+        },
+        {
+          file: "runtime/process.ts",
+          reason:
+            "Scoped process bridge shared by the external runtime implementations",
+        },
+        {
+          file: "runtime/packages.ts",
+          reason:
+            "Runtime package discovery and install-policy boundary shared by shipped runtime families",
+        },
+        {
+          file: "runtime/nanoclaw/install.ts",
+          reason:
+            "NanoClaw installation boundary composing source acquisition, package assets, and dependency materialization",
+        },
+        {
+          file: "runtime/openclaw/process.ts",
+          reason:
+            "OpenClaw process boundary composing workspace setup, channel materialization, gateway configuration, port ownership, and supervised lifetime",
         },
       ],
+      layers: [
+        {
+          name: "kernel",
+          folders: ["kernel"],
+          reason:
+            "The run kernel orchestrates capability contracts without becoming a dependency of them",
+        },
+        {
+          name: "capabilities",
+          folders: ["events", "ledger", "network", "runtime"],
+          reason:
+            "Peer event, ledger, network, and runtime capabilities compose through typed ports and do not form a truthful linear stack",
+        },
+      ],
+    },
+    afterShared: {
+      publicTypePackages: [
+        publicTypePackage.effect,
+        publicTypePackage.platform,
+        publicTypePackage.protocol,
+      ],
+      allowedTestPublicSubpaths: [],
     },
   },
   server: {

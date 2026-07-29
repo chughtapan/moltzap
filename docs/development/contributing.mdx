@@ -3,6 +3,8 @@ title: Contributing
 description: Contribution guidelines and conventions
 ---
 
+import { DEFAULT_SERVER_PORT } from "/snippets/constants/values.mdx";
+
 # Contributing
 
 ## Monorepo conventions
@@ -69,7 +71,8 @@ Then commit both the schema change and the regenerated docs together. CI runs `p
 
 | Command | What it does |
 |---------|-------------|
-| `pnpm docs` | Start local Mintlify preview at localhost:3333 |
+| `pnpm run docs:dev` | Start local Mintlify preview at localhost:{DEFAULT_SERVER_PORT} without opening a browser |
+| `pnpm run docs:open` | Start local Mintlify preview and open it in a browser |
 | `pnpm docs:generate` | Regenerate protocol reference MDX from TypeBox schemas |
 | `pnpm docs:check` | Check for broken internal links |
 | `pnpm docs:check:drift` | Verify generated docs match schemas (runs in CI) |

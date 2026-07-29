@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       packages:
-        description: "Space-separated package directories to force publish, e.g. 'server' or 'protocol server client testbed'"
+        description: "Space-separated package directories to force publish, e.g. 'server' or 'protocol server client simulator'"
         required: false
         default: ""
 
@@ -38,10 +38,10 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - uses: pnpm/action-setup@v4
-      # Node 24 ships npm >=11.5 which supports OIDC trusted publishing.
+      # The repository Node pin ships npm >=11.5 for OIDC trusted publishing.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
@@ -69,7 +69,7 @@ jobs:
 
           CHANGED=""
           REQUESTED_PACKAGES=" ${REQUESTED_PACKAGES} "
-          for pkg in protocol server client openclaw-channel testbed; do
+          for pkg in protocol server client simulator openclaw-channel; do
             PROJECT_NAME=$(node -p "require('./packages/$pkg/package.json').name")
             if [[ "$REQUESTED_PACKAGES" == *" $pkg "* ]]; then
               SHOULD_RELEASE=1
@@ -142,6 +142,9 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
+      - name: Verify simulator package consumers
+        run: node scripts/test-simulator-packages.mjs
+
       - name: Publish packages
         run: |
           echo "npm version: $(npm --version)"
@@ -152,7 +155,7 @@ jobs:
           # Publish any package whose local version is not yet on npm. This
           # covers both newly bumped versions and versions from prior runs
           # where the bump committed but the publish failed.
-          for pkg in protocol server client openclaw-channel testbed; do
+          for pkg in protocol server client simulator openclaw-channel; do
             PKG_JSON="./packages/$pkg/package.json"
             VER=$(node -p "require('$PKG_JSON').version")
             NAME=$(node -p "require('$PKG_JSON').name")

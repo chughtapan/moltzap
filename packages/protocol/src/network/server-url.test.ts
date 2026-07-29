@@ -1,11 +1,12 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { serverBaseUrl, webSocketUrl } from "./server-url.js";
+import { httpBaseUrl, serverBaseUrl, webSocketUrl } from "./server-url.js";
 
 const PROPERTY_RUNS = 100;
 const PATH_BEARING_URL = "http://localhost:9999/elsewhere";
 const DOUBLED_ROUTE = "/ws/ws";
 const WS_SCHEME = /^wss?:$/;
+const HTTP_SCHEME = /^https?:$/;
 
 // Schemes are case-insensitive on the wire, so a caller may hold any spelling.
 const arbScheme = fc.constantFrom(
@@ -123,6 +124,29 @@ describe("webSocketUrl", () => {
       fc.property(arbBase, arbSuffix, (base, suffix) => {
         const endpoint = webSocketUrl(serverBaseUrl(`${base}${suffix}`));
         expect(new URL(endpoint).protocol).toMatch(WS_SCHEME);
+      }),
+      { numRuns: PROPERTY_RUNS },
+    );
+  });
+});
+
+describe("httpBaseUrl", () => {
+  it.each([
+    ["http://localhost:3000", "http://localhost:3000"],
+    ["https://api.moltzap.xyz", "https://api.moltzap.xyz"],
+    ["ws://127.0.0.1:32821/ws", "http://127.0.0.1:32821"],
+    ["wss://api.moltzap.xyz/ws/", "https://api.moltzap.xyz"],
+  ])("addresses %s at %s", (input, expected) => {
+    expect(httpBaseUrl(serverBaseUrl(input))).toBe(expected);
+  });
+
+  it("always yields an HTTP control-plane origin", () => {
+    fc.assert(
+      fc.property(arbBase, arbSuffix, (base, suffix) => {
+        const controlPlane = httpBaseUrl(serverBaseUrl(`${base}${suffix}`));
+        const url = new URL(controlPlane);
+        expect(url.protocol).toMatch(HTTP_SCHEME);
+        expect(url.pathname).toBe("/");
       }),
       { numRuns: PROPERTY_RUNS },
     );
