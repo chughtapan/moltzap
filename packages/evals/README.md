@@ -83,14 +83,27 @@ pnpm nx run @moltzap/evals:lint
 
 ## Full runtime evaluation
 
-The gated integration target starts one production router and runs OpenClaw,
-NanoClaw, an Effect agent, and a customer-defined `defineRuntime` agent backed
-by an Effect handler in the same roster. One controlled endpoint completes a
-protocol round trip with every runtime, then the test validates readiness,
-delivery, durable router commits, customer selection, and program success. It
-also requires the runtime-termination streams to remain empty: scope cleanup
-is not autonomous termination evidence, and a runtime that exits before the
-customer program completes fails the proof.
+The gated integration target owns three distinct acceptance results:
+
+1. A mixed-roster protocol proof starts OpenClaw, NanoClaw, an Effect agent,
+   and a customer-defined `defineRuntime` agent against one production router.
+   Exact per-runtime replies prove readiness, delivery, durable router commits,
+   customer selection, and program success.
+2. A behavioral measurement runs the existing two-turn EVAL-021 episode
+   independently against real OpenClaw and NanoClaw, opens each completed
+   ledger, and grades it with the versioned code grader. Infrastructure
+   success and successful grading are acceptance conditions; the observed
+   behavioral verdict is result data rather than a test-runner verdict.
+3. A shared-conversation proof puts OpenClaw, NanoClaw, and an Effect witness
+   in one conversation. OpenClaw contributes a workspace-private value, the
+   Effect runtime acknowledges that exact message, and NanoClaw must reply to
+   the witness with the derived consensus value. A typed customer event binds
+   the three message identities and reply edges in the completed ledger.
+
+The mixed-roster and shared-conversation proofs also require the
+runtime-termination streams to remain empty. Scope cleanup is not autonomous
+termination evidence, and a runtime that exits before the customer program
+completes fails the proof.
 
 ```bash
 pnpm nx run @moltzap/evals:test:agents
