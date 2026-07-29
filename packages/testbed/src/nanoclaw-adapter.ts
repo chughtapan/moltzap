@@ -15,13 +15,14 @@ import { pollFiberExitCode } from "./child-process.js";
 import {
   startNanoclawRuntimeEffect,
   stopNanoclawRuntimeEffect,
-  getNanoclawRuntimeLogs,
   type NanoclawRuntimeHandle,
 } from "./nanoclaw-process.js";
 import { ensureNanoclawRuntimeInstalledEffect } from "./nanoclaw-install.js";
+import { type InstallMode } from "./install-mode.js";
 
 export interface NanoclawAdapterOptions {
   readonly server: RuntimeServerHandle;
+  readonly installMode: InstallMode;
 
   /**
    * Registers conversations on first delivery so NanoClaw will process them.
@@ -50,8 +51,9 @@ function stopNanoclawRuntimeSafely(
 const acquireNanoclawRuntime = Effect.fn("NanoclawAdapter.acquire")(function* (
   input: SpawnInput,
   autoRegisterConversations: boolean,
+  installMode: InstallMode,
 ) {
-  const install = yield* ensureNanoclawRuntimeInstalledEffect();
+  const install = yield* ensureNanoclawRuntimeInstalledEffect(installMode);
   return yield* startNanoclawRuntimeEffect(
     {
       agentName: input.agentName,
@@ -74,26 +76,40 @@ const acquireNanoclawRuntime = Effect.fn("NanoclawAdapter.acquire")(function* (
  * flowchart TD
  *   NS["NanoclawAdapter.spawn(input)"]
  *   subgraph P1["Install pinned NanoClaw runtime"]
+ *     P1M{"install mode"}
+ *     P1P["published<br>hash bundled exact registry lock"]
+ *     P1WSRC["workspace<br>pack built client + protocol<br>hash exact tarball bytes"]
  *     P1C{"matching immutable generation exists?"}
  *     P1WARM["reuse immutable generation"]
- *     P1COLD["preflightDocker → download pinned tarball<br>→ copy bundled channel + skill<br>→ install pinned client + build<br>→ publish immutable generation"]
+ *     P1COLD["preflight Docker → download pinned source<br>→ copy bundled channel + skill + eval provisioner"]
+ *     P1CM{"workspace?"}
+ *     P1VENDOR["copy tarballs into vendor<br>rewrite both direct deps to file paths<br>refresh + assert package lock"]
+ *     P1BUILD["npm ci + build<br>build fingerprinted Docker image<br>publish immutable generation"]
+ *     P1M -->|published| P1P --> P1C
+ *     P1M -->|workspace| P1WSRC --> P1C
  *     P1C -->|yes| P1WARM
- *     P1C -->|no| P1COLD
+ *     P1C -->|no| P1COLD --> P1CM
+ *     P1CM -->|yes| P1VENDOR --> P1BUILD
+ *     P1CM -->|no| P1BUILD
  *   end
  *   subgraph P2["Start isolated agent runtime"]
  *     P2DIR["create isolated runtime dir<br>copy container + scripts"]
  *     P2OC["ensureOnecliRunning<br>(probe 10254; up if unreachable)"]
  *     P2WS["write agent-local workspace files + profile"]
+ *     P2EVAL["eval mode only<br>seed agent group + container config"]
  *     P2SP["startNanoclawProcess<br>(absolute cached entrypoint,<br>isolated runtime cwd)"]
- *     P2WAIT["waitForNanoclawConnection<br>(scan logs for CONNECTED_MARKER)"]
- *     P2DIR --> P2OC --> P2WS --> P2SP --> P2WAIT
+ *     P2OC --> P2DIR --> P2WS --> P2EVAL --> P2SP
  *   end
- *   NCR["waitUntilReady — TWO gates:<br>1. inner: waitForNanoclawConnection (stdout marker)<br>2. outer: server.awaitAgentReady (WS auth)"]
- *   NS --> P1 --> P2 --> NCR
+ *   NCR["waitUntilReady — server.awaitAgentReady (WS auth)<br>raced against subprocess exit,<br>bounded by the caller's readyTimeoutMs"]
+ *   NS --> P1M
+ *   P1WARM --> P2OC
+ *   P1BUILD --> P2OC
+ *   P2SP --> NCR
  * ```
  *
  * Inbound marker: `New messages`. The immutable cache key covers the pinned
- * NanoClaw source, dependency lock, bundled channel/skill, and host ABI.
+ * NanoClaw source, dependency lock, bundled channel/skill/provisioner, host
+ * ABI, and workspace tarball bytes when workspace mode is selected.
  */
 export class NanoclawAdapter implements Runtime {
   private state: AdapterState | null = null;
@@ -119,7 +135,7 @@ export class NanoclawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollFiberExitCode(handle.exitFiber),
-        stderr: () => getNanoclawRuntimeLogs(handle),
+        stderr: () => handle.logs.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),
@@ -132,9 +148,7 @@ export class NanoclawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const full = getNanoclawRuntimeLogs(this.state.handle);
-    const text = full.slice(offset);
-    return { text, nextOffset: full.length };
+    return this.state.handle.logs.read(offset);
   }
 
   getInboundMarker(): string {
@@ -151,6 +165,7 @@ export class NanoclawAdapter implements Runtime {
               acquireNanoclawRuntime(
                 input,
                 this.options.autoRegisterConversations ?? false,
+                this.options.installMode,
               ),
             ),
             (acquired) =>

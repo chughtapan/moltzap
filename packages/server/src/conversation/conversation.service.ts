@@ -7,6 +7,7 @@ import type {
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
+import { BoundedMap } from "@moltzap/protocol/bounded-map";
 import type { SqlError } from "@effect/sql/SqlError";
 import { Effect, Option } from "effect";
 import { InvalidParamsError } from "@moltzap/protocol/rpc";
@@ -259,7 +260,9 @@ const nextConversationListCursor = (
 
 export class ConversationService {
   /** In-memory cache for last message previews — avoids decrypting on every list() call */
-  private previewCache = new Map<ConversationId, string>();
+  private readonly previewCache = new BoundedMap<ConversationId, string>(
+    PREVIEW_CACHE_MAX,
+  );
 
   constructor(
     private db: Db,
@@ -272,15 +275,10 @@ export class ConversationService {
     conversationId: ConversationId,
     firstPartText: string,
   ): void {
-    this.previewCache.delete(conversationId);
     this.previewCache.set(
       conversationId,
       firstPartText.slice(0, PREVIEW_CACHE_TEXT_CHARS),
     );
-    if (this.previewCache.size > PREVIEW_CACHE_MAX) {
-      const oldest = this.previewCache.keys().next().value!;
-      this.previewCache.delete(oldest);
-    }
   }
 
   create<TaskMintError = never>(

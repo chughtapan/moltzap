@@ -450,3 +450,5 @@ export const connectAgent: ServerHandler<typeof AgentConnect> = (params) =>
 
 export const connectApp: ServerHandler<typeof AppConnect> = (params) =>
   handleAppConnect(params).pipe(Effect.withSpan("connect.app"));
+
+// safer-arch-ignore no-fat-orchestrator: Connect handlers coordinate authentication, connection-arm transitions, endpoint registration, and presence as one atomic handshake boundary.

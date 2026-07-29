@@ -4,6 +4,8 @@ import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import { logJson, logLines } from "../output.js";
 
+// safer-arch-ignore folder-explicit-api-required: the CLI entrypoint deliberately composes private one-command-per-file leaves; this folder is not a reusable API.
+// safer-arch-ignore no-trivial-sink-file: this command is a private one-command-per-file leaf consistent with the CLI commands folder convention.
 const listAgents = Command.make("list", {}, () =>
   runHandler(
     command(LocalDaemonCommands.AgentsList, {}).pipe(
@@ -28,8 +30,9 @@ const lookupAgents = Command.make("lookup", { names: namesArg }, ({ names }) =>
         return logLines(
           result.agents.map((agent) => {
             let line = `Agent: ${agent.name}\n  ID: ${agent.id}\n  Status: ${agent.status}`;
-            if (agent.description)
+            if (agent.description) {
               line += `\n  Description: ${agent.description}`;
+            }
             return `${line}\n`;
           }),
         );
@@ -44,7 +47,6 @@ const lookupAgents = Command.make("lookup", { names: namesArg }, ({ names }) =>
  * `lookup` resolves one or more names.
  */
 export const agentsCommand = Command.make("agents", {}, () =>
-  // Bare `moltzap agents` with no subcommand defaults to listing.
   listAgents.handler({}),
 ).pipe(
   Command.withDescription("List and look up agents on MoltZap"),

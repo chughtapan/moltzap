@@ -1,5 +1,7 @@
 import { Path } from "@effect/platform";
+import type * as ClientTestUtils from "@moltzap/client/test-utils";
 import { Data, Duration, Effect, Fiber, Option, Stream } from "effect";
+import type * as ServerTestUtils from "@moltzap/server-core/test-utils";
 import { startRuntimeAgent, type RuntimeKind } from "./testbed.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
 import type { Runtime } from "./runtime.js";
@@ -16,17 +18,11 @@ import {
   type TraceCaptureEvent,
 } from "./trace-capture-bundle.js";
 
-import type { AnyServerRpcDefinition } from "@moltzap/protocol/socket/catalog";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import {
   MessageReceivedNotificationDefinition,
   MessagesSend,
 } from "@moltzap/protocol/message";
-import type {
-  NotificationParamsOf,
-  ParamsOf,
-  ResultOf,
-} from "@moltzap/protocol/rpc";
 import {
   DEFAULT_APP_ID,
   TaskRequest,
@@ -99,100 +95,17 @@ interface MessagePart {
   readonly text?: string;
 }
 
-interface HarnessClient {
-  close(): Effect.Effect<void, never, never>;
-
-  /**
-   * Typed-payload Stream subscription. The harness subscribes BEFORE
-   * issuing each `MessagesSend` (`sendMessageAndWait`'s fork → trigger →
-   * join pattern) so the response notification is never dropped between
-   * the request and the Stream materialisation. Structural shape mirrors
-   * `MoltZapAgentClient.subscribe`.
-   */
-  subscribe<D extends typeof MessageReceivedNotificationDefinition>(
-    definition: D,
-    refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<NotificationParamsOf<D>, Error, never>;
-  sendRpc<D extends AnyServerRpcDefinition>(
-    method: D,
-    payload: ParamsOf<D>,
-  ): Effect.Effect<ResultOf<D>, Error, never>;
-}
+// Type-only namespaces keep the dynamic loaders aligned with their published
+// test surfaces without introducing client or server runtime imports.
+type ClientTestModule = typeof ClientTestUtils;
+type HarnessClient = ClientTestUtils.HarnessAgentClient;
+type ServerTestModule = typeof ServerTestUtils;
+type CoreTestServer = ServerTestUtils.CoreTestServer;
 
 interface ConnectedActor {
   readonly agentId: AgentId;
   readonly name: string;
   readonly client: HarnessClient;
-}
-
-// Structural shape of the dynamically loaded `@moltzap/client` test-utils
-// barrel; the canonical implementation is `test-utils/harness.ts →
-// registerAndConnect` there. Loaded by path so the published testbed
-// package never takes a static dependency on the client.
-interface ClientTestModule {
-  registerAgent(
-    baseUrl: string,
-    name: string,
-  ): Effect.Effect<
-    {
-      readonly agentId: AgentId;
-      readonly apiKey: AgentKey;
-    },
-    Error,
-    never
-  >;
-  registerAndConnect(
-    baseUrl: string,
-    name: string,
-  ): Effect.Effect<
-    {
-      readonly agentId: AgentId;
-      readonly apiKey: AgentKey;
-      readonly client: HarnessClient;
-    },
-    Error,
-    never
-  >;
-  stripWsPath(wsUrl: string): string;
-}
-
-interface CoreAppHandle {
-  // No fields used by the harness directly today — the test server's
-  // `spanExporter` handle (see CoreTestServer below) is the path for
-  // reading messaging trace data.
-  readonly _placeholder?: never;
-}
-
-// Pre-wired RuntimeServerHandle that startCoreTestServer now exposes — the
-// harness threads this directly into startRuntimeAgent. Structural shape only;
-// the concrete implementation lives in @moltzap/server-core's test-utils.
-interface RuntimeServerLike {
-  awaitAgentReady(
-    agentId: AgentId,
-    timeoutMs: number,
-  ): Effect.Effect<
-    | { readonly _tag: "Ready" }
-    | { readonly _tag: "Timeout"; readonly timeoutMs: number }
-    | {
-        readonly _tag: "ProcessExited";
-        readonly exitCode: number | null;
-        readonly stderr: string;
-      },
-    never,
-    never
-  >;
-}
-
-interface CoreTestServer {
-  readonly baseUrl: string;
-  readonly wsUrl: string;
-  readonly coreApp: CoreAppHandle;
-  readonly runtimeServer: RuntimeServerLike;
-}
-
-interface ServerTestModule {
-  startCoreTestServer(opts: Readonly<Record<string, never>>): unknown;
-  stopCoreTestServer(): unknown;
 }
 
 interface ConversationExecutionState {
@@ -298,7 +211,7 @@ function loadServerTestModule(): Effect.Effect<ServerTestModule, Error, never> {
   return Effect.tryPromise({
     try: () =>
       import(
-        packageModuleUrl("server", "dist", "test-utils", "server.js")
+        packageModuleUrl("server", "dist", "test-utils", "index.js")
       ) as Promise<ServerTestModule>,
     catch: (error) =>
       error instanceof Error ? error : new Error(String(error)),
@@ -314,8 +227,15 @@ function defaultTargetAgentName(kind: RuntimeKind): string {
   }
 }
 
+const CLIENT_CLOSE_TIMEOUT_MS = 5_000;
+
+// Bounded: a close that hangs (half-dead socket) must degrade to a leaked
+// connection warning, never wedge the run's unwind chain.
 function closeClient(client: HarnessClient): Effect.Effect<void, never, never> {
-  return client.close().pipe(Effect.orElseSucceed(() => undefined));
+  return client.close().pipe(
+    Effect.timeout(Duration.millis(CLIENT_CLOSE_TIMEOUT_MS)),
+    Effect.orElseSucceed(() => undefined),
+  );
 }
 
 function extractTextFromEvent(data: {
@@ -394,7 +314,7 @@ function sendMessageAndWait(input: {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly message: string;
-  readonly timeoutMs?: number;
+  readonly timeoutMs: number | undefined;
 }): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return Effect.gen(function* () {
     // Spec B (#596) Goal #7 disposition (a): fork the response-listener
@@ -508,11 +428,13 @@ function createConversationState(
   };
 }
 
+// Concurrent: the clients are independent sockets, and serial closes would
+// stack the per-close timeout into an N x 5s worst-case unwind.
 function closeConversationClients(
   clients: ReadonlyArray<HarnessClient>,
 ): Effect.Effect<void, never, never> {
-  return Effect.forEach([...clients].reverse(), closeClient, {
-    concurrency: 1,
+  return Effect.forEach(clients, closeClient, {
+    concurrency: clients.length,
     discard: true,
   });
 }
@@ -555,6 +477,7 @@ function executeDirectConversation(
       scope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
+      timeoutMs: input.payload.runtime.responseTimeoutMs,
     });
   });
 }
@@ -579,7 +502,12 @@ function executeGroupConversation(
       groupName: input.payload.conversation.groupName ?? DEFAULT_GROUP_NAME,
       participants: bystanders.map((entry) => entry.actor),
     });
-    yield* sendBystanderMessages(bystanders, input.targetAgentId, scope);
+    yield* sendBystanderMessages(
+      bystanders,
+      input.targetAgentId,
+      scope,
+      input.payload.runtime.responseTimeoutMs,
+    );
     yield* sendSetupAndFollowUps({
       state,
       sender: state.sender,
@@ -587,6 +515,7 @@ function executeGroupConversation(
       scope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
+      timeoutMs: input.payload.runtime.responseTimeoutMs,
     });
   });
 }
@@ -615,6 +544,7 @@ function executeCrossConversation(
       scope: firstScope,
       setupMessage: input.payload.conversation.setupMessage,
       followUpMessages: input.payload.conversation.followUpMessages,
+      timeoutMs: input.payload.runtime.responseTimeoutMs,
     });
     const probeSender = yield* registerProbeSender(input, state);
     const secondScope = yield* createDirectConversation(
@@ -628,6 +558,7 @@ function executeCrossConversation(
         taskId: secondScope.taskId,
         conversationId: secondScope.conversationId,
         message: input.payload.conversation.probeMessage,
+        timeoutMs: input.payload.runtime.responseTimeoutMs,
       }),
     );
   });
@@ -701,6 +632,7 @@ function sendSetupAndFollowUps(input: {
   readonly scope: TaskScope;
   readonly setupMessage: string;
   readonly followUpMessages: ReadonlyArray<string>;
+  readonly timeoutMs: number | undefined;
 }) {
   return Effect.gen(function* () {
     input.state.responses.push(
@@ -710,6 +642,7 @@ function sendSetupAndFollowUps(input: {
         taskId: input.scope.taskId,
         conversationId: input.scope.conversationId,
         message: input.setupMessage,
+        timeoutMs: input.timeoutMs,
       }),
     );
     for (const followUp of input.followUpMessages) {
@@ -720,6 +653,7 @@ function sendSetupAndFollowUps(input: {
           taskId: input.scope.taskId,
           conversationId: input.scope.conversationId,
           message: followUp,
+          timeoutMs: input.timeoutMs,
         }),
       );
     }
@@ -733,6 +667,7 @@ function sendBystanderMessages(
   }>,
   targetAgentId: AgentId,
   scope: TaskScope,
+  responseTimeoutMs: number | undefined,
 ) {
   return Effect.forEach(
     bystanders,
@@ -746,6 +681,7 @@ function sendBystanderMessages(
             taskId: scope.taskId,
             conversationId: scope.conversationId,
             message,
+            timeoutMs: responseTimeoutMs,
           }),
         { concurrency: 1, discard: true },
       ),
@@ -767,15 +703,20 @@ function executeConversationPlan(input: {
     );
     const state = createConversationState(sender);
 
-    try {
-      yield* executeConversationKind(input, state);
-      return {
-        participants: state.participants,
-        responses: state.responses,
-      };
-    } finally {
-      yield* closeConversationClients(state.closers);
-    }
+    // Cleanup MUST be Effect.ensuring, not a gen-body try/finally: on the
+    // failure path Effect.gen never resumes the generator, so a finally's
+    // `yield*` silently never executes — the leaked client sockets then
+    // hang the server close and wedge the caller forever (#791). The
+    // suspend defers reading `closers`, which fills during execution.
+    yield* executeConversationKind(input, state).pipe(
+      Effect.ensuring(
+        Effect.suspend(() => closeConversationClients(state.closers)),
+      ),
+    );
+    return {
+      participants: state.participants,
+      responses: state.responses,
+    };
   });
 }
 
@@ -814,10 +755,7 @@ function startCoreTraceServer(
   serverTestModule: ServerTestModule,
 ): Effect.Effect<CoreTestServer, HarnessFailure> {
   return Effect.tryPromise({
-    try: () =>
-      Promise.resolve(
-        serverTestModule.startCoreTestServer({}),
-      ) as Promise<CoreTestServer>,
+    try: () => serverTestModule.startCoreTestServer({}),
     catch: (error) =>
       failHarness(error instanceof Error ? error.message : String(error)),
   });
@@ -911,6 +849,11 @@ function startHarnessRuntime(input: {
   );
 }
 
+const SERVER_STOP_TIMEOUT_MS = 15_000;
+
+// Bounded like every other finalizer in the unwind chain: app.close() waits
+// for connection drain, so a socket that survived client close and runtime
+// teardown must degrade to a leak warning instead of wedging the caller.
 function stopCoreTraceServer(
   serverTestModule: ServerTestModule,
 ): Effect.Effect<void> {
@@ -918,7 +861,14 @@ function stopCoreTraceServer(
     try: () => Promise.resolve(serverTestModule.stopCoreTestServer()),
     catch: (error) =>
       error instanceof Error ? error : new Error(String(error)),
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(
+    Effect.timeout(Duration.millis(SERVER_STOP_TIMEOUT_MS)),
+    Effect.catchAll(() =>
+      Effect.logWarning(
+        "core test server did not stop within the bound; abandoning close",
+      ),
+    ),
+  );
 }
 
 function executeTraceRun(input: {

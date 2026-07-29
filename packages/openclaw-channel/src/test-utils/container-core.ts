@@ -15,6 +15,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Redacted } from "effect";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import { serverBaseUrl } from "@moltzap/protocol/network";
 
 const CONTROL_UI_PORT = 18789;
 const OPENCLAW_TOKEN_RADIX = 36;
@@ -102,10 +103,10 @@ interface BuildOpenClawConfigOptions {
   agentName: string;
 }
 
+// Containers reach the host's loopback only through the Docker gateway alias.
 export function normalizeContainerServerUrl(serverUrl: string): string {
-  return serverUrl
-    .replace(/\/ws$/, "")
-    .replace(/^ws:/, "http:")
+  return serverBaseUrl(serverUrl)
+    .replace(/^ws/, "http")
     .replace("localhost", "host.docker.internal")
     .replace("127.0.0.1", "host.docker.internal");
 }

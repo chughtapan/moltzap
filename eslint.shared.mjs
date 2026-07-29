@@ -1,3 +1,4 @@
+// Package ESLint configs load this shared module, so the root owns its plugins.
 import guard from "eslint-plugin-agent-code-guard";
 import tsParser from "@typescript-eslint/parser";
 import comments from "@eslint-community/eslint-plugin-eslint-comments";
@@ -27,6 +28,66 @@ const tsLanguageOptions = {
 const packageIgnores = {
   ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts"],
 };
+
+// Effect.gen abandons its generator when a yielded effect fails, so a
+// `finally` block cannot provide reliable cleanup on that path. This rule
+// flags try/finally inside Effect-driven generators while leaving plain
+// generators alone, where iteration runs finally through `.return()`.
+// Effect.ensuring and Effect.acquireRelease preserve cleanup on every path.
+const genFinallyRule = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Disallow try/finally inside Effect-driven generator bodies; use Effect.ensuring",
+    },
+    schema: [],
+    messages: {
+      genFinally:
+        "try/finally inside Effect.gen — no finally code runs when a yielded effect fails; use Effect.ensuring",
+    },
+  },
+  create(context) {
+    const functionStack = [];
+    const isEffectMember = (node, name) =>
+      node.type === "MemberExpression" &&
+      node.object.type === "Identifier" &&
+      node.object.name === "Effect" &&
+      node.property.type === "Identifier" &&
+      node.property.name === name;
+    const isEffectDrivenGenerator = (fn) => {
+      if (!fn.generator) return false;
+      const call = fn.parent;
+      if (call?.type !== "CallExpression" || !call.arguments.includes(fn)) {
+        return false;
+      }
+      return (
+        isEffectMember(call.callee, "gen") ||
+        (call.callee.type === "CallExpression" &&
+          isEffectMember(call.callee.callee, "fn"))
+      );
+    };
+    const enter = (node) => functionStack.push(node);
+    const exit = () => functionStack.pop();
+    return {
+      FunctionDeclaration: enter,
+      "FunctionDeclaration:exit": exit,
+      FunctionExpression: enter,
+      "FunctionExpression:exit": exit,
+      ArrowFunctionExpression: enter,
+      "ArrowFunctionExpression:exit": exit,
+      TryStatement(node) {
+        if (node.finalizer === null) return;
+        const fn = functionStack[functionStack.length - 1];
+        if (fn !== undefined && isEffectDrivenGenerator(fn)) {
+          context.report({ node, messageId: "genFinally" });
+        }
+      },
+    };
+  },
+};
+
+const localGuardPlugin = { rules: { "gen-finally": genFinallyRule } };
 
 // The `max-non-trivial-classes-per-file` default exemption list covers
 // Effect's own tag-class factories (`Context.Tag`, `Data.TaggedError`, ...) but
@@ -64,6 +125,7 @@ const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   // Disabled: knip runs once at the workspace root (whole-monorepo)
   // via `pnpm lint`; per-package lint scripts run eslint only.
   "agent-code-guard/require-knip-in-lint": "off",
+  "local-guard/gen-finally": "error",
 });
 
 const makeTestSupportRules = (strictRules) => ({
@@ -78,7 +140,7 @@ const makeTestSupportRules = (strictRules) => ({
     "src/test-utils/**/*.ts",
   ],
   languageOptions: tsLanguageOptions,
-  plugins: guard.configs.strict.plugins,
+  plugins: { ...guard.configs.strict.plugins, "local-guard": localGuardPlugin },
   settings: guard.configs.strict.settings,
   rules: strictRules,
 });
@@ -106,86 +168,6 @@ const documentationRules = {
   rules: guard.configs.documentation.rules,
 };
 
-// Architecture options consumed by @safer-by-default/architecture-lsp's
-// LSP server + `check.js` CLI. The analyzer reads these from
-// settings["agent-code-guard"].architecture; see safer-by-default PR #313.
-//
-// publicTypePackages: vendor packages whose types are intentionally part
-// of the public contract — channels and the client SDK expose Effect and
-// the moltzap protocol/client types directly. Wrapping them at every
-// boundary would produce noise without changing the actual contract.
-//
-// allowedTestPublicSubpaths: package.json `exports` keys that intentionally
-// expose test-only paths for cross-package integration testing.
-const architectureSettings = {
-  "agent-code-guard": {
-    architecture: {
-      publicTypePackages: [
-        {
-          package: "effect",
-          reason:
-            "Foundational Effect runtime; intentionally part of public contract",
-        },
-        {
-          package: "@effect/platform",
-          reason: "Effect platform abstractions used at boundaries",
-        },
-        {
-          package: "@effect/platform-node",
-          reason: "Effect Node integration used at boundaries",
-        },
-        {
-          package: "@sinclair/typebox",
-          reason: "Schema runtime; types are the contract",
-        },
-        {
-          package: "@moltzap/protocol",
-          reason: "Intra-monorepo protocol; foundational shared contract",
-        },
-        {
-          package: "@moltzap/client",
-          reason:
-            "Intra-monorepo client SDK; channels depend on its public surface",
-        },
-      ],
-      allowedTestPublicSubpaths: [
-        {
-          subpath: "./test-utils",
-          reason: "Test helpers exposed for cross-package integration testing",
-        },
-        {
-          subpath: "./test",
-          reason: "Test harness API for downstream packages",
-        },
-        {
-          subpath: "./test-support",
-          reason: "Channel test support exposed for integration tests",
-        },
-        {
-          subpath: "./testing",
-          reason:
-            "Conformance + driver surface for cross-package integration testing; consumed by moltzap-arena. The 5 protocol domain subpaths (./transport ./identity ./network ./task ./app) mirror the enforced layer DAG; ./testing is the one sanctioned test-only public subpath.",
-        },
-      ],
-    },
-  },
-};
-
-// Per-package architecture additions (e.g., `layers`) merge ON TOP of
-// the shared architectureSettings. Packages that don't pass `architecture`
-// get the shared defaults.
-function buildArchitectureSettings(extra) {
-  if (extra === undefined) return architectureSettings;
-  return {
-    "agent-code-guard": {
-      architecture: {
-        ...architectureSettings["agent-code-guard"].architecture,
-        ...extra,
-      },
-    },
-  };
-}
-
 // `@failure` is the project-wide convention for Effect error-channel
 // documentation (see workspace AGENTS.md). Every package gets it for
 // free; pass `customJsDocTags` to extend the list per package.
@@ -200,18 +182,17 @@ export function packageEslintConfig(options = {}) {
   const tagRules = {
     "jsdoc/check-tag-names": ["error", { definedTags: customTags }],
   };
-  const settings = {
-    ...guard.configs.strict.settings,
-    ...buildArchitectureSettings(options.architecture),
-  };
   return [
     packageIgnores,
     {
       files: ["src/**/*.ts", "scripts/**/*.ts", "*.ts"],
       ignores: ["**/*.test.ts", "**/*.spec.ts"],
       languageOptions: tsLanguageOptions,
-      plugins: guard.configs.strict.plugins,
-      settings,
+      plugins: {
+        ...guard.configs.strict.plugins,
+        "local-guard": localGuardPlugin,
+      },
+      settings: guard.configs.strict.settings,
       rules: { ...strictRules, ...tagRules },
     },
     makeTestSupportRules(strictRules),
@@ -228,8 +209,11 @@ export function rootEslintConfig() {
     {
       files: ["*.ts"],
       languageOptions: tsLanguageOptions,
-      plugins: guard.configs.strict.plugins,
-      settings: { ...guard.configs.strict.settings, ...architectureSettings },
+      plugins: {
+        ...guard.configs.strict.plugins,
+        "local-guard": localGuardPlugin,
+      },
+      settings: guard.configs.strict.settings,
       rules: strictRules,
     },
     eslintDisableCommentRules,

@@ -1,11 +1,16 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { Data, Effect, Exit, Fiber } from "effect";
+export type { InstallMode } from "./install-mode.js";
+
+import { Data, Effect, Exit, Fiber, Schema } from "effect";
 import type { Signal } from "@effect/platform/CommandExecutor";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
+import { ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   RuntimeExitedBeforeReady,
   RuntimeReadyTimedOut,
+  spawnFailed,
   type RuntimeLaunchFailed,
+  type SpawnFailed,
 } from "./errors.js";
 import {
   NanoclawAdapter,
@@ -17,12 +22,12 @@ import {
 } from "./openclaw-adapter.js";
 import {
   AgentName,
-  ServerUrl,
   type Runtime,
   type RuntimeServerHandle,
   type SpawnInput,
   type WorkspaceFile,
 } from "./runtime.js";
+import { resolveInstallMode, type InstallMode } from "./install-mode.js";
 
 const LOG_START_OFFSET = 0;
 
@@ -41,15 +46,21 @@ interface RuntimeStartOptionsBase {
   readonly readyTimeoutMs: number;
 }
 
+// Adapters take a decided install mode; a launch may override the one this
+// module resolves, so the mode is optional on the caller-facing overrides.
+type RuntimeOverrides<Options> = Omit<Options, "server" | "installMode"> & {
+  readonly installMode?: InstallMode;
+};
+
 type RuntimeSelection =
   | {
       readonly kind: "openclaw";
-      readonly openclaw?: Omit<OpenClawAdapterOptions, "server">;
+      readonly openclaw?: RuntimeOverrides<OpenClawAdapterOptions>;
       readonly nanoclaw?: never;
     }
   | {
       readonly kind: "nanoclaw";
-      readonly nanoclaw?: Omit<NanoclawAdapterOptions, "server">;
+      readonly nanoclaw?: RuntimeOverrides<NanoclawAdapterOptions>;
       readonly openclaw?: never;
     };
 
@@ -113,40 +124,71 @@ class UnknownRuntimeAgent extends Data.TaggedError("UnknownRuntimeAgent")<{
   readonly message: string;
 }> {}
 
-function createRuntime(options: RuntimeStartOptions): Runtime {
+function createRuntime(
+  options: RuntimeStartOptions,
+  installMode: InstallMode,
+): Runtime {
   switch (options.kind) {
     case "openclaw":
       return createOpenClawAdapter({
         server: options.server,
         ...options.openclaw,
+        installMode,
       });
     case "nanoclaw":
       return new NanoclawAdapter({
         server: options.server,
         ...options.nanoclaw,
+        installMode,
       });
   }
 }
 
-function toSpawnInput(agent: TestbedAgentSpec): SpawnInput {
-  return {
-    agentName: AgentName(agent.agentName),
-    apiKey: agent.apiKey,
-    agentId: agent.agentId,
-    serverUrl: ServerUrl(agent.serverUrl),
-    ...(agent.workspaceFiles !== undefined
-      ? { workspaceFiles: agent.workspaceFiles }
-      : {}),
-    ...(agent.modelId !== undefined ? { modelId: agent.modelId } : {}),
-  };
+function installModeOverride(
+  options: RuntimeStartOptions | TestbedLaunchOptions,
+): InstallMode | undefined {
+  switch (options.kind) {
+    case "openclaw":
+      return options.openclaw?.installMode;
+    case "nanoclaw":
+      return options.nanoclaw?.installMode;
+  }
+}
+
+const decodeServerUrl = Schema.decodeEither(ServerBaseUrl);
+
+/** One agent's spec paired with the `SpawnInput` decoded from it. */
+interface DecodedAgent {
+  readonly agent: TestbedAgentSpec;
+  readonly spawnInput: SpawnInput;
+}
+
+// `TestbedAgentSpec` is the package boundary, so the address is decoded here
+// rather than trusted; downstream every adapter holds a path-free `ServerUrl`.
+function toSpawnInput(
+  agent: TestbedAgentSpec,
+): Effect.Effect<SpawnInput, SpawnFailed> {
+  return decodeServerUrl(agent.serverUrl).pipe(
+    Effect.mapError((cause) => spawnFailed(agent.agentName, cause)),
+    Effect.map((serverUrl) => ({
+      agentName: AgentName(agent.agentName),
+      apiKey: agent.apiKey,
+      agentId: agent.agentId,
+      serverUrl,
+      ...(agent.workspaceFiles !== undefined
+        ? { workspaceFiles: agent.workspaceFiles }
+        : {}),
+      ...(agent.modelId !== undefined ? { modelId: agent.modelId } : {}),
+    })),
+  );
 }
 
 /**
  * Tear down every started agent in REVERSE insertion order. Last
  * spawned is torn down first so cleanup mirrors startup.
  *
- * Per-adapter teardown does (in order): poll exit; if not exited,
- * SIGTERM with timeout; if still running, SIGKILL with timeout;
+ * Per-adapter teardown does (in order): SIGTERM a running process tree;
+ * SIGKILL descendants when the leader exits or the grace window lapses;
  * close the process Scope; recursively remove the temp state-dir.
  *
  * - OpenClaw: `OPENCLAW_TERM_WAIT_MS = 10_000`, `OPENCLAW_KILL_WAIT_MS = 5_000`.
@@ -191,14 +233,17 @@ function runtimeStartOptionsForAgent(
 function startTestbedAgent(
   options: TestbedLaunchOptions,
   startedAgents: StartedRuntimeAgent[],
-  agent: TestbedAgentSpec,
+  decoded: DecodedAgent,
+  installMode: InstallMode,
 ) {
   return Effect.gen(function* () {
     const pending = yield* startPendingRuntimeAgent(
-      runtimeStartOptionsForAgent(options, agent),
+      runtimeStartOptionsForAgent(options, decoded.agent),
+      installMode,
+      decoded.spawnInput,
     );
     const startedAgent = {
-      spec: agent,
+      spec: decoded.agent,
       runtime: pending.runtime,
     } satisfies StartedRuntimeAgent;
     startedAgents.push(startedAgent);
@@ -237,9 +282,12 @@ function toTestbed(started: ReadonlyArray<StartedRuntimeAgent>): Testbed {
   };
 }
 
-function startPendingRuntimeAgent(options: RuntimeStartOptions) {
-  const runtime = createRuntime(options);
-  const spawnInput = toSpawnInput(options.agent);
+function startPendingRuntimeAgent(
+  options: RuntimeStartOptions,
+  installMode: InstallMode,
+  spawnInput: SpawnInput,
+) {
+  const runtime = createRuntime(options, installMode);
   return Effect.gen(function* () {
     let cleanupArmed = true;
     const [closeStartupScope] = yield* Effect.withEarlyRelease(
@@ -311,7 +359,15 @@ export function startRuntimeAgent(
 ): Effect.Effect<Runtime, RuntimeLaunchFailed, never> {
   return Effect.scoped(
     Effect.gen(function* () {
-      const pending = yield* startPendingRuntimeAgent(options);
+      const spawnInput = yield* toSpawnInput(options.agent);
+      const installMode = yield* resolveInstallMode(
+        installModeOverride(options),
+      );
+      const pending = yield* startPendingRuntimeAgent(
+        options,
+        installMode,
+        spawnInput,
+      );
       yield* pending.releaseStartupCleanup;
       return pending.runtime;
     }),
@@ -340,9 +396,25 @@ export function launchTestbed(
   return Effect.scoped(
     Effect.gen(function* () {
       const startedAgents: StartedRuntimeAgent[] = [];
-      const started = yield* Effect.forEach(
+      // Every address is decoded before the first process starts: a bad one
+      // discovered mid-launch would cost the spawn and teardown of every
+      // agent ahead of it.
+      const decoded = yield* Effect.forEach(
         options.agents,
-        (agent) => startTestbedAgent(options, startedAgents, agent),
+        (agent) =>
+          Effect.map(
+            toSpawnInput(agent),
+            (spawnInput): DecodedAgent => ({ agent, spawnInput }),
+          ),
+        { concurrency: 1 },
+      );
+      const installMode = yield* resolveInstallMode(
+        installModeOverride(options),
+      );
+      const started = yield* Effect.forEach(
+        decoded,
+        (entry) =>
+          startTestbedAgent(options, startedAgents, entry, installMode),
         {
           concurrency: options.concurrency ?? 1,
         },

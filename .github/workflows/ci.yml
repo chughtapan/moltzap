@@ -5,8 +5,14 @@ on:
     branches: [main, v2]
   pull_request:
 
+# Self-hosted Nx remote cache (Railway). Trusted events -- pushes to main/v2 and
+# same-repo pull requests -- read and populate the shared cache. Fork PRs receive
+# no repository secrets and a writable shared cache is a poisoning vector, so they
+# skip the remote cache and run cold.
 env:
-  NX_SKIP_REMOTE_CACHE: "true"
+  NX_SELF_HOSTED_REMOTE_CACHE_SERVER: https://nx-cache-server-production.up.railway.app
+  NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ secrets.NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN }}
+  NX_SKIP_REMOTE_CACHE: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'true' || 'false' }}
 
 jobs:
   ci:

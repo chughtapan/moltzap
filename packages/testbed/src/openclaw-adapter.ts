@@ -1,9 +1,9 @@
 /* eslint-disable jsdoc/text-escaping -- mermaid sequenceDiagram blocks need literal `<br>` (HTML5) for renderer compatibility; the escape would render as literal text. */
-import { createRequire } from "node:module";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, sep } from "node:path";
 import { Command, FileSystem, Path, SocketServer } from "@effect/platform";
-import type { Process, Signal } from "@effect/platform/CommandExecutor";
-import { Data, Effect, Exit, Fiber, Option, Scope, pipe } from "effect";
+import type { Process } from "@effect/platform/CommandExecutor";
+import { Config, Data, Effect, Exit, Fiber, Option, Scope } from "effect";
 import { NodeContext, NodeSocketServer } from "@effect/platform-node";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
@@ -17,7 +17,15 @@ import type {
 } from "./runtime.js";
 import { SpawnFailed, spawnFailed } from "./errors.js";
 import { raceReadiness } from "./adapter-readiness.js";
-import { consumeProcessStream, pollFiberExitCode } from "./child-process.js";
+import {
+  BaseChildEnvironmentConfig,
+  BoundedLogBuffer,
+  escalatingKill,
+  makeExactEnvironmentCommand,
+  pollFiberExitCode,
+  type ProcessTreeCleanup,
+  startSupervisedProcess,
+} from "./child-process.js";
 import {
   installChannelPlugin,
   seedWorkspaceFiles,
@@ -28,20 +36,28 @@ import {
   resolveInstalledPackageBin,
   resolveInstalledPackageRoot,
 } from "./package-resolution.js";
+import { type InstallMode } from "./install-mode.js";
+import { materializePublishedOpenClawPlugin } from "./openclaw-plugin-cache.js";
 
 const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
-const DEFAULT_OPENCLAW_MODEL_ID = "openai-codex/gpt-5.4";
+const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
 const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
+const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 const TOKEN_RADIX = 36;
 const JSON_INDENT_SPACES = 2;
-const OPENCLAW_CHANNEL_LOOKUP_PATHS =
-  createRequire(import.meta.url).resolve.paths("@moltzap/openclaw-channel") ??
-  [];
 
 class PortAllocationFailed extends Data.TaggedError("PortAllocationFailed")<{
   readonly message: string;
   readonly cause?: unknown;
+}> {}
+
+class OpenClawInstallModeError extends Data.TaggedError(
+  "OpenClawInstallModeError",
+)<{
+  readonly message: string;
+  readonly channelDistDir: string;
+  readonly resolvedChannelDistDir: string;
 }> {}
 
 function pollExitCode(
@@ -50,43 +66,20 @@ function pollExitCode(
   return pollFiberExitCode(proc.exitFiber);
 }
 
-function killAndPoll(
-  proc: SpawnedProcess,
-  signal: Signal,
-  timeoutMs: number,
-): Effect.Effect<Option.Option<number>, never, never> {
-  return proc.kill(signal).pipe(
-    Effect.timeout(`${timeoutMs} millis`),
-    Effect.catchAll(() => Effect.void),
-    Effect.zipRight(pollExitCode(proc)),
-  );
-}
-
-function waitAfterSigterm(
-  proc: SpawnedProcess,
-): Effect.Effect<number, never, never> {
-  return killAndPoll(proc, "SIGTERM", OPENCLAW_TERM_WAIT_MS).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          killAndPoll(proc, "SIGKILL", OPENCLAW_KILL_WAIT_MS).pipe(
-            Effect.map(Option.getOrElse(() => -1)),
-          ),
-        onSome: Effect.succeed,
-      }),
-    ),
-  );
-}
-
 function stopSpawnedOpenClawProcess(
   proc: SpawnedProcess,
 ): Effect.Effect<void, never, never> {
   return Effect.uninterruptible(
     Effect.gen(function* () {
-      const exitOpt = yield* pollExitCode(proc);
-      if (Option.isNone(exitOpt)) {
-        yield* waitAfterSigterm(proc).pipe(Effect.asVoid);
-      }
+      yield* escalatingKill(
+        proc.proc,
+        proc.exitFiber,
+        {
+          termWaitMs: OPENCLAW_TERM_WAIT_MS,
+          killWaitMs: OPENCLAW_KILL_WAIT_MS,
+        },
+        proc.processTreeCleanup,
+      );
       yield* Scope.close(proc.scope, Exit.succeed(undefined));
     }),
   );
@@ -94,29 +87,30 @@ function stopSpawnedOpenClawProcess(
 
 function initializeOpenClawProcess(
   command: Command.Command,
-  logBuffer: { value: string },
+  logBuffer: BoundedLogBuffer,
   scope: Scope.CloseableScope,
 ) {
-  return Effect.gen(function* () {
-    const proc = yield* Command.start(command).pipe(Scope.extend(scope));
-    const exitFiber = yield* proc.exitCode.pipe(
-      Effect.map(Number),
-      Effect.catchAll(() => Effect.succeed(-1)),
-      Effect.forkIn(scope),
-    );
-    const appendLog = (chunk: string): void => {
-      logBuffer.value += chunk;
-    };
-    yield* consumeProcessStream(proc.stdout, appendLog).pipe(
-      Effect.forkIn(scope),
-    );
-    yield* consumeProcessStream(proc.stderr, appendLog).pipe(
-      Effect.forkIn(scope),
-    );
-    const kill = (signal: Signal): Effect.Effect<void, never, never> =>
-      proc.kill(signal).pipe(Effect.catchAll(() => Effect.void));
-    return { proc, exitFiber, kill, scope } satisfies SpawnedProcess;
-  });
+  return startSupervisedProcess(
+    command,
+    scope,
+    (chunk) => {
+      logBuffer.append(chunk);
+    },
+    {
+      claimed: false,
+      launcherOwnsExitCleanup: true,
+    },
+  ).pipe(
+    Effect.map(
+      ({ proc, exitFiber, processTreeCleanup }) =>
+        ({
+          proc,
+          exitFiber,
+          processTreeCleanup,
+          scope,
+        }) satisfies SpawnedProcess,
+    ),
+  );
 }
 
 function closeScopeOnFailedProcessStart(
@@ -148,16 +142,15 @@ function spawnOpenClawProcess(opts: {
   readonly args: ReadonlyArray<string>;
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
-  readonly logBuffer: { value: string };
+  readonly logBuffer: BoundedLogBuffer;
   readonly onStarted: (
     process: SpawnedProcess,
   ) => Effect.Effect<void, never, never>;
 }): Effect.Effect<SpawnedProcess, Error, never> {
-  const command = pipe(
-    Command.make(opts.command, ...opts.args),
-    Command.workingDirectory(opts.cwd),
-    Command.env(opts.env),
-  );
+  const command = makeExactEnvironmentCommand({
+    ...opts,
+    cleanupTreeOnExit: true,
+  });
 
   return Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
@@ -184,18 +177,20 @@ export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
   readonly openclawBin: string;
   readonly channelDistDir: string;
+  readonly installMode: InstallMode;
 }
 
 export interface OpenClawAdapterOptions {
   readonly server: RuntimeServerHandle;
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
+  readonly installMode: InstallMode;
 }
 
 interface AdapterState {
   process: SpawnedProcess;
   stateDir: string;
-  logBuffer: { value: string };
+  logBuffer: BoundedLogBuffer;
   spawnInput: SpawnInput;
   tornDown: boolean;
 }
@@ -203,7 +198,7 @@ interface AdapterState {
 interface SpawnedProcess {
   readonly proc: Process;
   readonly exitFiber: Fiber.RuntimeFiber<number, never>;
-  readonly kill: (signal: Signal) => Effect.Effect<void, never, never>;
+  readonly processTreeCleanup?: ProcessTreeCleanup;
   readonly scope: Scope.CloseableScope;
 }
 
@@ -245,6 +240,64 @@ function allocateOpenClawStateDir(
   );
 }
 
+// Model-provider auth lives in the per-state-dir agent store, and login is
+// an interactive flow — spawned agents get fresh temp state dirs, so the
+// operator logs in once against the default ~/.openclaw state and every
+// agent seeds its store from there. The sqlite WAL companions are copied
+// with the store so a not-yet-checkpointed login survives the copy.
+const OPERATOR_AUTH_STORE_FILES = [
+  "auth-profiles.json",
+  "openclaw-agent.sqlite",
+  "openclaw-agent.sqlite-shm",
+  "openclaw-agent.sqlite-wal",
+];
+
+// "main" is openclaw's default agent id; per-agent auth resolution beyond
+// the OPENCLAW_HOME override stays with the granularity follow-up.
+const OPERATOR_AGENT_REL_DIR = join("agents", "main", "agent");
+
+const OperatorOpenClawHome = Config.string("OPENCLAW_HOME").pipe(
+  Config.withDefault(""),
+  Config.map((value) => value.trim() || join(homedir(), ".openclaw")),
+);
+
+function seedModelAuthProfile(
+  stateDir: string,
+): Effect.Effect<void, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const operatorHome = yield* OperatorOpenClawHome;
+    const operatorAgentDir = join(operatorHome, OPERATOR_AGENT_REL_DIR);
+    const present = yield* Effect.all(
+      OPERATOR_AUTH_STORE_FILES.map((fileName) =>
+        fileSystem
+          .exists(join(operatorAgentDir, fileName))
+          .pipe(Effect.map((exists) => (exists ? fileName : null))),
+      ),
+      { concurrency: OPERATOR_AUTH_STORE_FILES.length },
+    );
+    const fileNames = present.filter(
+      (fileName): fileName is string => fileName !== null,
+    );
+    if (fileNames.length === 0) return;
+    const destinationDir = join(stateDir, OPERATOR_AGENT_REL_DIR);
+    yield* fileSystem.makeDirectory(destinationDir, { recursive: true });
+    yield* Effect.all(
+      fileNames.map((fileName) =>
+        fileSystem.copyFile(
+          join(operatorAgentDir, fileName),
+          join(destinationDir, fileName),
+        ),
+      ),
+      { concurrency: fileNames.length, discard: true },
+    );
+  }).pipe(
+    Effect.catchAll((cause) =>
+      Effect.logWarning("failed to seed openclaw model auth store", cause),
+    ),
+  );
+}
+
 function configureOpenClawStateDir(
   deps: OpenClawAdapterDeps,
   input: SpawnInput,
@@ -258,20 +311,60 @@ function configureOpenClawStateDir(
         agentId: input.agentId,
         apiKey: input.apiKey,
         modelId: input.modelId,
+        installMode: deps.installMode,
       }),
-      seedWorkspaceFiles(stateDir, input.workspaceFiles),
+      seedWorkspaceFiles(join(stateDir, "workspace"), input.workspaceFiles),
+      seedModelAuthProfile(stateDir),
     ],
-    { discard: true },
-  ).pipe(
+    { concurrency: 3, discard: true },
+  ).pipe(Effect.zipRight(installConfiguredChannel(deps, stateDir)));
+}
+
+function installConfiguredChannel(
+  deps: OpenClawAdapterDeps,
+  stateDir: string,
+): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
+  if (deps.installMode === "published") {
+    return materializePublishedOpenClawPlugin({
+      stateDir,
+      openclawBin: deps.openclawBin,
+    }).pipe(Effect.asVoid);
+  }
+  return assertWorkspaceChannelDist(deps.channelDistDir).pipe(
     Effect.zipRight(
       installChannelPlugin({
         stateDir,
         channelDistDir: deps.channelDistDir,
-        extName: "openclaw-channel",
+        extName: OPENCLAW_EXTENSION_NAME,
         // OpenClaw discovers channel plugins through this package-root manifest.
         extraPackageFiles: ["openclaw.plugin.json"],
-      }).pipe(Effect.asVoid),
+      }),
     ),
+    Effect.asVoid,
+  );
+}
+
+/**
+ * Workspace mode accepts local build output, including a node_modules symlink
+ * whose real target is local, but never an installed package-store copy.
+ * @internal
+ */
+export function assertWorkspaceChannelDist(channelDistDir: string) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) => fileSystem.realPath(channelDistDir)),
+    Effect.flatMap((resolvedChannelDistDir) =>
+      resolvedChannelDistDir.split(sep).includes("node_modules")
+        ? Effect.fail(
+            new OpenClawInstallModeError({
+              message:
+                "OpenClaw workspace install mode requires local channel build output",
+              channelDistDir,
+              resolvedChannelDistDir,
+            }),
+          )
+        : Effect.void,
+    ),
+    Effect.withSpan("assertWorkspaceChannelDist"),
   );
 }
 
@@ -293,33 +386,38 @@ function spawnConfiguredOpenClaw(options: {
   readonly stateDir: string;
   readonly input: SpawnInput;
   readonly port: number;
-  readonly logBuffer: { value: string };
+  readonly logBuffer: BoundedLogBuffer;
   readonly onStarted: (
     process: SpawnedProcess,
   ) => Effect.Effect<void, never, never>;
 }): Effect.Effect<SpawnedProcess, Error, Path.Path> {
-  return Path.Path.pipe(
-    Effect.flatMap((platformPath) => {
-      const plan = buildOpenClawProcessPlan(
-        options.deps.openclawBin,
-        options.port,
-      );
-      return spawnOpenClawProcess({
-        ...plan,
-        cwd: options.stateDir,
-        env: {
-          OPENCLAW_STATE_DIR: options.stateDir,
-          OPENCLAW_CONFIG_PATH: platformPath.join(
-            options.stateDir,
-            "openclaw.json",
-          ),
-          MOLTZAP_CONFIG_HOME: platformPath.join(options.stateDir, ".moltzap"),
-          MOLTZAP_SERVER_URL: options.input.serverUrl,
-        },
-        logBuffer: options.logBuffer,
-        onStarted: options.onStarted,
-      });
-    }),
+  return Effect.gen(function* () {
+    const platformPath = yield* Path.Path;
+    const baseEnvironment = yield* BaseChildEnvironmentConfig;
+    const plan = buildOpenClawProcessPlan(
+      options.deps.openclawBin,
+      options.port,
+    );
+    return yield* spawnOpenClawProcess({
+      ...plan,
+      cwd: options.stateDir,
+      env: {
+        ...baseEnvironment,
+        OPENCLAW_STATE_DIR: options.stateDir,
+        OPENCLAW_CONFIG_PATH: platformPath.join(
+          options.stateDir,
+          "openclaw.json",
+        ),
+        MOLTZAP_CONFIG_HOME: platformPath.join(options.stateDir, ".moltzap"),
+        MOLTZAP_SERVER_URL: options.input.serverUrl,
+      },
+      logBuffer: options.logBuffer,
+      onStarted: options.onStarted,
+    });
+  }).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof Error ? cause : new Error(String(cause)),
+    ),
   );
 }
 
@@ -344,7 +442,7 @@ function startOpenClawAdapter(
               : removeOpenClawStateDir(leasedStateDir),
         );
         yield* restore(configureOpenClawStateDir(deps, input, stateDir));
-        const logBuffer = { value: "" };
+        const logBuffer = new BoundedLogBuffer();
         const child = yield* restore(
           Effect.acquireReleaseInterruptible(
             spawnConfiguredOpenClaw({
@@ -382,14 +480,22 @@ function startOpenClawAdapter(
  * flowchart TD
  *   OCS["OpenClawAdapter.spawn(input)"]
  *   OC1["1. allocateFreePort()<br>NodeSocketServer.make({ port: 0 })"]
- *   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seedWorkspaceFiles, installChannelPlugin"]
+ *   OC2["2. lease + configure state dir<br>makeTempDirectory, writeOpenClawConfig,<br>seed workspace + model auth"]
+ *   OCM{"install mode"}
+ *   OCW["workspace<br>validate local channel build<br>copy channel dist + dependency links<br>pin plugins.allow"]
+ *   OCP["published<br>reuse or build pinned npm project cache<br>materialize project + OpenClaw peer link<br>omit plugins.allow"]
  *   OC3["3. buildOpenClawProcessPlan(openclawBin, port)<br>(handles .mjs vs binary entry)"]
- *   OC4["4. lease spawnOpenClawProcess(env=OPENCLAW_STATE_DIR,<br>OPENCLAW_CONFIG_PATH)<br>exitFiber + log buffer"]
+ *   OC4["4. lease spawnOpenClawProcess<br>exact child environment<br>exitFiber + log buffer"]
  *   OC5["5. commit process + state-dir leases<br>to adapter state"]
  *   OCF["failed or interrupted handoff<br>stops child + removes state dir"]
  *   OCR["waitUntilReady<br>race(server.awaitAgentReady, processExitLoop)<br>inbound marker: 'inbound from agent:'"]
- *   OCS --> OC1 --> OC2 --> OC3 --> OC4 --> OC5 --> OCR
+ *   OCS --> OC1 --> OC2 --> OCM
+ *   OCM -->|workspace| OCW --> OC3
+ *   OCM -->|published| OCP --> OC3
+ *   OC3 --> OC4 --> OC5 --> OCR
  *   OC2 -.->|failure| OCF
+ *   OCW -.->|failure| OCF
+ *   OCP -.->|failure| OCF
  *   OC4 -.->|failure or interruption| OCF
  * ```
  *
@@ -425,7 +531,7 @@ export class OpenClawAdapter implements Runtime {
       ),
       source: {
         pollExitCode: () => pollExitCode(proc),
-        stderr: () => logBuffer.value,
+        stderr: () => logBuffer.text,
         timeoutMs,
       },
       teardown: () => this.teardown(),
@@ -455,9 +561,7 @@ export class OpenClawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const full = this.state.logBuffer.value;
-    const text = full.slice(offset);
-    return { text, nextOffset: full.length };
+    return this.state.logBuffer.read(offset);
   }
 
   getInboundMarker(): string {
@@ -475,7 +579,7 @@ export class OpenClawAdapter implements Runtime {
  *   OCWF["createOpenClawAdapter(input)"]
  *   OCBIN["openclawBin = input.openclawBin ??<br>resolveInstalledPackageBin('openclaw')"]
  *   OCCH["channelDistDir = input.channelDistDir ??<br>resolveInstalledPackageRoot('@moltzap/openclaw-channel')/dist"]
- *   OCOUT["new OpenClawAdapter({ server, openclawBin, channelDistDir })"]
+ *   OCOUT["new OpenClawAdapter({ server, openclawBin,<br>channelDistDir, installMode })"]
  *   OCWF --> OCBIN --> OCCH --> OCOUT
  * ```
  */
@@ -487,6 +591,7 @@ export function createOpenClawAdapter(
     openclawBin:
       input.openclawBin ?? resolveInstalledPackageBin("openclaw", "openclaw"),
     channelDistDir: input.channelDistDir ?? resolveOpenClawChannelDistDir(),
+    installMode: input.installMode,
   });
 }
 
@@ -494,10 +599,7 @@ export function createOpenClawAdapter(
 
 function resolveOpenClawChannelDistDir(): string {
   return join(
-    resolveInstalledPackageRoot(
-      "@moltzap/openclaw-channel",
-      OPENCLAW_CHANNEL_LOOKUP_PATHS,
-    ),
+    resolveInstalledPackageRoot("@moltzap/openclaw-channel", import.meta.url),
     "dist",
   );
 }
@@ -531,6 +633,7 @@ function writeOpenClawConfig(opts: {
   agentId: SpawnInput["agentId"];
   apiKey: SpawnInput["apiKey"];
   modelId?: string;
+  installMode: InstallMode;
 }): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
@@ -559,9 +662,18 @@ export function buildOpenClawConfig(
   opts: {
     readonly agentName: string;
     readonly modelId?: string;
+    readonly installMode: InstallMode;
   },
   workspaceDir: string,
 ): OpenClawConfig {
+  const pluginTrust =
+    opts.installMode === "workspace"
+      ? {
+          // Workspace copies have no npm install provenance, so their
+          // extension trust is pinned explicitly.
+          plugins: { allow: [OPENCLAW_EXTENSION_NAME] },
+        }
+      : {};
   return {
     agents: {
       defaults: {
@@ -571,9 +683,16 @@ export function buildOpenClawConfig(
       },
     },
     commands: { native: "auto", nativeSkills: "auto", restart: true },
+    ...pluginTrust,
     messages: {
-      queue: { mode: "queue", debounceMs: 0, cap: 100, drop: "new" },
+      // openclaw's own default and the closest heir to the removed passive
+      // "queue" mode: mid-turn messages steer the active turn instead of
+      // buffering (matching the nanoclaw runtime's push behavior).
+      queue: { mode: "steer", debounceMs: 0, cap: 100, drop: "new" },
     },
+    // Fleet agents use direct MoltZap channel addressing, so LAN discovery
+    // only creates contention between colocated gateways.
+    discovery: { mdns: { mode: "off" } },
     channels: {
       [OPENCLAW_CHANNEL_ID]: {
         accounts: [

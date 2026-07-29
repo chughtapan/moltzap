@@ -14,7 +14,8 @@ it("different sessions have independent read markers", () =>
     yield* H.connectClients(regB.client, regC.client, regD.client);
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
-    try {
+    // Cleanup must be Effect.ensuring: a gen-body finally is skipped when a yielded effect fails.
+    yield* Effect.gen(function* () {
       const convB = yield* H.createDm(service, regB.agentId);
       const convC = yield* H.createDm(service, regC.agentId);
       const convD = yield* H.createDm(service, regD.agentId);
@@ -50,10 +51,14 @@ it("different sessions have independent read markers", () =>
         convD.conversation!.id,
       );
       expect(histD.newCount).toBe(1);
-    } finally {
-      service.close();
-      yield* H.closeClients(regA.client, regB.client, regC.client, regD.client);
-    }
+    }).pipe(
+      Effect.ensuring(
+        H.closeAll(
+          [service],
+          [regA.client, regB.client, regC.client, regD.client],
+        ),
+      ),
+    );
   }));
 
 it("socket request resolves without 10s hang (timer leak regression)", () =>
@@ -61,15 +66,12 @@ it("socket request resolves without 10s hang (timer leak regression)", () =>
     const reg = yield* H.registerAgent("sock-timer");
     const service = yield* H.connectService(reg.apiKey, reg.agentId);
     yield* service.startSocketServer();
-    try {
+    yield* Effect.gen(function* () {
       const start = performance.now();
       yield* H.requestDaemonCommand(H.LocalDaemonCommands.Status, {});
       const elapsed = performance.now() - start;
       expect(elapsed).toBeLessThan(H.SOCKET_RESPONSE_TIMEOUT_MS);
-    } finally {
-      service.close();
-      yield* reg.client.close();
-    }
+    }).pipe(Effect.ensuring(H.closeAll([service], [reg.client])));
   }));
 
 it("two services use separate socket paths", () =>
@@ -80,7 +82,7 @@ it("two services use separate socket paths", () =>
     const serviceB = yield* H.connectService(regB.apiKey, regB.agentId);
     yield* serviceA.startSocketServer();
     yield* serviceB.startSocketServer();
-    try {
+    yield* Effect.gen(function* () {
       expect(serviceA.socketPath).not.toBe(serviceB.socketPath);
 
       // Both respond via their own socket path
@@ -96,10 +98,9 @@ it("two services use separate socket paths", () =>
       );
       expect(resultA.agentId).toBe(regA.agentId);
       expect(resultB.agentId).toBe(regB.agentId);
-    } finally {
-      serviceA.close();
-      serviceB.close();
-      yield* regA.client.close();
-      yield* regB.client.close();
-    }
+    }).pipe(
+      Effect.ensuring(
+        H.closeAll([serviceA, serviceB], [regA.client, regB.client]),
+      ),
+    );
   }));
