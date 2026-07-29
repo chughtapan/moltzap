@@ -14,9 +14,9 @@ const WORKSPACE_ROOT = resolve(
 );
 
 describe("MERMAID_ROOTS", () => {
-  // The gate tolerates unreadable directories while walking, so a root
-  // that does not exist yields zero blocks and still exits zero. Pin the
-  // roots to real directories so that failure mode stays impossible.
+  // A root naming a tree that does not exist contributes no blocks. The
+  // gate's own `requireRoots` turns that into a hard failure at runtime;
+  // this pins the same invariant at the list, where the typo would land.
   it.each(MERMAID_ROOTS)("resolves %s to a real directory", (root) => {
     expect(statSync(resolve(WORKSPACE_ROOT, root)).isDirectory()).toBe(true);
   });
