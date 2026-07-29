@@ -10,6 +10,6 @@ type StructuralCopy = {
   readonly [Key in keyof GradeReport]: GradeReport[Key];
 };
 
-type StructuralCopyIsNotReport = Expect<
+export type GradeReportNominalityCanary = Expect<
   StructuralCopy extends GradeReport ? false : true
 >;
