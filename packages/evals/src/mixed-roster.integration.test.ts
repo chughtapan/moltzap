@@ -1,7 +1,7 @@
 /**
- * @file Gated mixed-runtime proof over one production router and ledger.
+ * @file Opt-in mixed-roster measurement over one production router and ledger.
  *
- * Gate with `MOLTZAP_AGENT_EVAL_ITEST=1`. Optional model overrides are read
+ * Enable with `MOLTZAP_AGENT_EVAL_ITEST=1`. Optional model overrides are read
  * from `MOLTZAP_OPENCLAW_EVAL_MODEL` and `MOLTZAP_NANOCLAW_EVAL_MODEL`.
  */
 import { assert, it } from "@effect/vitest";
@@ -21,27 +21,15 @@ import {
   openClawRuntime,
   simulatorLayer,
   type AgentHandle,
-  type Network,
-  type NetworkFailure,
 } from "@moltzap/simulator";
 import type { CompletedRunLedger } from "@moltzap/simulator/ledger";
-import {
-  Cause,
-  Chunk,
-  Config,
-  Duration,
-  Effect,
-  Exit,
-  Schema,
-  type Scope,
-  Stream,
-} from "effect";
+import { Chunk, Config, Duration, Effect, Exit, Stream } from "effect";
 import {
   EvaluationEvents,
   EvaluationResponseSelected,
   selectEvaluationResponse,
 } from "./evaluation-events.js";
-import { directEpisode, type EpisodeResponse } from "./episodes.js";
+import { directEpisode } from "./episodes.js";
 
 const INTEGRATION_ENABLED = Effect.runSync(
   Config.string("MOLTZAP_AGENT_EVAL_ITEST").pipe(
@@ -57,7 +45,7 @@ const RESPONSE_TIMEOUT = Duration.minutes(10);
 const RUN_TIMEOUT = Duration.minutes(40);
 const TEST_RUNNER_MARGIN_MS = 5 * 60_000;
 const LEDGER_ROOT = "../../eval-results";
-const SCENARIO_ID = "MIXED-RUNTIME-E2E";
+const MEASUREMENT_ID = "MIXED-ROSTER";
 const RUNTIME_PROBES = Object.freeze({
   openclaw: {
     runtime: "openclaw",
@@ -106,14 +94,6 @@ const agents = Society.agents({
   customer: customerDefinedRuntime,
 });
 
-class AgentResponseTimedOut extends Schema.TaggedError<AgentResponseTimedOut>()(
-  "AgentResponseTimedOut",
-  {
-    agent: Schema.NonEmptyString,
-    timeout: Schema.NonEmptyString,
-  },
-) {}
-
 function optionalConfig(name: string): string | undefined {
   const value = Effect.runSync(
     Config.string(name).pipe(Config.withDefault("")),
@@ -121,27 +101,11 @@ function optionalConfig(name: string): string | undefined {
   return value.length === 0 ? undefined : value;
 }
 
-function probe(
-  target: AgentHandle,
-  expectedResponse: string,
-): Effect.Effect<
-  ReadonlyArray<EpisodeResponse>,
-  NetworkFailure | AgentResponseTimedOut,
-  Network | Scope.Scope
-> {
+function probe(target: AgentHandle, expectedResponse: string) {
   return directEpisode(
     target,
     `Reply with exactly this token and no other text or attachments: ${expectedResponse}`,
-  ).pipe(
-    Effect.timeoutFail({
-      duration: RESPONSE_TIMEOUT,
-      onTimeout: () =>
-        AgentResponseTimedOut.make({
-          agent: target.name,
-          timeout: Duration.format(RESPONSE_TIMEOUT),
-        }),
-    }),
-  );
+  ).pipe(Effect.timeout(RESPONSE_TIMEOUT));
 }
 
 function mixedProgram() {
@@ -174,7 +138,7 @@ function mixedProgram() {
     yield* Effect.forEach(
       responses.flat(),
       (response) =>
-        events.emit(selectEvaluationResponse(SCENARIO_ID, response)),
+        events.emit(selectEvaluationResponse(MEASUREMENT_ID, response)),
       { concurrency: 1, discard: true },
     );
   });
@@ -221,7 +185,7 @@ function matchesRouterCommit(
   );
 }
 
-function collectProofEvidence(
+function collectMeasurementEvidence(
   ledger: CompletedRunLedger<typeof Society.catalog>,
 ) {
   return Effect.all({
@@ -237,11 +201,11 @@ function collectProofEvidence(
   });
 }
 
-type ProofEvidence = Effect.Effect.Success<
-  ReturnType<typeof collectProofEvidence>
+type MeasurementEvidence = Effect.Effect.Success<
+  ReturnType<typeof collectMeasurementEvidence>
 >;
 
-function assertProofEvidence(evidence: ProofEvidence): void {
+function assertMeasurementEvidence(evidence: MeasurementEvidence): void {
   const ready = Chunk.toReadonlyArray(evidence.ready);
   const received = Chunk.toReadonlyArray(evidence.received);
   const selected = Chunk.toReadonlyArray(evidence.selected);
@@ -276,23 +240,22 @@ function assertProofEvidence(evidence: ProofEvidence): void {
   );
 }
 
-const architectureProof = Effect.fn("evals.mixedRuntimeProof")(function* () {
-  const run = yield* Society.run(agents, mixedProgram(), {
-    provenance: {
-      evaluation: SCENARIO_ID,
-      condition: "production-mixed-runtime",
-    },
-  });
-  assert.isTrue(
-    Exit.isSuccess(run.exit),
-    Exit.isFailure(run.exit)
-      ? `mixed runtime program failed:\n${Cause.pretty(run.exit.cause)}`
-      : undefined,
-  );
+const mixedRosterMeasurement = Effect.fn("evals.measureMixedRoster")(
+  function* () {
+    const run = yield* Society.run(agents, mixedProgram(), {
+      provenance: {
+        evaluation: MEASUREMENT_ID,
+        condition: "production-mixed-runtime",
+      },
+    });
+    if (Exit.isFailure(run.exit)) {
+      return yield* Effect.failCause(run.exit.cause);
+    }
 
-  const ledger = yield* Society.openLedger(run.ledger);
-  assertProofEvidence(yield* collectProofEvidence(ledger));
-});
+    const ledger = yield* Society.openLedger(run.ledger);
+    assertMeasurementEvidence(yield* collectMeasurementEvidence(ledger));
+  },
+);
 
 const PlatformLayer = simulatorLayer({
   ledgerDirectory: LEDGER_ROOT,
@@ -302,15 +265,9 @@ const PlatformLayer = simulatorLayer({
 it.scopedLive.skipIf(!INTEGRATION_ENABLED)(
   "runs OpenClaw, NanoClaw, built-in code, and customer-defined agents together",
   () =>
-    architectureProof().pipe(
+    mixedRosterMeasurement().pipe(
       Effect.provide(PlatformLayer),
-      Effect.timeoutFail({
-        duration: RUN_TIMEOUT,
-        onTimeout: () =>
-          new Error(
-            `mixed runtime proof did not complete within ${Duration.format(RUN_TIMEOUT)}`,
-          ),
-      }),
+      Effect.timeout(RUN_TIMEOUT),
     ),
   Duration.toMillis(RUN_TIMEOUT) + TEST_RUNNER_MARGIN_MS,
 );

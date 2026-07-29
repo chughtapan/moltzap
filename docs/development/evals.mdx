@@ -156,7 +156,7 @@ Future model judges, caches, report databases, or alternate rubrics can be
 composed in this package as Effects. The simulator does not need a plugin name
 or grader configuration union.
 
-## Mixed-runtime architecture gate
+## Live runtime measurements
 
 The full runtime integration test declares one roster containing:
 
@@ -170,13 +170,16 @@ endpoint performs a protocol round trip with each agent, then the test
 validates readiness, endpoint delivery, durable router commits, customer
 response selection, and program success.
 
-Run the gated target with:
+Run only the mixed-roster measurement with:
 
 ```bash
-pnpm nx run @moltzap/evals:test:agents
+pnpm nx run @moltzap/evals:measure:roster
 ```
 
-The target sets `MOLTZAP_AGENT_EVAL_ITEST=1`. It also requires:
+That target sets `MOLTZAP_AGENT_EVAL_ITEST=1`. `measure:behavior` runs
+EVAL-021 against OpenClaw and NanoClaw, `measure:conversation` observes one
+shared conversation, and `measure:live` runs all three measurements serially.
+The live targets require:
 
 - a reachable Docker daemon;
 - network access while router and runtime caches are cold;
@@ -184,8 +187,8 @@ The target sets `MOLTZAP_AGENT_EVAL_ITEST=1`. It also requires:
 - a local OneCLI gateway configured for NanoClaw.
 
 Set `MOLTZAP_OPENCLAW_EVAL_MODEL` or `MOLTZAP_NANOCLAW_EVAL_MODEL` to override
-the corresponding default model. The gate does not read or log credential
-contents.
+the corresponding default model. The measurement targets do not read or log
+credential contents.
 
 ## Verification
 
