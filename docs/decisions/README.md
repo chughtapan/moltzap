@@ -51,6 +51,7 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
+| [One wire profile assigns every Gate 1 byte](20260729-wire-profile-assigns-every-gate-1-byte.md) | 2026-07-29 | accepted | — |
 | [ADRs link source events and require blind review](20260728-adrs-link-source-events-and-require-blind-review.md) | 2026-07-28 | accepted | — |
 | [Gate 1 starts with a repository-native architecture freeze](20260728-gate-1-architecture-freeze.md) | 2026-07-28 | accepted | — |
 | [Gate 1 fixes the layer boundaries and fault model](20260728-layer-boundaries-and-fault-model.md) | 2026-07-28 | accepted | — |
