@@ -137,8 +137,9 @@ increases by exactly 1 per committed record. `PollCursor` and
 
 An opaque 16-byte identifier that is not derived MUST be drawn from a
 cryptographically secure random source. The Registry MUST NOT mint an
-`AgentId` whose 16 bytes are all zero, because that value has no valid
-X.509 serial-number encoding (section 5.3).
+`AgentId` whose 16 bytes are all zero, because RFC 5280 §4.1.2.2
+requires a certificate serial number to be a positive integer and
+section 5.3 derives the serial from those bytes.
 
 ### 2.2 Textual projection
 
@@ -246,10 +247,12 @@ admission rule. There is no `@all`, `@here`, or other broadcast name:
 L2 routes only to explicit `AgentId`s (`data-plane.md` — Message and
 Delivery), and `start_conversation.members` names explicit agents.
 
-Rationale: an `AgentName` never appears in a MoltZap CBOR structure
-except inside the X.509 card, and it never carries routing meaning, so
-the grammar only has to guarantee one spelling and safe rendering
-after `@`.
+Rationale: an `AgentName` is carried by the X.509 card, by
+registration, and by name lookup, but it never appears in a signed
+addressing or fixed-member binding — those use canonical `AgentId`
+(`identity.md` — Identity types) — and it carries no routing meaning.
+The grammar therefore only has to guarantee exactly one spelling and
+safe rendering after `@`.
 
 ### 2.5 Legal-action identifiers
 
@@ -289,7 +292,7 @@ core deterministic encoding, further restricted as follows.
    MoltZap maps this is ascending numeric order.
 4. Duplicate map keys are rejected.
 5. Unknown map keys are rejected at every depth. There is no
-   extension bag (`identity.md` — Deterministic encoding).
+   extension bag (`identity.md` — Attributed L1 message).
 6. Missing required map keys are rejected. An optional key is
    represented by absence, never by `null` and never by a
    type-default value.
@@ -311,10 +314,11 @@ bytes; a conforming implementation may assert this in tests.
 
 ### 3.2 Closed maps
 
-Every MoltZap map is closed. Its keys are `uint` values assigned in
-section 7, starting at 1 with no gaps in the assigned range. A map
-never uses a text-string key except inside a `JsonValue` (section
-3.4).
+Every MoltZap map is closed. Its keys are `uint` values assigned
+where the map is defined, starting at 1 with no gaps in the assigned
+range. Most are in section 7; `ServiceRoutes` is in section 5.7 and
+the three cursor plain maps are in section 8.2. A map never uses a
+text-string key except inside a `JsonValue` (section 3.4).
 
 Key numbers are permanent. A later MoltZap version may add a key, but
 never reassigns or reuses one.
@@ -419,13 +423,15 @@ Each is an ASCII `tstr`. No implementation may introduce another.
 | send operation identity | `moltzap-op-send-v1` | signed message bytes `bstr` (section 10) | 32 bytes |
 | append operation identity | `moltzap-op-append-v1` | certificate bytes `bstr` (section 10) | 32 bytes |
 | start operation identity | `moltzap-op-start-v1` | `OperationId`, member `AgentId` array, `content` array (section 10) | 32 bytes |
-| poll cursor integrity tag | `moltzap-poll-cursor-v1` | cursor plain bytes `bstr` (section 8) | first 16 bytes |
+| poll cursor integrity tag | `moltzap-poll-cursor-v1` | cursor plain bytes `bstr` (section 8.1) | first 16 bytes |
+| Registry list cursor integrity tag | `moltzap-list-cursor-v1` | cursor plain bytes `bstr` (section 8.1) | first 16 bytes |
+| Ledger conversations cursor integrity tag | `moltzap-conversations-cursor-v1` | cursor plain bytes `bstr` (section 8.1) | first 16 bytes |
 
-Every row except the last uses the unkeyed `H` of section 3.5. The
-poll cursor integrity tag is the one keyed construction: it replaces
-`SHA-256` with `HMAC-SHA-256` under the Router's per-instance key over
-the identical domain-prefixed array, and section 8.1 defines it in
-full.
+Every row except the last three uses the unkeyed `H` of section 3.5.
+The three cursor integrity tags are the keyed construction: they
+replace `SHA-256` with `HMAC-SHA-256` under the issuing process's key
+over the identical domain-prefixed array, and section 8.1 defines that
+in full.
 
 Two further literals are COSE external authenticated data and are
 assigned in section 6.3:
@@ -556,8 +562,10 @@ repeated extension, or a different order is rejected.
 | 3 | `id-ce-subjectAltName` | no | exactly two `uniformResourceIdentifier` `GeneralName`s, in this order: `moltzap://agent/<AgentId text>`, then `moltzap://principal/<PrincipalId text>` |
 | 4 | `id-moltzap-routing` | yes | `OCTET STRING` whose content is `det-cbor(ServiceRoutes)` (section 5.7) |
 
-`subjectAltName` is non-critical because the subject DN is non-empty,
-as RFC 5280 §4.2.1.6 requires.
+`subjectAltName` is non-critical. RFC 5280 §4.2.1.6 requires a
+critical `subjectAltName` only when the subject field is an empty
+sequence, which it never is here, so non-critical is the assigned
+choice rather than a requirement.
 
 `id-moltzap-routing` is critical on purpose. A card is unusable
 without its routes, there is no fallback, and criticality also stops a
@@ -600,21 +608,22 @@ routing information the endpoint requires (`identity.md` — AgentCard).
 else:
 
 ```abnf
-service-route = scheme "://" host [ ":" port ]
-scheme        = "https" / "http"
+service-route = "https://" host [ ":" port ]
 host          = reg-name / IPv4address / "[" IPv6address "]"
 port          = 1*5DIGIT
 ```
 
 Binding rules:
 
-- the scheme and host are lowercase;
-- `http` is permitted only when the host is a loopback literal
-  (`127.0.0.1`, `[::1]`, or `localhost`); every other host MUST use
-  `https`, which is how the mandatory-TLS requirement of
-  `identity.md` is expressed on the wire;
-- a default port (443 for `https`, 80 for `http`) MUST be omitted;
-  any other port is written explicitly with no leading zero;
+- the scheme is exactly `https`, with no exception and no loopback
+  carve-out. `identity.md` — HTTP request authentication makes TLS
+  mandatory for every Registry, Router, and Ledger domain POST, and
+  the only loopback exception on record is the daemon's local MCP
+  surface, which is not a service route. A route with any other scheme
+  is rejected;
+- the host is lowercase;
+- the default port 443 MUST be omitted; any other port is written
+  explicitly with no leading zero;
 - there is no path, no trailing `/`, no query, no fragment, and no
   userinfo. A route that carries a path is rejected;
 - an operation's route is formed by appending the operation path from
@@ -992,7 +1001,8 @@ evidence is volatile and Ledger never reconstructs or evaluates it
 | `text` | `tstr` |
 | `data` | `JsonValue` (section 3.4) |
 
-`ContentPart` is the only union whose arm values are not maps. Raw
+`ContentPart` and the `LookupRequest.selector` union of section 7.5
+are the two unions whose arm values are not maps. Raw
 bytes, URLs, files, filenames, media types, metadata, images, and
 audio have no arm and MUST be rejected
 (`endpoints/tasks.md` — ContentPartV1).
@@ -1071,26 +1081,20 @@ key 7.
 
 | Key | Field | Type |
 |---|---|---|
-| 1 | `cursor` | `bstr(16)`, optional |
+| 1 | `cursor` | `bstr`, optional — a `ListCursor` per section 8.1 |
 
 `ListResult` union
 
 | Discriminant | Value |
 |---|---|
-| `page` | `{ 1: cards : array of bstr, 2: cursor : bstr(16) optional }` |
+| `page` | `{ 1: cards : array of bstr, 2: cursor : bstr optional }` |
 | `cursor_invalid` | `{}` |
 
-Enumeration order is `AgentId` bytewise ascending. The list cursor is
-the bare 16-byte `AgentId` of the last card on the previous page; the
-next page begins strictly after it. An absent response cursor means
-the caller has reached the end. Page size is a Registry deployment
-bound and is neither requested nor advertised
+Enumeration order is `AgentId` bytewise ascending, and the next page
+begins strictly after the cursor's recorded last `AgentId`. An absent
+response cursor means the caller has reached the end. Page size is a
+Registry deployment bound and is neither requested nor advertised
 (`control-plane.md` — Common HTTP contract).
-
-The list cursor carries no integrity tag because it names only public
-data — cards are public by definition
-(`20260723-directory-serves-cards.md`) — and forging it can only
-resume enumeration of that public data at a different point.
 
 ### 7.6 Router operation bodies
 
@@ -1190,13 +1194,13 @@ to.
 
 | Key | Field | Type |
 |---|---|---|
-| 1 | `cursor` | `bstr(16)`, optional |
+| 1 | `cursor` | `bstr`, optional — a `ConversationsCursor` per section 8.1 |
 
 `ConversationsListResult` union
 
 | Discriminant | Value |
 |---|---|
-| `page` | `{ 1: conversations : array of ConversationHead, 2: cursor : bstr(16) optional }` |
+| `page` | `{ 1: conversations : array of ConversationHead, 2: cursor : bstr optional }` |
 | `cursor_invalid` | `{}` |
 
 `ConversationHead`
@@ -1214,10 +1218,10 @@ against the instance a poll just returned and fence the mismatches
 before opening protocol work (`endpoints/daemon.md` — SharedCore
 network loop).
 
-Enumeration order is `conversationId` bytewise ascending; the cursor
-is the bare 16-byte `conversationId` of the last entry on the previous
-page. Results are always scoped to the authenticated member, so the
-cursor needs no integrity tag.
+Enumeration order is `conversationId` bytewise ascending, and the next
+page begins strictly after the cursor's recorded last
+`conversationId`. Results are always scoped to the authenticated
+member.
 
 Reconciliation has no message kind of its own. It is exactly these two
 Ledger routes: `conversations:list` to learn every committed head, then
@@ -1228,16 +1232,47 @@ input.
 
 ## 8. Cursors
 
-### 8.1 `PollCursor`
+### 8.1 The common cursor construction
 
-`PollCursor` is opaque to the endpoint and integrity-protected by the
-Router. Its bytes are:
+Every continuation cursor is opaque to its holder and
+integrity-protected by the service that issued it. All three use one
+construction:
 
 ```
-PollCursor = det-cbor([ plain : bstr, tag : bstr(16) ])
+Cursor = det-cbor([ plain : bstr, tag : bstr(16) ])
 ```
 
-`plain` is `det-cbor(PollCursorPlain)`:
+`plain` is `det-cbor` of that cursor's plain map. `tag` is the first
+16 bytes of
+
+```
+HMAC-SHA-256( K_process, det-cbor([ domain, plain ]) )
+```
+
+where `domain` is the cursor's literal domain constant from section 4.
+
+`K_process` is 32 bytes drawn from a cryptographically secure random
+source at process start. It is never persisted and never transmitted.
+A cursor minted before a service restart therefore fails its tag check
+after the restart, and the holder restarts pagination. That is
+acceptable for all three cursors, and section 8.3 states why it does
+not weaken Router restart reporting.
+
+Version 1 is the only defined version of any cursor. A later version
+changes key 1 and takes a wire-catalog revision; it never changes the
+meaning of version 1.
+
+Every cursor binds the authenticated caller, so one agent's cursor is
+never usable by another.
+
+In Gate 1 the three kinds are issued by three separate processes, so a
+distinct `K_process` already separates them. The distinct domain
+constant is defence in depth: it keeps two tags unforgeable across
+kinds even if a deployment ever gave two cursor kinds one key.
+
+### 8.2 The three cursor plain maps
+
+`PollCursorPlain`, domain `moltzap-poll-cursor-v1`:
 
 | Key | Field | Type |
 |---|---|---|
@@ -1246,44 +1281,77 @@ PollCursor = det-cbor([ plain : bstr, tag : bstr(16) ])
 | 3 | `agentId` | `bstr(16)` — the authenticated recipient |
 | 4 | `nextSequence` | `uint` — the next feed sequence to return |
 
-`tag` is the first 16 bytes of
-`HMAC-SHA-256(K_instance, det-cbor([ "moltzap-poll-cursor-v1", plain ]))`.
+`ListCursorPlain`, domain `moltzap-list-cursor-v1`, issued by the
+Registry for `identities:list`:
 
-`K_instance` is 32 bytes drawn from a cryptographically secure random
-source at Router process start. It is never persisted, never
-transmitted, and never survives a restart. `RouterInstanceId` and
-`K_instance` are minted together.
+| Key | Field | Type |
+|---|---|---|
+| 1 | `version` | `uint`, exactly 1 |
+| 2 | `agentId` | `bstr(16)` — the authenticated caller |
+| 3 | `lastAgentId` | `bstr(16)` — the last card on the previous page |
 
-Version 1 is the only defined version. A later version changes key 1
-and a wire-catalog revision, never the meaning of version 1.
+`ConversationsCursorPlain`, domain
+`moltzap-conversations-cursor-v1`, issued by the Ledger for
+`conversations:list`:
 
-### 8.2 `PollCursor` rejection rules
+| Key | Field | Type |
+|---|---|---|
+| 1 | `version` | `uint`, exactly 1 |
+| 2 | `agentId` | `bstr(16)` — the authenticated member |
+| 3 | `lastConversationId` | `bstr(16)` — the last entry on the previous page |
 
-A Router evaluates a presented cursor in this exact order and returns
-the first matching outcome:
+Enumeration resumes strictly after the recorded last value, in the
+ascending order that section 7.5 and section 7.7 fix.
+
+### 8.3 Rejection rules
+
+A Router evaluates a presented `PollCursor` in this exact order and
+returns the first matching outcome:
+
+| Order | Condition | Result |
+|---|---|---|
+| 1 | not deterministic CBOR, wrong shape, or key 1 not exactly 1 | `cursor_invalid` |
+| 2 | key 2 does not equal the current `RouterInstanceId` | `router_restarted` with the current instance |
+| 3 | recomputed tag does not equal the presented tag, compared in constant time | `cursor_invalid` |
+| 4 | key 3 does not equal the authenticated caller `AgentId` | `cursor_invalid` |
+| 5 | key 4 is greater than the current global tail plus 1 | `cursor_invalid` |
+| 6 | key 4 is older than the caller's retained feed window | `feed_gap` with the current instance |
+| 7 | otherwise | `batch` |
+
+Ordering matters, and step 2 comes before the integrity check on
+purpose. `data-plane.md` — Router restart requires that a cursor from
+a different instance return `router_restarted`, and a cursor minted by
+a previous instance cannot pass a tag check whose key died with that
+instance. Reading key 2 before verifying the tag is what makes that
+required outcome reachable. It reveals nothing: the poll is already
+authenticated for one `AgentId`, and every successful poll — including
+an empty omitted-cursor anchor — returns the current instance to that
+same caller anyway (`data-plane.md` — Poll).
+
+A Registry `ListCursor` and a Ledger `ConversationsCursor` are
+evaluated in this order:
 
 | Order | Condition | Result |
 |---|---|---|
 | 1 | not deterministic CBOR, wrong shape, or key 1 not exactly 1 | `cursor_invalid` |
 | 2 | recomputed tag does not equal the presented tag, compared in constant time | `cursor_invalid` |
-| 3 | key 3 does not equal the authenticated caller `AgentId` | `cursor_invalid` |
-| 4 | key 2 does not equal the current `RouterInstanceId` | `router_restarted` with the current instance |
-| 5 | key 4 is greater than the current global tail plus 1 | `cursor_invalid` |
-| 6 | key 4 is older than the caller's retained feed window | `feed_gap` with the current instance |
-| 7 | otherwise | `batch` |
+| 3 | key 2 does not equal the authenticated caller `AgentId` | `cursor_invalid` |
+| 4 | otherwise | `page` |
 
-Ordering matters. Steps 1 through 3 come first so a cursor that is
-malformed, forged, or issued to another agent never reveals whether
-the Router restarted or where the feed window sits. Because
-`K_instance` dies with the instance, a cursor minted by a previous
-instance fails step 2 and reports `cursor_invalid` rather than
-`router_restarted`; the endpoint's re-anchor with an omitted cursor
-then reveals the current instance, which is the documented recovery
-path (`data-plane.md` — Poll) and the same one `feed_gap` uses.
+Neither carries an instance, so neither has a `router_restarted` arm.
 
 A `PollCursor` never appears where a `LedgerOffset` is expected. The
 types differ in shape, so an implementation that passes one for the
 other fails decoding rather than silently reading the wrong feed.
+
+The three cursor kinds are likewise not interchangeable, but they fail
+at different steps. `PollCursorPlain` has four keys while the other two
+have three, so presenting either of those to `deliveries:poll` is a
+missing required key and presenting a `PollCursor` to `identities:list`
+or `conversations:list` is an unknown key. Both are shape failures and
+both stop at step 1. Only `ListCursor` and `ConversationsCursor` share
+a shape, and they are separated by the issuing process's `K_process`
+and by their domain constants, so each fails the other's tag check.
 
 ## 9. HTTP binding
 
@@ -1363,9 +1431,10 @@ outcomes of a valid request, not envelope failures.
 empty body in both cases and no domain data of any kind
 (`control-plane.md` — Common HTTP contract).
 
-A non-200 response body is `det-cbor` of a closed
+A non-200 response to a domain POST is `det-cbor` of a closed
 `TransportError` union with the tag from the table above and the
-value `{}`, carried with the MoltZap media type. `TransportError`
+value `{}`, carried with the MoltZap media type. `GET /healthz` is not
+a domain POST and carries no body in either outcome. `TransportError`
 values never carry a reason string, a stack, a decoder path, or a
 retry hint. The envelope taxonomy above is closed; no other tag
 exists.
@@ -1524,10 +1593,18 @@ property required unless marked optional. The daemon rejects a value
 that fails its schema.
 
 Every published schema — each tool `inputSchema` and `outputSchema`,
-each descriptor `payloadSchema`, and each notification schema — inlines
-under its own `$defs` exactly the definitions it references, so no
-schema depends on retrieving another document. A `$ref` never crosses a
-document boundary and no `$id` is published.
+each descriptor `payloadSchema`, and each notification schema — is
+self-contained. A `$ref` never crosses a document boundary and no
+`$id` is published.
+
+The schema documents printed below elide `$defs` for readability. The
+document a client actually receives carries a `$defs` object holding
+exactly the transitive closure of the definitions its `$ref`s name,
+appended as the document's last member, with its own members ordered
+alphabetically by name. A document whose closure is empty omits `$defs`
+entirely rather than carrying an empty object. Every other member keeps
+the order printed here. That rule is what makes the section 12.2 vectors both
+byte-reproducible and resolvable.
 
 The reusable definitions are:
 
@@ -1800,7 +1877,7 @@ Every key is required; `records`, `crossConversation`, and
   cross-conversation group.
 
 `expiresAt` is the grant's local-observation expiry, exactly 90
-seconds after local observation (`endpoints/tasks.md` — TTL).
+seconds after local observation (`endpoints/tasks.md` — TTL and no-reply behavior).
 
 A record projection is:
 
@@ -1862,7 +1939,11 @@ random value, a wall-clock read, or a locally chosen constant.
 | `MessageId` | 16 bytes, each `0x22` |
 | `RouterInstanceId` | 16 bytes, each `0x33` |
 | MULTICAST `TxnId` | 16 bytes, each `0x44` |
-| Poll cursor `K_instance` | 32 bytes, each `0x55` |
+| `RouterSequence` of the fixture `begin` delivery | `7` |
+| `nextSequence` of the fixture `PollCursor` | `8` |
+| Router cursor `K_process` | 32 bytes, each `0x55` |
+| Registry cursor `K_process` | 32 bytes, each `0x56` |
+| Ledger cursor `K_process` | 32 bytes, each `0x57` |
 | `AgentName`s | `alice`, `bob`, `carol` |
 | Card `notBefore` | `2026-07-29T00:00:00Z` |
 | RFC 9421 `created` | `1785283200` |
@@ -1875,13 +1956,20 @@ random value, a wall-clock read, or a locally chosen constant.
 | Initial content | `[["text","hello"]]` |
 | Reply content | `[["text","world"],["data",{"n":1}]]` |
 
-These seeds are test material and MUST NOT be accepted by any
-production key loader.
+Every value in this table is test material. A production key loader
+MUST reject the four signing seeds, and a production process MUST
+reject a configured or derived `K_process` equal to any of the three
+above.
+
+Every `RouterSequence`-valued field in the corpus takes the fixture
+sequence above: `Delivery` key 2, the `SendResult` `accepted` arm key
+2, and `ack` key 4 are all `7`, and `PollCursorPlain` key 4 is `8`.
+The two `TranscriptRecord` vectors sit at `LedgerOffset` `0` and `1`.
 
 `ConversationId`, START `TxnId`, `ContentDigest`, `ReplyFingerprint`,
-`RecordHash`, thumbprints, cursors, and every signature are derived
-from the material above by this chapter; the corpus does not restate
-them as inputs.
+`RecordHash`, thumbprints, cursor integrity tags, and every signature
+are derived from the material above by this chapter; the corpus does
+not restate them as inputs.
 
 ### 12.2 Positive vectors
 
@@ -1912,7 +2000,8 @@ lowercase hex, and the section that governs it. At minimum:
    `stale_base`, `not_author`, `name_taken`, `invalid_key`,
    `not_found`, and `unknown_conversation`, and one
    `certificate_invalid` per closed `reason`.
-10. `PollCursor` bytes and its integrity tag.
+10. `PollCursor`, `ListCursor`, and `ConversationsCursor` bytes,
+    each with its integrity tag.
 11. `Sig_structure` bytes for both COSE profiles.
 12. The RFC 9421 signature base string and the `Signature-Input` and
     `Signature` field values for one normal-profile request per route
@@ -1923,7 +2012,8 @@ lowercase hex, and the section that governs it. At minimum:
 15. Every canonical textual identifier of section 2.2 for the fixture
     values, and the two SAN URIs.
 16. Every JSON document of section 11, serialized with the exact
-    property order in which this chapter presents it.
+    property order in which this chapter presents it and with `$defs`
+    inlined under the rule at the head of section 11.
 
 The positive corpus MUST be generated by two independent encoders and
 MUST be byte-equal between them. "Independent" means the two encoders
@@ -1969,8 +2059,8 @@ extensions out of order; `subjectAltName` marked critical;
 `id-moltzap-routing` marked non-critical; a third SAN name; SAN names
 in the wrong order; `notAfter` other than `99991231235959Z`;
 `notBefore` as `GeneralizedTime` before 2050; a route carrying a path;
-a route with an explicit default port; an `http` route on a
-non-loopback host; a card signed by a key other than the pinned
+a route with an explicit default port; a route whose scheme is not
+`https`; a card signed by a key other than the pinned
 attestation key; an issuer DN other than the constant.
 
 **COSE** — untagged structure; tag 18 where 98 is expected and the
@@ -2011,9 +2101,12 @@ SAN does not equal `keyid`; a bootstrap-profile request carrying
 covered components; a missing admission code; a wrong admission code.
 
 **Cursors** — a malformed `PollCursor`; version 2; a tampered
-integrity tag; a cursor bound to another `AgentId`; a cursor from a
-previous instance; a `nextSequence` beyond the tail; a `nextSequence`
-behind retention.
+integrity tag; a cursor bound to another `AgentId`; a `PollCursor`
+naming a previous `RouterInstanceId`, whose expected outcome is
+`router_restarted` and not `cursor_invalid`; a `nextSequence` beyond
+the tail; a `nextSequence` behind retention; a `ListCursor` presented
+to `conversations:list` and the reverse, each expecting
+`cursor_invalid` at the tag check.
 
 **MCP** — an unknown property in a tool input; a missing required
 property; a `members` array containing a duplicate; an empty
@@ -2073,7 +2166,7 @@ change to the MCP extension takes a new extension identifier
 There is no extension bag, no reserved-for-future field, and no
 unknown-field tolerance anywhere in this profile, so there is no
 compatible way to add wire meaning without a version change
-(`identity.md` — Deterministic encoding).
+(`identity.md` — Attributed L1 message).
 
 ## Acceptance criteria
 
@@ -2095,9 +2188,12 @@ compatible way to add wire meaning without a version change
   differ, and conflicts when one operation byte differs.
 - Recomputing every derivation in section 4 from its stated preimage
   reproduces the identifier, digest, or hash carried on the wire.
-- A `PollCursor` from a previous Router instance, from another agent,
-  or with a tampered tag is refused with `cursor_invalid`, and the
-  refusal reveals nothing about the current feed window.
+- A `PollCursor` naming a previous Router instance returns
+  `router_restarted` with the current instance, whatever else is wrong
+  with it, because the instance comparison is step 2. A cursor naming
+  the current instance but carrying a tampered tag or another agent's
+  `AgentId` is refused with `cursor_invalid` and reveals nothing about
+  the feed window.
 - Every result union arm and every `TransportError` tag has a test
   that observes it.
 - `tools/list` returns exactly two tools and discovery reports exactly
