@@ -12,6 +12,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -71,6 +72,9 @@ describe("requireRoots", () => {
     const error = failure(await runGate((fs) => requireRoots(fs, [missing])));
     expect(error._tag).toBe("MermaidGateError");
     expect(error.path).toBe(missing);
+    // The underlying error is what tells a reader why the path was
+    // unreachable, and it is what the run prints under the header.
+    expect(String(error.cause)).toContain(missing);
   });
 
   it("fails when a root is a file rather than a directory", async () => {
@@ -108,6 +112,20 @@ describe("collectMarkdownFiles", () => {
     );
     expect(error.reason).toContain("cannot read directory");
     expect(error.path).toBe(absent);
+  });
+
+  // Reaches the per-entry `stat`, which the unreadable-directory cases never
+  // do: they fail listing the directory, having stat'ed it successfully.
+  it("fails on an entry that cannot be stat'ed", async () => {
+    const root = join(sandbox, "dangling-tree");
+    mkdirSync(root, { recursive: true });
+    const dangling = join(root, "dangling.md");
+    symlinkSync(join(sandbox, "no-such-target"), dangling);
+    const error = failure(
+      await runGate((fs, path) => collectMarkdownFiles(fs, path, [root])),
+    );
+    expect(error.reason).toBe("cannot stat");
+    expect(error.path).toBe(dangling);
   });
 
   // The finding this guards is an *existing* but unreadable subtree, which
@@ -160,18 +178,41 @@ describe("collectBlocks", () => {
 });
 
 describe("lintBlock", () => {
-  // Staging fails before mmdc is ever spawned, so this needs no browser.
-  it("fails when the temp input cannot be staged", async () => {
+  const BLOCK_UNDER_TEST = {
+    file: "doc.md",
+    startLine: 1,
+    body: "flowchart TD\n  A --> B",
+  };
+
+  // Mirrors the temp name lintBlock derives from the block. If that rule
+  // changes, the staged obstacle stops obstructing and the write succeeds,
+  // so the test fails rather than quietly stopping testing anything.
+  const stagedInputName = "doc_md-1.mmd";
+
+  // Staging fails before mmdc is spawned, so neither case needs a browser.
+  const stage = (tempDir: string) =>
+    Effect.runPromise(
+      lintBlock(BLOCK_UNDER_TEST, tempDir).pipe(
+        Effect.provide(NodeContext.layer),
+        Effect.either,
+      ),
+    );
+
+  it("fails when the temp directory cannot be created", async () => {
     const tempDir = join(sandbox, "temp-is-a-file");
     writeFileSync(tempDir, "not a directory");
-    const result = await Effect.runPromise(
-      lintBlock(
-        { file: "doc.md", startLine: 1, body: "flowchart TD\n  A --> B" },
-        tempDir,
-      ).pipe(Effect.provide(NodeContext.layer), Effect.either),
-    );
-    const error = failure(result);
-    expect(error.reason).toContain("temp");
-    expect(error.path).toContain(tempDir);
+    const error = failure(await stage(tempDir));
+    expect(error.reason).toBe("cannot create temp directory");
+    expect(error.path).toBe(tempDir);
+  });
+
+  // Separate from the case above: there the directory step fails first, so
+  // it would stay green with the write left swallowed.
+  it("fails when the input itself cannot be written", async () => {
+    const tempDir = join(sandbox, "temp-write-blocked");
+    mkdirSync(join(tempDir, stagedInputName), { recursive: true });
+    const error = failure(await stage(tempDir));
+    expect(error.reason).toBe("cannot write temp input");
+    expect(error.path).toBe(join(tempDir, stagedInputName));
   });
 });
