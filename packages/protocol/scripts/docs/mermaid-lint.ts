@@ -1,10 +1,10 @@
 /**
- * @file Validate every fenced ```mermaid block under the trees named by
- * `MERMAID_ROOTS` by piping each block through `mmdc` (the official
- * Mermaid CLI). Returns the list of failures grouped by file.
+ * @file Collect every fenced ```mermaid block under the trees named by
+ * `MERMAID_ROOTS` and validate each by piping it through `mmdc` (the
+ * official Mermaid CLI). Returns the list of failures grouped by file.
  */
 import { Command, FileSystem, Path } from "@effect/platform";
-import { Effect, Either, Stream } from "effect";
+import { Data, Effect, Either, Stream } from "effect";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +14,27 @@ import { fileURLToPath } from "node:url";
  * contributes zero blocks and the gate passes without having looked.
  */
 export const MERMAID_ROOTS = ["docs", "packages", "v2"] as const;
+
+/**
+ * Something the gate was asked to inspect but could not.
+ *
+ * Every filesystem step here answers "what am I checking?", so a failure
+ * means some input went unchecked. Substituting an empty default — no
+ * entries, no source text, no temp file — makes that indistinguishable
+ * from a clean result, which is precisely the blind-gate failure this
+ * gate exists to catch. The path travels with the error because a run
+ * that cannot say which input it skipped has not reported anything.
+ */
+export class MermaidGateError extends Data.TaggedError("MermaidGateError")<{
+  readonly reason: string;
+  readonly path: string;
+  readonly cause: unknown;
+}> {}
+
+const gateError =
+  (reason: string, path: string) =>
+  (cause: unknown): MermaidGateError =>
+    new MermaidGateError({ reason, path, cause });
 
 export interface MermaidBlock {
   readonly file: string;
@@ -25,6 +46,111 @@ export interface MermaidFailure {
   readonly block: MermaidBlock;
   readonly message: string;
 }
+
+/** Directories that never hold reviewable documentation. */
+const SKIP_DIRS = new Set(["node_modules", "dist", ".git"]);
+
+interface WalkCtx {
+  readonly fs: FileSystem.FileSystem;
+  readonly path: Path.Path;
+  readonly out: string[];
+}
+
+/**
+ * Reject any configured root that is not a usable directory. A root that
+ * is missing, unreadable, or a plain file contributes no files, so without
+ * this the run would report a clean pass over a tree it never opened.
+ */
+export const requireRoots = (
+  fs: FileSystem.FileSystem,
+  roots: ReadonlyArray<string>,
+): Effect.Effect<void, MermaidGateError, never> =>
+  Effect.forEach(
+    roots,
+    (root) =>
+      fs.stat(root).pipe(
+        Effect.mapError(gateError("cannot open configured root", root)),
+        Effect.flatMap((info) =>
+          info.type === "Directory"
+            ? Effect.void
+            : Effect.fail(
+                new MermaidGateError({
+                  reason: "configured root is not a directory",
+                  path: root,
+                  cause: info.type,
+                }),
+              ),
+        ),
+      ),
+    // Sequential so the first unusable root is the one reported, in the
+    // order the list declares them.
+    { discard: true, concurrency: 1 },
+  );
+
+/** Every `.md` and `.mdx` file below `roots`, sorted for stable output. */
+export const collectMarkdownFiles = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  roots: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyArray<string>, MermaidGateError, never> =>
+  Effect.gen(function* () {
+    const ctx: WalkCtx = { fs, path, out: [] };
+    for (const root of roots) {
+      yield* walkInto(ctx, root);
+    }
+    return ctx.out.sort();
+  });
+
+const walkInto = (
+  ctx: WalkCtx,
+  dir: string,
+): Effect.Effect<void, MermaidGateError, never> =>
+  Effect.gen(function* () {
+    const entries = yield* ctx.fs
+      .readDirectory(dir)
+      .pipe(Effect.mapError(gateError("cannot read directory", dir)));
+    for (const name of entries) {
+      yield* visitEntry(ctx, dir, name);
+    }
+  });
+
+const visitEntry = (
+  ctx: WalkCtx,
+  dir: string,
+  name: string,
+): Effect.Effect<void, MermaidGateError, never> =>
+  Effect.gen(function* () {
+    if (SKIP_DIRS.has(name)) return;
+    const full = ctx.path.resolve(dir, name);
+    const info = yield* ctx.fs
+      .stat(full)
+      .pipe(Effect.mapError(gateError("cannot stat", full)));
+    if (info.type === "Directory") {
+      yield* walkInto(ctx, full);
+      return;
+    }
+    if (name.endsWith(".md") || name.endsWith(".mdx")) ctx.out.push(full);
+  });
+
+/** Extract every fenced block from `files`, labelled relative to the root. */
+export const collectBlocks = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  workspaceRoot: string,
+  files: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyArray<MermaidBlock>, MermaidGateError, never> =>
+  Effect.gen(function* () {
+    const out: MermaidBlock[] = [];
+    for (const file of files) {
+      const source = yield* fs
+        .readFileString(file)
+        .pipe(Effect.mapError(gateError("cannot read file", file)));
+      out.push(
+        ...extractMermaidBlocks(path.relative(workspaceRoot, file), source),
+      );
+    }
+    return out;
+  });
 
 interface ExtractorState {
   inFence: boolean;
@@ -130,7 +256,7 @@ export const lintBlock = (
   tempDir: string,
 ): Effect.Effect<
   MermaidFailure | null,
-  never,
+  MermaidGateError,
   FileSystem.FileSystem | Path.Path | Command.CommandExecutor
 > =>
   Effect.gen(function* () {
@@ -145,19 +271,27 @@ export const lintBlock = (
     return interpretResult(block, result);
   });
 
+/**
+ * Stage one block for `mmdc`. The temp path is derived from the block's
+ * file and line, so a discarded write error would leave whatever the last
+ * run put there and `mmdc` would happily validate that instead — passing
+ * the block that was never written.
+ */
 const prepareInput = (
   fs: FileSystem.FileSystem,
   tempDir: string,
   inputPath: string,
   body: string,
-): Effect.Effect<void, never, never> =>
+): Effect.Effect<void, MermaidGateError, never> =>
   Effect.gen(function* () {
     yield* fs
       .makeDirectory(tempDir, { recursive: true })
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(
+        Effect.mapError(gateError("cannot create temp directory", tempDir)),
+      );
     yield* fs
       .writeFileString(inputPath, body)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.mapError(gateError("cannot write temp input", inputPath)));
   });
 
 /**
@@ -200,6 +334,12 @@ const runMmdc = (
     }),
   ).pipe(Effect.either);
 
+/**
+ * Best-effort, unlike the write above: a block that fails to parse leaves
+ * no SVG behind, so removing it is expected to fail and says nothing about
+ * whether the block was checked. Leftovers cannot mask a bad block either,
+ * since every run fails outright if it cannot overwrite its input.
+ */
 const cleanup = (
   fs: FileSystem.FileSystem,
   inputPath: string,
