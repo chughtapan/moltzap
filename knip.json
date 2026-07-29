@@ -43,13 +43,19 @@
       ],
       "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"]
     },
-    "packages/testbed": {
+    "packages/evals": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.ts", "*.mjs"]
+    },
+    "packages/simulator": {
       "entry": [
-        "src/trace-capture-harness.ts",
         "src/**/*.test.ts",
+        "src/**/*.integration.test.ts",
+        "src/**/*.types-check.ts",
         "vitest*.config.ts"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.ts"],
+      "ignoreDependencies": ["@moltzap/server-core"]
     },
     "packages/server": {
       "entry": [

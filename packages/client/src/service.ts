@@ -257,7 +257,6 @@ interface ServiceHandlerPayloads {
    */
   readonly rawNotification: ClientNotificationDelivery;
   readonly disconnect: void;
-  readonly reconnect: HelloOk;
   readonly conversationArchived: ConversationArchivedNotification;
   readonly conversationUnarchived: ConversationUnarchivedNotification;
   readonly dispatchRelease: NotificationParamsOf<typeof DispatchRelease>;
@@ -387,7 +386,6 @@ export class MoltZapService {
     message: [],
     rawNotification: [],
     disconnect: [],
-    reconnect: [],
     conversationArchived: [],
     conversationUnarchived: [],
     dispatchRelease: [],
@@ -449,10 +447,6 @@ export class MoltZapService {
         onDisconnect: () => {
           this._connected = false;
           fanout(this.handlers.disconnect, undefined);
-        },
-        onReconnect: (helloOk) => {
-          this._connected = true;
-          fanout(this.handlers.reconnect, helloOk);
         },
       });
       this.client = client;
@@ -521,10 +515,9 @@ export class MoltZapService {
     );
     this.archivedConversationIds.clear();
     this.seenMessageIds.clear();
-    // Handlers are preserved across close()/connect() cycles. MoltZapChannelCore
-    // subscribes once in its constructor; clearing handlers here would silently
-    // drop inbound/reconnect dispatch on any subsequent reconnect of the same
-    // service instance.
+    // Handlers are preserved across explicit close()/connect() cycles.
+    // MoltZapChannelCore subscribes once in its constructor; clearing handlers
+    // here would silently drop inbound dispatch after the next connect.
   }
 
   // --- Socket Server ---

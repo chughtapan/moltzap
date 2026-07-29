@@ -35,7 +35,7 @@ import {
   type ClientDefinitionSuccess,
   type CloseInfo,
 } from "#socket";
-import { serverBaseUrl } from "#network";
+import { httpBaseUrl, serverBaseUrl } from "#network";
 import {
   NotConnectedError,
   RpcTimeoutError as ProtocolRpcTimeoutError,
@@ -315,7 +315,7 @@ function rpcCallOptions(
 // Conformance fixtures hand out the server's socket endpoint; the client
 // takes the base and dials the route itself.
 function clientBaseUrl(url: string): string {
-  return serverBaseUrl(url).replace(/^ws/, "http");
+  return httpBaseUrl(serverBaseUrl(url));
 }
 
 function makeDynamicAppHandlers(

@@ -12,7 +12,6 @@ import { NotConnectedError, RpcTimeoutError } from "#transport";
 import {
   openProtocolAgentClientSocket,
   RPC_TIMEOUT_MS,
-  type ConnectResult,
   type RpcCallOptions,
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
@@ -42,7 +41,6 @@ export interface AgentClientOptions {
   readonly serverUrl: string;
   readonly agentKey: AgentKey;
   readonly onDisconnect?: (close: CloseInfo) => void;
-  readonly onReconnect?: (helloOk: ConnectResult) => void;
 }
 
 export class MoltZapAgentClient extends ProtocolClientLifecycle<
@@ -61,8 +59,6 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
       openSession: openProtocolAgentClientSocket,
       callbackHandlers: makeAgentCallbackHandlers,
       onDisconnect: options.onDisconnect,
-      onReconnect: options.onReconnect,
-      failConnectWhenClosed: false,
     });
   }
 

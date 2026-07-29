@@ -24,7 +24,7 @@ task-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L57)
+### [`AwaitNotificationError`](./helpers.ts#L58)
 
 _TypeAlias_
 
@@ -34,7 +34,7 @@ export type AwaitNotificationError =
   | AwaitNotificationClosedError;
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L68)
+### [`awaitOneNotification`](./helpers.ts#L69)
 
 _Function_
 
@@ -52,7 +52,7 @@ and `AwaitNotificationClosedError` when the transport closed before a
 matching frame arrived. Distinguishing close from timeout keeps a dead
 connection from masquerading as a missing notification.
 
-### [`closeAllClients`](./helpers.ts#L171)
+### [`closeAllClients`](./helpers.ts#L172)
 
 _Function_
 
@@ -60,7 +60,7 @@ _Function_
 export function closeAllClients(): Effect.Effect<void, never>
 ```
 
-### [`connectAppClient`](./helpers.ts#L281)
+### [`connectAppClient`](./helpers.ts#L283)
 
 _Function_
 
@@ -72,7 +72,7 @@ export function connectAppClient(
 ): Effect.Effect<TestAppClient, Error>
 ```
 
-### [`ConnectedAgent`](./helpers.ts#L107)
+### [`ConnectedAgent`](./helpers.ts#L108)
 
 _Interface_
 
@@ -85,7 +85,7 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L220)
+### [`connectTestClient`](./helpers.ts#L222)
 
 _Function_
 
@@ -154,7 +154,7 @@ export type CoreTestServer = CoreTestServerPort;
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServerHandle`](./server.ts#L105)
+### [`CoreTestServerHandle`](./server.ts#L101)
 
 _Interface_
 
@@ -166,11 +166,9 @@ export interface CoreTestServerHandle {
   coreApp: CoreApp;
 
   /**
-   * Pre-wired `RuntimeServerHandle` for runtime-adapter tests. Implements
-   * `awaitAgentReady` by polling the live `ConnectionManager` — the same
-   * pattern `@moltzap/testbed`'s `awaitAgentReadyByPolling` exports for
-   * downstream in-process consumers. Out-of-process consumers (zapbot's
-   * orchestrator) construct their own handle over WebSocket presence.
+   * Pre-wired server handle that reports readiness from the live
+   * `ConnectionManager`. Out-of-process consumers construct their own handle
+   * over WebSocket presence.
    */
   runtimeServer: CoreTestRuntimeServerHandle;
 
@@ -229,7 +227,7 @@ export interface CoreTestSpanExporterPort {
 
 Trace-capture operations available to test-harness consumers.
 
-### [`createTestAgent`](./helpers.ts#L197)
+### [`createTestAgent`](./helpers.ts#L198)
 
 _Function_
 
@@ -250,7 +248,7 @@ export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](./server.ts#L412)
+### [`getBaseUrl`](./server.ts#L406)
 
 _Function_
 
@@ -258,7 +256,7 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](./server.ts#L397)
+### [`getCoreDb`](./server.ts#L391)
 
 _Function_
 
@@ -266,7 +264,7 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L405)
+### [`getCoreEncryptionEnvelope`](./server.ts#L399)
 
 _Function_
 
@@ -274,7 +272,7 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L417)
+### [`getWsUrl`](./server.ts#L411)
 
 _Function_
 
@@ -392,7 +390,7 @@ export type PgliteHarnessError =
   | PgliteCloseError;
 ```
 
-### [`postJson`](./helpers.ts#L314)
+### [`postJson`](./helpers.ts#L316)
 
 _Function_
 
@@ -408,7 +406,7 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 `{status, json}`. HTTP integration tests import this helper to avoid
 repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L178)
+### [`registerAgent`](./helpers.ts#L179)
 
 _Function_
 
@@ -420,7 +418,7 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L298)
+### [`registerAndConnect`](./helpers.ts#L300)
 
 _Function_
 
@@ -432,7 +430,7 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L256)
+### [`registerApp`](./helpers.ts#L258)
 
 _Function_
 
@@ -447,7 +445,7 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](./server.ts#L371)
+### [`resetCoreTestDb`](./server.ts#L365)
 
 _Function_
 
@@ -455,7 +453,7 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`setupAgentGroup`](./helpers.ts#L414)
+### [`setupAgentGroup`](./helpers.ts#L416)
 
 _Function_
 
@@ -475,7 +473,7 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L402)
+### [`setupAgentPair`](./helpers.ts#L404)
 
 _Function_
 
@@ -500,7 +498,7 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServerEffect`](./server.ts#L328)
+### [`startCoreTestServerEffect`](./server.ts#L322)
 
 _Function_
 
@@ -510,7 +508,7 @@ export function startCoreTestServerEffect(
 )
 ```
 
-### [`startCoreTestServerFull`](./server.ts#L341)
+### [`startCoreTestServerFull`](./server.ts#L335)
 
 _Function_
 
@@ -532,7 +530,7 @@ export interface StartCoreTestServerOptions {
 }
 ```
 
-### [`stopCoreTestServer`](./server.ts#L345)
+### [`stopCoreTestServer`](./server.ts#L339)
 
 _Function_
 
@@ -540,7 +538,7 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L167)
+### [`trackClient`](./helpers.ts#L168)
 
 _Function_
 

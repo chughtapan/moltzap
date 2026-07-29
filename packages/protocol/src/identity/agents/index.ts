@@ -2,6 +2,7 @@
  * @file Agent identity descriptors, schemas, and credentials.
  */
 export { AgentId } from "./ids.js";
+export { AgentName } from "./name.js";
 export { AgentKey } from "./credentials.js";
 export { InviteCode, Register } from "./registration.js";
 export {

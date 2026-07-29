@@ -7,6 +7,7 @@ import {
   errorPayloadFields,
 } from "#transport";
 import { AgentId } from "./ids.js";
+import { AgentName } from "./name.js";
 import { UserId } from "#identity/users";
 
 const DateTimeString = dateTimeStringSchema();
@@ -29,11 +30,7 @@ const AgentMetadataSchema = Schema.Struct({
 const AgentSchema = Schema.Struct({
   id: AgentId,
   ownerUserId: Schema.optional(UserId),
-  name: Schema.String.pipe(
-    Schema.minLength(3),
-    Schema.maxLength(32),
-    Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
-  ),
+  name: AgentName,
   displayName: Schema.optional(Schema.String),
   description: Schema.optional(Schema.String),
   agentType: Schema.optional(stringEnum(["OpenClaw", "NanoClaw"])),
