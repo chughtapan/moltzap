@@ -35,38 +35,37 @@ export type CheckOutcome = (typeof CheckOutcome)[keyof typeof CheckOutcome];
 export interface GradeCheckResult {
   readonly name: string;
   readonly outcome: CheckOutcome;
+  /** What the check had to establish, so an `unknown` states its own question. */
   readonly detail: string;
 }
 
 /**
- * An evaluation is only `passed` when every check decided in its favour.
- * Any undecided check makes the run `inconclusive` rather than passing,
- * so an unverified property is never counted as a verified one.
+ * A grader report retains every assertion instead of reducing to one bit.
+ *
+ * `verdict` is what the code tier alone concluded, and it is derived - a
+ * judge that resolves the `unknown` checks recomputes it rather than
+ * amending it.
  */
-export const GradeVerdict = {
-  passed: "passed",
-  failed: "failed",
-  inconclusive: "inconclusive",
-} as const;
-export type GradeVerdict = (typeof GradeVerdict)[keyof typeof GradeVerdict];
-
-/** A grader report retains every assertion instead of reducing to one bit. */
 export interface GradeReport {
-  readonly verdict: GradeVerdict;
+  readonly verdict: CheckOutcome;
   readonly checks: ReadonlyArray<GradeCheckResult>;
 }
 
-/** One `failed` decides the run; otherwise every check must have passed. */
+/**
+ * One `failed` decides the run; otherwise every check must have passed.
+ * A run is undecided for the same reason a check is, so it says so in the
+ * same word.
+ */
 export function verdictOf(
   checks: ReadonlyArray<GradeCheckResult>,
-): GradeVerdict {
+): CheckOutcome {
   if (checks.some((check) => check.outcome === CheckOutcome.failed)) {
-    return GradeVerdict.failed;
+    return CheckOutcome.failed;
   }
   if (checks.every((check) => check.outcome === CheckOutcome.passed)) {
-    return GradeVerdict.passed;
+    return CheckOutcome.passed;
   }
-  return GradeVerdict.inconclusive;
+  return CheckOutcome.unknown;
 }
 
 /** Invalid or incomplete ledgers are refused rather than graded as failures. */

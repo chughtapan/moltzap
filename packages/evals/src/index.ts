@@ -25,11 +25,10 @@ export {
   type EvaluationSuite,
 } from "./evaluations.js";
 export {
+  CheckOutcome,
   GradingRefused,
   verdictOf,
-  type CheckOutcome,
   type CodeGrader,
   type GradeCheckResult,
   type GradeReport,
-  type GradeVerdict,
 } from "./grading-model.js";
