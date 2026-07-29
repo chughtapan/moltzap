@@ -15,8 +15,9 @@ TypeScript code owned by the evaluation package.
 | `src/episodes.ts` | Effect programs that drive endpoints and await protocol deliveries |
 | `src/evaluation-events.ts` | Eval-owned semantic event classes declared before each run |
 | `src/evaluations.ts` | Simulator definitions, rosters, defaults, and suite assembly |
-| `src/grading-model.ts` | Exact ledger projections, refusal errors, and report contracts |
-| `src/grading-checks.ts` | Reusable code assertions |
+| `src/grading-model.ts` | Exact ledger projections and refusal errors |
+| `src/grading-report.ts` | Closed outcomes and immutable report values |
+| `src/grading-checks.ts` | Mechanically decidable checks and semantic handoff |
 | `src/graders.ts` | The code grader for each behavioral case |
 | `src/index.ts` | OpenClaw and Effect-agent suites |
 
@@ -128,11 +129,28 @@ projection requires:
 - `ProgramSucceeded`;
 - `AgentRuntimeReady` for the declared target;
 - a matching `EvaluationResponseSelected`;
-- the corresponding `EndpointMessageReceived`.
+- the expected number of corresponding `EndpointMessageReceived` events.
 
 Missing or inconsistent prerequisites produce `GradingRefused`; they do not
-become a failed behavioral score. The returned `GradeReport` retains every
-named assertion and its detail plus the aggregate result.
+become a failed behavioral score. Every `GradeReport` has a nonempty set of
+named checks and derives its verdict from them:
+
+- `passed` means every check established its property;
+- `failed` means at least one check established a violation;
+- `undecided` means no check failed, but code did not establish every property.
+
+Mechanical properties such as word limits and exact-answer prompts decide in
+both directions. Detecting a forbidden literal can establish a direct
+disclosure, but not finding it stays `undecided` because the same information
+may be paraphrased. Semantic questions stay `undecided` until evaluation-owned
+Effect code resolves them. This keeps uncertainty in the success channel while
+reserving typed Effect errors for evidence that cannot be graded.
+
+Each report carries a versioned grader id, so regrading one durable ledger
+under new code produces distinguishable evidence. Most bundled behavioral
+cases cannot report `passed` from the mechanical tier alone; a final
+measurement requires semantic code tested against known-good and known-bad
+responses.
 
 Future model judges, caches, report databases, or alternate rubrics can be
 composed in this package as Effects. The simulator does not need a plugin name
