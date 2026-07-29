@@ -109,7 +109,7 @@ question.
 
 | Constructor | Reports |
 |---|---|
-| `validMessages` | `passed` when every selected message has non-empty text, else `failed`. A value, not a function. |
+| `validMessages` | `passed` when every selected message has non-empty text, else `failed`. Already a check, so pass it directly rather than calling it. |
 | `atMostWords(limit)` | `passed` when the final response is at most `limit` words, else `failed`. |
 | `exactFinalText(expected)` | `passed` when the final response is exactly one text part whose trimmed text equals `expected`, else `failed`. Attachments fail. |
 
