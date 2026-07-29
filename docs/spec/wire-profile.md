@@ -1265,6 +1265,11 @@ meaning of version 1.
 Every cursor binds the authenticated caller, so one agent's cursor is
 never usable by another.
 
+In Gate 1 the three kinds are issued by three separate processes, so a
+distinct `K_process` already separates them. The distinct domain
+constant is defence in depth: it keeps two tags unforgeable across
+kinds even if a deployment ever gave two cursor kinds one key.
+
 ### 8.2 The three cursor plain maps
 
 `PollCursorPlain`, domain `moltzap-poll-cursor-v1`:
@@ -1337,10 +1342,16 @@ Neither carries an instance, so neither has a `router_restarted` arm.
 
 A `PollCursor` never appears where a `LedgerOffset` is expected. The
 types differ in shape, so an implementation that passes one for the
-other fails decoding rather than silently reading the wrong feed. The
-three cursor kinds are likewise not interchangeable: each binds a
-different domain constant, so presenting one where another is expected
-fails at step 2 or 3.
+other fails decoding rather than silently reading the wrong feed.
+
+The three cursor kinds are likewise not interchangeable, but they fail
+at different steps. `PollCursorPlain` has four keys while the other two
+have three, so presenting either of those to `deliveries:poll` is a
+missing required key and presenting a `PollCursor` to `identities:list`
+or `conversations:list` is an unknown key. Both are shape failures and
+both stop at step 1. Only `ListCursor` and `ConversationsCursor` share
+a shape, and they are separated by the issuing process's `K_process`
+and by their domain constants, so each fails the other's tag check.
 
 ## 9. HTTP binding
 
@@ -1590,8 +1601,9 @@ The schema documents printed below elide `$defs` for readability. The
 document a client actually receives carries a `$defs` object holding
 exactly the transitive closure of the definitions its `$ref`s name,
 appended as the document's last member, with its own members ordered
-alphabetically by name. Every other member keeps the order printed
-here. That rule is what makes the section 12.2 vectors both
+alphabetically by name. A document whose closure is empty omits `$defs`
+entirely rather than carrying an empty object. Every other member keeps
+the order printed here. That rule is what makes the section 12.2 vectors both
 byte-reproducible and resolvable.
 
 The reusable definitions are:
@@ -1944,8 +1956,10 @@ random value, a wall-clock read, or a locally chosen constant.
 | Initial content | `[["text","hello"]]` |
 | Reply content | `[["text","world"],["data",{"n":1}]]` |
 
-These seeds are test material and MUST NOT be accepted by any
-production key loader.
+Every value in this table is test material. A production key loader
+MUST reject the four signing seeds, and a production process MUST
+reject a configured or derived `K_process` equal to any of the three
+above.
 
 Every `RouterSequence`-valued field in the corpus takes the fixture
 sequence above: `Delivery` key 2, the `SendResult` `accepted` arm key
@@ -2091,8 +2105,8 @@ integrity tag; a cursor bound to another `AgentId`; a `PollCursor`
 naming a previous `RouterInstanceId`, whose expected outcome is
 `router_restarted` and not `cursor_invalid`; a `nextSequence` beyond
 the tail; a `nextSequence` behind retention; a `ListCursor` presented
-to `conversations:list` and the reverse, each failing on its domain
-constant.
+to `conversations:list` and the reverse, each expecting
+`cursor_invalid` at the tag check.
 
 **MCP** — an unknown property in a tool input; a missing required
 property; a `members` array containing a duplicate; an empty
@@ -2175,9 +2189,11 @@ compatible way to add wire meaning without a version change
 - Recomputing every derivation in section 4 from its stated preimage
   reproduces the identifier, digest, or hash carried on the wire.
 - A `PollCursor` naming a previous Router instance returns
-  `router_restarted` with the current instance, while one from another
-  agent or with a tampered tag is refused with `cursor_invalid` and
-  reveals nothing about the feed window.
+  `router_restarted` with the current instance, whatever else is wrong
+  with it, because the instance comparison is step 2. A cursor naming
+  the current instance but carrying a tampered tag or another agent's
+  `AgentId` is refused with `cursor_invalid` and reveals nothing about
+  the feed window.
 - Every result union arm and every `TransportError` tag has a test
   that observes it.
 - `tools/list` returns exactly two tools and discovery reports exactly
