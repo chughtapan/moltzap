@@ -6,6 +6,7 @@ import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This integration scenario keeps the ordered send, history, ownership assertions, and cleanup in one readable lifecycle.
 it("messages/list returns both own and other agent messages", () =>
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("hist-a");

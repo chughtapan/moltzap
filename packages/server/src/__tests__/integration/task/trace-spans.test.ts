@@ -105,7 +105,8 @@ function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
   Either.match(outcome, {
     onLeft: (error) => {
       expect(
-        /* Safe because the test fixture establishes this asserted shape. */ (
+        (
+          /* Safe because the test fixture establishes this asserted shape. */
           error as { _tag?: string }
         )._tag,
       ).toBe(WIRE_ERROR_TAG.HookBlocked);

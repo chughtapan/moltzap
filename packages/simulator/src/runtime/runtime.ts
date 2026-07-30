@@ -109,7 +109,7 @@ export function defineRuntime<AcquisitionError, Requirements>(
     });
   }
   const name = runtime.name;
-  const acquire = runtime.acquire;
+  const acquire = runtime.acquire.bind(runtime);
   const defined: AgentRuntime<AcquisitionError, Requirements> = {
     [agentRuntimeTypeId]: agentRuntimeTypeId,
     name,

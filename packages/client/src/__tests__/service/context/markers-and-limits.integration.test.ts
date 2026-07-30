@@ -113,7 +113,9 @@ it("multiple other conversations appear in context", () =>
     yield* regD.client.close();
   }));
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This end-to-end scenario keeps setup, four-conversation ordering, the limit assertion, and cleanup visible together.
 it("maxConversations limits output", () =>
+  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Splitting the Effect generator would obscure the single scoped integration lifecycle.
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("lim-a");
     const agentNames = ["lim-b", "lim-c", "lim-d", "lim-e"];

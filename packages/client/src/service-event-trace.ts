@@ -8,14 +8,21 @@ const clientEventLogDir = Config.option(
   Config.string("MOLTZAP_CLIENT_EVENT_LOG_DIR"),
 );
 
-function getClientEventLogDir(): string | undefined {
-  return Option.getOrUndefined(
+/**
+ * Resolve the configured trace directory while preserving empty-as-disabled.
+ * @param configProvider Source used to resolve the environment-backed config.
+ * @returns A nonempty configured directory, or `undefined` when disabled.
+ */
+export function getClientEventLogDir(
+  configProvider?: ConfigProvider.ConfigProvider,
+): string | undefined {
+  const provider = configProvider ?? ConfigProvider.fromEnv();
+  const directory = Option.getOrUndefined(
     Effect.runSync(
-      clientEventLogDir.pipe(
-        Effect.withConfigProvider(ConfigProvider.fromEnv()),
-      ),
+      clientEventLogDir.pipe(Effect.withConfigProvider(provider)),
     ),
   );
+  return directory === "" ? undefined : directory;
 }
 
 /**

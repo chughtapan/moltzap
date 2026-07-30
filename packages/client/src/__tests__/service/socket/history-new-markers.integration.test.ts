@@ -63,7 +63,9 @@ it("history via socket returns messages with isOwn labels", () =>
     }).pipe(Effect.ensuring(H.closeAll([service], [regA.client, regB.client])));
   }));
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The marker transition is meaningful only as one ordered end-to-end scenario.
 it("messages stay *NEW* after getContext notification until history is read", () =>
+  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Splitting the Effect generator would hide the notification-versus-read state sequence.
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("wm-a");
     const regB = yield* H.registerAgent("wm-b");
@@ -72,6 +74,7 @@ it("messages stay *NEW* after getContext notification until history is read", ()
     yield* regC.client.connect();
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
     yield* service.startSocketServer();
+    // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The scoped body deliberately keeps all marker transitions before its single ensuring cleanup.
     yield* Effect.gen(function* () {
       const convB = yield* H.createDm(service, regB.agentId);
       const convC = yield* H.createDm(service, regC.agentId);
@@ -139,7 +142,9 @@ it("messages stay *NEW* after getContext notification until history is read", ()
     );
   }));
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The before-read, after-read, and new-arrival transitions form one regression scenario.
 it("new messages after history read are marked *NEW*", () =>
+  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Splitting the Effect generator would obscure the ordering that the test protects.
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("wm2-a");
     const regB = yield* H.registerAgent("wm2-b");

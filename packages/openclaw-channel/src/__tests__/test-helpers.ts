@@ -50,7 +50,8 @@ export function extractMessage(event: MessageReceivedNotification): Message {
  * @returns The extract conv id result.
  */
 export function extractConvId(result: unknown): string {
-  return /* Safe because the test fixture establishes this asserted shape. */ (
+  return (
+    /* Safe because the test fixture establishes this asserted shape. */
     result as { conversation: { id: string } }
   ).conversation.id;
 }

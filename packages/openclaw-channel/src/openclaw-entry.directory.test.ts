@@ -116,10 +116,10 @@ function directoryCallDefinition<D extends RpcDefinitionAny>(
         }),
       );
     }
-    const cursor =
-      /* Safe because the test fixture establishes this asserted shape. */ (
-        params as { readonly cursor?: string }
-      ).cursor ?? "";
+    const cursor = (
+      /* Safe because the test fixture establishes this asserted shape. */
+      params as { readonly cursor?: string }
+    ).cursor ?? "";
     return Effect.succeed(rpcResult<D>(agentsPage(cursor)));
   }
   return Effect.succeed(rpcResult<D>({}));

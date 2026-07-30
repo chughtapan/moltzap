@@ -279,12 +279,14 @@ function sendToAgentCachesPerAgentName() {
         (typeof sendCalls)[number],
       ];
     expect(
-      /* Safe because the test fixture establishes this asserted shape. */ (
+      (
+        /* Safe because the test fixture establishes this asserted shape. */
         firstSend.params as { conversationId: string }
       ).conversationId,
     ).toBe(CONVERSATION_ALICE_ID);
     expect(
-      /* Safe because the test fixture establishes this asserted shape. */ (
+      (
+        /* Safe because the test fixture establishes this asserted shape. */
         secondSend.params as { conversationId: string }
       ).conversationId,
     ).toBe(CONVERSATION_BOB_ID);
