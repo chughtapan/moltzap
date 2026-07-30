@@ -52,8 +52,8 @@ export function extractMessage(event: MessageReceivedNotification): Message {
 export function extractConvId(result: unknown): string {
   return (
     /* Safe because the test fixture establishes this asserted shape. */
-    result as { conversation: { id: string } }
-  ).conversation.id;
+    (result as { conversation: { id: string } }).conversation.id
+  );
 }
 
 /** Describes task binding. */
