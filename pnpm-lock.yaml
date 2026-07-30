@@ -24,8 +24,8 @@ importers:
         specifier: ^9
         version: 9.39.4(jiti@1.21.7)
       eslint-plugin-agent-code-guard:
-        specifier: 0.0.16
-        version: 0.0.16(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
+        specifier: 0.0.18
+        version: 0.0.18(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
       husky:
         specifier: ^9.0.0
         version: 9.1.7
@@ -3605,10 +3605,6 @@ packages:
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
       typescript: '>=4.8.4 <6.1.0'
 
-  '@typescript-eslint/types@8.59.3':
-    resolution: {integrity: sha512-ePFoH0g4ludssdRFqqDxQePCxU4WQyRa9+XVwjm7yLn0FKhMeoetC+qBEEI1Eyb1pGSDveTIT09Bvw2WhlGayg==}
-    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-
   '@typescript-eslint/types@8.65.0':
     resolution: {integrity: sha512-JSSwWNy+H0E/01jJEM+hrX6N0OFDzFzeIhHFSAS01tlVaevpG8cFyYRPhS5yjGOvBUx3sqQHVMjCL1CAZZMxBg==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
@@ -5128,8 +5124,8 @@ packages:
       eslint-plugin-import-x:
         optional: true
 
-  eslint-plugin-agent-code-guard@0.0.16:
-    resolution: {integrity: sha512-QqIvmn58wfJif6js1eZO3MlgDmB5VTfkq1XmWtcHEcIfYXU7oBRh0SmcK6gE3ViR9R22lQqlTL84BM1zGBPbfg==}
+  eslint-plugin-agent-code-guard@0.0.18:
+    resolution: {integrity: sha512-D3Ch3tDLr9rhh/07tnt4xsWhocyX1LBVzbO+qbZdYPZ71ZphEK43n4grFx5rvkWyX1luZicV5U9iiLPgzuDKIw==}
     hasBin: true
     peerDependencies:
       eslint: '>=9'
@@ -9939,7 +9935,7 @@ snapshots:
   '@es-joy/jsdoccomment@0.86.0':
     dependencies:
       '@types/estree': 1.0.9
-      '@typescript-eslint/types': 8.59.3
+      '@typescript-eslint/types': 8.65.0
       comment-parser: 1.4.6
       esquery: 1.7.0
       jsdoc-type-pratt-parser: 7.2.0
@@ -12956,8 +12952,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@typescript-eslint/types@8.59.3': {}
-
   '@typescript-eslint/types@8.65.0': {}
 
   '@typescript-eslint/typescript-estree@8.65.0(typescript@5.9.3)':
@@ -14558,7 +14552,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-agent-code-guard@0.0.16(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3):
+  eslint-plugin-agent-code-guard@0.0.18(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3):
     dependencies:
       '@eslint-community/eslint-plugin-eslint-comments': 4.7.2(eslint@9.39.4(jiti@1.21.7))
       '@typescript-eslint/utils': 8.65.0(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
@@ -14579,7 +14573,7 @@ snapshots:
 
   eslint-plugin-import-x@4.17.1(@typescript-eslint/utils@8.65.0(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.4(jiti@1.21.7)):
     dependencies:
-      '@typescript-eslint/types': 8.59.3
+      '@typescript-eslint/types': 8.65.0
       comment-parser: 1.4.6
       debug: 4.4.3(supports-color@8.1.1)
       eslint: 9.39.4(jiti@1.21.7)
