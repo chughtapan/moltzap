@@ -1,0 +1,233 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "workspace",
+  "targets": {
+    "format": {
+      "cache": false,
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "oxfmt ."
+      }
+    },
+    "format:check": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "oxfmt --check ."
+      }
+    },
+    "docs:generate": {
+      "cache": true,
+      "dependsOn": [
+        {
+          "target": "build",
+          "projects": "@moltzap/client"
+        }
+      ],
+      "inputs": [
+        "docsGeneration"
+      ],
+      "outputs": [
+        "{workspaceRoot}/docs",
+        "{workspaceRoot}/packages/**/src/**/MODULE.md"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "pnpm --filter @moltzap/protocol docs:generate",
+          "pnpm --filter @moltzap/client exec tsx scripts/generate-cli-docs.ts",
+          "pnpm --filter @moltzap/server-core exec tsx ../../scripts/generate-constants-snippets.ts"
+        ]
+      }
+    },
+    "docs:check:no-hardcoded-constants": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-no-hardcoded-constants.ts"
+      }
+    },
+    "docs:check:doc-imports-resolve": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "pnpm --filter @moltzap/server-core exec tsx ../../scripts/check-doc-imports-resolve.ts"
+      }
+    },
+    "arch:config:generate": {
+      "cache": true,
+      "inputs": [
+        "{workspaceRoot}/scripts/gen-architecture-configs.mjs"
+      ],
+      "outputs": [
+        "{workspaceRoot}/packages/*/safer-architecture.config.json"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/gen-architecture-configs.mjs"
+      }
+    },
+    "arch:config:check": {
+      "cache": false,
+      "dependsOn": [
+        "arch:config:generate"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "git diff --exit-code -- 'packages/*/safer-architecture.config.json'"
+      }
+    },
+    "lint:architecture-boundaries": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/check-architecture-boundaries.js"
+      }
+    },
+    "lint:typescript": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "tsc --noEmit -p tsconfig.eslint.json"
+      }
+    },
+    "lint:dead-code": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "agent-code-guard-knip --treat-config-hints-as-errors"
+      }
+    },
+    "lint:eslint": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "eslint . --cache --max-warnings=0"
+      }
+    },
+    "lint:oxlint": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "oxlint . --deny-warnings"
+      }
+    },
+    "lint:sloppy-code-guard": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "./scripts/sloppy-code-guard.sh"
+      }
+    },
+    "lint:root": {
+      "cache": false,
+      "dependsOn": [
+        "lint:typescript",
+        "lint:dead-code",
+        "lint:eslint"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node -e \"\""
+      }
+    },
+    "lint": {
+      "cache": false,
+      "dependsOn": [
+        "lint:architecture-boundaries",
+        "arch:config:check",
+        "lint:root",
+        "lint:oxlint",
+        {
+          "target": "arch:check",
+          "projects": "@moltzap/*"
+        },
+        {
+          "target": "lint",
+          "projects": "@moltzap/*"
+        }
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node -e \"\""
+      }
+    },
+    "check": {
+      "cache": false,
+      "dependsOn": [
+        "lint",
+        "format:check"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node -e \"\""
+      }
+    },
+    "precommit": {
+      "cache": false,
+      "dependsOn": [
+        "docs:check:no-hardcoded-constants",
+        "docs:check:doc-imports-resolve",
+        "check",
+        "lint:sloppy-code-guard",
+        {
+          "target": "build",
+          "projects": "@moltzap/*"
+        },
+        {
+          "target": "typecheck:tests",
+          "projects": "@moltzap/*"
+        }
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node -e \"\""
+      }
+    }
+  }
+}

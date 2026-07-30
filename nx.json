@@ -13,6 +13,30 @@
       "!{projectRoot}/vitest.config.mjs",
       "!{projectRoot}/vitest.integration.config.mjs"
     ],
+    "workspaceFiles": [
+      "{workspaceRoot}/**/*"
+    ],
+    "docsGeneration": [
+      "{workspaceRoot}/package.json",
+      "{workspaceRoot}/pnpm-lock.yaml",
+      "{workspaceRoot}/typedoc.json",
+      "{workspaceRoot}/scripts/generate-constants-snippets.ts",
+      "{workspaceRoot}/packages/**/*.json",
+      "{workspaceRoot}/packages/**/*.ts",
+      "!{workspaceRoot}/packages/**/*.test.ts",
+      "!{workspaceRoot}/packages/**/src/__tests__/**/*",
+      "!{workspaceRoot}/packages/**/dist/**/*",
+      "!{workspaceRoot}/packages/**/src/**/MODULE.md",
+      "{workspaceRoot}/docs/**/*",
+      "!{workspaceRoot}/docs/modules/**/*",
+      "!{workspaceRoot}/docs/protocol/methods/**/*",
+      "!{workspaceRoot}/docs/protocol/notifications/**/*",
+      "!{workspaceRoot}/docs/cli/reference.mdx",
+      "!{workspaceRoot}/docs/snippets/cli-commands-table.mdx",
+      "!{workspaceRoot}/docs/snippets/cli-global-flags.mdx",
+      "!{workspaceRoot}/docs/snippets/constants/**/*",
+      "!{workspaceRoot}/docs/snippets/ws-connect-example.mdx"
+    ],
     "sharedGlobals": [
       "{workspaceRoot}/tsconfig.base.json",
       "{workspaceRoot}/tsconfig.json"
@@ -74,6 +98,17 @@
       "cache": true
     },
     "arch:check": {
+      "dependsOn": [
+        {
+          "target": "arch:config:generate",
+          "projects": "workspace"
+        }
+      ],
+      "options": {
+        "env": {
+          "NODE_OPTIONS": "--max-old-space-size=8192"
+        }
+      },
       "inputs": [
         "default",
         "{projectRoot}/safer-architecture.config.json"
