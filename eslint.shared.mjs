@@ -151,9 +151,6 @@ const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   // Disabled: knip runs once at the workspace root (whole-monorepo)
   // via `pnpm lint`; per-package lint scripts run eslint only.
   "agent-code-guard/require-knip-in-lint": "off",
-  // Nx owns the workspace task graph; this package-script rule cannot resolve
-  // Nx targets without producing false negatives.
-  "agent-code-guard/require-typescript-quality-gate": "off",
   "local-guard/gen-finally": "error",
 });
 

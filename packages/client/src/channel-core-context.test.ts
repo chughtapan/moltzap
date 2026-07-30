@@ -212,8 +212,8 @@ function doesNotCommitWhenThereAreNoContextEntries() {
     fake.state.setConversation("conv-1", { type: "dm", participants: [] });
     fake.state.setAgentName("agent-alice", "Alice");
     // Install a peekContextEntries that records commit calls.
+    /* Safe because the test fixture establishes this asserted shape. */
     (
-      /* Safe because the test fixture establishes this asserted shape. */
       fake.service as {
         peekContextEntries: (id: string) => {
           entries: CrossConversationEntry[];
