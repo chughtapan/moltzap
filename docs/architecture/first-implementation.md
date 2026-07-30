@@ -823,12 +823,13 @@ retrofit is implied by completion.
 
 The accepted
 [`distributed society execution`](../spec/distributed-society-execution.md)
-contract defines a later one-container-per-AgentId path with Kubernetes,
-Kueue, regional GKE Standard, Temporal orchestration, late-bound OpenClaw
-artifacts, and Pod-bound enrollment. It does not alter the Gate 1 phases,
-completion criteria, or deployment deferral above.
+contract defines a later one-Sandbox-contained-agent-per-AgentId path with
+Kubernetes, Agent Sandbox, Kueue, regional GKE Standard, Temporal
+orchestration, late-bound OpenClaw artifacts, Secret-bound slots, and
+generation-aware rejoin. It does not alter the Gate 1 phases, completion
+criteria, or deployment deferral above.
 
-Its first implementation slice is intentionally unselected. The architecture
-orientation in
-[`distributed-society-execution.md`](/architecture/distributed-society-execution)
-enumerates the remaining scope choices for the next maintainer discussion.
+Its durable first implementation sequence is
+[`distributed-society-execution-plan.md`](/architecture/distributed-society-execution-plan).
+That plan remains blocked until the simulator handoff records its immutable
+landed SHA.

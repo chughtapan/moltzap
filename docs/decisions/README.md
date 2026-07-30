@@ -51,11 +51,11 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
-| [Pod attestation gates agent enrollment](20260729-pod-attestation-gates-agent-enrollment.md) | 2026-07-29 | accepted | — |
+| [Kubernetes Secrets bind agent slots](20260729-kubernetes-secrets-bind-agent-slots.md) | 2026-07-29 | accepted | — |
 | [OpenClaw experiments are late-bound](20260729-openclaw-experiments-are-late-bound.md) | 2026-07-29 | accepted | — |
 | [Temporal orchestrates distributed runs](20260729-temporal-orchestrates-distributed-runs.md) | 2026-07-29 | accepted | — |
-| [Kubernetes and Kueue admit agent cohorts](20260729-kubernetes-kueue-admits-agent-cohorts.md) | 2026-07-29 | accepted | — |
-| [One container per agent gates distributed runs](20260729-one-container-per-agent-gates-distributed-runs.md) | 2026-07-29 | accepted | — |
+| [Kubernetes Agent Sandbox and Kueue admit agent cohorts](20260729-kubernetes-kueue-admits-agent-cohorts.md) | 2026-07-29 | accepted | — |
+| [One Sandbox-contained agent gates distributed runs](20260729-one-container-per-agent-gates-distributed-runs.md) | 2026-07-29 | accepted | — |
 | [One wire profile assigns every Gate 1 byte](20260729-wire-profile-assigns-every-gate-1-byte.md) | 2026-07-29 | accepted | — |
 | [ADRs link source events and require blind review](20260728-adrs-link-source-events-and-require-blind-review.md) | 2026-07-28 | accepted | — |
 | [Gate 1 starts with a repository-native architecture freeze](20260728-gate-1-architecture-freeze.md) | 2026-07-28 | accepted | — |

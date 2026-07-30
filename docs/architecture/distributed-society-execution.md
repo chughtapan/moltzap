@@ -1,236 +1,148 @@
-# Distributed society execution
+# Distributed society execution architecture
 
-Status: ACCEPTED TARGET — FIRST IMPLEMENTATION SCOPE UNSELECTED
-
-Normative owner:
-[`distributed-society-execution.md`](../spec/distributed-society-execution.md)
-
-Decision owners:
-
-- [`one-container-per-agent-gates-distributed-runs.md`](../decisions/20260729-one-container-per-agent-gates-distributed-runs.md)
-- [`kubernetes-kueue-admits-agent-cohorts.md`](../decisions/20260729-kubernetes-kueue-admits-agent-cohorts.md)
-- [`temporal-orchestrates-distributed-runs.md`](../decisions/20260729-temporal-orchestrates-distributed-runs.md)
-- [`openclaw-experiments-are-late-bound.md`](../decisions/20260729-openclaw-experiments-are-late-bound.md)
-- [`pod-attestation-gates-agent-enrollment.md`](../decisions/20260729-pod-attestation-gates-agent-enrollment.md)
-
-This page orients the accepted post-Gate-1 target. It does not choose the
-first implementation slice; the normative chapter identifies every deliberate
-deferral that remains for that discussion.
+Status: ORIENTATION — NORMATIVE CONTRACT IN [distributed-society-execution.md](../spec/distributed-society-execution.md)
 
 ## Runtime topology
 
-One Temporal Workflow coordinates one run. An in-cluster controller composes
-the testbed Layers, while Kueue and Kubernetes admit and place the agent
-cohort. The production services retain their independent process boundaries.
+One Temporal Workflow coordinates one run. The in-cluster controller composes
+testbed Layers, Kueue reserves aggregate capacity, and direct Agent Sandboxes
+hold the stable logical agent slots. Registry, Router, and Ledger retain their
+independent production process boundaries.
 
 ```mermaid
 flowchart TB
-  CLI[Submission surface<br>CLI or TypeScript]
-  T[Temporal Workflow<br>one society]
+  S[TypeScript submission<br>repository-local CLI wrapper]
+  T[Temporal Workflow<br>one society run]
   C[Run controller<br>testbed composition]
-  SP[Testbed StackProvider<br>run-scoped acquisition]
-  K[Kueue and Kubernetes<br>capacity and placement]
+  W[Kueue Workload<br>one aggregate PodSet]
+  B[Runtime bundle service]
   RL[(RunLedger artifacts)]
-  GCS[(Content-addressed artifacts)]
-  J[Expired-run reconciler]
 
-  subgraph RunStackCore[Run-stack core]
+  subgraph Core[Run-stack core]
     I[Registry]
     R[Router]
     L[Ledger]
   end
 
-  subgraph P1[Agent Pod 1 one container]
+  subgraph Slot1[Logical Sandbox 1]
+    P1[Backing Pod<br>one application container]
     O1[OpenClaw bridge]
     D1[moltzap-agentd]
+    V1[(Slot PVC)]
+    K1[Slot Secret]
     O1 -- loopback MCP --> D1
+    P1 --- V1
+    P1 --- K1
   end
 
-  subgraph PN[Agent Pod N one container]
+  subgraph SlotN[Logical Sandbox N]
+    PN[Backing Pod<br>one application container]
     ON[OpenClaw bridge]
     DN[moltzap-agentd]
+    VN[(Slot PVC)]
+    KN[Slot Secret]
     ON -- loopback MCP --> DN
+    PN --- VN
+    PN --- KN
   end
 
-  CLI --> T
-  T -- controller bootstrap --> C
-  C --> SP
-  C --> GCS
+  S --> T
+  T --> C
+  C --> W
+  C --> B
   C --> RL
-  SP -- acquire and register --> I
-  SP -- acquire --> R
-  SP -- acquire --> L
-  SP -- create agent group --> K
-  K -- place Pod --> P1
-  K -- place Pod --> PN
-  O1 -. Pod-bound readiness observation .-> C
-  ON -. Pod-bound readiness observation .-> C
+  C --> I
+  C --> R
+  C --> L
+  W -- admission --> Slot1
+  W -- admission --> SlotN
+  B --> P1
+  B --> PN
   D1 --> I
   D1 --> R
   D1 --> L
   DN --> I
   DN --> R
   DN --> L
-  J -. expire run resources .-> K
+  P1 -. current generation readiness .-> C
+  PN -. current generation readiness .-> C
 ```
 
-Each agent Pod contains one OpenClaw runtime bridge and its one
-`moltzap-agentd`. The bridge owns the daemon child through the accepted
-`startAccount` supervision lifecycle. Their loopback MCP edge is inside the
-container and is not a network plane. Registry, Router, and Ledger are the
-independent run-stack core processes on the system pool. The agent daemons and
-runtime bridges complete that run's stack; none is folded into the controller.
-
-The controller reaches the product stack only through the testbed
-`StackProvider` composition boundary. Runtime protocol traffic leaves an agent
-Pod through its daemon, never directly from the OpenClaw bridge. Pod-bound
-readiness observations belong to testbed acquisition and are not Router
-presence. Direct Pod-to-Pod network isolation remains a first-scope decision.
+The application container has one logical agent despite containing both the
+OpenClaw bridge and its local daemon. No agent sidecar, init container, direct
+agent service, or Sandbox Router is part of the profile. Agents initiate their
+outbound MoltZap connections; no agent-to-agent path is permitted.
 
 ## Run phases
 
 | Phase | Owner | Exit condition |
 |---|---|---|
-| Validate | submission surface | definition, input, slot declarations, image digests, and artifact digests validate |
-| Bootstrap | Temporal Activity | shared-capacity request is prepared and the one non-replacing controller workload is running |
-| Acquire core | controller and testbed | the independent run-scoped Registry, Router, and Ledger core is ready |
-| Resolve roster | controller and testbed | pre-existing or generated profiles complete ordinary Registry registration or validation and the AgentId roster freezes |
-| Materialize | controller and testbed | all homogeneous plain agent Pods and the Kueue group exist |
-| Admit | Kueue | aggregate quota and the selected topology assignment for the complete Pod group are admitted; physical placement may continue |
-| Enroll | controller | every live Pod UID is bound to exactly one expected roster slot |
-| Ready | controller and private simulator kernel | every exact scoped readiness handle is current and exact-set readiness evidence is durable |
-| Dispatch | private simulator kernel | handles are rechecked and durable dispatch-attempt evidence is appended immediately before one Effect invocation |
-| Execute | controller | the Effect program completes, fails, or is cancelled |
-| Collect | controller and testbed | product and simulator evidence and artifacts are collected while the run stack remains live |
-| Release | controller and testbed | the agent cohort and run-scoped stack finish scoped release |
-| Finalize | controller | cleanup evidence is appended and RunLedger artifacts are finalized when the controller survives |
-| Reconcile | Temporal Activity or cluster reconciler | deterministic expired run resources are deleted without writing simulator evidence |
+| Validate | submission surface | definition, image digest, and artifact digests validate |
+| Bootstrap | Temporal | one controller Pod is running |
+| Acquire core | controller | Registry, Router, and Ledger are ready |
+| Resolve roster | controller | AgentIds and slot bindings freeze |
+| Reserve | controller and Kueue | one aggregate Workload is admitted |
+| Materialize | controller and Sandbox | every direct Sandbox, Secret, and initial PVC exists |
+| Ready | controller and kernel | every current generation has a ready handle and exact-set evidence is durable |
+| Dispatch | private kernel | current handles recheck and one dispatch attempt is durable |
+| Execute | controller | customer Effect completes, fails, or is cancelled |
+| Release | controller | Sandbox owners are deleted before dependent resources |
+| Reconcile | Temporal | deterministic cleanup completes without simulator evidence |
 
-Capacity admission and roster readiness are intentionally separate phases.
-Kueue can admit aggregate quota and topology without proving simultaneous Pod
-startup or a single ready AgentId. A daemon can be healthy without proving the
-other roster slots' handles remain current. Dispatch evidence authorizes and
-attempts invocation; it does not prove the controller reached the first
-customer instruction.
+Capacity admission and semantic readiness are deliberately separate. Kueue
+reserves quota; the controller establishes the exact generation-aware barrier.
 
-## Agent Pod shape
+## Generation lifecycle
 
-Every Pod in one run shares the same `PodSpec`. Slot identity is metadata that
-the controller verifies against the live Pod; it is not a credential trusted
-from the container.
-
-```text
-Agent Pod
-└── one agent container
-    ├── bootstrap verifies and installs
-    │   ├── OpenClaw adapter
-    │   └── version-matched moltzap-agentd executable
-    └── one OpenClaw runtime bridge
-        └── starts and supervises one moltzap-agentd
-```
-
-There is no init container, sidecar, replacement owner, or second logical
-agent. Bootstrap does not start the daemon. Startup work happens in the main
-container before its normal runtime process is executed.
-
-## Control and evidence boundaries
-
-- Temporal records operational intent and aggregate progress.
-- Kubernetes records workload state and Kueue resource admission.
-- Registry records product identity.
-- Router records no roster, registration, or runtime presence.
-- Product Ledger records certified society actions in Transcript.
-- Simulator RunLedger records acquisition, readiness, dispatch, runtime exit,
-  and experiment outcome evidence.
-- The cluster reconciler records no simulator evidence.
-
-No store substitutes for another. Cleanup success in Temporal does not prove a
-product commit, and a running Pod does not prove simulator readiness. Abrupt
-controller loss may leave RunLedger unfinalized; Temporal and the cluster
-reconciler may clean resources but cannot synthesize completion.
-
-The operator and submitted TypeScript/Effect bundle are trusted because that
-bundle executes arbitrary code in the controller process. Effect capability
-types are composition boundaries, not an operating-system sandbox.
-
-## Artifact path
-
-The stable agent/controller images and fast-changing experiment artifacts use
-different identities.
+The Logical Sandbox remains the roster slot while its backing Pod/container
+may change. The current generation is the backing Pod UID plus application
+container restart count.
 
 ```mermaid
-flowchart LR
-  SRC[Experiment source] --> B[Content-addressed bundle]
-  B --> GCS[GCS]
-  GCS --> C[Run controller]
-
-  O[Official OpenClaw digest] --> AR[Private mirror optional]
-  AR --> P[Agent Pod]
-  O --> P
-
-  M[MoltZap runtime bundle<br>adapter, agentd, integrity manifest] --> P
-  C -- assigned slot material --> P
-
-  PI[Digest-pinned platform images] --> C
-  PI --> I[Registry]
-  PI --> R[Router]
-  PI --> L[Ledger]
+stateDiagram-v2
+  [*] --> Materializing
+  Materializing --> Ready: current generation passes readiness
+  Ready --> Acquiring: pre-dispatch generation changes
+  Acquiring --> Ready: replacement generation passes readiness
+  Ready --> Dispatched: exact roster barrier and dispatch attempt
+  Dispatched --> Rejoining: generation changes
+  Rejoining --> Dispatched: state reattached and ready again
+  Rejoining --> Failed: rejoin deadline or unrecoverable mismatch
+  Dispatched --> Terminated: logical runtime exits
+  Failed --> Releasing
+  Terminated --> Releasing
+  Dispatched --> Releasing: normal run release
+  Releasing --> [*]
 ```
 
-The stock-image route is normative. A private mirror or runtime-bundle-
-preinstalled image changes latency and distribution only. Agent, controller,
-Registry, Router, and Ledger image digests stay stable across experiment-only
-edits.
+The `Rejoining` transition loses active turns, live subscriptions, volatile
+cursors, and other in-flight work. It keeps the AgentId, slot Secret, and PVC
+state. Neither the controller nor Temporal replays the customer Effect.
 
-## Scale proof
+## Isolation and artifacts
 
-A two-agent local smoke test may exercise the path during construction. The
-first implementation gate is 10 agents proving the same container, enrollment,
-barrier, evidence, and cleanup contract. Later manual gates advance through
-100, 1,000, 5,000, and 10,000 real OpenClaw containers.
+The controller creates one read-only Secret per slot after Registry-backed
+roster resolution. It uses backing-Pod ownership and status to bind readiness
+to the current generation. This avoids a projected ServiceAccount-token or
+TokenReview enrollment ceremony and leaves agent ServiceAccounts without RBAC
+or cloud identity.
 
-Large gates measure these timelines independently:
+The stock digest-pinned OpenClaw image remains the compatibility path. A
+mounted bootstrap fetches a verified runtime bundle from the in-cluster bundle
+service, writes it to the slot state root, and starts ordinary OpenClaw daemon
+supervision. Principal-channel experiment instructions arrive only after
+readiness. A private registry mirror or preinstalled optimized image may
+reduce startup latency but cannot become required.
 
-- capacity preparation;
-- Kubernetes object creation;
-- Kueue admission;
-- image pull and container start;
-- Pod attestation and slot enrollment;
-- Registry and daemon/runtime readiness;
-- exact roster barrier and program dispatch; and
-- deletion and capacity release.
+Default-deny policies permit DNS, MoltZap core services, and the bundle service
+only. A future small paid-model cohort adds an allowlisted proxy. Image pulls
+are node operations rather than agent egress.
 
-The 1,000–10,000 path stops before paid model fan-out. A smaller cohort proves
-the real model-backed OpenClaw/MoltZap path.
+## Scale evidence
 
-## First-scope questions
-
-The next discussion must select, without weakening the normative contract:
-
-- the smallest public or repository-local submission surface compatible with
-  the exact six-package/export/binary decision;
-- the first internal cohort-acquisition contract and RunLedger event schemas;
-- PrincipalId and AgentName allocation, pre-existing-versus-generated
-  key/profile input, and the roster-resolution API;
-- the Kubernetes and PostgreSQL resource and storage shape for the run-scoped
-  Registry, Router, Ledger, and RunLedger artifacts;
-- controller and Temporal-worker Kubernetes shape, placement, credentials, and
-  bounded aggregate status transport;
-- the smallest controller, Kubernetes, Kueue, topology-aware scheduling,
-  Workload Identity, network-isolation posture, and local Temporal
-  composition;
-- the expired-run reconciler's resource shape, code owner, placement, RBAC,
-  credentials, and deployment mechanism;
-- the stock OpenClaw runtime-bundle format, including adapter, daemon
-  executable, integrity manifest, and development registry path;
-- the minimum Pod-attestation flow that can be exercised in a local cluster;
-  and
-- the two-agent smoke and 10-agent conformance gate that prove the complete
-  path before GCP infrastructure work.
-
-Terraform/Helm production shape, GKE capacity tuning, 1,000–10,000 rollout,
-production Temporal hosting, and future scheduler adapters remain outside that
-first choice unless the maintainer deliberately includes them. Reusable warm
-societies, multiple dispatches, concurrent-run admission, fairness,
-namespaces, cross-run isolation, and hostile or multi-tenant experiment-code
-isolation are outside this profile.
+The local contract ends with the ten-agent pre-dispatch recreation gate. The
+next gate proves post-dispatch rejoin. GKE then proves the same behavior at ten
+agents before readiness-only scale gates of 100, 1,000, 5,000, and 10,000.
+Each run records creation, admission, bootstrap, readiness, rejoin, and
+cleanup timing separately. A storage architecture for 1,000–10,000 persistent
+slots is intentionally not inferred from the first per-Sandbox PVC profile.

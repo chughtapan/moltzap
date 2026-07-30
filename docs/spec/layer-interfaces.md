@@ -369,4 +369,4 @@ This section is non-normative implementation guidance.
 - `../decisions/20260729-kubernetes-kueue-admits-agent-cohorts.md`
 - `../decisions/20260729-temporal-orchestrates-distributed-runs.md`
 - `../decisions/20260729-openclaw-experiments-are-late-bound.md`
-- `../decisions/20260729-pod-attestation-gates-agent-enrollment.md`
+- `../decisions/20260729-kubernetes-secrets-bind-agent-slots.md`

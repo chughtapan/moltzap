@@ -97,7 +97,7 @@ These chapters bind a later target without changing Gate 1 completion:
 
 | Document | Normative ownership |
 |---|---|
-| [Distributed society execution](distributed-society-execution.md) | one-container-per-agent distributed cohorts, exact readiness and dispatch, Kubernetes/Kueue and GKE reference behavior, Temporal/controller boundaries, late-bound OpenClaw artifacts, and Pod enrollment |
+| [Distributed society execution](distributed-society-execution.md) | one Sandbox-contained agent per AgentId, generation-aware exact readiness and dispatch, Agent Sandbox/Kueue and GKE reference behavior, Temporal/controller boundaries, late-bound OpenClaw artifacts, and Secret-bound slots |
 
 Implementation of a post-Gate-1 chapter still requires its prerequisite
 Gate 1 capabilities and a separately selected implementation scope.
