@@ -11,7 +11,16 @@ import {
   Path,
   type SocketServer,
 } from "@effect/platform";
-import { Config, Data, Effect, Exit, Fiber, Inspectable, Scope } from "effect";
+import {
+  Cause,
+  Config,
+  Data,
+  Effect,
+  Exit,
+  Fiber,
+  Inspectable,
+  Scope,
+} from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
@@ -177,7 +186,7 @@ function spawnOpenClawProcess(opts: {
     }),
   ).pipe(
     Effect.mapError((cause) =>
-      cause instanceof Error ? cause : new Error(String(cause)),
+      cause instanceof Error ? cause : new Cause.UnknownException(cause),
     ),
   );
 }
@@ -596,7 +605,9 @@ function spawnConfiguredOpenClaw(options: {
     });
   }).pipe(
     Effect.mapError((cause) =>
-      cause instanceof Error ? cause : new Error(Inspectable.format(cause)),
+      cause instanceof Error
+        ? cause
+        : new Cause.UnknownException(cause, Inspectable.format(cause)),
     ),
   );
 }
@@ -832,12 +843,10 @@ function bindOpenClawPortCandidate(
     Effect.gen(function* () {
       const server = yield* acquireOpenClawPortProbe(requestedPort);
       if (server.address._tag !== "TcpAddress") {
-        return yield* Effect.fail(
-          new PortAllocationFailed({
-            message: "TCP port allocation returned a non-TCP address",
-            cause: server.address,
-          }),
-        );
+        return yield* new PortAllocationFailed({
+          message: "TCP port allocation returned a non-TCP address",
+          cause: server.address,
+        });
       }
       return { port: server.address.port };
     }),

@@ -104,22 +104,20 @@ const {
  * @param options Options that control the operation.
  * @returns The materialize published open claw plugin result.
  */
-export function materializePublishedOpenClawPlugin(
-  options: MaterializePublishedOpenClawPluginOptions,
-) {
-  return Effect.gen(function* () {
-    const target = yield* resolveCacheTarget(options.cacheBaseDir);
-    const generationDir = yield* resolveCacheGeneration(
-      target,
-      options.openclawBin,
-    );
-    return yield* materializeOpenClawPluginCacheGeneration({
-      generationDir,
-      stateDir: options.stateDir,
-      openclawPackageRoot: target.openclawPackageRoot,
-    });
-  }).pipe(Effect.withSpan("materializePublishedOpenClawPlugin"));
-}
+export const materializePublishedOpenClawPlugin = Effect.fn(
+  "materializePublishedOpenClawPlugin",
+)(function* (options: MaterializePublishedOpenClawPluginOptions) {
+  const target = yield* resolveCacheTarget(options.cacheBaseDir);
+  const generationDir = yield* resolveCacheGeneration(
+    target,
+    options.openclawBin,
+  );
+  return yield* materializeOpenClawPluginCacheGeneration({
+    generationDir,
+    stateDir: options.stateDir,
+    openclawPackageRoot: target.openclawPackageRoot,
+  });
+});
 
 // The installed dependency versions and this host's identity cannot change
 // while the process runs, so the two directory-walking package resolutions and
@@ -412,7 +410,7 @@ function projectDeclaresChannel(
         catch: () => false,
       }).pipe(Effect.merge),
     ),
-    Effect.catchAll(() => Effect.succeed(false)),
+    Effect.orElseSucceed(() => false),
   );
 }
 
@@ -424,40 +422,34 @@ function projectDeclaresChannel(
  * @internal
  * @returns The validate open claw plugin project result.
  */
-export function validateOpenClawPluginProject(
-  projectDir: string,
-  channelVersion: string,
-) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const [manifestText, lockText] = yield* Effect.all([
-      fsEffect(
-        "read OpenClaw npm project manifest",
-        fileSystem.readFileString(join(projectDir, "package.json"), "utf8"),
-      ),
-      fsEffect(
-        "read OpenClaw npm project lock",
-        fileSystem.readFileString(
-          join(projectDir, "package-lock.json"),
-          "utf8",
-        ),
-      ),
-    ]);
-    yield* Effect.try({
-      try: () => {
-        validateProjectProvenance(
-          JSON.parse(manifestText),
-          JSON.parse(lockText),
-          channelVersion,
-        );
-      },
-      catch: (cause) =>
-        cause instanceof OpenClawPluginCacheError
-          ? cause
-          : cacheError("Unable to validate OpenClaw npm provenance", cause),
-    });
-  }).pipe(Effect.withSpan("validateOpenClawPluginProject"));
-}
+export const validateOpenClawPluginProject = Effect.fn(
+  "validateOpenClawPluginProject",
+)(function* (projectDir: string, channelVersion: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const [manifestText, lockText] = yield* Effect.all([
+    fsEffect(
+      "read OpenClaw npm project manifest",
+      fileSystem.readFileString(join(projectDir, "package.json"), "utf8"),
+    ),
+    fsEffect(
+      "read OpenClaw npm project lock",
+      fileSystem.readFileString(join(projectDir, "package-lock.json"), "utf8"),
+    ),
+  ]);
+  yield* Effect.try({
+    try: () => {
+      validateProjectProvenance(
+        JSON.parse(manifestText),
+        JSON.parse(lockText),
+        channelVersion,
+      );
+    },
+    catch: (cause) =>
+      cause instanceof OpenClawPluginCacheError
+        ? cause
+        : cacheError("Unable to validate OpenClaw npm provenance", cause),
+  });
+});
 
 function validateProjectProvenance(
   manifest: unknown,
@@ -564,31 +556,28 @@ function copyProjectIntoBuildingCache(
  * @internal
  * @returns The materialize open claw plugin cache generation result.
  */
-export function materializeOpenClawPluginCacheGeneration(options: {
+export const materializeOpenClawPluginCacheGeneration = Effect.fn(
+  "materializeOpenClawPluginCacheGeneration",
+)(function* (options: {
   readonly generationDir: string;
   readonly stateDir: string;
   readonly openclawPackageRoot: string;
 }) {
-  return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const cachedProjectsDir = join(options.generationDir, "npm", "projects");
-    const entries = yield* fsEffect(
-      "list cached OpenClaw npm projects",
-      fileSystem.readDirectory(cachedProjectsDir),
-    );
-    const entry = yield* requireSoleEntry(
-      entries,
-      "cached OpenClaw npm project",
-    );
-    const projectDir = join(options.stateDir, "npm", "projects", entry);
-    yield* fsEffect(
-      "materialize cached OpenClaw npm project",
-      fileSystem.copy(join(cachedProjectsDir, entry), projectDir),
-    );
-    yield* recreateOpenClawPeerLink(projectDir, options.openclawPackageRoot);
-    return projectDir;
-  }).pipe(Effect.withSpan("materializeOpenClawPluginCacheGeneration"));
-}
+  const fileSystem = yield* FileSystem.FileSystem;
+  const cachedProjectsDir = join(options.generationDir, "npm", "projects");
+  const entries = yield* fsEffect(
+    "list cached OpenClaw npm projects",
+    fileSystem.readDirectory(cachedProjectsDir),
+  );
+  const entry = yield* requireSoleEntry(entries, "cached OpenClaw npm project");
+  const projectDir = join(options.stateDir, "npm", "projects", entry);
+  yield* fsEffect(
+    "materialize cached OpenClaw npm project",
+    fileSystem.copy(join(cachedProjectsDir, entry), projectDir),
+  );
+  yield* recreateOpenClawPeerLink(projectDir, options.openclawPackageRoot);
+  return projectDir;
+});
 
 function recreateOpenClawPeerLink(
   projectDir: string,
@@ -601,10 +590,8 @@ function recreateOpenClawPeerLink(
       fileSystem.stat(openclawPackageRoot),
     );
     if (info.type !== "Directory") {
-      return yield* Effect.fail(
-        cacheError(
-          `Unable to resolve OpenClaw peer link target at ${openclawPackageRoot}`,
-        ),
+      return yield* cacheError(
+        `Unable to resolve OpenClaw peer link target at ${openclawPackageRoot}`,
       );
     }
     const peerLink = openclawPeerLinkPath(projectDir);

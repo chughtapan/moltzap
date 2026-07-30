@@ -186,7 +186,7 @@ const callWithTimeout = <A, E>(
       }),
     );
     if (Exit.isFailure(exit) && Cause.isInterruptedOnly(exit.cause)) {
-      return yield* Effect.fail(makeNotConnectedError());
+      return yield* makeNotConnectedError();
     }
     return yield* exit;
   }).pipe(Effect.withSpan("callWithTimeout"));
@@ -948,7 +948,7 @@ export class ProtocolClientLifecycle<
           return commands.unsafeOffer({ _tag: "Connect", reply });
         });
         if (!offered) {
-          return yield* Effect.fail(makeNotConnectedError());
+          return yield* makeNotConnectedError();
         }
         return yield* restore(Deferred.await(reply));
       }),
@@ -1467,13 +1467,14 @@ export class ProtocolClientLifecycle<
 
   private notifyDisconnect(close: CloseInfo): Effect.Effect<void> {
     const onDisconnect = this.options.onDisconnect;
-    return Effect.gen(function* () {
-      try {
-        onDisconnect?.(close);
-      } catch (err) {
-        yield* Effect.logWarning("onDisconnect handler threw", err);
-      }
-    });
+    return Effect.try({
+      try: () => onDisconnect?.(close),
+      catch: (cause) => new Cause.UnknownException(cause),
+    }).pipe(
+      Effect.catchAll((cause) =>
+        Effect.logWarning("onDisconnect handler threw", cause),
+      ),
+    );
   }
 }
 /* eslint-enable max-lines -- lifecycle state machine ends here -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

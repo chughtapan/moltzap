@@ -175,17 +175,15 @@ function extractInviteCode(body: Record<string, unknown>): string | undefined {
   return typeof raw === "string" ? raw : undefined;
 }
 
-function registerApp(manifest: AppManifest, options: CoreHttpAppOptions) {
-  return Effect.gen(function* () {
-    const { appId, appKey } = yield* options.appAuthService.registerApp({
-      manifest,
-    });
-    return jsonResponse(
-      { appId, appKey: Redacted.value(appKey) },
-      HTTP_CREATED,
-    );
-  }).pipe(Effect.withSpan("http.registerApp"));
-}
+const registerApp = Effect.fn("http.registerApp")(function* (
+  manifest: AppManifest,
+  options: CoreHttpAppOptions,
+) {
+  const { appId, appKey } = yield* options.appAuthService.registerApp({
+    manifest,
+  });
+  return jsonResponse({ appId, appKey: Redacted.value(appKey) }, HTTP_CREATED);
+});
 
 function makeWsRoute(handleSocket: CoreHttpAppOptions["handleSocket"]) {
   return HttpRouter.get(
@@ -209,17 +207,15 @@ function makeWsRoute(handleSocket: CoreHttpAppOptions["handleSocket"]) {
   );
 }
 
-function readDecodedBody<T>(
+const readDecodedBody = Effect.fn("http.readDecodedBody")(function* <T>(
   request: HttpServerRequest.HttpServerRequest,
   decode: (value: unknown) => Effect.Effect<T, unknown>,
-): Effect.Effect<T, HttpEarlyResponse> {
-  return Effect.gen(function* () {
-    const body = yield* readJsonBody(request);
-    return yield* decode(body).pipe(
-      Effect.catchAll(() => failResponse<T>(invalidParametersResponse())),
-    );
-  }).pipe(Effect.withSpan("http.readDecodedBody"));
-}
+) {
+  const body = yield* readJsonBody(request);
+  return yield* decode(body).pipe(
+    Effect.catchAll(() => failResponse<T>(invalidParametersResponse())),
+  );
+});
 
 function readJsonBody(
   request: HttpServerRequest.HttpServerRequest,
@@ -274,20 +270,21 @@ function withCors<E, R>(
   );
 }
 
-function registerAgent(body: RegisterParams, options: CoreHttpAppOptions) {
-  return Effect.gen(function* () {
-    const exit = yield* Effect.exit(
-      options.authService.registerAgent(body, options.config.adminUserId),
-    );
-    if (Exit.isSuccess(exit)) {
-      return registerSuccessResponse(exit.value);
-    }
-    yield* Effect.logError("Registration failed").pipe(
-      Effect.annotateLogs({ cause: Cause.pretty(exit.cause) }),
-    );
-    return registrationFailedResponse();
-  }).pipe(Effect.withSpan("http.registerAgent"));
-}
+const registerAgent = Effect.fn("http.registerAgent")(function* (
+  body: RegisterParams,
+  options: CoreHttpAppOptions,
+) {
+  const exit = yield* Effect.exit(
+    options.authService.registerAgent(body, options.config.adminUserId),
+  );
+  if (Exit.isSuccess(exit)) {
+    return registerSuccessResponse(exit.value);
+  }
+  yield* Effect.logError("Registration failed").pipe(
+    Effect.annotateLogs({ cause: Cause.pretty(exit.cause) }),
+  );
+  return registrationFailedResponse();
+});
 
 function authorizeInviteCode(
   inviteCode?: string,

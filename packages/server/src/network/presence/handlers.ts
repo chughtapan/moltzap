@@ -22,23 +22,20 @@ import { agentArm, appArm } from "#moltzap/runtime";
  * @param agentIds Value supplied to the operation.
  * @returns The presence snapshot result.
  */
-function presenceSnapshot(agentIds: readonly AgentId[]) {
-  return Effect.gen(function* () {
-    const presenceService = yield* PresenceServiceTag;
-    const projected = yield* presenceService.statusMany(agentIds);
-    const statuses = projected.map((entry) => ({
-      agentId: entry.agentId,
-      status: entry.status,
-    }));
-    return { statuses };
-  }).pipe(Effect.withSpan("presence.subscribe"));
-}
-
-function visiblePresenceAgentIds(
-  requested: readonly AgentId[],
-  ctx: AgentContext,
+const presenceSnapshot = Effect.fn("presence.subscribe")(function* (
+  agentIds: readonly AgentId[],
 ) {
-  return Effect.gen(function* () {
+  const presenceService = yield* PresenceServiceTag;
+  const projected = yield* presenceService.statusMany(agentIds);
+  const statuses = projected.map((entry) => ({
+    agentId: entry.agentId,
+    status: entry.status,
+  }));
+  return { statuses };
+});
+
+const visiblePresenceAgentIds = Effect.fn("presence.visibleAgentIds")(
+  function* (requested: readonly AgentId[], ctx: AgentContext) {
     const db = yield* DbTag;
     const visibleIds = yield* visibleAgentIds({
       db,
@@ -52,8 +49,8 @@ function visiblePresenceAgentIds(
       return yield* new NotInContactsError({ data: { agentIds: rejected } });
     }
     return visibleIds;
-  }).pipe(Effect.withSpan("presence.visibleAgentIds"));
-}
+  },
+);
 
 // ── @effect/rpc handler body ─────────────────────────────────────────
 
@@ -64,14 +61,13 @@ function visiblePresenceAgentIds(
  */
 export const agentPresenceSubscribe: ServerHandler<
   typeof agentPresenceSubscribeDefinition
-> = (params) =>
-  Effect.gen(function* () {
-    const subscribedIds = yield* visiblePresenceAgentIds(
-      params.agentIds,
-      yield* agentArm,
-    );
-    return yield* presenceSnapshot(subscribedIds);
-  }).pipe(Effect.withSpan("agentPresenceSubscribe"));
+> = Effect.fn("agentPresenceSubscribe")(function* (params) {
+  const subscribedIds = yield* visiblePresenceAgentIds(
+    params.agentIds,
+    yield* agentArm,
+  );
+  return yield* presenceSnapshot(subscribedIds);
+});
 
 /**
  * Provides the app presence subscribe runtime value.
@@ -80,8 +76,7 @@ export const agentPresenceSubscribe: ServerHandler<
  */
 export const appPresenceSubscribe: ServerHandler<
   typeof appPresenceSubscribeDefinition
-> = (params) =>
-  Effect.gen(function* () {
-    yield* appArm;
-    return yield* presenceSnapshot(params.agentIds);
-  }).pipe(Effect.withSpan("appPresenceSubscribe"));
+> = Effect.fn("appPresenceSubscribe")(function* (params) {
+  yield* appArm;
+  return yield* presenceSnapshot(params.agentIds);
+});
