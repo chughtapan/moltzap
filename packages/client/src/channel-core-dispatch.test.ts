@@ -422,10 +422,8 @@ function preservesServiceBindingForDispatchAdmissionMethods() {
         fake.service,
       );
     fake.service.requestDispatch = function (request) {
-      (
-        /* Safe because the test fixture establishes this asserted shape. */
-        this as ChannelService & { admissionCalls: number }
-      ).admissionCalls += 1;
+      /* Safe because the test fixture establishes this asserted shape. */
+      (this as ChannelService & { admissionCalls: number }).admissionCalls += 1;
       return installed(request);
     };
 
