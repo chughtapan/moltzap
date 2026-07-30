@@ -9,6 +9,14 @@ decision-makers: Tapan Chugh
 Decision provenance: [stored evaluation-pipeline
 trajectory](../decision-evidence/20260729-effect-native-evaluation-results-trajectory.md#evaluation-runs-produce-typed-reports-published-to-phoenix).
 
+Scope: this record governs the Phase 1 source baseline in
+`packages/simulator` and the private `packages/evals` application on `main`.
+It does not change the Gate 1 v2 package map, the v2 `simulator`/`testbed`
+ownership split, or the rule that `v2/*` imports nothing from `packages/*`.
+After this baseline lands and passes its acceptance gates, its immutable source
+revision is recorded in `v2/inputs/simulator-handoff-20260728.md`; Phase 3
+ports behavior from that verified revision into v2-native public capabilities.
+
 ## Context and Problem Statement
 
 The simulator now provides code-first societies, a typed event catalog, mixed
@@ -156,8 +164,10 @@ redacted API key.
 One stable Phoenix dataset example represents each case. The Phoenix client
 declaratively updates that catalog: identical input is a no-op, while a
 changed catalog creates a dataset version under the stable dataset identity.
-The publisher validates the returned latest version before using it. Example
-metadata supports disclosure, group behavior, injection resistance,
+The publisher validates the returned latest version before using it. The closed
+slice set lives once in readable example metadata rather than being duplicated
+into Phoenix split assignments, which its unfiltered dataset read omits.
+Metadata supports disclosure, group behavior, injection resistance,
 conversation awareness, and basic protocol slices. Each report creates one
 experiment per runtime condition. Execution failures become experiment-run
 errors; code and model assessments retain their source and use labels
@@ -251,8 +261,9 @@ execution, resume, publication, and explicit network probes.
    deterministic Effect tests and network probes.
 7. Run calibration and the complete OpenClaw/NanoClaw matrix, publish the
    completed report, and file issues for newly reproduced external defects.
-8. Verify the workspace and hand the reviewed successor branch to a pull
-   request against `v2`.
+8. Verify the workspace, land the reviewed source baseline on `main`, and
+   record its immutable landed revision and acceptance evidence in
+   `v2/inputs/simulator-handoff-20260728.md`.
 
 ## Correctness Checks
 
@@ -263,7 +274,8 @@ execution, resume, publication, and explicit network probes.
   honest about requested versus acquisition-resolved values.
 - The case tuple contains exactly the sixteen intended definitions and drives
   iteration, reporting, and Phoenix materialization.
-- Grading refuses incomplete, mismatched, or otherwise unvalidated evidence.
+- Grading refuses empty, duplicated, mismatched, or otherwise invalid supplied
+  evidence.
 - Semantic output contains every requested criterion exactly once and cites
   only evidence in the bundle.
 - Judge infrastructure failures never become behavioral failures.

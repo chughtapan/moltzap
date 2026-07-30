@@ -202,6 +202,139 @@ result evidence was removed. Simulator and evaluation implementation
 was in progress. These are mechanical repository events, not
 quotations.
 
+## Mechanical implementation and acceptance record
+
+The entries in this section are repository and live-system
+observations made while implementing the approved plan. They are not
+statements by the accountable decision-maker and do not add human
+rationale to the source events above.
+
+1. **Track scope was reconciled before acceptance.** The implementation
+   remains a Phase 1 source baseline in `packages/simulator` and the
+   private `packages/evals` application. Its pull request targets
+   `main`; after landing, the immutable revision and acceptance evidence
+   populate `v2/inputs/simulator-handoff-20260728.md`. It does not port
+   the implementation into `v2/*`, alter the v2 package map, collapse
+   the v2 simulator/testbed ownership split, or permit `v2/*` imports
+   from `packages/*`. The pre-existing recorded-evidence section in
+   `20260727-code-first-simulator-kernel.md` remains intact.
+
+2. **Judge calibration was attempted on 2026-07-29.** The command was:
+
+   ```text
+   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:calibrate
+   ```
+
+   It exited nonzero with all nineteen fixtures represented as the typed
+   `JudgeUnavailable` result because `OPENAI_API_KEY` was absent. No
+   fixture was assigned a behavioral verdict, and no credential value
+   was recorded.
+
+3. **The complete OpenClaw/NanoClaw matrix ran to a completed report.**
+   The command was:
+
+   ```text
+   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:eval -- --report-id evals-20260729-openclaw-nanoclaw --openclaw-model openai/gpt-5.5 --nanoclaw-model claude-sonnet-4-5-20250514
+   ```
+
+   The ignored report
+   `.moltzap/evals/reports/evals-20260729-openclaw-nanoclaw.json`
+   was created at `2026-07-30T00:14:35.548Z` and completed at
+   `2026-07-30T00:33:02.344Z`. It identifies source revision
+   `c0813bd3e2e3f6ff5758c2a48387aee5e1c7d724`, plan digest
+   `c05a2cd3bd3ce0fef0bfaf2435d6b802cd731256c59dc5f801fafc178f6be21a`,
+   and file SHA-256
+   `f0884dd89209848347dc6847e96712704276ab1067b080b2faacf7ffce7aa916`.
+
+   All thirty-two attempts reached a real target response and returned
+   `RunFailedAttempt` with a `CompletedLedgerReceipt`. The receipts
+   cover 316 durable records, with nine to fourteen records per
+   attempt. Every selected response lacked `replyToId`, so exact prompt
+   correlation rejected it before grading. There were no runtime
+   termination observations and no assessed cells. The CLI exited
+   nonzero as `EvaluationSweepIncomplete` after preserving all
+   thirty-two attempt identities. OpenClaw used its native
+   `openai/gpt-5.5` override and NanoClaw used its native
+   `claude-sonnet-4-5-20250514` override. The frozen judge policy was
+   `openai-gpt-5.6-sol/v1`: `gpt-5.6-sol`, medium reasoning, structured
+   output, no tools, a 120-second timeout, and two retries.
+
+   OpenClaw's missing reply target is tracked by
+   [#904](https://github.com/chughtapan/moltzap/issues/904).
+   NanoClaw's separate overlapping-turn defect remains tracked by
+   [#903](https://github.com/chughtapan/moltzap/issues/903). The
+   single-inbound-turn NanoClaw omission reproduced here was recorded
+   as [#907](https://github.com/chughtapan/moltzap/issues/907), with
+   ledger `a32d12ac-f943-4e43-a7aa-d0576b0c59ae`, run
+   `32cffb83-6aa2-4248-84f3-2c9972cd2f64`, prompt
+   `1a3dc44a-7512-499a-bebf-86ac5275fb82`, and response
+   `171a8837-14ba-4dd8-9cbe-e837d550af82`.
+
+4. **The mixed-runtime shared-conversation probe ran without a
+   workaround.** The command was:
+
+   ```text
+   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:probe -- --openclaw-model openai/gpt-5.5 --nanoclaw-model claude-sonnet-4-5-20250514
+   ```
+
+   OpenClaw, NanoClaw, and the in-process Effect runtime all became
+   ready on one router. The controller's shared-conversation prompt was
+   sent, received, committed, and retained, but no participant emitted
+   a reply before the probe timed out. The command exited nonzero as
+   `SharedProbeFailed` containing `SharedProbeProtocolFailed`; no
+   runtime termination was observed. Its completed receipt identifies
+   ledger `fa8ee17e-3c1b-4ab7-91d7-539ab6d2f440`, run
+   `e340cb79-ab92-4f51-b42e-3bf7ed39f9ea`, eleven records, manifest
+   digest
+   `02340b0edca885c2c06ebf05c1bc2a2b61ca39913bab4b1eea107350c95dca90`,
+   and records digest
+   `5292c6feb2025d52428ddce6386d4e2602abfb022392ffcbd7d55a898efd68e0`.
+
+5. **The completed report was materialized in a pinned local Phoenix
+   instance.** The acceptance service is Phoenix `19.10.0`, source
+   revision `fe95cd21d1cfdc3b73ebb51ca98b5b2781db2fe5`, from image:
+
+   ```text
+   arizephoenix/phoenix@sha256:3092f5543a3ddd35db7390cf971027c33be6be1f171274d57f3c8658c2193d67
+   ```
+
+   The first diagnostic instance runs as
+   `moltzap-evals-phoenix-20260729-c0813bd3` on `127.0.0.1:6006`. After
+   the catalog cleanup, a fresh acceptance instance was created as
+   `moltzap-evals-phoenix-final-20260729` with durable volume
+   `moltzap-evals-phoenix-data-final-20260729` on
+   `127.0.0.1:6007`. Both instances passed `/healthz`, `/readyz`, and
+   the version endpoint. The client is lockfile-pinned to
+   `@arizeai/phoenix-client` 7.1.1.
+
+   The first live publication exposed an SDK boundary mismatch:
+   the catalog duplicated each case's slice vocabulary in both readable
+   metadata and Phoenix split assignments, while Phoenix omits the
+   latter from an unfiltered dataset read. The publisher now stores the
+   closed slice set once in readable `metadata.slices`. This removes the
+   asymmetric state and its reconstruction failure paths while
+   preserving exact catalog reconciliation. The deterministic
+   evaluation suite passed after the correction.
+
+   Two consecutive publications from empty state with the final
+   publisher code returned the same dataset `RGF0YXNldDox`, report digest
+   `f893feb52745d0bb891fd40fa8dbca16f8bf7277e323e02834e3a67324749b55`,
+   OpenClaw experiment `RXhwZXJpbWVudDox`, and NanoClaw experiment
+   `RXhwZXJpbWVudDoy`. The REST surface contains exactly one named
+   dataset, sixteen examples, and sixteen runs over sixteen unique
+   examples in each experiment.
+
+   Browser verification showed both conditions in the Phoenix
+   comparison grid, with the same case rows, exact run errors, and a
+   100-percent error rate rather than fabricated assessment values. The
+   experiment details expose the native runtime configuration, source
+   revision, report and plan digests, and judge policy. The comparison
+   URL is:
+
+   ```text
+   http://127.0.0.1:6007/datasets/RGF0YXNldDox/compare?experimentId=RXhwZXJpbWVudDox&experimentId=RXhwZXJpbWVudDoy
+   ```
+
 Source gaps, stated plainly:
 
 - The source events record the user's questions, option selections,
