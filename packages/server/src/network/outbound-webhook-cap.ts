@@ -16,8 +16,7 @@
  *   interrupt because the inner request runs inside the `withPermits` scope.
  */
 
-import type { HttpClient as HttpClientNs } from "@effect/platform";
-import { HttpClient } from "@effect/platform";
+import * as HttpClient from "@effect/platform/HttpClient";
 import { Effect } from "effect";
 
 /**
@@ -40,10 +39,12 @@ const OUTBOUND_WEBHOOK_PERMITS: Effect.Semaphore = Effect.runSync(
  * Wrap an `HttpClient.HttpClient` with {@link OUTBOUND_WEBHOOK_PERMITS}.
  * Used by the standalone contact-policy wiring so the same 10-permit pool
  * covers outbound webhook traffic in the process.
+ * @param client Client used for the operation.
+ * @returns The apply outbound webhook cap result.
  */
 export function applyOutboundWebhookCap(
-  client: HttpClientNs.HttpClient,
-): HttpClientNs.HttpClient {
+  client: HttpClient.HttpClient,
+): HttpClient.HttpClient {
   return HttpClient.transform(client, (effect) =>
     OUTBOUND_WEBHOOK_PERMITS.withPermits(1)(effect),
   );

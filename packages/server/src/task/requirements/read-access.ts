@@ -7,11 +7,17 @@ import {
 } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layer.js";
 
+/** Describes task and agent. */
 export interface TaskAndAgent {
   readonly taskId: TaskId;
   readonly callerAgentId: AgentId;
 }
 
+/**
+ * Provides the obtain task read access runtime value.
+ * @param input Input value to process.
+ * @returns The obtain task read access result.
+ */
 export const obtainTaskReadAccess = (
   input: TaskAndAgent,
 ): Effect.Effect<TaskReadAccessValue, TaskNotFoundError, TaskServiceTag> =>

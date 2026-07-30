@@ -12,7 +12,7 @@ helpers used by testing and server wiring.
 
 ## Public surface
 
-### [`AgentClientOptions`](./agent-client.ts#L40)
+### [`AgentClientOptions`](./agent-client.ts#L42)
 
 _Interface_
 
@@ -24,7 +24,9 @@ export interface AgentClientOptions {
 }
 ```
 
-### [`AppCallbackContext`](./app-client.ts#L34)
+Configures agent client.
+
+### [`AppCallbackContext`](./app-client.ts#L36)
 
 _Interface_
 
@@ -34,7 +36,9 @@ export interface AppCallbackContext {
 }
 ```
 
-### [`AppCallbackHandlers`](./app-callbacks.ts#L45)
+Carries context for app callback.
+
+### [`AppCallbackHandlers`](./app-callbacks.ts#L43)
 
 _TypeAlias_
 
@@ -49,7 +53,7 @@ Closed handler table for an app moderating one or more tasks. Every
 app callback member is required; vacuous-deny moderators still write the
 handler explicitly.
 
-### [`AppClientOptions`](./app-client.ts#L71)
+### [`AppClientOptions`](./app-client.ts#L74)
 
 _Interface_
 
@@ -62,7 +66,9 @@ export interface AppClientOptions {
 }
 ```
 
-### [`classifyCloseCause`](./close-info.ts#L41)
+Configures app client.
+
+### [`classifyCloseCause`](./close-info.ts#L50)
 
 _Function_
 
@@ -72,7 +78,11 @@ export function classifyCloseCause(
 ): CloseKind
 ```
 
-### [`ClientConnectError`](./lifecycle.ts#L120)
+Executes the classify close cause operation.
+
+**Returns:** The classify close cause result.
+
+### [`ClientConnectError`](./lifecycle.ts#L124)
 
 _TypeAlias_
 
@@ -80,13 +90,17 @@ _TypeAlias_
 export type ClientConnectError<Rpcs extends ProtocolRpc> =
 ```
 
-### [`ClientDefinitionError`](./lifecycle.ts#L109)
+Represents client connect error conditions.
+
+### [`ClientDefinitionError`](./lifecycle.ts#L111)
 
 _TypeAlias_
 
 ```ts
 export type ClientDefinitionError<D extends ClientRpcDefinition> =
 ```
+
+Represents client definition error conditions.
 
 ### [`ClientDefinitionPayload`](./lifecycle.ts#L105)
 
@@ -96,7 +110,9 @@ _TypeAlias_
 export type ClientDefinitionPayload<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientDefinitionSuccess`](./lifecycle.ts#L107)
+Represents client definition payload values.
+
+### [`ClientDefinitionSuccess`](./lifecycle.ts#L108)
 
 _TypeAlias_
 
@@ -104,7 +120,9 @@ _TypeAlias_
 export type ClientDefinitionSuccess<D extends ClientRpcDefinition> =
 ```
 
-### [`ClientLifecycleOptions`](./lifecycle.ts#L196)
+Represents client definition success values.
+
+### [`ClientLifecycleOptions`](./lifecycle.ts#L203)
 
 _Interface_
 
@@ -128,25 +146,21 @@ export interface ClientLifecycleOptions<
 }
 ```
 
-### [`clientRpc`](./lifecycle.ts#L103)
+Configures client lifecycle.
 
-_Property_
+### [`ClientRpcDefinition`](./lifecycle.ts#L101)
 
-```ts
-  readonly clientRpc: Rpcs;
-```
-
-### [`ClientRpcDefinition`](./lifecycle.ts#L102)
-
-_TypeAlias_
+_Interface_
 
 ```ts
-export type ClientRpcDefinition<Rpcs extends Rpc.Any = Rpc.Any> = {
+export interface ClientRpcDefinition<Rpcs extends Rpc.Any = Rpc.Any> {
   readonly clientRpc: Rpcs;
-};
+}
 ```
 
-### [`CloseInfo`](./close-info.ts#L4)
+Describes client rpc definition.
+
+### [`CloseInfo`](./close-info.ts#L5)
 
 _Interface_
 
@@ -157,34 +171,40 @@ export interface CloseInfo {
 }
 ```
 
-### [`CloseKind`](./close-info.ts#L9)
+Describes close info.
+
+### [`CloseKind`](./close-info.ts#L11)
 
 _TypeAlias_
 
 ```ts
 export type CloseKind = Data.TaggedEnum<{
-  Clean: {
+  clean: {
     readonly code: number;
     readonly reason: string;
   };
-  EndOfStream: {};
-  HandshakeFailure: {
+  endOfStream: Record<never, never>;
+  handshakeFailure: {
     readonly underlying: "Open" | "OpenTimeout";
   };
-  TransportFailure: {
+  transportFailure: {
     readonly underlying: "Read" | "Write";
   };
-  Unknown: {};
+  unknown: Record<never, never>;
 }>;
 ```
 
-### [`connectionId`](./connection.ts#L24)
+Represents close kind values.
+
+### [`connectionId`](./connection.ts#L26)
 
 _Variable_
 
 ```ts
-export const connectionId = Schema.decodeSync(ConnectionId)
+export const connectionId = Schema.decodeSync(connectionIdSchema)
 ```
+
+Validates and decodes connection id values.
 
 ### [`ConnectionId`](./connection.ts#L17)
 
@@ -207,23 +227,31 @@ Schema-level format: branded string (no UUID predicate). The mint site
 happens to use UUIDs, but conformance-test fixtures sometimes pass synthetic
 strings; the brand boundary is the type system, not a format check.
 
-### [`ConnectionId`](./connection.ts#L17)
+### [`connectionIdSchema`](./connection.ts#L19)
 
 _Variable_
 
 ```ts
-export type ConnectionId = string & Brand.Brand<"ConnectionId">
+export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
+  Schema.String.pipe(
+    Schema.brand("ConnectionId"),
+    Schema.annotations({ description: "Branded ConnectionId" }),
+  )
 ```
 
-### [`ConnectResult`](./lifecycle.ts#L114)
+Validates and decodes connection id values.
+
+### [`ConnectResult`](./lifecycle.ts#L117)
 
 _TypeAlias_
 
 ```ts
-export type ConnectResult = ResultOf<typeof AgentConnect>;
+export type ConnectResult = ResultOf<typeof agentConnect>;
 ```
 
-### [`DEFAULT_ABNORMAL_CLOSE`](./close-info.ts#L30)
+Represents the result of connect.
+
+### [`DEFAULT_ABNORMAL_CLOSE`](./close-info.ts#L34)
 
 _Variable_
 
@@ -231,7 +259,9 @@ _Variable_
 export const DEFAULT_ABNORMAL_CLOSE: CloseInfo =
 ```
 
-### [`DEFAULT_GRACEFUL_CLOSE`](./close-info.ts#L26)
+Default value for abnormal close.
+
+### [`DEFAULT_GRACEFUL_CLOSE`](./close-info.ts#L29)
 
 _Variable_
 
@@ -239,18 +269,22 @@ _Variable_
 export const DEFAULT_GRACEFUL_CLOSE: CloseInfo =
 ```
 
-### [`DispatchAuthorizeRequest`](./reverse-callbacks.ts#L14)
+Default value for graceful close.
+
+### [`DispatchAuthorizeRequest`](./reverse-callbacks.ts#L15)
 
 _TypeAlias_
 
 ```ts
 export type DispatchAuthorizeRequest = Extract<
   ReverseCallbackRequest,
-  { readonly definition: typeof DispatchAuthorize }
+  { readonly definition: typeof dispatchAuthorize }
 >;
 ```
 
-### [`extractCloseInfo`](./close-info.ts#L79)
+Represents dispatch authorize request values.
+
+### [`extractCloseInfo`](./close-info.ts#L95)
 
 _Function_
 
@@ -260,7 +294,11 @@ export function extractCloseInfo(
 ): CloseInfo
 ```
 
-### [`HandlerSlot`](./app-callbacks.ts#L21)
+Executes the extract close info operation.
+
+**Returns:** The extract close info result.
+
+### [`HandlerSlot`](./app-callbacks.ts#L20)
 
 _Interface_
 
@@ -277,7 +315,7 @@ export interface HandlerSlot<D extends AppCallbackDescriptor, Ctx> {
 Per-definition app-callback handler slot. `Ctx` is the per-frame context the
 client hands every handler.
 
-### [`isDispatchAuthorizeRequest`](./reverse-callbacks.ts#L27)
+### [`isDispatchAuthorizeRequest`](./reverse-callbacks.ts#L35)
 
 _Function_
 
@@ -287,7 +325,11 @@ export const isDispatchAuthorizeRequest = (
 ): request is DispatchAuthorizeRequest
 ```
 
-### [`isMessagesAuthorizeRequest`](./reverse-callbacks.ts#L32)
+Provides the is dispatch authorize request runtime value.
+
+**Returns:** Whether dispatch authorize request.
+
+### [`isMessagesAuthorizeRequest`](./reverse-callbacks.ts#L45)
 
 _Function_
 
@@ -297,7 +339,11 @@ export const isMessagesAuthorizeRequest = (
 ): request is MessagesAuthorizeRequest
 ```
 
-### [`isTaskCreateRequest`](./reverse-callbacks.ts#L37)
+Provides the is messages authorize request runtime value.
+
+**Returns:** Whether messages authorize request.
+
+### [`isTaskCreateRequest`](./reverse-callbacks.ts#L55)
 
 _Function_
 
@@ -307,18 +353,24 @@ export const isTaskCreateRequest = (
 ): request is TaskCreateRequest
 ```
 
-### [`MessagesAuthorizeRequest`](./reverse-callbacks.ts#L18)
+Provides the is task create request runtime value.
+
+**Returns:** Whether task create request.
+
+### [`MessagesAuthorizeRequest`](./reverse-callbacks.ts#L20)
 
 _TypeAlias_
 
 ```ts
 export type MessagesAuthorizeRequest = Extract<
   ReverseCallbackRequest,
-  { readonly definition: typeof MessagesAuthorize }
+  { readonly definition: typeof messagesAuthorize }
 >;
 ```
 
-### [`MoltZapAgentClient`](./agent-client.ts#L46)
+Represents messages authorize request values.
+
+### [`MoltZapAgentClient`](./agent-client.ts#L49)
 
 _Class_
 
@@ -330,7 +382,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
   constructor(options: AgentClientOptions) {
     super({
       serverUrl: options.serverUrl,
-      connectTag: AgentConnect.name,
+      connectTag: agentConnect.name,
       connectPayload: {
         agentKey: options.agentKey,
         minProtocol: PROTOCOL_VERSION,
@@ -356,26 +408,9 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 }
 ```
 
-Serializes connection generations through one controller. Each generation
-has one scoped owner that acquires the socket, runs its reader, and reports
-`OwnerDone` only after every session finalizer has completed. The start gate
-prevents an acquired reader from running unless its generation is still
-current.
+Implements molt zap agent client.
 
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Opening: Connect
-  Opening --> Connected: SessionOpened starts reader and authentication
-  Opening --> Idle: OwnerDone after opening failure
-  Opening --> Stopping: Close interrupts owner
-  Connected --> Stopping: ReaderExited
-  Connected --> Stopping: Close or disconnect interrupts owner
-  Stopping --> Idle: OwnerDone permits explicit connect
-  Stopping --> Stopped: OwnerDone completes terminal close
-```
-
-### [`MoltZapAppClient`](./app-client.ts#L78)
+### [`MoltZapAppClient`](./app-client.ts#L82)
 
 _Class_
 
@@ -387,7 +422,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
   constructor(options: AppClientOptions) {
     super({
       serverUrl: options.serverUrl,
-      connectTag: AppConnect.name,
+      connectTag: appConnect.name,
       connectPayload: {
         appKey: options.appKey,
         minProtocol: PROTOCOL_VERSION,
@@ -413,26 +448,9 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 }
 ```
 
-Serializes connection generations through one controller. Each generation
-has one scoped owner that acquires the socket, runs its reader, and reports
-`OwnerDone` only after every session finalizer has completed. The start gate
-prevents an acquired reader from running unless its generation is still
-current.
+Implements molt zap app client.
 
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Opening: Connect
-  Opening --> Connected: SessionOpened starts reader and authentication
-  Opening --> Idle: OwnerDone after opening failure
-  Opening --> Stopping: Close interrupts owner
-  Connected --> Stopping: ReaderExited
-  Connected --> Stopping: Close or disconnect interrupts owner
-  Stopping --> Idle: OwnerDone permits explicit connect
-  Stopping --> Stopped: OwnerDone completes terminal close
-```
-
-### [`MoltZapServer`](./server.ts#L300)
+### [`MoltZapServer`](./server.ts#L310)
 
 _Class_
 
@@ -443,14 +461,23 @@ export class MoltZapServer<
   ConnectionRequires,
   HookRequires = never,
 > {
+  private readonly options: MoltZapServerOptions<
+    AuthRequires,
+    ConnectionProvides,
+    ConnectionRequires,
+    HookRequires
+  >;
+
   constructor(
-    private readonly options: MoltZapServerOptions<
+    options: MoltZapServerOptions<
       AuthRequires,
       ConnectionProvides,
       ConnectionRequires,
       HookRequires
     >,
-  ) {}
+  ) {
+    this.options = options;
+  }
 
   handleSocket(
     socket: Socket.Socket,
@@ -473,7 +500,9 @@ export class MoltZapServer<
       HookRequires
     >
   > {
-    return Effect.gen(this, function* () {
+    const options = this.options;
+    const runSocketReader = this.runSocketReader.bind(this);
+    return Effect.gen(function* () {
       const accepted = yield* makeAcceptedSocketSession(socket);
       const scope = yield* Effect.scope;
       const originator = yield* buildReverseClient({
@@ -482,7 +511,7 @@ export class MoltZapServer<
       });
       const session = makeMoltZapServerSession(accepted, originator);
 
-      yield* this.options.onOpen(session);
+      yield* options.onOpen(session);
       yield* Effect.logInfo("WebSocket connected").pipe(
         Effect.annotateLogs({ connId: session.connId }),
       );
@@ -494,9 +523,9 @@ export class MoltZapServer<
           write: session.write,
           disconnects,
           sinkReady,
-          handlers: this.options.handlers,
-          authLayer: this.options.authLayer(session.connId),
-          connectionLayer: this.options.connectionLayer(session.connId),
+          handlers: options.handlers,
+          authLayer: options.authLayer(session.connId),
+          connectionLayer: options.connectionLayer(session.connId),
         }),
       );
       const serverSink = yield* Deferred.await(sinkReady);
@@ -505,7 +534,7 @@ export class MoltZapServer<
         { server: serverSink, client: session.originator.sink },
         disconnects,
       );
-      yield* this.runSocketReader(reader, session);
+      yield* runSocketReader(reader, session);
     }).pipe(Effect.withSpan("MoltZapServer.openSocketSession"));
   }
 
@@ -521,13 +550,14 @@ export class MoltZapServer<
     Socket.SocketError,
     ServerSocketRequirements<AuthRequires, ConnectionRequires, HookRequires>
   > {
+    const options = this.options;
     return Effect.raceFirst(
       reader,
       Deferred.await(session.closeRequested),
     ).pipe(
       Effect.onExit((exit) =>
-        Effect.gen(this, function* () {
-          yield* this.options.onClose(exit, session);
+        Effect.gen(function* () {
+          yield* options.onClose(exit, session);
           if (Exit.isFailure(exit)) {
             yield* Effect.logWarning("WebSocket error").pipe(
               Effect.annotateLogs({
@@ -546,7 +576,9 @@ export class MoltZapServer<
 }
 ```
 
-### [`MoltZapServerOptions`](./server.ts#L68)
+Implements molt zap server.
+
+### [`MoltZapServerOptions`](./server.ts#L70)
 
 _Interface_
 
@@ -574,7 +606,9 @@ export interface MoltZapServerOptions<
 }
 ```
 
-### [`MoltZapServerSession`](./server.ts#L54)
+Configures molt zap server.
+
+### [`MoltZapServerSession`](./server.ts#L55)
 
 _Interface_
 
@@ -582,13 +616,15 @@ _Interface_
 export interface MoltZapServerSession {
   readonly connId: ConnectionId;
   readonly write: ServerSocketWrite;
-  readonly closeRequested: Deferred.Deferred<void>;
+  readonly closeRequested: Deferred.Deferred<undefined>;
   readonly shutdown: Effect.Effect<void>;
   readonly originator: ReverseClient;
 }
 ```
 
-### [`newConnectionId`](./connection.ts#L26)
+Describes molt zap server session.
+
+### [`newConnectionId`](./connection.ts#L32)
 
 _Function_
 
@@ -596,7 +632,11 @@ _Function_
 export const newConnectionId = (): ConnectionId
 ```
 
-### [`openProtocolAgentClientSocket`](./lifecycle.ts#L531)
+Provides the new connection id runtime value.
+
+**Returns:** The new connection id result.
+
+### [`openProtocolAgentClientSocket`](./lifecycle.ts#L559)
 
 _Function_
 
@@ -610,7 +650,11 @@ export const openProtocolAgentClientSocket = (
 >
 ```
 
-### [`openProtocolAppClientSocket`](./lifecycle.ts#L543)
+Provides the open protocol agent client socket runtime value.
+
+**Returns:** The open protocol agent client socket result.
+
+### [`openProtocolAppClientSocket`](./lifecycle.ts#L576)
 
 _Function_
 
@@ -624,7 +668,11 @@ export const openProtocolAppClientSocket = (
 >
 ```
 
-### [`ProtocolClientLifecycle`](./lifecycle.ts#L648)
+Provides the open protocol app client socket runtime value.
+
+**Returns:** The open protocol app client socket result.
+
+### [`ProtocolClientLifecycle`](./lifecycle.ts#L681)
 
 _Class_
 
@@ -642,14 +690,14 @@ export class ProtocolClientLifecycle<
     never
   >;
   private readonly subscribers: SubscriberRegistry;
-  private readonly controllerDone: Deferred.Deferred<void, never>;
-  private readonly closeCompletion: Deferred.Deferred<void, never>;
+  private readonly controllerDone: Deferred.Deferred<undefined>;
+  private readonly closeCompletion: Deferred.Deferred<undefined>;
+  private readonly options: ClientLifecycleOptions<Rpcs, Client>;
   private closed = false;
-  private _helloOk: ConnectResult | null = null;
+  private helloResult: ConnectResult | null = null;
 
-  protected constructor(
-    private readonly options: ClientLifecycleOptions<Rpcs, Client>,
-  ) {
+  protected constructor(options: ClientLifecycleOptions<Rpcs, Client>) {
+    this.options = options;
     this.runtime = ManagedRuntime.make(
       Layer.merge(
         NodeSocket.layerWebSocketConstructor,
@@ -671,8 +719,8 @@ export class ProtocolClientLifecycle<
           logPrefix: "subscriber",
           spanName: "makeSubscriberRegistry",
         });
-        const controllerDone = yield* Deferred.make<void, never>();
-        const closeCompletion = yield* Deferred.make<void, never>();
+        const controllerDone = yield* Deferred.make<undefined>();
+        const closeCompletion = yield* Deferred.make<undefined>();
         return {
           connectionRef,
           commands,
@@ -691,7 +739,7 @@ export class ProtocolClientLifecycle<
   }
 
   get helloOk(): ConnectResult | null {
-    return this._helloOk;
+    return this.helloResult;
   }
 
   connect(): Effect.Effect<ConnectResult, ClientConnectError<Rpcs>> {
@@ -706,15 +754,15 @@ export class ProtocolClientLifecycle<
   >(
     definition: D,
     refinement: (params: NotificationParamsOf<D>) => params is R,
-  ): Stream.Stream<R, NotConnectedError, never>;
+  ): Stream.Stream<R, NotConnectedError>;
   subscribe<D extends AnyNotificationDefinition>(
     definition: D,
     refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never>;
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError>;
   subscribe<D extends AnyNotificationDefinition>(
     definition: D,
     refinement?: (params: NotificationParamsOf<D>) => boolean,
-  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never> {
+  ): Stream.Stream<NotificationParamsOf<D>, NotConnectedError> {
     if (refinement === undefined) {
       return notificationSubscribe(this.subscribers, definition);
     }
@@ -725,6 +773,8 @@ export class ProtocolClientLifecycle<
    * Acquire a notification subscription before exposing its Stream.
    * The returned Stream is ready to receive immediately, and the caller's
    * Scope owns both unregistration and mailbox termination.
+   * @param definition Protocol definition to process.
+   * @returns The mailbox result.
    */
   subscribeScoped<D extends AnyNotificationDefinition>(
     definition: D,
@@ -733,22 +783,20 @@ export class ProtocolClientLifecycle<
     never,
     Scope.Scope
   > {
-    return Effect.gen(this, function* () {
+    const subscribers = this.subscribers;
+    return Effect.gen(function* () {
       const mailbox = yield* Mailbox.make<
         NotificationParamsOf<D>,
         NotConnectedError
       >(SCOPED_SUBSCRIPTION_CAPACITY);
-      const subscription = yield* this.subscribers.register(
-        definition,
-        undefined,
-        {
-          onFrame: (params) => mailbox.offer(params).pipe(Effect.asVoid),
-          onClose: (cause) => mailbox.fail(cause).pipe(Effect.asVoid),
-        },
-      );
+      const subscription = yield* subscribers.register(definition, {
+        onFrame: (params) => mailbox.offer(params).pipe(Effect.asVoid),
+        onClose: (cause) => mailbox.fail(cause).pipe(Effect.asVoid),
+      });
       yield* Effect.addFinalizer(() =>
         subscription.unregister.pipe(
           Effect.zipRight(mailbox.end),
+          Effect.asVoid,
 ```
 
 Serializes connection generations through one controller. Each generation
@@ -770,7 +818,7 @@ stateDiagram-v2
   Stopping --> Stopped: OwnerDone completes terminal close
 ```
 
-### [`ReverseCallbackError`](./server.ts#L156)
+### [`ReverseCallbackError`](./server.ts#L163)
 
 _TypeAlias_
 
@@ -778,7 +826,9 @@ _TypeAlias_
 export type ReverseCallbackError<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackHandlers`](./lifecycle.ts#L231)
+Represents reverse callback error conditions.
+
+### [`ReverseCallbackHandlers`](./lifecycle.ts#L239)
 
 _TypeAlias_
 
@@ -791,7 +841,9 @@ export type ReverseCallbackHandlers = {
 };
 ```
 
-### [`ReverseCallbackPayload`](./server.ts#L152)
+Represents reverse callback handlers values.
+
+### [`ReverseCallbackPayload`](./server.ts#L157)
 
 _TypeAlias_
 
@@ -799,19 +851,23 @@ _TypeAlias_
 export type ReverseCallbackPayload<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackRequest`](./server.ts#L158)
+Represents reverse callback payload values.
+
+### [`ReverseCallbackRequest`](./server.ts#L166)
 
 _TypeAlias_
 
 ```ts
 export type ReverseCallbackRequest =
   | {
-      readonly definition: typeof DispatchAuthorize;
-      readonly params: ReverseCallbackPayload<typeof DispatchAuthorize>;
+      readonly definition: typeof dispatchAuthorize;
+      readonly params: ReverseCallbackPayload<typeof dispatchAuthorize>;
     }
 ```
 
-### [`ReverseCallbackSuccess`](./server.ts#L154)
+Represents reverse callback request values.
+
+### [`ReverseCallbackSuccess`](./server.ts#L160)
 
 _TypeAlias_
 
@@ -819,7 +875,9 @@ _TypeAlias_
 export type ReverseCallbackSuccess<D extends AnyAppCallbackRpcDefinition> =
 ```
 
-### [`ReverseCallbackTag`](./server.ts#L148)
+Represents reverse callback success values.
+
+### [`ReverseCallbackTag`](./server.ts#L152)
 
 _TypeAlias_
 
@@ -830,7 +888,9 @@ export type ReverseCallbackTag<D extends AnyAppCallbackRpcDefinition> = Extract<
 >;
 ```
 
-### [`ReverseCallError`](./server.ts#L144)
+Represents reverse callback tag values.
+
+### [`ReverseCallError`](./server.ts#L147)
 
 _TypeAlias_
 
@@ -838,7 +898,9 @@ _TypeAlias_
 export type ReverseCallError = NotConnectedError | RpcTimeoutError;
 ```
 
-### [`ReverseClient`](./server.ts#L204)
+Represents reverse call error conditions.
+
+### [`ReverseClient`](./server.ts#L213)
 
 _Interface_
 
@@ -865,7 +927,9 @@ export interface ReverseClient {
 }
 ```
 
-### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L90)
+Describes reverse client.
+
+### [`RPC_TIMEOUT_MS`](./lifecycle.ts#L87)
 
 _Variable_
 
@@ -873,7 +937,9 @@ _Variable_
 export const RPC_TIMEOUT_MS = 30_000
 ```
 
-### [`RpcCallOptions`](./lifecycle.ts#L98)
+Provides the rpc timeout ms runtime value.
+
+### [`RpcCallOptions`](./lifecycle.ts#L96)
 
 _Interface_
 
@@ -882,6 +948,8 @@ export interface RpcCallOptions {
   readonly timeoutMs?: number;
 }
 ```
+
+Configures rpc call.
 
 ### [`ServerSocketWrite`](./server.ts#L50)
 
@@ -893,16 +961,20 @@ export type ServerSocketWrite = (
 ) => Effect.Effect<void, Socket.SocketError>;
 ```
 
-### [`TaskCreateRequest`](./reverse-callbacks.ts#L22)
+Represents server socket write values.
+
+### [`TaskCreateRequest`](./reverse-callbacks.ts#L25)
 
 _TypeAlias_
 
 ```ts
 export type TaskCreateRequest = Extract<
   ReverseCallbackRequest,
-  { readonly definition: typeof TaskCreate }
+  { readonly definition: typeof taskCreate }
 >;
 ```
+
+Represents task create request values.
 
 ## Files
 

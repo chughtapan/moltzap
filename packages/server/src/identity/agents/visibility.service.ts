@@ -7,21 +7,26 @@
  *     `ownerUserId`.
  */
 import { Effect } from "effect";
-import type { Db } from "#db";
+import { type Db, catchSqlErrorAsDefect } from "#db";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import { catchSqlErrorAsDefect } from "#db";
 
+/** Describes visible agent ids request. */
 export interface VisibleAgentIdsRequest {
   readonly db: Db;
   readonly callerAgentId: AgentId;
   readonly callerOwnerUserId: UserId;
   /** When set, intersect the visible set with these IDs. */
-  readonly restrictTo?: ReadonlyArray<AgentId>;
+  readonly restrictTo?: readonly AgentId[];
 }
 
+/**
+ * Executes the visible agent ids operation.
+ * @param req Value supplied to the operation.
+ * @returns The visible agent ids result.
+ */
 export function visibleAgentIds(
   req: VisibleAgentIdsRequest,
-): Effect.Effect<ReadonlyArray<AgentId>, never> {
+): Effect.Effect<readonly AgentId[]> {
   const { db, callerAgentId, callerOwnerUserId, restrictTo } = req;
 
   if (restrictTo !== undefined && restrictTo.length === 0) {

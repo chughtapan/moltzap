@@ -34,7 +34,7 @@
  *      `Stream.async`-backed consumer fails with `NotConnectedError`
  *      via `emit.fail` deterministically (no Queue/shutdown race).
  */
-import { Stream } from "effect";
+import type { Stream } from "effect";
 import {
   type NotConnectedError,
   type NotificationDelivery,
@@ -57,6 +57,10 @@ type ClientNotificationDelivery =
  *
  * `refinement` is a typed predicate over the definition's params. When the
  * type-guard overload form is used, the Stream's payload narrows to `R`.
+ * @param registry Value supplied to the operation.
+ * @param definition Protocol definition to process.
+ * @param refinement Value supplied to the operation.
+ * @returns The subscribe result.
  */
 export function subscribe<
   D extends AnyNotificationDefinition,
@@ -68,7 +72,7 @@ export function subscribe<
   >,
   definition: D,
   refinement: (params: NotificationParamsOf<D>) => params is R,
-): Stream.Stream<R, NotConnectedError, never>;
+): Stream.Stream<R, NotConnectedError>;
 export function subscribe<D extends AnyNotificationDefinition>(
   registry: NotificationSubscriberRegistry<
     NotConnectedError,
@@ -76,7 +80,7 @@ export function subscribe<D extends AnyNotificationDefinition>(
   >,
   definition: D,
   refinement?: (params: NotificationParamsOf<D>) => boolean,
-): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never>;
+): Stream.Stream<NotificationParamsOf<D>, NotConnectedError>;
 export function subscribe<D extends AnyNotificationDefinition>(
   registry: NotificationSubscriberRegistry<
     NotConnectedError,
@@ -84,9 +88,10 @@ export function subscribe<D extends AnyNotificationDefinition>(
   >,
   definition: D,
   refinement?: (params: NotificationParamsOf<D>) => boolean,
-): Stream.Stream<NotificationParamsOf<D>, NotConnectedError, never> {
-  if (refinement === undefined)
+): Stream.Stream<NotificationParamsOf<D>, NotConnectedError> {
+  if (refinement === undefined) {
     return notificationSubscribe(registry, definition);
+  }
   return notificationSubscribe(registry, definition, refinement);
 }
 
@@ -102,6 +107,9 @@ export function subscribe<D extends AnyNotificationDefinition>(
  * `SubscriberRegistry.registerAll`, whose callbacks the dispatcher hits
  * for every inbound frame regardless of definition. Same lifecycle as
  * `register(def, …)`, no definition match.
+ * @param registry Value supplied to the operation.
+ * @param refinement Value supplied to the operation.
+ * @returns The subscribe all result.
  */
 export function subscribeAll(
   registry: NotificationSubscriberRegistry<
@@ -112,7 +120,7 @@ export function subscribeAll(
     definition: AnyNotificationDefinition,
     params: NotificationParamsOf<AnyNotificationDefinition>,
   ) => boolean,
-): Stream.Stream<ClientNotificationDelivery, NotConnectedError, never> {
+): Stream.Stream<ClientNotificationDelivery, NotConnectedError> {
   if (refinement === undefined) {
     return notificationSubscribeAll(registry);
   }

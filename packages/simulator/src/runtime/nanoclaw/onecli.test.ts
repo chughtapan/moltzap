@@ -222,7 +222,7 @@ function lockEventCommand(
   label: string,
 ): {
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
 } {
   return {
     command: execPath,
@@ -253,7 +253,7 @@ function successfulCommand() {
 function waitForFile(
   fileSystem: FileSystem.FileSystem,
   path: string,
-): Effect.Effect<void, never> {
+): Effect.Effect<void> {
   return fileSystem.exists(path).pipe(
     Effect.orDie,
     Effect.flatMap((exists) =>

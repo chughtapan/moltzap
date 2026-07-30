@@ -19,7 +19,11 @@ export type MessageDatabasePath = string & Brand.Brand<"MessageDatabasePath">;
 
 const MessageDatabasePathBrand = Brand.nominal<MessageDatabasePath>();
 
-/** Derive the exact message store path from a server-owned volume root. */
+/**
+ * Derive the exact message store path from a server-owned volume root.
+ * @param volumeRoot Value supplied to the operation.
+ * @returns The message database path for volume result.
+ */
 export function messageDatabasePathForVolume(
   volumeRoot: string,
 ): MessageDatabasePath {
@@ -40,7 +44,7 @@ const MESSAGES_QUERY = `
 function readRows(
   db: PGlite,
 ): Effect.Effect<
-  ReadonlyArray<CommittedRouterMessage>,
+  readonly CommittedRouterMessage[],
   SqlError | ParseResult.ParseError
 > {
   return SqlSchema.findAll({
@@ -67,11 +71,15 @@ function closeDatabase(db: PGlite): Effect.Effect<void> {
   );
 }
 
-/** Read every persisted society message from a stopped server's data volume. */
+/**
+ * Read every persisted society message from a stopped server's data volume.
+ * @param databasePath Value supplied to the operation.
+ * @returns The read committed router messages result.
+ */
 export function readCommittedRouterMessages(
   databasePath: MessageDatabasePath,
 ): Effect.Effect<
-  ReadonlyArray<CommittedRouterMessage>,
+  readonly CommittedRouterMessage[],
   SqlError | ParseResult.ParseError
 > {
   return Effect.scoped(

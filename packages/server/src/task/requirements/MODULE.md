@@ -8,7 +8,7 @@ Task-domain requirement helpers.
 
 ## Public surface
 
-### [`assertCallerAppOwnsTask`](./app-ownership.ts#L7)
+### [`assertCallerAppOwnsTask`](./app-ownership.ts#L12)
 
 _Function_
 
@@ -16,7 +16,11 @@ _Function_
 export const assertCallerAppOwnsTask = (appId: AppId, taskId: TaskId)
 ```
 
-### [`obtainTaskReadAccess`](./read-access.ts#L15)
+Provides the assert caller app owns task runtime value.
+
+**Returns:** The assert caller app owns task result.
+
+### [`obtainTaskReadAccess`](./read-access.ts#L21)
 
 _Function_
 
@@ -26,7 +30,11 @@ export const obtainTaskReadAccess = (
 ): Effect.Effect<TaskReadAccessValue, TaskNotFoundError, TaskServiceTag>
 ```
 
-### [`TaskAndAgent`](./read-access.ts#L10)
+Provides the obtain task read access runtime value.
+
+**Returns:** The obtain task read access result.
+
+### [`TaskAndAgent`](./read-access.ts#L11)
 
 _Interface_
 
@@ -36,6 +44,8 @@ export interface TaskAndAgent {
   readonly callerAgentId: AgentId;
 }
 ```
+
+Describes task and agent.
 
 ## Files
 

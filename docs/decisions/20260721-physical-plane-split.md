@@ -2,28 +2,28 @@
 status: partially-superseded
 date: 2026-07-21
 decision-makers: Tapan Chugh
-superseded-by: 20260728-network-wire-is-http-post-polling.md
+superseded-by: 20260729-router-order-is-opaque.md
 ---
 
 # The planes split at the transport
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-physical-plane-split).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260721-physical-plane-split) and [replacement decision trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque).
 
 ## Supersession
 
-The core Decision Outcome — a normative physical split between control
-and data planes — remains current. Later accepted records supersede the
-body phrases about v1 WebSocket muxing, a data-plane shape “not yet
-defined,” disconnect, and socket replay; those phrases are historical
-context, not the Gate 1 contract.
+The normative physical split remains current. Registry is the L1
+control service, Ledger is the L3 storage service, and Router is the L2
+data plane. Their network processes remain separate. The daemon's
+loopback local-runtime surface is not either network plane. There is no
+network WebSocket, shared mux, or generic network notification surface.
 
-Gate 1 binds Registry and Ledger operations to their closed,
-individually authenticated HTTP POST routes. Router traffic uses
+`20260729-router-order-is-opaque.md` replaces the historical
+carrier-shaped `transport` framing and route details. Router uses
 `POST /v1/messages:send` and endpoint-wide bounded long polling at
-`POST /v1/deliveries:poll`. The separate local runtime boundary is
-loopback MCP `POST /mcp`, including request-scoped
-`subscriptions/listen`; it is neither network plane. There is no
-network WebSocket, shared mux, or generic notification surface.
+`POST /v1/messages:poll`. Current process and package boundaries live
+in `docs/spec/layer-interfaces.md`; Router behavior lives in
+`docs/spec/router.md`. This L1/L2 replacement does not change Ledger or
+local-runtime route contracts.
 
 ## Context and Problem Statement
 

@@ -20,29 +20,36 @@ protocol.
 
 ## Authentication
 
-After registration, CLI network operations use the same AgentCard
-Ed25519 RFC 9421 profile as any other client. CLI has no operator key,
-bearer identity, or unsigned administrative path.
+Registration uses the L1 bootstrap profile. Registry lookup and list
+are public reads under the exact L1 profile. The CLI performs no Router
+operation; the daemon owns Router send and poll. Ledger and other
+layers remain governed by their current authentication contracts. CLI
+has no operator key, bearer identity, or unsigned administrative path.
 
 Registration is the sole pre-card exception. The CLI accepts:
 
-- deployment Registry route;
+- deployment Registry origin;
+- deployment-pinned Registry signer public JWK;
 - fixed admission code;
 - caller-supplied PrincipalId and canonical AgentName;
 - stable OperationId;
 - absolute path to a pre-existing unencrypted Ed25519 PKCS#8 key.
 
-It derives the SPKI, produces the bootstrap RFC 9421 proof, calls
+It derives the public JWK, produces the registration-profile HTTP
+message signature, calls
 `POST /v1/identities:register`, and verifies the returned AgentCard
-matches the key before persisting a local profile.
+under the pinned Registry signer. It also verifies that the card's
+PrincipalId, AgentName, and agent public key match the submitted
+bindings before persisting a local profile.
 
 It never generates, imports, copies, or rewrites private-key material.
 
 ## Local profile
 
 A named profile contains the fields specified in
-`endpoints/daemon.md`, including one AgentId, key path, service routes,
-SQLite path, and stable nonzero MCP port.
+`endpoints/daemon.md`, including one AgentId, key path, deployment
+service origins, pinned Registry signer public JWK, SQLite path, and
+stable nonzero MCP port.
 
 CLI rejects:
 
@@ -57,7 +64,8 @@ L7 policy.
 
 ## Plane separation
 
-CLI uses closed deterministic-CBOR HTTP service operations. It does not:
+CLI uses the client capability and representation owned by each ready
+layer. It does not:
 
 - send L2 messages directly;
 - open Router delivery polling as a runtime;
@@ -73,9 +81,10 @@ agent.
 
 ## Output and errors
 
-CLI may project binary IDs and records into their canonical typed
-base64url/JSON forms for people and scripts. Projection never changes
-the signed or stored representation.
+CLI may project ready L1 and L2 values into their canonical JSON forms
+for people and scripts. Projection never changes a signed or stored
+representation. Ledger output remains governed by the current L3
+contract.
 
 It preserves stable domain outcomes needed for recovery—authentication,
 version, idempotency conflict, not found, stale head, cursor failure,
@@ -88,12 +97,13 @@ diagnostics.
 ## Acceptance criteria
 
 - A clean pre-card environment can register using only the configured
-  Registry, admission code, principal/name, OperationId, and existing
-  key.
+  Registry origin, pinned Registry signer public JWK, admission code,
+  principal/name, OperationId, and existing agent key.
 - Registration retry reuses OperationId and returns the same AgentCard.
 - CLI cannot create two profiles or daemons for one AgentId.
-- All post-registration domain operations are signed by the profile
-  key and exact-version checked.
+- Every ready post-registration network operation uses its owning
+  authentication profile and exact version; authenticated operations
+  use the profile key, while Registry lookup and list remain public.
 - CLI contains no network data-plane send or listener path.
 - Logs never disclose the private key or admission code.
 

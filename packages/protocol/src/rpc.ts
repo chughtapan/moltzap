@@ -7,6 +7,7 @@
  * descriptor-construction transport layer.
  */
 
+/** Re-exports the public API from `#transport`. */
 export type {
   CallErrorsOf,
   DomainErrorsOf,
@@ -19,22 +20,28 @@ export type {
   ResponseErrorsOf,
   ResultOf,
   RpcDefinition,
+  RpcDefinitionAny,
   RpcErrorClass,
 } from "#transport";
+/** Re-exports the public API from `#transport`. */
 export { isNotificationDeliveryFor } from "#transport";
 
+/** Re-exports the public API from `#transport`. */
 export {
   makeNotificationSubscriberRegistry,
   notificationSubscribe,
   notificationSubscribeAll,
 } from "#transport";
+/** Re-exports the public API from `#transport`. */
 export type {
   NotificationSubscriberRegistry,
   NotificationSubscriberRegistryOptions,
   NotificationSubscriptionHandle,
 } from "#transport";
 
+/** Re-exports the public API from `#transport`. */
 export { dispatchCall, makeTypedTransportCall } from "#transport";
+/** Re-exports the public API from `#transport`. */
 export type {
   ErrorForTag,
   PayloadForTag,
@@ -43,16 +50,20 @@ export type {
   TypedDispatchMap,
 } from "#transport";
 
+/** Re-exports the public API from `#transport`. */
 export {
   DEFAULT_PAGE_LIMIT,
-  ListLimitSchema,
+  listLimitSchema,
   MAX_PAGE_LIMIT,
   listCursorSchema,
 } from "#transport";
+/** Re-exports the public API from `#transport`. */
 export type { ListCursor } from "#transport";
 
+/** Re-exports the public API from `#transport`. */
 export { NotConnectedError, RpcTimeoutError } from "#transport";
 
+/** Re-exports the public API from `#transport`. */
 export {
   AlreadyConnected,
   ConflictError,
@@ -61,4 +72,5 @@ export {
   NotFoundError,
   UnauthorizedError,
 } from "#transport";
+/** Re-exports the public API from `#transport`. */
 export type { RpcErrorPayload } from "#transport";

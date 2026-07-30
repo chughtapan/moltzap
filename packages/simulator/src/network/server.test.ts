@@ -1,6 +1,6 @@
 /* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/assertions-in-tests, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- regression-only lifecycle suite: each case fixes one ownership transition or cleanup ordering guarantee. Assertions run inside Effect generators, and the timelines remain together so interruption and release order stay auditable. */
 import { it as effectIt } from "@effect/vitest";
-import { AgentName } from "@moltzap/protocol/identity";
+import { agentName } from "@moltzap/protocol/identity";
 import { serverBaseUrl } from "@moltzap/protocol/network";
 import {
   agentId,
@@ -18,7 +18,7 @@ import {
   Logger,
   Schema,
   Scope,
-  Redacted,
+  type Redacted,
   TestClock,
 } from "effect";
 import { assert, describe } from "vitest";
@@ -39,19 +39,19 @@ const CONTAINER_ID = "container-id";
 const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
 const AGENT_KEY = redactedAgentKey(agentKeyString(31));
 const READY_TIMEOUT = Duration.seconds(1);
-const ALICE = Schema.decodeSync(AgentName)("alice");
+const ALICE = Schema.decodeSync(agentName)("alice");
 
 class FakeOperationFailed extends Data.TaggedError("FakeOperationFailed")<{
   readonly operation: string;
 }> {}
 
 interface FakeState {
-  readonly calls: Array<string>;
+  readonly calls: string[];
   readonly failures: Map<string, number>;
-  readonly registrationSecrets: Array<Redacted.Redacted<string>>;
-  readonly startedNames: Array<string>;
-  readonly stoppedNames: Array<string>;
-  containerSecret: Redacted.Redacted<string> | undefined;
+  readonly registrationSecrets: Redacted.Redacted[];
+  readonly startedNames: string[];
+  readonly stoppedNames: string[];
+  containerSecret?: Redacted.Redacted;
 }
 
 interface FakeHarness {
@@ -96,8 +96,15 @@ function makeFakeHarness(
     resolveImage: () => fakeStep(state, "image.resolve", IMAGE),
     createVolume: fakeStep(state, "volume.create", VOLUME_PATH),
     removeVolume: () => fakeStep(state, "volume.remove", undefined),
-    startContainer: (_image, _volumePath, containerName, registrationSecret) =>
+    startContainer: (
+      imageValue,
+      volumePath,
+      containerName,
+      registrationSecret,
+    ) =>
       Effect.sync(() => {
+        assert.strictEqual(imageValue, IMAGE);
+        assert.strictEqual(volumePath, VOLUME_PATH);
         state.startedNames.push(containerName);
         state.containerSecret = registrationSecret;
       }).pipe(
@@ -106,8 +113,9 @@ function makeFakeHarness(
     resolveServerUrl: () => fakeStep(state, "port.resolve", SERVER_URL),
     awaitHealthy: () => fakeStep(state, "health.await", undefined),
     verifyMount: () => fakeStep(state, "mount.verify", undefined),
-    register: (_serverUrl, name, registrationSecret) =>
+    register: (serverUrlValue, name, registrationSecret) =>
       Effect.sync(() => {
+        assert.strictEqual(serverUrlValue, SERVER_URL);
         state.registrationSecrets.push(registrationSecret);
       }).pipe(
         Effect.zipRight(
@@ -126,7 +134,7 @@ function makeFakeHarness(
   return { state, operations };
 }
 
-function count(calls: ReadonlyArray<string>, operation: string): number {
+function count(calls: readonly string[], operation: string): number {
   return calls.filter((entry) => entry === operation).length;
 }
 
@@ -183,7 +191,7 @@ describe("MoltZap server", () => {
     Effect.gen(function* () {
       const harness = makeFakeHarness();
       const acquire = makeMoltZapServerAcquirer(harness.operations);
-      const messages: Array<string> = [];
+      const messages: string[] = [];
       const logger = Logger.make(({ message }) => {
         messages.push(String(message));
       });
@@ -285,7 +293,7 @@ describe("MoltZap server", () => {
   it("reverses claimed resources before preserving acquisition interruption", () =>
     Effect.gen(function* () {
       const harness = makeFakeHarness();
-      const healthEntered = yield* Deferred.make<void>();
+      const healthEntered = yield* Deferred.make<undefined>();
       const operations: MoltZapServerOperations = {
         ...harness.operations,
         awaitHealthy: () =>
@@ -316,8 +324,8 @@ describe("MoltZap server", () => {
   it("interrupts a timed-out observer connection before cleaning resources", () =>
     Effect.gen(function* () {
       const harness = makeFakeHarness();
-      const connectEntered = yield* Deferred.make<void>();
-      const connectInterrupted = yield* Deferred.make<void>();
+      const connectEntered = yield* Deferred.make<undefined>();
+      const connectInterrupted = yield* Deferred.make<undefined>();
       const observer: MoltZapPresenceObserver = {
         awaitAgentReady: () => Effect.void,
         connect: Deferred.succeed(connectEntered, undefined).pipe(
@@ -356,8 +364,8 @@ describe("MoltZap server", () => {
   it("interrupts timed-out cleanup before retrying the owned resource", () =>
     Effect.gen(function* () {
       const harness = makeFakeHarness();
-      const closeEntered = yield* Deferred.make<void>();
-      const closeInterrupted = yield* Deferred.make<void>();
+      const closeEntered = yield* Deferred.make<undefined>();
+      const closeInterrupted = yield* Deferred.make<undefined>();
       let closeAttempts = 0;
       const observer: MoltZapPresenceObserver = {
         awaitAgentReady: () => Effect.void,
@@ -483,3 +491,5 @@ describe("MoltZap server", () => {
       );
     }));
 });
+
+/* eslint-enable max-lines-per-function, sonarjs/max-lines-per-function, max-nested-callbacks, sonarjs/assertions-in-tests, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Restore strict defaults after the scoped file-level exception. */

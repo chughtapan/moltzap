@@ -13,15 +13,18 @@ import {
   type TestAgentClient,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesList,
-  MessagesSend,
+  DEFAULT_APP_ID,
+  taskRequest,
+  type TaskId,
+} from "@moltzap/protocol/task";
+import {
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 
 const PRE_DISCONNECT_TEXT = "Pre-disconnect";
 const OFFLINE_TEXT = "Sent while you were away";
@@ -53,7 +56,7 @@ it("agent reconnects and retrieves messages sent while disconnected", () =>
 
     const binding = yield* createDm(alice.client, bob.agentId);
     const preDisconnectFiber = yield* Effect.fork(
-      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
     yield* sendText(alice.client, binding, PRE_DISCONNECT_TEXT);
     yield* Fiber.join(preDisconnectFiber);
@@ -70,7 +73,7 @@ it("agent reconnects and retrieves messages sent while disconnected", () =>
 
     yield* expectReconnectedHistory(bobClient2, binding);
     const aliceEventFiber = yield* Effect.fork(
-      awaitOneNotification(alice.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(alice.client, messageReceivedNotificationDefinition),
     );
     yield* sendText(bobClient2, binding, BACK_ONLINE_TEXT);
 
@@ -83,17 +86,22 @@ function createDm(
   participantAgentId: AgentId,
 ): Effect.Effect<DmBinding, unknown> {
   return Effect.gen(function* () {
-    const conv = yield* client.sendRpc(TaskRequest, {
+    const conv = yield* client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [participantAgentId],
       initialConversation: { participants: [participantAgentId] },
     });
-    return { taskId: conv.task.id, conversationId: conv.conversation!.id };
+    return {
+      taskId: conv.task.id,
+      conversationId:
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
+    };
   });
 }
 
 function sendText(client: TestAgentClient, binding: DmBinding, text: string) {
-  return client.sendRpc(MessagesSend, {
+  return client.sendRpc(messagesSend, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
@@ -102,18 +110,35 @@ function sendText(client: TestAgentClient, binding: DmBinding, text: string) {
 
 function expectReconnectedHistory(client: TestAgentClient, binding: DmBinding) {
   return Effect.gen(function* () {
-    const msgs = yield* client.sendRpc(MessagesList, {
+    const msgs = yield* client.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
 
     expect(msgs.messages).toHaveLength(2);
-    expect(firstTextPart(msgs.messages[0]!.parts)).toBe(PRE_DISCONNECT_TEXT);
-    expect(firstTextPart(msgs.messages[1]!.parts)).toBe(OFFLINE_TEXT);
+    expect(
+      firstTextPart(
+        /* Safe because the test fixture establishes this asserted shape. */ msgs
+          .messages[0]!.parts,
+      ),
+    ).toBe(PRE_DISCONNECT_TEXT);
+    expect(
+      firstTextPart(
+        /* Safe because the test fixture establishes this asserted shape. */ msgs
+          .messages[1]!.parts,
+      ),
+    ).toBe(OFFLINE_TEXT);
   });
 }
 
 function messageText(params: unknown): string {
-  return (params as { message: { parts: Array<{ text: string }> } }).message
-    .parts[0]!.text;
+  const parts = (
+    /* Safe because the test fixture establishes this asserted shape. */
+    params as { message: { parts: Array<{ text: string }> } }
+  ).message.parts;
+  const firstPart = parts[0];
+  if (firstPart === undefined) {
+    throw new Error("Expected a message text part.");
+  }
+  return firstPart.text;
 }

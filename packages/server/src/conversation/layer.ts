@@ -8,11 +8,13 @@ import { AppEndpointRegistryTag } from "#identity/apps";
 
 import { ConversationService } from "./conversation.service.js";
 
+/** Implements conversation service tag. */
 export class ConversationServiceTag extends Context.Tag(
   "moltzap/ConversationService",
 )<ConversationServiceTag, ConversationService>() {}
 
-export const ConversationServiceLive = Layer.effect(
+/** Provides the conversation service live runtime value. */
+export const conversationServiceLive = Layer.effect(
   ConversationServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -20,7 +22,9 @@ export const ConversationServiceLive = Layer.effect(
     const appEndpointRegistry = yield* AppEndpointRegistryTag;
     return new ConversationService(db, connections, () => {
       const contacts = appEndpointRegistry.getContactService();
-      if (!contacts) return null;
+      if (!contacts) {
+        return null;
+      }
       return (a, b) => contacts.areInContact(a, b);
     });
   }).pipe(Effect.withSpan("ConversationServiceLive")),

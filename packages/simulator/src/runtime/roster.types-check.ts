@@ -5,11 +5,7 @@
  */
 
 import { Context, Effect } from "effect";
-import {
-  RuntimeCompleted,
-  type AgentRuntimeInput,
-  defineRuntime,
-} from "./runtime.js";
+import { RuntimeCompleted, defineRuntime } from "./runtime.js";
 import {
   type AgentRosterRequirements,
   makeAgentRosterBuilder,
@@ -30,7 +26,7 @@ const completed = {
 
 const alphaRuntime = defineRuntime<never, AlphaRequirement>({
   name: "alpha",
-  acquire: <Name extends string>(_input: AgentRuntimeInput<Name>) =>
+  acquire: () =>
     Effect.gen(function* () {
       yield* AlphaRequirement;
       return completed;
@@ -39,7 +35,7 @@ const alphaRuntime = defineRuntime<never, AlphaRequirement>({
 
 const betaRuntime = defineRuntime<never, BetaRequirement>({
   name: "beta",
-  acquire: <Name extends string>(_input: AgentRuntimeInput<Name>) =>
+  acquire: () =>
     Effect.gen(function* () {
       yield* BetaRequirement;
       return completed;
@@ -51,12 +47,7 @@ const roster = makeAgentRosterBuilder("acme.society/v1")({
   bob: betaRuntime,
 });
 
-type Equal<Left, Right> =
-  (<Value>() => Value extends Left ? 1 : 2) extends <
-    Value,
-  >() => Value extends Right ? 1 : 2
-    ? true
-    : false;
+type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
 type Definitions = typeof roster.definitions;
@@ -74,18 +65,21 @@ type RequirementsAreCombined = Expect<
   >
 >;
 
-const handlesProgram = Effect.gen(function* () {
-  const handles = yield* roster.Agents;
+/** Representative roster program retained for compile-time inference checks. */
+export const rosterCanaryProgram = Effect.gen(function* () {
+  const handles = yield* roster.startedAgents;
   return handles.alice.name;
-});
+}).pipe(Effect.withSpan("rosterCanaryProgram"));
 
 type ServiceSuccessIsExact = Expect<
-  Equal<Effect.Effect.Success<typeof handlesProgram>, "alice">
+  Equal<Effect.Effect.Success<typeof rosterCanaryProgram>, "alice">
 >;
 
-type _Canaries =
-  | DefinitionIdIsExact
-  | HandleKeysAreExact
-  | AliceNameIsExact
-  | RequirementsAreCombined
-  | ServiceSuccessIsExact;
+/** Compile-time assertions for exact roster inference. */
+export type RosterCanaries = [
+  DefinitionIdIsExact,
+  HandleKeysAreExact,
+  AliceNameIsExact,
+  RequirementsAreCombined,
+  ServiceSuccessIsExact,
+];

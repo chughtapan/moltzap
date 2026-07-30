@@ -2,23 +2,28 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Chunk, Data, Duration, Effect, Either, Fiber, Stream } from "effect";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { TaskCreate, TaskRequest } from "@moltzap/protocol/task";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesAuthorize,
-  MessagesList,
-  MessagesSend,
+  taskCreate,
+  taskRequest,
+  type AppId,
+  type TaskId,
+} from "@moltzap/protocol/task";
+import {
+  messageReceivedNotificationDefinition,
+  messagesAuthorize,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";
-import { ConversationCreate } from "@moltzap/protocol/conversation";
-import type { AgentId } from "@moltzap/protocol/identity";
+import {
+  conversationCreate,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
+import type { AgentId, AppManifest } from "@moltzap/protocol/identity";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AppId, TaskId } from "@moltzap/protocol/task";
-import type { AppManifest } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/conversation";
 import {
   startTestServerEffect,
   stopTestServerEffect,
@@ -40,7 +45,8 @@ import {
 
 const it = effectIt.live;
 
-const TEST_APP_ID = "00000000-0000-4d11-8000-00000000a121" as AppId;
+const TEST_APP_ID =
+  /* Safe because the test fixture establishes this asserted shape. */ "00000000-0000-4d11-8000-00000000a121" as AppId;
 const TEST_APP_MANIFEST: AppManifest = {
   appId: TEST_APP_ID,
   name: "Messages-Authorize Test App",
@@ -78,7 +84,7 @@ const TEST_TIMEOUT_MS = 30_000;
 const START_TIMEOUT_MS = 60_000;
 
 type MessageAuthorizeVerdict =
-  | { decision: typeof DECISION_FORWARD; recipients: ReadonlyArray<AgentId> }
+  | { decision: typeof DECISION_FORWARD; recipients: readonly AgentId[] }
   | { decision: typeof DECISION_BLOCK; reason?: string };
 
 interface VerdictState {
@@ -135,15 +141,16 @@ beforeEach(() =>
 /**
  * Server→client callbacks served by the moderator app principal.
  * `app/task/create` auto-accepts; the scenarios exercise `app/message/authorize`.
+ * @returns The moderator handlers result.
  */
 function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    [DispatchAuthorize.name]: {
-      definition: DispatchAuthorize,
+    [dispatchAuthorize.name]: {
+      definition: dispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
-    [MessagesAuthorize.name]: {
-      definition: MessagesAuthorize,
+    [messagesAuthorize.name]: {
+      definition: messagesAuthorize,
       handle: () =>
         Effect.gen(function* () {
           appHookState.calls += 1;
@@ -151,11 +158,14 @@ function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
           if ("kind" in verdict && verdict.kind === NEVER_REPLY) {
             return yield* Effect.never;
           }
-          return { verdict: verdict as MessageAuthorizeVerdict };
+          return {
+            verdict:
+              /* Safe because the test fixture establishes this asserted shape. */ verdict as MessageAuthorizeVerdict,
+          };
         }),
     },
-    [TaskCreate.name]: {
-      definition: TaskCreate,
+    [taskCreate.name]: {
+      definition: taskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
@@ -191,7 +201,7 @@ function readDispatchDecision(
 
 function readAllMessageIdsForConversation(
   conversationId: string,
-): Effect.Effect<ReadonlyArray<string>, MessagesAuthorizeDbError> {
+): Effect.Effect<readonly string[], MessagesAuthorizeDbError> {
   return Effect.tryPromise({
     try: () =>
       getKyselyDb()
@@ -236,13 +246,16 @@ interface ConversationBinding {
  * BEFORE the triggering send and join after; `Stream.interruptAfter`
  * bounds collection so the assert doesn't block when no event is
  * expected.
+ * @param agent Agent fixture that performs the operation.
+ * @param settle Value supplied to the operation.
+ * @returns The fork message received collector result.
  */
 function forkMessageReceivedCollector(
   agent: ConnectedAgent,
   settle: Duration.DurationInput,
 ) {
   return agent.client
-    .subscribe(MessageReceivedNotificationDefinition)
+    .subscribe(messageReceivedNotificationDefinition)
     .pipe(
       Stream.interruptAfter(Duration.decode(settle)),
       Stream.runCollect,
@@ -273,7 +286,11 @@ function expectHookBlocked(
 ): void {
   Either.match(outcome, {
     onLeft: (error) => {
-      const wire = error as { _tag?: string; message?: string };
+      const wire =
+        /* Safe because the test fixture establishes this asserted shape. */ error as {
+          _tag?: string;
+          message?: string;
+        };
       expect(wire._tag).toBe(WIRE_ERROR_TAG.HookBlocked);
       if (messagePattern !== undefined) {
         expect(String(wire.message)).toMatch(messagePattern);
@@ -284,19 +301,32 @@ function expectHookBlocked(
 }
 
 function expectDecisionTag(decision: unknown, tag: string): void {
-  expect((decision as { tag?: string }).tag).toBe(tag);
+  expect(
+    (
+      /* Safe because the test fixture establishes this asserted shape. */
+      decision as { tag?: string }
+    ).tag,
+  ).toBe(tag);
 }
 
 function expectDecisionReason(decision: unknown, reason: string): void {
-  expect((decision as { reason?: string }).reason).toBe(reason);
+  expect(
+    (
+      /* Safe because the test fixture establishes this asserted shape. */
+      decision as { reason?: string }
+    ).reason,
+  ).toBe(reason);
 }
 
 function expectDecisionRecipients(
   decision: unknown,
-  recipients: ReadonlyArray<string>,
+  recipients: readonly string[],
 ) {
   expect(
-    (decision as { recipients?: ReadonlyArray<string> }).recipients,
+    (
+      /* Safe because the test fixture establishes this asserted shape. */
+      decision as { recipients?: readonly string[] }
+    ).recipients,
   ).toEqual(recipients);
 }
 
@@ -308,10 +338,13 @@ function expectDecisionRecipients(
  * `agent/task/request` targets so the app's `AppConnection` is the resolved
  * moderator endpoint. Memoizes the app client for the rest of the test so
  * subsequent conversation creates reuse one app principal.
+ * @param agent Agent fixture that performs the operation.
+ * @param invited Value supplied to the operation.
+ * @returns The created app managed task.
  */
 function createAppManagedTask(
   agent: ConnectedAgent,
-  invited: ReadonlyArray<ConnectedAgent>,
+  invited: readonly ConnectedAgent[],
 ) {
   return Effect.gen(function* () {
     const registered = yield* registerApp(getBaseUrl(), TEST_APP_MANIFEST);
@@ -321,7 +354,7 @@ function createAppManagedTask(
       moderatorHandlers(),
     );
     moderatorApp = { client, sender: agent };
-    return yield* agent.client.sendRpc(TaskRequest, {
+    return yield* agent.client.sendRpc(taskRequest, {
       appId: registered.appId,
       invitedAgentIds: invited.map((a) => a.agentId),
     });
@@ -334,10 +367,10 @@ function createAppManagedTask(
 function createManagedGroup(
   taskId: TaskId,
   name: string,
-  participants: ReadonlyArray<ConnectedAgent>,
+  participants: readonly ConnectedAgent[],
 ) {
   const app = currentModeratorApp();
-  return app.client.sendRpc(ConversationCreate, {
+  return app.client.sendRpc(conversationCreate, {
     taskId,
     name,
     participants: [app.sender.agentId, ...participants.map((p) => p.agentId)],
@@ -346,7 +379,7 @@ function createManagedGroup(
 
 function createManagedDm(taskId: TaskId, participant: ConnectedAgent) {
   const app = currentModeratorApp();
-  return app.client.sendRpc(ConversationCreate, {
+  return app.client.sendRpc(conversationCreate, {
     taskId,
     participants: [app.sender.agentId, participant.agentId],
   });
@@ -357,7 +390,7 @@ function sendText(
   binding: ConversationBinding,
   text: string,
 ) {
-  return agent.client.sendRpc(MessagesSend, {
+  return agent.client.sendRpc(messagesSend, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: "text", text }],
@@ -371,7 +404,7 @@ function sendTextWithTimeout(
   timeoutMs: number,
 ) {
   return agent.client.sendRpc(
-    MessagesSend,
+    messagesSend,
     {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
@@ -405,7 +438,9 @@ function blockVerdictPreventsFanoutAndPersistsBlock() {
 
     const ids = yield* readAllMessageIdsForConversation(binding.conversationId);
     expect(ids.length).toBe(1);
-    const decision = yield* readDispatchDecision(ids[0]!);
+    const decision = yield* readDispatchDecision(
+      /* Safe because the test fixture establishes this asserted shape. */ ids[0]!,
+    );
     expectDecisionTag(decision, VERDICT_TAG_BLOCK);
     expectDecisionReason(decision, BLOCK_REASON);
   });
@@ -541,7 +576,7 @@ interface VisibilityCheckInput {
 function expectPerCallerVisibility(input: VisibilityCheckInput) {
   const { alice, bob, carol, binding, forwarded } = input;
   return Effect.gen(function* () {
-    const aliceList = yield* alice.client.sendRpc(MessagesList, {
+    const aliceList = yield* alice.client.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
@@ -549,16 +584,20 @@ function expectPerCallerVisibility(input: VisibilityCheckInput) {
       binding.conversationId,
     ))
       .slice()
-      .sort();
-    expect(aliceList.messages.map((m) => m.id).sort()).toEqual(allIds);
-    const bobList = yield* bob.client.sendRpc(MessagesList, {
+      .sort((left, right) => left.localeCompare(right));
+    expect(
+      aliceList.messages
+        .map((message) => message.id)
+        .sort((left, right) => left.localeCompare(right)),
+    ).toEqual(allIds);
+    const bobList = yield* bob.client.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });
     expect(bobList.messages.map((m) => m.id)).toEqual([
       forwarded.bobForward.message.id,
     ]);
-    const carolList = yield* carol.client.sendRpc(MessagesList, {
+    const carolList = yield* carol.client.sendRpc(messagesList, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
     });

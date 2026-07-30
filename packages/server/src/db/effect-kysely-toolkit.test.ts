@@ -24,18 +24,14 @@ describe("catchSqlErrorAsDefect defects", () => {
   it("converts SqlError to a Die defect", () =>
     Effect.gen(function* () {
       const err = makeSqlError();
-      const program = catchSqlErrorAsDefect(
-        Effect.fail(err) as Effect.Effect<never, SqlError>,
-      );
+      const program = catchSqlErrorAsDefect(Effect.fail(err));
       expectDefect(yield* Effect.exit(program), err);
     }));
 
   it("converts NoSuchElementException to a Die", () =>
     Effect.gen(function* () {
       const err = new Cause.NoSuchElementException("no row");
-      const program = catchSqlErrorAsDefect(
-        Effect.fail(err) as Effect.Effect<never, Cause.NoSuchElementException>,
-      );
+      const program = catchSqlErrorAsDefect(Effect.fail(err));
       expectDefect(yield* Effect.exit(program), err);
     }));
 });
@@ -44,12 +40,15 @@ describe("catchSqlErrorAsDefect pass-through", () => {
   it("lets tagged-error classes pass through as typed fail", () =>
     Effect.gen(function* () {
       const err = new ConflictError({ message: TYPED_CONFLICT_MESSAGE });
-      const program = catchSqlErrorAsDefect(
-        Effect.fail(err) as Effect.Effect<never, ConflictError>,
-      );
+      const program = catchSqlErrorAsDefect(Effect.fail(err));
       const failure = expectFailure(yield* Effect.exit(program));
       expect(failure).toBeInstanceOf(ConflictError);
-      expect((failure as ConflictError).message).toBe(TYPED_CONFLICT_MESSAGE);
+      expect(
+        (
+          /* Safe because the test fixture establishes this asserted shape. */
+          failure as ConflictError
+        ).message,
+      ).toBe(TYPED_CONFLICT_MESSAGE);
     }));
 
   it("leaves successful programs unchanged", () =>
@@ -81,7 +80,7 @@ describe("takeFirstOption", () => {
   it("returns None for empty input", () =>
     Effect.gen(function* () {
       const result = yield* takeFirstOption(
-        Effect.succeed([] as ReadonlyArray<{ id: string }>),
+        Effect.succeed<ReadonlyArray<{ id: string }>>([]),
       );
       expect(Option.isNone(result)).toBe(true);
     }));
@@ -90,10 +89,12 @@ describe("takeFirstOption", () => {
     Effect.gen(function* () {
       const row = { id: "a" };
       const result = yield* takeFirstOption(
-        Effect.succeed([row] as ReadonlyArray<{ id: string }>),
+        Effect.succeed<ReadonlyArray<{ id: string }>>([row]),
       );
       expect(Option.isSome(result)).toBe(true);
-      if (Option.isNone(result)) expect.fail("expected first row");
+      if (Option.isNone(result)) {
+        expect.fail("expected first row");
+      }
       expect(result.value).toBe(row);
     }));
 });
@@ -102,7 +103,7 @@ describe("takeFirstOrElse", () => {
   it("fails with caller's orElse on empty input", () =>
     Effect.gen(function* () {
       const program = takeFirstOrElse(
-        Effect.succeed([] as ReadonlyArray<number>),
+        Effect.succeed<readonly number[]>([]),
         missingRowError,
       );
       expect(expectFailure(yield* Effect.exit(program))).toBe(
@@ -113,7 +114,7 @@ describe("takeFirstOrElse", () => {
   it("returns first row on non-empty input", () =>
     Effect.gen(function* () {
       const result = yield* takeFirstOrElse(
-        Effect.succeed([FIRST_NUMBER, 8, 9] as ReadonlyArray<number>),
+        Effect.succeed<readonly number[]>([FIRST_NUMBER, 8, 9]),
         missingRowError,
       );
       expect(result).toBe(FIRST_NUMBER);
@@ -123,9 +124,7 @@ describe("takeFirstOrElse", () => {
 describe("takeFirstOrFail", () => {
   it("fails with NoSuchElementException on empty input", () =>
     Effect.gen(function* () {
-      const program = takeFirstOrFail(
-        Effect.succeed([] as ReadonlyArray<number>),
-      );
+      const program = takeFirstOrFail(Effect.succeed<readonly number[]>([]));
       const failure = expectFailure(yield* Effect.exit(program));
       expect(failure).toBeInstanceOf(Cause.NoSuchElementException);
     }));
@@ -134,9 +133,10 @@ describe("takeFirstOrFail", () => {
     Effect.gen(function* () {
       const first = { id: "first" };
       const result = yield* takeFirstOrFail(
-        Effect.succeed([first, { id: "second" }] as ReadonlyArray<{
-          id: string;
-        }>),
+        Effect.succeed<ReadonlyArray<{ id: string }>>([
+          first,
+          { id: "second" },
+        ]),
       );
       expect(result).toEqual(first);
     }));
@@ -155,18 +155,26 @@ function expectDefect(
   expected: unknown,
 ): void {
   expect(Exit.isFailure(exit)).toBe(true);
-  if (!Exit.isFailure(exit)) expect.fail("expected failure exit");
+  if (!Exit.isFailure(exit)) {
+    expect.fail("expected failure exit");
+  }
   const defect = Cause.dieOption(exit.cause);
   expect(Option.isSome(defect)).toBe(true);
-  if (Option.isNone(defect)) expect.fail("expected die defect");
+  if (Option.isNone(defect)) {
+    expect.fail("expected die defect");
+  }
   expect(defect.value).toBe(expected);
 }
 
 function expectFailure(exit: Exit.Exit<unknown, unknown>): unknown {
   expect(Exit.isFailure(exit)).toBe(true);
-  if (!Exit.isFailure(exit)) expect.fail("expected failure exit");
+  if (!Exit.isFailure(exit)) {
+    expect.fail("expected failure exit");
+  }
   const failure = Cause.failureOption(exit.cause);
   expect(Option.isSome(failure)).toBe(true);
-  if (Option.isNone(failure)) expect.fail("expected typed failure");
+  if (Option.isNone(failure)) {
+    expect.fail("expected typed failure");
+  }
   return failure.value;
 }

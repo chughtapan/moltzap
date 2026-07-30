@@ -10,14 +10,17 @@ import {
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
-import { AgentsList } from "@moltzap/protocol/identity";
-import { MessagesSend } from "@moltzap/protocol/message";
+import { agentsList } from "@moltzap/protocol/identity";
+import { messagesSend } from "@moltzap/protocol/message";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
-import type { ParamsOf, ResultOf, RpcDefinition } from "@moltzap/protocol/rpc";
-import type { TaskId } from "@moltzap/protocol/task";
-import { TaskClosedError } from "@moltzap/protocol/task";
-import { ForbiddenError } from "@moltzap/protocol/rpc";
+import {
+  type ParamsOf,
+  type ResultOf,
+  type RpcDefinitionAny,
+  ForbiddenError,
+} from "@moltzap/protocol/rpc";
+import { type TaskId, TaskClosedError } from "@moltzap/protocol/task";
 import { Data, Effect } from "effect";
 import * as fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
@@ -88,24 +91,25 @@ type SendTextResult = Awaited<
     ReturnType<typeof createMoltzapChannelPlugin>["outbound"]["sendText"]
   >
 >;
-type DeliverInput = {
+interface DeliverInput {
   readonly text?: string;
   readonly body?: string;
-};
-type DeliverInfo = {
+}
+interface DeliverInfo {
   readonly kind?: string;
-};
+}
 type Deliver = (
   payload: DeliverInput,
   info?: DeliverInfo,
 ) => PromiseLike<boolean>;
-type DispatchCall = {
+interface DispatchCall {
   readonly dispatcherOptions: {
     readonly deliver: Deliver;
   };
-};
+}
 type DispatchCallWithContext = DispatchCall & {
   readonly ctx: {
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- OpenClaw injects this exact context key.
     readonly OriginatingTo?: unknown;
   };
 };
@@ -120,7 +124,7 @@ type SendToAgentFn = (
   text: string,
   opts?: { readonly replyTo?: string },
 ) => Effect.Effect<void, unknown>;
-type SendRpcFn = <D extends RpcDefinition<string, any, any>>(
+type SendRpcFn = <D extends RpcDefinitionAny>(
   definition: D,
   params: ParamsOf<D>,
 ) => Effect.Effect<ResultOf<D>, ServiceRpcError>;
@@ -211,24 +215,30 @@ function startGateway() {
   const plugin = createMoltzapChannelPlugin({ createService: () => service });
   const abortController = new AbortController();
   abortControllers.push(abortController);
-  plugin.gateway.startAccount({
-    cfg: makeCfg(),
-    accountId: ACCOUNT_ID,
-    account: makeAccount(),
-    abortSignal: abortController.signal,
-    log: mockLogger,
-    setStatus: vi.fn(),
-    channelRuntime: {
-      reply: {
-        dispatchReplyWithBufferedBlockDispatcher: mockDispatch,
-      },
-    },
-  });
+  Effect.runFork(
+    Effect.tryPromise({
+      try: () =>
+        plugin.gateway.startAccount({
+          cfg: makeCfg(),
+          accountId: ACCOUNT_ID,
+          account: makeAccount(),
+          abortSignal: abortController.signal,
+          log: mockLogger,
+          setStatus: vi.fn(),
+          channelRuntime: {
+            reply: {
+              dispatchReplyWithBufferedBlockDispatcher: mockDispatch,
+            },
+          },
+        }),
+      catch: (cause) => cause,
+    }),
+  );
   return { fixture, plugin };
 }
 
 function createTestService(fixture: FakeChannelService): TestService {
-  mockSend.mockImplementation(fixture.service.send);
+  mockSend.mockImplementation(fixture.service.send.bind(fixture.service));
   mockSendToAgent.mockReturnValue(Effect.void);
   return {
     ...fixture.service,
@@ -238,18 +248,24 @@ function createTestService(fixture: FakeChannelService): TestService {
   };
 }
 
-function sendRpcDefault<D extends RpcDefinition<string, any, any>>(
+function sendRpcDefault<D extends RpcDefinitionAny>(
   definition: D,
 ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
-  if (definition.name === AgentsList.name) {
-    return Effect.succeed({
-      agents: [{ id: SENDER_AGENT_ID, name: "Atlas" }],
-    } as ResultOf<D>);
+  if (definition.name === agentsList.name) {
+    return Effect.succeed(
+      rpcResult<D>({
+        agents: [{ id: SENDER_AGENT_ID, name: "Atlas" }],
+      }),
+    );
   }
-  if (definition.name === MessagesSend.name) {
-    return Effect.succeed({ message: { id: "sent-1" } } as ResultOf<D>);
+  if (definition.name === messagesSend.name) {
+    return Effect.succeed(rpcResult<D>({ message: { id: "sent-1" } }));
   }
-  return Effect.succeed({} as ResultOf<D>);
+  return Effect.succeed(rpcResult<D>({}));
+}
+
+function rpcResult<D extends RpcDefinitionAny>(value: unknown): ResultOf<D> {
+  return /* Safe because each test branch matches the selected RPC definition. */ value as ResultOf<D>;
 }
 
 function makeAccount() {
@@ -328,11 +344,13 @@ function waitForDispatchTimes(count: number) {
 }
 
 function firstDispatchCall(): DispatchCall {
-  return mockDispatch.mock.calls[0]?.[0] as DispatchCall;
+  return /* Safe because the test fixture establishes this asserted shape. */ mockDispatch
+    .mock.calls[0]?.[0] as DispatchCall;
 }
 
 function firstDispatchCallWithContext(): DispatchCallWithContext {
-  return mockDispatch.mock.calls[0]?.[0] as DispatchCallWithContext;
+  return /* Safe because the test fixture establishes this asserted shape. */ mockDispatch
+    .mock.calls[0]?.[0] as DispatchCallWithContext;
 }
 
 function deliverFinal(text: string) {
@@ -383,7 +401,9 @@ function expectFailureMessage(
   expectedMessage: string | RegExp,
 ): void {
   expect(result.ok).toBe(false);
-  if (result.ok) return;
+  if (result.ok) {
+    return;
+  }
   if (typeof expectedMessage === "string") {
     expect(result.error.message).toBe(expectedMessage);
     return;
@@ -680,6 +700,7 @@ function nonTaskClosedFails() {
  * This test exercises that invariant by failing the first send, then making
  * the second send succeed, and asserting `mockSend` was invoked twice and
  * the second deliver returned `true`.
+ * @returns The lease guard unconsumed on transient failure result.
  */
 function leaseGuardUnconsumedOnTransientFailure() {
   return Effect.gen(function* () {

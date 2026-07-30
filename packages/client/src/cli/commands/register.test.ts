@@ -14,10 +14,10 @@ const DESCRIPTION = "A test agent";
 const AGENT_ID = "00000000-0000-4000-8000-000000000123";
 const API_KEY = redactedAgentKey(agentKeyString(10));
 
-type RegisterResult = {
+interface RegisterResult {
   agentId: string;
   apiKey: AgentKey;
-};
+}
 
 class RegisterTestFailure extends Data.TaggedError("RegisterTestFailure")<{
   readonly message: string;
@@ -38,7 +38,9 @@ vi.mock("../../auth.js", () => ({
     name: string,
     opts?: { readonly inviteCode?: string; readonly description?: string },
   ) => {
-    if (opts === undefined) return mockRegisterAgent(baseUrl, name);
+    if (opts === undefined) {
+      return mockRegisterAgent(baseUrl, name);
+    }
     return mockRegisterAgent(baseUrl, name, opts);
   },
 }));
@@ -100,16 +102,19 @@ function exitsOnRegistrationFailure() {
       inviteCode: BAD_INVITE_CODE,
       description: Option.none(),
     });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- Vitest deliberately inspects the installed process.exit mock without invoking it.
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 }
 
 describe("register command handler", () => {
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- The test snapshots process.exit solely to restore the original method.
   const originalExit = process.exit;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.exit = vi.fn() as never;
+    process.exit =
+      /* Safe because the test fixture establishes this asserted shape. */ vi.fn() as never;
     mockRegisterAgent.mockImplementation(successfulRegistration);
   });
 

@@ -20,7 +20,7 @@ import {
 import {
   makeTransportLayer,
   resolveTransportInputs,
-  Transport,
+  transportSchema,
   type TransportOptions,
 } from "./transport.js";
 
@@ -81,7 +81,7 @@ function profileInputUsesProfileAgentSocket() {
 
 function layerProvidesCommandTransport() {
   return Effect.gen(function* () {
-    const command = yield* Transport.pipe(
+    const command = yield* transportSchema.pipe(
       Effect.map((transport) => transport.command),
       Effect.provide(makeTransportLayer(makeOpts())),
     );

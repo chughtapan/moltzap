@@ -73,6 +73,7 @@ export type PropertyFailure =
 /** Each property's body — an Effect that succeeds on pass, fails typed on failure. */
 export type PropertyRun = Effect.Effect<void, PropertyFailure>;
 
+/** Describes registered property. */
 export interface RegisteredProperty {
   readonly category: PropertyCategory;
   readonly name: string;
@@ -82,7 +83,7 @@ export interface RegisteredProperty {
 
 /** Mutable registry attached per-context. */
 export interface PropertyRegistry {
-  readonly entries: Ref.Ref<ReadonlyArray<RegisteredProperty>>;
+  readonly entries: Ref.Ref<readonly RegisteredProperty[]>;
 }
 
 type PropertyAssertionFailureFactory = (
@@ -103,13 +104,17 @@ function ensureRegistry(ctx: PropertyContext): PropertyRegistry {
   let reg = registries.get(ctx);
   if (reg === undefined) {
     reg = {
-      entries: Effect.runSync(Ref.make<ReadonlyArray<RegisteredProperty>>([])),
+      entries: Effect.runSync(Ref.make<readonly RegisteredProperty[]>([])),
     };
     registries.set(ctx, reg);
   }
   return reg;
 }
 
+/**
+ * Registers property.
+ * @param args Value supplied to the operation.
+ */
 export function registerProperty(...args: RegisterPropertyArgs): void {
   const [ctx, category, name, description, run] = args;
   const reg = ensureRegistry(ctx);
@@ -121,9 +126,14 @@ export function registerProperty(...args: RegisterPropertyArgs): void {
   );
 }
 
+/**
+ * Collects properties.
+ * @param ctx Context for the operation.
+ * @returns The collect properties result.
+ */
 export function collectProperties(
   ctx: PropertyContext,
-): ReadonlyArray<RegisteredProperty> {
+): readonly RegisteredProperty[] {
   const reg = ensureRegistry(ctx);
   return Effect.runSync(Ref.get(reg.entries));
 }
@@ -132,6 +142,10 @@ export function collectProperties(
  * Bridge fast-check's Promise-based `fc.assert` into the Effect error
  * channel. Every tier module uses this wrapper — no direct `await
  * fc.assert(...)` at call sites.
+ * @param category Value supplied to the operation.
+ * @param name Name of the operation.
+ * @param body Serialized response body to decode.
+ * @returns The assert property result.
  */
 export function assertProperty(
   category: PropertyCategory,

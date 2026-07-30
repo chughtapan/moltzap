@@ -11,11 +11,13 @@ import { sanitizeForSystemReminder } from "../service.js";
 import type { EnrichedConversationMeta } from "../channel-core.js";
 import type { CrossConvMarkup } from "./format-cross-conv.js";
 
+/** Describes group fields. */
 export interface GroupFields {
-  readonly name: string | undefined;
+  readonly name?: string;
   readonly participants: readonly string[];
 }
 
+/** Represents group formatter values. */
 export type GroupFormatter = (fields: GroupFields) => string;
 
 const UNNAMED_GROUP_FALLBACK = "(unnamed)";
@@ -26,11 +28,15 @@ const NO_PARTICIPANTS_FALLBACK = "(none listed)";
  * Pure narrowing helper — callers use the non-null return to drive
  * `formatGroupBlock` or per-channel field extraction (openclaw's
  * `groupSubject` + `groupMembers`).
+ * @param meta Value supplied to the operation.
+ * @returns The get group fields result.
  */
 export function getGroupFields(
-  meta: EnrichedConversationMeta | undefined,
+  meta?: EnrichedConversationMeta,
 ): GroupFields | null {
-  if (meta?.type !== "group") return null;
+  if (meta?.type !== "group") {
+    return null;
+  }
   return { name: meta.name, participants: meta.participants };
 }
 
@@ -60,6 +66,9 @@ function formatXmlSystemReminder(fields: GroupFields): string {
  *   "openclaw renders no group block" an explicit, fixtured output.
  *
  * Or pass a custom `formatter` callback.
+ * @param fields Value supplied to the operation.
+ * @param opts Value supplied to the operation.
+ * @returns The format group block result.
  */
 export function formatGroupBlock(
   fields: GroupFields,
@@ -67,11 +76,11 @@ export function formatGroupBlock(
     | { readonly markup: CrossConvMarkup }
     | { readonly formatter: GroupFormatter },
 ): string {
-  if ("formatter" in opts) return opts.formatter(fields);
-  switch (opts.markup) {
-    case "xml-system-reminder":
-      return formatXmlSystemReminder(fields);
-    case "json-header":
-      return "";
+  if ("formatter" in opts) {
+    return opts.formatter(fields);
   }
+  if (opts.markup === "xml-system-reminder") {
+    return formatXmlSystemReminder(fields);
+  }
+  return "";
 }

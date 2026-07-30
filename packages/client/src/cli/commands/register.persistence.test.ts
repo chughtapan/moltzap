@@ -2,8 +2,11 @@ import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Option, Redacted, Schema } from "effect";
-import { AgentId, Register } from "@moltzap/protocol/identity";
-import { AgentKey } from "@moltzap/protocol/identity";
+import {
+  agentId as agentIdSchema,
+  type register,
+  agentKey,
+} from "@moltzap/protocol/identity";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
   agentId,
@@ -23,21 +26,21 @@ const TEST_SERVER_URL = "wss://test.example";
 const AGENT_ID = agentId("00000000-0000-4000-8000-000000000123");
 const API_KEY = redactedAgentKey(agentKeyString(11));
 
-type RegisterResult = ResultOf<typeof Register>;
+type RegisterResult = ResultOf<typeof register>;
 
-const MoltzapConfigText = Schema.parseJson(
+const moltzapConfigText = Schema.parseJson(
   Schema.Struct({
     profiles: Schema.Record({
       key: Schema.String,
       value: Schema.Struct({
-        agentId: AgentId,
-        apiKey: AgentKey,
+        agentId: agentIdSchema,
+        apiKey: agentKey,
         agentName: Schema.String,
       }),
     }),
   }),
 );
-const decodeMoltzapConfig = Schema.decodeUnknown(MoltzapConfigText);
+const decodeMoltzapConfig = Schema.decodeUnknown(moltzapConfigText);
 
 const mockRegisterAgent =
   vi.fn<
@@ -54,7 +57,9 @@ vi.mock("../../auth.js", () => ({
     name: string,
     opts?: { readonly inviteCode?: string; readonly description?: string },
   ) => {
-    if (opts === undefined) return mockRegisterAgent(baseUrl, name);
+    if (opts === undefined) {
+      return mockRegisterAgent(baseUrl, name);
+    }
     return mockRegisterAgent(baseUrl, name, opts);
   },
 }));
@@ -107,7 +112,12 @@ function persistsSharedProfileConfig() {
       const profile = moltzapConfig.profiles[AGENT_NAME];
       expect(profile).toBeDefined();
       expect(profile?.agentId).toBe(AGENT_ID);
-      expect(Redacted.value(profile!.apiKey)).toBe(Redacted.value(API_KEY));
+      expect(
+        Redacted.value(
+          /* Safe because the test fixture establishes this asserted shape. */ profile!
+            .apiKey,
+        ),
+      ).toBe(Redacted.value(API_KEY));
       expect(profile?.agentName).toBe(AGENT_NAME);
     }),
   );

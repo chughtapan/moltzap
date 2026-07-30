@@ -13,7 +13,7 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { AgentName } from "@moltzap/protocol/identity";
+import { agentName } from "@moltzap/protocol/identity";
 import { httpBaseUrl } from "@moltzap/protocol/network";
 import { Config, Duration, Effect, Layer, Redacted, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -29,8 +29,8 @@ const SIM_INTEGRATION_ENABLED = Effect.runSync(
 const RUN_TIMEOUT_MS = 1_200_000;
 const HTTP_FORBIDDEN = 403;
 const REGISTER_ROUTE = "/api/v1/auth/register";
-const ROSTER_PARTICIPANT = Schema.decodeSync(AgentName)("roster-participant");
-const HostLayer = Layer.merge(NodeContext.layer, FetchHttpClient.layer);
+const ROSTER_PARTICIPANT = Schema.decodeSync(agentName)("roster-participant");
+const hostLayer = Layer.merge(NodeContext.layer, FetchHttpClient.layer);
 
 const verifyRegistrationBoundary = Effect.scoped(
   Effect.gen(function* () {
@@ -51,7 +51,7 @@ const verifyRegistrationBoundary = Effect.scoped(
     expect(authorized.agentId.length).toBeGreaterThan(0);
     expect(Redacted.isRedacted(authorized.key)).toBe(true);
   }),
-).pipe(Effect.provide(HostLayer), Effect.orDie);
+).pipe(Effect.provide(hostLayer), Effect.orDie);
 
 describe.skipIf(!SIM_INTEGRATION_ENABLED)(
   "MoltZap registration boundary",
@@ -63,3 +63,5 @@ describe.skipIf(!SIM_INTEGRATION_ENABLED)(
     );
   },
 );
+
+/* eslint-enable sonarjs/assertions-in-tests -- Restore strict defaults after the scoped file-level exception. */

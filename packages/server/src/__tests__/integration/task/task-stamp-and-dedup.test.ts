@@ -9,8 +9,8 @@ import {
   getKyselyDb,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { MessagesSend } from "@moltzap/protocol/message";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import { messagesSend } from "@moltzap/protocol/message";
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
@@ -23,15 +23,17 @@ it("agent/message/send stamps task_id matching conversations.task_id", () =>
     const alice = yield* registerAndConnect("alice-465");
     const bob = yield* registerAndConnect("bob-465");
 
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
     });
 
-    const sendResult = yield* alice.client.sendRpc(MessagesSend, {
+    const sendResult = yield* alice.client.sendRpc(messagesSend, {
       taskId: conv.task.id,
-      conversationId: conv.conversation!.id,
+      conversationId:
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
       parts: [{ type: "text", text: "hello" }],
     });
 
@@ -47,7 +49,12 @@ it("agent/message/send stamps task_id matching conversations.task_id", () =>
       db
         .selectFrom("conversations")
         .select(["task_id"])
-        .where("id", "=", conv.conversation!.id)
+        .where(
+          "id",
+          "=",
+          /* Safe because the test fixture establishes this asserted shape. */ conv
+            .conversation!.id,
+        )
         .executeTakeFirstOrThrow(),
     );
 

@@ -14,23 +14,34 @@ import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyInvariantViolation } from "../_shared/registry.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 
-export const PRESENCE_CATEGORY = "presence" as const;
+/** Provides the presence category runtime value. */
+export const PRESENCE_CATEGORY = "presence";
+/** Provides the presence default timeout ms runtime value. */
 export const PRESENCE_DEFAULT_TIMEOUT_MS = 5000;
 
 // Matches the server-derived presence status schema. `working` is driven by
 // the LeaseRegistry-grant lifecycle.
+/** Represents presence status values. */
 export type PresenceStatus = "online" | "working" | "offline";
 
+/** Describes presence status entry. */
 export interface PresenceStatusEntry {
   readonly agentId: AgentId;
   readonly status: PresenceStatus;
 }
 
+/** Describes presence actor. */
 export interface PresenceActor {
   readonly agent: TestAgent;
   readonly client: AgentTestClient;
 }
 
+/**
+ * Executes the presence violation operation.
+ * @param name Name of the operation.
+ * @param reason Value supplied to the operation.
+ * @returns The presence violation result.
+ */
 export function presenceViolation(
   name: string,
   reason: string,
@@ -42,6 +53,13 @@ export function presenceViolation(
   });
 }
 
+/**
+ * Registers agent.
+ * @param ctx Context for the operation.
+ * @param propertyName Value supplied to the operation.
+ * @param name Name of the operation.
+ * @returns The register agent result.
+ */
 export function registerAgent(
   ctx: ConformanceRunContext,
   propertyName: string,
@@ -60,6 +78,13 @@ export function registerAgent(
   );
 }
 
+/**
+ * Executes the acquire client operation.
+ * @param ctx Context for the operation.
+ * @param propertyName Value supplied to the operation.
+ * @param name Name of the operation.
+ * @returns The acquire client result.
+ */
 export function acquireClient(
   ctx: ConformanceRunContext,
   propertyName: string,
@@ -83,6 +108,14 @@ export function acquireClient(
   }).pipe(Effect.withSpan("acquireClient"));
 }
 
+/**
+ * Executes the acquire closeable client operation.
+ * @param ctx Context for the operation.
+ * @param propertyName Value supplied to the operation.
+ * @param agent Agent fixture that performs the operation.
+ * @param label Value supplied to the operation.
+ * @returns The acquire closeable client result.
+ */
 export function acquireCloseableClient(
   ctx: ConformanceRunContext,
   propertyName: string,

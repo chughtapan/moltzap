@@ -1,32 +1,42 @@
 import { Schema, type Brand } from "effect";
-import { AgentId, agentOwnershipSchema } from "#identity/agents";
-import { ConversationId, MessageId } from "#conversation";
+import { agentId, agentOwnershipSchema } from "#identity/agents";
+import { conversationId, messageId } from "#conversation";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
 import { messagePartsSchema } from "./parts.js";
-import { TaskId } from "#task";
+import { taskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
-import { ForbiddenError, errorPayloadFields } from "#transport";
-import { dateTimeStringSchema, formatString, stringEnum } from "#transport";
+import {
+  ForbiddenError,
+  errorPayloadFields,
+  dateTimeStringSchema,
+  formatString,
+  stringEnum,
+} from "#transport";
 
+/** Represents lease id values. */
 export type LeaseId = string & Brand.Brand<"LeaseId">;
 
-export const LeaseId: Schema.Schema<LeaseId, string> = formatString(
+/** Validates and decodes lease id values. */
+export const leaseId: Schema.Schema<LeaseId, string> = formatString(
   "uuid",
 ).pipe(
   Schema.brand("LeaseId"),
   Schema.annotations({ description: "Branded LeaseId" }),
 );
 
+/** Represents dispatch id values. */
 export type DispatchId = string & Brand.Brand<"DispatchId">;
 
-export const DispatchId: Schema.Schema<DispatchId, string> = formatString(
+/** Validates and decodes dispatch id values. */
+export const dispatchId: Schema.Schema<DispatchId, string> = formatString(
   "uuid",
 ).pipe(
   Schema.brand("DispatchId"),
   Schema.annotations({ description: "Branded DispatchId" }),
 );
 
+/** Reports dispatch not found failures. */
 export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundError>()(
   "DispatchNotFound",
   errorPayloadFields,
@@ -34,18 +44,18 @@ export class DispatchNotFoundError extends Schema.TaggedError<DispatchNotFoundEr
   static readonly message = "Dispatch not found";
 }
 
-const DateTimeString = dateTimeStringSchema();
-const AgentOwnershipSchema = agentOwnershipSchema();
-const MessageParts = messagePartsSchema();
+const dateTimeString = dateTimeStringSchema();
+const agentOwnershipSchemaValue = agentOwnershipSchema();
+const messageParts = messagePartsSchema();
 
-const DispatchAdmissionDecisionSchema = Schema.Union(
+const dispatchAdmissionDecisionSchema = Schema.Union(
   Schema.Struct({
     decision: Schema.Literal("grant"),
-    leaseId: Schema.optional(LeaseId),
+    leaseId: Schema.optional(leaseId),
     leaseTimeoutMs: Schema.optional(
       Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
     ),
-    dispatchMessageId: Schema.optional(MessageId),
+    dispatchMessageId: Schema.optional(messageId),
   }),
   Schema.Struct({
     decision: Schema.Literal("deny"),
@@ -57,20 +67,21 @@ const DispatchAdmissionDecisionSchema = Schema.Union(
   }),
 );
 
+/** Represents dispatch admission decision values. */
 export type DispatchAdmissionDecision = Schema.Schema.Type<
-  typeof DispatchAdmissionDecisionSchema
+  typeof dispatchAdmissionDecisionSchema
 >;
 
-const PendingMessageSchema = Schema.Struct({
-  messageId: MessageId,
-  conversationId: ConversationId,
-  senderAgentId: AgentId,
-  createdAt: DateTimeString,
-  receivedAt: DateTimeString,
-  parts: Schema.optional(MessageParts),
+const pendingMessageSchema = Schema.Struct({
+  messageId: messageId,
+  conversationId: conversationId,
+  senderAgentId: agentId,
+  createdAt: dateTimeString,
+  receivedAt: dateTimeString,
+  parts: Schema.optional(messageParts),
 });
 
-const PendingMessageArraySchema = Schema.Array(PendingMessageSchema).pipe(
+const pendingMessageArraySchema = Schema.Array(pendingMessageSchema).pipe(
   Schema.maxItems(100),
 );
 
@@ -78,81 +89,85 @@ const PendingMessageArraySchema = Schema.Array(PendingMessageSchema).pipe(
  * Recipient admission request. The server acks immediately and emits
  * `agent/dispatch/released` when the moderator verdict resolves.
  */
-export const DispatchRequest = defineRpc({
+export const dispatchRequest = defineRpc({
   name: "agent/dispatch/request",
   params: Schema.Struct({
-    conversationId: ConversationId,
-    messageId: MessageId,
-    senderAgentId: AgentId,
-    parts: Schema.optional(MessageParts),
-    receivedAt: Schema.optional(DateTimeString),
-    pending: Schema.optional(PendingMessageArraySchema),
+    conversationId: conversationId,
+    messageId: messageId,
+    senderAgentId: agentId,
+    parts: Schema.optional(messageParts),
+    receivedAt: Schema.optional(dateTimeString),
+    pending: Schema.optional(pendingMessageArraySchema),
     attempt: Schema.optional(
       Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
     ),
   }),
-  result: Schema.Struct({ leaseId: LeaseId, dispatchId: DispatchId }),
+  result: Schema.Struct({ leaseId: leaseId, dispatchId: dispatchId }),
   requires: [AgentPrincipal, ActiveAgent],
   errors: [],
 });
 
-const DispatchAuthorizeContextSchema = Schema.Struct({
-  taskId: TaskId,
+const dispatchAuthorizeContextSchema = Schema.Struct({
+  taskId: taskId,
   appId: Schema.String,
-  conversationId: ConversationId,
-  recipient: AgentOwnershipSchema,
+  conversationId: conversationId,
+  recipient: agentOwnershipSchemaValue,
   message: Schema.Struct({
-    id: MessageId,
-    senderAgentId: AgentId,
-    parts: Schema.optional(MessageParts),
+    id: messageId,
+    senderAgentId: agentId,
+    parts: Schema.optional(messageParts),
   }),
   attempt: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
-  receivedAt: Schema.optional(DateTimeString),
-  pending: Schema.optional(PendingMessageArraySchema),
+  receivedAt: Schema.optional(dateTimeString),
+  pending: Schema.optional(pendingMessageArraySchema),
 });
 
-export const DispatchAuthorize = defineRpc({
+/** Defines the `app/dispatch/authorize` RPC contract. */
+export const dispatchAuthorize = defineRpc({
   name: "app/dispatch/authorize",
-  params: DispatchAuthorizeContextSchema,
-  result: Schema.Struct({ admission: DispatchAdmissionDecisionSchema }),
+  params: dispatchAuthorizeContextSchema,
+  result: Schema.Struct({ admission: dispatchAdmissionDecisionSchema }),
   requires: [],
   errors: [ForbiddenError],
 });
 
-export const DispatchRelease = defineNotification({
+/** Defines the `agent/dispatch/released` notification contract. */
+export const dispatchRelease = defineNotification({
   name: "agent/dispatch/released",
   params: Schema.Struct({
-    dispatchId: DispatchId,
-    leaseId: LeaseId,
-    verdict: DispatchAdmissionDecisionSchema,
+    dispatchId: dispatchId,
+    leaseId: leaseId,
+    verdict: dispatchAdmissionDecisionSchema,
     leaseTimeoutMs: Schema.optional(
       Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
     ),
   }),
 });
 
-export const DispatchLeaseConsumed = defineNotification({
+/** Defines the `app/dispatch/lease-consumed` notification contract. */
+export const dispatchLeaseConsumed = defineNotification({
   name: "app/dispatch/lease-consumed",
   params: Schema.Struct({
-    dispatchId: DispatchId,
-    leaseId: LeaseId,
-    conversationId: ConversationId,
-    messageId: MessageId,
-    consumedAt: DateTimeString,
+    dispatchId: dispatchId,
+    leaseId: leaseId,
+    conversationId: conversationId,
+    messageId: messageId,
+    consumedAt: dateTimeString,
   }),
 });
 
-export const DispatchLeaseExpired = defineNotification({
+/** Defines the `app/dispatch/lease-expired` notification contract. */
+export const dispatchLeaseExpired = defineNotification({
   name: "app/dispatch/lease-expired",
   params: Schema.Struct({
-    dispatchId: DispatchId,
-    leaseId: LeaseId,
-    conversationId: ConversationId,
-    expiredAt: DateTimeString,
+    dispatchId: dispatchId,
+    leaseId: leaseId,
+    conversationId: conversationId,
+    expiredAt: dateTimeString,
   }),
 });
 
-const LeaseStateSchema = stringEnum([
+const leaseStateSchema = stringEnum([
   "PENDING",
   "CLAIMED",
   "GRANTED",
@@ -163,43 +178,48 @@ const LeaseStateSchema = stringEnum([
   "HOLD",
 ]);
 
-const LeaseRecordSchema = Schema.Struct({
-  dispatchId: DispatchId,
-  leaseId: LeaseId,
-  conversationId: ConversationId,
-  taskId: TaskId,
+const leaseRecordSchema = Schema.Struct({
+  dispatchId: dispatchId,
+  leaseId: leaseId,
+  conversationId: conversationId,
+  taskId: taskId,
   appId: Schema.String,
-  recipientAgentId: AgentId,
+  recipientAgentId: agentId,
   moderatorConnectionId: Schema.String,
-  state: LeaseStateSchema,
-  verdict: Schema.Union(DispatchAdmissionDecisionSchema, Schema.Null),
-  mintedAt: DateTimeString,
-  resolvedAt: Schema.Union(DateTimeString, Schema.Null),
-  consumedAt: Schema.Union(DateTimeString, Schema.Null),
-  consumedMessageId: Schema.Union(MessageId, Schema.Null),
-  expiredAt: Schema.Union(DateTimeString, Schema.Null),
+  state: leaseStateSchema,
+  verdict: Schema.Union(dispatchAdmissionDecisionSchema, Schema.Null),
+  mintedAt: dateTimeString,
+  resolvedAt: Schema.Union(dateTimeString, Schema.Null),
+  consumedAt: Schema.Union(dateTimeString, Schema.Null),
+  consumedMessageId: Schema.Union(messageId, Schema.Null),
+  expiredAt: Schema.Union(dateTimeString, Schema.Null),
   leaseTimeoutMs: Schema.Union(
     Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
     Schema.Null,
   ),
 });
 
-export const DispatchLeaseGet = defineRpc({
+/** Defines the `app/dispatch/lease/get` RPC contract. */
+export const dispatchLeaseGet = defineRpc({
   name: "app/dispatch/lease/get",
-  params: Schema.Struct({ dispatchId: DispatchId }),
-  result: Schema.Struct({ lease: LeaseRecordSchema }),
+  params: Schema.Struct({ dispatchId: dispatchId }),
+  result: Schema.Struct({ lease: leaseRecordSchema }),
   requires: [AppPrincipal],
   errors: [DispatchNotFoundError, ForbiddenError],
 });
 
-export const agentCallableDispatchRpcMethods = [DispatchRequest] as const;
+/** Lists the agent callable dispatch rpc methods in dispatch order. */
+export const agentCallableDispatchRpcMethods = [dispatchRequest] as const;
 
-export const appCallableDispatchRpcMethods = [DispatchLeaseGet] as const;
+/** Lists the app callable dispatch rpc methods in dispatch order. */
+export const appCallableDispatchRpcMethods = [dispatchLeaseGet] as const;
 
-export const dispatchCallbackMethods = [DispatchAuthorize] as const;
+/** Lists the dispatch callback methods in dispatch order. */
+export const dispatchCallbackMethods = [dispatchAuthorize] as const;
 
+/** Lists the dispatch notification definitions. */
 export const dispatchNotifications = [
-  DispatchRelease,
-  DispatchLeaseConsumed,
-  DispatchLeaseExpired,
+  dispatchRelease,
+  dispatchLeaseConsumed,
+  dispatchLeaseExpired,
 ] as const;

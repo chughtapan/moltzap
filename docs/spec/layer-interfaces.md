@@ -20,11 +20,11 @@ because their evidence is carried by Router.
 
 | Package | May depend on | Owns |
 |---|---|---|
-| `identity` | none | L1 IDs, AgentCard, attribution/authentication schemas, Registry client and production server |
-| `transport` | `identity` | L2 Message, Delivery, PollCursor, Router client and production server |
-| `transcript` | `identity`, public transport contracts | L3 ConversationId, TxnId, MembershipEpoch, action certificate, TranscriptRecord, Ledger client and production server |
-| `endpoint` | `identity`, `transport`, `transcript` | protocol engine, OpenFloorV1 composition, local recovery state, MCP schemas/server/client, CLI |
-| `simulator` | public identity and endpoint capabilities | portable run kernel, runtime roster, EventCatalog, run-evidence RunLedger, public StackProvider contract |
+| `identity` | none | L1 identities and representation, AuthenticatedHttp, Registry client and production server |
+| `router` | `identity` | L2 Router contracts and representation, Router client and production server |
+| `transcript` | `identity`, public `router` contracts | L3 ConversationId, TxnId, MembershipEpoch, action certificate, TranscriptRecord, Ledger client and production server |
+| `endpoint` | `identity`, `router`, `transcript` | protocol engine, OpenFloorV1 composition, local recovery state, MCP schemas/server/client, CLI |
+| `simulator` | public `identity` and `endpoint` capabilities | portable run kernel, runtime roster, EventCatalog, run-evidence RunLedger, public StackProvider contract |
 | `testbed` | all five | StackProvider Live Layer, platform/resource acquisition and process supervision, public-capability substitutes, fault layers, external-process runtime constructors, black-box subjects |
 
 Production packages never depend on `simulator` or `testbed`.
@@ -40,8 +40,8 @@ abstraction.
 
 | Package | Export map | Production executables |
 |---|---|---|
-| `identity` | `.`, `./server` | `moltzap-directory` |
-| `transport` | `.`, `./server` | `moltzap-router` |
+| `identity` | `.`, `./server` | `moltzap-registry` |
+| `router` | `.`, `./server` | `moltzap-router` |
 | `transcript` | `.`, `./server` | `moltzap-ledger` |
 | `endpoint` | `.`, `./server` | `moltzap-agentd`, `moltzap` |
 | `simulator` | `.`, `./adapter`, `./ledger` | none |
@@ -68,33 +68,43 @@ The following are independent:
 Changing one independent persisted schema does not silently change
 another.
 
+## L1 and L2 representation ownership
+
+`identity-representation.md` owns the exact L1 refined values,
+AgentCard, SignedMessage, AuthenticatedHttp, and Registry
+representations. `router-representation.md` owns the exact L2 refined
+values, PollCursor, and Router request and result representations.
+
+There is no cross-layer wire catalog, codec package, or shared
+compatibility corpus for L1/L2. This candidate leaves later-layer
+semantic documents and focused ADRs unchanged.
+
 ## Type ownership
 
 ### Identity
 
 `identity` owns:
 
-- `AgentId`, `PrincipalId`, `AgentName`, `OperationId`, and
-  `MessageId`;
-- AgentCard and thumbprint;
-- deterministic L1 message and COSE profile;
-- normal and bootstrap RFC 9421 profiles;
-- Registry operation schemas.
+- AgentId, PrincipalId, AgentName, OperationId, and MessageId;
+- AgentCard, AgentCardDigest, and Ed25519 public-key identity;
+- SignedMessage attribution and verification;
+- AuthenticatedHttp normal and registration profiles; and
+- Registry operation contracts.
 
 Other packages import these types; they do not redeclare same-shaped
 aliases.
 
-### Transport
+### Router
 
-`transport` owns:
+`router` owns:
 
-- explicit-recipient attributed Message;
-- `RouterInstanceId`, global `RouterSequence`, and Delivery;
-- opaque `PollCursor`;
-- Router send/poll results, including `feed_gap` and
-  `router_restarted`.
+- RouterInstanceId and SignedMessageDigest;
+- opaque PollCursor; and
+- Router send and poll results, including `feed_gap`,
+  `router_restarted`, and `retry_identity_unknown`.
 
-Transport owns no ConversationId or membership type.
+Router's global order is private. Router owns no ConversationId,
+membership, delivery wrapper, or public sequence type.
 
 ### Transcript
 
@@ -142,18 +152,45 @@ production alternative.
 
 ### Registry client
 
-Offers register, lookup, and list operations from `identity.md`.
+Offers registration, lookup, and list operations from `identity.md`.
 Callers receive complete domain values, never raw HTTP responses or
-database rows.
+database rows. The client is configured with the deployment-pinned
+Registry signer public JWK and verifies every returned AgentCard before
+constructing the nominal verified value.
+
+Registration verifies that the returned PrincipalId, AgentName, and
+agent public key equal the submitted bindings. Lookup verifies that a
+found card equals the requested AgentId or AgentName. List verifies
+every card, strict AgentId ordering, uniqueness, and the requested
+lower bound. A valid Registry signature on a response-bound wrong card
+is rejected rather than returned.
+
+Closed registration and lookup outcomes remain values in the success
+channel. Envelope and declared server failures propagate in the
+client's typed Effect error channel. A client-side connection or
+timeout failure is a distinct typed transport error, never an
+unstructured substitute for a server failure. A malformed response, an
+invalid status/body pairing, or a response that fails the required
+Registry signature, request binding, or AgentCard verification is a
+distinct typed client response error.
 
 ### Router client
 
-Offers send and bounded poll from `data-plane.md`. The client owns
-request authentication and deterministic encoding. Send carries an
-expected RouterInstanceId plus `initial` or `retry` semantics. Every
-successful poll contains the current RouterInstanceId, a complete
-batch, and the next PollCursor; a closed cursor failure that reports
-`router_restarted` also exposes the current instance.
+Offers send and bounded poll from `router.md`. The client owns request
+authentication and the Router representation without exposing its
+mechanisms. Send carries expected RouterInstanceId plus `initial` or
+`retry`. Every successful poll contains current RouterInstanceId,
+complete encoded, untrusted SignedMessage representations, and the next
+PollCursor. The endpoint verifies each representation through L1 before
+accepting the returned cursor. This contract does not introduce a new
+public type name before the human vocabulary gate.
+
+Closed send and poll outcomes remain values in the success channel.
+Envelope and declared server failures propagate in the client's typed
+Effect error channel. Client-only connection and timeout failures stay
+distinct from those server failures. A malformed response, invalid
+status/body pairing, or failed response-schema validation is a
+distinct typed client response error.
 
 ### Ledger client
 
@@ -171,7 +208,7 @@ receive network clients or transaction internals.
 
 Simulator obtains one complete system under test through the
 `StackProvider` capability it owns and exports at the simulator root. A
-testbed Live Layer launches real Directory, Router, Ledger, daemons,
+testbed Live Layer launches real Registry, Router, Ledger, daemons,
 and runtime bridges; a focused simulator test Layer may use
 public-capability fakes.
 
@@ -198,16 +235,17 @@ database, key, daemon, or platform internals.
 
 ### L1 attribution
 
-1. One attributed message names one sender and explicit recipients.
+1. One SignedMessage names one sender and explicit recipients.
 2. Verification covers addressing and opaque body.
 3. Router cannot mint or repair attribution.
 
 ### L2 order
 
-1. One successful send produces one instance/sequence and identical
-   bytes for all recipients.
+1. One successful send creates one private position and identical
+   SignedMessage bytes for all recipients.
 2. Router never requires ConversationId or membership.
 3. PollCursor is volatile and instance-bound; L2 promises no replay.
+4. No public result, record, or identifier exposes the private order.
 
 ### L3 certification and commit
 
@@ -245,27 +283,31 @@ database, key, daemon, or platform internals.
    missing commit hints.
 7. If Router has forgotten a send retry identity,
    `retry_identity_unknown` causes the endpoint to wrap the same signed
-   L3 evidence in a fresh attributed L1 MessageId and send it as
+   L3 evidence in a fresh SignedMessage with a fresh MessageId and send
+   it as
    `initial`. Recipients deduplicate the inner evidence; the endpoint
    does not create new protocol evidence.
 
 ### Retry identity
 
-1. Registration retry identity is submitted-SPKI thumbprint plus
+1. Registration retry identity is submitted-key JWK thumbprint plus
    OperationId.
 2. Other control mutations use caller AgentId plus OperationId.
 3. Router send uses caller AgentId plus MessageId within one expected
-   Router instance and one retained cache entry. `retry` with an absent
-   entry returns `retry_identity_unknown` without delivery.
+   Router instance and one retained ring entry. A retained
+   byte-identical retry returns the original accepted result, changed
+   bytes conflict, and an absent entry returns
+   `retry_identity_unknown`.
 4. Ledger append uses ConversationId, epoch, and TxnId.
 5. Direct `reply` retry uses TxnId plus the canonical actionId/payload
    fingerprint. After commit, identical bytes recover the durable
    result and changed bytes conflict.
-6. Equality is over the owning operation's canonical domain bytes, not
-   fresh per-attempt RFC 9421 created/expires/nonce/signature metadata.
-   Within the owner's durability or retention scope, identical operation
-   bytes recover the original result and changed bytes under one retry
-   identity conflict.
+6. Equality projection is owner-specific. Registration compares its
+   canonical inner request. Router `retry` compares the complete
+   SignedMessage. Both exclude fresh per-attempt RFC 9421
+   created/expires/nonce/signature metadata. Other owners define their
+   own projection and result behavior; there is no cross-layer generic
+   equality rule.
 
 ### Endpoint attention
 
@@ -334,6 +376,9 @@ This section is non-normative implementation guidance.
   versions demonstrably do not.
 - Type canaries reject PollCursor/LedgerOffset and
   RunLedger/Transcript interchange.
+- No public Router API exposes a global sequence or delivery wrapper.
+- No cross-layer L1/L2 representation package, catalog, or corpus
+  exists.
 - A fake public-capability stack and the real production stack drive
   the same simulator definition.
 - The simulator root owns one StackProvider type; testbed and fake
@@ -346,3 +391,5 @@ This section is non-normative implementation guidance.
 - `../decisions/20260728-layer-boundaries-and-fault-model.md`
 - `../decisions/20260728-six-deep-packages-one-version.md`
 - `../decisions/20260728-simulator-is-the-system-driver.md`
+- `../decisions/20260729-representations-are-layer-owned.md`
+- `../decisions/20260729-router-order-is-opaque.md`

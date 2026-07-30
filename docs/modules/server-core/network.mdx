@@ -13,7 +13,7 @@ Network-domain utilities.
 
 ## Public surface
 
-### [`AgentEndpointResolver`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/agent-endpoint-resolver.ts#L64)
+### [`AgentEndpointResolver`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/agent-endpoint-resolver.ts#L66)
 
 _Class_
 
@@ -24,7 +24,11 @@ export class AgentEndpointResolver {
     (state) => new AgentEndpointResolver(state),
   );
 
-  private constructor(private readonly state: Ref.Ref<ResolverState>) {}
+  private readonly state: Ref.Ref<ResolverState>;
+
+  private constructor(state: Ref.Ref<ResolverState>) {
+    this.state = state;
+  }
 
   /**
    * Atomically associate `(agentId, connectionId)` and the reverse
@@ -41,6 +45,9 @@ export class AgentEndpointResolver {
    * forward and reverse views stay invariant. Practically unreachable
    * but the detection is cheap and the alternative is a silent
    * forward-map leak.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @param connId Value supplied to the operation.
+   * @returns The prior result.
    */
   add(agentId: AgentId, connId: ConnectionId): Effect.Effect<void> {
     return Ref.update(this.state, (s) => {
@@ -90,6 +97,9 @@ export class AgentEndpointResolver {
    * If removing `connectionId` empties the agent's set, the agent key
    * itself is dropped from the forward map so {@link resolveAll} returns
    * the empty set rather than hitting an empty bucket.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @param connId Value supplied to the operation.
+   * @returns The existed result.
    */
   remove(agentId: AgentId, connId: ConnectionId): Effect.Effect<void> {
     return Ref.update(this.state, (s) => {
@@ -97,7 +107,9 @@ export class AgentEndpointResolver {
         onNone: () => false,
         onSome: (set) => HashSet.has(set, connId),
       });
-      if (!existed) return s;
+      if (!existed) {
+        return s;
+      }
       return {
         byAgent: HashMap.modifyAt(s.byAgent, agentId, (existing) =>
           Option.flatMap(existing, (set) => {
@@ -114,6 +126,8 @@ export class AgentEndpointResolver {
    * Hot-path fan-out lookup. Returns every connection id currently
    * associated with `agentId`. Read-only snapshot — the `HashSet` is
    * immutable and the caller cannot mutate the resolver through it.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @returns The resolve all result.
    */
   resolveAll(agentId: AgentId): Effect.Effect<HashSet.HashSet<ConnectionId>> {
     return Effect.map(Ref.get(this.state), (s) =>
@@ -133,18 +147,20 @@ reverse views never disagree, even under concurrent add /
 remove calls from independent `agent/network/connect` and disconnect
 fibers.
 
-### [`AgentEndpointResolverLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L18)
+### [`agentEndpointResolverLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L21)
 
 _Variable_
 
 ```ts
-export const AgentEndpointResolverLive = Layer.effect(
+export const agentEndpointResolverLive = Layer.effect(
   AgentEndpointResolverTag,
   AgentEndpointResolver.make,
 )
 ```
 
-### [`AgentEndpointResolverTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L10)
+Provides the agent endpoint resolver live runtime value.
+
+### [`AgentEndpointResolverTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L11)
 
 _Class_
 
@@ -154,21 +170,25 @@ export class AgentEndpointResolverTag extends Context.Tag(
 )<AgentEndpointResolverTag, AgentEndpointResolver>() {}
 ```
 
-### [`applyOutboundWebhookCap`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/outbound-webhook-cap.ts#L44)
+Implements agent endpoint resolver tag.
+
+### [`applyOutboundWebhookCap`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/outbound-webhook-cap.ts#L45)
 
 _Function_
 
 ```ts
 export function applyOutboundWebhookCap(
-  client: HttpClientNs.HttpClient,
-): HttpClientNs.HttpClient
+  client: HttpClient.HttpClient,
+): HttpClient.HttpClient
 ```
 
 Wrap an `HttpClient.HttpClient` with OUTBOUND_WEBHOOK_PERMITS.
 Used by the standalone contact-policy wiring so the same 10-permit pool
 covers outbound webhook traffic in the process.
 
-### [`broadcastNotificationToAgents`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/notification-broadcast.ts#L19)
+**Returns:** The apply outbound webhook cap result.
+
+### [`broadcastNotificationToAgents`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/notification-broadcast.ts#L24)
 
 _Function_
 
@@ -189,23 +209,33 @@ connection (fired fork-and-forget, the `void` result settles on the client's
 ack); the client's reverse `RpcServer` routes it into its
 `SubscriberRegistry`. Replaces the raw `socket.write(encodedFrame)` path.
 
-### [`connectAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/connect.handlers.ts#L448)
+**Returns:** The broadcast notification to agents result.
+
+### [`connectAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/connect.handlers.ts#L501)
 
 _Variable_
 
 ```ts
-export const connectAgent: ServerHandler<typeof AgentConnect> = (params)
+export const connectAgent: ServerHandler<typeof agentConnect> = (params)
 ```
 
-### [`connectApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/connect.handlers.ts#L451)
+Provides the connect agent runtime value.
+
+**Returns:** The connect agent result.
+
+### [`connectApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/connect.handlers.ts#L509)
 
 _Variable_
 
 ```ts
-export const connectApp: ServerHandler<typeof AppConnect> = (params)
+export const connectApp: ServerHandler<typeof appConnect> = (params)
 ```
 
-### [`connectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/agent-endpoint-resolver.ts#L37)
+Provides the connect app runtime value.
+
+**Returns:** The connect app result.
+
+### [`connectionId`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/agent-endpoint-resolver.ts#L39)
 
 _Variable_
 
@@ -217,7 +247,7 @@ Decode a raw connection-id string through the protocol brand constructor.
 Used by tests that name connections with synthetic strings; production
 socket accept uses `newConnectionId` from protocol.
 
-### [`DeliveryAck`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L41)
+### [`DeliveryAck`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L40)
 
 _Class_
 
@@ -239,34 +269,44 @@ _TypeAlias_
 export type DeliveryError = RecipientNotResolved | WriteFailed;
 ```
 
+Represents delivery error conditions.
+
 ### [`NetworkSendService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L87)
 
 _Class_
 
 ```ts
 export class NetworkSendService {
-  constructor(
-    private readonly resolver: AgentEndpointResolver,
-    private readonly connections: ConnectionManager,
-  ) {}
+  private readonly resolver: AgentEndpointResolver;
+  private readonly connections: ConnectionManager;
+
+  constructor(resolver: AgentEndpointResolver, connections: ConnectionManager) {
+    this.resolver = resolver;
+    this.connections = connections;
+  }
 
   /**
    * Route `payload` to one live connection of `agentId`. Iterates the
    * resolver set so a stale entry does not poison the send when a
    * sibling connection is still live. {@link RecipientNotResolved}
-   * folds "no resolver entry" and "every resolved connection has gone
+   * Folds "no resolver entry" and "every resolved connection has gone
    * away" — callers can't act on the distinction without poking
    * internal state.
+   * @param to Value supplied to the operation.
+   * @param payload Value supplied to the operation.
+   * @returns The conns result.
    */
   send(
     to: AgentId,
     payload: OpaquePayload,
-  ): Effect.Effect<DeliveryAck, DeliveryError, never> {
-    return Effect.gen(this, function* () {
+  ): Effect.Effect<DeliveryAck, DeliveryError> {
+    return Effect.gen(this, function* (this: NetworkSendService) {
       const conns = yield* this.resolver.resolveAll(to);
       for (const candidate of HashSet.values(conns)) {
         const conn = yield* this.connections.peek(candidate);
-        if (Option.isNone(conn)) continue;
+        if (Option.isNone(conn)) {
+          continue;
+        }
         yield* conn.value.socket.write(payload).pipe(
           Effect.either,
           Effect.flatMap(
@@ -298,12 +338,16 @@ export class NetworkSendService {
    * `delivered` lists agents whose at-least-one connection was scheduled to
    * receive a write; the message service records that set on its delivery
    * trace.
+   * @param agentIds Value supplied to the operation.
+   * @param payload Value supplied to the operation.
+   * @param opts Value supplied to the operation.
+   * @returns The delivered result.
    */
   broadcast(
     agentIds: readonly AgentId[],
     payload: OpaquePayload,
     opts: BroadcastOptions = {},
-  ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
+  ): Effect.Effect<{ readonly delivered: readonly AgentId[] }> {
     return this.fanOut(agentIds, opts, (conn, cid, target) =>
       this.forkBroadcastWrite({ cid, conn, target, payload, options: opts }),
     );
@@ -314,6 +358,10 @@ export class NetworkSendService {
    * `agentIds`, resolves its live connections, runs the `connectionCanReceive`
    * gate, and invokes `fire` on each gate-passing connection. An agent lands in
    * `delivered` when at least one of its connections passed the gate.
+   * @param agentIds Value supplied to the operation.
+   * @param options Options that control the operation.
+   * @param fire Value supplied to the operation.
+   * @returns The delivered result.
    */
   private fanOut(
     agentIds: readonly AgentId[],
@@ -323,19 +371,23 @@ export class NetworkSendService {
       cid: ConnectionId,
       target: AgentId,
     ) => Effect.Effect<void>,
-  ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
-    return Effect.gen(this, function* () {
+  ): Effect.Effect<{ readonly delivered: readonly AgentId[] }> {
+    return Effect.gen(this, function* (this: NetworkSendService) {
       const delivered: AgentId[] = [];
       for (const target of agentIds) {
         const connIds = yield* this.resolver.resolveAll(target);
         let reached = false;
         for (const cid of HashSet.values(connIds)) {
           const connOpt = yield* this.connectionCanReceive(cid, options);
-          if (Option.isNone(connOpt)) continue;
+          if (Option.isNone(connOpt)) {
+            continue;
+          }
           yield* fire(connOpt.value, cid, target);
           reached = true;
         }
-        if (reached) delivered.push(target);
+        if (reached) {
+          delivered.push(target);
+        }
       }
       return { delivered };
     });
@@ -344,37 +396,17 @@ export class NetworkSendService {
   /**
    * Gate one resolved connection for conversation fan-out. Returns the
    * gate-passing {@link AgentConnection} (so the caller threads it into
-   * {@link forkBroadcastWrite} without a second `peek`), or `None` when
-   * the connection is excluded, gone, not an agent arm, or not a member
-   * of the target conversation.
-   */
-  private connectionCanReceive(
-    cid: ConnectionId,
-    options: BroadcastOptions,
-  ): Effect.Effect<Option.Option<AgentConnection>> {
-    return Effect.gen(this, function* () {
-      if (
-        options.excludeConnectionId !== undefined &&
-        cid === options.excludeConnectionId
-      ) {
-        return Option.none();
-      }
-      const connOpt = yield* this.connections.peek(cid);
-      if (Option.isNone(connOpt)) return Option.none();
-      const conn = connOpt.value;
-      // Only authenticated agent arms participate in conversation fan-out;
-      // unauthenticated and app arms have no conversation subscriptions.
 ```
 
 Outbound-routing primitive. Use the constructor directly in code;
 route through `NetworkSendServiceTag` in DI-aware code.
 
-### [`NetworkSendServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L23)
+### [`networkSendServiceLive`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L27)
 
 _Variable_
 
 ```ts
-export const NetworkSendServiceLive = Layer.effect(
+export const networkSendServiceLive = Layer.effect(
   NetworkSendServiceTag,
   Effect.gen(function* () {
     const resolver = yield* AgentEndpointResolverTag;
@@ -384,7 +416,9 @@ export const NetworkSendServiceLive = Layer.effect(
 )
 ```
 
-### [`NetworkSendServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L14)
+Provides the network send service live runtime value.
+
+### [`NetworkSendServiceTag`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/layer.ts#L16)
 
 _Class_
 
@@ -394,7 +428,9 @@ export class NetworkSendServiceTag extends Context.Tag(
 )<NetworkSendServiceTag, NetworkSendService>() {}
 ```
 
-### [`OpaquePayload`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L30)
+Implements network send service tag.
+
+### [`OpaquePayload`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/network/network-send.ts#L29)
 
 _TypeAlias_
 

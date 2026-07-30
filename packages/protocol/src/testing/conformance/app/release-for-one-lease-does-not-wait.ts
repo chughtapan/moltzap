@@ -14,16 +14,20 @@ import type { DispatchTestDriver } from "./_driver.js";
 
 const HOLD_MS = 3_000;
 
+/**
+ * Registers release for one lease does not wait on another.
+ * @param ctx Context for the operation.
+ */
 export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "release-for-one-lease-does-not-wait-on-another";
+  const name = "release-for-one-lease-does-not-wait-on-another";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "emit-time independence of leases",
-    withDriver(ctx, (driver) => assertReleaseIndependence(NAME, driver), {
+    withDriver(ctx, (driver) => assertReleaseIndependence(name, driver), {
       moderatorTimeoutMs: 15_000,
     }).pipe(Effect.withSpan("registerReleaseForOneLeaseDoesNotWaitOnAnother")),
   );
@@ -102,7 +106,8 @@ function assertSecondReleaseArrivesFirst(
       matchesLeaseId(leaseId),
       HOLD_MS - HOLD_RELEASE_MARGIN_MS,
     );
-    const params = second.params as LeaseIdOnlyView;
+    const params =
+      /* Safe because waitForRelease returns only released-notification deliveries. */ second.params as LeaseIdOnlyView;
     if (params.leaseId !== leaseId) {
       return yield* Effect.fail(
         dispatchAdmissionViolation(
@@ -116,5 +121,7 @@ function assertSecondReleaseArrivesFirst(
 
 function matchesLeaseId(leaseId: LeaseIdValue) {
   return (frame: { readonly params: unknown }) =>
-    (frame.params as LeaseIdOnlyView).leaseId === leaseId;
+    typeof frame.params === "object" &&
+    frame.params !== null &&
+    Reflect.get(frame.params, "leaseId") === leaseId;
 }

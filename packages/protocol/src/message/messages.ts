@@ -3,40 +3,42 @@
  */
 
 import { Schema } from "effect";
-import { AgentId } from "#identity/agents";
+import { agentId } from "#identity/agents";
 import {
   ConversationArchivedError,
-  ConversationId,
-  MessageId,
+  conversationId,
+  messageId,
 } from "#conversation";
 import {
   ConversationInTask,
   ConversationSendAccess,
 } from "#conversation/requirements";
 import { TaskReadAccess } from "#task/requirements";
-import { DispatchNotFoundError, LeaseId } from "#message/dispatch";
-import { HookBlockedError, TaskClosedError, TaskId } from "#task";
+import { DispatchNotFoundError, leaseId } from "#message/dispatch";
+import { HookBlockedError, TaskClosedError, taskId } from "#task";
 import { defineNotification, defineRpc } from "#transport/descriptor";
 import {
-  ListLimitSchema,
+  listLimitSchema,
   closedStructGuard,
   errorPayloadFields,
+  ForbiddenError,
+  dateTimeStringSchema,
 } from "#transport";
 import { AgentPrincipal } from "#identity/principals";
 import { ActiveAgent } from "#identity/requirements";
-import { ForbiddenError } from "#transport";
-import { dateTimeStringSchema } from "#transport";
 import { messagePartsSchema } from "./parts.js";
+/** Re-exports the public API from `./parts.js`. */
 export {
   decodeMessageParts,
   decodeMessagePartsText,
   messagePartsSchema,
   validateTextPart,
 } from "./parts.js";
+/** Re-exports the public API from `./parts.js`. */
 export type { MessageParts, Part } from "./parts.js";
 
-const DateTimeString = dateTimeStringSchema();
-const MessageParts = messagePartsSchema();
+const dateTimeString = dateTimeStringSchema();
+const messageParts = messagePartsSchema();
 
 /** The referenced message does not exist, such as a missing reply target. */
 export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundError>()(
@@ -46,33 +48,28 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
   static readonly message = "Message not found";
 }
 
-const MessageSchema = Schema.Struct({
-  id: MessageId,
-  conversationId: ConversationId,
-  senderId: AgentId,
-  replyToId: Schema.optional(MessageId),
-  parts: MessageParts,
-  taggedEntities: Schema.optional(Schema.Array(AgentId)),
+const messageSchema = Schema.Struct({
+  id: messageId,
+  conversationId: conversationId,
+  senderId: agentId,
+  replyToId: Schema.optional(messageId),
+  parts: messageParts,
+  taggedEntities: Schema.optional(Schema.Array(agentId)),
   patchedBy: Schema.optional(Schema.String),
-  createdAt: DateTimeString,
+  createdAt: dateTimeString,
 });
 
 /** Message row visible to agent callers. */
-export type Message = Schema.Schema.Type<typeof MessageSchema>;
+export type Message = Schema.Schema.Type<typeof messageSchema>;
 
 /** Return true when the value is a closed message row. */
-export const validateMessage = closedStructGuard(MessageSchema);
+export const validateMessage = closedStructGuard(messageSchema);
 
-/**
- * Canonical persisted dispatch-authorization contract. Recording evidence
- * composes this schema directly so the two boundaries cannot drift.
- */
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the recording boundary composes this schema directly
-export const DispatchDecisionSchema = Schema.Union(
+const dispatchDecisionSchemaValue = Schema.Union(
   Schema.Struct({ tag: Schema.Literal("pending") }),
   Schema.Struct({
     tag: Schema.Literal("forward"),
-    recipients: Schema.Array(AgentId),
+    recipients: Schema.Array(agentId),
   }),
   Schema.Struct({
     tag: Schema.Literal("block"),
@@ -82,23 +79,31 @@ export const DispatchDecisionSchema = Schema.Union(
 
 /** Per-message dispatch authorization decision persisted with the message. */
 export type DispatchDecision = Schema.Schema.Type<
-  typeof DispatchDecisionSchema
+  typeof dispatchDecisionSchemaValue
 >;
+
+/**
+ * Return the canonical persisted dispatch-authorization schema.
+ * @returns A schema shared by storage and wire validation.
+ */
+export function dispatchDecisionSchema(): typeof dispatchDecisionSchemaValue {
+  return dispatchDecisionSchemaValue;
+}
 
 /** Return true when a value is a closed dispatch decision. */
 export const validateDispatchDecision = closedStructGuard(
-  DispatchDecisionSchema,
+  dispatchDecisionSchemaValue,
 );
 
-const MessagesSendParams = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  parts: MessageParts,
-  replyToId: Schema.optional(MessageId),
-  dispatchLeaseId: Schema.optional(LeaseId),
+const messagesSendParams = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
+  parts: messageParts,
+  replyToId: Schema.optional(messageId),
+  dispatchLeaseId: Schema.optional(leaseId),
 });
 
-const MessagesSendResult = Schema.Struct({ message: MessageSchema });
+const messagesSendResult = Schema.Struct({ message: messageSchema });
 
 /**
  * Send a message to a conversation under a task.
@@ -110,10 +115,10 @@ const MessagesSendResult = Schema.Struct({ message: MessageSchema });
  * @error HookBlockedError when an app-side send hook blocks the message
  * @relatedNotification agent/message/received
  */
-export const MessagesSend = defineRpc({
+export const messagesSend = defineRpc({
   name: "agent/message/send",
-  params: MessagesSendParams,
-  result: MessagesSendResult,
+  params: messagesSendParams,
+  result: messagesSendResult,
   requires: [
     AgentPrincipal,
     ActiveAgent,
@@ -130,50 +135,50 @@ export const MessagesSend = defineRpc({
   ],
 });
 
-const MessagesListParams = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  limit: ListLimitSchema,
+const messagesListParams = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
+  limit: listLimitSchema,
 });
 
-const MessagesListResult = Schema.Struct({
-  messages: Schema.Array(MessageSchema),
+const messagesListResult = Schema.Struct({
+  messages: Schema.Array(messageSchema),
 });
 
 /**
  * List the newest visible messages in a conversation, returned oldest-first.
  * @error ForbiddenError when the caller is not a participant of the conversation
  */
-export const MessagesList = defineRpc({
+export const messagesList = defineRpc({
   name: "agent/message/list",
-  params: MessagesListParams,
-  result: MessagesListResult,
+  params: messagesListParams,
+  result: messagesListResult,
   requires: [AgentPrincipal, ActiveAgent, TaskReadAccess, ConversationInTask],
   errors: [ForbiddenError],
 });
 
 /** Agent-callable message RPC catalog. */
 export const agentCallableMessageRpcMethods = [
-  MessagesSend,
-  MessagesList,
+  messagesSend,
+  messagesList,
 ] as const;
 
-const MessagesAuthorizeContextSchema = Schema.Struct({
-  taskId: TaskId,
+const messagesAuthorizeContextSchema = Schema.Struct({
+  taskId: taskId,
   appId: Schema.String,
-  conversationId: ConversationId,
+  conversationId: conversationId,
   message: Schema.Struct({
-    id: MessageId,
-    senderAgentId: AgentId,
-    parts: Schema.optional(MessageParts),
+    id: messageId,
+    senderAgentId: agentId,
+    parts: Schema.optional(messageParts),
   }),
-  receivedAt: Schema.optional(DateTimeString),
+  receivedAt: Schema.optional(dateTimeString),
 });
 
-const MessagesAuthorizeVerdictSchema = Schema.Union(
+const messagesAuthorizeVerdictSchema = Schema.Union(
   Schema.Struct({
     decision: Schema.Literal("Forward"),
-    recipients: Schema.Array(AgentId),
+    recipients: Schema.Array(agentId),
   }),
   Schema.Struct({
     decision: Schema.Literal("Block"),
@@ -185,39 +190,39 @@ const MessagesAuthorizeVerdictSchema = Schema.Union(
  * Server callback asking an app for the per-message fan-out verdict.
  * @error ForbiddenError when the app rejects; the server treats the verdict as a fail-closed block
  */
-export const MessagesAuthorize = defineRpc({
+export const messagesAuthorize = defineRpc({
   name: "app/message/authorize",
-  params: MessagesAuthorizeContextSchema,
-  result: Schema.Struct({ verdict: MessagesAuthorizeVerdictSchema }),
+  params: messagesAuthorizeContextSchema,
+  result: Schema.Struct({ verdict: messagesAuthorizeVerdictSchema }),
   requires: [],
   errors: [ForbiddenError],
 });
 
 /** Message callback RPC catalog. */
-export const messageCallbackMethods = [MessagesAuthorize] as const;
+export const messageCallbackMethods = [messagesAuthorize] as const;
 
-const MessageReceivedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
-  message: MessageSchema,
+const messageReceivedNotificationSchema = Schema.Struct({
+  taskId: taskId,
+  message: messageSchema,
 });
 
 /** Notification payload for `agent/message/received`. */
 export type MessageReceivedNotification = Schema.Schema.Type<
-  typeof MessageReceivedNotificationSchema
+  typeof messageReceivedNotificationSchema
 >;
 
 /**
  * Pushed when a new message is delivered to a WebSocket connection.
  * @triggeredBy agent/message/send
  */
-export const MessageReceivedNotificationDefinition = defineNotification({
+export const messageReceivedNotificationDefinition = defineNotification({
   name: "agent/message/received",
-  params: MessageReceivedNotificationSchema,
+  params: messageReceivedNotificationSchema,
 });
 
 /** Message notification catalog. */
 export const messageNotifications = [
-  MessageReceivedNotificationDefinition,
+  messageReceivedNotificationDefinition,
 ] as const;
 
 // safer-arch-ignore no-fat-orchestrator: TRIAGE: This message-domain descriptor catalog owns RPCs, callbacks, and notifications; evaluate splitting those families as the catalog grows.

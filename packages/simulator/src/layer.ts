@@ -17,6 +17,8 @@ export interface SimulatorLayerOptions {
 /**
  * Provide the production router, filesystem ledger, and Effect Platform host
  * services once at the application boundary.
+ * @param options Options that control the operation.
+ * @returns The simulator layer result.
  */
 export function simulatorLayer(options: SimulatorLayerOptions) {
   const host = Layer.merge(NodeContext.layer, NodeHttpClient.layerUndici);

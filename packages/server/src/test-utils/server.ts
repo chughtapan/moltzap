@@ -3,11 +3,14 @@
 import { randomBytes } from "node:crypto";
 import { Effect, pipe, Schema } from "effect";
 import {
-  RegistrationSecret,
-  ServerEncryptionMasterSecret,
+  type RegistrationSecret,
+  registrationSecret,
+  type ServerEncryptionMasterSecret,
+  serverEncryptionMasterSecret,
 } from "#config/secrets";
 import {
-  UserId,
+  type UserId,
+  userId,
   type AgentId,
   type UserId as UserIdValue,
 } from "@moltzap/protocol/identity";
@@ -28,37 +31,38 @@ import type {
   CoreTestSpanExporterPort,
 } from "./ports.js";
 
+/** Re-exports the public API from `#db`. */
 export type { Database } from "#db";
+/** Re-exports the public API from `#core`. */
 export type { CoreApp } from "#core";
 
 class CoreTestServerError extends Error {
   override readonly name = "CoreTestServerError";
 
-  constructor(
-    message: string,
-    override readonly cause?: unknown,
-  ) {
+  override readonly cause?: unknown;
+
+  constructor(message: string, cause?: unknown) {
     super(message);
+    this.cause = cause;
   }
 }
 
 const ENCRYPTION_MASTER_SECRET_BYTES = 32;
 const PGLITE_BOOT_DELAY_MS = 200;
+/** Validates and decodes default test admin user id values. */
 export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
-  UserId,
+  userId,
 )("00000000-0000-4000-8000-00000000ad00");
 
 // Server integration fixtures keep their readiness polling local so the
 // production server package does not depend on the higher-level simulator.
 function awaitAgentReadyByPolling(
   connections: {
-    agentConnections(
-      id: AgentId,
-    ): Effect.Effect<ReadonlyArray<unknown>, never, never>;
+    agentConnections(id: AgentId): Effect.Effect<readonly unknown[]>;
   },
   agentId: AgentId,
   timeoutMs: number,
-): Effect.Effect<CoreTestReadyOutcome, never, never> {
+): Effect.Effect<CoreTestReadyOutcome> {
   // Agent connections are returned only after authentication, so a non-empty
   // result is sufficient readiness for test servers.
   const tick = connections
@@ -89,15 +93,18 @@ function awaitAgentReadyByPolling(
 
 let coreApp: CoreApp | null = null;
 let appDb: EffectKysely<Database> | null = null;
+/* eslint-disable @typescript-eslint/no-invalid-void-type -- PGlite's third-party close contract returns Promise<void>. */
 let pgliteClient: {
   exec: (sql: string) => PromiseLike<unknown>;
   close: () => PromiseLike<void>;
 } | null = null;
-let _masterSecret: ServerEncryptionMasterSecret | null = null;
-let _baseUrl: string | null = null;
-let _wsUrl: string | null = null;
+/* eslint-enable @typescript-eslint/no-invalid-void-type -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */
+let masterSecretValue: ServerEncryptionMasterSecret | null = null;
+let baseUrlValue: string | null = null;
+let wsUrlValue: string | null = null;
 let spanExporter: InMemorySpanExporter | null = null;
 
+/** Describes core test server handle. */
 export interface CoreTestServerHandle {
   baseUrl: string;
   wsUrl: string;
@@ -123,7 +130,7 @@ export interface CoreTestServerHandle {
   readonly testPort: CoreTestServerPort;
 }
 
-type StartCoreTestServerOptions = {
+interface StartCoreTestServerOptions {
   pgHost?: string;
   pgPort?: number;
   encryption?: boolean;
@@ -136,7 +143,7 @@ type StartCoreTestServerOptions = {
   registrationSecret?: string | RegistrationSecret;
   adminUserId?: UserId;
   spanProcessor?: SpanProcessor;
-};
+}
 
 function importPglite() {
   return Effect.tryPromise({
@@ -179,11 +186,21 @@ function seedEncryptionKey(
 
 function destroyDb() {
   const db = appDb;
-  return db?.destroy() ?? Promise.resolve();
+  return db === undefined || db === null
+    ? Promise.resolve(undefined)
+    : Effect.runPromise(
+        Effect.tryPromise({
+          try: () => db.destroy(),
+          catch: (cause) =>
+            new CoreTestServerError("Database destroy failed", cause),
+        }).pipe(Effect.as(undefined)),
+      );
 }
 
 function ensureNoCoreTestServerRunning() {
-  if (!coreApp) return Effect.void;
+  if (!coreApp) {
+    return Effect.void;
+  }
   return Effect.fail(
     new CoreTestServerError(
       "Test server already running. Call stopCoreTestServer() first.",
@@ -217,21 +234,25 @@ function configureEncryption(
   db: EffectKysely<Database>,
   opts: StartCoreTestServerOptions,
 ) {
-  if (!opts.encryption) return Effect.succeed(undefined);
+  if (!opts.encryption) {
+    return Effect.succeed(undefined);
+  }
   const masterSecret = randomBytes(ENCRYPTION_MASTER_SECRET_BYTES).toString(
     "base64",
   );
-  const decoded = Schema.decodeUnknownSync(ServerEncryptionMasterSecret)(
+  const decoded = Schema.decodeUnknownSync(serverEncryptionMasterSecret)(
     masterSecret,
   );
-  _masterSecret = decoded;
+  masterSecretValue = decoded;
   return seedEncryptionKey(db, decoded).pipe(Effect.as(decoded));
 }
 
 function resolveTestSpanProcessor(
   opts: StartCoreTestServerOptions,
 ): SpanProcessor | undefined {
-  if (opts.spanProcessor !== undefined) return opts.spanProcessor;
+  if (opts.spanProcessor !== undefined) {
+    return opts.spanProcessor;
+  }
   spanExporter = new InMemorySpanExporter();
   return new SimpleSpanProcessor(spanExporter);
 }
@@ -239,15 +260,19 @@ function resolveTestSpanProcessor(
 function decodeRegistrationSecret(
   secret: StartCoreTestServerOptions["registrationSecret"],
 ): RegistrationSecret | undefined {
-  if (secret === undefined) return undefined;
-  if (typeof secret !== "string") return secret;
-  return Schema.decodeUnknownSync(RegistrationSecret)(secret);
+  if (secret === undefined) {
+    return undefined;
+  }
+  if (typeof secret !== "string") {
+    return secret;
+  }
+  return Schema.decodeUnknownSync(registrationSecret)(secret);
 }
 
 function createCoreTestApp(
   db: EffectKysely<Database>,
   opts: StartCoreTestServerOptions,
-  masterSecret: ServerEncryptionMasterSecret | undefined,
+  masterSecret?: ServerEncryptionMasterSecret,
 ): CoreApp {
   return createCoreApp({
     db,
@@ -264,9 +289,9 @@ function createCoreTestApp(
 
 function publishCoreTestUrls(app: CoreApp): { baseUrl: string; wsUrl: string } {
   const assignedPort = app.port;
-  _baseUrl = `http://localhost:${assignedPort}`;
-  _wsUrl = `ws://localhost:${assignedPort}/ws`;
-  return { baseUrl: _baseUrl, wsUrl: _wsUrl };
+  baseUrlValue = `http://localhost:${assignedPort}`;
+  wsUrlValue = `ws://localhost:${assignedPort}/ws`;
+  return { baseUrl: baseUrlValue, wsUrl: wsUrlValue };
 }
 
 function makeRuntimeServer(app: CoreApp): CoreTestRuntimeServerHandle {
@@ -286,14 +311,18 @@ function makeDatabasePort(): CoreTestDatabasePort {
 function makeSpanExporterPort(
   exporter: InMemorySpanExporter | null,
 ): CoreTestSpanExporterPort | null {
-  if (exporter === null) return null;
+  if (exporter === null) {
+    return null;
+  }
   return {
     getFinishedSpans: () =>
       exporter.getFinishedSpans().map((span) => ({
         name: span.name,
         attributes: { ...span.attributes },
       })),
-    reset: () => exporter.reset(),
+    reset: () => {
+      exporter.reset();
+    },
   };
 }
 
@@ -319,6 +348,11 @@ function buildCoreTestServer(
   };
 }
 
+/**
+ * Executes the start core test server effect operation.
+ * @param opts Value supplied to the operation.
+ * @returns The start core test server effect result.
+ */
 export function startCoreTestServerEffect(
   opts: StartCoreTestServerOptions = {},
 ) {
@@ -332,10 +366,19 @@ export function startCoreTestServerEffect(
   }).pipe(Effect.withSpan("startCoreTestServer"));
 }
 
+/**
+ * Executes the start core test server full operation.
+ * @param opts Value supplied to the operation.
+ * @returns The start core test server full result.
+ */
 export function startCoreTestServerFull(opts: StartCoreTestServerOptions = {}) {
   return Effect.runPromise(startCoreTestServerEffect(opts));
 }
 
+/**
+ * Executes the stop core test server operation.
+ * @returns The stop core test server result.
+ */
 export function stopCoreTestServer() {
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -345,13 +388,13 @@ export function stopCoreTestServer() {
       coreApp = null;
       appDb = null;
       pgliteClient = null;
-      _masterSecret = null;
-      _baseUrl = null;
-      _wsUrl = null;
+      masterSecretValue = null;
+      baseUrlValue = null;
+      wsUrlValue = null;
       spanExporter = null;
 
       yield* Effect.tryPromise({
-        try: () => app?.close() ?? Promise.resolve(),
+        try: () => app?.close() ?? Promise.resolve(undefined),
         catch: (cause) =>
           new CoreTestServerError("Core test app close failed", cause),
       });
@@ -362,6 +405,10 @@ export function stopCoreTestServer() {
   );
 }
 
+/**
+ * Executes the reset core test db operation.
+ * @returns The reset core test db result.
+ */
 export function resetCoreTestDb() {
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -381,34 +428,55 @@ export function resetCoreTestDb() {
       agents, encryption_keys
     CASCADE;
   `);
-      if (_masterSecret && appDb) {
-        yield* seedEncryptionKey(appDb, _masterSecret);
+      if (masterSecretValue && appDb) {
+        yield* seedEncryptionKey(appDb, masterSecretValue);
       }
     }).pipe(Effect.withSpan("resetCoreTestDb")),
   );
 }
 
+/**
+ * Returns core db.
+ * @returns The get core db result.
+ */
 export function getCoreDb(): EffectKysely<Database> {
-  if (!appDb)
+  if (!appDb) {
     throw new CoreTestServerError(
       "Test server not running. Call startCoreTestServer() first.",
     );
+  }
   return appDb;
 }
 
+/**
+ * Returns core encryption envelope.
+ * @returns The get core encryption envelope result.
+ */
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption {
-  if (!_masterSecret) {
+  if (!masterSecretValue) {
     throw new CoreTestServerError("Test server encryption not enabled.");
   }
-  return new EnvelopeEncryption(_masterSecret);
+  return new EnvelopeEncryption(masterSecretValue);
 }
 
+/**
+ * Returns base url.
+ * @returns The get base url result.
+ */
 export function getBaseUrl(): string {
-  if (!_baseUrl) throw new CoreTestServerError("Test server not running.");
-  return _baseUrl;
+  if (!baseUrlValue) {
+    throw new CoreTestServerError("Test server not running.");
+  }
+  return baseUrlValue;
 }
 
+/**
+ * Returns ws url.
+ * @returns The get ws url result.
+ */
 export function getWsUrl(): string {
-  if (!_wsUrl) throw new CoreTestServerError("Test server not running.");
-  return _wsUrl;
+  if (!wsUrlValue) {
+    throw new CoreTestServerError("Test server not running.");
+  }
+  return wsUrlValue;
 }

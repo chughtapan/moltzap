@@ -17,6 +17,7 @@ export interface ConversationSendAccessValue {
   readonly archivedAt: Date | null;
 }
 
+/** Implements conversation send access. */
 export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAccess>()(
   "@moltzap/protocol/ConversationSendAccess",
   { failure: Schema.Union(ForbiddenError) },

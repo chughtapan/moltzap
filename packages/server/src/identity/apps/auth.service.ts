@@ -1,9 +1,12 @@
 import { Effect, Either } from "effect";
-import { AppKey, validateAppManifest } from "@moltzap/protocol/identity";
-import type { AppId, AppManifest } from "@moltzap/protocol/identity";
+import {
+  type AppKey,
+  validateAppManifest,
+  type AppId,
+  type AppManifest,
+} from "@moltzap/protocol/identity";
 import { UnauthorizedError } from "@moltzap/protocol/rpc";
-import type { Db } from "#db";
-import { catchSqlErrorAsDefect, takeFirstOrFail } from "#db";
+import { type Db, catchSqlErrorAsDefect, takeFirstOrFail } from "#db";
 import { AppContext } from "#socket";
 import {
   generateAppKey,
@@ -32,19 +35,26 @@ import {
  * edge rather than implied by the signature.
  */
 export class AppAuthService {
-  constructor(private readonly db: Db) {}
+  private readonly db: Db;
+
+  constructor(db: Db) {
+    this.db = db;
+  }
 
   /**
    * INSERT a fresh app row. `app_id` is server-issued via the column
    * default (`gen_random_uuid()`), so the client never controls the
    * identity. Returns the plaintext `appKey` exactly once; only the
    * derived `keyId` + `secretHash` persist.
+   * @param params Request payload to process.
+   * @param params.manifest Value supplied to the operation.
+   * @returns The register app result.
    */
   registerApp(params: {
     readonly manifest: AppManifest;
-  }): Effect.Effect<{ appId: AppId; appKey: AppKey }, never> {
+  }): Effect.Effect<{ appId: AppId; appKey: AppKey }> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AppAuthService) {
         const { appKey, keyId, secretHash } = generateAppKey();
 
         const { app_id: appId } = yield* takeFirstOrFail(
@@ -79,6 +89,8 @@ export class AppAuthService {
    * is an environmental failure (storage corruption) the operator can fix
    * by re-registering, so it surfaces as a 401 with an actionable
    * `reason: "manifest_corrupted"` rather than a 500 defect.
+   * @param apiKey Value supplied to the operation.
+   * @returns The decoded d.
    */
   authenticateApp(
     apiKey: AppKey,
@@ -87,9 +99,11 @@ export class AppAuthService {
     UnauthorizedError
   > {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AppAuthService) {
         const parsed = parseAppKey(apiKey);
-        if (!parsed) return null;
+        if (!parsed) {
+          return null;
+        }
 
         const rows = yield* this.db
           .selectFrom("apps")
@@ -97,7 +111,9 @@ export class AppAuthService {
           .where("api_key_id", "=", parsed.keyId);
 
         const row = rows[0];
-        if (row === undefined) return null;
+        if (row === undefined) {
+          return null;
+        }
         if (!safeEqual(hashSecret(parsed.secret), row.api_key_secret_hash)) {
           return null;
         }
@@ -128,10 +144,12 @@ export class AppAuthService {
    * and `manifest_json` corruption surfaces at {@link authenticateApp}'s
    * `UnauthorizedError` channel. The `Effect.die` sites catch the
    * contract violation if the invariant is ever broken upstream.
+   * @param appId Value supplied to the operation.
+   * @returns The rows result.
    */
-  getManifest(appId: AppId): Effect.Effect<AppManifest, never> {
+  getManifest(appId: AppId): Effect.Effect<AppManifest> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AppAuthService) {
         const rows = yield* this.db
           .selectFrom("apps")
           .select(["manifest_json"])
@@ -164,14 +182,18 @@ export class AppAuthService {
    * from the server boot path; no wire surface exposes it.
    * First boot INSERTs; subsequent boots UPDATE the same row with a
    * refreshed keyId + hash (per-boot key rotation).
+   * @param appId Value supplied to the operation.
+   * @param manifest Value supplied to the operation.
+   * @param appKey Value supplied to the operation.
+   * @returns The decoded d.
    */
   installDefaultApp(
     appId: AppId,
     manifest: AppManifest,
     appKey: AppKey,
-  ): Effect.Effect<void, never> {
+  ): Effect.Effect<void> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AppAuthService) {
         const parsed = parseAppKey(appKey);
         if (!parsed) {
           // The appKey is minted by `generateAppKey()` at the same boot; an
@@ -202,3 +224,4 @@ export class AppAuthService {
     );
   }
 }
+// safer-arch-ignore folder-explicit-api-required: AppAuthService is a deliberate app-authentication boundary consumed by the connection adapter and composition root.

@@ -21,6 +21,7 @@ interface LocalSocketServerOptions<
   readonly handlers: Handlers;
 }
 
+/** Describes running local socket server. */
 export interface RunningLocalSocketServer {
   readonly socketScope: Scope.CloseableScope;
   readonly socketPath: string;
@@ -36,14 +37,14 @@ function logFileSystemIssue(
   level: "info" | "warn",
   message: string,
   error: unknown,
-): Effect.Effect<void, never> {
+): Effect.Effect<void> {
   return (level === "warn" ? Effect.logWarning : Effect.logInfo)(
     message,
     error,
   );
 }
 
-function closeScope(scope: Scope.CloseableScope): Effect.Effect<void, never> {
+function closeScope(scope: Scope.CloseableScope): Effect.Effect<void> {
   return Scope.close(scope, Exit.succeed(undefined));
 }
 
@@ -126,9 +127,14 @@ function installDefaultSocketSymlink(options: LocalSocketServerOptions) {
   });
 }
 
+/**
+ * Executes the start local socket server operation.
+ * @param options Options that control the operation.
+ * @returns The start local socket server result.
+ */
 export function startLocalSocketServer<Handlers extends LocalDaemonHandlers>(
   options: LocalSocketServerOptions<Handlers>,
-): Effect.Effect<RunningLocalSocketServer, unknown, never> {
+): Effect.Effect<RunningLocalSocketServer, unknown> {
   const effect = Effect.gen(function* () {
     yield* prepareSocketPath(options.socketPath);
     const socketScope = yield* Scope.make();
@@ -141,7 +147,10 @@ export function startLocalSocketServer<Handlers extends LocalDaemonHandlers>(
     Effect.withSpan("startLocalSocketServer"),
     Effect.provide(NodeContext.layer),
   );
-  return effect as Effect.Effect<RunningLocalSocketServer, unknown, never>;
+  return /* Safe because the surrounding invariant establishes this asserted shape. */ effect as Effect.Effect<
+    RunningLocalSocketServer,
+    unknown
+  >;
 }
 
 function removeSocketPath(socketPath: string) {
@@ -168,7 +177,9 @@ function removeDefaultSocketSymlinkIfOwned(options: {
       onLeft: () => false,
       onRight: (value) => value === options.socketPath,
     });
-    if (!shouldRemoveDefaultSocket) return;
+    if (!shouldRemoveDefaultSocket) {
+      return;
+    }
     yield* fileSystem
       .remove(options.defaultSocketPath, { force: true })
       .pipe(
@@ -179,9 +190,14 @@ function removeDefaultSocketSymlinkIfOwned(options: {
   });
 }
 
+/**
+ * Executes the stop local socket server operation.
+ * @param options Options that control the operation.
+ * @returns The stop local socket server result.
+ */
 export function stopLocalSocketServer(
   options: StopLocalSocketServerOptions,
-): Effect.Effect<void, never> {
+): Effect.Effect<void> {
   return Effect.gen(function* () {
     if (options.socketScope !== null) {
       yield* closeScope(options.socketScope);

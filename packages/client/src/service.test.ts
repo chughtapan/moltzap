@@ -1,19 +1,19 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
 import { Effect, Either, Exit, Schema } from "effect";
-import type { Message } from "@moltzap/protocol/message";
+import {
+  type Message,
+  messageReceivedNotificationDefinition,
+  messagesSend,
+} from "@moltzap/protocol/message";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
-  ConversationArchivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationList,
-  ConversationUnarchivedNotificationDefinition,
+  conversationArchivedNotificationDefinition,
+  conversationCreatedNotificationDefinition,
+  conversationList,
+  conversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol/conversation";
-import { DispatchRequest } from "@moltzap/protocol/message/dispatch";
-import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
-} from "@moltzap/protocol/message";
+import { dispatchRequest } from "@moltzap/protocol/message/dispatch";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
 import {
@@ -24,8 +24,8 @@ import {
   testTaskId,
 } from "./test-utils/index.js";
 
-import { AgentName, AgentsList } from "@moltzap/protocol/identity";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { agentName, agentsList } from "@moltzap/protocol/identity";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 
 const effectTest = effectIt.effect;
 
@@ -55,7 +55,7 @@ const MESSAGE_TWO_ID = testMessageId("m-2");
 const MESSAGE_THREE_ID = testMessageId("m-3");
 const DISPATCH_LEASE_ID = testAgentId("lease-1");
 const DISPATCH_ID = testAgentId("dispatch-1");
-const decodeAgentName = Schema.decodeSync(AgentName);
+const decodeAgentName = Schema.decodeSync(agentName);
 const SEND_TO_AGENT_NAME = decodeAgentName("alice");
 const BOB_AGENT_NAME = decodeAgentName("bob");
 const ALICE_DISPLAY_NAME = "Alice";
@@ -77,13 +77,13 @@ const NOBODY_AGENT_NAME = "nobody";
 const missingCannedResponseFor = (method: string): RegExp =>
   new RegExp(`no canned response for ${method}`);
 const LOOKUP_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  AgentsList.name,
+  agentsList.name,
 );
 const CREATE_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  TaskRequest.name,
+  taskRequest.name,
 );
 const SEND_MISSING_RESPONSE_MESSAGE = missingCannedResponseFor(
-  MessagesSend.name,
+  messagesSend.name,
 );
 const PLAIN_NAME = "Alice";
 const PLAIN_TEXT = "hello world";
@@ -150,7 +150,7 @@ const contextHeader = (conversationId: string): string =>
   `Recent updates (you are in conv:${conversationId}):`;
 
 function seedMessageSendResponse(service: FakeMoltZapService): void {
-  service.setResponse(MessagesSend, {
+  service.setResponse(messagesSend, {
     message: buildMessage({
       id: MESSAGE_ONE_ID,
       conversationId: CONVERSATION_ALICE_ID,
@@ -166,7 +166,7 @@ function seedAgentLookup(
   id = AGENT_ALICE_ID,
   name = SEND_TO_AGENT_NAME,
 ): void {
-  service.setResponse(AgentsList, {
+  service.setResponse(agentsList, {
     agents: [{ id, name, status: "active" }],
   });
 }
@@ -174,13 +174,13 @@ function seedAgentLookup(
 function makeSendToAgentService(): FakeMoltZapService {
   const service = new FakeMoltZapService();
   seedAgentLookup(service);
-  service.setResponse(TaskRequest, taskCreateResponse());
+  service.setResponse(taskRequest, taskCreateResponse());
   seedMessageSendResponse(service);
   return service;
 }
 
 function findSendCall(service: FakeMoltZapService) {
-  return service.calls.find((call) => call.method === MessagesSend.name);
+  return service.calls.find((call) => call.method === messagesSend.name);
 }
 
 function sendToAgentCreatesConversation() {
@@ -191,11 +191,11 @@ function sendToAgentCreatesConversation() {
 
     expect(service.calls).toEqual([
       {
-        method: AgentsList.name,
+        method: agentsList.name,
         params: { limit: 100 },
       },
       {
-        method: TaskRequest.name,
+        method: taskRequest.name,
         params: {
           appId: DEFAULT_APP_ID,
           invitedAgentIds: [AGENT_ALICE_ID],
@@ -203,7 +203,7 @@ function sendToAgentCreatesConversation() {
         },
       },
       {
-        method: MessagesSend.name,
+        method: messagesSend.name,
         params: {
           taskId: TASK_ALICE_ID,
           conversationId: CONVERSATION_ALICE_ID,
@@ -224,7 +224,7 @@ function sendToAgentCachesConversation() {
 
     expect(service.calls).toEqual([
       {
-        method: MessagesSend.name,
+        method: messagesSend.name,
         params: {
           taskId: TASK_ALICE_ID,
           conversationId: CONVERSATION_ALICE_ID,
@@ -260,7 +260,7 @@ function sendToAgentCachesPerAgentName() {
 
     seedAgentLookup(service, AGENT_BOB_ID, BOB_AGENT_NAME);
     service.setResponse(
-      TaskRequest,
+      taskRequest,
       taskCreateResponse(TASK_BOB_ID, CONVERSATION_BOB_ID),
     );
     yield* service.sendToAgent(BOB_AGENT_NAME, HELLO_BOB_TEXT);
@@ -270,18 +270,25 @@ function sendToAgentCachesPerAgentName() {
     yield* service.sendToAgent(BOB_AGENT_NAME, BOB_AGAIN_TEXT);
 
     const sendCalls = service.calls.filter(
-      (call) => call.method === MessagesSend.name,
+      (call) => call.method === messagesSend.name,
     );
     expect(sendCalls).toHaveLength(2);
-    const [firstSend, secondSend] = sendCalls as [
-      (typeof sendCalls)[number],
-      (typeof sendCalls)[number],
-    ];
+    const [firstSend, secondSend] =
+      /* Safe because the test fixture establishes this asserted shape. */ sendCalls as [
+        (typeof sendCalls)[number],
+        (typeof sendCalls)[number],
+      ];
     expect(
-      (firstSend.params as { conversationId: string }).conversationId,
+      (
+        /* Safe because the test fixture establishes this asserted shape. */
+        firstSend.params as { conversationId: string }
+      ).conversationId,
     ).toBe(CONVERSATION_ALICE_ID);
     expect(
-      (secondSend.params as { conversationId: string }).conversationId,
+      (
+        /* Safe because the test fixture establishes this asserted shape. */
+        secondSend.params as { conversationId: string }
+      ).conversationId,
     ).toBe(CONVERSATION_BOB_ID);
   });
 }
@@ -289,7 +296,7 @@ function sendToAgentCachesPerAgentName() {
 function sendToAgentMissingAgentFails() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.setResponse(AgentsList, { agents: [] });
+    service.setResponse(agentsList, { agents: [] });
 
     const exit = yield* Effect.exit(
       service.sendToAgent(NOBODY_AGENT_NAME, HI_TEXT),
@@ -303,7 +310,7 @@ function sendToAgentMissingAgentFails() {
 function sendToAgentLookupFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(AgentsList);
+    service.deleteResponse(agentsList);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
@@ -316,7 +323,7 @@ function sendToAgentLookupFailurePropagates() {
 function sendToAgentCreateFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(TaskRequest);
+    service.deleteResponse(taskRequest);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
@@ -329,7 +336,7 @@ function sendToAgentCreateFailurePropagates() {
 function sendToAgentSendFailurePropagates() {
   return Effect.gen(function* () {
     const service = makeSendToAgentService();
-    service.deleteResponse(MessagesSend);
+    service.deleteResponse(messagesSend);
 
     const exit = yield* Effect.exit(
       service.sendToAgent(SEND_TO_AGENT_NAME, HI_TEXT),
@@ -443,12 +450,12 @@ describe("sanitizeForSystemReminder containment", () => {
   );
 });
 
-function dispatchRequestAck(): ResultOf<typeof DispatchRequest> {
+function dispatchRequestAck(): ResultOf<typeof dispatchRequest> {
   const value: unknown = {
     leaseId: DISPATCH_LEASE_ID,
     dispatchId: DISPATCH_ID,
   };
-  if (!DispatchRequest.validateResult(value)) {
+  if (!dispatchRequest.validateResult(value)) {
     expect.fail("invalid agent/dispatch/request ack fixture");
   }
   return value;
@@ -458,7 +465,7 @@ function requestDispatchReturnsAck() {
   return Effect.gen(function* () {
     const service = new FakeMoltZapService();
     const ack = dispatchRequestAck();
-    service.setResponse(DispatchRequest, ack);
+    service.setResponse(dispatchRequest, ack);
 
     const result = yield* service.requestDispatch({
       conversationId: CONVERSATION_ALICE_ID,
@@ -474,7 +481,7 @@ function requestDispatchReturnsAck() {
     expect(result.dispatchId).toBe(ack.dispatchId);
     expect(service.calls).toHaveLength(1);
     expect(service.calls[0]).toMatchObject({
-      method: DispatchRequest.name,
+      method: dispatchRequest.name,
     });
     expect(service.calls[0]?.opts).toBeUndefined();
   });
@@ -713,7 +720,9 @@ function peekContextCommitIsIdempotent() {
 
   const { commit } = service.peekContextEntries(CONVERSATION_SELF_ID);
   commit();
-  expect(() => commit()).not.toThrow();
+  expect(() => {
+    commit();
+  }).not.toThrow();
   expect(service.peekContextEntries(CONVERSATION_SELF_ID).entries).toHaveLength(
     0,
   );
@@ -1035,7 +1044,7 @@ const archivedConversation = () => ({
 });
 
 function seedArchivedConversation(service: FakeMoltZapService): void {
-  service.setResponse(ConversationList, {
+  service.setResponse(conversationList, {
     items: [
       {
         taskId: TASK_ARCHIVED_ID,
@@ -1044,7 +1053,7 @@ function seedArchivedConversation(service: FakeMoltZapService): void {
       },
     ],
   });
-  service.setResponse(MessagesSend, {
+  service.setResponse(messagesSend, {
     message: buildMessage({
       id: "msg-unreachable",
       conversationId: CONVERSATION_ARCHIVED_ID,
@@ -1053,7 +1062,7 @@ function seedArchivedConversation(service: FakeMoltZapService): void {
       createdAt: ARCHIVED_TIMESTAMP,
     }),
   });
-  service.emitEvent(ConversationCreatedNotificationDefinition, {
+  service.emitEvent(conversationCreatedNotificationDefinition, {
     taskId: TASK_ARCHIVED_ID,
     conversationId: CONVERSATION_ARCHIVED_ID,
     name: ARCHIVED_DISPLAY_NAME,
@@ -1075,11 +1084,12 @@ function expectArchivedSendFailure(
   result: Either.Either<unknown, unknown>,
 ): void {
   Either.match(result, {
-    onLeft: (error) =>
+    onLeft: (error) => {
       expect(error).toMatchObject({
         _tag: "ConversationArchived",
         message: CONVERSATION_ARCHIVED_MESSAGE,
-      }),
+      });
+    },
     onRight: () =>
       expect.fail("archived conversation send unexpectedly succeeded"),
   });
@@ -1101,7 +1111,7 @@ function archiveLifecyclePurgesAndRejectsSends() {
       archivedAt: ARCHIVED_AT,
     };
     service.emitEvent(
-      ConversationArchivedNotificationDefinition,
+      conversationArchivedNotificationDefinition,
       archivedParams,
     );
 
@@ -1119,7 +1129,7 @@ function archiveLifecyclePurgesAndRejectsSends() {
     );
     expectArchivedSendFailure(lateSend);
     expect(
-      service.calls.filter((call) => call.method === MessagesSend.name),
+      service.calls.filter((call) => call.method === messagesSend.name),
     ).toEqual([]);
 
     const unarchivedParams = {
@@ -1127,7 +1137,7 @@ function archiveLifecyclePurgesAndRejectsSends() {
       conversationId: CONVERSATION_ARCHIVED_ID,
     };
     service.emitEvent(
-      ConversationUnarchivedNotificationDefinition,
+      conversationUnarchivedNotificationDefinition,
       unarchivedParams,
     );
 
@@ -1153,8 +1163,8 @@ describe("MoltZapService.fanout — message handlers", () => {
     service.on("message", () => {
       throw new Error("first handler boom");
     });
-    service.on("message", ({ message: m }) => {
-      seen.push(m);
+    service.on("message", (eventValue) => {
+      seen.push(eventValue.message);
     });
 
     const msg: Message = buildMessage({
@@ -1169,7 +1179,7 @@ describe("MoltZapService.fanout — message handlers", () => {
       message: msg,
     };
 
-    service.emitEvent(MessageReceivedNotificationDefinition, event);
+    service.emitEvent(messageReceivedNotificationDefinition, event);
 
     // Second handler still fired despite first handler throwing.
     expect(seen).toEqual([msg]);

@@ -9,14 +9,18 @@ import {
   withDriver,
 } from "./_helpers.js";
 
+/**
+ * Registers dispatch request recipient disconnect abandons.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchRequestRecipientDisconnectAbandons(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-request-recipient-disconnect-abandons-lease";
+  const name = "dispatch-request-recipient-disconnect-abandons-lease";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "closing the recipient's connection while in PENDING transitions the lease to ABANDONED; subsequent app/dispatch/lease/get returns state=ABANDONED",
     withDriver(
       ctx,

@@ -30,7 +30,7 @@ const MOLTZAP_SOCKET_DIR = EXPECTED_DEFAULT_SOCKET_PATH.slice(
 );
 
 function setOwnAgentId(service: FakeMoltZapService, id: string): void {
-  Reflect.set(service, "_ownAgentId", id);
+  Reflect.set(service, "ownAgentIdValue", id);
 }
 
 function socketPathAcceptsSafeAgentIds() {
@@ -90,7 +90,7 @@ function socketPathDefaultsBeforeAgentAssignment() {
   // The fake seeds a constructor `agentId`; clear it to model the genuine
   // pre-registration state where `ownAgentId` is still undefined, so the path
   // falls back to `default`.
-  Reflect.set(service, "_ownAgentId", undefined);
+  Reflect.set(service, "ownAgentIdValue", undefined);
   expect(service.socketPath).toBe(EXPECTED_DEFAULT_SOCKET_PATH);
 }
 

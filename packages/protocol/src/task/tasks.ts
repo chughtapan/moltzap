@@ -1,25 +1,29 @@
+// safer-arch-ignore no-cross-domain-sibling-import: Task request and notification schemas embed the conversation wire shape and its validated display name by protocol design.
 import { Schema } from "effect";
 import {
   stringEnum,
   dateTimeStringSchema,
   errorPayloadFields,
+  listLimitSchema,
+  listCursorSchema,
+  ForbiddenError,
+  InvalidParamsError,
 } from "#transport";
-import { ListLimitSchema, listCursorSchema } from "#transport";
-import { AgentId, AgentNotFoundError } from "#identity/agents";
+import { agentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
-import { ForbiddenError, InvalidParamsError } from "#transport";
 import { defineRpc, defineNotification } from "#transport/descriptor";
 import {
   conversationSchema,
   ConversationFullError,
-  ConversationNameSchema,
-} from "#conversation";
-import { AppId } from "#identity/apps";
+} from "../conversation/types.js";
+import { conversationNameSchema } from "../conversation/name.js";
+import { appId } from "#identity/apps";
 import { ContactPolicyAllowsReach } from "#identity/contacts/requirements";
-import { TaskId, TaskNotFoundError } from "./ids.js";
+import { taskId, TaskNotFoundError } from "./ids.js";
 
-export { AppId, DEFAULT_APP_ID } from "#identity/apps";
+/** Re-exports the public API from `#identity/apps`. */
+export { type AppId, appId, DEFAULT_APP_ID } from "#identity/apps";
 
 // ═══════════════════════════════════════════════════════════════════
 // SHARED — task value types + errors used by 2+ blocks in this file.
@@ -53,9 +57,10 @@ export { AppId, DEFAULT_APP_ID } from "#identity/apps";
 // `Effect.runFork` and do not roll back the DB write on delivery failure.
 // ═══════════════════════════════════════════════════════════════════
 
-const DateTimeString = dateTimeStringSchema();
-const ConversationSchema = conversationSchema();
+const dateTimeString = dateTimeStringSchema();
+const conversationSchemaValue = conversationSchema();
 
+/** Reports task closed failures. */
 export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
   "TaskClosed",
   errorPayloadFields,
@@ -79,6 +84,7 @@ export class TaskRejectedError extends Schema.TaggedError<TaskRejectedError>()(
   static readonly message = "Task request was rejected by the owning app";
 }
 
+/** Reports hook blocked failures. */
 export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
   "HookBlocked",
   errorPayloadFields,
@@ -87,21 +93,23 @@ export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
 }
 
 // Mirrors the `task_status` DB enum.
-const TaskStatusEnum = stringEnum(["waiting", "active", "failed", "closed"]);
+const taskStatusEnum = stringEnum(["waiting", "active", "failed", "closed"]);
 
-export type TaskStatus = Schema.Schema.Type<typeof TaskStatusEnum>;
+/** Represents task status values. */
+export type TaskStatus = Schema.Schema.Type<typeof taskStatusEnum>;
 
-const TaskSchema = Schema.Struct({
-  id: TaskId,
+const taskSchema = Schema.Struct({
+  id: taskId,
   appId: Schema.String,
-  initiatorAgentId: AgentId,
-  status: TaskStatusEnum,
-  startedAt: Schema.Union(DateTimeString, Schema.Null),
-  endedAt: Schema.Union(DateTimeString, Schema.Null),
-  createdAt: DateTimeString,
+  initiatorAgentId: agentId,
+  status: taskStatusEnum,
+  startedAt: Schema.Union(dateTimeString, Schema.Null),
+  endedAt: Schema.Union(dateTimeString, Schema.Null),
+  createdAt: dateTimeString,
 });
 
-export type Task = Schema.Schema.Type<typeof TaskSchema>;
+/** Represents task values. */
+export type Task = Schema.Schema.Type<typeof taskSchema>;
 
 // `admittedAt = null` is reserved for a future "pending invitation"
 // flow. Today the server auto-admits every invitee at TaskRequest, so
@@ -109,13 +117,14 @@ export type Task = Schema.Schema.Type<typeof TaskSchema>;
 // nullable + the `WHERE admitted_at IS NOT NULL` filters in read
 // paths stay in place so the future flow drops in without
 // re-engineering the gating.
-const TaskParticipantSchema = Schema.Struct({
-  taskId: TaskId,
-  agentId: AgentId,
-  admittedAt: Schema.Union(DateTimeString, Schema.Null),
+const taskParticipantSchema = Schema.Struct({
+  taskId: taskId,
+  agentId: agentId,
+  admittedAt: Schema.Union(dateTimeString, Schema.Null),
 });
 
-export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
+/** Represents task participant values. */
+export type TaskParticipant = Schema.Schema.Type<typeof taskParticipantSchema>;
 
 // ═══════════════════════════════════════════════════════════════════
 // agent/task/list
@@ -127,14 +136,14 @@ export type TaskParticipant = Schema.Schema.Type<typeof TaskParticipantSchema>;
  * - **Principal:** `AgentPrincipal` head.
  * @error InvalidParamsError when the `cursor` does not decode
  */
-export const TaskList = defineRpc({
+export const taskList = defineRpc({
   name: "agent/task/list",
   params: Schema.Struct({
-    limit: ListLimitSchema,
+    limit: listLimitSchema,
     cursor: Schema.optional(listCursorSchema()),
   }),
   result: Schema.Struct({
-    tasks: Schema.Array(TaskSchema),
+    tasks: Schema.Array(taskSchema),
     nextCursor: Schema.optional(listCursorSchema()),
   }),
   requires: [AgentPrincipal],
@@ -145,13 +154,14 @@ export const TaskList = defineRpc({
 // agent/task/request
 // ═══════════════════════════════════════════════════════════════════
 
-const InitialConversationSchema = Schema.Struct({
-  name: Schema.optional(ConversationNameSchema),
-  participants: Schema.optional(Schema.Array(AgentId).pipe(Schema.minItems(1))),
+const initialConversationSchema = Schema.Struct({
+  name: Schema.optional(conversationNameSchema),
+  participants: Schema.optional(Schema.Array(agentId).pipe(Schema.minItems(1))),
 });
 
+/** Represents initial conversation input values. */
 export type InitialConversationInput = Schema.Schema.Type<
-  typeof InitialConversationSchema
+  typeof initialConversationSchema
 >;
 
 /**
@@ -178,16 +188,16 @@ export type InitialConversationInput = Schema.Schema.Type<
  * @error AgentNotFoundError when an invited or initial-conversation participant is missing
  * @error ConversationFullError when the `initialConversation` exceeds capacity
  */
-export const TaskRequest = defineRpc({
+export const taskRequest = defineRpc({
   name: "agent/task/request",
   params: Schema.Struct({
-    appId: AppId,
-    invitedAgentIds: Schema.Array(AgentId),
-    initialConversation: Schema.optional(InitialConversationSchema),
+    appId: appId,
+    invitedAgentIds: Schema.Array(agentId),
+    initialConversation: Schema.optional(initialConversationSchema),
   }),
   result: Schema.Struct({
-    task: TaskSchema,
-    conversation: Schema.Union(ConversationSchema, Schema.Null),
+    task: taskSchema,
+    conversation: Schema.Union(conversationSchemaValue, Schema.Null),
   }),
   requires: [AgentPrincipal, ActiveAgent, ContactPolicyAllowsReach],
   errors: [TaskRejectedError, AgentNotFoundError, ConversationFullError],
@@ -201,30 +211,30 @@ export const TaskRequest = defineRpc({
 // accept/reject verdict; on accept the task transitions to `"active"`.
 // ═══════════════════════════════════════════════════════════════════
 
-const TaskCreateContextSchema = Schema.Struct({
-  taskId: TaskId,
-  initiatorAgentId: AgentId,
-  invitedAgentIds: Schema.Array(AgentId),
+const taskCreateContextSchema = Schema.Struct({
+  taskId: taskId,
+  initiatorAgentId: agentId,
+  invitedAgentIds: Schema.Array(agentId),
   initialConversation: Schema.optional(
     Schema.Struct({
       name: Schema.optional(Schema.String),
-      participants: Schema.optional(Schema.Array(AgentId)),
+      participants: Schema.optional(Schema.Array(agentId)),
     }),
   ),
-  receivedAt: Schema.optional(DateTimeString),
+  receivedAt: Schema.optional(dateTimeString),
 });
 
-const TaskFailureReasonSchema = Schema.String.pipe(
+const taskFailureReasonSchema = Schema.String.pipe(
   Schema.minLength(1),
   Schema.maxLength(256),
 );
 
-const TaskCreateVerdictSchema = Schema.Union(
+const taskCreateVerdictSchema = Schema.Union(
   Schema.Struct({ decision: Schema.Literal("accept") }),
   Schema.Struct({
     decision: Schema.Literal("reject"),
     // Bound matches `TaskFailedNotificationDefinition.reason`.
-    reason: Schema.optional(TaskFailureReasonSchema),
+    reason: Schema.optional(taskFailureReasonSchema),
   }),
 );
 
@@ -235,10 +245,10 @@ const TaskCreateVerdictSchema = Schema.Union(
  * - **Principal:** none — a server→client reverse callback.
  * @error ForbiddenError when the app rejects; the server treats the verdict as a fail-closed reject
  */
-export const TaskCreate = defineRpc({
+export const taskCreate = defineRpc({
   name: "app/task/create",
-  params: TaskCreateContextSchema,
-  result: Schema.Struct({ verdict: TaskCreateVerdictSchema }),
+  params: taskCreateContextSchema,
+  result: Schema.Struct({ verdict: taskCreateVerdictSchema }),
   requires: [],
   errors: [ForbiddenError],
 });
@@ -260,50 +270,52 @@ export const TaskCreate = defineRpc({
  * - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
  * @error TaskNotFoundError when the task does not exist or the caller is not in it
  */
-export const TaskLeave = defineRpc({
+export const taskLeave = defineRpc({
   name: "agent/task/leave",
-  params: Schema.Struct({ taskId: TaskId }),
+  params: Schema.Struct({ taskId: taskId }),
   result: Schema.Struct({}),
   requires: [AgentPrincipal, ActiveAgent],
   errors: [TaskNotFoundError],
 });
 
-const TaskUpdateParamsSchema = Schema.Union(
+const taskUpdateParamsSchema = Schema.Union(
   Schema.Struct({
     action: Schema.Literal("close"),
-    taskId: TaskId,
+    taskId: taskId,
   }),
   Schema.Struct({
     action: Schema.Literal("add-participant"),
-    taskId: TaskId,
-    agentId: AgentId,
+    taskId: taskId,
+    agentId: agentId,
   }),
   Schema.Struct({
     action: Schema.Literal("remove-participant"),
-    taskId: TaskId,
-    agentId: AgentId,
+    taskId: taskId,
+    agentId: agentId,
   }),
 );
 
-const TaskUpdateResultSchema = Schema.Union(
+const taskUpdateResultSchema = Schema.Union(
   Schema.Struct({
     action: Schema.Literal("closed"),
-    task: TaskSchema,
+    task: taskSchema,
   }),
   Schema.Struct({
     action: Schema.Literal("participant-added"),
-    participant: TaskParticipantSchema,
+    participant: taskParticipantSchema,
   }),
   Schema.Struct({
     action: Schema.Literal("participant-removed"),
   }),
 );
 
+/** Represents task update params values. */
 export type TaskUpdateParams = Schema.Schema.Type<
-  typeof TaskUpdateParamsSchema
+  typeof taskUpdateParamsSchema
 >;
+/** Represents the result of task update. */
 export type TaskUpdateResult = Schema.Schema.Type<
-  typeof TaskUpdateResultSchema
+  typeof taskUpdateResultSchema
 >;
 
 /**
@@ -315,10 +327,10 @@ export type TaskUpdateResult = Schema.Schema.Type<
  * @error ForbiddenError when the caller does not own the task
  * @error TaskNotFoundError when the task does not exist
  */
-export const TaskUpdate = defineRpc({
+export const taskUpdate = defineRpc({
   name: "app/task/update",
-  params: TaskUpdateParamsSchema,
-  result: TaskUpdateResultSchema,
+  params: taskUpdateParamsSchema,
+  result: taskUpdateResultSchema,
   requires: [AppPrincipal],
   errors: [ForbiddenError, TaskNotFoundError],
 });
@@ -327,26 +339,26 @@ export const TaskUpdate = defineRpc({
 // task/* lifecycle notifications
 // ═══════════════════════════════════════════════════════════════════
 
-const TaskFailedNotificationSchema = Schema.Struct({
-  taskId: TaskId,
+const taskFailedNotificationSchema = Schema.Struct({
+  taskId: taskId,
   // Free-form one-liner. The app/task/create callback verdict's
   // `reject.reason`, the synthesized `"app_unreachable"` / `"timeout"`
   // strings from the fail-closed envelope, and any future caller-supplied
   // failure reason all flow through here.
-  reason: Schema.optional(TaskFailureReasonSchema),
+  reason: Schema.optional(taskFailureReasonSchema),
 });
 
-const TaskCreatedNotificationSchema = Schema.Struct({ task: TaskSchema });
+const taskCreatedNotificationSchema = Schema.Struct({ task: taskSchema });
 
-const TaskClosedNotificationSchema = Schema.Struct({ task: TaskSchema });
+const taskClosedNotificationSchema = Schema.Struct({ task: taskSchema });
 
 /**
  * Pushed when a task fails before becoming ready.
  * @triggeredBy app/task/create
  */
-export const TaskFailedNotificationDefinition = defineNotification({
+export const taskFailedNotificationDefinition = defineNotification({
   name: "agent/task/failed",
-  params: TaskFailedNotificationSchema,
+  params: taskFailedNotificationSchema,
 });
 
 /**
@@ -355,36 +367,36 @@ export const TaskFailedNotificationDefinition = defineNotification({
  * to `active`. Carries the full Task row (matching `agent/task/closed`'s shape) so
  * subscribers don't need a second read to discover the post-transition state.
  */
-export const TaskCreatedNotificationDefinition = defineNotification({
+export const taskCreatedNotificationDefinition = defineNotification({
   name: "agent/task/created",
-  params: TaskCreatedNotificationSchema,
+  params: taskCreatedNotificationSchema,
 });
 
 /**
  * Pushed when a task closes.
  * @triggeredBy app/task/update
  */
-export const TaskClosedNotificationDefinition = defineNotification({
+export const taskClosedNotificationDefinition = defineNotification({
   name: "agent/task/closed",
-  params: TaskClosedNotificationSchema,
+  params: taskClosedNotificationSchema,
 });
 
 /** Task RPC catalog callable by agent clients. */
 export const agentCallableTaskRpcMethods = [
-  TaskRequest,
-  TaskList,
-  TaskLeave,
+  taskRequest,
+  taskList,
+  taskLeave,
 ] as const;
 
 /** Task RPC catalog callable by app clients. */
-export const appCallableTaskRpcMethods = [TaskUpdate] as const;
+export const appCallableTaskRpcMethods = [taskUpdate] as const;
 
 /** Task callback catalog served by app clients for server-initiated calls. */
-export const taskCallbackMethods = [TaskCreate] as const;
+export const taskCallbackMethods = [taskCreate] as const;
 
 /** Task notification catalog emitted by the server. */
 export const taskNotifications = [
-  TaskClosedNotificationDefinition,
-  TaskCreatedNotificationDefinition,
-  TaskFailedNotificationDefinition,
+  taskClosedNotificationDefinition,
+  taskCreatedNotificationDefinition,
+  taskFailedNotificationDefinition,
 ] as const;

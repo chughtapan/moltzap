@@ -14,7 +14,7 @@ const REGISTRY_MOLTZAP_PATTERN = /registry\.npmjs\.org\/@moltzap(?:\/|%2f)/i;
 const EXPECTED_MOLTZAP_LOCK_KEYS = [
   `node_modules/${CLIENT_PACKAGE_NAME}`,
   `node_modules/${PROTOCOL_PACKAGE_NAME}`,
-].sort();
+].sort((left, right) => left.localeCompare(right));
 
 const NANOCLAW_INSTALL_INTEGRATION_ENABLED = Effect.runSync(
   Config.string("MOLTZAP_NANOCLAW_ITEST").pipe(
@@ -56,7 +56,7 @@ function verifiesWorkspaceInstallLock() {
       );
       const moltzapKeys = Object.keys(packages)
         .filter((location) => location.includes("node_modules/@moltzap/"))
-        .sort();
+        .sort((left, right) => left.localeCompare(right));
       expect(moltzapKeys).toEqual(EXPECTED_MOLTZAP_LOCK_KEYS);
       for (const location of moltzapKeys) {
         const entry = requireRecord(packages[location]);

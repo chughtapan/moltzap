@@ -8,7 +8,7 @@ Contact-owned requirement middleware tags.
 
 ## Public surface
 
-### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L15)
+### [`ContactPolicyAllowsReach`](./contact-policy-allows-reach.ts#L16)
 
 _Class_
 
@@ -22,7 +22,7 @@ export class ContactPolicyAllowsReach extends RpcMiddleware.Tag<ContactPolicyAll
 Requirement middleware: resolves every target and verifies the creator may
 reach it under the recipient's contact policy.
 
-### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L6)
+### [`ContactPolicyAllowsReachValue`](./contact-policy-allows-reach.ts#L7)
 
 _Interface_
 
@@ -32,6 +32,8 @@ export interface ContactPolicyAllowsReachValue {
   readonly targetAgentIds: readonly AgentId[];
 }
 ```
+
+Describes contact policy allows reach value.
 
 ## Files
 

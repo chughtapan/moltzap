@@ -8,11 +8,12 @@ import { registerAgent, type RegisterResponse } from "../auth.js";
  * authenticated agent socket.
  */
 export interface HarnessAgentClient {
-  readonly close: () => Effect.Effect<void, never, never>;
+  readonly close: () => Effect.Effect<void>;
   readonly subscribe: MoltZapAgentClient["subscribe"];
   readonly sendRpc: MoltZapAgentClient["callDefinition"];
 }
 
+/** Describes connected harness agent. */
 export interface ConnectedHarnessAgent extends RegisterResponse {
   readonly client: HarnessAgentClient;
 }
@@ -21,6 +22,9 @@ export interface ConnectedHarnessAgent extends RegisterResponse {
  * Registers an agent through the public HTTP boundary, then opens and
  * authenticates its WS client; the client derives its `/ws` endpoint from
  * the HTTP base itself.
+ * @param baseUrl Value supplied to the operation.
+ * @param name Name of the operation.
+ * @returns The register and connect result.
  */
 export function registerAndConnect(
   baseUrl: string,

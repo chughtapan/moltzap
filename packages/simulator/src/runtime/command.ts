@@ -22,11 +22,13 @@ import {
   Stream,
 } from "effect";
 
+/** Configures command run. */
 export interface CommandRunOptions {
   readonly cwd?: string;
   readonly timeout?: number;
 }
 
+/** Describes captured command output. */
 export interface CapturedCommandOutput {
   readonly stdout: string;
   readonly stderr: string;
@@ -37,26 +39,28 @@ export interface CapturedCommandOutput {
  * can find its tools, HOME so per-user state resolution works inside the
  * exact-environment replacement.
  */
-export interface BaseChildEnvironment {
-  readonly PATH: string;
-  readonly HOME: string;
-}
+export type BaseChildEnvironment = Readonly<Record<"PATH" | "HOME", string>>;
 
-export const BaseChildEnvironmentConfig: Config.Config<BaseChildEnvironment> =
+/** Provides the base child environment config runtime value. */
+export const baseChildEnvironmentConfig: Config.Config<BaseChildEnvironment> =
   Config.all({
     PATH: Config.string("PATH"),
     HOME: Config.string("HOME").pipe(Config.withDefault(homedir())),
   });
 
+/** Configures exact environment command. */
 export interface ExactEnvironmentCommandOptions {
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
   readonly cleanupTreeOnExit?: boolean;
 }
 
 type ErrorFactory<E> = (reason: string, cause?: unknown) => E;
+const LOG_HEAD_CAPACITY = 64 * 1024;
+const LOG_TAIL_CAPACITY = 256 * 1024;
+const LOG_ELISION_MARKER = "\n[... log window elided ...]\n";
 
 const EXACT_ENVIRONMENT_LAUNCHER = `
 const { spawn } = require("node:child_process");
@@ -104,6 +108,8 @@ child.once("exit", (code) => {
  * keeps tree-directed teardown semantics on every supported Node platform.
  * Long-lived runtimes opt into launcher-owned exit cleanup so the group
  * leader remains present until every residual descendant receives KILL.
+ * @param options Options that control the operation.
+ * @returns The created exact environment command.
  */
 export function makeExactEnvironmentCommand(
   options: ExactEnvironmentCommandOptions,
@@ -274,6 +280,8 @@ function unboundedCommandOutputEffectWith<E>(
  * Shell-command and platform-error helpers shared by external runtimes.
  * Each module supplies its own tagged-error factory so failures stay in
  * that module's error channel.
+ * @param makeError Value supplied to the operation.
+ * @returns The created command helpers.
  */
 export function makeCommandHelpers<E>(makeError: ErrorFactory<E>) {
   return {
@@ -297,10 +305,6 @@ export function makeCommandHelpers<E>(makeError: ErrorFactory<E>) {
   };
 }
 
-const LOG_HEAD_CAPACITY = 64 * 1024;
-const LOG_TAIL_CAPACITY = 256 * 1024;
-const LOG_ELISION_MARKER = "\n[... log window elided ...]\n";
-
 /**
  * How much of a child's own output a launch failure carries. The bound is
  * a character count rather than a line count because a runtime is free to
@@ -314,6 +318,10 @@ const CHILD_OUTPUT_TAIL_CHARS = 2000;
  * Redaction runs before the cut because whole-value redactors cannot match a
  * credential fragment created by slicing. Cutting redacted text can only
  * split the replacement marker.
+ * @param detail Value supplied to the operation.
+ * @param output Value supplied to the operation.
+ * @param redact Value supplied to the operation.
+ * @returns The attach child output result.
  */
 export function attachChildOutput(
   detail: string,
@@ -340,10 +348,16 @@ export class BoundedLogBuffer {
   private tail = "";
   private total = 0;
 
+  private readonly headCapacity: number;
+  private readonly tailCapacity: number;
+
   constructor(
-    private readonly headCapacity = LOG_HEAD_CAPACITY,
-    private readonly tailCapacity = LOG_TAIL_CAPACITY,
-  ) {}
+    headCapacity = LOG_HEAD_CAPACITY,
+    tailCapacity = LOG_TAIL_CAPACITY,
+  ) {
+    this.headCapacity = headCapacity;
+    this.tailCapacity = tailCapacity;
+  }
 
   append(chunk: string): void {
     this.total += chunk.length;
@@ -353,7 +367,9 @@ export class BoundedLogBuffer {
       this.head += rest.slice(0, take);
       rest = rest.slice(take);
     }
-    if (rest.length === 0) return;
+    if (rest.length === 0) {
+      return;
+    }
     // Compact only past 2x capacity: V8 rope concatenation keeps `+=` cheap,
     // so the flatten amortizes to O(1)/char at a 2x memory high-water mark.
     this.tail += rest;
@@ -365,6 +381,8 @@ export class BoundedLogBuffer {
   /**
    * Text from `offset` (original-stream position) to the current end;
    * regions no longer retained collapse into an elision marker.
+   * @param offset Value supplied to the operation.
+   * @returns The consume process stream result.
    */
   read(offset: number): { readonly text: string; readonly nextOffset: number } {
     const tailStart = this.total - this.tail.length;
@@ -384,19 +402,29 @@ export class BoundedLogBuffer {
     };
   }
 
-  /** The full retained window (head + elision marker + tail). */
+  /**
+   * The full retained window (head + elision marker + tail).
+   * @returns The consume process stream result.
+   */
   get text(): string {
     return this.read(0).text;
   }
 }
 
-/** Drains a child stdout/stderr stream into the caller's log accumulator. */
+/**
+ * Drains a child stdout/stderr stream into the caller's log accumulator.
+ * @param stream Value supplied to the operation.
+ * @param append Value supplied to the operation.
+ * @param processId Value supplied to the operation.
+ * @param streamName Value supplied to the operation.
+ * @returns The consume process stream result.
+ */
 function consumeProcessStream(
   stream: Stream.Stream<Uint8Array, unknown>,
   append: (chunk: string) => void,
   processId: Process["pid"],
   streamName: "stdout" | "stderr",
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   const decoder = new TextDecoder("utf-8");
   return Stream.runForEach(stream, (chunk) =>
     Effect.sync(() => {
@@ -406,7 +434,9 @@ function consumeProcessStream(
     Effect.zipRight(
       Effect.sync(() => {
         const tail = decoder.decode();
-        if (tail.length > 0) append(tail);
+        if (tail.length > 0) {
+          append(tail);
+        }
       }),
     ),
     Effect.catchAll((cause) =>
@@ -420,6 +450,11 @@ function consumeProcessStream(
 /**
  * Starts a command under `scope`, preserves the platform process wait in its
  * typed exit fiber, and drains stdout/stderr into `appendLog`.
+ * @param command Value supplied to the operation.
+ * @param scope Value supplied to the operation.
+ * @param appendLog Value supplied to the operation.
+ * @param processTreeCleanup Value supplied to the operation.
+ * @returns The start supervised process result.
  */
 export function startSupervisedProcess(
   command: Command.Command,
@@ -454,6 +489,7 @@ export function startSupervisedProcess(
 
 const EXIT_POLL_INTERVAL_MS = 100;
 
+/** Describes process tree cleanup. */
 export interface ProcessTreeCleanup {
   claimed: boolean;
   readonly launcherOwnsExitCleanup?: boolean;
@@ -467,13 +503,20 @@ export interface ProcessTreeCleanup {
  * executor starts a detached process group on POSIX and `Process.kill`
  * signals that group before falling back to the direct pid. On Windows the
  * same call uses `taskkill /T`, so both escalation stages include descendants.
+ * @param proc Value supplied to the operation.
+ * @param exitFiber Value supplied to the operation.
+ * @param waits Value supplied to the operation.
+ * @param waits.termWaitMs Value supplied to the operation.
+ * @param waits.killWaitMs Value supplied to the operation.
+ * @param processTreeCleanup Value supplied to the operation.
+ * @returns The escalating kill result.
  */
 export function escalatingKill(
   proc: Process,
   exitFiber: Fiber.RuntimeFiber<ExitCode, PlatformError>,
   waits: { readonly termWaitMs: number; readonly killWaitMs: number },
   processTreeCleanup: ProcessTreeCleanup = { claimed: false },
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Effect.gen(function* () {
     const initialExit = yield* Fiber.poll(exitFiber);
     if (Option.isSome(initialExit)) {
@@ -504,7 +547,7 @@ export function escalatingKill(
 function cleanupAfterLeaderExit(
   proc: Process,
   cleanup: ProcessTreeCleanup,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return cleanup.launcherOwnsExitCleanup
     ? Effect.void
     : dispatchProcessTreeKill(proc, cleanup);
@@ -513,18 +556,17 @@ function cleanupAfterLeaderExit(
 function dispatchProcessTreeKill(
   proc: Process,
   cleanup: ProcessTreeCleanup,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Effect.suspend(() => {
-    if (cleanup.claimed) return Effect.void;
+    if (cleanup.claimed) {
+      return Effect.void;
+    }
     cleanup.claimed = true;
     return sendSignal(proc, "SIGKILL");
   });
 }
 
-function sendSignal(
-  proc: Process,
-  signal: Signal,
-): Effect.Effect<void, never, never> {
+function sendSignal(proc: Process, signal: Signal): Effect.Effect<void> {
   return Effect.forkDaemon(
     proc
       .kill(signal)
@@ -541,7 +583,7 @@ function sendSignal(
 function exitedWithin(
   exitFiber: Fiber.RuntimeFiber<ExitCode, PlatformError>,
   waitMs: number,
-): Effect.Effect<boolean, never, never> {
+): Effect.Effect<boolean> {
   return Effect.iterate(
     { elapsedMs: 0, exited: false },
     {

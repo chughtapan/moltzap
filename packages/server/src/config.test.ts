@@ -87,7 +87,9 @@ function testEnv(env: Record<string, string | undefined> = {}) {
 }
 
 function expectFailureValue(exit: Exit.Exit<unknown, unknown>): unknown {
-  if (!Exit.isFailure(exit)) throw new Error("expected failure");
+  if (!Exit.isFailure(exit)) {
+    throw new Error("expected failure");
+  }
   const failure = Cause.failureOption(exit.cause);
   if (Option.isNone(failure)) {
     throw new Error(`expected typed failure in cause, got ${exit.cause}`);
@@ -127,7 +129,11 @@ function encryptionSurfaces() {
       ENCRYPTION_MASTER_SECRET: SECRET,
     });
     expect(result.encryptionMasterSecret).not.toBeUndefined();
-    expect(Redacted.value(result.encryptionMasterSecret!)).toBe(SECRET);
+    expect(
+      Redacted.value(
+        /* Safe because the test fixture establishes this asserted shape. */ result.encryptionMasterSecret!,
+      ),
+    ).toBe(SECRET);
   });
 }
 
@@ -192,7 +198,12 @@ function rejectsInvalidPort() {
       expect(err).toBeInstanceOf(ConfigLoadError);
       // port: -1 is rejected by structural validation (TypeBox, minimum: 1)
       // before the Effect Config decode, so it surfaces as kind "validation".
-      expect((err as ConfigLoadError).kind).toBe(VALIDATION_ERROR_KIND);
+      expect(
+        (
+          /* Safe because the test fixture establishes this asserted shape. */
+          err as ConfigLoadError
+        ).kind,
+      ).toBe(VALIDATION_ERROR_KIND);
     }),
   );
 }
@@ -217,7 +228,11 @@ function envInterpolation() {
         }),
       });
       expect(result.registrationSecret).not.toBeUndefined();
-      expect(Redacted.value(result.registrationSecret!)).toBe(INTERPOLATED);
+      expect(
+        Redacted.value(
+          /* Safe because the test fixture establishes this asserted shape. */ result.registrationSecret!,
+        ),
+      ).toBe(INTERPOLATED);
     }),
   );
 }
@@ -228,7 +243,11 @@ function envBackedRegistrationInterpolation() {
     Effect.gen(function* () {
       const result = yield* loadStandaloneConfig({ configPath });
       expect(result.registrationSecret).not.toBeUndefined();
-      expect(Redacted.value(result.registrationSecret!)).toBe(INTERPOLATED);
+      expect(
+        Redacted.value(
+          /* Safe because the test fixture establishes this asserted shape. */ result.registrationSecret!,
+        ),
+      ).toBe(INTERPOLATED);
     }),
   ).pipe(
     Effect.ensuring(
@@ -268,7 +287,11 @@ function doesNotMutateReusedEnv() {
       const beforeKeys = Object.keys(processEnv).length;
       const result = yield* loadStandaloneConfig({ configPath, processEnv });
       expect(result.registrationSecret).not.toBeUndefined();
-      expect(Redacted.value(result.registrationSecret!)).toBe(REUSED_ENV_VALUE);
+      expect(
+        Redacted.value(
+          /* Safe because the test fixture establishes this asserted shape. */ result.registrationSecret!,
+        ),
+      ).toBe(REUSED_ENV_VALUE);
       expect(processEnv[REUSED_ENV_KEY]).toBe(REUSED_ENV_VALUE);
       expect(Object.keys(processEnv).length).toBe(beforeKeys);
     }),
@@ -287,7 +310,12 @@ function expectValidationRejection(body: string) {
       );
       const err = expectFailureValue(exit);
       expect(err).toBeInstanceOf(ConfigLoadError);
-      expect((err as ConfigLoadError).kind).toBe(VALIDATION_ERROR_KIND);
+      expect(
+        (
+          /* Safe because the test fixture establishes this asserted shape. */
+          err as ConfigLoadError
+        ).kind,
+      ).toBe(VALIDATION_ERROR_KIND);
     }),
   );
 }

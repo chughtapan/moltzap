@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/server-core",
-  "version": "2026.726.0",
+  "version": "2026.729.0",
   "description": "Building blocks for agent-to-agent messaging - services, RPC, WebSocket, encryption",
   "license": "Apache-2.0",
   "repository": {
@@ -34,8 +34,8 @@
     "dev": "tsx watch src/standalone.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",
-    "test:integration": "vitest run -c vitest.integration.config.ts",
-    "test:conformance": "vitest run -c vitest.conformance.config.ts",
+    "test:integration": "vitest run -c vitest.integration.config.mjs",
+    "test:conformance": "vitest run -c vitest.conformance.config.mjs",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -55,7 +55,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/server",
-          "command": "eslint src *.ts --cache --max-warnings=0"
+          "command": "eslint . --cache --max-warnings=0"
         }
       },
       "arch:check": {

@@ -6,7 +6,7 @@ import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { TaskId } from "@moltzap/protocol/task";
 import {
   BoundedMap,
-  LeaseAlreadyConsumed,
+  type LeaseAlreadyConsumed,
   LeaseStore,
   MoltZapChannelCore,
   catchLeaseInvalid,
@@ -47,6 +47,7 @@ const MOLTZAP_CHANNEL = "moltzap";
 const MOLTZAP_JID_PREFIX = "mz:";
 const EVAL_NAME_ID_CHARS = 8;
 const MAX_TRACKED_CONVERSATIONS = 4096;
+/** Provides the eval agent group id runtime value. */
 export const EVAL_AGENT_GROUP_ID = "eval-agent";
 
 // Every message a MoltZap conversation delivers is addressed to this agent
@@ -75,12 +76,12 @@ const MOLTZAP_DEFAULTS: ChannelDefaults = {
   mentions: "never",
 };
 
-const MoltZapEvalModeEnv = Config.string("MOLTZAP_EVAL_MODE").pipe(
+const moltZapEvalModeEnv = Config.string("MOLTZAP_EVAL_MODE").pipe(
   Config.withDefault("0"),
 );
-const MoltZapChannelEnv = Config.all({
+const moltZapChannelEnv = Config.all({
   profileName: Config.option(Config.string("MOLTZAP_PROFILE")),
-  evalMode: MoltZapEvalModeEnv,
+  evalMode: moltZapEvalModeEnv,
 });
 
 /**
@@ -88,17 +89,21 @@ const MoltZapChannelEnv = Config.all({
  * conversations by `(channelType, platformId)`; this channel uses
  * `mz:<conversationId>` platform ids, and replies read the branded
  * conversation id back from the per-jid map rather than re-parsing the jid.
+ * @param conversationId Value supplied to the operation.
+ * @returns The jid from conversation id result.
  */
 function jidFromConversationId(conversationId: string): string {
   return `${MOLTZAP_JID_PREFIX}${conversationId}`;
 }
 
-function loadMoltZapChannelEnv(): {
+interface MoltZapChannelEnv {
   readonly profileName: string | null;
   readonly evalMode: boolean;
-} {
+}
+
+function loadMoltZapChannelEnv(): MoltZapChannelEnv {
   const env = Effect.runSync(
-    MoltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+    moltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
   );
   return {
     profileName: Option.getOrNull(env.profileName),
@@ -108,7 +113,9 @@ function loadMoltZapChannelEnv(): {
 
 function extractOutboundText(message: OutboundMessage): string | null {
   const content = message.content;
-  if (typeof content === "string") return content;
+  if (typeof content === "string") {
+    return content;
+  }
   if (
     content !== null &&
     typeof content === "object" &&
@@ -243,12 +250,15 @@ export class MoltZapAdapter implements ChannelAdapter {
    * tagged error. Keeping the entry makes the duplicate-send surface
    * uniform: a second deliver is rejected rather than silently re-sent
    * unleased.
+   * @param platformId Value supplied to the operation.
+   * @param args Thread identifier and outbound message supplied by Nanoclaw.
+   * @returns The text result.
    */
   deliver(
     platformId: string,
-    _threadId: string | null,
-    message: OutboundMessage,
+    ...args: [threadId: string | null, message: OutboundMessage]
   ) {
+    const message = args[1];
     const text = extractOutboundText(message);
     const send =
       text === null ? Effect.void : this.deliverEffect(platformId, text);
@@ -260,7 +270,7 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 
   private initializeCore() {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MoltZapAdapter) {
       if (this.core !== null) {
         return this.core;
       }
@@ -283,7 +293,9 @@ export class MoltZapAdapter implements ChannelAdapter {
 
   private attachCore(core: MoltZapChannelCore): void {
     core.onInbound((msg: EnrichedInboundMessage) =>
-      Effect.sync(() => this.handleInbound(msg)),
+      Effect.sync(() => {
+        this.handleInbound(msg);
+      }),
     );
     core.onDisconnect(() => {
       Effect.runFork(
@@ -301,7 +313,7 @@ export class MoltZapAdapter implements ChannelAdapter {
     void,
     LeaseAlreadyConsumed | MoltZapChannelError | ServiceRpcError
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MoltZapAdapter) {
       if (!this.ownsJid(jid)) {
         return yield* Effect.fail(
           new MoltZapChannelError({
@@ -356,9 +368,13 @@ export class MoltZapAdapter implements ChannelAdapter {
   private handleInbound(enriched: EnrichedInboundMessage): void {
     // Own outbound replies echo back through the notification stream; the
     // router has no is-from-me concept, so they are dropped here.
-    if (enriched.isFromMe) return;
+    if (enriched.isFromMe) {
+      return;
+    }
     const config = this.setupConfig;
-    if (config === null) return;
+    if (config === null) {
+      return;
+    }
     const jid = jidFromConversationId(enriched.conversationId);
     this.rememberDispatchLease(jid, enriched);
     this.rememberConversation(jid, enriched);
@@ -397,14 +413,18 @@ export class MoltZapAdapter implements ChannelAdapter {
       enriched.contextBlocks.crossConversationMessages ?? [],
       { ownAgentId: this.ownAgentId, markup: "xml-system-reminder" },
     );
-    if (crossConv !== null) blocks.push(crossConv);
+    if (crossConv !== null) {
+      blocks.push(crossConv);
+    }
     const groupFields = getGroupFields(enriched.contextBlocks.groupMetadata);
     if (groupFields !== null) {
       blocks.push(
         formatGroupBlock(groupFields, { markup: "xml-system-reminder" }),
       );
     }
-    if (blocks.length === 0) return enriched.text;
+    if (blocks.length === 0) {
+      return enriched.text;
+    }
     return `${blocks.join("\n\n")}\n\n${enriched.text}`;
   }
 
@@ -431,6 +451,9 @@ export class MoltZapAdapter implements ChannelAdapter {
    * first message. The harness provisions the target agent group and its
    * container config before startup; NanoClaw's sender resolver owns user
    * rows. Production registrations stay out of band.
+   * @param jid Value supplied to the operation.
+   * @param enriched Value supplied to the operation.
+   * @param isGroup Value supplied to the operation.
    */
   private ensureEvalWiring(
     jid: string,
@@ -478,16 +501,27 @@ export class MoltZapAdapter implements ChannelAdapter {
   }
 }
 
+/**
+ * Creates molt zap adapter.
+ * @param env Value supplied to the operation.
+ * @returns The created molt zap adapter.
+ */
 export function makeMoltZapAdapter(
-  env = loadMoltZapChannelEnv(),
+  env?: MoltZapChannelEnv,
 ): MoltZapAdapter | null {
-  if (env.profileName === null) {
+  const resolvedEnv = env ?? loadMoltZapChannelEnv();
+  if (resolvedEnv.profileName === null) {
     return null;
   }
-  return MoltZapAdapter.fromProfile(env.profileName, env.evalMode);
+  return MoltZapAdapter.fromProfile(
+    resolvedEnv.profileName,
+    resolvedEnv.evalMode,
+  );
 }
 
 registerChannelAdapter(MOLTZAP_CHANNEL, {
   factory: () => makeMoltZapAdapter(),
   defaults: MOLTZAP_DEFAULTS,
 });
+
+/* eslint-enable jsdoc/text-escaping -- Restore strict defaults after the scoped file-level exception. */

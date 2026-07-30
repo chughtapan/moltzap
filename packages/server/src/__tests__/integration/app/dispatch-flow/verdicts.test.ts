@@ -40,7 +40,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   hooks: MODERATED_HOOKS,
 };
 
-const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
+const fixture = createDispatchFlowFixture();
 
 beforeAll(startDispatchFlowServer, 60_000);
 
@@ -50,7 +50,7 @@ beforeEach(() => Effect.runPromise(fixture.reset));
 
 function requestModeratedDispatch(alice: ConnectedAgent, bob: ConnectedAgent) {
   return Effect.gen(function* () {
-    yield* attachDispatchAuthorizeHook(alice, fixture);
+    yield* attachDispatchAuthorizeHook(fixture);
     const { conversationId } = yield* createConversationOnApp(
       alice,
       bob,

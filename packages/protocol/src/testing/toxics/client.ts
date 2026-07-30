@@ -22,12 +22,14 @@ const HTTP_SUCCESS_MIN = 200;
 const HTTP_REDIRECT_MIN = 300;
 const TOXIC_NAME_SUFFIX_LEN = 8;
 
+/** Describes toxiproxy config. */
 export interface ToxiproxyConfig {
   /** Control-plane URL, e.g. `http://localhost:8474`. */
   readonly apiUrl: string;
   readonly network?: ToxiproxyNetworkConfig;
 }
 
+/** Describes toxiproxy network config. */
 export interface ToxiproxyNetworkConfig {
   /** Hostname Toxiproxy should use when dialing the real server upstream. */
   readonly upstreamHost?: string;
@@ -78,6 +80,7 @@ export interface ToxiproxyProxy {
   ) => Effect.Effect<ToxicHandle, ToxicControlError, Scope.Scope>;
 }
 
+/** Describes toxiproxy client. */
 export interface ToxiproxyClient {
   /** Create a scoped proxy; teardown on release. */
   readonly proxy: (opts: {
@@ -99,7 +102,7 @@ function removeToxicFinalizer(
   base: string,
   proxyName: string,
   toxicName: string,
-): () => Effect.Effect<void, never> {
+): () => Effect.Effect<void> {
   return () =>
     httpJson(
       "remove-toxic",
@@ -116,6 +119,19 @@ interface RawProxy {
   readonly listen: string;
   readonly upstream: string;
   readonly enabled?: boolean;
+}
+
+function isRawProxy(value: unknown): value is RawProxy {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  if (typeof Reflect.get(value, "name") !== "string") {
+    return false;
+  }
+  if (typeof Reflect.get(value, "listen") !== "string") {
+    return false;
+  }
+  return typeof Reflect.get(value, "upstream") === "string";
 }
 
 type HttpMethod = "DELETE" | "GET" | "POST";
@@ -135,8 +151,12 @@ function requestForMethod(
   method: HttpMethod,
   url: string,
 ): HttpClientRequest.HttpClientRequest {
-  if (method === "POST") return HttpClientRequest.post(url);
-  if (method === "DELETE") return HttpClientRequest.del(url);
+  if (method === "POST") {
+    return HttpClientRequest.post(url);
+  }
+  if (method === "DELETE") {
+    return HttpClientRequest.del(url);
+  }
   return HttpClientRequest.get(url);
 }
 
@@ -146,7 +166,9 @@ function httpJson(
   init?: HttpJsonInit,
 ): Effect.Effect<unknown, ToxicControlError> {
   const toToxicError = (err: unknown): ToxicControlError => {
-    if (err instanceof ToxicControlError) return err;
+    if (err instanceof ToxicControlError) {
+      return err;
+    }
     return new ToxicControlError({
       op,
       status: 0,
@@ -167,7 +189,7 @@ function httpJson(
 
 function jsonRequest(
   url: string,
-  init: HttpJsonInit | undefined,
+  init?: HttpJsonInit,
 ): HttpClientRequest.HttpClientRequest {
   const method = init?.method ?? "GET";
   const baseRequest = requestForMethod(method, url);
@@ -241,10 +263,8 @@ function profileToAttributes(profile: ToxicProfile): {
         type: "slow_close",
         attributes: { delay: profile.delayMs },
       };
-    default: {
-      const _exhaustive: never = profile;
-      return absurdToxicProfile(_exhaustive);
-    }
+    default:
+      return absurdToxicProfile(profile);
   }
 }
 
@@ -252,6 +272,11 @@ function absurdToxicProfile(profile: never): never {
   throw new Error(`profileToAttributes: unexpected toxic ${String(profile)}`);
 }
 
+/**
+ * Creates toxiproxy client.
+ * @param config Documentation generation configuration.
+ * @returns The created toxiproxy client.
+ */
 export function makeToxiproxyClient(
   config: ToxiproxyConfig,
 ): Effect.Effect<ToxiproxyClient, ToxicControlError> {
@@ -282,10 +307,20 @@ function createProxy(
   opts: Parameters<ToxiproxyClient["proxy"]>[0],
 ): ReturnType<ToxiproxyClient["proxy"]> {
   return Effect.gen(function* () {
-    const raw = (yield* httpJson("create-proxy", `${base}/proxies`, {
+    const response = yield* httpJson("create-proxy", `${base}/proxies`, {
       method: "POST",
       body: proxyBody(opts, network, nextListenPort),
-    })) as RawProxy;
+    });
+    if (!isRawProxy(response)) {
+      return yield* Effect.fail(
+        new ToxicControlError({
+          op: "create-proxy",
+          status: 0,
+          body: "Toxiproxy returned a malformed proxy payload",
+        }),
+      );
+    }
+    const raw = response;
     yield* Effect.addFinalizer(deleteProxyFinalizer(base, opts.name));
     return {
       upstream: raw.upstream,
@@ -321,11 +356,10 @@ function listenAddress(
   return `${network.listenHost}:${port ?? 0}`;
 }
 
-function proxyListenUrl(
-  raw: RawProxy,
-  connectHost: string | undefined,
-): string {
-  if (raw.listen.startsWith("ws://")) return raw.listen;
+function proxyListenUrl(raw: RawProxy, connectHost?: string): string {
+  if (raw.listen.startsWith("ws://")) {
+    return raw.listen;
+  }
   const lastColon = raw.listen.lastIndexOf(":");
   const listenHost = raw.listen.slice(0, lastColon);
   const listenPort = raw.listen.slice(lastColon + 1);
@@ -341,7 +375,9 @@ function makeListenPortAllocator(
   network: ResolvedToxiproxyNetworkConfig,
 ): () => number | null {
   const range = network.listenPortRange;
-  if (range === undefined) return () => null;
+  if (range === undefined) {
+    return () => null;
+  }
   let next = range.min;
   return () => {
     const port = next;
@@ -353,7 +389,7 @@ function makeListenPortAllocator(
 function deleteProxyFinalizer(
   base: string,
   proxyName: string,
-): () => Effect.Effect<void, never> {
+): () => Effect.Effect<void> {
   return () =>
     httpJson(
       "delete-proxy",

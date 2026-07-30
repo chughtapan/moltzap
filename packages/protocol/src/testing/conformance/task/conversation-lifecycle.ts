@@ -6,7 +6,7 @@
  *   - app/conversation/update broadcasts agent/conversation lifecycle events
  *   - archive/unarchive form the only reversible terminal state
  *   - archived conversations reject agent/message/send
- *   - agent/message/send succeeds again after unarchive
+ *   - agent/message/send succeeds again after unarchive.
  */
 import { Effect } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -31,6 +31,10 @@ import {
 
 const PROPERTY = "conversation-lifecycle";
 
+/**
+ * Registers conversation lifecycle.
+ * @param ctx Context for the operation.
+ */
 export function registerConversationLifecycle(
   ctx: ConformanceRunContext,
 ): void {
@@ -103,12 +107,7 @@ function assertArchivePhase(
     yield* requireRight(archive, (error) =>
       deliveryViolation(PROPERTY, `archive failed: ${error._tag}`),
     );
-    yield* waitForArchivedEvent(
-      participant,
-      fixture.conversationId,
-      fixture.owner.agent.agentId,
-      PROPERTY,
-    );
+    yield* waitForArchivedEvent(participant, fixture.conversationId, PROPERTY);
     yield* assertConversationRejectsMessages({
       actor: participant,
       taskId: fixture.taskId,
@@ -134,7 +133,6 @@ function assertUnarchivePhase(
     yield* waitForUnarchivedEvent(
       participant,
       fixture.conversationId,
-      fixture.owner.agent.agentId,
       PROPERTY,
     );
     const resumedSend = yield* sendText(

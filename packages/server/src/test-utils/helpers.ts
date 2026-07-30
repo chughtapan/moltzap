@@ -20,7 +20,7 @@ import { AuthService } from "#identity/agents";
 
 import {
   DEFAULT_APP_ID,
-  TaskRequest,
+  taskRequest,
   type AppId,
   type TaskId,
 } from "@moltzap/protocol/task";
@@ -29,14 +29,14 @@ import type {
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
 import { serverBaseUrl } from "@moltzap/protocol/network";
-import type {
-  AgentId,
-  AgentKey,
-  AppKey,
-  AppManifest,
-  UserId,
+import {
+  type AgentId,
+  type AgentKey,
+  type AppKey,
+  type AppManifest,
+  type UserId,
+  agentName as agentNameSchema,
 } from "@moltzap/protocol/identity";
-import { AgentName } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 
 /** Default ceiling for `awaitOneNotification`. */
@@ -55,6 +55,7 @@ class AwaitNotificationClosedError extends Data.TaggedError(
   readonly definition: string;
 }> {}
 
+/** Represents await notification error conditions. */
 export type AwaitNotificationError =
   | AwaitNotificationTimeoutError
   | AwaitNotificationClosedError;
@@ -65,6 +66,10 @@ export type AwaitNotificationError =
  * and `AwaitNotificationClosedError` when the transport closed before a
  * matching frame arrived. Distinguishing close from timeout keeps a dead
  * connection from masquerading as a missing notification.
+ * @param client Client used for the operation.
+ * @param definition Protocol definition to process.
+ * @param timeoutMs Maximum time to wait in milliseconds.
+ * @returns The await one notification result.
  */
 export function awaitOneNotification<D extends AnyNotificationDefinition>(
   client: Pick<TestAgentClient, "subscribe">,
@@ -105,6 +110,7 @@ export function awaitOneNotification<D extends AnyNotificationDefinition>(
   );
 }
 
+/** Describes connected agent. */
 export interface ConnectedAgent {
   client: TestAgentClient;
   agentId: AgentId;
@@ -112,7 +118,7 @@ export interface ConnectedAgent {
   name: string;
 }
 
-const openClients: Array<{ close(): Effect.Effect<void, never> }> = [];
+const openClients: Array<{ close(): Effect.Effect<void> }> = [];
 const MIN_AGENT_GROUP_SIZE = 2;
 const POST_METHOD = "POST";
 
@@ -165,17 +171,36 @@ type HttpResponse = Effect.Effect.Success<
   ReturnType<HttpClient.HttpClient["execute"]>
 >;
 
+/**
+ * Executes the track client operation.
+ * @param client Client used for the operation.
+ */
 export function trackClient(client: TestAgentClient | TestAppClient): void {
   openClients.push(client);
 }
 
-export function closeAllClients(): Effect.Effect<void, never> {
+/**
+ * Executes the close all clients operation.
+ * @returns The close all clients result.
+ */
+export function closeAllClients(): Effect.Effect<void> {
   return Effect.gen(function* () {
-    for (const c of openClients) yield* c.close();
+    for (const c of openClients) {
+      yield* c.close();
+    }
     openClients.length = 0;
   }).pipe(Effect.withSpan("closeAllClients"));
 }
 
+/**
+ * Registers agent.
+ * @param baseUrl Value supplied to the operation.
+ * @param name Name of the operation.
+ * @param opts Value supplied to the operation.
+ * @param opts.description Value supplied to the operation.
+ * @param opts.inviteCode Value supplied to the operation.
+ * @returns The register agent result.
+ */
 export function registerAgent(
   baseUrl: string,
   name: string,
@@ -195,13 +220,19 @@ interface CreateTestAgentOptions {
   readonly ownerUserId?: UserId;
 }
 
+/**
+ * Creates test agent.
+ * @param name Name of the operation.
+ * @param opts Value supplied to the operation.
+ * @returns The created test agent.
+ */
 export function createTestAgent(
   name: string,
   opts?: CreateTestAgentOptions,
-): Effect.Effect<TestAgent, never> {
+): Effect.Effect<TestAgent> {
   return Effect.gen(function* () {
     const authService = new AuthService(getCoreDb());
-    const agentName = Schema.decodeSync(AgentName)(name);
+    const agentName = Schema.decodeSync(agentNameSchema)(name);
     const params =
       opts?.description === undefined
         ? { name: agentName }
@@ -219,6 +250,14 @@ export function createTestAgent(
   }).pipe(Effect.withSpan("createTestAgent"));
 }
 
+/**
+ * Executes the connect test client operation.
+ * @param opts Value supplied to the operation.
+ * @param opts.agentId Value supplied to the operation.
+ * @param opts.apiKey Value supplied to the operation.
+ * @param opts.wsUrl Value supplied to the operation.
+ * @returns The connect test client result.
+ */
 export function connectTestClient(opts: {
   agentId: AgentId;
   apiKey: AgentKey;
@@ -255,6 +294,13 @@ function appRegistrationError(error: {
   });
 }
 
+/**
+ * Registers app.
+ * @param baseUrl Value supplied to the operation.
+ * @param manifest Value supplied to the operation.
+ * @param inviteCode Value supplied to the operation.
+ * @returns The register app result.
+ */
 export function registerApp(
   baseUrl: string,
   manifest: AppManifest,
@@ -280,6 +326,13 @@ export function registerApp(
   );
 }
 
+/**
+ * Executes the connect app client operation.
+ * @param appId Value supplied to the operation.
+ * @param appKey Value supplied to the operation.
+ * @param handlers Value supplied to the operation.
+ * @returns The connect app client result.
+ */
 export function connectAppClient(
   appId: AppId,
   appKey: AppKey,
@@ -296,7 +349,11 @@ export function connectAppClient(
   }).pipe(Effect.withSpan("connectAppClient"));
 }
 
-/** Register and connect an agent. Tracked for automatic cleanup. */
+/**
+ * Register and connect an agent. Tracked for automatic cleanup.
+ * @param name Name of the operation.
+ * @returns The register and connect result.
+ */
 export function registerAndConnect(
   name: string,
 ): Effect.Effect<ConnectedAgent, Error> {
@@ -312,6 +369,10 @@ export function registerAndConnect(
  * POST `body` as JSON to `${baseUrl}${path}` and resolve with
  * `{status, json}`. HTTP integration tests import this helper to avoid
  * repeated request/JSON boilerplate.
+ * @param baseUrl Value supplied to the operation.
+ * @param path Path to process.
+ * @param body Serialized response body to decode.
+ * @returns The post json result.
  */
 export function postJson(
   baseUrl: string,
@@ -400,7 +461,10 @@ function decodePostJsonResponse(
   );
 }
 
-/** Create two agents, both connected. No contacts needed (core has open access). */
+/**
+ * Create two agents, both connected. No contacts needed (core has open access).
+ * @returns The setup agent pair result.
+ */
 export function setupAgentPair(): Effect.Effect<
   { alice: ConnectedAgent; bob: ConnectedAgent },
   Error
@@ -412,7 +476,13 @@ export function setupAgentPair(): Effect.Effect<
   }).pipe(Effect.withSpan("setupAgentPair"));
 }
 
-/** Create N agents, all connected. Optionally create a group conversation. */
+/**
+ * Create N agents, all connected. Optionally create a group conversation.
+ * @param count Value supplied to the operation.
+ * @param opts Value supplied to the operation.
+ * @param opts.groupName Value supplied to the operation.
+ * @returns The setup agent group result.
+ */
 export function setupAgentGroup(
   count: number,
   opts?: { groupName?: string },
@@ -443,9 +513,10 @@ export function setupAgentGroup(
     let conversationId: ConversationId | undefined;
     let taskId: TaskId | undefined;
     if (opts?.groupName) {
-      const creator = agents[0]!;
+      const creator =
+        /* Safe because the surrounding invariant establishes this asserted shape. */ agents[0]!;
       const otherAgentIds = agents.slice(1).map((a) => a.agentId);
-      const created = yield* creator.client.sendRpc(TaskRequest, {
+      const created = yield* creator.client.sendRpc(taskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: otherAgentIds,
         initialConversation: {

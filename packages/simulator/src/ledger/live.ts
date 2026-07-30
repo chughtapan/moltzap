@@ -5,6 +5,7 @@ import {
   Deferred,
   Effect,
   Exit,
+  Match,
   Option,
   PubSub,
   Queue,
@@ -14,11 +15,11 @@ import {
   type ParseResult,
   type Scope,
 } from "effect";
-import {
+import type {
   EventCatalog,
-  type EventClass,
-  type EventClassOf,
-  type EventOf,
+  EventClass,
+  EventClassOf,
+  EventOf,
 } from "../events/catalog.js";
 import {
   makeLedgerRecordSchema,
@@ -43,6 +44,7 @@ interface LedgerWrite<Catalog> {
   readonly correlationId?: string;
 }
 
+/** Reports ledger serialization failures. */
 export class LedgerSerializationError extends Schema.TaggedError<LedgerSerializationError>()(
   "LedgerSerializationError",
   {
@@ -51,6 +53,7 @@ export class LedgerSerializationError extends Schema.TaggedError<LedgerSerializa
   },
 ) {}
 
+/** Represents ledger failure conditions. */
 export type LedgerFailure =
   | LedgerStorageError
   | ParseResult.ParseError
@@ -136,7 +139,7 @@ interface LedgerRuntime<
   readonly completeStored: (
     recordCount: number,
   ) => Effect.Effect<LedgerCompletion, LedgerStorageError>;
-  readonly changes: PubSub.PubSub<void>;
+  readonly changes: PubSub.PubSub<undefined>;
   readonly history: Ref.Ref<
     Chunk.Chunk<LedgerRecord<CatalogOf<SchemaType, Classes>>>
   >;
@@ -312,18 +315,16 @@ function requireOpen<
   runtime: LedgerRuntime<SchemaType, Classes>,
 ): Effect.Effect<void, LedgerFailure> {
   return Ref.get(runtime.phase).pipe(
-    Effect.flatMap((phase) => {
-      switch (phase._tag) {
-        case "failed":
-          return Effect.failCause(phase.cause);
-        case "completed":
-          return Effect.dieMessage(
-            `Ledger "${runtime.runId}" is already complete`,
-          );
-        case "open":
-          return Effect.void;
-      }
-    }),
+    Effect.flatMap((phase) =>
+      Match.value(phase).pipe(
+        Match.tag("failed", (failed) => Effect.failCause(failed.cause)),
+        Match.tag("completed", () =>
+          Effect.dieMessage(`Ledger "${runtime.runId}" is already complete`),
+        ),
+        Match.tag("open", () => Effect.void),
+        Match.exhaustive,
+      ),
+    ),
   );
 }
 
@@ -438,14 +439,15 @@ function readCursor<
       return { _tag: "records", records: available };
     }
     const phase = yield* Ref.get(runtime.phase);
-    switch (phase._tag) {
-      case "completed":
-        return { _tag: "end" };
-      case "failed":
-        return { _tag: "failed", cause: phase.cause };
-      case "open":
-        return { _tag: "wait" };
-    }
+    return Match.value(phase).pipe(
+      Match.tag("completed", () => ({ _tag: "end" as const })),
+      Match.tag("failed", (failed) => ({
+        _tag: "failed" as const,
+        cause: failed.cause,
+      })),
+      Match.tag("open", () => ({ _tag: "wait" as const })),
+      Match.exhaustive,
+    );
   });
 }
 
@@ -454,7 +456,7 @@ function readNextChunk<
   Classes extends EventClass,
 >(
   runtime: LedgerRuntime<SchemaType, Classes>,
-  changes: Queue.Dequeue<void>,
+  changes: Queue.Dequeue<undefined>,
   cursor: Ref.Ref<number>,
 ): Effect.Effect<
   Chunk.Chunk<LedgerRecord<CatalogOf<SchemaType, Classes>>>,
@@ -463,22 +465,23 @@ function readNextChunk<
   return runtime.transition
     .withPermits(1)(readCursor(runtime, cursor))
     .pipe(
-      Effect.flatMap((read) => {
-        switch (read._tag) {
-          case "records":
-            return Effect.succeed(read.records);
-          case "end":
-            return Effect.fail(Option.none());
-          case "failed":
-            return Effect.failCause(Cause.map(read.cause, Option.some));
-          case "wait":
-            return Queue.take(changes).pipe(
+      Effect.flatMap((read) =>
+        Match.value(read).pipe(
+          Match.tag("records", ({ records }) => Effect.succeed(records)),
+          Match.tag("end", () => Effect.fail(Option.none())),
+          Match.tag("failed", ({ cause }) =>
+            Effect.failCause(Cause.map(cause, Option.some)),
+          ),
+          Match.tag("wait", () =>
+            Queue.take(changes).pipe(
               Effect.zipRight(
                 Effect.suspend(() => readNextChunk(runtime, changes, cursor)),
               ),
-            );
-        }
-      }),
+            ),
+          ),
+          Match.exhaustive,
+        ),
+      ),
     );
 }
 
@@ -512,7 +515,13 @@ function recordStream<
   );
 }
 
-/** Select one exact declared event class without exposing an open union. */
+/**
+ * Select one exact declared event class without exposing an open union.
+ * @param catalog Value supplied to the operation.
+ * @param records Value supplied to the operation.
+ * @param eventClass Value supplied to the operation.
+ * @returns The ledger events result.
+ */
 export function ledgerEvents<
   SchemaType extends Schema.Schema.AnyNoContext,
   Classes extends EventClass,
@@ -532,11 +541,9 @@ export function ledgerEvents<
       `Event class "${tag}" is outside this ledger catalog`,
     );
   }
-  return records.pipe(
-    Stream.filterMap((record) =>
-      Schema.decodeUnknownOption(eventClass)(record.event),
-    ),
-  );
+  const decode: (input: unknown) => Option.Option<Schema.Schema.Type<Event>> =
+    Schema.decodeUnknownOption(eventClass);
+  return records.pipe(Stream.filterMap((record) => decode(record.event)));
 }
 
 function isCatalogSubset<
@@ -567,13 +574,16 @@ function completeLedger<
       Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const phase = yield* restore(Ref.get(runtime.phase));
-          switch (phase._tag) {
-            case "completed":
-              return phase.completion;
-            case "failed":
-              return yield* Effect.failCause(phase.cause);
-            case "open":
-              break;
+          const settled = Match.value(phase).pipe(
+            Match.tag("completed", ({ completion }) =>
+              Effect.succeed(completion),
+            ),
+            Match.tag("failed", ({ cause }) => Effect.failCause(cause)),
+            Match.tag("open", () => undefined),
+            Match.exhaustive,
+          );
+          if (settled !== undefined) {
+            return yield* settled;
           }
           const recordCount = Chunk.size(
             yield* restore(Ref.get(runtime.history)),
@@ -624,7 +634,7 @@ function initializeRunLedger<
       metadata: options.metadata,
     });
     const startedAtNanos = yield* Clock.currentTimeNanos;
-    const changes = yield* PubSub.sliding<void>(LEDGER_WAKEUP_CAPACITY);
+    const changes = yield* PubSub.sliding<undefined>(LEDGER_WAKEUP_CAPACITY);
     yield* Effect.addFinalizer(() => PubSub.shutdown(changes));
     const history = yield* Ref.make(
       Chunk.empty<LedgerRecord<CatalogOf<SchemaType, Classes>>>(),
@@ -695,6 +705,9 @@ function makeActiveLedger<
  * Allocate one live ledger from the `LedgerStorage` service. The returned
  * kernel capability owns writer binding and completion; its readable member
  * is safe to place in the run's Effect context.
+ * @param catalog Value supplied to the operation.
+ * @param options Options that control the operation.
+ * @returns The created run ledger.
  */
 export function makeRunLedger<
   SchemaType extends Schema.Schema.AnyNoContext,

@@ -13,6 +13,7 @@ import {
   type TypeDocExport,
 } from "./typedoc-load.js";
 
+/** Describes flow coverage gap. */
 export interface FlowCoverageGap {
   readonly file: string;
   readonly line: number;
@@ -35,10 +36,16 @@ const EFFECT_LIKE_TYPE_NAMES = new Set([
  * qualify directly. Variables only qualify when their declared type
  * resolves to an Effect-family constructor (`Effect`, `Layer`,
  * `Stream`, `Scope`, `Schedule`, `Fiber`).
+ * @param ex TypeDoc export reflection to inspect.
+ * @returns Whether behavioral export.
  */
 export function isBehavioralExport(ex: TypeDocExport): boolean {
-  if (ex.kind === ReflectionKind.Function) return true;
-  if (ex.kind === ReflectionKind.Method) return true;
+  if (ex.kind === ReflectionKind.Function) {
+    return true;
+  }
+  if (ex.kind === ReflectionKind.Method) {
+    return true;
+  }
   if (ex.kind === ReflectionKind.Variable) {
     const typeName = ex.signatureReturnTypeName;
     return typeName !== null && EFFECT_LIKE_TYPE_NAMES.has(typeName);
@@ -60,31 +67,47 @@ export function isBehavioralExport(ex: TypeDocExport): boolean {
  *   the export is structural, not part of the public surface.
  * - JSDoc carries an `@internal` tag. Per-export opt-out for cases
  *   where the folder convention doesn't apply.
+ * @param ex TypeDoc export reflection to inspect.
+ * @returns Whether internal export.
  */
 function isInternalExport(ex: TypeDocExport): boolean {
   const src = ex.sources[0];
-  if (src && /\/(__[^/]+__|_[^/]+)\//.test(src.fileName)) return true;
-  if (!ex.comment) return false;
+  if (src && /\/(__[^/]+__|_[^/]+)\//.test(src.fileName)) {
+    return true;
+  }
+  if (!ex.comment) {
+    return false;
+  }
   return ex.comment.tags.some((tag) => tag.tag === "@internal");
 }
 
 /**
  * Return the list of behavioral exports lacking either a JSDoc summary
- * or a fenced ```mermaid block in their JSDoc body. Sorted by file
+ * or a fenced `mermaid` block in their JSDoc body. Sorted by file
  * path then line.
+ * @param cache Loaded TypeDoc reflection cache.
+ * @returns The compute flow coverage result.
  */
 export function computeFlowCoverage(
   cache: TypeDocCache,
-): ReadonlyArray<FlowCoverageGap> {
+): readonly FlowCoverageGap[] {
   const out: FlowCoverageGap[] = [];
   for (const ex of cache.all) {
-    if (!isBehavioralExport(ex)) continue;
-    if (isInternalExport(ex)) continue;
+    if (!isBehavioralExport(ex)) {
+      continue;
+    }
+    if (isInternalExport(ex)) {
+      continue;
+    }
     const src = ex.sources[0];
-    if (!src) continue;
+    if (!src) {
+      continue;
+    }
     const hasSummary = (ex.comment?.summary ?? "").trim().length > 0;
     const hasFlow = hasMermaidBlock(ex);
-    if (hasSummary && hasFlow) continue;
+    if (hasSummary && hasFlow) {
+      continue;
+    }
     const reason = classifyReason(hasSummary, hasFlow);
     out.push({
       file: src.fileName,
@@ -103,16 +126,26 @@ function classifyReason(
   hasSummary: boolean,
   hasFlow: boolean,
 ): FlowCoverageGap["reason"] {
-  if (!hasSummary && !hasFlow) return "no-summary-or-flow";
-  if (!hasSummary) return "no-summary";
+  if (!hasSummary && !hasFlow) {
+    return "no-summary-or-flow";
+  }
+  if (!hasSummary) {
+    return "no-summary";
+  }
   return "no-flow";
 }
 
 function hasMermaidBlock(ex: TypeDocExport): boolean {
-  if (!ex.comment) return false;
-  if (ex.comment.summary.includes("```mermaid")) return true;
+  if (!ex.comment) {
+    return false;
+  }
+  if (ex.comment.summary.includes("```mermaid")) {
+    return true;
+  }
   for (const tag of ex.comment.tags) {
-    if (tag.content.includes("```mermaid")) return true;
+    if (tag.content.includes("```mermaid")) {
+      return true;
+    }
   }
   return false;
 }
@@ -120,10 +153,12 @@ function hasMermaidBlock(ex: TypeDocExport): boolean {
 /**
  * Print the gap list to stderr in the form
  * `&lt;file>:&lt;line> &lt;symbol> — &lt;reason>`. Returns the count.
+ * @param gaps Coverage gaps to report.
+ * @returns The print flow coverage result.
  */
 export const printFlowCoverage = (
-  gaps: ReadonlyArray<FlowCoverageGap>,
-): Effect.Effect<number, never, never> =>
+  gaps: readonly FlowCoverageGap[],
+): Effect.Effect<number> =>
   Effect.sync(() => {
     if (gaps.length === 0) {
       process.stderr.write(

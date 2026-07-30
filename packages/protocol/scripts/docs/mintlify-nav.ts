@@ -11,17 +11,20 @@ import { Effect } from "effect";
 
 interface MintlifyGroup {
   readonly group: string;
-  readonly pages: ReadonlyArray<string>;
+  readonly pages: readonly string[];
 }
 
 /**
  * Write the Modules navigation group to the given absolute path.
  * Pages are sorted lexically and emitted with stable 2-space indent +
  * LF line endings so the file stays diff-stable across runs.
+ * @param absolutePath Value supplied to the operation.
+ * @param pageSlugs Value supplied to the operation.
+ * @returns The write modules nav result.
  */
 export const writeModulesNav = (
   absolutePath: string,
-  pageSlugs: ReadonlyArray<string>,
+  pageSlugs: readonly string[],
 ): Effect.Effect<void, never, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

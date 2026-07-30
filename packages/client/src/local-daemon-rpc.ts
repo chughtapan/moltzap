@@ -2,18 +2,18 @@ import { Rpc, RpcGroup } from "@effect/rpc";
 import { Effect, ParseResult, Schema } from "effect";
 import type * as SchemaAST from "effect/SchemaAST";
 import {
-  AgentId,
-  AgentsList,
-  ContactId,
-  ContactsAccept,
-  ContactsAdd,
-  ContactsList,
-  UserId,
+  agentId,
+  agentsList,
+  contactId,
+  contactsAccept,
+  contactsAdd,
+  contactsList,
+  userId,
 } from "@moltzap/protocol/identity";
 import { agentCallableMethods } from "@moltzap/protocol/socket/catalog";
-import { AppId, TaskId } from "@moltzap/protocol/task";
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { MessagesList } from "@moltzap/protocol/message";
+import { appId, taskId } from "@moltzap/protocol/task";
+import { conversationId, messageId } from "@moltzap/protocol/conversation";
+import { messagesList } from "@moltzap/protocol/message";
 import { NotConnectedError, RpcTimeoutError } from "@moltzap/protocol/rpc";
 import {
   historyRequestSchema,
@@ -27,45 +27,48 @@ const UUID_V4_RE =
 const SEND_TARGET_PREFIX = "task:";
 const PARTICIPANT_PREFIX = "agent:";
 
-const EmptyPayload = Schema.Struct({});
-const LocalDaemonStatusResultSchema = Schema.Struct({
-  agentId: Schema.optional(AgentId),
+const emptyPayload = Schema.Struct({});
+const localDaemonStatusResultSchema = Schema.Struct({
+  agentId: Schema.optional(agentId),
   connected: Schema.Boolean,
   conversations: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
 });
-const PageLimit = Schema.Number.pipe(
+const pageLimit = Schema.Number.pipe(
   Schema.int(),
   Schema.greaterThanOrEqualTo(1),
   Schema.lessThanOrEqualTo(MAX_PAGE_LIMIT),
 );
 
-export const AppIdV4 = AppId.pipe(
+/** Validates and decodes app id v4 values. */
+const appIdV4 = appId.pipe(
   Schema.filter(
     (value) =>
       (typeof value === "string" && UUID_V4_RE.test(value)) ||
       "must be a UUID v4",
   ),
 );
-export type AppIdV4 = Schema.Schema.Type<typeof AppIdV4>;
+/** Represents app id v4 values. */
+export type AppIdV4 = Schema.Schema.Type<typeof appIdV4>;
 
 const parseStringIssue = (
   ast: SchemaAST.Transformation,
   actual: unknown,
   message: string,
-): Effect.Effect<never, ParseResult.ParseIssue, never> =>
+): Effect.Effect<never, ParseResult.ParseIssue> =>
   Effect.fail(new ParseResult.Type(ast, actual, message));
 
-const SendTargetParts = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
+const sendTargetParts = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
 });
 
-export const SendTarget = Schema.transformOrFail(
+/** Validates and decodes send target values. */
+export const sendTarget = Schema.transformOrFail(
   Schema.String,
-  SendTargetParts,
+  sendTargetParts,
   {
     strict: true,
-    decode: (raw, _options, ast) => {
+    decode: (raw, ...[, ast]) => {
       const expected = `expected ${SEND_TARGET_PREFIX}<taskId>:<conversationId>`;
       if (!raw.startsWith(SEND_TARGET_PREFIX)) {
         return parseStringIssue(ast, raw, expected);
@@ -76,8 +79,10 @@ export const SendTarget = Schema.transformOrFail(
         return parseStringIssue(ast, raw, expected);
       }
       return Effect.succeed({
-        taskId: parts[0]!,
-        conversationId: parts[1]!,
+        taskId:
+          /* Safe because the surrounding invariant establishes this asserted shape. */ parts[0]!,
+        conversationId:
+          /* Safe because the surrounding invariant establishes this asserted shape. */ parts[1]!,
       });
     },
     encode: (target) =>
@@ -86,30 +91,32 @@ export const SendTarget = Schema.transformOrFail(
       ),
   },
 );
-export type SendTarget = Schema.Schema.Type<typeof SendTarget>;
+/** Represents send target values. */
+export type SendTarget = Schema.Schema.Type<typeof sendTarget>;
 
-const AgentName = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32));
+const agentName = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32));
 
-const StartParticipantById = Schema.Struct({
+const startParticipantById = Schema.Struct({
   kind: Schema.Literal("id"),
-  id: AgentId,
+  id: agentId,
 });
-const StartParticipantByName = Schema.Struct({
+const startParticipantByName = Schema.Struct({
   kind: Schema.Literal("name"),
   token: Schema.String,
-  name: AgentName,
+  name: agentName,
 });
-const StartParticipantParts = Schema.Union(
-  StartParticipantById,
-  StartParticipantByName,
+const startParticipantParts = Schema.Union(
+  startParticipantById,
+  startParticipantByName,
 );
 
-export const StartParticipant = Schema.transformOrFail(
+/** Validates and decodes start participant values. */
+export const startParticipant = Schema.transformOrFail(
   Schema.String,
-  StartParticipantParts,
+  startParticipantParts,
   {
     strict: true,
-    decode: (raw, _options, ast) => {
+    decode: (raw, ...[, ast]) => {
       const expected = `expected ${PARTICIPANT_PREFIX}<name-or-agent-id>`;
       if (!raw.startsWith(PARTICIPANT_PREFIX)) {
         return parseStringIssue(ast, raw, expected);
@@ -119,12 +126,12 @@ export const StartParticipant = Schema.transformOrFail(
         return parseStringIssue(ast, raw, expected);
       }
       if (UUID_V4_RE.test(rest)) {
-        return Schema.decodeUnknown(AgentId)(rest).pipe(
+        return Schema.decodeUnknown(agentId)(rest).pipe(
           Effect.map((id) => ({ kind: "id" as const, id })),
           Effect.mapError(() => new ParseResult.Type(ast, raw, expected)),
         );
       }
-      return Schema.decodeUnknown(AgentName)(rest).pipe(
+      return Schema.decodeUnknown(agentName)(rest).pipe(
         Effect.map((name) => ({
           kind: "name" as const,
           token: raw,
@@ -141,106 +148,115 @@ export const StartParticipant = Schema.transformOrFail(
       ),
   },
 );
-export type StartParticipant = Schema.Schema.Type<typeof StartParticipant>;
+/** Represents start participant values. */
+export type StartParticipant = Schema.Schema.Type<typeof startParticipant>;
 
-export const LocalDaemonCommands = {
-  Status: "daemon/status",
-  History: "daemon/history",
-  AgentsList: "cli/agents/list",
-  AgentsSearch: "cli/agents/search",
-  ContactsList: "cli/contacts/list",
-  ContactsAdd: "cli/contacts/add",
-  ContactsAccept: "cli/contacts/accept",
-  MessagesList: "cli/messages/list",
-  Send: "cli/send",
-  StartTask: "cli/start-task",
+/** Provides the local daemon commands runtime value. */
+export const localDaemonCommands = {
+  status: "daemon/status",
+  history: "daemon/history",
+  agentsList: "cli/agents/list",
+  agentsSearch: "cli/agents/search",
+  contactsList: "cli/contacts/list",
+  contactsAdd: "cli/contacts/add",
+  contactsAccept: "cli/contacts/accept",
+  messagesList: "cli/messages/list",
+  send: "cli/send",
+  startTask: "cli/start-task",
 } as const;
 
-const AgentsListCommandPayload = Schema.Struct({
-  limit: Schema.optional(PageLimit),
+const agentsListCommandPayload = Schema.Struct({
+  limit: Schema.optional(pageLimit),
 });
 
-const AgentsSearchCommandPayload = Schema.Struct({
-  names: Schema.Array(AgentName).pipe(
+const agentsSearchCommandPayload = Schema.Struct({
+  names: Schema.Array(agentName).pipe(
     Schema.minItems(1),
     Schema.maxItems(MAX_NAME_LOOKUP_BATCH),
   ),
 });
 
-const ContactsListCommandPayload = EmptyPayload;
+const contactsListCommandPayload = emptyPayload;
 
-const ContactsAddCommandPayload = Schema.Struct({
-  userId: UserId,
+const contactsAddCommandPayload = Schema.Struct({
+  userId: userId,
 });
 
-const ContactsAcceptCommandPayload = Schema.Struct({
-  contactId: ContactId,
+const contactsAcceptCommandPayload = Schema.Struct({
+  contactId: contactId,
 });
 
-const MessagesListCommandPayload = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  limit: Schema.optional(PageLimit),
+const messagesListCommandPayload = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
+  limit: Schema.optional(pageLimit),
 });
 
-const SendCommandPayload = Schema.Struct({
-  target: SendTarget,
+const sendCommandPayload = Schema.Struct({
+  target: sendTarget,
   message: Schema.String.pipe(Schema.minLength(1)),
-  replyToId: Schema.optional(MessageId),
+  replyToId: Schema.optional(messageId),
 });
-export type SendCommandPayload = Schema.Schema.Type<typeof SendCommandPayload>;
+/** Represents send command payload values. */
+export type SendCommandPayload = Schema.Schema.Type<typeof sendCommandPayload>;
 
-const SendCommandResult = Schema.Struct({
-  messageId: MessageId,
+const sendCommandResult = Schema.Struct({
+  messageId: messageId,
 });
 
-const StartTaskCommandPayload = Schema.Struct({
+const startTaskCommandPayload = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
-  participants: Schema.Array(StartParticipant),
+  participants: Schema.Array(startParticipant),
   message: Schema.optional(Schema.String),
-  appId: Schema.optional(AppIdV4),
+  appId: Schema.optional(appIdV4),
 });
 
-const StartTaskCommandResult = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
+const startTaskCommandResult = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
   reusedConversation: Schema.Boolean,
-  sentMessageId: Schema.optional(MessageId),
+  sentMessageId: Schema.optional(messageId),
 });
 
+/** Represents start task command payload values. */
 export type StartTaskCommandPayload = Schema.Schema.Type<
-  typeof StartTaskCommandPayload
+  typeof startTaskCommandPayload
 >;
+/** Represents the result of start task command. */
 export type StartTaskCommandResult = Schema.Schema.Type<
-  typeof StartTaskCommandResult
+  typeof startTaskCommandResult
 >;
 
+/** Reports local daemon input failures. */
 export class LocalDaemonInputError extends Schema.TaggedError<LocalDaemonInputError>()(
   "LocalDaemonInputError",
   { message: Schema.String },
 ) {}
 
+/** Reports start task usage failures. */
 export class StartTaskUsageError extends Schema.TaggedError<StartTaskUsageError>()(
   "StartTaskUsageError",
   { message: Schema.String },
 ) {}
 
+/** Implements start task partial failure. */
 export class StartTaskPartialFailure extends Schema.TaggedError<StartTaskPartialFailure>()(
   "StartTaskPartialFailure",
   {
-    taskId: TaskId,
-    conversationId: ConversationId,
+    taskId: taskId,
+    conversationId: conversationId,
     reusedConversation: Schema.Boolean,
     message: Schema.String,
   },
 ) {}
 
+/** Reports service input failures. */
 export class ServiceInputError extends Schema.TaggedError<ServiceInputError>()(
   "ServiceInputError",
   { message: Schema.String },
 ) {}
 
-const LocalDaemonErrorSchema = Schema.Union(
+const localDaemonErrorSchema = Schema.Union(
   LocalDaemonInputError,
   StartTaskUsageError,
   StartTaskPartialFailure,
@@ -250,82 +266,94 @@ const LocalDaemonErrorSchema = Schema.Union(
   ...agentCallableMethods.map((definition) => definition.errorSchema),
 );
 
+/** Represents local daemon error conditions. */
 export type LocalDaemonError = Schema.Schema.Type<
-  typeof LocalDaemonErrorSchema
+  typeof localDaemonErrorSchema
 >;
 
-export const isLocalDaemonError = Schema.is(LocalDaemonErrorSchema);
+/** Validates and decodes is local daemon error values. */
+export const isLocalDaemonError = Schema.is(localDaemonErrorSchema);
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/**
+ * Provides the to local daemon error runtime value.
+ * @param error Error to inspect.
+ * @returns The to local daemon error result.
+ */
 export const toLocalDaemonError = (error: unknown): LocalDaemonError =>
   isLocalDaemonError(error)
     ? error
     : new LocalDaemonInputError({ message: errorMessage(error) });
 
-export const MessagesListCommandRpc = Rpc.make(
-  LocalDaemonCommands.MessagesList,
+/** Provides the messages list command rpc runtime value. */
+export const messagesListCommandRpc = Rpc.make(
+  localDaemonCommands.messagesList,
   {
-    payload: MessagesListCommandPayload,
-    success: MessagesList.resultSchema,
-    error: LocalDaemonErrorSchema,
+    payload: messagesListCommandPayload,
+    success: messagesList.resultSchema,
+    error: localDaemonErrorSchema,
   },
 );
 
-export const SendCommandRpc = Rpc.make(LocalDaemonCommands.Send, {
-  payload: SendCommandPayload,
-  success: SendCommandResult,
-  error: LocalDaemonErrorSchema,
+/** Provides the send command rpc runtime value. */
+export const sendCommandRpc = Rpc.make(localDaemonCommands.send, {
+  payload: sendCommandPayload,
+  success: sendCommandResult,
+  error: localDaemonErrorSchema,
 });
 
-export const StartTaskCommandRpc = Rpc.make(LocalDaemonCommands.StartTask, {
-  payload: StartTaskCommandPayload,
-  success: StartTaskCommandResult,
-  error: LocalDaemonErrorSchema,
+/** Provides the start task command rpc runtime value. */
+export const startTaskCommandRpc = Rpc.make(localDaemonCommands.startTask, {
+  payload: startTaskCommandPayload,
+  success: startTaskCommandResult,
+  error: localDaemonErrorSchema,
 });
 
+/** Implements local daemon rpcs. */
 export class LocalDaemonRpcs extends RpcGroup.make(
-  Rpc.make(LocalDaemonCommands.Status, {
-    payload: EmptyPayload,
-    success: LocalDaemonStatusResultSchema,
-    error: LocalDaemonErrorSchema,
+  Rpc.make(localDaemonCommands.status, {
+    payload: emptyPayload,
+    success: localDaemonStatusResultSchema,
+    error: localDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.History, {
+  Rpc.make(localDaemonCommands.history, {
     payload: historyRequestSchema(),
     success: historyResponseSchema(),
-    error: LocalDaemonErrorSchema,
+    error: localDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.AgentsList, {
-    payload: AgentsListCommandPayload,
-    success: AgentsList.resultSchema,
-    error: LocalDaemonErrorSchema,
+  Rpc.make(localDaemonCommands.agentsList, {
+    payload: agentsListCommandPayload,
+    success: agentsList.resultSchema,
+    error: localDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.AgentsSearch, {
-    payload: AgentsSearchCommandPayload,
-    success: AgentsList.resultSchema,
-    error: LocalDaemonErrorSchema,
+  Rpc.make(localDaemonCommands.agentsSearch, {
+    payload: agentsSearchCommandPayload,
+    success: agentsList.resultSchema,
+    error: localDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.ContactsList, {
-    payload: ContactsListCommandPayload,
-    success: ContactsList.resultSchema,
-    error: LocalDaemonErrorSchema,
+  Rpc.make(localDaemonCommands.contactsList, {
+    payload: contactsListCommandPayload,
+    success: contactsList.resultSchema,
+    error: localDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.ContactsAdd, {
-    payload: ContactsAddCommandPayload,
-    success: ContactsAdd.resultSchema,
-    error: LocalDaemonErrorSchema,
+  Rpc.make(localDaemonCommands.contactsAdd, {
+    payload: contactsAddCommandPayload,
+    success: contactsAdd.resultSchema,
+    error: localDaemonErrorSchema,
   }),
-  Rpc.make(LocalDaemonCommands.ContactsAccept, {
-    payload: ContactsAcceptCommandPayload,
-    success: ContactsAccept.resultSchema,
-    error: LocalDaemonErrorSchema,
+  Rpc.make(localDaemonCommands.contactsAccept, {
+    payload: contactsAcceptCommandPayload,
+    success: contactsAccept.resultSchema,
+    error: localDaemonErrorSchema,
   }),
-  MessagesListCommandRpc,
-  SendCommandRpc,
-  StartTaskCommandRpc,
+  messagesListCommandRpc,
+  sendCommandRpc,
+  startTaskCommandRpc,
 ) {}
 
+/** Represents local daemon handlers values. */
 export type LocalDaemonHandlers = RpcGroup.HandlersFrom<
   RpcGroup.Rpcs<typeof LocalDaemonRpcs>
 >;

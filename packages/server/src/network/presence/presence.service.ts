@@ -49,6 +49,10 @@ function withoutEntry(entries: EntryMap, agentId: AgentId): EntryMap {
  * connection ADDS to `liveConns` rather than replacing it. Status
  * changes only if the agent was previously offline; subsequent
  * additions to an already-tracked agent leave the lease set untouched.
+ * @param entries Value supplied to the operation.
+ * @param agentId Identifier of the agent targeted by the operation.
+ * @param connId Value supplied to the operation.
+ * @returns The compute connect transition result.
  */
 function computeConnectTransition(
   entries: EntryMap,
@@ -83,6 +87,10 @@ function computeConnectTransition(
  * status is re-derived from the leases on the surviving connections.
  * Stale disconnects (the `connId` was never in `liveConns`) are a
  * silent no-op.
+ * @param entries Value supplied to the operation.
+ * @param agentId Identifier of the agent targeted by the operation.
+ * @param connId Value supplied to the operation.
+ * @returns The compute disconnect transition result.
  */
 function computeDisconnectTransition(
   entries: EntryMap,
@@ -170,6 +178,9 @@ function applyLeaseToEntry(
  * added to / removed from the per-conn bucket
  * `leasesByConn[recipientConnId]`; the agent's derived status is
  * recomputed from the union of leases across ALL live connections.
+ * @param entries Value supplied to the operation.
+ * @param cb Value supplied to the operation.
+ * @returns The compute observer transition result.
  */
 function computeObserverTransition(
   entries: EntryMap,
@@ -233,7 +244,7 @@ function statusForAgent(
  * callbacks across reconnect / partial-disconnect boundaries neither mutate
  * state nor re-create disconnected agents.
  *
- * Lease observer flow:
+ * Lease observer flow:.
  *
  * ```mermaid
  * sequenceDiagram
@@ -251,13 +262,18 @@ function statusForAgent(
  * ```
  */
 export class PresenceService implements LeaseTransitionObserver {
-  private constructor(private readonly entries: Ref.Ref<EntryMap>) {}
+  private readonly entries: Ref.Ref<EntryMap>;
+
+  private constructor(entries: Ref.Ref<EntryMap>) {
+    this.entries = entries;
+  }
 
   /**
    * Construct the service. One instance per server lifetime; wired into
    * `LeaseRegistryDeps.transitionObserver` at composition root.
+   * @returns The entries result.
    */
-  static make(): Effect.Effect<PresenceService, never, never> {
+  static make(): Effect.Effect<PresenceService> {
     return Effect.gen(function* () {
       const entries = yield* Ref.make<EntryMap>(new Map());
       return new PresenceService(entries);
@@ -270,11 +286,11 @@ export class PresenceService implements LeaseTransitionObserver {
    * WS connect: add `connId` to the agent's `liveConns`. A second
    * simultaneous connect ADDS to the set rather than replacing it.
    * Public error channel is `never` — runs inside the connect handler.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @param connId Value supplied to the operation.
+   * @returns The on agent connect result.
    */
-  onAgentConnect(
-    agentId: AgentId,
-    connId: ConnectionId,
-  ): Effect.Effect<void, never, never> {
+  onAgentConnect(agentId: AgentId, connId: ConnectionId): Effect.Effect<void> {
     return Ref.update(this.entries, (entries) =>
       computeConnectTransition(entries, agentId, connId),
     );
@@ -286,11 +302,14 @@ export class PresenceService implements LeaseTransitionObserver {
    * `LeaseRegistry.abandon(connId)` from the WS-close finalizer, so the
    * subsequent abandon's `onLeaseActiveEnd` callbacks find `connId`
    * absent from `liveConns` and audit. Public error channel is `never`.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @param connId Value supplied to the operation.
+   * @returns The on agent disconnect result.
    */
   onAgentDisconnect(
     agentId: AgentId,
     connId: ConnectionId,
-  ): Effect.Effect<void, never, never> {
+  ): Effect.Effect<void> {
     return Ref.update(this.entries, (entries) =>
       computeDisconnectTransition(entries, agentId, connId),
     );
@@ -300,7 +319,7 @@ export class PresenceService implements LeaseTransitionObserver {
     leaseId: LeaseId,
     recipientAgentId: AgentId,
     recipientConnId: ConnectionId,
-  ): Effect.Effect<void, never, never> {
+  ): Effect.Effect<void> {
     return this.handleObserverTransition({
       kind: "begin",
       leaseId,
@@ -313,7 +332,7 @@ export class PresenceService implements LeaseTransitionObserver {
     leaseId: LeaseId,
     recipientAgentId: AgentId,
     recipientConnId: ConnectionId,
-  ): Effect.Effect<void, never, never> {
+  ): Effect.Effect<void> {
     return this.handleObserverTransition({
       kind: "end",
       leaseId,
@@ -322,9 +341,7 @@ export class PresenceService implements LeaseTransitionObserver {
     });
   }
 
-  private handleObserverTransition(
-    cb: ObserverCallback,
-  ): Effect.Effect<void, never, never> {
+  private handleObserverTransition(cb: ObserverCallback): Effect.Effect<void> {
     return Ref.modify(this.entries, (entries) =>
       computeObserverTransition(entries, cb),
     ).pipe(
@@ -340,10 +357,10 @@ export class PresenceService implements LeaseTransitionObserver {
    * Read the agent's current status. Returns `"offline"` for an unknown
    * agent. Each call reads the `Ref` once; the result is a
    * point-in-time snapshot.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @returns The status of result.
    */
-  statusOf(
-    agentId: AgentId,
-  ): Effect.Effect<DerivedPresenceStatus, never, never> {
+  statusOf(agentId: AgentId): Effect.Effect<DerivedPresenceStatus> {
     return Ref.get(this.entries).pipe(
       Effect.map((entries) => statusForAgent(entries, agentId)),
     );
@@ -354,14 +371,14 @@ export class PresenceService implements LeaseTransitionObserver {
    * per requested `agentId` in input order; unknown agents resolve to
    * `"offline"`. One `Ref.get` at the start of the call; all entries
    * are read from the same snapshot.
+   * @param agentIds Value supplied to the operation.
+   * @returns The status many result.
    */
-  statusMany(agentIds: ReadonlyArray<AgentId>): Effect.Effect<
+  statusMany(agentIds: readonly AgentId[]): Effect.Effect<
     ReadonlyArray<{
       readonly agentId: AgentId;
       readonly status: DerivedPresenceStatus;
-    }>,
-    never,
-    never
+    }>
   > {
     return Ref.get(this.entries).pipe(
       Effect.map((entries) =>

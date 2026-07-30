@@ -1,13 +1,11 @@
-import type { AgentContext } from "#socket";
-import {
-  DispatchRequest,
-  DispatchLeaseGet,
+import { type AgentContext, ConnectionTag } from "#socket";
+import type {
+  dispatchRequest as dispatchRequestDefinition,
+  dispatchLeaseGet as dispatchLeaseGetDefinition,
 } from "@moltzap/protocol/message/dispatch";
-import { ForbiddenError } from "@moltzap/protocol/rpc";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
+import { ForbiddenError, type ParamsOf } from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { Effect } from "effect";
-import { ConnectionTag } from "#socket";
 import { DispatchAdmissionServiceTag, LeaseRegistryTag } from "./layer.js";
 import { leaseRecordToWire } from "./lease-registry.js";
 import { agentArm } from "#moltzap/runtime";
@@ -18,7 +16,7 @@ import { agentArm } from "#moltzap/runtime";
 // narrowed `AgentContext` and reads `ctx.agentId` as `recipientAgentId`. The
 // `ActiveAgent` is load-bearing: suspended agents cannot dispatch.
 function dispatchRequestBody(
-  params: ParamsOf<typeof DispatchRequest>,
+  params: ParamsOf<typeof dispatchRequestDefinition>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -42,7 +40,9 @@ function dispatchRequestBody(
 // `app/dispatch/lease/get` — moderator-only read. Scope-enforced: the lease must be
 // moderator-bound and the calling connection MUST match that binding. Otherwise
 // typed `ForbiddenError`.
-function dispatchLeaseGetBody(params: ParamsOf<typeof DispatchLeaseGet>) {
+function dispatchLeaseGetBody(
+  params: ParamsOf<typeof dispatchLeaseGetDefinition>,
+) {
   const notAuthorized = new ForbiddenError({
     message: "app/dispatch/lease/get not authorized for this lease",
   });
@@ -63,16 +63,26 @@ function dispatchLeaseGetBody(params: ParamsOf<typeof DispatchLeaseGet>) {
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const dispatchRequest: ServerHandler<typeof DispatchRequest> = (
-  params,
-) =>
+/**
+ * Provides the dispatch request runtime value.
+ * @param params Request payload to process.
+ * @returns The dispatch request result.
+ */
+export const dispatchRequest: ServerHandler<
+  typeof dispatchRequestDefinition
+> = (params) =>
   Effect.gen(function* () {
     return yield* dispatchRequestBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("dispatchRequest"));
 
-export const dispatchLeaseGet: ServerHandler<typeof DispatchLeaseGet> = (
-  params,
-) =>
+/**
+ * Provides the dispatch lease get runtime value.
+ * @param params Request payload to process.
+ * @returns The dispatch lease get result.
+ */
+export const dispatchLeaseGet: ServerHandler<
+  typeof dispatchLeaseGetDefinition
+> = (params) =>
   Effect.gen(function* () {
     return yield* dispatchLeaseGetBody(params);
   }).pipe(Effect.withSpan("dispatchLeaseGet"));

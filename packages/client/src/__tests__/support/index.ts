@@ -9,6 +9,7 @@ export {
   registerAgent,
   sendAndSettle,
 } from "./agents.js";
+/** Re-exports the public API from `./constants.js`. */
 export {
   ARCHIVED_MESSAGE,
   B_UPDATE,
@@ -46,23 +47,30 @@ export {
   TRACK_NEW_MESSAGE,
   TRACK_SESSION_KEY,
 } from "./constants.js";
+/** Re-exports the public API from `./messages.js`. */
 export { textContent } from "./messages.js";
+/** Re-exports the public API from `./server.js`. */
 export { coreBaseUrl, coreWsUrl, setupServiceIntegration } from "./server.js";
+/** Re-exports the public API from `./socket.js`. */
 export {
-  LocalDaemonCommands,
+  localDaemonCommands,
   requestDaemonCommand,
   socketHistory,
 } from "./socket.js";
+/** Re-exports the public API from `./socket.js`. */
 export type { SocketHistoryResponse } from "./socket.js";
 
+/** Re-exports the public API from `@moltzap/protocol/conversation`. */
 export {
   ConversationArchivedError,
-  ConversationUpdate,
-  ConversationList,
+  conversationUpdate,
+  conversationList,
 } from "@moltzap/protocol/conversation";
-export { DEFAULT_APP_ID, TaskLeave, TaskRequest } from "@moltzap/protocol/task";
+/** Re-exports the public API from `@moltzap/protocol/task`. */
+export { DEFAULT_APP_ID, taskLeave, taskRequest } from "@moltzap/protocol/task";
+/** Re-exports the public API from `@moltzap/protocol/message`. */
 export {
-  MessageReceivedNotificationDefinition,
-  MessagesList,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesList,
+  messagesSend,
 } from "@moltzap/protocol/message";

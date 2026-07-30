@@ -10,12 +10,13 @@
  *
  * `NotificationTimeoutError` carries the timeout duration so callers can
  * log + retry with sane backoff. `StreamClosedError` fires when the
- * consumer's Stream completes empty (e.g. the client transitioned to
+ * consumer's Stream completes empty (e.g. The client transitioned to
  * terminal closed state before a notification arrived); its `reason`
  * discriminant names WHICH close-state ended the Stream.
  */
 import { Data } from "effect";
 
+/** Reports notification timeout failures. */
 export class NotificationTimeoutError extends Data.TaggedError(
   "NotificationTimeoutError",
 )<{
@@ -38,6 +39,7 @@ export type StreamCloseReason =
   | "stream-completed"
   | "transport-disconnected";
 
+/** Reports stream closed failures. */
 export class StreamClosedError extends Data.TaggedError("StreamClosedError")<{
   readonly definition: string;
   readonly reason: StreamCloseReason;

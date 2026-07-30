@@ -11,10 +11,10 @@ import {
   DEFAULT_NOTIFICATION_TIMEOUT_MS,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesSend,
 } from "@moltzap/protocol/message";
 
 const ALIVE_AFTER_IDLE_TEXT = "Still alive after idle";
@@ -30,23 +30,25 @@ it("connection survives idle period and still delivers messages", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
     });
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     // Wait 5 seconds of idle time
     yield* Effect.sleep(DEFAULT_NOTIFICATION_TIMEOUT_MS);
 
     const bobEventFiber = yield* Effect.fork(
-      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
 
     // After idle period, Alice sends a message
-    yield* alice.client.sendRpc(MessagesSend, {
+    yield* alice.client.sendRpc(messagesSend, {
       taskId,
       conversationId,
       parts: [{ type: "text", text: ALIVE_AFTER_IDLE_TEXT }],
@@ -57,11 +59,11 @@ it("connection survives idle period and still delivers messages", () =>
     expect(firstTextPart(received.parts)).toBe(ALIVE_AFTER_IDLE_TEXT);
 
     const aliceEventFiber = yield* Effect.fork(
-      awaitOneNotification(alice.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(alice.client, messageReceivedNotificationDefinition),
     );
 
     // Verify bidirectional: Bob replies after idle
-    yield* bob.client.sendRpc(MessagesSend, {
+    yield* bob.client.sendRpc(messagesSend, {
       taskId,
       conversationId,
       parts: [{ type: "text", text: REPLY_AFTER_IDLE_TEXT }],
