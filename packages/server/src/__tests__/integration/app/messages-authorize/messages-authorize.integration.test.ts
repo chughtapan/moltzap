@@ -302,19 +302,15 @@ function expectHookBlocked(
 
 function expectDecisionTag(decision: unknown, tag: string): void {
   expect(
-    (
-      /* Safe because the test fixture establishes this asserted shape. */
-      decision as { tag?: string }
-    ).tag,
+    /* Safe because the test fixture establishes this asserted shape. */
+    (decision as { tag?: string }).tag,
   ).toBe(tag);
 }
 
 function expectDecisionReason(decision: unknown, reason: string): void {
   expect(
-    (
-      /* Safe because the test fixture establishes this asserted shape. */
-      decision as { reason?: string }
-    ).reason,
+    /* Safe because the test fixture establishes this asserted shape. */
+    (decision as { reason?: string }).reason,
   ).toBe(reason);
 }
 
@@ -323,10 +319,8 @@ function expectDecisionRecipients(
   recipients: readonly string[],
 ) {
   expect(
-    (
-      /* Safe because the test fixture establishes this asserted shape. */
-      decision as { recipients?: readonly string[] }
-    ).recipients,
+    /* Safe because the test fixture establishes this asserted shape. */
+    (decision as { recipients?: readonly string[] }).recipients,
   ).toEqual(recipients);
 }
 

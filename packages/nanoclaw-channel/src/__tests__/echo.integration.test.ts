@@ -110,8 +110,8 @@ function decodeInjectedAgentKey(key: string): AgentKey {
 function contentText(msg: InboundMessage): string {
   return (
     /* Safe because the test fixture establishes this asserted shape. */
-    msg.content as { readonly text: string }
-  ).text;
+    (msg.content as { readonly text: string }).text
+  );
 }
 
 function channelSenderId(agentId: string): string {
@@ -402,10 +402,8 @@ function deliversInbound() {
     );
     expect(seen?.jid).toBe(h.chatJid);
     expect(
-      (
-        /* Safe because the test fixture establishes this asserted shape. */
-        seen!.msg.content as { senderId: string }
-      ).senderId,
+      /* Safe because the test fixture establishes this asserted shape. */
+      (seen!.msg.content as { senderId: string }).senderId,
     ).toBe(channelSenderId(h.peerAgentId));
   });
 }
