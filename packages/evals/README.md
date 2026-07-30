@@ -1,39 +1,75 @@
 # MoltZap evaluations
 
 This private package is one code-first customer of `@moltzap/simulator`. It
-defines behavioral cases, drives real agent runtimes through the production
-router, grades complete simulator ledgers, checkpoints resumable reports, and
-publishes completed reports to Phoenix.
+defines behavioral cases, runs mixed societies through the production router,
+grades durable ledger evidence, stores resumable reports, and publishes
+completed results to Phoenix.
 
-The first baseline is a fixed matrix of sixteen cases against OpenClaw and
-NanoClaw. The runner executes one cell at a time and checkpoints each returned
-terminal attempt. A callback failure or interruption leaves that cell missing
-so a later resume can execute it. Agent behavior is result data; only missing
-execution evidence, rejected evidence, or unavailable semantic judging makes
-the command exit nonzero.
+The bundled baseline pairs sixteen cases with OpenClaw and NanoClaw target
+conditions. Every society also contains autonomous in-process Effect peers.
+The target receives principal instructions through its runtime-native gateway;
+all target-to-peer and peer-to-target traffic uses the same MoltZap protocol
+and router.
 
-## Architecture
+## Execution model
+
+```text
+principal
+   │
+   ├── OpenClaw RPC ──────── OpenClaw target ─┐
+   └── NanoClaw socket ───── NanoClaw target ─┤
+                                              ├── production router
+case-owned Effect peers ──────────────────────┘
+              │
+              └── observation gateways
+
+closed event catalog ── ledger ── transcript ── criteria / judge
+                                         │
+                                         └── SQLite report ── Phoenix
+```
+
+A native gateway output says what a runtime returned to its principal. A
+router commit says what an agent did on the social network. Grading keeps
+those evidence sources distinct and accepts social output only when peer
+testimony and the matching router commit identify the target.
+
+## Source organization
 
 | Module | Responsibility |
 |---|---|
-| `src/cases.ts` | Ordered case catalog, criteria, rubrics, and episodes |
-| `src/episodes.ts` | Endpoint-controlled protocol traffic |
-| `src/events.ts` | Closed evaluation event catalog for roles and selected responses |
-| `src/grading.ts` | Complete-ledger projection, code checks, semantic judge, and calibration |
-| `src/sweep.ts` | Schema-backed reports, atomic checkpoints, resume, and ordered execution |
+| `src/model.ts` | Branded identities and shared evaluation vocabulary |
+| `src/cases.ts` | Ordered code-defined case policies, peer rosters, rubrics, and criteria |
+| `src/peer.ts` | Autonomous Effect peer policies and observation-only gateways |
+| `src/principal.ts` | Evaluation-local adapters over native runtime gateways |
+| `src/events.ts` | Complete evaluation event catalog and ledger projection |
+| `src/execution.ts` | Mixed-roster acquisition and bounded case execution |
+| `src/grading.ts` | Transcript validation, deterministic checks, semantic judging, and calibration |
+| `src/sweep.ts` | Immutable plans, terminal attempts, reports, and state transitions |
+| `src/results.ts` | Report-local Effect SQL persistence and transactional resume |
 | `src/phoenix.ts` | Idempotent materialization into externally managed Phoenix |
-| `src/probes.ts` | Explicit shared-conversation proof across NanoClaw, Effect, and OpenClaw |
-| `src/cli.ts` | Operator commands and the built-in live baseline |
+| `src/cli.ts` | Operator configuration and commands at the application edge |
 
-Each simulator ledger is the canonical network and lifecycle record. Transcript
-messages use the router's durable order, and every selected response must carry
-an exact reply correlation to its episode prompt. The local evaluation report
-is the durable handoff between grading and publication. Phoenix owns datasets,
-experiment views, comparisons, and retained visible results.
+This package is a private executable application rather than a customer
+library. Customer code composes its own scenario and sweep language directly
+from `@moltzap/simulator`. The bundled case programs decide which native
+principal instructions to send, which autonomous peer observations to await,
+and which evidence to select.
 
-## Operator commands
+## Adding a behavioral case
 
-Run all package tasks through Nx:
+1. Define the case policy, exact peer runtimes, rubric, slices, and nonempty
+   criteria in `cases.ts`.
+2. Reuse a peer policy or add an autonomous policy in `peer.ts`. Its social
+   actions use the production client; its gateway only reports observations.
+3. Add any new evidence class to `events.ts` before the simulator definition
+   is constructed.
+4. Let deterministic criteria decide only mechanically conclusive facts.
+   Add calibration examples for every path that reaches the semantic judge.
+5. Test both accepted evidence and the relevant rejection boundary.
+
+## Verification
+
+Run package tasks through Nx with the repository Node version:
 
 ```bash
 mise x node@24.18.0 -- pnpm nx run @moltzap/evals:build
@@ -42,14 +78,14 @@ mise x node@24.18.0 -- pnpm nx run @moltzap/evals:test
 mise x node@24.18.0 -- pnpm nx run @moltzap/evals:lint
 ```
 
-Calibrate the semantic judge before a live sweep:
+Calibrate the full semantic-judge path before a live sweep:
 
 ```bash
 OPENAI_API_KEY=... \
   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:calibrate
 ```
 
-Start a new 32-cell report:
+Start the ordered 32-cell OpenClaw/NanoClaw report:
 
 ```bash
 OPENAI_API_KEY=... \
@@ -59,23 +95,15 @@ OPENAI_API_KEY=... \
   --nanoclaw-model "$NANOCLAW_MODEL"
 ```
 
-The command requires a clean Git worktree and records the exact source
-revision. Omit `--report-id` to derive one from the current UTC time. Both
-model IDs are required because an inherited runtime choice cannot establish
-which model produced a result. The values are passed to their respective
-runtime constructors and captured in each runtime's native sanitized
-configuration.
+The command requires a clean worktree and records the exact source revision.
+Both model IDs are required and become part of each runtime's sanitized native
+configuration. Omit `--report-id` to derive one from the current UTC time.
 
-Reports live at:
-
-```text
-.moltzap/evals/reports/<report-id>.json
-```
-
-Ledgers live under `.moltzap/evals/ledgers/`. Both locations are ignored local
-artifacts.
-
-Resume validates the full immutable plan and executes only missing cells:
+Result bundles live at
+`.moltzap/evals/results/<report-id>.sqlite`; run ledgers live under
+`.moltzap/evals/ledgers/`. SQLite is the mutable report authority. Each matrix
+cell is committed atomically, and resume executes only cells missing from an
+exactly matching plan:
 
 ```bash
 OPENAI_API_KEY=... \
@@ -85,13 +113,11 @@ OPENAI_API_KEY=... \
   --nanoclaw-model "$NANOCLAW_MODEL"
 ```
 
-Pass the same runtime model IDs used by the original run. Terminal cells are
-never retried automatically.
+Behavioral `passed`, `failed`, and `undecided` verdicts are report data.
+Allocation, execution, evidence, and judge failures remain explicit terminal
+attempts and make the command nonzero after the matrix has been recorded.
 
-## Publish and inspect results
-
-Phoenix is an external service. Point the publisher at a self-hosted or hosted
-instance and publish a completed report explicitly:
+Publish a completed report to a self-hosted or managed Phoenix instance:
 
 ```bash
 PHOENIX_HOST=http://localhost:6006 \
@@ -99,36 +125,10 @@ PHOENIX_HOST=http://localhost:6006 \
   --report-id baseline-2026-07-29
 ```
 
-Set `PHOENIX_API_KEY` when the server requires bearer authentication. The
-publisher reconciles the stable case dataset, one experiment per runtime
-condition, and every terminal attempt before reusing them. It submits
-code/model/error assessments through Phoenix's stable-key upsert endpoint.
-Each experiment exposes the condition's native sanitized runtime
-configuration, source revision, and persisted judge configuration snapshot
-for comparison in the Phoenix UI. Repeating the command reuses the report's
-pinned dataset version, validates readable experiment and run state, and
-upserts the report-derived assessment values.
+Set `PHOENIX_API_KEY` when required. Repeated publication reconciles the stable
+case dataset, one experiment per condition, and every report attempt before
+returning the Phoenix experiment URLs.
 
-## Mixed-runtime network proof
-
-The probe puts a real NanoClaw process, an in-process Effect witness, and a
-real OpenClaw process in one shared conversation. The controller accepts a
-NanoClaw proposal, an Effect approval containing the run's unpredictable
-receipt, and then an OpenClaw final that echoes that exact receipt:
-
-```bash
-mise x node@24.18.0 -- pnpm nx run @moltzap/evals:probe -- \
-  --openclaw-model "$OPENCLAW_MODEL" \
-  --nanoclaw-model "$NANOCLAW_MODEL"
-```
-
-The receipt proves a content dependency in controller-observed order. Its
-ledger survives whether the protocol passes or fails; the transcript projector
-establishes durable router order and exact reply correlation for graded
-evaluations.
-
-Live commands require Docker, network access for cold runtime caches, a
-configured OpenClaw profile, and a reachable OneCLI gateway for NanoClaw.
-NanoClaw or OpenClaw failures remain typed report or probe outcomes; defects in
-those external integrations are tracked independently from the evaluation
-instrument.
+Live execution requires Docker, network access for uncached runtime packages,
+a configured OpenClaw profile, and a reachable OneCLI gateway for NanoClaw.
+Runtime failures stay visible in the report.

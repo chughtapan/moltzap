@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Phoenix protocol adaptation stays isolated from local report authority. */
 /** @file Idempotent Phoenix materialization for completed evaluation reports. */
 
 import {
@@ -13,7 +14,7 @@ import {
 } from "@arizeai/phoenix-client/experiments";
 import { getExperimentUrl } from "@arizeai/phoenix-client/utils/urlUtils";
 import {
-  JsonValue,
+  jsonValue,
   type JsonValue as JsonValueType,
 } from "@moltzap/simulator/ledger";
 import {
@@ -27,20 +28,21 @@ import {
   Schema,
 } from "effect";
 import type { CriterionAssessment } from "./grading.js";
-import { ConditionId } from "./cases.js";
+import { conditionId } from "./model.js";
 import {
   canonicalJson,
   type CompletedEvaluationReport,
   digestEvaluationReport,
+  evaluationReportDigest,
   type EvaluationConditionPlan,
   type EvaluationReportPlan,
-  EvaluationReportDigest,
   JudgePolicySnapshot,
+  terminalAttempt,
+  type EvaluationReportDigest,
   type EvaluationReportValidationError,
   type EvidenceRejectedAttempt,
   type JudgingUnavailableAttempt,
-  TerminalAttempt,
-  type TerminalAttempt as TerminalAttemptType,
+  type TerminalAttempt,
   validateCompletedEvaluationReport,
 } from "./sweep.js";
 
@@ -61,7 +63,7 @@ type PhoenixRun = Awaited<ReturnType<typeof getExperimentRuns>>["runs"][number];
 class PhoenixExperimentPublication extends Schema.Class<PhoenixExperimentPublication>(
   "PhoenixExperimentPublication",
 )({
-  conditionId: ConditionId,
+  conditionId,
   experimentId: Schema.NonEmptyString,
   url: Schema.NonEmptyString,
 }) {}
@@ -71,7 +73,7 @@ class PhoenixPublication extends Schema.Class<PhoenixPublication>(
   "PhoenixPublication",
 )({
   datasetId: Schema.NonEmptyString,
-  reportDigest: EvaluationReportDigest,
+  reportDigest: evaluationReportDigest,
   experiments: Schema.NonEmptyArray(PhoenixExperimentPublication),
 }) {}
 
@@ -103,15 +105,14 @@ export class PhoenixPublicationEncodingError extends Schema.TaggedError<PhoenixP
   },
 ) {}
 
-const PhoenixPublicationError = Schema.Union(
-  PhoenixRequestFailed,
-  PhoenixPublicationConflict,
-  PhoenixPublicationEncodingError,
-);
-type PhoenixPublicationError = typeof PhoenixPublicationError.Type;
+type PhoenixPublicationError =
+  | PhoenixRequestFailed
+  | PhoenixPublicationConflict
+  | PhoenixPublicationEncodingError;
 
 type PublishFailure = EvaluationReportValidationError | PhoenixPublicationError;
 
+/** Publishes immutable completed reports as a Phoenix comparison view. */
 export interface PhoenixPublisherService {
   readonly publish: (
     report: CompletedEvaluationReport,
@@ -170,7 +171,7 @@ function conflict(
 function canonicalUnknown(
   value: unknown,
 ): Effect.Effect<string, PhoenixPublicationEncodingError> {
-  return Schema.decodeUnknown(JsonValue)(value).pipe(
+  return Schema.decodeUnknown(jsonValue)(value).pipe(
     Effect.map(canonicalJson),
     Effect.mapError((cause) =>
       encodingError(`Phoenix value is not JSON: ${cause.message}`),
@@ -188,11 +189,15 @@ function sameJson(
   }).pipe(Effect.map(({ left, right }) => left === right));
 }
 
-function sorted(values: ReadonlyArray<string>): ReadonlyArray<string> {
+function sorted(values: readonly string[]): readonly string[] {
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
-/** Canonical Phoenix dataset rows derived from the immutable case catalog. */
+/**
+ * Canonical Phoenix dataset rows derived from the immutable case catalog.
+ * @param plan Immutable case and condition catalog.
+ * @returns Stable Phoenix examples in catalog order.
+ */
 export function phoenixCatalogExamples(plan: EvaluationReportPlan) {
   return plan.cases.map((casePlan) => {
     const slices = sorted(casePlan.slices);
@@ -212,6 +217,7 @@ export function phoenixCatalogExamples(plan: EvaluationReportPlan) {
   });
 }
 
+/** SDK-readable dataset fields used during remote reconciliation. */
 export interface PhoenixDatasetCatalog {
   readonly name: string;
   readonly description?: string | null;
@@ -237,6 +243,9 @@ function datasetExampleProjection(
 /**
  * Reconcile remote dataset identity and examples without requiring a live
  * Phoenix client.
+ * @param dataset Remote dataset projection.
+ * @param plan Immutable local report plan.
+ * @returns Completion when the projections agree.
  */
 export function reconcilePhoenixDatasetCatalog(
   dataset: PhoenixDatasetCatalog,
@@ -278,7 +287,11 @@ export function reconcilePhoenixDatasetCatalog(
   }).pipe(Effect.withSpan("evals.reconcilePhoenixDatasetCatalog"));
 }
 
-/** Find the stable dataset without asking the SDK to interpret an empty list. */
+/**
+ * Find the stable dataset without asking the SDK to interpret an empty list.
+ * @param client Configured Phoenix SDK client.
+ * @returns The unique evaluation dataset when it exists.
+ */
 export function findPhoenixDataset(
   client: PhoenixClient,
 ): Effect.Effect<
@@ -306,7 +319,9 @@ export function findPhoenixDataset(
         conflict("dataset", DATASET_NAME, "remote identity is not unique"),
       );
     }
-    if (dataset === undefined) return undefined;
+    if (dataset === undefined) {
+      return undefined;
+    }
     return yield* phoenixRequest("get evaluation dataset", () =>
       getDataset({ client, dataset: { datasetId: dataset.id } }),
     );
@@ -361,10 +376,12 @@ function collectExperimentPage(
   client: PhoenixClient,
   datasetId: string,
   page: PhoenixExperimentsPage,
-  collected: ReadonlyArray<PhoenixExperiment>,
-): Effect.Effect<ReadonlyArray<PhoenixExperiment>, PhoenixRequestFailed> {
+  collected: readonly PhoenixExperiment[],
+): Effect.Effect<readonly PhoenixExperiment[], PhoenixRequestFailed> {
   const next = [...collected, ...page.data];
-  if (page.next_cursor === null) return Effect.succeed(next);
+  if (page.next_cursor === null) {
+    return Effect.succeed(next);
+  }
   return fetchExperimentsPage(client, datasetId, page.next_cursor).pipe(
     Effect.flatMap((nextPage) =>
       collectExperimentPage(client, datasetId, nextPage, next),
@@ -375,7 +392,7 @@ function collectExperimentPage(
 function listExperiments(
   client: PhoenixClient,
   datasetId: string,
-): Effect.Effect<ReadonlyArray<PhoenixExperiment>, PhoenixRequestFailed> {
+): Effect.Effect<readonly PhoenixExperiment[], PhoenixRequestFailed> {
   return fetchExperimentsPage(client, datasetId, null).pipe(
     Effect.flatMap((page) =>
       collectExperimentPage(client, datasetId, page, []),
@@ -390,17 +407,31 @@ function experimentName(
   return `moltzap/${digest}/${condition.id}`;
 }
 
+function selectCanonicalExperiment<Experiment extends { readonly id: string }>(
+  experiments: readonly Experiment[],
+): Experiment | undefined {
+  return [...experiments].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  )[0];
+}
+
 /** Dataset version fields retained by an existing Phoenix experiment. */
 export type PhoenixExperimentDatasetReference = Pick<
   PhoenixExperiment,
   "name" | "dataset_version_id"
 >;
 
-/** Find the dataset version already pinned by a report's experiments. */
+/**
+ * Find the dataset version already pinned by a report's experiments.
+ * @param digest Stable local report digest.
+ * @param plan Immutable local report plan.
+ * @param experiments Remote experiment references.
+ * @returns The one pinned version, if the report is already published.
+ */
 export function phoenixPublishedDatasetVersion(
   digest: EvaluationReportDigest,
   plan: EvaluationReportPlan,
-  experiments: ReadonlyArray<PhoenixExperimentDatasetReference>,
+  experiments: readonly PhoenixExperimentDatasetReference[],
 ): Effect.Effect<Option.Option<string>, PhoenixPublicationConflict> {
   const identities = new Set(
     plan.conditions.map((condition) => experimentName(digest, condition)),
@@ -467,7 +498,12 @@ function ensureDataset(
   });
 }
 
-/** Runtime and judge inputs exposed on each condition experiment. */
+/**
+ * Runtime and judge inputs exposed on each condition experiment.
+ * @param plan Immutable local report plan.
+ * @param condition Runtime condition projected by the experiment.
+ * @returns JSON-safe runtime and judge provenance.
+ */
 export function phoenixExperimentProvenance(
   plan: EvaluationReportPlan,
   condition: EvaluationConditionPlan,
@@ -478,7 +514,7 @@ export function phoenixExperimentProvenance(
   return Schema.encode(JudgePolicySnapshot)(plan.judgePolicy, {
     onExcessProperty: "error",
   }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(JsonValue)),
+    Effect.flatMap(Schema.decodeUnknown(jsonValue)),
     Effect.map((judgePolicy) => ({
       runtimeConfiguration: condition.runtimeConfiguration,
       judgePolicy,
@@ -581,6 +617,34 @@ function fetchExperiment(
   );
 }
 
+function reconcileExperiments(
+  experiments: readonly PhoenixExperiment[],
+  context: PublicationContext,
+  condition: EvaluationConditionPlan,
+): Effect.Effect<
+  PhoenixExperiment,
+  PhoenixPublicationConflict | PhoenixPublicationEncodingError
+> {
+  return Effect.gen(function* () {
+    const validated = yield* Effect.forEach(
+      experiments,
+      (experiment) => validateExperiment(experiment, context, condition),
+      { concurrency: 1 },
+    );
+    const canonical = selectCanonicalExperiment(validated);
+    if (canonical !== undefined) {
+      return canonical;
+    }
+    return yield* Effect.fail(
+      conflict(
+        "experiment",
+        experimentName(context.digest, condition),
+        "remote identity disappeared during reconciliation",
+      ),
+    );
+  });
+}
+
 function ensureExperiment(
   context: PublicationContext,
   condition: EvaluationConditionPlan,
@@ -594,14 +658,8 @@ function ensureExperiment(
     const matches = experiments.filter(
       (experiment) => experiment.name === identity,
     );
-    const [existing, ...duplicates] = matches;
-    if (duplicates.length > 0) {
-      return yield* Effect.fail(
-        conflict("experiment", identity, "remote identity is not unique"),
-      );
-    }
-    if (existing !== undefined) {
-      return yield* validateExperiment(existing, context, condition);
+    if (matches.length > 0) {
+      return yield* reconcileExperiments(matches, context, condition);
     }
     const metadata = yield* experimentMetadata(
       context.report,
@@ -620,17 +678,31 @@ function ensureExperiment(
       }),
     );
     const remote = yield* fetchExperiment(context.client, created.id);
-    return yield* validateExperiment(remote, context, condition);
+    const refreshed = yield* listExperiments(
+      context.client,
+      context.dataset.id,
+    );
+    const candidates = new Map(
+      refreshed
+        .filter((experiment) => experiment.name === identity)
+        .map((experiment) => [experiment.id, experiment] as const),
+    );
+    candidates.set(remote.id, remote);
+    return yield* reconcileExperiments(
+      Array.from(candidates.values()),
+      context,
+      condition,
+    );
   });
 }
 
 function encodeAttempt(
-  attempt: TerminalAttemptType,
+  attempt: TerminalAttempt,
 ): Effect.Effect<JsonValueType, PhoenixPublicationEncodingError> {
-  return Schema.encode(TerminalAttempt)(attempt, {
+  return Schema.encode(terminalAttempt)(attempt, {
     onExcessProperty: "error",
   }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(JsonValue)),
+    Effect.flatMap(Schema.decodeUnknown(jsonValue)),
     Effect.mapError((cause) =>
       encodingError(
         `cannot encode attempt ${attempt.attemptId}: ${cause.message}`,
@@ -639,7 +711,7 @@ function encodeAttempt(
   );
 }
 
-function runError(attempt: TerminalAttemptType): string | null {
+function runError(attempt: TerminalAttempt): string | null {
   switch (attempt._tag) {
     case "RunFailedAttempt":
       return `${attempt._tag}: ${attempt.detail}`;
@@ -649,6 +721,8 @@ function runError(attempt: TerminalAttemptType): string | null {
     case "EvidenceRejectedAttempt":
     case "JudgingUnavailableAttempt":
       return null;
+    default:
+      return attempt;
   }
 }
 
@@ -661,7 +735,7 @@ interface ExpectedRun {
 }
 
 function expectedRun(
-  attempt: TerminalAttemptType,
+  attempt: TerminalAttempt,
   datasetExampleId: string,
 ): Effect.Effect<ExpectedRun, PhoenixPublicationEncodingError> {
   return encodeAttempt(attempt).pipe(
@@ -737,14 +811,14 @@ function createRun(
 function fetchRuns(
   client: PhoenixClient,
   experimentId: string,
-): Effect.Effect<ReadonlyArray<PhoenixRun>, PhoenixRequestFailed> {
+): Effect.Effect<readonly PhoenixRun[], PhoenixRequestFailed> {
   return phoenixRequest("get evaluation experiment runs", () =>
     getExperimentRuns({ client, experimentId, pageSize: PAGE_SIZE }),
   ).pipe(Effect.map(({ runs }) => runs));
 }
 
 function uniqueRunByExample(
-  runs: ReadonlyArray<PhoenixRun>,
+  runs: readonly PhoenixRun[],
   datasetExampleId: string,
   attemptId: string,
 ): Effect.Effect<PhoenixRun | undefined, PhoenixPublicationConflict> {
@@ -762,7 +836,7 @@ function uniqueRunByExample(
 interface RunContext {
   readonly client: PhoenixClient;
   readonly experimentId: string;
-  readonly runs: ReadonlyArray<PhoenixRun>;
+  readonly runs: readonly PhoenixRun[];
 }
 
 function recoverConcurrentRun(
@@ -778,7 +852,9 @@ function recoverConcurrentRun(
       expected.datasetExampleId,
       attemptId,
     );
-    if (raced === undefined) return yield* Effect.fail(creationError);
+    if (raced === undefined) {
+      return yield* Effect.fail(creationError);
+    }
     const validated = yield* validateRun(raced, expected, attemptId);
     return validated.id;
   });
@@ -800,7 +876,7 @@ function createOrRecoverRun(
 
 function ensureRun(
   context: RunContext,
-  attempt: TerminalAttemptType,
+  attempt: TerminalAttempt,
   datasetExampleId: string,
 ): Effect.Effect<string, DatasetFailure> {
   return Effect.gen(function* () {
@@ -830,6 +906,8 @@ function score(verdict: CriterionAssessment["verdict"]): number | null {
       return 0;
     case "undecided":
       return null;
+    default:
+      return verdict;
   }
 }
 
@@ -894,9 +972,9 @@ function judgeErrorEvaluations(
   attempt: JudgingUnavailableAttempt,
   reportDigest: EvaluationReportDigest,
   condition: EvaluationConditionPlan,
-): ReadonlyArray<ExpectedEvaluation> {
+): readonly ExpectedEvaluation[] {
   const error = `${attempt.error._tag}: ${attempt.error.detail}`;
-  const failures: ReadonlyArray<ExpectedEvaluation> =
+  const failures: readonly ExpectedEvaluation[] =
     attempt.pendingCriterionIds.map(
       (criterionId): ExpectedEvaluation => ({
         name: criterionId,
@@ -919,12 +997,18 @@ function judgeErrorEvaluations(
   ];
 }
 
-/** Pure Phoenix assessment rows for one terminal local attempt. */
+/**
+ * Pure Phoenix assessment rows for one terminal local attempt.
+ * @param attempt Validated terminal matrix attempt.
+ * @param reportDigest Stable local report digest.
+ * @param condition Runtime condition for the attempt.
+ * @returns Assessment rows to materialize on the experiment run.
+ */
 export function phoenixAttemptEvaluations(
-  attempt: TerminalAttemptType,
+  attempt: TerminalAttempt,
   reportDigest: EvaluationReportDigest,
   condition: EvaluationConditionPlan,
-): ReadonlyArray<ExpectedEvaluation> {
+): readonly ExpectedEvaluation[] {
   switch (attempt._tag) {
     case "AssessedAttempt":
       return attempt.grade.assessments.map((assessment) =>
@@ -937,13 +1021,15 @@ export function phoenixAttemptEvaluations(
     case "RunFailedAttempt":
     case "LedgerAllocationFailedAttempt":
       return [];
+    default:
+      return attempt;
   }
 }
 
 function upsertEvaluation(
   client: PhoenixClient,
   runId: string,
-  attempt: TerminalAttemptType,
+  attempt: TerminalAttempt,
   evaluation: ExpectedEvaluation,
 ): Effect.Effect<void, PhoenixRequestFailed> {
   return phoenixRequest("upsert evaluation assessment", () =>
@@ -984,13 +1070,13 @@ interface ConditionPublicationContext {
   readonly publication: PublicationContext;
   readonly condition: EvaluationConditionPlan;
   readonly experimentId: string;
-  readonly remoteRuns: ReadonlyArray<PhoenixRun>;
+  readonly remoteRuns: readonly PhoenixRun[];
 }
 
 function publishAttemptEvaluations(
   context: ConditionPublicationContext,
   runId: string,
-  attempt: TerminalAttemptType,
+  attempt: TerminalAttempt,
 ): Effect.Effect<void, PhoenixRequestFailed> {
   const { client } = context.publication;
   const evaluations = phoenixAttemptEvaluations(
@@ -1007,7 +1093,7 @@ function publishAttemptEvaluations(
 
 function publishAttempt(
   context: ConditionPublicationContext,
-  attempt: TerminalAttemptType,
+  attempt: TerminalAttempt,
 ): Effect.Effect<void, PhoenixPublicationError> {
   return Effect.gen(function* () {
     const { client, dataset } = context.publication;
@@ -1067,53 +1153,55 @@ function publishCondition(
   });
 }
 
-/** Build a publisher around an explicitly configured Phoenix client. */
-function makePhoenixPublisher(
+/**
+ * Build the Phoenix projection service around an injected SDK client.
+ * @param client Configured Phoenix SDK client.
+ * @param baseUrl Phoenix browser origin used for receipt links.
+ * @returns A publisher that keeps the local report authoritative.
+ */
+export function makePhoenixPublisher(
   client: PhoenixClient,
   baseUrl: string,
 ): PhoenixPublisherService {
+  const publish = Effect.fn("evals.publishPhoenixReport")(function* (
+    report: CompletedEvaluationReport,
+  ) {
+    const validated = yield* validateCompletedEvaluationReport(report);
+    const digest = yield* digestEvaluationReport(validated);
+    const dataset = yield* ensureDataset(client, validated.plan, digest);
+    const publication: PublicationContext = {
+      client,
+      dataset,
+      report: validated,
+      digest,
+    };
+    const [firstCondition, ...remainingConditions] = validated.plan.conditions;
+    const first = yield* publishCondition(publication, baseUrl, firstCondition);
+    const remaining = yield* Effect.forEach(
+      remainingConditions,
+      (condition) => publishCondition(publication, baseUrl, condition),
+      { concurrency: 1 },
+    );
+    return PhoenixPublication.make({
+      datasetId: dataset.id,
+      reportDigest: digest,
+      experiments: [first, ...remaining],
+    });
+  });
   return {
-    publish: (report) =>
-      Effect.gen(function* () {
-        const validated = yield* validateCompletedEvaluationReport(report);
-        const digest = yield* digestEvaluationReport(validated);
-        const dataset = yield* ensureDataset(client, validated.plan, digest);
-        const publication: PublicationContext = {
-          client,
-          dataset,
-          report: validated,
-          digest,
-        };
-        const [firstCondition, ...remainingConditions] =
-          validated.plan.conditions;
-        const first = yield* publishCondition(
-          publication,
-          baseUrl,
-          firstCondition,
-        );
-        const remaining = yield* Effect.forEach(
-          remainingConditions,
-          (condition) => publishCondition(publication, baseUrl, condition),
-          { concurrency: 1 },
-        );
-        return PhoenixPublication.make({
-          datasetId: dataset.id,
-          reportDigest: digest,
-          experiments: [first, ...remaining],
-        });
-      }).pipe(Effect.withSpan("evals.publishPhoenixReport")),
+    publish,
   };
 }
 
-const PhoenixHost = Config.string("PHOENIX_HOST");
-const PhoenixApiKey = Config.option(Config.redacted("PHOENIX_API_KEY"));
+const phoenixHost = Config.string("PHOENIX_HOST");
+const phoenixApiKey = Config.option(Config.redacted("PHOENIX_API_KEY"));
 
 /** Externally managed Phoenix connection configured only through Effect. */
-export const PhoenixPublisherLive = Layer.effect(
+export const phoenixPublisherLive = Layer.effect(
   PhoenixPublisher,
   Effect.gen(function* () {
-    const baseUrl = yield* PhoenixHost;
-    const apiKey = yield* PhoenixApiKey;
+    const baseUrl = yield* phoenixHost;
+    const apiKey = yield* phoenixApiKey;
     const headers = Option.match(apiKey, {
       onNone: () => undefined,
       onSome: (key) => ({
@@ -1130,3 +1218,4 @@ export const PhoenixPublisherLive = Layer.effect(
     return makePhoenixPublisher(client, baseUrl);
   }).pipe(Effect.withSpan("PhoenixPublisherLive")),
 );
+/* eslint-enable max-lines -- Phoenix protocol adaptation ends here. */

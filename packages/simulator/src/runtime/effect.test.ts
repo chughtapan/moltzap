@@ -1,7 +1,6 @@
 import { assert, beforeEach, expect, it } from "@effect/vitest";
-import { type AgentConnection, makeAgentHandle } from "../network.js";
-import { RuntimeCompleted, RuntimeFailed } from "./runtime.js";
 import {
+  messageReceivedNotificationDefinition,
   messagesSend,
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
@@ -24,7 +23,13 @@ import {
   Stream,
 } from "effect";
 import { vi } from "vitest";
-import { effectRuntime, type EffectMessageContext } from "./effect.js";
+import { type AgentConnection, makeAgentHandle } from "../network.js";
+import {
+  EffectRuntimeStartFailed,
+  effectRuntime,
+  type EffectRuntimeContext,
+} from "./effect.js";
+import { RuntimeCompleted, RuntimeFailed } from "./runtime.js";
 
 interface FakeClientState {
   received?: Stream.Stream<MessageReceivedNotification, unknown>;
@@ -32,6 +37,7 @@ interface FakeClientState {
     readonly serverUrl: string;
     readonly agentKey: unknown;
   }>;
+  readonly events: string[];
   readonly sent: Array<{
     readonly definition: string;
     readonly payload: Readonly<Record<string, unknown>>;
@@ -44,6 +50,7 @@ const clientState = vi.hoisted(
   (): FakeClientState => ({
     received: undefined,
     constructed: [],
+    events: [],
     sent: [],
     connects: 0,
     closes: 0,
@@ -61,17 +68,20 @@ vi.mock("@moltzap/client", () => ({
 
     connect() {
       return Effect.sync(() => {
+        clientState.events.push("connect");
         clientState.connects += 1;
       });
     }
 
     close() {
       return Effect.sync(() => {
+        clientState.events.push("close");
         clientState.closes += 1;
       });
     }
 
-    subscribeScoped() {
+    subscribeScoped(definition: { readonly name: string }) {
+      clientState.events.push(`subscribe:${definition.name}`);
       return clientState.received === undefined
         ? Effect.dieMessage("test did not install a receive stream")
         : Effect.succeed(clientState.received);
@@ -98,6 +108,9 @@ const AGENT_KEY = redactedAgentKey(agentKeyString(80));
 const ROUTER_URL = serverBaseUrl("ws://127.0.0.1:3000");
 const STARTUP_TIMEOUT = Duration.seconds(3);
 const EXPECTED_RUNTIME_NAME = "effect";
+const AGENT_NAME = "alice";
+const ORIGINAL_VERSION = "original";
+const REPLACEMENT_VERSION = "replacement";
 const INCOMING: MessageReceivedNotification = {
   taskId: taskId("33333333-3333-4333-8333-333333333333"),
   message: {
@@ -112,6 +125,7 @@ const INCOMING: MessageReceivedNotification = {
 beforeEach(() => {
   clientState.received = undefined;
   clientState.constructed.length = 0;
+  clientState.events.length = 0;
   clientState.sent.length = 0;
   clientState.connects = 0;
   clientState.closes = 0;
@@ -121,7 +135,7 @@ function connection(
   observeReady: (within: Duration.Duration) => void,
 ): AgentConnection<"alice"> {
   return {
-    agent: makeAgentHandle("alice", AGENT_ID),
+    agent: makeAgentHandle(AGENT_NAME, AGENT_ID),
     key: AGENT_KEY,
     routerUrl: ROUTER_URL,
     awaitReady: (within) =>
@@ -131,10 +145,64 @@ function connection(
   };
 }
 
-it("publishes definition-time policy without exposing the handler", () => {
+interface ReceivedDelivery {
+  readonly context: EffectRuntimeContext;
+  readonly notification: MessageReceivedNotification;
+}
+
+function makeGatewayRuntime(received: Deferred.Deferred<ReceivedDelivery>) {
+  return effectRuntime({
+    startupTimeout: STARTUP_TIMEOUT,
+    build: (context) =>
+      Effect.sync(() => {
+        clientState.events.push("build");
+        return {
+          gateway: {
+            send: (text: string) =>
+              context.client
+                .callDefinition(messagesSend, {
+                  taskId: INCOMING.taskId,
+                  conversationId: INCOMING.message.conversationId,
+                  parts: [{ type: "text", text }],
+                })
+                .pipe(Effect.asVoid),
+          },
+          behavior: context.messages.pipe(
+            Stream.runForEach((notification) =>
+              Deferred.succeed(received, {
+                context,
+                notification,
+              }).pipe(Effect.asVoid),
+            ),
+          ),
+        };
+      }),
+  });
+}
+
+function assertStartupOrder(): void {
+  assert.strictEqual(
+    clientState.events[0],
+    `subscribe:${messageReceivedNotificationDefinition.name}`,
+  );
+  assert.isBelow(
+    clientState.events.indexOf("connect"),
+    clientState.events.indexOf("build"),
+  );
+  assert.isBelow(
+    clientState.events.indexOf("ready"),
+    clientState.events.indexOf("build"),
+  );
+}
+
+it("publishes definition-time policy without exposing customer code", () => {
   const runtime = effectRuntime({
     startupTimeout: STARTUP_TIMEOUT,
-    onMessage: () => Effect.succeed("pong"),
+    build: () =>
+      Effect.succeed({
+        gateway: {},
+        behavior: Effect.never,
+      }),
   });
   const encoded = Schema.encodeSync(runtime.configuration.schema)(
     runtime.configuration.value,
@@ -142,73 +210,120 @@ it("publishes definition-time policy without exposing the handler", () => {
 
   expect(encoded).toStrictEqual({
     startupTimeout: Duration.toMillis(STARTUP_TIMEOUT),
-    messageHandlerPolicy: "custom",
   });
 });
 
 // @agent-code-guard/regression-only: controlled client lifecycles expose protocol routing, termination, and scope cleanup order directly
-it.effect("uses the wire protocol for readiness, delivery, and replies", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const delivery = yield* Deferred.make<MessageReceivedNotification>();
-      const callback = yield* Deferred.make<EffectMessageContext>();
-      let readyWithin: Duration.Duration | undefined;
-      clientState.received = Stream.fromEffect(Deferred.await(delivery));
-      const runtime = effectRuntime({
-        startupTimeout: STARTUP_TIMEOUT,
-        onMessage: (context) =>
-          Deferred.succeed(callback, context).pipe(Effect.as("pong")),
-      });
+it.effect(
+  "exposes a typed gateway, identity, and eagerly registered message stream",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const delivery = yield* Deferred.make<MessageReceivedNotification>();
+        const received = yield* Deferred.make<ReceivedDelivery>();
+        let readyWithin: Duration.Duration | undefined;
+        clientState.received = Stream.fromEffect(Deferred.await(delivery));
+        const runtime = makeGatewayRuntime(received);
 
-      const running = yield* runtime.acquire({
-        connection: connection((within) => {
-          readyWithin = within;
-        }),
-      });
-      yield* Deferred.succeed(delivery, INCOMING);
-      const observed = yield* Deferred.await(callback);
-      const termination = yield* running.termination;
+        const running = yield* runtime.acquire({
+          connection: connection((within) => {
+            clientState.events.push("ready");
+            readyWithin = within;
+          }),
+        });
+        yield* running.gateway.send("outbound");
+        yield* Deferred.succeed(delivery, INCOMING);
+        const observed = yield* Deferred.await(received);
+        const termination = yield* running.termination;
 
-      assert.instanceOf(termination, RuntimeCompleted);
-      assert.strictEqual(observed.agent.id, AGENT_ID);
-      assert.strictEqual(clientState.connects, 1);
-      assert.deepStrictEqual(readyWithin, STARTUP_TIMEOUT);
-      assert.strictEqual(
-        clientState.constructed[0]?.serverUrl,
-        httpBaseUrl(ROUTER_URL),
-      );
-      assert.strictEqual(clientState.sent[0]?.definition, messagesSend.name);
-      assert.deepInclude(clientState.sent[0]?.payload, {
-        taskId: INCOMING.taskId,
-        conversationId: INCOMING.message.conversationId,
-        replyToId: INCOMING.message.id,
-        parts: [{ type: "text", text: "pong" }],
-      });
-    }),
-  ),
+        assert.instanceOf(termination, RuntimeCompleted);
+        assert.strictEqual(observed.context.agent.id, AGENT_ID);
+        assert.strictEqual(observed.context.agent.name, AGENT_NAME);
+        assert.deepStrictEqual(observed.notification, INCOMING);
+        assert.strictEqual(clientState.connects, 1);
+        assert.deepStrictEqual(readyWithin, STARTUP_TIMEOUT);
+        assert.strictEqual(
+          clientState.constructed[0]?.serverUrl,
+          httpBaseUrl(ROUTER_URL),
+        );
+        assertStartupOrder();
+        assert.strictEqual(clientState.sent[0]?.definition, messagesSend.name);
+        assert.deepEqual(clientState.sent[0]?.payload, {
+          taskId: INCOMING.taskId,
+          conversationId: INCOMING.message.conversationId,
+          parts: [{ type: "text", text: "outbound" }],
+        });
+      }),
+    ),
 );
 
-it.effect("turns callback failure into a runtime observation", () =>
+it.effect("turns behavior failure into a runtime observation", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const delivery = yield* Deferred.make<MessageReceivedNotification>();
-      clientState.received = Stream.fromEffect(Deferred.await(delivery));
+      clientState.received = Stream.never;
       const runtime = effectRuntime({
-        onMessage: () => Effect.fail("handler failed"),
+        build: () =>
+          Effect.succeed({
+            gateway: {},
+            behavior: Effect.fail("behavior failed"),
+          }),
       });
       const running = yield* runtime.acquire({
         connection: connection(() => undefined),
       });
 
-      yield* Deferred.succeed(delivery, INCOMING);
       const termination = yield* running.termination;
 
       assert.instanceOf(termination, RuntimeFailed);
-      assert.include(termination.detail, "handler failed");
+      assert.include(termination.detail, "behavior failed");
       assert.isAtLeast(clientState.closes, 1);
       assert.lengthOf(clientState.sent, 0);
     }),
   ),
+);
+
+it.effect("reports autonomous interruption as runtime failure", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      clientState.received = Stream.never;
+      const runtime = effectRuntime({
+        build: () =>
+          Effect.succeed({
+            gateway: {},
+            behavior: Effect.interrupt,
+          }),
+      });
+      const running = yield* runtime.acquire({
+        connection: connection(() => undefined),
+      });
+
+      const termination = yield* running.termination;
+
+      assert.instanceOf(termination, RuntimeFailed);
+      assert.include(termination.detail, "interrupted");
+    }),
+  ),
+);
+
+it.effect("maps builder failure to acquisition failure", () =>
+  Effect.gen(function* () {
+    clientState.received = Stream.never;
+    const runtime = effectRuntime({
+      build: () => Effect.fail("builder failed"),
+    });
+
+    const failure = yield* Effect.scoped(
+      runtime
+        .acquire({
+          connection: connection(() => undefined),
+        })
+        .pipe(Effect.flip),
+    );
+
+    assert.instanceOf(failure, EffectRuntimeStartFailed);
+    assert.include(failure.detail, "builder failed");
+    assert.strictEqual(clientState.closes, 1);
+  }),
 );
 
 it.effect("scope teardown closes the client without reporting completion", () =>
@@ -216,7 +331,13 @@ it.effect("scope teardown closes the client without reporting completion", () =>
     clientState.received = Stream.never;
 
     const running = yield* Effect.scoped(
-      effectRuntime().acquire({
+      effectRuntime({
+        build: () =>
+          Effect.succeed({
+            gateway: {},
+            behavior: Effect.never,
+          }),
+      }).acquire({
         connection: connection(() => undefined),
       }),
     );
@@ -230,30 +351,41 @@ it.effect("scope teardown closes the client without reporting completion", () =>
   }),
 );
 
-it.effect("snapshots runtime options at construction", () =>
+it.effect("snapshots the builder at runtime construction", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const delivery = yield* Deferred.make<MessageReceivedNotification>();
-      clientState.received = Stream.fromEffect(Deferred.await(delivery));
+      clientState.received = Stream.never;
       const options = {
-        onMessage: () => Effect.succeed("original"),
+        build: () =>
+          Effect.succeed({
+            gateway: { version: ORIGINAL_VERSION },
+            behavior: Effect.never,
+          }),
       };
       const runtime = effectRuntime(options);
-      options.onMessage = () => Effect.succeed("replacement");
+      options.build = () =>
+        Effect.succeed({
+          gateway: { version: REPLACEMENT_VERSION },
+          behavior: Effect.never,
+        });
 
       const running = yield* runtime.acquire({
         connection: connection(() => undefined),
       });
-      yield* Deferred.succeed(delivery, INCOMING);
-      yield* running.termination;
 
-      assert.deepInclude(clientState.sent[0]?.payload, {
-        parts: [{ type: "text", text: "original" }],
-      });
+      assert.strictEqual(running.gateway.version, ORIGINAL_VERSION);
     }),
   ),
 );
 
 it("identifies the runtime implementation", () => {
-  expect(effectRuntime().name).toBe(EXPECTED_RUNTIME_NAME);
+  expect(
+    effectRuntime({
+      build: () =>
+        Effect.succeed({
+          gateway: {},
+          behavior: Effect.never,
+        }),
+    }).name,
+  ).toBe(EXPECTED_RUNTIME_NAME);
 });

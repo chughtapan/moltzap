@@ -82,7 +82,6 @@ function receivedMessage(id: MessageId, text: string): ReceivedMessage {
       id,
       conversationId: CONVERSATION_ID,
       senderId: TARGET_ID,
-      replyToId: SENT_ID,
       parts: [{ type: "text", text }],
       createdAt: "2026-07-28T00:00:00.000Z",
     },
@@ -103,7 +102,6 @@ function sendMessage(sends?: AttachmentCount): EndpointTransport["send"] {
         id: SENT_ID,
         conversationId,
         senderId: PROBE_ID,
-        replyToId: RECEIVED_ID,
         parts,
         createdAt: "2026-07-28T00:00:00.000Z",
       };
@@ -144,7 +142,7 @@ function router(
   };
 }
 
-function assertEndpointEvidence(events: ReadonlyArray<EndpointEvent>): void {
+function assertEndpointEvidence(events: readonly EndpointEvent[]): void {
   assert.deepStrictEqual(
     events.map((event) => event._tag),
     [
@@ -157,13 +155,6 @@ function assertEndpointEvidence(events: ReadonlyArray<EndpointEvent>): void {
   const [, firstReceived, , sent] = events;
   assert.instanceOf(firstReceived, EndpointMessageReceived);
   assert.instanceOf(sent, EndpointMessageSent);
-  if (
-    firstReceived instanceof EndpointMessageReceived &&
-    sent instanceof EndpointMessageSent
-  ) {
-    assert.strictEqual(firstReceived.replyToId, SENT_ID);
-    assert.strictEqual(sent.replyToId, RECEIVED_ID);
-  }
 }
 
 function observedNetworkTest() {

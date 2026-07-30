@@ -18,7 +18,7 @@ export const agentCallableDispatchRpcMethods = [dispatchRequest] as const
 
 Lists the agent callable dispatch rpc methods in dispatch order.
 
-### [`agentCallableMessageRpcMethods`](./messages.ts#L161)
+### [`agentCallableMessageRpcMethods`](./messages.ts#L148)
 
 _Variable_
 
@@ -107,7 +107,7 @@ export const dispatchCallbackMethods = [dispatchAuthorize] as const
 
 Lists the dispatch callback methods in dispatch order.
 
-### [`DispatchDecision`](./messages.ts#L81)
+### [`DispatchDecision`](./messages.ts#L71)
 
 _TypeAlias_
 
@@ -119,7 +119,7 @@ export type DispatchDecision = Schema.Schema.Type<
 
 Per-message dispatch authorization decision persisted with the message.
 
-### [`dispatchDecisionSchema`](./messages.ts#L89)
+### [`dispatchDecisionSchema`](./messages.ts#L79)
 
 _Function_
 
@@ -310,7 +310,7 @@ export type LeaseId = string & Brand.Brand<"LeaseId">;
 
 Represents lease id values.
 
-### [`Message`](./messages.ts#L63)
+### [`Message`](./messages.ts#L53)
 
 _TypeAlias_
 
@@ -320,7 +320,7 @@ export type Message = Schema.Schema.Type<typeof messageSchema>;
 
 Message row visible to agent callers.
 
-### [`messageCallbackMethods`](./messages.ts#L202)
+### [`messageCallbackMethods`](./messages.ts#L189)
 
 _Variable_
 
@@ -330,22 +330,7 @@ export const messageCallbackMethods = [messagesAuthorize] as const
 
 Message callback RPC catalog.
 
-### [`MessageNotFoundError`](./messages.ts#L44)
-
-_Class_
-
-```ts
-export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundError>()(
-  "MessageNotFound",
-  errorPayloadFields,
-) {
-  static readonly message = "Message not found";
-}
-```
-
-The referenced message does not exist, such as a missing reply target.
-
-### [`messageNotifications`](./messages.ts#L224)
+### [`messageNotifications`](./messages.ts#L211)
 
 _Variable_
 
@@ -382,7 +367,7 @@ directly so persisted bodies cannot drift from the wire contract.
 
 **Returns:** The nonempty schema shared by all message boundaries.
 
-### [`MessageReceivedNotification`](./messages.ts#L210)
+### [`MessageReceivedNotification`](./messages.ts#L197)
 
 _TypeAlias_
 
@@ -394,7 +379,7 @@ export type MessageReceivedNotification = Schema.Schema.Type<
 
 Notification payload for `agent/message/received`.
 
-### [`messageReceivedNotificationDefinition`](./messages.ts#L218)
+### [`messageReceivedNotificationDefinition`](./messages.ts#L205)
 
 _Variable_
 
@@ -407,7 +392,7 @@ export const messageReceivedNotificationDefinition = defineNotification({
 
 Pushed when a new message is delivered to a WebSocket connection.
 
-### [`messagesAuthorize`](./messages.ts#L193)
+### [`messagesAuthorize`](./messages.ts#L180)
 
 _Variable_
 
@@ -423,7 +408,7 @@ export const messagesAuthorize = defineRpc({
 
 Server callback asking an app for the per-message fan-out verdict.
 
-### [`messagesList`](./messages.ts#L152)
+### [`messagesList`](./messages.ts#L139)
 
 _Variable_
 
@@ -439,7 +424,7 @@ export const messagesList = defineRpc({
 
 List the newest visible messages in a conversation, returned oldest-first.
 
-### [`messagesSend`](./messages.ts#L118)
+### [`messagesSend`](./messages.ts#L106)
 
 _Variable_
 
@@ -457,7 +442,6 @@ export const messagesSend = defineRpc({
   errors: [
     HookBlockedError,
     ForbiddenError,
-    MessageNotFoundError,
     DispatchNotFoundError,
     TaskClosedError,
     ConversationArchivedError,
@@ -477,7 +461,7 @@ export type Part = Schema.Schema.Type<typeof partSchema>;
 
 User-authored message content part.
 
-### [`validateDispatchDecision`](./messages.ts#L94)
+### [`validateDispatchDecision`](./messages.ts#L84)
 
 _Variable_
 
@@ -489,7 +473,7 @@ export const validateDispatchDecision = closedStructGuard(
 
 Return true when a value is a closed dispatch decision.
 
-### [`validateMessage`](./messages.ts#L66)
+### [`validateMessage`](./messages.ts#L56)
 
 _Variable_
 

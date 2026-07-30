@@ -1,14 +1,23 @@
 /** @file Router acquisition evidence preserves interruption and causal order. */
 
 import { assert, effect as test } from "@effect/vitest";
-import { Cause, Effect, Exit, Fiber } from "effect";
+import { serverBaseUrlSchema } from "@moltzap/protocol/network";
+import { Cause, Effect, Exit, Fiber, Option, Ref, Schema } from "effect";
 import type { routerEvents } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
 import { LedgerStorageError } from "../ledger/storage.js";
-import { RouterProvider, networkFailure } from "../network/router.js";
+import {
+  makeRouterStopReport,
+  type Router,
+  RouterProvider,
+  networkFailure,
+} from "../network/router.js";
 import { acquireRouter } from "./router.js";
 
 type RouterEventWriter = LedgerWriter<typeof routerEvents>;
+const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
+  "http://127.0.0.1:43100",
+);
 const neverWriter: RouterEventWriter = {
   write: () =>
     Effect.dieMessage(
@@ -18,7 +27,10 @@ const neverWriter: RouterEventWriter = {
 
 test("does not record an interrupted router acquisition as a start failure", () =>
   Effect.gen(function* () {
-    const fiber = yield* Effect.scoped(acquireRouter(neverWriter)).pipe(
+    const routerRef = yield* Ref.make(Option.none<Router>());
+    const fiber = yield* Effect.scoped(
+      acquireRouter(neverWriter, routerRef),
+    ).pipe(
       Effect.provideService(RouterProvider, {
         acquire: Effect.never,
       }),
@@ -36,6 +48,7 @@ test("does not record an interrupted router acquisition as a start failure", () 
 
 test("keeps router and evidence-write failures in causal order", () =>
   Effect.gen(function* () {
+    const routerRef = yield* Ref.make(Option.none<Router>());
     const writer: RouterEventWriter = {
       write: () =>
         Effect.fail(
@@ -46,7 +59,7 @@ test("keeps router and evidence-write failures in causal order", () =>
         ),
     };
     const exit = yield* Effect.exit(
-      Effect.scoped(acquireRouter(writer)).pipe(
+      Effect.scoped(acquireRouter(writer, routerRef)).pipe(
         Effect.provideService(RouterProvider, {
           acquire: Effect.fail(
             networkFailure("acquire-router", "router unavailable"),
@@ -61,4 +74,35 @@ test("keeps router and evidence-write failures in causal order", () =>
       assert.include(rendered, "router unavailable");
       assert.include(rendered, "ledger unavailable");
     }
+  }));
+
+test("publishes router ownership before the started-event append", () =>
+  Effect.gen(function* () {
+    const router: Router = {
+      address: ROUTER_URL,
+      stopped: Effect.succeed(makeRouterStopReport([])),
+      attachAgent: () => Effect.dieMessage("unused"),
+      attachEndpoint: () => Effect.dieMessage("unused"),
+    };
+    const routerRef = yield* Ref.make(Option.none<Router>());
+    const writer: RouterEventWriter = {
+      write: () =>
+        Effect.fail(
+          LedgerStorageError.make({
+            operation: "append",
+            detail: "router-start record rejected",
+          }),
+        ),
+    };
+
+    const exit = yield* Effect.exit(
+      Effect.scoped(acquireRouter(writer, routerRef)).pipe(
+        Effect.provideService(RouterProvider, {
+          acquire: Effect.succeed(router),
+        }),
+      ),
+    );
+
+    assert.isTrue(Exit.isFailure(exit));
+    assert.deepStrictEqual(yield* Ref.get(routerRef), Option.some(router));
   }));

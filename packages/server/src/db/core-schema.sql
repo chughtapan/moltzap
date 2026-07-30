@@ -88,7 +88,6 @@ CREATE TABLE messages (
   conversation_id UUID NOT NULL REFERENCES conversations(id),
   sender_id UUID NOT NULL REFERENCES agents(id),
   seq BIGINT NOT NULL,
-  reply_to_id UUID REFERENCES messages(id),
   parts_encrypted BYTEA NOT NULL,
   parts_iv BYTEA NOT NULL,
   parts_tag BYTEA NOT NULL,

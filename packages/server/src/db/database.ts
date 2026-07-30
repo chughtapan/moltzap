@@ -70,11 +70,10 @@ type EncryptionKeys = RawEncryptionKeys;
 interface Messages
   extends Omit<
     RawMessages,
-    "id" | "conversation_id" | "reply_to_id" | "sender_id" | "task_id"
+    "id" | "conversation_id" | "sender_id" | "task_id"
   > {
   id: GeneratedBranded<MessageId>;
   conversation_id: Branded<ConversationId>;
-  reply_to_id: BrandedNullable<MessageId>;
   sender_id: Branded<AgentId>;
   task_id: BrandedNullable<TaskId>;
 }

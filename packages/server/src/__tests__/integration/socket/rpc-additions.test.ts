@@ -1,12 +1,10 @@
-/* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case names a specific live-server contract (HTTP apps/register manifest validation, agent/message/send replyToId threading + orphan rejection). These are scenario-shaped integration checks against the running server, not an input domain to generate over. */
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { Effect, Exit } from "effect";
+import { Effect } from "effect";
 import {
   it,
   startTestServerEffect,
   stopTestServerEffect,
   resetTestDbEffect,
-  setupAgentPair,
   registerApp,
   connectAppClient,
   postJson,
@@ -14,25 +12,16 @@ import {
   HTTP_BAD_REQUEST,
 } from "../helpers.js";
 
-import {
-  DEFAULT_APP_ID,
-  taskCreate,
-  taskRequest,
-} from "@moltzap/protocol/task";
+import { taskCreate } from "@moltzap/protocol/task";
 import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { messagesAuthorize, messagesSend } from "@moltzap/protocol/message";
+import { messagesAuthorize } from "@moltzap/protocol/message";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
 import type { AppManifest } from "@moltzap/protocol/identity";
-import { messageId } from "@moltzap/protocol/testing";
 
 const APP_ID = "00000000-0000-4000-8000-000000010008";
-const QUESTION_TEXT = "question";
-const ANSWER_TEXT = "answer";
-const ORPHAN_REPLY_TEXT = "orphan";
-const UNKNOWN_MESSAGE_ID = messageId("00000000-0000-0000-0000-000000000000");
 
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
@@ -104,63 +93,3 @@ it("apps/register: HTTP rejects a request missing the manifest param", () =>
     );
     expect(status).toBe(HTTP_BAD_REQUEST);
   }));
-
-it("agent/message/send preserves replyToId on the persisted message", () =>
-  Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-
-    const conv = yield* alice.client.sendRpc(taskRequest, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
-    });
-    const taskId = conv.task.id;
-    const conversationId =
-      /* Safe because the test fixture establishes this asserted shape. */ conv
-        .conversation!.id;
-
-    const sent = yield* alice.client.sendRpc(messagesSend, {
-      taskId,
-      conversationId,
-      parts: [{ type: "text", text: QUESTION_TEXT }],
-    });
-
-    const replied = yield* bob.client.sendRpc(messagesSend, {
-      taskId,
-      conversationId,
-      replyToId: sent.message.id,
-      parts: [{ type: "text", text: ANSWER_TEXT }],
-    });
-
-    expect(replied.message.conversationId).toBe(conversationId);
-    expect(replied.message.replyToId).toBe(sent.message.id);
-  }));
-
-it("agent/message/send rejects replyToId that points to an unknown message", () =>
-  Effect.gen(function* () {
-    const { alice, bob } = yield* setupAgentPair();
-
-    const conv = yield* alice.client.sendRpc(taskRequest, {
-      appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agentId],
-      initialConversation: { participants: [bob.agentId] },
-    });
-
-    const exit = yield* Effect.exit(
-      alice.client.sendRpc(messagesSend, {
-        taskId: conv.task.id,
-        conversationId:
-          /* Safe because the test fixture establishes this asserted shape. */ conv
-            .conversation!.id,
-        replyToId: UNKNOWN_MESSAGE_ID,
-        parts: [{ type: "text", text: ORPHAN_REPLY_TEXT }],
-      }),
-    );
-    expectExitFailure(exit);
-  }));
-
-function expectExitFailure<A, E>(exit: Exit.Exit<A, E>): void {
-  expect(exit).toSatisfy(Exit.isFailure);
-}
-
-/* eslint-enable agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

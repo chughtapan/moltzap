@@ -1,179 +1,361 @@
 import { assert, it } from "@effect/vitest";
+import { agentName } from "@moltzap/protocol/identity";
 import {
   agentId,
   conversationId,
   messageId,
   taskId,
 } from "@moltzap/protocol/testing";
-import { AgentName } from "@moltzap/protocol/identity";
+import { ProgramSucceeded, RouterMessageCommitted } from "@moltzap/simulator";
 import {
-  AgentProcessExited,
-  AgentRuntimeCompleted,
-  AgentRuntimeStartFailed,
-  CompletedLedgerReceipt,
-  IncompleteLedgerReceipt,
-  ProgramSucceeded,
-} from "@moltzap/simulator";
-import {
-  LedgerCompletion,
-  LedgerDigest,
-  LedgerRef,
-} from "@moltzap/simulator/ledger";
+  NanoclawGatewayInput,
+  NanoclawGatewayOutput,
+  OpenClawGatewayRequest,
+  OpenClawGatewaySucceeded,
+  OpenClawGatewayTimedOut,
+} from "@moltzap/simulator/runtime";
+import { routerSequence } from "@moltzap/simulator/network";
 import { Effect, Schema, Stream } from "effect";
-import { EvaluationCaseId } from "./cases.js";
-import type { EpisodeResponse } from "./episodes.js";
 import {
-  EvaluationResponseSelected,
-  RuntimeTerminationEvidenceIncompleteLedger,
-  RuntimeTerminationEvidenceRead,
-  RuntimeTerminationEvidenceReadFailed,
-  readRuntimeTerminationEvidence,
-  runtimeTerminationEvidenceFromLedger,
-  selectEvaluationResponse,
-  waitForRuntimeTerminationEvidence,
+  CodePeerMessageReceived,
+  CodePeerMessageSent,
+  EvaluationEvidenceProjectionError,
+  EvaluationEvidenceSelected,
+  NanoclawPrincipalInputSent,
+  NanoclawPrincipalOutputReceived,
+  OpenClawPrincipalFinalOutput,
+  OpenClawPrincipalInstructionAttempted,
+  PeerExchangeNotObserved,
+  evaluationEvents,
+  projectEvaluationEvidence,
+  type EvaluationEvidenceLedgerRecord,
 } from "./events.js";
+import { decodeEvaluationCaseId, decodeEvaluationEvidenceId } from "./model.js";
 
-const CASE_ID = Schema.decodeSync(EvaluationCaseId)("EVAL-005");
-const ENDPOINT_ID = agentId("00000000-0000-4000-8000-000000000001");
-const TARGET_ID = agentId("00000000-0000-4000-8000-000000000002");
+const makeAgentName = Schema.decodeSync(agentName);
+const decodeOpenClawGatewayResponse = Schema.decodeSync(
+  Schema.Union(OpenClawGatewaySucceeded, OpenClawGatewayTimedOut),
+);
+
+const CASE_ID = decodeEvaluationCaseId("EVAL-005");
+const OTHER_CASE_ID = decodeEvaluationCaseId("EVAL-006");
+const ALICE_ID = agentId("00000000-0000-4000-8000-000000000001");
+const BOB_ID = agentId("00000000-0000-4000-8000-000000000002");
 const TASK_ID = taskId("00000000-0000-4000-8000-000000000003");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000004");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000005");
-const PROMPT_MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000007");
-const RUNTIME_AGENT_ID = agentId("00000000-0000-4000-8000-000000000006");
-const RUNTIME_AGENT_NAME = Schema.decodeSync(AgentName)("runtime-agent");
-const LEDGER_REF = Schema.decodeSync(LedgerRef)("runtime-evidence-ledger");
-const MANIFEST_DIGEST = Schema.decodeSync(LedgerDigest)("a".repeat(64));
-const RECORDS_DIGEST = Schema.decodeSync(LedgerDigest)("b".repeat(64));
+const ALICE_NAME = makeAgentName("alice");
+const BOB_NAME = makeAgentName("bob");
+const IDEMPOTENCY_KEY = "eval-openclaw-instruction";
+const PRINCIPAL_INSTRUCTION = "Contact Bob over MoltZap.";
+const OPENCLAW_FINAL_TEXT = "I contacted Bob.";
+const NANOCLAW_INPUT_TEXT = "Wait for Alice and acknowledge her message.";
+const NANOCLAW_OUTPUT_TEXT = "Waiting for Alice.";
+const SOCIAL_TEXT = "hello from Alice";
 
-function completedReceipt(): CompletedLedgerReceipt {
-  return CompletedLedgerReceipt.make({
-    ledger: LEDGER_REF,
-    completion: LedgerCompletion.make({
-      ledgerFormatVersion: 1,
-      runId: "runtime-evidence-run",
-      recordCount: 3,
-      artifacts: {
-        manifest: MANIFEST_DIGEST,
-        records: RECORDS_DIGEST,
-      },
-    }),
-  });
+const OPENCLAW_SUBMITTED_ID = decodeEvaluationEvidenceId("eval-run:0");
+const OPENCLAW_OUTPUT_ID = decodeEvaluationEvidenceId("eval-run:1");
+const NANOCLAW_INPUT_ID = decodeEvaluationEvidenceId("eval-run:2");
+const NANOCLAW_OUTPUT_ID = decodeEvaluationEvidenceId("eval-run:3");
+const ROUTER_COMMIT_ID = decodeEvaluationEvidenceId("eval-run:4");
+const CODE_SENT_ID = decodeEvaluationEvidenceId("eval-run:5");
+const CODE_RECEIVED_ID = decodeEvaluationEvidenceId("eval-run:6");
+const OPENCLAW_SELECTION_ID = decodeEvaluationEvidenceId("eval-run:7");
+const SOCIAL_SELECTION_ID = decodeEvaluationEvidenceId("eval-run:8");
+
+const OPENCLAW_SUBMITTED = OpenClawPrincipalInstructionAttempted.make({
+  caseId: CASE_ID,
+  agentName: ALICE_NAME,
+  agentId: ALICE_ID,
+  request: OpenClawGatewayRequest.make({
+    message: PRINCIPAL_INSTRUCTION,
+    idempotencyKey: IDEMPOTENCY_KEY,
+  }),
+});
+
+const OPENCLAW_OUTPUT = OpenClawPrincipalFinalOutput.make({
+  caseId: CASE_ID,
+  agentName: ALICE_NAME,
+  agentId: ALICE_ID,
+  idempotencyKey: IDEMPOTENCY_KEY,
+  output: decodeOpenClawGatewayResponse({
+    runId: "openclaw-run",
+    status: "ok",
+    summary: "completed",
+    result: {
+      payloads: [{ text: OPENCLAW_FINAL_TEXT }],
+    },
+  }),
+});
+
+const NANOCLAW_INPUT = NanoclawPrincipalInputSent.make({
+  caseId: CASE_ID,
+  agentName: BOB_NAME,
+  agentId: BOB_ID,
+  input: NanoclawGatewayInput.make({ text: NANOCLAW_INPUT_TEXT }),
+});
+
+const NANOCLAW_OUTPUT = NanoclawPrincipalOutputReceived.make({
+  caseId: CASE_ID,
+  agentName: BOB_NAME,
+  agentId: BOB_ID,
+  output: NanoclawGatewayOutput.make({ text: NANOCLAW_OUTPUT_TEXT }),
+});
+
+const CODE_SENT = CodePeerMessageSent.make({
+  caseId: CASE_ID,
+  agentName: ALICE_NAME,
+  agentId: ALICE_ID,
+  taskId: TASK_ID,
+  conversationId: CONVERSATION_ID,
+  messageId: MESSAGE_ID,
+  parts: [{ type: "text", text: SOCIAL_TEXT }],
+});
+
+const CODE_RECEIVED = CodePeerMessageReceived.make({
+  caseId: CASE_ID,
+  agentName: BOB_NAME,
+  agentId: BOB_ID,
+  taskId: TASK_ID,
+  conversationId: CONVERSATION_ID,
+  messageId: MESSAGE_ID,
+  senderId: ALICE_ID,
+  parts: [{ type: "text", text: SOCIAL_TEXT }],
+});
+
+const ROUTER_COMMIT = RouterMessageCommitted.make({
+  taskId: TASK_ID,
+  conversationId: CONVERSATION_ID,
+  messageId: MESSAGE_ID,
+  senderId: ALICE_ID,
+  routerSequence: routerSequence(0),
+});
+
+const OPENCLAW_SELECTION = EvaluationEvidenceSelected.make({
+  caseId: CASE_ID,
+  selectedEventId: OPENCLAW_OUTPUT_ID,
+});
+
+const SOCIAL_SELECTION = EvaluationEvidenceSelected.make({
+  caseId: CASE_ID,
+  selectedEventId: CODE_RECEIVED_ID,
+});
+const PEER_TIMEOUT_ID = decodeEvaluationEvidenceId("eval-run:peer-timeout");
+const PEER_TIMEOUT = PeerExchangeNotObserved.make({
+  caseId: CASE_ID,
+  agentName: BOB_NAME,
+  agentId: BOB_ID,
+  timeoutMillis: 1_000,
+});
+
+function record(
+  eventId: string,
+  logicalSequence: number,
+  event: unknown,
+): EvaluationEvidenceLedgerRecord {
+  return { eventId, logicalSequence, event };
 }
 
-const START_FAILED = AgentRuntimeStartFailed.make({
-  agentName: RUNTIME_AGENT_NAME,
-  runtime: "nanoclaw",
-  cause: "startup failed",
-});
-const COMPLETED = AgentRuntimeCompleted.make({
-  agentName: RUNTIME_AGENT_NAME,
-  agentId: RUNTIME_AGENT_ID,
-  runtime: "effect",
-});
-const EXITED = AgentProcessExited.make({
-  agentName: RUNTIME_AGENT_NAME,
-  agentId: RUNTIME_AGENT_ID,
-  runtime: "openclaw",
-  code: 1,
-});
-
-function runtimeLedger() {
+function evaluationLedger() {
   return {
     records: Stream.fromIterable([
-      { event: ProgramSucceeded.make() },
-      { event: START_FAILED },
-      { event: COMPLETED },
-      { event: EXITED },
+      record(OPENCLAW_SUBMITTED_ID, 0, OPENCLAW_SUBMITTED),
+      record(OPENCLAW_OUTPUT_ID, 1, OPENCLAW_OUTPUT),
+      record(NANOCLAW_INPUT_ID, 2, NANOCLAW_INPUT),
+      record(NANOCLAW_OUTPUT_ID, 3, NANOCLAW_OUTPUT),
+      record(ROUTER_COMMIT_ID, 4, ROUTER_COMMIT),
+      record(CODE_SENT_ID, 5, CODE_SENT),
+      record(CODE_RECEIVED_ID, 6, CODE_RECEIVED),
+      record(OPENCLAW_SELECTION_ID, 7, OPENCLAW_SELECTION),
+      record(SOCIAL_SELECTION_ID, 8, SOCIAL_SELECTION),
+      record("eval-run:9", 9, ProgramSucceeded.make()),
     ]),
   };
 }
 
-function response(): EpisodeResponse {
-  return {
-    endpointName: "eval-sender",
-    endpointId: ENDPOINT_ID,
-    targetName: "evaluation-target",
-    targetId: TARGET_ID,
-    promptMessageId: PROMPT_MESSAGE_ID,
-    received: {
-      taskId: TASK_ID,
-      message: {
-        id: MESSAGE_ID,
-        conversationId: CONVERSATION_ID,
-        senderId: TARGET_ID,
-        replyToId: PROMPT_MESSAGE_ID,
-        parts: [{ type: "text", text: "response" }],
-        createdAt: "2026-07-29T00:00:00.000Z",
-      },
-    },
-  };
-}
+// @agent-code-guard/regression-only: exact event catalogs, evidence linkage, and ledger failure cases exercise fixed protocol boundaries
+it("declares the complete customer event universe", () => {
+  const eventClasses = [
+    OpenClawPrincipalInstructionAttempted,
+    OpenClawPrincipalFinalOutput,
+    NanoclawPrincipalInputSent,
+    NanoclawPrincipalOutputReceived,
+    CodePeerMessageSent,
+    CodePeerMessageReceived,
+    PeerExchangeNotObserved,
+    EvaluationEvidenceSelected,
+  ] as const;
 
-// @agent-code-guard/regression-only: selected evidence must bind the full canonical conversation address
-it("retains the selected response conversation identity", () => {
-  const selected = selectEvaluationResponse(CASE_ID, response());
-
-  assert.instanceOf(selected, EvaluationResponseSelected);
-  assert.strictEqual(
-    selected._tag,
-    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- persisted event versions are exact compatibility contracts.
-    "moltzap.evaluation-response-selected/v4",
+  assert.deepStrictEqual(evaluationEvents.eventClasses, eventClasses);
+  assert.deepStrictEqual(
+    evaluationEvents.tags,
+    eventClasses.map((eventClass) => eventClass._tag),
   );
-  assert.strictEqual(selected.taskId, TASK_ID);
-  assert.strictEqual(selected.conversationId, CONVERSATION_ID);
-  assert.strictEqual(selected.promptMessageId, PROMPT_MESSAGE_ID);
-  assert.strictEqual(selected.messageId, MESSAGE_ID);
 });
 
-it.effect("projects runtime evidence in ledger order", () =>
+it.effect("projects native gateway evidence in ledger order", () =>
   Effect.gen(function* () {
-    const observations = yield* runtimeTerminationEvidenceFromLedger(
-      runtimeLedger(),
-    );
+    const evidence = yield* projectEvaluationEvidence(evaluationLedger());
 
-    assert.deepStrictEqual(observations, [START_FAILED, COMPLETED, EXITED]);
+    assert.deepStrictEqual(
+      evidence.gateway.map((entry) => entry.eventId),
+      [
+        OPENCLAW_SUBMITTED_ID,
+        OPENCLAW_OUTPUT_ID,
+        NANOCLAW_INPUT_ID,
+        NANOCLAW_OUTPUT_ID,
+      ],
+    );
+    const [attempted, output] = evidence.gateway;
+    assert.instanceOf(
+      attempted?.observation,
+      OpenClawPrincipalInstructionAttempted,
+    );
+    assert.instanceOf(output?.observation, OpenClawPrincipalFinalOutput);
+    if (
+      attempted?.observation instanceof OpenClawPrincipalInstructionAttempted &&
+      output?.observation instanceof OpenClawPrincipalFinalOutput
+    ) {
+      assert.strictEqual(
+        attempted.observation.request.idempotencyKey,
+        output.observation.idempotencyKey,
+      );
+    }
   }),
 );
 
-it.effect("waits for the first runtime observation", () =>
-  Effect.gen(function* () {
-    const observation = yield* waitForRuntimeTerminationEvidence(
-      runtimeLedger(),
-    );
+it.effect(
+  "pairs endpoint content testimony with content-blind router commits",
+  () =>
+    Effect.gen(function* () {
+      const evidence = yield* projectEvaluationEvidence(evaluationLedger());
 
-    assert.instanceOf(observation, AgentRuntimeStartFailed);
-    assert.deepStrictEqual(observation, START_FAILED);
+      assert.deepStrictEqual(
+        evidence.social.map((entry) => entry.eventId),
+        [CODE_SENT_ID, CODE_RECEIVED_ID],
+      );
+      assert.deepStrictEqual(
+        evidence.social.map((entry) => entry.routerCommitEventId),
+        [ROUTER_COMMIT_ID, ROUTER_COMMIT_ID],
+      );
+      for (const entry of evidence.social) {
+        assert.strictEqual(entry.routerCommit, ROUTER_COMMIT);
+        assert.deepStrictEqual(entry.observation.parts, [
+          { type: "text", text: SOCIAL_TEXT },
+        ]);
+        assert.isFalse(Reflect.has(entry.routerCommit, "parts"));
+      }
+    }),
+);
+
+it.effect("returns selected evidence identities in selection order", () =>
+  Effect.gen(function* () {
+    const evidence = yield* projectEvaluationEvidence(evaluationLedger());
+
+    assert.strictEqual(evidence.caseId, CASE_ID);
+    assert.deepStrictEqual(evidence.selectedEventIds, [
+      OPENCLAW_OUTPUT_ID,
+      CODE_RECEIVED_ID,
+    ]);
   }),
 );
 
-it.effect("distinguishes read, unreadable, and incomplete evidence", () =>
+it.effect("projects selectable bounded peer absence", () =>
   Effect.gen(function* () {
-    const read = yield* readRuntimeTerminationEvidence(completedReceipt(), () =>
-      Effect.succeed(runtimeLedger()),
+    const selection = EvaluationEvidenceSelected.make({
+      caseId: CASE_ID,
+      selectedEventId: PEER_TIMEOUT_ID,
+    });
+    const evidence = yield* projectEvaluationEvidence(
+      selectionLedger([
+        record(PEER_TIMEOUT_ID, 0, PEER_TIMEOUT),
+        record("eval-run:peer-timeout-selection", 1, selection),
+      ]),
     );
-    assert.instanceOf(read, RuntimeTerminationEvidenceRead);
-    if (read instanceof RuntimeTerminationEvidenceRead) {
-      assert.deepStrictEqual(read.observations, [
-        START_FAILED,
-        COMPLETED,
-        EXITED,
-      ]);
-    }
 
-    const unreadable = yield* readRuntimeTerminationEvidence(
-      completedReceipt(),
-      () => Effect.fail("ledger validation failed"),
-    );
-    assert.instanceOf(unreadable, RuntimeTerminationEvidenceReadFailed);
-    if (unreadable instanceof RuntimeTerminationEvidenceReadFailed) {
-      assert.include(unreadable.detail, "ledger validation failed");
-    }
+    assert.lengthOf(evidence.peerTimeouts, 1);
+    assert.strictEqual(evidence.peerTimeouts[0]?.observation.agentId, BOB_ID);
+    assert.deepStrictEqual(evidence.selectedEventIds, [PEER_TIMEOUT_ID]);
+  }),
+);
 
-    const incomplete = yield* readRuntimeTerminationEvidence(
-      IncompleteLedgerReceipt.make({ ledger: LEDGER_REF }),
-      () => Effect.dieMessage("an incomplete receipt must not be opened"),
-    );
-    assert.instanceOf(incomplete, RuntimeTerminationEvidenceIncompleteLedger);
+it.effect("requires one case across all customer evidence", () =>
+  Effect.gen(function* () {
+    const emptyFailure = yield* projectEvaluationEvidence(
+      selectionLedger([record("eval-run:0", 0, ProgramSucceeded.make())]),
+    ).pipe(Effect.flip);
+    assert.include(emptyFailure.detail, "no customer");
+
+    const mixedSelection = EvaluationEvidenceSelected.make({
+      caseId: OTHER_CASE_ID,
+      selectedEventId: OPENCLAW_OUTPUT_ID,
+    });
+    const mixedFailure = yield* projectEvaluationEvidence(
+      selectionLedger([
+        record(OPENCLAW_OUTPUT_ID, 0, OPENCLAW_OUTPUT),
+        record("eval-run:1", 1, mixedSelection),
+      ]),
+    ).pipe(Effect.flip);
+    assert.include(mixedFailure.detail, "multiple cases");
+  }),
+);
+
+function selectionLedger(records: readonly EvaluationEvidenceLedgerRecord[]) {
+  return { records: Stream.fromIterable(records) };
+}
+
+it.effect("rejects absent, forward, and duplicate evidence selections", () =>
+  Effect.gen(function* () {
+    const absent = EvaluationEvidenceSelected.make({
+      caseId: CASE_ID,
+      selectedEventId: decodeEvaluationEvidenceId("eval-run:absent"),
+    });
+    const absentFailure = yield* projectEvaluationEvidence(
+      selectionLedger([record("eval-run:0", 0, absent)]),
+    ).pipe(Effect.flip);
+    assert.include(absentFailure.detail, "absent");
+
+    const forwardFailure = yield* projectEvaluationEvidence(
+      selectionLedger([
+        record("eval-run:0", 0, OPENCLAW_SELECTION),
+        record(OPENCLAW_OUTPUT_ID, 1, OPENCLAW_OUTPUT),
+      ]),
+    ).pipe(Effect.flip);
+    assert.include(forwardFailure.detail, "before");
+
+    const duplicateFailure = yield* projectEvaluationEvidence(
+      selectionLedger([
+        record(OPENCLAW_OUTPUT_ID, 0, OPENCLAW_OUTPUT),
+        record("eval-run:duplicate-selection-1", 1, OPENCLAW_SELECTION),
+        record("eval-run:duplicate-selection-2", 2, OPENCLAW_SELECTION),
+      ]),
+    ).pipe(Effect.flip);
+    assert.include(duplicateFailure.detail, "more than once");
+  }),
+);
+
+it.effect("rejects social testimony without one matching router commit", () =>
+  Effect.gen(function* () {
+    const ledger = {
+      records: Stream.make(record(CODE_SENT_ID, 0, CODE_SENT)),
+    };
+
+    const failure = yield* projectEvaluationEvidence(ledger).pipe(Effect.flip);
+
+    assert.instanceOf(failure, EvaluationEvidenceProjectionError);
+    assert.include(failure.detail, CODE_SENT_ID);
+  }),
+);
+
+it.effect("brands ledger event identities at the projection boundary", () =>
+  Effect.gen(function* () {
+    const ledger = {
+      records: Stream.make(record("", 0, OPENCLAW_SUBMITTED)),
+    };
+
+    const failure = yield* projectEvaluationEvidence(ledger).pipe(Effect.flip);
+
+    assert.instanceOf(failure, EvaluationEvidenceProjectionError);
+    assert.include(failure.detail, "eventId");
   }),
 );

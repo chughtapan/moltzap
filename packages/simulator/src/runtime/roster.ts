@@ -3,7 +3,11 @@
 import { Context, Schema } from "effect";
 import { agentName } from "@moltzap/protocol/identity";
 import type { AgentHandle } from "../network/participant.js";
-import type { AgentRuntime, AgentRuntimeLike } from "./runtime.js";
+import type {
+  AgentRuntime,
+  AgentRuntimeLike,
+  RunningAgent,
+} from "./runtime.js";
 
 const agentRosterTypeId: unique symbol = Symbol(
   "@moltzap/simulator/AgentRoster",
@@ -13,29 +17,35 @@ const rosterDefinitionTokens = new WeakMap<object, object>();
 
 let nextRosterServiceId = 0;
 
-interface ValidatedAgentDefinition {
-  readonly name: string;
-  readonly agentName: typeof agentName.Type;
-  readonly runtime: AgentRuntimeLike;
-}
+type ValidatedAgentDefinition<
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+> = {
+  [Name in Extract<keyof Definitions, string>]: Readonly<{
+    name: Name;
+    agentName: typeof agentName.Type;
+    runtime: Definitions[Name];
+  }>;
+}[Extract<keyof Definitions, string>];
 
-type RuntimeAcquisitionErrorOf<Runtime> =
+type RuntimeTypesOf<Runtime extends AgentRuntimeLike> =
   Runtime extends AgentRuntime<
+    infer Gateway,
     infer AcquisitionError,
-    infer _Requirements,
-    infer _ConfigurationSchema
-  >
-    ? AcquisitionError
-    : never;
-
-type RuntimeRequirementsOf<Runtime> =
-  Runtime extends AgentRuntime<
-    infer _AcquisitionError,
     infer Requirements,
-    infer _ConfigurationSchema
+    infer ConfigurationSchema
   >
-    ? Requirements
-    : never;
+    ? readonly [Gateway, AcquisitionError, Requirements, ConfigurationSchema]
+    : readonly [never, never, never, never];
+
+type RuntimeAcquisitionErrorOf<Runtime extends AgentRuntimeLike> =
+  RuntimeTypesOf<Runtime>[1];
+
+type RuntimeRequirementsOf<Runtime extends AgentRuntimeLike> =
+  RuntimeTypesOf<Runtime>[2];
+
+/** The principal gateway exposed by one acquired runtime definition. */
+export type RuntimeGatewayOf<Runtime extends AgentRuntimeLike> =
+  RuntimeTypesOf<Runtime>[0];
 
 /** Represents agent roster acquisition error conditions. */
 export type AgentRosterAcquisitionError<
@@ -47,11 +57,20 @@ export type AgentRosterRequirements<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = RuntimeRequirementsOf<Definitions[keyof Definitions]>;
 
-/** Exact keyed handles installed only after every runtime is ready. */
-export type StartedAgentHandles<
+/** A ready autonomous runtime paired with its router-issued identity. */
+export interface StartedAgent<Name extends string, Gateway>
+  extends RunningAgent<Gateway> {
+  readonly agent: AgentHandle<Name>;
+}
+
+/** Exact keyed agents installed only after every runtime is ready. */
+export type StartedAgents<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = Readonly<{
-  [Name in Extract<keyof Definitions, string>]: AgentHandle<Name>;
+  [Name in Extract<keyof Definitions, string>]: StartedAgent<
+    Name,
+    RuntimeGatewayOf<Definitions[Name]>
+  >;
 }>;
 
 /** Describes agents service. */
@@ -65,7 +84,7 @@ export interface AgentsService<
 
 /**
  * A roster is both the keyed runtime definition and the owner of the exact
- * handles service used by the experiment Effect.
+ * started-agent service used by the experiment Effect.
  */
 export class AgentRoster<
   Id extends string,
@@ -75,19 +94,21 @@ export class AgentRoster<
 
   readonly definitionId: Id;
   readonly definitions: Definitions;
-  readonly validatedDefinitions: readonly ValidatedAgentDefinition[];
+  readonly validatedDefinitions: ReadonlyArray<
+    ValidatedAgentDefinition<Definitions>
+  >;
   readonly startedAgents: Context.Tag<
     AgentsService<Id, Definitions>,
-    StartedAgentHandles<Definitions>
+    StartedAgents<Definitions>
   >;
 
   private constructor(
     definitionId: Id,
     definitions: Definitions,
-    validatedDefinitions: readonly ValidatedAgentDefinition[],
+    validatedDefinitions: ReadonlyArray<ValidatedAgentDefinition<Definitions>>,
     startedAgents: Context.Tag<
       AgentsService<Id, Definitions>,
-      StartedAgentHandles<Definitions>
+      StartedAgents<Definitions>
     >,
   ) {
     this.definitionId = definitionId;
@@ -104,15 +125,16 @@ export class AgentRoster<
     runtimes: Definitions,
   ): AgentRoster<Id, Definitions> {
     const entries = Object.entries(runtimes);
-    const validatedDefinitions = Object.freeze(
-      entries.map(([name, runtime]) =>
-        Object.freeze({
-          name,
-          agentName: Schema.decodeUnknownSync(agentName)(name),
-          runtime,
-        }),
-      ),
-    );
+    const validatedDefinitions =
+      /* Safe because each own record entry retains its key and indexed runtime value. */ Object.freeze(
+        entries.map(([name, runtime]) =>
+          Object.freeze({
+            name,
+            agentName: Schema.decodeUnknownSync(agentName)(name),
+            runtime,
+          }),
+        ),
+      ) as ReadonlyArray<ValidatedAgentDefinition<Definitions>>;
     nextRosterServiceId += 1;
     const definitions =
       /* Safe because the surrounding invariant establishes this asserted shape. */ Object.freeze(
@@ -120,7 +142,7 @@ export class AgentRoster<
       ) as Definitions;
     const agentsValue = Context.GenericTag<
       AgentsService<Id, Definitions>,
-      StartedAgentHandles<Definitions>
+      StartedAgents<Definitions>
     >(`@moltzap/simulator/Agents/${definitionId}/${nextRosterServiceId}`);
     return Object.freeze(
       new AgentRoster(

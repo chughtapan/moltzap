@@ -5,7 +5,6 @@ import { Effect, Option, Schema } from "effect";
 import { describe, expect, expectTypeOf } from "vitest";
 import { taskId as taskIdSchema } from "@moltzap/protocol/task";
 import { messagesListOptions } from "./commands/messages.js";
-import { sendOptions } from "./commands/send.js";
 import { startOptions } from "./commands/start.js";
 import { optionsFromSchema } from "./adapters.js";
 
@@ -15,7 +14,6 @@ const pageLimit = Schema.Number.pipe(Schema.int(), Schema.between(1, 200));
 const INTEGER_USAGE_PLACEHOLDER = '"integer"';
 const TASK_ID = "00000000-0000-4000-8000-00000000001a";
 const CONVERSATION_ID = "00000000-0000-4000-8000-00000000000c";
-const REPLY_TO_ID = "00000000-0000-4000-8000-0000000000a1";
 const APP_ID = "11111111-2222-4333-8444-555555555555";
 
 const parseOptions = <A>(
@@ -178,21 +176,6 @@ describe("live command option adapters", () => {
         },
       });
       expect(parsed.value).not.toHaveProperty("limit");
-    }));
-
-  it("maps send public flags to the daemon payload", () =>
-    Effect.gen(function* () {
-      const omitted = yield* parseOptions(sendOptions, []);
-      expect(omitted).toEqual({ rest: [], value: {} });
-
-      const explicit = yield* parseOptions(sendOptions, [
-        "--reply-to",
-        REPLY_TO_ID,
-      ]);
-      expect(explicit).toEqual({
-        rest: [],
-        value: { replyToId: REPLY_TO_ID },
-      });
     }));
 
   it("maps start public flags to the daemon payload", () =>

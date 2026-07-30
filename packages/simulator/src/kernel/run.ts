@@ -1,6 +1,6 @@
 /** @file Allocation, execution, and ordered finalization of one run. */
 
-import { Cause, Data, Effect, Exit, Layer, Ref, Schema } from "effect";
+import { Cause, Data, Effect, Exit, Layer, Option, Ref, Schema } from "effect";
 import {
   endpointEvents,
   linkEvents,
@@ -21,14 +21,14 @@ import {
   ledgerRef,
   type JsonObject,
 } from "../ledger/model.js";
-import { type LedgerStorageError } from "../ledger/storage.js";
+import type { LedgerStorageError } from "../ledger/storage.js";
 import { LinkController, type LinkControllerService } from "../network/link.js";
 import { Network, type NetworkService } from "../network/endpoint.js";
 import type { NetworkFailure, Router } from "../network/router.js";
 import type {
   AgentRoster,
   AgentRosterAcquisitionError,
-  StartedAgentHandles,
+  StartedAgents,
 } from "../runtime/roster.js";
 import {
   runtimeConfigurationProjection,
@@ -74,11 +74,14 @@ export class IncompleteLedgerReceipt extends Schema.TaggedClass<IncompleteLedger
   },
 ) {}
 
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- persisted evaluation reports compose this closed physical-receipt union at their Schema boundary.
+/** Schema for the complete physical ledger-receipt universe. */
+// eslint-disable-next-line @typescript-eslint/naming-convention, agent-code-guard/no-exported-brand-constructor -- persisted evaluation reports compose this closed physical-receipt union at their Schema boundary.
 export const LedgerReceipt = Schema.Union(
   CompletedLedgerReceipt,
   IncompleteLedgerReceipt,
 );
+/** Decoded physical ledger receipt. */
+// eslint-disable-next-line @typescript-eslint/no-redeclare -- the value is the runtime Schema and the type is its decoded result.
 export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 /** Customer-program completion plus its complete durable evidence. */
@@ -144,7 +147,7 @@ interface ProgramLayerInput<
   >;
   readonly network: NetworkService;
   readonly links: LinkControllerService;
-  readonly agents: StartedAgentHandles<Definitions>;
+  readonly agents: StartedAgents<Definitions>;
 }
 
 function makeProgramLayer<
@@ -191,16 +194,13 @@ interface KernelContext<
   readonly runtimeWriter: LedgerWriter<typeof runtimeEvents>;
   readonly endpointWriter: LedgerWriter<typeof endpointEvents>;
   readonly linkWriter: LedgerWriter<typeof linkEvents>;
-  readonly router: Ref.Ref<Router | undefined>;
+  readonly router: Ref.Ref<Option.Option<Router>>;
 }
 
 function composeProvenance<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(
-  roster: AgentRoster<Id, Definitions>,
-  customerProvenance: JsonObject | undefined,
-) {
+>(roster: AgentRoster<Id, Definitions>, customerProvenance?: JsonObject) {
   return {
     ...customerProvenance,
     agents: Object.entries(roster.definitions).map(([name, runtime]) => ({
@@ -242,7 +242,7 @@ function makeContext<
   >,
 ) {
   return Effect.gen(function* () {
-    const router = yield* Ref.make<Router | undefined>(undefined);
+    const router = yield* Ref.make(Option.none<Router>());
     return {
       input,
       active,
@@ -279,8 +279,7 @@ function executeProgram<
     yield* context.runWriter.write({
       event: RunStarted.make({ definitionId: context.input.definitionId }),
     });
-    const router = yield* acquireRouter(context.routerWriter);
-    yield* Ref.set(context.router, router);
+    const router = yield* acquireRouter(context.routerWriter, context.router);
     const agents = yield* acquireRoster({
       router,
       roster: context.input.roster,
@@ -325,12 +324,14 @@ function recordRouterStop<
     R
   >,
 ) {
-  return Effect.gen(function* () {
-    const router = yield* Ref.get(context.router);
-    if (router !== undefined) {
-      yield* recordStoppedRouter(router, context.routerWriter);
-    }
-  });
+  return Ref.get(context.router).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.void,
+        onSome: (router) => recordStoppedRouter(router, context.routerWriter),
+      }),
+    ),
+  );
 }
 
 function appendFailure<Failure>(
@@ -357,6 +358,9 @@ function collectInterruptions(
 /**
  * Cancellation remains an Effect interrupt after durable finalization. Run
  * outcomes describe completed execution paths, not control-plane cancellation.
+ * @param execution Complete exit from the interruptible execution region.
+ * @param outcome Durable run outcome produced after finalization.
+ * @returns The outcome unless caller cancellation must be restored.
  */
 function preserveCancellation<
   A,
@@ -439,9 +443,9 @@ function finalizeRun<
   });
 }
 
-interface RestoreInterruptibility {
-  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
-}
+type RestoreInterruptibility = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+) => Effect.Effect<A, E, R>;
 
 function runContext<
   Id extends string,
@@ -481,6 +485,8 @@ function runContext<
 /**
  * Ledger allocation and context construction form one ownership handoff.
  * Interruptibility resumes only after the kernel can finalize that ledger.
+ * @param input Definition-bound run description and customer program.
+ * @returns The scoped run Effect.
  */
 function executeRun<
   Id extends string,

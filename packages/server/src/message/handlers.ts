@@ -21,7 +21,6 @@ import { MessageServiceTag } from "./layer.js";
 import {
   guardTaskActive,
   guardConversationNotArchived,
-  guardReplyTarget,
   obtainConversationSendAccess,
 } from "#conversation/requirements";
 import type { MessageService } from "./message.service.js";
@@ -76,7 +75,6 @@ const sendWithDispatchLease = Effect.fn("messages.sendWithDispatchLease")(
             conversationId: input.params.conversationId,
             parts: input.params.parts,
             senderAgentId: input.ctx.agentId,
-            replyToId: input.params.replyToId,
             excludeConnectionId: input.connId,
           });
           yield* claim.finalize(carrier.message.id).pipe(Effect.ignore);
@@ -116,10 +114,6 @@ const handleMessageSend = Effect.fn("messages.send")(function* (
   });
   yield* guardTaskActive(sendRow);
   yield* guardConversationNotArchived(sendRow);
-  yield* guardReplyTarget({
-    conversationId: params.conversationId,
-    replyToId: params.replyToId,
-  });
   if (params.dispatchLeaseId !== undefined) {
     return yield* sendWithDispatchLease({
       connId: connection.connId,
@@ -133,7 +127,6 @@ const handleMessageSend = Effect.fn("messages.send")(function* (
     conversationId: params.conversationId,
     parts: params.parts,
     senderAgentId: ctx.agentId,
-    replyToId: params.replyToId,
     excludeConnectionId: connection.connId,
   });
   return { message };

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as fc from "fast-check";
 import {
+  messagesSend,
   validateDispatchDecision,
   validateMessage,
   validateTextPart,
@@ -35,13 +36,13 @@ describe("MessageSchema acceptance", () => {
     expect(validateMessage(VALID_MESSAGE)).toBe(true);
   });
 
-  it("accepts message with replyToId", () => {
+  it("rejects the removed replyToId field", () => {
     expect(
       validateMessage({
         ...VALID_MESSAGE,
         replyToId: "880e8400-e29b-41d4-a716-446655440000",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
@@ -52,6 +53,19 @@ describe("MessageSchema rejection", () => {
 
   it("rejects message with extra properties", () => {
     expect(validateMessage({ ...VALID_MESSAGE, extra: true })).toBe(false);
+  });
+});
+
+describe("MessageSendSchema rejection", () => {
+  it("rejects the removed replyToId send parameter", () => {
+    expect(
+      messagesSend.validateParams({
+        taskId: "990e8400-e29b-41d4-a716-446655440000",
+        conversationId: VALID_MESSAGE.conversationId,
+        parts: VALID_MESSAGE.parts,
+        replyToId: VALID_MESSAGE.id,
+      }),
+    ).toBe(false);
   });
 });
 

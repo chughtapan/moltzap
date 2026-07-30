@@ -14,6 +14,12 @@ const UNSAFE_SETUP_PATTERN =
 const DIRECT_SCHEMA_WRITE_PATTERN = /\b(?:INSERT|CREATE TABLE)\b/i;
 const RUN_MIGRATIONS_CALL = "runMigrations(database)";
 const INIT_GROUP_FILESYSTEM_CALL = "initGroupFilesystem(agentGroup)";
+const REGISTER_CHANNELS_IMPORT = 'import "./channels/index.js";';
+const RESOLVE_POLICY_CALL = "resolveUnknownSenderPolicy(CLI_CHANNEL, false)";
+const RESOLVE_WIRING_CALL = "resolveWiringDefaults(";
+const CREATE_CLI_GROUP_CALL = "createMessagingGroup(cliGroup)";
+const CREATE_CLI_WIRING_CALL = "createMessagingGroupAgent({";
+const UPSERT_CLI_USER_CALL = "upsertUser({";
 // NanoClaw inlines this database path in its src/index.ts without exporting
 // it, so the provisioner hardcodes the same literal; pinning it makes an
 // upstream bump that moves the database fail here instead of silently
@@ -57,6 +63,15 @@ describe("NanoClaw eval provisioning asset", () => {
     expect(evalProvision).toContain(RUN_MIGRATIONS_CALL);
     expect(evalProvision).toContain(INIT_GROUP_FILESYSTEM_CALL);
     expect(evalProvision).not.toMatch(DIRECT_SCHEMA_WRITE_PATTERN);
+  });
+
+  it("provisions cli/local through NanoClaw's declared channel defaults", () => {
+    expect(evalProvision).toContain(REGISTER_CHANNELS_IMPORT);
+    expect(evalProvision).toContain(RESOLVE_POLICY_CALL);
+    expect(evalProvision).toContain(RESOLVE_WIRING_CALL);
+    expect(evalProvision).toContain(CREATE_CLI_GROUP_CALL);
+    expect(evalProvision).toContain(CREATE_CLI_WIRING_CALL);
+    expect(evalProvision).toContain(UPSERT_CLI_USER_CALL);
   });
 
   it("shares the channel's stable wiring target", () => {

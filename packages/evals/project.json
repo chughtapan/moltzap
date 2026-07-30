@@ -17,6 +17,10 @@
       }
     },
     "test": {
+      "dependsOn": [
+        "build",
+        "^build"
+      ],
       "executor": "nx:run-commands",
       "options": {
         "cwd": "packages/evals",
@@ -69,18 +73,6 @@
       "options": {
         "cwd": ".",
         "command": "node packages/evals/dist/cli.js publish"
-      }
-    },
-    "probe": {
-      "cache": false,
-      "parallelism": false,
-      "dependsOn": [
-        "build"
-      ],
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": ".",
-        "command": "node packages/evals/dist/cli.js probe"
       }
     },
     "typecheck:tests": {

@@ -15,10 +15,12 @@ const agentRuntimeTypesTypeId: unique symbol = Symbol(
 );
 
 interface AgentRuntimeTypes<
+  Gateway,
   AcquisitionError,
   Requirements,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 > {
+  readonly gateway?: Gateway;
   readonly acquisitionError?: AcquisitionError;
   readonly requirements?: Requirements;
   readonly configurationSchema?: ConfigurationSchema;
@@ -70,10 +72,12 @@ export type RuntimeTermination =
   | RuntimeSignaled;
 
 /**
- * The only post-acquisition lifecycle observation. Completion of this Effect
- * records a fact; customer policy decides whether that fact ends the run.
+ * A ready runtime exposes its principal gateway and one lifecycle observation.
+ * Completion of the termination Effect records a fact; customer policy decides
+ * whether that fact ends the run.
  */
-export interface RunningAgent {
+export interface RunningAgent<Gateway> {
+  readonly gateway: Gateway;
   readonly termination: Effect.Effect<RuntimeTermination>;
 }
 
@@ -96,6 +100,7 @@ interface AgentRuntimeConfiguration<
  * constructors and register teardown in the acquisition Scope.
  */
 export interface AgentRuntimeDefinition<
+  Gateway,
   AcquisitionError = never,
   Requirements = never,
   ConfigurationSchema extends
@@ -105,16 +110,22 @@ export interface AgentRuntimeDefinition<
   readonly configuration: AgentRuntimeConfiguration<ConfigurationSchema>;
   acquire<Name extends string>(
     input: AgentRuntimeInput<Name>,
-  ): Effect.Effect<RunningAgent, AcquisitionError, Scope.Scope | Requirements>;
+  ): Effect.Effect<
+    RunningAgent<Gateway>,
+    AcquisitionError,
+    Scope.Scope | Requirements
+  >;
 }
 
 /** A runtime definition accepted by keyed society rosters. */
 export interface AgentRuntime<
+  Gateway,
   AcquisitionError = never,
   Requirements = never,
   ConfigurationSchema extends
     Schema.Schema.AnyNoContext = Schema.Schema.AnyNoContext,
 > extends AgentRuntimeDefinition<
+    Gateway,
     AcquisitionError,
     Requirements,
     ConfigurationSchema
@@ -122,6 +133,7 @@ export interface AgentRuntime<
   readonly [agentRuntimeTypeId]: typeof agentRuntimeTypeId;
   readonly [runtimeConfigurationProjectionTypeId]: JsonValueType;
   readonly [agentRuntimeTypesTypeId]: AgentRuntimeTypes<
+    Gateway,
     AcquisitionError,
     Requirements,
     ConfigurationSchema
@@ -135,13 +147,14 @@ export interface AgentRuntimeLike {
   readonly [agentRuntimeTypesTypeId]: AgentRuntimeTypes<
     unknown,
     unknown,
+    unknown,
     Schema.Schema.AnyNoContext
   >;
   readonly name: string;
   readonly configuration: AgentRuntimeConfiguration<Schema.Schema.AnyNoContext>;
   acquire<Name extends string>(
     input: AgentRuntimeInput<Name>,
-  ): Effect.Effect<RunningAgent, unknown, unknown>;
+  ): Effect.Effect<RunningAgent<unknown>, unknown, unknown>;
 }
 
 function invalidConfiguration(detail: string): AgentRuntimeDefinitionError {
@@ -173,8 +186,14 @@ function deepFreeze<Value>(value: Value): Value {
 
 function captureConfiguration<
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
+  Type extends
+    Schema.Schema.Type<ConfigurationSchema> = Schema.Schema.Type<ConfigurationSchema>,
+  Encoded = Schema.Schema.Encoded<ConfigurationSchema>,
 >(
-  configuration: AgentRuntimeConfiguration<ConfigurationSchema>,
+  configuration: Readonly<{
+    schema: ConfigurationSchema & Schema.Schema<Type, Encoded>;
+    value: Type;
+  }>,
 ): {
   readonly configuration: AgentRuntimeConfiguration<ConfigurationSchema>;
   readonly projection: JsonValueType;
@@ -187,10 +206,8 @@ function captureConfiguration<
   );
   const canonicalProjection = deepFreeze(projection);
   const nativeValue = () =>
-    deepFreeze(
-      configurationValue(
-        Schema.decodeUnknownEither(configuration.schema)(canonicalProjection),
-      ),
+    configurationValue(
+      Schema.decodeUnknownEither(configuration.schema)(canonicalProjection),
     );
   nativeValue();
   return {
@@ -204,7 +221,11 @@ function captureConfiguration<
   };
 }
 
-/** Encode-free projection used by the kernel after definition validation. */
+/**
+ * Read the validated, immutable JSON projection captured at definition time.
+ * @param runtime Defined runtime whose projection is required.
+ * @returns The runtime configuration encoded as JSON.
+ */
 export function runtimeConfigurationProjection(
   runtime: AgentRuntimeLike,
 ): JsonValueType {
@@ -212,21 +233,24 @@ export function runtimeConfigurationProjection(
 }
 
 /**
- * Preserve inferred attachment, error, requirement, and configuration types.
+ * Preserve inferred gateway, acquisition error, requirement, and configuration
+ * types.
  * @param runtime Value supplied to the operation.
  * @returns The immutable runtime definition.
  */
 export function defineRuntime<
+  Gateway,
   AcquisitionError,
   Requirements,
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 >(
   runtime: AgentRuntimeDefinition<
+    Gateway,
     AcquisitionError,
     Requirements,
     ConfigurationSchema
   >,
-): AgentRuntime<AcquisitionError, Requirements, ConfigurationSchema> {
+): AgentRuntime<Gateway, AcquisitionError, Requirements, ConfigurationSchema> {
   if (runtime.name.length === 0) {
     throw AgentRuntimeDefinitionError.make({
       detail: "a runtime name must not be empty",
@@ -236,6 +260,7 @@ export function defineRuntime<
   const captured = captureConfiguration(runtime.configuration);
   const acquire = runtime.acquire.bind(runtime);
   const defined: AgentRuntime<
+    Gateway,
     AcquisitionError,
     Requirements,
     ConfigurationSchema

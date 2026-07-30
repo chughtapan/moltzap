@@ -6,14 +6,7 @@
  * before returning, so its in-memory streams cannot fail.
  */
 
-import {
-  Context,
-  Data,
-  Effect,
-  type Exit,
-  Schema,
-  type Stream,
-} from "effect";
+import { Context, Data, Effect, type Exit, Schema, type Stream } from "effect";
 import type { MessageParts } from "@moltzap/protocol/message";
 import {
   LinkController,
@@ -38,21 +31,23 @@ class RuntimeUnavailable extends Data.TaggedError("RuntimeUnavailable")<{
   readonly detail: string;
 }> {}
 
-const RuntimeConfiguration = Schema.Struct({});
+const runtimeConfiguration = Schema.Struct({});
 const runtime = defineRuntime<
+  undefined,
   RuntimeUnavailable,
   RuntimeRequirement,
-  typeof RuntimeConfiguration
+  typeof runtimeConfiguration
 >({
   name: "type-canary",
   configuration: {
-    schema: RuntimeConfiguration,
+    schema: runtimeConfiguration,
     value: {},
   },
   acquire: () =>
     Effect.gen(function* () {
       yield* RuntimeRequirement;
       return {
+        gateway: undefined,
         termination: Effect.succeed(RuntimeCompleted.make({})),
       };
     }),
@@ -71,10 +66,10 @@ const program = Effect.gen(function* () {
   const links = yield* LinkController;
   yield* ProgramRequirement;
   const probe = yield* network.endpoint("probe");
-  const conversation = yield* probe.open(agents.alice);
+  const conversation = yield* probe.open(agents.alice.agent);
   yield* conversation.send("hello");
-  yield* links.disable(agents.alice, probe.participant);
-  return [agents.alice.name, probe.participant.name] as const;
+  yield* links.disable(agents.alice.agent, probe.participant);
+  return [agents.alice.agent.name, probe.participant.name] as const;
 });
 
 /** Representative definition run retained for compile-time contract checks. */
@@ -83,7 +78,7 @@ export const definitionCanaryRun = society.run(roster, program);
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 type ExitSuccess<Outcome> =
-  Outcome extends Exit.Exit<infer Success, infer _Failure> ? Success : never;
+  Outcome extends Exit.Success<infer Success, unknown> ? Success : never;
 type ProgramExit<Outcome> =
   Outcome extends ProgramFinished<infer Success, infer Failure>
     ? Exit.Exit<Success, Failure>
@@ -101,9 +96,7 @@ type RunRequirementsAreExact = Expect<
 >;
 type ResultKeepsLiteralNames = Expect<
   Equal<
-    ExitSuccess<
-      ProgramExit<Effect.Effect.Success<typeof definitionCanaryRun>>
-    >,
+    ExitSuccess<ProgramExit<Effect.Effect.Success<typeof definitionCanaryRun>>>,
     readonly ["alice", "probe"]
   >
 >;

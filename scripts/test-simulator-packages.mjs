@@ -48,6 +48,8 @@ async function verifyPackedFiles(extractedPackage) {
     "dist/network.d.ts",
     "dist/ledger.js",
     "dist/ledger.d.ts",
+    "dist/runtime.js",
+    "dist/runtime.d.ts",
     "dist/nanoclaw-assets/SKILL.md",
     "dist/nanoclaw-assets/moltzap.ts",
     "scripts/build-server-image.mjs",
@@ -70,8 +72,8 @@ async function verifyPackedFiles(extractedPackage) {
   );
   requireCondition(
     JSON.stringify(Object.keys(manifest.exports)) ===
-      JSON.stringify([".", "./network", "./ledger"]),
-    "packed simulator exports must be root, network, and ledger",
+      JSON.stringify([".", "./network", "./ledger", "./runtime"]),
+    "packed simulator exports must be root, network, ledger, and runtime",
   );
 }
 
@@ -92,8 +94,12 @@ async function verifyConsumerImports(extractedPackage) {
       'import * as simulator from "@moltzap/simulator";',
       'import * as network from "@moltzap/simulator/network";',
       'import * as ledger from "@moltzap/simulator/ledger";',
-      'for (const name of ["simulator", "effectRuntime", "openClawRuntime", "nanoclawRuntime", "simulatorLayer"]) {',
+      'import * as runtime from "@moltzap/simulator/runtime";',
+      'for (const name of ["simulator", "simulatorLayer"]) {',
       "  if (!(name in simulator)) throw new Error(`missing root export ${name}`);",
+      "}",
+      'for (const name of ["defineRuntime", "effectRuntime", "openClawRuntime", "nanoclawRuntime"]) {',
+      "  if (!(name in runtime)) throw new Error(`missing runtime export ${name}`);",
       "}",
       'if (!("RouterProvider" in network)) throw new Error("missing network RouterProvider");',
       'if (!("LedgerStorage" in ledger)) throw new Error("missing ledger LedgerStorage");',

@@ -3,7 +3,7 @@ import { it as effectIt } from "@effect/vitest";
 import { describe, expect } from "vitest";
 import { sendCommand } from "./send.js";
 
-import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
+import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
 import { localDaemonCommands } from "../../local-daemon-rpc.js";
 import { transportSchema } from "../transport.js";
@@ -17,16 +17,13 @@ import {
 const it = effectIt.effect;
 const TASK_UUID = "00000000-0000-4000-8000-00000000abc2";
 const CONV_UUID = "00000000-0000-4000-8000-00000000abc1";
-const REPLY_MSG = "00000000-0000-4000-8000-0000000000a1";
 const SENT_MSG = "00000000-0000-4000-8000-0000000000a2";
 const HELLO_WORLD = "Hello world";
-const REPLY_TEXT = "Reply text";
 const silentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
 
 function runSendCommand(input: {
   readonly target: { taskId: TaskId; conversationId: ConversationId };
   readonly message: string;
-  readonly options: { readonly replyToId?: MessageId };
 }) {
   const fixture = makeFakeTransport({
     [localDaemonCommands.send]: () => ({
@@ -47,14 +44,12 @@ function runSendCommand(input: {
 describe("send command handler", () => {
   const taskId = makeTaskId(TASK_UUID);
   const conversationId = makeConversationId(CONV_UUID);
-  const replyToId = makeMessageId(REPLY_MSG);
 
   it("sends to task+conversation target", () =>
     Effect.gen(function* () {
       const run = runSendCommand({
         target: { taskId, conversationId },
         message: HELLO_WORLD,
-        options: {},
       });
       yield* run.effect;
       expect(run.calls).toEqual([
@@ -63,26 +58,6 @@ describe("send command handler", () => {
           params: {
             target: { taskId, conversationId },
             message: HELLO_WORLD,
-          },
-        },
-      ]);
-    }));
-
-  it("includes replyToId when --reply-to is provided", () =>
-    Effect.gen(function* () {
-      const run = runSendCommand({
-        target: { taskId, conversationId },
-        message: REPLY_TEXT,
-        options: { replyToId },
-      });
-      yield* run.effect;
-      expect(run.calls).toEqual([
-        {
-          method: localDaemonCommands.send,
-          params: {
-            target: { taskId, conversationId },
-            message: REPLY_TEXT,
-            replyToId,
           },
         },
       ]);

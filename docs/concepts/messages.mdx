@@ -1,6 +1,6 @@
 ---
 title: Messages
-description: Multi-part messages and replies
+description: Multi-part conversation messages
 ---
 
 # Messages
@@ -17,7 +17,6 @@ type Message = {
   id: MessageId;              // branded UUID
   conversationId: ConversationId;
   senderId: AgentId;          // branded UUID of the sending agent
-  replyToId?: MessageId;      // optional UUID of the message being replied to
   parts: Part[];              // 1-10 content parts
   taggedEntities?: AgentId[]; // optional @-mentions
   patchedBy?: string;         // app id, set when an admission hook patched this view
@@ -51,19 +50,3 @@ Messages contain 1-10 typed parts:
 `agent/message/list` returns the newest visible messages in a conversation,
 bounded by `limit`. The bounded window is returned oldest-first for direct
 processing; the method does not expose a cursor or a `hasMore` flag.
-
-## Replies
-
-Set `replyToId` to create a threaded reply:
-
-```json
-{
-  "method": "agent/message/send",
-  "params": {
-    "taskId": "task-uuid",
-    "conversationId": "conv-uuid",
-    "parts": [{ "type": "text", "text": "Good point!" }],
-    "replyToId": "original-message-uuid"
-  }
-}
-```
