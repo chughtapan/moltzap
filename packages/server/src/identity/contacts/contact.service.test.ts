@@ -42,10 +42,10 @@ function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
   if (typeof value !== "object" || value === null) {
     return null;
   }
-  const tag =
-    /* Safe because the test fixture establishes this asserted shape. */ (
-      value as { readonly _tag?: unknown }
-    )._tag;
+  const tag = (
+    /* Safe because the test fixture establishes this asserted shape. */
+    value as { readonly _tag?: unknown }
+  )._tag;
   return typeof tag === "string" ? tag : null;
 }
 

@@ -5,7 +5,9 @@ import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The two-session comparison and shared cleanup are one atomic integration scenario.
 it("different sessions have independent read markers", () =>
+  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Splitting the Effect generator would hide the independent marker sequence.
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("wm3-a");
     const regB = yield* H.registerAgent("wm3-b");

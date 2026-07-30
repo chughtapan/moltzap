@@ -108,9 +108,15 @@ function sendText(
 }
 
 function notificationText(notification: { params: unknown }): string {
-  return /* Safe because the test fixture establishes this asserted shape. */ /* Safe because the test fixture establishes this asserted shape. */ (
+  const parts = (
+    /* Safe because the test fixture establishes this asserted shape. */
     notification.params as { message: { parts: Array<{ text: string }> } }
-  ).message.parts[0]!.text;
+  ).message.parts;
+  const firstPart = parts[0];
+  if (firstPart === undefined) {
+    throw new Error("Expected a notification text part.");
+  }
+  return firstPart.text;
 }
 
 function waitForMessageText(agent: ConnectedAgent) {

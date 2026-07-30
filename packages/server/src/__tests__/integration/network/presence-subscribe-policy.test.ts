@@ -108,7 +108,8 @@ function extractTaggedRpcError(exit: Exit.Exit<unknown, unknown>): {
   }
   const err = failureOpt.value;
   expect(
-    /* Safe because the test fixture establishes this asserted shape. */ (
+    (
+      /* Safe because the test fixture establishes this asserted shape. */
       err as { _tag?: unknown }
     )._tag,
   ).toBeTypeOf("string");

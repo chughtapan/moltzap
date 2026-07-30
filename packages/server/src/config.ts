@@ -318,13 +318,16 @@ function parseYamlDocument(
 ): Effect.Effect<unknown, ConfigLoadError> {
   return Effect.try({
     try: (): unknown => parseYaml(raw),
-    catch: (cause) =>
-      new ConfigLoadError({
+    catch: (cause) => {
+      const causeMessage =
+        cause instanceof Error ? cause.message : String(cause);
+      return new ConfigLoadError({
         kind: "yaml",
         path: configPath,
-        message: `Invalid YAML in "${configPath}": ${/* Safe because the surrounding invariant establishes this asserted shape. */ (cause as Error).message}`,
+        message: `Invalid YAML in "${configPath}": ${causeMessage}`,
         cause,
-      }),
+      });
+    },
   }).pipe(Effect.withSpan("parseYamlDocument"));
 }
 

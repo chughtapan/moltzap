@@ -3,7 +3,7 @@ import { Data } from "effect";
 
 class EncryptedPayloadParseError extends Data.TaggedError(
   "EncryptedPayloadParseError",
-)<{ readonly message: string }> {}
+)<{ readonly message: string; readonly cause?: unknown }> {}
 
 /**
  * Executes the serialize payload operation.
@@ -24,7 +24,15 @@ export function serializePayload(p: EncryptedPayload): string {
  * @returns The deserialize payload result.
  */
 export function deserializePayload(s: string): EncryptedPayload {
-  const parsed: unknown = JSON.parse(s);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(s);
+  } catch (cause) {
+    throw new EncryptedPayloadParseError({
+      message: "Encrypted payload must be valid JSON.",
+      cause,
+    });
+  }
   if (!isSerializedPayload(parsed)) {
     throw new EncryptedPayloadParseError({
       message: "Encrypted payload must contain base64 c, i, and t fields.",

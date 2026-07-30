@@ -14,6 +14,7 @@ function makeEnvelope() {
   return new EnvelopeEncryption(masterSecret);
 }
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The cohesive message-encryption suite stays grouped around one shared randomized envelope fixture.
 describe("EnvelopeEncryption messages", () => {
   const envelope = makeEnvelope();
 

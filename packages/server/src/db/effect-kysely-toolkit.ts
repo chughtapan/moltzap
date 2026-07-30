@@ -83,7 +83,8 @@ function commitViaExecute(this: {
  */
 function patchPrototype(prototype: object): void {
   Object.assign(prototype, Effectable.CommitPrototype);
-  /* Safe because the surrounding invariant establishes this asserted shape. */ (
+  (
+    /* Safe because the surrounding invariant establishes this asserted shape. */
     prototype as { commit: unknown }
   ).commit = commitViaExecute;
 }
@@ -235,7 +236,8 @@ export const transaction = <A, DB>(
 ): Effect.Effect<A, SqlError> =>
   Effect.tryPromise({
     try: () =>
-      /* Safe because the surrounding invariant establishes this asserted shape. */ (
+      (
+        /* Safe because the surrounding invariant establishes this asserted shape. */
         db as Kysely<DB>
       )
         .transaction()

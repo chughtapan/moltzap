@@ -199,7 +199,8 @@ function rejectsInvalidPort() {
       // port: -1 is rejected by structural validation (TypeBox, minimum: 1)
       // before the Effect Config decode, so it surfaces as kind "validation".
       expect(
-        /* Safe because the test fixture establishes this asserted shape. */ (
+        (
+          /* Safe because the test fixture establishes this asserted shape. */
           err as ConfigLoadError
         ).kind,
       ).toBe(VALIDATION_ERROR_KIND);
@@ -310,7 +311,8 @@ function expectValidationRejection(body: string) {
       const err = expectFailureValue(exit);
       expect(err).toBeInstanceOf(ConfigLoadError);
       expect(
-        /* Safe because the test fixture establishes this asserted shape. */ (
+        (
+          /* Safe because the test fixture establishes this asserted shape. */
           err as ConfigLoadError
         ).kind,
       ).toBe(VALIDATION_ERROR_KIND);
