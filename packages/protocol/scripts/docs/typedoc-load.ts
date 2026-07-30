@@ -326,26 +326,39 @@ function extractReturnTypeName(node: RawReflection): string | null {
   return null;
 }
 
-function normalizeSourcePath(p: string, url?: string): string {
-  // TypeDoc sometimes emits absolute paths via workspace symlinks —
-  // trim anything above `packages/` for workspace-relative output.
-  const ix = p.indexOf("packages/");
-  if (ix !== -1) {
-    return p.slice(ix);
+/**
+ * Normalize a TypeDoc source path to a workspace source root.
+ * @param sourcePath TypeDoc's reported source path.
+ * @param sourceUrl Optional source permalink emitted by TypeDoc.
+ * @returns A workspace-relative source path when one can be recovered.
+ */
+export function normalizeSourcePath(
+  sourcePath: string,
+  sourceUrl?: string,
+): string {
+  const normalizedPath = sourcePath.replaceAll("\\", "/");
+  const workspacePath = findWorkspacePath(normalizedPath);
+  if (workspacePath !== null) {
+    return workspacePath;
   }
-  // Some packages surface a bare package-relative `fileName` (e.g.
-  // `entry.ts` instead of `packages/foo/src/entry.ts`). Reconstruct
-  // from the source URL, which carries the full repo-relative path
-  // after the SHA. Without this, `discoverFolders` skips the export
-  // on the `packages/`-prefix check and the package is silently
-  // dropped from generated MODULE docs.
-  if (url) {
-    const m = /\/blob\/[^/]+\/(packages\/[^#?]+)/.exec(url);
-    if (m?.[1]) {
-      return m[1];
+
+  if (sourceUrl !== undefined) {
+    const urlMatch = /\/blob\/[^/]+\/([^#?]+)/.exec(sourceUrl);
+    if (urlMatch?.[1] !== undefined) {
+      const urlWorkspacePath = findWorkspacePath(urlMatch[1]);
+      if (urlWorkspacePath !== null) {
+        return urlWorkspacePath;
+      }
     }
   }
-  return p;
+  return normalizedPath;
+}
+
+function findWorkspacePath(sourcePath: string): string | null {
+  const match = /(?:^|\/)((?:packages|v2)\/[^/]+\/src(?:\/.*)?$)/.exec(
+    sourcePath,
+  );
+  return match?.[1] ?? null;
 }
 
 function extractComment(node: RawReflection): TypeDocComment | null {

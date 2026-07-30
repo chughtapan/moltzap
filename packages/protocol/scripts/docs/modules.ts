@@ -7,6 +7,7 @@
  */
 import { FileSystem, Path } from "@effect/platform";
 import { Effect, Schema } from "effect";
+import * as ts from "typescript";
 import {
   folderOf,
   ReflectionKind,
@@ -31,15 +32,35 @@ export interface ModuleRenderConfig {
  * Base URL for source links emitted in the published MDX twin. MODULE.md
  * uses in-tree relative paths; the MDX lives under `docs/modules/` and
  * needs an absolute permalink so the rendered page resolves under
- * Mintlify. Pinned to `main` so generated links survive branch renames.
+ * Mintlify.
  */
-const SOURCE_LINK_BASE = "https://github.com/chughtapan/moltzap/blob/main";
+const SOURCE_LINK_BASE = "https://github.com/chughtapan/moltzap/blob";
+
+/**
+ * Active v2 package roots are required generator inputs even before their
+ * public barrels contain behavioral exports.
+ */
+const REQUIRED_V2_MODULE_FOLDERS = [
+  "v2/identity/src",
+  "v2/router/src",
+] as const;
+
+/** TypeDoc package projects required by the active v2 MODULE pages. */
+const REQUIRED_V2_PACKAGE_NAMES = [
+  "@moltzap/v2-identity",
+  "@moltzap/v2-router",
+] as const;
 
 interface LinkContext {
   readonly mode: "module-md" | "mdx";
 }
 
 interface EnrichedExport extends TypeDocExport {
+  readonly signatureText: string | null;
+}
+
+interface ResolvedExportDeclaration {
+  readonly source?: TypeDocExport["sources"][number];
   readonly signatureText: string | null;
 }
 
@@ -74,6 +95,14 @@ export const generateModuleDocs = (
 > =>
   Effect.gen(function* () {
     const path = yield* Path.Path;
+    const missingTypeDocPackages = REQUIRED_V2_PACKAGE_NAMES.filter(
+      (packageName) => !cache.byPackageEntrypoint.has(packageName),
+    );
+    if (missingTypeDocPackages.length > 0) {
+      return yield* Effect.dieMessage(
+        `Required TypeDoc packages were not loaded: ${missingTypeDocPackages.join(", ")}`,
+      );
+    }
     const folders = yield* discoverFolders(cache, config);
     const rendered: ModuleRenderResult[] = [];
     const warnings: string[] = [];
@@ -90,6 +119,15 @@ export const generateModuleDocs = (
     }
     if (warnings.length > 0) {
       yield* emitWarnings(warnings);
+    }
+    const renderedFolders = new Set(rendered.map((result) => result.folder));
+    const missingRequiredFolders = REQUIRED_V2_MODULE_FOLDERS.filter(
+      (folder) => !renderedFolders.has(folder),
+    );
+    if (missingRequiredFolders.length > 0) {
+      return yield* Effect.dieMessage(
+        `Required MODULE documentation was not rendered for: ${missingRequiredFolders.join(", ")}`,
+      );
     }
     yield* pruneOrphans(rendered, config, path);
     return rendered;
@@ -130,11 +168,15 @@ function pruneOrphans(
       yield* fs.remove(abs).pipe(Effect.catchAll(() => Effect.void));
       process.stdout.write(`  pruned orphan MDX: ${rel}\n`);
     }
-    const modulePaths = yield* listFilesWithSuffix(
-      fs,
+    const moduleRoots = [
       path.resolve(config.workspaceRoot, "packages"),
-      "MODULE.md",
-    );
+      ...REQUIRED_V2_MODULE_FOLDERS.map((folder) =>
+        path.resolve(config.workspaceRoot, folder),
+      ),
+    ];
+    const modulePaths = (yield* Effect.all(
+      moduleRoots.map((root) => listFilesWithSuffix(fs, root, "MODULE.md")),
+    )).flat();
     for (const abs of modulePaths) {
       const folder = path.relative(config.workspaceRoot, path.dirname(abs));
       if (liveFolders.has(folder)) {
@@ -205,10 +247,10 @@ function discoverFolders(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const seen = new Set<string>();
+    const seen = new Set<string>(REQUIRED_V2_MODULE_FOLDERS);
     for (const ex of cache.all) {
       const folder = folderOf(ex);
-      if (!folder.startsWith("packages/")) {
+      if (!isDocumentedSourceFolder(folder)) {
         continue;
       }
       const indexPath = path.resolve(config.workspaceRoot, folder, "index.ts");
@@ -224,8 +266,11 @@ function discoverFolders(
       if (isInternalModuleSource(indexSource)) {
         continue;
       }
-      if (isPackageRoot(folder, path)) {
-        if (isEmptyBarrelSource(indexSource)) {
+      if (isPackageRoot(folder)) {
+        if (
+          isEmptyBarrelSource(indexSource) &&
+          !isRequiredV2ModuleFolder(folder)
+        ) {
           continue;
         }
       }
@@ -236,15 +281,31 @@ function discoverFolders(
 }
 
 /**
- * `packages/&lt;pkg&gt;/src` is the package root. Sub-folders below `src/`
- * keep their own opt-in via the leading-JSDoc gate in `renderFolder`.
+ * A workspace package's `src` folder is its package root. Sub-folders below
+ * `src/` keep their own opt-in via the leading-JSDoc gate in `renderFolder`.
  * @param folder Module folder to process.
- * @param path Path to process.
  * @returns Whether package root.
  */
-function isPackageRoot(folder: string, path: Path.Path): boolean {
-  const parts = folder.split(path.sep);
-  return parts.length === 3 && parts[0] === "packages" && parts[2] === "src";
+function isPackageRoot(folder: string): boolean {
+  const parts = sourcePathParts(folder);
+  return (
+    parts.length === 3 &&
+    (parts[0] === "packages" || parts[0] === "v2") &&
+    parts[2] === "src"
+  );
+}
+
+function isDocumentedSourceFolder(folder: string): boolean {
+  return (
+    folder.startsWith("packages/") ||
+    REQUIRED_V2_MODULE_FOLDERS.some(
+      (root) => folder === root || folder.startsWith(`${root}/`),
+    )
+  );
+}
+
+function isRequiredV2ModuleFolder(folder: string): boolean {
+  return REQUIRED_V2_MODULE_FOLDERS.some((required) => required === folder);
 }
 
 /**
@@ -284,7 +345,7 @@ function renderFolder(
     if (purpose === null) {
       return yield* Effect.fail(makeMissingJsDoc(folder));
     }
-    const packageRoot = isPackageRoot(folder, path);
+    const packageRoot = isPackageRoot(folder);
     const exports = (
       packageRoot
         ? exportsForPackageRoot(
@@ -294,8 +355,7 @@ function renderFolder(
         : exportsForModuleFolder(cache, folder)
     ).filter(isBehavioral);
     const enriched = yield* enrichWithSignatures(exports, fs, path, config);
-    const pkg = packageSlugFor(folder, path);
-    const pageSlug = `${pkg}/${pathFromPackageSrc(folder, path) || path.basename(folder)}`;
+    const pageSlug = modulePageSlug(folder);
     const h1 = `# ${pageSlug}`;
     const moduleMdBody = renderMarkdown({
       h1,
@@ -387,28 +447,145 @@ function enrichWithSignatures(
 ): Effect.Effect<readonly EnrichedExport[]> {
   return Effect.gen(function* () {
     const fileCache = new Map<string, string>();
+    const parsedFileCache = new Map<string, ts.SourceFile>();
     const enriched: EnrichedExport[] = [];
     for (const ex of exports) {
-      const src = ex.sources[0];
-      if (!src) {
+      for (const sourceLocation of ex.sources) {
+        if (fileCache.has(sourceLocation.fileName)) {
+          continue;
+        }
+        const abs = path.resolve(config.workspaceRoot, sourceLocation.fileName);
+        const source = yield* fs
+          .readFileString(abs)
+          .pipe(Effect.catchAll(() => Effect.succeed("")));
+        fileCache.set(sourceLocation.fileName, source);
+      }
+      const resolved = resolveExportDeclarationWithCache(
+        ex,
+        fileCache,
+        parsedFileCache,
+      );
+      if (resolved.source === undefined) {
         enriched.push({ ...ex, signatureText: null });
         continue;
       }
-      let source = fileCache.get(src.fileName);
-      if (source === undefined) {
-        const abs = path.resolve(config.workspaceRoot, src.fileName);
-        source = yield* fs
-          .readFileString(abs)
-          .pipe(Effect.catchAll(() => Effect.succeed("")));
-        fileCache.set(src.fileName, source);
-      }
       enriched.push({
         ...ex,
-        signatureText: extractSignatureText(source, src.line, ex.kind),
+        sources: [
+          resolved.source,
+          ...ex.sources.filter((source) => source !== resolved.source),
+        ],
+        signatureText: resolved.signatureText,
       });
     }
     return enriched;
   });
+}
+
+/**
+ * Resolve the declaration represented by one TypeDoc reflection.
+ *
+ * TypeDoc reports every source in a declaration-merged symbol, so the first
+ * location can belong to a different reflection kind. TypeScript identifies
+ * the declaration whose name and syntax kind match the reflection.
+ *
+ * @param ex TypeDoc export to resolve.
+ * @param sourceByFile Source text keyed by workspace-relative file name.
+ * @returns The matching source location and extracted declaration.
+ */
+export function resolveExportDeclaration(
+  ex: TypeDocExport,
+  sourceByFile: ReadonlyMap<string, string>,
+): ResolvedExportDeclaration {
+  return resolveExportDeclarationWithCache(ex, sourceByFile, new Map());
+}
+
+function resolveExportDeclarationWithCache(
+  ex: TypeDocExport,
+  sourceByFile: ReadonlyMap<string, string>,
+  parsedFileCache: Map<string, ts.SourceFile>,
+): ResolvedExportDeclaration {
+  const source =
+    ex.sources.length > 1
+      ? ex.sources.find((candidate) =>
+          sourceMatchesExport(candidate, ex, sourceByFile, parsedFileCache),
+        )
+      : ex.sources[0];
+  const fallbackSource = source ?? ex.sources[0];
+  if (fallbackSource === undefined) {
+    return { signatureText: null };
+  }
+  const text = sourceByFile.get(fallbackSource.fileName) ?? "";
+  return {
+    source: fallbackSource,
+    signatureText: extractSignatureText(text, fallbackSource.line, ex.kind),
+  };
+}
+
+const REFLECTION_KIND_BY_DECLARATION_SYNTAX = new Map<ts.SyntaxKind, number>([
+  [ts.SyntaxKind.VariableDeclaration, ReflectionKind.Variable],
+  [ts.SyntaxKind.TypeAliasDeclaration, ReflectionKind.TypeAlias],
+  [ts.SyntaxKind.InterfaceDeclaration, ReflectionKind.Interface],
+  [ts.SyntaxKind.ClassDeclaration, ReflectionKind.Class],
+  [ts.SyntaxKind.FunctionDeclaration, ReflectionKind.Function],
+  [ts.SyntaxKind.EnumDeclaration, ReflectionKind.Enum],
+  [ts.SyntaxKind.ModuleDeclaration, ReflectionKind.Module],
+]);
+
+function sourceMatchesExport(
+  source: TypeDocExport["sources"][number],
+  ex: TypeDocExport,
+  sourceByFile: ReadonlyMap<string, string>,
+  parsedFileCache: Map<string, ts.SourceFile>,
+): boolean {
+  const text = sourceByFile.get(source.fileName);
+  if (text === undefined) {
+    return false;
+  }
+  let sourceFile = parsedFileCache.get(source.fileName);
+  if (sourceFile === undefined) {
+    sourceFile = ts.createSourceFile(
+      source.fileName,
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    parsedFileCache.set(source.fileName, sourceFile);
+  }
+
+  const lineStart = sourceFile.getLineStarts()[source.line - 1];
+  if (lineStart === undefined) {
+    return false;
+  }
+  const position = lineStart + source.character;
+  if (position < lineStart || position >= sourceFile.end) {
+    return false;
+  }
+  const name = deepestNodeAtPosition(sourceFile, sourceFile, position);
+  return (
+    name.getStart(sourceFile) === position &&
+    (ts.isIdentifier(name) || ts.isStringLiteral(name)) &&
+    name.text === ex.name &&
+    REFLECTION_KIND_BY_DECLARATION_SYNTAX.get(name.parent.kind) === ex.kind
+  );
+}
+
+function deepestNodeAtPosition(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  position: number,
+): ts.Node {
+  const child = node
+    .getChildren(sourceFile)
+    .find(
+      (candidate) =>
+        candidate.getStart(sourceFile) <= position &&
+        position < candidate.getEnd(),
+    );
+  return child === undefined
+    ? node
+    : deepestNodeAtPosition(sourceFile, child, position);
 }
 
 function writeAtomic(
@@ -563,7 +740,7 @@ function exportLink(
   }
   // MDX twin lives outside the source tree; emit a GitHub permalink so
   // the rendered Mintlify page resolves to a real source location.
-  return `[\`${ex.name}\`](${SOURCE_LINK_BASE}/${src.fileName}#L${src.line})`;
+  return `[\`${ex.name}\`](${sourcePermalink(src.fileName, src.line)})`;
 }
 
 function renderFailures(ex: EnrichedExport): string[] {
@@ -588,7 +765,10 @@ function renderFilesSection(
 ): string[] {
   const lines: string[] = ["## Files", ""];
   const files = [
-    ...new Set(exports.flatMap((e) => e.sources.map((s) => s.fileName))),
+    ...new Set([
+      ...(isRequiredV2ModuleFolder(folder) ? [`${folder}/index.ts`] : []),
+      ...exports.flatMap((e) => e.sources.map((s) => s.fileName)),
+    ]),
   ]
     .filter((f) => f.startsWith(`${folder}/`))
     .sort((left, right) => left.localeCompare(right));
@@ -658,25 +838,54 @@ export function parseFailureTag(text: string): {
   return { errorName: t.slice(0, ix).trim(), when: t.slice(ix + 6).trim() };
 }
 
-function packageSlugFor(folder: string, path: Path.Path): string {
-  const parts = folder.split(path.sep);
-  if (parts.length < 2 || parts[0] !== "packages") {
+/**
+ * Return the collision-free generated page slug for a module folder.
+ * @param folder Workspace-relative module folder.
+ * @returns Generated page slug.
+ */
+export function modulePageSlug(folder: string): string {
+  const parts = sourcePathParts(folder);
+  const pkg = packageSlugFor(parts);
+  const modulePath = pathFromPackageSrc(parts);
+  const page = modulePath.length > 0 ? modulePath : (parts.at(-1) ?? "unknown");
+  return `${pkg}/${page}`;
+}
+
+function packageSlugFor(parts: readonly string[]): string {
+  if (parts.length < 2 || (parts[0] !== "packages" && parts[0] !== "v2")) {
     return "unknown";
   }
   const pkg = parts[1];
+  if (parts[0] === "v2") {
+    return `v2/${pkg ?? "unknown"}`;
+  }
   if (pkg === "server") {
     return "server-core";
   }
   return pkg ?? "unknown";
 }
 
-function pathFromPackageSrc(folder: string, path: Path.Path): string {
-  const parts = folder.split(path.sep);
+function pathFromPackageSrc(parts: readonly string[]): string {
   const srcIx = parts.indexOf("src");
   if (srcIx === -1) {
     return "";
   }
   return parts.slice(srcIx + 1).join("/");
+}
+
+function sourcePathParts(folder: string): readonly string[] {
+  return folder.split("/");
+}
+
+/**
+ * Build a source permalink on the branch that owns the source track.
+ * @param fileName Workspace-relative source file.
+ * @param line One-based source line.
+ * @returns GitHub source permalink.
+ */
+export function sourcePermalink(fileName: string, line: number): string {
+  const branch = fileName.startsWith("v2/") ? "v2" : "main";
+  return `${SOURCE_LINK_BASE}/${branch}/${fileName}#L${line}`;
 }
 
 function isBehavioral(ex: TypeDocExport): boolean {

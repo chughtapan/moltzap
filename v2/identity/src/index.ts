@@ -17,3 +17,20 @@
  * compatibility with this value.
  */
 export const MOLTZAP_VERSION = "2026.729.1";
+
+/** Canonical refined values shared by identity and its consumers. */
+export {
+  AgentCardDigest,
+  AgentId,
+  AgentName,
+  MessageId,
+  OperationId,
+  PrincipalId,
+} from "./identity-values.js";
+/** Exact immutable public-key representation used by identity artifacts. */
+export { Ed25519PublicKey } from "./ed25519-public-key.js";
+/** Opaque private-key authority and its redacted import failure. */
+export {
+  AgentSigningAuthority,
+  InvalidAgentPrivateKeyError,
+} from "./agent-signing-authority.js";

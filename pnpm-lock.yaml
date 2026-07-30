@@ -387,12 +387,12 @@ importers:
       '@moltzap/v2-identity':
         specifier: workspace:*
         version: link:../identity
-      '@moltzap/v2-transcript':
-        specifier: workspace:*
-        version: link:../transcript
       '@moltzap/v2-router':
         specifier: workspace:*
         version: link:../router
+      '@moltzap/v2-transcript':
+        specifier: workspace:*
+        version: link:../transcript
     devDependencies:
       eslint:
         specifier: ^9
@@ -402,6 +402,38 @@ importers:
         version: 5.9.3
 
   v2/identity:
+    dependencies:
+      canonicalize:
+        specifier: 3.0.0
+        version: 3.0.0
+      effect:
+        specifier: 3.22.0
+        version: 3.22.0
+      jose:
+        specifier: 6.2.5
+        version: 6.2.5
+    devDependencies:
+      '@effect/vitest':
+        specifier: 0.30.0
+        version: 0.30.0(effect@3.22.0)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      fast-check:
+        specifier: 3.23.2
+        version: 3.23.2
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
+
+  v2/router:
+    dependencies:
+      '@moltzap/v2-identity':
+        specifier: workspace:*
+        version: link:../identity
     devDependencies:
       eslint:
         specifier: ^9
@@ -409,6 +441,9 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0)
 
   v2/simulator:
     dependencies:
@@ -434,15 +469,15 @@ importers:
       '@moltzap/v2-identity':
         specifier: workspace:*
         version: link:../identity
+      '@moltzap/v2-router':
+        specifier: workspace:*
+        version: link:../router
       '@moltzap/v2-simulator':
         specifier: workspace:*
         version: link:../simulator
       '@moltzap/v2-transcript':
         specifier: workspace:*
         version: link:../transcript
-      '@moltzap/v2-router':
-        specifier: workspace:*
-        version: link:../router
     devDependencies:
       eslint:
         specifier: ^9
@@ -459,19 +494,6 @@ importers:
       '@moltzap/v2-router':
         specifier: workspace:*
         version: link:../router
-    devDependencies:
-      eslint:
-        specifier: ^9
-        version: 9.39.4(jiti@2.7.0)
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-
-  v2/router:
-    dependencies:
-      '@moltzap/v2-identity':
-        specifier: workspace:*
-        version: link:../identity
     devDependencies:
       eslint:
         specifier: ^9
@@ -4246,6 +4268,11 @@ packages:
     resolution: {integrity: sha512-L28STB170nwWS63UjtlEOE3dldQApaJXZkOI1uMFfzf3rRuPegHaHesyee+YxQ+W6SvRDQV6UrdOdRiR153wJg==}
     engines: {node: '>=6'}
 
+  canonicalize@3.0.0:
+    resolution: {integrity: sha512-yYLfHyDMIXRyRqsKBRLX023riFLpXY2YOfdtqKXZRZy9qsfOJ9U+4F9YZL7MEzL5+ziN2x2nlBvY/Voi3EBljA==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
 
@@ -6214,6 +6241,9 @@ packages:
 
   jose@6.2.2:
     resolution: {integrity: sha512-d7kPDd34KO/YnzaDOlikGpOurfF0ByC2sEV4cANCtdqLlTfBlw2p14O/5d/zv40gJPbIQxfES3nSx1/oYNyuZQ==}
+
+  jose@6.2.5:
+    resolution: {integrity: sha512-2E5L2yRp03FnwreJLJX8/r7mHiZICCf8kG7fAsTWkSQTDAcc46NIZoQLKy+EJ8sPoJlxyS4OQR5H70LjIZZlIQ==}
 
   jotai@2.20.0:
     resolution: {integrity: sha512-b5GAqgmXmXzB4WPaTH26ppk9Sl7AA9WSQX7yfdM+gJ1rFROiWcVbi97gFuN/yVCojOcbcvop2sfLL+fjxW0JVg==}
@@ -13606,6 +13636,8 @@ snapshots:
 
   camelcase@5.3.1: {}
 
+  canonicalize@3.0.0: {}
+
   ccount@2.0.1: {}
 
   chai@5.3.3:
@@ -16006,6 +16038,8 @@ snapshots:
   jiti@2.7.0: {}
 
   jose@6.2.2: {}
+
+  jose@6.2.5: {}
 
   jotai@2.20.0(@types/react@19.2.14)(react@19.2.3):
     optionalDependencies:

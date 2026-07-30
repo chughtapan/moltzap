@@ -476,14 +476,40 @@ const packageDefinitions = {
 
 const workspaceRoot = new URL("../", import.meta.url);
 
-for (const [packageName, definition] of Object.entries(packageDefinitions)) {
+const architectureConfigDefinitions = [
+  ...Object.entries(packageDefinitions).map(([packageName, definition]) => ({
+    packageRoot: `packages/${packageName}`,
+    definition,
+  })),
+  {
+    packageRoot: "v2/identity",
+    definition: {
+      config: {
+        packageRuntime: "node",
+        publicTypePackages: [publicTypePackage.effect],
+        allowedTestPublicSubpaths: [],
+        folderReadmeFileNames: ["MODULE.md"],
+      },
+    },
+  },
+  {
+    packageRoot: "v2/router",
+    definition: {
+      config: {
+        packageRuntime: "node",
+      },
+    },
+  },
+];
+
+for (const { packageRoot, definition } of architectureConfigDefinitions) {
   const config = definition.config ?? {
     ...definition.beforeShared,
     ...sharedConfig,
     ...definition.afterShared,
   };
   const configUrl = new URL(
-    `packages/${packageName}/safer-architecture.config.json`,
+    `${packageRoot}/safer-architecture.config.json`,
     workspaceRoot,
   );
 

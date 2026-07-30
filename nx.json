@@ -13,6 +13,10 @@
       "!{projectRoot}/vitest.config.mjs",
       "!{projectRoot}/vitest.integration.config.mjs"
     ],
+    "v2Production": [
+      "production",
+      "!{projectRoot}/**/*.types-check.ts"
+    ],
     "workspaceFiles": [
       "{workspaceRoot}/**/*"
     ],
@@ -27,6 +31,20 @@
       "!{workspaceRoot}/packages/**/src/__tests__/**/*",
       "!{workspaceRoot}/packages/**/dist/**/*",
       "!{workspaceRoot}/packages/**/src/**/MODULE.md",
+      "{workspaceRoot}/v2/identity/**/*.json",
+      "{workspaceRoot}/v2/identity/**/*.ts",
+      "!{workspaceRoot}/v2/identity/**/*.test.ts",
+      "!{workspaceRoot}/v2/identity/**/*.types-check.ts",
+      "!{workspaceRoot}/v2/identity/**/dist/**/*",
+      "!{workspaceRoot}/v2/identity/**/node_modules/**/*",
+      "!{workspaceRoot}/v2/identity/src/**/MODULE.md",
+      "{workspaceRoot}/v2/router/**/*.json",
+      "{workspaceRoot}/v2/router/**/*.ts",
+      "!{workspaceRoot}/v2/router/**/*.test.ts",
+      "!{workspaceRoot}/v2/router/**/*.types-check.ts",
+      "!{workspaceRoot}/v2/router/**/dist/**/*",
+      "!{workspaceRoot}/v2/router/**/node_modules/**/*",
+      "!{workspaceRoot}/v2/router/src/**/MODULE.md",
       "{workspaceRoot}/docs/**/*",
       "!{workspaceRoot}/docs/modules/**/*",
       "!{workspaceRoot}/docs/protocol/methods/**/*",
@@ -53,6 +71,19 @@
       ],
       "outputs": [
         "{projectRoot}/dist"
+      ],
+      "cache": true
+    },
+    "typecheck": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "production",
+        "^production"
+      ],
+      "outputs": [
+        "{projectRoot}/tsconfig.typecheck.tsbuildinfo"
       ],
       "cache": true
     },
