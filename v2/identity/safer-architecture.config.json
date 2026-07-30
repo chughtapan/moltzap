@@ -1,0 +1,13 @@
+{
+  "packageRuntime": "node",
+  "publicTypePackages": [
+    {
+      "package": "effect",
+      "reason": "Foundational Effect runtime; intentionally part of the public contract"
+    }
+  ],
+  "allowedTestPublicSubpaths": [],
+  "folderReadmeFileNames": [
+    "MODULE.md"
+  ]
+}

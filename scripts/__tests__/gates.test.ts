@@ -337,6 +337,65 @@ const testDocImportsResolve = (): void => {
     `expected clean pass, got exit=${r5.code}, stderr=${r5.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
+
+  // V2 packages live outside packages/, so pin both a named root binding
+  // and a bare server-subpath import from the active implementation packages.
+  plantFile(
+    target1,
+    (s) =>
+      `${s}\n\`\`\`typescript\nimport { MOLTZAP_VERSION } from "@moltzap/v2-identity";\nimport "@moltzap/v2-router/server";\n\`\`\`\n`,
+  );
+  const r6 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  assert(
+    "v2 root binding and server subpath resolve",
+    r6.code === 0,
+    `expected v2 imports to pass. exit=${r6.code}, stderr=${r6.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile(
+    target1,
+    (s) =>
+      `${s}\n\`\`\`typescript\nimport { ThisV2SymbolDoesNotExist } from "@moltzap/v2-identity";\n\`\`\`\n`,
+  );
+  const r7 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  assert(
+    "flags missing v2 named export",
+    r7.code !== 0 &&
+      /missing-export/.test(r7.stderr) &&
+      /ThisV2SymbolDoesNotExist/.test(r7.stderr),
+    `expected v2 missing-export. exit=${r7.code}, stderr=${r7.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile(
+    target1,
+    (s) =>
+      `${s}\n\`\`\`typescript\nimport "@moltzap/v2-router/does-not-exist";\n\`\`\`\n`,
+  );
+  const r8 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  assert(
+    "flags unknown v2 subpath",
+    r8.code !== 0 && /unknown-subpath/.test(r8.stderr),
+    `expected v2 unknown-subpath. exit=${r8.code}, stderr=${r8.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("v2/router/package.json", (s) =>
+    s.replace("./dist/server.js", "./dist/missing-server.js"),
+  );
+  plantFile(
+    target1,
+    (s) =>
+      `${s}\n\`\`\`typescript\nimport "@moltzap/v2-router/server";\n\`\`\`\n`,
+  );
+  const r9 = runScript("scripts/check-doc-imports-resolve.ts", workspaceRoot);
+  assert(
+    "flags a documented v2 subpath with no source or built target",
+    r9.code !== 0 && /missing-target/.test(r9.stderr),
+    `expected v2 missing-target. exit=${r9.code}, stderr=${r9.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
 };
 
 // ─── Tests: generate-constants-snippets fail-closed on bake failures ──────

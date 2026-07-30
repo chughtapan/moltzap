@@ -1173,33 +1173,40 @@ work. It does not call Registry.
 
 Direct dependencies are exact-pinned. Existing compatible Effect
 workspace dependencies stay on the repository's Effect 3.22 family.
+The tables fix ownership and versions; each mechanism dependency
+enters a manifest in the first batch whose executable code or
+behavioral tests actually use it. Batch 1 does not preload future
+mechanism dependencies, add permanent dependency-export tests, or
+create mechanism-specific dead-code exemptions for planned use. The
+already-frozen Router-to-identity workspace edge remains structural
+until Router code first consumes the identity contract.
 
 Production mechanisms:
 
-| Dependency | Version | License | Purpose |
-|---|---:|---|---|
-| `effect` | `3.22.0` | MIT | typed effects, services, schemas, concurrency |
-| `@effect/platform` | `0.97.0` | MIT | platform-neutral HTTP capabilities |
-| `@effect/platform-node` | `0.108.0` | MIT | Node HTTP process composition |
-| `@effect/rpc` | `0.76.0` | MIT | private typed operation groups, handlers, and in-process contract clients |
-| `@effect/experimental` | `0.61.0` | MIT | compatible Effect SQL peer |
-| `@effect/sql` | `0.52.0` | MIT | SQL capability, transactions, migrator |
-| `@effect/sql-pg` | `0.53.0` | MIT | PostgreSQL implementation for Effect SQL |
-| `jose` | `6.2.5` | MIT | General JWS, JWK thumbprints, Compact JWE |
-| `canonicalize` | `3.0.0` | Apache-2.0 | RFC 8785 JCS |
-| `http-message-signatures` | `1.0.6` | ISC | RFC 9421 signing and verification |
-| `structured-headers` | `2.0.3` | MIT | exact structured-field parsing |
+| Dependency | Version | License | Owner | Purpose |
+|---|---:|---|---|---|
+| `effect` | `3.22.0` | MIT | identity, router | typed effects, services, schemas, concurrency |
+| `@effect/platform` | `0.97.0` | MIT | identity, router | platform-neutral HTTP capabilities |
+| `@effect/platform-node` | `0.108.0` | MIT | identity, router | Node HTTP process composition |
+| `@effect/rpc` | `0.76.0` | MIT | identity, router | private typed operation groups, handlers, and in-process contract clients |
+| `@effect/experimental` | `0.61.0` | MIT | identity | compatible Effect SQL peer |
+| `@effect/sql` | `0.52.0` | MIT | identity | SQL capability, transactions, migrator |
+| `@effect/sql-pg` | `0.53.0` | MIT | identity | PostgreSQL implementation for Effect SQL |
+| `jose` | `6.2.5` | MIT | identity, router | General JWS, JWK thumbprints, Compact JWE |
+| `canonicalize` | `3.0.0` | Apache-2.0 | identity, router | RFC 8785 JCS |
+| `http-message-signatures` | `1.0.6` | ISC | identity | RFC 9421 signing and verification |
+| `structured-headers` | `2.0.3` | MIT | identity | exact structured-field parsing |
 
 Test mechanisms:
 
-| Dependency | Version | License | Purpose |
-|---|---:|---|---|
-| `vitest` | `3.2.4` | MIT | test runner |
-| `@effect/vitest` | `0.30.0` | MIT | Effect test integration |
-| `fast-check` | `3.23.2` | MIT | property tests |
-| `@electric-sql/pglite` | `0.4.4` | Apache-2.0 | embedded PostgreSQL engine |
-| `@electric-sql/pglite-socket` | `0.1.4` | Apache-2.0 | PostgreSQL socket compatibility |
-| `@testcontainers/postgresql` | `10.28.0` | MIT | real PostgreSQL integration |
+| Dependency | Version | License | Owner | Purpose |
+|---|---:|---|---|---|
+| `vitest` | `3.2.4` | MIT | identity, router | test runner |
+| `@effect/vitest` | `0.30.0` | MIT | identity, router | Effect test integration |
+| `fast-check` | `3.23.2` | MIT | identity, router | property tests |
+| `@electric-sql/pglite` | `0.4.4` | Apache-2.0 | identity | embedded PostgreSQL engine |
+| `@electric-sql/pglite-socket` | `0.1.4` | Apache-2.0 | identity | PostgreSQL socket compatibility |
+| `@testcontainers/postgresql` | `10.28.0` | MIT | identity | real PostgreSQL integration |
 
 No dependency is added until its license, maintenance status, runtime
 format, and compatibility with Node and the selected Effect versions
@@ -1390,10 +1397,11 @@ code exists in this slice.
 - Rename `moltzap-directory` to `moltzap-registry`.
 - Bump all v2 release identities to `2026.729.1`.
 - Keep exactly six packages and preserve the frozen DAG.
-- Allocate every approved runtime and test dependency to the package
-  that owns its use, pin the exact versions in each manifest, update
-  the lockfile, and verify license, maintenance, ESM, Node, and selected
-  Effect-version compatibility before importing it.
+- Record every approved runtime and test dependency under the package
+  that owns its use. Add its exact pin to that manifest and update the
+  lockfile only in the first slice that imports it for executable code
+  or behavioral tests. Verify license, maintenance, ESM, Node, and
+  selected Effect-version compatibility before that import.
 - Give `identity` and `router` non-vacuous Nx `test`,
   `test:integration`, and `typecheck:tests` targets with separate test
   TypeScript configurations. Production configurations exclude
@@ -1529,9 +1537,16 @@ Required evidence:
 
 - `identity-package.test.ts` and `router-package.test.ts`;
 - non-vacuous Nx `build`, production typecheck, test typecheck, `test`,
-  `test:integration`, `lint`, and focused architecture targets;
+  `test:integration`, and `lint` targets, plus generated
+  safer-architecture configuration and focused package targets;
+  package-local architecture findings become meaningful as real module
+  topology arrives in Batch 2 rather than through synthetic fixtures or
+  predeclared allowances in Batch 1;
 - exact six-package graph, `2026.729.1` release identity, export maps,
-  dependency allocation, and zero v1 imports;
+  recorded dependency allocation, no newly preloaded mechanism
+  dependency, and zero v1 imports; the unchanged repository-contract
+  checker verifies these cross-package invariants but is not evidence
+  of package-local architecture quality;
 - no numbered layer notation in non-documentation files; and
 - a missing target or zero discovered required tests fails.
 
@@ -1586,58 +1601,63 @@ both SignedMessage byte-length members.
 Exit: callers can understand and use signed artifacts without learning
 General JWS mechanics; readability `PASS`.
 
-### Batch 4: registered-agent HTTP authentication
+### Batch 4: identity HTTP and Registry operation foundation
 
 Production modules:
 
 - `v2/identity/src/http-errors.ts`
 - `v2/identity/src/identity-http.ts`
+- `v2/identity/src/registry/bootstrap-request.ts`
+- `v2/identity/src/registry/request-context.ts`
+- `v2/identity/src/registry/operations.ts`
+
+Required evidence:
+
+- `identity-http.test.ts`
+- `registry-bootstrap-request.test.ts`
+- `registry-request-context.test.ts`
+- `registry-operations.test.ts`
+
+Tests cover RFC 9421 oracle agreement, exact bootstrap fields and
+order, admission failure collapse, redaction, absent request proof,
+FiberRef isolation, inheritance, and cleanup, middleware
+short-circuiting, exact `A`/`E` correlation, and the absence of
+existing-agent authentication from registration.
+
+Exit: private HTTP, bootstrap-admission, request-context, and operation
+group foundations are closed and readable without a temporary public
+API; readability is `PASS`.
+
+### Batch 5: Registry client and registered-agent authentication
+
+Production modules:
+
+- `v2/identity/src/registry/client.ts`
+- `v2/identity/src/registry.ts`
 - `v2/identity/src/registered-agent-request.ts`
 - `v2/identity/src/authenticated-http.ts`
 - `v2/identity/src/index.ts`
 
 Required evidence:
 
+- `registry-client.test.ts`
+- `registry.types-check.ts`
 - `authenticated-http.test.ts`
 - `authenticated-http.types-check.ts`
 - `authenticated-http.integration.test.ts`
 - `authenticated-http.mutation.test.ts`
 
-Tests cover RFC 9421 oracle agreement, exact fields and order,
-time/replay boundaries, capacity refusal, wrong-version nonce
-consumption, `VerifiedAgentRequest` nominality and fields, card reuse,
-failure collapse, redaction, and rejection of registration as an
-AuthenticatedHttp operation.
+Tests cover response-card and request-binding verification, distinct
+connection, timeout, signing, declared-server, and invalid-response
+errors, registered-agent time and replay boundaries, capacity refusal,
+wrong-version nonce consumption, `VerifiedAgentRequest` nominality and
+fields, card reuse, failure collapse, and rejection of registration as
+an AuthenticatedHttp operation.
 
-Exit: the registered-agent stage order appears once, the proof cannot
-be fabricated or serialized, and readability is `PASS`.
-
-### Batch 5: Registry operations and client
-
-Production modules:
-
-- `v2/identity/src/registry/bootstrap-request.ts`
-- `v2/identity/src/registry/request-context.ts`
-- `v2/identity/src/registry/operations.ts`
-- `v2/identity/src/registry/client.ts`
-- `v2/identity/src/registry.ts`
-
-Required evidence:
-
-- `registry-bootstrap-request.test.ts`
-- `registry-request-context.test.ts`
-- `registry-operations.test.ts`
-- `registry.types-check.ts`
-- `registry-client.test.ts`
-
-Tests cover bootstrap admission, exact private RPC middleware, absent
-proof, FiberRef isolation/inheritance/cleanup, middleware
-short-circuiting, exact `A`/`E` correlation, response-card and binding
-verification, and distinct connection, timeout, signing, declared
-server, and invalid-response errors.
-
-Exit: registration plainly means bootstrap admission rather than
-existing-agent authentication; public reads have no auth; readability
+Exit: `Registry` exists before `AuthenticatedHttp.layer` requires it,
+the root façade exposes both complete capabilities, registration
+plainly means bootstrap admission, public reads have no authentication,
+the registered-agent stage order appears once, and readability is
 `PASS`.
 
 ### Batch 6: Registry state and configuration

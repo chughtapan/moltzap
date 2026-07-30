@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ReflectionKind } from "typedoc";
-import { exportsForModuleFolder, exportsForPackageRoot } from "../modules.js";
+import {
+  exportsForModuleFolder,
+  exportsForPackageRoot,
+  modulePageSlug,
+  sourcePermalink,
+} from "../modules.js";
 import type { TypeDocCache, TypeDocExport } from "../typedoc-load.js";
 
 const exported = (
@@ -83,5 +88,28 @@ describe("exportsForModuleFolder", () => {
     expect(
       exportsForModuleFolder(cache, "packages/simulator/src/runtime"),
     ).toEqual([nested]);
+  });
+});
+
+describe("v2 module documentation", () => {
+  it("uses collision-free v2 page slugs", () => {
+    expect({
+      v1: modulePageSlug("packages/simulator/src"),
+      identity: modulePageSlug("v2/identity/src"),
+      routerState: modulePageSlug("v2/router/src/state"),
+    }).toEqual({
+      v1: "simulator/src",
+      identity: "v2/identity/src",
+      routerState: "v2/router/state",
+    });
+  });
+
+  it("links each source track to its owning branch", () => {
+    expect(sourcePermalink("packages/protocol/src/index.ts", 4)).toBe(
+      "https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/index.ts#L4",
+    );
+    expect(sourcePermalink("v2/router/src/index.ts", 7)).toBe(
+      "https://github.com/chughtapan/moltzap/blob/v2/v2/router/src/index.ts#L7",
+    );
   });
 });

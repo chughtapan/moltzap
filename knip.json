@@ -67,7 +67,17 @@
       ],
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
+    "v2/identity": {
+      "entry": [
+        "src/**/*.test.ts",
+        "src/**/*.types-check.ts",
+        "vitest*.config.mjs"
+      ],
+      "project": ["src/**/*.ts", "*.mjs"]
+    },
     "v2/router": {
+      "entry": ["src/**/*.test.ts", "vitest*.config.mjs"],
+      "project": ["src/**/*.ts", "*.mjs"],
       "ignoreDependencies": ["@moltzap/v2-identity"]
     },
     "v2/transcript": {
