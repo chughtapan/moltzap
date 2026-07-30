@@ -58,6 +58,7 @@
     },
     "typecheck:tests": {
       "dependsOn": [
+        "build",
         "^build"
       ],
       "inputs": [
