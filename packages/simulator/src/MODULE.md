@@ -777,19 +777,20 @@ export class Endpoint<Name extends string = string> {
 
 A run-scoped participant controlled directly by the experiment program.
 
-### [`EndpointMessageReceived`](./events/core.ts#L131)
+### [`EndpointMessageReceived`](./events/core.ts#L132)
 
 _Class_
 
 ```ts
 export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageReceived>()(
-  "moltzap.endpoint-message-received/v1",
+  "moltzap.endpoint-message-received/v2",
   {
     endpointId: agentId,
     taskId: taskId,
     conversationId: conversationId,
     messageId: messageId,
     senderId: agentId,
+    replyToId: Schema.optional(messageId),
     parts: messageParts,
   },
 ) {}
@@ -803,12 +804,13 @@ _Class_
 
 ```ts
 export class EndpointMessageSent extends Schema.TaggedClass<EndpointMessageSent>()(
-  "moltzap.endpoint-message-sent/v1",
+  "moltzap.endpoint-message-sent/v2",
   {
     endpointId: agentId,
     taskId: taskId,
     conversationId: conversationId,
     messageId: messageId,
+    replyToId: Schema.optional(messageId),
     parts: messageParts,
   },
 ) {}
@@ -1094,7 +1096,7 @@ export interface LinkControllerService {
 
 Run-scoped, evidence-producing directed-link control.
 
-### [`LinkDown`](./events/core.ts#L155)
+### [`LinkDown`](./events/core.ts#L157)
 
 _Class_
 
@@ -1110,7 +1112,7 @@ export class LinkDown extends Schema.TaggedClass<LinkDown>()(
 
 A directed participant link transitioned from available to unavailable.
 
-### [`LinkUp`](./events/core.ts#L164)
+### [`LinkUp`](./events/core.ts#L166)
 
 _Class_
 
@@ -1308,7 +1310,7 @@ export class ParticipantHandle<Name extends string = string> {
 A router-issued network identity. The hidden symbol prevents structurally
 similar protocol data from being used as an identity handle.
 
-### [`ProgramFailed`](./events/core.ts#L176)
+### [`ProgramFailed`](./events/core.ts#L178)
 
 _Class_
 
@@ -1336,7 +1338,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](./events/core.ts#L184)
+### [`ProgramInterrupted`](./events/core.ts#L186)
 
 _Class_
 
@@ -1351,7 +1353,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L170)
+### [`ProgramSucceeded`](./events/core.ts#L172)
 
 _Class_
 
@@ -1394,7 +1396,7 @@ export interface ReceivedMessage {
 
 A message delivered to one attached endpoint.
 
-### [`RouterMessageCommitted`](./events/core.ts#L147)
+### [`RouterMessageCommitted`](./events/core.ts#L149)
 
 _Class_
 

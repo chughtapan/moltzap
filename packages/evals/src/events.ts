@@ -37,7 +37,7 @@ export class EvaluationParticipantAssigned extends Schema.TaggedClass<Evaluation
 
 /** A case selects one canonical target delivery as rubric evidence. */
 export class EvaluationResponseSelected extends Schema.TaggedClass<EvaluationResponseSelected>()(
-  "moltzap.evaluation-response-selected/v3",
+  "moltzap.evaluation-response-selected/v4",
   {
     caseId: EvaluationCaseId,
     endpointName: Schema.NonEmptyString,
@@ -46,6 +46,7 @@ export class EvaluationResponseSelected extends Schema.TaggedClass<EvaluationRes
     targetId: AgentId,
     taskId: TaskId,
     conversationId: ConversationId,
+    promptMessageId: MessageId,
     messageId: MessageId,
   },
 ) {}
@@ -71,7 +72,7 @@ export const RuntimeTerminationEvidence = Schema.Union(
 export type RuntimeTerminationEvidence = typeof RuntimeTerminationEvidence.Type;
 
 /** Ordered ledger envelope fields required by runtime evidence projection. */
-export interface RuntimeEvidenceLedgerRecord {
+interface RuntimeEvidenceLedgerRecord {
   readonly event: unknown;
 }
 
@@ -117,7 +118,7 @@ export type RuntimeTerminationEvidenceReadOutcome =
  * The same projection accepts live and completed ledgers. Consumers choose
  * whether to wait for the first observation or collect a completed history.
  */
-export function runtimeTerminationEvidence<Failure>(
+function runtimeTerminationEvidence<Failure>(
   ledger: RuntimeEvidenceLedger<Failure>,
 ): Stream.Stream<RuntimeTerminationEvidence, Failure> {
   return ledger.records.pipe(
@@ -197,7 +198,7 @@ export function participantAssignmentsForEpisode(
 }
 
 /** Construct an assignment directly for focused episode tests. */
-export function assignEvaluationParticipant(
+function assignEvaluationParticipant(
   caseId: EvaluationCaseId,
   participant: EpisodeParticipant,
 ): EvaluationParticipantAssigned {
@@ -222,6 +223,7 @@ export function selectEvaluationResponse(
     targetId: response.targetId,
     taskId: response.received.taskId,
     conversationId: response.received.message.conversationId,
+    promptMessageId: response.promptMessageId,
     messageId: response.received.message.id,
   });
 }

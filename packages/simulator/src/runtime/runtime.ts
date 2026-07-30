@@ -83,7 +83,7 @@ export interface AgentRuntimeInput<Name extends string> {
 }
 
 /** Runtime-native schema and sanitized configuration captured at definition. */
-export interface AgentRuntimeConfiguration<
+interface AgentRuntimeConfiguration<
   ConfigurationSchema extends Schema.Schema.AnyNoContext,
 > {
   readonly schema: ConfigurationSchema;

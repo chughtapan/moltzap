@@ -26,7 +26,7 @@ import {
   Redacted,
   Schema,
 } from "effect";
-import type { CodeAssessment, CriterionAssessment } from "./grading.js";
+import type { CriterionAssessment } from "./grading.js";
 import { ConditionId } from "./cases.js";
 import {
   canonicalJson,
@@ -58,7 +58,7 @@ type PhoenixExperimentsPage =
 type PhoenixRun = Awaited<ReturnType<typeof getExperimentRuns>>["runs"][number];
 
 /** Published experiment location for one runtime condition. */
-export class PhoenixExperimentPublication extends Schema.Class<PhoenixExperimentPublication>(
+class PhoenixExperimentPublication extends Schema.Class<PhoenixExperimentPublication>(
   "PhoenixExperimentPublication",
 )({
   conditionId: ConditionId,
@@ -67,7 +67,7 @@ export class PhoenixExperimentPublication extends Schema.Class<PhoenixExperiment
 }) {}
 
 /** Immutable publication receipt returned without changing the local report. */
-export class PhoenixPublication extends Schema.Class<PhoenixPublication>(
+class PhoenixPublication extends Schema.Class<PhoenixPublication>(
   "PhoenixPublication",
 )({
   datasetId: Schema.NonEmptyString,
@@ -76,7 +76,7 @@ export class PhoenixPublication extends Schema.Class<PhoenixPublication>(
 }) {}
 
 /** Phoenix or its transport rejected one request. */
-export class PhoenixRequestFailed extends Schema.TaggedError<PhoenixRequestFailed>()(
+class PhoenixRequestFailed extends Schema.TaggedError<PhoenixRequestFailed>()(
   "PhoenixRequestFailed",
   {
     operation: Schema.NonEmptyString,
@@ -103,13 +103,12 @@ export class PhoenixPublicationEncodingError extends Schema.TaggedError<PhoenixP
   },
 ) {}
 
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- publisher callers consume this closed persisted error vocabulary.
-export const PhoenixPublicationError = Schema.Union(
+const PhoenixPublicationError = Schema.Union(
   PhoenixRequestFailed,
   PhoenixPublicationConflict,
   PhoenixPublicationEncodingError,
 );
-export type PhoenixPublicationError = typeof PhoenixPublicationError.Type;
+type PhoenixPublicationError = typeof PhoenixPublicationError.Type;
 
 type PublishFailure = EvaluationReportValidationError | PhoenixPublicationError;
 
@@ -286,45 +285,51 @@ export function reconcilePhoenixDatasetCatalog(
   }).pipe(Effect.withSpan("evals.reconcilePhoenixDatasetCatalog"));
 }
 
-function validateDataset(
-  dataset: PhoenixDataset,
-  report: CompletedEvaluationReport,
-): Effect.Effect<
-  PhoenixDataset,
-  PhoenixPublicationConflict | PhoenixPublicationEncodingError
-> {
-  return reconcilePhoenixDatasetCatalog(dataset, report.plan).pipe(
-    Effect.as(dataset),
-  );
-}
-
-function fetchDataset(
+/** Find the stable dataset without asking the SDK to interpret an empty list. */
+export function findPhoenixDataset(
   client: PhoenixClient,
-): Effect.Effect<PhoenixDataset | undefined, PhoenixRequestFailed> {
-  return phoenixRequest("get evaluation dataset", () =>
-    getDataset({
-      client,
-      dataset: { datasetName: DATASET_NAME },
-    }),
-  ).pipe(
-    Effect.catchTag("PhoenixRequestFailed", (error) =>
-      error.status === 404 ? Effect.succeed(undefined) : Effect.fail(error),
-    ),
-  );
+): Effect.Effect<
+  PhoenixDataset | undefined,
+  PhoenixRequestFailed | PhoenixPublicationConflict
+> {
+  const operation = "find evaluation dataset";
+  return Effect.gen(function* () {
+    const response = yield* phoenixRequest(operation, () =>
+      client.GET("/v1/datasets", {
+        params: { query: { name: DATASET_NAME, limit: 2, cursor: null } },
+      }),
+    );
+    const datasets = response.data?.data;
+    if (datasets === undefined) {
+      return yield* Effect.fail(
+        requestFailure(operation, "Phoenix returned no dataset page"),
+      );
+    }
+    const [dataset, ...duplicates] = datasets.filter(
+      (candidate) => candidate.name === DATASET_NAME,
+    );
+    if (duplicates.length > 0) {
+      return yield* Effect.fail(
+        conflict("dataset", DATASET_NAME, "remote identity is not unique"),
+      );
+    }
+    if (dataset === undefined) return undefined;
+    return yield* phoenixRequest("get evaluation dataset", () =>
+      getDataset({ client, dataset: { datasetId: dataset.id } }),
+    );
+  }).pipe(Effect.withSpan("evals.findPhoenixDataset"));
 }
 
 function updateDatasetCatalog(
   client: PhoenixClient,
-  report: CompletedEvaluationReport,
+  plan: EvaluationReportPlan,
 ): Effect.Effect<string, PhoenixRequestFailed> {
-  const operation = "update evaluation dataset";
-  const examples = phoenixCatalogExamples(report.plan);
-  return phoenixRequest(operation, () =>
+  return phoenixRequest("update evaluation dataset", () =>
     createDataset({
       client,
       name: DATASET_NAME,
       description: DATASET_DESCRIPTION,
-      examples,
+      examples: phoenixCatalogExamples(plan),
     }),
   ).pipe(Effect.map(({ datasetId }) => datasetId));
 }
@@ -333,25 +338,6 @@ type DatasetFailure =
   | PhoenixRequestFailed
   | PhoenixPublicationConflict
   | PhoenixPublicationEncodingError;
-
-function ensureDataset(
-  client: PhoenixClient,
-  report: CompletedEvaluationReport,
-): Effect.Effect<PhoenixDataset, DatasetFailure> {
-  return Effect.gen(function* () {
-    yield* updateDatasetCatalog(client, report);
-    const current = yield* fetchDataset(client);
-    if (current === undefined) {
-      return yield* Effect.fail(
-        requestFailure(
-          "get updated evaluation dataset",
-          "dataset disappeared after update",
-        ),
-      );
-    }
-    return yield* validateDataset(current, report);
-  });
-}
 
 function fetchExperimentsPage(
   client: PhoenixClient,
@@ -411,11 +397,81 @@ function experimentName(
   return `moltzap/${digest}/${condition.id}`;
 }
 
-function experimentDescription(
-  report: CompletedEvaluationReport,
-  condition: EvaluationConditionPlan,
-): string {
-  return `MoltZap evaluation report ${report.reportId}, condition ${condition.id}.`;
+/** Dataset version fields retained by an existing Phoenix experiment. */
+export type PhoenixExperimentDatasetReference = Pick<
+  PhoenixExperiment,
+  "name" | "dataset_version_id"
+>;
+
+/** Find the dataset version already pinned by a report's experiments. */
+export function phoenixPublishedDatasetVersion(
+  digest: EvaluationReportDigest,
+  plan: EvaluationReportPlan,
+  experiments: ReadonlyArray<PhoenixExperimentDatasetReference>,
+): Effect.Effect<Option.Option<string>, PhoenixPublicationConflict> {
+  const identities = new Set(
+    plan.conditions.map((condition) => experimentName(digest, condition)),
+  );
+  const versions = new Set(
+    experiments
+      .filter((experiment) => identities.has(experiment.name))
+      .map((experiment) => experiment.dataset_version_id),
+  );
+  const mismatch = conflict(
+    "experiment",
+    digest,
+    "report experiments use different dataset versions",
+  );
+  return versions.size > 1
+    ? Effect.fail(mismatch)
+    : Effect.succeed(Option.fromIterable(versions));
+}
+
+function ensureDataset(
+  client: PhoenixClient,
+  plan: EvaluationReportPlan,
+  digest: EvaluationReportDigest,
+): Effect.Effect<PhoenixDataset, DatasetFailure> {
+  return Effect.gen(function* () {
+    const latest = yield* findPhoenixDataset(client);
+    if (latest !== undefined) {
+      const experiments = yield* listExperiments(client, latest.id);
+      const publishedVersion = yield* phoenixPublishedDatasetVersion(
+        digest,
+        plan,
+        experiments,
+      );
+      if (Option.isSome(publishedVersion)) {
+        const published = yield* phoenixRequest(
+          "get evaluation dataset version",
+          () =>
+            getDataset({
+              client,
+              dataset: {
+                datasetId: latest.id,
+                versionId: publishedVersion.value,
+              },
+            }),
+        );
+        return yield* reconcilePhoenixDatasetCatalog(published, plan).pipe(
+          Effect.as(published),
+        );
+      }
+    }
+    yield* updateDatasetCatalog(client, plan);
+    const updated = yield* findPhoenixDataset(client);
+    if (updated !== undefined) {
+      return yield* reconcilePhoenixDatasetCatalog(updated, plan).pipe(
+        Effect.as(updated),
+      );
+    }
+    return yield* Effect.fail(
+      requestFailure(
+        "get updated evaluation dataset",
+        "dataset disappeared after update",
+      ),
+    );
+  });
 }
 
 /** Runtime and judge inputs exposed on each condition experiment. */
@@ -470,11 +526,14 @@ interface PublicationContext {
   readonly digest: EvaluationReportDigest;
 }
 
-function experimentMatches(
+function validateExperiment(
   experiment: PhoenixExperiment,
   context: PublicationContext,
   condition: EvaluationConditionPlan,
-): Effect.Effect<boolean, PhoenixPublicationEncodingError> {
+): Effect.Effect<
+  PhoenixExperiment,
+  PhoenixPublicationConflict | PhoenixPublicationEncodingError
+> {
   const identity = experimentName(context.digest, condition);
   return Effect.gen(function* () {
     const expectedMetadata = yield* experimentMetadata(
@@ -486,29 +545,16 @@ function experimentMatches(
       experiment.metadata,
       expectedMetadata,
     );
-    return [
+    const matches = [
       experiment.name === identity,
       experiment.description ===
-        experimentDescription(context.report, condition),
+        `MoltZap evaluation report ${context.report.reportId}, condition ${condition.id}.`,
       experiment.dataset_id === context.dataset.id,
       experiment.dataset_version_id === context.dataset.versionId,
       experiment.repetitions === FIRST_REPETITION,
       metadataMatches,
     ].every(Boolean);
-  });
-}
-
-function validateExperiment(
-  experiment: PhoenixExperiment,
-  context: PublicationContext,
-  condition: EvaluationConditionPlan,
-): Effect.Effect<
-  PhoenixExperiment,
-  PhoenixPublicationConflict | PhoenixPublicationEncodingError
-> {
-  const identity = experimentName(context.digest, condition);
-  return Effect.gen(function* () {
-    if (!(yield* experimentMatches(experiment, context, condition))) {
+    if (!matches) {
       return yield* Effect.fail(
         conflict(
           "experiment",
@@ -575,7 +621,7 @@ function ensureExperiment(
         datasetId: context.dataset.id,
         datasetVersionId: context.dataset.versionId,
         experimentName: identity,
-        experimentDescription: experimentDescription(context.report, condition),
+        experimentDescription: `MoltZap evaluation report ${context.report.reportId}, condition ${condition.id}.`,
         experimentMetadata: metadata,
         repetitions: FIRST_REPETITION,
       }),
@@ -833,16 +879,6 @@ function assessmentEvaluation(
   };
 }
 
-function codeEvaluations(
-  assessments: ReadonlyArray<CodeAssessment>,
-  reportDigest: EvaluationReportDigest,
-  condition: EvaluationConditionPlan,
-): ReadonlyArray<ExpectedEvaluation> {
-  return assessments.map((assessment) =>
-    assessmentEvaluation(assessment, reportDigest, condition),
-  );
-}
-
 function evidenceErrorEvaluation(
   attempt: EvidenceRejectedAttempt,
   reportDigest: EvaluationReportDigest,
@@ -883,7 +919,9 @@ function judgeErrorEvaluations(
       }),
     );
   return [
-    ...codeEvaluations(attempt.codeAssessments, reportDigest, condition),
+    ...attempt.codeAssessments.map((assessment) =>
+      assessmentEvaluation(assessment, reportDigest, condition),
+    ),
     ...failures,
   ];
 }
@@ -994,20 +1032,6 @@ function publishAttempt(
   });
 }
 
-function experimentUrl(
-  baseUrl: string,
-  datasetId: string,
-  experimentId: string,
-): Effect.Effect<string, PhoenixPublicationEncodingError> {
-  return Effect.try({
-    try: () => getExperimentUrl({ baseUrl, datasetId, experimentId }),
-    catch: (cause) =>
-      encodingError(
-        `cannot construct Phoenix experiment URL: ${describeUnknown(cause)}`,
-      ),
-  });
-}
-
 function publishCondition(
   publication: PublicationContext,
   baseUrl: string,
@@ -1030,11 +1054,18 @@ function publishCondition(
       (attempt) => publishAttempt(context, attempt),
       { concurrency: 1, discard: true },
     );
-    const url = yield* experimentUrl(
-      baseUrl,
-      publication.dataset.id,
-      experiment.id,
-    );
+    const url = yield* Effect.try({
+      try: () =>
+        getExperimentUrl({
+          baseUrl,
+          datasetId: publication.dataset.id,
+          experimentId: experiment.id,
+        }),
+      catch: (cause) =>
+        encodingError(
+          `cannot construct Phoenix experiment URL: ${describeUnknown(cause)}`,
+        ),
+    });
     return PhoenixExperimentPublication.make({
       conditionId: condition.id,
       experimentId: experiment.id,
@@ -1044,7 +1075,7 @@ function publishCondition(
 }
 
 /** Build a publisher around an explicitly configured Phoenix client. */
-export function makePhoenixPublisher(
+function makePhoenixPublisher(
   client: PhoenixClient,
   baseUrl: string,
 ): PhoenixPublisherService {
@@ -1053,7 +1084,7 @@ export function makePhoenixPublisher(
       Effect.gen(function* () {
         const validated = yield* validateCompletedEvaluationReport(report);
         const digest = yield* digestEvaluationReport(validated);
-        const dataset = yield* ensureDataset(client, validated);
+        const dataset = yield* ensureDataset(client, validated.plan, digest);
         const publication: PublicationContext = {
           client,
           dataset,

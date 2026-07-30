@@ -117,25 +117,27 @@ export class ConversationOpened extends Schema.TaggedClass<ConversationOpened>()
 
 /** A controlled endpoint committed a message through the data plane. */
 export class EndpointMessageSent extends Schema.TaggedClass<EndpointMessageSent>()(
-  "moltzap.endpoint-message-sent/v1",
+  "moltzap.endpoint-message-sent/v2",
   {
     endpointId: agentId,
     taskId: taskId,
     conversationId: conversationId,
     messageId: messageId,
+    replyToId: Schema.optional(messageId),
     parts: messageParts,
   },
 ) {}
 
 /** A controlled endpoint received a message through the data plane. */
 export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageReceived>()(
-  "moltzap.endpoint-message-received/v1",
+  "moltzap.endpoint-message-received/v2",
   {
     endpointId: agentId,
     taskId: taskId,
     conversationId: conversationId,
     messageId: messageId,
     senderId: agentId,
+    replyToId: Schema.optional(messageId),
     parts: messageParts,
   },
 ) {}

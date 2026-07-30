@@ -238,13 +238,18 @@ Stream operators directly to express completion. Runtime termination is
 ledger evidence, not an implicit global stop rule; customer policy decides
 whether an agent exit should fail, finish, or leave the experiment running.
 
-After ledger allocation, the run returns a closed outcome.
+When the outer Effect completes after ledger allocation, the run returns a
+closed outcome.
 `ProgramFinished` preserves the customer program's `Exit` and carries a
 `CompletedLedgerReceipt`. `RunInfrastructureFailed` preserves the exact
 infrastructure `Cause` and carries either a completed or incomplete receipt.
 Both receipts retain the storage-owned ledger reference. Only allocation
-failure, before such a reference exists, remains a typed failure of the outer
-Effect.
+failure before an active ledger capability reaches kernel ownership remains a
+typed failure of the outer Effect. A `LedgerStorageError` may still identify a
+reference minted during that unsuccessful allocation.
+
+Caller interruption remains interruption after the kernel's finalization
+attempt and therefore does not return either outcome.
 
 Customer modules own scenario formats, operator commands, completion policy,
 sweep execution, and graders.

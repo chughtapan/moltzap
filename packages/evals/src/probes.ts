@@ -16,7 +16,7 @@ import {
   type ConversationSocket,
   type ReceivedMessage,
 } from "@moltzap/simulator";
-import { Cause, Duration, Effect, Exit, Schema } from "effect";
+import { Cause, Duration, Effect, Exit, Random, Schema } from "effect";
 import {
   readRuntimeTerminationEvidence,
   RuntimeTerminationEvidence,
@@ -31,6 +31,9 @@ const CONTROLLER_NAME = "probe-controller";
 const PROPOSAL_TOKEN = "PROPOSAL:12";
 const APPROVAL_PREFIX = "WITNESS:APPROVED:12:";
 const FINAL_TOKEN = "FINAL:12";
+const APPROVAL_RECEIPT_PREFIX = "RECEIPT:";
+const APPROVAL_RECEIPT_MIN = 100_000_000;
+const APPROVAL_RECEIPT_MAX = 1_000_000_000;
 const MAX_OBSERVED_MESSAGES = 100;
 const DEFAULT_PROBE_TIMEOUT = Duration.minutes(10);
 const DEFAULT_RUNTIME_STARTUP_TIMEOUT = Duration.minutes(5);
@@ -44,8 +47,8 @@ const SharedProbeRole = Schema.Literal(
 );
 type SharedProbeRole = typeof SharedProbeRole.Type;
 
-/** One participant message observed by the controller in ledger order. */
-export class SharedProbeObservation extends Schema.Class<SharedProbeObservation>(
+/** One participant message in controller receive order. */
+class SharedProbeObservation extends Schema.Class<SharedProbeObservation>(
   "SharedProbeObservation",
 )({
   role: SharedProbeRole,
@@ -55,7 +58,7 @@ export class SharedProbeObservation extends Schema.Class<SharedProbeObservation>
 }) {}
 
 /** The three-message dependency chain observed in one shared conversation. */
-export class SharedProbeEvidence extends Schema.Class<SharedProbeEvidence>(
+class SharedProbeEvidence extends Schema.Class<SharedProbeEvidence>(
   "SharedProbeEvidence",
 )({
   taskId: TaskId,
@@ -66,7 +69,7 @@ export class SharedProbeEvidence extends Schema.Class<SharedProbeEvidence>(
 }) {}
 
 /** A real NanoClaw → Effect → OpenClaw collaboration completed. */
-export class SharedProbePassed extends Schema.TaggedClass<SharedProbePassed>()(
+class SharedProbePassed extends Schema.TaggedClass<SharedProbePassed>()(
   "SharedProbePassed",
   {
     receipt: CompletedLedgerReceipt,
@@ -84,15 +87,11 @@ export class SharedProbeFailed extends Schema.TaggedClass<SharedProbeFailed>()(
   },
 ) {}
 
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- CLI and tests inspect the complete persisted probe outcome vocabulary.
-export const SharedProbeOutcome = Schema.Union(
-  SharedProbePassed,
-  SharedProbeFailed,
-);
-export type SharedProbeOutcome = typeof SharedProbeOutcome.Type;
+const SharedProbeOutcome = Schema.Union(SharedProbePassed, SharedProbeFailed);
+type SharedProbeOutcome = typeof SharedProbeOutcome.Type;
 
 /** A bounded probe rejected traffic that never formed the required chain. */
-export class SharedProbeProtocolFailed extends Schema.TaggedError<SharedProbeProtocolFailed>()(
+class SharedProbeProtocolFailed extends Schema.TaggedError<SharedProbeProtocolFailed>()(
   "SharedProbeProtocolFailed",
   {
     detail: Schema.NonEmptyString,
@@ -118,6 +117,7 @@ interface ExpectedParticipants {
   readonly proposer: AgentId;
   readonly witness: AgentId;
   readonly finalizer: AgentId;
+  readonly approvalReceipt: string;
 }
 
 interface ProbeProgress {
@@ -173,7 +173,9 @@ function isApproval(
     progress.proposal !== undefined &&
     progress.approval === undefined &&
     received.message.senderId === expected.witness &&
-    text.includes(`${APPROVAL_PREFIX}${progress.proposal.messageId}`)
+    text.includes(
+      `${APPROVAL_PREFIX}${progress.proposal.messageId}:${APPROVAL_RECEIPT_PREFIX}${expected.approvalReceipt}`,
+    )
   );
 }
 
@@ -187,7 +189,17 @@ function isFinal(
     progress.proposal !== undefined &&
     progress.approval !== undefined &&
     received.message.senderId === expected.finalizer &&
-    text.includes(FINAL_TOKEN)
+    hasFinalApprovalReceipt(text, expected.approvalReceipt)
+  );
+}
+
+/** A final response proves it observed the unpredictable witness receipt. */
+export function hasFinalApprovalReceipt(
+  text: string,
+  approvalReceipt: string,
+): boolean {
+  return text.includes(
+    `${FINAL_TOKEN}:${APPROVAL_RECEIPT_PREFIX}${approvalReceipt}`,
   );
 }
 
@@ -258,7 +270,7 @@ export function sharedConversationProbePrompt(): string {
     "Complete this role-specific protocol in this shared conversation.",
     `${PROPOSER_NAME}: calculate 7 + 5 and reply with the prefix PROPOSAL: immediately followed by the decimal result.`,
     `${WITNESS_NAME}: wait for that proposal and validate it.`,
-    `${FINALIZER_NAME}: wait for the witness approval, then reply with the prefix FINAL: immediately followed by the approved decimal result.`,
+    `${FINALIZER_NAME}: wait for the witness approval, then reply with FINAL:<approved decimal result>:RECEIPT:<the exact receipt from that approval>.`,
     "Do not claim another participant's role and do not skip a dependency.",
   ].join("\n");
 }
@@ -271,6 +283,7 @@ function failureDetail(cause: Cause.Cause<unknown>): string {
 function probeRoster(
   options: SharedConversationProbeOptions,
   startupTimeout: Duration.Duration,
+  approvalReceipt: string,
 ) {
   const witness = effectRuntime({
     startupTimeout,
@@ -280,7 +293,9 @@ function probeRoster(
         .map((part) => part.text)
         .join("\n");
       return text.includes(PROPOSAL_TOKEN)
-        ? Effect.succeed(`${APPROVAL_PREFIX}${message.id}`)
+        ? Effect.succeed(
+            `${APPROVAL_PREFIX}${message.id}:${APPROVAL_RECEIPT_PREFIX}${approvalReceipt}`,
+          )
         : Effect.succeed(undefined);
     },
   });
@@ -302,7 +317,11 @@ function probeRoster(
 
 type ProbeRoster = ReturnType<typeof probeRoster>;
 
-function probeProgram(roster: ProbeRoster, timeout: Duration.Duration) {
+function probeProgram(
+  roster: ProbeRoster,
+  timeout: Duration.Duration,
+  approvalReceipt: string,
+) {
   return Effect.gen(function* () {
     const agents = yield* roster.Agents;
     const ledger = yield* SharedProbeSociety.Ledger;
@@ -321,6 +340,7 @@ function probeProgram(roster: ProbeRoster, timeout: Duration.Duration) {
             proposer: agents[PROPOSER_NAME].id,
             witness: agents[WITNESS_NAME].id,
             finalizer: agents[FINALIZER_NAME].id,
+            approvalReceipt,
           },
           { observations: 0 },
         ),
@@ -368,10 +388,14 @@ export const runSharedConversationProbe = Effect.fn(
 )(function* (options: SharedConversationProbeOptions) {
   const startupTimeout =
     options.runtimeStartupTimeout ?? DEFAULT_RUNTIME_STARTUP_TIMEOUT;
-  const roster = probeRoster(options, startupTimeout);
+  const approvalReceipt = String(
+    yield* Random.nextIntBetween(APPROVAL_RECEIPT_MIN, APPROVAL_RECEIPT_MAX),
+  );
+  const roster = probeRoster(options, startupTimeout, approvalReceipt);
   const program = probeProgram(
     roster,
     options.timeout ?? DEFAULT_PROBE_TIMEOUT,
+    approvalReceipt,
   );
   const outcome = yield* SharedProbeSociety.run(roster, program, {
     provenance: { probe: "shared-runtime-collaboration" },

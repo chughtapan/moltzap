@@ -166,10 +166,12 @@ run.
 For example, `packages/evals` emits
 `EvaluationParticipantAssigned` for episode-owned roles and
 `EvaluationResponseSelected` with the case, endpoint, target, task,
-conversation, and message identities. Its transcript projector joins that
-exact reference to `ConversationOpened`, `EndpointMessageSent`, and
-`EndpointMessageReceived`. This preserves canonical network facts while
-making customer topology and selection policy explicit and typed.
+conversation, prompt-message, and selected-message identities. Its transcript
+projector joins those exact references to `ConversationOpened`,
+`EndpointMessageSent`, `EndpointMessageReceived`, and
+`RouterMessageCommitted`. This preserves canonical network facts, exact prompt
+correlation, and durable router order while making customer topology and
+selection policy explicit and typed.
 
 ## Code graders compose
 

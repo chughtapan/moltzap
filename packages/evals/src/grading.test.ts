@@ -1,5 +1,5 @@
 import { assert, describe, it, layer } from "@effect/vitest";
-import type { ConversationId } from "@moltzap/protocol/conversation";
+import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import {
   agentId,
@@ -12,7 +12,9 @@ import {
   EndpointMessageReceived,
   EndpointMessageSent,
   ProgramSucceeded,
+  RouterMessageCommitted,
 } from "@moltzap/simulator";
+import { routerSequence } from "@moltzap/simulator/network";
 import { ConfigProvider, Effect, Schema, Stream } from "effect";
 import {
   CriterionDecided,
@@ -122,6 +124,18 @@ function directLedger(
       },
       {
         logicalSequence: 4,
+        event: EndpointMessageReceived.make({
+          endpointId: ledgerSenderId,
+          taskId: ledgerTaskId,
+          conversationId: ledgerConversationId,
+          messageId: ledgerResponseId,
+          senderId: ledgerTargetId,
+          replyToId: ledgerPromptId,
+          parts: [{ type: "text", text: "They are scoped message threads." }],
+        }),
+      },
+      {
+        logicalSequence: 5,
         event: EndpointMessageSent.make({
           endpointId: ledgerSenderId,
           taskId: ledgerTaskId,
@@ -130,17 +144,6 @@ function directLedger(
           parts: [
             { type: "text", text: "Please explain MoltZap conversations." },
           ],
-        }),
-      },
-      {
-        logicalSequence: 5,
-        event: EndpointMessageReceived.make({
-          endpointId: ledgerSenderId,
-          taskId: ledgerTaskId,
-          conversationId: ledgerConversationId,
-          messageId: ledgerResponseId,
-          senderId: ledgerTargetId,
-          parts: [{ type: "text", text: "They are scoped message threads." }],
         }),
       },
       {
@@ -154,12 +157,33 @@ function directLedger(
           taskId: ledgerTaskId,
           conversationId:
             options.selectionConversationId ?? ledgerConversationId,
+          promptMessageId: ledgerPromptId,
           messageId: ledgerResponseId,
         }),
       },
       {
         logicalSequence: 7,
         event: ProgramSucceeded.make(),
+      },
+      {
+        logicalSequence: 8,
+        event: RouterMessageCommitted.make({
+          taskId: ledgerTaskId,
+          conversationId: ledgerConversationId,
+          messageId: ledgerPromptId,
+          senderId: ledgerSenderId,
+          routerSequence: routerSequence(1),
+        }),
+      },
+      {
+        logicalSequence: 9,
+        event: RouterMessageCommitted.make({
+          taskId: ledgerTaskId,
+          conversationId: ledgerConversationId,
+          messageId: ledgerResponseId,
+          senderId: ledgerTargetId,
+          routerSequence: routerSequence(2),
+        }),
       },
     ]),
   };
@@ -182,7 +206,7 @@ function directLedgerWithDuplicateSelection() {
     records: ledger.records.pipe(
       Stream.concat(
         Stream.succeed({
-          logicalSequence: 8,
+          logicalSequence: 10,
           event: EvaluationResponseSelected.make({
             caseId: ledgerCaseId,
             endpointName: "eval-sender",
@@ -191,7 +215,39 @@ function directLedgerWithDuplicateSelection() {
             targetId: ledgerTargetId,
             taskId: ledgerTaskId,
             conversationId: ledgerConversationId,
+            promptMessageId: ledgerPromptId,
             messageId: ledgerResponseId,
+          }),
+        }),
+      ),
+    ),
+  };
+}
+
+function directLedgerWithoutRouterCommits() {
+  const ledger = directLedger();
+  return {
+    records: ledger.records.pipe(
+      Stream.filter(
+        (record) => !(record.event instanceof RouterMessageCommitted),
+      ),
+    ),
+  };
+}
+
+function directLedgerWithDuplicateRouterCommit() {
+  const ledger = directLedger();
+  return {
+    records: ledger.records.pipe(
+      Stream.concat(
+        Stream.succeed({
+          logicalSequence: 10,
+          event: RouterMessageCommitted.make({
+            taskId: ledgerTaskId,
+            conversationId: ledgerConversationId,
+            messageId: ledgerResponseId,
+            senderId: ledgerTargetId,
+            routerSequence: routerSequence(2),
           }),
         }),
       ),
@@ -203,6 +259,14 @@ function transcriptMessages(transcript: EvaluationTranscript) {
   return transcript.conversations.flatMap(
     (conversation) => conversation.messages,
   );
+}
+
+function evidenceMessageId(message: { readonly messageId: MessageId }) {
+  return message.messageId;
+}
+
+function evidenceRouterSequence(message: { readonly routerSequence: number }) {
+  return message.routerSequence;
 }
 
 function firstUnselectedMessage(fixture: JudgeCalibrationFixture) {
@@ -357,6 +421,48 @@ describe("canonical evaluation cases", () => {
 });
 
 describe("ledger transcript integrity", () => {
+  it.effect(
+    "uses router commit order when endpoint observations arrive out of order",
+    () =>
+      Effect.gen(function* () {
+        const transcript = yield* transcriptFromLedger(
+          directLedger(),
+          definition("EVAL-005"),
+          "evaluation-target",
+        );
+        const messages = transcript.conversations[0].messages;
+
+        assert.deepStrictEqual(messages.map(evidenceMessageId), [
+          ledgerPromptId,
+          ledgerResponseId,
+        ]);
+        assert.deepStrictEqual(messages.map(evidenceRouterSequence), [1, 2]);
+        const [, response] = messages;
+        assert.isDefined(response);
+        assert.strictEqual(response?.replyToId, ledgerPromptId);
+      }),
+  );
+
+  it.effect("requires one router commit for every transcript message", () =>
+    Effect.gen(function* () {
+      const missing = yield* transcriptFromLedger(
+        directLedgerWithoutRouterCommits(),
+        definition("EVAL-005"),
+        "evaluation-target",
+      ).pipe(Effect.flip);
+      assert.instanceOf(missing, GradingRefused);
+      assert.include(missing.detail, "no matching router commit");
+
+      const duplicate = yield* transcriptFromLedger(
+        directLedgerWithDuplicateRouterCommit(),
+        definition("EVAL-005"),
+        "evaluation-target",
+      ).pipe(Effect.flip);
+      assert.instanceOf(duplicate, GradingRefused);
+      assert.include(duplicate.detail, "duplicate or invalid router commit");
+    }),
+  );
+
   it.effect("rejects missing and duplicate canonical selections", () =>
     Effect.gen(function* () {
       const missing = yield* transcriptFromLedger(
@@ -385,7 +491,7 @@ describe("ledger transcript integrity", () => {
         "evaluation-target",
       ).pipe(Effect.flip);
       assert.instanceOf(error, GradingRefused);
-      assert.include(error.detail, "canonical delivery evidence");
+      assert.include(error.detail, "canonical prompt and delivery evidence");
     }),
   );
 

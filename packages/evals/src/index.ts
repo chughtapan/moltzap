@@ -20,6 +20,5 @@ export {
   gradeTranscript,
   runSemanticJudgeCalibration,
   semanticJudgeCalibrationFixtures,
-  transcriptFromLedger,
   verdictOf,
 } from "./grading.js";
