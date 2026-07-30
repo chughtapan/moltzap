@@ -52,6 +52,7 @@ planning database as continuing authority.
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
 | [Kubernetes Secrets bind agent slots](20260729-kubernetes-secrets-bind-agent-slots.md) | 2026-07-29 | accepted | — |
+| [Pod attestation gates agent enrollment](20260729-pod-attestation-gates-agent-enrollment.md) | 2026-07-29 | superseded | Kubernetes Secrets bind agent slots |
 | [OpenClaw experiments are late-bound](20260729-openclaw-experiments-are-late-bound.md) | 2026-07-29 | accepted | — |
 | [Temporal orchestrates distributed runs](20260729-temporal-orchestrates-distributed-runs.md) | 2026-07-29 | accepted | — |
 | [Kubernetes Agent Sandbox and Kueue admit agent cohorts](20260729-kubernetes-kueue-admits-agent-cohorts.md) | 2026-07-29 | accepted | — |
