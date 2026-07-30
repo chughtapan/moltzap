@@ -132,10 +132,9 @@ function expectReconnectedHistory(client: TestAgentClient, binding: DmBinding) {
 }
 
 function messageText(params: unknown): string {
-  const parts = (
+  const parts =
     /* Safe because the test fixture establishes this asserted shape. */
-    params as { message: { parts: Array<{ text: string }> } }
-  ).message.parts;
+    (params as { message: { parts: Array<{ text: string }> } }).message.parts;
   const firstPart = parts[0];
   if (firstPart === undefined) {
     throw new Error("Expected a message text part.");

@@ -20,7 +20,7 @@ _Interface_
 
 Carries context for app callback.
 
-### [`AppCallbackHandlers`](./../../../protocol/dist/socket/app-callbacks.d.ts#L36)
+### [`AppCallbackHandlers`](./../../../protocol/dist/socket/app-callbacks.d.ts#L26)
 
 _TypeAlias_
 

@@ -92,7 +92,7 @@ async function verifyConsumerImports(extractedPackage) {
       'import * as simulator from "@moltzap/simulator";',
       'import * as network from "@moltzap/simulator/network";',
       'import * as ledger from "@moltzap/simulator/ledger";',
-      'for (const name of ["Simulator", "effectRuntime", "openClawRuntime", "nanoclawRuntime", "simulatorLayer"]) {',
+      'for (const name of ["simulator", "effectRuntime", "openClawRuntime", "nanoclawRuntime", "simulatorLayer"]) {',
       "  if (!(name in simulator)) throw new Error(`missing root export ${name}`);",
       "}",
       'if (!("RouterProvider" in network)) throw new Error("missing network RouterProvider");',
