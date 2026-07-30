@@ -1,6 +1,6 @@
 import { Command } from "@effect/cli";
 import { Effect } from "effect";
-import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
+import { localDaemonCommands } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import { logLines } from "../output.js";
 
@@ -12,7 +12,7 @@ import { logLines } from "../output.js";
  */
 export const statusCommand = Command.make("status", {}, () =>
   runHandler(
-    command(LocalDaemonCommands.Status, {}).pipe(
+    command(localDaemonCommands.status, {}).pipe(
       Effect.flatMap((result) =>
         logLines([
           `Agent ID:       ${result.agentId ?? "none"}`,

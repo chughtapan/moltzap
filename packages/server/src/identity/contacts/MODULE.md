@@ -8,7 +8,7 @@ Contact identity server internals.
 
 ## Public surface
 
-### [`ContactAcceptResult`](./contact.service.ts#L38)
+### [`ContactAcceptResult`](./contact.service.ts#L47)
 
 _Interface_
 
@@ -20,7 +20,9 @@ export interface ContactAcceptResult {
 }
 ```
 
-### [`ContactCreateInput`](./contact.service.ts#L33)
+Describes the result of contact accept.
+
+### [`ContactCreateInput`](./contact.service.ts#L41)
 
 _Interface_
 
@@ -31,41 +33,63 @@ export interface ContactCreateInput {
 }
 ```
 
-### [`contactsAccept`](./handlers.ts#L105)
+Describes contact create input.
+
+### [`contactsAccept`](./handlers.ts#L131)
 
 _Variable_
 
 ```ts
-export const contactsAccept: ServerHandler<typeof ContactsAccept> = (params)
+export const contactsAccept: ServerHandler<typeof contactsAcceptDefinition> = (
+  params,
+)
 ```
 
-### [`contactsAdd`](./handlers.ts#L100)
+Provides the contacts accept runtime value.
+
+**Returns:** The contacts accept result.
+
+### [`contactsAdd`](./handlers.ts#L119)
 
 _Variable_
 
 ```ts
-export const contactsAdd: ServerHandler<typeof ContactsAdd> = (params)
+export const contactsAdd: ServerHandler<typeof contactsAddDefinition> = (
+  params,
+)
 ```
 
-### [`ContactService`](./contact-policy.ts#L18)
+Provides the contacts add runtime value.
+
+**Returns:** The contacts add result.
+
+### [`ContactService`](./contact-policy.ts#L19)
 
 _Interface_
 
 ```ts
 export interface ContactService {
-  areInContact(userIdA: UserId, userIdB: UserId): Effect.Effect<boolean, never>;
+  areInContact(userIdA: UserId, userIdB: UserId): Effect.Effect<boolean>;
 }
 ```
 
-### [`contactsList`](./handlers.ts#L95)
+Describes contact service.
+
+### [`contactsList`](./handlers.ts#L107)
 
 _Variable_
 
 ```ts
-export const contactsList: ServerHandler<typeof ContactsList> = (params)
+export const contactsList: ServerHandler<typeof contactsListDefinition> = (
+  params,
+)
 ```
 
-### [`ContactsListInput`](./contact.service.ts#L23)
+Provides the contacts list runtime value.
+
+**Returns:** The contacts list result.
+
+### [`ContactsListInput`](./contact.service.ts#L29)
 
 _Interface_
 
@@ -76,7 +100,9 @@ export interface ContactsListInput {
 }
 ```
 
-### [`ContactsListPage`](./contact.service.ts#L28)
+Describes contacts list input.
+
+### [`ContactsListPage`](./contact.service.ts#L35)
 
 _Interface_
 
@@ -87,26 +113,32 @@ export interface ContactsListPage {
 }
 ```
 
-### [`ContactsService`](./contact.service.ts#L49)
+Describes contacts list page.
+
+### [`ContactsService`](./contact.service.ts#L59)
 
 _Class_
 
 ```ts
 export class ContactsService {
-  constructor(private readonly db: Db) {}
+  private readonly db: Db;
+
+  constructor(db: Db) {
+    this.db = db;
+  }
 
   list(
     owner: UserId,
     input: ContactsListInput,
   ): Effect.Effect<ContactsListPage, InvalidCursorError> {
     const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: ContactsService) {
       const pos =
         input.cursor === undefined
           ? undefined
           : yield* decodeListCursor(input.cursor);
       return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* () {
+        Effect.gen(this, function* (this: ContactsService) {
           let query = this.db
             .selectFrom("contacts")
             .selectAll()
@@ -146,7 +178,7 @@ export class ContactsService {
       return Effect.fail(new ForbiddenError({ message: ERR_SELF_ADD }));
     }
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ContactsService) {
         const inserted = yield* this.db
           .insertInto("contacts")
           .values({
@@ -164,7 +196,9 @@ export class ContactsService {
             new ConflictError({ message: ERR_DUPLICATE }),
           );
         }
-        return rowToContact(inserted[0]!);
+        return rowToContact(
+          /* Safe because the surrounding invariant establishes this asserted shape. */ inserted[0]!,
+        );
       }),
     );
   }
@@ -174,13 +208,14 @@ export class ContactsService {
     id: ContactId,
   ): Effect.Effect<ContactAcceptResult, ContactNotFoundError | ForbiddenError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ContactsService) {
         const updated = yield* this.markPendingContactAccepted(owner, id);
         if (updated.length === 0) {
           return yield* this.resolveAlreadyAcceptedContact(owner, id);
         }
 
-        const row = updated[0]!;
+        const row =
+          /* Safe because the surrounding invariant establishes this asserted shape. */ updated[0]!;
         yield* this.upsertMirroredAcceptedContact(row);
         return {
           contact: rowToContact(row),
@@ -202,24 +237,19 @@ export class ContactsService {
   }
 
   private resolveAlreadyAcceptedContact(owner: UserId, id: ContactId) {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: ContactsService) {
       const existing = yield* this.db
         .selectFrom("contacts")
-        .selectAll()
-        .where("id", "=", id);
-      if (existing.length === 0) {
-        return yield* Effect.fail(
-          new ContactNotFoundError({ message: ERR_NOT_FOUND }),
-        );
-      }
 ```
 
-### [`ContactsServiceLive`](./layer.ts#L14)
+Implements contacts service.
+
+### [`contactsServiceLive`](./layer.ts#L16)
 
 _Variable_
 
 ```ts
-export const ContactsServiceLive = Layer.effect(
+export const contactsServiceLive = Layer.effect(
   ContactsServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
@@ -228,7 +258,9 @@ export const ContactsServiceLive = Layer.effect(
 )
 ```
 
-### [`ContactsServiceTag`](./layer.ts#L9)
+Provides the contacts service live runtime value.
+
+### [`ContactsServiceTag`](./layer.ts#L10)
 
 _Class_
 
@@ -239,22 +271,29 @@ export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
 >() {}
 ```
 
-### [`WebhookContactService`](./webhook-contact-service.ts#L26)
+Implements contacts service tag.
+
+### [`WebhookContactService`](./webhook-contact-service.ts#L27)
 
 _Class_
 
 ```ts
 export class WebhookContactService implements ContactService {
-  constructor(
-    private readonly httpClient: HttpClient.HttpClient,
-    private readonly url: string,
-    private readonly timeoutMs: number,
-  ) {}
+  private readonly httpClient: HttpClient.HttpClient;
+  private readonly url: string;
+  private readonly timeoutMs: number;
 
-  areInContact(
-    userIdA: UserId,
-    userIdB: UserId,
-  ): Effect.Effect<boolean, never> {
+  constructor(
+    httpClient: HttpClient.HttpClient,
+    url: string,
+    timeoutMs: number,
+  ) {
+    this.httpClient = httpClient;
+    this.url = url;
+    this.timeoutMs = timeoutMs;
+  }
+
+  areInContact(userIdA: UserId, userIdB: UserId): Effect.Effect<boolean> {
     return this.httpClient
       .execute(
         HttpClientRequest.post(this.url).pipe(
@@ -271,7 +310,7 @@ export class WebhookContactService implements ContactService {
         Effect.tap((response) => response.text),
         Effect.flatMap(HttpClientResponse.filterStatusOk),
         Effect.flatMap(
-          HttpClientResponse.schemaBodyJson(ContactsCheckResponse),
+          HttpClientResponse.schemaBodyJson(contactsCheckResponse),
         ),
         Effect.timeout(Duration.millis(this.timeoutMs)),
         Effect.map((result) => result.inContact),
@@ -287,6 +326,8 @@ export class WebhookContactService implements ContactService {
   }
 }
 ```
+
+Implements webhook contact service.
 
 ## Files
 

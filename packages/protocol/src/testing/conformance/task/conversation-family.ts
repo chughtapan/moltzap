@@ -18,19 +18,18 @@
  *     `awaitOneNotification` in the integration suite).
  */
 import { Effect, Either } from "effect";
-import type { AgentId } from "#identity";
 import {
   DEFAULT_APP_ID,
-  TaskCreatedNotificationDefinition,
-  TaskFailedNotificationDefinition,
-  TaskRequest,
-  TaskLeave,
-  TaskCreate,
+  taskCreatedNotificationDefinition,
+  taskFailedNotificationDefinition,
+  taskRequest,
+  taskLeave,
+  taskCreate,
   type Task,
   type TaskId,
 } from "#task";
 import {
-  ConversationList,
+  conversationList,
   type Conversation,
   type ConversationListItem,
 } from "#conversation";
@@ -73,7 +72,7 @@ const sendOrViolate = <A>(
     Effect.either,
     Effect.flatMap((res) =>
       requireRight(res, (e) =>
-        deliveryViolation(property, `${label}: ${e._tag ?? String(e)}`),
+        deliveryViolation(property, `${label}: ${e._tag ?? "untagged error"}`),
       ),
     ),
   );
@@ -92,9 +91,9 @@ const createTaskCreate = (
   sendOrViolate(
     TASK_CREATE_PROPERTY,
     "app/task/create",
-    alice.client.sendRpc(TaskRequest, {
+    alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agent.agentId as AgentId],
+      invitedAgentIds: [bob.agent.agentId],
     }),
   );
 
@@ -124,6 +123,10 @@ const assertTaskCreateShape = (payload: {
   return Effect.void;
 };
 
+/**
+ * Registers task create.
+ * @param ctx Context for the operation.
+ */
 export function registerTaskCreate(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -162,16 +165,17 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
   );
 }
 
-const awaitTaskCreated = (actor: Actor, property: string) =>
-  awaitOneNotification(
+function awaitTaskCreated(actor: Actor, property: string) {
+  return awaitOneNotification(
     actor.notifications,
-    TaskCreatedNotificationDefinition,
+    taskCreatedNotificationDefinition,
     DELIVERY_DEFAULT_TIMEOUT_MS,
   ).pipe(
     Effect.mapError((reason) =>
       deliveryViolation(property, `agent/task/created missing: ${reason}`),
     ),
   );
+}
 
 // ─── TaskRequest — app reject path ───────────────────────────────────
 
@@ -200,7 +204,7 @@ const registerRejectingApp = (ctx: ConformanceRunContext) =>
       ),
     ),
     Effect.tap((app) =>
-      app.client.onAppCallback(TaskCreate, () =>
+      app.client.onAppCallback(taskCreate, () =>
         Effect.succeed({
           verdict: { decision: "reject" as const, reason: REJECT_REASON },
         }),
@@ -219,7 +223,10 @@ const assertTaskRequestFailed = (
     // non-vacuous: any-Left would also pass for an unrelated transport
     // failure, which would not prove the app-reject path.
     onLeft: (error) => {
-      const tag = (error as { readonly tag?: unknown }).tag;
+      const tag: unknown =
+        typeof error === "object" && error !== null
+          ? Reflect.get(error, "tag")
+          : undefined;
       return tag === "TaskRejected"
         ? Effect.void
         : Effect.fail(
@@ -241,7 +248,7 @@ const assertTaskRequestFailed = (
 const assertTaskFailedReason = (actor: Actor) =>
   awaitOneNotification(
     actor.notifications,
-    TaskFailedNotificationDefinition,
+    taskFailedNotificationDefinition,
     DELIVERY_DEFAULT_TIMEOUT_MS,
   ).pipe(
     Effect.mapError((reason) =>
@@ -262,6 +269,10 @@ const assertTaskFailedReason = (actor: Actor) =>
     ),
   );
 
+/**
+ * Registers task request reject.
+ * @param ctx Context for the operation.
+ */
 export function registerTaskRequestReject(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -282,9 +293,9 @@ export function registerTaskRequestReject(ctx: ConformanceRunContext): void {
         );
         const appId = yield* registerRejectingApp(ctx);
         const outcome = yield* alice.client
-          .sendRpc(TaskRequest, {
+          .sendRpc(taskRequest, {
             appId,
-            invitedAgentIds: [bob.agent.agentId as AgentId],
+            invitedAgentIds: [bob.agent.agentId],
           })
           .pipe(Effect.either);
         yield* assertTaskRequestFailed(outcome);
@@ -308,7 +319,7 @@ const sendTaskLeave = (
   sendOrViolate(
     TASK_LEAVE_PROPERTY,
     context,
-    alice.client.sendRpc(TaskLeave, { taskId }),
+    alice.client.sendRpc(taskLeave, { taskId }),
   ).pipe(Effect.asVoid);
 
 const createSelfOnlyTask = (
@@ -318,12 +329,16 @@ const createSelfOnlyTask = (
   sendOrViolate(
     property,
     "app/task/create",
-    alice.client.sendRpc(TaskRequest, {
+    alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     }),
   ).pipe(Effect.map((r) => r.task));
 
+/**
+ * Registers task leave.
+ * @param ctx Context for the operation.
+ */
 export function registerTaskLeave(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -359,12 +374,12 @@ const createTaskWithInitialConversation = (
   sendOrViolate(
     property,
     "app/task/create",
-    alice.client.sendRpc(TaskRequest, {
+    alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
-      invitedAgentIds: [bob.agent.agentId as AgentId],
+      invitedAgentIds: [bob.agent.agentId],
       initialConversation: {
         name,
-        participants: [bob.agent.agentId as AgentId],
+        participants: [bob.agent.agentId],
       },
     }),
   );
@@ -376,7 +391,7 @@ const listConversations = (
   sendOrViolate(
     property,
     "agent/conversation/list",
-    alice.client.sendRpc(ConversationList, {}),
+    alice.client.sendRpc(conversationList, {}),
   ).pipe(Effect.map((r) => r.items));
 
 const assertItemMatches = (
@@ -404,6 +419,10 @@ const assertItemMatches = (
   return Effect.void;
 };
 
+/**
+ * Registers conversation create and list.
+ * @param ctx Context for the operation.
+ */
 export function registerConversationCreateAndList(
   ctx: ConformanceRunContext,
 ): void {
@@ -450,6 +469,7 @@ export function registerConversationCreateAndList(
 
 // ─── Aggregate ───────────────────────────────────────────────────────
 
+/** Provides the conversation family properties runtime value. */
 export const CONVERSATION_FAMILY_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
 > = [

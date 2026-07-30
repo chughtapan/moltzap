@@ -14,7 +14,7 @@ import {
   HashMap,
   Option,
   Ref,
-  Scope,
+  type Scope,
   Stream,
 } from "effect";
 import type {
@@ -23,9 +23,9 @@ import type {
   AnyAppCallbackRpcDefinition,
   AnyNotificationDefinition,
 } from "#socket/catalog";
-import { MessagesAuthorize } from "#message";
-import { TaskCreate } from "#task";
-import { DispatchAuthorize } from "#message/dispatch";
+import { messagesAuthorize } from "#message";
+import { taskCreate } from "#task";
+import { dispatchAuthorize } from "#message/dispatch";
 import {
   MoltZapAgentClient,
   MoltZapAppClient,
@@ -44,7 +44,7 @@ import {
   type ParamsOf,
   type ResultOf,
 } from "#transport";
-import { AgentKey, AppKey } from "#identity";
+import type { AgentKey, AppKey } from "#identity";
 import {
   RpcResponseError,
   RpcTimeoutError,
@@ -56,6 +56,7 @@ const CLOSE_CODE_ABNORMAL = 1006;
 const DEFAULT_SERVER_REQUEST_TIMEOUT_MS = 5_000;
 const SYNTHETIC_REQUEST_ID = "effect-rpc";
 
+/** Describes agent test client config. */
 export interface AgentTestClientConfig {
   readonly serverUrl: string;
   readonly agentKey: AgentKey;
@@ -63,6 +64,7 @@ export interface AgentTestClientConfig {
   readonly autoConnect?: boolean;
 }
 
+/** Describes app test client config. */
 export interface AppTestClientConfig {
   readonly serverUrl: string;
   readonly appKey: AppKey;
@@ -76,6 +78,7 @@ type SendRpcError =
   | TransportClosedError
   | TransportIoError;
 
+/** Describes notification client. */
 export interface NotificationClient {
   readonly subscribe: <D extends AnyNotificationDefinition>(
     definition: D,
@@ -91,6 +94,7 @@ export interface NotificationClient {
   >;
 }
 
+/** Describes agent test client. */
 export interface AgentTestClient extends NotificationClient {
   readonly sendRpc: <D extends AnyAgentCallableRpcDefinition>(
     definition: D,
@@ -99,6 +103,7 @@ export interface AgentTestClient extends NotificationClient {
   ) => Effect.Effect<ClientDefinitionSuccess<D>, SendRpcError>;
 }
 
+/** Describes app test client. */
 export interface AppTestClient extends NotificationClient {
   readonly sendRpc: <D extends AnyAppCallableRpcDefinition>(
     definition: D,
@@ -121,14 +126,17 @@ export interface AppTestClient extends NotificationClient {
   ) => Effect.Effect<ServerRpcParams<D>, ServerRequestWaitError>;
 }
 
+/** Describes closeable agent test client. */
 export interface CloseableAgentTestClient extends AgentTestClient {
-  readonly close: Effect.Effect<void, never>;
+  readonly close: Effect.Effect<void>;
 }
 
+/** Describes closeable app test client. */
 export interface CloseableAppTestClient extends AppTestClient {
-  readonly close: Effect.Effect<void, never>;
+  readonly close: Effect.Effect<void>;
 }
 
+/** Reports server request wait failures. */
 export class ServerRequestWaitError extends Data.TaggedError(
   "TestingServerRequestWaitError",
 )<{
@@ -137,10 +145,14 @@ export class ServerRequestWaitError extends Data.TaggedError(
   readonly reason: "timeout";
 }> {}
 
+/** Represents server rpc definition values. */
 export type ServerRpcDefinition = AnyAppCallbackRpcDefinition;
+/** Represents server rpc params values. */
 export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
+/** Represents the result of server rpc. */
 export type ServerRpcResult<D extends ServerRpcDefinition> = ResultOf<D>;
 
+/** Carries context for server rpc. */
 export interface ServerRpcContext {
   readonly requestId: string;
   readonly definition: ServerRpcDefinition;
@@ -158,8 +170,13 @@ interface AwaitEntry {
   readonly deferred: Deferred.Deferred<unknown, ServerRequestWaitError>;
 }
 
-type Awaiters = HashMap.HashMap<ServerRpcDefinition, ReadonlyArray<AwaitEntry>>;
+type Awaiters = HashMap.HashMap<ServerRpcDefinition, readonly AwaitEntry[]>;
 
+/**
+ * Creates agent test client.
+ * @param config Documentation generation configuration.
+ * @returns The created agent test client.
+ */
 export function makeAgentTestClient(
   config: AgentTestClientConfig,
 ): Effect.Effect<AgentTestClient, SendRpcError, Scope.Scope> {
@@ -170,6 +187,11 @@ export function makeAgentTestClient(
   }).pipe(Effect.withSpan("makeAgentTestClient"));
 }
 
+/**
+ * Creates closeable agent test client.
+ * @param config Documentation generation configuration.
+ * @returns The created closeable agent test client.
+ */
 export function makeCloseableAgentTestClient(
   config: AgentTestClientConfig,
 ): Effect.Effect<CloseableAgentTestClient, SendRpcError> {
@@ -178,6 +200,11 @@ export function makeCloseableAgentTestClient(
   );
 }
 
+/**
+ * Creates app test client.
+ * @param config Documentation generation configuration.
+ * @returns The created app test client.
+ */
 export function makeAppTestClient(
   config: AppTestClientConfig,
 ): Effect.Effect<AppTestClient, SendRpcError, Scope.Scope> {
@@ -188,6 +215,11 @@ export function makeAppTestClient(
   }).pipe(Effect.withSpan("makeAppTestClient"));
 }
 
+/**
+ * Creates closeable app test client.
+ * @param config Documentation generation configuration.
+ * @returns The created closeable app test client.
+ */
 export function makeCloseableAppTestClient(
   config: AppTestClientConfig,
 ): Effect.Effect<CloseableAppTestClient, SendRpcError> {
@@ -236,7 +268,7 @@ function openAppTestClient(
       HashMap.empty<ServerRpcDefinition, CallbackHandler>(),
     );
     const awaitersRef = yield* Ref.make<Awaiters>(
-      HashMap.empty<ServerRpcDefinition, ReadonlyArray<AwaitEntry>>(),
+      HashMap.empty<ServerRpcDefinition, readonly AwaitEntry[]>(),
     );
     const lifecycle = new MoltZapAppClient({
       serverUrl: clientBaseUrl(config.serverUrl),
@@ -264,7 +296,11 @@ function openAppTestClient(
           ),
       onAppCallback: (definition, handler) =>
         Ref.update(handlersRef, (handlers) =>
-          HashMap.set(handlers, definition, handler as CallbackHandler),
+          HashMap.set(
+            handlers,
+            definition,
+            /* Safe because the descriptor key preserves the erased handler's parameter/result correlation. */ handler as CallbackHandler,
+          ),
         ),
       awaitServerRequest: (definition, predicate, timeoutMs) =>
         awaitServerRequest(awaitersRef, definition, predicate, timeoutMs),
@@ -323,20 +359,20 @@ function makeDynamicAppHandlers(
   awaitersRef: Ref.Ref<Awaiters>,
 ): AppCallbackHandlers<AppCallbackContext> {
   return {
-    [DispatchAuthorize.name]: {
-      definition: DispatchAuthorize,
-      handle: (params: ParamsOf<typeof DispatchAuthorize>) =>
-        runAppCallback(handlersRef, awaitersRef, DispatchAuthorize, params),
+    [dispatchAuthorize.name]: {
+      definition: dispatchAuthorize,
+      handle: (params: ParamsOf<typeof dispatchAuthorize>) =>
+        runAppCallback(handlersRef, awaitersRef, dispatchAuthorize, params),
     },
-    [MessagesAuthorize.name]: {
-      definition: MessagesAuthorize,
-      handle: (params: ParamsOf<typeof MessagesAuthorize>) =>
-        runAppCallback(handlersRef, awaitersRef, MessagesAuthorize, params),
+    [messagesAuthorize.name]: {
+      definition: messagesAuthorize,
+      handle: (params: ParamsOf<typeof messagesAuthorize>) =>
+        runAppCallback(handlersRef, awaitersRef, messagesAuthorize, params),
     },
-    [TaskCreate.name]: {
-      definition: TaskCreate,
-      handle: (params: ParamsOf<typeof TaskCreate>) =>
-        runAppCallback(handlersRef, awaitersRef, TaskCreate, params),
+    [taskCreate.name]: {
+      definition: taskCreate,
+      handle: (params: ParamsOf<typeof taskCreate>) =>
+        runAppCallback(handlersRef, awaitersRef, taskCreate, params),
     },
   };
 }
@@ -351,11 +387,16 @@ function runAppCallback<D extends ServerRpcDefinition>(
     yield* notifyAwaiter(awaitersRef, definition, params);
     const handlers = yield* Ref.get(handlersRef);
     const handler = Option.getOrUndefined(HashMap.get(handlers, definition));
-    if (handler === undefined) return yield* Effect.never;
-    return (yield* handler(params, {
-      requestId: SYNTHETIC_REQUEST_ID,
-      definition,
-    })) as ServerRpcResult<D>;
+    if (handler === undefined) {
+      return yield* Effect.never;
+    }
+    return /* Safe because the handler was retrieved with the same descriptor key D used for params. */ (yield* handler(
+      params,
+      {
+        requestId: SYNTHETIC_REQUEST_ID,
+        definition,
+      },
+    )) as ServerRpcResult<D>;
   });
 }
 
@@ -372,7 +413,10 @@ function awaitServerRequest<D extends ServerRpcDefinition>(
         ? { deferred }
         : {
             deferred,
-            predicate: (params) => predicate(params as ServerRpcParams<D>),
+            predicate: (params) =>
+              predicate(
+                /* Safe because this awaiter is stored and retrieved under definition D. */ params as ServerRpcParams<D>,
+              ),
           };
     yield* Ref.update(awaitersRef, (awaiters) =>
       appendAwaiter(awaiters, definition, entry),
@@ -393,7 +437,7 @@ function awaitServerRequest<D extends ServerRpcDefinition>(
         ),
       ),
     );
-    return result as ServerRpcParams<D>;
+    return /* Safe because only notifications keyed by definition D complete this deferred. */ result as ServerRpcParams<D>;
   });
 }
 
@@ -412,7 +456,9 @@ function removeAwaiter(
   entry: AwaitEntry,
 ): Awaiters {
   const existing = Option.getOrUndefined(HashMap.get(awaiters, definition));
-  if (existing === undefined) return awaiters;
+  if (existing === undefined) {
+    return awaiters;
+  }
   const next = existing.filter((candidate) => candidate !== entry);
   return next.length === 0
     ? HashMap.remove(awaiters, definition)
@@ -440,12 +486,19 @@ function takeMatchingAwaiter(
   params: unknown,
 ): readonly [AwaitEntry | undefined, Awaiters] {
   const existing = Option.getOrUndefined(HashMap.get(awaiters, definition));
-  if (existing === undefined) return [undefined, awaiters];
+  if (existing === undefined) {
+    return [undefined, awaiters];
+  }
   const index = existing.findIndex(
     (entry) => entry.predicate === undefined || entry.predicate(params),
   );
-  if (index < 0) return [undefined, awaiters];
-  const entry = existing[index]!;
+  if (index < 0) {
+    return [undefined, awaiters];
+  }
+  const entry = existing[index];
+  if (entry === undefined) {
+    return [undefined, awaiters];
+  }
   const next = [...existing.slice(0, index), ...existing.slice(index + 1)];
   return [
     entry,
@@ -480,7 +533,13 @@ function normalizeRpcError(method: string, error: unknown): SendRpcError {
 }
 
 function closeErrorFromUnknown(error: unknown): TransportClosedError {
-  const close = error as Partial<CloseInfo> & { readonly message?: unknown };
+  const rawCode = readUnknownProperty(error, "code");
+  const rawReason = readUnknownProperty(error, "reason");
+  const close: Partial<CloseInfo> & { readonly message?: unknown } = {
+    code: typeof rawCode === "number" ? rawCode : undefined,
+    reason: typeof rawReason === "string" ? rawReason : undefined,
+    message: readUnknownProperty(error, "message"),
+  };
   return new TransportClosedError({
     direction: "inbound",
     code: typeof close.code === "number" ? close.code : CLOSE_CODE_ABNORMAL,
@@ -488,12 +547,22 @@ function closeErrorFromUnknown(error: unknown): TransportClosedError {
   });
 }
 
+function readUnknownProperty(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null
+    ? Reflect.get(value, key)
+    : undefined;
+}
+
 function closeReason(
   error: unknown,
   close: Partial<CloseInfo> & { readonly message?: unknown },
 ): string {
-  if (typeof close.reason === "string") return close.reason;
-  if (typeof close.message === "string") return close.message;
+  if (typeof close.reason === "string") {
+    return close.reason;
+  }
+  if (typeof close.message === "string") {
+    return close.message;
+  }
   return String(error);
 }
 
@@ -502,13 +571,16 @@ function taggedError(value: unknown): {
   readonly message?: unknown;
   readonly data?: unknown;
 } | null {
-  return value !== null &&
-    typeof value === "object" &&
-    typeof (value as { readonly _tag?: unknown })._tag === "string"
-    ? (value as {
-        readonly _tag: string;
-        readonly message?: unknown;
-        readonly data?: unknown;
-      })
-    : null;
+  if (value === null || typeof value !== "object") {
+    return null;
+  }
+  const tag: unknown = Reflect.get(value, "_tag");
+  if (typeof tag !== "string") {
+    return null;
+  }
+  return {
+    _tag: tag,
+    message: Reflect.get(value, "message"),
+    data: Reflect.get(value, "data"),
+  };
 }

@@ -26,8 +26,10 @@
  */
 import { Effect, HashMap, HashSet, Option, Ref } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
-import { connectionId as protocolConnectionId } from "@moltzap/protocol/socket";
-import type { ConnectionId } from "@moltzap/protocol/socket";
+import {
+  connectionId as protocolConnectionId,
+  type ConnectionId,
+} from "@moltzap/protocol/socket";
 
 /**
  * Decode a raw connection-id string through the protocol brand constructor.
@@ -67,7 +69,11 @@ export class AgentEndpointResolver {
     (state) => new AgentEndpointResolver(state),
   );
 
-  private constructor(private readonly state: Ref.Ref<ResolverState>) {}
+  private readonly state: Ref.Ref<ResolverState>;
+
+  private constructor(state: Ref.Ref<ResolverState>) {
+    this.state = state;
+  }
 
   /**
    * Atomically associate `(agentId, connectionId)` and the reverse
@@ -84,6 +90,9 @@ export class AgentEndpointResolver {
    * forward and reverse views stay invariant. Practically unreachable
    * but the detection is cheap and the alternative is a silent
    * forward-map leak.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @param connId Value supplied to the operation.
+   * @returns The prior result.
    */
   add(agentId: AgentId, connId: ConnectionId): Effect.Effect<void> {
     return Ref.update(this.state, (s) => {
@@ -133,6 +142,9 @@ export class AgentEndpointResolver {
    * If removing `connectionId` empties the agent's set, the agent key
    * itself is dropped from the forward map so {@link resolveAll} returns
    * the empty set rather than hitting an empty bucket.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @param connId Value supplied to the operation.
+   * @returns The existed result.
    */
   remove(agentId: AgentId, connId: ConnectionId): Effect.Effect<void> {
     return Ref.update(this.state, (s) => {
@@ -140,7 +152,9 @@ export class AgentEndpointResolver {
         onNone: () => false,
         onSome: (set) => HashSet.has(set, connId),
       });
-      if (!existed) return s;
+      if (!existed) {
+        return s;
+      }
       return {
         byAgent: HashMap.modifyAt(s.byAgent, agentId, (existing) =>
           Option.flatMap(existing, (set) => {
@@ -157,6 +171,8 @@ export class AgentEndpointResolver {
    * Hot-path fan-out lookup. Returns every connection id currently
    * associated with `agentId`. Read-only snapshot — the `HashSet` is
    * immutable and the caller cannot mutate the resolver through it.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @returns The resolve all result.
    */
   resolveAll(agentId: AgentId): Effect.Effect<HashSet.HashSet<ConnectionId>> {
     return Effect.map(Ref.get(this.state), (s) =>

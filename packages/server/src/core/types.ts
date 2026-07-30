@@ -5,20 +5,23 @@ import type { ConnectionManager } from "#socket";
 import type { NetworkSendService } from "#network";
 import type { LeaseRegistry } from "#dispatch";
 
+/** Represents connection hook values. */
 export type ConnectionHook = (params: {
   agentId: AgentId;
   agentName: string;
   /** Owner user ID resolved at agent/network/connect time. */
   ownerUserId: UserId;
   connId: ConnectionId;
-}) => PromiseLike<void> | void;
+}) => PromiseLike<undefined> | undefined;
 
+/** Represents disconnection hook values. */
 export type DisconnectionHook = (params: {
   agentId: AgentId;
   ownerUserId: UserId;
   connId: ConnectionId;
-}) => PromiseLike<void> | void;
+}) => PromiseLike<undefined> | undefined;
 
+/** Describes core app. */
 export interface CoreApp {
   readonly port: number;
   onConnection: (hook: ConnectionHook) => void;
@@ -64,5 +67,5 @@ export interface CoreApp {
    * consumers can read lease state directly via this handle.
    */
   readonly leaseRegistry: LeaseRegistry;
-  close: () => PromiseLike<void>;
+  close: () => PromiseLike<undefined>;
 }

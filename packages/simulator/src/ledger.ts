@@ -1,5 +1,6 @@
 /** @file Typed live and completed simulator ledgers. */
 
+/** Re-exports the public API from `./events/catalog.js`. */
 export {
   EventCatalog,
   EventCatalogDefinitionError,
@@ -10,17 +11,22 @@ export {
   type EventOf,
   type VersionedEventTag,
 } from "./events/catalog.js";
+/** Re-exports the public API from `./ledger/model.js`. */
 export {
   LEDGER_FORMAT_VERSION,
-  JsonValue,
+  type JsonValue,
+  jsonValue,
   LedgerCompletion,
-  LedgerDigest,
+  type LedgerDigest,
+  ledgerDigest,
   LedgerManifest,
-  LedgerRef,
+  type LedgerRef,
+  ledgerRef,
   makeLedgerRecordSchema,
   type JsonObject,
   type LedgerRecord,
 } from "./ledger/model.js";
+/** Re-exports the public API from `./ledger/storage.js`. */
 export {
   LedgerStorage,
   LedgerStorageError,
@@ -29,6 +35,7 @@ export {
   type LedgerArtifact,
   type LedgerStorageService,
 } from "./ledger/storage.js";
+/** Re-exports the public API from `./ledger/open.js`. */
 export {
   LedgerCatalogMismatch,
   LedgerDefinitionMismatch,
@@ -39,6 +46,7 @@ export {
   type LedgerInvalidReason,
   type LedgerOpenError,
 } from "./ledger/open.js";
+/** Re-exports the public API from `./ledger/live.js`. */
 export {
   LedgerSerializationError,
   type LedgerFailure,

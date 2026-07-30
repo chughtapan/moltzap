@@ -1,8 +1,11 @@
 import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
-import { ConversationId } from "@moltzap/protocol/conversation";
-import { TaskId } from "@moltzap/protocol/task";
-import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
+import {
+  type ConversationId,
+  conversationId,
+} from "@moltzap/protocol/conversation";
+import { type TaskId, taskId } from "@moltzap/protocol/task";
+import { localDaemonCommands } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import { logJson, logLines } from "../output.js";
 import type { HistoryRequest } from "../../local-history.js";
@@ -20,12 +23,12 @@ const sessionKeyOption = Options.text("session-key").pipe(
 );
 
 const taskIdArg = Args.text({ name: "taskId" }).pipe(
-  Args.withSchema(TaskId),
+  Args.withSchema(taskId),
   Args.withDescription("Task ID"),
 );
 
 const conversationIdArg = Args.text({ name: "conversationId" }).pipe(
-  Args.withSchema(ConversationId),
+  Args.withSchema(conversationId),
   Args.withDescription("Conversation ID"),
 );
 
@@ -44,7 +47,7 @@ const historyHandler = ({
     ? { taskId, conversationId, limit, sessionKey: sessionKey.value }
     : { taskId, conversationId, limit };
   return runHandler(
-    command(LocalDaemonCommands.History, params).pipe(
+    command(localDaemonCommands.history, params).pipe(
       Effect.flatMap(logJson),
       Effect.asVoid,
     ),
@@ -62,6 +65,7 @@ const historySubcommand = Command.make(
   historyHandler,
 ).pipe(Command.withDescription("Show message history for a conversation"));
 
+/** Provides the conversations command runtime value. */
 export const conversationsCommand = Command.make("conversations", {}, () =>
   logLines([
     "moltzap conversations: only `history` is supported in this release.",

@@ -11,8 +11,10 @@ import {
 } from "@moltzap/protocol/testing";
 import { Deferred, Effect, Either, Fiber, Option, TestClock } from "effect";
 import { describe, expect } from "vitest";
-import type { LeaseTransitionObserver } from "../network/presence/presence-types.js";
-import { noopLeaseTransitionObserver } from "../network/presence/presence-types.js";
+import {
+  type LeaseTransitionObserver,
+  noopLeaseTransitionObserver,
+} from "../network/presence/presence-types.js";
 import {
   ConnectionManager,
   type Originator,
@@ -47,13 +49,13 @@ const BINDING = {
 const it = effectIt.effect;
 
 function withRegistry<A, E>(
-  use: (registry: LeaseRegistry) => Effect.Effect<A, E, never>,
+  use: (registry: LeaseRegistry) => Effect.Effect<A, E>,
   transitionObserver = noopLeaseTransitionObserver,
-  connections = new ConnectionManager(),
-): Effect.Effect<A, E, never> {
+  connections?: ConnectionManager,
+): Effect.Effect<A, E> {
   return Effect.gen(function* () {
     const registry = yield* makeLeaseRegistry({
-      connections,
+      connections: connections ?? new ConnectionManager(),
       leaseRetentionMs: TEST_TTL_MS,
       transitionObserver,
     });
@@ -65,8 +67,8 @@ const unusedOriginatorOperation = () =>
   Effect.dieMessage("unused test originator operation");
 
 function hangingOriginator(
-  notifyStarted: Deferred.Deferred<void>,
-  notifyStopped: Deferred.Deferred<void>,
+  notifyStarted: Deferred.Deferred<undefined>,
+  notifyStopped: Deferred.Deferred<undefined>,
 ): Originator {
   return {
     call: unusedOriginatorOperation,
@@ -110,8 +112,9 @@ function expectSingleWinner(
 
 function expectLeaseNotFound(result: Either.Either<unknown, unknown>): void {
   Either.match(result, {
-    onLeft: (error) =>
-      expect(error).toMatchObject({ _tag: "LeaseNotFoundError" }),
+    onLeft: (error) => {
+      expect(error).toMatchObject({ _tag: "LeaseNotFoundError" });
+    },
     onRight: () => expect.fail("expected retained lease to be removed"),
   });
 }
@@ -186,8 +189,8 @@ function finalizeAndRollbackAreSingleUse() {
 
 function resolveBeforeAttachStaysAlive() {
   return Effect.gen(function* () {
-    const beginEntered = yield* Deferred.make<void>();
-    const releaseBegin = yield* Deferred.make<void>();
+    const beginEntered = yield* Deferred.make<undefined>();
+    const releaseBegin = yield* Deferred.make<undefined>();
     const observer: LeaseTransitionObserver = {
       onLeaseActiveBegin: () =>
         Deferred.succeed(beginEntered, void 0).pipe(
@@ -206,8 +209,8 @@ function resolveBeforeAttachStaysAlive() {
 }
 
 interface BeginGate {
-  readonly beginEntered: Deferred.Deferred<void>;
-  readonly releaseBegin: Deferred.Deferred<void>;
+  readonly beginEntered: Deferred.Deferred<undefined>;
+  readonly releaseBegin: Deferred.Deferred<undefined>;
 }
 
 function asyncObserverScenario(registry: LeaseRegistry, gate: BeginGate) {
@@ -246,8 +249,8 @@ function rollbackStartsANewTtlEpoch() {
 
 function hangingNotificationDoesNotBlockFinalizeOrRetention() {
   return Effect.gen(function* () {
-    const notifyStarted = yield* Deferred.make<void>();
-    const notifyStopped = yield* Deferred.make<void>();
+    const notifyStarted = yield* Deferred.make<undefined>();
+    const notifyStopped = yield* Deferred.make<undefined>();
     const connections = new ConnectionManager();
     yield* connections.addUnauthenticated(
       BINDING.moderatorConnectionId,

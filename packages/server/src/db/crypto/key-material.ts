@@ -1,3 +1,4 @@
+/** Implements symmetric key material. */
 export abstract class SymmetricKeyMaterial {
   private readonly bytes: Buffer;
 

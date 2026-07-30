@@ -6,10 +6,8 @@
  * `connection.ts` / `context.ts` surfaces here as a compile error, not at
  * runtime.
  *
- * This file is never executed. Typed `const _x: T = ...` assignments and
- * `@ts-expect-error` directives carry the whole payload; `tsc` fails with
- * TS2578 ("Unused '@ts-expect-error' directive") if a marked line ever
- * stops erroring, so each negative assertion stays load-bearing.
+ * This file is never executed. Positive assignments and conditional-type
+ * assertions carry the payload without suppressing compiler diagnostics.
  */
 import { Match } from "effect";
 import type {
@@ -25,57 +23,60 @@ import { ServerBootFailedError } from "#core";
 
 declare const agentConn: AgentConnection;
 declare const appConn: AppConnection;
-declare const unauthConn: UnauthenticatedConnection;
 declare const conn: Connection;
 
 // --- per-arm `auth` narrowing -----------------------------------------
 
-// AgentConnection.auth is AgentContext: agentId reads, appId does not.
-const _agentAuth: AgentContext = agentConn.auth;
-const _agentId: AgentId = _agentAuth.agentId;
-// @ts-expect-error - AgentContext has no appId
-const _noAppIdOnAgent = agentConn.auth.appId;
+type ExpectFalse<Value extends false> = Value;
 
-// AppConnection.auth is AppContext: appId reads, agentId does not.
-const _appAuth: AppContext = appConn.auth;
-const _appId = _appAuth.appId;
-// @ts-expect-error - AppContext has no agentId
-const _noAgentIdOnApp = appConn.auth.agentId;
+// AgentConnection.auth is AgentContext: agentId reads and appId is absent.
+const agentAuth: AgentContext = agentConn.auth;
+const agentIdValue: AgentId = agentAuth.agentId;
+type AgentHasNoAppId = ExpectFalse<
+  "appId" extends keyof AgentConnection["auth"] ? true : false
+>;
 
-// UnauthenticatedConnection has no auth field at all.
-// @ts-expect-error - the unauthenticated arm carries no auth
-const _noAuthOnUnauth = unauthConn.auth;
+// AppConnection.auth is AppContext: appId reads and agentId is absent.
+const appAuth: AppContext = appConn.auth;
+const appIdValue = appAuth.appId;
+type AppHasNoAgentId = ExpectFalse<
+  "agentId" extends keyof AppConnection["auth"] ? true : false
+>;
+type UnauthenticatedHasNoAuth = ExpectFalse<
+  "auth" extends keyof UnauthenticatedConnection ? true : false
+>;
 
 // --- nominal brand boundary (structural forgery rejected) --------------
 
 // An object literal matching the public field shape cannot satisfy any arm —
 // the module-private `__brand: never` member is unreachable from outside the
 // class declaration (TS2741 missing-property).
-declare const forgedBase: {
+interface ForgedBase {
   readonly _tag: "AgentConnection";
   readonly connId: AgentConnection["connId"];
   readonly socket: AgentConnection["socket"];
   readonly originator: AgentConnection["originator"];
   readonly auth: AgentContext;
-};
-// @ts-expect-error - structural forgery rejected: missing private __brand
-const _forged: AgentConnection = forgedBase;
+}
+type ForgedAgentRejected = ExpectFalse<
+  ForgedBase extends AgentConnection ? true : false
+>;
 
 // --- exhaustive Match.tag discrimination -------------------------------
 
-const _principalOf = (c: Connection): "agent" | "app" | "anon" =>
+const principalOf = (c: Connection): "agent" | "app" | "anon" =>
   Match.value(c).pipe(
     Match.tag("AgentConnection", () => "agent" as const),
     Match.tag("AppConnection", () => "app" as const),
     Match.tag("UnauthenticatedConnection", () => "anon" as const),
     Match.exhaustive,
   );
-const _principalTag: "agent" | "app" | "anon" = _principalOf(conn);
+const principalTag: "agent" | "app" | "anon" = principalOf(conn);
 
 // --- split-per-arm TransitionOutcome narrows `authed` without a cast ------
 
 declare const outcome: TransitionOutcome;
-const _narrowOutcome = (): AgentConnection | AppConnection | null =>
+const narrowOutcome = (): AgentConnection | AppConnection | null =>
   Match.value(outcome).pipe(
     Match.when({ kind: "not-connected" }, () => null),
     // app/agent arms expose the matching `authed` arm structurally — no cast.
@@ -88,24 +89,30 @@ const _narrowOutcome = (): AgentConnection | AppConnection | null =>
 // --- ServerBootFailedError phase discriminator -------------------------
 
 declare const httpErr: unknown;
-const _bootFail: ServerBootFailedError = new ServerBootFailedError({
+const bootFail: ServerBootFailedError = new ServerBootFailedError({
   phase: "http-listen",
   cause: httpErr,
 });
-// @ts-expect-error - phase is a closed union; "db" is not a member
-const _badPhase = new ServerBootFailedError({ phase: "db", cause: httpErr });
+type InvalidBootPhaseRejected = ExpectFalse<
+  "db" extends ServerBootFailedError["phase"] ? true : false
+>;
+
+/** Compile-time assertions for the principal and boot-failure boundaries. */
+export type PrincipalBoundaryCanaries = [
+  AgentHasNoAppId,
+  AppHasNoAgentId,
+  UnauthenticatedHasNoAuth,
+  ForgedAgentRejected,
+  InvalidBootPhaseRejected,
+];
 
 // Reference every binding so no-unused-vars stays quiet; the canary's job is
 // the type relationships above, not runtime behavior.
-export const _principalCanaryRefs: readonly unknown[] = [
-  _agentId,
-  _appId,
-  _noAppIdOnAgent,
-  _noAgentIdOnApp,
-  _noAuthOnUnauth,
-  _forged,
-  _principalTag,
-  _narrowOutcome,
-  _bootFail,
-  _badPhase,
+/** Provides the principal canary refs runtime value. */
+export const principalCanaryRefs: readonly unknown[] = [
+  agentIdValue,
+  appIdValue,
+  principalTag,
+  narrowOutcome,
+  bootFail,
 ] as const;

@@ -228,8 +228,14 @@ function usesExplicitChildEnvironment() {
           TEST_BASE_CHILD_ENVIRONMENT,
         );
 
-        expect(Object.keys(plan.env).sort()).toEqual(
-          [...EXPECTED_CHILD_ENV_KEYS].sort(),
+        expect(
+          Object.keys(plan.env).sort((left, right) =>
+            left.localeCompare(right),
+          ),
+        ).toEqual(
+          [...EXPECTED_CHILD_ENV_KEYS].sort((left, right) =>
+            left.localeCompare(right),
+          ),
         );
         expect(plan.env.PATH).toBe(TEST_PATH);
         expect(plan.env.HOME).toBe(TEST_HOME);
@@ -285,8 +291,14 @@ function buildsEvalProvisioningPlan() {
           NANOCLAW_EVAL_AGENT_GROUP_ID,
         ]);
         expect(plan.cwd).toBe(runtimeDir);
-        expect(Object.keys(plan.env).sort()).toEqual(
-          [...EXPECTED_CHILD_ENV_KEYS].sort(),
+        expect(
+          Object.keys(plan.env).sort((left, right) =>
+            left.localeCompare(right),
+          ),
+        ).toEqual(
+          [...EXPECTED_CHILD_ENV_KEYS].sort((left, right) =>
+            left.localeCompare(right),
+          ),
         );
       }),
       Effect.asVoid,
@@ -316,6 +328,6 @@ function stubInstall(cacheDir: string): NanoclawRuntimeInstall {
   };
 }
 
-function runTest<A, E>(effect: Effect.Effect<A, E, never>) {
+function runTest<A, E>(effect: Effect.Effect<A, E>) {
   return Effect.runPromise(effect);
 }

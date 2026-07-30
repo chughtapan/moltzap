@@ -1,9 +1,9 @@
 /** @file Scoped autonomous-agent runtime contract. */
 
-import { Effect, Schema, type Scope } from "effect";
+import { type Effect, Schema, type Scope } from "effect";
 import type { AgentConnection } from "../network/router.js";
 
-const AgentRuntimeTypeId: unique symbol = Symbol(
+const agentRuntimeTypeId: unique symbol = Symbol(
   "@moltzap/simulator/AgentRuntime",
 );
 
@@ -83,19 +83,23 @@ export interface AgentRuntimeDefinition<
 /** A runtime definition accepted by keyed society rosters. */
 export interface AgentRuntime<AcquisitionError = never, Requirements = never>
   extends AgentRuntimeDefinition<AcquisitionError, Requirements> {
-  readonly [AgentRuntimeTypeId]: typeof AgentRuntimeTypeId;
+  readonly [agentRuntimeTypeId]: typeof agentRuntimeTypeId;
 }
 
 /** Nominal erased runtime type used only to constrain heterogeneous rosters. */
 export interface AgentRuntimeLike {
-  readonly [AgentRuntimeTypeId]: typeof AgentRuntimeTypeId;
+  readonly [agentRuntimeTypeId]: typeof agentRuntimeTypeId;
   readonly name: string;
   acquire<Name extends string>(
     input: AgentRuntimeInput<Name>,
   ): Effect.Effect<RunningAgent, unknown, unknown>;
 }
 
-/** Preserve inferred attachment, error, and requirement types. */
+/**
+ * Preserve inferred attachment, error, and requirement types.
+ * @param runtime Value supplied to the operation.
+ * @returns The define runtime result.
+ */
 export function defineRuntime<AcquisitionError, Requirements>(
   runtime: AgentRuntimeDefinition<AcquisitionError, Requirements>,
 ): AgentRuntime<AcquisitionError, Requirements> {
@@ -105,9 +109,9 @@ export function defineRuntime<AcquisitionError, Requirements>(
     });
   }
   const name = runtime.name;
-  const acquire = runtime.acquire;
+  const acquire = runtime.acquire.bind(runtime);
   const defined: AgentRuntime<AcquisitionError, Requirements> = {
-    [AgentRuntimeTypeId]: AgentRuntimeTypeId,
+    [agentRuntimeTypeId]: agentRuntimeTypeId,
     name,
     acquire: <Name extends string>(input: AgentRuntimeInput<Name>) =>
       acquire(input),

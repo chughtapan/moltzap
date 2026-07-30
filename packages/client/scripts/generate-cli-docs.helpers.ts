@@ -9,14 +9,17 @@
  */
 import ts from "typescript";
 
+/** Typed result from a source-document reader. */
 export type ReadResult<T> =
   | { readonly _tag: "ok"; readonly value: T }
   | { readonly _tag: "err"; readonly reason: string };
 
 /**
  * Escape MDX-significant characters in CLI help prose while preserving code.
- * Help text is authored as terminal output, so placeholders such as `<name>`
+ * Help text is authored as terminal output, so placeholders such as `&lt;name>`
  * must become text before the same description can be embedded in MDX.
+ * @param text Terminal help prose to escape for MDX.
+ * @returns MDX-safe prose with code spans and fences preserved.
  */
 export const escapeMdxProse = (text: string): string => {
   let inFence = false;
@@ -27,7 +30,9 @@ export const escapeMdxProse = (text: string): string => {
         inFence = !inFence;
         return line;
       }
-      if (inFence || /^ {4,}/.test(line)) return line;
+      if (inFence || /^ {4,}/.test(line)) {
+        return line;
+      }
       return line
         .split(/(`[^`]*`)/)
         .map((segment, index) =>
@@ -45,7 +50,11 @@ export const escapeMdxProse = (text: string): string => {
     .join("\n");
 };
 
-/** Read the canonical version string from a package.json document. */
+/**
+ * Read the canonical version string from a package.json document.
+ * @param source Serialized package.json content.
+ * @returns The version or a typed parse/shape failure.
+ */
 export const readPackageVersion = (source: string): ReadResult<string> => {
   let parsed: unknown;
   try {
@@ -71,6 +80,9 @@ export const readPackageVersion = (source: string): ReadResult<string> => {
  * Find a top-level `export const NAME = "..."` (or unexported `const`)
  * declaration whose initializer is a string literal. Returns the
  * extracted string or a typed error if absent.
+ * @param source TypeScript source text to inspect.
+ * @param identifier Top-level constant name to find.
+ * @returns The string initializer or a typed lookup failure.
  */
 export const readTopLevelStringConst = (
   source: string,
@@ -82,17 +94,22 @@ export const readTopLevelStringConst = (
     ts.ScriptTarget.Latest,
     true,
   );
-  for (const stmt of src.statements) {
-    if (!ts.isVariableStatement(stmt)) continue;
-    for (const decl of stmt.declarationList.declarations) {
-      if (
-        ts.isIdentifier(decl.name) &&
-        decl.name.text === identifier &&
-        decl.initializer !== undefined &&
-        ts.isStringLiteral(decl.initializer)
-      ) {
-        return { _tag: "ok", value: decl.initializer.text };
-      }
+  for (const statement of src.statements) {
+    if (!ts.isVariableStatement(statement)) {
+      continue;
+    }
+    const declaration = statement.declarationList.declarations.find(
+      (candidate) =>
+        ts.isIdentifier(candidate.name) &&
+        candidate.name.text === identifier &&
+        candidate.initializer !== undefined &&
+        ts.isStringLiteral(candidate.initializer),
+    );
+    if (
+      declaration?.initializer !== undefined &&
+      ts.isStringLiteral(declaration.initializer)
+    ) {
+      return { _tag: "ok", value: declaration.initializer.text };
     }
   }
   return {

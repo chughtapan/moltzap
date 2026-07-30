@@ -1,14 +1,17 @@
 /** Payload opacity — sent text appears byte-for-byte in delivered events. */
 import * as fc from "fast-check";
 import { Effect } from "effect";
-import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
+import { messageReceivedNotificationDefinition, messagesSend } from "#message";
 import {
   isNotificationDeliveryFor,
   type NotificationDelivery,
 } from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
-import { assertProperty, registerProperty } from "../_shared/registry.js";
-import type { PropertyAssertionFailure } from "../_shared/registry.js";
+import {
+  assertProperty,
+  registerProperty,
+  type PropertyAssertionFailure,
+} from "../_shared/registry.js";
 import {
   DELIVERY_CATEGORY,
   DELIVERY_DEFAULT_PROPERTY_NUM_RUNS,
@@ -17,7 +20,14 @@ import {
 } from "./_helpers.js";
 
 const PROPERTY = "payload-opacity";
+const payloadTextArbitrary = fc
+  .string({ minLength: 4, maxLength: 24 })
+  .filter(isJsonSubstringSafe);
 
+/**
+ * Registers payload opacity.
+ * @param ctx Context for the operation.
+ */
 export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -49,10 +59,6 @@ function assertPayloadOpacity(
   });
 }
 
-const payloadTextArbitrary = fc
-  .string({ minLength: 4, maxLength: 24 })
-  .filter(isJsonSubstringSafe);
-
 function isJsonSubstringSafe(text: string): boolean {
   return !/[\\" \n\r\t]/.test(text);
 }
@@ -62,8 +68,10 @@ function checkPayloadOpacity(ctx: ConformanceRunContext, text: string) {
     Effect.gen(function* () {
       const fixture = yield* acquirePayloadFixture(ctx);
       const participant = fixture.participants[0];
-      if (participant === undefined) return false;
-      yield* fixture.owner.client.sendRpc(MessagesSend, {
+      if (participant === undefined) {
+        return false;
+      }
+      yield* fixture.owner.client.sendRpc(messagesSend, {
         taskId: fixture.taskId,
         conversationId: fixture.conversationId,
         parts: [{ type: "text", text }],
@@ -86,7 +94,7 @@ function containsDeliveredText(
   text: string,
 ): boolean {
   if (
-    !isNotificationDeliveryFor(frame, MessageReceivedNotificationDefinition)
+    !isNotificationDeliveryFor(frame, messageReceivedNotificationDefinition)
   ) {
     return false;
   }

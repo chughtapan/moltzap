@@ -12,26 +12,26 @@
         "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
         "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/nanoclaw-channel": {
       "entry": [
         "src/**/*.test.ts",
         "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/openclaw-channel": {
       "entry": [
         "src/**/*.test.ts",
         "src/**/*.integration.test.ts",
         "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/protocol": {
       "entry": [
@@ -39,9 +39,9 @@
         "src/**/*.types-check.ts",
         "src/testing/conformance/**/*.ts",
         "scripts/check-mermaid.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["scripts/**/*.ts", "src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/evals": {
       "entry": ["src/**/*.test.ts", "src/**/*.types-check.ts"],
@@ -52,9 +52,9 @@
         "src/**/*.test.ts",
         "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.ts"],
+      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.mjs"],
       "ignoreDependencies": ["@moltzap/server-core"]
     },
     "packages/server": {
@@ -63,9 +63,9 @@
         "src/**/*.integration.test.ts",
         "src/**/*.types-check.ts",
         "src/**/__tests__/**/*.ts",
-        "vitest*.config.ts"
+        "vitest*.config.mjs"
       ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.ts"]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "v2/router": {
       "ignoreDependencies": ["@moltzap/v2-identity"]

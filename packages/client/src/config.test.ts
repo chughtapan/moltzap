@@ -2,8 +2,7 @@ import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit, Redacted, Schema } from "effect";
-import { AgentId } from "@moltzap/protocol/identity";
-import { AgentKey } from "@moltzap/protocol/identity";
+import { agentId as agentIdSchema, agentKey } from "@moltzap/protocol/identity";
 import {
   agentId,
   agentKeyString,
@@ -27,22 +26,22 @@ const INVALID_SERVER_URL = "wss://test.moltzap.local/not-moltzap";
 const PROFILE_NOT_FOUND_ERROR = "ProfileNotFoundError";
 const CONFIG_READ_ERROR = "ConfigReadError";
 
-const ConfigFixtureSchema = Schema.parseJson(
+const configFixtureSchema = Schema.parseJson(
   Schema.Struct({
     profiles: Schema.optional(
       Schema.Record({
         key: Schema.String,
         value: Schema.Struct({
-          agentId: AgentId,
-          apiKey: AgentKey,
+          agentId: agentIdSchema,
+          apiKey: agentKey,
           agentName: Schema.String,
         }),
       }),
     ),
   }),
 );
-type ConfigFixture = Schema.Schema.Type<typeof ConfigFixtureSchema>;
-const encodeConfigFixture = Schema.encodeSync(ConfigFixtureSchema);
+type ConfigFixture = Schema.Schema.Type<typeof configFixtureSchema>;
+const encodeConfigFixture = Schema.encodeSync(configFixtureSchema);
 
 const profileAuthConfig = (): ConfigFixture => ({
   profiles: {

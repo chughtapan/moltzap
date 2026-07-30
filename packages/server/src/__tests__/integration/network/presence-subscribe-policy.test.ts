@@ -21,14 +21,14 @@ import {
 } from "../helpers.js";
 import { agentId, userId, WIRE_ERROR_TAG } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
-import { AgentPresenceSubscribe } from "@moltzap/protocol/network";
+import { agentPresenceSubscribe } from "@moltzap/protocol/network";
 
 const it = effectIt.live;
 
 // Two distinct owners with no contact relationship.
 const REGISTRATION_SECRET = "presence-policy-test-secret-gh508";
-const ALICE_USER_ID = userId("00000000-0000-4000-8000-00000000a5a5") as UserId;
-const CAROL_USER_ID = userId("00000000-0000-4000-8000-00000000c5c5") as UserId;
+const ALICE_USER_ID = userId("00000000-0000-4000-8000-00000000a5a5");
+const CAROL_USER_ID = userId("00000000-0000-4000-8000-00000000c5c5");
 const ALICE_USER = createTestUser("alice", ALICE_USER_ID);
 const CAROL_USER = createTestUser("carol", CAROL_USER_ID);
 
@@ -88,19 +88,35 @@ function registerAndConnectOwned(opts: { name: string; ownerUserId: UserId }) {
   });
 }
 
-/** Extract the typed tagged RPC failure from an exit's failure cause. */
+/**
+ * Extract the typed tagged RPC failure from an exit's failure cause.
+ * @param exit Value supplied to the operation.
+ * @returns The extract tagged rpc error result.
+ */
 function extractTaggedRpcError(exit: Exit.Exit<unknown, unknown>): {
   readonly _tag: string;
   readonly data?: unknown;
 } {
   expect(Exit.isFailure(exit)).toBe(true);
-  if (!Exit.isFailure(exit)) expect.fail("expected failed RPC");
+  if (!Exit.isFailure(exit)) {
+    expect.fail("expected failed RPC");
+  }
   const failureOpt = Cause.failureOption(exit.cause);
   expect(Option.isSome(failureOpt)).toBe(true);
-  if (Option.isNone(failureOpt)) expect.fail("expected RPC error");
+  if (Option.isNone(failureOpt)) {
+    expect.fail("expected RPC error");
+  }
   const err = failureOpt.value;
-  expect((err as { _tag?: unknown })._tag).toBeTypeOf("string");
-  return err as { readonly _tag: string; readonly data?: unknown };
+  expect(
+    (
+      /* Safe because the test fixture establishes this asserted shape. */
+      err as { _tag?: unknown }
+    )._tag,
+  ).toBeTypeOf("string");
+  return /* Safe because the test fixture establishes this asserted shape. */ err as {
+    readonly _tag: string;
+    readonly data?: unknown;
+  };
 }
 
 function rejectsInvisibleAgent() {
@@ -114,14 +130,17 @@ function rejectsInvisibleAgent() {
       ownerUserId: CAROL_USER_ID,
     });
     const exit = yield* Effect.exit(
-      alice.client.sendRpc(AgentPresenceSubscribe, {
+      alice.client.sendRpc(agentPresenceSubscribe, {
         agentIds: [agentId(carol.agentId)],
       }),
     );
 
     const err = extractTaggedRpcError(exit);
     expect(err._tag).toBe(WIRE_ERROR_TAG.NotInContacts);
-    const data = err.data as { agentIds: string[] } | undefined;
+    const data =
+      /* Safe because the test fixture establishes this asserted shape. */ err.data as
+        | { agentIds: string[] }
+        | undefined;
     expect(data?.agentIds).toContain(carol.agentId);
   });
 }
@@ -141,14 +160,17 @@ function rejectsOnlyInvisibleSubset() {
       ownerUserId: CAROL_USER_ID,
     });
     const exit = yield* Effect.exit(
-      alice.client.sendRpc(AgentPresenceSubscribe, {
+      alice.client.sendRpc(agentPresenceSubscribe, {
         agentIds: [agentId(alice2.agentId), agentId(carol.agentId)],
       }),
     );
 
     const err = extractTaggedRpcError(exit);
     expect(err._tag).toBe(WIRE_ERROR_TAG.NotInContacts);
-    const data = err.data as { agentIds: string[] } | undefined;
+    const data =
+      /* Safe because the test fixture establishes this asserted shape. */ err.data as
+        | { agentIds: string[] }
+        | undefined;
     expect(data?.agentIds).toContain(carol.agentId);
     expect(data?.agentIds).not.toContain(alice2.agentId);
   });

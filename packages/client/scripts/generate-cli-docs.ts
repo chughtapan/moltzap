@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * @file CLI documentation generator. Captures `moltzap <command> --help`
+ * @file CLI documentation generator. Captures `moltzap &lt;command> --help`
  * for every command + subcommand and renders it to MDX. The source of
  * truth is the `@effect/cli` `Command` graph in `packages/client/src/cli/`;
  * any change to a `Command`'s flags or signature flows through `--help`
@@ -24,6 +24,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { execPath } from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   escapeMdxProse,
@@ -114,11 +115,7 @@ const splitSections = (raw: string): Map<SectionName, string> => {
 
 const captureHelp = (path: readonly string[]): string => {
   const args = [cliBin, ...path, "--help"];
-  // FORCE_COLOR=0 disables ANSI; some terminals re-add it via TTY checks
-  // so we strip defensively too. `--no-color` is not recognized by Effect
-  // CLI, so env-based suppression + post-strip is the reliable path.
-  const stdout = execFileSync("node", args, {
-    env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
+  const stdout = execFileSync(execPath, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -128,11 +125,11 @@ const captureHelp = (path: readonly string[]): string => {
 /**
  * `@effect/cli` formats one argument as:
  *
- *     <name>
+ *     &lt;name>.
  *
  *       A user-defined piece of text.
  *
- *       <description>
+ *       &lt;description>.
  *
  * Filter out the type-line ("A user-defined piece of text." /
  * "An integer." / "A true or false value." / "One of the following: ...")
@@ -142,15 +139,7 @@ const captureHelp = (path: readonly string[]): string => {
 const TYPE_LINE_RE =
   /^(A user-defined piece of text|An integer|A true or false value|One of the following[^.]*|This argument may be repeated[^.]*)\.$/;
 
-const parseArguments = (sectionText: string): readonly ArgumentDoc[] => {
-  if (sectionText === "") return [];
-  const blocks = splitOnIndentedHeader(sectionText);
-  return blocks
-    .map((block) => parseArgumentBlock(block))
-    .filter((arg): arg is ArgumentDoc => arg !== null);
-};
-
-const splitOnIndentedHeader = (text: string): readonly string[] => {
+function splitOnIndentedHeader(text: string): readonly string[] {
   // A header line is left-flush (no leading whitespace) and starts a new
   // block. Body lines are indented. Two consecutive blank lines also end
   // a block.
@@ -171,13 +160,17 @@ const splitOnIndentedHeader = (text: string): readonly string[] => {
   }
   flush();
   return blocks.map((b) => b.join("\n").trim()).filter((b) => b.length > 0);
-};
+}
 
-const parseArgumentBlock = (block: string): ArgumentDoc | null => {
+function parseArgumentBlock(block: string): ArgumentDoc | null {
   const lines = block.split("\n");
-  if (lines.length === 0) return null;
+  if (lines.length === 0) {
+    return null;
+  }
   const header = lines[0]?.trim() ?? "";
-  if (header === "") return null;
+  if (header === "") {
+    return null;
+  }
   const bodyLines = lines
     .slice(1)
     .map((l) => l.trim())
@@ -185,16 +178,27 @@ const parseArgumentBlock = (block: string): ArgumentDoc | null => {
   const descriptionLines = bodyLines.filter((l) => !TYPE_LINE_RE.test(l));
   const description = descriptionLines.join(" ").trim();
   return { name: header, description };
+}
+
+const parseArguments = (sectionText: string): readonly ArgumentDoc[] => {
+  if (sectionText === "") {
+    return [];
+  }
+  return splitOnIndentedHeader(sectionText)
+    .map((block) => parseArgumentBlock(block))
+    .filter((arg): arg is ArgumentDoc => arg !== null);
 };
 
-const parseOptions = (sectionText: string): readonly OptionDoc[] => {
-  if (sectionText === "") return [];
+function parseOptions(sectionText: string): readonly OptionDoc[] {
+  if (sectionText === "") {
+    return [];
+  }
   const blocks = splitOnIndentedHeader(sectionText);
   return blocks
     .map((block) => parseOptionBlock(block))
     .filter((opt): opt is OptionDoc => opt !== null)
     .filter((opt) => !isGlobalCliOption(opt.signature));
-};
+}
 
 /**
  * Effect CLI injects the same global options on every command:
@@ -211,14 +215,19 @@ const GLOBAL_OPTIONS = new Set([
   "--version",
 ]);
 
-const isGlobalCliOption = (signature: string): boolean =>
-  GLOBAL_OPTIONS.has(signature);
+function isGlobalCliOption(signature: string): boolean {
+  return GLOBAL_OPTIONS.has(signature);
+}
 
-const parseOptionBlock = (block: string): OptionDoc | null => {
+function parseOptionBlock(block: string): OptionDoc | null {
   const lines = block.split("\n");
-  if (lines.length === 0) return null;
+  if (lines.length === 0) {
+    return null;
+  }
   const signature = lines[0]?.trim() ?? "";
-  if (signature === "") return null;
+  if (signature === "") {
+    return null;
+  }
   const bodyLines = lines
     .slice(1)
     .map((l) => l.trim())
@@ -228,40 +237,51 @@ const parseOptionBlock = (block: string): OptionDoc | null => {
     .filter((l) => l !== "This setting is optional.");
   const description = descriptionLines.join(" ").trim();
   return { signature, description };
-};
+}
 
 /**
- * The COMMANDS section is rendered as `- <signature>  <description>`
+ * The COMMANDS section is rendered as `- &lt;signature>  &lt;description>`
  * pairs separated by blank lines. The signature may span the line up
  * to the description's left edge; we split on the first run of >=2
  * spaces.
+ * @param sectionText Rendered COMMANDS section to parse.
+ * @returns Parsed subcommand signatures and descriptions.
  */
 const parseSubcommands = (sectionText: string): readonly SubcommandDoc[] => {
-  if (sectionText === "") return [];
-  const subs: SubcommandDoc[] = [];
-  const lines = sectionText.split("\n");
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line.startsWith("- ")) continue;
-    const body = line.slice(2);
-    const split = body.match(/^(\S(?:.*?\S)?)\s{2,}(.*)$/);
-    if (split === null) {
-      subs.push({ signature: body, description: "" });
-      continue;
-    }
-    subs.push({
-      signature: (split[1] ?? "").trim(),
-      description: (split[2] ?? "").trim(),
-    });
+  if (sectionText === "") {
+    return [];
   }
-  return subs;
+  return sectionText
+    .split("\n")
+    .map(parseSubcommandLine)
+    .filter((item): item is SubcommandDoc => item !== null);
 };
+
+function parseSubcommandLine(rawLine: string): SubcommandDoc | null {
+  const line = rawLine.trim();
+  if (!line.startsWith("- ")) {
+    return null;
+  }
+  const body = line.slice(2);
+  const separator = body.indexOf("  ");
+  return {
+    signature: separator < 0 ? body : body.slice(0, separator).trimEnd(),
+    description: separator < 0 ? "" : body.slice(separator).trimStart(),
+  };
+}
 
 const parseUsage = (sectionText: string): string => {
   const line = sectionText.split("\n").find((l) => l.trim().startsWith("$"));
-  if (line === undefined) return sectionText.trim();
+  if (line === undefined) {
+    return sectionText.trim();
+  }
   return line.replace(/^\s*\$\s*/, "").trim();
 };
+
+function failGeneration(message: string): never {
+  console.error(message);
+  process.exit(1);
+}
 
 const readHelp = (path: readonly string[]): CommandHelp => {
   const raw = captureHelp(path);
@@ -271,7 +291,7 @@ const readHelp = (path: readonly string[]): CommandHelp => {
   const commandName = path.at(-1);
   if (commandName !== undefined && usage.split(/\s/, 1)[0] !== commandName) {
     const command = ["moltzap", ...path].join(" ");
-    throw new Error(
+    failGeneration(
       `Help for '${command}' resolved to '${usage}', so the command is not registered`,
     );
   }
@@ -291,7 +311,7 @@ const readHelp = (path: readonly string[]): CommandHelp => {
 
 const commandPathsFromRootHelp = (
   rootHelp: CommandHelp,
-): readonly (readonly string[])[] => {
+): ReadonlyArray<readonly string[]> => {
   const paths = rootHelp.subcommands.map(({ signature }) => {
     const tokens = signature.trim().split(/\s+/);
     const parameterIndex = tokens.findIndex((token) => /^[-[(<]/.test(token));
@@ -300,13 +320,13 @@ const commandPathsFromRootHelp = (
       parameterIndex === -1 ? tokens.length : parameterIndex,
     );
     if (path.length === 0) {
-      throw new Error(`Cannot derive a command path from '${signature}'`);
+      failGeneration(`Cannot derive a command path from '${signature}'`);
     }
     return path;
   });
   const uniquePaths = new Set(paths.map((path) => path.join(" ")));
   if (uniquePaths.size !== paths.length) {
-    throw new Error("Root help contains duplicate command paths");
+    failGeneration("Root help contains duplicate command paths");
   }
   return paths;
 };
@@ -317,6 +337,29 @@ const AUTO_GEN_NOTE =
   "{/* AUTO-GENERATED by packages/client/scripts/generate-cli-docs.ts. " +
   "Do not edit by hand — re-run `pnpm docs:generate`. */}";
 
+interface ReferenceListItem {
+  readonly label: string;
+  readonly description: string;
+}
+
+function renderReferenceList(
+  heading: string,
+  items: readonly ReferenceListItem[],
+): string | undefined {
+  if (items.length === 0) {
+    return undefined;
+  }
+  return [
+    `**${heading}:**`,
+    "",
+    ...items.map((item) => {
+      const description =
+        item.description === "" ? "" : ` — ${escapeMdxProse(item.description)}`;
+      return `- \`${item.label}\`${description}`;
+    }),
+  ].join("\n");
+}
+
 const renderCommandReference = (cmd: CommandHelp): string => {
   const cmdLabel = ["moltzap", ...cmd.path].join(" ");
   const heading = `### \`${cmdLabel}\``;
@@ -325,43 +368,37 @@ const renderCommandReference = (cmd: CommandHelp): string => {
   );
   const usage = `**Usage:** \`${qualifiedUsage}\``;
   const parts: string[] = [heading];
-  if (cmd.description !== "") parts.push(escapeMdxProse(cmd.description));
+  if (cmd.description !== "") {
+    parts.push(escapeMdxProse(cmd.description));
+  }
   parts.push(usage);
-  if (cmd.arguments.length > 0) {
-    parts.push(
-      [
-        "**Arguments:**",
-        "",
-        ...cmd.arguments.map(
-          (a) =>
-            `- \`${a.name}\`${a.description === "" ? "" : ` — ${escapeMdxProse(a.description)}`}`,
-        ),
-      ].join("\n"),
-    );
-  }
-  if (cmd.options.length > 0) {
-    parts.push(
-      [
-        "**Options:**",
-        "",
-        ...cmd.options.map(
-          (o) =>
-            `- \`${o.signature}\`${o.description === "" ? "" : ` — ${escapeMdxProse(o.description)}`}`,
-        ),
-      ].join("\n"),
-    );
-  }
-  if (cmd.subcommands.length > 0) {
-    parts.push(
-      [
-        "**Subcommands:**",
-        "",
-        ...cmd.subcommands.map(
-          (s) =>
-            `- \`${s.signature}\`${s.description === "" ? "" : ` — ${escapeMdxProse(s.description)}`}`,
-        ),
-      ].join("\n"),
-    );
+  const lists = [
+    renderReferenceList(
+      "Arguments",
+      cmd.arguments.map((item) => ({
+        label: item.name,
+        description: item.description,
+      })),
+    ),
+    renderReferenceList(
+      "Options",
+      cmd.options.map((item) => ({
+        label: item.signature,
+        description: item.description,
+      })),
+    ),
+    renderReferenceList(
+      "Subcommands",
+      cmd.subcommands.map((item) => ({
+        label: item.signature,
+        description: item.description,
+      })),
+    ),
+  ];
+  for (const list of lists) {
+    if (list !== undefined) {
+      parts.push(list);
+    }
   }
   return parts.join("\n\n");
 };
@@ -434,6 +471,7 @@ const renderGlobalFlagsSnippet = (rootHelp: CommandHelp): string =>
  * Read `PROTOCOL_VERSION` from the protocol package manifest, which is the
  * single source of truth for both package and wire versions. Reading JSON
  * keeps the generator decoupled from the protocol package's build output.
+ * @returns The protocol version or a typed source error.
  */
 const readProtocolVersion = (): ReadResult<string> => {
   const sourcePath = resolve(workspaceRoot, "packages/protocol/package.json");
@@ -454,6 +492,7 @@ const readProtocolVersion = (): ReadResult<string> => {
  * a hardcoded `"moltzap_agent_"` so the snippet survives any future
  * prefix change (and the `check-no-hardcoded-constants` API_KEY_PREFIX
  * rule no longer needs `ws-connect-example.mdx` on its allowlist).
+ * @returns The API key prefix or a typed source error.
  */
 const readApiKeyPrefix = (): ReadResult<string> => {
   const sourcePath = resolve(

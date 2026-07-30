@@ -158,7 +158,7 @@ function assertProcessInput(process: NanoclawProcessInput): void {
 function returnsAfterReadinessTest() {
   return Effect.gen(function* () {
     const readyEntered = yield* Deferred.make<Duration.Duration>();
-    const becomeReady = yield* Deferred.make<void>();
+    const becomeReady = yield* Deferred.make<undefined>();
     const fixture = yield* makeFixture(fullRuntimeOptions());
     const acquired = yield* Effect.scoped(
       fixture.runtime.acquire({
@@ -186,7 +186,7 @@ function returnsAfterReadinessTest() {
 
 function interruptedAcquisitionTest() {
   return Effect.gen(function* () {
-    const readyEntered = yield* Deferred.make<void>();
+    const readyEntered = yield* Deferred.make<undefined>();
     const fixture = yield* makeFixture({});
     const acquired = yield* Effect.scoped(
       fixture.runtime.acquire({

@@ -8,7 +8,7 @@ import {
   type RuntimeTermination,
 } from "./runtime.js";
 import type { AgentConnection } from "../network/router.js";
-import { Duration, Effect, Redacted, Schema } from "effect";
+import { type Duration, Effect, Redacted, Schema } from "effect";
 import { attachChildOutput } from "./command.js";
 
 const AGENT_KEY_REDACTION_MARKER = "[REDACTED:agent-key]";
@@ -71,6 +71,8 @@ function acquisitionFailed(
  * Race the router's single readiness contract against actual process exit.
  * The runtime-specific owner supplies process observations, not lifecycle
  * configuration or teardown.
+ * @param input Input value to process.
+ * @returns The await process ready result.
  */
 export function awaitProcessReady<Name extends string, WaitFailure>(
   input: ProcessReadiness<Name, WaitFailure>,
@@ -101,7 +103,12 @@ export function awaitProcessReady<Name extends string, WaitFailure>(
   return Effect.raceFirst(ready, exited);
 }
 
-/** Convert one process exit observation into runtime evidence. */
+/**
+ * Convert one process exit observation into runtime evidence.
+ * @param identity Value supplied to the operation.
+ * @param observation Value supplied to the operation.
+ * @returns The process termination result.
+ */
 export function processTermination<WaitFailure>(
   identity: Pick<ProcessIdentity, "agentName" | "runtimeName">,
   observation: ProcessObservation<WaitFailure>,

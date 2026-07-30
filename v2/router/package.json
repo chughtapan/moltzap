@@ -37,7 +37,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "v2/router",
-          "command": "eslint src --cache --max-warnings=0"
+          "command": "eslint . --cache --max-warnings=0"
         }
       }
     }

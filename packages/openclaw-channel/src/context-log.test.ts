@@ -2,7 +2,7 @@ import { FileSystem, Path } from "@effect/platform";
 import type { PlatformError } from "@effect/platform/Error";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
-import { Effect, ParseResult, Schema } from "effect";
+import { Effect, type ParseResult, Schema } from "effect";
 import { afterEach, describe, expect, vi } from "vitest";
 
 import { writeOpenClawContextLog } from "./context-log.js";
@@ -29,27 +29,27 @@ const BODY_FOR_AGENT = "Messages (untrusted metadata):\n[]\n\nTime to vote";
 const CROSS_CONVERSATION_TEXT = "old kill reminder";
 const CROSS_CONVERSATION_TIMESTAMP = "2026-04-25T00:00:00.000Z";
 
-const ContextLogEntrySchema = Schema.Struct({
+const contextLogEntrySchema = Schema.Struct({
   accountAgentName: Schema.String,
   stateDir: Schema.String,
   conversationName: Schema.String,
   bodyForAgent: Schema.String,
   crossConversationMessageCount: Schema.Number,
 });
-type ContextLogEntry = Schema.Schema.Type<typeof ContextLogEntrySchema>;
+type ContextLogEntry = Schema.Schema.Type<typeof contextLogEntrySchema>;
 
 class ContextLogTestError extends Error {
   override readonly name = "ContextLogTestError";
 
-  constructor(
-    message: string,
-    override readonly cause?: unknown,
-  ) {
+  override readonly cause?: unknown;
+
+  constructor(message: string, cause?: unknown) {
     super(message);
+    this.cause = cause;
   }
 }
 
-const decodeContextLogEntry = Schema.decodeUnknown(ContextLogEntrySchema);
+const decodeContextLogEntry = Schema.decodeUnknown(contextLogEntrySchema);
 
 afterEach(() => {
   vi.unstubAllEnvs();

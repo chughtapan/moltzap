@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JSONSchema, Schema } from "effect";
+import { JSONSchema, type Schema } from "effect";
 import {
   stringEnum,
   formatString,
@@ -7,7 +7,7 @@ import {
 } from "./wire-string.js";
 import { decodesStrictly } from "./strict-decode.js";
 
-const DateTimeString = dateTimeStringSchema();
+const dateTimeString = dateTimeStringSchema();
 const INVALID_ENUM_VALUE = 123;
 
 const accepts = <A, I>(schema: Schema.Schema<A, I>, value: unknown): boolean =>
@@ -30,10 +30,13 @@ describe("stringEnum", () => {
   it("renders a literal-union enum in JSONSchema, not anyOf", () => {
     // `Schema.Literal(...)` surfaces an `enum` keyword in JSONSchema.make,
     // which the docs walker reads off `.enum` (NOT `anyOf`).
-    const node = JSONSchema.make(schema) as {
-      enum?: readonly string[];
-      anyOf?: unknown;
-    };
+    const node =
+      /* Safe because JSONSchema.make emits the documented draft-07 enum projection. */ JSONSchema.make(
+        schema,
+      ) as {
+        enum?: readonly string[];
+        anyOf?: unknown;
+      };
     expect(node.enum).toEqual(["user", "agent"]);
     expect(node.anyOf).toBeUndefined();
   });
@@ -41,11 +44,11 @@ describe("stringEnum", () => {
 
 describe("DateTimeString", () => {
   it("accepts ISO 8601 timestamps", () => {
-    expect(accepts(DateTimeString, "2026-03-14T12:00:00.000Z")).toBe(true);
+    expect(accepts(dateTimeString, "2026-03-14T12:00:00.000Z")).toBe(true);
   });
 
   it("rejects non-datetime strings", () => {
-    expect(accepts(DateTimeString, "not-a-date")).toBe(false);
+    expect(accepts(dateTimeString, "not-a-date")).toBe(false);
   });
 });
 
@@ -62,13 +65,13 @@ describe("wire-format parity corpus", () => {
   });
 
   it("date-time (incl. the finiteness cliff)", () => {
-    expect(accepts(DateTimeString, "2026-03-14T12:00:00.000Z")).toBe(true);
-    expect(accepts(DateTimeString, "not-a-date")).toBe(false);
+    expect(accepts(dateTimeString, "2026-03-14T12:00:00.000Z")).toBe(true);
+    expect(accepts(dateTimeString, "not-a-date")).toBe(false);
     // Shape-valid (matches DATE_TIME_RE) but `Date.parse` → NaN: month/day
     // out of range. The finiteness `filter` is what rejects it; a bare regex
     // would accept. This is the load-bearing parity case.
-    expect(accepts(DateTimeString, "2026-99-99T99:99:99Z")).toBe(false);
-    expect(accepts(DateTimeString, "2021-13-01T00:00:00Z")).toBe(false);
+    expect(accepts(dateTimeString, "2026-99-99T99:99:99Z")).toBe(false);
+    expect(accepts(dateTimeString, "2021-13-01T00:00:00Z")).toBe(false);
   });
 
   it("uri", () => {

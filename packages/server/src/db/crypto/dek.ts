@@ -1,9 +1,10 @@
 import { SymmetricKeyMaterial } from "./key-material.js";
 
-const DekTypeId = Symbol("@moltzap/server/Dek");
+const dekTypeId = Symbol("@moltzap/server/Dek");
 
+/** Implements dek. */
 export class Dek extends SymmetricKeyMaterial {
-  readonly [DekTypeId] = DekTypeId;
+  readonly [dekTypeId] = dekTypeId;
 
   private constructor(bytes: Buffer) {
     super(bytes);

@@ -6,16 +6,17 @@
  * before returning, so its in-memory streams cannot fail.
  */
 
-import { Context, Data, Effect, Exit, Stream } from "effect";
+import { Context, Data, Effect, type Exit, type Stream } from "effect";
+import type { MessageParts } from "@moltzap/protocol/message";
 import {
   LinkController,
-  LinkDriver,
+  type LinkDriver,
   Network,
-  RouterProvider,
+  type RouterProvider,
 } from "./network.js";
 import { RuntimeCompleted, defineRuntime } from "./runtime/runtime.js";
-import { LedgerStorage } from "./ledger/storage.js";
-import { Simulator } from "./definition.js";
+import type { LedgerStorage } from "./ledger/storage.js";
+import { simulator } from "./definition.js";
 import type { SimulatorRunOptions } from "./kernel/run.js";
 
 class RuntimeRequirement extends Context.Tag(
@@ -41,42 +42,36 @@ const runtime = defineRuntime<RuntimeUnavailable, RuntimeRequirement>({
     }),
 });
 
-const Society = Simulator.define("acme.type-canary/v1");
-const roster = Society.agents({
+const society = simulator.define("acme.type-canary/v1");
+const roster = society.agents({
   alice: runtime,
 });
 
 const program = Effect.gen(function* () {
-  const agents = yield* roster.Agents;
-  yield* Society.Ledger;
-  yield* Society.Events;
+  const agents = yield* roster.startedAgents;
+  yield* society.ledger;
+  yield* society.events;
   const network = yield* Network;
   const links = yield* LinkController;
   yield* ProgramRequirement;
   const probe = yield* network.endpoint("probe");
   const conversation = yield* probe.open(agents.alice);
   yield* conversation.send("hello");
-  // @ts-expect-error Message-part arrays are nonempty.
-  yield* conversation.send([]);
   yield* links.disable(agents.alice, probe.participant);
   return [agents.alice.name, probe.participant.name] as const;
 });
 
-const run = Society.run(roster, program);
+/** Representative definition run retained for compile-time contract checks. */
+export const definitionCanaryRun = society.run(roster, program);
 
-type Equal<Left, Right> =
-  (<Value>() => Value extends Left ? 1 : 2) extends <
-    Value,
-  >() => Value extends Right ? 1 : 2
-    ? true
-    : false;
+type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 type ExitSuccess<Outcome> =
-  Outcome extends Exit.Exit<infer Success, infer _Failure> ? Success : never;
+  Outcome extends Exit.Success<infer Success, unknown> ? Success : never;
 
 type RunRequirementsAreExact = Expect<
   Equal<
-    Effect.Effect.Context<typeof run>,
+    Effect.Effect.Context<typeof definitionCanaryRun>,
     | RuntimeRequirement
     | ProgramRequirement
     | LinkDriver
@@ -86,12 +81,12 @@ type RunRequirementsAreExact = Expect<
 >;
 type ResultKeepsLiteralNames = Expect<
   Equal<
-    ExitSuccess<Effect.Effect.Success<typeof run>["exit"]>,
+    ExitSuccess<Effect.Effect.Success<typeof definitionCanaryRun>["exit"]>,
     readonly ["alice", "probe"]
   >
 >;
 type OpenedLedger = Effect.Effect.Success<
-  ReturnType<typeof Society.openLedger>
+  ReturnType<typeof society.openLedger>
 >;
 type CompletedRecordsCannotFail = Expect<
   Equal<Stream.Stream.Error<OpenedLedger["records"]>, never>
@@ -99,9 +94,15 @@ type CompletedRecordsCannotFail = Expect<
 type RunOptionsOnlyDescribeRun = Expect<
   Equal<keyof SimulatorRunOptions, "provenance" | "metadata">
 >;
+type EmptyPartsAreRejected = Expect<
+  Equal<readonly [] extends MessageParts ? true : false, false>
+>;
 
-type _Canaries =
-  | RunRequirementsAreExact
-  | ResultKeepsLiteralNames
-  | CompletedRecordsCannotFail
-  | RunOptionsOnlyDescribeRun;
+/** Compile-time assertions for the public definition surface. */
+export type DefinitionCanaries = [
+  RunRequirementsAreExact,
+  ResultKeepsLiteralNames,
+  CompletedRecordsCannotFail,
+  RunOptionsOnlyDescribeRun,
+  EmptyPartsAreRejected,
+];

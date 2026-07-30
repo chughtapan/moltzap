@@ -28,8 +28,10 @@
 import type { PresenceService } from "./presence.service.js";
 import type { LeaseRegistryDeps } from "#dispatch";
 
-import type { LeaseTransitionObserver } from "./presence-types.js";
-import { noopLeaseTransitionObserver } from "./presence-types.js";
+import {
+  type LeaseTransitionObserver,
+  noopLeaseTransitionObserver,
+} from "./presence-types.js";
 
 declare const presenceService: PresenceService;
 
@@ -41,27 +43,28 @@ declare const presenceService: PresenceService;
 declare const leaseRegistryDeps: LeaseRegistryDeps;
 void leaseRegistryDeps.connections;
 void leaseRegistryDeps.leaseRetentionMs;
-const _observerField: LeaseTransitionObserver =
+const observerField: LeaseTransitionObserver =
   leaseRegistryDeps.transitionObserver;
-void _observerField;
-const _serviceSatisfiesField: LeaseTransitionObserver = presenceService;
-void _serviceSatisfiesField;
-const _noopSatisfiesField: LeaseTransitionObserver =
-  noopLeaseTransitionObserver;
-void _noopSatisfiesField;
+void observerField;
+const serviceSatisfiesField: LeaseTransitionObserver = presenceService;
+void serviceSatisfiesField;
+const noopSatisfiesField: LeaseTransitionObserver = noopLeaseTransitionObserver;
+void noopSatisfiesField;
 
 // ── 2. PresenceServiceLive integration ──────────────────────────────
 //
 // `PresenceServiceLive` outputs `PresenceServiceTag` and is fully closed. If
 // the construction dep set changes, the assignment fails TS2322.
 
-import {
-  PresenceServiceLive,
-  type PresenceServiceTag,
+import type {
+  presenceServiceLive as presenceServiceLiveLayer,
+  PresenceServiceTag,
 } from "#network/presence";
 import type { Layer } from "effect";
 
-declare const presenceServiceLive: typeof PresenceServiceLive;
-const _presenceServiceLiveShape: Layer.Layer<PresenceServiceTag, never, never> =
+declare const presenceServiceLive: typeof presenceServiceLiveLayer;
+const presenceServiceLiveShape: Layer.Layer<PresenceServiceTag> =
   presenceServiceLive;
-void _presenceServiceLiveShape;
+void presenceServiceLiveShape;
+
+/* eslint-enable sonarjs/void-use -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

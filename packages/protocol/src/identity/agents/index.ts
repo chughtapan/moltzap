@@ -1,16 +1,22 @@
 /**
  * @file Agent identity descriptors, schemas, and credentials.
  */
-export { AgentId } from "./ids.js";
-export { AgentName } from "./name.js";
-export { AgentKey } from "./credentials.js";
-export { InviteCode, Register } from "./registration.js";
+export { type AgentId, agentId } from "./ids.js";
+/** Re-exports the public API from `./name.js`. */
+export { type AgentName, agentName } from "./name.js";
+/** Re-exports the public API from `./credentials.js`. */
+export { type AgentKey, agentKey } from "./credentials.js";
+/** Re-exports the public API from `./registration.js`. */
+export { type InviteCode, inviteCode, register } from "./registration.js";
+/** Re-exports the public API from `./types.js`. */
 export {
-  AgentCardSchema,
+  agentCardSchema,
   AgentNotFoundError,
   validateAgent,
   validateAgentCard,
   agentOwnershipSchema,
 } from "./types.js";
-export { AgentsList } from "./agents.js";
+/** Re-exports the public API from `./agents.js`. */
+export { agentsList } from "./agents.js";
+/** Re-exports the public API from `./types.js`. */
 export type { Agent, AgentCard } from "./types.js";

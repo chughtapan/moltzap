@@ -12,26 +12,23 @@ import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
-import type {
-  DispatchLeaseGet,
-  DispatchId,
-} from "@moltzap/protocol/message/dispatch";
-import type { ResultOf } from "@moltzap/protocol/rpc";
 import {
-  DispatchId as DispatchIdSchema,
-  LeaseId as LeaseIdSchema,
-  DispatchRelease,
-  DispatchLeaseConsumed,
-  DispatchLeaseExpired,
+  type dispatchLeaseGet,
+  type DispatchId,
+  dispatchId as DispatchIdSchema,
+  leaseId as LeaseIdSchema,
+  dispatchRelease,
+  dispatchLeaseConsumed,
+  dispatchLeaseExpired,
+  type LeaseId,
 } from "@moltzap/protocol/message/dispatch";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
-import type { NotificationParamsOf } from "@moltzap/protocol/rpc";
+import type { ResultOf, NotificationParamsOf } from "@moltzap/protocol/rpc";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
 import type { ConnectionManager } from "#socket";
 import type { LeaseTransitionObserver } from "#network/presence";
 
 /** Wire-side LeaseRecord shape (flat). */
-type LeaseRecordWire = ResultOf<typeof DispatchLeaseGet>["lease"];
+type LeaseRecordWire = ResultOf<typeof dispatchLeaseGet>["lease"];
 const decodeDispatchId = Schema.decodeUnknownSync(DispatchIdSchema);
 const decodeLeaseId = Schema.decodeUnknownSync(LeaseIdSchema);
 
@@ -49,7 +46,7 @@ const decodeLeaseId = Schema.decodeUnknownSync(LeaseIdSchema);
  * - Lease and dispatch ids are branded (`LeaseId` / `DispatchId` from
  *   `@moltzap/protocol`); raw strings cannot be confused at call sites.
  *
- * ─── State machine ──────────────────────────────────────────────────
+ * ─── State machine ──────────────────────────────────────────────────.
  *
  * ```
  *  mint                         resolve(grant)               claim
@@ -163,14 +160,14 @@ interface LeaseMintResult {
 /**
  * Tagged error channel for the registry's transition-rejecting paths.
  * The `state` carries the lease's CURRENT state (so callers can
- * surface a precise wire-error code, e.g. typed-CONSUMED /
+ * surface a precise wire-error code, e.g. Typed-CONSUMED /
  * typed-EXPIRED) and `expected` carries the set of states the
  * operation would have accepted.
  */
 export class LeaseInvalidError extends Data.TaggedError("LeaseInvalidError")<{
   readonly leaseId: LeaseId;
   readonly state: LeaseState;
-  readonly expected: ReadonlyArray<LeaseState>;
+  readonly expected: readonly LeaseState[];
   readonly operation: "resolve" | "claim" | "finalize" | "rollback" | "read";
 }> {
   override get message(): string {
@@ -210,13 +207,13 @@ interface Claim {
    */
   readonly finalize: (
     messageId: MessageId,
-  ) => Effect.Effect<void, LeaseInvalidError, never>;
+  ) => Effect.Effect<void, LeaseInvalidError>;
 
   /**
    * CLAIMED → GRANTED. Used by the `Effect.acquireUseRelease` release path
    * when `sendInsert` fails after `claim` succeeded but before `finalize`.
    */
-  readonly rollback: Effect.Effect<void, LeaseInvalidError, never>;
+  readonly rollback: Effect.Effect<void, LeaseInvalidError>;
 }
 
 /**
@@ -226,7 +223,7 @@ interface Claim {
  * flag — no DB row. State transitions are atomic via `Ref.modify`.
  *
  * Lease state machine (eight states; `LeaseState` in this file is the
- * normative enumeration):
+ * normative enumeration):.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -300,9 +297,7 @@ export interface LeaseRegistry {
    * Both ids are minted via `crypto.randomUUID()`; the brand on
    * `LeaseId` / `DispatchId` keeps them disjoint at every call site.
    */
-  mint(
-    binding: ModeratorBoundLeaseBinding,
-  ): Effect.Effect<LeaseMintResult, never, never>;
+  mint(binding: ModeratorBoundLeaseBinding): Effect.Effect<LeaseMintResult>;
 
   /**
    * Settle a PENDING lease into a terminal-or-near-terminal state via
@@ -315,7 +310,7 @@ export interface LeaseRegistry {
   resolve(
     leaseId: LeaseId,
     verdict: LeaseVerdict,
-  ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never>;
+  ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError>;
 
   /**
    * Atomic GRANTED → CLAIMED. Called from the messages handler
@@ -330,7 +325,7 @@ export interface LeaseRegistry {
    */
   claim(
     leaseId: LeaseId,
-  ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError, never>;
+  ): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError>;
 
   /**
    * Snapshot read for `app/dispatch/lease/get`. Includes the live `leaseId` —
@@ -349,7 +344,7 @@ export interface LeaseRegistry {
           readonly _tag: "dispatchId";
           readonly value: DispatchId;
         },
-  ): Effect.Effect<LeaseRecord, LeaseNotFoundError, never>;
+  ): Effect.Effect<LeaseRecord, LeaseNotFoundError>;
 
   /**
    * Connection-close cleanup. Called from the WS disconnect-hook chain
@@ -380,7 +375,7 @@ export interface LeaseRegistry {
    * failures are absorbed so disconnect cleanup always completes; the public
    * error channel is `never`.
    */
-  abandon(connId: ConnectionId): Effect.Effect<void, never, never>;
+  abandon(connId: ConnectionId): Effect.Effect<void>;
 
   /**
    * Internal — record the forked moderator round-trip fiber so
@@ -395,7 +390,7 @@ export interface LeaseRegistry {
   attachRoundTripFiber(
     leaseId: LeaseId,
     fiber: Fiber.RuntimeFiber<unknown, unknown>,
-  ): Effect.Effect<void, never, never>;
+  ): Effect.Effect<void>;
 
   /**
    * Deterministic shutdown drain — invoked by `CoreApp.close`
@@ -409,7 +404,7 @@ export interface LeaseRegistry {
    * Idempotent; safe to call when no leases are live. Error channel `never` —
    * shutdown is best-effort.
    */
-  shutdown(): Effect.Effect<void, never, never>;
+  shutdown(): Effect.Effect<void>;
 }
 
 /**
@@ -472,7 +467,7 @@ interface LeaseRegistryState {
   readonly deps: LeaseRegistryDeps;
   readonly dataRef: Ref.Ref<LeaseRegistryData>;
   /** Cancels in-flight notification and retention effects at shutdown. */
-  readonly shutdownSignal: Deferred.Deferred<void>;
+  readonly shutdownSignal: Deferred.Deferred<undefined>;
 
   /**
    * `Ref.modify` makes each state change atomic. This permit additionally
@@ -498,7 +493,7 @@ function modifyRegistry<A, E>(
   transition: (
     data: LeaseRegistryData,
   ) => readonly [Either.Either<A, E>, LeaseRegistryData],
-): Effect.Effect<A, E, never> {
+): Effect.Effect<A, E> {
   return Ref.modify(state.dataRef, transition).pipe(
     Effect.flatMap(
       Either.match({
@@ -517,17 +512,25 @@ function leaseStateForVerdict(verdict: LeaseVerdict): LeaseState {
       return "DENIED";
     case "hold":
       return "HOLD";
+    default: {
+      const exhaustive: never = verdict;
+      return exhaustive;
+    }
   }
 }
 
 function leaseTimeoutForVerdict(verdict: LeaseVerdict): number | null {
-  if (verdict._tag !== "grant") return null;
+  if (verdict._tag !== "grant") {
+    return null;
+  }
   return verdict.leaseTimeoutMs ?? null;
 }
 
 /**
  * Translation point between the in-process nested `LeaseRecord` and the wire
  * `LeaseRecordSchema` shape.
+ * @param record Value supplied to the operation.
+ * @returns The lease record to wire result.
  */
 export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire {
   return {
@@ -549,7 +552,11 @@ export function leaseRecordToWire(record: LeaseRecord): LeaseRecordWire {
   };
 }
 
-/** Map the in-process verdict to the wire admission decision shape. */
+/**
+ * Map the in-process verdict to the wire admission decision shape.
+ * @param v Value supplied to the operation.
+ * @returns The lease verdict to wire result.
+ */
 function leaseVerdictToWire(
   v: LeaseVerdict | null,
 ):
@@ -557,7 +564,9 @@ function leaseVerdictToWire(
   | { decision: "deny"; reason?: string }
   | { decision: "hold"; reason?: string }
   | null {
-  if (v === null) return null;
+  if (v === null) {
+    return null;
+  }
   switch (v._tag) {
     case "grant":
       return v.leaseTimeoutMs !== undefined
@@ -572,8 +581,8 @@ function leaseVerdictToWire(
         ? { decision: "hold", reason: v.reason }
         : { decision: "hold" };
     default: {
-      const _absurd: never = v;
-      return _absurd;
+      const absurd: never = v;
+      return absurd;
     }
   }
 }
@@ -588,7 +597,7 @@ function leaseNotFound(
 function invalidLeaseState(
   leaseId: LeaseId,
   state: LeaseState,
-  expected: ReadonlyArray<LeaseState>,
+  expected: readonly LeaseState[],
   operation: LeaseInvalidError["operation"],
 ): LeaseInvalidError {
   return new LeaseInvalidError({ leaseId, state, expected, operation });
@@ -599,13 +608,15 @@ function fireNotification<D extends AnyNotificationDefinition>(
   connId: ConnectionId,
   definition: D,
   params: NotificationParamsOf<D>,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   // Once the registry is shutting down, every connection is being torn down
   // concurrently. Drop the notification deterministically — no consumer
   // remains at shutdown.
   return Ref.get(state.dataRef).pipe(
     Effect.flatMap((data) => {
-      if (data.closed) return Effect.void;
+      if (data.closed) {
+        return Effect.void;
+      }
       return Effect.forkDaemon(
         Effect.raceFirst(
           Effect.disconnect(
@@ -623,7 +634,7 @@ function fireNotificationToConnection<D extends AnyNotificationDefinition>(
   connId: ConnectionId,
   definition: D,
   params: NotificationParamsOf<D>,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return state.deps.connections.peek(connId).pipe(
     Effect.flatMap((connOpt) => {
       if (Option.isNone(connOpt)) {
@@ -650,13 +661,15 @@ function emitDispatchRelease(
   state: LeaseRegistryState,
   record: LeaseRecord,
   verdict: LeaseVerdict,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   const wire = leaseVerdictToWire(verdict);
-  if (wire === null) return Effect.void;
+  if (wire === null) {
+    return Effect.void;
+  }
   return fireNotification(
     state,
     record.binding.recipientConnectionId,
-    DispatchRelease,
+    dispatchRelease,
     {
       dispatchId: record.dispatchId,
       leaseId: record.leaseId,
@@ -673,11 +686,11 @@ function emitDispatchLeaseConsumed(
   record: LeaseRecord,
   messageId: MessageId,
   consumedAt: string,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return fireNotification(
     state,
     record.binding.moderatorConnectionId,
-    DispatchLeaseConsumed,
+    dispatchLeaseConsumed,
     {
       dispatchId: record.dispatchId,
       leaseId: record.leaseId,
@@ -692,11 +705,11 @@ function emitDispatchLeaseExpired(
   state: LeaseRegistryState,
   record: LeaseRecord,
   expiredAt: string,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return fireNotification(
     state,
     record.binding.moderatorConnectionId,
-    DispatchLeaseExpired,
+    dispatchLeaseExpired,
     {
       dispatchId: record.dispatchId,
       leaseId: record.leaseId,
@@ -710,10 +723,12 @@ function removeEntry(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   dispatchId: DispatchId,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Ref.update(state.dataRef, (data) => {
     const entry = data.entries.get(leaseId);
-    if (!entry || entry.record.dispatchId !== dispatchId) return data;
+    if (!entry || entry.record.dispatchId !== dispatchId) {
+      return data;
+    }
     const entries = new Map(data.entries);
     const dispatchIndex = new Map(data.dispatchIndex);
     entries.delete(leaseId);
@@ -726,7 +741,7 @@ function scheduleRetention(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   dispatchId: DispatchId,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Effect.forkDaemon(
     Effect.raceFirst(
       Effect.sleep(`${state.deps.leaseRetentionMs} millis`).pipe(
@@ -750,7 +765,7 @@ function observeLeaseActiveEnd(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   record: LeaseRecord,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return state.deps.transitionObserver.onLeaseActiveEnd(
     leaseId,
     record.binding.recipientAgentId,
@@ -762,7 +777,7 @@ function commitTtlExpiry(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   expectedRecord: LeaseRecord,
-): Effect.Effect<ExpiredLeaseTransition | null, never, never> {
+): Effect.Effect<ExpiredLeaseTransition | null> {
   const expiredAt = new Date().toISOString();
   return Ref.modify(state.dataRef, (data) => {
     const entry = data.entries.get(leaseId);
@@ -791,7 +806,7 @@ function expireLeaseFromTtl(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   expectedRecord: LeaseRecord,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Effect.gen(function* () {
     const transition = yield* state.transitionPermit.withPermits(1)(
       Effect.gen(function* () {
@@ -807,7 +822,9 @@ function expireLeaseFromTtl(
       }),
     );
 
-    if (transition === null) return;
+    if (transition === null) {
+      return;
+    }
     yield* scheduleRetention(state, leaseId, transition.record.dispatchId);
     yield* emitDispatchLeaseExpired(
       state,
@@ -821,7 +838,7 @@ function scheduleTtlForEntry(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   entry: LeaseEntry,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   const timeoutMs = entry.record.leaseTimeoutMs;
   if (timeoutMs === null || !isTtlExpirableState(entry.record.state)) {
     return Effect.void;
@@ -847,7 +864,9 @@ function scheduleTtlForEntry(
         withLeaseEntry(data, leaseId, { ...current, ttlFiber: fiber }),
       ];
     });
-    if (!attached) yield* Fiber.interruptFork(fiber);
+    if (!attached) {
+      yield* Fiber.interruptFork(fiber);
+    }
   });
 }
 
@@ -856,7 +875,7 @@ function modifyClaimedEntry<A>(
   leaseId: LeaseId,
   operation: "finalize" | "rollback",
   transition: (entry: LeaseEntry) => readonly [A, LeaseEntry],
-): Effect.Effect<A, LeaseInvalidError, never> {
+): Effect.Effect<A, LeaseInvalidError> {
   return modifyRegistry(state, (data) => {
     const entry = data.entries.get(leaseId);
     const currentState = entry?.record.state ?? "EXPIRED";
@@ -877,7 +896,7 @@ function finalizeClaim(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   messageId: MessageId,
-): Effect.Effect<void, LeaseInvalidError, never> {
+): Effect.Effect<void, LeaseInvalidError> {
   return Effect.gen(function* () {
     const consumedAt = new Date().toISOString();
     const consumedRecord = yield* state.transitionPermit.withPermits(1)(
@@ -917,7 +936,7 @@ function finalizeClaim(
 function rollbackClaim(
   state: LeaseRegistryState,
   leaseId: LeaseId,
-): Effect.Effect<void, LeaseInvalidError, never> {
+): Effect.Effect<void, LeaseInvalidError> {
   return Effect.gen(function* () {
     const grantedEntry = yield* state.transitionPermit.withPermits(1)(
       modifyClaimedEntry(state, leaseId, "rollback", (entry) => {
@@ -965,7 +984,7 @@ function makeMintedLeaseRecord(
 function mintLease(
   state: LeaseRegistryState,
   binding: ModeratorBoundLeaseBinding,
-): Effect.Effect<LeaseMintResult, never, never> {
+): Effect.Effect<LeaseMintResult> {
   return Effect.gen(function* () {
     const leaseId = decodeLeaseId(crypto.randomUUID());
     const dispatchId = decodeDispatchId(crypto.randomUUID());
@@ -977,14 +996,18 @@ function mintLease(
     );
     const entry: LeaseEntry = { record, ttlFiber: null, roundTripFiber: null };
     const inserted = yield* Ref.modify(state.dataRef, (data) => {
-      if (data.closed) return [false, data];
+      if (data.closed) {
+        return [false, data];
+      }
       const entries = new Map(data.entries);
       const dispatchIndex = new Map(data.dispatchIndex);
       entries.set(leaseId, entry);
       dispatchIndex.set(dispatchId, leaseId);
       return [true, { ...data, entries, dispatchIndex }];
     });
-    if (!inserted) return yield* Effect.interrupt;
+    if (!inserted) {
+      return yield* Effect.interrupt;
+    }
     return { leaseId, dispatchId };
   });
 }
@@ -993,7 +1016,7 @@ function commitResolvedLease(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   verdict: LeaseVerdict,
-): Effect.Effect<LeaseEntry, LeaseInvalidError | LeaseNotFoundError, never> {
+): Effect.Effect<LeaseEntry, LeaseInvalidError | LeaseNotFoundError> {
   return modifyRegistry<LeaseEntry, LeaseInvalidError | LeaseNotFoundError>(
     state,
     (data) => {
@@ -1038,7 +1061,7 @@ function resolveLease(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   verdict: LeaseVerdict,
-): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never> {
+): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError> {
   return Effect.gen(function* () {
     const nextEntry = yield* state.transitionPermit.withPermits(1)(
       Effect.gen(function* () {
@@ -1067,8 +1090,7 @@ function commitClaimedLease(
   leaseId: LeaseId,
 ): Effect.Effect<
   Fiber.RuntimeFiber<unknown, unknown> | null,
-  LeaseInvalidError | LeaseNotFoundError,
-  never
+  LeaseInvalidError | LeaseNotFoundError
 > {
   return modifyRegistry<
     Fiber.RuntimeFiber<unknown, unknown> | null,
@@ -1101,12 +1123,14 @@ function commitClaimedLease(
 function claimLease(
   state: LeaseRegistryState,
   leaseId: LeaseId,
-): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError, never> {
+): Effect.Effect<Claim, LeaseInvalidError | LeaseNotFoundError> {
   return Effect.gen(function* () {
     const ttlFiber = yield* state.transitionPermit.withPermits(1)(
       commitClaimedLease(state, leaseId),
     );
-    if (ttlFiber) yield* Fiber.interruptFork(ttlFiber);
+    if (ttlFiber) {
+      yield* Fiber.interruptFork(ttlFiber);
+    }
     return makeClaim(state, leaseId);
   });
 }
@@ -1116,7 +1140,7 @@ function readLease(
   id:
     | { readonly _tag: "leaseId"; readonly value: LeaseId }
     | { readonly _tag: "dispatchId"; readonly value: DispatchId },
-): Effect.Effect<LeaseRecord, LeaseNotFoundError, never> {
+): Effect.Effect<LeaseRecord, LeaseNotFoundError> {
   return Ref.get(state.dataRef).pipe(
     Effect.flatMap((data) => {
       const leaseId =
@@ -1134,7 +1158,7 @@ function attachRoundTripFiberToLease(
   state: LeaseRegistryState,
   leaseId: LeaseId,
   fiber: Fiber.RuntimeFiber<unknown, unknown>,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Effect.gen(function* () {
     const shouldCancel = yield* Ref.modify(state.dataRef, (data) => {
       const entry = data.entries.get(leaseId);
@@ -1154,7 +1178,9 @@ function attachRoundTripFiberToLease(
         withLeaseEntry(data, leaseId, { ...entry, roundTripFiber: fiber }),
       ];
     });
-    if (shouldCancel) yield* Fiber.interruptFork(fiber);
+    if (shouldCancel) {
+      yield* Fiber.interruptFork(fiber);
+    }
   });
 }
 
@@ -1180,7 +1206,9 @@ function makeDisconnectTransition(
   entry: LeaseEntry,
   transitionedAt: string,
 ): DisconnectTransition | null {
-  if (entry.record.binding.recipientConnectionId !== connId) return null;
+  if (entry.record.binding.recipientConnectionId !== connId) {
+    return null;
+  }
   if (entry.record.state === "PENDING") {
     return {
       _tag: "Abandoned",
@@ -1194,7 +1222,9 @@ function makeDisconnectTransition(
     };
   }
   const wasActive = entry.record.state === "GRANTED";
-  if (!wasActive && entry.record.state !== "HOLD") return null;
+  if (!wasActive && entry.record.state !== "HOLD") {
+    return null;
+  }
   return {
     _tag: "Expired",
     leaseId,
@@ -1208,11 +1238,11 @@ function makeDisconnectTransition(
 function commitDisconnectTransitions(
   state: LeaseRegistryState,
   connId: ConnectionId,
-): Effect.Effect<ReadonlyArray<DisconnectTransition>, never, never> {
+): Effect.Effect<readonly DisconnectTransition[]> {
   const transitionedAt = new Date().toISOString();
   return Ref.modify(state.dataRef, (data) => {
     const entries = new Map(data.entries);
-    const actions: Array<DisconnectTransition> = [];
+    const actions: DisconnectTransition[] = [];
     for (const [leaseId, entry] of data.entries) {
       const action = makeDisconnectTransition(
         connId,
@@ -1236,14 +1266,16 @@ function commitDisconnectTransitions(
 function runDisconnectTransition(
   state: LeaseRegistryState,
   transition: DisconnectTransition,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Effect.gen(function* () {
     if (transition._tag === "Abandoned") {
       if (transition.roundTripFiber) {
         yield* Fiber.interruptFork(transition.roundTripFiber);
       }
     } else {
-      if (transition.ttlFiber) yield* Fiber.interruptFork(transition.ttlFiber);
+      if (transition.ttlFiber) {
+        yield* Fiber.interruptFork(transition.ttlFiber);
+      }
     }
     yield* scheduleRetention(
       state,
@@ -1263,7 +1295,7 @@ function runDisconnectTransition(
 function abandonConnectionLeases(
   state: LeaseRegistryState,
   connId: ConnectionId,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Effect.gen(function* () {
     const transitions = yield* state.transitionPermit.withPermits(1)(
       Effect.gen(function* () {
@@ -1299,10 +1331,10 @@ function abandonConnectionLeases(
  * after shutdown; no writer can repopulate a partially drained registry.
  * `Fiber.interruptFork` is fire-and-forget, so shutdown never blocks on an
  * interrupt completing.
+ * @param state Value supplied to the operation.
+ * @returns The shutdown registry result.
  */
-function shutdownRegistry(
-  state: LeaseRegistryState,
-): Effect.Effect<void, never, never> {
+function shutdownRegistry(state: LeaseRegistryState): Effect.Effect<void> {
   return Effect.gen(function* () {
     const entries = yield* state.transitionPermit.withPermits(1)(
       Effect.gen(function* () {
@@ -1319,9 +1351,12 @@ function shutdownRegistry(
       }),
     );
     for (const entry of entries.values()) {
-      if (entry.ttlFiber) yield* Fiber.interruptFork(entry.ttlFiber);
-      if (entry.roundTripFiber)
+      if (entry.ttlFiber) {
+        yield* Fiber.interruptFork(entry.ttlFiber);
+      }
+      if (entry.roundTripFiber) {
         yield* Fiber.interruptFork(entry.roundTripFiber);
+      }
     }
   }).pipe(Effect.uninterruptible, Effect.withSpan("leaseRegistry.shutdown"));
 }
@@ -1348,17 +1383,19 @@ function makeLeaseRegistryFromState(state: LeaseRegistryState): LeaseRegistry {
  * commit with its presence observer callback; network notifications and fiber
  * interruption run after that critical section. A shared shutdown signal
  * cancels parked notification and retention effects.
+ * @param deps Value supplied to the operation.
+ * @returns The created lease registry.
  */
 export function makeLeaseRegistry(
   deps: LeaseRegistryDeps,
-): Effect.Effect<LeaseRegistry, never, never> {
+): Effect.Effect<LeaseRegistry> {
   return Effect.gen(function* () {
     const dataRef = yield* Ref.make<LeaseRegistryData>({
       entries: new Map(),
       dispatchIndex: new Map(),
       closed: false,
     });
-    const shutdownSignal = yield* Deferred.make<void>();
+    const shutdownSignal = yield* Deferred.make<undefined>();
     const transitionPermit = yield* Effect.makeSemaphore(1);
     return makeLeaseRegistryFromState({
       deps,

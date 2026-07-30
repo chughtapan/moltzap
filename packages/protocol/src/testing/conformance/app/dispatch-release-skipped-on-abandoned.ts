@@ -9,14 +9,18 @@ import {
   withDriver,
 } from "./_helpers.js";
 
+/**
+ * Registers dispatch release skipped on abandoned.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchReleaseSkippedOnAbandoned(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-release-skipped-on-abandoned";
+  const name = "dispatch-release-skipped-on-abandoned";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "leases that transition PENDING→ABANDONED (recipient disconnect) emit no agent/dispatch/released",
     withDriver(
       ctx,

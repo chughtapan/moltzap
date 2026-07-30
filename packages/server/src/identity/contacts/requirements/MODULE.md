@@ -8,7 +8,7 @@ Contact-domain requirement helpers.
 
 ## Public surface
 
-### [`CreatorAndTargets`](./reach.ts#L11)
+### [`CreatorAndTargets`](./reach.ts#L12)
 
 _Interface_
 
@@ -19,7 +19,9 @@ export interface CreatorAndTargets {
 }
 ```
 
-### [`obtainContactPolicyAllowsReach`](./reach.ts#L16)
+Describes creator and targets.
+
+### [`obtainContactPolicyAllowsReach`](./reach.ts#L22)
 
 _Function_
 
@@ -32,6 +34,10 @@ export const obtainContactPolicyAllowsReach = (
   ConversationServiceTag
 >
 ```
+
+Provides the obtain contact policy allows reach runtime value.
+
+**Returns:** The obtain contact policy allows reach result.
 
 ## Files
 

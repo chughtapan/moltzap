@@ -14,6 +14,7 @@ import {
 import type { AgentConnection } from "../network/router.js";
 import type { RuntimeTermination } from "../runtime/runtime.js";
 
+/** Describes runtime evidence input. */
 export interface RuntimeEvidenceInput {
   readonly name: string;
   readonly agentName: AgentName;
@@ -21,11 +22,22 @@ export interface RuntimeEvidenceInput {
   readonly connection: AgentConnection;
 }
 
+/**
+ * Executes the non empty cause operation.
+ * @param cause Failure cause to inspect.
+ * @returns The non empty cause result.
+ */
 export function nonEmptyCause(cause: Cause.Cause<unknown>): string {
   const rendered = Cause.pretty(cause).trim();
   return rendered.length === 0 ? "unknown failure" : rendered;
 }
 
+/**
+ * Runs time event.
+ * @param acquired Value supplied to the operation.
+ * @param termination Value supplied to the operation.
+ * @returns The runtime event result.
+ */
 export function runtimeEvent(
   acquired: RuntimeEvidenceInput,
   termination: RuntimeTermination,
@@ -56,9 +68,19 @@ export function runtimeEvent(
         ...common,
         signal: termination.signal,
       });
+    default:
+      return AgentRuntimeFailed.make({
+        ...common,
+        cause: "unknown runtime termination",
+      });
   }
 }
 
+/**
+ * Executes the program event operation.
+ * @param exit Value supplied to the operation.
+ * @returns The program event result.
+ */
 export function programEvent<A, E>(exit: Exit.Exit<A, E>) {
   if (Exit.isSuccess(exit)) {
     return ProgramSucceeded.make();
@@ -72,6 +94,11 @@ export function programEvent<A, E>(exit: Exit.Exit<A, E>) {
       });
 }
 
+/**
+ * Executes the combined failure operation.
+ * @param exits Value supplied to the operation.
+ * @returns The combined failure result.
+ */
 export function combinedFailure(
   exits: ReadonlyArray<Exit.Exit<unknown, unknown>>,
 ): Cause.Cause<unknown> | undefined {

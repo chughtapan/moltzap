@@ -13,7 +13,7 @@ Contact-domain requirement helpers.
 
 ## Public surface
 
-### [`CreatorAndTargets`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L11)
+### [`CreatorAndTargets`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L12)
 
 _Interface_
 
@@ -24,7 +24,9 @@ export interface CreatorAndTargets {
 }
 ```
 
-### [`obtainContactPolicyAllowsReach`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L16)
+Describes creator and targets.
+
+### [`obtainContactPolicyAllowsReach`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/identity/contacts/requirements/reach.ts#L22)
 
 _Function_
 
@@ -37,6 +39,10 @@ export const obtainContactPolicyAllowsReach = (
   ConversationServiceTag
 >
 ```
+
+Provides the obtain contact policy allows reach runtime value.
+
+**Returns:** The obtain contact policy allows reach result.
 
 ## Files
 

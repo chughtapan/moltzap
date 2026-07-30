@@ -1,18 +1,18 @@
 import { Effect, Schema } from "effect";
 import { closedStructGuard, formatString } from "#transport";
 
-const TextPartSchema = Schema.Struct({
+const textPartSchema = Schema.Struct({
   type: Schema.Literal("text"),
   text: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32768)),
 });
 
-const ImagePartSchema = Schema.Struct({
+const imagePartSchema = Schema.Struct({
   type: Schema.Literal("image"),
   url: formatString("uri").pipe(Schema.minLength(1)),
   altText: Schema.optional(Schema.String.pipe(Schema.maxLength(256))),
 });
 
-const FilePartSchema = Schema.Struct({
+const filePartSchema = Schema.Struct({
   type: Schema.Literal("file"),
   url: formatString("uri").pipe(Schema.minLength(1)),
   name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
@@ -24,55 +24,64 @@ const FilePartSchema = Schema.Struct({
   ),
 });
 
-const PartSchema = Schema.Union(
-  TextPartSchema,
-  ImagePartSchema,
-  FilePartSchema,
+const partSchema = Schema.Union(
+  textPartSchema,
+  imagePartSchema,
+  filePartSchema,
 );
 
 /** User-authored message content part. */
-export type Part = Schema.Schema.Type<typeof PartSchema>;
+export type Part = Schema.Schema.Type<typeof partSchema>;
 
-const MessagePartsSchema = Schema.NonEmptyArray(PartSchema).pipe(
+const messagePartsSchemaValue = Schema.NonEmptyArray(partSchema).pipe(
   Schema.maxItems(10),
 );
-const MessagePartsTextSchema = Schema.parseJson(MessagePartsSchema);
+const messagePartsTextSchema = Schema.parseJson(messagePartsSchemaValue);
 
 /**
  * Return the canonical message-parts schema.
  *
  * Recording and other protocol-adjacent boundaries compose this schema
  * directly so persisted bodies cannot drift from the wire contract.
+ * @returns The nonempty schema shared by all message boundaries.
  */
-export function messagePartsSchema(): typeof MessagePartsSchema {
-  return MessagePartsSchema;
+export function messagePartsSchema(): typeof messagePartsSchemaValue {
+  return messagePartsSchemaValue;
 }
 
 /** Nonempty protocol message content. */
-export type MessageParts = Schema.Schema.Type<typeof MessagePartsSchema>;
+export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
 
-const decodeMessagePartsEffect = Schema.decodeUnknown(MessagePartsSchema);
+const decodeMessagePartsEffect = Schema.decodeUnknown(messagePartsSchemaValue);
 const decodeMessagePartsTextEffect = Schema.decodeUnknown(
-  MessagePartsTextSchema,
+  messagePartsTextSchema,
 );
 
-/** Decode a message-parts payload and die on malformed persisted data. */
+/**
+ * Decode a message-parts payload and die on malformed persisted data.
+ * @param value Value to process.
+ * @returns The decoded message parts.
+ */
 export function decodeMessageParts(
   value: unknown,
-): Effect.Effect<MessageParts, never> {
+): Effect.Effect<MessageParts> {
   return decodeMessagePartsEffect(value, {
     onExcessProperty: "error",
   }).pipe(Effect.orDie);
 }
 
-/** Decode persisted plaintext message parts and die on malformed persisted data. */
+/**
+ * Decode persisted plaintext message parts and die on malformed persisted data.
+ * @param value Value to process.
+ * @returns The decoded message parts text.
+ */
 export function decodeMessagePartsText(
   value: string,
-): Effect.Effect<MessageParts, never> {
+): Effect.Effect<MessageParts> {
   return decodeMessagePartsTextEffect(value, {
     onExcessProperty: "error",
   }).pipe(Effect.orDie);
 }
 
 /** Return true when the value is a closed text part. */
-export const validateTextPart = closedStructGuard(TextPartSchema);
+export const validateTextPart = closedStructGuard(textPartSchema);

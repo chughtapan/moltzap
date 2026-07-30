@@ -1,7 +1,9 @@
 import { Effect } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
-import { registerProperty } from "../_shared/registry.js";
-import type { PropertyInvariantViolation } from "../_shared/registry.js";
+import {
+  registerProperty,
+  type PropertyInvariantViolation,
+} from "../_shared/registry.js";
 import {
   DISPATCH_ADMISSION_CATEGORY,
   type ConsumedFrameView,
@@ -11,24 +13,28 @@ import {
   withDriver,
 } from "./_helpers.js";
 
+/**
+ * Registers dispatch lease consumed fires on first send.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchLeaseConsumedFiresOnFirstSend(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-lease-consumed-fires-on-first-send";
+  const name = "dispatch-lease-consumed-fires-on-first-send";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "first agent/message/send(dispatchLeaseId=X) with X in GRANTED state emits app/dispatch/lease-consumed with the right messageId to the moderator's connection",
-    dispatchLeaseConsumedFiresOnFirstSend(ctx, NAME),
+    dispatchLeaseConsumedFiresOnFirstSend(ctx, name),
   );
 }
 
-const dispatchLeaseConsumedFiresOnFirstSend = (
+function dispatchLeaseConsumedFiresOnFirstSend(
   ctx: ConformanceRunContext,
   propertyName: string,
-) =>
-  withDriver(ctx, (driver) =>
+) {
+  return withDriver(ctx, (driver) =>
     Effect.gen(function* () {
       yield* driver.moderator.handleAuthorize({
         respondWith: { _tag: "grant" },
@@ -50,31 +56,54 @@ const dispatchLeaseConsumedFiresOnFirstSend = (
         "consumed",
         { dispatchId: ack.dispatchId },
       );
-      const params = consumed.params as ConsumedFrameView;
+      if (!isConsumedFrameView(consumed.params)) {
+        return yield* Effect.fail(
+          dispatchAdmissionViolation(
+            propertyName,
+            "app/dispatch/lease-consumed payload did not contain string leaseId and messageId fields",
+          ),
+        );
+      }
+      const params = consumed.params;
       yield* assertConsumedLeaseId(propertyName, params.leaseId, ack.leaseId);
       yield* assertConsumedMessageId(propertyName, params.messageId);
     }),
   ).pipe(Effect.withSpan("dispatchLeaseConsumedFiresOnFirstSend"));
+}
 
-const assertMessageSendSucceeded = (
+function isConsumedFrameView(value: unknown): value is ConsumedFrameView {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  if (!("leaseId" in value) || typeof value.leaseId !== "string") {
+    return false;
+  }
+  return "messageId" in value && typeof value.messageId === "string";
+}
+
+function assertMessageSendSucceeded(
   propertyName: string,
   errorTag: unknown,
-): Effect.Effect<void, PropertyInvariantViolation> =>
-  errorTag === undefined
-    ? Effect.void
-    : Effect.fail(
-        dispatchAdmissionViolation(
-          propertyName,
-          `agent/message/send unexpectedly failed: code=${String(errorTag)}`,
-        ),
-      );
+): Effect.Effect<void, PropertyInvariantViolation> {
+  if (errorTag === undefined) {
+    return Effect.void;
+  }
+  const errorCode =
+    typeof errorTag === "string" ? errorTag : "non-string error";
+  return Effect.fail(
+    dispatchAdmissionViolation(
+      propertyName,
+      `agent/message/send unexpectedly failed: code=${errorCode}`,
+    ),
+  );
+}
 
-const assertConsumedLeaseId = (
+function assertConsumedLeaseId(
   propertyName: string,
   actual: unknown,
   expected: unknown,
-): Effect.Effect<void, PropertyInvariantViolation> =>
-  actual === expected
+): Effect.Effect<void, PropertyInvariantViolation> {
+  return actual === expected
     ? Effect.void
     : Effect.fail(
         dispatchAdmissionViolation(
@@ -82,12 +111,13 @@ const assertConsumedLeaseId = (
           `app/dispatch/lease-consumed leaseId ${String(actual)} != ack ${String(expected)}`,
         ),
       );
+}
 
-const assertConsumedMessageId = (
+function assertConsumedMessageId(
   propertyName: string,
   messageId: unknown,
-): Effect.Effect<void, PropertyInvariantViolation> =>
-  typeof messageId === "string" && isUuidV4(messageId)
+): Effect.Effect<void, PropertyInvariantViolation> {
+  return typeof messageId === "string" && isUuidV4(messageId)
     ? Effect.void
     : Effect.fail(
         dispatchAdmissionViolation(
@@ -95,3 +125,4 @@ const assertConsumedMessageId = (
           `app/dispatch/lease-consumed messageId not UUIDv4: ${String(messageId)}`,
         ),
       );
+}

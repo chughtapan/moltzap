@@ -1,8 +1,7 @@
 /** @file Participant-independent conversation addressing. */
 
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { Message } from "@moltzap/protocol/message";
-import { messagePartsSchema } from "@moltzap/protocol/message";
+import { type Message, messagePartsSchema } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
 import { Effect, Option, Schema, Stream } from "effect";
 import type { ParticipantHandle } from "./participant.js";
@@ -13,24 +12,24 @@ import {
   networkFailure,
 } from "./router.js";
 
-const ConversationAddressTypeId: unique symbol = Symbol(
+const conversationAddressTypeId: unique symbol = Symbol(
   "@moltzap/simulator/ConversationAddress",
 );
-const ConversationAddressConstruction: unique symbol = Symbol(
+const conversationAddressConstruction: unique symbol = Symbol(
   "@moltzap/simulator/ConversationAddressConstruction",
 );
-const ConversationSocketTypeId: unique symbol = Symbol(
+const conversationSocketTypeId: unique symbol = Symbol(
   "@moltzap/simulator/ConversationSocket",
 );
-const ConversationSocketConstruction: unique symbol = Symbol(
+const conversationSocketConstruction: unique symbol = Symbol(
   "@moltzap/simulator/ConversationSocketConstruction",
 );
-const MessagePartsSchema = messagePartsSchema();
+const messagePartsSchemaValue = messagePartsSchema();
 
 /** Every conversation has at least one participant of any network role. */
 export type ConversationParticipants = readonly [
   ParticipantHandle,
-  ...ReadonlyArray<ParticipantHandle>,
+  ...(readonly ParticipantHandle[]),
 ];
 
 /**
@@ -38,15 +37,23 @@ export type ConversationParticipants = readonly [
  * conversation socket; the address itself never implies a sender.
  */
 export class ConversationAddress {
-  readonly [ConversationAddressTypeId] = ConversationAddressTypeId;
+  readonly [conversationAddressTypeId] = conversationAddressTypeId;
+
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly participants: ConversationParticipants;
 
   private constructor(
-    readonly taskId: TaskId,
-    readonly conversationId: ConversationId,
-    readonly participants: ConversationParticipants,
-  ) {}
+    taskId: TaskId,
+    conversationId: ConversationId,
+    participants: ConversationParticipants,
+  ) {
+    this.taskId = taskId;
+    this.conversationId = conversationId;
+    this.participants = participants;
+  }
 
-  static [ConversationAddressConstruction](
+  static [conversationAddressConstruction](
     taskId: TaskId,
     conversationId: ConversationId,
     participants: ConversationParticipants,
@@ -70,7 +77,7 @@ export function makeConversationAddress(
 ): ConversationAddress {
   const [first, ...rest] = participants;
   return Object.freeze(
-    ConversationAddress[ConversationAddressConstruction](
+    ConversationAddress[conversationAddressConstruction](
       taskId,
       conversationId,
       Object.freeze([first, ...rest]),
@@ -87,7 +94,7 @@ function parts(content: string | MessageParts): MessageParts {
 function validateParts(
   content: MessageParts,
 ): Effect.Effect<MessageParts, NetworkFailure> {
-  return Schema.decodeUnknown(MessagePartsSchema)(content, {
+  return Schema.decodeUnknown(messagePartsSchemaValue)(content, {
     onExcessProperty: "error",
   }).pipe(
     Effect.mapError((cause) => networkFailure("send", cause)),
@@ -98,7 +105,7 @@ function validateParts(
 /** A conversation address bound to exactly one controlled endpoint. */
 // eslint-disable-next-line agent-code-guard/max-non-trivial-classes-per-file -- an address and its endpoint-bound socket are the two faces of one conversation capability
 export class ConversationSocket {
-  readonly [ConversationSocketTypeId] = ConversationSocketTypeId;
+  readonly [conversationSocketTypeId] = conversationSocketTypeId;
 
   /**
    * The ordered receive cursor for this endpoint and conversation. Repeated
@@ -106,18 +113,27 @@ export class ConversationSocket {
    */
   readonly messages: Stream.Stream<ReceivedMessage, NetworkFailure>;
 
+  readonly endpoint: ParticipantHandle;
+  readonly address: ConversationAddress;
+  private readonly sendMessage: (
+    content: MessageParts,
+  ) => Effect.Effect<Message, NetworkFailure>;
+
   private constructor(
-    readonly endpoint: ParticipantHandle,
-    readonly address: ConversationAddress,
+    endpoint: ParticipantHandle,
+    address: ConversationAddress,
     messages: Stream.Stream<ReceivedMessage, NetworkFailure>,
-    private readonly sendMessage: (
+    sendMessage: (
       content: MessageParts,
     ) => Effect.Effect<Message, NetworkFailure>,
   ) {
+    this.endpoint = endpoint;
+    this.address = address;
+    this.sendMessage = sendMessage;
     this.messages = messages;
   }
 
-  static [ConversationSocketConstruction](
+  static [conversationSocketConstruction](
     endpoint: ParticipantHandle,
     address: ConversationAddress,
     messages: Stream.Stream<ReceivedMessage, NetworkFailure>,
@@ -128,7 +144,11 @@ export class ConversationSocket {
     return new ConversationSocket(endpoint, address, messages, sendMessage);
   }
 
-  /** Commit one message through the bound endpoint. */
+  /**
+   * Commit one message through the bound endpoint.
+   * @param content Value supplied to the operation.
+   * @returns The created conversation socket.
+   */
   send(content: string | MessageParts): Effect.Effect<Message, NetworkFailure> {
     return validateParts(parts(content)).pipe(Effect.flatMap(this.sendMessage));
   }
@@ -136,6 +156,7 @@ export class ConversationSocket {
   /**
    * Receive the next ordered delivery. Selection policy belongs in the
    * consuming Effect, so the socket never skips an earlier message.
+   * @returns The created conversation socket.
    */
   receive(): Effect.Effect<ReceivedMessage, NetworkFailure> {
     return this.messages.pipe(
@@ -156,7 +177,14 @@ export class ConversationSocket {
   }
 }
 
-/** Bind an endpoint receiver and sender to an existing address. */
+/**
+ * Bind an endpoint receiver and sender to an existing address.
+ * @param endpoint Value supplied to the operation.
+ * @param address Value supplied to the operation.
+ * @param messages Value supplied to the operation.
+ * @param sendMessage Value supplied to the operation.
+ * @returns The created conversation socket.
+ */
 export function makeConversationSocket(
   endpoint: ParticipantHandle,
   address: ConversationAddress,
@@ -165,7 +193,7 @@ export function makeConversationSocket(
     content: MessageParts,
   ) => Effect.Effect<Message, NetworkFailure>,
 ): ConversationSocket {
-  const socket = ConversationSocket[ConversationSocketConstruction](
+  const socket = ConversationSocket[conversationSocketConstruction](
     endpoint,
     address,
     messages,

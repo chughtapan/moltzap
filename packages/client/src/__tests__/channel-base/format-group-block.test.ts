@@ -82,18 +82,20 @@ describe("formatGroupBlock — markup variants byte-identical to pre-refactor", 
     absentCaseFraming,
   );
   for (const markup of MARKUPS) {
-    it(`markup=${markup} case=present-name-only`, () =>
+    it(`markup=${markup} case=present-name-only`, () => {
       assertPresentMatchesFixture(
         PRESENT_NAME_ONLY_META,
         "present-name-only",
         markup,
-      ));
-    it(`markup=${markup} case=present-with-members`, () =>
+      );
+    });
+    it(`markup=${markup} case=present-with-members`, () => {
       assertPresentMatchesFixture(
         PRESENT_WITH_MEMBERS_META,
         "present-with-members",
         markup,
-      ));
+      );
+    });
   }
 });
 
@@ -110,16 +112,16 @@ function propertyMatchesNarrowingPredicate(): void {
         fc.constant<EnrichedConversationMeta>(PRESENT_NAME_ONLY_META),
         fc.constant<EnrichedConversationMeta>(PRESENT_WITH_MEMBERS_META),
       ),
-      assertNarrowingMatchesType,
+      (meta) => {
+        assertNarrowingMatchesType(meta);
+      },
     ),
   );
 }
 
-function assertNarrowingMatchesType(
-  meta: EnrichedConversationMeta | undefined,
-): void {
+function assertNarrowingMatchesType(meta?: EnrichedConversationMeta): void {
   if (meta === undefined) {
-    expect(getGroupFields(undefined)).toBeNull();
+    expect(getGroupFields()).toBeNull();
     return;
   }
   if (meta.type !== "group") {
@@ -132,7 +134,7 @@ function assertNarrowingMatchesType(
 }
 
 function undefinedIsNull(): void {
-  expect(getGroupFields(undefined)).toBeNull();
+  expect(getGroupFields()).toBeNull();
 }
 
 function dmMetaIsNull(): void {
@@ -153,7 +155,7 @@ function groupNameOnly(): void {
 }
 
 function absentCaseFraming(): void {
-  expect(getGroupFields(undefined)).toBeNull();
+  expect(getGroupFields()).toBeNull();
   for (const markup of MARKUPS) {
     expect(fixtureFor("absent", markup)).toBe(NULL_SENTINEL);
   }
@@ -165,14 +167,18 @@ function assertPresentMatchesFixture(
   markup: CrossConvMarkup,
 ): void {
   const fields = getGroupFields(meta);
-  if (fields === null) throw new Error("expected non-null group fields");
+  if (fields === null) {
+    throw new Error("expected non-null group fields");
+  }
   const out = formatGroupBlock(fields, { markup });
   expect(`${out}\n`).toBe(fixtureFor(caseName, markup));
 }
 
 function delegatesToFormatter(): void {
   const fields = getGroupFields(PRESENT_WITH_MEMBERS_META);
-  if (fields === null) throw new Error("expected non-null group fields");
+  if (fields === null) {
+    throw new Error("expected non-null group fields");
+  }
   const formatter: GroupFormatter = (f) =>
     `${CUSTOM_FORMATTER_OUTPUT}:${f.participants.length}`;
   expect(formatGroupBlock(fields, { formatter })).toBe(

@@ -108,8 +108,9 @@ describe("formatCrossConv — markup variants byte-identical to pre-refactor", (
   );
   for (const markup of MARKUPS) {
     for (const c of CASES) {
-      it(`markup=${markup} case=${c.name}`, () =>
-        assertCaseMatchesFixture(c.messages, c.name, markup));
+      it(`markup=${markup} case=${c.name}`, () => {
+        assertCaseMatchesFixture(c.messages, c.name, markup);
+      });
     }
   }
 });

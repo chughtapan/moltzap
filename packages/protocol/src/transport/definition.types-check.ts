@@ -36,37 +36,46 @@ const definition = defineRpc({
 type Handler = Rpc.ToHandlerFn<typeof definition.serverRpc, never>;
 type IsAny<A> = 0 extends 1 & A ? true : false;
 type ExpectFalse<A extends false> = A;
-type _HandlerErrorIsNotAny = ExpectFalse<
+type UndeclaredHandler = () => Effect.Effect<void, UndeclaredError>;
+type IncompatibleSameTagHandler = () => Effect.Effect<
+  void,
+  IncompatibleSameTagError
+>;
+type UntaggedHandler = () => Effect.Effect<
+  void,
+  { readonly message: "untagged" }
+>;
+type HandlerErrorIsNotAny = ExpectFalse<
   IsAny<Rpc.Error<typeof definition.serverRpc>>
 >;
-type _ClientErrorIsNotAny = ExpectFalse<
+type ClientErrorIsNotAny = ExpectFalse<
   IsAny<Rpc.Error<typeof definition.clientRpc>>
 >;
+type UndeclaredErrorIsRejected = ExpectFalse<
+  UndeclaredHandler extends Handler ? true : false
+>;
+type IncompatiblePayloadIsRejected = ExpectFalse<
+  IncompatibleSameTagHandler extends Handler ? true : false
+>;
+type UntaggedErrorIsRejected = ExpectFalse<
+  UntaggedHandler extends Handler ? true : false
+>;
+const definitionTypeProofs: readonly [
+  HandlerErrorIsNotAny,
+  ClientErrorIsNotAny,
+  UndeclaredErrorIsRejected,
+  IncompatiblePayloadIsRejected,
+  UntaggedErrorIsRejected,
+] = [false, false, false, false, false];
 
 const succeeds: Handler = () => Effect.void;
 const failsDeclared: Handler = () =>
   Effect.fail(new DeclaredError({ data: { code: "declared" } }));
 
-// @ts-expect-error — an undeclared tagged error is not wire-encodable here.
-const failsUndeclared: Handler = () => Effect.fail(new UndeclaredError());
-
-const incompatibleSameTagFailure = Effect.fail(
-  new IncompatibleSameTagError({ data: { code: 1 } }),
-);
-
-// @ts-expect-error — matching `_tag` alone does not make the payload compatible.
-const failsWithIncompatiblePayload: Handler = () => incompatibleSameTagFailure;
-
-const untaggedFailure = { message: "untagged" } as const;
-
-// @ts-expect-error — untagged errors are not part of the descriptor schema.
-const failsUntagged: Handler = () => Effect.fail(untaggedFailure);
-
-/** Aggregate so every value-level canary is retained by lint and declaration emit. */
+/** Aggregate retaining positive handlers and every negative type proof. */
 export const definitionTypeCanaries = {
+  definition,
   succeeds,
   failsDeclared,
-  failsUndeclared,
-  failsWithIncompatiblePayload,
-  failsUntagged,
+  proofs: definitionTypeProofs,
 } as const;

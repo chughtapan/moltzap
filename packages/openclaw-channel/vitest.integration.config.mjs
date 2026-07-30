@@ -4,9 +4,8 @@ export default defineConfig({
   test: {
     include: ["src/**/*.integration.test.ts"],
     globalSetup: ["vitest.integration.globalSetup.ts"],
-    fileParallelism: false,
+    fileParallelism: true,
     testTimeout: 90_000,
     hookTimeout: 300_000,
-    globalSetupTimeout: 300_000,
   },
 });

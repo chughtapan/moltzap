@@ -1,5 +1,5 @@
 import { assert, effect as test } from "@effect/vitest";
-import { ServerBaseUrl } from "@moltzap/protocol/network";
+import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import {
   conversationId,
   agentId as protocolAgentId,
@@ -32,9 +32,9 @@ import {
 import { EventCatalog } from "../events/catalog.js";
 import {
   LedgerCompletion,
-  LedgerDigest,
+  ledgerDigest,
   LedgerManifest,
-  LedgerRef,
+  ledgerRef,
 } from "../ledger/model.js";
 import {
   LedgerStorage,
@@ -45,7 +45,7 @@ import {
 import {
   Network,
   RouterProvider,
-  RouterStopped,
+  type RouterStopped,
   makeAgentHandle,
   makeParticipantHandle,
   makeRouterStopReport,
@@ -58,18 +58,20 @@ import {
   RuntimeExited,
   defineRuntime,
 } from "../runtime/runtime.js";
-import { Simulator } from "../definition.js";
+import { simulator } from "../definition.js";
 
 class Observation extends Schema.TaggedClass<Observation>()(
   "acme.kernel-observation/v1",
   { value: Schema.String },
 ) {}
 
-const CustomerEvents = EventCatalog.make(Observation);
-const Society = Simulator.define("acme.kernel-test/v1", CustomerEvents);
-const DIGEST = Schema.decodeSync(LedgerDigest)("a".repeat(64));
-const REF = Schema.decodeSync(LedgerRef)("kernel-test-ledger");
-const ROUTER_URL = Schema.decodeSync(ServerBaseUrl)("http://127.0.0.1:43100");
+const customerEvents = EventCatalog.make(Observation);
+const society = simulator.define("acme.kernel-test/v1", customerEvents);
+const DIGEST = Schema.decodeSync(ledgerDigest)("a".repeat(64));
+const REF = Schema.decodeSync(ledgerRef)("kernel-test-ledger");
+const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
+  "http://127.0.0.1:43100",
+);
 const OBSERVED_EXIT_CODE = 7;
 const PRIMARY_AGENT_NAME = "alice";
 const READY = () => Effect.void;
@@ -95,6 +97,10 @@ function completion(manifest: LedgerManifest, count: number): LedgerCompletion {
   });
 }
 
+function compareText(left: string, right: string): number {
+  return left.localeCompare(right);
+}
+
 function memoryStorage(failOnEventTag?: string): LedgerStorageService {
   const files = new Map<LedgerArtifact, string>();
   return {
@@ -103,12 +109,12 @@ function memoryStorage(failOnEventTag?: string): LedgerStorageService {
         ledgerFormatVersion: 1,
         definitionId: input.definitionId,
         runId: "kernel-test-run",
-        catalogTags: [...input.catalogTags].sort(),
+        catalogTags: [...input.catalogTags].sort(compareText),
         createdAt: DateTime.unsafeMake(0),
         provenance: input.provenance,
         metadata: input.metadata,
       });
-      const records: Array<string> = [];
+      const records: string[] = [];
       files.set(
         "manifest",
         JSON.stringify(Schema.encodeSync(LedgerManifest)(manifest)),
@@ -141,7 +147,7 @@ function memoryStorage(failOnEventTag?: string): LedgerStorageService {
         },
       });
     },
-    read: (_ref, artifact) => Effect.succeed(files.get(artifact) ?? ""),
+    read: (...[, artifact]) => Effect.succeed(files.get(artifact) ?? ""),
     digest: () => Effect.succeed(DIGEST),
   };
 }
@@ -162,7 +168,7 @@ function attachFakeEndpoint<const Name extends string>(
             "00000000-0000-4000-8000-000000000102",
           ),
         }),
-      send: (_taskId, currentConversationId, parts) =>
+      send: (...[, currentConversationId, parts]) =>
         (committedSends === undefined
           ? Effect.void
           : Ref.update(committedSends, (count) => count + 1)
@@ -229,7 +235,7 @@ const processRuntime = defineRuntime({
     ),
 });
 
-const roster = Society.agents({
+const roster = society.agents({
   alice: codeRuntime,
   bob: processRuntime,
 });
@@ -242,16 +248,16 @@ const ongoingRuntime = defineRuntime({
       .pipe(Effect.as({ termination: Effect.never })),
 });
 
-const ongoingRoster = Society.agents({
+const ongoingRoster = society.agents({
   alice: ongoingRuntime,
 });
 
 // @agent-code-guard/regression-only: controlled scopes and deferred termination expose exact lifecycle evidence and cancellation order
 test("runs mixed runtimes until customer policy completes", () => {
   const program = Effect.gen(function* () {
-    const agents = yield* roster.Agents;
-    const ledger = yield* Society.Ledger;
-    const events = yield* Society.Events;
+    const agents = yield* roster.startedAgents;
+    const ledger = yield* society.ledger;
+    const events = yield* society.events;
     yield* Network;
     yield* ledger
       .events(AgentRuntimeCompleted)
@@ -261,14 +267,14 @@ test("runs mixed runtimes until customer policy completes", () => {
     return [agents.alice.name, agents.bob.name] as const;
   });
   return Effect.gen(function* () {
-    const result = yield* Society.run(roster, program);
+    const result = yield* society.run(roster, program);
     assert.isTrue(Exit.isSuccess(result.exit));
     if (Exit.isFailure(result.exit)) {
       return;
     }
     assert.deepStrictEqual(result.exit.value, ["alice", "bob"]);
 
-    const ledger = yield* Society.openLedger(result.ledger);
+    const ledger = yield* society.openLedger(result.ledger);
     assert.lengthOf(
       yield* Stream.runCollect(ledger.events(AgentRuntimeReady)),
       2,
@@ -286,13 +292,13 @@ test("runs mixed runtimes until customer policy completes", () => {
 
 test("scope teardown interrupts an unfinished runtime observation", () =>
   Effect.gen(function* () {
-    const result = yield* Society.run(
+    const result = yield* society.run(
       ongoingRoster,
       Effect.succeed("policy-complete"),
     );
     assert.deepStrictEqual(result.exit, Exit.succeed("policy-complete"));
 
-    const ledger = yield* Society.openLedger(result.ledger);
+    const ledger = yield* society.openLedger(result.ledger);
     assert.lengthOf(
       yield* Stream.runCollect(ledger.events(AgentRuntimeCompleted)),
       0,
@@ -324,7 +330,7 @@ test("captures run description values before the lazy Effect executes", () =>
       case: "captured-case",
       labels: ["original"],
     };
-    const run = Society.run(ongoingRoster, Effect.succeed("policy-complete"), {
+    const run = society.run(ongoingRoster, Effect.succeed("policy-complete"), {
       provenance,
       metadata,
     });
@@ -335,7 +341,7 @@ test("captures run description values before the lazy Effect executes", () =>
     metadata.labels.push("mutated");
 
     const result = yield* run;
-    const ledger = yield* Society.openLedger(result.ledger);
+    const ledger = yield* society.openLedger(result.ledger);
 
     assert.deepStrictEqual(ledger.manifest.provenance, {
       suite: "captured-suite",
@@ -360,11 +366,11 @@ test("records genuine runtime termination while policy remains active", () =>
           .awaitReady(Duration.seconds(1))
           .pipe(Effect.as({ termination: Deferred.await(termination) })),
     });
-    const observedRoster = Society.agents({
+    const observedRoster = society.agents({
       alice: observedRuntime,
     });
     const program = Effect.gen(function* () {
-      const ledger = yield* Society.Ledger;
+      const ledger = yield* society.ledger;
       yield* Deferred.succeed(
         termination,
         RuntimeExited.make({ code: OBSERVED_EXIT_CODE }),
@@ -375,9 +381,9 @@ test("records genuine runtime termination while policy remains active", () =>
       return "observed";
     });
 
-    const result = yield* Society.run(observedRoster, program);
+    const result = yield* society.run(observedRoster, program);
     assert.deepStrictEqual(result.exit, Exit.succeed("observed"));
-    const ledger = yield* Society.openLedger(result.ledger);
+    const ledger = yield* society.openLedger(result.ledger);
     const exits = yield* Stream.runCollect(ledger.events(AgentProcessExited));
     assert.strictEqual(exits.length, 1);
     assert.strictEqual(Chunk.unsafeGet(exits, 0).code, OBSERVED_EXIT_CODE);
@@ -397,20 +403,20 @@ test("records a defective termination observer as runtime failure", () =>
           }),
         ),
     });
-    const defectiveRoster = Society.agents({
+    const defectiveRoster = society.agents({
       alice: defectiveRuntime,
     });
     const program = Effect.gen(function* () {
-      const ledger = yield* Society.Ledger;
+      const ledger = yield* society.ledger;
       yield* ledger
         .events(AgentRuntimeFailed)
         .pipe(Stream.take(1), Stream.runDrain);
       return "observed";
     });
 
-    const result = yield* Society.run(defectiveRoster, program);
+    const result = yield* society.run(defectiveRoster, program);
     assert.deepStrictEqual(result.exit, Exit.succeed("observed"));
-    const ledger = yield* Society.openLedger(result.ledger);
+    const ledger = yield* society.openLedger(result.ledger);
     const failures = yield* Stream.runCollect(
       ledger.events(AgentRuntimeFailed),
     );
@@ -428,7 +434,7 @@ test("fails the run ledger without making a committed endpoint send retryable", 
   Effect.gen(function* () {
     const committedSends = yield* Ref.make(0);
     const program = Effect.gen(function* () {
-      const agents = yield* ongoingRoster.Agents;
+      const agents = yield* ongoingRoster.startedAgents;
       const network = yield* Network;
       const probe = yield* network.endpoint("probe");
       const socket = yield* probe.open(agents.alice);
@@ -436,14 +442,19 @@ test("fails the run ledger without making a committed endpoint send retryable", 
       return "sent";
     });
 
-    const exit = yield* Society.run(ongoingRoster, program).pipe(
-      Effect.provideService(
-        LedgerStorage,
-        memoryStorage(EndpointMessageSent._tag),
-      ),
-      Effect.provideService(RouterProvider, fakeRouterProvider(committedSends)),
-      Effect.exit,
-    );
+    const exit = yield* society
+      .run(ongoingRoster, program)
+      .pipe(
+        Effect.provideService(
+          LedgerStorage,
+          memoryStorage(EndpointMessageSent._tag),
+        ),
+        Effect.provideService(
+          RouterProvider,
+          fakeRouterProvider(committedSends),
+        ),
+        Effect.exit,
+      );
 
     assert.isTrue(Exit.isFailure(exit));
     if (Exit.isFailure(exit)) {
@@ -460,7 +471,7 @@ test("fails the run ledger without making a committed endpoint send retryable", 
 
 test("peer acquisition cancellation is not a startup failure", () =>
   Effect.gen(function* () {
-    const siblingStarted = yield* Deferred.make<void>();
+    const siblingStarted = yield* Deferred.make<undefined>();
     const primary = defineRuntime<string, never>({
       name: "primary-failure",
       acquire: () =>
@@ -475,15 +486,15 @@ test("peer acquisition cancellation is not a startup failure", () =>
           Effect.zipRight(Effect.never),
         ),
     });
-    const failingRoster = Society.agents({
+    const failingRoster = society.agents({
       [PRIMARY_AGENT_NAME]: primary,
       bob: interruptedPeer,
     });
 
-    const result = yield* Effect.exit(Society.run(failingRoster, Effect.void));
+    const result = yield* Effect.exit(society.run(failingRoster, Effect.void));
     assert.isTrue(Exit.isFailure(result));
 
-    const ledger = yield* Society.openLedger(REF);
+    const ledger = yield* society.openLedger(REF);
     const failures = yield* Stream.runCollect(
       ledger.events(AgentRuntimeStartFailed),
     );
@@ -500,7 +511,7 @@ test("peer acquisition cancellation is not a startup failure", () =>
 test("releases an acquired peer when parallel roster acquisition fails", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const peerAcquired = yield* Deferred.make<void>();
+      const peerAcquired = yield* Deferred.make<undefined>();
       const peerReleased = yield* Ref.make(false);
       const primary = defineRuntime({
         name: "primary-failure",
@@ -519,18 +530,18 @@ test("releases an acquired peer when parallel roster acquisition fails", () =>
             () => Ref.set(peerReleased, true),
           ),
       });
-      const failingRoster = Society.agents({
+      const failingRoster = society.agents({
         [PRIMARY_AGENT_NAME]: primary,
         bob: acquiredPeer,
       });
 
       const result = yield* Effect.exit(
-        Society.run(failingRoster, Effect.void),
+        society.run(failingRoster, Effect.void),
       );
 
       assert.isTrue(Exit.isFailure(result));
       assert.isTrue(yield* Ref.get(peerReleased));
-      const ledger = yield* Society.openLedger(REF);
+      const ledger = yield* society.openLedger(REF);
       const failures = yield* Stream.runCollect(
         ledger.events(AgentRuntimeStartFailed),
       );

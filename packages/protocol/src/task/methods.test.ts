@@ -91,7 +91,7 @@ describe("DispatchDecisionSchema", () => {
       extraKey,
       fc.jsonValue(),
       (decision, key, value) =>
-        validateDispatchDecision({ ...decision, [key]: value }) === false,
+        !validateDispatchDecision({ ...decision, [key]: value }),
     );
     fc.assert(property, { numRuns: 50 });
     expect(validateDispatchDecision({ tag: "pending", extra: true })).toBe(

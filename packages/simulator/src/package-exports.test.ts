@@ -13,10 +13,10 @@ function loadPackageExports(): Record<string, unknown> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const packageJsonPath = path.join(here, "../package.json");
   const parsed: unknown = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-  if (!isRecord(parsed) || !isRecord(parsed["exports"])) {
+  if (!isRecord(parsed) || !isRecord(parsed.exports)) {
     return {};
   }
-  return parsed["exports"];
+  return parsed.exports;
 }
 
 // @agent-code-guard/regression-only: exact package surfaces are finite compatibility and privilege boundaries
@@ -59,6 +59,6 @@ describe("@moltzap/simulator package exports", () => {
 
   it("exposes one definition constructor through Simulator", () => {
     expect(customerApi).not.toHaveProperty("defineSimulator");
-    expect(customerApi.Simulator).toHaveProperty("define");
+    expect(customerApi.simulator).toHaveProperty("define");
   });
 });

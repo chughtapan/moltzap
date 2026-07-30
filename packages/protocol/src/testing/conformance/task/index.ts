@@ -30,6 +30,7 @@ import {
   registerTaskLeave,
 } from "./conversation-family.js";
 
+/** Re-exports the public API from `current module`. */
 export {
   registerFanOutCardinality,
   registerStoreAndReplay,

@@ -10,6 +10,7 @@ type StructuralCopy = {
   readonly [Key in keyof GradeReport]: GradeReport[Key];
 };
 
+/** Represents grade report nominality canary values. */
 export type GradeReportNominalityCanary = Expect<
   StructuralCopy extends GradeReport ? false : true
 >;

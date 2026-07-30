@@ -1,13 +1,21 @@
 /** @file Allocation, execution, and ordered finalization of one run. */
 
-import { Context, Effect, Exit, Layer, Ref, Schema, type Scope } from "effect";
 import {
-  EndpointEvents,
-  LinkEvents,
-  RouterEvents,
-  RunEvents,
+  type Context,
+  Effect,
+  Exit,
+  Layer,
+  Ref,
+  type Schema,
+  type Scope,
+} from "effect";
+import {
+  endpointEvents,
+  linkEvents,
+  routerEvents,
+  runEvents,
   RunStarted,
-  RuntimeEvents,
+  runtimeEvents,
 } from "../events/core.js";
 import type { EventClass } from "../events/catalog.js";
 import {
@@ -24,10 +32,10 @@ import type {
 import type { LedgerStorage } from "../ledger/storage.js";
 import { LinkController, type LinkControllerService } from "../network/link.js";
 import { Network, type NetworkService } from "../network/endpoint.js";
-import {
+import type {
   RouterProvider,
-  type NetworkFailure,
-  type Router,
+  NetworkFailure,
+  Router,
 } from "../network/router.js";
 import type {
   AgentRoster,
@@ -66,6 +74,7 @@ export interface SimulatorRunResult<A, E> {
   readonly completion: LedgerCompletion;
 }
 
+/** Represents simulator run failure conditions. */
 export type SimulatorRunFailure<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = AgentRosterAcquisitionError<Definitions> | LedgerFailure | NetworkFailure;
@@ -101,12 +110,12 @@ type RunRequirements<
   | Exclude<
       R,
       | Context.Tag.Identifier<
-          DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["Ledger"]
+          DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["ledger"]
         >
       | Context.Tag.Identifier<
-          DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["Events"]
+          DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["events"]
         >
-      | Context.Tag.Identifier<AgentRoster<Id, Definitions>["Agents"]>
+      | Context.Tag.Identifier<AgentRoster<Id, Definitions>["startedAgents"]>
       | Network
       | LinkController
       | Scope.Scope
@@ -148,7 +157,7 @@ function makeProgramLayer<
     input.eventServices.layer(input.active.ledger, customerWriter),
     Layer.succeed(Network, input.network),
     Layer.succeed(LinkController, input.links),
-    Layer.succeed(input.roster.Agents, input.agents),
+    Layer.succeed(input.roster.startedAgents, input.agents),
   );
 }
 
@@ -173,11 +182,11 @@ interface KernelContext<
   readonly active: ActiveRunLedger<
     DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["catalog"]
   >;
-  readonly runWriter: LedgerWriter<typeof RunEvents>;
-  readonly routerWriter: LedgerWriter<typeof RouterEvents>;
-  readonly runtimeWriter: LedgerWriter<typeof RuntimeEvents>;
-  readonly endpointWriter: LedgerWriter<typeof EndpointEvents>;
-  readonly linkWriter: LedgerWriter<typeof LinkEvents>;
+  readonly runWriter: LedgerWriter<typeof runEvents>;
+  readonly routerWriter: LedgerWriter<typeof routerEvents>;
+  readonly runtimeWriter: LedgerWriter<typeof runtimeEvents>;
+  readonly endpointWriter: LedgerWriter<typeof endpointEvents>;
+  readonly linkWriter: LedgerWriter<typeof linkEvents>;
   readonly router: Ref.Ref<Router | undefined>;
 }
 
@@ -221,7 +230,7 @@ function makeContext<
   return Effect.gen(function* () {
     const active = yield* allocateRunLedger(input);
     const router = yield* Ref.make<Router | undefined>(undefined);
-    const runWriter = active.writerFor("kernel.run", RunEvents);
+    const runWriter = active.writerFor("kernel.run", runEvents);
     yield* runWriter.write({
       event: RunStarted.make({ definitionId: input.definitionId }),
     });
@@ -229,10 +238,10 @@ function makeContext<
       input,
       active,
       runWriter,
-      routerWriter: active.writerFor("kernel.router", RouterEvents),
-      runtimeWriter: active.writerFor("kernel.runtime", RuntimeEvents),
-      endpointWriter: active.writerFor("kernel.endpoint", EndpointEvents),
-      linkWriter: active.writerFor("kernel.link", LinkEvents),
+      routerWriter: active.writerFor("kernel.router", routerEvents),
+      runtimeWriter: active.writerFor("kernel.runtime", runtimeEvents),
+      endpointWriter: active.writerFor("kernel.endpoint", endpointEvents),
+      linkWriter: active.writerFor("kernel.link", linkEvents),
       router,
     };
   });
@@ -402,6 +411,8 @@ function executeRun<
 /**
  * Execute one definition against one mixed roster. Nested scopes stop
  * endpoints, runtimes, and the router before publishing ledger completion.
+ * @param input Input value to process.
+ * @returns The run society result.
  */
 export function runSociety<
   const Id extends string,
@@ -418,7 +429,9 @@ export function runSociety<
   SimulatorRunFailure<Definitions>,
   RunRequirements<Id, CustomerSchema, CustomerClasses, Definitions, R>
 > {
-  return executeRun(input) as Effect.Effect<
+  return /* Safe because the surrounding invariant establishes this asserted shape. */ executeRun(
+    input,
+  ) as Effect.Effect<
     SimulatorRunResult<A, E>,
     SimulatorRunFailure<Definitions>,
     RunRequirements<Id, CustomerSchema, CustomerClasses, Definitions, R>

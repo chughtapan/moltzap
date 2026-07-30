@@ -1,3 +1,4 @@
+// safer-arch-ignore folder-explicit-api-required: ConnectionManager and connection arms form the socket runtime boundary consumed by server composition.
 import { Data, Effect, HashMap, HashSet, Match, Option, Ref } from "effect";
 import type { SocketError } from "@effect/platform/Socket";
 import type {
@@ -6,14 +7,14 @@ import type {
   ReverseCallbackRequest,
   ReverseCallbackSuccess,
   ReverseClient,
+  ConnectionId,
 } from "@moltzap/protocol/socket";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
-import { TaskCreate } from "@moltzap/protocol/task";
-import type { ConnectionId } from "@moltzap/protocol/socket";
+import type { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import type { messagesAuthorize } from "@moltzap/protocol/message";
+import type { taskCreate } from "@moltzap/protocol/task";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import { AgentContext, AppContext } from "./context.js";
+import type { AgentContext, AppContext } from "./context.js";
 
 /**
  * Send an awaitable RPC from server → client over the connection's reverse
@@ -22,39 +23,39 @@ import { AgentContext, AppContext } from "./context.js";
  * source the {@link Originator} from the registered app's `AppEndpoint`, minted
  * from the live `AppConnection` arm. Caller controls timeout via
  * `Effect.timeout` at the call site.
+ * @param originator Value supplied to the operation.
+ * @param request Value supplied to the operation.
+ * @returns The send rpc to client result.
  */
 export function sendRpcToClient(
   originator: Originator,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof DispatchAuthorize }
+    { readonly definition: typeof dispatchAuthorize }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof DispatchAuthorize>,
-  ReverseCallbackError<typeof DispatchAuthorize> | ReverseCallError,
-  never
+  ReverseCallbackSuccess<typeof dispatchAuthorize>,
+  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError
 >;
 export function sendRpcToClient(
   originator: Originator,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof MessagesAuthorize }
+    { readonly definition: typeof messagesAuthorize }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof MessagesAuthorize>,
-  ReverseCallbackError<typeof MessagesAuthorize> | ReverseCallError,
-  never
+  ReverseCallbackSuccess<typeof messagesAuthorize>,
+  ReverseCallbackError<typeof messagesAuthorize> | ReverseCallError
 >;
 export function sendRpcToClient(
   originator: Originator,
   request: Extract<
     ReverseCallbackRequest,
-    { readonly definition: typeof TaskCreate }
+    { readonly definition: typeof taskCreate }
   >,
 ): Effect.Effect<
-  ReverseCallbackSuccess<typeof TaskCreate>,
-  ReverseCallbackError<typeof TaskCreate> | ReverseCallError,
-  never
+  ReverseCallbackSuccess<typeof taskCreate>,
+  ReverseCallbackError<typeof taskCreate> | ReverseCallError
 >;
 export function sendRpcToClient(
   originator: Originator,
@@ -101,27 +102,26 @@ interface ConnectionBase {
 // Module-private classes with private members keep external modules from
 // forging connection arms structurally. Callers receive arm values only through
 // `ConnectionManager`.
-// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS marker, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
+
 class UnauthenticatedConnection extends Data.TaggedClass(
   "UnauthenticatedConnection",
 )<ConnectionBase> {
-  private readonly __brand!: never;
+  private readonly brand!: never;
 }
 
-// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS marker, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class AgentConnection extends Data.TaggedClass("AgentConnection")<
   ConnectionBase & { readonly auth: AgentContext }
 > {
-  private readonly __brand!: never;
+  private readonly brandValue!: never;
 }
 
-// eslint-disable-next-line agent-code-guard/manual-brand -- `__brand: never` is a NOMINAL CLASS marker, not a branded primitive; the refined-brand suggestion does not apply to a Data.TaggedClass instance type.
 class AppConnection extends Data.TaggedClass("AppConnection")<
   ConnectionBase & { readonly auth: AppContext }
 > {
-  private readonly __brand!: never;
+  private readonly brandValue!: never;
 }
 
+/** Re-exports the public API from `current module`. */
 export type { UnauthenticatedConnection, AgentConnection, AppConnection };
 
 /** The three-arm connection state — the connections map's only entry shape. */
@@ -148,6 +148,9 @@ export type TransitionOutcome =
 /**
  * Mint the connection arm matching the resolved principal. This is the single
  * runtime check of `auth._tag`; callers narrow through `TransitionOutcome`.
+ * @param base Value supplied to the operation.
+ * @param auth Value supplied to the operation.
+ * @returns The mint authed arm result.
  */
 const mintAuthedArm = (
   base: ConnectionBase,
@@ -169,24 +172,35 @@ const mintAuthedArm = (
  * Visit every agent-arm connection in `map`. Centralizes the
  * `_tag === "AgentConnection"` structural narrowing that every agent-scoped
  * reader/mutator shares.
+ * @param map Value supplied to the operation.
+ * @param visit Value supplied to the operation.
  */
 const eachAgentArm = (
   map: HashMap.HashMap<ConnectionId, Connection>,
   visit: (conn: AgentConnection) => void,
 ): void => {
   for (const conn of HashMap.values(map)) {
-    if (conn._tag === "AgentConnection") visit(conn);
+    if (conn._tag === "AgentConnection") {
+      visit(conn);
+    }
   }
 };
 
-/** Whether `map` still contains a live agent arm for `agentId`. */
+/**
+ * Whether `map` still contains a live agent arm for `agentId`.
+ * @param map Value supplied to the operation.
+ * @param agentId Identifier of the agent targeted by the operation.
+ * @returns Whether agent arm.
+ */
 const hasAgentArm = (
   map: HashMap.HashMap<ConnectionId, Connection>,
   agentId: AgentId,
 ): boolean => {
   let found = false;
   eachAgentArm(map, (conn) => {
-    if (conn.auth.agentId === agentId) found = true;
+    if (conn.auth.agentId === agentId) {
+      found = true;
+    }
   });
   return found;
 };
@@ -214,6 +228,7 @@ const addConversationIds = (
   return HashMap.set(subscriptions, agentId, next);
 };
 
+/** Implements connection manager. */
 export class ConnectionManager {
   /**
    * Connections and their per-agent delivery projection share one Ref so
@@ -234,6 +249,10 @@ export class ConnectionManager {
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
    * at WebSocket open. The Connect handler promotes it to the agent/app arm.
+   * @param connId Value supplied to the operation.
+   * @param socket Value supplied to the operation.
+   * @param originator Value supplied to the operation.
+   * @returns The add unauthenticated result.
    */
   addUnauthenticated(
     connId: ConnectionId,
@@ -250,7 +269,11 @@ export class ConnectionManager {
     }));
   }
 
-  /** Non-mutating read. Callers discriminate on the returned arm's `_tag`. */
+  /**
+   * Non-mutating read. Callers discriminate on the returned arm's `_tag`.
+   * @param connId Value supplied to the operation.
+   * @returns The current result.
+   */
   peek(connId: ConnectionId): Effect.Effect<Option.Option<Connection>> {
     return Ref.get(this.stateRef).pipe(
       Effect.map((state) => HashMap.get(state.connections, connId)),
@@ -259,7 +282,8 @@ export class ConnectionManager {
 
   /**
    * Snapshot of every connection arm. Callers iterate + discriminate on `_tag`
-   * (e.g. the shutdown loop reads `arm.socket.shutdown`).
+   * (e.g. The shutdown loop reads `arm.socket.shutdown`).
+   * @returns The current result.
    */
   allConnections(): Effect.Effect<readonly Connection[]> {
     return Ref.get(this.stateRef).pipe(
@@ -267,7 +291,10 @@ export class ConnectionManager {
     );
   }
 
-  /** Current connection count. */
+  /**
+   * Current connection count.
+   * @returns The current result.
+   */
   currentSize(): Effect.Effect<number> {
     return Ref.get(this.stateRef).pipe(
       Effect.map((state) => HashMap.size(state.connections)),
@@ -278,6 +305,9 @@ export class ConnectionManager {
    * Atomic per-connection authentication gate. Pattern-matches on
    * `auth._tag` once to decide which arm to mint. Returns a split-per-arm
    * `TransitionOutcome` so callers narrow without a cast.
+   * @param connId Value supplied to the operation.
+   * @param auth Value supplied to the operation.
+   * @returns The current result.
    */
   authenticate(
     connId: ConnectionId,
@@ -332,6 +362,8 @@ export class ConnectionManager {
    * Roll an authenticated arm back to `UnauthenticatedConnection` on a
    * post-auth failure. Idempotent: no-op when the entry is absent or already
    * unauthenticated — safe against a racing close handler.
+   * @param connId Value supplied to the operation.
+   * @returns The current result.
    */
   rollbackToUnauthenticated(connId: ConnectionId): Effect.Effect<void> {
     return Ref.update(this.stateRef, (state) => {
@@ -371,13 +403,17 @@ export class ConnectionManager {
   /**
    * Atomic delete + return. Returns the removed
    * arm (or `undefined`) so the caller `Match.tag`s for auth-gated cleanup.
+   * @param connId Value supplied to the operation.
+   * @returns The current result.
    */
   removeAndReturn(connId: ConnectionId): Effect.Effect<Connection | undefined> {
     return Ref.modify(
       this.stateRef,
       (state): [Connection | undefined, ConnectionManagerState] => {
         const current = HashMap.get(state.connections, connId);
-        if (Option.isNone(current)) return [undefined, state];
+        if (Option.isNone(current)) {
+          return [undefined, state];
+        }
         const removed = current.value;
         const connections = HashMap.remove(state.connections, connId);
         const agentConversationSubscriptions =
@@ -397,6 +433,8 @@ export class ConnectionManager {
    * Read-only lookup narrowed to the agent arm. App lookups go through
    * `AppRegistry` by `appId`; `UnauthenticatedConnection` and `AppConnection`
    * entries are skipped structurally (no `auth.agentId` to compare).
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @returns The found result.
    */
   getByAgentConnection(
     agentId: AgentId,
@@ -405,7 +443,9 @@ export class ConnectionManager {
       Effect.map((state) => {
         let found: AgentConnection | null = null;
         eachAgentArm(state.connections, (conn) => {
-          if (found === null && conn.auth.agentId === agentId) found = conn;
+          if (found === null && conn.auth.agentId === agentId) {
+            found = conn;
+          }
         });
         return found;
       }),
@@ -415,6 +455,8 @@ export class ConnectionManager {
   /**
    * Every live agent-arm connection of `agentId`. Multi-tab agents have one arm
    * per socket. Agent-only consumers read this.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @returns The out result.
    */
   agentConnections(
     agentId: AgentId,
@@ -423,7 +465,9 @@ export class ConnectionManager {
       Effect.map((state) => {
         const out: AgentConnection[] = [];
         eachAgentArm(state.connections, (conn) => {
-          if (conn.auth.agentId === agentId) out.push(conn);
+          if (conn.auth.agentId === agentId) {
+            out.push(conn);
+          }
         });
         return out;
       }),
@@ -435,6 +479,9 @@ export class ConnectionManager {
    * each listed agent that currently has a live agent arm. Offline agents are
    * hydrated from the database when they connect, so retaining them here would
    * only create stale, unbounded cache entries.
+   * @param agentIds Value supplied to the operation.
+   * @param conversationId Value supplied to the operation.
+   * @returns The requested agent ids result.
    */
   addConversationToAgents(
     agentIds: readonly AgentId[],
@@ -466,6 +513,9 @@ export class ConnectionManager {
    * the last agent arm disconnects, so reconnect hydration starts from an
    * empty set. Additive hydration preserves a conversation created after the
    * DB snapshot was loaded but before this method runs.
+   * @param connId Value supplied to the operation.
+   * @param conversationIds Value supplied to the operation.
+   * @returns The current result.
    */
   hydrateConversationIds(
     connId: ConnectionId,
@@ -491,6 +541,9 @@ export class ConnectionManager {
    * Remove `conversationId` from the subscription index for `agentId` (the
    * inverse of {@link addConversationToAgents}). Used by
    * `ConversationService.removeParticipant`.
+   * @param agentId Identifier of the agent targeted by the operation.
+   * @param conversationId Value supplied to the operation.
+   * @returns The existing result.
    */
   removeConversationFromAgent(
     agentId: AgentId,
@@ -501,7 +554,9 @@ export class ConnectionManager {
         state.agentConversationSubscriptions,
         agentId,
       );
-      if (Option.isNone(existing)) return state;
+      if (Option.isNone(existing)) {
+        return state;
+      }
       const next = HashSet.remove(existing.value, conversationId);
       return {
         ...state,

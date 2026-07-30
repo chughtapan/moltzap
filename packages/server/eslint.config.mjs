@@ -24,7 +24,31 @@ const cursorOpacityGuard = {
   },
 };
 
+const generatedDatabaseRules = {
+  files: [
+    "src/db/database.generated.ts",
+    "src/db/database.ts",
+    "src/conversation/conversation.service.ts",
+    "src/message/message.service.ts",
+    "src/task/task.service.ts",
+    "src/identity/agents/handlers.ts",
+    "src/__tests__/integration/task/encryption.test.ts",
+    "src/standalone.ts",
+    "src/test-utils/core-schema-sql.ts",
+  ],
+  rules: {
+    // Kysely and SQL row contracts retain the database's exact snake_case
+    // identifiers; platform error-tag mocks likewise retain their upstream
+    // constructor names.
+    "@typescript-eslint/naming-convention": "off",
+  },
+};
+
 export default [
-  ...packageEslintConfig({ customJsDocTags: ["internal"] }),
+  ...packageEslintConfig({
+    customJsDocTags: ["internal"],
+    tsconfigRootDir: import.meta.dirname,
+  }),
+  generatedDatabaseRules,
   cursorOpacityGuard,
 ];

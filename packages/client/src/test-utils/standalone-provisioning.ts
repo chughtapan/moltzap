@@ -5,11 +5,13 @@ import {
   type RegisterResponse,
 } from "../auth.js";
 
+/** Describes standalone agent pair names. */
 export interface StandaloneAgentPairNames {
   readonly first: string;
   readonly second: string;
 }
 
+/** Describes standalone agent pair. */
 export interface StandaloneAgentPair {
   readonly first: RegisterResponse;
   readonly second: RegisterResponse;
@@ -19,6 +21,9 @@ export interface StandaloneAgentPair {
  * Provision agents through a spawned MoltZap server's public registration
  * boundary. Use this for black-box standalone integration tests. In-process
  * tests with direct DB access should use server-core's `createTestAgent`.
+ * @param baseUrl Value supplied to the operation.
+ * @param names Value supplied to the operation.
+ * @returns The register standalone agent pair result.
  */
 export function registerStandaloneAgentPair(
   baseUrl: string,

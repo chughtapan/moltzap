@@ -34,7 +34,7 @@ This example uses a few pieces you'll need to set up:
 ```typescript
 import { MoltZapService } from "@moltzap/client";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import { MessagesSend } from "@moltzap/protocol/message";
+import { messagesSend } from "@moltzap/protocol/message";
 import type { TaskId } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 
@@ -118,10 +118,10 @@ async onMessage(evt, ws) {
   // Relay via the agent's MoltZap connection. `agent/message/send` is
   // task-scoped: pass the relay task + conversation IDs your app
   // minted up-front (one per user×agent pair is the common shape).
-  // `sendRpc` takes the RPC *descriptor* (the `MessagesSend` import),
+  // `sendRpc` takes the RPC *descriptor* (the `messagesSend` import),
   // not the method-name string.
   await Effect.runPromise(
-    moltzapService.sendRpc(MessagesSend, {
+    moltzapService.sendRpc(messagesSend, {
       taskId: conn.relayTaskId,
       conversationId: conn.relayConversationId,
       parts: [{ type: "text", text }],

@@ -12,7 +12,7 @@
  */
 
 import {
-  HttpClient,
+  type HttpClient,
   HttpClientRequest,
   HttpClientResponse,
 } from "@effect/platform";
@@ -20,20 +20,26 @@ import { Duration, Effect, Schema } from "effect";
 import type { ContactService } from "./contact-policy.js";
 import type { UserId } from "@moltzap/protocol/identity";
 
-const ContactsCheckResponse = Schema.Struct({ inContact: Schema.Boolean });
+const contactsCheckResponse = Schema.Struct({ inContact: Schema.Boolean });
 const EVENT_NAME = "contacts.check";
 
+/** Implements webhook contact service. */
 export class WebhookContactService implements ContactService {
-  constructor(
-    private readonly httpClient: HttpClient.HttpClient,
-    private readonly url: string,
-    private readonly timeoutMs: number,
-  ) {}
+  private readonly httpClient: HttpClient.HttpClient;
+  private readonly url: string;
+  private readonly timeoutMs: number;
 
-  areInContact(
-    userIdA: UserId,
-    userIdB: UserId,
-  ): Effect.Effect<boolean, never> {
+  constructor(
+    httpClient: HttpClient.HttpClient,
+    url: string,
+    timeoutMs: number,
+  ) {
+    this.httpClient = httpClient;
+    this.url = url;
+    this.timeoutMs = timeoutMs;
+  }
+
+  areInContact(userIdA: UserId, userIdB: UserId): Effect.Effect<boolean> {
     return this.httpClient
       .execute(
         HttpClientRequest.post(this.url).pipe(
@@ -50,7 +56,7 @@ export class WebhookContactService implements ContactService {
         Effect.tap((response) => response.text),
         Effect.flatMap(HttpClientResponse.filterStatusOk),
         Effect.flatMap(
-          HttpClientResponse.schemaBodyJson(ContactsCheckResponse),
+          HttpClientResponse.schemaBodyJson(contactsCheckResponse),
         ),
         Effect.timeout(Duration.millis(this.timeoutMs)),
         Effect.map((result) => result.inContact),

@@ -1,14 +1,14 @@
 import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
   DEFAULT_APP_ID,
-  TaskCreate,
-  TaskList,
-  TaskRequest,
-  TaskUpdate,
+  taskCreate,
+  taskList,
+  taskRequest,
+  taskUpdate,
 } from "@moltzap/protocol/task";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
+import { messagesAuthorize } from "@moltzap/protocol/message";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
@@ -120,16 +120,16 @@ function setupAliceAndBob(): Effect.Effect<
 
 function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    [DispatchAuthorize.name]: {
-      definition: DispatchAuthorize,
+    [dispatchAuthorize.name]: {
+      definition: dispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
-    [MessagesAuthorize.name]: {
-      definition: MessagesAuthorize,
+    [messagesAuthorize.name]: {
+      definition: messagesAuthorize,
       handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
-    [TaskCreate.name]: {
-      definition: TaskCreate,
+    [taskCreate.name]: {
+      definition: taskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
@@ -139,7 +139,7 @@ function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
 it("agent/task/request returns an active task bound to the supplied appId", () =>
   Effect.gen(function* () {
     const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
-    const result = yield* aliceClient.sendRpc(TaskRequest, {
+    const result = yield* aliceClient.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
@@ -168,12 +168,12 @@ it("app authority: only the app principal may mutate task membership", () =>
       registered.appKey,
       acceptTaskCreateHandlers(),
     );
-    const created = yield* aliceClient.sendRpc(TaskRequest, {
+    const created = yield* aliceClient.sendRpc(taskRequest, {
       appId: registered.appId,
       invitedAgentIds: [],
     });
 
-    const added = yield* appClient.sendRpc(TaskUpdate, {
+    const added = yield* appClient.sendRpc(taskUpdate, {
       action: "add-participant",
       taskId: created.task.id,
       agentId: agentId(bobAgentId),
@@ -183,7 +183,7 @@ it("app authority: only the app principal may mutate task membership", () =>
     }
     expect(added.participant.agentId).toBe(bobAgentId);
 
-    const removed = yield* appClient.sendRpc(TaskUpdate, {
+    const removed = yield* appClient.sendRpc(taskUpdate, {
       action: "remove-participant",
       taskId: created.task.id,
       agentId: agentId(bobAgentId),
@@ -192,7 +192,7 @@ it("app authority: only the app principal may mutate task membership", () =>
       expect.fail("expected participant-removed result");
     }
 
-    const closed = yield* appClient.sendRpc(TaskUpdate, {
+    const closed = yield* appClient.sendRpc(taskUpdate, {
       action: "close",
       taskId: created.task.id,
     });
@@ -205,16 +205,16 @@ it("app authority: only the app principal may mutate task membership", () =>
 it("task/list scopes results to caller-as-participant", () =>
   Effect.gen(function* () {
     const { aliceClient, bobClient } = yield* setupAliceAndBob();
-    const aliceTask = yield* aliceClient.sendRpc(TaskRequest, {
+    const aliceTask = yield* aliceClient.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
-    yield* bobClient.sendRpc(TaskRequest, {
+    yield* bobClient.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
 
-    const aliceList = yield* aliceClient.sendRpc(TaskList, {});
+    const aliceList = yield* aliceClient.sendRpc(taskList, {});
     expect(aliceList.tasks.map((t) => t.id)).toContain(aliceTask.task.id);
     expect(aliceList.tasks).toHaveLength(1);
   }));

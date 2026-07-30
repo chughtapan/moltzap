@@ -2,13 +2,13 @@
 
 import { assert, effect as test } from "@effect/vitest";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { RouterEvents } from "../events/core.js";
+import type { routerEvents } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
 import { LedgerStorageError } from "../ledger/storage.js";
 import { RouterProvider, networkFailure } from "../network/router.js";
 import { acquireRouter } from "./router.js";
 
-type RouterEventWriter = LedgerWriter<typeof RouterEvents>;
+type RouterEventWriter = LedgerWriter<typeof routerEvents>;
 const neverWriter: RouterEventWriter = {
   write: () =>
     Effect.dieMessage(

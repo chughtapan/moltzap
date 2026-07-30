@@ -17,6 +17,7 @@ import { registerResetPeerRecovery } from "./adversity-reset-peer-recovery.js";
 import { registerTimeoutSurface } from "./adversity-timeout-surface.js";
 import { registerSlowCloseCleanup } from "./adversity-slow-close-cleanup.js";
 
+/** Re-exports the public API from `current module`. */
 export {
   registerLatencyResilience,
   registerResetPeerRecovery,

@@ -12,7 +12,7 @@
  * claim, sendInsert+commit, finalize|rollback)`.
  */
 import { it as effectIt } from "@effect/vitest";
-import { DispatchRelease } from "@moltzap/protocol/message/dispatch";
+import { dispatchRelease } from "@moltzap/protocol/message/dispatch";
 import type { AppManifest } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
 import { Chunk, Duration, Effect, Either, Fiber, Stream } from "effect";
@@ -51,7 +51,7 @@ const TEST_APP_MANIFEST: AppManifest = {
   hooks: MODERATED_HOOKS,
 };
 
-const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
+const fixture = createDispatchFlowFixture();
 
 beforeAll(startDispatchFlowServer, 60_000);
 
@@ -74,7 +74,7 @@ function requestDispatchesInParallel(
 }
 
 function forkTwoReleaseCollector(recipient: ConnectedAgent) {
-  return recipient.client.subscribe(DispatchRelease).pipe(
+  return recipient.client.subscribe(dispatchRelease).pipe(
     Stream.take(2),
     Stream.runCollect,
     Effect.map(Chunk.toReadonlyArray),
@@ -89,7 +89,7 @@ function forkTwoReleaseCollector(recipient: ConnectedAgent) {
 function crossConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    yield* attachDispatchAuthorizeHook(alice, fixture);
+    yield* attachDispatchAuthorizeHook(fixture);
     const conv1 = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
     const conv2 = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
     const releasesFiber = yield* forkTwoReleaseCollector(bob);
@@ -111,7 +111,7 @@ function crossConversationRequestsRunConcurrently() {
 function sameConversationRequestsRunConcurrently() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
-    yield* attachDispatchAuthorizeHook(alice, fixture);
+    yield* attachDispatchAuthorizeHook(fixture);
     const conv = yield* createConversationOnApp(alice, bob, TEST_APP_MANIFEST);
     const releasesFiber = yield* forkTwoReleaseCollector(bob);
     const [ack1, ack2] = yield* requestDispatchesInParallel(alice, bob, [
@@ -135,7 +135,7 @@ function requestGrantedDispatchLease(
       decision: "grant",
       leaseTimeoutMs: LEASE_TTL_MS,
     });
-    yield* attachDispatchAuthorizeHook(alice, fixture);
+    yield* attachDispatchAuthorizeHook(fixture);
     const binding = yield* createConversationOnApp(
       alice,
       bob,

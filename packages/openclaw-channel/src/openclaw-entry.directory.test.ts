@@ -6,8 +6,12 @@ import {
 } from "@moltzap/client/test-utils";
 import type { ServiceRpcError } from "@moltzap/client";
 import type { ChannelService } from "@moltzap/client/channel-base";
-import { AgentsList } from "@moltzap/protocol/identity";
-import type { ParamsOf, ResultOf, RpcDefinition } from "@moltzap/protocol/rpc";
+import { agentsList } from "@moltzap/protocol/identity";
+import type {
+  ParamsOf,
+  ResultOf,
+  RpcDefinitionAny,
+} from "@moltzap/protocol/rpc";
 import { Data, Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
@@ -16,15 +20,6 @@ class DirectoryTestError extends Data.TaggedError("DirectoryTestError")<{
   readonly message: string;
   readonly cause: unknown;
 }> {}
-
-function listPeers() {
-  return Effect.tryPromise({
-    try: () =>
-      plugin.directory.listPeers({ cfg: makeCfg(), accountId: ACCOUNT_ID }),
-    catch: (cause) =>
-      new DirectoryTestError({ message: "listPeers failed", cause }),
-  });
-}
 
 // `agent/identity/agents/list` is bounded to a server-default page. The openclaw directory
 // must page through `nextCursor` to enumerate EVERY peer — a user with more
@@ -56,7 +51,16 @@ let agentsCallCount: number;
 let byzantineConstantCursor: boolean;
 const CONSTANT_CURSOR = Buffer.from("stuck", "utf8").toString("base64url");
 
-function buildAgents(count: number): ReadonlyArray<PeerAgent> {
+function listPeers() {
+  return Effect.tryPromise({
+    try: () =>
+      plugin.directory.listPeers({ cfg: makeCfg(), accountId: ACCOUNT_ID }),
+    catch: (cause) =>
+      new DirectoryTestError({ message: "listPeers failed", cause }),
+  });
+}
+
+function buildAgents(count: number): readonly PeerAgent[] {
   const agents: PeerAgent[] = [];
   for (let i = 0; i < count; i++) {
     const id = `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
@@ -77,7 +81,7 @@ const ALL_AGENTS = buildAgents(CONTACT_COUNT);
 // consumer treats it as opaque. nextCursor present iff a further page
 // exists (Invariant 1).
 function agentsPage(cursor: string): {
-  readonly agents: ReadonlyArray<PeerAgent>;
+  readonly agents: readonly PeerAgent[];
   readonly nextCursor?: string;
 } {
   const start = cursor === "" ? 0 : Number(decodeCursor(cursor));
@@ -97,23 +101,32 @@ function decodeCursor(cursor: string): string {
   return Buffer.from(cursor, "base64url").toString("utf8");
 }
 
-function directoryCallDefinition<D extends RpcDefinition<string, any, any>>(
+function directoryCallDefinition<D extends RpcDefinitionAny>(
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
-  if (definition.name === AgentsList.name) {
+  if (definition.name === agentsList.name) {
     agentsCallCount++;
     if (byzantineConstantCursor) {
       // Always claims "more" with the same cursor — never advances.
-      return Effect.succeed({
-        agents: ALL_AGENTS.slice(0, SERVER_PAGE_SIZE),
-        nextCursor: CONSTANT_CURSOR,
-      } as ResultOf<D>);
+      return Effect.succeed(
+        rpcResult<D>({
+          agents: ALL_AGENTS.slice(0, SERVER_PAGE_SIZE),
+          nextCursor: CONSTANT_CURSOR,
+        }),
+      );
     }
-    const cursor = (params as { readonly cursor?: string }).cursor ?? "";
-    return Effect.succeed(agentsPage(cursor) as ResultOf<D>);
+    const cursor = (
+      /* Safe because the test fixture establishes this asserted shape. */
+      params as { readonly cursor?: string }
+    ).cursor ?? "";
+    return Effect.succeed(rpcResult<D>(agentsPage(cursor)));
   }
-  return Effect.succeed({} as ResultOf<D>);
+  return Effect.succeed(rpcResult<D>({}));
+}
+
+function rpcResult<D extends RpcDefinitionAny>(value: unknown): ResultOf<D> {
+  return /* Safe because each fixture branch matches the selected RPC definition. */ value as ResultOf<D>;
 }
 
 // Production `MoltZapService.sendRpc` is a PROTOTYPE method that reads
@@ -126,9 +139,7 @@ function directoryCallDefinition<D extends RpcDefinition<string, any, any>>(
 // code MUST bind `callDefinition` to
 // the service before handing it to its drain consumers (binding to the
 // service restores `this`), or `listPeers` rejects instead of resolving.
-type ReceiverDependentCallDefinition = <
-  D extends RpcDefinition<string, any, any>,
->(
+type ReceiverDependentCallDefinition = <D extends RpcDefinitionAny>(
   definition: D,
   params: ParamsOf<D>,
 ) => Effect.Effect<ResultOf<D>, ServiceRpcError>;
@@ -139,8 +150,8 @@ interface ReceiverDependentService extends ChannelService {
 }
 
 function makeReceiverDependentCallDefinition(): ReceiverDependentCallDefinition {
-  return function callDefinition<D extends RpcDefinition<string, any, any>>(
-    this: ReceiverDependentService | undefined,
+  return function callDefinition<D extends RpcDefinitionAny>(
+    this: ReceiverDependentService,
     definition: D,
     params: ParamsOf<D>,
   ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
@@ -165,13 +176,19 @@ function startGatewayWithService(build: () => ChannelService): void {
   fixture = createFakeChannelService({ ownAgentId: SELF_AGENT_ID });
   const service = build();
   plugin = createMoltzapChannelPlugin({ createService: () => service });
-  plugin.gateway.startAccount({
-    cfg: makeCfg(),
-    accountId: ACCOUNT_ID,
-    account: makeAccount(),
-    abortSignal: new AbortController().signal,
-    setStatus: vi.fn(),
-  });
+  Effect.runFork(
+    Effect.tryPromise({
+      try: () =>
+        plugin.gateway.startAccount({
+          cfg: makeCfg(),
+          accountId: ACCOUNT_ID,
+          account: makeAccount(),
+          abortSignal: new AbortController().signal,
+          setStatus: vi.fn(),
+        }),
+      catch: (cause) => cause,
+    }),
+  );
 }
 
 // `ChannelService` plus the optional `callDefinition` the openclaw directory
@@ -183,7 +200,7 @@ type ServiceWithCallDefinition = ChannelService & {
 function startDirectoryGateway(): void {
   startGatewayWithService(
     () =>
-      ({
+      /* Safe because the test fixture establishes this asserted shape. */ ({
         ...fixture.service,
         callDefinition: directoryCallDefinition,
       }) satisfies ServiceWithCallDefinition as ChannelService,
@@ -241,7 +258,7 @@ function startReceiverDependentGateway(): void {
   // `service` before forwarding; an unbound forward dies on `this`-undefined.
   startGatewayWithService(
     () =>
-      ({
+      /* Safe because the test fixture establishes this asserted shape. */ ({
         ...fixture.service,
         live: true,
         callDefinition: makeReceiverDependentCallDefinition(),

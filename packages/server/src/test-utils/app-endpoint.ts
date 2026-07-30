@@ -11,25 +11,23 @@
  */
 import { Effect } from "effect";
 import type { AnyAppCallbackRpcDefinition } from "@moltzap/protocol/socket/catalog";
-import type {
-  ReverseCallbackError,
-  ReverseCallbackPayload,
-  ReverseCallbackRequest,
-  ReverseCallbackSuccess,
-} from "@moltzap/protocol/socket";
 import {
+  type ReverseCallbackError,
+  type ReverseCallbackPayload,
+  type ReverseCallbackRequest,
+  type ReverseCallbackSuccess,
   isDispatchAuthorizeRequest,
   isMessagesAuthorizeRequest,
   isTaskCreateRequest,
+  type ConnectionId,
+  type ReverseCallError,
 } from "@moltzap/protocol/socket";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
-import { TaskCreate } from "@moltzap/protocol/task";
-import type { ConnectionId } from "@moltzap/protocol/socket";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { messagesAuthorize } from "@moltzap/protocol/message";
+import { taskCreate } from "@moltzap/protocol/task";
 import type { RpcSerialization } from "@effect/rpc";
 import type { AppEndpoint } from "#identity/apps";
 import type { Originator } from "#socket";
-import type { ReverseCallError } from "@moltzap/protocol/socket";
 
 /**
  * In-process handler for one task-callback RPC. The handler returns
@@ -91,6 +89,10 @@ function makeInertParser(
  *   - `originator.notify` / `failAllPending` are no-ops.
  *   - `originator.handle` / `originator.resolve` defect — an in-process
  *     endpoint never receives inbound frames; a call here is a wiring bug.
+ * @param args Value supplied to the operation.
+ * @param args.id Value supplied to the operation.
+ * @param args.handlers Value supplied to the operation.
+ * @returns The created handler app endpoint.
  */
 export function makeHandlerAppEndpoint(args: {
   readonly id: ConnectionId;
@@ -101,13 +103,13 @@ export function makeHandlerAppEndpoint(args: {
     request: ReverseCallbackRequest,
   ): ReturnType<Originator["callback"]> => {
     if (isDispatchAuthorizeRequest(request)) {
-      return args.handlers[DispatchAuthorize.name](request.params);
+      return args.handlers[dispatchAuthorize.name](request.params);
     }
     if (isMessagesAuthorizeRequest(request)) {
-      return args.handlers[MessagesAuthorize.name](request.params);
+      return args.handlers[messagesAuthorize.name](request.params);
     }
     if (isTaskCreateRequest(request)) {
-      return args.handlers[TaskCreate.name](request.params);
+      return args.handlers[taskCreate.name](request.params);
     }
     return defect("originator.callback");
   };
