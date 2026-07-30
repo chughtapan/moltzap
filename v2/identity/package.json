@@ -116,9 +116,10 @@
     "@electric-sql/pglite": "0.4.4",
     "@electric-sql/pglite-socket": "0.1.4",
     "@testcontainers/postgresql": "10.28.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
     "fast-check": "3.23.2",
-    "typescript": "^5.7.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "3.2.4"
   }
 }

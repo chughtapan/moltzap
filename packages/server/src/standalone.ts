@@ -175,7 +175,7 @@ function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const exists = (candidate: string) =>
-      fs.exists(candidate).pipe(Effect.catchAll(() => Effect.succeed(false)));
+      fs.exists(candidate).pipe(Effect.orElseSucceed(() => false));
 
     // Docker: copied to package root
     const dockerPath = join(dirnameValue, "..", "core-schema.sql");
@@ -192,12 +192,10 @@ function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound> {
     if (yield* exists(distPath)) {
       return distPath;
     }
-    return yield* Effect.fail(
-      new SchemaFileNotFound({
-        message:
-          "Cannot find core-schema.sql. Ensure it exists at the package root or in src/db/.",
-      }),
-    );
+    return yield* new SchemaFileNotFound({
+      message:
+        "Cannot find core-schema.sql. Ensure it exists at the package root or in src/db/.",
+    });
   }).pipe(Effect.provide(NodeFileSystem.layer));
 }
 

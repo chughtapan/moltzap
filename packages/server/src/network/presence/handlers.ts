@@ -49,9 +49,7 @@ function visiblePresenceAgentIds(
     const visibleSet = new Set(visibleIds);
     const rejected = requested.filter((id) => !visibleSet.has(id));
     if (rejected.length > 0) {
-      return yield* Effect.fail(
-        new NotInContactsError({ data: { agentIds: rejected } }),
-      );
+      return yield* new NotInContactsError({ data: { agentIds: rejected } });
     }
     return visibleIds;
   }).pipe(Effect.withSpan("presence.visibleAgentIds"));

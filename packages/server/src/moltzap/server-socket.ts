@@ -1,6 +1,6 @@
 // safer-arch-ignore no-trivial-sink-file: This is the protocol socket adapter boundary; core app is intentionally its sole composition consumer.
 import type { Socket as EffectSocket } from "@effect/platform/Socket";
-import { Effect, Layer } from "effect";
+import { Data, Effect, Layer } from "effect";
 import {
   MoltZapServer,
   type ConnectionId,
@@ -16,6 +16,11 @@ import {
 import { serverHandlers } from "./handler-catalog.js";
 import { makeRequirementMiddlewareLayers } from "./auth-middleware-layers.js";
 import { peekLiveArm } from "./principal-gate.js";
+
+class UserHookError extends Data.TaggedError("UserHookError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const makeConnectionTagLayer = (
   connId: ConnectionId,
@@ -109,11 +114,11 @@ function runUserHook<TArgs>(
 ): Effect.Effect<void> {
   return Effect.tryPromise({
     try: () => Promise.resolve(hook(args)),
-    catch: (err) => err,
+    catch: (cause) => new UserHookError({ message: `${label} failed`, cause }),
   }).pipe(
     Effect.timeoutFail({
       duration: "2 seconds",
-      onTimeout: () => new Error(`${label} timed out`),
+      onTimeout: () => new UserHookError({ message: `${label} timed out` }),
     }),
     Effect.catchAll((err) =>
       Effect.logWarning(`${label} error`).pipe(

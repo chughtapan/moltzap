@@ -1,5 +1,5 @@
 // safer-arch-ignore no-cross-domain-sibling-import: The connection handshake is an adapter boundary that authenticates principals and registers their domain services atomically.
-import { Effect, Match, Option } from "effect";
+import { Data, Effect, Match, Option } from "effect";
 import {
   type agentConnect,
   type appConnect,
@@ -49,6 +49,11 @@ type ConnectParams = AgentConnectParams | AppConnectParams;
 /** The empty HelloOk — success is the only payload. */
 const HELLO_OK: HelloOk = {};
 
+class ConnectionHookError extends Data.TaggedError("ConnectionHookError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
 /**
  * Agent API-key path — mints the closed-union `AgentContext` arm directly.
  * @param agentKey Value supplied to the operation.
@@ -62,9 +67,7 @@ function authenticateAgentKey(
   return Effect.gen(function* () {
     const agent = yield* authService.authenticateAgent(agentKey);
     if (!agent) {
-      return yield* Effect.fail(
-        new UnauthorizedError({ message: "Authentication failed" }),
-      );
+      return yield* new UnauthorizedError({ message: "Authentication failed" });
     }
     return yield* agentContextFrom({
       agentId: agent.agentId,
@@ -170,11 +173,9 @@ function registerAppEndpoint(args: {
     });
     if (!ok) {
       yield* connections.rollbackToUnauthenticated(connId);
-      return yield* Effect.fail(
-        new UnauthorizedError({
-          message: `App ${appId} already has an active connection`,
-        }),
-      );
+      return yield* new UnauthorizedError({
+        message: `App ${appId} already has an active connection`,
+      });
     }
     const postCheck = yield* connections.peek(connId);
     if (Option.isNone(postCheck)) {
@@ -364,7 +365,7 @@ function fireConnectionHooks(auth: AgentContext, connId: ConnectionId) {
         .select("name")
         .where("id", "=", auth.agentId)
         .executeTakeFirst(),
-    ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    ).pipe(Effect.orElseSucceed(() => undefined));
     const agentName = row?.name ?? auth.agentId;
     for (const hook of hooks.connectionHooks) {
       yield* Effect.tryPromise({
@@ -377,11 +378,16 @@ function fireConnectionHooks(auth: AgentContext, connId: ConnectionId) {
               connId,
             }),
           ),
-        catch: (err) => err,
+        catch: (cause) =>
+          new ConnectionHookError({
+            message: "Connection hook failed",
+            cause,
+          }),
       }).pipe(
         Effect.timeoutFail({
           duration: "2 seconds",
-          onTimeout: () => new Error("Connection hook timed out"),
+          onTimeout: () =>
+            new ConnectionHookError({ message: "Connection hook timed out" }),
         }),
         Effect.catchAll((err) =>
           Effect.logWarning("Connection hook error").pipe(

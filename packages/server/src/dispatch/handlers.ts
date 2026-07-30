@@ -55,7 +55,7 @@ function dispatchLeaseGetBody(
         Effect.catchTag("LeaseNotFoundError", () => Effect.fail(notAuthorized)),
       );
     if (record.binding.moderatorConnectionId !== connection.connId) {
-      return yield* Effect.fail(notAuthorized);
+      return yield* notAuthorized;
     }
     return { lease: leaseRecordToWire(record) };
   }).pipe(Effect.withSpan("dispatch.lease.get"));
@@ -83,6 +83,4 @@ export const dispatchRequest: ServerHandler<
 export const dispatchLeaseGet: ServerHandler<
   typeof dispatchLeaseGetDefinition
 > = (params) =>
-  Effect.gen(function* () {
-    return yield* dispatchLeaseGetBody(params);
-  }).pipe(Effect.withSpan("dispatchLeaseGet"));
+  dispatchLeaseGetBody(params).pipe(Effect.withSpan("dispatchLeaseGet"));
