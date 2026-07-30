@@ -16,25 +16,26 @@ import {
 } from "../helpers.js";
 import {
   DEFAULT_APP_ID,
-  TaskCreate,
-  TaskRequest,
+  taskCreate,
+  taskRequest,
+  type AppId,
 } from "@moltzap/protocol/task";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesAuthorize,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesAuthorize,
+  messagesSend,
 } from "@moltzap/protocol/message";
-import { ConversationCreate } from "@moltzap/protocol/conversation";
+import { conversationCreate } from "@moltzap/protocol/conversation";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AppId } from "@moltzap/protocol/task";
 import type { AppManifest } from "@moltzap/protocol/identity";
 
 let tracePort: CoreTestSpanExporterPort;
-const TRACE_APP_ID = "00000000-0000-4000-8000-000000010006" as AppId;
+const TRACE_APP_ID =
+  /* Safe because the test fixture establishes this asserted shape. */ "00000000-0000-4000-8000-000000010006" as AppId;
 const TRACE_BLOCK_REASON = "trace-block";
 const TRACE_BLOCKED_TEXT = "blocked trace span";
 const TRACE_APP_MANIFEST: AppManifest = {
@@ -69,7 +70,9 @@ beforeEach(() =>
   Effect.runPromise(
     Effect.gen(function* () {
       yield* resetTestDbEffect();
-      yield* Effect.sync(() => tracePort.reset());
+      yield* Effect.sync(() => {
+        tracePort.reset();
+      });
     }),
   ),
 );
@@ -91,8 +94,8 @@ function parseArrayAttribute(value: unknown): unknown {
 // (stringified to catch JSON-encoded arrays/objects too). The redaction
 // contract: spans carry message-shape metadata, never body content.
 function expectNoPlaintext(
-  attributes: Record<string, unknown> | undefined,
   plaintext: string,
+  attributes?: Record<string, unknown>,
 ): void {
   const serialized = JSON.stringify(attributes ?? {});
   expect(serialized).not.toContain(plaintext);
@@ -101,9 +104,12 @@ function expectNoPlaintext(
 function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
   Either.match(outcome, {
     onLeft: (error) => {
-      expect((error as { _tag?: string })._tag).toBe(
-        WIRE_ERROR_TAG.HookBlocked,
-      );
+      expect(
+        (
+          /* Safe because the test fixture establishes this asserted shape. */
+          error as { _tag?: string }
+        )._tag,
+      ).toBe(WIRE_ERROR_TAG.HookBlocked);
     },
     onRight: () => expect.fail("expected HookBlockedError"),
   });
@@ -111,19 +117,19 @@ function expectHookBlocked(outcome: Either.Either<unknown, unknown>): void {
 
 function blockingMessageHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    [DispatchAuthorize.name]: {
-      definition: DispatchAuthorize,
+    [dispatchAuthorize.name]: {
+      definition: dispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
-    [MessagesAuthorize.name]: {
-      definition: MessagesAuthorize,
+    [messagesAuthorize.name]: {
+      definition: messagesAuthorize,
       handle: () =>
         Effect.succeed({
           verdict: { decision: "Block" as const, reason: TRACE_BLOCK_REASON },
         }),
     },
-    [TaskCreate.name]: {
-      definition: TaskCreate,
+    [taskCreate.name]: {
+      definition: taskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
@@ -135,18 +141,20 @@ function emitDeliveredMessageSpan() {
     const alice = yield* registerAndConnect("alice-trace-span");
     const bob = yield* registerAndConnect("bob-trace-span");
 
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
     });
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     const messageText = "hello from trace span test";
     const bobEventFiber = yield* Effect.fork(
-      awaitOneNotification(bob.client, MessageReceivedNotificationDefinition),
+      awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
     );
-    yield* alice.client.sendRpc(MessagesSend, {
+    yield* alice.client.sendRpc(messagesSend, {
       taskId: conv.task.id,
       conversationId,
       parts: [{ type: "text", text: messageText }],
@@ -175,7 +183,7 @@ function emitDeliveredMessageSpan() {
     ]);
     // Redaction guarantee: no span attribute carries message body text.
     expect(attributes?.["moltzap.message.text_parts"]).toBeUndefined();
-    expectNoPlaintext(attributes, messageText);
+    expectNoPlaintext(messageText, attributes);
 
     yield* alice.client.close();
     yield* bob.client.close();
@@ -193,7 +201,7 @@ function emitBlockedHookSpan() {
       blockingMessageHandlers(),
     );
 
-    const task = yield* alice.client.sendRpc(TaskRequest, {
+    const task = yield* alice.client.sendRpc(taskRequest, {
       appId: registered.appId,
       invitedAgentIds: [bob.agentId],
     });
@@ -202,12 +210,12 @@ function emitBlockedHookSpan() {
     // explicitly so her `agent/message/send` passes the participant gate and
     // reaches the `before_message_delivery` hook (vs. a participant-gate
     // ForbiddenError firing first).
-    const conv = yield* appClient.sendRpc(ConversationCreate, {
+    const conv = yield* appClient.sendRpc(conversationCreate, {
       taskId: task.task.id,
       participants: [alice.agentId, bob.agentId],
     });
     const outcome = yield* Effect.either(
-      alice.client.sendRpc(MessagesSend, {
+      alice.client.sendRpc(messagesSend, {
         taskId: task.task.id,
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: TRACE_BLOCKED_TEXT }],
@@ -233,7 +241,7 @@ function emitBlockedHookSpan() {
     expect(attributes?.["moltzap.message.created_at"]).toBeDefined();
     // Redaction guarantee: no span attribute carries message body text.
     expect(attributes?.["moltzap.message.text_parts"]).toBeUndefined();
-    expectNoPlaintext(attributes, TRACE_BLOCKED_TEXT);
+    expectNoPlaintext(TRACE_BLOCKED_TEXT, attributes);
 
     yield* alice.client.close();
     yield* bob.client.close();

@@ -8,13 +8,14 @@ import {
   formatString,
   errorPayloadFields,
 } from "#transport";
-import { AgentId } from "#identity/agents";
+import { agentId } from "#identity/agents";
 
-const DateTimeString = dateTimeStringSchema();
+const dateTimeString = dateTimeStringSchema();
 
 /** Branded conversation identifier. */
 export type ConversationId = string & Brand.Brand<"ConversationId">;
-export const ConversationId: Schema.Schema<ConversationId, string> =
+/** Validates and decodes conversation id values. */
+export const conversationId: Schema.Schema<ConversationId, string> =
   formatString("uuid").pipe(
     Schema.brand("ConversationId"),
     Schema.annotations({ description: "Branded ConversationId" }),
@@ -28,7 +29,8 @@ export const ConversationId: Schema.Schema<ConversationId, string> =
  * rows reference their conversation.
  */
 export type MessageId = string & Brand.Brand<"MessageId">;
-export const MessageId: Schema.Schema<MessageId, string> = formatString(
+/** Validates and decodes message id values. */
+export const messageId: Schema.Schema<MessageId, string> = formatString(
   "uuid",
 ).pipe(
   Schema.brand("MessageId"),
@@ -78,70 +80,60 @@ export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantN
   static readonly message = "Agent is not admitted to the task";
 }
 
-const AgentParticipantRefSchema = Schema.Struct({
-  type: Schema.Literal("agent"),
-  id: formatString("uuid"),
-});
-
-const ConversationMetadataSchema = Schema.Struct({
+const conversationMetadataSchema = Schema.Struct({
   tags: Schema.optional(
     Schema.Array(Schema.Record({ key: Schema.String, value: Schema.String })),
   ),
 });
 
-const ConversationSchema = Schema.Struct({
-  id: ConversationId,
+const conversationSchemaValue = Schema.Struct({
+  id: conversationId,
   name: Schema.optional(Schema.String),
-  createdBy: AgentId,
-  metadata: Schema.optional(ConversationMetadataSchema),
-  lastMessageTimestamp: Schema.optional(DateTimeString),
-  createdAt: DateTimeString,
-  updatedAt: DateTimeString,
+  createdBy: agentId,
+  metadata: Schema.optional(conversationMetadataSchema),
+  lastMessageTimestamp: Schema.optional(dateTimeString),
+  createdAt: dateTimeString,
+  updatedAt: dateTimeString,
   // Present iff the conversation is archived. Clients filter
   // `archivedAt !== undefined` to exclude archived rows from a
   // `ConversationList` response; the server returns archived rows
   // unfiltered, since the visibility contract for
   // `ConversationList` is "caller in `conversation_participants`",
   // not "archived excluded".
-  archivedAt: Schema.optional(DateTimeString),
-});
-
-const ConversationParticipantSchema = Schema.Struct({
-  conversationId: ConversationId,
-  participant: AgentParticipantRefSchema,
-  joinedAt: DateTimeString,
-  lastReadMessageId: Schema.optional(MessageId),
-  agentName: Schema.optional(Schema.String),
-  agentDisplayName: Schema.optional(Schema.String),
-});
-
-const ConversationSummarySchema = Schema.Struct({
-  id: ConversationId,
-  name: Schema.optional(Schema.String),
-  lastMessagePreview: Schema.optional(Schema.String),
-  lastMessageTimestamp: Schema.optional(DateTimeString),
-  unreadCount: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
-  metadata: Schema.optional(ConversationMetadataSchema),
-  participants: Schema.optional(Schema.Array(AgentParticipantRefSchema)),
+  archivedAt: Schema.optional(dateTimeString),
 });
 
 /** Conversation row visible on task conversation surfaces. */
-export type Conversation = Schema.Schema.Type<typeof ConversationSchema>;
+export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 /** Participant row for a conversation. */
-export type ConversationParticipant = Schema.Schema.Type<
-  typeof ConversationParticipantSchema
->;
+export interface ConversationParticipant {
+  readonly conversationId: ConversationId;
+  readonly participant: { readonly type: "agent"; readonly id: string };
+  readonly joinedAt: string;
+  readonly lastReadMessageId?: MessageId;
+  readonly agentName?: string;
+  readonly agentDisplayName?: string;
+}
 
 /** Conversation summary row used by list surfaces. */
-export type ConversationSummary = Schema.Schema.Type<
-  typeof ConversationSummarySchema
->;
+export interface ConversationSummary {
+  readonly id: ConversationId;
+  readonly name?: string;
+  readonly lastMessagePreview?: string;
+  readonly lastMessageTimestamp?: string;
+  readonly unreadCount: number;
+  readonly metadata?: Schema.Schema.Type<typeof conversationMetadataSchema>;
+  readonly participants?: ReadonlyArray<{
+    readonly type: "agent";
+    readonly id: string;
+  }>;
+}
 
 /**
  * Return the canonical conversation schema.
  * @returns The canonical conversation schema.
  */
-export function conversationSchema(): typeof ConversationSchema {
-  return ConversationSchema;
+export function conversationSchema(): typeof conversationSchemaValue {
+  return conversationSchemaValue;
 }

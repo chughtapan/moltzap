@@ -1,7 +1,7 @@
 import { Data, Effect, Schema } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
-import { AgentKey } from "#identity/agents";
-import { AppKey } from "#identity/apps";
+import { agentKey } from "#identity/agents";
+import { appKey } from "#identity/apps";
 import { defineRpc } from "#transport/descriptor";
 import {
   UnauthorizedError,
@@ -22,9 +22,10 @@ export const PROTOCOL_VERSION = packageJson.version;
 // fixed by the build, and the server policy is not read by any client. The
 // handshake's only observable outcome is success vs the typed
 // `UnauthorizedError` / `ProtocolMismatchError` failure channel.
-const HelloOkSchema = Schema.Struct({});
+const helloOkSchema = Schema.Struct({});
 
-export type HelloOk = Schema.Schema.Type<typeof HelloOkSchema>;
+/** Represents hello ok values. */
+export type HelloOk = Schema.Schema.Type<typeof helloOkSchema>;
 
 /**
  * Reason discriminant carried in `ProtocolMismatchError.data.reason`:
@@ -62,6 +63,7 @@ export class ProtocolMismatchError extends Schema.TaggedError<ProtocolMismatchEr
   static readonly message = "Client protocol version not supported";
 }
 
+/** Reports invalid protocol version failures. */
 export class InvalidProtocolVersionError extends Data.TaggedError(
   "InvalidProtocolVersionError",
 )<{ readonly version: string; readonly segment: string }> {
@@ -84,6 +86,12 @@ function parseVersionSegments(version: string): readonly number[] {
   return segments;
 }
 
+/**
+ * Executes the compare protocol version operation.
+ * @param a Value supplied to the operation.
+ * @param b Value supplied to the operation.
+ * @returns The compare protocol version result.
+ */
 export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1 {
   const segmentsA = parseVersionSegments(a);
   const segmentsB = parseVersionSegments(b);
@@ -91,12 +99,24 @@ export function compareProtocolVersion(a: string, b: string): -1 | 0 | 1 {
   for (let i = 0; i < len; i++) {
     const ai = segmentsA[i] ?? 0;
     const bi = segmentsB[i] ?? 0;
-    if (ai < bi) return -1;
-    if (ai > bi) return 1;
+    if (ai < bi) {
+      return -1;
+    }
+    if (ai > bi) {
+      return 1;
+    }
   }
   return 0;
 }
 
+/**
+ * Executes the check protocol range operation.
+ * @param params Request payload to process.
+ * @param params.minProtocol Value supplied to the operation.
+ * @param params.maxProtocol Value supplied to the operation.
+ * @param serverVersion Value supplied to the operation.
+ * @returns The check protocol range result.
+ */
 export function checkProtocolRange(
   params: { readonly minProtocol: string; readonly maxProtocol: string },
   serverVersion: string,
@@ -128,7 +148,9 @@ function compareThrough(
   return Effect.try({
     try: () => compareProtocolVersion(a, b),
     catch: (cause): InvalidProtocolVersionError => {
-      if (cause instanceof InvalidProtocolVersionError) return cause;
+      if (cause instanceof InvalidProtocolVersionError) {
+        return cause;
+      }
       return new InvalidProtocolVersionError({
         version: `${a} vs ${b}`,
         segment: cause instanceof Error ? cause.message : String(cause),
@@ -169,14 +191,14 @@ function failProtocolMismatch(
  * @error ProtocolMismatchError when the client protocol version is not supported
  * @error AlreadyConnected when the principal already holds a live connection
  */
-export const AgentConnect = defineRpc({
+export const agentConnect = defineRpc({
   name: "agent/network/connect",
   params: Schema.Struct({
-    agentKey: AgentKey,
+    agentKey: agentKey,
     minProtocol: Schema.String,
     maxProtocol: Schema.String,
   }),
-  result: HelloOkSchema,
+  result: helloOkSchema,
   requires: [],
   errors: [
     InvalidParamsError,
@@ -201,14 +223,14 @@ export const AgentConnect = defineRpc({
  * @error ProtocolMismatchError when the client protocol version is not supported
  * @error AlreadyConnected when the principal already holds a live connection
  */
-export const AppConnect = defineRpc({
+export const appConnect = defineRpc({
   name: "app/network/connect",
   params: Schema.Struct({
-    appKey: AppKey,
+    appKey: appKey,
     minProtocol: Schema.String,
     maxProtocol: Schema.String,
   }),
-  result: HelloOkSchema,
+  result: helloOkSchema,
   requires: [],
   errors: [
     InvalidParamsError,

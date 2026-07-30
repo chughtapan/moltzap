@@ -13,7 +13,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AppEndpointHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L53)
+### [`AppEndpointHandlers`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L51)
 
 _TypeAlias_
 
@@ -29,7 +29,7 @@ task-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L58)
+### [`AwaitNotificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L59)
 
 _TypeAlias_
 
@@ -39,7 +39,9 @@ export type AwaitNotificationError =
   | AwaitNotificationClosedError;
 ```
 
-### [`awaitOneNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L69)
+Represents await notification error conditions.
+
+### [`awaitOneNotification`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L74)
 
 _Function_
 
@@ -57,15 +59,21 @@ and `AwaitNotificationClosedError` when the transport closed before a
 matching frame arrived. Distinguishing close from timeout keeps a dead
 connection from masquerading as a missing notification.
 
-### [`closeAllClients`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L172)
+**Returns:** The await one notification result.
+
+### [`closeAllClients`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L186)
 
 _Function_
 
 ```ts
-export function closeAllClients(): Effect.Effect<void, never>
+export function closeAllClients(): Effect.Effect<void>
 ```
 
-### [`connectAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L283)
+Executes the close all clients operation.
+
+**Returns:** The close all clients result.
+
+### [`connectAppClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L336)
 
 _Function_
 
@@ -77,7 +85,11 @@ export function connectAppClient(
 ): Effect.Effect<TestAppClient, Error>
 ```
 
-### [`ConnectedAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L108)
+Executes the connect app client operation.
+
+**Returns:** The connect app client result.
+
+### [`ConnectedAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L114)
 
 _Interface_
 
@@ -90,7 +102,9 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L222)
+Describes connected agent.
+
+### [`connectTestClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L261)
 
 _Function_
 
@@ -102,7 +116,11 @@ export function connectTestClient(opts: {
 }): Effect.Effect<TestAgentClient, Error>
 ```
 
-### [`CoreSchemaSqlLoadError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/core-schema-sql.ts#L24)
+Executes the connect test client operation.
+
+**Returns:** The connect test client result.
+
+### [`CoreSchemaSqlLoadError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/core-schema-sql.ts#L25)
 
 _TypeAlias_
 
@@ -112,20 +130,22 @@ export type CoreSchemaSqlLoadError =
   | CoreSchemaSqlReadError;
 ```
 
-### [`CoreTestDatabasePort`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L22)
+Represents core schema sql load error conditions.
+
+### [`CoreTestDatabasePort`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L23)
 
 _Interface_
 
 ```ts
 export interface CoreTestDatabasePort {
   execute(sql: string): PromiseLike<unknown>;
-  reset(): PromiseLike<void>;
+  reset(): PromiseLike<undefined>;
 }
 ```
 
 Database operations available to consumers of the published test harness.
 
-### [`CoreTestReadyOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L4)
+### [`CoreTestReadyOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L5)
 
 _TypeAlias_
 
@@ -134,7 +154,9 @@ export type CoreTestReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`CoreTestRuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L14)
+Represents core test ready outcome values.
+
+### [`CoreTestRuntimeServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L15)
 
 _Interface_
 
@@ -143,13 +165,13 @@ export interface CoreTestRuntimeServerHandle {
   awaitAgentReady(
     agentId: AgentId,
     timeoutMs: number,
-  ): Effect.Effect<CoreTestReadyOutcome, never, never>;
+  ): Effect.Effect<CoreTestReadyOutcome>;
 }
 ```
 
 Process capabilities needed by in-process runtime tests.
 
-### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/index.ts#L30)
+### [`CoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/index.ts#L33)
 
 _TypeAlias_
 
@@ -159,7 +181,7 @@ export type CoreTestServer = CoreTestServerPort;
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L101)
+### [`CoreTestServerHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L108)
 
 _Interface_
 
@@ -190,7 +212,9 @@ export interface CoreTestServerHandle {
 }
 ```
 
-### [`CoreTestServerPort`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L40)
+Describes core test server handle.
+
+### [`CoreTestServerPort`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L41)
 
 _Interface_
 
@@ -206,7 +230,7 @@ export interface CoreTestServerPort {
 
 Published server handle composed only from server-owned test ports.
 
-### [`CoreTestSpan`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L28)
+### [`CoreTestSpan`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L29)
 
 _Interface_
 
@@ -219,20 +243,20 @@ export interface CoreTestSpan {
 
 Stable projection of a finished server trace span.
 
-### [`CoreTestSpanExporterPort`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L34)
+### [`CoreTestSpanExporterPort`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L35)
 
 _Interface_
 
 ```ts
 export interface CoreTestSpanExporterPort {
-  getFinishedSpans(): ReadonlyArray<CoreTestSpan>;
+  getFinishedSpans(): readonly CoreTestSpan[];
   reset(): void;
 }
 ```
 
 Trace-capture operations available to test-harness consumers.
 
-### [`createTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L198)
+### [`createTestAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L229)
 
 _Function_
 
@@ -240,20 +264,26 @@ _Function_
 export function createTestAgent(
   name: string,
   opts?: CreateTestAgentOptions,
-): Effect.Effect<TestAgent, never>
+): Effect.Effect<TestAgent>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L47)
+Creates test agent.
+
+**Returns:** The created test agent.
+
+### [`DEFAULT_TEST_ADMIN_USER_ID`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L53)
 
 _Variable_
 
 ```ts
 export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
-  UserId,
+  userId,
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L406)
+Validates and decodes default test admin user id values.
+
+### [`getBaseUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L466)
 
 _Function_
 
@@ -261,7 +291,11 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L391)
+Returns base url.
+
+**Returns:** The get base url result.
+
+### [`getCoreDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L442)
 
 _Function_
 
@@ -269,7 +303,11 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L399)
+Returns core db.
+
+**Returns:** The get core db result.
+
+### [`getCoreEncryptionEnvelope`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L455)
 
 _Function_
 
@@ -277,7 +315,11 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L411)
+Returns core encryption envelope.
+
+**Returns:** The get core encryption envelope result.
+
+### [`getWsUrl`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L477)
 
 _Function_
 
@@ -285,7 +327,11 @@ _Function_
 export function getWsUrl(): string
 ```
 
-### [`loadCoreSchemaSql`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/core-schema-sql.ts#L88)
+Returns ws url.
+
+**Returns:** The get ws url result.
+
+### [`loadCoreSchemaSql`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/core-schema-sql.ts#L93)
 
 _Function_
 
@@ -296,7 +342,11 @@ export function loadCoreSchemaSql(): Effect.Effect<
 >
 ```
 
-### [`makeFakeService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/fakes.ts#L42)
+Loads core schema sql.
+
+**Returns:** The load core schema sql result.
+
+### [`makeFakeService`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/fakes.ts#L44)
 
 _Function_
 
@@ -316,7 +366,9 @@ the compile-time contract-drift insurance. Adding a field to the real
 interface does NOT fail compilation (tests are a Partial), but changing an
 existing field's signature does.
 
-### [`makeHandlerAppEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L95)
+**Returns:** The created fake service.
+
+### [`makeHandlerAppEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/app-endpoint.ts#L97)
 
 _Function_
 
@@ -340,7 +392,9 @@ arm carries so `AppEndpointRegistry`, `AppRegistry`, and `sendRpcToClient` see O
   - `originator.handle` / `originator.resolve` defect — an in-process
     endpoint never receives inbound frames; a call here is a wiring bug.
 
-### [`makePgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L68)
+**Returns:** The created handler app endpoint.
+
+### [`makePgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L73)
 
 _Function_
 
@@ -353,6 +407,8 @@ export function makePgliteHarness(): Effect.Effect<
 
 Spin up a fresh PGlite instance with the core schema loaded.
 
+**Returns:** The created pglite harness.
+
 ### [`PGLITE_HOOK_TIMEOUT_MS`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L23)
 
 _Variable_
@@ -363,7 +419,7 @@ export const PGLITE_HOOK_TIMEOUT_MS = 30_000
 
 Suggested timeout for pglite-backed beforeEach/afterEach hooks.
 
-### [`PgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L53)
+### [`PgliteHarness`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L55)
 
 _Interface_
 
@@ -383,7 +439,9 @@ export interface PgliteHarness {
 }
 ```
 
-### [`PgliteHarnessError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L41)
+Describes pglite harness.
+
+### [`PgliteHarnessError`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/pglite-harness.ts#L42)
 
 _TypeAlias_
 
@@ -395,7 +453,9 @@ export type PgliteHarnessError =
   | PgliteCloseError;
 ```
 
-### [`postJson`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L316)
+Represents pglite harness error conditions.
+
+### [`postJson`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L377)
 
 _Function_
 
@@ -411,7 +471,9 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 `{status, json}`. HTTP integration tests import this helper to avoid
 repeated request/JSON boilerplate.
 
-### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L179)
+**Returns:** The post json result.
+
+### [`registerAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L204)
 
 _Function_
 
@@ -423,7 +485,11 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L300)
+Registers agent.
+
+**Returns:** The register agent result.
+
+### [`registerAndConnect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L357)
 
 _Function_
 
@@ -435,7 +501,9 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L258)
+**Returns:** The register and connect result.
+
+### [`registerApp`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L304)
 
 _Function_
 
@@ -450,7 +518,11 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L365)
+Registers app.
+
+**Returns:** The register app result.
+
+### [`resetCoreTestDb`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L412)
 
 _Function_
 
@@ -458,7 +530,11 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`setupAgentGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L416)
+Executes the reset core test db operation.
+
+**Returns:** The reset core test db result.
+
+### [`setupAgentGroup`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L486)
 
 _Function_
 
@@ -478,7 +554,9 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L404)
+**Returns:** The setup agent group result.
+
+### [`setupAgentPair`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L468)
 
 _Function_
 
@@ -491,7 +569,9 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/index.ts#L37)
+**Returns:** The setup agent pair result.
+
+### [`startCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/index.ts#L40)
 
 _Function_
 
@@ -503,7 +583,7 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServerEffect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L322)
+### [`startCoreTestServerEffect`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L356)
 
 _Function_
 
@@ -513,7 +593,11 @@ export function startCoreTestServerEffect(
 )
 ```
 
-### [`startCoreTestServerFull`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L335)
+Executes the start core test server effect operation.
+
+**Returns:** The start core test server effect result.
+
+### [`startCoreTestServerFull`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L374)
 
 _Function_
 
@@ -521,7 +605,11 @@ _Function_
 export function startCoreTestServerFull(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`StartCoreTestServerOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L48)
+Executes the start core test server full operation.
+
+**Returns:** The start core test server full result.
+
+### [`StartCoreTestServerOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/ports.ts#L50)
 
 _Interface_
 
@@ -535,7 +623,9 @@ export interface StartCoreTestServerOptions {
 }
 ```
 
-### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L339)
+Configures start core test server.
+
+### [`stopCoreTestServer`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/server.ts#L382)
 
 _Function_
 
@@ -543,13 +633,19 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L168)
+Executes the stop core test server operation.
+
+**Returns:** The stop core test server result.
+
+### [`trackClient`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/test-utils/helpers.ts#L178)
 
 _Function_
 
 ```ts
 export function trackClient(client: TestAgentClient | TestAppClient): void
 ```
+
+Executes the track client operation.
 
 ## Files
 

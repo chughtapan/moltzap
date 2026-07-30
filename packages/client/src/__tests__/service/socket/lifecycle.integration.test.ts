@@ -5,7 +5,9 @@ import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The two-session comparison and shared cleanup are one atomic integration scenario.
 it("different sessions have independent read markers", () =>
+  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Splitting the Effect generator would hide the independent marker sequence.
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("wm3-a");
     const regB = yield* H.registerAgent("wm3-b");
@@ -24,31 +26,38 @@ it("different sessions have independent read markers", () =>
       yield* H.sendAndSettle(
         regC.client,
         convC.task.id,
-        convC.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convC
+          .conversation!.id,
         H.SHARED_UPDATE,
       );
 
       // Conv B reads history → advances lastRead for convB→convC
       const histB = yield* H.socketHistory(
         convC.task.id,
-        convC.conversation!.id,
-        convB.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convC
+          .conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
       );
       expect(histB.newCount).toBe(1); // first read
 
       // Conv B reads again → 0 new
       const histB2 = yield* H.socketHistory(
         convC.task.id,
-        convC.conversation!.id,
-        convB.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convC
+          .conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
       );
       expect(histB2.newCount).toBe(0);
 
       // Conv D reads same conversation → still 1 new (independent markers)
       const histD = yield* H.socketHistory(
         convC.task.id,
-        convC.conversation!.id,
-        convD.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convC
+          .conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convD
+          .conversation!.id,
       );
       expect(histD.newCount).toBe(1);
     }).pipe(
@@ -68,7 +77,7 @@ it("socket request resolves without 10s hang (timer leak regression)", () =>
     yield* service.startSocketServer();
     yield* Effect.gen(function* () {
       const start = performance.now();
-      yield* H.requestDaemonCommand(H.LocalDaemonCommands.Status, {});
+      yield* H.requestDaemonCommand(H.localDaemonCommands.status, {});
       const elapsed = performance.now() - start;
       expect(elapsed).toBeLessThan(H.SOCKET_RESPONSE_TIMEOUT_MS);
     }).pipe(Effect.ensuring(H.closeAll([service], [reg.client])));
@@ -87,12 +96,12 @@ it("two services use separate socket paths", () =>
 
       // Both respond via their own socket path
       const resultA = yield* H.requestDaemonCommand(
-        H.LocalDaemonCommands.Status,
+        H.localDaemonCommands.status,
         {},
         serviceA.socketPath,
       );
       const resultB = yield* H.requestDaemonCommand(
-        H.LocalDaemonCommands.Status,
+        H.localDaemonCommands.status,
         {},
         serviceB.socketPath,
       );

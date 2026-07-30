@@ -1,6 +1,6 @@
-import { AgentId } from "@moltzap/protocol/identity";
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { TaskId } from "@moltzap/protocol/task";
+import { agentId } from "@moltzap/protocol/identity";
+import { conversationId, messageId } from "@moltzap/protocol/conversation";
+import { taskId } from "@moltzap/protocol/task";
 import type { Message } from "@moltzap/protocol/message";
 import { HashMap, Option, Schema } from "effect";
 import { renderPart } from "./message-rendering.js";
@@ -8,23 +8,23 @@ import { renderPart } from "./message-rendering.js";
 const DEFAULT_HISTORY_LIMIT = 10;
 const MAX_HISTORY_LIMIT = 100;
 
-const HistoryLimit = Schema.Number.pipe(
+const historyLimit = Schema.Number.pipe(
   Schema.int(),
   Schema.between(1, MAX_HISTORY_LIMIT),
 );
 
-const HistoryRequestSchema = Schema.Struct({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  limit: Schema.optionalWith(HistoryLimit, {
+const historyRequestSchemaValue = Schema.Struct({
+  taskId: taskId,
+  conversationId: conversationId,
+  limit: Schema.optionalWith(historyLimit, {
     default: () => DEFAULT_HISTORY_LIMIT,
   }),
   sessionKey: Schema.optional(Schema.String),
 });
 
-const HistoryMessageSummarySchema = Schema.Struct({
-  id: MessageId,
-  senderId: AgentId,
+const historyMessageSummarySchema = Schema.Struct({
+  id: messageId,
+  senderId: agentId,
   senderName: Schema.String,
   isOwn: Schema.Boolean,
   text: Schema.String,
@@ -32,7 +32,7 @@ const HistoryMessageSummarySchema = Schema.Struct({
   isNew: Schema.Boolean,
 });
 
-const ConversationMetadataSchema = Schema.Struct({
+const conversationMetadataSchema = Schema.Struct({
   tags: Schema.optional(
     Schema.Array(
       Schema.Record({
@@ -43,44 +43,65 @@ const ConversationMetadataSchema = Schema.Struct({
   ),
 });
 
-const HistoryConversationMetaSchema = Schema.Struct({
-  id: ConversationId,
+const historyConversationMetaSchema = Schema.Struct({
+  id: conversationId,
   name: Schema.optional(Schema.String),
-  createdBy: AgentId,
-  metadata: Schema.optional(ConversationMetadataSchema),
+  createdBy: agentId,
+  metadata: Schema.optional(conversationMetadataSchema),
   lastMessageTimestamp: Schema.optional(Schema.String),
   createdAt: Schema.String,
   updatedAt: Schema.String,
   archivedAt: Schema.optional(Schema.String),
 });
 
-const HistoryResponseSchema = Schema.Struct({
-  messages: Schema.Array(HistoryMessageSummarySchema),
-  conversationMeta: Schema.optional(HistoryConversationMetaSchema),
+const historyResponseSchemaValue = Schema.Struct({
+  messages: Schema.Array(historyMessageSummarySchema),
+  conversationMeta: Schema.optional(historyConversationMetaSchema),
   newCount: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
 });
 
-export type HistoryRequest = Schema.Schema.Type<typeof HistoryRequestSchema>;
-export type HistoryMessageSummary = Schema.Schema.Type<
-  typeof HistoryMessageSummarySchema
+/** Represents history request values. */
+export type HistoryRequest = Schema.Schema.Type<
+  typeof historyRequestSchemaValue
 >;
-export type HistoryResponse = Schema.Schema.Type<typeof HistoryResponseSchema>;
+/** Represents history message summary values. */
+export type HistoryMessageSummary = Schema.Schema.Type<
+  typeof historyMessageSummarySchema
+>;
+/** Represents history response values. */
+export type HistoryResponse = Schema.Schema.Type<
+  typeof historyResponseSchemaValue
+>;
 
-export function historyRequestSchema(): typeof HistoryRequestSchema {
-  return HistoryRequestSchema;
+/**
+ * Executes the history request schema operation.
+ * @returns The history request schema result.
+ */
+export function historyRequestSchema(): typeof historyRequestSchemaValue {
+  return historyRequestSchemaValue;
 }
 
-export function historyResponseSchema(): typeof HistoryResponseSchema {
-  return HistoryResponseSchema;
+/**
+ * Executes the history response schema operation.
+ * @returns The history response schema result.
+ */
+export function historyResponseSchema(): typeof historyResponseSchemaValue {
+  return historyResponseSchemaValue;
 }
 
 interface FormatHistoryMessageOptions {
   readonly agentNames: HashMap.HashMap<string, string>;
-  readonly ownAgentId: string | undefined;
+  readonly ownAgentId?: string;
   readonly lastReadIds: ReadonlySet<string>;
   readonly hasSessionKey: boolean;
 }
 
+/**
+ * Formats history message.
+ * @param message Value supplied to the operation.
+ * @param options Options that control the operation.
+ * @returns The format history message result.
+ */
 export function formatHistoryMessage(
   message: Message,
   options: FormatHistoryMessageOptions,
@@ -101,6 +122,12 @@ export function formatHistoryMessage(
   };
 }
 
+/**
+ * Executes the last read ids for session operation.
+ * @param lastReadMap Value supplied to the operation.
+ * @param request Value supplied to the operation.
+ * @returns The last read ids for session result.
+ */
 export function lastReadIdsForSession(
   lastReadMap: HashMap.HashMap<
     string,
@@ -108,11 +135,14 @@ export function lastReadIdsForSession(
   >,
   request: HistoryRequest,
 ): ReadonlySet<string> {
-  if (request.sessionKey === undefined) return new Set<string>();
+  if (request.sessionKey === undefined) {
+    return new Set<string>();
+  }
   return Option.getOrElse(
     Option.flatMap(HashMap.get(lastReadMap, request.sessionKey), (perConv) =>
       HashMap.get(perConv, request.conversationId),
     ),
-    () => new Set<string>() as ReadonlySet<string>,
+    () =>
+      /* Safe because the surrounding invariant establishes this asserted shape. */ new Set<string>() as ReadonlySet<string>,
   );
 }

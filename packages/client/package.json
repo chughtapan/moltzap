@@ -46,8 +46,8 @@
     "build": "nx run @moltzap/client:build",
     "lint": "nx run @moltzap/client:lint",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:conformance": "vitest run -c vitest.conformance.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.mjs",
+    "test:conformance": "vitest run -c vitest.conformance.config.mjs",
     "docs:generate": "nx run @moltzap/client:build && pnpm exec tsx scripts/generate-cli-docs.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
@@ -64,7 +64,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/client",
-          "command": "eslint src *.ts --cache --max-warnings=0"
+          "command": "eslint . --cache --max-warnings=0"
         }
       },
       "arch:check": {

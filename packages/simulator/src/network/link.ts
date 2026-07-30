@@ -1,6 +1,6 @@
 /** @file Directed-link control contracts for router implementations. */
 
-import { Context, Effect, type Scope } from "effect";
+import { Context, type Effect, type Scope } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ParticipantHandle } from "./participant.js";
 import type { NetworkFailure } from "./router.js";

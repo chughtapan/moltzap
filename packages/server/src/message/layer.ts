@@ -11,16 +11,19 @@ import { NetworkSendServiceTag } from "#network";
 import { MessageAuthorizationService } from "./authorization.js";
 import { MessageService } from "./message.service.js";
 
+/** Implements message authorization service tag. */
 export class MessageAuthorizationServiceTag extends Context.Tag(
   "moltzap/MessageAuthorizationService",
 )<MessageAuthorizationServiceTag, MessageAuthorizationService>() {}
 
+/** Implements message service tag. */
 export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
   MessageServiceTag,
   MessageService
 >() {}
 
-export const MessageAuthorizationServiceLive = Layer.effect(
+/** Provides the message authorization service live runtime value. */
+export const messageAuthorizationServiceLive = Layer.effect(
   MessageAuthorizationServiceTag,
   Effect.gen(function* () {
     const appEndpointRegistry = yield* AppEndpointRegistryTag;
@@ -29,7 +32,8 @@ export const MessageAuthorizationServiceLive = Layer.effect(
   }).pipe(Effect.withSpan("MessageAuthorizationServiceLive")),
 );
 
-export const MessageServiceLive = Layer.effect(
+/** Provides the message service live runtime value. */
+export const messageServiceLive = Layer.effect(
   MessageServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;

@@ -42,7 +42,7 @@ function retriesAfterInterruption() {
   return Effect.runPromise(
     Effect.gen(function* () {
       const memo = yield* makeSuccessMemo<string, typeof REPAIRED_VALUE>();
-      const started = yield* Deferred.make<void>();
+      const started = yield* Deferred.make<undefined>();
       const interrupted = yield* memo
         .getOrAcquire(
           "runtime",

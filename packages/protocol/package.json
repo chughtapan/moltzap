@@ -115,7 +115,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/protocol",
-          "command": "eslint src scripts *.ts --cache --max-warnings=0"
+          "command": "eslint . --cache --max-warnings=0"
         }
       },
       "arch:check": {

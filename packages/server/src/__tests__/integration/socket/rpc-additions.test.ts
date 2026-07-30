@@ -16,11 +16,11 @@ import {
 
 import {
   DEFAULT_APP_ID,
-  TaskCreate,
-  TaskRequest,
+  taskCreate,
+  taskRequest,
 } from "@moltzap/protocol/task";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize, MessagesSend } from "@moltzap/protocol/message";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { messagesAuthorize, messagesSend } from "@moltzap/protocol/message";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
@@ -42,16 +42,16 @@ beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 function unexpectedAppCallbacks(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    [DispatchAuthorize.name]: {
-      definition: DispatchAuthorize,
+    [dispatchAuthorize.name]: {
+      definition: dispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
-    [MessagesAuthorize.name]: {
-      definition: MessagesAuthorize,
+    [messagesAuthorize.name]: {
+      definition: messagesAuthorize,
       handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
-    [TaskCreate.name]: {
-      definition: TaskCreate,
+    [taskCreate.name]: {
+      definition: taskCreate,
       handle: () => Effect.dieMessage("unexpected app/task/create"),
     },
   };
@@ -109,21 +109,23 @@ it("agent/message/send preserves replyToId on the persisted message", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
     });
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
-    const sent = yield* alice.client.sendRpc(MessagesSend, {
+    const sent = yield* alice.client.sendRpc(messagesSend, {
       taskId,
       conversationId,
       parts: [{ type: "text", text: QUESTION_TEXT }],
     });
 
-    const replied = yield* bob.client.sendRpc(MessagesSend, {
+    const replied = yield* bob.client.sendRpc(messagesSend, {
       taskId,
       conversationId,
       replyToId: sent.message.id,
@@ -138,16 +140,18 @@ it("agent/message/send rejects replyToId that points to an unknown message", () 
   Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
 
-    const conv = yield* alice.client.sendRpc(TaskRequest, {
+    const conv = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { participants: [bob.agentId] },
     });
 
     const exit = yield* Effect.exit(
-      alice.client.sendRpc(MessagesSend, {
+      alice.client.sendRpc(messagesSend, {
         taskId: conv.task.id,
-        conversationId: conv.conversation!.id,
+        conversationId:
+          /* Safe because the test fixture establishes this asserted shape. */ conv
+            .conversation!.id,
         replyToId: UNKNOWN_MESSAGE_ID,
         parts: [{ type: "text", text: ORPHAN_REPLY_TEXT }],
       }),
@@ -158,3 +162,5 @@ it("agent/message/send rejects replyToId that points to an unknown message", () 
 function expectExitFailure<A, E>(exit: Exit.Exit<A, E>): void {
   expect(exit).toSatisfy(Exit.isFailure);
 }
+
+/* eslint-enable agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

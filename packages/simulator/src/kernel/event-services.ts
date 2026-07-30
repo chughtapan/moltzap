@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema, Stream } from "effect";
+import { Context, type Effect, Layer, type Schema, type Stream } from "effect";
 import {
   EventCatalog,
   type EventClass,
@@ -11,10 +11,10 @@ import type {
   LedgerRecord,
   LedgerRef,
 } from "../ledger/model.js";
-import { CoreEvents } from "../events/core.js";
+import { coreEvents } from "../events/core.js";
 
 type CatalogSchema = Schema.Schema.All;
-type AnyEventCatalog = EventCatalog<CatalogSchema, EventClass>;
+type AnyEventCatalog = EventCatalog<CatalogSchema>;
 
 let nextDefinitionServicesId = 0;
 
@@ -42,7 +42,7 @@ export interface CustomerEvents<Catalog extends AnyEventCatalog> {
   ) => Effect.Effect<LedgerRecord<Catalog>, LedgerFailure>;
 }
 
-function nonEmpty(value: string | undefined): string | undefined {
+function nonEmpty(value?: string): string | undefined {
   return value === undefined || value.length === 0 ? undefined : value;
 }
 
@@ -85,14 +85,14 @@ function makeServiceTags<
 ) {
   nextDefinitionServicesId += 1;
   const instanceId = nextDefinitionServicesId;
-  const Ledger = Context.GenericTag<
+  const ledgerValue = Context.GenericTag<
     {
       readonly definitionId: Id;
       readonly readableEvent: EventOf<ReadableCatalog>;
     },
     ReadableRunLedger<ReadableCatalog>
   >(`@moltzap/simulator/${definitionId}/Ledger/${instanceId}`);
-  const Events = Context.GenericTag<
+  const eventsValue = Context.GenericTag<
     {
       readonly definitionId: Id;
       readonly customerEvent: EventOf<CustomerCatalog>;
@@ -102,8 +102,8 @@ function makeServiceTags<
   return Object.freeze({
     catalog,
     customerCatalog,
-    Ledger,
-    Events,
+    ledger: ledgerValue,
+    events: eventsValue,
   });
 }
 
@@ -111,6 +111,9 @@ function makeServiceTags<
  * Close one definition over its readable core-plus-customer catalog and its
  * customer-only writable catalog. The returned tags are unique to this
  * definition value and are provided once at the run boundary.
+ * @param definitionId Value supplied to the operation.
+ * @param customerCatalog Value supplied to the operation.
+ * @returns The created definition event services.
  */
 export function makeDefinitionEventServices<
   const Id extends string,
@@ -120,7 +123,7 @@ export function makeDefinitionEventServices<
   definitionId: Id,
   customerCatalog: EventCatalog<CustomerSchema, CustomerClasses>,
 ) {
-  const catalog = EventCatalog.merge(CoreEvents, customerCatalog);
+  const catalog = EventCatalog.merge(coreEvents, customerCatalog);
   type ReadableCatalog = typeof catalog;
   type CustomerCatalog = typeof customerCatalog;
   const services = makeServiceTags(definitionId, catalog, customerCatalog);
@@ -130,8 +133,8 @@ export function makeDefinitionEventServices<
     customerWriter: LedgerWriter<CustomerCatalog>,
   ) =>
     Layer.merge(
-      Layer.succeed(services.Ledger, makeReadableRunLedger(ledger)),
-      Layer.succeed(services.Events, makeCustomerEvents(customerWriter)),
+      Layer.succeed(services.ledger, makeReadableRunLedger(ledger)),
+      Layer.succeed(services.events, makeCustomerEvents(customerWriter)),
     );
 
   return Object.freeze({

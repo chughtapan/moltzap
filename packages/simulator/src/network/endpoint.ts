@@ -5,24 +5,24 @@ import type { ConversationId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId } from "@moltzap/protocol/task";
 import {
-  ConversationAddress,
-  ConversationSocket,
+  type ConversationAddress,
+  type ConversationSocket,
   makeConversationAddress,
   makeConversationSocket,
   type ConversationParticipants,
 } from "./conversation.js";
 import type { ParticipantHandle } from "./participant.js";
-import type {
-  AttachedEndpoint,
-  EndpointTransport,
-  NetworkFailure,
-  ParticipantIds,
-  ReceivedMessage,
+import {
+  type AttachedEndpoint,
+  type EndpointTransport,
+  type NetworkFailure,
+  type ParticipantIds,
+  type ReceivedMessage,
+  networkFailure,
 } from "./router.js";
-import { networkFailure } from "./router.js";
 
-const EndpointTypeId: unique symbol = Symbol("@moltzap/simulator/Endpoint");
-const EndpointConstruction: unique symbol = Symbol(
+const endpointTypeId: unique symbol = Symbol("@moltzap/simulator/Endpoint");
+const endpointConstruction: unique symbol = Symbol(
   "@moltzap/simulator/EndpointConstruction",
 );
 
@@ -42,7 +42,7 @@ function addressedParticipants(
   participants: ConversationParticipants,
 ): ConversationParticipants {
   const ids = new Set<AgentId>([endpoint.id]);
-  const unique: Array<ParticipantHandle> = [];
+  const unique: ParticipantHandle[] = [];
   for (const participant of participants) {
     if (!ids.has(participant.id)) {
       ids.add(participant.id);
@@ -54,15 +54,23 @@ function addressedParticipants(
 
 /** A run-scoped participant controlled directly by the experiment program. */
 export class Endpoint<Name extends string = string> {
-  readonly [EndpointTypeId] = EndpointTypeId;
+  readonly [endpointTypeId] = endpointTypeId;
+
+  readonly participant: ParticipantHandle<Name>;
+  private readonly transport: EndpointTransport;
+  private readonly inbox: EndpointInbox;
 
   private constructor(
-    readonly participant: ParticipantHandle<Name>,
-    private readonly transport: EndpointTransport,
-    private readonly inbox: EndpointInbox,
-  ) {}
+    participant: ParticipantHandle<Name>,
+    transport: EndpointTransport,
+    inbox: EndpointInbox,
+  ) {
+    this.participant = participant;
+    this.transport = transport;
+    this.inbox = inbox;
+  }
 
-  static [EndpointConstruction]<const Name extends string>(
+  static [endpointConstruction]<const Name extends string>(
     attachment: AttachedEndpoint<Name>,
     inbox: EndpointInbox,
   ): Endpoint<Name> {
@@ -173,7 +181,7 @@ export function makeEndpoint<const Name extends string>(
   attachment: AttachedEndpoint<Name>,
   inbox: EndpointInbox,
 ): Endpoint<Name> {
-  const endpoint = Endpoint[EndpointConstruction](attachment, inbox);
+  const endpoint = Endpoint[endpointConstruction](attachment, inbox);
   Object.freeze(endpoint);
   return endpoint;
 }

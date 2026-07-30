@@ -48,7 +48,7 @@ import type {
 } from "@effect/rpc/RpcMessage";
 import { RpcSerialization } from "@effect/rpc";
 import * as Socket from "@effect/platform/Socket";
-import { Effect, Mailbox, Option, Schema } from "effect";
+import { Effect, type Mailbox, Option, Schema } from "effect";
 
 /**
  * The raw-write surface the transport drives. Mirrors the effect returned by
@@ -83,6 +83,10 @@ export interface SocketSinks {
  * Encode one engine frame through `encode` and write it to the wire. A failed
  * write remains a failure; treating it as success would let the RPC engine wait
  * for a frame that never left this process.
+ * @param encode Value supplied to the operation.
+ * @param write Value supplied to the operation.
+ * @param frame Value supplied to the operation.
+ * @returns The send frame result.
  */
 const sendFrame = (
   encode: (frame: unknown) => Effect.Effect<string>,
@@ -111,17 +115,17 @@ const failRead = (
  * object. A string `method` marks a request-family frame; its absence marks a
  * response-family frame. A non-object chunk is malformed.
  */
-const RoutingProbeSchema = Schema.Struct(
+const routingProbeSchema = Schema.Struct(
   { method: Schema.optional(Schema.String) },
   { key: Schema.String, value: Schema.Unknown },
 );
-const decodeRoutingProbe = Schema.decodeUnknownOption(RoutingProbeSchema);
+const decodeRoutingProbe = Schema.decodeUnknownOption(routingProbeSchema);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const frameTag = (frame: unknown): unknown =>
-  isRecord(frame) ? frame["_tag"] : undefined;
+  isRecord(frame) ? frame._tag : undefined;
 
 const isFromClientEncoded = (frame: unknown): frame is FromClientEncoded => {
   switch (frameTag(frame)) {
@@ -157,6 +161,9 @@ const isFromServerEncoded = (frame: unknown): frame is FromServerEncoded => {
  * transport-authored error frame is sent: replying to malformed input lets two
  * peers bounce parse errors indefinitely. The engine's Parser may yield one or
  * more decoded frames per wire string; every frame is injected in order.
+ * @param raw Value supplied to the operation.
+ * @param sinks Value supplied to the operation.
+ * @returns The route inbound result.
  */
 export function routeInbound(
   raw: string | Uint8Array,
@@ -263,6 +270,10 @@ export interface ChannelProtocol<Impl> {
  * the bare wire string. The sink's `inject` feeds decoded inbound
  * `FromClientEncoded` frames into the engine via `write`. Socket close is
  * surfaced through the shared `disconnects` Mailbox.
+ * @param options Options that control the operation.
+ * @param options.write Value supplied to the operation.
+ * @param options.disconnects Value supplied to the operation.
+ * @returns The created server channel protocol.
  */
 export function makeServerChannelProtocol(options: {
   readonly write: WireWrite;
@@ -276,8 +287,10 @@ export function makeServerChannelProtocol(options: {
     Effect.succeed({
       impl: {
         disconnects: options.disconnects,
-        send: (_clientId, response) =>
-          sendFrame(encode, options.write, response).pipe(Effect.orDie),
+        send: (clientId, response) =>
+          clientId === MUX_CLIENT_ID
+            ? sendFrame(encode, options.write, response).pipe(Effect.orDie)
+            : Effect.dieMessage(`mux: unknown client id ${String(clientId)}`),
         end: () => Effect.void,
         clientIds: Effect.succeed(new Set([MUX_CLIENT_ID])),
         initialMessage: Effect.succeedNone,
@@ -307,6 +320,9 @@ export function makeServerChannelProtocol(options: {
  * string; the sink's `inject` feeds decoded inbound `FromServerEncoded` frames
  * into the engine. The client engine has no `disconnects` Mailbox — socket
  * close fails the client call channel through the underlying socket.
+ * @param options Options that control the operation.
+ * @param options.write Value supplied to the operation.
+ * @returns The created client channel protocol.
  */
 export function makeClientChannelProtocol(options: {
   readonly write: WireWrite;
@@ -345,6 +361,8 @@ export function makeClientChannelProtocol(options: {
  * here (it never emits `undefined` for a real frame, and never a
  * `Uint8Array`), so a non-string result is a programmer error in the
  * serialization wiring, surfaced as a defect.
+ * @param parser Value supplied to the operation.
+ * @returns The created encoder.
  */
 function makeEncoder(
   parser: RpcSerialization.Parser,
@@ -366,6 +384,10 @@ function makeEncoder(
  * engine sink named by its frame family. The owner forks this and surfaces
  * socket close to the server engine's `disconnects` Mailbox so per-client
  * teardown runs.
+ * @param socket Value supplied to the operation.
+ * @param sinks Value supplied to the operation.
+ * @param disconnects Value supplied to the operation.
+ * @returns The run mux reader result.
  */
 export function runMuxReader(
   socket: Socket.Socket,
@@ -379,4 +401,5 @@ export function runMuxReader(
     );
 }
 
+/** Re-exports the public API from `current module`. */
 export type { ChannelSink };

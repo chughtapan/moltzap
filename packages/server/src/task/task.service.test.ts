@@ -1,6 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, beforeEach, describe, expect } from "vitest";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import {
   agentId,
   appId as makeAppId,
@@ -16,11 +16,12 @@ import {
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
 } from "../test-utils/pglite-harness.js";
+import { makeFakeService } from "../test-utils/fakes.js";
 
 // Lifecycle + authority methods never invoke these deps; the conversation
 // + message paths are covered by integration tests.
-const STUB_CONV = {} as ConversationService;
-const STUB_MSG = {} as MessageService;
+const STUB_CONV = makeFakeService<ConversationService>({});
+const STUB_MSG = makeFakeService<MessageService>({});
 
 const ALICE = agentId("00000000-0000-4000-8000-00000000a11c");
 const BOB = agentId("00000000-0000-4000-8000-00000000b0b0");
@@ -88,12 +89,21 @@ function makeService() {
 }
 
 function rpcFailureTag(exit: Exit.Exit<unknown, unknown>): string | null {
-  if (Exit.isSuccess(exit)) return null;
+  if (Exit.isSuccess(exit)) {
+    return null;
+  }
   const failure = Cause.failureOption(exit.cause);
-  if (failure._tag === "None") return null;
+  if (Option.isNone(failure)) {
+    return null;
+  }
   const v = failure.value;
-  if (typeof v !== "object" || v === null) return null;
-  const tag = (v as { readonly _tag?: unknown })._tag;
+  if (typeof v !== "object" || v === null) {
+    return null;
+  }
+  const tag = (
+    /* Safe because the test fixture establishes this asserted shape. */
+    v as { readonly _tag?: unknown }
+  )._tag;
   return typeof tag === "string" ? tag : null;
 }
 
@@ -199,12 +209,16 @@ function paginatesSubMillisecondTiesWithoutSkips() {
     let more = true;
     for (let guard = 0; more && guard < SUB_MS_TASK_IDS.length + 2; guard++) {
       const page = yield* svc.list(ALICE, { limit: 1, cursor });
-      for (const task of page.tasks) seen.push(task.id);
+      for (const task of page.tasks) {
+        seen.push(task.id);
+      }
       cursor = page.nextCursor;
       more = page.nextCursor !== undefined && page.tasks.length > 0;
     }
 
-    expect([...seen].sort()).toEqual([...SUB_MS_TASK_IDS].sort());
+    expect([...seen].sort((left, right) => left.localeCompare(right))).toEqual(
+      [...SUB_MS_TASK_IDS].sort((left, right) => left.localeCompare(right)),
+    );
     expect(new Set(seen).size).toBe(SUB_MS_TASK_IDS.length);
   });
 }

@@ -123,7 +123,7 @@ const makeRpcGroup = <const R extends Rpc.Any>(
 /**
  * Effect RPC group for all client-to-server calls accepted by the server.
  */
-export const ServerInboundGroup = makeRpcGroup(
+export const serverInboundGroup = makeRpcGroup(
   serverInboundMethods.map((definition) => definition.serverRpc),
 );
 
@@ -131,7 +131,7 @@ export const ServerInboundGroup = makeRpcGroup(
  * Complete server handler table keyed by every inbound RPC tag.
  */
 export type ServerHandlers = RpcGroup.HandlersFrom<
-  RpcGroup.Rpcs<typeof ServerInboundGroup>
+  RpcGroup.Rpcs<typeof serverInboundGroup>
 >;
 
 /** Handler type for one inbound RPC descriptor. */
@@ -139,12 +139,12 @@ export type ServerHandler<D extends AnyServerRpcDefinition> =
   ServerHandlers[Extract<D["name"], keyof ServerHandlers>];
 
 /** Effect RPC group for all agent-callable methods. */
-export const AgentCallableGroup = makeRpcGroup(
+export const agentCallableGroup = makeRpcGroup(
   agentCallableMethods.map((definition) => definition.clientRpc),
 );
 
 /** Effect RPC group for all app-callable methods. */
-export const AppCallableGroup = makeRpcGroup(
+export const appCallableGroup = makeRpcGroup(
   appCallableMethods.map((definition) => definition.clientRpc),
 );
 
@@ -154,13 +154,13 @@ export const AppCallableGroup = makeRpcGroup(
  * channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
  * each payload into the `SubscriberRegistry`.
  */
-export const NotificationRpcGroup = makeRpcGroup(
+export const notificationRpcGroup = makeRpcGroup(
   notificationDefinitions.map((definition) => definition.notificationRpc),
 );
 
 /**
  * The full server-to-client reverse group: the moderator callbacks
- * (`appCallbackMethods`) plus the notifications ({@link NotificationRpcGroup}),
+ * (`appCallbackMethods`) plus the notifications ({@link notificationRpcGroup}),
  * built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
  * server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
  * awaiting a verdict, fires notifications fork-and-forget); the agent + app
@@ -169,7 +169,7 @@ export const NotificationRpcGroup = makeRpcGroup(
  * are never invoked; an agent is not a moderator), but it serves the whole
  * group so the s2c engine binds one handler map.
  */
-export const ReverseRpcGroup = makeRpcGroup([
+export const reverseRpcGroup = makeRpcGroup([
   ...appCallbackMethods.map((definition) => definition.clientRpc),
   ...notificationDefinitions.map((definition) => definition.notificationRpc),
 ]);

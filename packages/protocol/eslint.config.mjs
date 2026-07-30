@@ -4,6 +4,7 @@ export default [
   ...packageEslintConfig({
     maxLines: 1200,
     customJsDocTags: ["error", "relatedNotification", "triggeredBy", "file"],
+    tsconfigRootDir: import.meta.dirname,
   }),
   {
     // Documentation generators are byte-level scanners and TypeDoc

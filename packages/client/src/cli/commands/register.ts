@@ -4,7 +4,7 @@ import { getHttpUrl, getServerUrl } from "../../config.js";
 import { registerAgent } from "../../auth.js";
 import {
   emitNoPersist,
-  ProfileName,
+  profileName,
   writeProfile,
   type ProfileName as ProfileNameType,
   type ProfileRecord,
@@ -12,7 +12,7 @@ import {
 import { logLines } from "../output.js";
 
 const nameArg = Args.text({ name: "name" }).pipe(
-  Args.withSchema(ProfileName),
+  Args.withSchema(profileName),
   Args.withDescription("Agent name (lowercase alphanumeric, 3-32 chars)"),
 );
 
@@ -31,7 +31,7 @@ const descriptionOption = Options.text("description").pipe(
 // for transport selection, and would reject the new profile before this
 // command could create it.
 const profileOption = Options.text("profile").pipe(
-  Options.withSchema(ProfileName),
+  Options.withSchema(profileName),
   Options.withDescription(
     "Named profile to register under. Writes the new apiKey to " +
       "`profiles.<name>` in ~/.moltzap/config.json. Omit to use the " +
@@ -94,7 +94,7 @@ function persistRegistration({
 }
 
 /**
- * `moltzap register &lt;name> &lt;invite-code> [-d description] [--profile &lt;name>] [--no-persist]`
+ * `moltzap register &lt;name> &lt;invite-code> [-d description] [--profile &lt;name>] [--no-persist]`.
  *
  * POST /api/v1/auth/register, then (by default) persist the result into
  * `~/.moltzap/config.json`.

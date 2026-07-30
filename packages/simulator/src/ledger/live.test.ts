@@ -7,10 +7,10 @@ import {
   LedgerCompletion,
   LedgerCatalogMismatch,
   LedgerDefinitionMismatch,
-  LedgerDigest,
+  ledgerDigest,
   LedgerInvalid,
   LedgerManifest,
-  LedgerRef,
+  ledgerRef,
   LedgerStorage,
   LedgerStorageError,
   openLedger,
@@ -32,11 +32,11 @@ class CustomerObserved extends Schema.TaggedClass<CustomerObserved>()(
   { secret: Schema.String },
 ) {}
 
-const CoreEvents = EventCatalog.make(KernelObserved);
-const CustomerEvents = EventCatalog.make(CustomerObserved);
-const ReadableEvents = EventCatalog.merge(CoreEvents, CustomerEvents);
-const REF = Schema.decodeSync(LedgerRef)("ledger-test");
-const DIGEST = Schema.decodeSync(LedgerDigest)("a".repeat(64));
+const coreEvents = EventCatalog.make(KernelObserved);
+const customerEvents = EventCatalog.make(CustomerObserved);
+const readableEvents = EventCatalog.merge(coreEvents, customerEvents);
+const REF = Schema.decodeSync(ledgerRef)("ledger-test");
+const DIGEST = Schema.decodeSync(ledgerDigest)("a".repeat(64));
 const DEFINITION_ID = "acme.ledger-test/v1";
 const SECRET = "private";
 const COMPLETION_ARTIFACT = "completion" satisfies LedgerArtifact;
@@ -66,7 +66,9 @@ function makeManifest(input: LedgerAllocationInput): LedgerManifest {
     ledgerFormatVersion: 1,
     definitionId: input.definitionId,
     runId: "run-ledger-test",
-    catalogTags: [...input.catalogTags].sort(),
+    catalogTags: [...input.catalogTags].sort((left, right) =>
+      left.localeCompare(right),
+    ),
     createdAt: DateTime.unsafeMake(0),
     provenance: input.provenance,
     metadata: input.metadata,
@@ -86,7 +88,7 @@ function persistManifest(
 
 function appendRecords(
   files: Map<LedgerArtifact, string>,
-  records: Array<string>,
+  records: string[],
   failWrites: boolean,
 ): LedgerAllocation["append"] {
   return (serializedRecord: string) =>
@@ -117,7 +119,7 @@ function completeLedger(files: Map<LedgerArtifact, string>, runId: string) {
 
 function allocateMemoryLedger(
   files: Map<LedgerArtifact, string>,
-  records: Array<string>,
+  records: string[],
   failWrites: boolean,
 ): LedgerStorageService["allocate"] {
   return (input) => {
@@ -136,7 +138,7 @@ function allocateMemoryLedger(
 function readMemoryArtifact(
   files: Map<LedgerArtifact, string>,
 ): LedgerStorageService["read"] {
-  return (_ref, artifact) => {
+  return (...[, artifact]) => {
     const value = files.get(artifact);
     return value === undefined
       ? Effect.fail(storageFailure("read", "missing artifact", artifact))
@@ -146,7 +148,7 @@ function readMemoryArtifact(
 
 function makeMemoryStorage(failWrites = false): MemoryStorage {
   const files = new Map<LedgerArtifact, string>();
-  const records: Array<string> = [];
+  const records: string[] = [];
   return {
     files,
     service: {
@@ -157,10 +159,10 @@ function makeMemoryStorage(failWrites = false): MemoryStorage {
   };
 }
 
-function writeCustomerEvents(active: ActiveRunLedger<typeof ReadableEvents>) {
-  const writer = active.writerFor("program", CustomerEvents);
+function writeCustomerEvents(active: ActiveRunLedger<typeof readableEvents>) {
+  const writer = active.writerFor("program", customerEvents);
   return Effect.forEach(
-    Array.from({ length: 20 }, (_, value) => value),
+    [...Array.from({ length: 20 }).keys()],
     (value) =>
       writer.write({
         event: CustomerObserved.make({
@@ -175,7 +177,7 @@ test("commits original event truth and reopens the same exact-class evidence", (
   const memory = makeMemoryStorage();
   const program = Effect.scoped(
     Effect.gen(function* () {
-      const active = yield* makeRunLedger(ReadableEvents, {
+      const active = yield* makeRunLedger(readableEvents, {
         definitionId: DEFINITION_ID,
         provenance: {},
         metadata: {},
@@ -186,7 +188,7 @@ test("commits original event truth and reopens the same exact-class evidence", (
         yield* Stream.runCollect(active.ledger.events(CustomerObserved)),
       );
       const reopened = yield* openLedger(
-        ReadableEvents,
+        readableEvents,
         active.ledger.ref,
         DEFINITION_ID,
       );
@@ -198,14 +200,16 @@ test("commits original event truth and reopens the same exact-class evidence", (
       assert.deepStrictEqual(offline, live);
       assert.deepStrictEqual(
         live.map((event) => event.secret),
-        Array.from({ length: 20 }, (_, value) => `${SECRET}-${String(value)}`),
+        [...Array.from({ length: 20 }).keys()].map(
+          (value) => `${SECRET}-${String(value)}`,
+        ),
       );
       const records = Chunk.toReadonlyArray(
         yield* Stream.runCollect(reopened.records),
       );
       assert.deepStrictEqual(
         records.map((record) => record.logicalSequence),
-        Array.from({ length: 20 }, (_, value) => value),
+        [...Array.from({ length: 20 }).keys()],
       );
     }),
   );
@@ -216,13 +220,13 @@ test("latches a durable-write failure for kernel supervision", () => {
   const memory = makeMemoryStorage(true);
   const program = Effect.scoped(
     Effect.gen(function* () {
-      const active = yield* makeRunLedger(ReadableEvents, {
+      const active = yield* makeRunLedger(readableEvents, {
         definitionId: DEFINITION_ID,
         provenance: {},
         metadata: {},
       });
       const failureFiber = yield* Effect.fork(active.failure);
-      const writer = active.writerFor("program", CustomerEvents);
+      const writer = active.writerFor("program", customerEvents);
       const writeExit = yield* writer
         .write({
           event: CustomerObserved.make({ secret: SECRET }),
@@ -241,12 +245,12 @@ test("rejects a completion marker whose record count was tampered", () => {
   const memory = makeMemoryStorage();
   const program = Effect.scoped(
     Effect.gen(function* () {
-      const active = yield* makeRunLedger(ReadableEvents, {
+      const active = yield* makeRunLedger(readableEvents, {
         definitionId: DEFINITION_ID,
         provenance: {},
         metadata: {},
       });
-      const writer = active.writerFor("program", CustomerEvents);
+      const writer = active.writerFor("program", customerEvents);
       yield* writer.write({
         event: CustomerObserved.make({ secret: SECRET }),
       });
@@ -263,7 +267,7 @@ test("rejects a completion marker whose record count was tampered", () => {
       );
 
       const failure = yield* openLedger(
-        ReadableEvents,
+        readableEvents,
         active.ledger.ref,
         DEFINITION_ID,
       ).pipe(Effect.flip);
@@ -292,3 +296,5 @@ test("renders definition and catalog mismatches with both sides", () =>
     assert.include(definition.message, "acme.expected/v1");
     assert.include(definition.message, "acme.actual/v1");
   }));
+
+/* eslint-enable agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. */

@@ -26,7 +26,7 @@ const LOADED_PLUGIN_STATUS = "loaded";
 const NPM_INSTALL_SOURCE = "npm";
 const PROVENANCE_DIAGNOSTIC_PATTERN = /provenance|untracked/i;
 
-const OpenClawPluginInfoOutput = Schema.Struct({
+const openClawPluginInfoOutput = Schema.Struct({
   plugin: Schema.Struct({
     id: Schema.String,
     enabled: Schema.Boolean,
@@ -177,7 +177,7 @@ function decodePluginInfo(output: string) {
     try: (): unknown => JSON.parse(output),
     catch: (cause) => commandError("OpenClaw returned invalid JSON", cause),
   }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(OpenClawPluginInfoOutput)),
+    Effect.flatMap(Schema.decodeUnknown(openClawPluginInfoOutput)),
     Effect.mapError((cause) =>
       cause instanceof OpenClawIntegrationCommandError
         ? cause

@@ -9,7 +9,7 @@ import {
 import {
   Endpoint,
   NetworkFailure,
-  RouterStopped,
+  type RouterStopped,
   makeEndpoint,
   makeParticipantHandle,
   makeRouterStopReport,
@@ -27,9 +27,10 @@ const TASK_ID = taskId("00000000-0000-4000-8000-000000000101");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000102");
 const MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000103");
 function makeTransport(
-  openedWith: Array<ParticipantIds>,
-  onSend: () => void = () => undefined,
+  openedWith: ParticipantIds[],
+  onSendInput?: () => void,
 ): EndpointTransport {
+  const onSend = onSendInput ?? (() => undefined);
   return {
     received: Stream.empty,
     openConversation: (participants) =>
@@ -57,7 +58,7 @@ it.effect(
   "opens through an endpoint and binds another addressed endpoint",
   () =>
     Effect.gen(function* () {
-      const openedWith: Array<ParticipantIds> = [];
+      const openedWith: ParticipantIds[] = [];
       const inbox: EndpointInbox = {
         messages: Stream.empty,
         conversation: () => Effect.succeed(Stream.empty),
@@ -92,7 +93,7 @@ it.effect(
 
 it.effect("rejects invalid content before calling the transport", () =>
   Effect.gen(function* () {
-    const openedWith: Array<ParticipantIds> = [];
+    const openedWith: ParticipantIds[] = [];
     let sends = 0;
     const inbox: EndpointInbox = {
       messages: Stream.empty,

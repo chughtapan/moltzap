@@ -2,7 +2,7 @@
 
 import { Cause, Effect, Exit, type Scope } from "effect";
 import {
-  RouterEvents,
+  type routerEvents,
   RouterMessageCommitted,
   RouterStartFailed,
   RouterStarted,
@@ -16,8 +16,13 @@ import {
 } from "../network/router.js";
 import { nonEmptyCause } from "./outcomes.js";
 
+/**
+ * Executes the acquire router operation.
+ * @param writer Value supplied to the operation.
+ * @returns The acquire router result.
+ */
 export function acquireRouter(
-  writer: LedgerWriter<typeof RouterEvents>,
+  writer: LedgerWriter<typeof routerEvents>,
 ): Effect.Effect<
   Router,
   NetworkFailure | LedgerFailure,
@@ -54,7 +59,7 @@ export function acquireRouter(
 
 function recordCommits(
   router: Router,
-  writer: LedgerWriter<typeof RouterEvents>,
+  writer: LedgerWriter<typeof routerEvents>,
 ) {
   return router.stopped.pipe(
     Effect.flatMap((stopped) =>
@@ -70,9 +75,15 @@ function recordCommits(
   );
 }
 
+/**
+ * Executes the record stopped router operation.
+ * @param router Value supplied to the operation.
+ * @param writer Value supplied to the operation.
+ * @returns The record stopped router result.
+ */
 export function recordStoppedRouter(
   router: Router,
-  writer: LedgerWriter<typeof RouterEvents>,
+  writer: LedgerWriter<typeof routerEvents>,
 ): Effect.Effect<void, NetworkFailure | LedgerFailure> {
   return Effect.exit(recordCommits(router, writer)).pipe(
     Effect.flatMap((stopped) => {

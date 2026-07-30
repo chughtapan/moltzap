@@ -52,7 +52,12 @@ function readPackageJson(
 ): Effect.Effect<PackageJsonShape, unknown, FileSystem.FileSystem> {
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fs) => fs.readFileString(packageJsonPath, UTF8_ENCODING)),
-    Effect.map((raw) => JSON.parse(raw) as PackageJsonShape),
+    Effect.map(
+      (raw) =>
+        /* Safe because the test fixture establishes this asserted shape. */ JSON.parse(
+          raw,
+        ) as PackageJsonShape,
+    ),
   );
 }
 
@@ -69,7 +74,7 @@ function expectExecutable(
 ): Effect.Effect<void, unknown, FileSystem.FileSystem> {
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fs) => fs.stat(path)),
-    Effect.map((info) => {
+    Effect.tap((info) => {
       expect(info.mode & EXECUTE_MODE_BITS).not.toBe(0);
     }),
   );

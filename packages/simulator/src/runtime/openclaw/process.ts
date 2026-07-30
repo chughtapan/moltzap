@@ -4,14 +4,14 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
-  Command,
-  CommandExecutor,
-  Error as PlatformError,
+  type Command,
+  type CommandExecutor,
+  type Error as PlatformError,
   FileSystem,
   Path,
-  SocketServer,
+  type SocketServer,
 } from "@effect/platform";
-import { Config, Data, Effect, Exit, Fiber, Scope } from "effect";
+import { Config, Data, Effect, Exit, Fiber, Inspectable, Scope } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
 import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
@@ -20,7 +20,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import {
   type BaseChildEnvironment,
-  BaseChildEnvironmentConfig,
+  baseChildEnvironmentConfig,
   BoundedLogBuffer,
   escalatingKill,
   makeExactEnvironmentCommand,
@@ -68,9 +68,7 @@ class OpenClawInstallModeError extends Data.TaggedError(
   readonly resolvedChannelDistDir: string;
 }> {}
 
-function stopSpawnedOpenClawProcess(
-  proc: SpawnedProcess,
-): Effect.Effect<void, never, never> {
+function stopSpawnedOpenClawProcess(proc: SpawnedProcess): Effect.Effect<void> {
   return Effect.uninterruptible(
     Effect.gen(function* () {
       yield* escalatingKill(
@@ -118,14 +116,14 @@ function initializeOpenClawProcess(
 function closeScopeOnFailedProcessStart(
   scope: Scope.CloseableScope,
   exit: Exit.Exit<unknown, unknown>,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Exit.isSuccess(exit) ? Effect.void : Scope.close(scope, exit);
 }
 
 function captureSpawnedOpenClawProcess(
   lease: OpenClawSpawnLease,
   process: SpawnedProcess,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Effect.sync(() => {
     lease.process = process;
   });
@@ -133,7 +131,7 @@ function captureSpawnedOpenClawProcess(
 
 function releaseOpenClawSpawnLease(
   lease: OpenClawSpawnLease,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return lease.committed || lease.process === null
     ? Effect.void
     : stopSpawnedOpenClawProcess(lease.process);
@@ -142,7 +140,7 @@ function releaseOpenClawSpawnLease(
 function releasePortClaimWhenProcessEnds(
   process: SpawnedProcess,
   portClaim: OpenClawPortClaim,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return Fiber.join(process.exitFiber).pipe(
     Effect.asVoid,
     Effect.ensuring(portClaim.release()),
@@ -153,13 +151,11 @@ function releasePortClaimWhenProcessEnds(
 
 function spawnOpenClawProcess(opts: {
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
   readonly logBuffer: BoundedLogBuffer;
-  readonly onStarted: (
-    process: SpawnedProcess,
-  ) => Effect.Effect<void, never, never>;
+  readonly onStarted: (process: SpawnedProcess) => Effect.Effect<void>;
 }): Effect.Effect<SpawnedProcess, Error, CommandExecutor.CommandExecutor> {
   const command = makeExactEnvironmentCommand({
     ...opts,
@@ -190,7 +186,7 @@ function spawnOpenClawProcess(opts: {
 interface McpServerMount {
   readonly name: string;
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
 }
 
@@ -202,7 +198,7 @@ export interface OpenClawProcessOptions {
   readonly openclawBin: string;
   readonly channelDistDir: string;
   readonly installMode: InstallMode;
-  readonly mcpServers?: ReadonlyArray<McpServerMount>;
+  readonly mcpServers?: readonly McpServerMount[];
 }
 
 /**
@@ -213,7 +209,7 @@ export interface OpenClawProcessOptionOverrides {
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
   readonly installMode: InstallMode;
-  readonly mcpServers?: ReadonlyArray<McpServerMount>;
+  readonly mcpServers?: readonly McpServerMount[];
 }
 
 /**
@@ -259,15 +255,15 @@ interface OpenClawSpawnLease {
   committed: boolean;
 }
 
-type BoundOpenClawPort = {
+interface BoundOpenClawPort {
   readonly port: number;
-};
+}
 
-type OpenClawPortClaim = {
+interface OpenClawPortClaim {
   readonly port: number;
-  transfer(): Effect.Effect<void, never, never>;
-  release(): Effect.Effect<void, never, never>;
-};
+  transfer(): Effect.Effect<void>;
+  release(): Effect.Effect<void>;
+}
 
 /**
  * Explicitly owned resources for one running OpenClaw gateway.
@@ -281,30 +277,41 @@ interface OpenClawRuntimeHandle {
 }
 
 type LeasedOpenClawPortClaim = OpenClawPortClaim & {
-  closeStartupLease(): Effect.Effect<void, never, never>;
+  closeStartupLease(): Effect.Effect<void>;
 };
 
-type OpenClawPortClaimState = {
+interface OpenClawPortClaimState {
   transferred: boolean;
   released: boolean;
-};
+}
 
-type OpenClawPortLeaseOptions = {
+interface OpenClawPortLeaseOptions {
   /**
    * Candidate request used by deterministic allocation tests. Production
    * requests port zero so the kernel chooses each candidate.
    */
   readonly candidatePort?: () => number;
-};
+}
 
 interface OpenClawProcessPlan {
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
 }
 
-/** @internal */
+/**
+ * Build the exact OpenClaw child-process command and environment.
+ *
+ * @param opts Value supplied to the operation.
+ * @param opts.openclawBin Value supplied to the operation.
+ * @param opts.port Value supplied to the operation.
+ * @param opts.stateDir Value supplied to the operation.
+ * @param opts.input Value supplied to the operation.
+ * @param opts.baseEnvironment Value supplied to the operation.
+ * @internal
+ * @returns The created open claw process plan.
+ */
 function buildOpenClawProcessPlan(opts: {
   readonly openclawBin: string;
   readonly port: number;
@@ -363,7 +370,7 @@ const OPERATOR_AUTH_STORE_FILES = [
 // the OPENCLAW_HOME override stays with the granularity follow-up.
 const OPERATOR_AGENT_REL_DIR = join("agents", "main", "agent");
 
-const OperatorOpenClawHome = Config.string("OPENCLAW_HOME").pipe(
+const operatorOpenClawHome = Config.string("OPENCLAW_HOME").pipe(
   Config.withDefault(""),
   Config.map((value) => value.trim() || join(homedir(), ".openclaw")),
 );
@@ -373,7 +380,7 @@ function seedModelAuthProfile(
 ): Effect.Effect<void, never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const operatorHome = yield* OperatorOpenClawHome;
+    const operatorHome = yield* operatorOpenClawHome;
     const operatorAgentDir = join(operatorHome, OPERATOR_AGENT_REL_DIR);
     const present = yield* Effect.all(
       OPERATOR_AUTH_STORE_FILES.map((fileName) =>
@@ -386,7 +393,9 @@ function seedModelAuthProfile(
     const fileNames = present.filter(
       (fileName): fileName is string => fileName !== null,
     );
-    if (fileNames.length === 0) return;
+    if (fileNames.length === 0) {
+      return;
+    }
     const destinationDir = join(stateDir, OPERATOR_AGENT_REL_DIR);
     yield* fileSystem.makeDirectory(destinationDir, { recursive: true });
     yield* Effect.all(
@@ -432,6 +441,8 @@ function openClawWorkspaceDir(stateDir: string): string {
  * work. Blocking a path instead, by permissions or by an `ENOTDIR` parent,
  * makes OpenClaw trust what it cannot read as attested and arms the guard on
  * the first turn.
+ * @param stateDir Value supplied to the operation.
+ * @returns The disarm open claw attestation guard result.
  */
 function disarmOpenClawAttestationGuard(
   stateDir: string,
@@ -458,7 +469,15 @@ function disarmOpenClawAttestationGuard(
   );
 }
 
-/** @internal */
+/**
+ * Materialize the OpenClaw state directory and its simulator-owned config.
+ *
+ * @param deps Value supplied to the operation.
+ * @param input Input value to process.
+ * @param stateDir Value supplied to the operation.
+ * @internal
+ * @returns The configure open claw state dir result.
+ */
 function configureOpenClawStateDir(
   deps: OpenClawProcessOptions,
   input: OpenClawProcessInput,
@@ -518,7 +537,9 @@ function installConfiguredChannel(
 /**
  * Workspace mode accepts local build output, including a node_modules symlink
  * whose real target is local, but never an installed package-store copy.
+ * @param channelDistDir Value supplied to the operation.
  * @internal
+ * @returns The assert workspace channel dist result.
  */
 function assertWorkspaceChannelDist(channelDistDir: string) {
   return FileSystem.FileSystem.pipe(
@@ -558,12 +579,10 @@ function spawnConfiguredOpenClaw(options: {
   readonly input: OpenClawProcessInput;
   readonly port: number;
   readonly logBuffer: BoundedLogBuffer;
-  readonly onStarted: (
-    process: SpawnedProcess,
-  ) => Effect.Effect<void, never, never>;
+  readonly onStarted: (process: SpawnedProcess) => Effect.Effect<void>;
 }): Effect.Effect<SpawnedProcess, Error, CommandExecutor.CommandExecutor> {
   return Effect.gen(function* () {
-    const baseEnvironment = yield* BaseChildEnvironmentConfig;
+    const baseEnvironment = yield* baseChildEnvironmentConfig;
     return yield* spawnOpenClawProcess({
       ...buildOpenClawProcessPlan({
         openclawBin: options.deps.openclawBin,
@@ -577,7 +596,7 @@ function spawnConfiguredOpenClaw(options: {
     });
   }).pipe(
     Effect.mapError((cause) =>
-      cause instanceof Error ? cause : new Error(String(cause)),
+      cause instanceof Error ? cause : new Error(Inspectable.format(cause)),
     ),
   );
 }
@@ -668,7 +687,11 @@ function acquireOpenClawRuntimeHandle(
   );
 }
 
-/** Stops a running gateway and releases every resource in its handle. */
+/**
+ * Stops a running gateway and releases every resource in its handle.
+ * @param handle Value supplied to the operation.
+ * @returns The stop open claw runtime effect result.
+ */
 function stopOpenClawRuntimeEffect(
   handle: OpenClawRuntimeHandle,
 ): Effect.Effect<void, never, FileSystem.FileSystem> {
@@ -720,7 +743,9 @@ export const acquireOpenClawProcess = Effect.fn("OpenClawProcess.acquire")(
 
 /**
  * Resolves omitted package locations into exact process host configuration.
+ * @param input Input value to process.
  * @internal
+ * @returns The resolve open claw process options result.
  */
 export function resolveOpenClawProcessOptions(
   input: OpenClawProcessOptionOverrides,
@@ -745,7 +770,9 @@ function resolveOpenClawChannelDistDir(): string {
  * Selects an available loopback port and retains a process-local logical
  * claim. The probe listener closes before this acquisition returns so the
  * OpenClaw child never races a listener owned by its parent.
+ * @param options Options that control the operation.
  * @internal
+ * @returns The lease open claw port result.
  */
 export function leaseOpenClawPort(
   options: OpenClawPortLeaseOptions = {},
@@ -768,8 +795,7 @@ function claimOpenClawPort(
   candidatePort: () => number,
 ): Effect.Effect<
   LeasedOpenClawPortClaim,
-  PortAllocationFailed | SocketServer.SocketServerError,
-  never
+  PortAllocationFailed | SocketServer.SocketServerError
 > {
   return Effect.suspend(() => {
     const requestedPort = candidatePort();
@@ -780,7 +806,9 @@ function claimOpenClawPort(
   }).pipe(
     Effect.flatMap((candidate) =>
       Effect.sync(() => {
-        if (CLAIMED_OPENCLAW_PORTS.has(candidate.port)) return false;
+        if (CLAIMED_OPENCLAW_PORTS.has(candidate.port)) {
+          return false;
+        }
         CLAIMED_OPENCLAW_PORTS.add(candidate.port);
         return true;
       }).pipe(
@@ -798,8 +826,7 @@ function bindOpenClawPortCandidate(
   requestedPort: number,
 ): Effect.Effect<
   BoundOpenClawPort,
-  PortAllocationFailed | SocketServer.SocketServerError,
-  never
+  PortAllocationFailed | SocketServer.SocketServerError
 > {
   return Effect.scoped(
     Effect.gen(function* () {
@@ -837,7 +864,9 @@ function makeOpenClawPortClaim(
     released: false,
   };
   const releaseLogicalClaim = Effect.sync(() => {
-    if (state.released) return;
+    if (state.released) {
+      return;
+    }
     state.released = true;
     CLAIMED_OPENCLAW_PORTS.delete(candidate.port);
   });
@@ -864,7 +893,7 @@ function writeOpenClawConfig(opts: {
   apiKey: OpenClawProcessInput["apiKey"];
   modelId?: string;
   installMode: InstallMode;
-  mcpServers?: ReadonlyArray<McpServerMount>;
+  mcpServers?: readonly McpServerMount[];
 }): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
@@ -888,11 +917,19 @@ function writeOpenClawConfig(opts: {
   });
 }
 
-/** @internal */
+/**
+ * Render the optional MCP server mounts into OpenClaw configuration.
+ *
+ * @param mcpServers Value supplied to the operation.
+ * @internal
+ * @returns The mcp config section result.
+ */
 function mcpConfigSection(
-  mcpServers: ReadonlyArray<McpServerMount> | undefined,
+  mcpServers?: readonly McpServerMount[],
 ): Pick<OpenClawConfig, "mcp"> {
-  if (mcpServers === undefined || mcpServers.length === 0) return {};
+  if (mcpServers === undefined || mcpServers.length === 0) {
+    return {};
+  }
   return {
     mcp: {
       servers: Object.fromEntries(
@@ -915,7 +952,7 @@ function buildOpenClawConfig(
     readonly agentName: string;
     readonly modelId?: string;
     readonly installMode: InstallMode;
-    readonly mcpServers?: ReadonlyArray<McpServerMount>;
+    readonly mcpServers?: readonly McpServerMount[];
   },
   workspaceDir: string,
 ): OpenClawConfig {
@@ -970,3 +1007,5 @@ function buildOpenClawConfig(
     },
   };
 }
+
+/* eslint-enable jsdoc/text-escaping -- Restore strict defaults after the scoped file-level exception. */

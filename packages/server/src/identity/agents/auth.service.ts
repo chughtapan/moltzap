@@ -1,20 +1,32 @@
 import { Effect, Option } from "effect";
-import type { Db } from "#db";
-import type { AgentKey } from "@moltzap/protocol/identity";
-import type { Register } from "@moltzap/protocol/identity";
+import {
+  type Db,
+  catchSqlErrorAsDefect,
+  takeFirstOption,
+  takeFirstOrFail,
+} from "#db";
+import type {
+  AgentKey,
+  register,
+  AgentId,
+  UserId,
+} from "@moltzap/protocol/identity";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { AgentId, UserId } from "@moltzap/protocol/identity";
 
-type RegisterParams = ParamsOf<typeof Register>;
+type RegisterParams = ParamsOf<typeof register>;
 import {
   generateApiKey,
   parseApiKey,
   hashSecret,
 } from "#identity/credential-keys";
-import { catchSqlErrorAsDefect, takeFirstOption, takeFirstOrFail } from "#db";
 
+/** Implements auth service. */
 export class AuthService {
-  constructor(private db: Db) {}
+  private readonly db: Db;
+
+  constructor(db: Db) {
+    this.db = db;
+  }
 
   registerAgent(
     params: RegisterParams,
@@ -24,9 +36,9 @@ export class AuthService {
      * upstream — this argument is treated as trusted.
      */
     ownerUserId: UserId,
-  ): Effect.Effect<{ agentId: AgentId; apiKey: AgentKey }, never> {
+  ): Effect.Effect<{ agentId: AgentId; apiKey: AgentKey }> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AuthService) {
         const { apiKey, keyId, secretHash } = generateApiKey();
 
         const result = yield* takeFirstOrFail(
@@ -55,11 +67,9 @@ export class AuthService {
     );
   }
 
-  agentsForOwner(
-    ownerUserId: UserId,
-  ): Effect.Effect<ReadonlyArray<AgentId>, never> {
+  agentsForOwner(ownerUserId: UserId): Effect.Effect<readonly AgentId[]> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AuthService) {
         const rows = yield* this.db
           .selectFrom("agents")
           .select(["id"])
@@ -70,18 +80,17 @@ export class AuthService {
     );
   }
 
-  authenticateAgent(apiKey: AgentKey): Effect.Effect<
-    {
-      agentId: AgentId;
-      status: string;
-      ownerUserId: UserId;
-    } | null,
-    never
-  > {
+  authenticateAgent(apiKey: AgentKey): Effect.Effect<{
+    agentId: AgentId;
+    status: string;
+    ownerUserId: UserId;
+  } | null> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: AuthService) {
         const parsed = parseApiKey(apiKey);
-        if (!parsed) return null;
+        if (!parsed) {
+          return null;
+        }
 
         const rowOpt = yield* takeFirstOption(
           this.db
@@ -91,9 +100,13 @@ export class AuthService {
             .where("status", "!=", "suspended"),
         );
 
-        if (Option.isNone(rowOpt)) return null;
+        if (Option.isNone(rowOpt)) {
+          return null;
+        }
         const row = rowOpt.value;
-        if (hashSecret(parsed.secret) !== row.api_key_secret_hash) return null;
+        if (hashSecret(parsed.secret) !== row.api_key_secret_hash) {
+          return null;
+        }
 
         return {
           agentId: row.id,
@@ -104,3 +117,4 @@ export class AuthService {
     );
   }
 }
+// safer-arch-ignore folder-explicit-api-required: AuthService is the identity/agents service boundary consumed directly by composition code to avoid handler-barrel cycles.

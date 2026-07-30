@@ -9,7 +9,8 @@
   },
   "include": [
     "src/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "*.ts"
   ],
   "exclude": [
     "dist"

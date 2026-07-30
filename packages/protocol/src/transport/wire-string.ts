@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, type FastCheck } from "effect";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -19,9 +19,7 @@ export type WireStringFormat = "uuid" | "uri" | "date-time";
 // top-level `fast-check` import in production code.
 const dateTimeArbitrary =
   () =>
-  (
-    fc: typeof import("effect").FastCheck,
-  ): import("effect").FastCheck.Arbitrary<string> =>
+  (fc: typeof FastCheck): FastCheck.Arbitrary<string> =>
     fc.date({ noInvalidDate: true }).map((d) => d.toISOString());
 
 /**
@@ -37,6 +35,9 @@ const dateTimeArbitrary =
  *   `2021-13-01T00:00:00Z`) that parse to `NaN`. The finiteness check is a
  *   real semantic guard the regex misses, so it MUST be a `filter`; the
  *   arbitrary generates ISO strings off `fc.date`.
+ * @param base Value supplied to the operation.
+ * @param format Value supplied to the operation.
+ * @returns The apply string format result.
  */
 function applyStringFormat(
   base: Schema.Schema<string>,
@@ -44,9 +45,7 @@ function applyStringFormat(
 ): Schema.Schema<string> {
   const withFormat = (
     schema: Schema.Schema<string>,
-    arbitrary: () => (
-      fc: typeof import("effect").FastCheck,
-    ) => import("effect").FastCheck.Arbitrary<string>,
+    arbitrary: () => (fc: typeof FastCheck) => FastCheck.Arbitrary<string>,
   ): Schema.Schema<string> =>
     schema.pipe(Schema.annotations({ jsonSchema: { format }, arbitrary }));
   switch (format) {
@@ -72,15 +71,19 @@ function applyStringFormat(
         ),
         dateTimeArbitrary,
       );
+    default:
+      return format satisfies never;
   }
 }
 
 /**
  * Unbranded `Schema.String` carrying one of the three wire `format` checkers.
  * Use for `result`/nested string fields that need a `format` but no brand
- * (e.g. a callback URL `uri`, a raw `uuid`-shaped id field). Emits the draft-07
+ * (e.g. A callback URL `uri`, a raw `uuid`-shaped id field). Emits the draft-07
  * `format` keyword for the docs walker and runs the regex/finiteness
  * refinement at decode time.
+ * @param format Value supplied to the operation.
+ * @returns The format string result.
  */
 export function formatString(format: WireStringFormat): Schema.Schema<string> {
   return applyStringFormat(Schema.String, format);
@@ -92,6 +95,8 @@ export function formatString(format: WireStringFormat): Schema.Schema<string> {
  * wire shape, simpler schema. `JSONSchema.make` renders a literal union as
  * `{ "enum": [...] }` (string-valued), which the docs walker reads off
  * `.enum`.
+ * @param values Value supplied to the operation.
+ * @returns The string enum result.
  */
 export function stringEnum<T extends string[]>(
   values: [...T],
@@ -104,12 +109,13 @@ export function stringEnum<T extends string[]>(
  * `Date.parse` finiteness `filter`. Derive the type off `dateTimeStringSchema()`
  * where needed.
  */
-const DateTimeStringSchema = applyStringFormat(Schema.String, "date-time");
+const dateTimeStringSchemaValue = applyStringFormat(Schema.String, "date-time");
 
 /**
  * Returns the shared `DateTimeStringSchema` singleton. Functioned so callers
  * can keep `as const` references stable while the schema body is owned here.
+ * @returns The date time string schema result.
  */
-export function dateTimeStringSchema(): typeof DateTimeStringSchema {
-  return DateTimeStringSchema;
+export function dateTimeStringSchema(): typeof dateTimeStringSchemaValue {
+  return dateTimeStringSchemaValue;
 }

@@ -12,12 +12,12 @@ server-core, conformance, and generated protocol reference docs.
 
 ## Public surface
 
-### [`AgentCallableGroup`](./index.ts#L142)
+### [`agentCallableGroup`](./index.ts#L142)
 
 _Variable_
 
 ```ts
-export const AgentCallableGroup = makeRpcGroup(
+export const agentCallableGroup = makeRpcGroup(
   agentCallableMethods.map((definition) => definition.clientRpc),
 )
 ```
@@ -93,12 +93,12 @@ export type AnyServerRpcDefinition = (typeof serverInboundMethods)[number];
 
 Any client-to-server descriptor the server handles.
 
-### [`AppCallableGroup`](./index.ts#L147)
+### [`appCallableGroup`](./index.ts#L147)
 
 _Variable_
 
 ```ts
-export const AppCallableGroup = makeRpcGroup(
+export const appCallableGroup = makeRpcGroup(
   appCallableMethods.map((definition) => definition.clientRpc),
 )
 ```
@@ -149,12 +149,12 @@ export const notificationDefinitions = [
 
 Every server-to-client notification descriptor.
 
-### [`NotificationRpcGroup`](./index.ts#L157)
+### [`notificationRpcGroup`](./index.ts#L157)
 
 _Variable_
 
 ```ts
-export const NotificationRpcGroup = makeRpcGroup(
+export const notificationRpcGroup = makeRpcGroup(
   notificationDefinitions.map((definition) => definition.notificationRpc),
 )
 ```
@@ -164,19 +164,19 @@ as a fire-and-forget `void`-result RPC on a target connection's reverse
 channel; the client serves it via `RpcServer&lt;NotificationRpcGroup>`, routing
 each payload into the `SubscriberRegistry`.
 
-### [`ReverseRpcGroup`](./index.ts#L172)
+### [`reverseRpcGroup`](./index.ts#L172)
 
 _Variable_
 
 ```ts
-export const ReverseRpcGroup = makeRpcGroup([
+export const reverseRpcGroup = makeRpcGroup([
   ...appCallbackMethods.map((definition) => definition.clientRpc),
   ...notificationDefinitions.map((definition) => definition.notificationRpc),
 ])
 ```
 
 The full server-to-client reverse group: the moderator callbacks
-(`appCallbackMethods`) plus the notifications (NotificationRpcGroup),
+(`appCallbackMethods`) plus the notifications (notificationRpcGroup),
 built as ONE `RpcGroup` over the combined member tuple (not `merge`). The
 server holds one `RpcClient&lt;ReverseRpcGroup>` per connection (fires callbacks
 awaiting a verdict, fires notifications fork-and-forget); the agent + app
@@ -201,18 +201,18 @@ _TypeAlias_
 
 ```ts
 export type ServerHandlers = RpcGroup.HandlersFrom<
-  RpcGroup.Rpcs<typeof ServerInboundGroup>
+  RpcGroup.Rpcs<typeof serverInboundGroup>
 >;
 ```
 
 Complete server handler table keyed by every inbound RPC tag.
 
-### [`ServerInboundGroup`](./index.ts#L126)
+### [`serverInboundGroup`](./index.ts#L126)
 
 _Variable_
 
 ```ts
-export const ServerInboundGroup = makeRpcGroup(
+export const serverInboundGroup = makeRpcGroup(
   serverInboundMethods.map((definition) => definition.serverRpc),
 )
 ```

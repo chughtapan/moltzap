@@ -1,19 +1,17 @@
 import { it as effectIt } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, unsafeCoerce } from "effect";
 import { expect } from "vitest";
-import type { Db } from "#db";
+import { type Db, DbTag } from "#db";
 import { ConnectionManager } from "#socket";
-import { AgentEndpointResolver } from "#network";
-import { NetworkSendService } from "#network";
+import { AgentEndpointResolver, NetworkSendService } from "#network";
 import { AuthService } from "#identity/agents";
 import { ContactsService } from "#identity/contacts";
 import { ConversationService } from "#conversation";
 import { MessageService } from "#message";
 import { PresenceService } from "#network/presence";
 import { AppEndpointRegistry } from "#identity/apps";
-import { DbTag } from "#db";
 import { EncryptionTag } from "#db/crypto";
-import { ServicesLive, resolveServices } from "#core";
+import { servicesLive, resolveServices } from "#core";
 
 const it = effectIt.effect;
 
@@ -22,16 +20,16 @@ const it = effectIt.effect;
  * — they just stash the db reference — so we don't need a real connection
  * to verify that the Layer graph wires the services together.
  */
-const fakeDb = {} as Db;
+const fakeDb = unsafeCoerce<Record<string, never>, Db>({});
 
 /** Base layer — feeds the ServicesLive requirements. */
-const BaseLive = Layer.mergeAll(
+const baseLive = Layer.mergeAll(
   Layer.succeed(DbTag, fakeDb),
   Layer.succeed(EncryptionTag, null),
 );
 
 /** Full composition — Base provides inputs to ServicesLive's requirements. */
-const FullLive = Layer.provideMerge(ServicesLive, BaseLive);
+const fullLive = Layer.provideMerge(servicesLive, baseLive);
 
 it("ServicesLive resolves every service via resolveServices", () =>
   Effect.gen(function* () {
@@ -59,8 +57,18 @@ it("ServicesLive resolves every service via resolveServices", () =>
 
     // Every slot is populated — `null` counts for encryption.
     for (const k of Object.keys(services)) {
-      if (k === "encryption") continue;
-      expect(services[k as keyof typeof services]).not.toBeNull();
-      expect(services[k as keyof typeof services]).toBeDefined();
+      if (k === "encryption") {
+        continue;
+      }
+      expect(
+        services[
+          /* Safe because the test fixture establishes this asserted shape. */ k as keyof typeof services
+        ],
+      ).not.toBeNull();
+      expect(
+        services[
+          /* Safe because the test fixture establishes this asserted shape. */ k as keyof typeof services
+        ],
+      ).toBeDefined();
     }
-  }).pipe(Effect.provide(FullLive)));
+  }).pipe(Effect.provide(fullLive)));

@@ -1,8 +1,8 @@
 /** @file Eval-owned semantic evidence declared before each run. */
 
-import { MessageId } from "@moltzap/protocol/conversation";
-import { AgentId } from "@moltzap/protocol/identity";
-import { TaskId } from "@moltzap/protocol/task";
+import { messageId } from "@moltzap/protocol/conversation";
+import { agentId } from "@moltzap/protocol/identity";
+import { taskId } from "@moltzap/protocol/task";
 import { EventCatalog } from "@moltzap/simulator";
 import { Schema } from "effect";
 import type { EpisodeResponse } from "./episodes.js";
@@ -19,18 +19,23 @@ export class EvaluationResponseSelected extends Schema.TaggedClass<EvaluationRes
   {
     scenarioId: Schema.NonEmptyString,
     endpointName: Schema.NonEmptyString,
-    endpointId: AgentId,
+    endpointId: agentId,
     targetName: Schema.NonEmptyString,
-    targetId: AgentId,
-    taskId: TaskId,
-    messageId: MessageId,
+    targetId: agentId,
+    taskId: taskId,
+    messageId: messageId,
   },
 ) {}
 
 /** The complete customer event universe shared by MoltZap evaluations. */
-export const EvaluationEvents = EventCatalog.make(EvaluationResponseSelected);
+export const evaluationEvents = EventCatalog.make(EvaluationResponseSelected);
 
-/** Turn one awaited protocol delivery into eval-owned semantic evidence. */
+/**
+ * Turn one awaited protocol delivery into eval-owned semantic evidence.
+ * @param scenarioId Value supplied to the operation.
+ * @param response Value supplied to the operation.
+ * @returns The select evaluation response result.
+ */
 export function selectEvaluationResponse(
   scenarioId: string,
   response: EpisodeResponse,

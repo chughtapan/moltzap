@@ -4,11 +4,13 @@ import * as evalsApi from "./index.js";
 // @agent-code-guard/regression-only: the published surface is a compatibility boundary the grading reference cites by name
 describe("@moltzap/evals package exports", () => {
   it("publishes the check vocabulary a grader composes", () => {
-    expect(Object.keys(evalsApi).sort()).toEqual(
+    expect(
+      Object.keys(evalsApi).sort((left, right) => left.localeCompare(right)),
+    ).toEqual(
       expect.arrayContaining([
-        "CheckOutcome",
         "GradingRefused",
         "atMostWords",
+        "checkOutcome",
         "defineCodeGrader",
         "defineEvaluationSuite",
         "detectsFailure",
@@ -21,7 +23,7 @@ describe("@moltzap/evals package exports", () => {
   });
 
   it("keeps the outcome vocabulary closed", () => {
-    expect(evalsApi.CheckOutcome).toEqual({
+    expect(evalsApi.checkOutcome).toEqual({
       passed: "passed",
       failed: "failed",
       undecided: "undecided",

@@ -28,24 +28,23 @@ import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect, Exit } from "effect";
 import {
   DEFAULT_APP_ID,
-  TaskClosedNotificationDefinition,
-  TaskCreate,
-  TaskLeave,
-  TaskRequest,
+  taskClosedNotificationDefinition,
+  taskCreate,
+  taskLeave,
+  taskRequest,
 } from "@moltzap/protocol/task";
 import {
-  ConversationCreate,
-  ConversationCreatedNotificationDefinition,
-  ConversationList,
+  conversationCreate,
+  conversationCreatedNotificationDefinition,
+  conversationList,
 } from "@moltzap/protocol/conversation";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { messagesAuthorize } from "@moltzap/protocol/message";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { UserId } from "@moltzap/protocol/identity";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import {
   it,
   startTestServerEffect,
@@ -76,9 +75,9 @@ const SPINOFF_CONVERSATION_NAME = "spinoff";
 
 // Surface invariants that the spec body pins; pulling these into
 // named constants keeps the assertions grep-able + lints clean.
-const STATUS_ACTIVE = "active" as const;
-const STATUS_CLOSED = "closed" as const;
-const INITIAL_CONV_NAME = "kickoff" as const;
+const STATUS_ACTIVE = "active";
+const STATUS_CLOSED = "closed";
+const INITIAL_CONV_NAME = "kickoff";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -131,23 +130,27 @@ function registerAndConnect(
 }
 
 function userForOwner(ownerUserId: UserId) {
-  if (ownerUserId === ALICE_USER.id) return ALICE_USER;
-  if (ownerUserId === BOB_USER.id) return BOB_USER;
+  if (ownerUserId === ALICE_USER.id) {
+    return ALICE_USER;
+  }
+  if (ownerUserId === BOB_USER.id) {
+    return BOB_USER;
+  }
   return CAROL_USER;
 }
 
 function acceptTaskCreateHandlers(): AppCallbackHandlers<AppCallbackContext> {
   return {
-    [DispatchAuthorize.name]: {
-      definition: DispatchAuthorize,
+    [dispatchAuthorize.name]: {
+      definition: dispatchAuthorize,
       handle: () => Effect.dieMessage("unexpected app/dispatch/authorize"),
     },
-    [MessagesAuthorize.name]: {
-      definition: MessagesAuthorize,
+    [messagesAuthorize.name]: {
+      definition: messagesAuthorize,
       handle: () => Effect.dieMessage("unexpected app/message/authorize"),
     },
-    [TaskCreate.name]: {
-      definition: TaskCreate,
+    [taskCreate.name]: {
+      definition: taskCreate,
       handle: () =>
         Effect.succeed({ verdict: { decision: "accept" as const } }),
     },
@@ -169,7 +172,7 @@ function setupThreeAgents(): Effect.Effect<ThreeAgentFixture, Error> {
 it("TaskRequest (DEFAULT_APP, multi-invitee) mints a fresh task with all participants", () =>
   Effect.gen(function* () {
     const { alice, bob, carol } = yield* setupThreeAgents();
-    const result = yield* alice.client.sendRpc(TaskRequest, {
+    const result = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, carol.agentId],
     });
@@ -185,7 +188,7 @@ it("TaskRequest (DEFAULT_APP, multi-invitee) mints a fresh task with all partici
 it("TaskRequest binds separately-created tasks to their requested apps", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
-    const first = yield* alice.client.sendRpc(TaskRequest, {
+    const first = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
     });
@@ -211,7 +214,7 @@ it("TaskRequest binds separately-created tasks to their requested apps", () =>
       registered.appKey,
       acceptTaskCreateHandlers(),
     );
-    const second = yield* alice.client.sendRpc(TaskRequest, {
+    const second = yield* alice.client.sendRpc(taskRequest, {
       appId: registered.appId,
       invitedAgentIds: [bob.agentId],
     });
@@ -228,12 +231,12 @@ it("TaskRequest (initialConversation) mints a conversation + emits app/conversat
     const newNotif = Effect.fork(
       awaitOneNotification(
         alice.client,
-        ConversationCreatedNotificationDefinition,
+        conversationCreatedNotificationDefinition,
         NOTIF_TIMEOUT_MS,
       ),
     );
     const newFib = yield* newNotif;
-    const result = yield* alice.client.sendRpc(TaskRequest, {
+    const result = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId, carol.agentId],
       initialConversation: {
@@ -252,12 +255,14 @@ it("TaskRequest applies contact policy to initial-conversation-only participants
     const { alice, bob, carol } = yield* setupThreeAgents();
     const app = getTestCoreApp();
     app.setContactService({
-      areInContact: (_requesterOwner, targetOwner) =>
-        Effect.succeed(targetOwner === BOB_USER.id),
+      areInContact: (requesterOwner, targetOwner) =>
+        Effect.succeed(
+          requesterOwner === ALICE_USER.id && targetOwner === BOB_USER.id,
+        ),
     });
 
     const result = yield* alice.client
-      .sendRpc(TaskRequest, {
+      .sendRpc(taskRequest, {
         appId: DEFAULT_APP_ID,
         invitedAgentIds: [bob.agentId],
         initialConversation: {
@@ -267,11 +272,11 @@ it("TaskRequest applies contact policy to initial-conversation-only participants
       .pipe(
         Effect.either,
         Effect.ensuring(
-          Effect.sync(() =>
+          Effect.sync(() => {
             app.setContactService({
               areInContact: () => Effect.succeed(true),
-            }),
-          ),
+            });
+          }),
         ),
       );
 
@@ -283,7 +288,7 @@ it("TaskRequest applies contact policy to initial-conversation-only participants
 it("TaskLeave (idempotent, non-participant) returns ok with zero notifications", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskRequest, {
+    const created = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
     });
@@ -291,7 +296,7 @@ it("TaskLeave (idempotent, non-participant) returns ok with zero notifications",
     // (no-op). Carol (a third party) is also not a participant; spec
     // body Goal 2 idempotency clause covers both shapes.
     const { carol } = yield* setupThreeAgents();
-    const result = yield* carol.client.sendRpc(TaskLeave, {
+    const result = yield* carol.client.sendRpc(taskLeave, {
       taskId: created.task.id,
     });
     expect(result).toEqual({});
@@ -300,18 +305,18 @@ it("TaskLeave (idempotent, non-participant) returns ok with zero notifications",
 it("TaskLeave (last admitted participant) transitions task to closed + emits task/closed", () =>
   Effect.gen(function* () {
     const { alice } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskRequest, {
+    const created = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [],
     });
     const closedFib = yield* Effect.fork(
       awaitOneNotification(
         alice.client,
-        TaskClosedNotificationDefinition,
+        taskClosedNotificationDefinition,
         NOTIF_TIMEOUT_MS,
       ),
     );
-    yield* alice.client.sendRpc(TaskLeave, { taskId: created.task.id });
+    yield* alice.client.sendRpc(taskLeave, { taskId: created.task.id });
     const exit = yield* closedFib.await;
     if (!Exit.isSuccess(exit)) {
       throw new Error(
@@ -346,11 +351,11 @@ it("ConversationCreate (owning app caller) mints a conversation", () =>
       registered.appKey,
       acceptTaskCreateHandlers(),
     );
-    const created = yield* alice.client.sendRpc(TaskRequest, {
+    const created = yield* alice.client.sendRpc(taskRequest, {
       appId: registered.appId,
       invitedAgentIds: [bob.agentId],
     });
-    const conversation = yield* appClient.sendRpc(ConversationCreate, {
+    const conversation = yield* appClient.sendRpc(conversationCreate, {
       taskId: created.task.id,
       name: SPINOFF_CONVERSATION_NAME,
       participants: [bob.agentId],
@@ -363,7 +368,7 @@ it("ConversationCreate (owning app caller) mints a conversation", () =>
 it("ConversationList returns items with { taskId, conversation, participants }", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
-    const created = yield* alice.client.sendRpc(TaskRequest, {
+    const created = yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: {
@@ -372,34 +377,46 @@ it("ConversationList returns items with { taskId, conversation, participants }",
       },
     });
     expect(created.conversation).not.toBeNull();
-    const result = yield* alice.client.sendRpc(ConversationList, {});
+    const result = yield* alice.client.sendRpc(conversationList, {});
     expect(result.items.length).toBeGreaterThanOrEqual(1);
     const item = result.items.find(
-      (i) => i.conversation.id === created.conversation!.id,
+      (i) =>
+        i.conversation.id ===
+        /* Safe because the test fixture establishes this asserted shape. */ created
+          .conversation!.id,
     );
     expect(item).toBeDefined();
-    expect(item!.taskId).toBe(created.task.id);
-    expect(item!.participants.length).toBeGreaterThanOrEqual(1);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ item!
+        .taskId,
+    ).toBe(created.task.id);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ item!
+        .participants.length,
+    ).toBeGreaterThanOrEqual(1);
     // Conversation row shape includes optional `archivedAt`.
-    expect(item!.conversation.archivedAt).toBeUndefined();
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ item!
+        .conversation.archivedAt,
+    ).toBeUndefined();
   }));
 
 it("ConversationList respects limit + returns nextCursor when more rows exist", () =>
   Effect.gen(function* () {
     const { alice, bob } = yield* setupThreeAgents();
     // Two conversations under one umbrella task.
-    yield* alice.client.sendRpc(TaskRequest, {
+    yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [bob.agentId],
       initialConversation: { name: "first", participants: [bob.agentId] },
     });
     const { carol } = yield* setupThreeAgents();
-    yield* alice.client.sendRpc(TaskRequest, {
+    yield* alice.client.sendRpc(taskRequest, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [carol.agentId],
       initialConversation: { name: "second", participants: [carol.agentId] },
     });
-    const result = yield* alice.client.sendRpc(ConversationList, {
+    const result = yield* alice.client.sendRpc(conversationList, {
       limit: 1,
     });
     expect(result.items).toHaveLength(1);
@@ -407,3 +424,5 @@ it("ConversationList respects limit + returns nextCursor when more rows exist", 
     // there are more rows after the page.
     expect(result.nextCursor).toBeDefined();
   }));
+
+/* eslint-enable agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

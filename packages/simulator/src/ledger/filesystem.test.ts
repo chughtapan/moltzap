@@ -3,10 +3,11 @@ import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import {
   EventCatalog,
-  JsonValue,
+  type JsonValue,
+  jsonValue,
   LedgerCompletion,
   LedgerManifest,
-  LedgerRef,
+  ledgerRef,
   LedgerStorage,
   LedgerStorageError,
   type LedgerAllocationInput,
@@ -22,8 +23,8 @@ const it = effectIt.scoped;
 const UNSORTED_RECORD = '{"z":1,"a":2}';
 const VALID_RECORD = '{"one":1}';
 const DURABLE_RECORD = '{"durable":true}';
-const RECORDS_ARTIFACT = "records" as const;
-const READ_OPERATION = "read" as const;
+const RECORDS_ARTIFACT = "records";
+const READ_OPERATION = "read";
 
 class StorageEvent extends Schema.TaggedClass<StorageEvent>()(
   "test.storage-event/v1",
@@ -32,12 +33,12 @@ class StorageEvent extends Schema.TaggedClass<StorageEvent>()(
   },
 ) {}
 
-const TestEvents = EventCatalog.make(StorageEvent);
+const testEvents = EventCatalog.make(StorageEvent);
 
 function allocationInput(): LedgerAllocationInput {
   return {
     definitionId: "test.ledger-storage/v1",
-    catalogTags: TestEvents.tags,
+    catalogTags: testEvents.tags,
     provenance: {
       zeta: "last",
       alpha: "first",
@@ -49,8 +50,12 @@ function allocationInput(): LedgerAllocationInput {
   };
 }
 
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
+}
+
 function expectCanonicalObjects(value: JsonValue): void {
-  if (Array.isArray(value)) {
+  if (isJsonArray(value)) {
     for (const entry of value) {
       expectCanonicalObjects(entry);
     }
@@ -58,7 +63,9 @@ function expectCanonicalObjects(value: JsonValue): void {
   }
   if (value !== null && typeof value === "object") {
     const keys = Object.keys(value);
-    expect(keys).toEqual([...keys].sort());
+    expect(keys).toEqual(
+      [...keys].sort((left, right) => left.localeCompare(right)),
+    );
     for (const entry of Object.values(value)) {
       expectCanonicalObjects(entry);
     }
@@ -81,10 +88,10 @@ function verifyRoundTrip() {
       Schema.parseJson(LedgerCompletion),
     )(completionText);
     const manifestJson = yield* Schema.decodeUnknown(
-      Schema.parseJson(JsonValue),
+      Schema.parseJson(jsonValue),
     )(manifestText);
     const completionJson = yield* Schema.decodeUnknown(
-      Schema.parseJson(JsonValue),
+      Schema.parseJson(jsonValue),
     )(completionText);
 
     expect(manifest.runId).toBe(allocated.runId);
@@ -162,7 +169,7 @@ function invalidInputTest() {
       `${VALID_RECORD}\n`,
     );
 
-    const forged = Schema.decodeUnknownSync(LedgerRef)("../outside");
+    const forged = Schema.decodeUnknownSync(ledgerRef)("../outside");
     const invalidRead = yield* storage
       .read(forged, RECORDS_ARTIFACT)
       .pipe(Effect.flip);
@@ -174,15 +181,12 @@ function invalidInputTest() {
 
 interface SyncGate {
   readonly armed: Ref.Ref<boolean>;
-  readonly entered: Deferred.Deferred<void>;
-  readonly release: Deferred.Deferred<void>;
+  readonly entered: Deferred.Deferred<undefined>;
+  readonly release: Deferred.Deferred<undefined>;
   readonly suffix: string;
 }
 
-function gatedSync(
-  file: FileSystem.File,
-  gate: SyncGate,
-): Effect.Effect<void, never> {
+function gatedSync(file: FileSystem.File, gate: SyncGate): Effect.Effect<void> {
   return Ref.get(gate.armed).pipe(
     Effect.flatMap((armed) =>
       armed
@@ -232,8 +236,8 @@ function durableBeforeAckTest() {
     });
     const gate: SyncGate = {
       armed: yield* Ref.make(false),
-      entered: yield* Deferred.make<void>(),
-      release: yield* Deferred.make<void>(),
+      entered: yield* Deferred.make<undefined>(),
+      release: yield* Deferred.make<undefined>(),
       suffix: "records.ndjson",
     };
     const storage = yield* makeFilesystemLedgerStorage(root).pipe(
@@ -268,8 +272,8 @@ function completionInterruptionTest() {
     });
     const gate: SyncGate = {
       armed: yield* Ref.make(false),
-      entered: yield* Deferred.make<void>(),
-      release: yield* Deferred.make<void>(),
+      entered: yield* Deferred.make<undefined>(),
+      release: yield* Deferred.make<undefined>(),
       suffix: ".tmp",
     };
     const storage = yield* makeFilesystemLedgerStorage(root).pipe(

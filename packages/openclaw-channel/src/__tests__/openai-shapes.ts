@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/naming-convention -- These quoted fields mirror OpenAI's JSON wire contract exactly. */
 /**
  * Minimal OpenAI chat-completions wire shapes the echo server reads and
  * writes. Only the fields this test server touches are modeled; the real
@@ -24,7 +25,7 @@ interface ChatCompletionMessageParam {
  * user message) and `stream` (to choose SSE vs JSON).
  */
 export interface ChatCompletionCreateParams {
-  readonly messages: ReadonlyArray<ChatCompletionMessageParam>;
+  readonly messages: readonly ChatCompletionMessageParam[];
   readonly stream?: boolean | null;
 }
 
@@ -67,3 +68,5 @@ export interface ChatCompletionChunk {
     readonly logprobs: null;
   }>;
 }
+
+/* eslint-enable @typescript-eslint/naming-convention -- Restore strict defaults after the external wire contract. */

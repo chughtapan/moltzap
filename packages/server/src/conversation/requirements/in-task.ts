@@ -7,11 +7,17 @@ import {
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "#task";
 
+/** Describes task and conversation. */
 export interface TaskAndConversation {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
+/**
+ * Provides the obtain conversation in task runtime value.
+ * @param input Input value to process.
+ * @returns The obtain conversation in task result.
+ */
 export const obtainConversationInTask = (
   input: TaskAndConversation,
 ): Effect.Effect<

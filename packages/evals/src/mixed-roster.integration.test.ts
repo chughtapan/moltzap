@@ -14,7 +14,7 @@ import {
   EndpointMessageReceived,
   ProgramSucceeded,
   RouterMessageCommitted,
-  Simulator,
+  simulator,
   defineRuntime,
   effectRuntime,
   nanoclawRuntime,
@@ -25,7 +25,7 @@ import {
 import type { CompletedRunLedger } from "@moltzap/simulator/ledger";
 import { Chunk, Config, Duration, Effect, Exit, Stream } from "effect";
 import {
-  EvaluationEvents,
+  evaluationEvents,
   EvaluationResponseSelected,
   selectEvaluationResponse,
 } from "./evaluation-events.js";
@@ -65,9 +65,9 @@ const RUNTIME_PROBES = Object.freeze({
   },
 });
 
-const Society = Simulator.define(
+const society = simulator.define(
   "moltzap.mixed-runtime-e2e/v2",
-  EvaluationEvents,
+  evaluationEvents,
 );
 const customerRuntimeDelegate = effectRuntime({
   onMessage: () => Effect.succeed(RUNTIME_PROBES.customer.response),
@@ -76,7 +76,7 @@ const customerDefinedRuntime = defineRuntime({
   name: "customer-defined",
   acquire: (input) => customerRuntimeDelegate.acquire(input),
 });
-const agents = Society.agents({
+const agents = society.agents({
   openclaw: openClawRuntime({
     installMode: "workspace",
     startupTimeout: RUNTIME_STARTUP_TIMEOUT,
@@ -110,7 +110,7 @@ function probe(target: AgentHandle, expectedResponse: string) {
 
 function mixedProgram() {
   return Effect.gen(function* () {
-    const started = yield* agents.Agents;
+    const started = yield* agents.startedAgents;
     const probes = [
       {
         target: started.openclaw,
@@ -134,13 +134,14 @@ function mixedProgram() {
       ({ target, expectedResponse }) => probe(target, expectedResponse),
       { concurrency: 1 },
     );
-    const events = yield* Society.Events;
+    const events = yield* society.events;
     yield* Effect.forEach(
       responses.flat(),
       (response) =>
         events.emit(selectEvaluationResponse(MEASUREMENT_ID, response)),
       { concurrency: 1, discard: true },
     );
+    return undefined;
   });
 }
 
@@ -152,7 +153,7 @@ function probeResponseFor(agentName: string): string | undefined {
 
 function matchesProbe(
   selected: EvaluationResponseSelected,
-  received: ReadonlyArray<EndpointMessageReceived>,
+  received: readonly EndpointMessageReceived[],
 ): boolean {
   const expected = probeResponseFor(selected.targetName);
   const message = received.find(
@@ -175,7 +176,7 @@ function matchesProbe(
 
 function matchesRouterCommit(
   selected: EvaluationResponseSelected,
-  committed: ReadonlyArray<RouterMessageCommitted>,
+  committed: readonly RouterMessageCommitted[],
 ): boolean {
   return committed.some(
     (event) =>
@@ -186,7 +187,7 @@ function matchesRouterCommit(
 }
 
 function collectMeasurementEvidence(
-  ledger: CompletedRunLedger<typeof Society.catalog>,
+  ledger: CompletedRunLedger<typeof society.catalog>,
 ) {
   return Effect.all({
     ready: Stream.runCollect(ledger.events(AgentRuntimeReady)),
@@ -242,7 +243,7 @@ function assertMeasurementEvidence(evidence: MeasurementEvidence): void {
 
 const mixedRosterMeasurement = Effect.fn("evals.measureMixedRoster")(
   function* () {
-    const run = yield* Society.run(agents, mixedProgram(), {
+    const run = yield* society.run(agents, mixedProgram(), {
       provenance: {
         evaluation: MEASUREMENT_ID,
         condition: "production-mixed-runtime",
@@ -252,12 +253,12 @@ const mixedRosterMeasurement = Effect.fn("evals.measureMixedRoster")(
       return yield* Effect.failCause(run.exit.cause);
     }
 
-    const ledger = yield* Society.openLedger(run.ledger);
+    const ledger = yield* society.openLedger(run.ledger);
     assertMeasurementEvidence(yield* collectMeasurementEvidence(ledger));
   },
 );
 
-const PlatformLayer = simulatorLayer({
+const platformLayer = simulatorLayer({
   ledgerDirectory: LEDGER_ROOT,
   router: { startupTimeout: ROUTER_STARTUP_TIMEOUT },
 });
@@ -266,7 +267,7 @@ it.scopedLive.skipIf(!INTEGRATION_ENABLED)(
   "runs OpenClaw, NanoClaw, built-in code, and customer-defined agents together",
   () =>
     mixedRosterMeasurement().pipe(
-      Effect.provide(PlatformLayer),
+      Effect.provide(platformLayer),
       Effect.timeout(RUN_TIMEOUT),
     ),
   Duration.toMillis(RUN_TIMEOUT) + TEST_RUNNER_MARGIN_MS,

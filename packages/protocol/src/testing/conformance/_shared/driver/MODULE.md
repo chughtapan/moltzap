@@ -8,7 +8,7 @@ Lifecycle-backed conformance client barrel.
 
 ## Public surface
 
-### [`AgentTestClient`](./test-client.ts#L94)
+### [`AgentTestClient`](./test-client.ts#L98)
 
 _Interface_
 
@@ -22,7 +22,9 @@ export interface AgentTestClient extends NotificationClient {
 }
 ```
 
-### [`AgentTestClientConfig`](./test-client.ts#L59)
+Describes agent test client.
+
+### [`AgentTestClientConfig`](./test-client.ts#L60)
 
 _Interface_
 
@@ -35,7 +37,9 @@ export interface AgentTestClientConfig {
 }
 ```
 
-### [`AppTestClient`](./test-client.ts#L102)
+Describes agent test client config.
+
+### [`AppTestClient`](./test-client.ts#L107)
 
 _Interface_
 
@@ -63,7 +67,9 @@ export interface AppTestClient extends NotificationClient {
 }
 ```
 
-### [`AppTestClientConfig`](./test-client.ts#L66)
+Describes app test client.
+
+### [`AppTestClientConfig`](./test-client.ts#L68)
 
 _Interface_
 
@@ -76,27 +82,33 @@ export interface AppTestClientConfig {
 }
 ```
 
-### [`CloseableAgentTestClient`](./test-client.ts#L124)
+Describes app test client config.
+
+### [`CloseableAgentTestClient`](./test-client.ts#L130)
 
 _Interface_
 
 ```ts
 export interface CloseableAgentTestClient extends AgentTestClient {
-  readonly close: Effect.Effect<void, never>;
+  readonly close: Effect.Effect<void>;
 }
 ```
 
-### [`CloseableAppTestClient`](./test-client.ts#L128)
+Describes closeable agent test client.
+
+### [`CloseableAppTestClient`](./test-client.ts#L135)
 
 _Interface_
 
 ```ts
 export interface CloseableAppTestClient extends AppTestClient {
-  readonly close: Effect.Effect<void, never>;
+  readonly close: Effect.Effect<void>;
 }
 ```
 
-### [`makeAgentTestClient`](./test-client.ts#L163)
+Describes closeable app test client.
+
+### [`makeAgentTestClient`](./test-client.ts#L180)
 
 _Function_
 
@@ -106,7 +118,11 @@ export function makeAgentTestClient(
 ): Effect.Effect<AgentTestClient, SendRpcError, Scope.Scope>
 ```
 
-### [`makeAppTestClient`](./test-client.ts#L181)
+Creates agent test client.
+
+**Returns:** The created agent test client.
+
+### [`makeAppTestClient`](./test-client.ts#L208)
 
 _Function_
 
@@ -116,7 +132,11 @@ export function makeAppTestClient(
 ): Effect.Effect<AppTestClient, SendRpcError, Scope.Scope>
 ```
 
-### [`makeCloseableAgentTestClient`](./test-client.ts#L173)
+Creates app test client.
+
+**Returns:** The created app test client.
+
+### [`makeCloseableAgentTestClient`](./test-client.ts#L195)
 
 _Function_
 
@@ -126,7 +146,11 @@ export function makeCloseableAgentTestClient(
 ): Effect.Effect<CloseableAgentTestClient, SendRpcError>
 ```
 
-### [`makeCloseableAppTestClient`](./test-client.ts#L191)
+Creates closeable agent test client.
+
+**Returns:** The created closeable agent test client.
+
+### [`makeCloseableAppTestClient`](./test-client.ts#L223)
 
 _Function_
 
@@ -136,7 +160,11 @@ export function makeCloseableAppTestClient(
 ): Effect.Effect<CloseableAppTestClient, SendRpcError>
 ```
 
-### [`NotificationClient`](./test-client.ts#L79)
+Creates closeable app test client.
+
+**Returns:** The created closeable app test client.
+
+### [`NotificationClient`](./test-client.ts#L82)
 
 _Interface_
 
@@ -157,7 +185,9 @@ export interface NotificationClient {
 }
 ```
 
-### [`ServerRequestWaitError`](./test-client.ts#L132)
+Describes notification client.
+
+### [`ServerRequestWaitError`](./test-client.ts#L140)
 
 _Class_
 
@@ -171,7 +201,9 @@ export class ServerRequestWaitError extends Data.TaggedError(
 }> {}
 ```
 
-### [`ServerRpcContext`](./test-client.ts#L144)
+Reports server request wait failures.
+
+### [`ServerRpcContext`](./test-client.ts#L156)
 
 _Interface_
 
@@ -182,7 +214,9 @@ export interface ServerRpcContext {
 }
 ```
 
-### [`ServerRpcDefinition`](./test-client.ts#L140)
+Carries context for server rpc.
+
+### [`ServerRpcDefinition`](./test-client.ts#L149)
 
 _TypeAlias_
 
@@ -190,7 +224,9 @@ _TypeAlias_
 export type ServerRpcDefinition = AnyAppCallbackRpcDefinition;
 ```
 
-### [`ServerRpcParams`](./test-client.ts#L141)
+Represents server rpc definition values.
+
+### [`ServerRpcParams`](./test-client.ts#L151)
 
 _TypeAlias_
 
@@ -198,13 +234,17 @@ _TypeAlias_
 export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 ```
 
-### [`ServerRpcResult`](./test-client.ts#L142)
+Represents server rpc params values.
+
+### [`ServerRpcResult`](./test-client.ts#L153)
 
 _TypeAlias_
 
 ```ts
 export type ServerRpcResult<D extends ServerRpcDefinition> = ResultOf<D>;
 ```
+
+Represents the result of server rpc.
 
 ## Files
 

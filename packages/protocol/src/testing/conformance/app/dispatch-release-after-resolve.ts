@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
@@ -16,7 +16,7 @@ type ReleaseVerdict =
   | { readonly _tag: "deny"; readonly reason: string }
   | { readonly _tag: "hold"; readonly reason: string };
 
-const RELEASE_VERDICTS: ReadonlyArray<ReleaseVerdict> = [
+const RELEASE_VERDICTS: readonly ReleaseVerdict[] = [
   { _tag: "grant" },
   { _tag: "deny", reason: "policy" },
   { _tag: "hold", reason: "queued" },
@@ -25,21 +25,29 @@ const RELEASE_VERDICTS: ReadonlyArray<ReleaseVerdict> = [
 function expectedLeaseState(
   verdict: ReleaseVerdict,
 ): "GRANTED" | "DENIED" | "HOLD" {
-  if (verdict._tag === "grant") return "GRANTED";
-  if (verdict._tag === "deny") return "DENIED";
+  if (verdict._tag === "grant") {
+    return "GRANTED";
+  }
+  if (verdict._tag === "deny") {
+    return "DENIED";
+  }
   return "HOLD";
 }
 
+/**
+ * Registers dispatch release fires after resolve.
+ * @param ctx Context for the operation.
+ */
 export function registerDispatchReleaseFiresAfterResolve(
   ctx: ConformanceRunContext,
 ): void {
-  const NAME = "dispatch-release-fires-after-resolve";
+  const name = "dispatch-release-fires-after-resolve";
   registerProperty(
     ctx,
     DISPATCH_ADMISSION_CATEGORY,
-    NAME,
+    name,
     "for every resolved lease (grant/deny/hold), exactly one agent/dispatch/released reaches the recipient",
-    assertAllSingleReleases(ctx, NAME).pipe(
+    assertAllSingleReleases(ctx, name).pipe(
       Effect.withSpan("registerDispatchReleaseFiresAfterResolve"),
     ),
   );
@@ -73,7 +81,8 @@ function assertSingleRelease(
     yield* driver.assertLeaseState(ack.dispatchId, expectedLeaseState(verdict));
     const release = yield* driver.recipient.waitForRelease();
     yield* assertNoSecondRelease(propertyName, driver);
-    const params = release.params as ReleaseFrameView;
+    const params =
+      /* Safe because waitForRelease filters for the released-notification descriptor. */ release.params as ReleaseFrameView;
     yield* assertReleaseLeaseId(propertyName, params, ack.leaseId);
     yield* assertReleaseDecision(propertyName, params, verdict);
   });
@@ -87,7 +96,7 @@ function assertNoSecondRelease(
     const followup = yield* Effect.exit(
       driver.recipient.waitForRelease(undefined, NO_SECOND_RELEASE_WINDOW_MS),
     );
-    if (followup._tag === "Success") {
+    if (Exit.isSuccess(followup)) {
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,

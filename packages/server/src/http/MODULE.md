@@ -8,7 +8,7 @@ HTTP server construction barrel.
 
 ## Public surface
 
-### [`makeCoreHttpApp`](./routes.ts#L84)
+### [`makeCoreHttpApp`](./routes.ts#L88)
 
 _Function_
 
@@ -32,13 +32,19 @@ checks use `safeEqual`
 (constant-time) to compare `inviteCode` against
 `registrationSecret`.
 
-### [`makeNodeHttpServer`](./node-http-server.ts#L3)
+**Returns:** The created core http app.
+
+### [`makeNodeHttpServer`](./node-http-server.ts#L7)
 
 _Function_
 
 ```ts
 export function makeNodeHttpServer()
 ```
+
+Creates node http server.
+
+**Returns:** The created node http server.
 
 ## Files
 

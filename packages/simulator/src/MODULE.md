@@ -8,7 +8,7 @@ Code-first simulator API.
 
 ## Public surface
 
-### [`AgentConnection`](./network/router.ts#L119)
+### [`AgentConnection`](./network/router.ts#L125)
 
 _Interface_
 
@@ -25,7 +25,7 @@ Runtime connection issued by every router implementation. A
 runtime chooses its own startup deadline and awaits router-visible readiness
 before completing acquisition.
 
-### [`AgentHandle`](./network/participant.ts#L56)
+### [`AgentHandle`](./network/participant.ts#L58)
 
 _Class_
 
@@ -33,13 +33,13 @@ _Class_
 export class AgentHandle<
   Name extends string = string,
 > extends ParticipantHandle<Name> {
-  readonly [AgentHandleTypeId] = AgentHandleTypeId;
+  readonly [agentHandleTypeId] = agentHandleTypeId;
 
   private constructor(name: Name, id: AgentId) {
-    super(name, id, ParticipantHandleConstruction);
+    super(name, id);
   }
 
-  static [AgentHandleConstruction]<const Name extends string>(
+  static [agentHandleConstruction]<const Name extends string>(
     name: Name,
     id: AgentId,
   ): AgentHandle<Name> {
@@ -58,8 +58,8 @@ _Class_
 export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()(
   "moltzap.agent-process-exited/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     code: Schema.NonNegativeInt,
   },
@@ -76,8 +76,8 @@ _Class_
 export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignaled>()(
   "moltzap.agent-process-signaled/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     signal: Schema.NonEmptyString,
   },
@@ -86,7 +86,7 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
 
 A roster runtime process terminated because it received a signal.
 
-### [`AgentRoster`](./runtime/roster.ts#L60)
+### [`AgentRoster`](./runtime/roster.ts#L62)
 
 _Interface_
 
@@ -95,17 +95,30 @@ export class AgentRoster<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > {
-  readonly [AgentRosterTypeId] = AgentRosterTypeId;
+  readonly [agentRosterTypeId] = agentRosterTypeId;
+
+  readonly definitionId: Id;
+  readonly definitions: Definitions;
+  readonly validatedDefinitions: readonly ValidatedAgentDefinition[];
+  readonly startedAgents: Context.Tag<
+    AgentsService<Id, Definitions>,
+    StartedAgentHandles<Definitions>
+  >;
 
   private constructor(
-    readonly definitionId: Id,
-    readonly definitions: Definitions,
-    readonly validatedDefinitions: ReadonlyArray<ValidatedAgentDefinition>,
-    readonly Agents: Context.Tag<
+    definitionId: Id,
+    definitions: Definitions,
+    validatedDefinitions: readonly ValidatedAgentDefinition[],
+    startedAgents: Context.Tag<
       AgentsService<Id, Definitions>,
       StartedAgentHandles<Definitions>
     >,
-  ) {}
+  ) {
+    this.definitionId = definitionId;
+    this.definitions = definitions;
+    this.validatedDefinitions = validatedDefinitions;
+    this.startedAgents = startedAgents;
+  }
 
   static make<
     const Id extends string,
@@ -119,21 +132,27 @@ export class AgentRoster<
       entries.map(([name, runtime]) =>
         Object.freeze({
           name,
-          agentName: Schema.decodeUnknownSync(AgentName)(name),
+          agentName: Schema.decodeUnknownSync(agentName)(name),
           runtime,
         }),
       ),
     );
     nextRosterServiceId += 1;
-    const definitions = Object.freeze(
-      Object.fromEntries(entries),
-    ) as Definitions;
-    const Agents = Context.GenericTag<
+    const definitions =
+      /* Safe because the surrounding invariant establishes this asserted shape. */ Object.freeze(
+        Object.fromEntries(entries),
+      ) as Definitions;
+    const agentsValue = Context.GenericTag<
       AgentsService<Id, Definitions>,
       StartedAgentHandles<Definitions>
     >(`@moltzap/simulator/Agents/${definitionId}/${nextRosterServiceId}`);
     return Object.freeze(
-      new AgentRoster(definitionId, definitions, validatedDefinitions, Agents),
+      new AgentRoster(
+        definitionId,
+        definitions,
+        validatedDefinitions,
+        agentsValue,
+      ),
     );
   }
 }
@@ -142,7 +161,7 @@ export class AgentRoster<
 A roster is both the keyed runtime definition and the owner of the exact
 handles service used by the experiment Effect.
 
-### [`AgentRosterAcquisitionError`](./runtime/roster.ts#L32)
+### [`AgentRosterAcquisitionError`](./runtime/roster.ts#L33)
 
 _TypeAlias_
 
@@ -152,7 +171,9 @@ export type AgentRosterAcquisitionError<
 > = RuntimeAcquisitionErrorOf<Definitions[keyof Definitions]>;
 ```
 
-### [`AgentRosterRequirements`](./runtime/roster.ts#L37)
+Represents agent roster acquisition error conditions.
+
+### [`AgentRosterRequirements`](./runtime/roster.ts#L38)
 
 _TypeAlias_
 
@@ -182,8 +203,8 @@ _Class_
 export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeCompleted>()(
   "moltzap.agent-runtime-completed/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
   },
 ) {}
@@ -234,8 +255,8 @@ _Class_
 export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()(
   "moltzap.agent-runtime-failed/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
     cause: Schema.NonEmptyString,
   },
@@ -264,8 +285,8 @@ _Class_
 export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
   "moltzap.agent-runtime-ready/v1",
   {
-    agentName: AgentName,
-    agentId: AgentId,
+    agentName: agentName,
+    agentId: agentId,
     runtime: Schema.NonEmptyString,
   },
 ) {}
@@ -281,7 +302,7 @@ _Class_
 export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStartFailed>()(
   "moltzap.agent-runtime-start-failed/v1",
   {
-    agentName: AgentName,
+    agentName: agentName,
     runtime: Schema.NonEmptyString,
     cause: Schema.NonEmptyString,
   },
@@ -290,7 +311,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`AgentsService`](./runtime/roster.ts#L48)
+### [`AgentsService`](./runtime/roster.ts#L50)
 
 _Interface_
 
@@ -304,21 +325,31 @@ export interface AgentsService<
 }
 ```
 
-### [`ConversationAddress`](./network/conversation.ts#L40)
+Describes agents service.
+
+### [`ConversationAddress`](./network/conversation.ts#L39)
 
 _Class_
 
 ```ts
 export class ConversationAddress {
-  readonly [ConversationAddressTypeId] = ConversationAddressTypeId;
+  readonly [conversationAddressTypeId] = conversationAddressTypeId;
+
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly participants: ConversationParticipants;
 
   private constructor(
-    readonly taskId: TaskId,
-    readonly conversationId: ConversationId,
-    readonly participants: ConversationParticipants,
-  ) {}
+    taskId: TaskId,
+    conversationId: ConversationId,
+    participants: ConversationParticipants,
+  ) {
+    this.taskId = taskId;
+    this.conversationId = conversationId;
+    this.participants = participants;
+  }
 
-  static [ConversationAddressConstruction](
+  static [conversationAddressConstruction](
     taskId: TaskId,
     conversationId: ConversationId,
     participants: ConversationParticipants,
@@ -339,36 +370,36 @@ _Class_
 export class ConversationOpened extends Schema.TaggedClass<ConversationOpened>()(
   "moltzap.conversation-opened/v1",
   {
-    openedBy: AgentId,
-    taskId: TaskId,
-    conversationId: ConversationId,
-    participants: Schema.NonEmptyArray(AgentId),
+    openedBy: agentId,
+    taskId: taskId,
+    conversationId: conversationId,
+    participants: Schema.NonEmptyArray(agentId),
   },
 ) {}
 ```
 
 A participant allocated a conversation address for a nonempty group.
 
-### [`ConversationParticipants`](./network/conversation.ts#L31)
+### [`ConversationParticipants`](./network/conversation.ts#L30)
 
 _TypeAlias_
 
 ```ts
 export type ConversationParticipants = readonly [
   ParticipantHandle,
-  ...ReadonlyArray<ParticipantHandle>,
+  ...(readonly ParticipantHandle[]),
 ];
 ```
 
 Every conversation has at least one participant of any network role.
 
-### [`ConversationSocket`](./network/conversation.ts#L100)
+### [`ConversationSocket`](./network/conversation.ts#L107)
 
 _Class_
 
 ```ts
 export class ConversationSocket {
-  readonly [ConversationSocketTypeId] = ConversationSocketTypeId;
+  readonly [conversationSocketTypeId] = conversationSocketTypeId;
 
   /**
    * The ordered receive cursor for this endpoint and conversation. Repeated
@@ -376,18 +407,27 @@ export class ConversationSocket {
    */
   readonly messages: Stream.Stream<ReceivedMessage, NetworkFailure>;
 
+  readonly endpoint: ParticipantHandle;
+  readonly address: ConversationAddress;
+  private readonly sendMessage: (
+    content: MessageParts,
+  ) => Effect.Effect<Message, NetworkFailure>;
+
   private constructor(
-    readonly endpoint: ParticipantHandle,
-    readonly address: ConversationAddress,
+    endpoint: ParticipantHandle,
+    address: ConversationAddress,
     messages: Stream.Stream<ReceivedMessage, NetworkFailure>,
-    private readonly sendMessage: (
+    sendMessage: (
       content: MessageParts,
     ) => Effect.Effect<Message, NetworkFailure>,
   ) {
+    this.endpoint = endpoint;
+    this.address = address;
+    this.sendMessage = sendMessage;
     this.messages = messages;
   }
 
-  static [ConversationSocketConstruction](
+  static [conversationSocketConstruction](
     endpoint: ParticipantHandle,
     address: ConversationAddress,
     messages: Stream.Stream<ReceivedMessage, NetworkFailure>,
@@ -398,7 +438,11 @@ export class ConversationSocket {
     return new ConversationSocket(endpoint, address, messages, sendMessage);
   }
 
-  /** Commit one message through the bound endpoint. */
+  /**
+   * Commit one message through the bound endpoint.
+   * @param content Value supplied to the operation.
+   * @returns The created conversation socket.
+   */
   send(content: string | MessageParts): Effect.Effect<Message, NetworkFailure> {
     return validateParts(parts(content)).pipe(Effect.flatMap(this.sendMessage));
   }
@@ -406,6 +450,7 @@ export class ConversationSocket {
   /**
    * Receive the next ordered delivery. Selection policy belongs in the
    * consuming Effect, so the socket never skips an earlier message.
+   * @returns The created conversation socket.
    */
   receive(): Effect.Effect<ReceivedMessage, NetworkFailure> {
     return this.messages.pipe(
@@ -429,17 +474,17 @@ export class ConversationSocket {
 
 A conversation address bound to exactly one controlled endpoint.
 
-### [`CoreEvents`](./events/core.ts#L228)
+### [`coreEvents`](./events/core.ts#L228)
 
 _Variable_
 
 ```ts
-export const CoreEvents = EventCatalog.merge(
-  RunEvents,
-  RouterEvents,
-  RuntimeEvents,
-  EndpointEvents,
-  LinkEvents,
+export const coreEvents = EventCatalog.merge(
+  runEvents,
+  routerEvents,
+  runtimeEvents,
+  endpointEvents,
+  linkEvents,
 )
 ```
 
@@ -460,7 +505,7 @@ export interface CustomerEvents<Catalog extends AnyEventCatalog> {
 
 Definition-bound emission of customer-owned event classes only.
 
-### [`defineRuntime`](./runtime/runtime.ts#L99)
+### [`defineRuntime`](./runtime/runtime.ts#L103)
 
 _Function_
 
@@ -471,6 +516,8 @@ export function defineRuntime<AcquisitionError, Requirements>(
 ```
 
 Preserve inferred attachment, error, and requirement types.
+
+**Returns:** The define runtime result.
 
 ### [`EffectMessageContext`](./runtime/effect.ts#L49)
 
@@ -491,10 +538,10 @@ Message delivery context passed to ordinary Effect agent code.
 _TypeAlias_
 
 ```ts
-export type EffectMessageReply = string | MessageParts | undefined;
+export type EffectMessageReply = string | MessageParts;
 ```
 
-A message handler may decline to reply, reply with text, or provide parts.
+A message handler reply containing text or structured parts.
 
 ### [`effectRuntime`](./runtime/effect.ts#L250)
 
@@ -520,7 +567,7 @@ export interface EffectRuntimeOptions<E = never, R = never> {
   readonly startupTimeout?: Duration.Duration;
   readonly onMessage?: (
     context: EffectMessageContext,
-  ) => Effect.Effect<EffectMessageReply, E, R>;
+  ) => Effect.Effect<EffectMessageReply | undefined, E, R>;
 }
 ```
 
@@ -546,7 +593,7 @@ export class EffectRuntimeStartFailed extends Schema.TaggedError<EffectRuntimeSt
 
 Acquisition failed before an in-process agent became router-visible.
 
-### [`EncodedEventOf`](./events/catalog.ts#L48)
+### [`EncodedEventOf`](./events/catalog.ts#L43)
 
 _TypeAlias_
 
@@ -564,15 +611,23 @@ _Class_
 
 ```ts
 export class Endpoint<Name extends string = string> {
-  readonly [EndpointTypeId] = EndpointTypeId;
+  readonly [endpointTypeId] = endpointTypeId;
+
+  readonly participant: ParticipantHandle<Name>;
+  private readonly transport: EndpointTransport;
+  private readonly inbox: EndpointInbox;
 
   private constructor(
-    readonly participant: ParticipantHandle<Name>,
-    private readonly transport: EndpointTransport,
-    private readonly inbox: EndpointInbox,
-  ) {}
+    participant: ParticipantHandle<Name>,
+    transport: EndpointTransport,
+    inbox: EndpointInbox,
+  ) {
+    this.participant = participant;
+    this.transport = transport;
+    this.inbox = inbox;
+  }
 
-  static [EndpointConstruction]<const Name extends string>(
+  static [endpointConstruction]<const Name extends string>(
     attachment: AttachedEndpoint<Name>,
     inbox: EndpointInbox,
   ): Endpoint<Name> {
@@ -682,12 +737,12 @@ _Class_
 export class EndpointMessageReceived extends Schema.TaggedClass<EndpointMessageReceived>()(
   "moltzap.endpoint-message-received/v1",
   {
-    endpointId: AgentId,
-    taskId: TaskId,
-    conversationId: ConversationId,
-    messageId: MessageId,
-    senderId: AgentId,
-    parts: MessageParts,
+    endpointId: agentId,
+    taskId: taskId,
+    conversationId: conversationId,
+    messageId: messageId,
+    senderId: agentId,
+    parts: messageParts,
   },
 ) {}
 ```
@@ -702,18 +757,18 @@ _Class_
 export class EndpointMessageSent extends Schema.TaggedClass<EndpointMessageSent>()(
   "moltzap.endpoint-message-sent/v1",
   {
-    endpointId: AgentId,
-    taskId: TaskId,
-    conversationId: ConversationId,
-    messageId: MessageId,
-    parts: MessageParts,
+    endpointId: agentId,
+    taskId: taskId,
+    conversationId: conversationId,
+    messageId: messageId,
+    parts: messageParts,
   },
 ) {}
 ```
 
 A controlled endpoint committed a message through the data plane.
 
-### [`EventCatalog`](./events/catalog.ts#L156)
+### [`EventCatalog`](./events/catalog.ts#L152)
 
 _Class_
 
@@ -724,21 +779,16 @@ export class EventCatalog<
 > {
   readonly schema: Schema.Schema<
     Schema.Schema.Type<SchemaType>,
-    Schema.Schema.Encoded<SchemaType>,
-    never
+    Schema.Schema.Encoded<SchemaType>
   >;
-  readonly eventClasses: ReadonlyArray<EventClass>;
-  readonly tags: ReadonlyArray<VersionedEventTag>;
-  private readonly [EventCatalogTypeId] = EventCatalogTypeId;
+  readonly eventClasses: readonly EventClass[];
+  readonly tags: readonly VersionedEventTag[];
+  private readonly [eventCatalogTypeId] = eventCatalogTypeId;
 
-  private constructor(
-    schema: SchemaType,
-    eventClasses: ReadonlyArray<EventClass>,
-  ) {
+  private constructor(schema: SchemaType, eventClasses: readonly EventClass[]) {
     this.schema = Schema.make<
       Schema.Schema.Type<SchemaType>,
-      Schema.Schema.Encoded<SchemaType>,
-      never
+      Schema.Schema.Encoded<SchemaType>
     >(schema.ast);
     this.eventClasses = Object.freeze([...eventClasses]);
     this.tags = Object.freeze(
@@ -750,7 +800,7 @@ export class EventCatalog<
   static make<
     const EventClasses extends readonly [
       EventClass,
-      ...ReadonlyArray<EventClass>,
+      ...(readonly EventClass[]),
     ],
   >(
     ...eventClasses: EventClasses
@@ -760,14 +810,14 @@ export class EventCatalog<
   }
 
   static empty(): EventCatalog<Schema.Schema<never>, never> {
-    const eventClasses: ReadonlyArray<never> = [];
+    const eventClasses: readonly never[] = [];
     return new EventCatalog(Schema.make<never>(Schema.Never.ast), eventClasses);
   }
 
   static merge<
     const Catalogs extends readonly [
-      EventCatalog<CatalogSchema, EventClass>,
-      ...ReadonlyArray<EventCatalog<CatalogSchema, EventClass>>,
+      EventCatalog<CatalogSchema>,
+      ...ReadonlyArray<EventCatalog<CatalogSchema>>,
     ],
   >(
     ...catalogs: Catalogs
@@ -813,7 +863,7 @@ The exact immutable event universe for one definition.
 The private type identifier makes catalog arguments nominal: a structural
 object cannot claim a schema, constructor list, and tag list that disagree.
 
-### [`EventCatalogDefinitionError`](./events/catalog.ts#L58)
+### [`EventCatalogDefinitionError`](./events/catalog.ts#L54)
 
 _Class_
 
@@ -837,6 +887,8 @@ export class EventCatalogDefinitionError extends Schema.TaggedError<EventCatalog
         return `Event catalog member "${this.tag}" is not a schema-backed class`;
       case "invalid-tag":
         return `Event tag "${this.tag}" must be namespaced and versioned, for example "acme.consensus-reached/v1"`;
+      default:
+        return `Unknown event catalog failure "${this.failure}" for "${this.tag}"`;
     }
   }
 }
@@ -844,7 +896,7 @@ export class EventCatalogDefinitionError extends Schema.TaggedError<EventCatalog
 
 Invalid catalogs fail during definition construction, before a run starts.
 
-### [`EventCatalogDefinitionFailure`](./events/catalog.ts#L52)
+### [`EventCatalogDefinitionFailure`](./events/catalog.ts#L48)
 
 _TypeAlias_
 
@@ -854,6 +906,8 @@ export type EventCatalogDefinitionFailure =
   | "invalid-event-class"
   | "invalid-tag";
 ```
+
+Represents event catalog definition failure conditions.
 
 ### [`EventClass`](./events/catalog.ts#L10)
 
@@ -868,7 +922,7 @@ export type EventClass = Schema.Schema.AnyNoContext & {
 A schema-backed event constructor. The catalog retains both the schema and
 constructor faces so persisted values decode back into their exact class.
 
-### [`EventClassOf`](./events/catalog.ts#L45)
+### [`EventClassOf`](./events/catalog.ts#L40)
 
 _TypeAlias_
 
@@ -891,7 +945,7 @@ export interface EventMetadata {
 
 Causality metadata accepted from a customer event producer.
 
-### [`EventOf`](./events/catalog.ts#L42)
+### [`EventOf`](./events/catalog.ts#L37)
 
 _TypeAlias_
 
@@ -901,7 +955,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`InstallMode`](./runtime/packages.ts#L505)
+### [`InstallMode`](./runtime/packages.ts#L533)
 
 _TypeAlias_
 
@@ -909,7 +963,9 @@ _TypeAlias_
 export type InstallMode = "published" | "workspace";
 ```
 
-### [`LedgerFailure`](./ledger/live.ts#L54)
+Represents install mode values.
+
+### [`LedgerFailure`](./ledger/live.ts#L57)
 
 _TypeAlias_
 
@@ -919,6 +975,8 @@ export type LedgerFailure =
   | ParseResult.ParseError
   | LedgerSerializationError;
 ```
+
+Represents ledger failure conditions.
 
 ### [`LinkController`](./network/link.ts#L49)
 
@@ -959,8 +1017,8 @@ _Class_
 export class LinkDown extends Schema.TaggedClass<LinkDown>()(
   "moltzap.link-down/v1",
   {
-    from: AgentId,
-    to: AgentId,
+    from: agentId,
+    to: agentId,
   },
 ) {}
 ```
@@ -973,24 +1031,24 @@ _Class_
 
 ```ts
 export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
-  from: AgentId,
-  to: AgentId,
+  from: agentId,
+  to: agentId,
 }) {}
 ```
 
 A directed participant link transitioned from unavailable to available.
 
-### [`MessageParts`](./../../protocol/dist/message/parts.d.ts#L40)
+### [`MessageParts`](./../../protocol/dist/message/parts.d.ts#L41)
 
 _TypeAlias_
 
 ```ts
-export type MessageParts = Schema.Schema.Type<typeof MessagePartsSchema>;
+export type MessageParts = Schema.Schema.Type<typeof messagePartsSchemaValue>;
 ```
 
 Nonempty protocol message content.
 
-### [`nanoclawRuntime`](./runtime/nanoclaw/runtime.ts#L352)
+### [`nanoclawRuntime`](./runtime/nanoclaw/runtime.ts#L357)
 
 _Function_
 
@@ -1002,6 +1060,8 @@ export function nanoclawRuntime(
 
 Construct a NanoClaw runtime that binds each roster identity to one
 scoped container-backed process and waits for router-visible readiness.
+
+**Returns:** The nanoclaw runtime result.
 
 ### [`NanoclawRuntimeAcquisitionError`](./runtime/nanoclaw/runtime.ts#L119)
 
@@ -1020,7 +1080,7 @@ _Interface_
 ```ts
 export interface NanoclawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
-  readonly workspaceFiles?: ReadonlyArray<NanoclawWorkspaceFile>;
+  readonly workspaceFiles?: readonly NanoclawWorkspaceFile[];
   readonly modelId?: string;
   readonly installMode?: InstallMode;
 
@@ -1031,13 +1091,13 @@ export interface NanoclawRuntimeOptions {
   readonly autoRegisterConversations?: boolean;
 
   /** Stdio MCP servers mounted into the NanoClaw container workspace. */
-  readonly mcpServers?: ReadonlyArray<NanoclawMcpServer>;
+  readonly mcpServers?: readonly NanoclawMcpServer[];
 }
 ```
 
 Configuration captured by one reusable NanoClaw runtime value.
 
-### [`Network`](./network/endpoint.ts#L189)
+### [`Network`](./network/endpoint.ts#L197)
 
 _Class_
 
@@ -1050,7 +1110,7 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`NetworkFailure`](./network/router.ts#L46)
+### [`NetworkFailure`](./network/router.ts#L51)
 
 _Class_
 
@@ -1058,7 +1118,7 @@ _Class_
 export class NetworkFailure extends Schema.TaggedError<NetworkFailure>()(
   "NetworkFailure",
   {
-    operation: NetworkOperation,
+    operation: networkOperation,
     detail: Schema.String,
   },
 ) {
@@ -1070,7 +1130,7 @@ export class NetworkFailure extends Schema.TaggedError<NetworkFailure>()(
 
 An operational failure at a network boundary.
 
-### [`NetworkService`](./network/endpoint.ts#L182)
+### [`NetworkService`](./network/endpoint.ts#L190)
 
 _Interface_
 
@@ -1084,7 +1144,7 @@ export interface NetworkService {
 
 Controlled endpoint operations installed for one run scope.
 
-### [`openClawRuntime`](./runtime/openclaw/runtime.ts#L318)
+### [`openClawRuntime`](./runtime/openclaw/runtime.ts#L323)
 
 _Function_
 
@@ -1096,6 +1156,8 @@ export function openClawRuntime(
 
 Construct an OpenClaw runtime that binds each roster identity to one
 scoped gateway process and waits for router-visible readiness.
+
+**Returns:** The open claw runtime result.
 
 ### [`OpenClawRuntimeAcquisitionError`](./runtime/openclaw/runtime.ts#L94)
 
@@ -1114,12 +1176,12 @@ _Interface_
 ```ts
 export interface OpenClawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
-  readonly workspaceFiles?: ReadonlyArray<OpenClawWorkspaceFile>;
+  readonly workspaceFiles?: readonly OpenClawWorkspaceFile[];
   readonly modelId?: string;
   readonly installMode?: InstallMode;
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
-  readonly mcpServers?: ReadonlyArray<OpenClawMcpServer>;
+  readonly mcpServers?: readonly OpenClawMcpServer[];
 }
 ```
 
@@ -1131,19 +1193,21 @@ _Class_
 
 ```ts
 export class ParticipantHandle<Name extends string = string> {
-  readonly [ParticipantHandleTypeId] = ParticipantHandleTypeId;
+  readonly [participantHandleTypeId] = participantHandleTypeId;
 
-  protected constructor(
-    readonly name: Name,
-    readonly id: AgentId,
-    _construction: typeof ParticipantHandleConstruction,
-  ) {}
+  readonly name: Name;
+  readonly id: AgentId;
 
-  static [ParticipantHandleConstruction]<const Name extends string>(
+  protected constructor(name: Name, id: AgentId) {
+    this.name = name;
+    this.id = id;
+  }
+
+  static [participantHandleConstruction]<const Name extends string>(
     name: Name,
     id: AgentId,
   ): ParticipantHandle<Name> {
-    return new ParticipantHandle(name, id, ParticipantHandleConstruction);
+    return new ParticipantHandle(name, id);
   }
 }
 ```
@@ -1211,7 +1275,7 @@ export interface ReadableRunLedger<Catalog extends AnyEventCatalog> {
 
 Definition-bound read access to every committed core and customer event.
 
-### [`ReceivedMessage`](./network/router.ts#L72)
+### [`ReceivedMessage`](./network/router.ts#L77)
 
 _Interface_
 
@@ -1248,7 +1312,7 @@ _Class_
 export class RouterStarted extends Schema.TaggedClass<RouterStarted>()(
   "moltzap.router-started/v1",
   {
-    routerUrl: ServerBaseUrl,
+    routerUrl: serverBaseUrlSchema,
   },
 ) {}
 ```
@@ -1406,12 +1470,12 @@ export type RuntimeTermination =
 
 Exact terminal observation produced by an acquired runtime.
 
-### [`Simulator`](./definition.ts#L233)
+### [`simulator`](./definition.ts#L235)
 
 _Variable_
 
 ```ts
-export const Simulator: Readonly<{ define: typeof defineSimulator }> =
+export const simulator: Readonly<{ define: typeof defineSimulator }> =
   Object.freeze({
     define: defineSimulator,
   })
@@ -1419,20 +1483,20 @@ export const Simulator: Readonly<{ define: typeof defineSimulator }> =
 
 Discoverable entry point for code-first society definitions.
 
-### [`SimulatorDefinition`](./definition.ts#L171)
+### [`SimulatorDefinition`](./definition.ts#L170)
 
 _Interface_
 
 ```ts
 export interface SimulatorDefinition<
   Id extends SimulatorDefinitionId,
-  CustomerCatalogs extends ReadonlyArray<AnyEventCatalog>,
+  CustomerCatalogs extends readonly AnyEventCatalog[],
 > {
   readonly id: Id;
   readonly catalog: DefinitionEventServices<Id, CustomerCatalogs>["catalog"];
   readonly customerCatalog: CustomerEventCatalog<CustomerCatalogs>;
-  readonly Ledger: DefinitionEventServices<Id, CustomerCatalogs>["Ledger"];
-  readonly Events: DefinitionEventServices<Id, CustomerCatalogs>["Events"];
+  readonly ledger: DefinitionEventServices<Id, CustomerCatalogs>["ledger"];
+  readonly events: DefinitionEventServices<Id, CustomerCatalogs>["events"];
   readonly agents: ReturnType<typeof makeAgentRosterBuilder<Id>>;
   readonly run: ReturnType<
     typeof makeRunner<
@@ -1453,7 +1517,7 @@ export interface SimulatorDefinition<
 
 Definition-bound capabilities for one versioned family of simulator runs.
 
-### [`SimulatorDefinitionError`](./definition.ts#L26)
+### [`SimulatorDefinitionError`](./definition.ts#L27)
 
 _Class_
 
@@ -1471,6 +1535,8 @@ export class SimulatorDefinitionError extends Schema.TaggedError<SimulatorDefini
 }
 ```
 
+Reports simulator definition failures.
+
 ### [`SimulatorDefinitionId`](./definition.ts#L22)
 
 _TypeAlias_
@@ -1481,7 +1547,7 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 
 Stable code identity persisted in every ledger manifest.
 
-### [`simulatorLayer`](./layer.ts#L21)
+### [`simulatorLayer`](./layer.ts#L23)
 
 _Function_
 
@@ -1491,6 +1557,8 @@ export function simulatorLayer(options: SimulatorLayerOptions)
 
 Provide the production router, filesystem ledger, and Effect Platform host
 services once at the application boundary.
+
+**Returns:** The simulator layer result.
 
 ### [`SimulatorLayerOptions`](./layer.ts#L12)
 
@@ -1505,7 +1573,7 @@ export interface SimulatorLayerOptions {
 
 Host configuration shared by every run provided with this Layer.
 
-### [`SimulatorRunFailure`](./kernel/run.ts#L69)
+### [`SimulatorRunFailure`](./kernel/run.ts#L78)
 
 _TypeAlias_
 
@@ -1515,7 +1583,9 @@ export type SimulatorRunFailure<
 > = AgentRosterAcquisitionError<Definitions> | LedgerFailure | NetworkFailure;
 ```
 
-### [`SimulatorRunOptions`](./kernel/run.ts#L57)
+Represents simulator run failure conditions.
+
+### [`SimulatorRunOptions`](./kernel/run.ts#L65)
 
 _Interface_
 
@@ -1528,7 +1598,7 @@ export interface SimulatorRunOptions {
 
 Optional run metadata; platform and runtime policy belong in Layers.
 
-### [`SimulatorRunResult`](./kernel/run.ts#L63)
+### [`SimulatorRunResult`](./kernel/run.ts#L71)
 
 _Interface_
 
@@ -1542,7 +1612,7 @@ export interface SimulatorRunResult<A, E> {
 
 The program Exit plus the durable ledger that proves the run.
 
-### [`StartedAgentHandles`](./runtime/roster.ts#L42)
+### [`StartedAgentHandles`](./runtime/roster.ts#L43)
 
 _TypeAlias_
 

@@ -13,18 +13,20 @@ import { FileSystem, Path } from "@effect/platform";
 import { Effect } from "effect";
 import * as ts from "typescript";
 
+/** Describes rpc error tag. */
 export interface RpcErrorTag {
   readonly name: string; // tagged-error class name; code resolves via registry
   readonly when: string;
 }
 
+/** Describes rpc js doc. */
 export interface RpcJsDoc {
   readonly description: string | null;
   readonly body: string | null; // free-form prose after the description
   readonly resultDescription: string | null; // @returns
-  readonly errors: ReadonlyArray<RpcErrorTag>;
-  readonly relatedNotifications: ReadonlyArray<string>;
-  readonly triggeredBy: ReadonlyArray<string>;
+  readonly errors: readonly RpcErrorTag[];
+  readonly relatedNotifications: readonly string[];
+  readonly triggeredBy: readonly string[];
   readonly tsName: string;
   readonly file: string; // workspace-relative
   readonly line: number;
@@ -40,10 +42,13 @@ const DEFINER_NAMES = new Set(["defineRpc", "defineNotification"]);
  *
  * Workspace-relative file paths are recorded so consumers can render
  * `file:line` source links.
+ * @param workspaceRoot Value supplied to the operation.
+ * @param sourceFiles Value supplied to the operation.
+ * @returns The collect from source result.
  */
 export const collectRpcJsDoc = (
   workspaceRoot: string,
-  sourceFiles: ReadonlyArray<string>,
+  sourceFiles: readonly string[],
 ): Effect.Effect<
   ReadonlyMap<string, RpcJsDoc>,
   never,
@@ -58,7 +63,9 @@ export const collectRpcJsDoc = (
       const source = yield* fs
         .readFileString(absolute)
         .pipe(Effect.catchAll(() => Effect.succeed("")));
-      if (source.length === 0) continue;
+      if (source.length === 0) {
+        continue;
+      }
       collectFromSource(file, source, out);
     }
     return out;
@@ -76,14 +83,24 @@ function collectFromSource(
     true,
   );
   for (const stmt of sf.statements) {
-    if (!ts.isVariableStatement(stmt)) continue;
-    if (!hasExportModifier(stmt)) continue;
+    if (!ts.isVariableStatement(stmt)) {
+      continue;
+    }
+    if (!hasExportModifier(stmt)) {
+      continue;
+    }
     const decl = stmt.declarationList.declarations[0];
-    if (!decl || !decl.initializer || !ts.isIdentifier(decl.name)) continue;
+    if (!decl || !decl.initializer || !ts.isIdentifier(decl.name)) {
+      continue;
+    }
     const call = unwrapDefiner(decl.initializer);
-    if (call === null) continue;
+    if (call === null) {
+      continue;
+    }
     const wireName = extractWireName(call);
-    if (wireName === null) continue;
+    if (wireName === null) {
+      continue;
+    }
     const tsName = decl.name.text;
     const jsdoc = parseJsDocBlock(stmt, sf);
     const pos = sf.getLineAndCharacterOfPosition(stmt.getStart(sf));
@@ -102,20 +119,36 @@ function hasExportModifier(stmt: ts.VariableStatement): boolean {
 }
 
 function unwrapDefiner(node: ts.Expression): ts.CallExpression | null {
-  if (!ts.isCallExpression(node)) return null;
-  if (!ts.isIdentifier(node.expression)) return null;
-  if (!DEFINER_NAMES.has(node.expression.text)) return null;
+  if (!ts.isCallExpression(node)) {
+    return null;
+  }
+  if (!ts.isIdentifier(node.expression)) {
+    return null;
+  }
+  if (!DEFINER_NAMES.has(node.expression.text)) {
+    return null;
+  }
   return node;
 }
 
 function extractWireName(call: ts.CallExpression): string | null {
   const arg = call.arguments[0];
-  if (!arg || !ts.isObjectLiteralExpression(arg)) return null;
+  if (!arg || !ts.isObjectLiteralExpression(arg)) {
+    return null;
+  }
   for (const prop of arg.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue;
-    if (!ts.isIdentifier(prop.name)) continue;
-    if (prop.name.text !== "name") continue;
-    if (!ts.isStringLiteral(prop.initializer)) continue;
+    if (!ts.isPropertyAssignment(prop)) {
+      continue;
+    }
+    if (!ts.isIdentifier(prop.name)) {
+      continue;
+    }
+    if (prop.name.text !== "name") {
+      continue;
+    }
+    if (!ts.isStringLiteral(prop.initializer)) {
+      continue;
+    }
     return prop.initializer.text;
   }
   return null;
@@ -125,9 +158,9 @@ interface ParsedJsDoc {
   readonly description: string | null;
   readonly body: string | null;
   readonly resultDescription: string | null;
-  readonly errors: ReadonlyArray<RpcErrorTag>;
-  readonly relatedNotifications: ReadonlyArray<string>;
-  readonly triggeredBy: ReadonlyArray<string>;
+  readonly errors: readonly RpcErrorTag[];
+  readonly relatedNotifications: readonly string[];
+  readonly triggeredBy: readonly string[];
 }
 
 function parseJsDocBlock(
@@ -138,11 +171,17 @@ function parseJsDocBlock(
     sf.getFullText(),
     stmt.getFullStart(),
   );
-  if (!ranges) return emptyJsDoc();
+  if (!ranges) {
+    return emptyJsDoc();
+  }
   for (const range of ranges) {
-    if (range.kind !== ts.SyntaxKind.MultiLineCommentTrivia) continue;
+    if (range.kind !== ts.SyntaxKind.MultiLineCommentTrivia) {
+      continue;
+    }
     const text = sf.getFullText().slice(range.pos, range.end);
-    if (!text.startsWith("/**")) continue;
+    if (!text.startsWith("/**")) {
+      continue;
+    }
     return parseJsDocText(text);
   }
   return emptyJsDoc();
@@ -168,6 +207,8 @@ function emptyJsDoc(): ParsedJsDoc {
  * Body prose (the description block before the first `@` line and
  * any prose between `@`-tagged lines that isn't itself a tag) flows
  * into the description / body fields.
+ * @param text Text to process.
+ * @returns The decoded js doc text.
  */
 export function parseJsDocText(text: string): ParsedJsDoc {
   const body = stripJsDocMarkup(text);
@@ -191,7 +232,9 @@ export function parseJsDocText(text: string): ParsedJsDoc {
         break;
       case "@error": {
         const parsed = parseErrorTag(section.content);
-        if (parsed !== null) errors.push(parsed);
+        if (parsed !== null) {
+          errors.push(parsed);
+        }
         break;
       }
       case "@relatedNotification":
@@ -229,9 +272,9 @@ interface JsDocSection {
   readonly content: string;
 }
 
-function splitOnTagBoundary(body: string): ReadonlyArray<JsDocSection> {
+function splitOnTagBoundary(body: string): readonly JsDocSection[] {
   const lines = body.split("\n");
-  const sections: { tag: string | null; lines: string[] }[] = [
+  const sections: Array<{ tag: string | null; lines: string[] }> = [
     { tag: null, lines: [] },
   ];
   for (const line of lines) {
@@ -239,7 +282,10 @@ function splitOnTagBoundary(body: string): ReadonlyArray<JsDocSection> {
     if (tagMatch) {
       sections.push({ tag: tagMatch[1] ?? null, lines: [tagMatch[2] ?? ""] });
     } else {
-      sections[sections.length - 1]!.lines.push(line);
+      const current = sections.at(-1);
+      if (current !== undefined) {
+        current.lines.push(line);
+      }
     }
   }
   return sections
@@ -251,9 +297,13 @@ function splitDescriptionAndBody(text: string): {
   readonly description: string | null;
   readonly body: string | null;
 } {
-  if (text.length === 0) return { description: null, body: null };
+  if (text.length === 0) {
+    return { description: null, body: null };
+  }
   const blankIx = text.indexOf("\n\n");
-  if (blankIx === -1) return { description: text, body: null };
+  if (blankIx === -1) {
+    return { description: text, body: null };
+  }
   return {
     description: text.slice(0, blankIx).trim(),
     body: text.slice(blankIx + 2).trim(),
@@ -266,14 +316,22 @@ function splitDescriptionAndBody(text: string): {
  * (e.g. `ConflictError`, `ForbiddenError`) and `&lt;prose>` is
  * free-form. The wire code is resolved later from the protocol's
  * error registry. Returns null if the tag content doesn't parse.
+ * @param text Text to process.
+ * @returns The decoded error tag.
  */
 export function parseErrorTag(text: string): RpcErrorTag | null {
   const t = text.trim();
   const whenIx = t.indexOf(" when ");
-  if (whenIx === -1) return null;
+  if (whenIx === -1) {
+    return null;
+  }
   const name = t.slice(0, whenIx).trim();
   const when = t.slice(whenIx + 6).trim();
-  if (name.length === 0 || when.length === 0) return null;
-  if (/\s/.test(name)) return null; // type name has no spaces
+  if (name.length === 0 || when.length === 0) {
+    return null;
+  }
+  if (/\s/.test(name)) {
+    return null;
+  } // type name has no spaces
   return { name, when };
 }

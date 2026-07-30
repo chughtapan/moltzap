@@ -1,22 +1,29 @@
 import { Effect, Schema } from "effect";
-import { AgentName, AgentsList } from "@moltzap/protocol/identity";
-import { DEFAULT_PAGE_LIMIT, InvalidParamsError } from "@moltzap/protocol/rpc";
-import type { AgentCard } from "@moltzap/protocol/identity";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
-import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import {
+  agentName,
+  type agentsList as agentsListDefinition,
+  type AgentCard,
+  type AgentId,
+  type UserId,
+} from "@moltzap/protocol/identity";
+import {
+  DEFAULT_PAGE_LIMIT,
+  InvalidParamsError,
+  type ParamsOf,
+} from "@moltzap/protocol/rpc";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import type { AgentContext } from "#socket";
-import { DbTag } from "#db";
-import { agentArm } from "#moltzap/runtime";
-import { catchSqlErrorAsDefect } from "#db";
-import { visibleAgentIds } from "./visibility.service.js";
 import {
+  DbTag,
+  catchSqlErrorAsDefect,
   decodeListCursor,
   keysetWhere,
   paginate,
   sortKeyExpr,
   type ListCursorPosition,
 } from "#db";
+import { agentArm } from "#moltzap/runtime";
+import { visibleAgentIds } from "./visibility.service.js";
 
 function toAgentCard(row: {
   id: AgentId;
@@ -28,10 +35,11 @@ function toAgentCard(row: {
 }): AgentCard {
   return {
     id: row.id,
-    name: Schema.decodeSync(AgentName)(row.name),
+    name: Schema.decodeSync(agentName)(row.name),
     displayName: row.display_name ?? undefined,
     description: row.description ?? undefined,
-    status: row.status as AgentCard["status"],
+    status:
+      /* Safe because the surrounding invariant establishes this asserted shape. */ row.status as AgentCard["status"],
     ownerUserId: row.owner_user_id,
   };
 }
@@ -63,7 +71,9 @@ function agentsListPage(input: AgentsListPageInput) {
         callerAgentId: input.callerAgentId,
         callerOwnerUserId: input.callerOwnerUserId,
       });
-      if (ids.length === 0) return { agents: [] as AgentCard[] };
+      if (ids.length === 0) {
+        return { agents: [] satisfies AgentCard[] };
+      }
       let query = db
         .selectFrom("agents")
         .select([
@@ -107,7 +117,7 @@ function agentsListPage(input: AgentsListPageInput) {
 // limit then run on the `agents` row query so page order is stable regardless
 // of the visibility query's order.
 function agentsListBody(
-  params: ParamsOf<typeof AgentsList>,
+  params: ParamsOf<typeof agentsListDefinition>,
   ctx: AgentContext,
 ) {
   return Effect.gen(function* () {
@@ -130,7 +140,14 @@ function agentsListBody(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
-export const agentsList: ServerHandler<typeof AgentsList> = (params) =>
+/**
+ * Provides the agents list runtime value.
+ * @param params Request payload to process.
+ * @returns The agents list result.
+ */
+export const agentsList: ServerHandler<typeof agentsListDefinition> = (
+  params,
+) =>
   Effect.gen(function* () {
     return yield* agentsListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("agentsList"));

@@ -24,11 +24,16 @@ it("format matches @name (Xm ago): (N new) pattern", () =>
     yield* H.sendAndSettle(
       regC.client,
       convC.task.id,
-      convC.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ convC
+        .conversation!.id,
       "Test message",
     );
 
-    const ctx = service.getContext(convB.conversation!.id)!;
+    const ctx =
+      /* Safe because the test fixture establishes this asserted shape. */ service.getContext(
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
+      )!;
     expect(ctx).toMatch(/@fmt-c \(\d+m ago\): \(1 new\) "Test message"/);
 
     service.close();
@@ -54,11 +59,16 @@ it("truncates long messages at 120 chars", () =>
     yield* H.sendAndSettle(
       regC.client,
       convC.task.id,
-      convC.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ convC
+        .conversation!.id,
       longMsg,
     );
 
-    const ctx = service.getContext(convB.conversation!.id)!;
+    const ctx =
+      /* Safe because the test fixture establishes this asserted shape. */ service.getContext(
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
+      )!;
     // The preview should be truncated — full 500-char message should not appear
     expect(ctx).not.toContain("A".repeat(H.LONG_MESSAGE_LENGTH));
     expect(ctx.length).toBeLessThan(H.LONG_MESSAGE_LENGTH);
@@ -85,15 +95,22 @@ it("advances markers — second call returns null", () =>
     yield* H.sendAndSettle(
       regC.client,
       convC.task.id,
-      convC.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ convC
+        .conversation!.id,
       "Once",
     );
 
-    const first = service.getContext(convB.conversation!.id);
+    const first = service.getContext(
+      /* Safe because the test fixture establishes this asserted shape. */ convB
+        .conversation!.id,
+    );
     expect(first).not.toBeNull();
 
     // Second call — no new messages since marker advanced
-    const second = service.getContext(convB.conversation!.id);
+    const second = service.getContext(
+      /* Safe because the test fixture establishes this asserted shape. */ convB
+        .conversation!.id,
+    );
     expect(second).toBeNull();
 
     service.close();

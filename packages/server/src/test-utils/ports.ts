@@ -1,6 +1,7 @@
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { Effect } from "effect";
 
+/** Represents core test ready outcome values. */
 export type CoreTestReadyOutcome =
   | { readonly _tag: "Ready" }
   | { readonly _tag: "Timeout"; readonly timeoutMs: number }
@@ -15,13 +16,13 @@ export interface CoreTestRuntimeServerHandle {
   awaitAgentReady(
     agentId: AgentId,
     timeoutMs: number,
-  ): Effect.Effect<CoreTestReadyOutcome, never, never>;
+  ): Effect.Effect<CoreTestReadyOutcome>;
 }
 
 /** Database operations available to consumers of the published test harness. */
 export interface CoreTestDatabasePort {
   execute(sql: string): PromiseLike<unknown>;
-  reset(): PromiseLike<void>;
+  reset(): PromiseLike<undefined>;
 }
 
 /** Stable projection of a finished server trace span. */
@@ -32,7 +33,7 @@ export interface CoreTestSpan {
 
 /** Trace-capture operations available to test-harness consumers. */
 export interface CoreTestSpanExporterPort {
-  getFinishedSpans(): ReadonlyArray<CoreTestSpan>;
+  getFinishedSpans(): readonly CoreTestSpan[];
   reset(): void;
 }
 
@@ -45,6 +46,7 @@ export interface CoreTestServerPort {
   readonly spanExporter: CoreTestSpanExporterPort | null;
 }
 
+/** Configures start core test server. */
 export interface StartCoreTestServerOptions {
   readonly pgHost?: string;
   readonly pgPort?: number;

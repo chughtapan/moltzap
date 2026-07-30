@@ -50,6 +50,7 @@ const WARM_INSTALLS = Effect.runSync(
   makeSuccessMemo<InstallMode, NanoclawRuntimeInstall>(),
 );
 
+/** Describes nanoclaw runtime install. */
 export interface NanoclawRuntimeInstall {
   readonly cacheDir: string;
   readonly cacheFingerprint: string;
@@ -85,6 +86,7 @@ interface NanoclawFingerprintInput {
   readonly nodeAbi: string;
 }
 
+/** Describes nanoclaw workspace tarball. */
 export interface NanoclawWorkspaceTarball {
   readonly packageName: string;
   readonly version: string;
@@ -94,6 +96,7 @@ export interface NanoclawWorkspaceTarball {
   readonly integrity: string;
 }
 
+/** Describes nanoclaw workspace dependencies. */
 export interface NanoclawWorkspaceDependencies {
   readonly client: NanoclawWorkspaceTarball;
   readonly protocol: NanoclawWorkspaceTarball;
@@ -190,7 +193,16 @@ function nanoclawFingerprintInput() {
   });
 }
 
-/** @internal */
+/**
+ * Derive the immutable NanoClaw cache identity from source and workspace inputs.
+ *
+ * @param input Input value to process.
+ * @param workspaceHashes Value supplied to the operation.
+ * @param workspaceHashes.clientTarballHash Value supplied to the operation.
+ * @param workspaceHashes.protocolTarballHash Value supplied to the operation.
+ * @internal
+ * @returns The nanoclaw cache fingerprint result.
+ */
 export function nanoclawCacheFingerprint(
   input: NanoclawFingerprintInput,
   workspaceHashes?: {
@@ -208,7 +220,7 @@ export function nanoclawCacheFingerprint(
     platform: input.platform,
     architecture: input.architecture,
     nodeAbi: input.nodeAbi,
-    ...(workspaceHashes === undefined ? {} : workspaceHashes),
+    ...workspaceHashes,
   });
 }
 
@@ -462,7 +474,17 @@ function decodeWorkspacePackageManifest(contents: string, packageName: string) {
   });
 }
 
-/** @internal */
+/**
+ * Verify that packed client and protocol manifests agree on one version.
+ *
+ * @param input Input value to process.
+ * @param input.clientManifest Value supplied to the operation.
+ * @param input.protocolManifest Value supplied to the operation.
+ * @param input.clientVersion Value supplied to the operation.
+ * @param input.protocolVersion Value supplied to the operation.
+ * @internal
+ * @returns The assert packed workspace versions result.
+ */
 export function assertPackedWorkspaceVersions(input: {
   readonly clientManifest: WorkspacePackageManifest;
   readonly protocolManifest: WorkspacePackageManifest;
@@ -510,13 +532,17 @@ export function assertPackedWorkspaceVersions(input: {
 /**
  * Resolves a ready generation without building so integration probes can
  * guarantee they exercise the warm install path.
+ * @param installMode Value supplied to the operation.
  * @internal
+ * @returns The find warm nanoclaw runtime install effect result.
  */
 export function findWarmNanoclawRuntimeInstallEffect(installMode: InstallMode) {
   return Effect.scoped(
     Effect.gen(function* () {
       const warm = yield* warmNanoclawInstall(installMode);
-      if (warm !== null) return warm;
+      if (warm !== null) {
+        return warm;
+      }
       const target = yield* resolveCacheTarget(installMode);
       const generationDir = yield* nanoclawInstallCache(
         target.cacheRoot,
@@ -547,7 +573,9 @@ function containerImageTag(cacheFingerprint: string): string {
 /**
  * Binds the immutable cache lifecycle to this installer's error channel for
  * one cache root.
+ * @param cacheRoot Value supplied to the operation.
  * @internal
+ * @returns The nanoclaw install cache result.
  */
 export function nanoclawInstallCache(cacheRoot: string) {
   return makeImmutableCache(cacheRoot, installError);
@@ -662,7 +690,14 @@ function copyWorkspaceDependencyTarballs(
   });
 }
 
-/** @internal */
+/**
+ * Rewrite NanoClaw's staged manifest to consume the workspace tarballs.
+ *
+ * @param stagingDir Value supplied to the operation.
+ * @param dependencies Value supplied to the operation.
+ * @internal
+ * @returns The rewrite nanoclaw workspace manifest result.
+ */
 export function rewriteNanoclawWorkspaceManifest(
   stagingDir: string,
   dependencies: NanoclawWorkspaceDependencies,
@@ -712,7 +747,14 @@ function rewriteWorkspaceManifestText(
   return JSON.stringify(rewritten, null, JSON_INDENT_SPACES) + "\n";
 }
 
-/** @internal */
+/**
+ * Install and validate NanoClaw's workspace package dependencies.
+ *
+ * @param stagingDir Value supplied to the operation.
+ * @param dependencies Value supplied to the operation.
+ * @internal
+ * @returns The materialize nanoclaw workspace dependencies result.
+ */
 export function materializeNanoclawWorkspaceDependencies(
   stagingDir: string,
   dependencies: NanoclawWorkspaceDependencies,
@@ -731,7 +773,14 @@ export function materializeNanoclawWorkspaceDependencies(
   }).pipe(Effect.withSpan("materializeNanoclawWorkspaceDependencies"));
 }
 
-/** @internal */
+/**
+ * Verify NanoClaw's lockfile contains only the expected workspace artifacts.
+ *
+ * @param stagingDir Value supplied to the operation.
+ * @param dependencies Value supplied to the operation.
+ * @internal
+ * @returns The assert nanoclaw workspace lock result.
+ */
 export function assertNanoclawWorkspaceLock(
   stagingDir: string,
   dependencies: NanoclawWorkspaceDependencies,
@@ -748,7 +797,9 @@ export function assertNanoclawWorkspaceLock(
     ),
     Effect.flatMap((lockText) =>
       Effect.try({
-        try: () => validateNanoclawWorkspaceLock(lockText, dependencies),
+        try: () => {
+          validateNanoclawWorkspaceLock(lockText, dependencies);
+        },
         catch: (cause) =>
           cause instanceof NanoclawInstallError
             ? cause
@@ -815,11 +866,11 @@ function requireExactMoltzapPackageKeys(
 ): void {
   const actual = Object.keys(packages)
     .filter((location) => location.includes("node_modules/@moltzap/"))
-    .sort();
+    .sort((left, right) => left.localeCompare(right));
   const expected = [
     `node_modules/${CLIENT_PACKAGE_NAME}`,
     `node_modules/${PROTOCOL_PACKAGE_NAME}`,
-  ].sort();
+  ].sort((left, right) => left.localeCompare(right));
   if (
     actual.length !== expected.length ||
     actual.some((location, index) => location !== expected[index])
@@ -950,7 +1001,9 @@ function requireContainerImage(containerImage: string) {
 
 function ensureContainerImage(install: NanoclawRuntimeInstall) {
   return Effect.gen(function* () {
-    if (yield* dockerImageExists(install.containerImage)) return;
+    if (yield* dockerImageExists(install.containerImage)) {
+      return;
+    }
     yield* buildContainerImage(install);
     yield* requireContainerImage(install.containerImage);
   });
@@ -1016,6 +1069,11 @@ function buildAndPublish(target: NanoclawCacheTarget) {
   });
 }
 
+/**
+ * Executes the ensure nanoclaw runtime installed effect operation.
+ * @param installMode Value supplied to the operation.
+ * @returns The ensure nanoclaw runtime installed effect result.
+ */
 export function ensureNanoclawRuntimeInstalledEffect(installMode: InstallMode) {
   return Effect.scoped(
     WARM_INSTALLS.getOrAcquire(
@@ -1042,7 +1100,9 @@ function verifyOrBuildInstall(target: NanoclawCacheTarget) {
     const generationDir = yield* cache.findCacheGeneration(
       target.cacheFingerprint,
     );
-    if (generationDir === null) return yield* buildAndPublish(target);
+    if (generationDir === null) {
+      return yield* buildAndPublish(target);
+    }
     const install = runtimeInstall(generationDir, target.cacheFingerprint);
     yield* ensureContainerImage(install);
     return install;

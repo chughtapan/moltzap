@@ -6,10 +6,18 @@
  * `MOLTZAP_NANOCLAW_EVAL_MODEL`.
  */
 import { assert, effect as test, it } from "@effect/vitest";
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
-import { AgentId } from "@moltzap/protocol/identity";
+import {
+  type ConversationId,
+  conversationId as conversationIdSchema,
+  type MessageId,
+  messageId as messageIdSchema,
+} from "@moltzap/protocol/conversation";
+import {
+  type AgentId,
+  agentId as agentIdSchema,
+} from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
-import { TaskId } from "@moltzap/protocol/task";
+import { type TaskId, taskId as taskIdSchema } from "@moltzap/protocol/task";
 import {
   agentId,
   conversationId,
@@ -30,7 +38,7 @@ import {
   NetworkFailure,
   ProgramSucceeded,
   RouterMessageCommitted,
-  Simulator,
+  simulator,
   effectRuntime,
   nanoclawRuntime,
   openClawRuntime,
@@ -84,13 +92,13 @@ const WITNESS_APPROVAL_SUFFIX = [
 ].join("");
 
 type ApprovalReceipt = string & Brand.Brand<"ApprovalReceipt">;
-const ApprovalReceipt: Schema.Schema<ApprovalReceipt, string> =
+const approvalReceipt: Schema.Schema<ApprovalReceipt, string> =
   Schema.String.pipe(
     Schema.pattern(/^EFFECT_RECEIPT_[0-9A-F]{12}$/u),
     Schema.brand("ApprovalReceipt"),
   );
-const decodeApprovalReceipt = Schema.decode(ApprovalReceipt);
-const decodeApprovalReceiptOption = Schema.decodeUnknownOption(ApprovalReceipt);
+const decodeApprovalReceipt = Schema.decode(approvalReceipt);
+const decodeApprovalReceiptOption = Schema.decodeUnknownOption(approvalReceipt);
 
 function receiptFragment(value: number): string {
   return value.toString(16).toUpperCase().padStart(RECEIPT_HEX_WIDTH, "0");
@@ -194,19 +202,19 @@ const NANOCLAW_INSTRUCTIONS = [
 class SharedConversationResponse extends Schema.Class<SharedConversationResponse>(
   "SharedConversationResponse",
 )({
-  messageId: MessageId,
-  senderId: AgentId,
-  replyToId: Schema.NullOr(MessageId),
+  messageId: messageIdSchema,
+  senderId: agentIdSchema,
+  replyToId: Schema.NullOr(messageIdSchema),
 }) {}
 
 /** The customer policy selected the expected three-message content sequence. */
 class ContentSequenceSelected extends Schema.TaggedClass<ContentSequenceSelected>()(
   "content-sequence-selected",
   {
-    openClawMessageId: MessageId,
-    witnessMessageId: MessageId,
-    nanoClawMessageId: MessageId,
-    approvalReceipt: ApprovalReceipt,
+    openClawMessageId: messageIdSchema,
+    witnessMessageId: messageIdSchema,
+    nanoClawMessageId: messageIdSchema,
+    approvalReceipt: approvalReceipt,
   },
 ) {}
 
@@ -218,7 +226,7 @@ class ObservationWindowElapsed extends Schema.TaggedClass<ObservationWindowElaps
   },
 ) {}
 
-const SharedConversationOutcome = Schema.Union(
+const sharedConversationOutcome = Schema.Union(
   ContentSequenceSelected,
   ObservationWindowElapsed,
 );
@@ -227,22 +235,22 @@ const SharedConversationOutcome = Schema.Union(
 class SharedConversationMeasured extends Schema.TaggedClass<SharedConversationMeasured>()(
   "moltzap.shared-conversation-measured/v1",
   {
-    controllerId: AgentId,
-    openClawId: AgentId,
-    witnessId: AgentId,
-    nanoClawId: AgentId,
-    taskId: TaskId,
-    conversationId: ConversationId,
-    triggerMessageId: MessageId,
+    controllerId: agentIdSchema,
+    openClawId: agentIdSchema,
+    witnessId: agentIdSchema,
+    nanoClawId: agentIdSchema,
+    taskId: taskIdSchema,
+    conversationId: conversationIdSchema,
+    triggerMessageId: messageIdSchema,
     responses: Schema.Array(SharedConversationResponse),
-    outcome: SharedConversationOutcome,
+    outcome: sharedConversationOutcome,
   },
 ) {}
 
-const SharedConversationEvents = EventCatalog.make(SharedConversationMeasured);
-const Society = Simulator.define(
+const sharedConversationEvents = EventCatalog.make(SharedConversationMeasured);
+const society = simulator.define(
   "moltzap.shared-conversation-measurement/v1",
-  SharedConversationEvents,
+  sharedConversationEvents,
 );
 
 const TEST_CONTEXT: SharedConversationContext = {
@@ -266,7 +274,7 @@ const UNEXPECTED_RESPONSE: ReceivedMessage = {
   },
 };
 
-const agents = Society.agents({
+const agents = society.agents({
   openclaw: openClawRuntime({
     installMode: "workspace",
     startupTimeout: RUNTIME_STARTUP_TIMEOUT,
@@ -391,7 +399,7 @@ function responseObservation(
 }
 
 function appendResponse(
-  responses: Ref.Ref<ReadonlyArray<SharedConversationResponse>>,
+  responses: Ref.Ref<readonly SharedConversationResponse[]>,
   received: ReceivedMessage,
 ) {
   return Ref.update(responses, (current) => [
@@ -401,7 +409,7 @@ function appendResponse(
 }
 
 function observeResponse(
-  responses: Ref.Ref<ReadonlyArray<SharedConversationResponse>>,
+  responses: Ref.Ref<readonly SharedConversationResponse[]>,
   receive: ReceiveResponse,
 ) {
   return Effect.uninterruptibleMask((restore) =>
@@ -418,9 +426,7 @@ const measureContentSequence = Effect.fn(
   context: SharedConversationContext,
   observationWindow: Duration.Duration,
 ) {
-  const responses = yield* Ref.make<ReadonlyArray<SharedConversationResponse>>(
-    [],
-  );
+  const responses = yield* Ref.make<readonly SharedConversationResponse[]>([]);
   const observedReceive = () => observeResponse(responses, receive);
   const transcript = yield* receiveContentSequence(
     observedReceive,
@@ -449,11 +455,11 @@ const recordMeasurement = Effect.fn("evals.recordSharedConversation")(
   function* (
     context: SharedConversationContext,
     measurement: {
-      readonly responses: ReadonlyArray<SharedConversationResponse>;
+      readonly responses: readonly SharedConversationResponse[];
       readonly outcome: ContentSequenceSelected | ObservationWindowElapsed;
     },
   ) {
-    const events = yield* Society.Events;
+    const events = yield* society.events;
     yield* events.emit(
       SharedConversationMeasured.make({
         ...context,
@@ -473,7 +479,7 @@ const recordMeasurement = Effect.fn("evals.recordSharedConversation")(
 
 function sharedConversationProgram() {
   return Effect.gen(function* () {
-    const started = yield* agents.Agents;
+    const started = yield* agents.startedAgents;
     const network = yield* Network;
     const controller = yield* network.endpoint(CONTROLLER_NAME);
     const conversation = yield* controller.open(
@@ -497,10 +503,11 @@ function sharedConversationProgram() {
       OBSERVATION_WINDOW,
     );
     yield* recordMeasurement(context, measurement);
+    return undefined;
   });
 }
 
-function collectEvidence(ledger: CompletedRunLedger<typeof Society.catalog>) {
+function collectEvidence(ledger: CompletedRunLedger<typeof society.catalog>) {
   return Effect.all({
     ready: Stream.runCollect(ledger.events(AgentRuntimeReady)),
     conversations: Stream.runCollect(ledger.events(ConversationOpened)),
@@ -544,7 +551,7 @@ function belongsToConversation(
 }
 
 function receivedById(
-  received: ReadonlyArray<EndpointMessageReceived>,
+  received: readonly EndpointMessageReceived[],
   expected: ExpectedRecordedMessage,
 ): EndpointMessageReceived {
   const match = received.find(
@@ -558,7 +565,7 @@ function receivedById(
 }
 
 function assertReadyAgents(
-  ready: ReadonlyArray<AgentRuntimeReady>,
+  ready: readonly AgentRuntimeReady[],
   context: SharedConversationContext,
 ): void {
   assert.deepStrictEqual(
@@ -578,7 +585,7 @@ function assertReadyAgents(
 }
 
 function assertConversation(
-  conversations: ReadonlyArray<ConversationOpened>,
+  conversations: readonly ConversationOpened[],
   context: SharedConversationContext,
 ): void {
   assert.deepStrictEqual(
@@ -586,7 +593,9 @@ function assertConversation(
       taskId: opened.taskId,
       conversationId: opened.conversationId,
       openedBy: opened.openedBy,
-      participants: [...opened.participants].sort(),
+      participants: [...opened.participants].sort((left, right) =>
+        left.localeCompare(right),
+      ),
     })),
     [
       {
@@ -598,14 +607,14 @@ function assertConversation(
           context.nanoClawId,
           context.openClawId,
           context.witnessId,
-        ].sort(),
+        ].sort((left, right) => left.localeCompare(right)),
       },
     ],
   );
 }
 
 function assertTrigger(
-  sent: ReadonlyArray<EndpointMessageSent>,
+  sent: readonly EndpointMessageSent[],
   context: SharedConversationContext,
 ): void {
   assert.deepStrictEqual(
@@ -629,9 +638,9 @@ function assertTrigger(
 }
 
 function assertMeasuredResponses(
-  measured: ReadonlyArray<SharedConversationResponse>,
-  received: ReadonlyArray<EndpointMessageReceived>,
-  committed: ReadonlyArray<RouterMessageCommitted>,
+  measured: readonly SharedConversationResponse[],
+  received: readonly EndpointMessageReceived[],
+  committed: readonly RouterMessageCommitted[],
   context: SharedConversationContext,
 ): void {
   for (const response of measured) {
@@ -668,7 +677,7 @@ function assertMeasuredResponses(
 }
 
 function assertRouterContentSequence(
-  committed: ReadonlyArray<RouterMessageCommitted>,
+  committed: readonly RouterMessageCommitted[],
   context: SharedConversationContext,
   selected: ContentSequenceSelected,
 ): void {
@@ -698,7 +707,7 @@ function assertRouterContentSequence(
 }
 
 function assertRecordedContentSequence(
-  received: ReadonlyArray<EndpointMessageReceived>,
+  received: readonly EndpointMessageReceived[],
   context: SharedConversationContext,
   selected: ContentSequenceSelected,
 ): void {
@@ -737,7 +746,7 @@ function assertRecordedContentSequence(
 }
 
 function selectedResponse(
-  responses: ReadonlyArray<SharedConversationResponse>,
+  responses: readonly SharedConversationResponse[],
   messageId: MessageId,
   senderId: AgentId,
 ): SharedConversationResponse {
@@ -832,7 +841,7 @@ function assertEvidence(evidence: SharedConversationEvidence) {
 }
 
 type SharedConversationRun = SimulatorRunResult<
-  void,
+  undefined,
   NetworkFailure | LedgerFailure
 >;
 type ValidatedEvidence = ReturnType<typeof assertEvidence>;
@@ -844,7 +853,7 @@ function measurementResult(
   const context = evidence.context;
   const common = {
     type: "moltzap.shared-conversation-result/v1",
-    definitionId: Society.id,
+    definitionId: society.id,
     ledgerRef: run.ledger,
     runId: run.completion.runId,
     completion: Object.freeze({
@@ -889,7 +898,7 @@ function measurementResult(
 const sharedConversationMeasurement = Effect.fn(
   "evals.measureSharedConversation",
 )(function* () {
-  const run = yield* Society.run(agents, sharedConversationProgram(), {
+  const run = yield* society.run(agents, sharedConversationProgram(), {
     provenance: {
       evaluation: "shared-conversation-content-sequence",
       condition: "production-openclaw-effect-nanoclaw",
@@ -899,14 +908,14 @@ const sharedConversationMeasurement = Effect.fn(
     return yield* Effect.failCause(run.exit.cause);
   }
 
-  const ledger = yield* Society.openLedger(run.ledger);
+  const ledger = yield* society.openLedger(run.ledger);
   const evidence = assertEvidence(yield* collectEvidence(ledger));
   yield* Effect.logInfo(
     `MOLTZAP_SHARED_CONVERSATION_RESULT ${JSON.stringify(measurementResult(run, evidence))}`,
   );
 });
 
-const PlatformLayer = simulatorLayer({
+const platformLayer = simulatorLayer({
   ledgerDirectory: LEDGER_ROOT,
   router: { startupTimeout: ROUTER_STARTUP_TIMEOUT },
 });
@@ -974,7 +983,7 @@ it.scopedLive.skipIf(!INTEGRATION_ENABLED)(
   "measures NanoClaw, Effect, and OpenClaw in one conversation",
   () =>
     sharedConversationMeasurement().pipe(
-      Effect.provide(PlatformLayer),
+      Effect.provide(platformLayer),
       Effect.timeout(RUN_TIMEOUT),
     ),
   Duration.toMillis(RUN_TIMEOUT) + TEST_RUNNER_MARGIN_MS,

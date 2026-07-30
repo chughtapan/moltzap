@@ -32,6 +32,20 @@ const packageRoots = {
 const IMAGE_DIGEST = `sha256:${"a".repeat(64)}`;
 const SERVER_PROTOCOL_FIXTURE_VERSION = "0.0.0-server-protocol";
 
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requireRecord(
+  value: unknown,
+  label: string,
+): Readonly<Record<string, unknown>> {
+  if (!isRecord(value)) {
+    throw new TypeError(`${label} must be an object`);
+  }
+  return value;
+}
+
 function packedFilename(output: string): string {
   const parsed: unknown = JSON.parse(output);
   if (
@@ -239,18 +253,26 @@ const installedPackageSmoke = Effect.scoped(
     if (completionLine === undefined) {
       return yield* Effect.dieMessage("image builder returned no completion");
     }
-    const completion: unknown = JSON.parse(completionLine);
-    expect(completion).toMatchObject({
-      imageDigest: IMAGE_DIGEST,
-      serverCoreVersion: expect.any(String),
-    });
-    const staged: unknown = JSON.parse(
+    const completionInput: unknown = JSON.parse(completionLine);
+    const completion = requireRecord(
+      completionInput,
+      "image builder completion",
+    );
+    expect(completion.imageDigest).toBe(IMAGE_DIGEST);
+    if (typeof completion.serverCoreVersion !== "string") {
+      return yield* Effect.dieMessage(
+        "image builder server version must be text",
+      );
+    }
+    const stagedInput: unknown = JSON.parse(
       yield* fileSystem.readFileString(layout.marker, "utf8"),
     );
-    expect(staged).toMatchObject({
-      protocol: expect.stringContaining(SERVER_PROTOCOL_FIXTURE_VERSION),
-      tarballs: 2,
-    });
+    const staged = requireRecord(stagedInput, "staged image marker");
+    expect(staged.tarballs).toBe(2);
+    if (typeof staged.protocol !== "string") {
+      return yield* Effect.dieMessage("staged protocol marker must be text");
+    }
+    expect(staged.protocol).toContain(SERVER_PROTOCOL_FIXTURE_VERSION);
   }),
 ).pipe(Effect.provide(NodeContext.layer), Effect.orDie);
 
@@ -261,3 +283,5 @@ describe.skipIf(!SIM_INTEGRATION_ENABLED)(
       Effect.runPromise(installedPackageSmoke));
   },
 );
+
+/* eslint-enable sonarjs/assertions-in-tests -- Restore strict defaults after the scoped file-level exception. */

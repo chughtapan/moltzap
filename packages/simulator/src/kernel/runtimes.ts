@@ -5,7 +5,7 @@ import { Cause, Effect, Exit, type Scope } from "effect";
 import {
   AgentRuntimeReady,
   AgentRuntimeStartFailed,
-  RuntimeEvents,
+  type runtimeEvents,
 } from "../events/core.js";
 import type { LedgerFailure, LedgerWriter } from "../ledger/live.js";
 import type { AgentConnection, Router } from "../network/router.js";
@@ -23,7 +23,7 @@ import {
 import { nonEmptyCause, runtimeEvent } from "./outcomes.js";
 
 const MAX_PARALLEL_RUNTIME_ACQUISITIONS = 32;
-type RuntimeEventWriter = LedgerWriter<typeof RuntimeEvents>;
+type RuntimeEventWriter = LedgerWriter<typeof runtimeEvents>;
 
 interface AcquiredAgent<Name extends string = string> {
   readonly name: Name;
@@ -66,7 +66,9 @@ function runtimeAcquire<
 > {
   // Heterogeneous record iteration erases each runtime definition's E and R.
   // AgentRoster construction proves this union by accepting nominal runtimes.
-  return runtime.acquire({ connection }) as Effect.Effect<
+  return /* Safe because the surrounding invariant establishes this asserted shape. */ runtime.acquire(
+    { connection },
+  ) as Effect.Effect<
     RunningAgent,
     AgentRosterAcquisitionError<Definitions>,
     AgentRosterRequirements<Definitions> | Scope.Scope
@@ -209,14 +211,19 @@ function acquireAgent<
 
 function startedHandles<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(acquired: ReadonlyArray<AcquiredAgent>): StartedAgentHandles<Definitions> {
-  return Object.freeze(
+>(acquired: readonly AcquiredAgent[]): StartedAgentHandles<Definitions> {
+  return /* Safe because the surrounding invariant establishes this asserted shape. */ Object.freeze(
     Object.fromEntries(
       acquired.map((entry) => [entry.name, entry.connection.agent]),
     ),
   ) as StartedAgentHandles<Definitions>;
 }
 
+/**
+ * Executes the acquire roster operation.
+ * @param input Input value to process.
+ * @returns The acquire roster result.
+ */
 export function acquireRoster<
   Id extends string,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
@@ -227,7 +234,7 @@ export function acquireRoster<
     (entry) =>
       acquireAgent<Definitions, Name>({
         router: input.router,
-        name: entry.name as Name,
+        name: /* Safe because the surrounding invariant establishes this asserted shape. */ entry.name as Name,
         agentName: entry.agentName,
         runtime: entry.runtime,
         writer: input.writer,

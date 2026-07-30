@@ -51,7 +51,7 @@ interface LogWaitState {
   readonly required: readonly string[];
   readonly matched: Set<string>;
   readonly proc: ChildProcessWithoutNullStreams;
-  readonly timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   readonly resolve: () => void;
   readonly reject: (error: Error) => void;
   settled: boolean;
@@ -66,26 +66,34 @@ function logContainerHelperFailure(action: string, cause: unknown): void {
 }
 
 function logContainerHelperFailureEffect(action: string, cause: unknown) {
-  return Effect.sync(() => logContainerHelperFailure(action, cause));
+  return Effect.sync(() => {
+    logContainerHelperFailure(action, cause);
+  });
 }
 
-export type ContainerModelConfig = {
+/** Describes container model config. */
+export interface ContainerModelConfig {
   modelString: string;
   providerConfig?: {
     provider: string;
     modelId: string;
     baseUrl: string;
     api: string;
-    apiKey: Redacted.Redacted<string>;
+    apiKey: Redacted.Redacted;
   };
-};
+}
 
-export type OpenClawContainer = {
+/** Describes open claw container. */
+export interface OpenClawContainer {
   containerId: string;
   controlPort: number;
   tmpDir: string;
-};
+}
 
+/**
+ * Checks whether image available.
+ * @returns Whether image available.
+ */
 export function isImageAvailable(): boolean {
   try {
     execFileSync(DOCKER_BIN, ["image", "inspect", IMAGE_NAME], {
@@ -104,6 +112,11 @@ interface BuildOpenClawConfigOptions {
 }
 
 // Containers reach the host's loopback only through the Docker gateway alias.
+/**
+ * Normalizes container server url.
+ * @param serverUrl Value supplied to the operation.
+ * @returns The normalize container server url result.
+ */
 export function normalizeContainerServerUrl(serverUrl: string): string {
   return serverBaseUrl(serverUrl)
     .replace(/^ws/, "http")
@@ -179,7 +192,11 @@ function providerModelsConfig(
   };
 }
 
-/** Build openclaw.json config for a container. */
+/**
+ * Build openclaw.json config for a container.
+ * @param opts Value supplied to the operation.
+ * @returns The created open claw config.
+ */
 export function buildOpenClawConfig(
   opts: BuildOpenClawConfigOptions,
 ): Record<string, unknown> {
@@ -189,11 +206,16 @@ export function buildOpenClawConfig(
     : config;
 }
 
-/** Create, configure, and start an OpenClaw Docker container. */
+/**
+ * Create, configure, and start an OpenClaw Docker container.
+ * @param config Documentation generation configuration.
+ * @param opts Value supplied to the operation.
+ * @returns The start raw container result.
+ */
 export function startRawContainer(
   config: Record<string, unknown>,
   opts: StartContainerOptions,
-): Effect.Effect<OpenClawContainer, unknown, never> {
+): Effect.Effect<OpenClawContainer, unknown> {
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fileSystem) =>
       Effect.gen(function* () {
@@ -251,7 +273,9 @@ function writeContainerMoltZapConfig(
   tmpDir: string,
   opts: StartContainerOptions,
 ) {
-  if (opts.moltzapProfile === undefined) return Effect.void;
+  if (opts.moltzapProfile === undefined) {
+    return Effect.void;
+  }
   return fileSystem.writeFileString(
     path.join(tmpDir, ".moltzap", "config.json"),
     JSON.stringify(
@@ -278,7 +302,7 @@ function allocateControlPort(opts: StartContainerOptions): number {
   return randomInt(lo, hi);
 }
 
-function containerEnvArgs(envVars: Record<string, string> | undefined) {
+function containerEnvArgs(envVars?: Record<string, string>) {
   const envParts = [
     "-e",
     `OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`,
@@ -365,6 +389,11 @@ function chownContainerState(containerId: string): void {
   ]);
 }
 
+/**
+ * Returns logs.
+ * @param containerId Value supplied to the operation.
+ * @returns The get logs result.
+ */
 export function getLogs(containerId: string): string {
   try {
     return execFileSync(DOCKER_BIN, ["logs", containerId], {
@@ -376,7 +405,13 @@ export function getLogs(containerId: string): string {
   }
 }
 
-/** Stream `docker logs -f` and resolve when all patterns appear. */
+/**
+ * Stream `docker logs -f` and resolve when all patterns appear.
+ * @param containerId Value supplied to the operation.
+ * @param patterns Value supplied to the operation.
+ * @param timeoutMs Maximum time to wait in milliseconds.
+ * @returns A promise that completes when every pattern has appeared.
+ */
 function waitForLogMatch(
   containerId: string,
   patterns: string | string[],
@@ -384,27 +419,28 @@ function waitForLogMatch(
 ) {
   const required = Array.isArray(patterns) ? patterns : [patterns];
 
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<undefined>((resolve, reject) => {
     const inspectFailure = inspectContainerForLogStream(containerId);
     if (inspectFailure) {
       reject(inspectFailure);
       return;
     }
     const proc = spawn(DOCKER_BIN, ["logs", "-f", containerId]);
-    const timer = setTimeout(() => {
-      failLogWait(state, logMatchTimeoutError(state, timeoutMs));
-    }, timeoutMs);
     const state: LogWaitState = {
       containerId,
       required,
       matched: new Set<string>(),
       proc,
-      timer,
-      resolve,
+      resolve: () => {
+        resolve(undefined);
+      },
       reject,
       settled: false,
       buffer: "",
     };
+    state.timer = setTimeout(() => {
+      failLogWait(state, logMatchTimeoutError(state, timeoutMs));
+    }, timeoutMs);
     wireLogWaitProcess(state);
   });
 }
@@ -431,12 +467,12 @@ function inspectContainerForLogStream(
 }
 
 function wireLogWaitProcess(state: LogWaitState): void {
-  state.proc.stdout.on("data", (chunk: Buffer) =>
-    processLogChunk(state, chunk),
-  );
-  state.proc.stderr.on("data", (chunk: Buffer) =>
-    processLogChunk(state, chunk),
-  );
+  state.proc.stdout.on("data", (chunk: Buffer) => {
+    processLogChunk(state, chunk);
+  });
+  state.proc.stderr.on("data", (chunk: Buffer) => {
+    processLogChunk(state, chunk);
+  });
   state.proc.on("error", (err) => {
     failLogWait(
       state,
@@ -445,7 +481,9 @@ function wireLogWaitProcess(state: LogWaitState): void {
       ),
     );
   });
-  state.proc.on("close", (code) => handleLogStreamClose(state, code));
+  state.proc.on("close", (code) => {
+    handleLogStreamClose(state, code);
+  });
 }
 
 function processLogChunk(state: LogWaitState, chunk: Buffer): void {
@@ -470,7 +508,9 @@ function addLineMatches(state: LogWaitState, line: string): void {
 }
 
 function handleLogStreamClose(state: LogWaitState, code: number | null): void {
-  if (state.settled) return;
+  if (state.settled) {
+    return;
+  }
   addBufferMatches(state);
   if (allPatternsMatched(state)) {
     succeedLogWait(state);
@@ -481,9 +521,13 @@ function handleLogStreamClose(state: LogWaitState, code: number | null): void {
 }
 
 function addBufferMatches(state: LogWaitState): void {
-  if (state.buffer.length === 0) return;
+  if (state.buffer.length === 0) {
+    return;
+  }
   for (const pattern of state.required) {
-    if (state.buffer.includes(pattern)) state.matched.add(pattern);
+    if (state.buffer.includes(pattern)) {
+      state.matched.add(pattern);
+    }
   }
 }
 
@@ -502,9 +546,13 @@ function failLogWait(state: LogWaitState, error: Error): void {
 }
 
 function finishLogWait(state: LogWaitState): void {
-  if (state.settled) return;
+  if (state.settled) {
+    return;
+  }
   state.settled = true;
-  clearTimeout(state.timer);
+  if (state.timer !== undefined) {
+    clearTimeout(state.timer);
+  }
   state.proc.kill();
 }
 
@@ -540,7 +588,11 @@ function logMatchStateSummary(state: LogWaitState): string {
   );
 }
 
-/** Wait for both gateway and channel to be ready (single log stream). */
+/**
+ * Wait for both gateway and channel to be ready (single log stream).
+ * @param containerId Value supplied to the operation.
+ * @returns The wait for ready result.
+ */
 export function waitForReady(containerId: string) {
   return waitForLogMatch(
     containerId,
@@ -549,10 +601,14 @@ export function waitForReady(containerId: string) {
   );
 }
 
-/** Stop and remove a container, clean up temp files. */
+/**
+ * Stop and remove a container, clean up temp files.
+ * @param container Value supplied to the operation.
+ * @returns The stop container result.
+ */
 export function stopContainer(
   container: OpenClawContainer,
-): Effect.Effect<void, never, never> {
+): Effect.Effect<void> {
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fileSystem) =>
       Effect.gen(function* () {
@@ -580,7 +636,7 @@ export function stopContainer(
 function removeTempDir(
   fileSystem: FileSystem.FileSystem,
   tmpDir: string,
-): Effect.Effect<void, never> {
+): Effect.Effect<void> {
   return fileSystem
     .remove(tmpDir, { recursive: true, force: true })
     .pipe(

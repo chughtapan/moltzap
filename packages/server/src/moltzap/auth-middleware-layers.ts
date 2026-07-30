@@ -19,7 +19,7 @@
  */
 // safer-arch-ignore no-fat-orchestrator: This module is the assembly point for the complete protocol requirement Layer catalog used by each socket runtime.
 
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, unsafeCoerce } from "effect";
 import type { RpcMiddleware } from "@effect/rpc";
 import {
   ActiveAgent,
@@ -28,26 +28,33 @@ import {
   ContactPolicyAllowsReach,
   AuthenticatedPrincipal,
   type PrincipalRequirement,
+  type AgentId,
 } from "@moltzap/protocol/identity";
 import {
   ConversationInTask,
   ConversationSendAccess,
+  type ConversationId,
 } from "@moltzap/protocol/conversation";
 import { TaskReadAccess, type TaskId } from "@moltzap/protocol/task";
-import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import { ConnectionManagerTag } from "#socket";
 import { ConversationServiceTag } from "#conversation";
 import { MessageServiceTag } from "#message";
 import { TaskServiceTag } from "#task";
 import { obtainTaskReadAccess } from "#task/requirements";
-import { obtainConversationInTask } from "#conversation/requirements";
+import {
+  obtainConversationInTask,
+  obtainConversationSendAccess,
+} from "#conversation/requirements";
 import { obtainContactPolicyAllowsReach } from "#identity/contacts/requirements";
-import { obtainConversationSendAccess } from "#conversation/requirements";
 import { narrowByPolicy, peekLiveArm } from "./principal-gate.js";
 
-/** Read the caller's agent id off the live arm when a requirement derives from it. */
+/**
+ * Read the caller's agent id off the live arm when a requirement derives from it.
+ * @param manager Value supplied to the operation.
+ * @param connId Value supplied to the operation.
+ * @returns The caller agent id for result.
+ */
 const callerAgentIdFor = (
   manager: ConnectionManagerService,
   connId: ConnectionId,
@@ -70,6 +77,11 @@ type ConnectionManagerService = Parameters<typeof peekLiveArm>[0];
  * Build a principal requirement impl Layer: peek the live arm and narrow it to
  * `narrowAs` (with `requireActiveAgent` for the `ActiveAgent` arm). The layer
  * provides nothing — it gates only, failing `Forbidden` on the wrong arm.
+ * @param mw Value supplied to the operation.
+ * @param connId Value supplied to the operation.
+ * @param narrowAs Value supplied to the operation.
+ * @param requireActiveAgent Value supplied to the operation.
+ * @returns The principal layer result.
  */
 const principalLayer = <Mw extends RpcMiddleware.TagClassAny>(
   mw: Mw,
@@ -77,19 +89,21 @@ const principalLayer = <Mw extends RpcMiddleware.TagClassAny>(
   narrowAs: PrincipalRequirement,
   requireActiveAgent: boolean,
 ): Layer.Layer<Context.Tag.Identifier<Mw>, never, ConnectionManagerTag> =>
-  Layer.effect(
-    mw,
-    Effect.gen(function* () {
-      const manager = yield* ConnectionManagerTag;
-      return () =>
-        peekLiveArm(manager, connId).pipe(
-          Effect.flatMap((connection) =>
-            narrowByPolicy(narrowAs, requireActiveAgent, connection),
-          ),
-          Effect.asVoid,
-          Effect.withSpan(`requirement.${mw.key}`),
-        );
-    }),
+  unsafeCoerce(
+    Layer.effect(
+      mw,
+      Effect.gen(function* () {
+        const manager = yield* ConnectionManagerTag;
+        return () =>
+          peekLiveArm(manager, connId).pipe(
+            Effect.flatMap((connection) =>
+              narrowByPolicy(requireActiveAgent, connection, narrowAs),
+            ),
+            Effect.asVoid,
+            Effect.withSpan(`requirement.${mw.key}`),
+          );
+      }),
+    ),
   );
 
 const makeAgentPrincipalLayer = (connId: ConnectionId) =>
@@ -116,39 +130,41 @@ interface MwOptions {
   readonly payload: unknown;
 }
 
-type SendParams = {
+interface SendParams {
   readonly taskId?: TaskId;
   readonly conversationId: ConversationId;
-};
-type TaskAndConvParams = {
+}
+interface TaskAndConvParams {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-};
-type TaskAndAgentParams = { readonly taskId: TaskId };
-type TaskRequestParams = {
+}
+interface TaskAndAgentParams {
+  readonly taskId: TaskId;
+}
+interface TaskRequestParams {
   readonly invitedAgentIds: readonly AgentId[];
   readonly initialConversation?: {
     readonly participants?: readonly AgentId[];
   };
-};
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const isTaskAndConvParams = (payload: unknown): payload is TaskAndConvParams =>
   isRecord(payload) &&
-  typeof payload["taskId"] === "string" &&
-  typeof payload["conversationId"] === "string";
+  typeof payload.taskId === "string" &&
+  typeof payload.conversationId === "string";
 
 const isSendParams = (payload: unknown): payload is SendParams =>
   isRecord(payload) &&
-  (payload["taskId"] === undefined || typeof payload["taskId"] === "string") &&
-  typeof payload["conversationId"] === "string";
+  (payload.taskId === undefined || typeof payload.taskId === "string") &&
+  typeof payload.conversationId === "string";
 
 const isTaskAndAgentParams = (
   payload: unknown,
 ): payload is TaskAndAgentParams =>
-  isRecord(payload) && typeof payload["taskId"] === "string";
+  isRecord(payload) && typeof payload.taskId === "string";
 
 const isAgentIdArray = (value: unknown): value is readonly AgentId[] =>
   Array.isArray(value) && value.every((id) => typeof id === "string");
@@ -156,15 +172,16 @@ const isAgentIdArray = (value: unknown): value is readonly AgentId[] =>
 const isTaskRequestParams = (
   payload: unknown,
 ): payload is TaskRequestParams => {
-  if (!isRecord(payload) || !isAgentIdArray(payload["invitedAgentIds"])) {
+  if (!isRecord(payload) || !isAgentIdArray(payload.invitedAgentIds)) {
     return false;
   }
-  const initial = payload["initialConversation"];
-  if (initial === undefined) return true;
+  const initial = payload.initialConversation;
+  if (initial === undefined) {
+    return true;
+  }
   return (
     isRecord(initial) &&
-    (initial["participants"] === undefined ||
-      isAgentIdArray(initial["participants"]))
+    (initial.participants === undefined || isAgentIdArray(initial.participants))
   );
 };
 
@@ -173,7 +190,9 @@ function requirePayload<A>(
   guard: (payload: unknown) => payload is A,
   requirement: string,
 ): Effect.Effect<A> {
-  if (guard(payload)) return Effect.succeed(payload);
+  if (guard(payload)) {
+    return Effect.succeed(payload);
+  }
   return Effect.dieMessage(
     `requirement middleware ${requirement}: incompatible RPC payload`,
   );
@@ -221,6 +240,10 @@ type MiddlewareFailure<Mw extends RpcMiddleware.TagClassAny> =
  * (no caller). Used for requirements that gate on pure params — e.g. `ConversationInTask`,
  * which the app-principal `app/conversation/*` methods declare, so its impl
  * must not peek the caller's agent id (the live arm is an `AppConnection`).
+ * @param mw Value supplied to the operation.
+ * @param derive Value supplied to the operation.
+ * @param obtain Value supplied to the operation.
+ * @returns The requirement middleware layer result.
  */
 const requirementMiddlewareLayer = <
   Mw extends RpcMiddleware.TagClassAny,
@@ -235,17 +258,19 @@ const requirementMiddlewareLayer = <
   never,
   RequirementMiddlewareLayerR
 > =>
-  Layer.effect(
-    mw,
-    Effect.map(
-      mwEnv,
-      (env) =>
-        ({ payload }: MwOptions) =>
-          derive(payload).pipe(
-            Effect.flatMap(obtain),
-            Effect.asVoid,
-            Effect.provide(env),
-          ),
+  unsafeCoerce(
+    Layer.effect(
+      mw,
+      Effect.map(
+        mwEnv,
+        (env) =>
+          ({ payload }: MwOptions) =>
+            derive(payload).pipe(
+              Effect.flatMap(obtain),
+              Effect.asVoid,
+              Effect.provide(env),
+            ),
+      ),
     ),
   );
 
@@ -255,6 +280,11 @@ const requirementMiddlewareLayer = <
  * (`ConversationSendAccess`, `TaskReadAccess`, `ContactPolicyAllowsReach`); the
  * peek dies on a non-agent arm, which is sound only because these requirements gate
  * agent-callable methods.
+ * @param mw Value supplied to the operation.
+ * @param connId Value supplied to the operation.
+ * @param derive Value supplied to the operation.
+ * @param obtain Value supplied to the operation.
+ * @returns The requirement middleware layer with caller result.
  */
 const requirementMiddlewareLayerWithCaller = <
   Mw extends RpcMiddleware.TagClassAny,
@@ -270,20 +300,22 @@ const requirementMiddlewareLayerWithCaller = <
   never,
   RequirementMiddlewareLayerR
 > =>
-  Layer.effect(
-    mw,
-    Effect.map(
-      mwEnv,
-      (env) =>
-        ({ payload }: MwOptions) =>
-          Effect.gen(function* () {
-            const callerAgentId = yield* callerAgentIdFor(
-              Context.get(env, ConnectionManagerTag),
-              connId,
-            );
-            const input = yield* derive(payload, callerAgentId);
-            return yield* obtain(input);
-          }).pipe(Effect.asVoid, Effect.provide(env)),
+  unsafeCoerce(
+    Layer.effect(
+      mw,
+      Effect.map(
+        mwEnv,
+        (env) =>
+          ({ payload }: MwOptions) =>
+            Effect.gen(function* () {
+              const callerAgentId = yield* callerAgentIdFor(
+                Context.get(env, ConnectionManagerTag),
+                connId,
+              );
+              const input = yield* derive(payload, callerAgentId);
+              return yield* obtain(input);
+            }).pipe(Effect.asVoid, Effect.provide(env)),
+      ),
     ),
   );
 
@@ -357,6 +389,8 @@ const makeContactPolicyAllowsReachLayer = (connId: ConnectionId) =>
  * requirement on the methods that declare it. `ConversationInTask` reads no
  * caller (pure params — it gates app-principal methods too); the rest peek the
  * caller's agent id.
+ * @param connId Value supplied to the operation.
+ * @returns The created requirement middleware layers.
  */
 export const makeRequirementMiddlewareLayers = (connId: ConnectionId) =>
   Layer.mergeAll(

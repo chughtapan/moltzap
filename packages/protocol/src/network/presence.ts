@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { AgentId } from "#identity/agents";
+import { agentId } from "#identity/agents";
 import { stringEnum } from "#transport";
 import { defineRpc } from "#transport/descriptor";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
@@ -8,11 +8,11 @@ import { NotInContactsError } from "#identity/contacts";
 // Presence is server-derived from `LeaseRegistry` lifecycle: `online` =
 // connected with no active lease, `working` = connected with active work, and
 // `offline` = disconnected. There is no client-set status.
-const PresenceStatusEnum = stringEnum(["online", "working", "offline"]);
+const presenceStatusEnum = stringEnum(["online", "working", "offline"]);
 
-const PresenceEntrySchema = Schema.Struct({
-  agentId: AgentId,
-  status: PresenceStatusEnum,
+const presenceEntrySchema = Schema.Struct({
+  agentId: agentId,
+  status: presenceStatusEnum,
 });
 
 /**
@@ -24,26 +24,28 @@ const PresenceEntrySchema = Schema.Struct({
  * - **Result:** the current `statuses` of the subscribed agents.
  * @error NotInContactsError when an agent caller requests an id outside its contact-visible set
  */
-const PresenceSubscribeParamsSchema = Schema.Struct({
-  agentIds: Schema.Array(AgentId),
+const presenceSubscribeParamsSchema = Schema.Struct({
+  agentIds: Schema.Array(agentId),
 });
 
-const PresenceSubscribeResultSchema = Schema.Struct({
-  statuses: Schema.Array(PresenceEntrySchema),
+const presenceSubscribeResultSchema = Schema.Struct({
+  statuses: Schema.Array(presenceEntrySchema),
 });
 
-export const AgentPresenceSubscribe = defineRpc({
+/** Defines the `agent/network/presence/subscribe` RPC contract. */
+export const agentPresenceSubscribe = defineRpc({
   name: "agent/network/presence/subscribe",
-  params: PresenceSubscribeParamsSchema,
-  result: PresenceSubscribeResultSchema,
+  params: presenceSubscribeParamsSchema,
+  result: presenceSubscribeResultSchema,
   requires: [AgentPrincipal],
   errors: [NotInContactsError],
 });
 
-export const AppPresenceSubscribe = defineRpc({
+/** Defines the `app/network/presence/subscribe` RPC contract. */
+export const appPresenceSubscribe = defineRpc({
   name: "app/network/presence/subscribe",
-  params: PresenceSubscribeParamsSchema,
-  result: PresenceSubscribeResultSchema,
+  params: presenceSubscribeParamsSchema,
+  result: presenceSubscribeResultSchema,
   requires: [AppPrincipal],
   errors: [],
 });

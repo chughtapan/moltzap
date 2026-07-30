@@ -19,6 +19,7 @@ export class AgentContext extends Data.TaggedClass("AgentContext")<{
   readonly ownerUserId: UserId;
 }> {}
 
+/** Implements app context. */
 export class AppContext extends Data.TaggedClass("AppContext")<{
   readonly appId: AppId;
 }> {}
@@ -27,6 +28,11 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
  * Mint an {@link AgentContext} from authenticator fields. The `agent_status`
  * SQL enum constrains stored values to {@link AgentStatus}, but the DB driver
  * types it as `string`, so any other value is an impossible-state defect.
+ * @param parts Value supplied to the operation.
+ * @param parts.agentId Value supplied to the operation.
+ * @param parts.agentStatus Value supplied to the operation.
+ * @param parts.ownerUserId Value supplied to the operation.
+ * @returns The agent context from result.
  */
 export function agentContextFrom(parts: {
   readonly agentId: AgentId;

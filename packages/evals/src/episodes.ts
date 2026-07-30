@@ -1,6 +1,6 @@
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ReceivedMessage } from "@moltzap/simulator";
 import {
+  type ReceivedMessage,
   type AgentHandle,
   type ConversationSocket,
   Network,
@@ -8,8 +8,11 @@ import {
 } from "@moltzap/simulator";
 import { Effect, type Scope } from "effect";
 
+/** Provides the target agent name runtime value. */
 export const TARGET_AGENT_NAME = "evaluation-target";
+/** Provides the sender name runtime value. */
 export const SENDER_NAME = "eval-sender";
+/** Provides the probe sender name runtime value. */
 export const PROBE_SENDER_NAME = "eval-probe-sender";
 const BYSTANDER_NAME = "group-bystander-1";
 const QUIET_BYSTANDER_ONE = "group-bystander-1";
@@ -49,6 +52,9 @@ function responseAt(
 /**
  * Evaluation policy deliberately consumes deliveries until one matches.
  * The simulator socket itself only exposes ordered receive semantics.
+ * @param socket Value supplied to the operation.
+ * @param predicate Predicate used to select matching values.
+ * @returns The receive where result.
  */
 function receiveWhere(
   socket: ConversationSocket,
@@ -65,12 +71,17 @@ function receiveWhere(
     );
 }
 
-/** One direct conversation and one target response. */
+/**
+ * One direct conversation and one target response.
+ * @param target Value supplied to the operation.
+ * @param prompt Value supplied to the operation.
+ * @returns The direct episode result.
+ */
 export function directEpisode(
   target: AgentHandle,
   prompt: string,
 ): Effect.Effect<
-  ReadonlyArray<EpisodeResponse>,
+  readonly EpisodeResponse[],
   EpisodeFailure,
   EpisodeRequirements
 > {
@@ -87,13 +98,19 @@ export function directEpisode(
   }).pipe(Effect.withSpan("directEpisode"));
 }
 
-/** Two or more turns in one direct conversation. */
+/**
+ * Two or more turns in one direct conversation.
+ * @param target Value supplied to the operation.
+ * @param opening Value supplied to the operation.
+ * @param followUps Value supplied to the operation.
+ * @returns The direct multi turn episode result.
+ */
 export function directMultiTurnEpisode(
   target: AgentHandle,
   opening: string,
-  followUps: ReadonlyArray<string>,
+  followUps: readonly string[],
 ): Effect.Effect<
-  ReadonlyArray<EpisodeResponse>,
+  readonly EpisodeResponse[],
   EpisodeFailure,
   EpisodeRequirements
 > {
@@ -129,13 +146,17 @@ export function directMultiTurnEpisode(
 /**
  * An endpoint bystander speaks first, then a second endpoint addresses the
  * target in the same group conversation.
+ * @param target Value supplied to the operation.
+ * @param bystanderMessage Value supplied to the operation.
+ * @param prompt Value supplied to the operation.
+ * @returns The speaking group episode result.
  */
 export function speakingGroupEpisode(
   target: AgentHandle,
   bystanderMessage: string,
   prompt: string,
 ): Effect.Effect<
-  ReadonlyArray<EpisodeResponse>,
+  readonly EpisodeResponse[],
   EpisodeFailure,
   EpisodeRequirements
 > {
@@ -166,12 +187,17 @@ export function speakingGroupEpisode(
   }).pipe(Effect.withSpan("speakingGroupEpisode"));
 }
 
-/** One group prompt with silent experiment-controlled endpoints. */
+/**
+ * One group prompt with silent experiment-controlled endpoints.
+ * @param target Value supplied to the operation.
+ * @param prompt Value supplied to the operation.
+ * @returns The silent group episode result.
+ */
 export function silentGroupEpisode(
   target: AgentHandle,
   prompt: string,
 ): Effect.Effect<
-  ReadonlyArray<EpisodeResponse>,
+  readonly EpisodeResponse[],
   EpisodeFailure,
   EpisodeRequirements
 > {
@@ -197,14 +223,20 @@ export function silentGroupEpisode(
 /**
  * Establish context with one endpoint, then probe the target from another
  * endpoint in a distinct conversation.
+ * @param options Options that control the operation.
+ * @param options.target Value supplied to the operation.
+ * @param options.setup Value supplied to the operation.
+ * @param options.probe Value supplied to the operation.
+ * @param options.followUps Value supplied to the operation.
+ * @returns The cross conversation episode result.
  */
 export function crossConversationEpisode(options: {
   readonly target: AgentHandle;
   readonly setup: string;
   readonly probe: string;
-  readonly followUps?: ReadonlyArray<string>;
+  readonly followUps?: readonly string[];
 }): Effect.Effect<
-  ReadonlyArray<EpisodeResponse>,
+  readonly EpisodeResponse[],
   EpisodeFailure,
   EpisodeRequirements
 > {

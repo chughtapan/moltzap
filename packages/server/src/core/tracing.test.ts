@@ -9,7 +9,7 @@ const TRACES_ENDPOINT = "https://traces-host/custom";
 
 describe("resolveTracesEndpoint", () => {
   test("returns null when neither endpoint is set", () => {
-    expect(resolveTracesEndpoint(undefined, undefined)).toBeNull();
+    expect(resolveTracesEndpoint()).toBeNull();
   });
 
   test("appends the traces path to the base endpoint", () => {
@@ -31,7 +31,7 @@ describe("resolveTracesEndpoint", () => {
   });
 
   test("uses the trace-specific endpoint verbatim", () => {
-    expect(resolveTracesEndpoint(`${BASE}${TRACES_SUFFIX}`, undefined)).toBe(
+    expect(resolveTracesEndpoint(`${BASE}${TRACES_SUFFIX}`)).toBe(
       `${BASE}${TRACES_SUFFIX}`,
     );
   });
@@ -41,7 +41,7 @@ describe("resolveTracesEndpoint", () => {
   });
 
   test("does not suffix the trace-specific endpoint (used as the full URL)", () => {
-    expect(resolveTracesEndpoint(`${TRACES_ENDPOINT}/`, undefined)).toBe(
+    expect(resolveTracesEndpoint(`${TRACES_ENDPOINT}/`)).toBe(
       `${TRACES_ENDPOINT}/`,
     );
   });
@@ -57,7 +57,8 @@ describe("resolveTracesEndpoint", () => {
           const base = `${root}${"/".repeat(extraSlashes)}`;
           const resolved = resolveTracesEndpoint(undefined, base);
           expect(resolved).not.toBeNull();
-          const url = resolved as string;
+          const url =
+            /* Safe because the test fixture establishes this asserted shape. */ resolved as string;
           expect(url.endsWith(TRACES_SUFFIX)).toBe(true);
           expect(url).not.toContain(`/${TRACES_SUFFIX}`);
         },

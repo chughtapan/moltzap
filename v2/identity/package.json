@@ -37,7 +37,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "v2/identity",
-          "command": "eslint src --cache --max-warnings=0"
+          "command": "eslint . --cache --max-warnings=0"
         }
       }
     }
