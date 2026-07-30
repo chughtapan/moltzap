@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
@@ -133,7 +133,7 @@ function assertSecondErrorState(propertyName: string, errorState: string) {
     : Effect.fail(
         dispatchAdmissionViolation(
           propertyName,
-          `second send LeaseInvalid state ${String(errorState)} != CONSUMED`,
+          `second send LeaseInvalid state ${errorState} != CONSUMED`,
         ),
       );
 }
@@ -152,7 +152,7 @@ function assertNoDuplicateConsumed(
         timeoutMs: NEGATIVE_OBSERVABILITY_WINDOW_MS,
       }),
     );
-    if (dup._tag === "Success") {
+    if (Exit.isSuccess(dup)) {
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,

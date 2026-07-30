@@ -23,7 +23,7 @@ import {
   HttpClientRequest,
 } from "@effect/platform";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import { type RegisterResponse } from "@moltzap/client/auth";
+import type { RegisterResponse } from "@moltzap/client/auth";
 import { registerStandaloneAgentPair } from "@moltzap/client/test-utils";
 import {
   Config,
@@ -33,7 +33,7 @@ import {
   Effect,
   Redacted,
 } from "effect";
-import type { GlobalSetupContext } from "vitest/node";
+import type { TestProject } from "vitest/node";
 
 const DEFAULT_READY_TIMEOUT_MS = 180_000;
 const PROBE_TIMEOUT_MS = 1_000;
@@ -56,27 +56,33 @@ class IntegrationSetupError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-type ChildExit = {
+interface ChildExit {
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
-};
+}
 
-type OutputCapture = {
+interface OutputCapture {
   stdout: string;
   stderr: string;
-};
+}
 
-type StandaloneProcess = {
+interface StandaloneProcess {
   readonly child: ChildProcess;
   readonly output: OutputCapture;
   readonly getExit: () => ChildExit | null;
-};
+}
 
-export default function ({ provide }: GlobalSetupContext) {
+/**
+ * Boots the shared Nanoclaw integration fixture.
+ * @param project Vitest project used to publish fixture values.
+ * @returns The integration fixture teardown callback.
+ */
+export function setup(project: TestProject) {
+  const { provide } = project;
   return Effect.runPromise(setupIntegrationTests(provide));
 }
 
-function setupIntegrationTests(provide: GlobalSetupContext["provide"]) {
+function setupIntegrationTests(provide: TestProject["provide"]) {
   return Effect.gen(function* () {
     const port = pickPort();
     const paths = yield* makeStandalonePaths(port);
@@ -199,13 +205,15 @@ function standaloneEnv(configPath: string, port: number): NodeJS.ProcessEnv {
 function waitForStandaloneReady(
   standalone: StandaloneProcess,
   baseUrl: string,
-): Effect.Effect<void, IntegrationSetupError> {
+): Effect.Effect<void, IntegrationSetupError, HttpClient.HttpClient> {
   return Effect.gen(function* () {
     const readyTimeoutMs = yield* readReadyTimeoutMs();
     const deadline = performance.now() + readyTimeoutMs;
     while (performance.now() < deadline) {
       yield* failIfExited(standalone);
-      if (yield* probeReady(baseUrl)) return;
+      if (yield* probeReady(baseUrl)) {
+        return;
+      }
       yield* Effect.sleep(`${PROBE_DELAY_MS} millis`);
     }
     standalone.child.kill("SIGKILL");
@@ -251,7 +259,7 @@ function probeReady(
 }
 
 function provideIntegrationValues(
-  provide: GlobalSetupContext["provide"],
+  provide: TestProject["provide"],
   port: number,
   agentA: RegisterResponse,
   agentB: RegisterResponse,
@@ -268,33 +276,38 @@ function teardownIntegrationTests(): Effect.Effect<void> {
   return Effect.gen(function* () {
     const current = child;
     child = null;
-    if (current !== null) yield* stopChild(current);
-    yield* removeTempDir;
+    if (current !== null) {
+      yield* stopChild(current);
+    }
+    yield* removeTempDir();
   }).pipe(Effect.provide(NodeFileSystem.layer), Effect.ignore);
 }
 
 function stopChild(process: ChildProcess): Effect.Effect<void> {
-  return Effect.async<void>((resume) => {
+  return Effect.async<undefined>((resume) => {
     const timer = setTimeout(() => {
       process.kill("SIGKILL");
-      resume(Effect.void);
+      resume(Effect.succeed(undefined));
     }, STOP_TIMEOUT_MS);
     process.once("exit", () => {
       clearTimeout(timer);
-      resume(Effect.void);
+      resume(Effect.succeed(undefined));
     });
     process.kill("SIGTERM");
   });
 }
 
-const removeTempDir: Effect.Effect<void, unknown, FileSystem.FileSystem> =
-  Effect.gen(function* () {
+function removeTempDir(): Effect.Effect<void, unknown, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
     const current = tempDir;
     tempDir = null;
-    if (current === null) return;
+    if (current === null) {
+      return;
+    }
     const fileSystem = yield* FileSystem.FileSystem;
     yield* fileSystem.remove(current, { recursive: true, force: true });
   });
+}
 
 function tail(text: string): string {
   const lines = text.split("\n").filter((line) => line.length > 0);

@@ -91,10 +91,14 @@ interface Tasks extends Omit<RawTasks, "app_id" | "id" | "initiator_agent_id"> {
   initiator_agent_id: Branded<AgentId>;
 }
 
+/** Represents message row values. */
 export type MessageRow = Selectable<Messages>;
+/** Represents contact row values. */
 export type ContactRow = Selectable<Contacts>;
+/** Represents conversation key row values. */
 export type ConversationKeyRow = Selectable<ConversationKeys>;
 
+/** Describes database. */
 export interface Database {
   agents: Agents;
   apps: Apps;

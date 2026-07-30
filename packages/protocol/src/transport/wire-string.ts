@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, type FastCheck } from "effect";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -19,9 +19,7 @@ export type WireStringFormat = "uuid" | "uri" | "date-time";
 // top-level `fast-check` import in production code.
 const dateTimeArbitrary =
   () =>
-  (
-    fc: typeof import("effect").FastCheck,
-  ): import("effect").FastCheck.Arbitrary<string> =>
+  (fc: typeof FastCheck): FastCheck.Arbitrary<string> =>
     fc.date({ noInvalidDate: true }).map((d) => d.toISOString());
 
 /**
@@ -47,9 +45,7 @@ function applyStringFormat(
 ): Schema.Schema<string> {
   const withFormat = (
     schema: Schema.Schema<string>,
-    arbitrary: () => (
-      fc: typeof import("effect").FastCheck,
-    ) => import("effect").FastCheck.Arbitrary<string>,
+    arbitrary: () => (fc: typeof FastCheck) => FastCheck.Arbitrary<string>,
   ): Schema.Schema<string> =>
     schema.pipe(Schema.annotations({ jsonSchema: { format }, arbitrary }));
   switch (format) {
@@ -75,6 +71,8 @@ function applyStringFormat(
         ),
         dateTimeArbitrary,
       );
+    default:
+      return format satisfies never;
   }
 }
 

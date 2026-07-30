@@ -30,8 +30,10 @@ import {
 } from "effect";
 import { TreeFormatter } from "effect/ParseResult";
 import {
-  RegistrationSecret,
-  ServerEncryptionMasterSecret,
+  type RegistrationSecret,
+  registrationSecret,
+  type ServerEncryptionMasterSecret,
+  serverEncryptionMasterSecret,
 } from "#config/secrets";
 import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { type UserId, userId } from "@moltzap/protocol/identity";
@@ -41,9 +43,10 @@ import type { Db } from "#db";
 // Public: CoreConfig — `createCoreApp` boot input
 // ─────────────────────────────────────────────────────────────────────
 
+/** Describes core config. */
 export interface CoreConfig {
   db: Db;
-  dbCleanup?: () => PromiseLike<void>;
+  dbCleanup?: () => PromiseLike<undefined>;
   encryptionMasterSecret?: ServerEncryptionMasterSecret;
   port: number;
   corsOrigins: string[];
@@ -82,16 +85,17 @@ export interface CoreConfig {
 
 interface WebhookServiceBinding {
   readonly url: string;
-  readonly timeoutMs: number | undefined;
+  readonly timeoutMs?: number;
 }
 
+/** Describes standalone boot plan. */
 export interface StandaloneBootPlan {
   /** DATABASE_URL or YAML `database.url`. Empty string → embedded PGlite. */
   readonly databaseUrl: string;
   /** YAML `database.data_dir` for PGlite (ignored when `databaseUrl` is set). */
-  readonly pgliteDataDir: string | undefined;
+  readonly pgliteDataDir?: string;
 
-  readonly encryptionMasterSecret: ServerEncryptionMasterSecret | undefined;
+  readonly encryptionMasterSecret?: ServerEncryptionMasterSecret;
   readonly port: number;
   readonly corsOrigins: string[];
 
@@ -99,10 +103,10 @@ export interface StandaloneBootPlan {
   /** Boot-time admin owner id from `MOLTZAP_ADMIN_USER_ID` or YAML `admin_user_id`. */
   readonly adminUserId: UserId;
 
-  readonly registrationSecret: RegistrationSecret | undefined;
+  readonly registrationSecret?: RegistrationSecret;
 
   /** YAML `services.contacts: { type: "webhook" }` — drives `WebhookContactService` wiring. */
-  readonly contactWebhook: WebhookServiceBinding | undefined;
+  readonly contactWebhook?: WebhookServiceBinding;
 
   /** YAML `apps[]` — manifest references carried through from the config file. */
   readonly apps: ReadonlyArray<{ readonly manifest: string }>;
@@ -115,8 +119,10 @@ export interface StandaloneBootPlan {
 // Public: ConfigLoadError
 // ─────────────────────────────────────────────────────────────────────
 
+/** Represents config load error kind conditions. */
 export type ConfigLoadErrorKind = "read" | "yaml" | "env" | "validation";
 
+/** Reports config load failures. */
 export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
   readonly kind: ConfigLoadErrorKind;
   readonly path: string;
@@ -143,40 +149,40 @@ const opt = <A>(c: Config.Config<A>) =>
 
 // `URL.canParse` requires an absolute URI (a scheme present), so
 // `not-a-url` is rejected while `https://hooks.example.com/x` passes.
-const UriString = Schema.String.pipe(
+const uriString = Schema.String.pipe(
   Schema.filter((s) => URL.canParse(s) || "must be a valid absolute URI"),
 );
 
-const PortNumber = Schema.Number.pipe(
+const portNumber = Schema.Number.pipe(
   Schema.int(),
   Schema.greaterThanOrEqualTo(1),
   Schema.lessThanOrEqualTo(MAX_PORT_NUMBER),
 );
 
-const WebhookServiceShape = Schema.Struct({
+const webhookServiceShape = Schema.Struct({
   type: Schema.Literal("webhook"),
-  webhook_url: UriString,
+  webhook_url: uriString,
   timeout_ms: Schema.optional(
     Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(100)),
   ),
   callback_token: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 
-const InProcessServiceShape = Schema.Struct({
+const inProcessServiceShape = Schema.Struct({
   type: Schema.Literal("in_process"),
 });
 
-const ServiceShape = Schema.Union(WebhookServiceShape, InProcessServiceShape);
+const serviceShape = Schema.Union(webhookServiceShape, inProcessServiceShape);
 
-const AppRefShape = Schema.Struct({
+const appRefShape = Schema.Struct({
   manifest: Schema.String.pipe(Schema.minLength(1)),
 });
 
-const MoltZapConfigShape = Schema.Struct({
+const moltZapConfigShape = Schema.Struct({
   admin_user_id: Schema.optional(userId),
   server: Schema.optional(
     Schema.Struct({
-      port: Schema.optional(PortNumber),
+      port: Schema.optional(portNumber),
       cors_origins: Schema.optional(Schema.Array(Schema.String)),
     }),
   ),
@@ -187,26 +193,26 @@ const MoltZapConfigShape = Schema.Struct({
     }),
   ),
   encryption: Schema.optional(
-    Schema.Struct({ master_secret: ServerEncryptionMasterSecret }),
+    Schema.Struct({ master_secret: serverEncryptionMasterSecret }),
   ),
   services: Schema.optional(
-    Schema.Struct({ contacts: Schema.optional(ServiceShape) }),
+    Schema.Struct({ contacts: Schema.optional(serviceShape) }),
   ),
   registration: Schema.optional(
-    Schema.Struct({ secret: Schema.optional(RegistrationSecret) }),
+    Schema.Struct({ secret: Schema.optional(registrationSecret) }),
   ),
   dev_mode: Schema.optional(
     Schema.Struct({
       enabled: Schema.Boolean,
     }),
   ),
-  apps: Schema.optional(Schema.Array(AppRefShape)),
+  apps: Schema.optional(Schema.Array(appRefShape)),
 });
 
-type YamlConfig = Schema.Schema.Type<typeof MoltZapConfigShape>;
-type YamlServiceConfig = Schema.Schema.Type<typeof ServiceShape>;
+type YamlConfig = Schema.Schema.Type<typeof moltZapConfigShape>;
+type YamlServiceConfig = Schema.Schema.Type<typeof serviceShape>;
 
-const decodeConfigShape = Schema.decodeUnknownEither(MoltZapConfigShape, {
+const decodeConfigShape = Schema.decodeUnknownEither(moltZapConfigShape, {
   errors: "all",
   onExcessProperty: "error",
 });
@@ -215,6 +221,9 @@ const decodeConfigShape = Schema.decodeUnknownEither(MoltZapConfigShape, {
  * Decode the interpolated YAML into the typed `YamlConfig`. Surfaces the
  * full `ParseError` tree (path + message per leaf) as a single
  * `ConfigLoadError`.
+ * @param value Value to process.
+ * @param configPath Value supplied to the operation.
+ * @returns The decoded yaml shape.
  */
 function decodeYamlShape(
   value: unknown,
@@ -245,17 +254,19 @@ type ProcessEnvSnapshot = Readonly<Record<string, string | undefined>>;
  * interpolation — fails loudly with one clear "must be a mapping"
  * message instead of a confusing per-key validation error downstream.
  */
-const YamlDocumentSchema = Schema.Record({
+const yamlDocumentSchema = Schema.Record({
   key: Schema.String,
   value: Schema.Unknown,
 });
-const decodeYamlDocument = Schema.decodeUnknownEither(YamlDocumentSchema);
+const decodeYamlDocument = Schema.decodeUnknownEither(yamlDocumentSchema);
 
 function readEnvValue(
-  processEnv: ProcessEnvSnapshot | undefined,
   key: string,
+  processEnv?: ProcessEnvSnapshot,
 ): string | undefined {
-  if (processEnv !== undefined) return processEnv[key];
+  if (processEnv !== undefined) {
+    return processEnv[key];
+  }
   return Option.getOrUndefined(
     Effect.runSync(
       Config.option(Config.string(key)).pipe(
@@ -266,10 +277,10 @@ function readEnvValue(
 }
 
 function resolveConfigPath(
-  path: string | undefined,
-  processEnv: ProcessEnvSnapshot | undefined,
+  path?: string,
+  processEnv?: ProcessEnvSnapshot,
 ): string {
-  return path ?? readEnvValue(processEnv, "MOLTZAP_CONFIG") ?? "moltzap.yaml";
+  return path ?? readEnvValue("MOLTZAP_CONFIG", processEnv) ?? "moltzap.yaml";
 }
 
 function readConfigFile(
@@ -311,7 +322,7 @@ function parseYamlDocument(
       new ConfigLoadError({
         kind: "yaml",
         path: configPath,
-        message: `Invalid YAML in "${configPath}": ${(cause as Error).message}`,
+        message: `Invalid YAML in "${configPath}": ${/* Safe because the surrounding invariant establishes this asserted shape. */ (cause as Error).message}`,
         cause,
       }),
   }).pipe(Effect.withSpan("parseYamlDocument"));
@@ -335,45 +346,27 @@ function decodeYamlMapping(
   }).pipe(Effect.withSpan("decodeYamlMapping"));
 }
 
-/** Interpolate `${ENV_VAR}` references in string values throughout a parsed object. */
+/**
+ * Interpolate `${ENV_VAR}` references in string values throughout a parsed object.
+ * @param obj Value supplied to the operation.
+ * @param path Path to process.
+ * @param processEnv Value supplied to the operation.
+ * @returns The interpolate env vars result.
+ */
 function interpolateEnvVars(
   obj: unknown,
   path: string,
   processEnv?: ProcessEnvSnapshot,
 ): Effect.Effect<unknown, ConfigLoadError> {
+  const resolvedProcessEnv = processEnv ?? {};
   if (typeof obj === "string") {
-    let missing: string | null = null;
-    const replaced = obj.replace(
-      /\$\{([^}]+)\}/g,
-      (_match, varName: string) => {
-        const value = readEnvValue(processEnv, varName);
-        // Treat empty string the same as undefined: an accidentally empty
-        // env var would otherwise silently interpolate into strings like
-        // `https://${HOST}/callback` and produce a broken URL that still
-        // passes the outer key's minLength check.
-        if (value === undefined || value === "") {
-          if (missing === null) missing = varName;
-          return "";
-        }
-        return value;
-      },
-    );
-    if (missing !== null) {
-      return Effect.fail(
-        new ConfigLoadError({
-          kind: "env",
-          path,
-          message: `Missing env var "${missing}" referenced in "${path}"`,
-        }),
-      );
-    }
-    return Effect.succeed(replaced);
+    return interpolateString(obj, path, resolvedProcessEnv);
   }
   if (Array.isArray(obj)) {
     return Effect.gen(function* () {
       const out: unknown[] = [];
       for (const value of obj) {
-        out.push(yield* interpolateEnvVars(value, path, processEnv));
+        out.push(yield* interpolateEnvVars(value, path, resolvedProcessEnv));
       }
       return out;
     });
@@ -382,12 +375,42 @@ function interpolateEnvVars(
     return Effect.gen(function* () {
       const out: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(obj)) {
-        out[key] = yield* interpolateEnvVars(value, path, processEnv);
+        out[key] = yield* interpolateEnvVars(value, path, resolvedProcessEnv);
       }
       return out;
     });
   }
   return Effect.succeed(obj);
+}
+
+function interpolateString(
+  input: string,
+  path: string,
+  processEnv?: ProcessEnvSnapshot,
+): Effect.Effect<string, ConfigLoadError> {
+  let missing: string | null = null;
+  const replaced = input.replace(/\$\{([^}]+)\}/g, (match, varName: string) => {
+    if (!match.endsWith(`{${varName}}`)) {
+      return match;
+    }
+    const value = readEnvValue(varName, processEnv);
+    // Empty variables are missing: silently inserting one can still produce a
+    // syntactically valid but broken URL such as `https://${HOST}/callback`.
+    if (value === undefined || value === "") {
+      missing ??= varName;
+      return "";
+    }
+    return value;
+  });
+  return missing === null
+    ? Effect.succeed(replaced)
+    : Effect.fail(
+        new ConfigLoadError({
+          kind: "env",
+          path,
+          message: `Missing env var "${missing}" referenced in "${path}"`,
+        }),
+      );
 }
 
 function resolveConfigDir(
@@ -414,40 +437,52 @@ function resolveConfigDir(
 const TRUE_BOOLEAN_VALUES = new Set(["true", "1", "yes", "on"]);
 const FALSE_BOOLEAN_VALUES = new Set(["false", "0", "no", "off"]);
 const DEFAULT_SERVER_PORT = 3000;
-const DECIMAL_RADIX = 10;
-
-function parseBoolEnv(
-  raw: string | undefined,
-  fallback: boolean,
-): boolean | null {
-  if (raw === undefined || raw.length === 0) return fallback;
+function parseBoolEnv(fallback: boolean, raw?: string): boolean | null {
+  if (raw === undefined || raw.length === 0) {
+    return fallback;
+  }
   const normalized = raw.trim().toLowerCase();
-  if (TRUE_BOOLEAN_VALUES.has(normalized)) return true;
-  if (FALSE_BOOLEAN_VALUES.has(normalized)) return false;
+  if (TRUE_BOOLEAN_VALUES.has(normalized)) {
+    return true;
+  }
+  if (FALSE_BOOLEAN_VALUES.has(normalized)) {
+    return false;
+  }
   return null;
 }
 
-function parseIntEnv(raw: string | undefined): number | null {
-  if (raw === undefined || raw.length === 0) return null;
-  if (!/^-?\d+$/.test(raw.trim())) return null;
-  return Number.parseInt(raw, DECIMAL_RADIX);
+function parseIntEnv(raw?: string): number | null {
+  if (raw === undefined || raw.length === 0) {
+    return null;
+  }
+  if (!/^-?\d+$/.test(raw.trim())) {
+    return null;
+  }
+  return Number(raw.trim());
 }
 
-function parseCorsOriginsRaw(raw: string | undefined): string[] {
-  if (raw === undefined) return [];
+function parseCorsOriginsRaw(raw?: string): string[] {
+  if (raw === undefined) {
+    return [];
+  }
   return raw
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 }
 
-function loadProcessEnvSnapshot(): Effect.Effect<ProcessEnvSnapshot, never> {
+function loadProcessEnvSnapshot(): Effect.Effect<ProcessEnvSnapshot> {
   return Config.all({
     CORS_ORIGINS: opt(Config.string("CORS_ORIGINS")),
     DATABASE_URL: opt(Config.string("DATABASE_URL")),
     MOLTZAP_ADMIN_USER_ID: opt(Config.string("MOLTZAP_ADMIN_USER_ID")),
     MOLTZAP_CONFIG: opt(Config.string("MOLTZAP_CONFIG")),
     MOLTZAP_DEV_MODE: opt(Config.string("MOLTZAP_DEV_MODE")),
+    MOLTZAP_REGISTRATION_SECRET: opt(
+      Config.redacted("MOLTZAP_REGISTRATION_SECRET").pipe(
+        Config.map(Redacted.value),
+      ),
+    ),
     PORT: opt(Config.string("PORT")),
   }).pipe(
     Effect.withConfigProvider(ConfigProvider.fromEnv()),
@@ -456,9 +491,11 @@ function loadProcessEnvSnapshot(): Effect.Effect<ProcessEnvSnapshot, never> {
 }
 
 function webhookBinding(
-  service: YamlServiceConfig | undefined,
+  service?: YamlServiceConfig,
 ): WebhookServiceBinding | undefined {
-  if (service === undefined || service.type !== "webhook") return undefined;
+  if (service === undefined || service.type !== "webhook") {
+    return undefined;
+  }
   return { url: service.webhook_url, timeoutMs: service.timeout_ms };
 }
 
@@ -478,16 +515,14 @@ interface BootPlanInputs {
   readonly configDirectory: string;
   readonly processEnv: ProcessEnvSnapshot;
   readonly configPath: string;
-  readonly encryptionMasterSecretFromEnv:
-    | ServerEncryptionMasterSecret
-    | undefined;
+  readonly encryptionMasterSecretFromEnv?: ServerEncryptionMasterSecret;
 }
 
 function decodeEnvSecret<A, I>(
   schema: Schema.Schema<A, I>,
-  value: string | undefined,
   envKey: string,
   configPath: string,
+  value?: string,
 ): Effect.Effect<A | undefined, ConfigLoadError> {
   if (value === undefined || value.length === 0) {
     return Effect.succeed(undefined);
@@ -510,7 +545,7 @@ function loadEncryptionMasterSecretFromEnv(
     Effect.mapError((cause) =>
       makeInvalidEnvError(
         configPath,
-        `ENCRYPTION_MASTER_SECRET is invalid: ${String(cause)}`,
+        `ENCRYPTION_MASTER_SECRET is invalid: ${unknownErrorMessage(cause)}`,
       ),
     ),
     Effect.flatMap(
@@ -518,14 +553,21 @@ function loadEncryptionMasterSecretFromEnv(
         onNone: () => Effect.succeed(undefined),
         onSome: (secret) =>
           decodeEnvSecret(
-            ServerEncryptionMasterSecret,
-            Redacted.value(secret),
+            serverEncryptionMasterSecret,
             "ENCRYPTION_MASTER_SECRET",
             configPath,
+            Redacted.value(secret),
           ),
       }),
     ),
   );
+}
+
+function unknownErrorMessage(cause: unknown): string {
+  if (cause instanceof Error) {
+    return cause.message;
+  }
+  return typeof cause === "string" ? cause : "configuration provider error";
 }
 
 function resolveDevMode(
@@ -534,14 +576,14 @@ function resolveDevMode(
   configPath: string,
 ): Effect.Effect<boolean, ConfigLoadError> {
   const value = parseBoolEnv(
-    processEnv["MOLTZAP_DEV_MODE"],
     yaml.dev_mode?.enabled ?? false,
+    processEnv.MOLTZAP_DEV_MODE,
   );
   if (value === null) {
     return Effect.fail(
       makeInvalidEnvError(
         configPath,
-        `MOLTZAP_DEV_MODE must be a boolean (true/false/1/0); received "${processEnv["MOLTZAP_DEV_MODE"]}"`,
+        `MOLTZAP_DEV_MODE must be a boolean (true/false/1/0); received "${processEnv.MOLTZAP_DEV_MODE}"`,
       ),
     );
   }
@@ -553,8 +595,10 @@ function resolvePort(
   yaml: YamlConfig,
   configPath: string,
 ): Effect.Effect<number, ConfigLoadError> {
-  const raw = processEnv["PORT"] ?? String(yaml.server?.port ?? "");
-  if (raw === "") return Effect.succeed(DEFAULT_SERVER_PORT);
+  const raw = processEnv.PORT ?? String(yaml.server?.port ?? "");
+  if (raw === "") {
+    return Effect.succeed(DEFAULT_SERVER_PORT);
+  }
   const value = parseIntEnv(raw);
   if (value === null) {
     return Effect.fail(
@@ -573,11 +617,14 @@ function resolveCorsOrigins(
   devMode: boolean,
   configPath: string,
 ): Effect.Effect<string[], ConfigLoadError> {
-  const raw =
-    processEnv["CORS_ORIGINS"] ?? yaml.server?.cors_origins?.join(",");
+  const raw = processEnv.CORS_ORIGINS ?? yaml.server?.cors_origins?.join(",");
   const parsed = parseCorsOriginsRaw(raw);
-  if (parsed.length > 0) return Effect.succeed(parsed);
-  if (devMode) return Effect.succeed(["*"]);
+  if (parsed.length > 0) {
+    return Effect.succeed(parsed);
+  }
+  if (devMode) {
+    return Effect.succeed(["*"]);
+  }
   return Effect.fail(
     makeInvalidEnvError(
       configPath,
@@ -592,7 +639,7 @@ function resolveDatabaseUrl(
   devMode: boolean,
   configPath: string,
 ): Effect.Effect<string, ConfigLoadError> {
-  const url = processEnv["DATABASE_URL"] ?? yaml.database?.url ?? "";
+  const url = processEnv.DATABASE_URL ?? yaml.database?.url ?? "";
   if (devMode && url.includes(".supabase.co")) {
     return Effect.fail(
       makeInvalidEnvError(
@@ -609,7 +656,7 @@ function resolveAdminUserId(
   yaml: YamlConfig,
   configPath: string,
 ): Effect.Effect<UserId, ConfigLoadError> {
-  const raw = processEnv["MOLTZAP_ADMIN_USER_ID"];
+  const raw = processEnv.MOLTZAP_ADMIN_USER_ID;
   if (raw !== undefined && raw.length > 0) {
     return Either.match(Schema.decodeUnknownEither(userId)(raw), {
       onLeft: (cause) =>
@@ -622,8 +669,9 @@ function resolveAdminUserId(
       onRight: Effect.succeed,
     });
   }
-  if (yaml.admin_user_id !== undefined)
+  if (yaml.admin_user_id !== undefined) {
     return Effect.succeed(yaml.admin_user_id);
+  }
   return Effect.fail(
     makeInvalidEnvError(
       configPath,
@@ -641,10 +689,10 @@ interface ResolvedFields {
 }
 
 interface YamlDerived {
-  readonly pgliteDataDir: string | undefined;
-  readonly encryptionFromYaml: ServerEncryptionMasterSecret | undefined;
-  readonly registrationSecret: RegistrationSecret | undefined;
-  readonly contactWebhook: WebhookServiceBinding | undefined;
+  readonly pgliteDataDir?: string;
+  readonly encryptionFromYaml?: ServerEncryptionMasterSecret;
+  readonly registrationSecret?: RegistrationSecret;
+  readonly contactWebhook?: WebhookServiceBinding;
   readonly apps: ReadonlyArray<{ readonly manifest: string }>;
 }
 
@@ -661,7 +709,7 @@ function projectYaml(yaml: YamlConfig): YamlDerived {
 function assembleBootPlan(
   inputs: BootPlanInputs,
   fields: ResolvedFields,
-  encryptionFromEnv: ServerEncryptionMasterSecret | undefined,
+  encryptionFromEnv?: ServerEncryptionMasterSecret,
 ): StandaloneBootPlan {
   const ymlDerived = projectYaml(inputs.yaml);
   return {
@@ -717,6 +765,7 @@ function buildBootPlan(
 // Public: the single loader
 // ─────────────────────────────────────────────────────────────────────
 
+/** Describes load standalone config input. */
 export interface LoadStandaloneConfigInput {
   /** Path to the YAML config file. Falls back to `MOLTZAP_CONFIG` env or `moltzap.yaml`. Missing file is tolerated as empty config UNLESS the path is explicit. */
   readonly configPath?: string;
@@ -726,14 +775,18 @@ export interface LoadStandaloneConfigInput {
 
 const EMPTY_YAML: YamlConfig = {};
 
+/**
+ * Loads standalone config.
+ * @param input Input value to process.
+ * @returns The load standalone config result.
+ */
 export function loadStandaloneConfig(
   input: LoadStandaloneConfigInput = {},
 ): Effect.Effect<StandaloneBootPlan, ConfigLoadError> {
   return Effect.gen(function* () {
     const processEnv = input.processEnv ?? (yield* loadProcessEnvSnapshot());
     const explicit =
-      input.configPath !== undefined ||
-      processEnv["MOLTZAP_CONFIG"] !== undefined;
+      input.configPath !== undefined || processEnv.MOLTZAP_CONFIG !== undefined;
     const configPath = resolveConfigPath(input.configPath, processEnv);
 
     const { yaml, configDirectory } = yield* loadYamlFromDisk(
@@ -745,10 +798,10 @@ export function loadStandaloneConfig(
       input.processEnv === undefined
         ? yield* loadEncryptionMasterSecretFromEnv(configPath)
         : yield* decodeEnvSecret(
-            ServerEncryptionMasterSecret,
-            input.processEnv["ENCRYPTION_MASTER_SECRET"],
+            serverEncryptionMasterSecret,
             "ENCRYPTION_MASTER_SECRET",
             configPath,
+            input.processEnv.ENCRYPTION_MASTER_SECRET,
           );
 
     return yield* buildBootPlan({

@@ -1,10 +1,13 @@
 /**
  * @file Public barrel for identity, agent, and contact protocol descriptors.
  */
+// safer-arch-ignore no-large-public-surface: This compatibility facade intentionally curates the established identity API while narrower agents, contacts, and apps entrypoints remain available.
 
 import {
   type AgentId,
   agentId,
+  type AgentName,
+  agentName,
   type AgentKey,
   agentKey,
   type InviteCode,
@@ -34,6 +37,8 @@ import {
 export {
   type AgentId,
   agentId,
+  type AgentName,
+  agentName,
   type AgentKey,
   agentKey,
   type InviteCode,

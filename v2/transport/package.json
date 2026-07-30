@@ -1,0 +1,52 @@
+{
+  "name": "@moltzap/v2-transport",
+  "version": "2026.729.0",
+  "private": true,
+  "description": "L2 message/delivery/poll contracts, Router client and in-memory server",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "bin": {
+    "moltzap-router": "./bin/moltzap-router"
+  },
+  "scripts": {
+    "build": "nx run @moltzap/v2-transport:build",
+    "lint": "nx run @moltzap/v2-transport:lint"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "v2/transport",
+          "command": "tsc -b"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "v2/transport",
+          "command": "eslint . --cache --max-warnings=0"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@moltzap/v2-identity": "workspace:*"
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "typescript": "^5.7.0"
+  }
+}

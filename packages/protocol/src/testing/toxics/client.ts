@@ -121,6 +121,19 @@ interface RawProxy {
   readonly enabled?: boolean;
 }
 
+function isRawProxy(value: unknown): value is RawProxy {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  if (typeof Reflect.get(value, "name") !== "string") {
+    return false;
+  }
+  if (typeof Reflect.get(value, "listen") !== "string") {
+    return false;
+  }
+  return typeof Reflect.get(value, "upstream") === "string";
+}
+
 type HttpMethod = "DELETE" | "GET" | "POST";
 type ToxicOperation =
   | "create-proxy"
@@ -294,10 +307,20 @@ function createProxy(
   opts: Parameters<ToxiproxyClient["proxy"]>[0],
 ): ReturnType<ToxiproxyClient["proxy"]> {
   return Effect.gen(function* () {
-    const raw = (yield* httpJson("create-proxy", `${base}/proxies`, {
+    const response = yield* httpJson("create-proxy", `${base}/proxies`, {
       method: "POST",
       body: proxyBody(opts, network, nextListenPort),
-    })) as RawProxy;
+    });
+    if (!isRawProxy(response)) {
+      return yield* Effect.fail(
+        new ToxicControlError({
+          op: "create-proxy",
+          status: 0,
+          body: "Toxiproxy returned a malformed proxy payload",
+        }),
+      );
+    }
+    const raw = response;
     yield* Effect.addFinalizer(deleteProxyFinalizer(base, opts.name));
     return {
       upstream: raw.upstream,

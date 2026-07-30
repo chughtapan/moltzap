@@ -8,7 +8,7 @@ Public barrel for connect and presence protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableNetworkRpcMethods`](./index.ts#L31)
+### [`agentCallableNetworkRpcMethods`](./index.ts#L32)
 
 _Variable_
 
@@ -71,7 +71,7 @@ export const agentPresenceSubscribe = defineRpc({
 
 Defines the `agent/network/presence/subscribe` RPC contract.
 
-### [`appCallableNetworkRpcMethods`](./index.ts#L37)
+### [`appCallableNetworkRpcMethods`](./index.ts#L38)
 
 _Variable_
 
@@ -171,6 +171,18 @@ export type HelloOk = Schema.Schema.Type<typeof helloOkSchema>;
 
 Represents hello ok values.
 
+### [`httpBaseUrl`](./server-url.ts#L112)
+
+_Function_
+
+```ts
+export const httpBaseUrl = (base: ServerBaseUrl): string
+```
+
+The HTTP control-plane origin for the same server.
+
+**Returns:** The http base url result.
+
 ### [`InvalidProtocolVersionError`](./connect.ts#L67)
 
 _Class_
@@ -187,7 +199,7 @@ export class InvalidProtocolVersionError extends Data.TaggedError(
 
 Reports invalid protocol version failures.
 
-### [`networkNotifications`](./index.ts#L51)
+### [`networkNotifications`](./index.ts#L52)
 
 _Variable_
 
@@ -197,7 +209,7 @@ export const networkNotifications = [] as const
 
 Network notifications emitted by the server.
 
-### [`networkRpcMethods`](./index.ts#L43)
+### [`networkRpcMethods`](./index.ts#L44)
 
 _Variable_
 
@@ -281,7 +293,7 @@ such as one a locally started server just reported. Decode with
 `Schema.decodeEither(ServerBaseUrl)` wherever the value comes from
 configuration or another package.
 
-### [`ServerBaseUrl`](./server-url.ts#L68)
+### [`ServerBaseUrl`](./server-url.ts#L69)
 
 _TypeAlias_
 
@@ -292,7 +304,7 @@ export type ServerBaseUrl = string & Brand.Brand<"ServerBaseUrl">;
 A MoltZap server address carrying no path, query, or fragment, over
 `http`, `https`, `ws`, or `wss`.
 
-### [`serverBaseUrlSchema`](./server-url.ts#L74)
+### [`serverBaseUrlSchema`](./server-url.ts#L75)
 
 _Variable_
 
@@ -303,8 +315,7 @@ export const serverBaseUrlSchema: Schema.Schema<ServerBaseUrl, string> =
     Schema.String.pipe(Schema.brand("ServerBaseUrl")),
     {
       strict: true,
-      decode: (value, options, ast) => {
-        void options;
+      decode: (...[value, , ast]) => {
         const origin = toOrigin(value);
         return origin === null
           ? ParseResult.fail(
@@ -326,7 +337,17 @@ export const serverBaseUrlSchema: Schema.Schema<ServerBaseUrl, string> =
 Decodes either address a caller is likely to hold — the base URL or the
 socket endpoint — into the path-free base. Any other path fails.
 
-### [`webSocketUrl`](./server-url.ts#L112)
+### [`serverUrlTypeCanaries`](./server-url.types-check.ts#L21)
+
+_Variable_
+
+```ts
+export const serverUrlTypeCanaries:
+```
+
+Retains both the runtime positive control and compile-time negative proof.
+
+### [`webSocketUrl`](./server-url.ts#L120)
 
 _Function_
 
@@ -344,3 +365,4 @@ The socket endpoint a client dials for the given server.
 - `index.ts`
 - `presence.ts`
 - `server-url.ts`
+- `server-url.types-check.ts`

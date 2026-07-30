@@ -4,7 +4,7 @@
 // (same signatures).
 //
 // Mirrors the surface at the commit pinned by NANOCLAW_SHA in
-// packages/testbed/src/nanoclaw-install.ts; keep these stubs aligned when
+// packages/simulator/src/runtime/nanoclaw/install.ts; keep these stubs aligned when
 // bumping that pin.
 
 type EngageMode = "pattern" | "mention" | "mention-sticky";
@@ -12,6 +12,8 @@ type SenderScope = "all" | "known";
 type IgnoredMessagePolicy = "drop" | "accumulate";
 type UnknownSenderPolicy = "strict" | "request_approval" | "public";
 
+/* eslint-disable @typescript-eslint/naming-convention -- These quoted fields mirror Nanoclaw's SQLite row contract exactly at the external boundary. */
+/** Describes messaging group. */
 export interface MessagingGroup {
   id: string;
   channel_type: string;
@@ -26,6 +28,7 @@ export interface MessagingGroup {
   created_at: string;
 }
 
+/** Describes messaging group agent. */
 export interface MessagingGroupAgent {
   id: string;
   messaging_group_id: string;
@@ -40,3 +43,5 @@ export interface MessagingGroupAgent {
   threads?: number | null;
   created_at: string;
 }
+
+/* eslint-enable @typescript-eslint/naming-convention -- Restore strict defaults after the external row contract. */

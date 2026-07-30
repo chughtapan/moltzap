@@ -1,40 +1,49 @@
 import { Effect } from "effect";
-import type { Db } from "#db";
-import { catchSqlErrorAsDefect } from "#db";
-import type { ContactRow } from "#db";
 import {
-  ConflictError,
-  DEFAULT_PAGE_LIMIT,
-  ForbiddenError,
-} from "@moltzap/protocol/rpc";
-import { ContactNotFoundError, contactsAdd } from "@moltzap/protocol/identity";
-import type { ListCursor, ResultOf } from "@moltzap/protocol/rpc";
-import type { ContactId, UserId } from "@moltzap/protocol/identity";
-import {
+  type Db,
+  catchSqlErrorAsDefect,
+  type ContactRow,
   decodeListCursor,
   keysetWhere,
   paginate,
   sortKeyExpr,
   type InvalidCursorError,
 } from "#db";
+import {
+  ConflictError,
+  DEFAULT_PAGE_LIMIT,
+  ForbiddenError,
+  type ListCursor,
+  type ResultOf,
+} from "@moltzap/protocol/rpc";
+import {
+  ContactNotFoundError,
+  type contactsAdd,
+  type ContactId,
+  type UserId,
+} from "@moltzap/protocol/identity";
 
 type Contact = ResultOf<typeof contactsAdd>["contact"];
 
+/** Describes contacts list input. */
 export interface ContactsListInput {
   readonly limit?: number;
   readonly cursor?: string;
 }
 
+/** Describes contacts list page. */
 export interface ContactsListPage {
   readonly contacts: readonly Contact[];
   readonly nextCursor?: ListCursor;
 }
 
+/** Describes contact create input. */
 export interface ContactCreateInput {
   readonly contactUserId: UserId;
   readonly relationship?: string;
 }
 
+/** Describes the result of contact accept. */
 export interface ContactAcceptResult {
   readonly contact: Contact;
   readonly requesterUserId: UserId;
@@ -46,21 +55,26 @@ const ERR_DUPLICATE = "Contact already exists";
 const ERR_NOT_FOUND = "Contact not found";
 const ERR_NOT_RECIPIENT = "Only the recipient can accept the contact request";
 
+/** Implements contacts service. */
 export class ContactsService {
-  constructor(private readonly db: Db) {}
+  private readonly db: Db;
+
+  constructor(db: Db) {
+    this.db = db;
+  }
 
   list(
     owner: UserId,
     input: ContactsListInput,
   ): Effect.Effect<ContactsListPage, InvalidCursorError> {
     const limit = input.limit ?? DEFAULT_PAGE_LIMIT;
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: ContactsService) {
       const pos =
         input.cursor === undefined
           ? undefined
           : yield* decodeListCursor(input.cursor);
       return yield* catchSqlErrorAsDefect(
-        Effect.gen(this, function* () {
+        Effect.gen(this, function* (this: ContactsService) {
           let query = this.db
             .selectFrom("contacts")
             .selectAll()
@@ -100,7 +114,7 @@ export class ContactsService {
       return Effect.fail(new ForbiddenError({ message: ERR_SELF_ADD }));
     }
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ContactsService) {
         const inserted = yield* this.db
           .insertInto("contacts")
           .values({
@@ -118,7 +132,9 @@ export class ContactsService {
             new ConflictError({ message: ERR_DUPLICATE }),
           );
         }
-        return rowToContact(inserted[0]!);
+        return rowToContact(
+          /* Safe because the surrounding invariant establishes this asserted shape. */ inserted[0]!,
+        );
       }),
     );
   }
@@ -128,13 +144,14 @@ export class ContactsService {
     id: ContactId,
   ): Effect.Effect<ContactAcceptResult, ContactNotFoundError | ForbiddenError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ContactsService) {
         const updated = yield* this.markPendingContactAccepted(owner, id);
         if (updated.length === 0) {
           return yield* this.resolveAlreadyAcceptedContact(owner, id);
         }
 
-        const row = updated[0]!;
+        const row =
+          /* Safe because the surrounding invariant establishes this asserted shape. */ updated[0]!;
         yield* this.upsertMirroredAcceptedContact(row);
         return {
           contact: rowToContact(row),
@@ -156,7 +173,7 @@ export class ContactsService {
   }
 
   private resolveAlreadyAcceptedContact(owner: UserId, id: ContactId) {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: ContactsService) {
       const existing = yield* this.db
         .selectFrom("contacts")
         .selectAll()
@@ -166,7 +183,8 @@ export class ContactsService {
           new ContactNotFoundError({ message: ERR_NOT_FOUND }),
         );
       }
-      const row = existing[0]!;
+      const row =
+        /* Safe because the surrounding invariant establishes this asserted shape. */ existing[0]!;
       if (row.contact_user_id !== owner) {
         return yield* Effect.fail(
           new ForbiddenError({ message: ERR_NOT_RECIPIENT }),
@@ -201,7 +219,7 @@ export class ContactsService {
     id: ContactId,
   ): Effect.Effect<Contact, ContactNotFoundError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ContactsService) {
         const rows = yield* this.db
           .selectFrom("contacts")
           .selectAll()
@@ -212,7 +230,9 @@ export class ContactsService {
             new ContactNotFoundError({ message: ERR_NOT_FOUND }),
           );
         }
-        return rowToContact(rows[0]!);
+        return rowToContact(
+          /* Safe because the surrounding invariant establishes this asserted shape. */ rows[0]!,
+        );
       }),
     );
   }
@@ -233,3 +253,4 @@ function positionOfContactRow(row: ContactRow): {
 } {
   return { sortKey: row.created_at.toISOString(), id: row.id };
 }
+// safer-arch-ignore folder-explicit-api-required: ContactsService is the concrete contact-policy service boundary used by server composition.

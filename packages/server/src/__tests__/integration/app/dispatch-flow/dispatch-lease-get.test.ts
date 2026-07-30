@@ -14,7 +14,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { dispatchLeaseGet } from "@moltzap/protocol/message/dispatch";
 import type { AppManifest } from "@moltzap/protocol/identity";
-import type { DispatchId } from "@moltzap/protocol/message/dispatch";
 import { Effect, Fiber } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
 import {
@@ -63,7 +62,7 @@ const WIRE_APP_MANIFEST: AppManifest = {
   },
 };
 
-const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
+const fixture = createDispatchFlowFixture();
 
 beforeAll(startDispatchFlowServer, 60_000);
 
@@ -82,7 +81,7 @@ function requestWireModeratedDispatch(
     // routes the admission decision to that connection rather than resolving
     // a static verdict in-process.
     fixture.setNextHookVerdict({ decision: "grant" });
-    yield* attachDispatchAuthorizeHook(requester, fixture);
+    yield* attachDispatchAuthorizeHook(fixture);
     const { conversationId } = yield* createConversationOnApp(
       requester,
       recipient,
@@ -109,7 +108,7 @@ function registryDirectReadShowsGrantedLease() {
   return Effect.gen(function* () {
     const { alice, bob } = yield* setupAgentPair();
     fixture.setNextHookVerdict({ decision: "grant" });
-    yield* attachDispatchAuthorizeHook(alice, fixture);
+    yield* attachDispatchAuthorizeHook(fixture);
     const { conversationId } = yield* createConversationOnApp(
       alice,
       bob,
@@ -122,7 +121,7 @@ function registryDirectReadShowsGrantedLease() {
     const ack = yield* requestDispatch(bob, conversationId, alice);
     yield* Fiber.join(releaseFiber);
 
-    const record = yield* readLeaseByDispatchId(ack.dispatchId as DispatchId);
+    const record = yield* readLeaseByDispatchId(ack.dispatchId);
     expect(record.dispatchId).toBe(ack.dispatchId);
     expect(record.leaseId).toBe(ack.leaseId);
     expect(record.state).toBe(DISPATCH_STATE_GRANTED);
@@ -138,7 +137,7 @@ function wireModeratorReadsGrantedLease() {
     // `app/dispatch/lease/get` is moderator-scoped: only the lease's
     // `moderatorConnectionId` (the fixture's app `AppConnection`) may read it.
     const view = yield* moderatorAppClient().sendRpc(dispatchLeaseGet, {
-      dispatchId: ack.dispatchId as DispatchId,
+      dispatchId: ack.dispatchId,
     });
     expect(view.lease.dispatchId).toBe(ack.dispatchId);
     expect(view.lease.leaseId).toBe(ack.leaseId);

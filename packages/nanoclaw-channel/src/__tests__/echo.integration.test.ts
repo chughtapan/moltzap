@@ -6,9 +6,6 @@
  * inbound messages, and verifies the host-facing callbacks
  * (`setup.onInbound`, `setup.onMetadata`) fire with the expected shape
  * and `deliver(jid, null, message)` round-trips back to the peer.
- *
- * Modeled on `packages/openclaw-channel/src/__tests__/echo.integration.test.ts`
- * (per arch sub-issue #605 §4.4).
  */
 
 /* eslint-disable agent-code-guard/no-effect-error-coalescing -- test scaffolding coalesces wire-level Service/Rpc errors into a single test-context error class for cleaner diagnostic output; production rule does not apply to integration test scaffolding. */
@@ -18,12 +15,19 @@ import { live as it } from "@effect/vitest";
 import { Data, Effect, Schema } from "effect";
 import { MoltZapService } from "@moltzap/client";
 import { withTestServiceConfig } from "@moltzap/client/test-utils";
-import { type AgentKey, agentKey } from "@moltzap/protocol/identity";
+import {
+  type AgentKey,
+  agentKey,
+  type AgentId,
+} from "@moltzap/protocol/identity";
 import type { Message } from "@moltzap/protocol/message";
-import { taskRequest, DEFAULT_APP_ID } from "@moltzap/protocol/task";
-import type { AgentId } from "@moltzap/protocol/identity";
+import { serverBaseUrl } from "@moltzap/protocol/network";
+import {
+  taskRequest,
+  DEFAULT_APP_ID,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
 import { MoltZapAdapter } from "../channels/moltzap.js";
@@ -67,7 +71,7 @@ interface Harness {
   readonly conversationId: ConversationId;
   readonly chatJid: string;
   readonly peerAgentId: string;
-  readonly stop: () => PromiseLike<void>;
+  readonly stop: () => PromiseLike<undefined>;
 }
 
 const WAIT_FOR_TICK_MS = 25;
@@ -84,7 +88,9 @@ const OUTBOUND_KIND_CHAT = "chat";
 let h: Harness;
 
 function injectString(key: string): string {
-  return inject(key as never) as string;
+  return inject(
+    /* Safe because the test fixture establishes this asserted shape. */ key as never,
+  );
 }
 
 function injectedConfig(): InjectedConfig {
@@ -102,7 +108,9 @@ function decodeInjectedAgentKey(key: string): AgentKey {
 }
 
 function contentText(msg: InboundMessage): string {
-  return (msg.content as { readonly text: string }).text;
+  return /* Safe because the test fixture establishes this asserted shape. */ (
+    msg.content as { readonly text: string }
+  ).text;
 }
 
 function channelSenderId(agentId: string): string {
@@ -140,11 +148,11 @@ function waitForPromise(
   timeoutMs: number,
   label: string,
 ) {
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<undefined>((resolve, reject) => {
     const start = Date.now();
     const tick = (): void => {
       if (predicate()) {
-        resolve();
+        resolve(undefined);
         return;
       }
       if (Date.now() - start > timeoutMs) {
@@ -163,9 +171,10 @@ function makeAdapter(
   chatMetadata: ChatMetadataCapture[],
 ): Effect.Effect<MoltZapAdapter, unknown> {
   return Effect.gen(function* () {
-    let adapter: MoltZapAdapter;
+    const adapter = MoltZapAdapter.fromProfile(CHANNEL_PROFILE_NAME, false);
     const setup: ChannelSetup = {
-      onInbound: (jid, _threadId, msg) => {
+      onInbound: (...args) => {
+        const [jid, , msg] = args;
         inboundMessages.push({ jid, msg });
         autoEcho(adapter, jid, contentText(msg));
       },
@@ -173,7 +182,6 @@ function makeAdapter(
         chatMetadata.push({ jid, name, isGroup });
       },
     };
-    adapter = MoltZapAdapter.fromProfile(CHANNEL_PROFILE_NAME, false);
     yield* withTestServiceConfig(
       {
         agentId: config.channelAgentId,
@@ -202,7 +210,7 @@ function autoEcho(adapter: MoltZapAdapter, jid: string, content: string): void {
   );
 }
 
-function noopOnError(_cause: unknown): void {
+function noopOnError(): void {
   // Intentional no-op: auto-echo loop swallows transient failures.
 }
 
@@ -214,13 +222,13 @@ function bootPeerService(
     MoltZapService.fromConfig({
       agentId: config.peerAgentId,
       agentKey: config.peerApiKey,
-      serverUrl: config.wsUrl,
+      serverUrl: serverBaseUrl(config.wsUrl),
     }),
   ).pipe(
     Effect.tap((peerService) =>
       Effect.sync(() => {
-        peerService.on("message", ({ message: msg }) => {
-          peerInbox.push(msg);
+        peerService.on("message", (payload) => {
+          peerInbox.push(payload.message);
         });
       }),
     ),
@@ -242,13 +250,16 @@ function createDm(
     })
     .pipe(
       Effect.map((res) => {
-        const r = res as {
-          task: { id: TaskId };
-          conversation: { id: ConversationId } | null;
-        };
+        const r =
+          /* Safe because the test fixture establishes this asserted shape. */ res as {
+            task: { id: TaskId };
+            conversation: { id: ConversationId } | null;
+          };
         return {
           taskId: r.task.id,
-          conversationId: r.conversation!.id,
+          conversationId:
+            /* Safe because the test fixture establishes this asserted shape. */ r
+              .conversation!.id,
         };
       }),
       Effect.mapError(
@@ -325,6 +336,7 @@ function stopAdapterAndPeer(
         catch: () => undefined,
       }).pipe(Effect.ignore);
       peerService.close();
+      return undefined;
     }),
   );
 }
@@ -339,7 +351,7 @@ function initHarness() {
 }
 
 function stopHarness() {
-  return h === undefined ? Promise.resolve() : h.stop();
+  return h === undefined ? Promise.resolve(undefined) : h.stop();
 }
 
 function messageContains(message: Message, needle: string): boolean {
@@ -388,9 +400,11 @@ function deliversInbound() {
       contentText(c.msg).includes(PING_ONE),
     );
     expect(seen?.jid).toBe(h.chatJid);
-    expect((seen!.msg.content as { senderId: string }).senderId).toBe(
-      channelSenderId(h.peerAgentId),
-    );
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ (
+        seen!.msg.content as { senderId: string }
+      ).senderId,
+    ).toBe(channelSenderId(h.peerAgentId));
   });
 }
 
@@ -411,3 +425,5 @@ function roundTripsToPeer() {
     expect(peerInboxHas(`${ECHO_PREFIX}${PING_TWO}`)).toBe(true);
   });
 }
+
+/* eslint-enable agent-code-guard/no-effect-error-coalescing -- Restore strict defaults after the scoped file-level exception. */

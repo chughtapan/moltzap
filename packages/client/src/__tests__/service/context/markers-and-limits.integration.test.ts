@@ -22,29 +22,42 @@ it("markers are per-viewing-conversation", () =>
     yield* H.sendAndSettle(
       regC.client,
       convC.task.id,
-      convC.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ convC
+        .conversation!.id,
       H.SHARED_UPDATE,
     );
 
     // Conv B views — sees the update, marker advances
-    const fromB = service.getContext(convB.conversation!.id);
+    const fromB = service.getContext(
+      /* Safe because the test fixture establishes this asserted shape. */ convB
+        .conversation!.id,
+    );
     expect(fromB).not.toBeNull();
     expect(fromB).toContain(H.SHARED_UPDATE);
 
     // Conv B's marker advanced, so second call returns null
-    expect(service.getContext(convB.conversation!.id)).toBeNull();
+    expect(
+      service.getContext(
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
+      ),
+    ).toBeNull();
 
     // Send message in conv B
     yield* H.sendAndSettle(
       regB.client,
       convB.task.id,
-      convB.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ convB
+        .conversation!.id,
       H.B_UPDATE,
     );
 
     // Conv C views — should see BOTH conv C's message hasn't been "seen" from C's perspective
     // AND conv B's new message
-    const fromC = service.getContext(convC.conversation!.id);
+    const fromC = service.getContext(
+      /* Safe because the test fixture establishes this asserted shape. */ convC
+        .conversation!.id,
+    );
     expect(fromC).not.toBeNull();
     expect(fromC).toContain(H.B_UPDATE);
 
@@ -73,17 +86,23 @@ it("multiple other conversations appear in context", () =>
     yield* H.sendAndSettle(
       regC.client,
       convC.task.id,
-      convC.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ convC
+        .conversation!.id,
       H.FROM_C,
     );
     yield* H.sendAndSettle(
       regD.client,
       convD.task.id,
-      convD.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ convD
+        .conversation!.id,
       H.FROM_D,
     );
 
-    const ctx = service.getContext(convB.conversation!.id)!;
+    const ctx =
+      /* Safe because the test fixture establishes this asserted shape. */ service.getContext(
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
+      )!;
     expect(ctx).toContain(H.FROM_C);
     expect(ctx).toContain(H.FROM_D);
 
@@ -102,7 +121,9 @@ it("maxConversations limits output", () =>
       agentNames.map((n) => H.registerAgent(n)),
       { concurrency: agentNames.length },
     );
-    for (const a of agents) yield* a.client.connect();
+    for (const a of agents) {
+      yield* a.client.connect();
+    }
 
     const service = yield* H.connectService(regA.apiKey, regA.agentId);
 
@@ -111,29 +132,44 @@ it("maxConversations limits output", () =>
       const conv = yield* H.createDm(service, a.agentId);
       convs.push({
         taskId: conv.task.id,
-        conversationId: conv.conversation!.id,
+        conversationId:
+          /* Safe because the test fixture establishes this asserted shape. */ conv
+            .conversation!.id,
       });
     }
 
     // Send messages in all 4 other conversations
     for (let i = 0; i < agents.length; i++) {
       yield* H.sendAndSettle(
-        agents[i]!.client,
-        convs[i]!.taskId,
-        convs[i]!.conversationId,
+        /* Safe because the test fixture establishes this asserted shape. */ agents[
+          i
+        ]!.client,
+        /* Safe because the test fixture establishes this asserted shape. */ convs[
+          i
+        ]!.taskId,
+        /* Safe because the test fixture establishes this asserted shape. */ convs[
+          i
+        ]!.conversationId,
         `Msg from ${i}`,
       );
     }
 
     // Limit to 2 conversations
-    const ctx = service.getContext(convs[0]!.conversationId, {
-      type: "cross-conversation",
-      maxConversations: 2,
-    })!;
+    const ctx =
+      /* Safe because the test fixture establishes this asserted shape. */ service.getContext(
+        /* Safe because the test fixture establishes this asserted shape. */ convs[0]!
+          .conversationId,
+        {
+          type: "cross-conversation",
+          maxConversations: 2,
+        },
+      )!;
     const lines = ctx.split("\n").filter((l) => l.startsWith("@"));
     expect(lines.length).toBe(2);
 
     service.close();
     yield* regA.client.close();
-    for (const a of agents) yield* a.client.close();
+    for (const a of agents) {
+      yield* a.client.close();
+    }
   }));

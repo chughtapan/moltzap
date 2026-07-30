@@ -1,7 +1,7 @@
 /**
  * Per-layer Tag allowlists. The hierarchy mirrors the protocol layer stack:
  *
- *   transport ─ identity ─ network ─ task + conversation + message ─ app
+ *   transport ─ identity ─ network ─ task + conversation + message ─ app.
  *
  * Each layer's allowlist is a superset of the layer below: any Tag legal at
  * layer L is legal at every layer above L. Adding a Tag to a layer's

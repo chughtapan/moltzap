@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import {
-  LocalDaemonCommands,
+  localDaemonCommands,
   requestDaemonCommand,
 } from "../../cli/socket-client.js";
 import type { ConversationId } from "@moltzap/protocol/conversation";
@@ -8,8 +8,17 @@ import type { TaskId } from "@moltzap/protocol/task";
 import type { HistoryRequest, HistoryResponse } from "../../local-history.js";
 import { SOCKET_HISTORY_LIMIT } from "./constants.js";
 
+/** Represents socket history response values. */
 export type SocketHistoryResponse = HistoryResponse;
 
+/**
+ * Provides the socket history runtime value.
+ * @param taskId Value supplied to the operation.
+ * @param conversationId Value supplied to the operation.
+ * @param sessionKey Value supplied to the operation.
+ * @param limit Value supplied to the operation.
+ * @returns The socket history result.
+ */
 export const socketHistory = (
   taskId: TaskId,
   conversationId: ConversationId,
@@ -29,9 +38,10 @@ export const socketHistory = (
           sessionKey,
           limit,
         };
-  return requestDaemonCommand(LocalDaemonCommands.history, params).pipe(
+  return requestDaemonCommand(localDaemonCommands.history, params).pipe(
     Effect.withSpan("socketHistory"),
   );
 };
 
-export { LocalDaemonCommands, requestDaemonCommand };
+/** Re-exports the public API from `current module`. */
+export { localDaemonCommands, requestDaemonCommand };

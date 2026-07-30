@@ -151,10 +151,7 @@ function makeLiveTestAgentClient(input: {
       params: ClientDefinitionPayload<D>,
       opts?: RpcCallOptions,
     ): Effect.Effect<ClientDefinitionSuccess<D>, ClientDefinitionError<D>> {
-      if (opts === undefined) {
-        return input.client.callDefinition(definition, params);
-      }
-      return input.client.callDefinition(definition, params, opts);
+      return input.client.callDefinition(definition, params, opts ?? {});
     },
     call<Tag extends AgentCallableTag>(
       tag: Tag,
@@ -164,10 +161,7 @@ function makeLiveTestAgentClient(input: {
       SuccessForTag<AgentCallableRpcs, Tag>,
       AgentRpcError<Tag>
     > {
-      if (opts === undefined) {
-        return input.client.call(tag, payload);
-      }
-      return input.client.call(tag, payload, opts);
+      return input.client.call(tag, payload, opts ?? {});
     },
     subscribe<D extends AnyNotificationDefinition>(
       definition: D,
@@ -207,20 +201,14 @@ function makeLiveTestAppClient(input: {
       params: ClientDefinitionPayload<D>,
       opts?: RpcCallOptions,
     ): Effect.Effect<ClientDefinitionSuccess<D>, ClientDefinitionError<D>> {
-      if (opts === undefined) {
-        return input.client.callDefinition(definition, params);
-      }
-      return input.client.callDefinition(definition, params, opts);
+      return input.client.callDefinition(definition, params, opts ?? {});
     },
     call<Tag extends AppCallableTag>(
       tag: Tag,
       payload: PayloadForTag<AppCallableRpcs, Tag>,
       opts?: RpcCallOptions,
     ): Effect.Effect<SuccessForTag<AppCallableRpcs, Tag>, AppRpcError<Tag>> {
-      if (opts === undefined) {
-        return input.client.call(tag, payload);
-      }
-      return input.client.call(tag, payload, opts);
+      return input.client.call(tag, payload, opts ?? {});
     },
     subscribe<D extends AnyNotificationDefinition>(
       definition: D,

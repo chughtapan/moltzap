@@ -66,7 +66,8 @@ function assertVerdictRelease(
       senderAgentId: driver.moderator.agentId,
     });
     const release = yield* driver.recipient.waitForRelease();
-    const params = release.params as ReleaseFrameView;
+    const params =
+      /* Safe because waitForRelease returns only released-notification deliveries. */ release.params as ReleaseFrameView;
     yield* assertReleaseLeaseId(propertyName, params, ack.leaseId);
     yield* assertReleaseDecision(propertyName, params, verdict);
     yield* assertReleaseReason(propertyName, params, verdict);

@@ -21,16 +21,18 @@ import {
   type TaskBinding,
 } from "./test-helpers.js";
 
-import { agentsList } from "@moltzap/protocol/identity";
+import {
+  agentsList,
+  type AgentId,
+  type AgentKey,
+} from "@moltzap/protocol/identity";
 import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import {
   messageReceivedNotificationDefinition,
   messagesSend,
+  type Message,
 } from "@moltzap/protocol/message";
 import type { ListCursor, ResultOf } from "@moltzap/protocol/rpc";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/identity";
-import type { Message } from "@moltzap/protocol/message";
 
 interface GatewayHarness {
   readonly containerAId: string;
@@ -47,7 +49,7 @@ const CROSS_CONTAINER_SCENARIO_TIMEOUT_MS = 180_000;
 const CONVERSATION_EVENT_SETTLE_MS = 500;
 const LARGE_MESSAGE_CHARS = 5_000;
 const MIN_LARGE_REPLY_CHARS = 4_096;
-const RECONNECT_SETTLE_MS = 1_000;
+const CONNECTION_SETTLE_MS = 1_000;
 const RAPID_MESSAGE_COUNT = 3;
 const TWO_CONTAINER_COUNT = 2;
 const AGENT_LIST_PAGE_SIZE = 100;
@@ -67,7 +69,7 @@ const PROACTIVE_TEXT = "proactive hello";
 const FIRST_TEXT = "first";
 const SECOND_TEXT = "second";
 const BEFORE_DROP_TEXT = "before drop";
-const AFTER_RECONNECT_TEXT = "after reconnect";
+const AFTER_NEW_CONNECTION_TEXT = "after new connection";
 const LARGE_MESSAGE_CHARACTER = "A";
 const INTEGRATION_GROUP_NAME = "Integration Group";
 const MISSING_AGENT_NAME = "nonexistent-agent-xyz";
@@ -109,8 +111,8 @@ function defineGatewayIntegrationSuite() {
   it("send to nonexistent agent returns error", missingAgentLookupFails);
   it("large message (>4096 chars) is delivered intact", () =>
     largeMessageDelivered(harness.containerAAgentId));
-  it("reconnection during dispatch recovers after WebSocket drop", () =>
-    reconnectDuringDispatchRecovers(harness.containerAAgentId));
+  it("a new explicit connection recovers after WebSocket close", () =>
+    explicitConnectionRecovers(harness.containerAAgentId));
   it(
     "property: scenario timeouts exceed notification waits",
     timeoutsCoverNotificationWait,
@@ -313,7 +315,7 @@ function largeMessageDelivered(containerAAgentId: AgentId) {
   });
 }
 
-function reconnectDuringDispatchRecovers(containerAAgentId: AgentId) {
+function explicitConnectionRecovers(containerAAgentId: AgentId) {
   return Effect.gen(function* () {
     const alice = yield* registerAgent("rd-alice");
     const aliceClient = connectedClient(alice.apiKey);
@@ -324,13 +326,13 @@ function reconnectDuringDispatchRecovers(containerAAgentId: AgentId) {
     yield* sendText(aliceClient, binding, BEFORE_DROP_TEXT);
     expect(extractText(yield* Fiber.join(replyFiber1))).toContain(ECHO_PREFIX);
     yield* aliceClient.close();
-    yield* Effect.sleep(`${RECONNECT_SETTLE_MS} millis`);
+    yield* Effect.sleep(`${CONNECTION_SETTLE_MS} millis`);
     const aliceClient2 = connectedClient(alice.apiKey);
     yield* aliceClient2.connect();
     const replyFiber2 = yield* Effect.fork(
       waitForReceivedMessage(aliceClient2),
     );
-    yield* sendText(aliceClient2, binding, AFTER_RECONNECT_TEXT);
+    yield* sendText(aliceClient2, binding, AFTER_NEW_CONNECTION_TEXT);
     const reply2 = yield* Fiber.join(replyFiber2);
     expect(extractText(reply2)).toContain(ECHO_PREFIX);
     expect(reply2.conversationId).toBe(binding.conversationId);
@@ -378,7 +380,7 @@ function createDm(
 function createGroup(
   client: MoltZapAgentClient,
   name: string,
-  agentIds: ReadonlyArray<AgentId>,
+  agentIds: readonly AgentId[],
 ): Effect.Effect<TaskBinding, unknown> {
   return client
     .call(taskRequest.name, {
@@ -405,6 +407,8 @@ function sendText(
  * Wait for one `messages/received` notification: consume the typed
  * `subscribe(def)` Stream with `Stream.runHead` under a timeout, then
  * project the decoded payload with `extractMessage`.
+ * @param client Client used for the operation.
+ * @returns The wait for received message result.
  */
 function waitForReceivedMessage(client: MoltZapAgentClient) {
   return client.subscribe(messageReceivedNotificationDefinition).pipe(
@@ -471,7 +475,9 @@ function expectConversationMessageFrom(
 ): void {
   const message = findConversationMessage(messages, conversationId);
   expect(message).toBeDefined();
-  if (message === undefined) return;
+  if (message === undefined) {
+    return;
+  }
   expectEchoReply(message, conversationId, senderId);
 }
 
@@ -486,8 +492,12 @@ function lookupAgentId(client: MoltZapAgentClient, name: string) {
           : { limit: AGENT_LIST_PAGE_SIZE, cursor },
       );
       const found = result.agents.find((agent) => agent.name === name)?.id;
-      if (found !== undefined) return found;
-      if (result.nextCursor === undefined) break;
+      if (found !== undefined) {
+        return found;
+      }
+      if (result.nextCursor === undefined) {
+        break;
+      }
       cursor = result.nextCursor;
     }
     return yield* Effect.fail(

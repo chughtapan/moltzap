@@ -30,10 +30,13 @@ describe("stringEnum", () => {
   it("renders a literal-union enum in JSONSchema, not anyOf", () => {
     // `Schema.Literal(...)` surfaces an `enum` keyword in JSONSchema.make,
     // which the docs walker reads off `.enum` (NOT `anyOf`).
-    const node = JSONSchema.make(schema) as {
-      enum?: readonly string[];
-      anyOf?: unknown;
-    };
+    const node =
+      /* Safe because JSONSchema.make emits the documented draft-07 enum projection. */ JSONSchema.make(
+        schema,
+      ) as {
+        enum?: readonly string[];
+        anyOf?: unknown;
+      };
     expect(node.enum).toEqual(["user", "agent"]);
     expect(node.anyOf).toBeUndefined();
   });

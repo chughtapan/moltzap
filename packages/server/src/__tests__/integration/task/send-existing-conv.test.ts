@@ -35,7 +35,9 @@ it("second message to existing DM delivers correctly with same conversationId", 
       initialConversation: { participants: [bob.agentId] },
     });
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     const firstBobEvent = yield* Effect.fork(
       awaitOneNotification(bob.client, messageReceivedNotificationDefinition),

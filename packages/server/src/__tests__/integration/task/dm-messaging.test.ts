@@ -12,18 +12,7 @@ import {
 import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 import { messagesList, messagesSend } from "@moltzap/protocol/message";
 
-let _baseUrl: string;
-let _wsUrl: string;
-
-beforeAll(() =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const server = yield* startTestServerEffect();
-      _baseUrl = server.baseUrl;
-      _wsUrl = server.wsUrl;
-    }),
-  ),
-);
+beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
@@ -42,7 +31,9 @@ it("send and receive a DM, list messages", () =>
     });
 
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     // Alice sends a message
     const sendResult = yield* alice.client.sendRpc(messagesSend, {
@@ -63,7 +54,10 @@ it("send and receive a DM, list messages", () =>
     });
 
     expect(messages.messages).toHaveLength(1);
-    expect(messages.messages[0]!.id).toBe(sendResult.message.id);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ messages
+        .messages[0]!.id,
+    ).toBe(sendResult.message.id);
 
     // Verify message is encrypted in DB
     const db = getKyselyDb();

@@ -11,7 +11,7 @@ import { optionsFromSchema } from "./adapters.js";
 
 const it = effectIt.effect;
 
-const PageLimit = Schema.Number.pipe(Schema.int(), Schema.between(1, 200));
+const pageLimit = Schema.Number.pipe(Schema.int(), Schema.between(1, 200));
 const INTEGER_USAGE_PLACEHOLDER = '"integer"';
 const TASK_ID = "00000000-0000-4000-8000-00000000001a";
 const CONVERSATION_ID = "00000000-0000-4000-8000-00000000000c";
@@ -20,7 +20,7 @@ const APP_ID = "11111111-2222-4333-8444-555555555555";
 
 const parseOptions = <A>(
   options: Options.Options<A>,
-  argv: ReadonlyArray<string>,
+  argv: readonly string[],
 ) =>
   Options.processCommandLine(options, argv, CliConfig.defaultConfig).pipe(
     Effect.flatMap(([error, rest, value]) =>
@@ -35,16 +35,16 @@ const parseOptions = <A>(
 describe("schema option presentation", () => {
   it("derives renamed and kebab-cased scalar options", () =>
     Effect.gen(function* () {
-      const Params = Schema.Struct({
+      const params = Schema.Struct({
         taskId: taskIdSchema,
         sessionKey: Schema.optional(Schema.String),
-        limit: Schema.optional(PageLimit),
+        limit: Schema.optional(pageLimit),
       });
-      const options = optionsFromSchema(Params, {
+      const options = optionsFromSchema(params, {
         taskId: { name: "task", description: "Task id" },
       });
       expectTypeOf(options).toEqualTypeOf<
-        Options.Options<Schema.Schema.Type<typeof Params>>
+        Options.Options<Schema.Schema.Type<typeof params>>
       >();
       expect(JSON.stringify(Options.getUsage(options))).toContain(
         INTEGER_USAGE_PLACEHOLDER,
@@ -69,11 +69,11 @@ describe("schema option presentation", () => {
 describe("schema option validation", () => {
   it("omits absent fields and retains whole-schema validation", () =>
     Effect.gen(function* () {
-      const Params = Schema.Struct({
+      const paramsValue = Schema.Struct({
         taskId: taskIdSchema,
-        limit: Schema.optional(PageLimit),
+        limit: Schema.optional(pageLimit),
       });
-      const options = optionsFromSchema(Params, {
+      const options = optionsFromSchema(paramsValue, {
         taskId: { name: "task" },
       });
       const taskId = "00000000-0000-4000-8000-000000000002";
@@ -97,11 +97,11 @@ describe("schema option validation", () => {
 describe("schema option decoding", () => {
   it("applies schema transformations and defaults", () =>
     Effect.gen(function* () {
-      const Params = Schema.Struct({
+      const paramsSchema = Schema.Struct({
         count: Schema.NumberFromString.pipe(Schema.int()),
-        limit: Schema.optionalWith(PageLimit, { default: () => 10 }),
+        limit: Schema.optionalWith(pageLimit, { default: () => 10 }),
       });
-      const options = optionsFromSchema(Params);
+      const options = optionsFromSchema(paramsSchema);
 
       const defaulted = yield* parseOptions(options, ["--count", "3"]);
       expect(defaulted.value).toEqual({ count: 3, limit: 10 });

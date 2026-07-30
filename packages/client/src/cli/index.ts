@@ -32,21 +32,21 @@ import {
   ProfileConfigReadError,
   ProfileInvalidNameError,
   ProfileNotFoundError,
-  ProfileName,
+  profileName as profileNameSchema,
   type ProfileName as ProfileNameType,
 } from "../profile.js";
 
 const { version } = packageJson;
 
-const CliRuntimeEnv = Config.all({
+const cliRuntimeEnv = Config.all({
   logLevel: Config.string("MOLTZAP_LOG_LEVEL").pipe(Config.withDefault("info")),
 });
 
 const runtimeEnv = Effect.runSync(
-  CliRuntimeEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+  cliRuntimeEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
 );
 
-const LoggerLive = Logger.replace(
+const loggerLive = Logger.replace(
   Logger.defaultLogger,
   Logger.withConsoleError(Logger.stringLogger),
 );
@@ -73,7 +73,7 @@ const minLogLevel: LogLevel.LogLevel = (() => {
 })();
 
 const globalProfileOption = Options.text("profile").pipe(
-  Options.withSchema(ProfileName),
+  Options.withSchema(profileNameSchema),
   Options.withDescription(
     "Load an existing named profile from ~/.moltzap/config.json for this invocation.",
   ),
@@ -88,7 +88,9 @@ function resolverInputFromConfig(config: GlobalTransportConfig): {
   profileName?: ProfileNameType;
 } {
   const profileName = Option.getOrUndefined(config.profile);
-  if (profileName === undefined) return {};
+  if (profileName === undefined) {
+    return {};
+  }
   return { profileName };
 }
 
@@ -119,7 +121,7 @@ function resolveTransportOptionsOrExit(input: {
   );
 }
 
-const transportLayerFromConfig = <A extends GlobalTransportConfig>(config: A) =>
+const transportLayerFromConfig = (config: GlobalTransportConfig) =>
   Layer.unwrapEffect(
     resolveTransportOptionsOrExit(resolverInputFromConfig(config)).pipe(
       Effect.map(makeTransportLayer),
@@ -175,7 +177,7 @@ const cli = Command.run(moltzap, { name: "moltzap", version });
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli Command.run requires the Node argv vector at this process entrypoint.
 cli(process.argv).pipe(
   Effect.provide(NodeContext.layer),
-  Effect.provide(LoggerLive),
+  Effect.provide(loggerLive),
   Logger.withMinimumLogLevel(minLogLevel),
   NodeRuntime.runMain,
 );

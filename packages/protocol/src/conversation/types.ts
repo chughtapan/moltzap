@@ -80,11 +80,6 @@ export class ParticipantNotAdmittedError extends Schema.TaggedError<ParticipantN
   static readonly message = "Agent is not admitted to the task";
 }
 
-const agentParticipantRefSchema = Schema.Struct({
-  type: Schema.Literal("agent"),
-  id: formatString("uuid"),
-});
-
 const conversationMetadataSchema = Schema.Struct({
   tags: Schema.optional(
     Schema.Array(Schema.Record({ key: Schema.String, value: Schema.String })),
@@ -108,39 +103,32 @@ const conversationSchemaValue = Schema.Struct({
   archivedAt: Schema.optional(dateTimeString),
 });
 
-/** Schema for a participant row attached to a conversation. */
-export const conversationParticipantSchema = Schema.Struct({
-  conversationId: conversationId,
-  participant: agentParticipantRefSchema,
-  joinedAt: dateTimeString,
-  lastReadMessageId: Schema.optional(messageId),
-  agentName: Schema.optional(Schema.String),
-  agentDisplayName: Schema.optional(Schema.String),
-});
-
-/** Schema for the compact conversation summary returned by list surfaces. */
-export const conversationSummarySchema = Schema.Struct({
-  id: conversationId,
-  name: Schema.optional(Schema.String),
-  lastMessagePreview: Schema.optional(Schema.String),
-  lastMessageTimestamp: Schema.optional(dateTimeString),
-  unreadCount: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
-  metadata: Schema.optional(conversationMetadataSchema),
-  participants: Schema.optional(Schema.Array(agentParticipantRefSchema)),
-});
-
 /** Conversation row visible on task conversation surfaces. */
 export type Conversation = Schema.Schema.Type<typeof conversationSchemaValue>;
 
 /** Participant row for a conversation. */
-export type ConversationParticipant = Schema.Schema.Type<
-  typeof conversationParticipantSchema
->;
+export interface ConversationParticipant {
+  readonly conversationId: ConversationId;
+  readonly participant: { readonly type: "agent"; readonly id: string };
+  readonly joinedAt: string;
+  readonly lastReadMessageId?: MessageId;
+  readonly agentName?: string;
+  readonly agentDisplayName?: string;
+}
 
 /** Conversation summary row used by list surfaces. */
-export type ConversationSummary = Schema.Schema.Type<
-  typeof conversationSummarySchema
->;
+export interface ConversationSummary {
+  readonly id: ConversationId;
+  readonly name?: string;
+  readonly lastMessagePreview?: string;
+  readonly lastMessageTimestamp?: string;
+  readonly unreadCount: number;
+  readonly metadata?: Schema.Schema.Type<typeof conversationMetadataSchema>;
+  readonly participants?: ReadonlyArray<{
+    readonly type: "agent";
+    readonly id: string;
+  }>;
+}
 
 /**
  * Return the canonical conversation schema.

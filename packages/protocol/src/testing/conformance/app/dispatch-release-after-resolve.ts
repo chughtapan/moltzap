@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {
@@ -81,7 +81,8 @@ function assertSingleRelease(
     yield* driver.assertLeaseState(ack.dispatchId, expectedLeaseState(verdict));
     const release = yield* driver.recipient.waitForRelease();
     yield* assertNoSecondRelease(propertyName, driver);
-    const params = release.params as ReleaseFrameView;
+    const params =
+      /* Safe because waitForRelease filters for the released-notification descriptor. */ release.params as ReleaseFrameView;
     yield* assertReleaseLeaseId(propertyName, params, ack.leaseId);
     yield* assertReleaseDecision(propertyName, params, verdict);
   });
@@ -95,7 +96,7 @@ function assertNoSecondRelease(
     const followup = yield* Effect.exit(
       driver.recipient.waitForRelease(undefined, NO_SECOND_RELEASE_WINDOW_MS),
     );
-    if (followup._tag === "Success") {
+    if (Exit.isSuccess(followup)) {
       return yield* Effect.fail(
         dispatchAdmissionViolation(
           propertyName,

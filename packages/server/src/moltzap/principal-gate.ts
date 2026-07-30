@@ -19,8 +19,12 @@ import {
 } from "@moltzap/protocol/identity";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { ConnectionId } from "@moltzap/protocol/socket";
-import type { ConnectionManager, Connection } from "#socket";
-import type { AgentContext, AppContext } from "#socket";
+import type {
+  ConnectionManager,
+  Connection,
+  AgentContext,
+  AppContext,
+} from "#socket";
 
 type Principal = AgentContext | AppContext;
 
@@ -31,7 +35,11 @@ const FORBIDDEN_AUTHENTICATED_ONLY =
   "This method requires an authenticated principal";
 const FORBIDDEN_INACTIVE = "Agent must be active before performing this action";
 
-/** A wrong-principal / inactive rejection as the tagged `ForbiddenError`. */
+/**
+ * A wrong-principal / inactive rejection as the tagged `ForbiddenError`.
+ * @param message Value supplied to the operation.
+ * @returns The forbidden result.
+ */
 const forbidden = (message: string): ForbiddenError =>
   new ForbiddenError({ message });
 
@@ -40,6 +48,9 @@ const forbidden = (message: string): ForbiddenError =>
  * impossible-state defect: the socket-open path inserts the unauthenticated arm
  * before any resolver Layer is built in the same scope, and the close finalizer
  * removes it only as that scope tears down.
+ * @param manager Value supplied to the operation.
+ * @param connId Value supplied to the operation.
+ * @returns The peek live arm result.
  */
 export const peekLiveArm = (
   manager: ConnectionManager,
@@ -60,6 +71,9 @@ export const peekLiveArm = (
 /**
  * Narrow the live arm to the agent principal. Rejects a non-agent arm and,
  * for `ActiveAgent` requirements, an inactive agent.
+ * @param connection Value supplied to the operation.
+ * @param requireActiveAgent Value supplied to the operation.
+ * @returns The narrow agent arm result.
  */
 const narrowAgentArm = (
   connection: Connection,
@@ -74,7 +88,11 @@ const narrowAgentArm = (
   return Effect.succeed(connection.auth);
 };
 
-/** Narrow the live arm to the app principal. */
+/**
+ * Narrow the live arm to the app principal.
+ * @param connection Value supplied to the operation.
+ * @returns The narrow app arm result.
+ */
 const narrowAppArm = (
   connection: Connection,
 ): Effect.Effect<Principal, ForbiddenError> =>
@@ -82,7 +100,11 @@ const narrowAppArm = (
     ? Effect.succeed(connection.auth)
     : Effect.fail(forbidden(FORBIDDEN_APP_ONLY));
 
-/** Admit either authenticated arm, rejecting the pre-connect arm. */
+/**
+ * Admit either authenticated arm, rejecting the pre-connect arm.
+ * @param connection Value supplied to the operation.
+ * @returns The narrow authenticated arm result.
+ */
 const narrowAuthenticatedArm = (
   connection: Connection,
 ): Effect.Effect<Principal, ForbiddenError> =>
@@ -95,11 +117,15 @@ const narrowAuthenticatedArm = (
  * A gated method always has a principal head: the empty-`requires` Connect path
  * carries no policy and never reaches this gate, so an `undefined` head here is a
  * wiring defect, not a caller-actionable error.
+ * @param requireActiveAgent Value supplied to the operation.
+ * @param connection Value supplied to the operation.
+ * @param principal Value supplied to the operation.
+ * @returns The narrow by policy result.
  */
 export const narrowByPolicy = (
-  principal: PrincipalRequirement | undefined,
   requireActiveAgent: boolean,
   connection: Connection,
+  principal?: PrincipalRequirement,
 ): Effect.Effect<Principal, ForbiddenError> => {
   if (principal === AgentPrincipal) {
     return narrowAgentArm(connection, requireActiveAgent);

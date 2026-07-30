@@ -2,15 +2,20 @@ import { Effect } from "effect";
 import {
   contactAcceptedNotificationDefinition,
   contactRequestNotificationDefinition,
-  contactsAccept as contactsAcceptDefinition,
-  contactsAdd as contactsAddDefinition,
-  contactsList as contactsListDefinition,
+  type contactsAccept as contactsAcceptDefinition,
+  type contactsAdd as contactsAddDefinition,
+  type contactsList as contactsListDefinition,
+  type UserId,
 } from "@moltzap/protocol/identity";
-import { InvalidParamsError } from "@moltzap/protocol/rpc";
-import type { NotificationParamsOf, ParamsOf } from "@moltzap/protocol/rpc";
-import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
-import type { UserId } from "@moltzap/protocol/identity";
-import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
+import {
+  InvalidParamsError,
+  type NotificationParamsOf,
+  type ParamsOf,
+} from "@moltzap/protocol/rpc";
+import type {
+  ServerHandler,
+  AnyNotificationDefinition,
+} from "@moltzap/protocol/socket/catalog";
 import { AuthServiceTag, type AuthService } from "#identity/agents";
 import type { AgentContext } from "#socket";
 import { ContactsServiceTag } from "./layer.js";
@@ -26,7 +31,9 @@ const fanOut = <D extends AnyNotificationDefinition>(
     const authService: AuthService = yield* AuthServiceTag;
     const networkSendService = yield* NetworkSendServiceTag;
     const agentIds = yield* authService.agentsForOwner(target);
-    if (agentIds.length === 0) return;
+    if (agentIds.length === 0) {
+      return;
+    }
     yield* networkSendService.broadcastNotification(
       agentIds,
       definition,
@@ -92,6 +99,11 @@ function contactsAcceptBody(
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
+/**
+ * Provides the contacts list runtime value.
+ * @param params Request payload to process.
+ * @returns The contacts list result.
+ */
 export const contactsList: ServerHandler<typeof contactsListDefinition> = (
   params,
 ) =>
@@ -99,6 +111,11 @@ export const contactsList: ServerHandler<typeof contactsListDefinition> = (
     return yield* contactsListBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsList"));
 
+/**
+ * Provides the contacts add runtime value.
+ * @param params Request payload to process.
+ * @returns The contacts add result.
+ */
 export const contactsAdd: ServerHandler<typeof contactsAddDefinition> = (
   params,
 ) =>
@@ -106,6 +123,11 @@ export const contactsAdd: ServerHandler<typeof contactsAddDefinition> = (
     return yield* contactsAddBody(params, yield* agentArm);
   }).pipe(Effect.withSpan("contactsAdd"));
 
+/**
+ * Provides the contacts accept runtime value.
+ * @param params Request payload to process.
+ * @returns The contacts accept result.
+ */
 export const contactsAccept: ServerHandler<typeof contactsAcceptDefinition> = (
   params,
 ) =>

@@ -1,3 +1,4 @@
+// safer-arch-ignore no-cross-domain-sibling-import: Task request and notification schemas embed the conversation wire shape and its validated display name by protocol design.
 import { Schema } from "effect";
 import {
   stringEnum,
@@ -12,7 +13,11 @@ import { agentId, AgentNotFoundError } from "#identity/agents";
 import { ActiveAgent } from "#identity/requirements";
 import { AgentPrincipal, AppPrincipal } from "#identity/principals";
 import { defineRpc, defineNotification } from "#transport/descriptor";
-import { conversationSchema, ConversationFullError } from "#conversation";
+import {
+  conversationSchema,
+  ConversationFullError,
+} from "../conversation/types.js";
+import { conversationNameSchema } from "../conversation/name.js";
 import { appId } from "#identity/apps";
 import { ContactPolicyAllowsReach } from "#identity/contacts/requirements";
 import { taskId, TaskNotFoundError } from "./ids.js";
@@ -150,9 +155,7 @@ export const taskList = defineRpc({
 // ═══════════════════════════════════════════════════════════════════
 
 const initialConversationSchema = Schema.Struct({
-  name: Schema.optional(
-    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
-  ),
+  name: Schema.optional(conversationNameSchema),
   participants: Schema.optional(Schema.Array(agentId).pipe(Schema.minItems(1))),
 });
 
@@ -221,14 +224,17 @@ const taskCreateContextSchema = Schema.Struct({
   receivedAt: Schema.optional(dateTimeString),
 });
 
+const taskFailureReasonSchema = Schema.String.pipe(
+  Schema.minLength(1),
+  Schema.maxLength(256),
+);
+
 const taskCreateVerdictSchema = Schema.Union(
   Schema.Struct({ decision: Schema.Literal("accept") }),
   Schema.Struct({
     decision: Schema.Literal("reject"),
     // Bound matches `TaskFailedNotificationDefinition.reason`.
-    reason: Schema.optional(
-      Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
-    ),
+    reason: Schema.optional(taskFailureReasonSchema),
   }),
 );
 
@@ -339,9 +345,7 @@ const taskFailedNotificationSchema = Schema.Struct({
   // `reject.reason`, the synthesized `"app_unreachable"` / `"timeout"`
   // strings from the fail-closed envelope, and any future caller-supplied
   // failure reason all flow through here.
-  reason: Schema.optional(
-    Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)),
-  ),
+  reason: Schema.optional(taskFailureReasonSchema),
 });
 
 const taskCreatedNotificationSchema = Schema.Struct({ task: taskSchema });

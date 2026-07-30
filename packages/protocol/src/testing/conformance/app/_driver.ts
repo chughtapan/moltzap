@@ -61,7 +61,7 @@ import {
 } from "#message/dispatch";
 import { messagesSend } from "@moltzap/protocol/message";
 import type { taskId as taskIdSchema } from "#task";
-import type { NotificationDelivery } from "#transport";
+import type { NotificationDelivery, ResultOf } from "#transport";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
   makeAgentTestClient,
@@ -165,14 +165,7 @@ export interface RecipientHandle {
     readonly conversationId: Schema.Schema.Type<typeof conversationIdSchema>;
     readonly leaseId: Schema.Schema.Type<typeof leaseId>;
     readonly text: string;
-  }) => Effect.Effect<
-    {
-      readonly messageId: Schema.Schema.Type<typeof messageId>;
-      readonly errorTag?: string;
-      readonly errorState?: string;
-    },
-    PropertyFailure
-  >;
+  }) => Effect.Effect<SendWithLeaseResult, PropertyFailure>;
 
   /**
    * Disconnect the recipient's WS without graceful shutdown.
@@ -183,6 +176,18 @@ export interface RecipientHandle {
    */
   readonly hardClose: Effect.Effect<void, PropertyFailure>;
 }
+
+type SendWithLeaseResult =
+  | {
+      readonly messageId: Schema.Schema.Type<typeof messageId>;
+      readonly errorTag?: never;
+      readonly errorState?: never;
+    }
+  | {
+      readonly messageId?: never;
+      readonly errorTag: string;
+      readonly errorState?: string;
+    };
 
 // ── Moderator handle ──────────────────────────────────────────────────
 
@@ -325,15 +330,21 @@ function violation(name: string, reason: string): PropertyInvariantViolation {
   return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
 }
 
-function unwrapError<E>(err: E): string {
+function unwrapError(err: unknown): string {
   if (err === null || err === undefined) {
     return "<no error>";
   }
   if (typeof err === "string") {
     return err;
   }
-  const anyErr = err as { _tag?: string; message?: string };
-  return `${anyErr._tag ?? "<unknown>"}: ${anyErr.message ?? String(err)}`;
+  if (typeof err !== "object") {
+    return `non-object error (${typeof err})`;
+  }
+  const tag: unknown = Reflect.get(err, "_tag");
+  const message: unknown = Reflect.get(err, "message");
+  return `${typeof tag === "string" ? tag : "<unknown>"}: ${
+    typeof message === "string" ? message : Object.prototype.toString.call(err)
+  }`;
 }
 
 /**
@@ -380,6 +391,8 @@ function verdictToWire(
       return verdict.reason !== undefined
         ? { admission: { decision: "hold", reason: verdict.reason } }
         : { admission: { decision: "hold" } };
+    default:
+      return verdict satisfies never;
   }
 }
 
@@ -417,9 +430,6 @@ function reasonVerdictFromWire(
   return typeof reason === "string" ? { _tag: tag, reason } : { _tag: tag };
 }
 
-interface DispatchIdParamsView {
-  readonly dispatchId?: Schema.Schema.Type<typeof dispatchIdSchema>;
-}
 interface WireVerdictView {
   readonly decision?: unknown;
   readonly reason?: unknown;
@@ -581,8 +591,8 @@ function waitForRelease(
  * with `"timeout"` after `timeoutMs`. Used by both `waitForRelease`
  * and `waitForObservability` to share the polling-style match loop.
  * @param queue Value supplied to the operation.
- * @param predicate Predicate used to select matching values.
  * @param timeoutMs Maximum time to wait in milliseconds.
+ * @param predicate Predicate used to select matching values.
  * @returns The take matching from queue result.
  */
 function takeMatchingFromQueue<A>(
@@ -633,22 +643,18 @@ function sendWithLease(
   });
 }
 
-function messageSendSuccess(result: unknown): {
+function messageSendSuccess(result: ResultOf<typeof messagesSend>): {
   readonly messageId: Schema.Schema.Type<typeof messageId>;
 } {
   return {
-    messageId: (
-      result as { message: { id: Schema.Schema.Type<typeof messageId> } }
-    ).message.id,
+    messageId: result.message.id,
   };
 }
 
-function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
-  {
-    readonly messageId: Schema.Schema.Type<typeof messageId>;
-    readonly errorTag: string;
-    readonly errorState?: string;
-  },
+function messageSendFailure(
+  exit: Exit.Exit<unknown, unknown>,
+): Effect.Effect<
+  Extract<SendWithLeaseResult, { readonly errorTag: string }>,
   PropertyFailure
 > {
   const rpcErr = firstRpcResponseError(exit);
@@ -662,10 +668,6 @@ function messageSendFailure(exit: Exit.Exit<unknown, unknown>): Effect.Effect<
   }
   const errorState = rpcErrorState(rpcErr);
   return Effect.succeed({
-    // Sentinel placeholder on the error path — no message was created, so
-    // there is no real id to decode.
-    // eslint-disable-next-line agent-code-guard/no-schema-type-cast -- sentinel empty-string id on an error path, not a wire decode
-    messageId: "" as Schema.Schema.Type<typeof messageId>,
     errorTag: rpcErr.tag,
     ...(errorState !== undefined ? { errorState } : {}),
   });
@@ -676,7 +678,7 @@ function rpcErrorState(error: RpcResponseError): string | undefined {
   if (data === null || typeof data !== "object") {
     return undefined;
   }
-  const state = (data as { readonly state?: unknown }).state;
+  const state: unknown = Reflect.get(data, "state");
   return typeof state === "string" ? state : undefined;
 }
 
@@ -835,14 +837,19 @@ function waitForObservability<K extends "consumed" | "expired">(
   // `buildModeratorHandle`. The Queue buffers frames that arrive before
   // the wait, so properties call `waitForObservability` after the
   // triggering action (e.g. `advanceTime`) without races.
-  const queue =
+  const take: Effect.Effect<ObservabilityFrame, "timeout"> =
     kind === "consumed"
-      ? (buffers.consumed as Queue.Queue<ObservabilityFrame>)
-      : (buffers.expired as Queue.Queue<ObservabilityFrame>);
-  return takeMatchingFromQueue(queue, timeoutMs, (frame) =>
-    matchesDispatchId(frame.params, opts.dispatchId),
-  ).pipe(
-    Effect.map((frame) => frame as ObservabilityNotification<K>),
+      ? takeMatchingFromQueue(buffers.consumed, timeoutMs, (frame) =>
+          matchesDispatchId(frame.params, opts.dispatchId),
+        )
+      : takeMatchingFromQueue(buffers.expired, timeoutMs, (frame) =>
+          matchesDispatchId(frame.params, opts.dispatchId),
+        );
+  return take.pipe(
+    Effect.map(
+      (frame) =>
+        /* Safe because the selected queue is determined by the same kind K. */ frame as ObservabilityNotification<K>,
+    ),
     Effect.mapError((reason) =>
       reason === "timeout"
         ? observabilityTimeoutFailure(kind, timeoutMs)
@@ -879,7 +886,11 @@ function matchesDispatchId(
   if (dispatchId === undefined) {
     return true;
   }
-  return (params as DispatchIdParamsView).dispatchId === dispatchId;
+  return (
+    typeof params === "object" &&
+    params !== null &&
+    Reflect.get(params, "dispatchId") === dispatchId
+  );
 }
 
 function getLease(
@@ -897,14 +908,14 @@ function getLease(
   );
 }
 
-function leaseResultFromWire(result: unknown): {
+function leaseResultFromWire(result: ResultOf<typeof dispatchLeaseGet>): {
   readonly state: LeaseState;
   readonly verdict: DispatchVerdict | null;
   readonly leaseId: Schema.Schema.Type<typeof leaseId>;
 } {
-  const lease = (result as { lease: Record<string, unknown> }).lease;
+  const lease = result.lease;
   return {
-    state: lease.state as LeaseState,
+    state: lease.state,
     verdict: verdictFromWire(lease.verdict),
     // The wire `leaseId` is a server-minted UUID; decode it through the brand
     // schema rather than a bare cast (the brand is an Effect `Schema`).
@@ -1054,11 +1065,7 @@ function createDriverTask(
       invitedAgentIds: [recipientAgent.agentId],
     })
     .pipe(
-      Effect.map(
-        (result) =>
-          (result as { task: { id: Schema.Schema.Type<typeof taskIdSchema> } })
-            .task.id,
-      ),
+      Effect.map((result) => result.task.id),
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,
@@ -1083,16 +1090,7 @@ function createDriverConversation(
       participants: [recipientAgent.agentId],
     })
     .pipe(
-      Effect.map(
-        (result) =>
-          (
-            result as {
-              conversation: {
-                id: Schema.Schema.Type<typeof conversationIdSchema>;
-              };
-            }
-          ).conversation.id,
-      ),
+      Effect.map((result) => result.conversation.id),
       Effect.mapError((e) =>
         violation(
           SETUP_FAILURE_PROPERTY,

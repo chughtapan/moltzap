@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, inject } from "vitest";
 import { Data, Effect } from "effect";
+import { serverBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import {
   resetCoreTestDb,
   startCoreTestServer,
@@ -23,6 +24,7 @@ const hookPromise = <A>(operation: string, evaluate: () => PromiseLike<A>) =>
     catch: (cause) => new ServiceIntegrationHookError({ operation, cause }),
   });
 
+/** Executes the setup service integration operation. */
 export function setupServiceIntegration(): void {
   beforeAll(
     () =>
@@ -51,10 +53,18 @@ export function setupServiceIntegration(): void {
   );
 }
 
-export function coreBaseUrl(): string {
-  return baseUrl;
+/**
+ * Executes the core base url operation.
+ * @returns The core base url result.
+ */
+export function coreBaseUrl(): ServerBaseUrl {
+  return serverBaseUrl(baseUrl);
 }
 
+/**
+ * Executes the core ws url operation.
+ * @returns The core ws url result.
+ */
 export function coreWsUrl(): string {
   return wsUrl;
 }

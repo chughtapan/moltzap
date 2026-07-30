@@ -22,7 +22,6 @@ import type {
 import {
   openProtocolAppClientSocket,
   RPC_TIMEOUT_MS,
-  type ConnectResult,
   type RpcCallOptions,
   ProtocolClientLifecycle,
   type ReverseCallbackHandlers,
@@ -76,7 +75,6 @@ export interface AppClientOptions {
   readonly serverUrl: string;
   readonly appKey: AppKey;
   readonly onDisconnect?: (close: CloseInfo) => void;
-  readonly onReconnect?: (helloOk: ConnectResult) => void;
   readonly handlers: AppCallbackHandlers<AppCallbackContext>;
 }
 
@@ -97,8 +95,6 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
       openSession: openProtocolAppClientSocket,
       callbackHandlers: () => makeAppCallbackHandlers(options.handlers),
       onDisconnect: options.onDisconnect,
-      onReconnect: options.onReconnect,
-      failConnectWhenClosed: true,
     });
   }
 

@@ -20,6 +20,7 @@ export { agentPresenceSubscribe, appPresenceSubscribe } from "./presence.js";
 export {
   type ServerBaseUrl,
   serverBaseUrlSchema,
+  httpBaseUrl,
   serverBaseUrl,
   webSocketUrl,
 } from "./server-url.js";

@@ -19,7 +19,15 @@ describe("nextSnowflakeId", () => {
       ids.push(nextSnowflakeId());
     }
     for (let i = 1; i < ids.length; i++) {
-      expect(ids[i]!).toBeGreaterThan(ids[i - 1]!);
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ ids[
+          i
+        ]!,
+      ).toBeGreaterThan(
+        /* Safe because the test fixture establishes this asserted shape. */ ids[
+          i - 1
+        ]!,
+      );
     }
   });
 

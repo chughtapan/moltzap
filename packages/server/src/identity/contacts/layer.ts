@@ -6,12 +6,14 @@ import { DbTag } from "#db";
 
 import { ContactsService } from "./contact.service.js";
 
+/** Implements contacts service tag. */
 export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
   ContactsServiceTag,
   ContactsService
 >() {}
 
-export const ContactsServiceLive = Layer.effect(
+/** Provides the contacts service live runtime value. */
+export const contactsServiceLive = Layer.effect(
   ContactsServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;

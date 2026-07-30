@@ -5,7 +5,7 @@ import {
   conversationId,
 } from "@moltzap/protocol/conversation";
 import { type TaskId, taskId } from "@moltzap/protocol/task";
-import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
+import { localDaemonCommands } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import { logJson, logLines } from "../output.js";
 import type { HistoryRequest } from "../../local-history.js";
@@ -47,7 +47,7 @@ const historyHandler = ({
     ? { taskId, conversationId, limit, sessionKey: sessionKey.value }
     : { taskId, conversationId, limit };
   return runHandler(
-    command(LocalDaemonCommands.history, params).pipe(
+    command(localDaemonCommands.history, params).pipe(
       Effect.flatMap(logJson),
       Effect.asVoid,
     ),
@@ -65,6 +65,7 @@ const historySubcommand = Command.make(
   historyHandler,
 ).pipe(Command.withDescription("Show message history for a conversation"));
 
+/** Provides the conversations command runtime value. */
 export const conversationsCommand = Command.make("conversations", {}, () =>
   logLines([
     "moltzap conversations: only `history` is supported in this release.",

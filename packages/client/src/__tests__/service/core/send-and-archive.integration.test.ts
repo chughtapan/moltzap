@@ -19,13 +19,13 @@ it("send() delivers message to other agent", () =>
     // triggering `service.send` so the registry callback is installed before
     // the server fans out the `messages/received` frame.
     const eventFiber = yield* Effect.fork(
-      regB.client.subscribe(H.MessageReceivedNotificationDefinition).pipe(
+      regB.client.subscribe(H.messageReceivedNotificationDefinition).pipe(
         Stream.runHead,
         Effect.timeoutFail({
           duration: Duration.millis(H.NOTIFICATION_WAIT_MS),
           onTimeout: () =>
             new Error(
-              `timeout waiting for ${H.MessageReceivedNotificationDefinition.name}`,
+              `timeout waiting for ${H.messageReceivedNotificationDefinition.name}`,
             ),
         }),
       ),
@@ -33,7 +33,8 @@ it("send() delivers message to other agent", () =>
 
     yield* service.send(
       conv.task.id,
-      conv.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
       H.HELLO_FROM_SERVICE,
     );
 
@@ -42,7 +43,9 @@ it("send() delivers message to other agent", () =>
       eventOpt,
       () => new Error("notification stream closed before delivery"),
     );
-    const part = event.message.parts[0]!;
+    const part =
+      /* Safe because the test fixture establishes this asserted shape. */ event
+        .message.parts[0];
     if (part.type !== "text") {
       throw new Error(`expected text part, got ${part.type}`);
     }

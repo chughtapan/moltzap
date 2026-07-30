@@ -2,15 +2,14 @@ import { FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Exit, Redacted, Schema } from "effect";
-import { agentId as agentIdSchema } from "@moltzap/protocol/identity";
-import { agentKey } from "@moltzap/protocol/identity";
+import { agentId as agentIdSchema, agentKey } from "@moltzap/protocol/identity";
 import {
   agentId,
   agentKeyString,
   redactedAgentKey,
 } from "@moltzap/protocol/testing";
 import { afterEach, beforeEach, describe, expect, vi } from "vitest";
-import { loadServiceConfig } from "./config.js";
+import { getHttpUrl, loadServiceConfig } from "./config.js";
 
 const it = effectIt.scoped;
 
@@ -21,9 +20,13 @@ const PROFILE_AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440029");
 const TEST_PROFILE_NAME = "test-profile";
 const TEST_PROFILE_AGENT_NAME = "profile-agent";
 const TEST_SERVER_URL = "wss://test.moltzap.local";
+const TEST_SOCKET_URL = "WSS://test.moltzap.local/ws/";
+const TEST_HTTP_URL = "https://test.moltzap.local";
+const INVALID_SERVER_URL = "wss://test.moltzap.local/not-moltzap";
 const PROFILE_NOT_FOUND_ERROR = "ProfileNotFoundError";
+const CONFIG_READ_ERROR = "ConfigReadError";
 
-const ConfigFixtureSchema = Schema.parseJson(
+const configFixtureSchema = Schema.parseJson(
   Schema.Struct({
     profiles: Schema.optional(
       Schema.Record({
@@ -37,8 +40,8 @@ const ConfigFixtureSchema = Schema.parseJson(
     ),
   }),
 );
-type ConfigFixture = Schema.Schema.Type<typeof ConfigFixtureSchema>;
-const encodeConfigFixture = Schema.encodeSync(ConfigFixtureSchema);
+type ConfigFixture = Schema.Schema.Type<typeof configFixtureSchema>;
+const encodeConfigFixture = Schema.encodeSync(configFixtureSchema);
 
 const profileAuthConfig = (): ConfigFixture => ({
   profiles: {
@@ -99,6 +102,34 @@ function missingProfileFails() {
   );
 }
 
+function canonicalServerUrlOwnsBothTransports() {
+  return withNodeContext(
+    Effect.gen(function* () {
+      vi.stubEnv("MOLTZAP_SERVER_URL", TEST_SOCKET_URL);
+      yield* writeConfigFile(profileAuthConfig());
+
+      const result = yield* loadServiceConfig(TEST_PROFILE_NAME);
+      const httpUrl = yield* getHttpUrl;
+      expect(result.serverUrl).toBe(TEST_SERVER_URL);
+      expect(httpUrl).toBe(TEST_HTTP_URL);
+    }),
+  );
+}
+
+function invalidServerUrlFails() {
+  return withNodeContext(
+    Effect.gen(function* () {
+      vi.stubEnv("MOLTZAP_SERVER_URL", INVALID_SERVER_URL);
+      yield* writeConfigFile(profileAuthConfig());
+
+      const exit = yield* Effect.exit(loadServiceConfig(TEST_PROFILE_NAME));
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(String(exit)).toContain(CONFIG_READ_ERROR);
+      expect(String(exit)).toContain(INVALID_SERVER_URL);
+    }),
+  );
+}
+
 describe("loadServiceConfig", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
@@ -111,6 +142,16 @@ describe("loadServiceConfig", () => {
   it(
     "loads credentials and server URL for MoltZapService",
     serviceConfigIncludesServerUrl,
+  );
+
+  it(
+    "normalizes one server address before deriving WebSocket and HTTP transports",
+    canonicalServerUrlOwnsBothTransports,
+  );
+
+  it(
+    "rejects a server address carrying an unsupported path",
+    invalidServerUrlFails,
   );
 
   it("fails when the named profile does not exist", missingProfileFails);

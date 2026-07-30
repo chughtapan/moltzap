@@ -50,7 +50,7 @@ export function registerDispatchRequestAckMintsLease(
             ),
           );
         }
-        if ((ack.leaseId as string) === (ack.dispatchId as string)) {
+        if (Object.is(ack.leaseId, ack.dispatchId)) {
           return yield* Effect.fail(
             dispatchAdmissionViolation(
               name,

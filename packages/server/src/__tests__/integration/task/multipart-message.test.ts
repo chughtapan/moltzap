@@ -37,13 +37,15 @@ it("message with multiple text parts preserves all parts in order", () =>
       initialConversation: { participants: [bob.agentId] },
     });
     const taskId = conv.task.id;
-    const conversationId = conv.conversation!.id;
+    const conversationId =
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id;
 
     const parts = [
       { type: "text" as const, text: PART_ONE_TEXT },
       { type: "text" as const, text: PART_TWO_TEXT },
       { type: "text" as const, text: PART_THREE_TEXT },
-    ];
+    ] as const;
 
     const bobEventFiber = yield* Effect.fork(
       awaitOneNotification(bob.client, messageReceivedNotificationDefinition),
@@ -72,5 +74,8 @@ it("message with multiple text parts preserves all parts in order", () =>
       conversationId,
     });
     expect(history.messages).toHaveLength(1);
-    expect(history.messages[0]!.parts).toEqual(parts);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ history
+        .messages[0]!.parts,
+    ).toEqual(parts);
   }));

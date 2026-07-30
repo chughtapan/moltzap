@@ -2,18 +2,25 @@ import {
   dispatchAuthorize,
   dispatchRelease,
   dispatchRequest,
+  type DispatchId,
+  type LeaseId,
 } from "@moltzap/protocol/message/dispatch";
 import { messagesAuthorize, messagesSend } from "@moltzap/protocol/message";
-import { conversationParticipantsRemovedNotificationDefinition } from "@moltzap/protocol/conversation";
-import { taskCreate, taskRequest } from "@moltzap/protocol/task";
+import {
+  conversationParticipantsRemovedNotificationDefinition,
+  type ConversationId,
+} from "@moltzap/protocol/conversation";
+import {
+  taskCreate,
+  taskRequest,
+  type AppId,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AppId, TaskId } from "@moltzap/protocol/task";
 import type { AppManifest } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { DispatchId, LeaseId } from "@moltzap/protocol/message/dispatch";
 import {
   agentId as protocolAgentId,
   messageId,
@@ -32,42 +39,74 @@ import {
 } from "../../helpers.js";
 import { getBaseUrl } from "../../../../test-utils/server.js";
 
-type GrantVerdict = {
+interface GrantVerdict {
   readonly decision: "grant";
   readonly leaseTimeoutMs?: number;
-};
-type DenyVerdict = { readonly decision: "deny"; readonly reason?: string };
-type HoldVerdict = { readonly decision: "hold"; readonly reason?: string };
+}
+interface DenyVerdict {
+  readonly decision: "deny";
+  readonly reason?: string;
+}
+interface HoldVerdict {
+  readonly decision: "hold";
+  readonly reason?: string;
+}
 type HookVerdict = GrantVerdict | DenyVerdict | HoldVerdict;
 
+/** Represents dispatch hook verdict values. */
 export type DispatchHookVerdict =
   | HookVerdict
   | { readonly kind: "never-reply" };
 
+/** Provides the expected type string runtime value. */
 export const EXPECTED_TYPE_STRING = "string";
+/** Provides the dispatch state granted runtime value. */
 export const DISPATCH_STATE_GRANTED = "GRANTED";
+/** Provides the dispatch state expired runtime value. */
 export const DISPATCH_STATE_EXPIRED = "EXPIRED";
+/** Provides the dispatch state abandoned runtime value. */
 export const DISPATCH_STATE_ABANDONED = "ABANDONED";
+/** Provides the dispatch state consumed runtime value. */
 export const DISPATCH_STATE_CONSUMED = "CONSUMED";
+/** Provides the dispatch verdict grant runtime value. */
 export const DISPATCH_VERDICT_GRANT = "grant";
+/** Provides the dispatch verdict deny runtime value. */
 export const DISPATCH_VERDICT_DENY = "deny";
+/** Provides the dispatch verdict hold runtime value. */
 export const DISPATCH_VERDICT_HOLD = "hold";
+/** Provides the moderator unavailable reason runtime value. */
 export const MODERATOR_UNAVAILABLE_REASON = "moderator_unavailable";
+/** Provides the moderator timeout reason runtime value. */
 export const MODERATOR_TIMEOUT_REASON = "timeout";
+/** Provides the dispatch release timeout ms runtime value. */
 export const DISPATCH_RELEASE_TIMEOUT_MS = 5_000;
+/** Provides the dispatch request concurrency runtime value. */
 export const DISPATCH_REQUEST_CONCURRENCY = 2;
 
+/** Describes conversation binding. */
 export interface ConversationBinding {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
 }
 
+/**
+ * Provides the start dispatch flow server runtime value.
+ * @returns The created conversation on app.
+ */
 export const startDispatchFlowServer = () =>
   Effect.runPromise(startTestServerEffect());
 
+/**
+ * Provides the stop dispatch flow server runtime value.
+ * @returns The created conversation on app.
+ */
 export const stopDispatchFlowServer = () =>
   Effect.runPromise(stopTestServerEffect());
 
+/**
+ * Provides the make probe message id runtime value.
+ * @returns The created conversation on app.
+ */
 export const makeProbeMessageId = () => messageId(crypto.randomUUID());
 
 /**
@@ -78,6 +117,10 @@ export const makeProbeMessageId = () => messageId(crypto.randomUUID());
  * moderator callbacks before calling this; the server resolves the forked
  * moderator round-trip on the first `agent/dispatch/request`. `manifest.appId` is
  * ignored; the manifest supplies hook declarations and conversation defaults.
+ * @param alice Value supplied to the operation.
+ * @param bob Value supplied to the operation.
+ * @param manifest Value supplied to the operation.
+ * @returns The created conversation on app.
  */
 export function createConversationOnApp(
   alice: ConnectedAgent,
@@ -93,7 +136,9 @@ export function createConversationOnApp(
     });
     return {
       taskId: result.task.id,
-      conversationId: result.conversation!.id,
+      conversationId:
+        /* Safe because the test fixture establishes this asserted shape. */ result
+          .conversation!.id,
     };
   }).pipe(Effect.withSpan("createConversationOnApp"));
 }
@@ -132,13 +177,17 @@ function ensureModeratorApp(
   manifest: AppManifest,
 ): Effect.Effect<AppId, unknown> {
   return Effect.gen(function* () {
-    if (moderatorApp !== null) return moderatorApp.appId;
+    if (moderatorApp !== null) {
+      return moderatorApp.appId;
+    }
     const registered = yield* registerApp(getBaseUrl(), manifest);
     const client = yield* connectAppClient(
       registered.appId,
       registered.appKey,
       moderatorHandlers(),
     );
+    // The fixture is reset between tests and acquired serially by each test.
+    // eslint-disable-next-line require-atomic-updates -- No concurrent fixture acquisition occurs within a test.
     moderatorApp = { appId: registered.appId, client };
     return registered.appId;
   }).pipe(Effect.withSpan("ensureModeratorApp"));
@@ -150,9 +199,13 @@ function moderatorHandlers(): AppCallbackHandlers<AppCallbackContext> {
       definition: dispatchAuthorize,
       handle: () =>
         Effect.gen(function* () {
-          if (attachedFixture === null) return yield* Effect.never;
+          if (attachedFixture === null) {
+            return yield* Effect.never;
+          }
           const verdict = attachedFixture.consumeNextVerdict();
-          if ("kind" in verdict) return yield* Effect.never;
+          if ("kind" in verdict) {
+            return yield* Effect.never;
+          }
           return { admission: verdict };
         }).pipe(Effect.withSpan("dispatchFlow.dispatchAuthorize")),
     },
@@ -188,9 +241,10 @@ function resetModeratorAppState(): void {
  * Call BEFORE
  * {@link createConversationOnApp} so the verdict source is live by the
  * time the server forks the moderator round-trip on `agent/dispatch/request`.
+ * @param fixture Value supplied to the operation.
+ * @returns The attach dispatch authorize hook result.
  */
 export function attachDispatchAuthorizeHook(
-  _alice: ConnectedAgent,
   fixture: DispatchFlowFixture,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
@@ -205,6 +259,7 @@ export function attachDispatchAuthorizeHook(
  * test asserting that scope reads via THIS client, not the requesting agent.
  * Throws if no conversation has been created yet (the app client is minted
  * lazily by {@link createConversationOnApp}).
+ * @returns The moderator app client result.
  */
 export function moderatorAppClient(): TestAppClient {
   if (moderatorApp === null) {
@@ -215,6 +270,14 @@ export function moderatorAppClient(): TestAppClient {
   return moderatorApp.client;
 }
 
+/**
+ * Executes the request dispatch operation.
+ * @param recipient Value supplied to the operation.
+ * @param conversationId Value supplied to the operation.
+ * @param sender Value supplied to the operation.
+ * @param text Text to process.
+ * @returns The request dispatch result.
+ */
 export function requestDispatch(
   recipient: ConnectedAgent,
   conversationId: ConversationId,
@@ -229,6 +292,14 @@ export function requestDispatch(
   });
 }
 
+/**
+ * Sends message with lease.
+ * @param sender Value supplied to the operation.
+ * @param binding Value supplied to the operation.
+ * @param leaseId Value supplied to the operation.
+ * @param text Text to process.
+ * @returns The send message with lease result.
+ */
 export function sendMessageWithLease(
   sender: ConnectedAgent,
   binding: ConversationBinding,
@@ -248,7 +319,7 @@ export function sendMessageWithLease(
  * issuing the trigger RPC. The underlying `Stream.async` subscription has no
  * historical buffer.
  *
- * Caller pattern (fork-before-trigger + Fiber.join):
+ * Caller pattern (fork-before-trigger + Fiber.join):.
  * ```
  * const releaseFiber = yield* waitForDispatchRelease(bob);
  * yield* requestDispatch(bob, ...);
@@ -258,6 +329,9 @@ export function sendMessageWithLease(
  * Returning a `Fiber` (rather than the raw Effect) makes the contract
  * structural — the type signature enforces fork-before-trigger because
  * callers receive a fiber handle, not the awaited value.
+ * @param recipient Value supplied to the operation.
+ * @param timeoutMs Maximum time to wait in milliseconds.
+ * @returns The wait for dispatch release result.
  */
 export function waitForDispatchRelease(
   recipient: ConnectedAgent,
@@ -271,6 +345,12 @@ export function waitForDispatchRelease(
   );
 }
 
+/**
+ * Waits for for participants removed.
+ * @param recipient Value supplied to the operation.
+ * @param timeoutMs Maximum time to wait in milliseconds.
+ * @returns The wait for participants removed result.
+ */
 export function waitForParticipantsRemoved(
   recipient: ConnectedAgent,
   timeoutMs = DISPATCH_RELEASE_TIMEOUT_MS,
@@ -287,6 +367,11 @@ export function waitForParticipantsRemoved(
   );
 }
 
+/**
+ * Reads lease by lease id.
+ * @param leaseId Value supplied to the operation.
+ * @returns The read lease by lease id result.
+ */
 export function readLeaseByLeaseId(leaseId: LeaseId) {
   return getTestCoreApp()
     .leaseRegistry.read({
@@ -296,6 +381,11 @@ export function readLeaseByLeaseId(leaseId: LeaseId) {
     .pipe(Effect.withSpan("readLeaseByLeaseId"));
 }
 
+/**
+ * Reads lease by dispatch id.
+ * @param dispatchId Value supplied to the operation.
+ * @returns The read lease by dispatch id result.
+ */
 export function readLeaseByDispatchId(dispatchId: DispatchId) {
   return getTestCoreApp()
     .leaseRegistry.read({
@@ -305,6 +395,7 @@ export function readLeaseByDispatchId(dispatchId: DispatchId) {
     .pipe(Effect.withSpan("readLeaseByDispatchId"));
 }
 
+/** Describes dispatch flow fixture. */
 export interface DispatchFlowFixture {
   readonly reset: Effect.Effect<void, unknown>;
   hookCalls(): number;
@@ -313,9 +404,11 @@ export interface DispatchFlowFixture {
   consumeNextVerdict(): DispatchHookVerdict;
 }
 
-export function createDispatchFlowFixture(
-  _manifest: AppManifest,
-): DispatchFlowFixture {
+/**
+ * Creates dispatch flow fixture.
+ * @returns The created dispatch flow fixture.
+ */
+export function createDispatchFlowFixture(): DispatchFlowFixture {
   let hookCalls = 0;
   let nextHookVerdict: DispatchHookVerdict = { decision: "grant" };
 

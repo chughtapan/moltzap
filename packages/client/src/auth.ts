@@ -1,7 +1,7 @@
 import {
   HttpClient,
   HttpClientRequest,
-  HttpClientResponse,
+  type HttpClientResponse,
 } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
 import { Data, Effect, Either, Schema } from "effect";
@@ -27,6 +27,7 @@ const decodeRegisterBody = Schema.decodeUnknown(register.paramsSchema);
 const encodeRegisterBody = Schema.encode(register.paramsSchema);
 const decodeRegisterResult = Schema.decodeUnknown(register.resultSchema);
 
+/** Reports register agent failures. */
 export class RegisterAgentError extends Data.TaggedError("RegisterAgentError")<{
   readonly message: string;
   readonly cause?: unknown;
@@ -44,6 +45,10 @@ const registerAgentError = (
  *
  * Uses the public `/api/v1/auth/register` endpoint. Server boot policy owns
  * the registered agent immediately and returns the credential once.
+ * @param baseUrl Value supplied to the operation.
+ * @param name Name of the operation.
+ * @param opts Value supplied to the operation.
+ * @returns The register agent request result.
  */
 export const registerAgent = (
   baseUrl: string,

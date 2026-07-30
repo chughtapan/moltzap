@@ -14,6 +14,7 @@ const SOCKET_ROUTE = "/ws";
 const SOCKET_ROUTE_SUFFIX = /\/ws\/?$/;
 const TRAILING_SLASH = /\/$/;
 const WS_SCHEME_PREFIX = /^http/;
+const HTTP_SCHEME_PREFIX = /^ws/;
 
 const SERVER_SCHEMES: ReadonlySet<string> = new Set([
   "http:",
@@ -77,8 +78,7 @@ export const serverBaseUrlSchema: Schema.Schema<ServerBaseUrl, string> =
     Schema.String.pipe(Schema.brand("ServerBaseUrl")),
     {
       strict: true,
-      decode: (value, options, ast) => {
-        void options;
+      decode: (...[value, , ast]) => {
         const origin = toOrigin(value);
         return origin === null
           ? ParseResult.fail(
@@ -103,6 +103,14 @@ export const serverBaseUrlSchema: Schema.Schema<ServerBaseUrl, string> =
  * configuration or another package.
  */
 export const serverBaseUrl = Schema.decodeSync(serverBaseUrlSchema);
+
+/**
+ * The HTTP control-plane origin for the same server.
+ * @param base Value supplied to the operation.
+ * @returns The http base url result.
+ */
+export const httpBaseUrl = (base: ServerBaseUrl): string =>
+  base.replace(HTTP_SCHEME_PREFIX, "http");
 
 /**
  * The socket endpoint a client dials for the given server.

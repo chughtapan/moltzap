@@ -1,23 +1,22 @@
 import { Args, Command } from "@effect/cli";
 import { Effect, Schema } from "effect";
 import {
-  LocalDaemonCommands,
-  SendCommandRpc,
-  SendTarget,
+  localDaemonCommands,
+  sendCommandRpc,
+  sendTarget,
   type SendTarget as SendTargetValue,
 } from "../../local-daemon-rpc.js";
-import { command, runHandler } from "../transport.js";
-import type { Transport } from "../transport.js";
+import { command, runHandler, type Transport } from "../transport.js";
 import { optionsFromSchema } from "../adapters.js";
 
-type SendCommandParsed = {
+interface SendCommandParsed {
   readonly target: SendTargetValue;
   readonly message: string;
-  readonly options: Schema.Schema.Type<typeof SendOptionsSchema>;
-};
+  readonly options: Schema.Schema.Type<typeof sendOptionsSchema>;
+}
 
 const targetArg = Args.text({ name: "target" }).pipe(
-  Args.withSchema(SendTarget),
+  Args.withSchema(sendTarget),
   Args.withDescription("Target task+conversation as task:<taskId>:<convId>"),
 );
 
@@ -25,10 +24,11 @@ const messageArg = Args.text({ name: "message" }).pipe(
   Args.withDescription("Message text"),
 );
 
-const SendOptionsSchema = SendCommandRpc.payloadSchema.pipe(
+const sendOptionsSchema = sendCommandRpc.payloadSchema.pipe(
   Schema.omit("target", "message"),
 );
-export const sendOptions = optionsFromSchema(SendOptionsSchema, {
+/** Provides the send options runtime value. */
+export const sendOptions = optionsFromSchema(sendOptionsSchema, {
   replyToId: {
     name: "reply-to",
     description: "Reply to a specific message",
@@ -53,7 +53,7 @@ export const sendOptions = optionsFromSchema(SendOptionsSchema, {
  *
  * Examples:
  *   moltzap send task:$TID:$CID "hello"                          # default identity
- *   moltzap --profile alice send task:$TID:$CID "hello"          # send as alice
+ *   moltzap --profile alice send task:$TID:$CID "hello"          # send as alice.
  *
  * Default path delegates to the local channel daemon via a
  * Unix-socket RPC; it does NOT mint its own `MoltZapAgentClient`.
@@ -90,7 +90,7 @@ export const sendCommand: Command.Command<
   { target: targetArg, message: messageArg, options: sendOptions },
   ({ target, message, options }) => {
     return runHandler(
-      command(LocalDaemonCommands.send, {
+      command(localDaemonCommands.send, {
         target,
         message,
         ...options,

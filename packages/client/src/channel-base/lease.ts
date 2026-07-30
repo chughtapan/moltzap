@@ -48,8 +48,13 @@ export type LeaseInvalidProjectionError<E> =
 const LEASE_ID_FALLBACK = "(unknown)";
 
 function isLeaseInvalidData(data: unknown): boolean {
-  if (typeof data !== "object" || data === null) return false;
-  const reason = (data as { readonly reason?: unknown }).reason;
+  if (typeof data !== "object" || data === null) {
+    return false;
+  }
+  const reason =
+    /* Safe because the surrounding invariant establishes this asserted shape. */ (
+      data as { readonly reason?: unknown }
+    ).reason;
   return reason === "LeaseInvalid";
 }
 
@@ -71,12 +76,19 @@ function isLeaseInvalidData(data: unknown): boolean {
  * requires it and this function is synchronous (no Clock access). Callers
  * either pass `Date.now()` directly or use `catchLeaseInvalid` which reads
  * `Clock.currentTimeMillis` inside the Effect.
+ * @param err Value supplied to the operation.
+ * @param ctx Context for the operation.
+ * @param ctx.leaseId Value supplied to the operation.
+ * @param ctx.consumedAt Value supplied to the operation.
+ * @returns The project lease invalid result.
  */
 export function projectLeaseInvalid(
   err: ForbiddenError,
   ctx: { readonly leaseId?: string; readonly consumedAt: number },
 ): LeaseAlreadyConsumed | ForbiddenError {
-  if (!isLeaseInvalidData(err.data)) return err;
+  if (!isLeaseInvalidData(err.data)) {
+    return err;
+  }
   return new LeaseAlreadyConsumed({
     leaseId: ctx.leaseId ?? LEASE_ID_FALLBACK,
     consumedAt: ctx.consumedAt,
@@ -94,7 +106,7 @@ export function projectLeaseInvalid(
  * re-raised unchanged so downstream `mapError`s see the original
  * `ForbiddenError`.
  *
- * Use at every channel's outbound `core.sendReply(...)` boundary:
+ * Use at every channel's outbound `core.sendReply(...)` boundary:.
  *
  * ```ts
  * core.sendReply(conv, text, { dispatchLeaseId: leaseId }).pipe(
@@ -102,6 +114,9 @@ export function projectLeaseInvalid(
  *   // ... per-channel surfacing
  * )
  * ```
+ * @param ctx Context for the operation.
+ * @param ctx.leaseId Value supplied to the operation.
+ * @returns The catch lease invalid result.
  */
 export function catchLeaseInvalid<A, E2, R>(ctx?: {
   readonly leaseId?: string;

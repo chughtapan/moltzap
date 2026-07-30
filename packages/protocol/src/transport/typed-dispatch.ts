@@ -1,16 +1,4 @@
-/**
- * @file The cast-free typed dispatch over a non-flat `@effect/rpc` client.
- *
- * A non-flat `RpcClient.make(group)` is a per-method record keyed by wire tag.
- * Every value is `(payload) => Effect&lt;success, error>` with the result and error
- * recovered PER TAG. {@link TypedDispatchMap} names that record shape as a
- * mapped type, and {@link dispatchCall} indexes it at a concrete tag `K` so the
- * result and the method's `errorSchema` error union flow with no cast.
- *
- * The bridge is a literal-keyed total map. A caller that has a generic tag
- * `K extends Rpcs["_tag"]` dispatches through it while preserving the tag,
- * payload, result, and error correlation.
- */
+/** @file Cast-free typed dispatch over non-flat Effect RPC clients. */
 import type { Rpc } from "@effect/rpc";
 import type { RpcClientError } from "@effect/rpc/RpcClientError";
 import { Effect } from "effect";

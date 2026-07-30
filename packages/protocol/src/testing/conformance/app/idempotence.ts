@@ -201,16 +201,22 @@ function canonIdempotenceResult(
   method: typeof agentsList.name | typeof taskList.name,
   result: unknown,
 ): string {
+  const record: Record<string, unknown> =
+    typeof result === "object" && result !== null && !Array.isArray(result)
+      ? Object.fromEntries(
+          Object.keys(result).map((key) => [key, Reflect.get(result, key)]),
+        )
+      : {};
   if (method === agentsList.name) {
-    const r = result as { agents?: unknown[] };
+    const agents = record.agents;
     return canonicalJson({
-      ...r,
-      agents: Array.isArray(r.agents) ? sortJsonArray(r.agents) : r.agents,
+      ...record,
+      agents: Array.isArray(agents) ? sortJsonArray(agents) : agents,
     });
   }
-  const r = result as { tasks?: unknown[]; cursor?: string };
+  const tasks = record.tasks;
   return canonicalJson({
-    ...r,
-    tasks: Array.isArray(r.tasks) ? sortJsonArray(r.tasks) : r.tasks,
+    ...record,
+    tasks: Array.isArray(tasks) ? sortJsonArray(tasks) : tasks,
   });
 }

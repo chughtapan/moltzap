@@ -13,7 +13,11 @@ import {
   type TestAgentClient,
 } from "../helpers.js";
 
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import {
+  DEFAULT_APP_ID,
+  taskRequest,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import {
   messageReceivedNotificationDefinition,
   messagesList,
@@ -21,7 +25,6 @@ import {
 } from "@moltzap/protocol/message";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
 
 const PRE_DISCONNECT_TEXT = "Pre-disconnect";
 const OFFLINE_TEXT = "Sent while you were away";
@@ -88,7 +91,12 @@ function createDm(
       invitedAgentIds: [participantAgentId],
       initialConversation: { participants: [participantAgentId] },
     });
-    return { taskId: conv.task.id, conversationId: conv.conversation!.id };
+    return {
+      taskId: conv.task.id,
+      conversationId:
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
+    };
   });
 }
 
@@ -108,12 +116,23 @@ function expectReconnectedHistory(client: TestAgentClient, binding: DmBinding) {
     });
 
     expect(msgs.messages).toHaveLength(2);
-    expect(firstTextPart(msgs.messages[0]!.parts)).toBe(PRE_DISCONNECT_TEXT);
-    expect(firstTextPart(msgs.messages[1]!.parts)).toBe(OFFLINE_TEXT);
+    expect(
+      firstTextPart(
+        /* Safe because the test fixture establishes this asserted shape. */ msgs
+          .messages[0]!.parts,
+      ),
+    ).toBe(PRE_DISCONNECT_TEXT);
+    expect(
+      firstTextPart(
+        /* Safe because the test fixture establishes this asserted shape. */ msgs
+          .messages[1]!.parts,
+      ),
+    ).toBe(OFFLINE_TEXT);
   });
 }
 
 function messageText(params: unknown): string {
-  return (params as { message: { parts: Array<{ text: string }> } }).message
-    .parts[0]!.text;
+  return /* Safe because the test fixture establishes this asserted shape. */ /* Safe because the test fixture establishes this asserted shape. */ (
+    params as { message: { parts: Array<{ text: string }> } }
+  ).message.parts[0]!.text;
 }

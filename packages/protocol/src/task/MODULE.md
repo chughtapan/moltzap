@@ -8,7 +8,7 @@ Public barrel for task protocol descriptors.
 
 ## Public surface
 
-### [`agentCallableTaskRpcMethods`](./tasks.ts#L381)
+### [`agentCallableTaskRpcMethods`](./tasks.ts#L385)
 
 _Variable_
 
@@ -22,7 +22,7 @@ export const agentCallableTaskRpcMethods = [
 
 Task RPC catalog callable by agent clients.
 
-### [`appCallableTaskRpcMethods`](./tasks.ts#L388)
+### [`appCallableTaskRpcMethods`](./tasks.ts#L392)
 
 _Variable_
 
@@ -32,7 +32,7 @@ export const appCallableTaskRpcMethods = [taskUpdate] as const
 
 Task RPC catalog callable by app clients.
 
-### [`HookBlockedError`](./tasks.ts#L83)
+### [`HookBlockedError`](./tasks.ts#L88)
 
 _Class_
 
@@ -47,7 +47,7 @@ export class HookBlockedError extends Schema.TaggedError<HookBlockedError>()(
 
 Reports hook blocked failures.
 
-### [`InitialConversationInput`](./tasks.ts#L160)
+### [`InitialConversationInput`](./tasks.ts#L163)
 
 _TypeAlias_
 
@@ -59,7 +59,7 @@ export type InitialConversationInput = Schema.Schema.Type<
 
 Represents initial conversation input values.
 
-### [`Task`](./tasks.ts#L107)
+### [`Task`](./tasks.ts#L112)
 
 _TypeAlias_
 
@@ -69,7 +69,7 @@ export type Task = Schema.Schema.Type<typeof taskSchema>;
 
 Represents task values.
 
-### [`taskCallbackMethods`](./tasks.ts#L391)
+### [`taskCallbackMethods`](./tasks.ts#L395)
 
 _Variable_
 
@@ -79,7 +79,7 @@ export const taskCallbackMethods = [taskCreate] as const
 
 Task callback catalog served by app clients for server-initiated calls.
 
-### [`TaskClosedError`](./tasks.ts#L59)
+### [`TaskClosedError`](./tasks.ts#L64)
 
 _Class_
 
@@ -94,7 +94,7 @@ export class TaskClosedError extends Schema.TaggedError<TaskClosedError>()(
 
 Reports task closed failures.
 
-### [`taskClosedNotificationDefinition`](./tasks.ts#L375)
+### [`taskClosedNotificationDefinition`](./tasks.ts#L379)
 
 _Variable_
 
@@ -107,7 +107,7 @@ export const taskClosedNotificationDefinition = defineNotification({
 
 Pushed when a task closes.
 
-### [`taskCreate`](./tasks.ts#L242)
+### [`taskCreate`](./tasks.ts#L248)
 
 _Variable_
 
@@ -126,7 +126,7 @@ task.
 
 - **Principal:** none — a server→client reverse callback.
 
-### [`taskCreatedNotificationDefinition`](./tasks.ts#L366)
+### [`taskCreatedNotificationDefinition`](./tasks.ts#L370)
 
 _Variable_
 
@@ -142,7 +142,7 @@ the `app/task/create` wire callback and the task transitions from `waiting`
 to `active`. Carries the full Task row (matching `agent/task/closed`'s shape) so
 subscribers don't need a second read to discover the post-transition state.
 
-### [`taskFailedNotificationDefinition`](./tasks.ts#L355)
+### [`taskFailedNotificationDefinition`](./tasks.ts#L359)
 
 _Variable_
 
@@ -178,7 +178,7 @@ export type TaskId = string & Brand.Brand<"TaskId">;
 
 Represents task id values.
 
-### [`taskLeave`](./tasks.ts#L267)
+### [`taskLeave`](./tasks.ts#L273)
 
 _Variable_
 
@@ -203,7 +203,7 @@ fires alongside in the same transaction.
 
 - **Principal:** `AgentPrincipal` head + `ActiveAgent` (active agent).
 
-### [`taskList`](./tasks.ts#L134)
+### [`taskList`](./tasks.ts#L139)
 
 _Variable_
 
@@ -244,7 +244,7 @@ The referenced task does not exist (or the caller cannot see it). Lives in the
 task-id leaf so the `TaskReadAccess` requirement can declare it as its
 fail-closed not-found without a `requirements -> tasks` runtime import cycle.
 
-### [`taskNotifications`](./tasks.ts#L394)
+### [`taskNotifications`](./tasks.ts#L398)
 
 _Variable_
 
@@ -258,7 +258,7 @@ export const taskNotifications = [
 
 Task notification catalog emitted by the server.
 
-### [`TaskParticipant`](./tasks.ts#L122)
+### [`TaskParticipant`](./tasks.ts#L127)
 
 _TypeAlias_
 
@@ -268,7 +268,7 @@ export type TaskParticipant = Schema.Schema.Type<typeof taskParticipantSchema>;
 
 Represents task participant values.
 
-### [`TaskRejectedError`](./tasks.ts#L75)
+### [`TaskRejectedError`](./tasks.ts#L80)
 
 _Class_
 
@@ -289,7 +289,7 @@ rejected by the moderator" — an expected, actionable outcome —
 from an opaque internal error. The app's reason rides in the
 `data` arm when present.
 
-### [`taskRequest`](./tasks.ts#L188)
+### [`taskRequest`](./tasks.ts#L191)
 
 _Variable_
 
@@ -330,7 +330,7 @@ result is returned after the verdict resolves (the handler awaits it).
   reach every invited agent and initial-conversation participant under the
   recipient's contact policy.
 
-### [`TaskStatus`](./tasks.ts#L94)
+### [`TaskStatus`](./tasks.ts#L99)
 
 _TypeAlias_
 
@@ -340,7 +340,7 @@ export type TaskStatus = Schema.Schema.Type<typeof taskStatusEnum>;
 
 Represents task status values.
 
-### [`taskUpdate`](./tasks.ts#L324)
+### [`taskUpdate`](./tasks.ts#L330)
 
 _Variable_
 
@@ -360,7 +360,7 @@ participant admit, and participant remove semantics.
 - **Principal:** `AppPrincipal` head. The app-arm handler runs
   `assertCallerAppOwnsTask` before dispatching the selected action.
 
-### [`TaskUpdateParams`](./tasks.ts#L307)
+### [`TaskUpdateParams`](./tasks.ts#L313)
 
 _TypeAlias_
 
@@ -372,7 +372,7 @@ export type TaskUpdateParams = Schema.Schema.Type<
 
 Represents task update params values.
 
-### [`TaskUpdateResult`](./tasks.ts#L311)
+### [`TaskUpdateResult`](./tasks.ts#L317)
 
 _TypeAlias_
 

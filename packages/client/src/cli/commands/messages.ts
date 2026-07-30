@@ -1,13 +1,13 @@
 /**
  * `moltzap messages &lt;subcommand>` — subcommand group.
  *
- *   messages list → agent/message/list
+ *   Messages list → agent/message/list.
  *
  * `messages` is a subcommand group, distinct from the one-shot top-level
  * `send` command.
  */
 import { Command } from "@effect/cli";
-import { Effect, Schema } from "effect";
+import { Effect, type Schema } from "effect";
 import {
   command,
   runHandler,
@@ -17,15 +17,16 @@ import {
 import { logJson, logLines } from "../output.js";
 
 import {
-  LocalDaemonCommands,
-  MessagesListCommandRpc,
+  localDaemonCommands,
+  messagesListCommandRpc,
 } from "../../local-daemon-rpc.js";
 import { optionsFromSchema } from "../adapters.js";
 
-const messagesListPayload = MessagesListCommandRpc.payloadSchema;
+const messagesListPayload = messagesListCommandRpc.payloadSchema;
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
+/** Represents messages command error conditions. */
 export type MessagesCommandError = TransportError;
 
 // ─── Input shapes ──────────────────────────────────────────────────────────
@@ -37,17 +38,20 @@ export type MessagesListArgs = Schema.Schema.Type<typeof messagesListPayload>;
 
 /**
  * Wraps `agent/message/list` and emits the full daemon result as JSON.
+ * @param args Value supplied to the operation.
+ * @returns The messages list handler result.
  */
 export const messagesListHandler = (
   args: MessagesListArgs,
 ): Effect.Effect<void, MessagesCommandError, Transport> =>
   Effect.gen(function* () {
-    const result = yield* command(LocalDaemonCommands.messagesList, args);
+    const result = yield* command(localDaemonCommands.messagesList, args);
     yield* logJson(result);
   }).pipe(Effect.withSpan("messagesListHandler"));
 
 // ─── CLI commands ──────────────────────────────────────────────────────────
 
+/** Provides the messages list options runtime value. */
 export const messagesListOptions = optionsFromSchema(messagesListPayload, {
   taskId: { name: "task", description: "Task id" },
   conversationId: {

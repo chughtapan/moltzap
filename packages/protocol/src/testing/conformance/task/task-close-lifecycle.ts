@@ -207,7 +207,10 @@ function waitForTaskClosedEvent(
         deliveryViolation(propertyName, `task/closed event missing: ${reason}`),
       ),
     );
-    const data = event.params as TaskClosedEventData | undefined;
+    const data =
+      /* Safe because awaitOneNotification was parameterized with taskClosedNotificationDefinition. */ event.params as
+        | TaskClosedEventData
+        | undefined;
     if (data?.task?.id !== taskId || data.task.status !== "closed") {
       return yield* Effect.fail(
         deliveryViolation(

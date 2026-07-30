@@ -15,7 +15,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L1269)
+### [`createMoltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L1296)
 
 _Function_
 
@@ -69,7 +69,9 @@ a throw.
 `task:&lt;taskId>:&lt;conversationId>` (existing conversation). A target
 containing `:` in any other shape is rejected.
 
-### [`default`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L1298)
+**Returns:** The created moltzap channel plugin.
+
+### [`default`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L1326)
 
 _Variable_
 
@@ -77,7 +79,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L1295)
+### [`moltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L1323)
 
 _Variable_
 
@@ -90,7 +92,7 @@ Shared singleton so a single registration reuses the same `activeClients`
 closure across `startAccount` and `sendText`. Tests import this directly
 to assert against that shared state.
 
-### [`MoltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L1286)
+### [`MoltzapChannelPlugin`](https://github.com/chughtapan/moltzap/blob/main/packages/openclaw-channel/src/openclaw-entry.ts#L1314)
 
 _TypeAlias_
 
@@ -99,6 +101,8 @@ export type MoltzapChannelPlugin = ReturnType<
   typeof createMoltzapChannelPlugin
 >;
 ```
+
+Represents moltzap channel plugin values.
 
 ## Files
 

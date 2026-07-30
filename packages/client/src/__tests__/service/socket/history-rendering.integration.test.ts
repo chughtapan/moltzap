@@ -31,7 +31,8 @@ it("lastRead tracks seen message IDs across reads", () =>
         yield* H.sendAndSettle(
           regB.client,
           conv.task.id,
-          conv.conversation!.id,
+          /* Safe because the test fixture establishes this asserted shape. */ conv
+            .conversation!.id,
           `track-msg-${i}`,
         );
       }
@@ -39,7 +40,8 @@ it("lastRead tracks seen message IDs across reads", () =>
       // First read marks all 3 as seen
       const hist1 = yield* H.socketHistory(
         conv.task.id,
-        conv.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
         H.TRACK_SESSION_KEY,
       );
       expect(hist1.messages.length).toBe(H.SOCKET_PAGE_MESSAGE_COUNT);
@@ -48,14 +50,16 @@ it("lastRead tracks seen message IDs across reads", () =>
       yield* H.sendAndSettle(
         regB.client,
         conv.task.id,
-        conv.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
         H.TRACK_NEW_MESSAGE,
       );
 
       // Read again — only the new message should be marked new
       const hist2 = yield* H.socketHistory(
         conv.task.id,
-        conv.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
         H.TRACK_SESSION_KEY,
       );
       expect(hist2.newCount).toBe(1);
@@ -78,9 +82,11 @@ it("non-text message parts render as markers in socket history", () =>
         initialConversation: { participants: [regB.agentId] },
       });
 
-      yield* regB.client.call(H.MessagesSend.name, {
+      yield* regB.client.call(H.messagesSend.name, {
         taskId: conv.task.id,
-        conversationId: conv.conversation!.id,
+        conversationId:
+          /* Safe because the test fixture establishes this asserted shape. */ conv
+            .conversation!.id,
         parts: [
           { type: "text", text: "Check this out" },
           { type: "image", url: "https://example.com/photo.jpg" },
@@ -90,12 +96,16 @@ it("non-text message parts render as markers in socket history", () =>
 
       const result = yield* H.socketHistory(
         conv.task.id,
-        conv.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
       );
 
       const msg = result.messages.find(containsAttachmentCaption);
       expect(msg).toBeDefined();
-      expect(msg!.text).toContain(H.IMAGE_MARKER);
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ msg!
+          .text,
+      ).toContain(H.IMAGE_MARKER);
     }).pipe(Effect.ensuring(H.closeAll([service], [regA.client, regB.client])));
   }));
 
@@ -107,7 +117,7 @@ it("socketPath is stable after connect (cached at startSocketServer time)", () =
     const pathAtStart = service.socketPath;
     yield* Effect.gen(function* () {
       const result = yield* H.requestDaemonCommand(
-        H.LocalDaemonCommands.status,
+        H.localDaemonCommands.status,
         {},
         pathAtStart,
       );

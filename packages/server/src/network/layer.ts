@@ -7,20 +7,24 @@ import { ConnectionManagerTag } from "#socket";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 import { NetworkSendService } from "./network-send.js";
 
+/** Implements agent endpoint resolver tag. */
 export class AgentEndpointResolverTag extends Context.Tag(
   "moltzap/AgentEndpointResolver",
 )<AgentEndpointResolverTag, AgentEndpointResolver>() {}
 
+/** Implements network send service tag. */
 export class NetworkSendServiceTag extends Context.Tag(
   "moltzap/NetworkSendService",
 )<NetworkSendServiceTag, NetworkSendService>() {}
 
-export const AgentEndpointResolverLive = Layer.effect(
+/** Provides the agent endpoint resolver live runtime value. */
+export const agentEndpointResolverLive = Layer.effect(
   AgentEndpointResolverTag,
   AgentEndpointResolver.make,
 );
 
-export const NetworkSendServiceLive = Layer.effect(
+/** Provides the network send service live runtime value. */
+export const networkSendServiceLive = Layer.effect(
   NetworkSendServiceTag,
   Effect.gen(function* () {
     const resolver = yield* AgentEndpointResolverTag;

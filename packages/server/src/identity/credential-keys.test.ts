@@ -28,7 +28,12 @@ describe("generateApiKey / parseApiKey", () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.keyId).toBe(keyId);
     expect(parsed?.secret).toHaveLength(SECRET_HEX_LEN);
-    expect(hashSecret(parsed!.secret)).toBe(secretHash);
+    expect(
+      hashSecret(
+        /* Safe because the test fixture establishes this asserted shape. */ parsed!
+          .secret,
+      ),
+    ).toBe(secretHash);
   });
 
   it("rejects an app key", () => {
@@ -50,7 +55,12 @@ describe("generateAppKey / parseAppKey", () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.keyId).toBe(keyId);
     expect(parsed?.secret).toHaveLength(SECRET_HEX_LEN);
-    expect(hashSecret(parsed!.secret)).toBe(secretHash);
+    expect(
+      hashSecret(
+        /* Safe because the test fixture establishes this asserted shape. */ parsed!
+          .secret,
+      ),
+    ).toBe(secretHash);
   });
 
   it("rejects an agent key", () => {

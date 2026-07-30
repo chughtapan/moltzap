@@ -4,6 +4,7 @@ import { defineRpc } from "#transport/descriptor";
 import { ConflictError } from "#transport";
 import { agentKey } from "./credentials.js";
 import { agentId } from "./ids.js";
+import { agentName } from "./name.js";
 
 type InviteCodeValue = string & Brand.Brand<"InviteCode">;
 const inviteCodeValue: Schema.Schema<InviteCodeValue, string> =
@@ -23,9 +24,7 @@ export const inviteCode: Schema.Schema<InviteCode, string> =
 export const register = defineRpc({
   name: "agent/identity/register",
   params: Schema.Struct({
-    name: Schema.String.pipe(
-      Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
-    ),
+    name: agentName,
     description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
     inviteCode: Schema.optional(inviteCode),
   }),

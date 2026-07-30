@@ -106,7 +106,8 @@ function assertSecondReleaseArrivesFirst(
       matchesLeaseId(leaseId),
       HOLD_MS - HOLD_RELEASE_MARGIN_MS,
     );
-    const params = second.params as LeaseIdOnlyView;
+    const params =
+      /* Safe because waitForRelease returns only released-notification deliveries. */ second.params as LeaseIdOnlyView;
     if (params.leaseId !== leaseId) {
       return yield* Effect.fail(
         dispatchAdmissionViolation(
@@ -120,5 +121,7 @@ function assertSecondReleaseArrivesFirst(
 
 function matchesLeaseId(leaseId: LeaseIdValue) {
   return (frame: { readonly params: unknown }) =>
-    (frame.params as LeaseIdOnlyView).leaseId === leaseId;
+    typeof frame.params === "object" &&
+    frame.params !== null &&
+    Reflect.get(frame.params, "leaseId") === leaseId;
 }

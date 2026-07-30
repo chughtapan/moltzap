@@ -31,7 +31,9 @@ it("agent/message/send stamps task_id matching conversations.task_id", () =>
 
     const sendResult = yield* alice.client.sendRpc(messagesSend, {
       taskId: conv.task.id,
-      conversationId: conv.conversation!.id,
+      conversationId:
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
       parts: [{ type: "text", text: "hello" }],
     });
 
@@ -47,7 +49,12 @@ it("agent/message/send stamps task_id matching conversations.task_id", () =>
       db
         .selectFrom("conversations")
         .select(["task_id"])
-        .where("id", "=", conv.conversation!.id)
+        .where(
+          "id",
+          "=",
+          /* Safe because the test fixture establishes this asserted shape. */ conv
+            .conversation!.id,
+        )
         .executeTakeFirstOrThrow(),
     );
 

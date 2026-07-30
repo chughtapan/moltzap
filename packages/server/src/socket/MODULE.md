@@ -16,9 +16,11 @@ _Interface_
 class AgentConnection extends Data.TaggedClass("AgentConnection")<
   ConnectionBase & { readonly auth: AgentContext }
 > {
-  private readonly __brand!: never;
+  private readonly brandValue!: never;
 }
 ```
+
+Re-exports the public API from `current module`.
 
 ### [`AgentContext`](./context.ts#L16)
 
@@ -35,7 +37,7 @@ export class AgentContext extends Data.TaggedClass("AgentContext")<{
 Principal context arms stored on authenticated socket connections. Handlers
 receive the arm selected by each method's `requires` head.
 
-### [`agentContextFrom`](./context.ts#L31)
+### [`agentContextFrom`](./context.ts#L37)
 
 _Function_
 
@@ -51,6 +53,8 @@ Mint an AgentContext from authenticator fields. The `agent_status`
 SQL enum constrains stored values to AgentStatus, but the DB driver
 types it as `string`, so any other value is an impossible-state defect.
 
+**Returns:** The agent context from result.
+
 ### [`AgentStatus`](./context.ts#L10)
 
 _TypeAlias_
@@ -64,7 +68,7 @@ Closed agent lifecycle states. Mirrors
 union makes the active-agent check exhaustive — adding a state forces every
 consumer switch to handle it.
 
-### [`AppConnection`](./connection.ts#L119)
+### [`AppConnection`](./connection.ts#L118)
 
 _Interface_
 
@@ -72,11 +76,13 @@ _Interface_
 class AppConnection extends Data.TaggedClass("AppConnection")<
   ConnectionBase & { readonly auth: AppContext }
 > {
-  private readonly __brand!: never;
+  private readonly brandValue!: never;
 }
 ```
 
-### [`AppContext`](./context.ts#L22)
+Re-exports the public API from `current module`.
+
+### [`AppContext`](./context.ts#L23)
 
 _Class_
 
@@ -85,6 +91,8 @@ export class AppContext extends Data.TaggedClass("AppContext")<{
   readonly appId: AppId;
 }> {}
 ```
+
+Implements app context.
 
 ### [`Connection`](./connection.ts#L128)
 
@@ -99,7 +107,7 @@ export type Connection =
 
 The three-arm connection state — the connections map's only entry shape.
 
-### [`ConnectionManager`](./connection.ts#L217)
+### [`ConnectionManager`](./connection.ts#L232)
 
 _Class_
 
@@ -124,6 +132,10 @@ export class ConnectionManager {
   /**
    * Insert a fresh `UnauthenticatedConnection`. Called by the socket handler
    * at WebSocket open. The Connect handler promotes it to the agent/app arm.
+   * @param connId Value supplied to the operation.
+   * @param socket Value supplied to the operation.
+   * @param originator Value supplied to the operation.
+   * @returns The add unauthenticated result.
    */
   addUnauthenticated(
     connId: ConnectionId,
@@ -140,7 +152,11 @@ export class ConnectionManager {
     }));
   }
 
-  /** Non-mutating read. Callers discriminate on the returned arm's `_tag`. */
+  /**
+   * Non-mutating read. Callers discriminate on the returned arm's `_tag`.
+   * @param connId Value supplied to the operation.
+   * @returns The current result.
+   */
   peek(connId: ConnectionId): Effect.Effect<Option.Option<Connection>> {
     return Ref.get(this.stateRef).pipe(
       Effect.map((state) => HashMap.get(state.connections, connId)),
@@ -149,7 +165,8 @@ export class ConnectionManager {
 
   /**
    * Snapshot of every connection arm. Callers iterate + discriminate on `_tag`
-   * (e.g. the shutdown loop reads `arm.socket.shutdown`).
+   * (e.g. The shutdown loop reads `arm.socket.shutdown`).
+   * @returns The current result.
    */
   allConnections(): Effect.Effect<readonly Connection[]> {
     return Ref.get(this.stateRef).pipe(
@@ -157,7 +174,10 @@ export class ConnectionManager {
     );
   }
 
-  /** Current connection count. */
+  /**
+   * Current connection count.
+   * @returns The current result.
+   */
   currentSize(): Effect.Effect<number> {
     return Ref.get(this.stateRef).pipe(
       Effect.map((state) => HashMap.size(state.connections)),
@@ -168,6 +188,9 @@ export class ConnectionManager {
    * Atomic per-connection authentication gate. Pattern-matches on
    * `auth._tag` once to decide which arm to mint. Returns a split-per-arm
    * `TransitionOutcome` so callers narrow without a cast.
+   * @param connId Value supplied to the operation.
+   * @param auth Value supplied to the operation.
+   * @returns The current result.
    */
   authenticate(
     connId: ConnectionId,
@@ -209,35 +232,24 @@ export class ConnectionManager {
               {
                 ...state,
                 connections: HashMap.set(state.connections, connId, minted),
-              },
-            ];
-          },
-        ),
-        Match.exhaustive,
-      );
-    });
-  }
-
-  /**
-   * Roll an authenticated arm back to `UnauthenticatedConnection` on a
-   * post-auth failure. Idempotent: no-op when the entry is absent or already
-   * unauthenticated — safe against a racing close handler.
-   */
-  rollbackToUnauthenticated(connId: ConnectionId): Effect.Effect<void> {
 ```
 
-### [`ConnectionManagerLive`](./layer.ts#L16)
+Implements connection manager.
+
+### [`connectionManagerLive`](./layer.ts#L19)
 
 _Variable_
 
 ```ts
-export const ConnectionManagerLive = Layer.sync(
+export const connectionManagerLive = Layer.sync(
   ConnectionManagerTag,
   () => new ConnectionManager(),
 )
 ```
 
-### [`ConnectionManagerTag`](./layer.ts#L12)
+Provides the connection manager live runtime value.
+
+### [`ConnectionManagerTag`](./layer.ts#L14)
 
 _Class_
 
@@ -247,7 +259,9 @@ export class ConnectionManagerTag extends Context.Tag(
 )<ConnectionManagerTag, ConnectionManager>() {}
 ```
 
-### [`ConnectionTag`](./layer.ts#L7)
+Implements connection manager tag.
+
+### [`ConnectionTag`](./layer.ts#L8)
 
 _Class_
 
@@ -258,7 +272,9 @@ export class ConnectionTag extends Context.Tag("moltzap/Connection")<
 >() {}
 ```
 
-### [`Originator`](./connection.ts#L76)
+Implements connection tag.
+
+### [`Originator`](./connection.ts#L77)
 
 _TypeAlias_
 
@@ -271,7 +287,39 @@ callbacks/notifications through. Constructed by protocol `MoltZapServer`
 during socket accept and passed to
 `ConnectionManager.addUnauthenticated` as a primitive-equivalent parameter.
 
-### [`sendRpcToClient`](./connection.ts#L26)
+### [`PrincipalBoundaryCanaries`](./principal.types-check.ts#L101)
+
+_TypeAlias_
+
+```ts
+export type PrincipalBoundaryCanaries = [
+  AgentHasNoAppId,
+  AppHasNoAgentId,
+  UnauthenticatedHasNoAuth,
+  ForgedAgentRejected,
+  InvalidBootPhaseRejected,
+];
+```
+
+Compile-time assertions for the principal and boot-failure boundaries.
+
+### [`principalCanaryRefs`](./principal.types-check.ts#L112)
+
+_Variable_
+
+```ts
+export const principalCanaryRefs: readonly unknown[] = [
+  agentIdValue,
+  appIdValue,
+  principalTag,
+  narrowOutcome,
+  bootFail,
+] as const
+```
+
+Provides the principal canary refs runtime value.
+
+### [`sendRpcToClient`](./connection.ts#L30)
 
 _Function_
 
@@ -284,8 +332,7 @@ export function sendRpcToClient(
   >,
 ): Effect.Effect<
   ReverseCallbackSuccess<typeof dispatchAuthorize>,
-  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError,
-  never
+  ReverseCallbackError<typeof dispatchAuthorize> | ReverseCallError
 >
 ```
 
@@ -295,6 +342,8 @@ cannot be fired on the reverse channel by mistake. Domain callback services
 source the Originator from the registered app's `AppEndpoint`, minted
 from the live `AppConnection` arm. Caller controls timeout via
 `Effect.timeout` at the call site.
+
+**Returns:** The send rpc to client result.
 
 ### [`TransitionOutcome`](./connection.ts#L139)
 
@@ -310,7 +359,7 @@ success arms are split per minted arm so the Connect handler's
 `Match.value(outcome).pipe(Match.when({ kind: "ok-agent" }, ...))` narrows
 `authed` structurally — no `as AgentConnection` cast.
 
-### [`UnauthenticatedConnection`](./connection.ts#L105)
+### [`UnauthenticatedConnection`](./connection.ts#L106)
 
 _Interface_
 
@@ -318,11 +367,13 @@ _Interface_
 class UnauthenticatedConnection extends Data.TaggedClass(
   "UnauthenticatedConnection",
 )<ConnectionBase> {
-  private readonly __brand!: never;
+  private readonly brand!: never;
 }
 ```
 
-### [`WebSocketRef`](./connection.ts#L81)
+Re-exports the public API from `current module`.
+
+### [`WebSocketRef`](./connection.ts#L82)
 
 _Interface_
 
@@ -345,3 +396,4 @@ The per-connection socket handle registered with `ConnectionManager`.
 - `connection.ts`
 - `context.ts`
 - `layer.ts`
+- `principal.types-check.ts`

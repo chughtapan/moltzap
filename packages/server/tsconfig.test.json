@@ -6,7 +6,7 @@
     "declarationMap": false,
     "noEmit": true,
     "incremental": true,
-    "rootDir": ".",
+    "rootDir": "../..",
     "tsBuildInfoFile": "./tsconfig.test.tsbuildinfo"
   },
   "include": [

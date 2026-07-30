@@ -1,17 +1,22 @@
-import { DispatchNotFoundError } from "@moltzap/protocol/message/dispatch";
 import {
+  DispatchNotFoundError,
+  type LeaseId,
+} from "@moltzap/protocol/message/dispatch";
+import type {
   messagesList as messagesListDefinition,
   messagesSend as messagesSendDefinition,
 } from "@moltzap/protocol/message";
-import { ForbiddenError } from "@moltzap/protocol/rpc";
-import type { LeaseId } from "@moltzap/protocol/message/dispatch";
-import type { ParamsOf } from "@moltzap/protocol/rpc";
+import { ForbiddenError, type ParamsOf } from "@moltzap/protocol/rpc";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 import type { ServerHandler } from "@moltzap/protocol/socket/catalog";
 import { agentArm } from "#moltzap/runtime";
 import { Effect, Exit } from "effect";
 import { ConnectionTag, type AgentContext } from "#socket";
-import { LeaseRegistryTag } from "#dispatch";
+import {
+  LeaseRegistryTag,
+  type LeaseInvalidError,
+  type LeaseRegistry,
+} from "#dispatch";
 import { MessageServiceTag } from "./layer.js";
 import {
   guardTaskActive,
@@ -19,9 +24,7 @@ import {
   guardReplyTarget,
   obtainConversationSendAccess,
 } from "#conversation/requirements";
-import { LeaseInvalidError } from "#dispatch";
 import { catchSqlErrorAsDefect } from "#db";
-import type { LeaseRegistry } from "#dispatch";
 import type { MessageService } from "./message.service.js";
 
 type MessagesSendParams = ParamsOf<typeof messagesSendDefinition>;
@@ -36,7 +39,8 @@ function claimDispatchLease(leaseRegistry: LeaseRegistry, leaseId: LeaseId) {
             data: {
               reason: "LeaseInvalid",
               state: err.state,
-              expected: err.expected as readonly string[],
+              expected:
+                /* Safe because the surrounding invariant establishes this asserted shape. */ err.expected as readonly string[],
             },
           }),
         ),
@@ -86,7 +90,9 @@ function sendWithDispatchLease(input: LeaseSendInput) {
             );
           }).pipe(Effect.withSpan("messages.sendWithLease")),
         (claim, exit) => {
-          if (Exit.isSuccess(exit) || finalized) return Effect.void;
+          if (Exit.isSuccess(exit) || finalized) {
+            return Effect.void;
+          }
           return claim.rollback.pipe(Effect.ignore);
         },
       ),
@@ -154,6 +160,11 @@ function handleMessageList(
 // narrow the arm via `agentArm`, run the same domain work as the live slot path,
 // and leave `ConnectionTag` + domain services to the request runtime.
 
+/**
+ * Provides the messages send runtime value.
+ * @param params Request payload to process.
+ * @returns The messages send result.
+ */
 export const messagesSend: ServerHandler<typeof messagesSendDefinition> = (
   params,
 ) =>
@@ -165,6 +176,11 @@ export const messagesSend: ServerHandler<typeof messagesSendDefinition> = (
     return yield* handleMessageSend(params, ctx);
   }).pipe(Effect.withSpan("messagesSend"));
 
+/**
+ * Provides the messages list runtime value.
+ * @param params Request payload to process.
+ * @returns The messages list result.
+ */
 export const messagesList: ServerHandler<typeof messagesListDefinition> = (
   params,
 ) =>

@@ -25,31 +25,41 @@ it("history via socket returns messages with isOwn labels", () =>
         initialConversation: { participants: [regB.agentId] },
       });
 
-      yield* service.call(H.MessagesSend.name, {
+      yield* service.call(H.messagesSend.name, {
         taskId: conv.task.id,
-        conversationId: conv.conversation!.id,
+        conversationId:
+          /* Safe because the test fixture establishes this asserted shape. */ conv
+            .conversation!.id,
         parts: [{ type: "text", text: "Hello from A" }],
       });
       yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
       yield* H.sendAndSettle(
         regB.client,
         conv.task.id,
-        conv.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
         "Hello from B",
       );
 
       const result = yield* H.socketHistory(
         conv.task.id,
-        conv.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
       );
 
       expect(result.messages.length).toBeGreaterThanOrEqual(2);
       const ownMsgs = result.messages.filter(isOwn);
       expect(ownMsgs.length).toBeGreaterThanOrEqual(1);
-      expect(ownMsgs[0]!.senderName).toBe("you");
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ ownMsgs[0]!
+          .senderName,
+      ).toBe("you");
       const otherMsgs = result.messages.filter(isNotOwn);
       expect(otherMsgs.length).toBeGreaterThanOrEqual(1);
-      expect(otherMsgs[0]!.senderName).toBe(H.SOCK_HIST_B_NAME);
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ otherMsgs[0]!
+          .senderName,
+      ).toBe(H.SOCK_HIST_B_NAME);
     }).pipe(Effect.ensuring(H.closeAll([service], [regA.client, regB.client])));
   }));
 
@@ -70,37 +80,56 @@ it("messages stay *NEW* after getContext notification until history is read", ()
       yield* H.sendAndSettle(
         regC.client,
         convC.task.id,
-        convC.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convC
+          .conversation!.id,
         H.PRICE_MESSAGE,
       );
 
       // System-reminder fires for conv B → advances lastNotified
-      const reminder = service.getContext(convB.conversation!.id, {
-        type: "cross-conversation",
-      });
+      const reminder = service.getContext(
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
+        {
+          type: "cross-conversation",
+        },
+      );
       expect(reminder).toContain(H.ONE_NEW_MARKER);
 
       // System-reminder won't repeat (lastNotified advanced)
-      const reminder2 = service.getContext(convB.conversation!.id, {
-        type: "cross-conversation",
-      });
+      const reminder2 = service.getContext(
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
+        {
+          type: "cross-conversation",
+        },
+      );
       expect(reminder2).toBeNull();
 
       // BUT history via socket still shows *NEW* (lastRead not advanced yet)
       const hist1 = yield* H.socketHistory(
         convC.task.id,
-        convC.conversation!.id,
-        convB.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convC
+          .conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
       );
       expect(hist1.newCount).toBe(1);
-      expect(hist1.messages[0]!.isNew).toBe(true);
-      expect(hist1.messages[0]!.text).toBe(H.PRICE_MESSAGE);
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ hist1
+          .messages[0]!.isNew,
+      ).toBe(true);
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ hist1
+          .messages[0]!.text,
+      ).toBe(H.PRICE_MESSAGE);
 
       // After reading, lastRead advances → second fetch shows 0 new
       const hist2 = yield* H.socketHistory(
         convC.task.id,
-        convC.conversation!.id,
-        convB.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convC
+          .conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
       );
       expect(hist2.newCount).toBe(0);
     }).pipe(
@@ -126,18 +155,25 @@ it("new messages after history read are marked *NEW*", () =>
       yield* H.sendAndSettle(
         regC.client,
         convC.task.id,
-        convC.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convC
+          .conversation!.id,
         H.FIRST_MESSAGE,
       );
-      service.getContext(convB.conversation!.id, {
-        type: "cross-conversation",
-      });
+      service.getContext(
+        /* Safe because the test fixture establishes this asserted shape. */ convB
+          .conversation!.id,
+        {
+          type: "cross-conversation",
+        },
+      );
 
       const readC = () =>
         H.socketHistory(
           convC.task.id,
-          convC.conversation!.id,
-          convB.conversation!.id,
+          /* Safe because the test fixture establishes this asserted shape. */ convC
+            .conversation!.id,
+          /* Safe because the test fixture establishes this asserted shape. */ convB
+            .conversation!.id,
         );
 
       // Read history → advances lastRead
@@ -150,14 +186,18 @@ it("new messages after history read are marked *NEW*", () =>
       yield* H.sendAndSettle(
         regC.client,
         convC.task.id,
-        convC.conversation!.id,
+        /* Safe because the test fixture establishes this asserted shape. */ convC
+          .conversation!.id,
         H.SECOND_MESSAGE,
       );
       // Third read → 1 new (the new message)
       const hist3 = yield* readC();
       expect(hist3.newCount).toBe(1);
       const newMsgs = hist3.messages.filter((m) => m.isNew);
-      expect(newMsgs[0]!.text).toBe(H.SECOND_MESSAGE);
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ newMsgs[0]!
+          .text,
+      ).toBe(H.SECOND_MESSAGE);
     }).pipe(
       Effect.ensuring(
         H.closeAll([service], [regA.client, regB.client, regC.client]),

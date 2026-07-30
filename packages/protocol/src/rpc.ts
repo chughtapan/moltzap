@@ -20,6 +20,7 @@ export type {
   ResponseErrorsOf,
   ResultOf,
   RpcDefinition,
+  RpcDefinitionAny,
   RpcErrorClass,
 } from "#transport";
 /** Re-exports the public API from `#transport`. */

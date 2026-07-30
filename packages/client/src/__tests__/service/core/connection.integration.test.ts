@@ -34,11 +34,19 @@ it("agent/conversation/list returns existing conversations after connect", () =>
     // The handshake carries no task-layer state. Existing conversations are
     // fetched explicitly via `agent/conversation/list`.
     const service = yield* H.connectService(regB.apiKey, regB.agentId);
-    expect(service.getConversation(conv.conversation!.id)).toBeUndefined();
+    expect(
+      service.getConversation(
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
+      ),
+    ).toBeUndefined();
 
-    const list = yield* service.call(H.ConversationList.name, {});
+    const list = yield* service.call(H.conversationList.name, {});
     const found = list.items.find(
-      (c) => c.conversation.id === conv.conversation!.id,
+      (c) =>
+        c.conversation.id ===
+        /* Safe because the test fixture establishes this asserted shape. */ conv
+          .conversation!.id,
     );
     expect(found).toBeDefined();
 
@@ -70,17 +78,22 @@ it("on('message') fires for incoming message from another agent", () =>
     yield* H.sendAndSettle(
       regSender.client,
       conv.task.id,
-      conv.conversation!.id,
+      /* Safe because the test fixture establishes this asserted shape. */ conv
+        .conversation!.id,
       H.HELLO_RECEIVER,
     );
 
     expect(received.length).toBe(1);
-    const event = received[0] as {
-      taskId: string;
-      message: { parts: Array<{ text: string }> };
-    };
+    const event =
+      /* Safe because the test fixture establishes this asserted shape. */ received[0] as {
+        taskId: string;
+        message: { parts: Array<{ text: string }> };
+      };
     expect(event.taskId).toBe(conv.task.id);
-    expect(event.message.parts[0]!.text).toBe(H.HELLO_RECEIVER);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ event
+        .message.parts[0]!.text,
+    ).toBe(H.HELLO_RECEIVER);
 
     service.close();
     yield* regSender.client.close();

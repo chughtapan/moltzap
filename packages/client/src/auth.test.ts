@@ -63,7 +63,7 @@ const requestBody = (request: HttpServerRequest.HttpServerRequest) =>
   request.json.pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
 const appendCapturedCall = (
-  calls: Ref.Ref<ReadonlyArray<CapturedCall>>,
+  calls: Ref.Ref<readonly CapturedCall[]>,
   call: CapturedCall,
 ) => Ref.update(calls, (current) => [...current, call]);
 
@@ -75,7 +75,7 @@ const responseFromStub = (response: StubResponse) =>
 
 const routeHandler = (
   path: string,
-  calls: Ref.Ref<ReadonlyArray<CapturedCall>>,
+  calls: Ref.Ref<readonly CapturedCall[]>,
   responder: StubResponder,
 ) =>
   Effect.gen(function* () {
@@ -93,7 +93,7 @@ const makeRegisterServer = (
   responder: StubResponder = defaultRegisterResponse,
 ) =>
   Effect.gen(function* () {
-    const calls = yield* Ref.make<ReadonlyArray<CapturedCall>>([]);
+    const calls = yield* Ref.make<readonly CapturedCall[]>([]);
     const publicRoute = HttpRouter.post(
       PUBLIC_REGISTER_PATH,
       routeHandler(PUBLIC_REGISTER_PATH, calls, responder),
@@ -109,7 +109,7 @@ const makeRegisterServer = (
     return { baseUrl: localBaseUrl(address.port), calls };
   });
 
-const expectSingleCall = (calls: ReadonlyArray<CapturedCall>): CapturedCall => {
+const expectSingleCall = (calls: readonly CapturedCall[]): CapturedCall => {
   expect(calls).toHaveLength(SINGLE_CALL_COUNT);
   const [call] = calls;
   expect(call).toBeDefined();

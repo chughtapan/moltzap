@@ -36,28 +36,26 @@ import type { AgentId } from "@moltzap/protocol/identity";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 import type { ConnectionId } from "@moltzap/protocol/socket";
 
-import type {
-  AgentPresenceEntry,
-  DerivedPresenceStatus,
-  LeaseTransitionObserver,
-  PresenceAuditEvent,
-} from "./presence-types.js";
 import {
-  deriveEntryStatus,
+  type AgentPresenceEntry,
+  type DerivedPresenceStatus,
+  type LeaseTransitionObserver,
+  type PresenceAuditEvent,
+  type deriveEntryStatus,
   noopLeaseTransitionObserver,
 } from "./presence-types.js";
-import { PresenceService } from "./presence.service.js";
+import type { PresenceService } from "./presence.service.js";
 
 // ── 1. Public surface direct-annotation assertions ──────────────────
 
 declare const status: DerivedPresenceStatus;
-const _statusCheck: "online" | "working" | "offline" = status;
-void _statusCheck;
+const statusCheck: "online" | "working" | "offline" = status;
+void statusCheck;
 
 declare const observer: LeaseTransitionObserver;
 declare const presence: PresenceService;
-const _serviceIsObserver: LeaseTransitionObserver = presence;
-void _serviceIsObserver;
+const serviceIsObserver: LeaseTransitionObserver = presence;
+void serviceIsObserver;
 void observer.onLeaseActiveBegin;
 void observer.onLeaseActiveEnd;
 void presence.onAgentConnect;
@@ -66,34 +64,33 @@ void presence.statusOf;
 void presence.statusMany;
 
 declare const observerCallback: LeaseTransitionObserver["onLeaseActiveBegin"];
-const _observerArity: (
+const observerArity: (
   leaseId: LeaseId,
   recipientAgentId: AgentId,
   recipientConnId: ConnectionId,
-) => Effect.Effect<void, never, never> = observerCallback;
-void _observerArity;
+) => Effect.Effect<void> = observerCallback;
+void observerArity;
 
 declare const connectCallback: PresenceService["onAgentConnect"];
-const _connectArity: (
+const connectArity: (
   agentId: AgentId,
   connId: ConnectionId,
-) => Effect.Effect<void, never, never> = connectCallback;
-void _connectArity;
+) => Effect.Effect<void> = connectCallback;
+void connectArity;
 
 // noop observer satisfies the observer surface and is usable as the
 // LeaseRegistry's transitionObserver default (no nullable branch).
-const _noopIsObserver: LeaseTransitionObserver = noopLeaseTransitionObserver;
-void _noopIsObserver;
+const noopIsObserver: LeaseTransitionObserver = noopLeaseTransitionObserver;
+void noopIsObserver;
 
 declare const derivedStatus: ReturnType<typeof deriveEntryStatus>;
-const _derivedStatusCheck: Exclude<DerivedPresenceStatus, "offline"> =
+const derivedStatusCheck: Exclude<DerivedPresenceStatus, "offline"> =
   derivedStatus;
-void _derivedStatusCheck;
+void derivedStatusCheck;
 
 declare const factoryResult: ReturnType<typeof PresenceService.make>;
-const _factoryResultCheck: Effect.Effect<PresenceService, never, never> =
-  factoryResult;
-void _factoryResultCheck;
+const factoryResultCheck: Effect.Effect<PresenceService> = factoryResult;
+void factoryResultCheck;
 
 declare const entry: AgentPresenceEntry;
 // Multi-connection-shaped entry: `liveConns` carries the set of all
@@ -101,18 +98,24 @@ declare const entry: AgentPresenceEntry;
 // connection to the leases bound to it.
 void entry.liveConns;
 void entry.leasesByConn;
-// Status is derived via deriveEntryStatus(entry); the entry holds no
-// stored `status` field. Asserting the absence structurally: any
-// access to entry.status fails TypeScript (TS2339). The
-// `@ts-expect-error` below MUST fire today — if a future contributor
-// re-adds `status` to the entry, the directive becomes unused and
-// `tsc --build` fails with TS2578.
-// @ts-expect-error — AgentPresenceEntry has no `status` field; status is derived via deriveEntryStatus(entry).
-void entry.status;
-// @ts-expect-error — AgentPresenceEntry has no single-conn `connId` field; the agent tracks a set of liveConns + per-conn lease buckets.
-void entry.connId;
-// @ts-expect-error — AgentPresenceEntry has no flat `activeLeases` set; per-conn lease buckets in leasesByConn replace it.
-void entry.activeLeases;
+
+type ExpectFalse<Value extends false> = Value;
+type EntryHasNoStoredStatus = ExpectFalse<
+  "status" extends keyof AgentPresenceEntry ? true : false
+>;
+type EntryHasNoSingleConnection = ExpectFalse<
+  "connId" extends keyof AgentPresenceEntry ? true : false
+>;
+type EntryHasNoFlatLeaseSet = ExpectFalse<
+  "activeLeases" extends keyof AgentPresenceEntry ? true : false
+>;
+
+/** Compile-time assertions for fields intentionally absent from presence state. */
+export type PresenceEntryAbsenceCanaries = [
+  EntryHasNoStoredStatus,
+  EntryHasNoSingleConnection,
+  EntryHasNoFlatLeaseSet,
+];
 
 // PresenceAuditEvent discriminated union for "expected during
 // teardown" lease callbacks. Discriminator exhaustiveness —
@@ -130,3 +133,5 @@ if (
 ) {
   absurdCheck(auditTag);
 }
+
+/* eslint-enable sonarjs/void-use -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

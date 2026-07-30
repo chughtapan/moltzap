@@ -41,7 +41,7 @@ import {
   messagesSend,
 } from "#message";
 import { dispatchAuthorize } from "#message/dispatch";
-import type { AgentId, agentId } from "#identity";
+import type { agentId } from "#identity";
 import {
   conversationId as makeConversationId,
   taskId as makeTaskId,
@@ -206,8 +206,15 @@ function pullMatchingFromBuffer<D extends AnyNotificationDefinition>(
  * timeout helps debug genuine transport failures rather than silently
  * masquerading them as missing notifications.
  */
-const bufferedStreamClosed: "BUFFERED_STREAM_CLOSED" = "BUFFERED_STREAM_CLOSED";
+const bufferedStreamClosed = "BUFFERED_STREAM_CLOSED";
 type BufferedStreamClosed = typeof bufferedStreamClosed;
+
+function failBufferedStreamClosed(): Effect.Effect<
+  never,
+  BufferedStreamClosed
+> {
+  return Effect.fail(bufferedStreamClosed);
+}
 
 /**
  * Stream that polls the historical buffer for the first frame matching
@@ -235,7 +242,7 @@ function bufferedSubscribeStream<D extends AnyNotificationDefinition>(
         return Ref.get(buffer.closed).pipe(
           Effect.flatMap((isClosed) =>
             isClosed
-              ? Effect.fail(bufferedStreamClosed)
+              ? failBufferedStreamClosed()
               : Effect.sleep(Duration.millis(PUMP_POLL_INTERVAL_MS)).pipe(
                   Effect.as(Chunk.empty<NotificationDelivery<D>>()),
                 ),
@@ -743,7 +750,10 @@ function subscribeParticipantNotifications(
       client.subscribe(definition).pipe(
         Stream.runForEach((notif) =>
           Ref.update(participantsRef, (m) =>
-            mutate(m, notif.params as NotificationParamsOf<D>),
+            mutate(
+              m,
+              /* Safe because client.subscribe preserves the descriptor D used to create this pump. */ notif.params as NotificationParamsOf<D>,
+            ),
           ),
         ),
         Effect.catchAll(() => Effect.void),
@@ -898,13 +908,10 @@ export function acquireConversation(
         },
       })
       .pipe(Effect.either);
-    const created = (yield* requireRight(
+    const created = yield* requireRight(
       createResult,
       (error) => `app/task/create failed: ${error._tag}`,
-    )) as {
-      task: { id: string };
-      conversation: { id: string } | null;
-    };
+    );
     const conversationId = created.conversation?.id;
     if (typeof conversationId !== "string" || conversationId.length === 0) {
       return yield* Effect.fail(`app/task/create returned no conversation.id`);

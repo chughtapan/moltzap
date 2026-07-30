@@ -7,17 +7,19 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Fiber } from "effect";
-import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import {
+  DEFAULT_APP_ID,
+  taskRequest,
+  type TaskId,
+} from "@moltzap/protocol/task";
 import {
   messageReceivedNotificationDefinition,
   messagesList,
   messagesSend,
+  type Message,
 } from "@moltzap/protocol/message";
-import type { AgentKey } from "@moltzap/protocol/identity";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type { AgentKey, AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { Message } from "@moltzap/protocol/message";
-import type { TaskId } from "@moltzap/protocol/task";
 import {
   awaitOneNotification,
   startTestServerEffect,
@@ -116,7 +118,9 @@ function setupGroupConversation(
     });
     return {
       taskId: created.task.id,
-      conversationId: created.conversation!.id,
+      conversationId:
+        /* Safe because the test fixture establishes this asserted shape. */ created
+          .conversation!.id,
     };
   });
 }
@@ -192,7 +196,10 @@ function broadcastsWhenParticipantsAreOnline() {
     expect(sent.message.parts).toEqual([{ type: "text", text: HAPPY_TEXT }]);
 
     const received = yield* Fiber.join(receivedFiber);
-    const receivedMsg = (received.params as { message: Message }).message;
+    const receivedMsg =
+      /* Safe because the test fixture establishes this asserted shape. */ (
+        received.params as { message: Message }
+      ).message;
     expect(receivedMsg.id).toBe(sent.message.id);
 
     const rows = yield* messageRowsForConversation(binding.conversationId);

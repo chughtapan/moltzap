@@ -1,7 +1,7 @@
 /* eslint-disable agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- regression-only suite: each case names a specific contract case (lex vs numeric ordering, year boundary, wire-error reason discriminants). CalVer string literals are contractual values; making them imports would lose the regression intent. */
 
 import { describe, expect, it } from "vitest";
-import { Effect, Either, Exit } from "effect";
+import { Cause, Effect, Either, Exit } from "effect";
 import fc from "fast-check";
 import packageJson from "../../package.json" with { type: "json" };
 
@@ -152,7 +152,7 @@ const checkInputIsNotDefect = (min: string, max: string): boolean => {
   // A `Die` cause means a sync throw escaped past the Effect.try
   // wrapper — the invariant we want to falsify if violated. `Fail`
   // (a typed E-channel error) is the desired shape.
-  return exit.cause._tag !== "Die";
+  return !Cause.isDieType(exit.cause);
 };
 
 // Regression-only: each case covers a specific reason discriminant:
@@ -271,3 +271,4 @@ describe("checkProtocolRange", () => {
     });
   });
 });
+/* eslint-enable agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals, max-lines-per-function, sonarjs/max-lines-per-function -- regression-only suite ends here -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

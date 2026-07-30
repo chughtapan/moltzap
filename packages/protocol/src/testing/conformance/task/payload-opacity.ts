@@ -20,6 +20,9 @@ import {
 } from "./_helpers.js";
 
 const PROPERTY = "payload-opacity";
+const payloadTextArbitrary = fc
+  .string({ minLength: 4, maxLength: 24 })
+  .filter(isJsonSubstringSafe);
 
 /**
  * Registers payload opacity.
@@ -55,10 +58,6 @@ function assertPayloadOpacity(
     catch: onFailure,
   });
 }
-
-const payloadTextArbitrary = fc
-  .string({ minLength: 4, maxLength: 24 })
-  .filter(isJsonSubstringSafe);
 
 function isJsonSubstringSafe(text: string): boolean {
   return !/[\\" \n\r\t]/.test(text);

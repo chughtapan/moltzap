@@ -1,6 +1,6 @@
 import { Args, Command } from "@effect/cli";
 import { Effect } from "effect";
-import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
+import { localDaemonCommands } from "../../local-daemon-rpc.js";
 import { command, runHandler } from "../transport.js";
 import { logJson, logLines } from "../output.js";
 
@@ -8,7 +8,7 @@ import { logJson, logLines } from "../output.js";
 // safer-arch-ignore no-trivial-sink-file: this command is a private one-command-per-file leaf consistent with the CLI commands folder convention.
 const listAgents = Command.make("list", {}, () =>
   runHandler(
-    command(LocalDaemonCommands.agentsList, {}).pipe(
+    command(localDaemonCommands.agentsList, {}).pipe(
       Effect.flatMap(logJson),
       Effect.asVoid,
     ),
@@ -22,7 +22,7 @@ const namesArg = Args.text({ name: "name" }).pipe(
 
 const lookupAgents = Command.make("lookup", { names: namesArg }, ({ names }) =>
   runHandler(
-    command(LocalDaemonCommands.agentsSearch, { names }).pipe(
+    command(localDaemonCommands.agentsSearch, { names }).pipe(
       Effect.flatMap((result) => {
         if (result.agents.length === 0) {
           return Effect.log("No agents found.");

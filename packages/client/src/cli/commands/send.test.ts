@@ -5,8 +5,8 @@ import { sendCommand } from "./send.js";
 
 import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { TaskId } from "@moltzap/protocol/task";
-import { LocalDaemonCommands } from "../../local-daemon-rpc.js";
-import { Transport } from "../transport.js";
+import { localDaemonCommands } from "../../local-daemon-rpc.js";
+import { transportSchema } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
 import {
   conversationId as makeConversationId,
@@ -21,7 +21,7 @@ const REPLY_MSG = "00000000-0000-4000-8000-0000000000a1";
 const SENT_MSG = "00000000-0000-4000-8000-0000000000a2";
 const HELLO_WORLD = "Hello world";
 const REPLY_TEXT = "Reply text";
-const SilentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
+const silentLogger = Logger.replace(Logger.defaultLogger, Logger.none);
 
 function runSendCommand(input: {
   readonly target: { taskId: TaskId; conversationId: ConversationId };
@@ -29,7 +29,7 @@ function runSendCommand(input: {
   readonly options: { readonly replyToId?: MessageId };
 }) {
   const fixture = makeFakeTransport({
-    [LocalDaemonCommands.send]: () => ({
+    [localDaemonCommands.send]: () => ({
       messageId: makeMessageId(SENT_MSG),
     }),
   });
@@ -38,8 +38,8 @@ function runSendCommand(input: {
     effect: sendCommand
       .handler(input)
       .pipe(
-        Effect.provideService(Transport, fixture.transport),
-        Effect.provide(SilentLogger),
+        Effect.provideService(transportSchema, fixture.transport),
+        Effect.provide(silentLogger),
       ),
   };
 }
@@ -59,7 +59,7 @@ describe("send command handler", () => {
       yield* run.effect;
       expect(run.calls).toEqual([
         {
-          method: LocalDaemonCommands.send,
+          method: localDaemonCommands.send,
           params: {
             target: { taskId, conversationId },
             message: HELLO_WORLD,
@@ -78,7 +78,7 @@ describe("send command handler", () => {
       yield* run.effect;
       expect(run.calls).toEqual([
         {
-          method: LocalDaemonCommands.send,
+          method: localDaemonCommands.send,
           params: {
             target: { taskId, conversationId },
             message: REPLY_TEXT,

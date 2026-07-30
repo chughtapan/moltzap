@@ -51,12 +51,22 @@
             ]
           },
           {
+            "group": "Simulator",
+            "pages": [
+              "simulator/overview",
+              "simulator/running",
+              "simulator/grading"
+            ]
+          },
+          {
             "group": "Development",
             "pages": [
               "development/local-setup",
               "development/protocol-organization",
               "development/testing",
               "development/evals",
+              "development/eval-add-evaluation",
+              "development/eval-grading-reference",
               "development/contributing"
             ]
           },

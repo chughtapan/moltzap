@@ -25,5 +25,7 @@ import { Arbitrary, type FastCheck, type Schema } from "effect";
 export function arbitraryFromSchema<S extends Schema.Schema.AnyNoContext>(
   schema: S,
 ): FastCheck.Arbitrary<Schema.Schema.Type<S>> {
-  return Arbitrary.make(schema);
+  return /* Safe because Effect derives this arbitrary from the same input schema type. */ Arbitrary.make(
+    schema,
+  ) as FastCheck.Arbitrary<Schema.Schema.Type<S>>;
 }

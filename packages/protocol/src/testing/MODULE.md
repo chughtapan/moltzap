@@ -143,7 +143,7 @@ Validates and decodes lease id values.
 
 **Returns:** The lease id result.
 
-### [`makeTestAgentClient`](./lifecycle.ts#L257)
+### [`makeTestAgentClient`](./lifecycle.ts#L245)
 
 _Function_
 
@@ -158,7 +158,7 @@ Creates test agent client.
 
 **Returns:** The created test agent client.
 
-### [`makeTestAppClient`](./lifecycle.ts#L287)
+### [`makeTestAppClient`](./lifecycle.ts#L275)
 
 _Function_
 

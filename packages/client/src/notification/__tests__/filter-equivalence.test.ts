@@ -24,14 +24,12 @@ import { Effect, Fiber, Ref, Stream } from "effect";
 import {
   NotConnectedError,
   makeNotificationSubscriberRegistry,
+  type NotificationDelivery,
+  type NotificationParamsOf,
 } from "@moltzap/protocol/rpc";
 import { messageReceivedNotificationDefinition } from "@moltzap/protocol/message";
 import { taskFailedNotificationDefinition } from "@moltzap/protocol/task";
 import type { AnyNotificationDefinition } from "@moltzap/protocol/socket/catalog";
-import type {
-  NotificationDelivery,
-  NotificationParamsOf,
-} from "@moltzap/protocol/rpc";
 import { subscribe } from "../stream.js";
 import { buildMessage, testTaskId } from "../../test-utils/index.js";
 
@@ -91,11 +89,16 @@ const predicatePool: ReadonlyArray<(params: TaskFailedParams) => boolean> = [
 ];
 const arbPredicate = fc.constantFrom(...predicatePool);
 
-/** Pure-JS reference oracle. Filters by definition identity + predicate. */
+/**
+ * Pure-JS reference oracle. Filters by definition identity + predicate.
+ * @param frames Value supplied to the operation.
+ * @param predicate Predicate used to select matching values.
+ * @returns The oracle result.
+ */
 function oracle(
-  frames: ReadonlyArray<GeneratedFrame>,
+  frames: readonly GeneratedFrame[],
   predicate: (params: TaskFailedParams) => boolean,
-): ReadonlyArray<TaskFailedParams> {
+): readonly TaskFailedParams[] {
   const targetOnly = frames.filter((f) => f.definitionTag === "taskFailed");
   const targetParams = targetOnly.map((f) => ({
     taskId: f.taskId,
@@ -141,7 +144,7 @@ describe("subscribe filter-equivalence oracle", () => {
         const collected = await Effect.runPromise(
           Effect.gen(function* () {
             const registry = yield* makeSubscriberRegistry();
-            const seen = yield* Ref.make<ReadonlyArray<TaskFailedParams>>([]);
+            const seen = yield* Ref.make<readonly TaskFailedParams[]>([]);
 
             const fiber = yield* Effect.fork(
               subscribe(
@@ -186,7 +189,7 @@ describe("subscribe filter-equivalence oracle", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const registry = yield* makeSubscriberRegistry();
-        const seen = yield* Ref.make<ReadonlyArray<TaskFailedParams>>([]);
+        const seen = yield* Ref.make<readonly TaskFailedParams[]>([]);
 
         // Type guard form. The Stream's payload is now narrowed at compile-time;
         // the runtime expectation is that no non-matching params arrive.
@@ -237,3 +240,5 @@ describe("subscribe filter-equivalence oracle", () => {
       }),
     ));
 });
+
+/* eslint-enable max-nested-callbacks, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword, jsdoc/text-escaping -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. */

@@ -1,10 +1,21 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-20
 decision-makers: Tapan Chugh
+superseded-by: 20260728-layer-boundaries-and-fault-model.md
 ---
 
 # The network is a router
+
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260720-the-network-is-a-router).
+
+## Supersession
+
+The endpoint-interpretation boundary and rejection of network-side app
+machinery remain accepted. The 2026-07-28 layer and Transcript
+decisions narrow Router to L2 ordered multicast: it does not record
+committed actions, while the independent Ledger owns mechanical
+Transcript storage.
 
 ## Context and Problem Statement
 

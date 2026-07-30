@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1269)
+### [`createMoltzapChannelPlugin`](./openclaw-entry.ts#L1296)
 
 _Function_
 
@@ -64,7 +64,9 @@ a throw.
 `task:&lt;taskId>:&lt;conversationId>` (existing conversation). A target
 containing `:` in any other shape is rejected.
 
-### [`default`](./openclaw-entry.ts#L1298)
+**Returns:** The created moltzap channel plugin.
+
+### [`default`](./openclaw-entry.ts#L1326)
 
 _Variable_
 
@@ -72,7 +74,7 @@ _Variable_
 const plugin =
 ```
 
-### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1295)
+### [`moltzapChannelPlugin`](./openclaw-entry.ts#L1323)
 
 _Variable_
 
@@ -85,7 +87,7 @@ Shared singleton so a single registration reuses the same `activeClients`
 closure across `startAccount` and `sendText`. Tests import this directly
 to assert against that shared state.
 
-### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1286)
+### [`MoltzapChannelPlugin`](./openclaw-entry.ts#L1314)
 
 _TypeAlias_
 
@@ -94,6 +96,8 @@ export type MoltzapChannelPlugin = ReturnType<
   typeof createMoltzapChannelPlugin
 >;
 ```
+
+Represents moltzap channel plugin values.
 
 ## Files
 

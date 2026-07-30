@@ -113,7 +113,7 @@ interface ToxiproxyState {
   toxiproxyUrl: string | null;
 }
 
-const ConformanceEnvConfig = Config.all({
+const conformanceEnvConfig = Config.all({
   skipToxiproxy: enabledEnvFlag("SKIP_TOXIPROXY"),
   skipDocker: enabledEnvFlag("SKIP_DOCKER"),
   toxiproxyUrl: Config.string("TOXIPROXY_URL").pipe(
@@ -131,7 +131,7 @@ function enabledEnvFlag(name: string) {
 
 function loadConformanceEnv(): ConformanceEnv {
   return Effect.runSync(
-    ConformanceEnvConfig.pipe(
+    conformanceEnvConfig.pipe(
       Effect.withConfigProvider(ConfigProvider.fromEnv()),
     ),
   );
@@ -187,7 +187,9 @@ function findComposeFile() {
     ] as const;
 
     for (const candidate of candidates) {
-      if (yield* fs.exists(candidate)) return candidate;
+      if (yield* fs.exists(candidate)) {
+        return candidate;
+      }
     }
     return yield* Effect.fail(new ComposeFileNotFound({ cwd }));
   });
@@ -289,9 +291,21 @@ function closeConformanceTestServer() {
 }
 
 function usesUnassignedPort(url: string): boolean {
-  if (!URL.canParse(url)) return true;
+  if (!URL.canParse(url)) {
+    return true;
+  }
   return new URL(url).port === "0";
 }
+
+const bridgeToxiproxyNetwork: ToxiproxyNetworkConfig = {
+  upstreamHost: TOXIPROXY_BRIDGE_UPSTREAM_HOST,
+  listenHost: TOXIPROXY_BRIDGE_LISTEN_HOST,
+  connectHost: TOXIPROXY_BRIDGE_CONNECT_HOST,
+  listenPortRange: {
+    min: TOXIPROXY_BRIDGE_PORT_MIN,
+    max: TOXIPROXY_BRIDGE_PORT_MAX,
+  },
+};
 
 function runConformanceAssertion(toxiproxyUrl: string | null) {
   return Effect.gen(function* () {
@@ -309,7 +323,9 @@ function runConformanceAssertion(toxiproxyUrl: string | null) {
         ? "conformance suite succeeded"
         : Cause.pretty(exit.cause),
     ).toBe(true);
-    if (!Exit.isSuccess(exit)) return;
+    if (!Exit.isSuccess(exit)) {
+      return;
+    }
 
     const result: SuiteResult = exit.value;
     yield* logSuiteResult(result);
@@ -322,16 +338,6 @@ function runConformanceAssertion(toxiproxyUrl: string | null) {
     }
   });
 }
-
-const bridgeToxiproxyNetwork: ToxiproxyNetworkConfig = {
-  upstreamHost: TOXIPROXY_BRIDGE_UPSTREAM_HOST,
-  listenHost: TOXIPROXY_BRIDGE_LISTEN_HOST,
-  connectHost: TOXIPROXY_BRIDGE_CONNECT_HOST,
-  listenPortRange: {
-    min: TOXIPROXY_BRIDGE_PORT_MIN,
-    max: TOXIPROXY_BRIDGE_PORT_MAX,
-  },
-};
 
 function logSuiteResult(result: SuiteResult) {
   return Effect.gen(function* () {
@@ -373,7 +379,17 @@ function failureTag(failure: unknown) {
 function failureReason(failure: unknown) {
   for (const key of FAILURE_REASON_KEYS) {
     const value = readProperty(failure, key);
-    if (value !== undefined) return String(value);
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "bigint" ||
+      typeof value === "boolean"
+    ) {
+      return String(value);
+    }
+    if (value instanceof Error) {
+      return value.message;
+    }
   }
   return "";
 }
@@ -406,7 +422,9 @@ function rememberToxiproxySetup(state: ToxiproxyState) {
 }
 
 function teardownToxiproxyAfterAll(state: ToxiproxyState) {
-  if (state.compose === null) return undefined;
+  if (state.compose === null) {
+    return undefined;
+  }
   return Effect.runPromise(
     state.compose.teardown.pipe(Effect.provide(NodeContext.layer)),
   );

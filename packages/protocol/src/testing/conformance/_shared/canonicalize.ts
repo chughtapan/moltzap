@@ -52,8 +52,10 @@ function sortObjectKeysDeep(value: unknown): unknown {
     return value;
   }
   const out: Record<string, unknown> = {};
-  for (const key of Object.keys(value).sort()) {
-    const v: unknown = (value as { readonly [k: string]: unknown })[key];
+  for (const key of Object.keys(value).sort((left, right) =>
+    left.localeCompare(right),
+  )) {
+    const v: unknown = Reflect.get(value, key);
     out[key] = sortObjectKeysDeep(v);
   }
   return out;

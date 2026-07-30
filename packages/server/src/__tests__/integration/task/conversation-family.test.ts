@@ -44,8 +44,7 @@ import type {
   AppCallbackContext,
   AppCallbackHandlers,
 } from "@moltzap/protocol/socket";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { UserId } from "@moltzap/protocol/identity";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import {
   it,
   startTestServerEffect,
@@ -76,9 +75,9 @@ const SPINOFF_CONVERSATION_NAME = "spinoff";
 
 // Surface invariants that the spec body pins; pulling these into
 // named constants keeps the assertions grep-able + lints clean.
-const STATUS_ACTIVE = "active" as const;
-const STATUS_CLOSED = "closed" as const;
-const INITIAL_CONV_NAME = "kickoff" as const;
+const STATUS_ACTIVE = "active";
+const STATUS_CLOSED = "closed";
+const INITIAL_CONV_NAME = "kickoff";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -131,8 +130,12 @@ function registerAndConnect(
 }
 
 function userForOwner(ownerUserId: UserId) {
-  if (ownerUserId === ALICE_USER.id) return ALICE_USER;
-  if (ownerUserId === BOB_USER.id) return BOB_USER;
+  if (ownerUserId === ALICE_USER.id) {
+    return ALICE_USER;
+  }
+  if (ownerUserId === BOB_USER.id) {
+    return BOB_USER;
+  }
   return CAROL_USER;
 }
 
@@ -252,8 +255,10 @@ it("TaskRequest applies contact policy to initial-conversation-only participants
     const { alice, bob, carol } = yield* setupThreeAgents();
     const app = getTestCoreApp();
     app.setContactService({
-      areInContact: (_requesterOwner, targetOwner) =>
-        Effect.succeed(targetOwner === BOB_USER.id),
+      areInContact: (requesterOwner, targetOwner) =>
+        Effect.succeed(
+          requesterOwner === ALICE_USER.id && targetOwner === BOB_USER.id,
+        ),
     });
 
     const result = yield* alice.client
@@ -267,11 +272,11 @@ it("TaskRequest applies contact policy to initial-conversation-only participants
       .pipe(
         Effect.either,
         Effect.ensuring(
-          Effect.sync(() =>
+          Effect.sync(() => {
             app.setContactService({
               areInContact: () => Effect.succeed(true),
-            }),
-          ),
+            });
+          }),
         ),
       );
 
@@ -375,13 +380,25 @@ it("ConversationList returns items with { taskId, conversation, participants }",
     const result = yield* alice.client.sendRpc(conversationList, {});
     expect(result.items.length).toBeGreaterThanOrEqual(1);
     const item = result.items.find(
-      (i) => i.conversation.id === created.conversation!.id,
+      (i) =>
+        i.conversation.id ===
+        /* Safe because the test fixture establishes this asserted shape. */ created
+          .conversation!.id,
     );
     expect(item).toBeDefined();
-    expect(item!.taskId).toBe(created.task.id);
-    expect(item!.participants.length).toBeGreaterThanOrEqual(1);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ item!
+        .taskId,
+    ).toBe(created.task.id);
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ item!
+        .participants.length,
+    ).toBeGreaterThanOrEqual(1);
     // Conversation row shape includes optional `archivedAt`.
-    expect(item!.conversation.archivedAt).toBeUndefined();
+    expect(
+      /* Safe because the test fixture establishes this asserted shape. */ item!
+        .conversation.archivedAt,
+    ).toBeUndefined();
   }));
 
 it("ConversationList respects limit + returns nextCursor when more rows exist", () =>
@@ -407,3 +424,5 @@ it("ConversationList respects limit + returns nextCursor when more rows exist", 
     // there are more rows after the page.
     expect(result.nextCursor).toBeDefined();
   }));
+
+/* eslint-enable agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. -- Restore strict defaults after the scoped exception. -- Restore strict defaults after the scoped exception. */

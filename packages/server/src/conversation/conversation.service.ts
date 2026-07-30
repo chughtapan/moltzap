@@ -1,38 +1,42 @@
-import type { Db } from "#db";
-import type {
-  Conversation,
-  ConversationParticipant,
-  ConversationSummary,
-} from "@moltzap/protocol/conversation";
-import type { AgentId, UserId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
-import { BoundedMap } from "@moltzap/protocol/bounded-map";
-import type { SqlError } from "@effect/sql/SqlError";
-import { Effect, Option } from "effect";
-import { InvalidParamsError } from "@moltzap/protocol/rpc";
+// safer-arch-ignore no-cross-domain-sibling-import: Conversation mutations publish through the network notification port; direct leaf imports keep the runtime dependency graph acyclic.
+// safer-arch-ignore folder-explicit-api-required: ConversationService is the deliberate concrete service boundary paired with the public conversation index.
 import {
-  AgentNotFoundError,
-  NotInContactsError,
-} from "@moltzap/protocol/identity";
-import {
-  ConversationFullError,
-  ConversationNotFoundError,
-  NotAParticipantError,
-  conversationParticipantsRemovedNotificationDefinition,
-} from "@moltzap/protocol/conversation";
-import { DEFAULT_PAGE_LIMIT, ForbiddenError } from "@moltzap/protocol/rpc";
-import { broadcastNotificationToAgents } from "#network";
-import type { NetworkSendServiceTag } from "#network";
-import type { ConnectionManager } from "#socket";
-import { sql } from "#db";
-import {
+  type Db,
+  sql,
   catchSqlErrorAsDefect,
   rawQuery,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
 } from "#db";
+import {
+  type Conversation,
+  type ConversationParticipant,
+  type ConversationSummary,
+  type ConversationId,
+  ConversationFullError,
+  ConversationNotFoundError,
+  NotAParticipantError,
+  conversationParticipantsRemovedNotificationDefinition,
+} from "@moltzap/protocol/conversation";
+import {
+  type AgentId,
+  type UserId,
+  AgentNotFoundError,
+  NotInContactsError,
+} from "@moltzap/protocol/identity";
+import type { TaskId } from "@moltzap/protocol/task";
+import { BoundedMap } from "@moltzap/protocol/bounded-map";
+import type { SqlError } from "@effect/sql/SqlError";
+import { Effect, Option } from "effect";
+import {
+  InvalidParamsError,
+  DEFAULT_PAGE_LIMIT,
+  ForbiddenError,
+} from "@moltzap/protocol/rpc";
+import { broadcastNotificationToAgents } from "../network/notification-broadcast.js";
+import type { NetworkSendServiceTag } from "../network/layer.js";
+import type { ConnectionManager } from "#socket";
 
 const MAX_GROUP_PARTICIPANTS = 256;
 const GROUP_OVERFLOW_MSG = `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`;
@@ -43,10 +47,11 @@ const MSG_CONVERSATION_NOT_FOUND = "Conversation not found";
 type ContactPolicyCheck = (
   ownerUserIdA: UserId,
   ownerUserIdB: UserId,
-) => Effect.Effect<boolean, never>;
+) => Effect.Effect<boolean>;
 
 type ContactPolicyResolver = () => ContactPolicyCheck | null;
 type ConversationArchiveFilter = "exclude" | "include" | "only";
+const NO_CONTACT_POLICY_RESOLVER: ContactPolicyResolver = () => null;
 
 interface ConversationColumns {
   readonly id: ConversationId;
@@ -58,8 +63,8 @@ interface ConversationColumns {
 }
 
 interface CreateConversationOptions<TaskMintError = never> {
-  readonly name: string | undefined;
-  readonly agentIds: ReadonlyArray<AgentId>;
+  readonly name?: string;
+  readonly agentIds: readonly AgentId[];
   readonly creatorAgentId: AgentId;
   readonly seedCreatorAsParticipant?: boolean;
   readonly mintTask: Effect.Effect<{ id: TaskId }, TaskMintError>;
@@ -67,7 +72,7 @@ interface CreateConversationOptions<TaskMintError = never> {
 
 interface CreatorContactPolicyInput {
   readonly creatorAgentId: AgentId;
-  readonly targetAgentIds: ReadonlyArray<AgentId>;
+  readonly targetAgentIds: readonly AgentId[];
   readonly ownerByAgentId: ReadonlyMap<AgentId, UserId>;
   readonly policy: ContactPolicyCheck;
 }
@@ -92,13 +97,13 @@ interface ListConversationsInput {
   readonly archived: ConversationArchiveFilter;
 }
 
-const listConversations = (
+function listConversations(
   deps: ListConversationsDeps,
   input: ListConversationsInput,
 ): Effect.Effect<
   { conversations: ConversationSummary[]; cursor?: string },
   InvalidParamsError
-> => {
+> {
   const { db, previewCache } = deps;
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
@@ -122,12 +127,14 @@ const listConversations = (
       };
     }),
   ).pipe(Effect.withSpan("listConversations"));
-};
+}
 
-const parseListCursor = (
-  cursor: string | undefined,
-): Effect.Effect<string | null, InvalidParamsError> => {
-  if (cursor == null) return Effect.succeed(null);
+function parseListCursor(
+  cursor?: string,
+): Effect.Effect<string | null, InvalidParamsError> {
+  if (cursor == null) {
+    return Effect.succeed(null);
+  }
   const parsed = new Date(cursor);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== cursor) {
     return Effect.fail(
@@ -137,7 +144,7 @@ const parseListCursor = (
     );
   }
   return Effect.succeed(cursor);
-};
+}
 
 interface ListRowsInput {
   readonly agentId: AgentId;
@@ -155,11 +162,11 @@ interface ConversationListRow {
   readonly unread_count: number;
 }
 
-const queryConversationListRows = (
+function queryConversationListRows(
   db: Db,
   input: ListRowsInput,
-): Effect.Effect<ReadonlyArray<ConversationListRow>, SqlError> =>
-  rawQuery(
+): Effect.Effect<readonly ConversationListRow[], SqlError> {
+  return rawQuery(
     db,
     sql<ConversationListRow>`
       SELECT c.id, c.name, c.updated_at,
@@ -185,8 +192,9 @@ const queryConversationListRows = (
       LIMIT ${input.limit + 1}
     `,
   );
+}
 
-const archivedListFilter = (archived: ConversationArchiveFilter) => {
+function archivedListFilter(archived: ConversationArchiveFilter) {
   switch (archived) {
     case "only":
       return sql`AND c.archived_at IS NOT NULL`;
@@ -194,35 +202,44 @@ const archivedListFilter = (archived: ConversationArchiveFilter) => {
       return sql``;
     case "exclude":
       return sql`AND c.archived_at IS NULL`;
+    default: {
+      const exhaustive: never = archived;
+      return exhaustive;
+    }
   }
-};
+}
 
-const cursorListFilter = (cursorParam: string | null) => {
-  if (cursorParam === null) return sql``;
+function cursorListFilter(cursorParam: string | null) {
+  if (cursorParam === null) {
+    return sql``;
+  }
   return sql`AND c.updated_at < ${cursorParam}`;
-};
+}
 
 type MutableConversationSummary = Omit<ConversationSummary, "participants"> & {
   participants?: ReadonlyArray<ConversationParticipant["participant"]>;
 };
 
-const conversationSummariesFromRows = (
-  rows: ReadonlyArray<ConversationListRow>,
+function conversationSummariesFromRows(
+  rows: readonly ConversationListRow[],
   previewCache: ReadonlyMap<ConversationId, string>,
-): MutableConversationSummary[] =>
-  rows.map((row) => ({
+): MutableConversationSummary[] {
+  return rows.map((row) => ({
     id: row.id,
     name: row.name ?? undefined,
     lastMessagePreview: previewCache.get(row.id),
     lastMessageTimestamp: row.last_message_at?.toISOString(),
     unreadCount: row.unread_count,
   }));
+}
 
-const attachSummaryParticipants = (
+function attachSummaryParticipants(
   db: Db,
   conversations: MutableConversationSummary[],
-): Effect.Effect<void, SqlError> => {
-  if (conversations.length === 0) return Effect.void;
+): Effect.Effect<void, SqlError> {
+  if (conversations.length === 0) {
+    return Effect.void;
+  }
   return Effect.gen(function* () {
     const convIds = conversations.map((conversation) => conversation.id);
     const rows = yield* db
@@ -234,43 +251,59 @@ const attachSummaryParticipants = (
       conversation.participants = partsByConv.get(conversation.id) ?? [];
     }
   });
-};
+}
 
 type ParticipantRef = ConversationParticipant["participant"];
 
-const participantRefsByConversation = (
+function participantRefsByConversation(
   rows: ReadonlyArray<{ conversation_id: ConversationId; agent_id: AgentId }>,
-): Map<ConversationId, Array<ParticipantRef>> => {
-  const partsByConv = new Map<ConversationId, Array<ParticipantRef>>();
+): Map<ConversationId, ParticipantRef[]> {
+  const partsByConv = new Map<ConversationId, ParticipantRef[]>();
   for (const row of rows) {
     const participants = partsByConv.get(row.conversation_id) ?? [];
     participants.push({ type: "agent", id: row.agent_id });
     partsByConv.set(row.conversation_id, participants);
   }
   return partsByConv;
-};
+}
 
-const nextConversationListCursor = (
+function nextConversationListCursor(
   hasMore: boolean,
-  rows: ReadonlyArray<ConversationListRow>,
-): string | undefined => {
-  if (!hasMore) return undefined;
+  rows: readonly ConversationListRow[],
+): string | undefined {
+  if (!hasMore) {
+    return undefined;
+  }
   return rows[rows.length - 1]?.updated_at.toISOString();
-};
+}
 
+/** Implements conversation service. */
 export class ConversationService {
-  /** In-memory cache for last message previews — avoids decrypting on every list() call */
+  /** In-memory cache for last-message previews, avoiding repeated decryption. */
   private readonly previewCache = new BoundedMap<ConversationId, string>(
     PREVIEW_CACHE_MAX,
   );
 
-  constructor(
-    private db: Db,
-    private connections: ConnectionManager,
-    private resolveContactPolicy: ContactPolicyResolver = () => null,
-  ) {}
+  private readonly db: Db;
+  private readonly connections: ConnectionManager;
+  private readonly resolveContactPolicy: ContactPolicyResolver;
 
-  /** Writes the plaintext preview before message-part encryption. */
+  constructor(
+    db: Db,
+    connections: ConnectionManager,
+    resolveContactPolicy?: ContactPolicyResolver,
+  ) {
+    this.db = db;
+    this.connections = connections;
+    this.resolveContactPolicy =
+      resolveContactPolicy ?? NO_CONTACT_POLICY_RESOLVER;
+  }
+
+  /**
+   * Writes the plaintext preview before message-part encryption.
+   * @param conversationId Value supplied to the operation.
+   * @param firstPartText Value supplied to the operation.
+   */
   updatePreviewCache(
     conversationId: ConversationId,
     firstPartText: string,
@@ -290,7 +323,7 @@ export class ConversationService {
   private createConversationEffect<TaskMintError>(
     input: CreateConversationOptions<TaskMintError>,
   ): Effect.Effect<Conversation, TaskMintError | SqlError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: ConversationService) {
       const task = yield* input.mintTask;
       const created = yield* this.insertConversation(input, task.id);
       yield* this.subscribeCreatedConversation(input, created.id);
@@ -299,14 +332,19 @@ export class ConversationService {
     });
   }
 
-  /** @internal */
+  /**
+   * Loads the owner of every requested agent.
+   * @param agentIds Value supplied to the operation.
+   * @internal
+   * @returns The rows result.
+   */
   loadAgentOwners(
-    agentIds: ReadonlyArray<AgentId>,
+    agentIds: readonly AgentId[],
   ): Effect.Effect<
     ReadonlyMap<AgentId, UserId>,
     AgentNotFoundError | SqlError
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: ConversationService) {
       const rows =
         agentIds.length === 0
           ? []
@@ -329,14 +367,23 @@ export class ConversationService {
     });
   }
 
-  /** @internal */
+  /**
+   * Enforces creator-to-target contact policy for a new conversation.
+   * @param creatorAgentId Value supplied to the operation.
+   * @param targetAgentIds Value supplied to the operation.
+   * @param ownerByAgentId Value supplied to the operation.
+   * @internal
+   * @returns The policy result.
+   */
   assertContactPolicyForCreate(
     creatorAgentId: AgentId,
-    targetAgentIds: ReadonlyArray<AgentId>,
+    targetAgentIds: readonly AgentId[],
     ownerByAgentId: ReadonlyMap<AgentId, UserId>,
   ): Effect.Effect<void, AgentNotFoundError | NotInContactsError> {
     const policy = this.resolveContactPolicy();
-    if (policy === null || targetAgentIds.length === 0) return Effect.void;
+    if (policy === null || targetAgentIds.length === 0) {
+      return Effect.void;
+    }
     return this.assertCreatorContactsAll({
       creatorAgentId,
       targetAgentIds,
@@ -352,14 +399,17 @@ export class ConversationService {
    * `ConversationParticipantsRemoved` with `reason: "app_remove"`
    * so the evicted agent and the remaining participants observe the
    * removal.
+   * @param conversationId Value supplied to the operation.
+   * @param agentId Identifier of the agent targeted by the operation.
    * @internal
+   * @returns The participants snapshot result.
    */
   removeParticipant(
     conversationId: ConversationId,
     agentId: AgentId,
   ): Effect.Effect<void, NotAParticipantError, NetworkSendServiceTag> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ConversationService) {
         // Snapshot membership BEFORE delete so the evicted agent
         // is included in the fan-out target list.
         const participantsSnapshot =
@@ -404,11 +454,18 @@ export class ConversationService {
     );
   }
 
-  /** @internal */
+  /**
+   * Rejects a conversation whose initial group exceeds capacity.
+   * @param targetAgentIds Value supplied to the operation.
+   * @internal
+   * @returns The conv result.
+   */
   assertGroupCapacityForCreate(
-    targetAgentIds: ReadonlyArray<AgentId>,
+    targetAgentIds: readonly AgentId[],
   ): Effect.Effect<void, ConversationFullError> {
-    if (targetAgentIds.length + 1 <= MAX_GROUP_PARTICIPANTS) return Effect.void;
+    if (targetAgentIds.length + 1 <= MAX_GROUP_PARTICIPANTS) {
+      return Effect.void;
+    }
     return Effect.fail(
       new ConversationFullError({ message: GROUP_OVERFLOW_MSG }),
     );
@@ -419,7 +476,7 @@ export class ConversationService {
     taskId: TaskId,
   ): Effect.Effect<Conversation, SqlError> {
     return transaction(this.db, (trx) =>
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ConversationService) {
         const conv = yield* takeFirstOrFail(
           trx
             .insertInto("conversations")
@@ -502,7 +559,7 @@ export class ConversationService {
     conversationId: ConversationId,
   ): Effect.Effect<readonly AgentId[]> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ConversationService) {
         const rows = yield* this.db
           .selectFrom("conversation_participants")
           .select("agent_id")
@@ -517,13 +574,15 @@ export class ConversationService {
    * Parent task lookup for `agent/conversation/list` row projection.
    * `conversations.task_id` is NOT NULL, so the only failure mode is
    * `ConversationNotFoundError` (row missing).
+   * @param conversationId Value supplied to the operation.
    * @internal
+   * @returns The row opt result.
    */
   taskIdForConversation(
     conversationId: ConversationId,
   ): Effect.Effect<TaskId, ConversationNotFoundError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ConversationService) {
         const rowOpt = yield* takeFirstOption(
           this.db
             .selectFrom("conversations")
@@ -547,13 +606,15 @@ export class ConversationService {
    * handlers to surface the post-mutation `Conversation` row (with
    * populated `archivedAt`) for the fan-out notification. Fails with
    * `ConversationNotFoundError` when the row is missing.
+   * @param conversationId Value supplied to the operation.
    * @internal
+   * @returns The row opt result.
    */
   loadById(
     conversationId: ConversationId,
   ): Effect.Effect<Conversation, ConversationNotFoundError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ConversationService) {
         const rowOpt = yield* takeFirstOption(
           this.db
             .selectFrom("conversations")
@@ -574,7 +635,7 @@ export class ConversationService {
 
   getConversationIds(agentId: AgentId): Effect.Effect<ConversationId[]> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ConversationService) {
         const rows = yield* this.db
           .selectFrom("conversation_participants")
           .select("conversation_id")
@@ -589,7 +650,7 @@ export class ConversationService {
     agentId: AgentId,
   ): Effect.Effect<void, ForbiddenError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ConversationService) {
         const rowOpt = yield* takeFirstOption(
           this.db
             .selectFrom("conversation_participants")
@@ -609,12 +670,17 @@ export class ConversationService {
     );
   }
 
-  /** @internal */
+  /**
+   * Enforces contact policy for each requested target.
+   * @param input Input value to process.
+   * @internal
+   * @returns The creator opt result.
+   */
   assertCreatorContactsAll(
     input: CreatorContactPolicyInput,
   ): Effect.Effect<void, AgentNotFoundError | NotInContactsError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: ConversationService) {
         const creatorOpt = yield* takeFirstOption(
           this.db
             .selectFrom("agents")
@@ -650,11 +716,16 @@ export class ConversationService {
     );
   }
 
-  /** @internal */
+  /**
+   * Checks one contact-policy edge.
+   * @param input Input value to process.
+   * @internal
+   * @returns The allowed result.
+   */
   checkContactEdge(
     input: ContactEdgeInput,
   ): Effect.Effect<void, NotInContactsError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: ConversationService) {
       const allowed = yield* input.policy(
         input.requesterOwnerUserId,
         input.targetOwnerUserId,

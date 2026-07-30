@@ -1,12 +1,16 @@
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
-import { RpcClient, RpcClientError, RpcSerialization } from "@effect/rpc";
-import type { RpcGroup } from "@effect/rpc";
+import {
+  RpcClient,
+  type RpcClientError,
+  RpcSerialization,
+  type RpcGroup,
+} from "@effect/rpc";
 import { Data, Effect, Layer } from "effect";
 import {
   isLocalDaemonError,
   type LocalDaemonError,
-  LocalDaemonCommands,
+  localDaemonCommands,
   LocalDaemonRpcs,
 } from "../local-daemon-rpc.js";
 import { MoltZapService } from "../service.js";
@@ -18,6 +22,7 @@ import {
 } from "@moltzap/protocol/rpc";
 
 type DaemonRpcs = RpcGroup.Rpcs<typeof LocalDaemonRpcs>;
+/** Represents daemon command values. */
 export type DaemonCommand = DaemonRpcs["_tag"];
 type DaemonClientDispatch = TypedDispatchMap<
   DaemonRpcs,
@@ -26,8 +31,10 @@ type DaemonClientDispatch = TypedDispatchMap<
 
 const SOCKET_REQUEST_TIMEOUT_MS = 10_000;
 
-export { LocalDaemonCommands };
+/** Re-exports the public API from `current module`. */
+export { localDaemonCommands };
 
+/** Reports socket request failures. */
 export class SocketRequestError extends Data.TaggedError("SocketRequestError")<{
   readonly method: string;
   readonly message: string;
@@ -78,8 +85,12 @@ const fromDaemonCommandError = (
   method: string,
   err: unknown,
 ): SocketRequestError | LocalDaemonError => {
-  if (err instanceof SocketRequestError) return err;
-  if (isLocalDaemonError(err)) return err;
+  if (err instanceof SocketRequestError) {
+    return err;
+  }
+  if (isLocalDaemonError(err)) {
+    return err;
+  }
   return fromRpcClientError(method, err);
 };
 
@@ -94,6 +105,13 @@ const callDaemonClient = <Tag extends DaemonCommand>(
     payload,
   );
 
+/**
+ * Provides the request daemon command runtime value.
+ * @param command Value supplied to the operation.
+ * @param payload Value supplied to the operation.
+ * @param socketPath Value supplied to the operation.
+ * @returns The request daemon command result.
+ */
 export const requestDaemonCommand = <Tag extends DaemonCommand>(
   command: Tag,
   payload: PayloadForTag<DaemonRpcs, Tag>,

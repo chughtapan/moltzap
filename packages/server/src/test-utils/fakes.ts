@@ -38,15 +38,21 @@ class FakeServiceMethodMissing extends Data.TaggedError(
  * the compile-time contract-drift insurance. Adding a field to the real
  * interface does NOT fail compilation (tests are a Partial), but changing an
  * existing field's signature does.
+ * @param impl Value supplied to the operation.
+ * @returns The created fake service.
  */
 export const makeFakeService = <S extends object>(impl: Partial<S>): S =>
   unsafeCoerce<Partial<S>, S>(
     new Proxy(impl, {
       get(target, prop, receiver) {
-        if (prop in target) return Reflect.get(target, prop, receiver);
+        if (prop in target) {
+          return Reflect.get(target, prop, receiver);
+        }
         // Symbol lookups (e.g. Symbol.toPrimitive) — let the default behavior run.
-        if (typeof prop === "symbol") return undefined;
-        const method = String(prop);
+        if (typeof prop === "symbol") {
+          return undefined;
+        }
+        const method = prop;
         throw new FakeServiceMethodMissing({
           message:
             `FakeService: method '${method}' was called but not implemented. ` +

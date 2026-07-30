@@ -282,7 +282,10 @@ function splitOnTagBoundary(body: string): readonly JsDocSection[] {
     if (tagMatch) {
       sections.push({ tag: tagMatch[1] ?? null, lines: [tagMatch[2] ?? ""] });
     } else {
-      sections[sections.length - 1]!.lines.push(line);
+      const current = sections.at(-1);
+      if (current !== undefined) {
+        current.lines.push(line);
+      }
     }
   }
   return sections

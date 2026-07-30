@@ -116,6 +116,17 @@ const TAG_CLASS_FACTORIES = [
 
 const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   ...guard.configs.strict.rules,
+  "@typescript-eslint/naming-convention": [
+    "error",
+    {
+      selector: ["classProperty", "objectLiteralProperty", "typeProperty"],
+      modifiers: ["requiresQuotes"],
+      format: null,
+    },
+    ...guard.configs.strict.rules["@typescript-eslint/naming-convention"].slice(
+      1,
+    ),
+  ],
   "@typescript-eslint/no-invalid-void-type": [
     "error",
     {
@@ -140,6 +151,9 @@ const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   // Disabled: knip runs once at the workspace root (whole-monorepo)
   // via `pnpm lint`; per-package lint scripts run eslint only.
   "agent-code-guard/require-knip-in-lint": "off",
+  // Nx owns the workspace task graph; this package-script rule cannot resolve
+  // Nx targets without producing false negatives.
+  "agent-code-guard/require-typescript-quality-gate": "off",
   "local-guard/gen-finally": "error",
 });
 
@@ -161,7 +175,7 @@ const makeTestSupportRules = (strictRules, languageOptions) => ({
 });
 
 const makeEslintDisableCommentRules = (languageOptions) => ({
-  files: ["**/*.ts"],
+  files: ["**/*.ts", "**/*.cts", "**/*.mts"],
   languageOptions,
   plugins: { "eslint-comments": comments },
   rules: {
@@ -204,7 +218,17 @@ export function packageEslintConfig(options = {}) {
   return [
     packageIgnores,
     {
-      files: ["src/**/*.ts", "scripts/**/*.ts", "*.ts"],
+      files: [
+        "src/**/*.ts",
+        "src/**/*.cts",
+        "src/**/*.mts",
+        "scripts/**/*.ts",
+        "scripts/**/*.cts",
+        "scripts/**/*.mts",
+        "*.ts",
+        "*.cts",
+        "*.mts",
+      ],
       ignores: ["**/*.test.ts", "**/*.spec.ts"],
       languageOptions,
       plugins: {
@@ -222,16 +246,7 @@ export function packageEslintConfig(options = {}) {
 }
 
 export function rootEslintConfig(options = {}) {
-  const strictRules = {
-    ...makeStrictRules(),
-    "agent-code-guard/require-typescript-quality-gate": [
-      "error",
-      {
-        scriptNames: ["lint:root"],
-        tsconfigPath: "./tsconfig.eslint.json",
-      },
-    ],
-  };
+  const strictRules = makeStrictRules();
   const languageOptions = makeTsLanguageOptions(
     options.tsconfigRootDir,
     "./tsconfig.eslint.json",

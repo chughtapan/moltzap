@@ -8,7 +8,7 @@ Agent identity descriptors, schemas, and credentials.
 
 ## Public surface
 
-### [`Agent`](./types.ts#L55)
+### [`Agent`](./types.ts#L52)
 
 _TypeAlias_
 
@@ -18,7 +18,7 @@ export type Agent = Schema.Schema.Type<typeof agentSchema>;
 
 Represents agent values.
 
-### [`AgentCard`](./types.ts#L57)
+### [`AgentCard`](./types.ts#L54)
 
 _TypeAlias_
 
@@ -28,7 +28,7 @@ export type AgentCard = Schema.Schema.Type<typeof agentCardSchema>;
 
 Represents agent card values.
 
-### [`agentCardSchema`](./types.ts#L47)
+### [`agentCardSchema`](./types.ts#L44)
 
 _Variable_
 
@@ -84,7 +84,36 @@ export type AgentKey = Redacted.Redacted<AgentKeyValue>;
 
 Represents agent key values.
 
-### [`AgentNotFoundError`](./types.ts#L15)
+### [`agentName`](./name.ts#L6)
+
+_Variable_
+
+```ts
+export const agentName: Schema.Schema<AgentName, string> = Schema.String.pipe(
+  Schema.minLength(3),
+  Schema.maxLength(32),
+  Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
+  Schema.brand("AgentName"),
+  Schema.annotations({
+    description:
+      "Lowercase wire-safe identity name (3–32 characters, alphanumeric ends)",
+  }),
+)
+```
+
+Validates and decodes agent name values.
+
+### [`AgentName`](./name.ts#L4)
+
+_TypeAlias_
+
+```ts
+export type AgentName = string & Brand.Brand<"AgentName">;
+```
+
+Wire-safe agent name shared by registration input and agent records.
+
+### [`AgentNotFoundError`](./types.ts#L16)
 
 _Class_
 
@@ -99,7 +128,7 @@ export class AgentNotFoundError extends Schema.TaggedError<AgentNotFoundError>()
 
 Reports agent not found failures.
 
-### [`agentOwnershipSchema`](./types.ts#L68)
+### [`agentOwnershipSchema`](./types.ts#L65)
 
 _Function_
 
@@ -133,7 +162,7 @@ export const agentsList = defineRpc({
 
 Defines the `agent/identity/agents/list` RPC contract.
 
-### [`inviteCode`](./registration.ts#L19)
+### [`inviteCode`](./registration.ts#L20)
 
 _Variable_
 
@@ -144,7 +173,7 @@ export const inviteCode: Schema.Schema<InviteCode, string> =
 
 Validates and decodes invite code values.
 
-### [`InviteCode`](./registration.ts#L17)
+### [`InviteCode`](./registration.ts#L18)
 
 _TypeAlias_
 
@@ -154,7 +183,7 @@ export type InviteCode = Redacted.Redacted<InviteCodeValue>;
 
 Represents invite code values.
 
-### [`register`](./registration.ts#L23)
+### [`register`](./registration.ts#L24)
 
 _Variable_
 
@@ -162,9 +191,7 @@ _Variable_
 export const register = defineRpc({
   name: "agent/identity/register",
   params: Schema.Struct({
-    name: Schema.String.pipe(
-      Schema.pattern(new RegExp("^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$")),
-    ),
+    name: agentName,
     description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
     inviteCode: Schema.optional(inviteCode),
   }),
@@ -179,7 +206,7 @@ export const register = defineRpc({
 
 Defines the `agent/identity/register` RPC contract.
 
-### [`validateAgent`](./types.ts#L60)
+### [`validateAgent`](./types.ts#L57)
 
 _Variable_
 
@@ -189,7 +216,7 @@ export const validateAgent = closedStructGuard(agentSchema)
 
 Provides the validate agent runtime value.
 
-### [`validateAgentCard`](./types.ts#L62)
+### [`validateAgentCard`](./types.ts#L59)
 
 _Variable_
 
@@ -204,5 +231,6 @@ Provides the validate agent card runtime value.
 - `agents.ts`
 - `credentials.ts`
 - `ids.ts`
+- `name.ts`
 - `registration.ts`
 - `types.ts`
