@@ -145,19 +145,15 @@ export function registerTaskCreate(ctx: ConformanceRunContext): void {
         yield* assertTaskCreateShape(payload);
         const event = yield* awaitTaskCreated(alice, TASK_CREATE_PROPERTY);
         if (event.params.task.id !== payload.task.id) {
-          return yield* Effect.fail(
-            deliveryViolation(
-              TASK_CREATE_PROPERTY,
-              `agent/task/created carried task.id ${event.params.task.id}, expected ${payload.task.id}`,
-            ),
+          return yield* deliveryViolation(
+            TASK_CREATE_PROPERTY,
+            `agent/task/created carried task.id ${event.params.task.id}, expected ${payload.task.id}`,
           );
         }
         if (event.params.task.status !== "active") {
-          return yield* Effect.fail(
-            deliveryViolation(
-              TASK_CREATE_PROPERTY,
-              `agent/task/created carried status ${event.params.task.status}, expected active`,
-            ),
+          return yield* deliveryViolation(
+            TASK_CREATE_PROPERTY,
+            `agent/task/created carried status ${event.params.task.status}, expected active`,
           );
         }
       }),
@@ -450,11 +446,9 @@ export function registerConversationCreateAndList(
           CONVERSATION_LIST_PROPERTY,
         );
         if (payload.conversation === null) {
-          return yield* Effect.fail(
-            deliveryViolation(
-              CONVERSATION_LIST_PROPERTY,
-              "initialConversation supplied but conversation returned null",
-            ),
+          return yield* deliveryViolation(
+            CONVERSATION_LIST_PROPERTY,
+            "initialConversation supplied but conversation returned null",
           );
         }
         const items = yield* listConversations(

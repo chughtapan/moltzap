@@ -58,42 +58,40 @@ export function makeMoltzapSocketHandler(options: {
   return (socket: EffectSocket) => protocolServer.handleSocket(socket);
 }
 
-function closeSocketSession(
+const closeSocketSession = Effect.fn("socket.closeSession")(function* (
   session: MoltZapServerSession,
   options: {
     readonly services: ResolvedServices;
     readonly disconnectionHooks: readonly DisconnectionHook[];
   },
 ) {
-  return Effect.gen(function* () {
-    const removed = yield* options.services.connections.removeAndReturn(
+  const removed = yield* options.services.connections.removeAndReturn(
+    session.connId,
+  );
+  if (removed !== undefined && removed._tag === "AgentConnection") {
+    const authCtx = removed.auth;
+    yield* options.services.presenceService.onAgentDisconnect(
+      authCtx.agentId,
       session.connId,
     );
-    if (removed !== undefined && removed._tag === "AgentConnection") {
-      const authCtx = removed.auth;
-      yield* options.services.presenceService.onAgentDisconnect(
-        authCtx.agentId,
-        session.connId,
-      );
-      yield* runDisconnectionHooks(authCtx, session, options);
-      yield* options.services.agentEndpointResolver.remove(
-        authCtx.agentId,
-        session.connId,
-      );
-    }
-    yield* options.services.leaseRegistry.abandon(session.connId);
-    options.services.appEndpointRegistry.unregisterAppsForConnection(
+    yield* runDisconnectionHooks(authCtx, session, options);
+    yield* options.services.agentEndpointResolver.remove(
+      authCtx.agentId,
       session.connId,
     );
-  }).pipe(Effect.withSpan("socket.closeSession"));
-}
+  }
+  yield* options.services.leaseRegistry.abandon(session.connId);
+  options.services.appEndpointRegistry.unregisterAppsForConnection(
+    session.connId,
+  );
+});
 
-function runDisconnectionHooks(
-  authCtx: AgentContext,
-  session: MoltZapServerSession,
-  options: { readonly disconnectionHooks: readonly DisconnectionHook[] },
-) {
-  return Effect.gen(function* () {
+const runDisconnectionHooks = Effect.fn("socket.runDisconnectionHooks")(
+  function* (
+    authCtx: AgentContext,
+    session: MoltZapServerSession,
+    options: { readonly disconnectionHooks: readonly DisconnectionHook[] },
+  ) {
     const { agentId, ownerUserId } = authCtx;
     for (const hook of options.disconnectionHooks) {
       yield* runUserHook(
@@ -103,8 +101,8 @@ function runDisconnectionHooks(
         { agentId, connId: session.connId },
       );
     }
-  }).pipe(Effect.withSpan("socket.runDisconnectionHooks"));
-}
+  },
+);
 
 function runUserHook<TArgs>(
   hook: (args: TArgs) => undefined | PromiseLike<undefined>,

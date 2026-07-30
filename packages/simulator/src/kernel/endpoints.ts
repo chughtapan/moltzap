@@ -276,7 +276,7 @@ function openConversation<Name extends string>(
           })
           .pipe(
             Effect.as(opened),
-            Effect.catchAll(() => Effect.succeed(opened)),
+            Effect.orElseSucceed(() => opened),
           ),
       ),
     );
@@ -301,7 +301,7 @@ function send<Name extends string>(
           })
           .pipe(
             Effect.as(message),
-            Effect.catchAll(() => Effect.succeed(message)),
+            Effect.orElseSucceed(() => message),
           ),
       ),
     );

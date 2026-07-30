@@ -60,11 +60,8 @@ class ConnectionHookError extends Data.TaggedError("ConnectionHookError")<{
  * @param authService Value supplied to the operation.
  * @returns The authenticate agent key result.
  */
-function authenticateAgentKey(
-  agentKey: AgentKey,
-  authService: AuthService,
-): Effect.Effect<AgentContext, UnauthorizedError> {
-  return Effect.gen(function* () {
+const authenticateAgentKey = Effect.fn("connect.authenticateAgentKey")(
+  function* (agentKey: AgentKey, authService: AuthService) {
     const agent = yield* authService.authenticateAgent(agentKey);
     if (!agent) {
       return yield* new UnauthorizedError({ message: "Authentication failed" });
@@ -74,8 +71,8 @@ function authenticateAgentKey(
       agentStatus: agent.status,
       ownerUserId: agent.ownerUserId,
     });
-  }).pipe(Effect.withSpan("connect.authenticateAgentKey"));
-}
+  },
+);
 
 /**
  * Emit the agent's `online` presence on connect, then return the empty HelloOk.
@@ -87,16 +84,14 @@ function authenticateAgentKey(
  * @param presenceService Value supplied to the operation.
  * @returns The created hello ok.
  */
-function buildHelloOk(
+const buildHelloOk = Effect.fn("connect.buildHelloOk")(function* (
   ctx: AgentContext,
   connId: ConnectionId,
   presenceService: PresenceService,
-): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
-  return Effect.gen(function* () {
-    yield* presenceService.onAgentConnect(ctx.agentId, connId);
-    return HELLO_OK;
-  }).pipe(Effect.withSpan("connect.buildHelloOk"));
-}
+) {
+  yield* presenceService.onAgentConnect(ctx.agentId, connId);
+  return HELLO_OK;
+});
 
 /**
  * Resolve an `appKey` credential to its `AppContext` AND its
@@ -151,19 +146,19 @@ function authenticateAppKey(
  * @param args.authed.originator Value supplied to the operation.
  * @returns The register app endpoint result.
  */
-function registerAppEndpoint(args: {
-  readonly connections: ConnectionManager;
-  readonly appEndpointRegistry: AppEndpointRegistry;
-  readonly appId: AppContext["appId"];
-  readonly manifest: AppManifest;
-  readonly authed: {
-    readonly connId: ConnectionId;
-    readonly originator: Originator;
-  };
-}): Effect.Effect<void, UnauthorizedError> {
-  const { connections, appEndpointRegistry, appId, manifest, authed } = args;
-  const connId = authed.connId;
-  return Effect.gen(function* () {
+const registerAppEndpoint = Effect.fn("connect.registerAppEndpoint")(
+  function* (args: {
+    readonly connections: ConnectionManager;
+    readonly appEndpointRegistry: AppEndpointRegistry;
+    readonly appId: AppContext["appId"];
+    readonly manifest: AppManifest;
+    readonly authed: {
+      readonly connId: ConnectionId;
+      readonly originator: Originator;
+    };
+  }) {
+    const { connections, appEndpointRegistry, appId, manifest, authed } = args;
+    const connId = authed.connId;
     // Register under the SERVER-MINTED `appId` (the authenticated
     // principal), NOT `manifest.appId`. `agent/task/request` routes to the appId the
     // registrant received from `/api/v1/apps/register` = this identity.
@@ -188,8 +183,8 @@ function registerAppEndpoint(args: {
         "registerAppEndpoint: app authentication produced a non-app connection",
       );
     }
-  }).pipe(Effect.withSpan("connect.registerAppEndpoint"));
-}
+  },
+);
 
 /**
  * Mint the `AppConnection` arm via the immutable transition AND
@@ -245,33 +240,33 @@ function registerAppArmTransition(args: {
   );
 }
 
-function hydrateConnectionState(
-  connections: ConnectionManager,
-  connId: ConnectionId,
-  auth: AgentContext,
-  conversationService: ConversationService,
-) {
-  return Effect.gen(function* () {
+const hydrateConnectionState = Effect.fn("connect.hydrateConnectionState")(
+  function* (
+    connections: ConnectionManager,
+    connId: ConnectionId,
+    auth: AgentContext,
+    conversationService: ConversationService,
+  ) {
     const convIds = yield* conversationService.getConversationIds(auth.agentId);
     // Seed the agent arm's conversation membership cache. The arm was minted
     // by `mirrorAgentArmTransition` just above, so it exists for this connId.
     yield* connections.hydrateConversationIds(connId, convIds);
-  }).pipe(Effect.withSpan("connect.hydrateConnectionState"));
-}
+  },
+);
 
-function registerEndpointIfStillConnected(
+const registerEndpointIfStillConnected = Effect.fn(
+  "connect.registerEndpointIfStillConnected",
+)(function* (
   connections: ConnectionManager,
   resolver: AgentEndpointResolver,
   connId: ConnectionId,
   auth: AgentContext,
 ) {
-  return Effect.gen(function* () {
-    // Read the live `connectionsRef` arm before registering the endpoint.
-    if (Option.isSome(yield* connections.peek(connId))) {
-      yield* resolver.add(auth.agentId, connId);
-    }
-  }).pipe(Effect.withSpan("connect.registerEndpointIfStillConnected"));
-}
+  // Read the live `connectionsRef` arm before registering the endpoint.
+  if (Option.isSome(yield* connections.peek(connId))) {
+    yield* resolver.add(auth.agentId, connId);
+  }
+});
 
 /**
  * Mint the agent arm onto the `connectionsRef` via the
@@ -313,8 +308,8 @@ function mirrorAgentArmTransition(
  * @param connId Value supplied to the operation.
  * @returns The complete agent connect result.
  */
-function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
-  return Effect.gen(function* () {
+const completeAgentConnect = Effect.fn("connect.completeAgentConnect")(
+  function* (credential: AgentKey, connId: ConnectionId) {
     const authService = yield* AuthServiceTag;
     const conversationService = yield* ConversationServiceTag;
     const presenceService = yield* PresenceServiceTag;
@@ -340,8 +335,8 @@ function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
     const helloOk = yield* buildHelloOk(auth, connId, presenceService);
     yield* fireConnectionHooks(auth, connId);
     return helloOk;
-  }).pipe(Effect.withSpan("connect.completeAgentConnect"));
-}
+  },
+);
 
 /**
  * Fire every registered connection hook for a freshly-authenticated agent arm.
@@ -352,52 +347,53 @@ function completeAgentConnect(credential: AgentKey, connId: ConnectionId) {
  * @param connId Value supplied to the operation.
  * @returns The fire connection hooks result.
  */
-function fireConnectionHooks(auth: AgentContext, connId: ConnectionId) {
-  return Effect.gen(function* () {
-    const hooks = yield* ConnectionHooksTag;
-    if (hooks.connectionHooks.length === 0) {
-      return;
-    }
-    const db = yield* DbTag;
-    const row = yield* Effect.tryPromise(() =>
-      db
-        .selectFrom("agents")
-        .select("name")
-        .where("id", "=", auth.agentId)
-        .executeTakeFirst(),
-    ).pipe(Effect.orElseSucceed(() => undefined));
-    const agentName = row?.name ?? auth.agentId;
-    for (const hook of hooks.connectionHooks) {
-      yield* Effect.tryPromise({
-        try: () =>
-          Promise.resolve(
-            hook({
-              agentId: auth.agentId,
-              agentName,
-              ownerUserId: auth.ownerUserId,
-              connId,
-            }),
-          ),
-        catch: (cause) =>
-          new ConnectionHookError({
-            message: "Connection hook failed",
-            cause,
+const fireConnectionHooks = Effect.fn("connect.fireConnectionHooks")(function* (
+  auth: AgentContext,
+  connId: ConnectionId,
+) {
+  const hooks = yield* ConnectionHooksTag;
+  if (hooks.connectionHooks.length === 0) {
+    return;
+  }
+  const db = yield* DbTag;
+  const row = yield* Effect.tryPromise(() =>
+    db
+      .selectFrom("agents")
+      .select("name")
+      .where("id", "=", auth.agentId)
+      .executeTakeFirst(),
+  ).pipe(Effect.orElseSucceed(() => undefined));
+  const agentName = row?.name ?? auth.agentId;
+  for (const hook of hooks.connectionHooks) {
+    yield* Effect.tryPromise({
+      try: () =>
+        Promise.resolve(
+          hook({
+            agentId: auth.agentId,
+            agentName,
+            ownerUserId: auth.ownerUserId,
+            connId,
           }),
-      }).pipe(
-        Effect.timeoutFail({
-          duration: "2 seconds",
-          onTimeout: () =>
-            new ConnectionHookError({ message: "Connection hook timed out" }),
-        }),
-        Effect.catchAll((err) =>
-          Effect.logWarning("Connection hook error").pipe(
-            Effect.annotateLogs({ err, agentId: auth.agentId, connId }),
-          ),
         ),
-      );
-    }
-  }).pipe(Effect.withSpan("connect.fireConnectionHooks"));
-}
+      catch: (cause) =>
+        new ConnectionHookError({
+          message: "Connection hook failed",
+          cause,
+        }),
+    }).pipe(
+      Effect.timeoutFail({
+        duration: "2 seconds",
+        onTimeout: () =>
+          new ConnectionHookError({ message: "Connection hook timed out" }),
+      }),
+      Effect.catchAll((err) =>
+        Effect.logWarning("Connection hook error").pipe(
+          Effect.annotateLogs({ err, agentId: auth.agentId, connId }),
+        ),
+      ),
+    );
+  }
+});
 
 function checkConnectProtocol(params: ConnectParams) {
   // Protocol-range gate runs BEFORE auth resolution: clients outside the
@@ -415,26 +411,23 @@ function checkConnectProtocol(params: ConnectParams) {
   );
 }
 
-function reemitHelloIfAuthenticated(
-  conn: Connection,
-  presenceService: PresenceService,
-) {
-  return Effect.gen(function* () {
-    if (conn._tag === "AgentConnection") {
-      const helloOk = yield* buildHelloOk(
-        conn.auth,
-        conn.connId,
-        presenceService,
-      );
-      yield* fireConnectionHooks(conn.auth, conn.connId);
-      return Option.some(helloOk);
-    }
-    if (conn._tag === "AppConnection") {
-      return Option.some(HELLO_OK);
-    }
-    return Option.none<HelloOk>();
-  }).pipe(Effect.withSpan("connect.reemitHelloIfAuthenticated"));
-}
+const reemitHelloIfAuthenticated = Effect.fn(
+  "connect.reemitHelloIfAuthenticated",
+)(function* (conn: Connection, presenceService: PresenceService) {
+  if (conn._tag === "AgentConnection") {
+    const helloOk = yield* buildHelloOk(
+      conn.auth,
+      conn.connId,
+      presenceService,
+    );
+    yield* fireConnectionHooks(conn.auth, conn.connId);
+    return Option.some(helloOk);
+  }
+  if (conn._tag === "AppConnection") {
+    return Option.some(HELLO_OK);
+  }
+  return Option.none<HelloOk>();
+});
 
 /**
  * Shared Connect preamble for both principal paths: gate the protocol range,
@@ -454,45 +447,41 @@ function connectPreamble(params: ConnectParams) {
   });
 }
 
-function handleAgentConnect(params: AgentConnectParams) {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const { conn, reemitted } = yield* connectPreamble(params);
-      if (Option.isSome(reemitted)) {
-        return reemitted.value;
-      }
+const handleAgentConnect = Effect.fn("agent.connect")(function* (
+  params: AgentConnectParams,
+) {
+  const { conn, reemitted } = yield* connectPreamble(params);
+  if (Option.isSome(reemitted)) {
+    return reemitted.value;
+  }
 
-      return yield* completeAgentConnect(params.agentKey, conn.connId);
-    }).pipe(Effect.withSpan("agent.connect")),
+  return yield* completeAgentConnect(params.agentKey, conn.connId);
+});
+
+const handleAppConnect = Effect.fn("app.connect")(function* (
+  params: AppConnectParams,
+) {
+  const { conn, reemitted } = yield* connectPreamble(params);
+  if (Option.isSome(reemitted)) {
+    return reemitted.value;
+  }
+
+  const connections = yield* ConnectionManagerTag;
+  const appAuthService = yield* AppAuthServiceTag;
+  const appEndpointRegistry = yield* AppEndpointRegistryTag;
+  const { auth: appAuth, manifest } = yield* authenticateAppKey(
+    params.appKey,
+    appAuthService,
   );
-}
-
-function handleAppConnect(params: AppConnectParams) {
-  return catchSqlErrorAsDefect(
-    Effect.gen(function* () {
-      const { conn, reemitted } = yield* connectPreamble(params);
-      if (Option.isSome(reemitted)) {
-        return reemitted.value;
-      }
-
-      const connections = yield* ConnectionManagerTag;
-      const appAuthService = yield* AppAuthServiceTag;
-      const appEndpointRegistry = yield* AppEndpointRegistryTag;
-      const { auth: appAuth, manifest } = yield* authenticateAppKey(
-        params.appKey,
-        appAuthService,
-      );
-      yield* registerAppArmTransition({
-        connections,
-        appEndpointRegistry,
-        connId: conn.connId,
-        auth: appAuth,
-        manifest,
-      });
-      return HELLO_OK;
-    }).pipe(Effect.withSpan("app.connect")),
-  );
-}
+  yield* registerAppArmTransition({
+    connections,
+    appEndpointRegistry,
+    connId: conn.connId,
+    auth: appAuth,
+    manifest,
+  });
+  return HELLO_OK;
+});
 
 // ── @effect/rpc handler bodies ────────────────────────────────────────
 //

@@ -58,8 +58,8 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
         const outcome = yield* client.sendRpc(taskList, {}).pipe(Effect.either);
         const failure = leftOrNull(outcome);
         if (failure !== null) {
-          return yield* Effect.fail(
-            invariant(`authorized agent/task/list failed: ${failure._tag}`),
+          return yield* invariant(
+            `authorized agent/task/list failed: ${failure._tag}`,
           );
         }
       }).pipe(Effect.withSpan("registerAuthorityPositive")),

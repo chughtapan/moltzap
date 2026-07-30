@@ -50,7 +50,7 @@ function runStoreAndReplay(ctx: ConformanceRunContext) {
       );
       const participant = fixture.participants[0];
       if (participant === undefined) {
-        return yield* Effect.fail(missingParticipantViolation());
+        return yield* missingParticipantViolation();
       }
       const sent = 3;
       yield* sendReplayMessages(fixture, sent);

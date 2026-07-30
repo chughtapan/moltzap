@@ -18,8 +18,8 @@ import {
 
 const PROPERTY = "task-boundary-isolation";
 
-const taskBoundaryIsolation = (ctx: ConformanceRunContext) =>
-  Effect.gen(function* () {
+const taskBoundaryIsolation = Effect.fn("registerTaskBoundaryIsolation")(
+  function* (ctx: ConformanceRunContext) {
     const fxA = yield* acquireConversation(ctx, 1, "iso-a").pipe(
       Effect.mapError((e) => deliveryViolation(PROPERTY, `fixture A: ${e}`)),
     );
@@ -45,15 +45,14 @@ const taskBoundaryIsolation = (ctx: ConformanceRunContext) =>
         s.params.message.conversationId === fxA.conversationId,
     );
     if (leaked) {
-      return yield* Effect.fail(
-        new PropertyInvariantViolation({
-          category: DELIVERY_CATEGORY,
-          name: PROPERTY,
-          reason: `conversation ${fxA.conversationId} leaked into outsider ${outsider.agent.agentId}`,
-        }),
-      );
+      return yield* new PropertyInvariantViolation({
+        category: DELIVERY_CATEGORY,
+        name: PROPERTY,
+        reason: `conversation ${fxA.conversationId} leaked into outsider ${outsider.agent.agentId}`,
+      });
     }
-  }).pipe(Effect.withSpan("registerTaskBoundaryIsolation"));
+  },
+);
 
 /**
  * Registers task boundary isolation.

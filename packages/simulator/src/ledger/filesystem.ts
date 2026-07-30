@@ -699,15 +699,13 @@ function completeActive(
           case "Completed":
             return recordCount === phase.completion.recordCount
               ? phase.completion
-              : yield* Effect.fail(
-                  recordCountConflict(
-                    active,
-                    phase.completion.recordCount,
-                    recordCount,
-                  ),
+              : yield* recordCountConflict(
+                  active,
+                  phase.completion.recordCount,
+                  recordCount,
                 );
           case "Failed":
-            return yield* Effect.fail(phase.error);
+            return yield* phase.error;
           default:
             return yield* Effect.dieMessage("Unknown active ledger phase");
         }

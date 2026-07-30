@@ -120,6 +120,17 @@
         "command": "tsc --noEmit -p tsconfig.eslint.json"
       }
     },
+    "lint:effect": {
+      "cache": true,
+      "inputs": [
+        "workspaceFiles"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/effect-diagnostics.mjs"
+      }
+    },
     "lint:dead-code": {
       "cache": true,
       "inputs": [

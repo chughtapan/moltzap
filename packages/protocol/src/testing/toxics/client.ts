@@ -312,13 +312,11 @@ function createProxy(
       body: proxyBody(opts, network, nextListenPort),
     });
     if (!isRawProxy(response)) {
-      return yield* Effect.fail(
-        new ToxicControlError({
-          op: "create-proxy",
-          status: 0,
-          body: "Toxiproxy returned a malformed proxy payload",
-        }),
-      );
+      return yield* new ToxicControlError({
+        op: "create-proxy",
+        status: 0,
+        body: "Toxiproxy returned a malformed proxy payload",
+      });
     }
     const raw = response;
     yield* Effect.addFinalizer(deleteProxyFinalizer(base, opts.name));

@@ -236,11 +236,9 @@ function identityFor(
         if (existing !== undefined) {
           return existing.role === binding.role
             ? existing.identity
-            : yield* Effect.fail(
-                fail(
-                  binding.operation,
-                  `network identity "${binding.name}" is already bound as an ${existing.role}`,
-                ),
+            : yield* fail(
+                binding.operation,
+                `network identity "${binding.name}" is already bound as an ${existing.role}`,
               );
         }
         const identity = yield* restore(

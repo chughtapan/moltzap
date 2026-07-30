@@ -456,13 +456,13 @@ function consumeProcessStream(
  * @param processTreeCleanup Value supplied to the operation.
  * @returns The start supervised process result.
  */
-export function startSupervisedProcess(
-  command: Command.Command,
-  scope: Scope.CloseableScope,
-  appendLog: (chunk: string) => void,
-  processTreeCleanup: ProcessTreeCleanup = { claimed: false },
-) {
-  return Effect.gen(function* () {
+export const startSupervisedProcess = Effect.fn("startSupervisedProcess")(
+  function* (
+    command: Command.Command,
+    scope: Scope.CloseableScope,
+    appendLog: (chunk: string) => void,
+    processTreeCleanup: ProcessTreeCleanup = { claimed: false },
+  ) {
     const proc = yield* Command.start(command).pipe(Scope.extend(scope));
     const exitFiber = yield* proc.exitCode.pipe(Effect.forkIn(scope));
     yield* consumeProcessStream(
@@ -484,8 +484,8 @@ export function startSupervisedProcess(
       );
     }
     return { proc, exitFiber, processTreeCleanup };
-  }).pipe(Effect.withSpan("startSupervisedProcess"));
-}
+  },
+);
 
 const EXIT_POLL_INTERVAL_MS = 100;
 
@@ -511,38 +511,36 @@ export interface ProcessTreeCleanup {
  * @param processTreeCleanup Value supplied to the operation.
  * @returns The escalating kill result.
  */
-export function escalatingKill(
+export const escalatingKill = Effect.fn("escalatingKill")(function* (
   proc: Process,
   exitFiber: Fiber.RuntimeFiber<ExitCode, PlatformError>,
   waits: { readonly termWaitMs: number; readonly killWaitMs: number },
   processTreeCleanup: ProcessTreeCleanup = { claimed: false },
-): Effect.Effect<void> {
-  return Effect.gen(function* () {
-    const initialExit = yield* Fiber.poll(exitFiber);
-    if (Option.isSome(initialExit)) {
-      yield* cleanupAfterLeaderExit(proc, processTreeCleanup);
-      return;
-    }
-    yield* sendSignal(proc, "SIGTERM");
-    const leaderExited = yield* exitedWithin(exitFiber, waits.termWaitMs);
-    if (leaderExited) {
-      yield* cleanupAfterLeaderExit(proc, processTreeCleanup);
-      return;
-    }
-    yield* dispatchProcessTreeKill(proc, processTreeCleanup);
-    const killed = yield* exitedWithin(exitFiber, waits.killWaitMs);
-    if (!killed) {
-      yield* Effect.logWarning(
-        "child process remained alive after the SIGKILL wait",
-      ).pipe(
-        Effect.annotateLogs({
-          processId: proc.pid,
-          killWaitMs: waits.killWaitMs,
-        }),
-      );
-    }
-  }).pipe(Effect.withSpan("escalatingKill"));
-}
+) {
+  const initialExit = yield* Fiber.poll(exitFiber);
+  if (Option.isSome(initialExit)) {
+    yield* cleanupAfterLeaderExit(proc, processTreeCleanup);
+    return;
+  }
+  yield* sendSignal(proc, "SIGTERM");
+  const leaderExited = yield* exitedWithin(exitFiber, waits.termWaitMs);
+  if (leaderExited) {
+    yield* cleanupAfterLeaderExit(proc, processTreeCleanup);
+    return;
+  }
+  yield* dispatchProcessTreeKill(proc, processTreeCleanup);
+  const killed = yield* exitedWithin(exitFiber, waits.killWaitMs);
+  if (!killed) {
+    yield* Effect.logWarning(
+      "child process remained alive after the SIGKILL wait",
+    ).pipe(
+      Effect.annotateLogs({
+        processId: proc.pid,
+        killWaitMs: waits.killWaitMs,
+      }),
+    );
+  }
+});
 
 function cleanupAfterLeaderExit(
   proc: Process,

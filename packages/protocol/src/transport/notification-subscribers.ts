@@ -1,4 +1,4 @@
-import { Brand, Effect, Ref, Stream } from "effect";
+import { Brand, Cause, Effect, Ref, Stream } from "effect";
 import {
   isNotificationDeliveryFor,
   type NotificationDefinitionAny,
@@ -408,10 +408,10 @@ export function notificationSubscribe<
           onFrame: (params) =>
             Effect.tryPromise({
               try: () => emit.single(params),
-              catch: (cause) => cause,
+              catch: (cause) => new Cause.UnknownException(cause),
             }).pipe(Effect.orDie),
           onClose: (cause) =>
-            Effect.sync(() => emit.fail(cause)).pipe(Effect.asVoid),
+            Effect.promise(() => emit.fail(cause)).pipe(Effect.asVoid),
         },
         refinement,
       ),
@@ -440,10 +440,10 @@ export function notificationSubscribeAll<
           onFrame: (delivery) =>
             Effect.tryPromise({
               try: () => emit.single(delivery),
-              catch: (cause) => cause,
+              catch: (cause) => new Cause.UnknownException(cause),
             }).pipe(Effect.orDie),
           onClose: (cause) =>
-            Effect.sync(() => emit.fail(cause)).pipe(Effect.asVoid),
+            Effect.promise(() => emit.fail(cause)).pipe(Effect.asVoid),
         },
         refinement,
       ),

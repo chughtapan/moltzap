@@ -288,11 +288,9 @@ export function createOneOnOneConversation(
       );
     const cid = create.conversation?.id;
     if (typeof cid !== "string" || cid.length === 0) {
-      return yield* Effect.fail(
-        adversityViolation(
-          propertyName,
-          "app/task/create returned no conversation.id",
-        ),
+      return yield* adversityViolation(
+        propertyName,
+        "app/task/create returned no conversation.id",
       );
     }
     return {

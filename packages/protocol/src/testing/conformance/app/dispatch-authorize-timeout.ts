@@ -44,22 +44,18 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
           const params =
             /* Safe because waitForRelease filters for the released-notification descriptor. */ release.params as ReleaseFrameView;
           if (params.verdict.decision !== "deny") {
-            return yield* Effect.fail(
-              dispatchAdmissionViolation(
-                name,
-                `expected synthesized deny, got ${params.verdict.decision}`,
-              ),
+            return yield* dispatchAdmissionViolation(
+              name,
+              `expected synthesized deny, got ${params.verdict.decision}`,
             );
           }
           if (
             typeof params.verdict.reason !== "string" ||
             !params.verdict.reason.toLowerCase().includes("timeout")
           ) {
-            return yield* Effect.fail(
-              dispatchAdmissionViolation(
-                name,
-                `expected reason mentioning "timeout", got: ${String(params.verdict.reason)}`,
-              ),
+            return yield* dispatchAdmissionViolation(
+              name,
+              `expected reason mentioning "timeout", got: ${String(params.verdict.reason)}`,
             );
           }
         }),

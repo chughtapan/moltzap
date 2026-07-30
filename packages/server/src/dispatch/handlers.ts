@@ -15,51 +15,47 @@ import { agentArm } from "#moltzap/runtime";
 // Agent-called: its `requires` head is `AgentPrincipal`, so the body receives a
 // narrowed `AgentContext` and reads `ctx.agentId` as `recipientAgentId`. The
 // `ActiveAgent` is load-bearing: suspended agents cannot dispatch.
-function dispatchRequestBody(
+const dispatchRequestBody = Effect.fn("dispatch.request")(function* (
   params: ParamsOf<typeof dispatchRequestDefinition>,
   ctx: AgentContext,
 ) {
-  return Effect.gen(function* () {
-    const admission = yield* DispatchAdmissionServiceTag;
-    const connection = yield* ConnectionTag;
-    const minted = yield* admission.enqueue({
-      conversationId: params.conversationId,
-      recipientAgentId: ctx.agentId,
-      recipientConnectionId: connection.connId,
-      messageId: params.messageId,
-      senderAgentId: params.senderAgentId,
-      parts: params.parts,
-      attempt: params.attempt,
-      receivedAt: params.receivedAt,
-      pending: params.pending,
-    });
-    return minted;
-  }).pipe(Effect.withSpan("dispatch.request"));
-}
+  const admission = yield* DispatchAdmissionServiceTag;
+  const connection = yield* ConnectionTag;
+  const minted = yield* admission.enqueue({
+    conversationId: params.conversationId,
+    recipientAgentId: ctx.agentId,
+    recipientConnectionId: connection.connId,
+    messageId: params.messageId,
+    senderAgentId: params.senderAgentId,
+    parts: params.parts,
+    attempt: params.attempt,
+    receivedAt: params.receivedAt,
+    pending: params.pending,
+  });
+  return minted;
+});
 
 // `app/dispatch/lease/get` — moderator-only read. Scope-enforced: the lease must be
 // moderator-bound and the calling connection MUST match that binding. Otherwise
 // typed `ForbiddenError`.
-function dispatchLeaseGetBody(
+const dispatchLeaseGetBody = Effect.fn("dispatch.lease.get")(function* (
   params: ParamsOf<typeof dispatchLeaseGetDefinition>,
 ) {
   const notAuthorized = new ForbiddenError({
     message: "app/dispatch/lease/get not authorized for this lease",
   });
-  return Effect.gen(function* () {
-    const connection = yield* ConnectionTag;
-    const registry = yield* LeaseRegistryTag;
-    const record = yield* registry
-      .read({ _tag: "dispatchId", value: params.dispatchId })
-      .pipe(
-        Effect.catchTag("LeaseNotFoundError", () => Effect.fail(notAuthorized)),
-      );
-    if (record.binding.moderatorConnectionId !== connection.connId) {
-      return yield* notAuthorized;
-    }
-    return { lease: leaseRecordToWire(record) };
-  }).pipe(Effect.withSpan("dispatch.lease.get"));
-}
+  const connection = yield* ConnectionTag;
+  const registry = yield* LeaseRegistryTag;
+  const record = yield* registry
+    .read({ _tag: "dispatchId", value: params.dispatchId })
+    .pipe(
+      Effect.catchTag("LeaseNotFoundError", () => Effect.fail(notAuthorized)),
+    );
+  if (record.binding.moderatorConnectionId !== connection.connId) {
+    return yield* notAuthorized;
+  }
+  return { lease: leaseRecordToWire(record) };
+});
 
 // ── @effect/rpc handler bodies ───────────────────────────────────────
 
@@ -68,12 +64,10 @@ function dispatchLeaseGetBody(
  * @param params Request payload to process.
  * @returns The dispatch request result.
  */
-export const dispatchRequest: ServerHandler<
-  typeof dispatchRequestDefinition
-> = (params) =>
-  Effect.gen(function* () {
+export const dispatchRequest: ServerHandler<typeof dispatchRequestDefinition> =
+  Effect.fn("dispatchRequest")(function* (params) {
     return yield* dispatchRequestBody(params, yield* agentArm);
-  }).pipe(Effect.withSpan("dispatchRequest"));
+  });
 
 /**
  * Provides the dispatch lease get runtime value.
