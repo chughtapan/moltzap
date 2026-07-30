@@ -108,10 +108,10 @@ function sendText(
 }
 
 function notificationText(notification: { params: unknown }): string {
-  const parts = (
+  const parts =
     /* Safe because the test fixture establishes this asserted shape. */
-    notification.params as { message: { parts: Array<{ text: string }> } }
-  ).message.parts;
+    (notification.params as { message: { parts: Array<{ text: string }> } })
+      .message.parts;
   const firstPart = parts[0];
   if (firstPart === undefined) {
     throw new Error("Expected a notification text part.");

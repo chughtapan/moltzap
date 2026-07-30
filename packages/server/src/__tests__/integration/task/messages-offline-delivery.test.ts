@@ -196,10 +196,9 @@ function broadcastsWhenParticipantsAreOnline() {
     expect(sent.message.parts).toEqual([{ type: "text", text: HAPPY_TEXT }]);
 
     const received = yield* Fiber.join(receivedFiber);
-    const receivedMsg = (
+    const receivedMsg =
       /* Safe because the test fixture establishes this asserted shape. */
-      received.params as { message: Message }
-    ).message;
+      (received.params as { message: Message }).message;
     expect(receivedMsg.id).toBe(sent.message.id);
 
     const rows = yield* messageRowsForConversation(binding.conversationId);

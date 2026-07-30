@@ -18,9 +18,7 @@ export function getClientEventLogDir(
 ): string | undefined {
   const provider = configProvider ?? ConfigProvider.fromEnv();
   const directory = Option.getOrUndefined(
-    Effect.runSync(
-      clientEventLogDir.pipe(Effect.withConfigProvider(provider)),
-    ),
+    Effect.runSync(clientEventLogDir.pipe(Effect.withConfigProvider(provider))),
   );
   return directory === "" ? undefined : directory;
 }

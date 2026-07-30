@@ -44,10 +44,8 @@ describe("catchSqlErrorAsDefect pass-through", () => {
       const failure = expectFailure(yield* Effect.exit(program));
       expect(failure).toBeInstanceOf(ConflictError);
       expect(
-        (
-          /* Safe because the test fixture establishes this asserted shape. */
-          failure as ConflictError
-        ).message,
+        /* Safe because the test fixture establishes this asserted shape. */
+        (failure as ConflictError).message,
       ).toBe(TYPED_CONFLICT_MESSAGE);
     }));
 
