@@ -2,7 +2,7 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **ACTIVE IMPLEMENTATION ASK — AUTHORITY RECONCILED; BLIND REVIEW REQUIRED BEFORE CODE**
+Status: **ACTIVE IMPLEMENTATION ASK — AUTHORITY REVIEW PASSED AND ACCEPTED; READY FOR CODE**
 
 Governing architecture:
 [`20260728-gate-1-architecture-freeze.md`](../decisions/20260728-gate-1-architecture-freeze.md)
@@ -326,6 +326,12 @@ verdicts, blockers, and overall result.
 
 Implementation begins only after the review passes and the maintainer
 accepts the result.
+
+Candidate `a261f4ee939980e620e4996a146ab6fae744abba` passed all
+six questions with no blockers. The complete
+[blind-review record](../decision-evidence/20260729-l1-l2-a261f4ee-cold-review.md)
+contains the immutable candidate identity, isolation attestation,
+unedited answers, discovery trail, and explicit maintainer acceptance.
 
 ## Package graph and release identity
 

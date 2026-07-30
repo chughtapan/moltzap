@@ -297,3 +297,25 @@ None.
 **PASS**
 
 This reviewer result still requires maintainer acceptance before implementation begins.
+
+## Maintainer acceptance
+
+This section records a source event after the completed review. It does
+not revise the candidate, reviewer report, answers, or verdict.
+
+- Source system: Codex CLI rollout JSONL.
+- Source session: `019fac90-d26a-7e51-8708-06858bd118bd`.
+- Native locator: `msg_019fb155-f823-77c3-9f2a-8aeb2b8ce5f7`.
+- Enclosing turn: `019fb155-f710-7dd1-96f6-ee653e9ed62e`.
+- Parent locator: absent from the stored event.
+- UTC timestamp: `2026-07-30T04:43:49.155Z`.
+- Stored actor role: `user`.
+
+Literal excerpt:
+
+> accept blind review a261f4ee
+
+The event accepts this artifact's PASS result for the exact candidate
+identified above. The stored session does not independently bind the
+user role to a named human account; the source gap recorded in the
+governing trajectory remains.
