@@ -1,13 +1,29 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-29
 decision-makers: Tapan Chugh
+superseded-by: 20260729-principal-io-uses-runtime-gateways.md
 ---
 
 # Evaluation runs produce typed reports published to Phoenix
 
 Decision provenance: [stored evaluation-pipeline
 trajectory](../decision-evidence/20260729-effect-native-evaluation-results-trajectory.md#evaluation-runs-produce-typed-reports-published-to-phoenix).
+
+## Supersession
+
+Runtime provenance, total run outcomes, code-defined case and criterion
+catalogs, semantic judging, resumable reports, and Phoenix publication remain
+current. The initial sixteen case identities, descriptions, criteria, rubrics,
+and slice labels also remain current as behavioral intent. The
+controlled-endpoint episode model, single-target runtime condition,
+evaluation-created social workspace, `EvaluationResponseSelected`,
+prompt-bound selected-response requirement, `replyToId` correlation, and
+classification of synthetic-peer runs as behavioral acceptance are replaced by
+[`20260729-principal-io-uses-runtime-gateways.md`](20260729-principal-io-uses-runtime-gateways.md).
+The replacement record governs principal I/O, gateway evidence, autonomous
+agent social action, complete-roster conditions, native evidence selection,
+and current behavioral acceptance.
 
 Scope: this record governs the Phase 1 source baseline in
 `packages/simulator` and the private `packages/evals` application on `main`.
@@ -38,12 +54,14 @@ The architecture must preserve three ownership boundaries:
 
 ### Runtime provenance
 
-Every `AgentRuntime` carries a runtime-owned Schema and a sanitized value in
-that schema's native shape. OpenClaw, NanoClaw, Effect, and customer runtimes
-may describe different configuration fields. The simulator projects the
-immutable definition-time configuration into kernel-owned ledger provenance
-without introducing a common model or provider vocabulary or allowing caller
-metadata to replace it.
+Every `AgentRuntime` carries a runtime-owned Schema and exposes sanitized
+configuration in that schema's native shape. OpenClaw, NanoClaw, Effect, and
+customer runtimes may describe different configuration fields. The simulator
+captures one deeply immutable encoded JSON snapshot at definition time and
+reconstructs a fresh native view on each access. A mutable native built-in
+therefore cannot change later views or kernel-owned ledger provenance. This
+does not introduce a common model or provider vocabulary or allow caller
+metadata to replace the canonical snapshot.
 
 Built-in runtime configurations distinguish constructor-owned defaults and
 requested policies or overrides from values resolved later during acquisition.
@@ -270,8 +288,9 @@ execution, resume, publication, and explicit network probes.
 - Every ordinary post-allocation run failure returns its exact ledger receipt;
   interruption triggers an uninterruptible finalization attempt and remains
   interruption.
-- Runtime configuration remains immutable, native, typed, sanitized, and
-  honest about requested versus acquisition-resolved values.
+- Runtime configuration retains an immutable canonical JSON snapshot and
+  isolated native typed views, stays sanitized, and remains honest about
+  requested versus acquisition-resolved values.
 - The case tuple contains exactly the sixteen intended definitions and drives
   iteration, reporting, and Phoenix materialization.
 - Grading refuses empty, duplicated, mismatched, or otherwise invalid supplied

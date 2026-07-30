@@ -12,6 +12,14 @@ The stored actor role does not independently authenticate a person's
 identity. The linked ADR names its accountable decision-maker
 separately.
 
+Current classification: the source observations in the mechanical record below
+remain historical network and channel diagnostics. They are not behavioral
+acceptance evidence under
+[`20260729-principal-io-uses-runtime-gateways.md`](../decisions/20260729-principal-io-uses-runtime-gateways.md),
+because their principal prompts entered through synthetic MoltZap
+participants. The source-faithful event excerpts and measured facts are
+unchanged.
+
 <a id="evaluation-runs-produce-typed-reports-published-to-phoenix"></a>
 
 ## Evaluation runs produce typed reports published to Phoenix
@@ -202,7 +210,7 @@ result evidence was removed. Simulator and evaluation implementation
 was in progress. These are mechanical repository events, not
 quotations.
 
-## Mechanical implementation and acceptance record
+## Mechanical implementation and diagnostic record
 
 The entries in this section are repository and live-system
 observations made while implementing the approved plan. They are not
@@ -291,7 +299,7 @@ rationale to the source events above.
    `5292c6feb2025d52428ddce6386d4e2602abfb022392ffcbd7d55a898efd68e0`.
 
 5. **The completed report was materialized in a pinned local Phoenix
-   instance.** The acceptance service is Phoenix `19.10.0`, source
+   instance.** The results service is Phoenix `19.10.0`, source
    revision `fe95cd21d1cfdc3b73ebb51ca98b5b2781db2fe5`, from image:
 
    ```text
@@ -300,7 +308,7 @@ rationale to the source events above.
 
    The first diagnostic instance runs as
    `moltzap-evals-phoenix-20260729-c0813bd3` on `127.0.0.1:6006`. After
-   the catalog cleanup, a fresh acceptance instance was created as
+   the catalog cleanup, a fresh verification instance was created as
    `moltzap-evals-phoenix-final-20260729` with durable volume
    `moltzap-evals-phoenix-data-final-20260729` on
    `127.0.0.1:6007`. Both instances passed `/healthz`, `/readyz`, and
