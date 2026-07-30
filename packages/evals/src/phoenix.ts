@@ -208,7 +208,6 @@ export function phoenixCatalogExamples(plan: EvaluationReportPlan) {
       },
       output: {},
       metadata: { slices },
-      splits: [...slices],
     };
   });
 }
@@ -221,23 +220,17 @@ export interface PhoenixDatasetCatalog {
     readonly input: unknown;
     readonly output?: unknown;
     readonly metadata?: unknown;
-    readonly splits?: string | ReadonlyArray<string> | null;
   }>;
 }
 
 function datasetExampleProjection(
   example: PhoenixDatasetCatalog["examples"][number],
 ) {
-  const splits =
-    typeof example.splits === "string"
-      ? [example.splits]
-      : sorted(example.splits ?? []);
   return {
     id: example.id,
     input: example.input,
     output: example.output ?? {},
     metadata: example.metadata ?? {},
-    splits,
   };
 }
 

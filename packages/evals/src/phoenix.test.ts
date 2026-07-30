@@ -142,7 +142,7 @@ function catalogFixture() {
     const dataset: PhoenixDatasetCatalog = {
       name: DATASET_NAME,
       description: DATASET_DESCRIPTION,
-      examples: [{ ...example, splits: ["privacy", "baseline"] }],
+      examples: [example],
     };
     return { reportPlan, example, dataset };
   });
@@ -157,17 +157,18 @@ describe("Phoenix catalog reconciliation", () => {
     }),
   );
 
-  it("sorts case slices into stable metadata and split projections", () => {
+  it("stores the closed slice set once in readable metadata", () => {
     const examples = phoenixCatalogExamples(plan());
+    const example = examples[0];
 
     assert.lengthOf(examples, 1);
-    assert.deepStrictEqual(
-      examples.flatMap((example) => example.splits),
-      ["baseline", "privacy"],
-    );
+    assert.deepStrictEqual(example?.metadata, {
+      slices: ["baseline", "privacy"],
+    });
+    assert.notProperty(example, "splits");
   });
 
-  it.effect("accepts equivalent remote split ordering", () =>
+  it.effect("accepts the complete SDK-readable catalog", () =>
     Effect.gen(function* () {
       const { dataset, reportPlan } = yield* catalogFixture();
 
