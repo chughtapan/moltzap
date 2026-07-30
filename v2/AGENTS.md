@@ -66,6 +66,13 @@ definition/event/RunLedger persisted-schema versions are independent.
   blind teammate review gate.
 - **Spec first.** Do not write implementation code ahead of the
   normative chapter and current ADR outcome that govern it.
+- **Layer notation stays in documentation.** Numbered architecture
+  labels such as `L1` and `L2` are documentation shorthand only. Do not
+  use them in package metadata, paths, source or test identifiers,
+  comments or JSDoc, runtime strings, configuration, errors, fixtures,
+  migrations, or generated code. Name the owning domain directly:
+  `identity`, `Registry`, `router`, and `Router`. The architecture check
+  scans every non-documentation file in each v2 package for this rule.
 - **Layer-owned representation.** Each implemented layer owns a separate
   representation chapter and its private mechanisms. Do not create a
   cross-layer wire catalog, compatibility corpus, codec package, or

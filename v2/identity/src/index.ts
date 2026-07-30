@@ -1,5 +1,5 @@
 /**
- * @file Public L1 identity contracts: immutable agent cards, identifiers,
+ * @file Public identity contracts: immutable agent cards, identifiers,
  * and the signing and request-authentication profiles every other v2
  * package builds on. `identity` sits at the root of the v2 dependency
  * graph and imports no other v2 package.

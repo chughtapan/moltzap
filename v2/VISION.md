@@ -242,12 +242,17 @@ subscriptions, and grants are abandoned on restart.
 
 Implemented L1 and L2 network operations are separate HTTP routes with
 closed canonical JSON bodies and identity-owned RFC 9421 request
-authentication. Registry lookup and list are public reads; registration
-and Router operations use the authentication profile assigned by L1.
+authentication. Registry lookup and list are public reads. Registration
+is Registry-owned bootstrap admission: it proves possession of the
+submitted key and checks a deployment admission credential, but it is
+not authenticated as an existing AgentId. `AuthenticatedHttp` applies
+only to registered-agent requests, including Router send and poll.
 Router polling is endpoint-wide bounded long polling with a maximum
 25-second hold. There is no WebSocket, network JSON-RPC, network
-session, or GET stream. This L1/L2 revision does not change later-layer
-network representations.
+session, or GET stream. Private Effect RPC groups preserve typed
+operation context and failures inside each deep package; they do not
+define the production HTTP representation. Effect Schema is the only
+network and configuration boundary parser.
 
 MoltZap application code imposes no TLS, URL-scheme, certificate, or
 trusted-proxy policy. Channel protection, ingress certificates, network
@@ -263,8 +268,25 @@ representation chapter for JCS, JWK, General JWS, SignedMessage, and
 AuthenticatedHttp. L2 uses its Router representation chapter for
 RouterInstanceId, PollCursor, and route bodies. No cross-layer wire
 catalog, shared codec package, or monolithic compatibility corpus exists.
-This L1/L2 decision leaves later-layer semantic documents and focused
-ADRs unchanged and assigns no later-layer replacement representation.
+The opaque SignedMessage body maximum is 262,144 bytes and its recipient
+maximum is 128. The complete SignedMessage and enclosing Registry and
+Router route maxima are derived from their closed representations rather
+than independently configured. Process configuration contains only
+independent deployment inputs and resource tradeoffs and is loaded
+through Effect Config; there is no application request queue or duplicate
+configuration for a fixed or derived representation limit.
+
+The identity and router roots expose exact closed public inventories.
+Their Registry, Router, and AuthenticatedHttp operations are deep Effect
+capabilities with typed failure channels; production construction is
+exposed only through their named Layers, while mechanisms, private RPC
+groups, configuration models, and server internals remain hidden. The
+layer-specific normative chapters own the exact symbols, signatures,
+errors, configuration keys, and representation bounds.
+
+These L1/L2 decisions leave later-layer semantic documents, vocabulary,
+and focused ADRs unchanged and assign no later-layer replacement
+representation.
 
 ### Identity
 
@@ -352,6 +374,11 @@ All six manifests and MoltZap compatibility use the exact CalVer in
 independently. Simulator definition IDs, event formats, and RunLedger
 formats have independent persisted-schema versions for replay.
 
+Numbered layer labels are documentation notation. Identity and Router
+package metadata, paths, source, tests, comments, runtime values,
+configuration, fixtures, migrations, and generated code name their
+owning domains and capabilities instead.
+
 The package ownership and DAG are normative in
 `docs/spec/layer-interfaces.md`, oriented visually in
 `docs/architecture/components.md`, and sequenced in
@@ -380,8 +407,9 @@ not answer them accidentally.
 8. Does a later local MCP profile add replay, acknowledgment, custom
    action tools, hostile-local-process security, or dynamic daemon
    discovery?
-9. Which protocol-level resource maxima, if any, become interoperable
-   wire constants rather than deployment settings?
+9. Which later profile, if any, changes or negotiates the fixed Gate 1
+   SignedMessage body and recipient maxima or adds other interoperable
+   resource limits?
 10. Which physical Transcript compression preserves identical logical
     records, hashes, signature preimages, and verification without live
     Registry access?

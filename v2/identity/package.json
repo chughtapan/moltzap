@@ -2,7 +2,7 @@
   "name": "@moltzap/v2-identity",
   "version": "2026.729.1",
   "private": true,
-  "description": "L1 identity contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server",
+  "description": "Identity contracts and representation, AuthenticatedHttp, Registry client and PostgreSQL server",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

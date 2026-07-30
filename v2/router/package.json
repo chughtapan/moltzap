@@ -2,7 +2,7 @@
   "name": "@moltzap/v2-router",
   "version": "2026.729.1",
   "private": true,
-  "description": "L2 Router contracts and representation, Router client and in-memory server",
+  "description": "Router contracts and representation, Router client and in-memory server",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

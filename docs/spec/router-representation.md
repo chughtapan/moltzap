@@ -13,12 +13,14 @@ mechanisms.
 ## Canonical JSON
 
 Every Router request and result body uses RFC 8785 JCS UTF-8 bytes.
-Router repeats the same strict canonical-input rule at its boundary:
-fatal UTF-8, one JSON value, duplicate-name rejection, and byte equality
-with the JCS encoding of the parsed syntax tree precede the exact
-closed-schema decode. AuthenticatedHttp closes the outer request;
-Router later decodes its explicitly retained nested SignedMessage or
-PollCursor artifact.
+Effect Schema is the only JSON parser. The HTTP boundary enforces the
+route-specific received-body cap, then AuthenticatedHttp uses
+`Schema.parseJson()` plus the identity-owned depth and Unicode
+refinements and requires byte equality with the JCS encoding of the
+parsed value. It returns the authenticated caller, verified AgentCard,
+and inner `request` value. The Router-owned closed Effect Schema then
+decodes that inner value as the selected operation request. It does not
+parse the bytes again or repeat identity resolution.
 
 Unknown members, duplicate members, trailing data, byte-order marks,
 lone surrogate code points, and alternate number spellings are
@@ -79,16 +81,22 @@ The encrypted plaintext is the JCS UTF-8 representation of exactly:
 }
 ```
 
-`lastScannedOrder` matches `0|[1-9][0-9]*`. It has no sign, leading
-zero, whitespace, exponent, fraction, or numeric JSON representation.
-The decimal is a private Router value and never leaves the encrypted
-plaintext. Order `0` is the empty-tail sentinel, the first accepted
-SignedMessage has order `1`, and later accepted messages increment by
-one within the process instance.
+`lastScannedOrder` matches `0|[1-9][0-9]*` and its decoded value is at
+most `2^128 - 1`. It has no sign, leading zero, whitespace, exponent,
+fraction, or numeric JSON representation. The decimal is a private
+Router value and never leaves the encrypted plaintext. Order `0` is
+the empty-tail sentinel, the first accepted SignedMessage has order
+`1`, and later accepted messages increment by one within the process
+instance.
+
+The protected header, two fixed-width identifiers, unsigned 128-bit
+order, IV, and authentication tag bound a complete prefixed PollCursor
+to at most 348 ASCII characters.
 
 Compact-JWE parse failure, noncanonical protected header or plaintext,
-authentication failure, wrong caller or instance, future order, and a
-previous process key all become `cursor_invalid`.
+authentication failure, wrong caller or instance, an order above the
+unsigned 128-bit range, future order, and a previous process key all
+become `cursor_invalid`.
 
 ## Authenticated request envelope
 
@@ -118,6 +126,44 @@ infrastructure failure returns status 200 with one closed result.
 Envelope, overload, and infrastructure failures use the status and
 exact `{"error":"..."}` bodies in
 `identity-representation.md`.
+
+## Representation limits
+
+Identity fixes the decoded opaque-body maximum at 262,144 bytes and
+the SignedMessage recipient maximum at 128. Its closed SignedMessage
+representation derives a maximum complete General JWS JCS encoding of
+471,671 bytes. Router consumes that identity-owned maximum; it does not
+reproduce the General JWS size calculation.
+
+Router derives one received-body cap from each closed authenticated
+request representation:
+
+| Route | Maximum received body |
+|---|---:|
+| `POST /v1/messages:send` | 471,819 octets |
+| `POST /v1/messages:poll` | 422 octets |
+
+The poll cap admits the maximum 348-character PollCursor. The maximum
+complete one-message `batch`, including a maximum PollCursor, is
+472,119 UTF-8 JCS bytes.
+
+These five enclosing maxima are representation consequences, not
+operator-selected configuration:
+
+- maximum complete SignedMessage: 471,671 bytes;
+- maximum send request: 471,819 octets;
+- maximum PollCursor: 348 ASCII characters; and
+- maximum poll request and one-message result: 422 octets and 472,119
+  bytes respectively.
+
+The HTTP reader rejects a route body above its own cap before parsing.
+SignedMessage validation independently enforces the identity-owned
+artifact maximum after the request Schema decodes. Poll-result
+construction counts UTF-8 JCS bytes of the complete result, including
+its PollCursor, and stops before the first addressed SignedMessage that
+would exceed the configured result-byte limit. Overflow-checked
+calculators are tested against the actual Schema, JCS, and JWE
+encodings owned by Router.
 
 ## Send
 
@@ -169,7 +215,7 @@ The exact results are:
 ```
 
 `message_invalid` collapses every post-authentication SignedMessage
-shape, binding, key, digest, signature, recipient, and configured
+shape, binding, key, digest, signature, recipient, and fixed or derived
 message-bound failure. It carries no reason.
 
 ## Poll
@@ -256,12 +302,13 @@ and mapping:
 | 503 | `{"error":"unavailable"}` |
 | 500 | `{"error":"internal"}` |
 
-Registry lookup infrastructure failure during normal authentication is
-503 `unavailable`. Registry lookup failure during post-authentication
-caller verification is also 503 `unavailable`. A missing identity is
-an authentication failure at the L1 boundary.
+Registry lookup infrastructure failure during AuthenticatedHttp
+verification is 503 `unavailable`. A missing identity is an
+authentication failure at the L1 boundary.
 
 ## Decisions
 
 - `../decisions/20260729-representations-are-layer-owned.md`
 - `../decisions/20260729-router-order-is-opaque.md`
+- `../decisions/20260729-representation-limits-are-fixed-or-derived.md`
+- `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
