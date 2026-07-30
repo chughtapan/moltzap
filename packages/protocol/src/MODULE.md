@@ -12,7 +12,7 @@ testing helpers live behind focused package subpaths.
 
 ## Public surface
 
-### [`AgentClientOptions`](./socket/agent-client.ts#L40)
+### [`AgentClientOptions`](./socket/agent-client.ts#L42)
 
 _Interface_
 
@@ -24,7 +24,9 @@ export interface AgentClientOptions {
 }
 ```
 
-### [`AppClientOptions`](./socket/app-client.ts#L71)
+Configures agent client.
+
+### [`AppClientOptions`](./socket/app-client.ts#L74)
 
 _Interface_
 
@@ -37,15 +39,19 @@ export interface AppClientOptions {
 }
 ```
 
-### [`ConnectResult`](./socket/lifecycle.ts#L114)
+Configures app client.
+
+### [`ConnectResult`](./socket/lifecycle.ts#L117)
 
 _TypeAlias_
 
 ```ts
-export type ConnectResult = ResultOf<typeof AgentConnect>;
+export type ConnectResult = ResultOf<typeof agentConnect>;
 ```
 
-### [`MoltZapAgentClient`](./socket/agent-client.ts#L46)
+Represents the result of connect.
+
+### [`MoltZapAgentClient`](./socket/agent-client.ts#L49)
 
 _Class_
 
@@ -57,7 +63,7 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
   constructor(options: AgentClientOptions) {
     super({
       serverUrl: options.serverUrl,
-      connectTag: AgentConnect.name,
+      connectTag: agentConnect.name,
       connectPayload: {
         agentKey: options.agentKey,
         minProtocol: PROTOCOL_VERSION,
@@ -83,26 +89,9 @@ export class MoltZapAgentClient extends ProtocolClientLifecycle<
 }
 ```
 
-Serializes connection generations through one controller. Each generation
-has one scoped owner that acquires the socket, runs its reader, and reports
-`OwnerDone` only after every session finalizer has completed. The start gate
-prevents an acquired reader from running unless its generation is still
-current.
+Implements molt zap agent client.
 
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Opening: Connect
-  Opening --> Connected: SessionOpened starts reader and authentication
-  Opening --> Idle: OwnerDone after opening failure
-  Opening --> Stopping: Close interrupts owner
-  Connected --> Stopping: ReaderExited
-  Connected --> Stopping: Close or disconnect interrupts owner
-  Stopping --> Idle: OwnerDone permits explicit connect
-  Stopping --> Stopped: OwnerDone completes terminal close
-```
-
-### [`MoltZapAppClient`](./socket/app-client.ts#L78)
+### [`MoltZapAppClient`](./socket/app-client.ts#L82)
 
 _Class_
 
@@ -114,7 +103,7 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
   constructor(options: AppClientOptions) {
     super({
       serverUrl: options.serverUrl,
-      connectTag: AppConnect.name,
+      connectTag: appConnect.name,
       connectPayload: {
         appKey: options.appKey,
         minProtocol: PROTOCOL_VERSION,
@@ -140,26 +129,9 @@ export class MoltZapAppClient extends ProtocolClientLifecycle<
 }
 ```
 
-Serializes connection generations through one controller. Each generation
-has one scoped owner that acquires the socket, runs its reader, and reports
-`OwnerDone` only after every session finalizer has completed. The start gate
-prevents an acquired reader from running unless its generation is still
-current.
+Implements molt zap app client.
 
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Opening: Connect
-  Opening --> Connected: SessionOpened starts reader and authentication
-  Opening --> Idle: OwnerDone after opening failure
-  Opening --> Stopping: Close interrupts owner
-  Connected --> Stopping: ReaderExited
-  Connected --> Stopping: Close or disconnect interrupts owner
-  Stopping --> Idle: OwnerDone permits explicit connect
-  Stopping --> Stopped: OwnerDone completes terminal close
-```
-
-### [`MoltZapServer`](./socket/server.ts#L300)
+### [`MoltZapServer`](./socket/server.ts#L310)
 
 _Class_
 
@@ -170,14 +142,23 @@ export class MoltZapServer<
   ConnectionRequires,
   HookRequires = never,
 > {
+  private readonly options: MoltZapServerOptions<
+    AuthRequires,
+    ConnectionProvides,
+    ConnectionRequires,
+    HookRequires
+  >;
+
   constructor(
-    private readonly options: MoltZapServerOptions<
+    options: MoltZapServerOptions<
       AuthRequires,
       ConnectionProvides,
       ConnectionRequires,
       HookRequires
     >,
-  ) {}
+  ) {
+    this.options = options;
+  }
 
   handleSocket(
     socket: Socket.Socket,
@@ -200,7 +181,9 @@ export class MoltZapServer<
       HookRequires
     >
   > {
-    return Effect.gen(this, function* () {
+    const options = this.options;
+    const runSocketReader = this.runSocketReader.bind(this);
+    return Effect.gen(function* () {
       const accepted = yield* makeAcceptedSocketSession(socket);
       const scope = yield* Effect.scope;
       const originator = yield* buildReverseClient({
@@ -209,7 +192,7 @@ export class MoltZapServer<
       });
       const session = makeMoltZapServerSession(accepted, originator);
 
-      yield* this.options.onOpen(session);
+      yield* options.onOpen(session);
       yield* Effect.logInfo("WebSocket connected").pipe(
         Effect.annotateLogs({ connId: session.connId }),
       );
@@ -221,9 +204,9 @@ export class MoltZapServer<
           write: session.write,
           disconnects,
           sinkReady,
-          handlers: this.options.handlers,
-          authLayer: this.options.authLayer(session.connId),
-          connectionLayer: this.options.connectionLayer(session.connId),
+          handlers: options.handlers,
+          authLayer: options.authLayer(session.connId),
+          connectionLayer: options.connectionLayer(session.connId),
         }),
       );
       const serverSink = yield* Deferred.await(sinkReady);
@@ -232,7 +215,7 @@ export class MoltZapServer<
         { server: serverSink, client: session.originator.sink },
         disconnects,
       );
-      yield* this.runSocketReader(reader, session);
+      yield* runSocketReader(reader, session);
     }).pipe(Effect.withSpan("MoltZapServer.openSocketSession"));
   }
 
@@ -248,13 +231,14 @@ export class MoltZapServer<
     Socket.SocketError,
     ServerSocketRequirements<AuthRequires, ConnectionRequires, HookRequires>
   > {
+    const options = this.options;
     return Effect.raceFirst(
       reader,
       Deferred.await(session.closeRequested),
     ).pipe(
       Effect.onExit((exit) =>
-        Effect.gen(this, function* () {
-          yield* this.options.onClose(exit, session);
+        Effect.gen(function* () {
+          yield* options.onClose(exit, session);
           if (Exit.isFailure(exit)) {
             yield* Effect.logWarning("WebSocket error").pipe(
               Effect.annotateLogs({
@@ -273,7 +257,9 @@ export class MoltZapServer<
 }
 ```
 
-### [`MoltZapServerOptions`](./socket/server.ts#L68)
+Implements molt zap server.
+
+### [`MoltZapServerOptions`](./socket/server.ts#L70)
 
 _Interface_
 
@@ -301,7 +287,9 @@ export interface MoltZapServerOptions<
 }
 ```
 
-### [`MoltZapServerSession`](./socket/server.ts#L54)
+Configures molt zap server.
+
+### [`MoltZapServerSession`](./socket/server.ts#L55)
 
 _Interface_
 
@@ -309,13 +297,15 @@ _Interface_
 export interface MoltZapServerSession {
   readonly connId: ConnectionId;
   readonly write: ServerSocketWrite;
-  readonly closeRequested: Deferred.Deferred<void>;
+  readonly closeRequested: Deferred.Deferred<undefined>;
   readonly shutdown: Effect.Effect<void>;
   readonly originator: ReverseClient;
 }
 ```
 
-### [`RpcCallOptions`](./socket/lifecycle.ts#L98)
+Describes molt zap server session.
+
+### [`RpcCallOptions`](./socket/lifecycle.ts#L96)
 
 _Interface_
 
@@ -324,6 +314,8 @@ export interface RpcCallOptions {
   readonly timeoutMs?: number;
 }
 ```
+
+Configures rpc call.
 
 ## Files
 

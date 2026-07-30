@@ -13,7 +13,20 @@ User identity identifiers.
 
 ## Public surface
 
-### [`UserId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/users/ids.ts#L5)
+### [`userId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/users/ids.ts#L8)
+
+_Variable_
+
+```ts
+export const userId: Schema.Schema<UserId, string> = formatString("uuid").pipe(
+  Schema.brand("UserId"),
+  Schema.annotations({ description: "Branded UserId" }),
+)
+```
+
+Validates and decodes user id values.
+
+### [`UserId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/users/ids.ts#L6)
 
 _TypeAlias_
 
@@ -21,13 +34,7 @@ _TypeAlias_
 export type UserId = string & Brand.Brand<"UserId">;
 ```
 
-### [`UserId`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/identity/users/ids.ts#L5)
-
-_Variable_
-
-```ts
-export type UserId = string & Brand.Brand<"UserId">
-```
+Represents user id values.
 
 ## Files
 

@@ -1,21 +1,23 @@
-import { Context, Effect, Schema } from "effect";
+import { Context, type Effect, Schema } from "effect";
 import type { VersionedEventTag } from "../events/catalog.js";
 import {
-  LedgerRef,
+  type LedgerRef,
+  ledgerRef,
   type JsonObject,
   type LedgerCompletion,
   type LedgerDigest,
   type LedgerManifest,
 } from "./model.js";
 
-const LedgerArtifactSchema = Schema.Literal(
+const ledgerArtifactSchema = Schema.Literal(
   "manifest",
   "records",
   "completion",
 );
-export type LedgerArtifact = typeof LedgerArtifactSchema.Type;
+/** Represents ledger artifact values. */
+export type LedgerArtifact = typeof ledgerArtifactSchema.Type;
 
-const LedgerStorageOperationSchema = Schema.Literal(
+const ledgerStorageOperationSchema = Schema.Literal(
   "allocate",
   "append",
   "complete",
@@ -27,21 +29,22 @@ const LedgerStorageOperationSchema = Schema.Literal(
 export class LedgerStorageError extends Schema.TaggedError<LedgerStorageError>()(
   "LedgerStorageError",
   {
-    operation: LedgerStorageOperationSchema,
+    operation: ledgerStorageOperationSchema,
     detail: Schema.String,
-    ref: Schema.optional(LedgerRef),
-    artifact: Schema.optional(LedgerArtifactSchema),
+    ref: Schema.optional(ledgerRef),
+    artifact: Schema.optional(ledgerArtifactSchema),
   },
 ) {
   override get message(): string {
-    const subject = this.ref === undefined ? "ledger storage" : this.ref;
+    const subject = this.ref ?? "ledger storage";
     return `${this.operation} ${subject}: ${this.detail}`;
   }
 }
 
+/** Describes ledger allocation input. */
 export interface LedgerAllocationInput {
   readonly definitionId: string;
-  readonly catalogTags: ReadonlyArray<VersionedEventTag>;
+  readonly catalogTags: readonly VersionedEventTag[];
   readonly provenance: JsonObject;
   readonly metadata: JsonObject;
 }
@@ -59,6 +62,7 @@ export interface LedgerAllocation {
   ) => Effect.Effect<LedgerCompletion, LedgerStorageError>;
 }
 
+/** Describes ledger storage service. */
 export interface LedgerStorageService {
   readonly allocate: (
     input: LedgerAllocationInput,

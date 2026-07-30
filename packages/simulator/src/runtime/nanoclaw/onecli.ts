@@ -19,6 +19,7 @@ import {
 import type { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { Data, Duration, Effect } from "effect";
 
+/** Provides the onecli gateway url runtime value. */
 export const ONECLI_GATEWAY_URL = "http://127.0.0.1:10254";
 
 const ONECLI_COMPOSE_PATH = join(homedir(), ".onecli/docker-compose.yml");
@@ -34,21 +35,25 @@ const ONECLI_COMPOSE_TIMEOUT_MS = 120_000;
 const MILLISECONDS_PER_SECOND = 1_000;
 const DOCKER_COMMAND = "docker";
 
+/** Configures exclusive file lock. */
 export interface ExclusiveFileLockOptions {
   readonly path: string;
 }
 
+/** Describes exclusive file lock command. */
 export interface ExclusiveFileLockCommand {
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
   readonly cwd?: string;
 }
 
+/** Describes exclusive file lock process plan. */
 export interface ExclusiveFileLockProcessPlan {
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
 }
 
+/** Reports exclusive file lock failures. */
 export class ExclusiveFileLockError extends Data.TaggedError(
   "ExclusiveFileLockError",
 )<{
@@ -111,7 +116,12 @@ function toLockError(reason: string, cause?: unknown) {
   });
 }
 
-/** Build the native lock-holder command for the current operating system. */
+/**
+ * Build the native lock-holder command for the current operating system.
+ * @param options Options that control the operation.
+ * @param protectedCommand Value supplied to the operation.
+ * @returns The created exclusive file lock process plan.
+ */
 export function buildExclusiveFileLockProcessPlan(
   options: ExclusiveFileLockOptions,
   protectedCommand: ExclusiveFileLockCommand,
@@ -120,32 +130,37 @@ export function buildExclusiveFileLockProcessPlan(
     "base64url",
   );
   const supervisorArgs = ["-e", LOCK_SUPERVISOR_SCRIPT, payload];
-  switch (platform()) {
-    case DARWIN_PLATFORM:
-      return Effect.succeed({
-        command: DARWIN_LOCK_COMMAND,
-        args: [
-          DARWIN_KEEP_LOCK_FILE_FLAG,
-          options.path,
-          execPath,
-          ...supervisorArgs,
-        ],
-      });
-    case LINUX_PLATFORM:
-      return Effect.succeed({
-        command: LINUX_LOCK_COMMAND,
-        args: [LINUX_EXCLUSIVE_FLAG, options.path, execPath, ...supervisorArgs],
-      });
-    default:
-      return Effect.fail(
-        toLockError(
-          `cross-process file locking is unsupported on ${platform()}`,
-        ),
-      );
+  const currentPlatform = platform();
+  if (currentPlatform === DARWIN_PLATFORM) {
+    return Effect.succeed({
+      command: DARWIN_LOCK_COMMAND,
+      args: [
+        DARWIN_KEEP_LOCK_FILE_FLAG,
+        options.path,
+        execPath,
+        ...supervisorArgs,
+      ],
+    });
   }
+  if (currentPlatform === LINUX_PLATFORM) {
+    return Effect.succeed({
+      command: LINUX_LOCK_COMMAND,
+      args: [LINUX_EXCLUSIVE_FLAG, options.path, execPath, ...supervisorArgs],
+    });
+  }
+  return Effect.fail(
+    toLockError(
+      `cross-process file locking is unsupported on ${currentPlatform}`,
+    ),
+  );
 }
 
-/** Run a command while the operating system holds an exclusive file lock. */
+/**
+ * Run a command while the operating system holds an exclusive file lock.
+ * @param options Options that control the operation.
+ * @param protectedCommand Value supplied to the operation.
+ * @returns The run command with exclusive file lock result.
+ */
 export function runCommandWithExclusiveFileLock(
   options: ExclusiveFileLockOptions,
   protectedCommand: ExclusiveFileLockCommand,
@@ -167,9 +182,11 @@ export function runCommandWithExclusiveFileLock(
   );
 }
 
-export interface OnecliGatewayErrorFactory<E> {
-  (reason: string, cause?: unknown): E;
-}
+/** Represents onecli gateway error factory conditions. */
+export type OnecliGatewayErrorFactory<E> = (
+  reason: string,
+  cause?: unknown,
+) => E;
 
 function isOnecliReachable(): Effect.Effect<
   boolean,
@@ -246,7 +263,9 @@ function waitForOnecliReadiness<E>(
     // `--wait` observes compose healthchecks. The bounded HTTP probe also
     // waits for the gateway listener to accept real requests.
     for (let probe = 0; probe < ONECLI_READY_PROBE_LIMIT; probe++) {
-      if (yield* isOnecliReachable()) return;
+      if (yield* isOnecliReachable()) {
+        return;
+      }
       yield* Effect.sleep(Duration.millis(ONECLI_READY_PROBE_INTERVAL_MS));
     }
 
@@ -267,12 +286,19 @@ function startOnecliUnderLock<E>(
   makeError: OnecliGatewayErrorFactory<E>,
 ): Effect.Effect<void, E, CommandExecutor | HttpClient.HttpClient> {
   return Effect.gen(function* () {
-    if (yield* isOnecliReachable()) return;
+    if (yield* isOnecliReachable()) {
+      return;
+    }
     yield* runOnecliComposeUnderLock(makeError);
     yield* waitForOnecliReadiness(makeError);
   });
 }
 
+/**
+ * Executes the ensure onecli running operation.
+ * @param makeError Value supplied to the operation.
+ * @returns The ensure onecli running result.
+ */
 export function ensureOnecliRunning<E>(
   makeError: OnecliGatewayErrorFactory<E>,
 ): Effect.Effect<
@@ -281,7 +307,9 @@ export function ensureOnecliRunning<E>(
   CommandExecutor | FileSystem.FileSystem | HttpClient.HttpClient
 > {
   return Effect.gen(function* () {
-    if (yield* isOnecliReachable()) return;
+    if (yield* isOnecliReachable()) {
+      return;
+    }
 
     const fileSystem = yield* FileSystem.FileSystem;
     const composeFileExists = yield* fileSystem

@@ -1,7 +1,7 @@
 /** @file Evidence-producing scoped control for directed network links. */
 
 import { Cause, Effect, Either, Exit, Ref } from "effect";
-import { LinkDown, LinkEvents, LinkUp } from "../events/core.js";
+import { LinkDown, type linkEvents, LinkUp } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
 import {
   LinkDriver,
@@ -17,7 +17,7 @@ interface DirectedLink {
   readonly to: ParticipantHandle;
 }
 
-type LinkEventWriter = LedgerWriter<typeof LinkEvents>;
+type LinkEventWriter = LedgerWriter<typeof linkEvents>;
 
 interface ActiveLink extends DirectedLink {
   readonly driver: LinkDriverService;
@@ -222,6 +222,11 @@ function disable(
     });
 }
 
+/**
+ * Creates link controller.
+ * @param writer Value supplied to the operation.
+ * @returns The created link controller.
+ */
 export function makeLinkController(
   writer: LinkEventWriter,
 ): Effect.Effect<LinkControllerService> {

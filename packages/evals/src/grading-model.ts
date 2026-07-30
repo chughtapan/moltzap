@@ -1,13 +1,13 @@
 /** @file Exact-class ledger projection and refusal semantics. */
 
-import {
+import type {
   AgentRuntimeReady,
   EndpointMessageReceived,
   ProgramSucceeded,
 } from "@moltzap/simulator";
 import { Array as Arr, Chunk, Effect, Schema, Stream } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
-import { EvaluationResponseSelected } from "./evaluation-events.js";
+import type { EvaluationResponseSelected } from "./evaluation-events.js";
 
 /** Typed protocol evidence selected from a validated ledger. */
 export class EvaluationEvidence {
@@ -69,7 +69,7 @@ function responseIdentityKey(
 }
 
 function indexResponses(
-  messages: ReadonlyArray<EndpointMessageReceived>,
+  messages: readonly EndpointMessageReceived[],
 ): ReadonlyMap<string, EndpointMessageReceived> {
   const responses = new Map<string, EndpointMessageReceived>();
   for (const message of messages) {
@@ -81,7 +81,9 @@ function indexResponses(
     );
     // The earliest canonical delivery wins if malformed evidence repeats an
     // identity.
-    if (!responses.has(key)) responses.set(key, message);
+    if (!responses.has(key)) {
+      responses.set(key, message);
+    }
   }
   return responses;
 }
@@ -101,9 +103,9 @@ function responseFor(
 }
 
 function selectedResponses(
-  selections: ReadonlyArray<EvaluationResponseSelected>,
-  messages: ReadonlyArray<EndpointMessageReceived>,
-): ReadonlyArray<EndpointMessageReceived> {
+  selections: readonly EvaluationResponseSelected[],
+  messages: readonly EndpointMessageReceived[],
+): readonly EndpointMessageReceived[] {
   const responses = indexResponses(messages);
   return selections.flatMap((selection) => {
     const response = responseFor(selection, responses);
@@ -113,7 +115,7 @@ function selectedResponses(
 
 function ensureProgramSucceeded(
   scenarioId: string,
-  succeeded: ReadonlyArray<ProgramSucceeded>,
+  succeeded: readonly ProgramSucceeded[],
 ): Effect.Effect<void, GradingRefused> {
   return succeeded.length > 0
     ? Effect.void
@@ -125,7 +127,7 @@ function ensureProgramSucceeded(
 function ensureTargetReady(
   scenarioId: string,
   targetName: string,
-  ready: ReadonlyArray<AgentRuntimeReady>,
+  ready: readonly AgentRuntimeReady[],
 ): Effect.Effect<AgentRuntimeReady, GradingRefused> {
   const target = ready.find((event) => event.agentName === targetName);
   return target === undefined
@@ -139,8 +141,8 @@ function relevantSelections(
   scenarioId: string,
   endpointName: string,
   target: AgentRuntimeReady,
-  selections: ReadonlyArray<EvaluationResponseSelected>,
-): ReadonlyArray<EvaluationResponseSelected> {
+  selections: readonly EvaluationResponseSelected[],
+): readonly EvaluationResponseSelected[] {
   return selections.filter(
     (selection) =>
       selection.scenarioId === scenarioId &&
@@ -153,8 +155,8 @@ function relevantSelections(
 function resolveSelectedResponses(
   request: EvidenceRequest,
   target: AgentRuntimeReady,
-  selections: ReadonlyArray<EvaluationResponseSelected>,
-  messages: ReadonlyArray<EndpointMessageReceived>,
+  selections: readonly EvaluationResponseSelected[],
+  messages: readonly EndpointMessageReceived[],
 ): Effect.Effect<
   NonEmptyReadonlyArray<EndpointMessageReceived>,
   GradingRefused

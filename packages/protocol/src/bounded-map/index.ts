@@ -23,69 +23,71 @@ class InvalidBoundedMapCapacity extends Data.TaggedError(
  * entry. Reads preserve insertion order.
  */
 export class BoundedMap<K, V> implements ReadonlyMap<K, V> {
-  readonly #entries = new Map<K, V>();
+  private readonly entriesStore = new Map<K, V>();
+  readonly capacity: number;
 
-  constructor(readonly capacity: number) {
+  constructor(capacity: number) {
     if (!Number.isSafeInteger(capacity) || capacity <= 0) {
       throw new InvalidBoundedMapCapacity({ capacity });
     }
+    this.capacity = capacity;
   }
 
   get size(): number {
-    return this.#entries.size;
+    return this.entriesStore.size;
   }
 
   get(key: K): V | undefined {
-    return this.#entries.get(key);
+    return this.entriesStore.get(key);
   }
 
   has(key: K): boolean {
-    return this.#entries.has(key);
+    return this.entriesStore.has(key);
   }
 
   delete(key: K): boolean {
-    return this.#entries.delete(key);
+    return this.entriesStore.delete(key);
   }
 
   clear(): void {
-    this.#entries.clear();
+    this.entriesStore.clear();
   }
 
   set(key: K, value: V): readonly [K, V] | undefined {
-    if (this.#entries.has(key)) {
-      this.#entries.delete(key);
+    if (this.entriesStore.has(key)) {
+      this.entriesStore.delete(key);
     }
-    this.#entries.set(key, value);
+    this.entriesStore.set(key, value);
 
-    if (this.#entries.size <= this.capacity) {
+    if (this.entriesStore.size <= this.capacity) {
       return undefined;
     }
 
-    const oldest = this.#entries.entries().next();
+    const oldest = this.entriesStore.entries().next();
     if (oldest.done) {
       return undefined;
     }
-    this.#entries.delete(oldest.value[0]);
+    this.entriesStore.delete(oldest.value[0]);
     return oldest.value;
   }
 
   entries(): MapIterator<[K, V]> {
-    return this.#entries.entries();
+    return this.entriesStore.entries();
   }
 
   keys(): MapIterator<K> {
-    return this.#entries.keys();
+    return this.entriesStore.keys();
   }
 
   values(): MapIterator<V> {
-    return this.#entries.values();
+    return this.entriesStore.values();
   }
 
   forEach(
     callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void,
     thisArg?: unknown,
   ): void {
-    this.#entries.forEach((value, key) => {
+    this.entriesStore.forEach((value, key) => {
       callbackfn.call(thisArg, value, key, this);
     });
   }

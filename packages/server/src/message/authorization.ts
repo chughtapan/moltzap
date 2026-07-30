@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
+import { messagesAuthorize } from "@moltzap/protocol/message";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
 import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
@@ -10,15 +10,18 @@ import {
   wrapHookEffectWithEnvelope,
 } from "#identity/apps";
 
-export type MessageAuthorizeContext = ParamsOf<typeof MessagesAuthorize>;
+/** Represents message authorize context values. */
+export type MessageAuthorizeContext = ParamsOf<typeof messagesAuthorize>;
 
+/** Represents the result of message authorize. */
 export type MessageAuthorizeResult =
   | {
       readonly decision: "Forward";
-      readonly recipients: ReadonlyArray<AgentId>;
+      readonly recipients: readonly AgentId[];
     }
   | { readonly decision: "Block"; readonly reason?: string };
 
+/** Describes message authorization conversations. */
 export interface MessageAuthorizationConversations {
   getParticipantAgentIds(
     conversationId: ConversationId,
@@ -31,16 +34,23 @@ const APP_UNREACHABLE_BLOCK: MessageAuthorizeResult = {
   reason: "app_unreachable",
 };
 
+/** Implements message authorization service. */
 export class MessageAuthorizationService {
+  private readonly apps: AppEndpointRegistry;
+  private readonly conversations: MessageAuthorizationConversations;
+
   constructor(
-    private readonly apps: AppEndpointRegistry,
-    private readonly conversations: MessageAuthorizationConversations,
-  ) {}
+    apps: AppEndpointRegistry,
+    conversations: MessageAuthorizationConversations,
+  ) {
+    this.apps = apps;
+    this.conversations = conversations;
+  }
 
   authorize(
     appId: AppId,
     ctx: MessageAuthorizeContext,
-  ): Effect.Effect<MessageAuthorizeResult, never> {
+  ): Effect.Effect<MessageAuthorizeResult> {
     const entry = this.apps.lookupApp(appId);
     if (entry === undefined) {
       return Effect.succeed(APP_UNREACHABLE_BLOCK);
@@ -57,12 +67,16 @@ export class MessageAuthorizationService {
         });
       case "hook":
         return this.messageAuthorizeHook(entry, appId, ctx, policy.timeoutMs);
+      default: {
+        const exhaustive: never = policy;
+        return exhaustive;
+      }
     }
   }
 
   private forwardAllExceptSender(
     ctx: MessageAuthorizeContext,
-  ): Effect.Effect<MessageAuthorizeResult, never> {
+  ): Effect.Effect<MessageAuthorizeResult> {
     return this.conversations.getParticipantAgentIds(ctx.conversationId).pipe(
       Effect.map(
         (participants): MessageAuthorizeResult => ({
@@ -81,11 +95,11 @@ export class MessageAuthorizationService {
     appId: AppId,
     ctx: MessageAuthorizeContext,
     timeoutMs: number,
-  ): Effect.Effect<MessageAuthorizeResult, never> {
+  ): Effect.Effect<MessageAuthorizeResult> {
     const taskId = ctx.taskId;
     return wrapHookEffectWithEnvelope({
       raw: callAppRpc(entry, {
-        definition: MessagesAuthorize,
+        definition: messagesAuthorize,
         params: this.messageAuthorizeParamsForWire(ctx),
       }).pipe(Effect.map((envelope) => envelope.verdict)),
       timeoutMs,
@@ -100,7 +114,7 @@ export class MessageAuthorizationService {
 
   private messageAuthorizeParamsForWire(
     ctx: MessageAuthorizeContext,
-  ): ParamsOf<typeof MessagesAuthorize> {
+  ): ParamsOf<typeof messagesAuthorize> {
     return {
       taskId: ctx.taskId,
       appId: ctx.appId,

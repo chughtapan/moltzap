@@ -8,7 +8,7 @@ Shared server-core test utility exports.
 
 ## Public surface
 
-### [`AppEndpointHandlers`](./app-endpoint.ts#L53)
+### [`AppEndpointHandlers`](./app-endpoint.ts#L51)
 
 _TypeAlias_
 
@@ -24,7 +24,7 @@ task-callback RPC at construction time — adding a new entry to
 `appCallbackMethods` becomes a compile error at every endpoint
 construction site.
 
-### [`AwaitNotificationError`](./helpers.ts#L58)
+### [`AwaitNotificationError`](./helpers.ts#L59)
 
 _TypeAlias_
 
@@ -34,7 +34,9 @@ export type AwaitNotificationError =
   | AwaitNotificationClosedError;
 ```
 
-### [`awaitOneNotification`](./helpers.ts#L69)
+Represents await notification error conditions.
+
+### [`awaitOneNotification`](./helpers.ts#L74)
 
 _Function_
 
@@ -52,15 +54,21 @@ and `AwaitNotificationClosedError` when the transport closed before a
 matching frame arrived. Distinguishing close from timeout keeps a dead
 connection from masquerading as a missing notification.
 
-### [`closeAllClients`](./helpers.ts#L172)
+**Returns:** The await one notification result.
+
+### [`closeAllClients`](./helpers.ts#L186)
 
 _Function_
 
 ```ts
-export function closeAllClients(): Effect.Effect<void, never>
+export function closeAllClients(): Effect.Effect<void>
 ```
 
-### [`connectAppClient`](./helpers.ts#L283)
+Executes the close all clients operation.
+
+**Returns:** The close all clients result.
+
+### [`connectAppClient`](./helpers.ts#L336)
 
 _Function_
 
@@ -72,7 +80,11 @@ export function connectAppClient(
 ): Effect.Effect<TestAppClient, Error>
 ```
 
-### [`ConnectedAgent`](./helpers.ts#L108)
+Executes the connect app client operation.
+
+**Returns:** The connect app client result.
+
+### [`ConnectedAgent`](./helpers.ts#L114)
 
 _Interface_
 
@@ -85,7 +97,9 @@ export interface ConnectedAgent {
 }
 ```
 
-### [`connectTestClient`](./helpers.ts#L222)
+Describes connected agent.
+
+### [`connectTestClient`](./helpers.ts#L261)
 
 _Function_
 
@@ -97,7 +111,11 @@ export function connectTestClient(opts: {
 }): Effect.Effect<TestAgentClient, Error>
 ```
 
-### [`CoreSchemaSqlLoadError`](./core-schema-sql.ts#L24)
+Executes the connect test client operation.
+
+**Returns:** The connect test client result.
+
+### [`CoreSchemaSqlLoadError`](./core-schema-sql.ts#L25)
 
 _TypeAlias_
 
@@ -107,20 +125,22 @@ export type CoreSchemaSqlLoadError =
   | CoreSchemaSqlReadError;
 ```
 
-### [`CoreTestDatabasePort`](./ports.ts#L22)
+Represents core schema sql load error conditions.
+
+### [`CoreTestDatabasePort`](./ports.ts#L23)
 
 _Interface_
 
 ```ts
 export interface CoreTestDatabasePort {
   execute(sql: string): PromiseLike<unknown>;
-  reset(): PromiseLike<void>;
+  reset(): PromiseLike<undefined>;
 }
 ```
 
 Database operations available to consumers of the published test harness.
 
-### [`CoreTestReadyOutcome`](./ports.ts#L4)
+### [`CoreTestReadyOutcome`](./ports.ts#L5)
 
 _TypeAlias_
 
@@ -129,7 +149,9 @@ export type CoreTestReadyOutcome =
   | { readonly _tag: "Ready" }
 ```
 
-### [`CoreTestRuntimeServerHandle`](./ports.ts#L14)
+Represents core test ready outcome values.
+
+### [`CoreTestRuntimeServerHandle`](./ports.ts#L15)
 
 _Interface_
 
@@ -138,13 +160,13 @@ export interface CoreTestRuntimeServerHandle {
   awaitAgentReady(
     agentId: AgentId,
     timeoutMs: number,
-  ): Effect.Effect<CoreTestReadyOutcome, never, never>;
+  ): Effect.Effect<CoreTestReadyOutcome>;
 }
 ```
 
 Process capabilities needed by in-process runtime tests.
 
-### [`CoreTestServer`](./index.ts#L30)
+### [`CoreTestServer`](./index.ts#L33)
 
 _TypeAlias_
 
@@ -154,7 +176,7 @@ export type CoreTestServer = CoreTestServerPort;
 
 Canonical published handle for a running core test server.
 
-### [`CoreTestServerHandle`](./server.ts#L101)
+### [`CoreTestServerHandle`](./server.ts#L108)
 
 _Interface_
 
@@ -185,7 +207,9 @@ export interface CoreTestServerHandle {
 }
 ```
 
-### [`CoreTestServerPort`](./ports.ts#L40)
+Describes core test server handle.
+
+### [`CoreTestServerPort`](./ports.ts#L41)
 
 _Interface_
 
@@ -201,7 +225,7 @@ export interface CoreTestServerPort {
 
 Published server handle composed only from server-owned test ports.
 
-### [`CoreTestSpan`](./ports.ts#L28)
+### [`CoreTestSpan`](./ports.ts#L29)
 
 _Interface_
 
@@ -214,20 +238,20 @@ export interface CoreTestSpan {
 
 Stable projection of a finished server trace span.
 
-### [`CoreTestSpanExporterPort`](./ports.ts#L34)
+### [`CoreTestSpanExporterPort`](./ports.ts#L35)
 
 _Interface_
 
 ```ts
 export interface CoreTestSpanExporterPort {
-  getFinishedSpans(): ReadonlyArray<CoreTestSpan>;
+  getFinishedSpans(): readonly CoreTestSpan[];
   reset(): void;
 }
 ```
 
 Trace-capture operations available to test-harness consumers.
 
-### [`createTestAgent`](./helpers.ts#L198)
+### [`createTestAgent`](./helpers.ts#L229)
 
 _Function_
 
@@ -235,20 +259,26 @@ _Function_
 export function createTestAgent(
   name: string,
   opts?: CreateTestAgentOptions,
-): Effect.Effect<TestAgent, never>
+): Effect.Effect<TestAgent>
 ```
 
-### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L47)
+Creates test agent.
+
+**Returns:** The created test agent.
+
+### [`DEFAULT_TEST_ADMIN_USER_ID`](./server.ts#L53)
 
 _Variable_
 
 ```ts
 export const DEFAULT_TEST_ADMIN_USER_ID: UserIdValue = Schema.decodeUnknownSync(
-  UserId,
+  userId,
 )("00000000-0000-4000-8000-00000000ad00")
 ```
 
-### [`getBaseUrl`](./server.ts#L406)
+Validates and decodes default test admin user id values.
+
+### [`getBaseUrl`](./server.ts#L466)
 
 _Function_
 
@@ -256,7 +286,11 @@ _Function_
 export function getBaseUrl(): string
 ```
 
-### [`getCoreDb`](./server.ts#L391)
+Returns base url.
+
+**Returns:** The get base url result.
+
+### [`getCoreDb`](./server.ts#L442)
 
 _Function_
 
@@ -264,7 +298,11 @@ _Function_
 export function getCoreDb(): EffectKysely<Database>
 ```
 
-### [`getCoreEncryptionEnvelope`](./server.ts#L399)
+Returns core db.
+
+**Returns:** The get core db result.
+
+### [`getCoreEncryptionEnvelope`](./server.ts#L455)
 
 _Function_
 
@@ -272,7 +310,11 @@ _Function_
 export function getCoreEncryptionEnvelope(): EnvelopeEncryption
 ```
 
-### [`getWsUrl`](./server.ts#L411)
+Returns core encryption envelope.
+
+**Returns:** The get core encryption envelope result.
+
+### [`getWsUrl`](./server.ts#L477)
 
 _Function_
 
@@ -280,7 +322,11 @@ _Function_
 export function getWsUrl(): string
 ```
 
-### [`loadCoreSchemaSql`](./core-schema-sql.ts#L88)
+Returns ws url.
+
+**Returns:** The get ws url result.
+
+### [`loadCoreSchemaSql`](./core-schema-sql.ts#L93)
 
 _Function_
 
@@ -291,7 +337,11 @@ export function loadCoreSchemaSql(): Effect.Effect<
 >
 ```
 
-### [`makeFakeService`](./fakes.ts#L42)
+Loads core schema sql.
+
+**Returns:** The load core schema sql result.
+
+### [`makeFakeService`](./fakes.ts#L44)
 
 _Function_
 
@@ -311,7 +361,9 @@ the compile-time contract-drift insurance. Adding a field to the real
 interface does NOT fail compilation (tests are a Partial), but changing an
 existing field's signature does.
 
-### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L95)
+**Returns:** The created fake service.
+
+### [`makeHandlerAppEndpoint`](./app-endpoint.ts#L97)
 
 _Function_
 
@@ -335,7 +387,9 @@ arm carries so `AppEndpointRegistry`, `AppRegistry`, and `sendRpcToClient` see O
   - `originator.handle` / `originator.resolve` defect — an in-process
     endpoint never receives inbound frames; a call here is a wiring bug.
 
-### [`makePgliteHarness`](./pglite-harness.ts#L68)
+**Returns:** The created handler app endpoint.
+
+### [`makePgliteHarness`](./pglite-harness.ts#L73)
 
 _Function_
 
@@ -348,6 +402,8 @@ export function makePgliteHarness(): Effect.Effect<
 
 Spin up a fresh PGlite instance with the core schema loaded.
 
+**Returns:** The created pglite harness.
+
 ### [`PGLITE_HOOK_TIMEOUT_MS`](./pglite-harness.ts#L23)
 
 _Variable_
@@ -358,7 +414,7 @@ export const PGLITE_HOOK_TIMEOUT_MS = 30_000
 
 Suggested timeout for pglite-backed beforeEach/afterEach hooks.
 
-### [`PgliteHarness`](./pglite-harness.ts#L53)
+### [`PgliteHarness`](./pglite-harness.ts#L55)
 
 _Interface_
 
@@ -378,7 +434,9 @@ export interface PgliteHarness {
 }
 ```
 
-### [`PgliteHarnessError`](./pglite-harness.ts#L41)
+Describes pglite harness.
+
+### [`PgliteHarnessError`](./pglite-harness.ts#L42)
 
 _TypeAlias_
 
@@ -390,7 +448,9 @@ export type PgliteHarnessError =
   | PgliteCloseError;
 ```
 
-### [`postJson`](./helpers.ts#L316)
+Represents pglite harness error conditions.
+
+### [`postJson`](./helpers.ts#L377)
 
 _Function_
 
@@ -406,7 +466,9 @@ POST `body` as JSON to `${baseUrl}${path}` and resolve with
 `{status, json}`. HTTP integration tests import this helper to avoid
 repeated request/JSON boilerplate.
 
-### [`registerAgent`](./helpers.ts#L179)
+**Returns:** The post json result.
+
+### [`registerAgent`](./helpers.ts#L204)
 
 _Function_
 
@@ -418,7 +480,11 @@ export function registerAgent(
 ): Effect.Effect<TestAgent, Error>
 ```
 
-### [`registerAndConnect`](./helpers.ts#L300)
+Registers agent.
+
+**Returns:** The register agent result.
+
+### [`registerAndConnect`](./helpers.ts#L357)
 
 _Function_
 
@@ -430,7 +496,9 @@ export function registerAndConnect(
 
 Register and connect an agent. Tracked for automatic cleanup.
 
-### [`registerApp`](./helpers.ts#L258)
+**Returns:** The register and connect result.
+
+### [`registerApp`](./helpers.ts#L304)
 
 _Function_
 
@@ -445,7 +513,11 @@ export function registerApp(
 >
 ```
 
-### [`resetCoreTestDb`](./server.ts#L365)
+Registers app.
+
+**Returns:** The register app result.
+
+### [`resetCoreTestDb`](./server.ts#L412)
 
 _Function_
 
@@ -453,7 +525,11 @@ _Function_
 export function resetCoreTestDb()
 ```
 
-### [`setupAgentGroup`](./helpers.ts#L416)
+Executes the reset core test db operation.
+
+**Returns:** The reset core test db result.
+
+### [`setupAgentGroup`](./helpers.ts#L486)
 
 _Function_
 
@@ -473,7 +549,9 @@ export function setupAgentGroup(
 
 Create N agents, all connected. Optionally create a group conversation.
 
-### [`setupAgentPair`](./helpers.ts#L404)
+**Returns:** The setup agent group result.
+
+### [`setupAgentPair`](./helpers.ts#L468)
 
 _Function_
 
@@ -486,7 +564,9 @@ export function setupAgentPair(): Effect.Effect<
 
 Create two agents, both connected. No contacts needed (core has open access).
 
-### [`startCoreTestServer`](./index.ts#L37)
+**Returns:** The setup agent pair result.
+
+### [`startCoreTestServer`](./index.ts#L40)
 
 _Function_
 
@@ -498,7 +578,7 @@ Start a test server and expose its package-owned integration ports.
 
 **Returns:** A promise for the running server's integration ports.
 
-### [`startCoreTestServerEffect`](./server.ts#L322)
+### [`startCoreTestServerEffect`](./server.ts#L356)
 
 _Function_
 
@@ -508,7 +588,11 @@ export function startCoreTestServerEffect(
 )
 ```
 
-### [`startCoreTestServerFull`](./server.ts#L335)
+Executes the start core test server effect operation.
+
+**Returns:** The start core test server effect result.
+
+### [`startCoreTestServerFull`](./server.ts#L374)
 
 _Function_
 
@@ -516,7 +600,11 @@ _Function_
 export function startCoreTestServerFull(opts: StartCoreTestServerOptions = {})
 ```
 
-### [`StartCoreTestServerOptions`](./ports.ts#L48)
+Executes the start core test server full operation.
+
+**Returns:** The start core test server full result.
+
+### [`StartCoreTestServerOptions`](./ports.ts#L50)
 
 _Interface_
 
@@ -530,7 +618,9 @@ export interface StartCoreTestServerOptions {
 }
 ```
 
-### [`stopCoreTestServer`](./server.ts#L339)
+Configures start core test server.
+
+### [`stopCoreTestServer`](./server.ts#L382)
 
 _Function_
 
@@ -538,13 +628,19 @@ _Function_
 export function stopCoreTestServer()
 ```
 
-### [`trackClient`](./helpers.ts#L168)
+Executes the stop core test server operation.
+
+**Returns:** The stop core test server result.
+
+### [`trackClient`](./helpers.ts#L178)
 
 _Function_
 
 ```ts
 export function trackClient(client: TestAgentClient | TestAppClient): void
 ```
+
+Executes the track client operation.
 
 ## Files
 

@@ -8,7 +8,7 @@ import { Redacted } from "effect";
 import type { ServerEncryptionMasterSecret } from "#config/secrets";
 import { Dek } from "./dek.js";
 import { Kek } from "./kek.js";
-import { SymmetricKeyMaterial } from "./key-material.js";
+import { MasterKey } from "./master-key.js";
 
 /**
  * Envelope encryption layer:
@@ -16,22 +16,17 @@ import { SymmetricKeyMaterial } from "./key-material.js";
  *   Master Secret (env var)
  *     -> encrypts -> KEK (versioned, in encryption_keys table)
  *         -> wraps -> DEK (per-conversation, in conversation_keys table)
- *             -> encrypts -> Message parts (AES-256-GCM)
+ *             -> encrypts -> Message parts (AES-256-GCM).
  *
  * KEK rotation: re-wrap DEKs with new KEK (no message re-encryption)
- * DEK rotation: new DEK version per conversation (old messages keep old DEK)
+ * DEK rotation: new DEK version per conversation (old messages keep old DEK).
  */
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const KEY_LENGTH = 32;
 
-class MasterKey extends SymmetricKeyMaterial {
-  static fromBytes(bytes: Buffer): MasterKey {
-    return new MasterKey(bytes);
-  }
-}
-
+/** Describes encrypted payload. */
 export interface EncryptedPayload {
   ciphertext: Buffer;
   iv: Buffer;
@@ -70,7 +65,7 @@ function generateKeyMaterial(): Buffer {
   return randomBytes(KEY_LENGTH);
 }
 
-// eslint-disable-next-line agent-code-guard/max-non-trivial-classes-per-file -- MasterKey is a key-material subtype co-located with its sole envelope consumer.
+/** Implements envelope encryption. */
 export class EnvelopeEncryption {
   private readonly masterKey: MasterKey;
 

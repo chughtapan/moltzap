@@ -1,3 +1,4 @@
+/** Re-exports the public API from `kysely`. */
 export {
   AlterTableColumnAlteringBuilder,
   CreateIndexBuilder,
@@ -18,6 +19,7 @@ export {
   WheneableMergeQueryBuilder,
 } from "kysely";
 
+/** Re-exports the public API from `kysely`. */
 export type {
   Expression,
   ExpressionBuilder,

@@ -32,8 +32,10 @@ const EMPTY_PROFILE_COUNT = 0;
 const SINGLE_PROFILE_COUNT = 1;
 
 const VALID_PROFILE_NAME = "alice-bot";
-const ALICE_PROFILE_NAME = "alice" as ProfileName;
-const BOB_PROFILE_NAME = "bob" as ProfileName;
+const ALICE_PROFILE_NAME =
+  /* Safe because the test fixture establishes this asserted shape. */ "alice" as ProfileName;
+const BOB_PROFILE_NAME =
+  /* Safe because the test fixture establishes this asserted shape. */ "bob" as ProfileName;
 const UNKNOWN_PROFILE_NAME = "nobody";
 
 const DEFAULT_AGENT_NAME = "a";
@@ -52,23 +54,23 @@ const INVALID_JSON_TEXT = "{not json}";
 const PROFILE_INVALID_NAME_ERROR = "ProfileInvalidNameError";
 const PROFILE_CONFIG_READ_ERROR = "ProfileConfigReadError";
 
-const WrittenProfileRecordSchema = Schema.Struct({
+const writtenProfileRecordSchema = Schema.Struct({
   agentId: Schema.String,
   apiKey: Schema.String,
   agentName: Schema.String,
 });
-const WrittenConfigSchema = Schema.Struct({
+const writtenConfigSchema = Schema.Struct({
   profiles: Schema.optional(
     Schema.Record({
       key: Schema.String,
-      value: WrittenProfileRecordSchema,
+      value: writtenProfileRecordSchema,
     }),
   ),
 });
-type WrittenConfig = Schema.Schema.Type<typeof WrittenConfigSchema>;
-const WrittenConfigTextSchema = Schema.parseJson(WrittenConfigSchema);
-const decodeWrittenConfigText = Schema.decodeUnknown(WrittenConfigTextSchema);
-const encodeWrittenConfigText = Schema.encodeSync(WrittenConfigTextSchema);
+type WrittenConfig = Schema.Schema.Type<typeof writtenConfigSchema>;
+const writtenConfigTextSchema = Schema.parseJson(writtenConfigSchema);
+const decodeWrittenConfigText = Schema.decodeUnknown(writtenConfigTextSchema);
+const encodeWrittenConfigText = Schema.encodeSync(writtenConfigTextSchema);
 
 const profileNameArbitrary = fc.stringMatching(
   /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/,

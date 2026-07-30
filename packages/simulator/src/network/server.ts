@@ -8,12 +8,13 @@ import { FileSystem, HttpClient } from "@effect/platform";
 import type { CommandExecutor } from "@effect/platform/CommandExecutor";
 import { registerAgent } from "@moltzap/client/auth";
 import {
-  AgentName,
+  type AgentName,
+  agentName,
   type AgentId,
   type AgentKey,
 } from "@moltzap/protocol/identity";
 import {
-  AgentPresenceSubscribe,
+  agentPresenceSubscribe,
   httpBaseUrl,
   serverBaseUrl,
   type ServerBaseUrl,
@@ -24,7 +25,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   Cause,
-  Context,
+  type Context,
   Duration,
   Effect,
   Exit,
@@ -52,7 +53,7 @@ const LOOPBACK_HOST = "127.0.0.1";
 const SERVER_HEALTH_POLL_MS = 250;
 const PRESENCE_POLL_MS = 500;
 const REGISTRATION_SECRET_BYTES = 32;
-const OBSERVER_IDENTITY = Schema.decodeSync(AgentName)("moltzap-sim-observer");
+const OBSERVER_IDENTITY = Schema.decodeSync(agentName)("moltzap-sim-observer");
 const SERVER_VOLUME_ROOT = join(
   homedir(),
   ".cache",
@@ -60,7 +61,7 @@ const SERVER_VOLUME_ROOT = join(
   "server-volumes",
 );
 
-const MoltZapServerOperation = Schema.Literal(
+const moltZapServerOperation = Schema.Literal(
   "resolve-image",
   "create-volume",
   "start-container",
@@ -75,13 +76,13 @@ const MoltZapServerOperation = Schema.Literal(
   "cleanup",
 );
 
-type MoltZapServerOperation = typeof MoltZapServerOperation.Type;
+type MoltZapServerOperation = typeof moltZapServerOperation.Type;
 
 /** The single failure vocabulary exposed by the MoltZap server boundary. */
 export class MoltZapServerFailed extends Schema.TaggedError<MoltZapServerFailed>()(
   "MoltZapServerFailed",
   {
-    operation: MoltZapServerOperation,
+    operation: moltZapServerOperation,
     detail: Schema.String,
   },
 ) {
@@ -95,7 +96,7 @@ interface MoltZapServerIdentity {
   readonly key: AgentKey;
 }
 
-type RunRegistrationSecret = Redacted.Redacted<string>;
+type RunRegistrationSecret = Redacted.Redacted;
 
 function makeRunRegistrationSecret(): RunRegistrationSecret {
   return Redacted.make(
@@ -103,12 +104,14 @@ function makeRunRegistrationSecret(): RunRegistrationSecret {
   );
 }
 
+/** Configures acquire molt zap server. */
 export interface AcquireMoltZapServerOptions {
   /** A local content-addressed image id. Omit it to build the package image. */
   readonly image?: ImageDigest;
   readonly readyTimeout: Duration.Duration;
 }
 
+/** Describes molt zap server. */
 export interface MoltZapServer {
   readonly image: ImageDigest;
   readonly serverUrl: ServerBaseUrl;
@@ -133,11 +136,11 @@ type MoltZapServerStopReport =
   | {
       /** The traffic volume is safe to open only in this state. */
       readonly _tag: "stopped";
-      readonly failures: ReadonlyArray<string>;
+      readonly failures: readonly string[];
     }
   | {
       readonly _tag: "running";
-      readonly failures: ReadonlyArray<string>;
+      readonly failures: readonly string[];
     };
 
 /**
@@ -160,7 +163,7 @@ export interface MoltZapPresenceObserver {
 export interface MoltZapServerOperations {
   readonly cleanupTimeout: Duration.Duration;
   readonly resolveImage: (
-    image: ImageDigest | undefined,
+    image?: ImageDigest,
   ) => Effect.Effect<ImageDigest, unknown>;
   readonly createVolume: Effect.Effect<string, unknown>;
   readonly removeVolume: (volumePath: string) => Effect.Effect<void, unknown>;
@@ -348,7 +351,7 @@ function awaitReadyByPresence(
   within: Duration.Duration,
 ): Effect.Effect<void, unknown> {
   const tick = client
-    .callDefinition(AgentPresenceSubscribe, { agentIds: [agentId] })
+    .callDefinition(agentPresenceSubscribe, { agentIds: [agentId] })
     .pipe(
       Effect.map((result) =>
         result.statuses.some(
@@ -427,6 +430,7 @@ function stopServerContainer(
   );
 }
 
+/** Represents molt zap server host values. */
 export type MoltZapServerHost =
   | CommandExecutor
   | FileSystem.FileSystem
@@ -492,7 +496,7 @@ function captureCleanup(
   effect: Effect.Effect<void, unknown>,
   timeout: Duration.Duration,
   confirm: () => void,
-): Effect.Effect<ReadonlyArray<string>> {
+): Effect.Effect<readonly string[]> {
   return effect.pipe(
     // Scope finalizers are uninterruptible, so restore interruption locally.
     // The timeout waits for the owned operation to terminate before reporting.
@@ -513,7 +517,7 @@ function captureCleanup(
 function closeObserver(
   operations: MoltZapServerOperations,
   owned: OwnedResources,
-): Effect.Effect<ReadonlyArray<string>> {
+): Effect.Effect<readonly string[]> {
   if (owned.observer._tag !== "open") {
     return Effect.succeed([]);
   }
@@ -531,7 +535,7 @@ function closeObserver(
 function stopContainer(
   operations: MoltZapServerOperations,
   owned: OwnedResources,
-): Effect.Effect<ReadonlyArray<string>> {
+): Effect.Effect<readonly string[]> {
   if (owned.container._tag !== "may-be-running") {
     return Effect.succeed([]);
   }
@@ -549,7 +553,7 @@ function stopContainer(
 function removeVolume(
   operations: MoltZapServerOperations,
   owned: OwnedResources,
-): Effect.Effect<ReadonlyArray<string>> {
+): Effect.Effect<readonly string[]> {
   if (owned.volume._tag !== "mounted") {
     return Effect.succeed([]);
   }
@@ -572,7 +576,7 @@ function removeVolume(
 function cleanupServer(
   operations: MoltZapServerOperations,
   owned: OwnedResources,
-): Effect.Effect<ReadonlyArray<string>> {
+): Effect.Effect<readonly string[]> {
   return Effect.gen(function* () {
     const observerFailures = yield* closeObserver(operations, owned);
     const containerFailures = yield* stopContainer(operations, owned);
@@ -583,7 +587,7 @@ function cleanupServer(
 function cleanupAll(
   operations: MoltZapServerOperations,
   owned: OwnedResources,
-): Effect.Effect<ReadonlyArray<string>> {
+): Effect.Effect<readonly string[]> {
   return Effect.gen(function* () {
     const serverFailures = yield* cleanupServer(operations, owned);
     const volumeFailures = yield* removeVolume(operations, owned);
@@ -597,7 +601,11 @@ function claimResource<A, E, R>(
 ): Effect.Effect<A, E, R> {
   return Effect.uninterruptibleMask((restore) =>
     restore(acquire).pipe(
-      Effect.tap((resource) => Effect.sync(() => claim(resource))),
+      Effect.tap((resource) =>
+        Effect.sync(() => {
+          claim(resource);
+        }),
+      ),
     ),
   );
 }
@@ -788,7 +796,7 @@ function acquireResources(
 
 function stopReport(
   owned: OwnedResources,
-  failures: ReadonlyArray<string>,
+  failures: readonly string[],
 ): MoltZapServerStopReport {
   return {
     _tag: owned.container._tag === "stopped" ? "stopped" : "running",
@@ -896,7 +904,9 @@ function installFinalizer(
 
 /**
  * Build an acquirer over explicit operations.
+ * @param operations Value supplied to the operation.
  * @internal
+ * @returns The created molt zap server acquirer.
  */
 export function makeMoltZapServerAcquirer(
   operations: MoltZapServerOperations,
@@ -935,7 +945,11 @@ export function makeMoltZapServerAcquirer(
     ).pipe(Effect.withSpan("acquireMoltZapServer"));
 }
 
-/** Acquire one fresh MoltZap server and all resources that make it usable. */
+/**
+ * Acquire one fresh MoltZap server and all resources that make it usable.
+ * @param options Options that control the operation.
+ * @returns The acquire molt zap server result.
+ */
 export function acquireMoltZapServer(
   options: AcquireMoltZapServerOptions,
 ): Effect.Effect<

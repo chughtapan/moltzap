@@ -13,20 +13,19 @@ import {
 } from "./notification-subscribers.js";
 
 const STREAM_ASYNC_BUFFER_CAPACITY = 16;
-const BUFFERED_SEQUENCES = Array.from(
-  { length: STREAM_ASYNC_BUFFER_CAPACITY },
-  (_, index) => index + 1,
+const BUFFERED_SEQUENCES = [...Array(STREAM_ASYNC_BUFFER_CAPACITY).keys()].map(
+  (index) => index + 1,
 );
 const BLOCKED_SEQUENCE = STREAM_ASYNC_BUFFER_CAPACITY + 1;
 
-const TestNotification = defineNotification({
+const testNotification = defineNotification({
   name: "test/notification",
   params: Schema.Struct({ sequence: Schema.Number }),
 });
 
 const delivery = (sequence: number) => ({
-  definition: TestNotification,
-  method: TestNotification.name,
+  definition: testNotification,
+  method: testNotification.name,
   params: { sequence },
 });
 
@@ -35,21 +34,21 @@ function typedSubscriptionBackpressure(): Effect.Effect<void, unknown> {
     Effect.gen(function* () {
       const registry = yield* makeNotificationSubscriberRegistry<
         string,
-        typeof TestNotification
+        typeof testNotification
       >({
         closeCause: () => "closed",
       });
       const registered = yield* Effect.makeLatch();
       const instrumented: typeof registry = {
         ...registry,
-        register: (definition, refinement, callbacks) =>
+        register: (definition, callbacks, refinement) =>
           registry
-            .register(definition, refinement, callbacks)
+            .register(definition, callbacks, refinement)
             .pipe(Effect.tap(() => registered.open)),
       };
       const pull = yield* notificationSubscribe(
         instrumented,
-        TestNotification,
+        testNotification,
       ).pipe(Stream.toPull);
       const firstPull = yield* pull.pipe(Effect.fork);
       yield* registered.await;
@@ -81,16 +80,16 @@ function broadSubscriptionBackpressure(): Effect.Effect<void, unknown> {
     Effect.gen(function* () {
       const registry = yield* makeNotificationSubscriberRegistry<
         string,
-        typeof TestNotification
+        typeof testNotification
       >({
         closeCause: () => "closed",
       });
       const registered = yield* Effect.makeLatch();
       const instrumented: typeof registry = {
         ...registry,
-        registerAll: (refinement, callbacks) =>
+        registerAll: (callbacks, refinement) =>
           registry
-            .registerAll(refinement, callbacks)
+            .registerAll(callbacks, refinement)
             .pipe(Effect.tap(() => registered.open)),
       };
       const pull = yield* notificationSubscribeAll(instrumented).pipe(

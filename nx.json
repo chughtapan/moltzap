@@ -10,8 +10,8 @@
       "!{projectRoot}/**/*.test.ts",
       "!{projectRoot}/src/__tests__/**",
       "!{projectRoot}/tsconfig.test.json",
-      "!{projectRoot}/vitest.config.ts",
-      "!{projectRoot}/vitest.integration.config.ts"
+      "!{projectRoot}/vitest.config.mjs",
+      "!{projectRoot}/vitest.integration.config.mjs"
     ],
     "sharedGlobals": [
       "{workspaceRoot}/tsconfig.base.json",

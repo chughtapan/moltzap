@@ -1,18 +1,18 @@
 import {
   HttpClient,
   HttpClientRequest,
-  HttpClientResponse,
+  type HttpClientResponse,
 } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
 import { Data, Effect, Either, Schema } from "effect";
-import { Register } from "@moltzap/protocol/identity";
+import { register } from "@moltzap/protocol/identity";
 import type { ResultOf } from "@moltzap/protocol/rpc";
 
 /**
  * HTTP response from the agent registration endpoints
  * (`/api/v1/auth/register`).
  */
-export type RegisterResponse = ResultOf<typeof Register>;
+export type RegisterResponse = ResultOf<typeof register>;
 
 /** Options for {@link registerAgent}. */
 export interface RegisterAgentOptions {
@@ -23,10 +23,11 @@ export interface RegisterAgentOptions {
 const PUBLIC_PATH = "/api/v1/auth/register";
 const HTTP_SUCCESS_STATUS_MIN = 200;
 const HTTP_REDIRECT_STATUS_MIN = 300;
-const decodeRegisterBody = Schema.decodeUnknown(Register.paramsSchema);
-const encodeRegisterBody = Schema.encode(Register.paramsSchema);
-const decodeRegisterResult = Schema.decodeUnknown(Register.resultSchema);
+const decodeRegisterBody = Schema.decodeUnknown(register.paramsSchema);
+const encodeRegisterBody = Schema.encode(register.paramsSchema);
+const decodeRegisterResult = Schema.decodeUnknown(register.resultSchema);
 
+/** Reports register agent failures. */
 export class RegisterAgentError extends Data.TaggedError("RegisterAgentError")<{
   readonly message: string;
   readonly cause?: unknown;
@@ -44,6 +45,10 @@ const registerAgentError = (
  *
  * Uses the public `/api/v1/auth/register` endpoint. Server boot policy owns
  * the registered agent immediately and returns the credential once.
+ * @param baseUrl Value supplied to the operation.
+ * @param name Name of the operation.
+ * @param opts Value supplied to the operation.
+ * @returns The register agent request result.
  */
 export const registerAgent = (
   baseUrl: string,

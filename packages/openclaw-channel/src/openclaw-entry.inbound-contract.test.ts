@@ -13,6 +13,7 @@ import {
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 import type { Message } from "@moltzap/protocol/message";
+import type { TaskId } from "@moltzap/protocol/task";
 import { createMoltzapChannelPlugin } from "./openclaw-entry.js";
 
 // Header literal from channel-base's `json-header` markup variant (per spec
@@ -60,6 +61,7 @@ const CROSS_CONV_SENDER_JSON = '"sender": "seller"';
 const CROSS_CONV_TEXT_JSON = '"text": "Min $4000"';
 const SYSTEM_REMINDER_TAG = "<system-reminder>";
 const FUNCTION_TYPE = "function";
+const OBJECT_TYPE = "object";
 const NUMBER_TYPE = "number";
 const DIRECT_CHAT_TYPE = "direct";
 const GROUP_CHAT_TYPE = "group";
@@ -91,7 +93,7 @@ interface StartedGateway {
 let started: StartedGateway;
 let abortControllers: AbortController[] = [];
 let mockDispatch: ReturnType<typeof vi.fn>;
-let setStatusCalls: Record<string, unknown>[];
+let setStatusCalls: Array<Record<string, unknown>>;
 
 beforeEach(() => {
   resetMocks();
@@ -232,18 +234,16 @@ function waitForExpectation(assertion: () => void, label: string) {
   });
 }
 
-function emitMessage(
-  message: Message = makeMessage(),
-  taskId?: import("@moltzap/protocol/task").TaskId,
-) {
+function emitMessage(message?: Message, taskId?: TaskId) {
   return Effect.gen(function* () {
-    started.fixture.emit.message(message, taskId);
+    started.fixture.emit.message(message ?? makeMessage(), taskId);
     yield* flushDispatchChainEffect;
   });
 }
 
 function firstDispatchCall(): DispatchCall {
-  return mockDispatch.mock.calls[0]?.[0] as DispatchCall;
+  return /* Safe because the test fixture establishes this asserted shape. */ mockDispatch
+    .mock.calls[0]?.[0] as DispatchCall;
 }
 
 function firstDispatchContext(): Record<string, unknown> {
@@ -254,15 +254,11 @@ function dispatchIsCalled() {
   return Effect.gen(function* () {
     yield* emitMessage();
     yield* waitForDispatchTimes(1);
-    expect(mockDispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ctx: expect.any(Object),
-        cfg: expect.any(Object),
-        dispatcherOptions: expect.objectContaining({
-          deliver: expect.any(Function),
-        }),
-      }),
-    );
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    const dispatch = firstDispatchCall();
+    expect(typeof dispatch.ctx).toBe(OBJECT_TYPE);
+    expect(typeof dispatch.cfg).toBe(OBJECT_TYPE);
+    expect(typeof dispatch.dispatcherOptions.deliver).toBe(FUNCTION_TYPE);
   });
 }
 
@@ -403,7 +399,9 @@ function updatesInboundStatus() {
       (status) => "lastInboundAt" in status,
     );
     expect(inboundStatus).toBeDefined();
-    if (inboundStatus === undefined) return;
+    if (inboundStatus === undefined) {
+      return;
+    }
     expect(inboundStatus.accountId).toBe(TEST_ACCOUNT_ID);
     expect(typeof inboundStatus.lastInboundAt).toBe(NUMBER_TYPE);
   });

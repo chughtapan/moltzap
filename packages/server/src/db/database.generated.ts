@@ -23,7 +23,7 @@ type Int8 = ColumnType<
 >;
 
 /**
- * jsonb column type. Server code decodes the column into the typed
+ * Jsonb column type. Server code decodes the column into the typed
  * union (e.g. `DispatchDecision`) at the boundary; the generated type
  * stays `unknown` so a Principle-2 schema decode happens at every read
  * site.
@@ -34,6 +34,7 @@ type TaskStatus = "active" | "closed" | "failed" | "waiting";
 
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+/** Describes agents. */
 export interface Agents {
   api_key_id: string;
   api_key_secret_hash: string;
@@ -47,6 +48,7 @@ export interface Agents {
   updated_at: Generated<Timestamp>;
 }
 
+/** Describes apps. */
 export interface Apps {
   api_key_id: string;
   api_key_secret_hash: string;
@@ -55,7 +57,7 @@ export interface Apps {
   id: Generated<string>;
 
   /**
-   * jsonb column holding the app's `AppManifest`. Decoded via
+   * Jsonb column holding the app's `AppManifest`. Decoded via
    * `AppManifestSchema` at every read site (Principle 2: schemas at
    * boundaries); the generated type stays `unknown` via the `Json`
    * alias so no read path trusts the persisted shape unchecked.
@@ -64,6 +66,7 @@ export interface Apps {
   updated_at: Generated<Timestamp>;
 }
 
+/** Describes contacts. */
 export interface Contacts {
   contact_user_id: string;
   created_at: Generated<Timestamp>;
@@ -74,6 +77,7 @@ export interface Contacts {
   updated_at: Generated<Timestamp>;
 }
 
+/** Describes conversation keys. */
 export interface ConversationKeys {
   conversation_id: string;
   created_at: Generated<Timestamp>;
@@ -82,6 +86,7 @@ export interface ConversationKeys {
   wrapped_dek: string;
 }
 
+/** Describes conversation participants. */
 export interface ConversationParticipants {
   agent_id: string;
   conversation_id: string;
@@ -89,6 +94,7 @@ export interface ConversationParticipants {
   last_read_seq: Generated<Int8>;
 }
 
+/** Describes conversations. */
 export interface Conversations {
   archived_at: Timestamp | null;
   created_at: Generated<Timestamp>;
@@ -99,6 +105,7 @@ export interface Conversations {
   updated_at: Generated<Timestamp>;
 }
 
+/** Describes encryption keys. */
 export interface EncryptionKeys {
   created_at: Generated<Timestamp>;
   encrypted_key: string;
@@ -107,6 +114,7 @@ export interface EncryptionKeys {
   version: number;
 }
 
+/** Describes messages. */
 export interface Messages {
   conversation_id: string;
   created_at: Generated<Timestamp>;
@@ -133,12 +141,14 @@ export interface Messages {
   dispatch_decision: Generated<Json>;
 }
 
+/** Describes task participants. */
 export interface TaskParticipants {
   admitted_at: Timestamp | null;
   agent_id: string;
   task_id: string;
 }
 
+/** Describes tasks. */
 export interface Tasks {
   app_id: string;
   created_at: Generated<Timestamp>;

@@ -384,7 +384,7 @@ interface DecisionCase {
   readonly title: string;
 }
 
-const DECISION_CASES: ReadonlyArray<DecisionCase> = [
+const DECISION_CASES: readonly DecisionCase[] = [
   {
     title: "infers workspace from a workspace package root",
     packageRoot: WORKSPACE_CHANNEL_ROOT,
@@ -441,3 +441,5 @@ describe("resolveInstallMode", () => {
     }
   });
 });
+
+/* eslint-enable agent-code-guard/prefer-effect-platform -- Restore strict defaults after the scoped file-level exception. */

@@ -35,22 +35,27 @@ export interface ArbitraryRpcCall {
  * assert "every method exercised at least once" without going through
  * `RpcMap` directly.
  */
-export const allRpcMethods: ReadonlyArray<MethodName> =
-  serverInboundMethods.map((m) => m.name);
+export const allRpcMethods: readonly MethodName[] = serverInboundMethods.map(
+  (m) => m.name,
+);
 
 // Precomputed lookup from wire name → manifest, so `arbitraryCallFor` is O(1).
 const methodByName = new Map<MethodName, AnyServerRpcDefinition>(
-  serverInboundMethods.map((m) => [m.name, m as AnyServerRpcDefinition]),
+  serverInboundMethods.map((m) => [m.name, m]),
 );
 
-/** Arbitrary of a valid params tree for a single, fixed RPC. */
+/**
+ * Arbitrary of a valid params tree for a single, fixed RPC.
+ * @param method Wire method name.
+ * @returns The arbitrary call for result.
+ */
 export function arbitraryCallFor(
   method: MethodName,
 ): fc.Arbitrary<ArbitraryRpcCall> {
   const def = methodByName.get(method);
   if (def === undefined) {
     throw new RpcArbitraryInvariantError({
-      message: `arbitraryCallFor: unknown method ${String(method)}`,
+      message: `arbitraryCallFor: unknown method ${method}`,
     });
   }
   return arbitraryFromSchema(def.paramsSchema).map(
@@ -66,6 +71,7 @@ export function arbitraryCallFor(
 /**
  * Arbitrary that draws any method name + matching params. Used by the
  * RpcMap-coverage property and the cross-RPC fuzz property.
+ * @returns The arbitrary any call result.
  */
 export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall> {
   // Every catalog method is WS-dispatched, so the WS-driven properties sample

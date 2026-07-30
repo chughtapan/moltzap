@@ -2,46 +2,50 @@
  * @file Public barrel for connect and presence protocol descriptors.
  */
 export {
-  AgentConnect,
-  AppConnect,
+  agentConnect,
+  appConnect,
   PROTOCOL_VERSION,
   compareProtocolVersion,
   checkProtocolRange,
   InvalidProtocolVersionError,
   ProtocolMismatchError,
 } from "./connect.js";
+/** Re-exports the public API from `./connect.js`. */
 export type { HelloOk, ProtocolMismatchReason } from "./connect.js";
 
-export { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
+/** Re-exports the public API from `./presence.js`. */
+export { agentPresenceSubscribe, appPresenceSubscribe } from "./presence.js";
 
+/** Re-exports the public API from `./server-url.js`. */
 export {
-  ServerBaseUrl,
+  type ServerBaseUrl,
+  serverBaseUrlSchema,
   httpBaseUrl,
   serverBaseUrl,
   webSocketUrl,
 } from "./server-url.js";
 
-import { AgentConnect, AppConnect } from "./connect.js";
-import { AgentPresenceSubscribe, AppPresenceSubscribe } from "./presence.js";
+import { agentConnect, appConnect } from "./connect.js";
+import { agentPresenceSubscribe, appPresenceSubscribe } from "./presence.js";
 
 /** Network RPCs callable by agent clients. */
 export const agentCallableNetworkRpcMethods = [
-  AgentConnect,
-  AgentPresenceSubscribe,
+  agentConnect,
+  agentPresenceSubscribe,
 ] as const;
 
 /** Network RPCs callable by app clients. */
 export const appCallableNetworkRpcMethods = [
-  AppConnect,
-  AppPresenceSubscribe,
+  appConnect,
+  appPresenceSubscribe,
 ] as const;
 
 /** Network RPCs accepted by the server. */
 export const networkRpcMethods = [
-  AgentConnect,
-  AppConnect,
-  AgentPresenceSubscribe,
-  AppPresenceSubscribe,
+  agentConnect,
+  appConnect,
+  agentPresenceSubscribe,
+  appPresenceSubscribe,
 ] as const;
 
 /** Network notifications emitted by the server. */

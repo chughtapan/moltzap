@@ -1,15 +1,15 @@
-import { Effect, Schema, Stream } from "effect";
+import { Effect, type ParseResult, Schema, Stream } from "effect";
 import type { ParseOptions } from "effect/SchemaAST";
-import {
+import type {
   EventCatalog,
-  type EventClass,
-  type EventClassOf,
-  type VersionedEventTag,
+  EventClass,
+  EventClassOf,
+  VersionedEventTag,
 } from "../events/catalog.js";
 import {
   LedgerCompletion,
   LedgerManifest,
-  LedgerRef,
+  type LedgerRef,
   makeLedgerRecordSchema,
   type LedgerRecord,
 } from "./model.js";
@@ -20,14 +20,14 @@ import {
   type LedgerStorageError,
 } from "./storage.js";
 
-const VersionedEventTagSchema = Schema.String.pipe(
+const versionedEventTagSchema = Schema.String.pipe(
   Schema.pattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u),
 );
-const VersionedIdentifierSchema = Schema.String.pipe(
+const versionedIdentifierSchema = Schema.String.pipe(
   Schema.pattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u),
 );
 
-const LedgerInvalidReasonSchema = Schema.Literal(
+const ledgerInvalidReasonSchema = Schema.Literal(
   "catalog-tags-not-sorted",
   "digest-mismatch",
   "duplicate-event-id",
@@ -38,13 +38,15 @@ const LedgerInvalidReasonSchema = Schema.Literal(
   "schema-mismatch",
   "sequence-mismatch",
 );
-export type LedgerInvalidReason = typeof LedgerInvalidReasonSchema.Type;
+/** Represents ledger invalid reason values. */
+export type LedgerInvalidReason = typeof ledgerInvalidReasonSchema.Type;
 
+/** Implements ledger invalid. */
 export class LedgerInvalid extends Schema.TaggedError<LedgerInvalid>()(
   "LedgerInvalid",
   {
     artifact: Schema.Literal("manifest", "records", "completion"),
-    reason: LedgerInvalidReasonSchema,
+    reason: ledgerInvalidReasonSchema,
     detail: Schema.String,
   },
 ) {
@@ -53,11 +55,12 @@ export class LedgerInvalid extends Schema.TaggedError<LedgerInvalid>()(
   }
 }
 
+/** Implements ledger catalog mismatch. */
 export class LedgerCatalogMismatch extends Schema.TaggedError<LedgerCatalogMismatch>()(
   "LedgerCatalogMismatch",
   {
-    expectedTags: Schema.Array(VersionedEventTagSchema),
-    actualTags: Schema.Array(VersionedEventTagSchema),
+    expectedTags: Schema.Array(versionedEventTagSchema),
+    actualTags: Schema.Array(versionedEventTagSchema),
   },
 ) {
   override get message(): string {
@@ -65,11 +68,12 @@ export class LedgerCatalogMismatch extends Schema.TaggedError<LedgerCatalogMisma
   }
 }
 
+/** Implements ledger definition mismatch. */
 export class LedgerDefinitionMismatch extends Schema.TaggedError<LedgerDefinitionMismatch>()(
   "LedgerDefinitionMismatch",
   {
-    expectedDefinitionId: VersionedIdentifierSchema,
-    actualDefinitionId: VersionedIdentifierSchema,
+    expectedDefinitionId: versionedIdentifierSchema,
+    actualDefinitionId: versionedIdentifierSchema,
   },
 ) {
   override get message(): string {
@@ -77,6 +81,7 @@ export class LedgerDefinitionMismatch extends Schema.TaggedError<LedgerDefinitio
   }
 }
 
+/** Represents ledger open error conditions. */
 export type LedgerOpenError =
   | LedgerCatalogMismatch
   | LedgerDefinitionMismatch
@@ -125,7 +130,12 @@ function decodeSchema<S extends Schema.Schema.AnyNoContext>(
   schema: S,
   input: unknown,
 ): Effect.Effect<Schema.Schema.Type<S>, LedgerInvalid> {
-  return Schema.decodeUnknown(schema)(input, strictDecode).pipe(
+  const decode: (
+    input: unknown,
+    options?: ParseOptions,
+  ) => Effect.Effect<Schema.Schema.Type<S>, ParseResult.ParseError> =
+    Schema.decodeUnknown(schema);
+  return decode(input, strictDecode).pipe(
     Effect.mapError((cause) =>
       invalid(artifact, "schema-mismatch", cause.message),
     ),
@@ -143,8 +153,8 @@ function decodeJson<S extends Schema.Schema.AnyNoContext>(
 }
 
 function sameStrings(
-  left: ReadonlyArray<string>,
-  right: ReadonlyArray<string>,
+  left: readonly string[],
+  right: readonly string[],
 ): boolean {
   return (
     left.length === right.length &&
@@ -155,7 +165,9 @@ function sameStrings(
 function validateManifestTags(
   manifest: LedgerManifest,
 ): Effect.Effect<void, LedgerInvalid> {
-  const sorted = [...manifest.catalogTags].sort();
+  const sorted = [...manifest.catalogTags].sort((left, right) =>
+    left.localeCompare(right),
+  );
   return new Set(manifest.catalogTags).size === manifest.catalogTags.length &&
     sameStrings(sorted, manifest.catalogTags)
     ? Effect.void
@@ -175,9 +187,9 @@ function verifyCatalog<
   catalog: EventCatalog<SchemaType, Classes>,
   manifest: LedgerManifest,
 ): Effect.Effect<void, LedgerCatalogMismatch> {
-  const expectedTags: ReadonlyArray<VersionedEventTag> = [
-    ...catalog.tags,
-  ].sort();
+  const expectedTags: readonly VersionedEventTag[] = [...catalog.tags].sort(
+    (left, right) => left.localeCompare(right),
+  );
   return sameStrings(expectedTags, manifest.catalogTags)
     ? Effect.void
     : Effect.fail(
@@ -190,7 +202,7 @@ function verifyCatalog<
 
 function verifyDefinition(
   manifest: LedgerManifest,
-  expectedDefinitionId: string | undefined,
+  expectedDefinitionId?: string,
 ): Effect.Effect<void, LedgerDefinitionMismatch> {
   return expectedDefinitionId === undefined ||
     manifest.definitionId === expectedDefinitionId
@@ -205,7 +217,7 @@ function verifyDefinition(
 
 function recordLines(
   text: string,
-): Effect.Effect<ReadonlyArray<string>, LedgerInvalid> {
+): Effect.Effect<readonly string[], LedgerInvalid> {
   if (text.length === 0) {
     return Effect.succeed([]);
   }
@@ -368,7 +380,7 @@ function decodeLedgerHeader<
 >(
   catalog: EventCatalog<SchemaType, Classes>,
   files: LedgerArtifacts,
-  expectedDefinitionId: string | undefined,
+  expectedDefinitionId?: string,
 ) {
   return Effect.gen(function* () {
     const manifest = yield* decodeJson(
@@ -427,6 +439,10 @@ function decodeLedgerRecords<
 /**
  * Validate a completed ledger before exposing its reusable typed record
  * stream. The exact catalog is required; no unknown-event branch escapes.
+ * @param catalog Value supplied to the operation.
+ * @param ref Value supplied to the operation.
+ * @param expectedDefinitionId Value supplied to the operation.
+ * @returns The open ledger result.
  */
 export function openLedger<
   SchemaType extends Schema.Schema.AnyNoContext,

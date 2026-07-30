@@ -21,16 +21,18 @@ import {
   type TaskBinding,
 } from "./test-helpers.js";
 
-import { AgentsList } from "@moltzap/protocol/identity";
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  agentsList,
+  type AgentId,
+  type AgentKey,
+} from "@moltzap/protocol/identity";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
+import {
+  messageReceivedNotificationDefinition,
+  messagesSend,
+  type Message,
 } from "@moltzap/protocol/message";
 import type { ListCursor, ResultOf } from "@moltzap/protocol/rpc";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/identity";
-import type { Message } from "@moltzap/protocol/message";
 
 interface GatewayHarness {
   readonly containerAId: string;
@@ -285,7 +287,7 @@ function duplicateTargetReusesConversation() {
 function missingAgentLookupFails() {
   return Effect.gen(function* () {
     const agentClient = yield* connectedRegisteredClient("err-sender");
-    const result = yield* agentClient.call(AgentsList.name, {
+    const result = yield* agentClient.call(agentsList.name, {
       limit: AGENT_LIST_PAGE_SIZE,
     });
     expect(
@@ -367,7 +369,7 @@ function createDm(
   invitee: AgentId,
 ): Effect.Effect<TaskBinding, unknown> {
   return client
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [invitee],
       initialConversation: { participants: [invitee] },
@@ -378,10 +380,10 @@ function createDm(
 function createGroup(
   client: MoltZapAgentClient,
   name: string,
-  agentIds: ReadonlyArray<AgentId>,
+  agentIds: readonly AgentId[],
 ): Effect.Effect<TaskBinding, unknown> {
   return client
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: agentIds,
       initialConversation: { name, participants: agentIds },
@@ -394,7 +396,7 @@ function sendText(
   binding: TaskBinding,
   text: string,
 ) {
-  return client.call(MessagesSend.name, {
+  return client.call(messagesSend.name, {
     taskId: binding.taskId,
     conversationId: binding.conversationId,
     parts: [{ type: TEXT_PART_TYPE, text }],
@@ -405,9 +407,11 @@ function sendText(
  * Wait for one `messages/received` notification: consume the typed
  * `subscribe(def)` Stream with `Stream.runHead` under a timeout, then
  * project the decoded payload with `extractMessage`.
+ * @param client Client used for the operation.
+ * @returns The wait for received message result.
  */
 function waitForReceivedMessage(client: MoltZapAgentClient) {
-  return client.subscribe(MessageReceivedNotificationDefinition).pipe(
+  return client.subscribe(messageReceivedNotificationDefinition).pipe(
     Stream.runHead,
     Effect.timeoutFail({
       duration: Duration.millis(NOTIFICATION_WAIT_TIMEOUT_MS),
@@ -432,7 +436,7 @@ function waitForReceivedMessage(client: MoltZapAgentClient) {
 }
 
 function waitForReceivedMessages(client: MoltZapAgentClient, count: number) {
-  return client.subscribe(MessageReceivedNotificationDefinition).pipe(
+  return client.subscribe(messageReceivedNotificationDefinition).pipe(
     Stream.take(count),
     Stream.runCollect,
     Effect.timeoutFail({
@@ -471,7 +475,9 @@ function expectConversationMessageFrom(
 ): void {
   const message = findConversationMessage(messages, conversationId);
   expect(message).toBeDefined();
-  if (message === undefined) return;
+  if (message === undefined) {
+    return;
+  }
   expectEchoReply(message, conversationId, senderId);
 }
 
@@ -479,15 +485,19 @@ function lookupAgentId(client: MoltZapAgentClient, name: string) {
   return Effect.gen(function* () {
     let cursor: ListCursor | undefined = undefined;
     for (let page = 0; page < AGENT_LIST_MAX_PAGES; page++) {
-      const result: ResultOf<typeof AgentsList> = yield* client.call(
-        AgentsList.name,
+      const result: ResultOf<typeof agentsList> = yield* client.call(
+        agentsList.name,
         cursor === undefined
           ? { limit: AGENT_LIST_PAGE_SIZE }
           : { limit: AGENT_LIST_PAGE_SIZE, cursor },
       );
       const found = result.agents.find((agent) => agent.name === name)?.id;
-      if (found !== undefined) return found;
-      if (result.nextCursor === undefined) break;
+      if (found !== undefined) {
+        return found;
+      }
+      if (result.nextCursor === undefined) {
+        break;
+      }
       cursor = result.nextCursor;
     }
     return yield* Effect.fail(

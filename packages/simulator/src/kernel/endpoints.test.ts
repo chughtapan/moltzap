@@ -1,6 +1,6 @@
 import { assert, effect as test } from "@effect/vitest";
 import type { MessageId } from "@moltzap/protocol/conversation";
-import { ServerBaseUrl } from "@moltzap/protocol/network";
+import { serverBaseUrlSchema } from "@moltzap/protocol/network";
 import {
   agentId,
   conversationId,
@@ -20,7 +20,7 @@ import {
 } from "effect";
 import {
   ConversationOpened,
-  EndpointEvents,
+  type endpointEvents,
   EndpointMessageReceived,
   EndpointMessageSent,
 } from "../events/core.js";
@@ -37,13 +37,15 @@ import {
 } from "../network.js";
 import { makeNetworkService } from "./endpoints.js";
 
-type EndpointEventWriter = LedgerWriter<typeof EndpointEvents>;
+type EndpointEventWriter = LedgerWriter<typeof endpointEvents>;
 const PROBE_ID = agentId("00000000-0000-4000-8000-000000000001");
 const TARGET_ID = agentId("00000000-0000-4000-8000-000000000002");
 const KEY = redactedAgentKey(
   "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000",
 );
-const ROUTER_URL = Schema.decodeSync(ServerBaseUrl)("http://127.0.0.1:43100");
+const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
+  "http://127.0.0.1:43100",
+);
 const TASK_ID = taskId("00000000-0000-4000-8000-000000000003");
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000004");
 const RECEIVED_ID = messageId("00000000-0000-4000-8000-000000000005");
@@ -55,7 +57,7 @@ type EndpointEvent =
   | EndpointMessageReceived
   | EndpointMessageSent;
 
-function writer(events: Array<EndpointEvent>): EndpointEventWriter {
+function writer(events: EndpointEvent[]): EndpointEventWriter {
   return {
     write: ({ event }) =>
       Effect.sync(() => {
@@ -91,7 +93,7 @@ interface AttachmentCount {
 }
 
 function sendMessage(sends?: AttachmentCount): EndpointTransport["send"] {
-  return (_taskId, conversationId, parts) =>
+  return (...[, conversationId, parts]) =>
     Effect.sync(() => {
       if (sends !== undefined) {
         sends.value += 1;
@@ -146,7 +148,7 @@ function observedNetworkTest() {
     const received = yield* Stream.fromPubSub(deliveries, {
       scoped: true,
     });
-    const events: Array<EndpointEvent> = [];
+    const events: EndpointEvent[] = [];
     const attachments = { value: 0 };
     const network = yield* makeNetworkService(
       router(received, attachments),
@@ -193,9 +195,9 @@ test("observes one ingress and advances ordered endpoint and conversation inboxe
 test("coalesces concurrent attachment of the same endpoint", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const attachmentStarted = yield* Deferred.make<void>();
-      const releaseAttachment = yield* Deferred.make<void>();
-      const callersStarted = yield* Deferred.make<void>();
+      const attachmentStarted = yield* Deferred.make<undefined>();
+      const releaseAttachment = yield* Deferred.make<undefined>();
+      const callersStarted = yield* Deferred.make<undefined>();
       const attachments = { value: 0 };
       const attempts = { value: 0 };
       const callers = { value: 0 };
@@ -244,10 +246,10 @@ test("coalesces concurrent attachment of the same endpoint", () =>
   ));
 
 interface AttachmentRetryGates {
-  readonly firstStarted: Deferred.Deferred<void>;
-  readonly releaseFirst: Deferred.Deferred<void>;
-  readonly retryStarted: Deferred.Deferred<void>;
-  readonly releaseRetry: Deferred.Deferred<void>;
+  readonly firstStarted: Deferred.Deferred<undefined>;
+  readonly releaseFirst: Deferred.Deferred<undefined>;
+  readonly retryStarted: Deferred.Deferred<undefined>;
+  readonly releaseRetry: Deferred.Deferred<undefined>;
 }
 
 function retryingRouter(
@@ -287,12 +289,12 @@ function retryingRouter(
 function failedAttachmentRetryTest() {
   return Effect.gen(function* () {
     const gates: AttachmentRetryGates = {
-      firstStarted: yield* Deferred.make<void>(),
-      releaseFirst: yield* Deferred.make<void>(),
-      retryStarted: yield* Deferred.make<void>(),
-      releaseRetry: yield* Deferred.make<void>(),
+      firstStarted: yield* Deferred.make<undefined>(),
+      releaseFirst: yield* Deferred.make<undefined>(),
+      retryStarted: yield* Deferred.make<undefined>(),
+      releaseRetry: yield* Deferred.make<undefined>(),
     };
-    const waiterStarted = yield* Deferred.make<void>();
+    const waiterStarted = yield* Deferred.make<undefined>();
     const attachments = { value: 0 };
     const attempts = { value: 0 };
     const baseRouter = router(Stream.never, attachments);
@@ -342,7 +344,7 @@ interface AttachmentLifecycle {
 function interruptibleRouter(
   baseRouter: Router,
   lifecycle: AttachmentLifecycle,
-  firstStarted: Deferred.Deferred<void>,
+  firstStarted: Deferred.Deferred<undefined>,
 ): Router {
   return {
     ...baseRouter,
@@ -372,7 +374,7 @@ function interruptibleRouter(
 
 function canceledAttachmentTest(lifecycle: AttachmentLifecycle) {
   return Effect.gen(function* () {
-    const firstStarted = yield* Deferred.make<void>();
+    const firstStarted = yield* Deferred.make<undefined>();
     const attachments = { value: 0 };
     const baseRouter = router(Stream.never, attachments);
     const network = yield* makeNetworkService(
@@ -407,8 +409,8 @@ test("releases a canceled attachment attempt before retrying", () =>
 
 function deliveryBeforeBindingTest() {
   return Effect.gen(function* () {
-    const processed = yield* Deferred.make<void>();
-    const allowSecond = yield* Deferred.make<void>();
+    const processed = yield* Deferred.make<undefined>();
+    const allowSecond = yield* Deferred.make<undefined>();
     const firstDelivery = receivedMessage(RECEIVED_ID, "early");
     const received = Stream.make(firstDelivery).pipe(
       Stream.concat(
@@ -425,7 +427,7 @@ function deliveryBeforeBindingTest() {
       ),
       Stream.concat(Stream.never),
     );
-    const events: Array<EndpointEvent> = [];
+    const events: EndpointEvent[] = [];
     const network = yield* makeNetworkService(
       router(received, { value: 0 }),
       writer(events),
@@ -455,7 +457,7 @@ test("backlogs conversations without replaying history to live endpoint observer
   Effect.scoped(deliveryBeforeBindingTest()));
 
 function unavailableWriter(
-  attempted?: Deferred.Deferred<void>,
+  attempted?: Deferred.Deferred<undefined>,
 ): EndpointEventWriter {
   return {
     write: () =>
@@ -501,7 +503,7 @@ test("does not deliver ingress whose ledger evidence failed", () =>
       const received = yield* Stream.fromPubSub(deliveries, {
         scoped: true,
       });
-      const attempted = yield* Deferred.make<void>();
+      const attempted = yield* Deferred.make<undefined>();
       const network = yield* makeNetworkService(
         router(received, { value: 0 }),
         unavailableWriter(attempted),

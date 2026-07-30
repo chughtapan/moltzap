@@ -17,16 +17,19 @@ const MS_PER_SECOND = 1000;
 const DEFAULT_LEASE_RETENTION_MS =
   LEASE_RETENTION_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND;
 
+/** Implements lease registry tag. */
 export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
   LeaseRegistryTag,
   LeaseRegistry
 >() {}
 
+/** Implements dispatch admission service tag. */
 export class DispatchAdmissionServiceTag extends Context.Tag(
   "moltzap/DispatchAdmissionService",
 )<DispatchAdmissionServiceTag, DispatchAdmissionService>() {}
 
-export const LeaseRegistryLive = Layer.effect(
+/** Provides the lease registry live runtime value. */
+export const leaseRegistryLive = Layer.effect(
   LeaseRegistryTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
@@ -39,7 +42,8 @@ export const LeaseRegistryLive = Layer.effect(
   }).pipe(Effect.withSpan("LeaseRegistryLive")),
 );
 
-export const DispatchAdmissionServiceLive = Layer.effect(
+/** Provides the dispatch admission service live runtime value. */
+export const dispatchAdmissionServiceLive = Layer.effect(
   DispatchAdmissionServiceTag,
   Effect.gen(function* () {
     const db = yield* DbTag;

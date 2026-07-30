@@ -1,13 +1,12 @@
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vitest";
 import { Effect, Schema } from "effect";
-import type { AgentId } from "@moltzap/protocol/identity";
-import { ConnectionId } from "@moltzap/protocol/socket";
-import type { AppManifest } from "@moltzap/protocol/identity";
+import type { AgentId, AppManifest } from "@moltzap/protocol/identity";
+import { connectionIdSchema } from "@moltzap/protocol/socket";
 import type { ParamsOf } from "@moltzap/protocol/rpc";
-import { DispatchAuthorize } from "@moltzap/protocol/message/dispatch";
-import { MessagesAuthorize } from "@moltzap/protocol/message";
-import { TaskCreate } from "@moltzap/protocol/task";
+import { dispatchAuthorize } from "@moltzap/protocol/message/dispatch";
+import { messagesAuthorize } from "@moltzap/protocol/message";
+import { taskCreate } from "@moltzap/protocol/task";
 import {
   agentId,
   appId as makeAppId,
@@ -28,7 +27,7 @@ const liveIt = effectIt.live;
 
 const APP_ID = makeAppId("00000000-0000-4000-8000-000000000560");
 const OTHER_APP_ID = makeAppId("00000000-0000-4000-8000-000000000999");
-const CONN_ID = Schema.decodeUnknownSync(ConnectionId)(
+const CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
   "00000000-0000-4000-8000-00000000c001",
 );
 const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-00000000c560");
@@ -94,16 +93,16 @@ describe("MessageAuthorizationService", () => {
           makeHandlerAppEndpoint({
             id: CONN_ID,
             handlers: {
-              [DispatchAuthorize.name]: () =>
+              [dispatchAuthorize.name]: () =>
                 Effect.succeed({ admission: { decision: "grant" } }),
-              [MessagesAuthorize.name]: () =>
+              [messagesAuthorize.name]: () =>
                 Effect.succeed({
                   verdict: {
                     decision: "Block",
                     reason: "unexpected_hook",
                   },
                 }),
-              [TaskCreate.name]: () =>
+              [taskCreate.name]: () =>
                 Effect.succeed({ verdict: { decision: "accept" } }),
             },
           }),
@@ -135,10 +134,10 @@ function runRegisteredMessageAuthorize() {
     const connection = makeHandlerAppEndpoint({
       id: CONN_ID,
       handlers: {
-        [DispatchAuthorize.name]: () =>
+        [dispatchAuthorize.name]: () =>
           Effect.succeed({ admission: { decision: "grant" } }),
-        [MessagesAuthorize.name]: (
-          params: ParamsOf<typeof MessagesAuthorize>,
+        [messagesAuthorize.name]: (
+          params: ParamsOf<typeof messagesAuthorize>,
         ) =>
           Effect.succeed({
             verdict: {
@@ -149,7 +148,7 @@ function runRegisteredMessageAuthorize() {
                   : [SENDER],
             },
           }),
-        [TaskCreate.name]: () =>
+        [taskCreate.name]: () =>
           Effect.succeed({ verdict: { decision: "accept" } }),
       },
     });

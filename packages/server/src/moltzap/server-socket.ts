@@ -1,3 +1,4 @@
+// safer-arch-ignore no-trivial-sink-file: This is the protocol socket adapter boundary; core app is intentionally its sole composition consumer.
 import type { Socket as EffectSocket } from "@effect/platform/Socket";
 import { Effect, Layer } from "effect";
 import {
@@ -6,14 +7,33 @@ import {
   type MoltZapServerSession,
 } from "@moltzap/protocol/socket";
 
-import type { ResolvedServices } from "#core";
-import type { DisconnectionHook } from "#core";
-import { ConnectionManagerTag, ConnectionTag } from "#socket";
-import type { AgentContext } from "#socket";
+import type { ResolvedServices, DisconnectionHook } from "#core";
+import {
+  ConnectionManagerTag,
+  ConnectionTag,
+  type AgentContext,
+} from "#socket";
 import { serverHandlers } from "./handler-catalog.js";
 import { makeRequirementMiddlewareLayers } from "./auth-middleware-layers.js";
 import { peekLiveArm } from "./principal-gate.js";
 
+const makeConnectionTagLayer = (
+  connId: ConnectionId,
+): Layer.Layer<ConnectionTag, never, ConnectionManagerTag> =>
+  Layer.effect(
+    ConnectionTag,
+    ConnectionManagerTag.pipe(
+      Effect.flatMap((manager) => peekLiveArm(manager, connId)),
+    ),
+  );
+
+/**
+ * Creates moltzap socket handler.
+ * @param options Options that control the operation.
+ * @param options.disconnectionHooks Value supplied to the operation.
+ * @param options.services Value supplied to the operation.
+ * @returns The created moltzap socket handler.
+ */
 export function makeMoltzapSocketHandler(options: {
   readonly services: ResolvedServices;
   readonly disconnectionHooks: readonly DisconnectionHook[];
@@ -28,20 +48,10 @@ export function makeMoltzapSocketHandler(options: {
         { write: session.write, shutdown: session.shutdown },
         session.originator,
       ),
-    onClose: (_exit, session) => closeSocketSession(session, options),
+    onClose: (...[, session]) => closeSocketSession(session, options),
   });
   return (socket: EffectSocket) => protocolServer.handleSocket(socket);
 }
-
-const makeConnectionTagLayer = (
-  connId: ConnectionId,
-): Layer.Layer<ConnectionTag, never, ConnectionManagerTag> =>
-  Layer.effect(
-    ConnectionTag,
-    ConnectionManagerTag.pipe(
-      Effect.flatMap((manager) => peekLiveArm(manager, connId)),
-    ),
-  );
 
 function closeSocketSession(
   session: MoltZapServerSession,
@@ -92,7 +102,7 @@ function runDisconnectionHooks(
 }
 
 function runUserHook<TArgs>(
-  hook: (args: TArgs) => void | PromiseLike<void>,
+  hook: (args: TArgs) => undefined | PromiseLike<undefined>,
   args: TArgs,
   label: string,
   logCtx: Record<string, unknown>,

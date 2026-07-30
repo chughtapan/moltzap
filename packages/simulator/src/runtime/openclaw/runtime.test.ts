@@ -165,14 +165,19 @@ function assertProcessAcquisition(acquired: AcquiredOpenClaw): void {
   assert.deepStrictEqual(acquired.input.workspaceFiles, [
     { relativePath: "IDENTITY.md", content: "Alice" },
   ]);
-  assert.deepStrictEqual(Object.keys(acquired.input).sort(), [
-    "agentId",
-    "agentName",
-    "apiKey",
-    "modelId",
-    "serverUrl",
-    "workspaceFiles",
-  ]);
+  assert.deepStrictEqual(
+    Object.keys(acquired.input).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    [
+      "agentId",
+      "agentName",
+      "apiKey",
+      "modelId",
+      "serverUrl",
+      "workspaceFiles",
+    ],
+  );
   assert.strictEqual(acquired.options.openclawBin, OPENCLAW_BIN);
   assert.strictEqual(acquired.options.channelDistDir, CHANNEL_DIST_DIR);
   assert.deepStrictEqual(acquired.options.mcpServers, [
@@ -188,7 +193,7 @@ function assertProcessAcquisition(acquired: AcquiredOpenClaw): void {
 function returnsAfterReadinessTest() {
   return Effect.gen(function* () {
     const readyEntered = yield* Deferred.make<Duration.Duration>();
-    const becomeReady = yield* Deferred.make<void>();
+    const becomeReady = yield* Deferred.make<undefined>();
     const readyCount = yield* Ref.make(0);
     const fixture = yield* makeFixture(fullRuntimeOptions());
     const acquiredFiber = yield* Effect.scoped(
@@ -219,7 +224,7 @@ function returnsAfterReadinessTest() {
 
 function interruptedAcquisitionTest() {
   return Effect.gen(function* () {
-    const readyEntered = yield* Deferred.make<void>();
+    const readyEntered = yield* Deferred.make<undefined>();
     const fixture = yield* makeFixture({});
     const acquired = yield* Effect.scoped(
       fixture.runtime.acquire({
@@ -414,3 +419,5 @@ describe("native OpenClaw runtime", () => {
   );
   test("reports the exact observed process exit status", exactTerminationTest);
 });
+
+/* eslint-enable sonarjs/no-nested-functions -- Restore strict defaults after the scoped file-level exception. */

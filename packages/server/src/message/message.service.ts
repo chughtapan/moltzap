@@ -1,46 +1,57 @@
-import type { Db } from "#db";
-import type {
-  DispatchDecision,
-  Message,
-  MessageParts,
-  Part,
-} from "@moltzap/protocol/message";
-import type { AgentId, AppId } from "@moltzap/protocol/identity";
 import {
-  MessageId as MessageIdSchema,
-  type ConversationId,
-  type MessageId,
-} from "@moltzap/protocol/conversation";
-import type { TaskId, TaskStatus } from "@moltzap/protocol/task";
-import type { ConnectionId } from "@moltzap/protocol/socket";
+  type Db,
+  nextSnowflakeId,
+  sql,
+  type MessageRow,
+  catchSqlErrorAsDefect,
+  takeFirstOption,
+  takeFirstOrFail,
+} from "#db";
 import {
+  type DispatchDecision,
+  type Message,
+  type MessageParts,
+  type Part,
   decodeMessageParts,
   decodeMessagePartsText,
   validateDispatchDecision,
+  MessageNotFoundError,
+  messageReceivedNotificationDefinition,
 } from "@moltzap/protocol/message";
+import type { AgentId, AppId } from "@moltzap/protocol/identity";
+import {
+  messageId as MessageIdSchema,
+  type ConversationId,
+  type MessageId,
+} from "@moltzap/protocol/conversation";
+import {
+  type TaskId,
+  type TaskStatus,
+  HookBlockedError,
+} from "@moltzap/protocol/task";
+import type { ConnectionId } from "@moltzap/protocol/socket";
 import {
   DEFAULT_PAGE_LIMIT,
-  ForbiddenError,
+  type ForbiddenError,
   MAX_PAGE_LIMIT,
 } from "@moltzap/protocol/rpc";
-import { HookBlockedError } from "@moltzap/protocol/task";
-import {
-  MessageNotFoundError,
-  MessageReceivedNotificationDefinition,
-} from "@moltzap/protocol/message";
-import { Cause, Effect, Option, Schema } from "effect";
+import { type Cause, Effect, Option, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
-import { nextSnowflakeId } from "#db";
 import type { ConversationService } from "#conversation";
 import type { MessageAuthorizationService } from "./authorization.js";
 import type { NetworkSendService } from "#network";
-import { type EnvelopeEncryption, type Dek } from "#db/crypto";
-import { serializePayload, deserializePayload } from "#db/crypto";
-import { sql } from "#db";
-import type { MessageRow } from "#db";
-import { catchSqlErrorAsDefect, takeFirstOption, takeFirstOrFail } from "#db";
+import {
+  type EnvelopeEncryption,
+  type Dek,
+  deserializePayload,
+  serializePayload,
+} from "#db/crypto";
 
-/** Postgres returns bytea as Buffer, while PGlite returns Uint8Array. Normalize so .toString("utf-8") works. */
+/**
+ * Postgres returns bytea as Buffer, while PGlite returns Uint8Array. Normalize so .toString("utf-8") works.
+ * @param v Value supplied to the operation.
+ * @returns The to buf result.
+ */
 function toBuf(v: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
@@ -81,7 +92,7 @@ interface SendInsertResult {
   readonly message: Message;
   readonly parts: MessageParts;
   readonly conv: SendConversationRow;
-  readonly excludeConnectionId: ConnectionId | undefined;
+  readonly excludeConnectionId?: ConnectionId;
 }
 
 interface SendMessageInput {
@@ -183,7 +194,7 @@ export class MessageService {
     this.messageAuthorization = deps.messageAuthorization;
   }
 
-  close(): Effect.Effect<void, never> {
+  close(): Effect.Effect<void> {
     return Effect.void;
   }
 
@@ -200,13 +211,16 @@ export class MessageService {
    * timeout-synthesized fallback) cannot both succeed: whichever
    * commits first wins, the loser sees `committed: false` and
    * skips the dependent broadcast.
+   * @param messageId Value supplied to the operation.
+   * @param verdict Value supplied to the operation.
+   * @returns The result result.
    */
   recordDispatchDecision(
     messageId: MessageId,
     verdict: DispatchDecision,
-  ): Effect.Effect<{ committed: boolean }, never> {
+  ): Effect.Effect<{ committed: boolean }> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: MessageService) {
         // CAS predicate via JSONB containment (`@>`), which Postgres
         // binds as a query parameter. The UPDATE returns one row iff the
         // row was still `pending` at UPDATE time; concurrent transitions
@@ -235,14 +249,14 @@ export class MessageService {
     );
   }
 
-  sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult, never> {
+  sendInsert(input: SendInsertInput): Effect.Effect<SendInsertResult> {
     return catchSqlErrorAsDefect(this.sendInsertEffect(input));
   }
 
   private sendInsertEffect(
     input: SendInsertInput,
   ): Effect.Effect<SendInsertResult, SqlError | Cause.NoSuchElementException> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MessageService) {
       // `ConversationSendAccess` gates this method in the engine middleware
       // stack before the handler runs, so `send` requires no permission token in
       // its Env and trusts `input` (the handler's already-gated params).
@@ -268,7 +282,9 @@ export class MessageService {
    *
    * `app_id` is read by the verdict-routing consumer to identify the
    * authorizing app for the task.
+   * @param conversationId Value supplied to the operation.
    * @internal
+   * @returns The reply exists opt result.
    */
   readSendConversation(
     conversationId: ConversationId,
@@ -293,13 +309,16 @@ export class MessageService {
   /**
    * Reply-target presence gate consumed by `obtainValidReplyTarget`. A
    * method (not a free function) because it needs `this.db`.
+   * @param conversationId Value supplied to the operation.
+   * @param replyToId Value supplied to the operation.
    * @internal
+   * @returns The reply exists opt result.
    */
   assertReplyTarget(
     conversationId: ConversationId,
     replyToId: MessageId,
   ): Effect.Effect<void, MessageNotFoundError | SqlError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MessageService) {
       const replyExistsOpt = yield* takeFirstOption(
         this.db
           .selectFrom("messages")
@@ -365,6 +384,10 @@ export class MessageService {
    * participants are not a send failure: `broadcast` reports which agent IDs
    * were reached, `recordTrace` observes the misses, and reconnecting clients
    * recover recent durable history within the requested `messages/list` limit.
+   * @param carrier Value supplied to the operation.
+   * @param conversationId Value supplied to the operation.
+   * @param senderAgentId Value supplied to the operation.
+   * @returns The verdict result.
    */
   sendCommit(
     carrier: SendInsertResult,
@@ -379,7 +402,7 @@ export class MessageService {
   private sendCommitEffect(
     input: SendCommitInput,
   ): Effect.Effect<Message, HookBlockedError | SqlError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MessageService) {
       this.updatePreview(input);
 
       const verdict = yield* this.resolveCommitVerdict(input);
@@ -404,7 +427,9 @@ export class MessageService {
     const firstTextPart = input.carrier.parts.find(
       (part) => part.type === "text",
     );
-    if (firstTextPart?.type !== "text") return;
+    if (firstTextPart?.type !== "text") {
+      return;
+    }
     this.conversations.updatePreviewCache(
       input.conversationId,
       firstTextPart.text,
@@ -413,7 +438,7 @@ export class MessageService {
 
   private resolveCommitVerdict(
     input: SendCommitInput,
-  ): Effect.Effect<DispatchDecision, never> {
+  ): Effect.Effect<DispatchDecision> {
     return this.resolveSendVerdict({
       messageId: input.carrier.message.id,
       appId: input.carrier.conv.app_id,
@@ -427,13 +452,15 @@ export class MessageService {
   private commitDispatchDecision(
     messageId: MessageId,
     verdict: DispatchDecision,
-  ): Effect.Effect<DispatchDecision, never> {
-    return Effect.gen(this, function* () {
+  ): Effect.Effect<DispatchDecision> {
+    return Effect.gen(this, function* (this: MessageService) {
       const { committed } = yield* this.recordDispatchDecision(
         messageId,
         verdict,
       );
-      if (committed) return verdict;
+      if (committed) {
+        return verdict;
+      }
       return yield* this.readDispatchDecision(messageId);
     });
   }
@@ -442,7 +469,9 @@ export class MessageService {
     input: SendCommitInput,
     verdict: DispatchDecision,
   ): Effect.Effect<void, HookBlockedError> {
-    if (verdict.tag !== "block") return Effect.void;
+    if (verdict.tag !== "block") {
+      return Effect.void;
+    }
     const reason = verdict.reason ?? "blocked";
     const error = new HookBlockedError({
       message: "Message blocked by owning app",
@@ -456,14 +485,14 @@ export class MessageService {
   private broadcastCommittedMessage(
     input: SendCommitInput,
     recipientList: readonly AgentId[],
-  ): Effect.Effect<readonly AgentId[], never> {
+  ): Effect.Effect<readonly AgentId[]> {
     const audience = Array.from(
       new Set([...recipientList, input.senderAgentId]),
     );
     return this.networkSendService
       .broadcastNotification(
         audience,
-        MessageReceivedNotificationDefinition,
+        messageReceivedNotificationDefinition,
         {
           taskId: input.carrier.conv.task_id,
           message: input.carrier.message,
@@ -474,15 +503,15 @@ export class MessageService {
           messageId: input.carrier.message.id,
         },
       )
-      .pipe(Effect.map((result) => result.delivered as readonly AgentId[]));
+      .pipe(Effect.map((result) => result.delivered));
   }
 
   private recordTrace(
     input: SendCommitInput,
     recipientList: readonly AgentId[],
     delivered: readonly AgentId[],
-  ): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+  ): Effect.Effect<void> {
+    return Effect.gen(this, function* (this: MessageService) {
       const traceMetadata = yield* this.getTraceMessageMetadata(
         input.conversationId,
         input.senderAgentId,
@@ -513,8 +542,8 @@ export class MessageService {
   private recordBlockedTrace(
     input: SendCommitInput,
     reason: string,
-  ): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+  ): Effect.Effect<void> {
+    return Effect.gen(this, function* (this: MessageService) {
       const traceMetadata = yield* this.getTraceMessageMetadata(
         input.conversationId,
         input.senderAgentId,
@@ -556,11 +585,13 @@ export class MessageService {
    * `DispatchDecision` shape persisted on `messages.dispatch_decision`.
    * The authorization service fails closed (`Block { reason:
    * "app_unreachable" }`) on timeout / handler error / RPC failure.
+   * @param input Input value to process.
+   * @returns The result result.
    */
   private resolveSendVerdict(
     input: ResolveSendVerdictInput,
-  ): Effect.Effect<DispatchDecision, never> {
-    return Effect.gen(this, function* () {
+  ): Effect.Effect<DispatchDecision> {
+    return Effect.gen(this, function* (this: MessageService) {
       const result = yield* this.messageAuthorization.authorize(input.appId, {
         conversationId: input.conversationId,
         message: {
@@ -583,8 +614,8 @@ export class MessageService {
             ...(result.reason !== undefined ? { reason: result.reason } : {}),
           };
         default: {
-          const _absurd: never = result;
-          return _absurd;
+          const absurd: never = result;
+          return absurd;
         }
       }
     });
@@ -595,12 +626,14 @@ export class MessageService {
    * (committed=false). The winner has already committed; this returns
    * the current persisted state so the loser mirrors the winner's
    * outcome on the wire.
+   * @param messageId Value supplied to the operation.
+   * @returns The row opt result.
    */
   private readDispatchDecision(
     messageId: MessageId,
-  ): Effect.Effect<DispatchDecision, never> {
+  ): Effect.Effect<DispatchDecision> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: MessageService) {
         const rowOpt = yield* takeFirstOption(
           this.db
             .selectFrom("messages")
@@ -619,7 +652,7 @@ export class MessageService {
   }
 
   send(input: SendMessageInput): Effect.Effect<Message, HookBlockedError> {
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MessageService) {
       const carrier = yield* this.sendInsert(input);
       return yield* this.sendCommit(
         carrier,
@@ -637,7 +670,7 @@ export class MessageService {
     } = {},
   ): Effect.Effect<{ messages: Message[] }, ForbiddenError> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: MessageService) {
         yield* this.conversations.assertConversationParticipant(
           conversationId,
           requesterAgentId,
@@ -661,9 +694,9 @@ export class MessageService {
     readonly conversationId: ConversationId;
     readonly requesterAgentId: AgentId;
     readonly limit: number;
-  }): Effect.Effect<ReadonlyArray<MessageRow>, SqlError> {
+  }): Effect.Effect<readonly MessageRow[], SqlError> {
     const { conversationId, requesterAgentId, limit } = args;
-    return Effect.gen(this, function* () {
+    return Effect.gen(this, function* (this: MessageService) {
       // The participant-scoped `dispatch_decision` view always applies: a
       // participant sees their own sends plus messages the authorizing app
       // forwarded to them. There is no app-moderator full-log branch — apps
@@ -692,9 +725,9 @@ export class MessageService {
   }
 
   private messageRowsToMessages(
-    rows: ReadonlyArray<MessageRow>,
-  ): Effect.Effect<Message[], never> {
-    return Effect.gen(this, function* () {
+    rows: readonly MessageRow[],
+  ): Effect.Effect<Message[]> {
+    return Effect.gen(this, function* (this: MessageService) {
       const dekCache = new Map<number, Dek>();
       const messages: Message[] = [];
       for (const row of rows) {
@@ -709,13 +742,13 @@ export class MessageService {
   private encryptParts(
     conversationId: ConversationId,
     parts: MessageParts,
-  ): Effect.Effect<EncryptedParts, never> {
+  ): Effect.Effect<EncryptedParts> {
     const encryption = this.encryption;
     if (encryption === null) {
       return Effect.succeed(plaintextEncryptedParts(parts));
     }
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: MessageService) {
         const conversationDek = yield* this.getOrCreateConversationDek(
           conversationId,
           encryption,
@@ -738,12 +771,8 @@ export class MessageService {
   private getOrCreateConversationDek(
     conversationId: ConversationId,
     encryption: EnvelopeEncryption,
-  ): Effect.Effect<
-    ConversationDek,
-    SqlError | Cause.NoSuchElementException,
-    never
-  > {
-    return Effect.gen(this, function* () {
+  ): Effect.Effect<ConversationDek, SqlError | Cause.NoSuchElementException> {
+    return Effect.gen(this, function* (this: MessageService) {
       const keyRowOpt = yield* this.readLatestConversationKey(conversationId);
       if (Option.isSome(keyRowOpt)) {
         return unwrapConversationDek(encryption, keyRowOpt.value);
@@ -754,7 +783,7 @@ export class MessageService {
 
   private readLatestConversationKey(
     conversationId: ConversationId,
-  ): Effect.Effect<Option.Option<ConversationKeyMaterialRow>, SqlError, never> {
+  ): Effect.Effect<Option.Option<ConversationKeyMaterialRow>, SqlError> {
     return takeFirstOption(
       this.db
         .selectFrom(CONVERSATION_KEYS_ALIAS)
@@ -774,12 +803,8 @@ export class MessageService {
   private createConversationDek(
     conversationId: ConversationId,
     encryption: EnvelopeEncryption,
-  ): Effect.Effect<
-    ConversationDek,
-    SqlError | Cause.NoSuchElementException,
-    never
-  > {
-    return Effect.gen(this, function* () {
+  ): Effect.Effect<ConversationDek, SqlError | Cause.NoSuchElementException> {
+    return Effect.gen(this, function* (this: MessageService) {
       const newDek = encryption.generateDek();
       const kekRow = yield* this.activeKekRow();
       const kek = encryption.decryptKek(
@@ -805,7 +830,7 @@ export class MessageService {
     });
   }
 
-  private activeKekRow(): Effect.Effect<ActiveKekRow, SqlError, never> {
+  private activeKekRow(): Effect.Effect<ActiveKekRow, SqlError> {
     return takeFirstOption(
       this.db
         .selectFrom("encryption_keys")
@@ -826,11 +851,7 @@ export class MessageService {
   private readWinningConversationDek(
     conversationId: ConversationId,
     encryption: EnvelopeEncryption,
-  ): Effect.Effect<
-    ConversationDek,
-    SqlError | Cause.NoSuchElementException,
-    never
-  > {
+  ): Effect.Effect<ConversationDek, SqlError | Cause.NoSuchElementException> {
     return takeFirstOrFail(
       this.db
         .selectFrom(CONVERSATION_KEYS_ALIAS)
@@ -851,9 +872,9 @@ export class MessageService {
   private getTraceMessageMetadata(
     conversationId: ConversationId,
     senderAgentId: AgentId,
-  ): Effect.Effect<{ channelKey: string; senderDisplayName: string }, never> {
+  ): Effect.Effect<{ channelKey: string; senderDisplayName: string }> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: MessageService) {
         // No per-task conversation key in the tasks/* layer; the raw
         // conversationId labels the channel for trace capture.
         const senderRowOpt = yield* takeFirstOption(
@@ -882,7 +903,7 @@ export class MessageService {
     dekCache: Map<number, Dek>,
   ): Effect.Effect<MessageParts> {
     return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
+      Effect.gen(this, function* (this: MessageService) {
         const dekVersion = row.dek_version;
         const encryption = this.encryption;
 
@@ -919,8 +940,10 @@ export class MessageService {
     encryption: EnvelopeEncryption,
   ): Effect.Effect<Dek, SqlError> {
     const cachedDek = dekCache.get(dekVersion);
-    if (cachedDek !== undefined) return Effect.succeed(cachedDek);
-    return Effect.gen(this, function* () {
+    if (cachedDek !== undefined) {
+      return Effect.succeed(cachedDek);
+    }
+    return Effect.gen(this, function* (this: MessageService) {
       const keyRowOpt = yield* takeFirstOption(
         this.db
           .selectFrom(CONVERSATION_KEYS_ALIAS)
@@ -949,7 +972,7 @@ export class MessageService {
       id: row.id,
       conversationId: row.conversation_id,
       senderId: row.sender_id,
-      replyToId: row.reply_to_id === null ? undefined : row.reply_to_id,
+      replyToId: row.reply_to_id ?? undefined,
       parts,
       createdAt: row.created_at.toISOString(),
     };
@@ -957,8 +980,10 @@ export class MessageService {
 }
 
 function recipientsFromVerdict(verdict: DispatchDecision): readonly AgentId[] {
-  if (verdict.tag !== "forward") return [];
-  return verdict.recipients as readonly AgentId[];
+  if (verdict.tag !== "forward") {
+    return [];
+  }
+  return verdict.recipients;
 }
 
 function plaintextEncryptedParts(parts: MessageParts): EncryptedParts {
@@ -984,6 +1009,8 @@ function unwrapConversationDek(
 }
 
 function decodeDispatchDecision(raw: unknown): Effect.Effect<DispatchDecision> {
-  if (validateDispatchDecision(raw)) return Effect.succeed(raw);
+  if (validateDispatchDecision(raw)) {
+    return Effect.succeed(raw);
+  }
   return Effect.die(`malformed dispatch_decision: ${JSON.stringify(raw)}`);
 }

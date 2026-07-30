@@ -8,13 +8,23 @@ import { Effect } from "effect";
 
 const DEFAULT_POLL_MILLIS = 5;
 
-const realSleep = (millis: number): Effect.Effect<void> =>
-  Effect.async<void>((resume) => {
-    const timer = setTimeout(() => resume(Effect.void), millis);
-    return Effect.sync(() => clearTimeout(timer));
+const realSleep = (millis: number): Effect.Effect<undefined> =>
+  Effect.async<undefined>((resume) => {
+    const timer = setTimeout(() => {
+      resume(Effect.succeed(undefined));
+    }, millis);
+    return Effect.sync(() => {
+      clearTimeout(timer);
+    });
   });
 
-/** Poll `predicate` until it returns true. */
+/**
+ * Poll `predicate` until it returns true.
+ * @param predicate Predicate used to select matching values.
+ * @param options Options that control the operation.
+ * @param options.pollMillis Value supplied to the operation.
+ * @returns The wait until result.
+ */
 export const waitUntil = (
   predicate: () => boolean,
   options?: { readonly pollMillis?: number },
@@ -26,7 +36,13 @@ export const waitUntil = (
   return step;
 };
 
-/** Poll `probe` until it returns a defined value, then return it. */
+/**
+ * Poll `probe` until it returns a defined value, then return it.
+ * @param probe Value supplied to the operation.
+ * @param options Options that control the operation.
+ * @param options.pollMillis Value supplied to the operation.
+ * @returns The wait for value result.
+ */
 export const waitForValue = <A, E = never, R = never>(
   probe: Effect.Effect<A | undefined, E, R>,
   options?: { readonly pollMillis?: number },

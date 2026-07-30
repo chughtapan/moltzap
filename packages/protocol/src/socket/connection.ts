@@ -15,13 +15,19 @@ import { Schema, type Brand } from "effect";
  * strings; the brand boundary is the type system, not a format check.
  */
 export type ConnectionId = string & Brand.Brand<"ConnectionId">;
-export const ConnectionId: Schema.Schema<ConnectionId, string> =
+/** Validates and decodes connection id values. */
+export const connectionIdSchema: Schema.Schema<ConnectionId, string> =
   Schema.String.pipe(
     Schema.brand("ConnectionId"),
     Schema.annotations({ description: "Branded ConnectionId" }),
   );
 
-export const connectionId = Schema.decodeSync(ConnectionId);
+/** Validates and decodes connection id values. */
+export const connectionId = Schema.decodeSync(connectionIdSchema);
 
+/**
+ * Provides the new connection id runtime value.
+ * @returns The new connection id result.
+ */
 export const newConnectionId = (): ConnectionId =>
   connectionId(crypto.randomUUID());

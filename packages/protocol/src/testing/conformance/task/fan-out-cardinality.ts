@@ -6,11 +6,14 @@
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
-import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
+import { messageReceivedNotificationDefinition, messagesSend } from "#message";
 import type { NotificationDelivery } from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
-import { assertProperty, registerProperty } from "../_shared/registry.js";
-import type { PropertyAssertionFailure } from "../_shared/registry.js";
+import {
+  assertProperty,
+  registerProperty,
+  type PropertyAssertionFailure,
+} from "../_shared/registry.js";
 import { leftOrNull } from "../_shared/_helpers.js";
 import {
   DELIVERY_CATEGORY,
@@ -22,9 +25,13 @@ import {
 } from "./_helpers.js";
 
 function isMessageNotification(frame: NotificationDelivery): boolean {
-  return frame.definition === MessageReceivedNotificationDefinition;
+  return frame.definition === messageReceivedNotificationDefinition;
 }
 
+/**
+ * Registers fan out cardinality.
+ * @param ctx Context for the operation.
+ */
 export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -69,7 +76,7 @@ function observeFanOutCounts(
   count: number,
 ): Effect.Effect<
   | { readonly kind: "send-failed" }
-  | { readonly kind: "ok"; readonly counts: ReadonlyArray<number> },
+  | { readonly kind: "ok"; readonly counts: readonly number[] },
   unknown,
   Scope.Scope
 > {
@@ -80,7 +87,9 @@ function observeFanOutCounts(
       ),
     );
     const sent = yield* sendFanOutMessage(fixture).pipe(Effect.either);
-    if (leftOrNull(sent) !== null) return { kind: "send-failed" as const };
+    if (leftOrNull(sent) !== null) {
+      return { kind: "send-failed" as const };
+    }
     yield* Effect.sleep("250 millis");
     const snapshots = yield* participantSnapshots(fixture);
     return {
@@ -91,7 +100,7 @@ function observeFanOutCounts(
 }
 
 function sendFanOutMessage(fixture: ConversationFixture) {
-  return fixture.owner.client.sendRpc(MessagesSend, {
+  return fixture.owner.client.sendRpc(messagesSend, {
     taskId: fixture.taskId,
     conversationId: fixture.conversationId,
     parts: [{ type: "text", text: "fan-out-ping" }],
@@ -100,7 +109,7 @@ function sendFanOutMessage(fixture: ConversationFixture) {
 
 function participantSnapshots(
   fixture: ConversationFixture,
-): Effect.Effect<ReadonlyArray<ReadonlyArray<NotificationDelivery>>> {
+): Effect.Effect<ReadonlyArray<readonly NotificationDelivery[]>> {
   return Effect.forEach(
     fixture.participants,
     (participant) => participant.notifications.snapshot,
@@ -109,17 +118,19 @@ function participantSnapshots(
 }
 
 function messageNotificationCounts(
-  snapshots: ReadonlyArray<ReadonlyArray<NotificationDelivery>>,
-): ReadonlyArray<number> {
+  snapshots: ReadonlyArray<readonly NotificationDelivery[]>,
+): readonly number[] {
   return snapshots.map(countInboundMessageNotifications);
 }
 
 function countInboundMessageNotifications(
-  snapshot: ReadonlyArray<NotificationDelivery>,
+  snapshot: readonly NotificationDelivery[],
 ): number {
   let count = 0;
   for (const entry of snapshot) {
-    if (isMessageNotification(entry)) count += 1;
+    if (isMessageNotification(entry)) {
+      count += 1;
+    }
   }
   return count;
 }
@@ -127,10 +138,12 @@ function countInboundMessageNotifications(
 function fanOutCountsAreExact(
   result:
     | { readonly kind: "send-failed" }
-    | { readonly kind: "ok"; readonly counts: ReadonlyArray<number> },
+    | { readonly kind: "ok"; readonly counts: readonly number[] },
   requestedCount: number,
 ): boolean {
-  if (result.kind !== "ok") return false;
+  if (result.kind !== "ok") {
+    return false;
+  }
   return (
     result.counts.length === fixtureN(requestedCount) &&
     result.counts.every((count) => count === 1)

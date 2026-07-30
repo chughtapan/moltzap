@@ -17,7 +17,7 @@ by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
 
 ## Public surface
 
-### [`acquireProxiedClient`](./_helpers.ts#L57)
+### [`acquireProxiedClient`](./_helpers.ts#L86)
 
 _Function_
 
@@ -37,15 +37,19 @@ export function acquireProxiedClient(opts: {
 
 Acquire an agent client that routes through the Toxiproxy proxy.
 
-### [`ADVERSITY_CATEGORY`](./_helpers.ts#L24)
+**Returns:** The acquire proxied client result.
+
+### [`ADVERSITY_CATEGORY`](./_helpers.ts#L32)
 
 _Variable_
 
 ```ts
-export const ADVERSITY_CATEGORY = "adversity" as const
+export const ADVERSITY_CATEGORY = "adversity"
 ```
 
-### [`adversityViolation`](./_helpers.ts#L30)
+Provides the adversity category runtime value.
+
+### [`adversityViolation`](./_helpers.ts#L44)
 
 _Function_
 
@@ -56,15 +60,11 @@ export function adversityViolation(
 ): PropertyInvariantViolation
 ```
 
-### [`attachToxic`](./_helpers.ts#L111)
+Executes the adversity violation operation.
 
-_Property_
+**Returns:** The adversity violation result.
 
-```ts
-  readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
-```
-
-### [`createOneOnOneConversation`](./_helpers.ts#L216)
+### [`createOneOnOneConversation`](./_helpers.ts#L263)
 
 _Function_
 
@@ -79,15 +79,11 @@ export function createOneOnOneConversation(
 >
 ```
 
-### [`proxy`](./_helpers.ts#L109)
+Creates one on one conversation.
 
-_Property_
+**Returns:** The created one on one conversation.
 
-```ts
-  readonly proxy: ToxiproxyProxy;
-```
-
-### [`proxyName`](./_helpers.ts#L48)
+### [`proxyName`](./_helpers.ts#L68)
 
 _Function_
 
@@ -95,7 +91,11 @@ _Function_
 export function proxyName(prefix: string, seed: number): string
 ```
 
-### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L24)
+Executes the proxy name operation.
+
+**Returns:** The proxy name result.
+
+### [`registerLatencyResilience`](./adversity-latency-resilience.ts#L28)
 
 _Function_
 
@@ -103,7 +103,9 @@ _Function_
 export function registerLatencyResilience(ctx: ConformanceRunContext): void
 ```
 
-### [`registerResetPeerRecovery`](./adversity-reset-peer-recovery.ts#L27)
+Registers latency resilience.
+
+### [`registerResetPeerRecovery`](./adversity-reset-peer-recovery.ts#L31)
 
 _Function_
 
@@ -111,7 +113,9 @@ _Function_
 export function registerResetPeerRecovery(ctx: ConformanceRunContext): void
 ```
 
-### [`registerSlowCloseCleanup`](./adversity-slow-close-cleanup.ts#L20)
+Registers reset peer recovery.
+
+### [`registerSlowCloseCleanup`](./adversity-slow-close-cleanup.ts#L24)
 
 _Function_
 
@@ -119,7 +123,9 @@ _Function_
 export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void
 ```
 
-### [`registerTimeoutSurface`](./adversity-timeout-surface.ts#L23)
+Registers slow close cleanup.
+
+### [`registerTimeoutSurface`](./adversity-timeout-surface.ts#L27)
 
 _Function_
 
@@ -127,20 +133,22 @@ _Function_
 export function registerTimeoutSurface(ctx: ConformanceRunContext): void
 ```
 
-### [`ToxicBodyParams`](./_helpers.ts#L108)
+Registers timeout surface.
 
-_TypeAlias_
+### [`ToxicBodyParams`](./_helpers.ts#L137)
+
+_Interface_
 
 ```ts
-export type ToxicBodyParams = {
+export interface ToxicBodyParams {
   readonly proxy: ToxiproxyProxy;
   readonly unavailable: (reason: string) => PropertyUnavailable;
   readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
-};
+}
 ```
 
 Body params — `attachToxic` attaches the toxic inside the caller's
-scope. Nesting matters: the caller typically does
+scope. Nesting matters: the caller typically does.
 
 ```ts
 Effect.scoped(gen(function* () {
@@ -152,11 +160,11 @@ Effect.scoped(gen(function* () {
 }))                                                // client close OK
 ```
 
-so the toxic is removed BEFORE the agent client's socket close. Under
+So the toxic is removed BEFORE the agent client's socket close. Under
 disruptive toxics (timeout, reset_peer), this lets the WS close
 handshake flow cleanly instead of hanging on a black-holed channel.
 
-### [`TRANSPORT_PROPERTIES`](./index.ts#L31)
+### [`TRANSPORT_PROPERTIES`](./index.ts#L32)
 
 _Variable_
 
@@ -174,15 +182,7 @@ export const TRANSPORT_PROPERTIES: ReadonlyArray<
 All transport-layer property registrars, in the order
 `_shared/suite.ts` invokes them.
 
-### [`unavailable`](./_helpers.ts#L110)
-
-_Property_
-
-```ts
-  readonly unavailable: (reason: string) => PropertyUnavailable;
-```
-
-### [`withToxicProxy`](./_helpers.ts#L120)
+### [`withToxicProxy`](./_helpers.ts#L156)
 
 _Function_
 

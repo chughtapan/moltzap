@@ -18,21 +18,24 @@ import { fileURLToPath } from "node:url";
 
 /** Content-addressed identity of a MoltZap server image. */
 export type ImageDigest = string & Brand.Brand<"ImageDigest">;
-export const ImageDigest: Schema.Schema<ImageDigest, string> =
+/** Validates and decodes image digest values. */
+const imageDigestSchema: Schema.Schema<ImageDigest, string> =
   Schema.String.pipe(
     Schema.pattern(/^sha256:[0-9a-f]{64}$/u),
     Schema.brand("ImageDigest"),
   );
 
 /** Validate an image digest at a configuration boundary. */
-export const imageDigest = Schema.decodeSync(ImageDigest);
+export const imageDigest = Schema.decodeSync(imageDigestSchema);
 
 /** Port exposed by the MoltZap server image. */
 export const SERVER_CONTAINER_PORT = 3000;
 /** Bind mount containing the server's durable state. */
 export const SERVER_DATA_MOUNT = "/data";
+/** Provides the server registration secret env runtime value. */
 export const SERVER_REGISTRATION_SECRET_ENV = "MOLTZAP_REGISTRATION_SECRET";
 
+/** Provides the server command timeout runtime value. */
 export const SERVER_COMMAND_TIMEOUT = Duration.minutes(2);
 
 const LOOPBACK_HOST = "127.0.0.1";
@@ -43,8 +46,8 @@ const SERVER_IMAGE_ENV = "MOLTZAP_SIM_SERVER_IMAGE";
 const IMAGE_BUILD_SCRIPT = fileURLToPath(
   new URL("../../scripts/build-server-image.mjs", import.meta.url),
 );
-const ImagePinLine = Schema.parseJson(
-  Schema.Struct({ imageDigest: ImageDigest }),
+const imagePinLine = Schema.parseJson(
+  Schema.Struct({ imageDigest: imageDigestSchema }),
 );
 
 function failureOutput(result: {
@@ -55,30 +58,32 @@ function failureOutput(result: {
   return stderr.length > 0 ? stderr : result.stdout.trim();
 }
 
-function collectStderr(process: Process, report: boolean) {
-  return report
-    ? Stream.decodeText(process.stderr).pipe(
-        Stream.splitLines,
-        Stream.tap((line) =>
-          line.trim().length === 0
-            ? Effect.void
-            : Effect.logInfo(line).pipe(
-                Effect.annotateLogs({
-                  component: "moltzap-router",
-                  operation: "build-image",
-                }),
-              ),
-        ),
-        Stream.runCollect,
-        Effect.map((lines) => Chunk.join(lines, "\n")),
-      )
-    : Stream.mkString(Stream.decodeText(process.stderr));
+function collectReportedStderr(process: Process) {
+  return Stream.decodeText(process.stderr).pipe(
+    Stream.splitLines,
+    Stream.tap((line) =>
+      line.trim().length === 0
+        ? Effect.void
+        : Effect.logInfo(line).pipe(
+            Effect.annotateLogs({
+              component: "moltzap-router",
+              operation: "build-image",
+            }),
+          ),
+    ),
+    Stream.runCollect,
+    Effect.map((lines) => Chunk.join(lines, "\n")),
+  );
 }
 
-function collectCommand(
+function collectQuietStderr(process: Process) {
+  return Stream.mkString(Stream.decodeText(process.stderr));
+}
+
+function collectCommand<E>(
   executable: string,
   command: Command.Command,
-  reportStderr: boolean,
+  stderrCollector: (process: Process) => Effect.Effect<string, E>,
 ) {
   return Effect.scoped(
     Command.start(command).pipe(
@@ -86,7 +91,7 @@ function collectCommand(
         Effect.all(
           {
             stdout: Stream.mkString(Stream.decodeText(process.stdout)),
-            stderr: collectStderr(process, reportStderr),
+            stderr: stderrCollector(process),
             exitCode: process.exitCode,
           },
           { concurrency: 3 },
@@ -103,9 +108,17 @@ function collectCommand(
   );
 }
 
-/** Execute one bounded host command while draining both output streams. */
+/**
+ * Execute one bounded host command while draining both output streams.
+ * @param parts Value supplied to the operation.
+ * @param options Options that control the operation.
+ * @param options.timeout Value supplied to the operation.
+ * @param options.environment Value supplied to the operation.
+ * @param options.reportStderr Value supplied to the operation.
+ * @returns The run server command result.
+ */
 export function runServerCommand(
-  parts: ReadonlyArray<string>,
+  parts: readonly string[],
   options: {
     readonly timeout?: Duration.Duration;
     readonly environment?: Readonly<Record<string, string | undefined>>;
@@ -124,7 +137,7 @@ export function runServerCommand(
   return collectCommand(
     executable,
     command,
-    options.reportStderr === true,
+    options.reportStderr === true ? collectReportedStderr : collectQuietStderr,
   ).pipe(
     Effect.timeoutFail({
       duration: options.timeout ?? SERVER_COMMAND_TIMEOUT,
@@ -149,7 +162,7 @@ function buildServerImagePin(): Effect.Effect<
         `the server image could not be built: ${detail}. Pin a local image id through ${SERVER_IMAGE_ENV} to bypass the package image build`,
     ),
     Effect.flatMap((printed) =>
-      Schema.decodeUnknown(ImagePinLine)(
+      Schema.decodeUnknown(imagePinLine)(
         printed.trim().split("\n").at(-1) ?? "",
       ).pipe(
         Effect.mapError(
@@ -162,9 +175,13 @@ function buildServerImagePin(): Effect.Effect<
   );
 }
 
-/** Resolve an explicit or configured content-addressed server image. */
+/**
+ * Resolve an explicit or configured content-addressed server image.
+ * @param image Value supplied to the operation.
+ * @returns The resolve server image result.
+ */
 export function resolveServerImage(
-  image: ImageDigest | undefined,
+  image?: ImageDigest,
 ): Effect.Effect<ImageDigest, string, CommandExecutor> {
   if (image !== undefined) {
     return Effect.succeed(image);
@@ -175,7 +192,7 @@ export function resolveServerImage(
     Effect.flatMap((pinned) =>
       pinned.length === 0
         ? buildServerImagePin()
-        : Schema.decodeUnknown(ImageDigest)(pinned).pipe(
+        : Schema.decodeUnknown(imageDigestSchema)(pinned).pipe(
             Effect.mapError(
               () =>
                 `${SERVER_IMAGE_ENV}="${pinned}" is not an image digest (sha256:…)`,
@@ -185,12 +202,18 @@ export function resolveServerImage(
   );
 }
 
-/** Docker arguments for one isolated MoltZap server. */
+/**
+ * Docker arguments for one isolated MoltZap server.
+ * @param image Value supplied to the operation.
+ * @param volumePath Value supplied to the operation.
+ * @param containerName Value supplied to the operation.
+ * @returns The molt zap server run args result.
+ */
 export function moltZapServerRunArgs(
   image: string,
   volumePath: string,
   containerName: string,
-): ReadonlyArray<string> {
+): readonly string[] {
   return [
     "docker",
     "run",

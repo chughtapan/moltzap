@@ -1,6 +1,6 @@
 /** @file Single-ingress endpoint observation and ordered delivery. */
 
-import { AgentName } from "@moltzap/protocol/identity";
+import { agentName } from "@moltzap/protocol/identity";
 import {
   Cache,
   Cause,
@@ -20,13 +20,13 @@ import {
 } from "effect";
 import {
   ConversationOpened,
-  EndpointEvents,
+  type endpointEvents,
   EndpointMessageReceived,
   EndpointMessageSent,
 } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/live.js";
 import {
-  Endpoint,
+  type Endpoint,
   makeEndpoint,
   type EndpointInbox,
   type NetworkService,
@@ -42,12 +42,12 @@ import {
 } from "../network/router.js";
 
 type DeliveryMailbox = Mailbox.Mailbox<ReceivedMessage, NetworkFailure>;
-type EndpointEventWriter = LedgerWriter<typeof EndpointEvents>;
+type EndpointEventWriter = LedgerWriter<typeof endpointEvents>;
 type EndpointCache = Cache.Cache<string, Exit.Exit<Endpoint, NetworkFailure>>;
 
 interface InboxState {
   readonly conversations: ReadonlyMap<string, DeliveryMailbox>;
-  readonly exit: Exit.Exit<void, NetworkFailure> | undefined;
+  readonly exit?: Exit.Exit<void, NetworkFailure>;
 }
 
 interface InboxRuntime {
@@ -237,7 +237,7 @@ function makeInbox<Name extends string>(
       }),
       transition: yield* Effect.makeSemaphore(1),
     };
-    const ingressStarted = yield* Deferred.make<void>();
+    const ingressStarted = yield* Deferred.make<undefined>();
     const received = attachment.transport.received.pipe(
       Stream.onStart(Deferred.succeed(ingressStarted, undefined)),
     );
@@ -334,7 +334,7 @@ function acquireEndpoint(
   runScope: Scope.Scope,
   name: string,
 ): Effect.Effect<Exit.Exit<Endpoint, NetworkFailure>> {
-  const acquire = Schema.decodeUnknown(AgentName)(name).pipe(
+  const acquire = Schema.decodeUnknown(agentName)(name).pipe(
     Effect.mapError((cause) => networkFailure("attach-endpoint", cause)),
     Effect.flatMap((agentName) => router.attachEndpoint(name, agentName)),
     Effect.flatMap((attachment) => observeAttachment(attachment, writer)),
@@ -360,16 +360,23 @@ function cachedEndpoint<const Name extends string>(
   endpoints: EndpointCache,
   name: Name,
 ): Effect.Effect<Endpoint<Name>, NetworkFailure> {
-  return Effect.uninterruptibleMask((restore) =>
-    restore(endpoints.get(name)).pipe(
-      Effect.flatMap((exit) =>
-        endpoints.invalidateWhen(name, Exit.isFailure).pipe(Effect.as(exit)),
+  return /* Safe because the surrounding invariant establishes this asserted shape. */ Effect.uninterruptibleMask(
+    (restore) =>
+      restore(endpoints.get(name)).pipe(
+        Effect.flatMap((exit) =>
+          endpoints.invalidateWhen(name, Exit.isFailure).pipe(Effect.as(exit)),
+        ),
+        Effect.flatten,
       ),
-      Effect.flatten,
-    ),
   ) as Effect.Effect<Endpoint<Name>, NetworkFailure>;
 }
 
+/**
+ * Creates network service.
+ * @param router Value supplied to the operation.
+ * @param writer Value supplied to the operation.
+ * @returns The created network service.
+ */
 export function makeNetworkService(
   router: Router,
   writer: EndpointEventWriter,

@@ -7,7 +7,7 @@
  * ChannelPlugin shape expected by OpenClaw's api.registerChannel().
  *
  * Installed via: openclaw plugin install `@moltzap/openclaw-channel`
- * Config:        channels.moltzap.accounts[].{id, agentName}
+ * Config:        channels.moltzap.accounts[].{id, agentName}.
  *
  * OpenClaw's plugin interface imposes Promise-based contracts at the boundary
  * (`startAccount`, `sendText`, `deliver`, `listPeers`, `listGroups`, etc.) —
@@ -42,17 +42,18 @@ import {
   writeOpenClawContextLog,
   type OpenClawContextLogInput,
 } from "./context-log.js";
-import { AgentsList } from "@moltzap/protocol/identity";
+import { agentsList } from "@moltzap/protocol/identity";
 import {
-  ConversationId,
-  ConversationList,
-  MessageId,
+  type ConversationId,
+  conversationId,
+  conversationList,
+  messageId,
 } from "@moltzap/protocol/conversation";
 import type { ResultOf } from "@moltzap/protocol/rpc";
-import { TaskClosedError, TaskId } from "@moltzap/protocol/task";
+import { TaskClosedError, type TaskId, taskId } from "@moltzap/protocol/task";
 import type { LeaseId } from "@moltzap/protocol/message/dispatch";
 
-const CHANNEL_ID = "moltzap" as const;
+const CHANNEL_ID = "moltzap";
 const TARGET_PREFIX_AGENT = "agent:";
 const TARGET_PREFIX_TASK = "task:";
 const INBOUND_LOG_PREVIEW_CHARS = 80;
@@ -60,7 +61,7 @@ const BODY_FOR_AGENT_LOG_PREVIEW_CHARS = 500;
 const OUTBOUND_LOG_PREVIEW_CHARS = 80;
 
 const MOLTZAP_TARGET_RE = /^(agent:.+|task:[^:]+:.+)$/;
-const OpenClawContextLogDir = Config.option(
+const openClawContextLogDir = Config.option(
   Config.string("MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR"),
 );
 
@@ -71,7 +72,7 @@ function isMoltZapTarget(raw: string): boolean {
 function readOpenClawContextLogDir(): string | undefined {
   return Option.getOrUndefined(
     Effect.runSync(
-      OpenClawContextLogDir.pipe(
+      openClawContextLogDir.pipe(
         Effect.withConfigProvider(ConfigProvider.fromEnv()),
       ),
     ),
@@ -100,7 +101,7 @@ class MoltZapAgentTargetUnsupportedError extends Data.TaggedError(
 
 class MoltZapAccountProfileMissingError extends Data.TaggedError(
   "MoltZapAccountProfileMissingError",
-)<{}> {
+)<Record<never, never>> {
   override get message(): string {
     return "MoltZap OpenClaw account id is required and must name a MoltZap profile";
   }
@@ -111,7 +112,7 @@ class OpenClawTargetResolved extends Data.TaggedClass(
 )<{
   readonly to: string;
 }> {
-  readonly ok = true as const;
+  readonly ok = true;
 }
 
 class OpenClawTargetRejected extends Data.TaggedClass(
@@ -119,7 +120,7 @@ class OpenClawTargetRejected extends Data.TaggedClass(
 )<{
   readonly error: Error;
 }> {
-  readonly ok = false as const;
+  readonly ok = false;
 }
 
 type OpenClawTargetResolveResult =
@@ -128,8 +129,8 @@ type OpenClawTargetResolveResult =
 
 class OpenClawSendTextSuccess extends Data.TaggedClass(
   "OpenClawSendTextSuccess",
-)<{}> {
-  readonly ok = true as const;
+)<Record<never, never>> {
+  readonly ok = true;
 }
 
 class OpenClawSendTextFailure extends Data.TaggedClass(
@@ -137,13 +138,13 @@ class OpenClawSendTextFailure extends Data.TaggedClass(
 )<{
   readonly error: Error;
 }> {
-  readonly ok = false as const;
+  readonly ok = false;
 }
 
 function logContextLogWriteFailure(
-  log: OpenClawLogger | undefined,
   error: unknown,
-): Effect.Effect<void, never> {
+  log?: OpenClawLogger,
+): Effect.Effect<void> {
   return Effect.sync(() => {
     log?.warn?.(
       `MoltZap: failed to write OpenClaw context log: ${error instanceof Error ? error.message : String(error)}`,
@@ -152,48 +153,50 @@ function logContextLogWriteFailure(
 }
 
 function writeContextLogOrWarn(
-  log: OpenClawLogger | undefined,
   input: OpenClawContextLogInput,
-): Effect.Effect<void, never> {
+  log?: OpenClawLogger,
+): Effect.Effect<void> {
   return writeOpenClawContextLog(input).pipe(
-    Effect.catchAll((error) => logContextLogWriteFailure(log, error)),
+    Effect.catchAll((error) => logContextLogWriteFailure(error, log)),
   );
 }
 
-const MoltZapAccountSchema = Schema.Struct({
+const moltZapAccountSchema = Schema.Struct({
   id: Schema.String,
   agentName: Schema.optional(Schema.String),
   enabled: Schema.optional(Schema.Boolean),
 });
 
-type MoltZapAccount = Schema.Schema.Type<typeof MoltZapAccountSchema>;
+type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
 
-const MoltZapChannelConfigSchema = Schema.Struct({
-  accounts: Schema.optional(Schema.Array(MoltZapAccountSchema)),
+const moltZapChannelConfigSchema = Schema.Struct({
+  accounts: Schema.optional(Schema.Array(moltZapAccountSchema)),
 });
 
 /**
  * The drift test consumes this projection because OpenClaw reads the manifest
  * from disk.
  * @internal
+ * @returns The created molt zap channel config json schema.
  */
 export const makeMoltZapChannelConfigJsonSchema = () =>
-  JSONSchema.make(MoltZapChannelConfigSchema);
+  JSONSchema.make(moltZapChannelConfigSchema);
 
-type OpenClawConfig = Record<string, unknown> & {
-  channels?: {
-    moltzap?: {
-      accounts?: ReadonlyArray<MoltZapAccount>;
+interface OpenClawConfig {
+  readonly [key: string]: unknown;
+  readonly channels?: {
+    readonly moltzap?: {
+      readonly accounts?: readonly MoltZapAccount[];
     };
   };
-};
+}
 
-type OpenClawLogger = {
+interface OpenClawLogger {
   info?: (...args: unknown[]) => void;
   warn?: (...args: unknown[]) => void;
   error?: (...args: unknown[]) => void;
   debug?: (...args: unknown[]) => void;
-};
+}
 
 type OpenClawDeliver = (
   payload: { text?: string; body?: string },
@@ -206,7 +209,7 @@ type OpenClawReplyDispatcher = (params: {
   dispatcherOptions: { deliver: OpenClawDeliver };
 }) => PromiseLike<{ queuedFinal: boolean }>;
 
-type OpenClawStartAccountContext = {
+interface OpenClawStartAccountContext {
   cfg: OpenClawConfig;
   accountId: string;
   account: MoltZapAccount;
@@ -218,12 +221,12 @@ type OpenClawStartAccountContext = {
       dispatchReplyWithBufferedBlockDispatcher?: OpenClawReplyDispatcher;
     };
   };
-};
+}
 
-type OpenClawStopAccountContext = {
+interface OpenClawStopAccountContext {
   accountId: string;
   log?: Pick<OpenClawLogger, "info">;
-};
+}
 
 interface InboundDispatchInput {
   readonly accountId: string;
@@ -232,8 +235,8 @@ interface InboundDispatchInput {
   readonly chatType: "direct" | "group";
   readonly fromId: string;
   readonly bodyForAgent: string;
-  readonly groupMembers: string | undefined;
-  readonly groupSubject: string | undefined;
+  readonly groupMembers?: string;
+  readonly groupSubject?: string;
   readonly enriched: EnrichedInboundMessage;
 }
 
@@ -289,9 +292,9 @@ interface InboundHandlerParams {
   readonly ctx: OpenClawStartAccountContext;
   readonly core: MoltZapChannelCore;
   readonly service: OpenClawClientService;
-  readonly contextLogDir: string | undefined;
+  readonly contextLogDir?: string;
   readonly enriched: EnrichedInboundMessage;
-  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
 }
 
 interface InboundRuntimeData {
@@ -300,16 +303,16 @@ interface InboundRuntimeData {
   readonly crossConvBlock: string | null;
   readonly crossConversationMessages: readonly CrossConvMessage[];
   readonly bodyForAgent: string;
-  readonly groupSubject: string | undefined;
-  readonly groupMembers: string | undefined;
+  readonly groupSubject?: string;
+  readonly groupMembers?: string;
 }
 
-function resolveAccountList(
-  cfg: OpenClawConfig,
-): ReadonlyArray<MoltZapAccount> {
+function resolveAccountList(cfg: OpenClawConfig): readonly MoltZapAccount[] {
   const section = cfg.channels?.moltzap;
-  if (!section) return [];
-  return Array.isArray(section.accounts) ? section.accounts : [];
+  if (!section) {
+    return [];
+  }
+  return section.accounts ?? [];
 }
 
 function resolveAccount(
@@ -332,20 +335,28 @@ function resolveAccount(
  * Wait for an AbortSignal to fire, as an Effect. Completes synchronously if
  * the signal is already aborted; otherwise registers a one-shot `abort`
  * listener and resolves when it fires.
+ * @param signal Value supplied to the operation.
+ * @returns The log outbound reply result.
  */
 const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
-  Effect.async<void>((resume) => {
+  Effect.async<undefined>((resume) => {
     if (signal.aborted) {
-      resume(Effect.void);
+      resume(Effect.succeed(undefined));
       return;
     }
-    signal.addEventListener("abort", () => resume(Effect.void), { once: true });
+    signal.addEventListener(
+      "abort",
+      () => {
+        resume(Effect.succeed(undefined));
+      },
+      { once: true },
+    );
   });
 
 function logOutboundReply(
-  log: OpenClawLogger | undefined,
   conversationId: string,
   text: string,
+  log?: OpenClawLogger,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     log?.info?.(
@@ -359,9 +370,9 @@ function isTaskClosedRpcError(err: unknown): err is TaskClosedError {
 }
 
 function handleReplyFailure(
-  log: OpenClawLogger | undefined,
   conversationId: string,
   err: unknown,
+  log?: OpenClawLogger,
 ): Effect.Effect<boolean> {
   return Effect.sync(() => {
     if (isTaskClosedRpcError(err)) {
@@ -385,9 +396,9 @@ function sendDeliveredReply(params: {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly text: string;
-  readonly leaseId: LeaseId | undefined;
-  readonly log: OpenClawLogger | undefined;
-  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+  readonly leaseId?: LeaseId;
+  readonly log?: OpenClawLogger;
+  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
   readonly guard: LeaseGuard;
 }): Effect.Effect<boolean> {
   return params.core
@@ -408,7 +419,7 @@ function sendDeliveredReply(params: {
       // retried deliver call still exercises the lease.
       Effect.tap(() => params.guard.consume()),
       Effect.tap(() =>
-        logOutboundReply(params.log, params.conversationId, params.text),
+        logOutboundReply(params.conversationId, params.text, params.log),
       ),
       Effect.map(() => true),
       Effect.catchAll((err) =>
@@ -423,9 +434,9 @@ function sendDeliveredReply(params: {
 }
 
 interface HandleDeliverFailureParams {
-  readonly log: OpenClawLogger | undefined;
+  readonly log?: OpenClawLogger;
   readonly conversationId: string;
-  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
   readonly err: unknown;
 }
 
@@ -444,14 +455,14 @@ function handleDeliverFailure(
       return false;
     });
   }
-  return handleReplyFailure(log, conversationId, err);
+  return handleReplyFailure(conversationId, err, log);
 }
 
 function createLeaseConsumingDeliver(params: {
   readonly core: MoltZapChannelCore;
   readonly enriched: EnrichedInboundMessage;
-  readonly log: OpenClawLogger | undefined;
-  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+  readonly log?: OpenClawLogger;
+  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
 }): OpenClawDeliver {
   // One LeaseGuard per inbound message: stamped exactly once, on the FIRST
   // successful `core.sendReply`.
@@ -463,9 +474,13 @@ function createLeaseConsumingDeliver(params: {
   // guard unconsumed, and a retried deliver call still exercises the lease.
   const guard = new LeaseGuard();
   return (payload, info) => {
-    if (info?.kind !== "final") return Promise.resolve(true);
+    if (info?.kind !== "final") {
+      return Promise.resolve(true);
+    }
     const text = payload.text ?? payload.body;
-    if (!text) return Promise.resolve(true);
+    if (!text) {
+      return Promise.resolve(true);
+    }
     return Effect.runPromise(
       Effect.gen(function* () {
         const stamped = yield* guard.consumedAt;
@@ -515,8 +530,8 @@ function buildInboundDispatchContext(
 }
 
 function logDispatchError(
-  log: OpenClawLogger | undefined,
   err: unknown,
+  log?: OpenClawLogger,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     log?.error?.(`MoltZap: dispatch error: ${err}`);
@@ -527,8 +542,8 @@ function dispatchInboundReply(params: {
   readonly dispatch: OpenClawReplyDispatcher;
   readonly input: InboundDispatchInput;
   readonly core: MoltZapChannelCore;
-  readonly log: OpenClawLogger | undefined;
-  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+  readonly log?: OpenClawLogger;
+  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
 }): Effect.Effect<{ queuedFinal: boolean }, unknown> {
   return Effect.tryPromise({
     try: () =>
@@ -545,7 +560,7 @@ function dispatchInboundReply(params: {
         },
       }),
     catch: (err: unknown) => err,
-  }).pipe(Effect.tapError((err) => logDispatchError(params.log, err)));
+  }).pipe(Effect.tapError((err) => logDispatchError(err, params.log)));
 }
 
 function disconnectCoreOnAbort(
@@ -585,7 +600,9 @@ function createMessagingSection() {
       hint: 'Use "agent:<name>" for DMs or "task:<taskId>:<conversationId>" for existing conversations',
       resolveTarget(params: OpenClawResolveTargetParams) {
         const { normalized } = params;
-        if (!isMoltZapTarget(normalized)) return Promise.resolve(null);
+        if (!isMoltZapTarget(normalized)) {
+          return Promise.resolve(null);
+        }
         const kind = normalized.startsWith(TARGET_PREFIX_TASK)
           ? ("group" as const)
           : ("user" as const);
@@ -629,10 +646,10 @@ function getActiveService(
       ? undefined
       : { accountId: requested, service };
   }
-  if (activeClients.size !== 1) return undefined;
-  const first = activeClients.entries().next().value as
-    | [string, OpenClawClientService]
-    | undefined;
+  if (activeClients.size !== 1) {
+    return undefined;
+  }
+  const first = activeClients.entries().next().value;
   return first === undefined
     ? undefined
     : { accountId: first[0], service: first[1] };
@@ -644,7 +661,9 @@ function listPeersEffect(
 ) {
   return Effect.gen(function* () {
     const active = getActiveService(activeClients, params.accountId);
-    if (!active?.service.callDefinition) return [];
+    if (!active?.service.callDefinition) {
+      return [];
+    }
     // `service.callDefinition` is a prototype method reading `this.client` inside
     // `Effect.suspend`; passed as a bare reference its receiver is stripped,
     // so the suspend thunk dies with a `this`-undefined TypeError that
@@ -654,12 +673,12 @@ function listPeersEffect(
     // Drain ALL visible-agent pages so every peer in the directory resolves.
     const agents = yield* drainPaginatedList<
       ServiceRpcError,
-      typeof AgentsList,
-      ResultOf<typeof AgentsList>["agents"][number],
-      NonNullable<ResultOf<typeof AgentsList>["nextCursor"]>
+      typeof agentsList,
+      ResultOf<typeof agentsList>["agents"][number],
+      NonNullable<ResultOf<typeof agentsList>["nextCursor"]>
     >({
       sendRpc,
-      definition: AgentsList,
+      definition: agentsList,
       paramsForCursor: (cursor) => (cursor === undefined ? {} : { cursor }),
       rowsForPage: (page) => page.agents,
       nextCursorForPage: (page) => page.nextCursor,
@@ -681,18 +700,20 @@ function listGroupsEffect(
 ) {
   return Effect.gen(function* () {
     const active = getActiveService(activeClients, params.accountId);
-    if (!active?.service.callDefinition) return [];
+    if (!active?.service.callDefinition) {
+      return [];
+    }
     // Bind so the drain consumer keeps the service receiver (see listPeersEffect).
     const sendRpc = active.service.callDefinition.bind(active.service);
     // Drain ALL conversation pages so named groups past the first page resolve.
     const items = yield* drainPaginatedList<
       ServiceRpcError,
-      typeof ConversationList,
-      ResultOf<typeof ConversationList>["items"][number],
-      NonNullable<ResultOf<typeof ConversationList>["nextCursor"]>
+      typeof conversationList,
+      ResultOf<typeof conversationList>["items"][number],
+      NonNullable<ResultOf<typeof conversationList>["nextCursor"]>
     >({
       sendRpc,
-      definition: ConversationList,
+      definition: conversationList,
       paramsForCursor: (cursor) => (cursor === undefined ? {} : { cursor }),
       rowsForPage: (page) => page.items,
       nextCursorForPage: (page) => page.nextCursor,
@@ -701,7 +722,8 @@ function listGroupsEffect(
       .filter((item) => isNamedGroup(item.conversation))
       .map((item) => ({
         id: `task:${item.taskId}:${item.conversation.id}`,
-        name: item.conversation.name!,
+        name: /* Safe because the surrounding invariant establishes this asserted shape. */ item
+          .conversation.name!,
         kind: "group" as const,
       }));
   }).pipe(
@@ -791,7 +813,9 @@ function startGatewayAccountEffect(
     }
     abortSignal.addEventListener(
       "abort",
-      () => disconnectCoreOnAbort(core, activeClients, accountId),
+      () => {
+        disconnectCoreOnAbort(core, activeClients, accountId);
+      },
       { once: true },
     );
     yield* connectGatewayCore(core, service, ctx, setStatus);
@@ -813,7 +837,9 @@ function createGatewayCore(
   service: OpenClawClientService,
   deps: MoltzapChannelPluginDeps,
 ): MoltZapChannelCore {
-  if (deps.createCore) return deps.createCore(service);
+  if (deps.createCore) {
+    return deps.createCore(service);
+  }
   return new MoltZapChannelCore({ service });
 }
 
@@ -831,8 +857,8 @@ interface RegisterInboundHandlerParams {
   readonly core: MoltZapChannelCore;
   readonly ctx: OpenClawStartAccountContext;
   readonly service: OpenClawClientService;
-  readonly contextLogDir: string | undefined;
-  readonly onLeaseConsumed: ((err: LeaseAlreadyConsumed) => void) | undefined;
+  readonly contextLogDir?: string;
+  readonly onLeaseConsumed?: (err: LeaseAlreadyConsumed) => void;
 }
 
 function registerInboundHandler(params: RegisterInboundHandlerParams): void {
@@ -851,15 +877,15 @@ function registerInboundHandler(params: RegisterInboundHandlerParams): void {
 function handleInboundMessage(params: InboundHandlerParams) {
   return Effect.gen(function* () {
     const data = inboundRuntimeData(params.enriched, params.service);
-    logInboundMessage(params.ctx.log, params.enriched, data.fromId);
+    logInboundMessage(params.enriched, data.fromId, params.ctx.log);
     touchInboundStatus(params.ctx);
     yield* writeInboundContextLog(params, data);
-    logCrossConversationContext(params.ctx.log, params.enriched, data);
+    logCrossConversationContext(params.enriched, data, params.ctx.log);
     const dispatch =
       params.ctx.channelRuntime?.reply
         ?.dispatchReplyWithBufferedBlockDispatcher;
     if (!dispatch) {
-      logMissingDispatcher(params.ctx.log, params.enriched.conversationId);
+      logMissingDispatcher(params.enriched.conversationId, params.ctx.log);
       return;
     }
     const result = yield* dispatchInboundReply({
@@ -869,8 +895,8 @@ function handleInboundMessage(params: InboundHandlerParams) {
       log: params.ctx.log,
       onLeaseConsumed: params.onLeaseConsumed,
     });
-    logDispatchFinished(params.ctx.log, params.enriched);
-    logUnqueuedDispatch(params.ctx.log, params.enriched, result);
+    logDispatchFinished(params.enriched, params.ctx.log);
+    logUnqueuedDispatch(params.enriched, result, params.ctx.log);
   });
 }
 
@@ -910,14 +936,16 @@ function bodyForAgent(text: string, crossConvBlock: string | null): string {
 // shape). Channel-base's `getGroupFields` provides the narrowing; this helper
 // does the openclaw-side join.
 function groupMembersFor(fields: GroupFields | null): string | undefined {
-  if (fields === null) return undefined;
+  if (fields === null) {
+    return undefined;
+  }
   return fields.participants.join(",");
 }
 
 function logInboundMessage(
-  log: OpenClawLogger | undefined,
   enriched: EnrichedInboundMessage,
   fromId: string,
+  log?: OpenClawLogger,
 ): void {
   log?.info?.(
     `MoltZap: inbound from ${fromId}: ${enriched.text.slice(0, INBOUND_LOG_PREVIEW_CHARS)}`,
@@ -936,36 +964,41 @@ function writeInboundContextLog(
   params: InboundHandlerParams,
   data: InboundRuntimeData,
 ) {
-  return writeContextLogOrWarn(params.ctx.log, {
-    logDir: params.contextLogDir,
-    accountId: params.ctx.accountId,
-    accountAgentName: params.ctx.account.agentName,
-    ownAgentId: params.service.ownAgentId,
-    conversationId: params.enriched.conversationId,
-    conversationName: params.enriched.conversationMeta?.name,
-    conversationType: data.chatType,
-    from: data.fromId,
-    to: params.ctx.account.agentName ?? params.ctx.accountId,
-    body: params.enriched.text,
-    bodyForAgent: data.bodyForAgent,
-    crossConversationMessages: data.crossConversationMessages,
-  });
+  return writeContextLogOrWarn(
+    {
+      logDir: params.contextLogDir,
+      accountId: params.ctx.accountId,
+      accountAgentName: params.ctx.account.agentName,
+      ownAgentId: params.service.ownAgentId,
+      conversationId: params.enriched.conversationId,
+      conversationName: params.enriched.conversationMeta?.name,
+      conversationType: data.chatType,
+      from: data.fromId,
+      to: params.ctx.account.agentName ?? params.ctx.accountId,
+      body: params.enriched.text,
+      bodyForAgent: data.bodyForAgent,
+      crossConversationMessages: data.crossConversationMessages,
+    },
+    params.ctx.log,
+  );
 }
 
 function logCrossConversationContext(
-  log: OpenClawLogger | undefined,
   enriched: EnrichedInboundMessage,
   data: InboundRuntimeData,
+  log?: OpenClawLogger,
 ): void {
-  if (!data.crossConvBlock) return;
+  if (!data.crossConvBlock) {
+    return;
+  }
   log?.info?.(
     `MoltZap: BodyForAgent has cross-conv context (${data.crossConversationMessages.length} msgs) for ${enriched.conversationId}: ${data.bodyForAgent.slice(0, BODY_FOR_AGENT_LOG_PREVIEW_CHARS)}`,
   );
 }
 
 function logMissingDispatcher(
-  log: OpenClawLogger | undefined,
   conversationId: string,
+  log?: OpenClawLogger,
 ): void {
   log?.warn?.(`MoltZap: no OpenClaw reply dispatcher for ${conversationId}`);
 }
@@ -989,8 +1022,8 @@ function inboundDispatchInput(
 }
 
 function logDispatchFinished(
-  log: OpenClawLogger | undefined,
   enriched: EnrichedInboundMessage,
+  log?: OpenClawLogger,
 ): void {
   log?.info?.(
     `MoltZap: dispatch finished for ${enriched.conversationId} message ${enriched.id}`,
@@ -998,11 +1031,13 @@ function logDispatchFinished(
 }
 
 function logUnqueuedDispatch(
-  log: OpenClawLogger | undefined,
   enriched: EnrichedInboundMessage,
   result: { readonly queuedFinal: boolean },
+  log?: OpenClawLogger,
 ): void {
-  if (result.queuedFinal) return;
+  if (result.queuedFinal) {
+    return;
+  }
   log?.debug?.(
     `MoltZap: dispatch completed without final reply for ${enriched.conversationId}`,
   );
@@ -1031,7 +1066,7 @@ function connectGatewayCore(
   return core.connect().pipe(
     Effect.tap(() => reportConnected(service, ctx, setStatus)),
     Effect.zipRight(waitForAbort(ctx.abortSignal)),
-    Effect.catchAll((err) => logConnectionFailure(ctx.log, err)),
+    Effect.catchAll((err) => logConnectionFailure(err, ctx.log)),
   );
 }
 
@@ -1052,7 +1087,7 @@ function reportConnected(
   });
 }
 
-function logConnectionFailure(log: OpenClawLogger | undefined, err: unknown) {
+function logConnectionFailure(err: unknown, log?: OpenClawLogger) {
   return Effect.sync(() => {
     log?.error?.(`MoltZap: connection failed: ${err}`);
   }).pipe(Effect.zipRight(Effect.fail(err)));
@@ -1068,7 +1103,7 @@ function stopGatewayAccount(
     service.close();
     activeClients.delete(ctx.accountId);
   }
-  return Promise.resolve();
+  return Promise.resolve(undefined);
 }
 
 function createOutboundSection(
@@ -1096,7 +1131,7 @@ function createOutboundSection(
   };
 }
 
-function resolveOutboundTarget(toInput: string | undefined) {
+function resolveOutboundTarget(toInput?: string) {
   const to = toInput?.trim();
   if (!to) {
     return new OpenClawTargetRejected({
@@ -1136,8 +1171,8 @@ function parseTaskTarget(
   }
   return Effect.try({
     try: () => ({
-      taskId: Schema.decodeUnknownSync(TaskId)(body.slice(0, sep)),
-      conversationId: Schema.decodeUnknownSync(ConversationId)(
+      taskId: Schema.decodeUnknownSync(taskId)(body.slice(0, sep)),
+      conversationId: Schema.decodeUnknownSync(conversationId)(
         body.slice(sep + 1),
       ),
     }),
@@ -1173,7 +1208,7 @@ function dispatchOutbound(
       parsed.conversationId,
       ctx.text,
       ctx.replyToId !== undefined
-        ? { replyTo: Schema.decodeUnknownSync(MessageId)(ctx.replyToId) }
+        ? { replyTo: Schema.decodeUnknownSync(messageId)(ctx.replyToId) }
         : {},
     );
   });
@@ -1255,6 +1290,8 @@ function sendTextEffect(
  * `resolveTarget` accepts `agent:&lt;name>` (DM with named agent) and
  * `task:&lt;taskId>:&lt;conversationId>` (existing conversation). A target
  * containing `:` in any other shape is rejected.
+ * @param deps Value supplied to the operation.
+ * @returns The created moltzap channel plugin.
  */
 export function createMoltzapChannelPlugin(
   deps: MoltzapChannelPluginDeps = {},
@@ -1273,6 +1310,7 @@ export function createMoltzapChannelPlugin(
   };
 }
 
+/** Represents moltzap channel plugin values. */
 export type MoltzapChannelPlugin = ReturnType<
   typeof createMoltzapChannelPlugin
 >;
@@ -1297,4 +1335,7 @@ const plugin = {
   },
 };
 
+// eslint-disable-next-line import-x/no-default-export -- OpenClaw discovers channel plugins through a required default module export.
 export default plugin;
+
+/* eslint-enable jsdoc/text-escaping -- Restore strict defaults after the scoped file-level exception. */

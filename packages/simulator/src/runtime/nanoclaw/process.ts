@@ -2,7 +2,12 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { execPath } from "node:process";
-import { Command, FileSystem, HttpClient, Path } from "@effect/platform";
+import {
+  Command,
+  FileSystem,
+  type HttpClient,
+  type Path,
+} from "@effect/platform";
 import type {
   CommandExecutor,
   ExitCode,
@@ -16,7 +21,7 @@ import {
   Duration,
   Effect,
   Exit,
-  Fiber,
+  type Fiber,
   Option,
   Scope,
   Stream,
@@ -26,11 +31,11 @@ import {
   SIMULATOR_PROFILE_NAME,
   writeMoltZapProfileConfig,
 } from "../workspace.js";
-import { type NanoclawRuntimeInstall } from "./install.js";
+import type { NanoclawRuntimeInstall } from "./install.js";
 import { MOLTZAP_SIMULATOR_CACHE_ROOT } from "../cache.js";
 import {
   type BaseChildEnvironment,
-  BaseChildEnvironmentConfig,
+  baseChildEnvironmentConfig,
   BoundedLogBuffer,
   escalatingKill,
   makeExactEnvironmentCommand,
@@ -50,8 +55,10 @@ const DOCKER_COMMAND = "docker";
 const NANOCLAW_DOCKER_COMMAND_TIMEOUT_MS = 10_000;
 const NANOCLAW_EVAL_PROVISION_TIMEOUT_MS = 30_000;
 const NANOCLAW_EVAL_PROVISION_ENTRYPOINT = "dist/moltzap-eval-provision.js";
+/** Provides the nanoclaw eval agent group id runtime value. */
 export const NANOCLAW_EVAL_AGENT_GROUP_ID = "eval-agent";
 
+/** Describes nanoclaw runtime handle. */
 export interface NanoclawRuntimeHandle {
   proc: Process;
   scope: Scope.CloseableScope;
@@ -77,14 +84,15 @@ interface StartNanoclawRuntimeOptions {
   mcpServers?: ReadonlyArray<{
     readonly name: string;
     readonly command: string;
-    readonly args: ReadonlyArray<string>;
+    readonly args: readonly string[];
     readonly env: Readonly<Record<string, string>>;
   }>;
 }
 
+/** Describes nanoclaw process plan. */
 export interface NanoclawProcessPlan {
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
 }
@@ -141,7 +149,9 @@ function sweepStaleRuntimeDirs() {
   return FileSystem.FileSystem.pipe(
     Effect.flatMap((fileSystem) =>
       Effect.gen(function* () {
-        if (!(yield* fileSystem.exists(NANOCLAW_RUNTIME_DIR_ROOT))) return;
+        if (!(yield* fileSystem.exists(NANOCLAW_RUNTIME_DIR_ROOT))) {
+          return;
+        }
         const entries = yield* fileSystem.readDirectory(
           NANOCLAW_RUNTIME_DIR_ROOT,
         );
@@ -263,7 +273,11 @@ function buildNanoclawChildEnvironment(
   };
 }
 
-/** The simulator's per-agent model and MCP mounts, as the env pairs the eval provisioner materializes into the container config. */
+/**
+ * The simulator's per-agent model and MCP mounts, as the env pairs the eval provisioner materializes into the container config.
+ * @param opts Value supplied to the operation.
+ * @returns The created container defaults environment.
+ */
 function buildContainerDefaultsEnvironment(
   opts: StartNanoclawRuntimeOptions,
 ): Readonly<Record<string, string>> {
@@ -290,6 +304,14 @@ function buildContainerDefaultsEnvironment(
   };
 }
 
+/**
+ * Creates nanoclaw process plan.
+ * @param opts Value supplied to the operation.
+ * @param runtimeDir Value supplied to the operation.
+ * @param install Value supplied to the operation.
+ * @param baseEnvironment Value supplied to the operation.
+ * @returns The created nanoclaw process plan.
+ */
 export function buildNanoclawProcessPlan(
   opts: StartNanoclawRuntimeOptions,
   runtimeDir: string,
@@ -318,7 +340,12 @@ export function buildNanoclawProcessPlan(
  * plan: the provisioner applies `MOLTZAP_AGENT_MODEL` /
  * `MOLTZAP_MCP_SERVERS` to the seeded container-config row before the
  * first container spawn reads it.
+ * @param opts Value supplied to the operation.
+ * @param runtimeDir Value supplied to the operation.
+ * @param install Value supplied to the operation.
+ * @param baseEnvironment Value supplied to the operation.
  * @internal
+ * @returns The created nanoclaw eval provision plan.
  */
 export function buildNanoclawEvalProvisionPlan(
   opts: StartNanoclawRuntimeOptions,
@@ -352,7 +379,7 @@ function makeNanoclawCommand(
   runtimeDir: string,
   install: NanoclawRuntimeInstall,
 ) {
-  return BaseChildEnvironmentConfig.pipe(
+  return baseChildEnvironmentConfig.pipe(
     Effect.map((baseEnvironment) =>
       makeExactEnvironmentCommand({
         ...buildNanoclawProcessPlan(opts, runtimeDir, install, baseEnvironment),
@@ -367,8 +394,10 @@ function provisionNanoclawEvalAgent(
   runtimeDir: string,
   install: NanoclawRuntimeInstall,
 ) {
-  if (!opts.autoRegisterConversations) return Effect.void;
-  return BaseChildEnvironmentConfig.pipe(
+  if (!opts.autoRegisterConversations) {
+    return Effect.void;
+  }
+  return baseChildEnvironmentConfig.pipe(
     Effect.map((baseEnvironment) => {
       // One-shot provisioner: it writes sqlite and exits, so the inherited
       // operator environment is harmless and the exact-environment launcher
@@ -488,6 +517,12 @@ function startConfiguredNanoclawRuntime(
   });
 }
 
+/**
+ * Executes the start nanoclaw runtime effect operation.
+ * @param opts Value supplied to the operation.
+ * @param install Value supplied to the operation.
+ * @returns The start nanoclaw runtime effect result.
+ */
 export function startNanoclawRuntimeEffect(
   opts: StartNanoclawRuntimeOptions,
   install: NanoclawRuntimeInstall,
@@ -508,6 +543,11 @@ export function startNanoclawRuntimeEffect(
   }).pipe(Effect.withSpan("startNanoclawRuntimeEffect"));
 }
 
+/**
+ * Executes the stop nanoclaw runtime effect operation.
+ * @param handle Value supplied to the operation.
+ * @returns The stop nanoclaw runtime effect result.
+ */
 export function stopNanoclawRuntimeEffect(
   handle: NanoclawRuntimeHandle,
 ): Effect.Effect<
@@ -524,7 +564,13 @@ export function stopNanoclawRuntimeEffect(
   ).pipe(Effect.withSpan("stopNanoclawRuntimeEffect"));
 }
 
-/** @internal */
+/**
+ * Derive NanoClaw's stable installation label from a runtime directory.
+ *
+ * @param runtimeDir Value supplied to the operation.
+ * @internal
+ * @returns The nanoclaw install slug result.
+ */
 export function nanoclawInstallSlug(runtimeDir: string): string {
   // eslint-disable-next-line sonarjs/hashing -- Matches NanoClaw's non-security checkout identifier.
   return createHash("sha1")
@@ -537,7 +583,13 @@ function nanoclawInstallLabel(runtimeDir: string): string {
   return `${NANOCLAW_INSTALL_LABEL_KEY}=${nanoclawInstallSlug(runtimeDir)}`;
 }
 
-/** @internal */
+/**
+ * Build the Docker command that lists containers owned by one NanoClaw runtime.
+ *
+ * @param runtimeDir Value supplied to the operation.
+ * @internal
+ * @returns The created nanoclaw container list command.
+ */
 export function buildNanoclawContainerListCommand(
   runtimeDir: string,
 ): Command.Command {
@@ -550,9 +602,15 @@ export function buildNanoclawContainerListCommand(
   );
 }
 
-/** @internal */
+/**
+ * Build the Docker command that removes owned NanoClaw containers.
+ *
+ * @param containerIds Value supplied to the operation.
+ * @internal
+ * @returns The created nanoclaw container remove command.
+ */
 export function buildNanoclawContainerRemoveCommand(
-  containerIds: ReadonlyArray<string>,
+  containerIds: readonly string[],
 ): Command.Command {
   return Command.make(DOCKER_COMMAND, "rm", "--force", ...containerIds);
 }
@@ -627,7 +685,9 @@ function sweepNanoclawContainers(runtimeDir: string) {
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
-    if (containerIds.length === 0) return;
+    if (containerIds.length === 0) {
+      return;
+    }
 
     const removeResult = yield* runCommand(
       buildNanoclawContainerRemoveCommand(containerIds),

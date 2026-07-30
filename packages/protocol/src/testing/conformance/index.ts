@@ -7,11 +7,13 @@ import * as network from "./network/index.js";
 import * as task from "./task/index.js";
 import * as app from "./app/index.js";
 
+/** Re-exports the public API from `./_shared/runner.js`. */
 export {
   type ConformanceRunContext,
   type ConformanceRunOptions,
   type RealServerHandle,
 } from "./_shared/runner.js";
+/** Re-exports the public API from `./_shared/registry.js`. */
 export {
   type PropertyCategory,
   type PropertyFailure,
@@ -24,6 +26,7 @@ export {
   collectProperties,
   registerProperty,
 } from "./_shared/registry.js";
+/** Re-exports the public API from `./_shared/suite.js`. */
 export {
   type ConformanceSuiteOptions,
   type SuiteResult,
@@ -31,4 +34,5 @@ export {
   runAllProperties,
   runConformanceSuite,
 } from "./_shared/suite.js";
+/** Re-exports the public API from `current module`. */
 export { transport, identity, network, task, app };

@@ -5,7 +5,7 @@ import { execPath } from "node:process";
 import { FileSystem } from "@effect/platform";
 import { Data, Effect, Ref, Schema } from "effect";
 import {
-  BaseChildEnvironmentConfig,
+  baseChildEnvironmentConfig,
   makeCommandHelpers,
   makeExactEnvironmentCommand,
   type CapturedCommandOutput,
@@ -28,7 +28,7 @@ const OPENCLAW_LIST_TIMEOUT_MS = 30_000;
 const NPM_REGISTRY_PREFIX = "https://registry.npmjs.org/";
 const NPM_INTEGRITY_PREFIX = "sha512-";
 
-const OpenClawPluginListOutput = Schema.Struct({
+const openClawPluginListOutput = Schema.Struct({
   plugins: Schema.Array(
     Schema.Struct({
       id: Schema.String,
@@ -58,6 +58,7 @@ interface WarmCacheGeneration {
   readonly generationDir: string;
 }
 
+/** Configures materialize published open claw plugin. */
 export interface MaterializePublishedOpenClawPluginOptions {
   readonly stateDir: string;
   readonly openclawBin: string;
@@ -100,6 +101,8 @@ const {
 /**
  * Installs or reuses the pinned npm project and copies it into one agent's
  * state directory with a peer link to the simulator's OpenClaw package.
+ * @param options Options that control the operation.
+ * @returns The materialize published open claw plugin result.
  */
 export function materializePublishedOpenClawPlugin(
   options: MaterializePublishedOpenClawPluginOptions,
@@ -172,7 +175,17 @@ function resolveCacheTarget(cacheBaseDir?: string) {
   );
 }
 
-/** @internal */
+/**
+ * Derive the immutable OpenClaw plugin cache identity.
+ *
+ * @param input Input value to process.
+ * @param input.channelVersion Value supplied to the operation.
+ * @param input.openclawVersion Value supplied to the operation.
+ * @param input.platform Value supplied to the operation.
+ * @param input.architecture Value supplied to the operation.
+ * @internal
+ * @returns The open claw plugin cache fingerprint result.
+ */
 export function openClawPluginCacheFingerprint(input: {
   readonly channelVersion: string;
   readonly openclawVersion: string;
@@ -220,7 +233,9 @@ function ensureCacheGeneration(
   return Effect.gen(function* () {
     yield* cache.sweepStaleBuildingCaches();
     const ready = yield* cache.findCacheGeneration(target.cacheFingerprint);
-    if (ready !== null) return ready;
+    if (ready !== null) {
+      return ready;
+    }
     return yield* buildAndPublishCacheGeneration(target, openclawBin);
   });
 }
@@ -301,16 +316,21 @@ function coldInstallPlugin(
  * the operator's: ambient variables change the CLI's behavior (a test-runner
  * marker silences its JSON output entirely), which would make cache builds
  * depend on who launched them.
+ * @param openclawBin Value supplied to the operation.
+ * @param args Value supplied to the operation.
+ * @param environment Value supplied to the operation.
+ * @param cwd Value supplied to the operation.
  * @internal
+ * @returns The created open claw command.
  */
 export function makeOpenClawCommand(
   openclawBin: string,
-  args: ReadonlyArray<string>,
+  args: readonly string[],
   environment: Readonly<Record<string, string>>,
   cwd: string,
 ) {
   const isNodeScript = openclawBin.endsWith(".mjs");
-  return Effect.map(BaseChildEnvironmentConfig, (base) =>
+  return Effect.map(baseChildEnvironmentConfig, (base) =>
     makeExactEnvironmentCommand({
       command: isNodeScript ? execPath : openclawBin,
       args: isNodeScript ? [openclawBin, ...args] : [...args],
@@ -326,7 +346,7 @@ function verifyEnabledPlugin(output: CapturedCommandOutput) {
     catch: (cause) =>
       cacheError("OpenClaw plugins list returned invalid JSON", cause),
   }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(OpenClawPluginListOutput)),
+    Effect.flatMap(Schema.decodeUnknown(openClawPluginListOutput)),
     Effect.mapError((cause) =>
       cause instanceof OpenClawPluginCacheError
         ? cause
@@ -396,7 +416,14 @@ function projectDeclaresChannel(
   );
 }
 
-/** @internal */
+/**
+ * Validate the materialized OpenClaw plugin project and its channel dependency.
+ *
+ * @param projectDir Value supplied to the operation.
+ * @param channelVersion Value supplied to the operation.
+ * @internal
+ * @returns The validate open claw plugin project result.
+ */
 export function validateOpenClawPluginProject(
   projectDir: string,
   channelVersion: string,
@@ -417,12 +444,13 @@ export function validateOpenClawPluginProject(
       ),
     ]);
     yield* Effect.try({
-      try: () =>
+      try: () => {
         validateProjectProvenance(
           JSON.parse(manifestText),
           JSON.parse(lockText),
           channelVersion,
-        ),
+        );
+      },
       catch: (cause) =>
         cause instanceof OpenClawPluginCacheError
           ? cause
@@ -470,7 +498,9 @@ function validateMoltzapLockEntries(
 ): void {
   let channelFound = false;
   for (const [location, value] of Object.entries(lockPackages)) {
-    if (!location.includes("node_modules/@moltzap/")) continue;
+    if (!location.includes("node_modules/@moltzap/")) {
+      continue;
+    }
     const entry = requireRecord(value, `npm lock entry ${location}`);
     const resolved = requireString(entry.resolved, `${location} resolved`);
     const integrity = requireString(entry.integrity, `${location} integrity`);
@@ -527,7 +557,12 @@ function copyProjectIntoBuildingCache(
 
 /**
  * Copies one cached npm project and rebuilds the only machine-specific link.
+ * @param options Options that control the operation.
+ * @param options.generationDir Value supplied to the operation.
+ * @param options.stateDir Value supplied to the operation.
+ * @param options.openclawPackageRoot Value supplied to the operation.
  * @internal
+ * @returns The materialize open claw plugin cache generation result.
  */
 export function materializeOpenClawPluginCacheGeneration(options: {
   readonly generationDir: string;

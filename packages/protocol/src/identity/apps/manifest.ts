@@ -9,13 +9,13 @@ import { stringEnum } from "#transport";
 // required discriminated union, so a manifest cannot leave a gate unspecified.
 // ═══════════════════════════════════════════════════════════════════
 
-const AppManifestConversationSchema = Schema.Struct({
+const appManifestConversationSchema = Schema.Struct({
   key: Schema.String,
   name: Schema.String,
   participantFilter: Schema.optional(stringEnum(["all", "initiator", "none"])),
 });
 
-const HookTimeoutMsSchema = Schema.Number.pipe(
+const hookTimeoutMsSchema = Schema.Number.pipe(
   Schema.int(),
   Schema.greaterThanOrEqualTo(1),
 );
@@ -25,9 +25,9 @@ const HookTimeoutMsSchema = Schema.Number.pipe(
  * app/moderator, carrying the per-policy TTL. Timeout / RPC failure collapses
  * to that gate's fail-closed verdict.
  */
-const HookPolicyArmSchema = Schema.Struct({
+const hookPolicyArmSchema = Schema.Struct({
   kind: Schema.Literal("hook"),
-  timeoutMs: HookTimeoutMsSchema,
+  timeoutMs: hookTimeoutMsSchema,
 });
 
 const refusalArm = <Kind extends string>(kind: Kind) =>
@@ -48,10 +48,10 @@ const refusalArm = <Kind extends string>(kind: Kind) =>
  * by configuration must state why. `timeoutMs` is required on the
  * `hook` arm so a moderated policy always carries its own TTL.
  */
-const DispatchAuthorizePolicySchema = Schema.Union(
+const dispatchAuthorizePolicySchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("grant") }),
   refusalArm("deny"),
-  HookPolicyArmSchema,
+  hookPolicyArmSchema,
 );
 
 /**
@@ -66,10 +66,10 @@ const DispatchAuthorizePolicySchema = Schema.Union(
  *   to the bound app for a `Forward { recipients } | Block { reason }`
  *   verdict; timeout / RPC failure collapses to a fail-closed Block.
  */
-const MessageAuthorizePolicySchema = Schema.Union(
+const messageAuthorizePolicySchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("forwardAllExceptSender") }),
   refusalArm("deny"),
-  HookPolicyArmSchema,
+  hookPolicyArmSchema,
 );
 
 /**
@@ -83,10 +83,10 @@ const MessageAuthorizePolicySchema = Schema.Union(
  *   the bound app for the accept/reject verdict; timeout / RPC failure
  *   collapses to a fail-closed reject.
  */
-const TaskCreatePolicySchema = Schema.Union(
+const taskCreatePolicySchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("accept") }),
   refusalArm("reject"),
-  HookPolicyArmSchema,
+  hookPolicyArmSchema,
 );
 
 /**
@@ -100,20 +100,20 @@ const TaskCreatePolicySchema = Schema.Union(
  * answer left is a runtime `hook` failure, which the server resolves to
  * a deterministic deny.
  */
-const AppManifestHooksSchema = Schema.Struct({
-  dispatch_authorize: DispatchAuthorizePolicySchema,
-  message_authorize: MessageAuthorizePolicySchema,
-  task_create: TaskCreatePolicySchema,
+const appManifestHooksSchema = Schema.Struct({
+  dispatch_authorize: dispatchAuthorizePolicySchema,
+  message_authorize: messageAuthorizePolicySchema,
+  task_create: taskCreatePolicySchema,
 });
 
 /**
  * App manifest. `hooks` is required: every app declares an explicit
- * policy for all three gates (see {@link AppManifestHooksSchema}). An
+ * policy for all three gates (see {@link appManifestHooksSchema}). An
  * app that wants the open posture states it — `{ kind: "grant" }` /
  * `{ kind: "forwardAllExceptSender" }` / `{ kind: "accept" }` — rather
  * than relying on an omission default.
  */
-const AppManifestSchema = Schema.Struct({
+const appManifestSchema = Schema.Struct({
   appId: Schema.String,
   name: Schema.String,
   description: Schema.optional(Schema.String),
@@ -122,19 +122,21 @@ const AppManifestSchema = Schema.Struct({
       maxParticipants: Schema.optional(Schema.Number.pipe(Schema.int())),
     }),
   ),
-  conversations: Schema.optional(Schema.Array(AppManifestConversationSchema)),
-  hooks: AppManifestHooksSchema,
+  conversations: Schema.optional(Schema.Array(appManifestConversationSchema)),
+  hooks: appManifestHooksSchema,
 });
 
-export type AppManifest = Schema.Schema.Type<typeof AppManifestSchema>;
+/** Represents app manifest values. */
+export type AppManifest = Schema.Schema.Type<typeof appManifestSchema>;
 
-const decodeAppManifest = Schema.decodeUnknownEither(AppManifestSchema);
+const decodeAppManifest = Schema.decodeUnknownEither(appManifestSchema);
 
 class AppManifestInvalid extends Schema.TaggedError<AppManifestInvalid>()(
   "AppManifestInvalid",
   { errors: Schema.Array(Schema.String) },
 ) {}
 
+/** Represents the result of app manifest validation. */
 export type AppManifestValidationResult = Either.Either<
   AppManifest,
   AppManifestInvalid
@@ -146,6 +148,8 @@ export type AppManifestValidationResult = Either.Either<
  * operator-supplied configuration, not wire traffic). On failure surfaces every
  * `ParseError` leaf via `ParseResult.ArrayFormatter.formatErrorSync` (one issue
  * → one string).
+ * @param value Value to process.
+ * @returns The validate app manifest result.
  */
 export function validateAppManifest(
   value: unknown,

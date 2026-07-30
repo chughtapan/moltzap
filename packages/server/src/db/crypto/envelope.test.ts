@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import * as fc from "fast-check";
-import { ServerEncryptionMasterSecret } from "#config/secrets";
+import { serverEncryptionMasterSecret } from "#config/secrets";
 import { EnvelopeEncryption } from "./envelope.js";
 import { randomBytes } from "node:crypto";
 
 const AES_KEY_BYTES = 32;
 
 function makeEnvelope() {
-  const masterSecret = Schema.decodeUnknownSync(ServerEncryptionMasterSecret)(
+  const masterSecret = Schema.decodeUnknownSync(serverEncryptionMasterSecret)(
     randomBytes(AES_KEY_BYTES).toString("base64"),
   );
   return new EnvelopeEncryption(masterSecret);
 }
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The cohesive message-encryption suite stays grouped around one shared randomized envelope fixture.
 describe("EnvelopeEncryption messages", () => {
   const envelope = makeEnvelope();
 
@@ -54,7 +55,8 @@ describe("EnvelopeEncryption messages", () => {
       [{ type: "text", text: "secret" }],
       dek,
     );
-    encrypted.ciphertext[0]! ^= 0xff;
+    /* Safe because the test fixture establishes this asserted shape. */ encrypted
+      .ciphertext[0]! ^= 0xff;
     expect(() => envelope.decryptMessage(encrypted, dek)).toThrow();
   });
 
@@ -64,7 +66,8 @@ describe("EnvelopeEncryption messages", () => {
       [{ type: "text", text: "secret" }],
       dek,
     );
-    encrypted.tag[0]! ^= 0xff;
+    /* Safe because the test fixture establishes this asserted shape. */ encrypted
+      .tag[0]! ^= 0xff;
     expect(() => envelope.decryptMessage(encrypted, dek)).toThrow();
   });
 });

@@ -11,6 +11,7 @@
  * (D1–D6) so the implementer cannot forget a branch in the client dispatch.
  */
 
+/** Represents toxic profile values. */
 export type ToxicProfile =
   | {
       readonly _tag: "latency";
@@ -57,4 +58,5 @@ export const allToxicTags = [
   "slow_close",
 ] as const;
 
+/** Represents toxic tag values. */
 export type ToxicTag = (typeof allToxicTags)[number];

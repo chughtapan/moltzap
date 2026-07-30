@@ -1,6 +1,6 @@
 /** @file Scoped OpenClaw runtime. */
 
-import { FileSystem, Path } from "@effect/platform";
+import type { FileSystem, Path } from "@effect/platform";
 import type {
   CommandExecutor,
   ExitCode,
@@ -40,29 +40,29 @@ interface OpenClawWorkspaceFile {
 interface OpenClawMcpServer {
   readonly name: string;
   readonly command: string;
-  readonly args: ReadonlyArray<string>;
+  readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
 }
 
 /** Configuration captured by one reusable OpenClaw runtime value. */
 export interface OpenClawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
-  readonly workspaceFiles?: ReadonlyArray<OpenClawWorkspaceFile>;
+  readonly workspaceFiles?: readonly OpenClawWorkspaceFile[];
   readonly modelId?: string;
   readonly installMode?: InstallMode;
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
-  readonly mcpServers?: ReadonlyArray<OpenClawMcpServer>;
+  readonly mcpServers?: readonly OpenClawMcpServer[];
 }
 
 interface OpenClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
-  readonly workspaceFiles: ReadonlyArray<OpenClawWorkspaceFile>;
+  readonly workspaceFiles: readonly OpenClawWorkspaceFile[];
   readonly modelId?: string;
   readonly installMode?: InstallMode;
   readonly openclawBin?: string;
   readonly channelDistDir?: string;
-  readonly mcpServers?: ReadonlyArray<OpenClawMcpServer>;
+  readonly mcpServers?: readonly OpenClawMcpServer[];
 }
 
 /**
@@ -77,7 +77,7 @@ export interface OpenClawRuntimeDriver<
   Requirements = never,
 > {
   readonly resolveInstallMode: (
-    requested: InstallMode | undefined,
+    requested?: InstallMode,
   ) => Effect.Effect<InstallMode, unknown>;
   readonly resolveProcessOptions: (
     input: OpenClawProcessOptionOverrides,
@@ -112,14 +112,14 @@ const nativeOpenClawDriver: OpenClawRuntimeDriver<
 };
 
 function snapshotWorkspaceFiles(
-  files: ReadonlyArray<OpenClawWorkspaceFile> | undefined,
-): ReadonlyArray<OpenClawWorkspaceFile> {
+  files?: readonly OpenClawWorkspaceFile[],
+): readonly OpenClawWorkspaceFile[] {
   return Object.freeze((files ?? []).map((file) => Object.freeze({ ...file })));
 }
 
 function snapshotMcpServers(
-  servers: ReadonlyArray<OpenClawMcpServer> | undefined,
-): ReadonlyArray<OpenClawMcpServer> | undefined {
+  servers?: readonly OpenClawMcpServer[],
+): readonly OpenClawMcpServer[] | undefined {
   return servers === undefined
     ? undefined
     : Object.freeze(
@@ -294,7 +294,10 @@ function acquireOpenClawRuntime<
  * Build OpenClaw's process-backed runtime against an explicit low-level driver.
  * Production uses {@link openClawRuntime}; this seam keeps lifecycle tests
  * free of gateway processes.
+ * @param options Options that control the operation.
+ * @param driver Value supplied to the operation.
  * @internal
+ * @returns The created open claw runtime with.
  */
 export function makeOpenClawRuntimeWith<
   Session,
@@ -314,6 +317,8 @@ export function makeOpenClawRuntimeWith<
 /**
  * Construct an OpenClaw runtime that binds each roster identity to one
  * scoped gateway process and waits for router-visible readiness.
+ * @param options Options that control the operation.
+ * @returns The open claw runtime result.
  */
 export function openClawRuntime(
   options: OpenClawRuntimeOptions = {},

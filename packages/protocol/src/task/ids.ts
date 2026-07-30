@@ -1,8 +1,10 @@
 import { Schema, type Brand } from "effect";
 import { formatString, errorPayloadFields } from "#transport";
 
+/** Represents task id values. */
 export type TaskId = string & Brand.Brand<"TaskId">;
-export const TaskId: Schema.Schema<TaskId, string> = formatString("uuid").pipe(
+/** Validates and decodes task id values. */
+export const taskId: Schema.Schema<TaskId, string> = formatString("uuid").pipe(
   Schema.brand("TaskId"),
   Schema.annotations({ description: "Branded TaskId" }),
 );

@@ -1,16 +1,22 @@
 import type { RpcErrorTag, RpcJsDoc } from "./rpc-jsdoc.js";
-import { extractProperties, type SchemaPropertyDoc } from "./schema.js";
+import { extractProperties } from "./schema.js";
 import type {
   AnyRpcDocDefinition,
   NotificationDocDefinition,
+  SchemaPropertyDoc,
 } from "./types.js";
 
 function firstSentence(text: string): string {
   const trimmed = text.trim().replace(/\s+/g, " ");
-  const m = trimmed.match(/^(.+?[.!?])(\s|$)/);
-  return m ? m[1]!.trim() : trimmed;
+  const m = /^(.+?[.!?])(\s|$)/.exec(trimmed);
+  return m?.[1]?.trim() ?? trimmed;
 }
 
+/**
+ * Executes the slugify operation.
+ * @param method Wire method name.
+ * @returns The slugify result.
+ */
 export function slugify(method: string): string {
   return method
     .replace(/\//g, "-")
@@ -40,15 +46,16 @@ ${body}
 }
 
 function renderParametersSection(params: readonly SchemaPropertyDoc[]): string {
-  if (params.length === 0)
+  if (params.length === 0) {
     return `## Parameters\n\nThis method takes no parameters.\n\n`;
+  }
 
   return (
     `## Parameters\n\n` +
     params
       .map((p) => {
         const req = p.required ? " required" : "";
-        const desc = p.description || `The ${p.name} field.`;
+        const desc = p.description ?? `The ${p.name} field.`;
         return `<ParamField path="${p.name}" type="${p.type}"${req}>\n  ${desc}\n</ParamField>\n\n`;
       })
       .join("")
@@ -57,35 +64,38 @@ function renderParametersSection(params: readonly SchemaPropertyDoc[]): string {
 
 function renderResponseSection(
   result: readonly SchemaPropertyDoc[],
-  resultDescription: string | undefined,
+  resultDescription?: string | null,
 ): string {
-  if (result.length === 0)
+  if (result.length === 0) {
     return `## Response\n\nThis method returns an empty object.\n\n`;
+  }
 
   const description = resultDescription ? `${resultDescription}\n\n` : "";
   return (
     `## Response\n\n${description}` +
     result
       .map((r) => {
-        const desc = r.description || `The ${r.name} field.`;
+        const desc = r.description ?? `The ${r.name} field.`;
         return `<ResponseField name="${r.name}" type="${r.type}">\n  ${desc}\n</ResponseField>\n\n`;
       })
       .join("")
   );
 }
 
-function renderErrorsSection(
-  errors: readonly RpcErrorTag[] | undefined,
-): string {
-  if (!errors || errors.length === 0) return "";
+function renderErrorsSection(errors?: readonly RpcErrorTag[]): string {
+  if (!errors || errors.length === 0) {
+    return "";
+  }
   const rows = errors.map((e) => `| \`${e.name}\` | ${e.when} |\n`);
   return `## Errors\n\n| Type | When |\n|------|------|\n${rows.join("")}\n`;
 }
 
 function renderRelatedNotificationsSection(
-  notifications: readonly string[] | undefined,
+  notifications?: readonly string[],
 ): string {
-  if (!notifications || notifications.length === 0) return "";
+  if (!notifications || notifications.length === 0) {
+    return "";
+  }
 
   const links = notifications.map(
     (notification) =>
@@ -94,9 +104,15 @@ function renderRelatedNotificationsSection(
   return `## Related Notifications\n\n${links.join("")}\n`;
 }
 
+/**
+ * Executes the generate method page operation.
+ * @param def Definition to process.
+ * @param jsdoc Value supplied to the operation.
+ * @returns The generate method page result.
+ */
 export function generateMethodPage(
   def: AnyRpcDocDefinition,
-  jsdoc: RpcJsDoc | undefined,
+  jsdoc?: RpcJsDoc,
 ): string {
   const method = def.name;
   const description = jsdoc?.description ?? `Call \`${method}\`.`;
@@ -107,16 +123,22 @@ export function generateMethodPage(
     renderParametersSection(extractProperties(def.paramsSchema)),
     renderResponseSection(
       extractProperties(def.resultSchema),
-      jsdoc?.resultDescription ?? null,
+      jsdoc?.resultDescription,
     ),
     renderErrorsSection(jsdoc?.errors),
     renderRelatedNotificationsSection(jsdoc?.relatedNotifications),
   ].join("");
 }
 
+/**
+ * Executes the generate notification page operation.
+ * @param def Definition to process.
+ * @param jsdoc Value supplied to the operation.
+ * @returns The generate notification page result.
+ */
 export function generateNotificationPage(
   def: NotificationDocDefinition,
-  jsdoc: RpcJsDoc | undefined,
+  jsdoc?: RpcJsDoc,
 ): string {
   const fields = extractProperties(def.paramsSchema);
   const name = def.name;

@@ -31,6 +31,7 @@ import { registerReleaseForOneLeaseDoesNotWaitOnAnother } from "./release-for-on
 import { registerAppDisconnectFailPolicy } from "./app-disconnect-fail-policy.js";
 import { registerIdempotence } from "./idempotence.js";
 
+/** Re-exports the public API from `current module`. */
 export {
   registerDispatchRequestAckMintsLease,
   registerDispatchRequestRecipientDisconnectAbandons,

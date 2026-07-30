@@ -24,7 +24,9 @@ export class ConversationInTask extends RpcMiddleware.Tag<ConversationInTask>()(
 ) {}
 ```
 
-### [`ConversationInTaskValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/requirements/conversation-in-task.ts#L10)
+Implements conversation in task.
+
+### [`ConversationInTaskValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/requirements/conversation-in-task.ts#L9)
 
 _Interface_
 
@@ -37,7 +39,7 @@ export interface ConversationInTaskValue {
 
 Requirement: proves `conversation.task_id === taskId`.
 
-### [`ConversationSendAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/requirements/conversation-send-access.ts#L20)
+### [`ConversationSendAccess`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/requirements/conversation-send-access.ts#L21)
 
 _Class_
 
@@ -47,6 +49,8 @@ export class ConversationSendAccess extends RpcMiddleware.Tag<ConversationSendAc
   { failure: Schema.Union(ForbiddenError) },
 ) {}
 ```
+
+Implements conversation send access.
 
 ### [`ConversationSendAccessValue`](https://github.com/chughtapan/moltzap/blob/main/packages/protocol/src/conversation/requirements/conversation-send-access.ts#L12)
 

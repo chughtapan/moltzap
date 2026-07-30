@@ -9,19 +9,24 @@ export {
   type CreateFakeChannelServiceOptions,
   type FakeChannelService,
 } from "./channel-service-fixture.js";
+/** Re-exports the public API from `./standalone-provisioning.js`. */
 export {
   registerStandaloneAgentPair,
   type StandaloneAgentPair,
   type StandaloneAgentPairNames,
 } from "./standalone-provisioning.js";
+/** Re-exports the public API from `./harness.js`. */
 export {
   registerAndConnect,
   type ConnectedHarnessAgent,
   type HarnessAgentClient,
 } from "./harness.js";
+/** Re-exports the public API from `../auth.js`. */
 export { registerAgent, type RegisterResponse } from "../auth.js";
 
+/** Re-exports the public API from `./fake-service.js`. */
 export { FakeMoltZapService, type RecordedCall } from "./fake-service.js";
+/** Re-exports the public API from `../config.test-utils.js`. */
 export { withTestServiceConfig } from "../config.test-utils.js";
 
 import type { Message } from "@moltzap/protocol/message";
@@ -29,6 +34,7 @@ import { serverBaseUrl, type ServerBaseUrl } from "@moltzap/protocol/network";
 import { Data, Effect } from "effect";
 import { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
+/** Re-exports the public API from `./ids.js`. */
 export {
   testAgentId,
   testConversationId,
@@ -61,7 +67,7 @@ type MessageFixtureOverrides = Omit<
   readonly conversationId?: string;
   readonly senderId?: string;
   readonly replyToId?: string;
-  readonly taggedEntities?: ReadonlyArray<string>;
+  readonly taggedEntities?: readonly string[];
 };
 
 /**
@@ -93,7 +99,7 @@ export function buildMessage(overrides: MessageFixtureOverrides = {}): Message {
 export const flushDispatchChainEffect = Effect.gen(function* () {
   for (let i = 0; i < FLUSH_DISPATCH_TURNS; i++) {
     yield* Effect.tryPromise({
-      try: () => Promise.resolve(),
+      try: () => Promise.resolve(undefined),
       catch: (cause) => new FlushDispatchChainError({ cause }),
     });
   }

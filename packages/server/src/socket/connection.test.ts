@@ -3,7 +3,7 @@ import type { RpcSerialization } from "@effect/rpc";
 import { describe, expect } from "vitest";
 import { Effect, Schema } from "effect";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import { ConnectionId } from "@moltzap/protocol/socket";
+import { connectionIdSchema } from "@moltzap/protocol/socket";
 import { agentId, conversationId, userId } from "@moltzap/protocol/testing";
 import { agentContextFrom, type AgentContext } from "./context.js";
 import {
@@ -12,10 +12,10 @@ import {
   type WebSocketRef,
 } from "./connection.js";
 
-const CONN_ID = Schema.decodeUnknownSync(ConnectionId)(
+const CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
   "00000000-0000-4000-8000-00000000c718",
 );
-const OTHER_CONN_ID = Schema.decodeUnknownSync(ConnectionId)(
+const OTHER_CONN_ID = Schema.decodeUnknownSync(connectionIdSchema)(
   "00000000-0000-4000-8000-00000000c719",
 );
 const AGENT_ID = agentId("00000000-0000-4000-8000-00000000a718");

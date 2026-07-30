@@ -12,7 +12,7 @@
  * re-open with the same apiKey/agentId via `Effect.scoped`.
  */
 import { Effect } from "effect";
-import { MessageReceivedNotificationDefinition, MessagesSend } from "#message";
+import { messageReceivedNotificationDefinition, messagesSend } from "#message";
 import type { NotificationDelivery } from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
@@ -28,6 +28,10 @@ import {
 
 const PROPERTY = "store-and-replay";
 
+/**
+ * Registers store and replay.
+ * @param ctx Context for the operation.
+ */
 export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -71,7 +75,7 @@ function sendReplayMessages(fixture: StoreFixture, sent: number) {
   return Effect.gen(function* () {
     for (let i = 0; i < sent; i++) {
       yield* fixture.owner.client
-        .sendRpc(MessagesSend, {
+        .sendRpc(messagesSend, {
           taskId: fixture.taskId,
           conversationId: fixture.conversationId,
           parts: [{ type: "text", text: `sr-${i}` }],
@@ -82,7 +86,7 @@ function sendReplayMessages(fixture: StoreFixture, sent: number) {
 }
 
 function assertDeliveredCount(
-  snap: ReadonlyArray<NotificationDelivery>,
+  snap: readonly NotificationDelivery[],
   sent: number,
 ) {
   const delivered = snap.filter(isMessageNotification).length;
@@ -98,5 +102,5 @@ function assertDeliveredCount(
 }
 
 function isMessageNotification(frame: NotificationDelivery): boolean {
-  return frame.definition === MessageReceivedNotificationDefinition;
+  return frame.definition === messageReceivedNotificationDefinition;
 }

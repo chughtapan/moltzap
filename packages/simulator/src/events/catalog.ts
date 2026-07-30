@@ -13,29 +13,24 @@ export type EventClass = Schema.Schema.AnyNoContext & {
 
 type CatalogSchema = Schema.Schema.All;
 
-type EventClassesSchema<EventClasses extends ReadonlyArray<EventClass>> =
+type EventClassesSchema<EventClasses extends readonly EventClass[]> =
   Schema.Schema<
     Schema.Schema.Type<EventClasses[number]>,
-    Schema.Schema.Encoded<EventClasses[number]>,
-    never
+    Schema.Schema.Encoded<EventClasses[number]>
   >;
 
-type CatalogSchemaOf<Catalog> =
-  Catalog extends EventCatalog<infer SchemaType, infer _Classes>
-    ? SchemaType
+type CatalogParameters<Catalog> =
+  Catalog extends EventCatalog<infer SchemaType, infer Classes>
+    ? readonly [SchemaType, Classes]
     : never;
-
-type CatalogClassesOf<Catalog> =
-  Catalog extends EventCatalog<infer _SchemaType, infer Classes>
-    ? Classes
-    : never;
+type CatalogSchemaOf<Catalog> = CatalogParameters<Catalog>[0];
+type CatalogClassesOf<Catalog> = CatalogParameters<Catalog>[1];
 
 type MergedCatalogSchema<
-  Catalogs extends ReadonlyArray<EventCatalog<CatalogSchema, EventClass>>,
+  Catalogs extends ReadonlyArray<EventCatalog<CatalogSchema>>,
 > = Schema.Schema<
   Schema.Schema.Type<CatalogSchemaOf<Catalogs[number]>>,
-  Schema.Schema.Encoded<CatalogSchemaOf<Catalogs[number]>>,
-  never
+  Schema.Schema.Encoded<CatalogSchemaOf<Catalogs[number]>>
 >;
 
 /** The closed instance union declared by a catalog. */
@@ -49,6 +44,7 @@ export type EncodedEventOf<Catalog> = Schema.Schema.Encoded<
   CatalogSchemaOf<Catalog>
 >;
 
+/** Represents event catalog definition failure conditions. */
 export type EventCatalogDefinitionFailure =
   | "duplicate-tag"
   | "invalid-event-class"
@@ -74,6 +70,8 @@ export class EventCatalogDefinitionError extends Schema.TaggedError<EventCatalog
         return `Event catalog member "${this.tag}" is not a schema-backed class`;
       case "invalid-tag":
         return `Event tag "${this.tag}" must be namespaced and versioned, for example "acme.consensus-reached/v1"`;
+      default:
+        return `Unknown event catalog failure "${this.failure}" for "${this.tag}"`;
     }
   }
 }
@@ -81,11 +79,11 @@ export class EventCatalogDefinitionError extends Schema.TaggedError<EventCatalog
 const VERSIONED_EVENT_TAG =
   /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u;
 
-const EventCatalogTypeId = Symbol.for("@moltzap/simulator/events/EventCatalog");
+const eventCatalogTypeId = Symbol.for("@moltzap/simulator/events/EventCatalog");
 
 function eventClassTag(eventClass: EventClass): string {
   if (typeof eventClass !== "function") {
-    return String(eventClass);
+    return "<non-callable event class>";
   }
   const tag: unknown = Reflect.get(eventClass, "_tag");
   return typeof tag === "string" ? tag : String(tag);
@@ -99,7 +97,7 @@ function isEventClass(eventClass: EventClass): boolean {
   );
 }
 
-function validateEventClasses(eventClasses: ReadonlyArray<EventClass>): void {
+function validateEventClasses(eventClasses: readonly EventClass[]): void {
   const seen = new Set<string>();
   for (const eventClass of eventClasses) {
     const tag = eventClassTag(eventClass);
@@ -125,25 +123,23 @@ function validateEventClasses(eventClasses: ReadonlyArray<EventClass>): void {
   }
 }
 
-function makeEventClassesSchema<EventClasses extends ReadonlyArray<EventClass>>(
+function makeEventClassesSchema<EventClasses extends readonly EventClass[]>(
   eventClasses: EventClasses,
 ): EventClassesSchema<EventClasses> {
   const union = Schema.Union(...eventClasses);
   return Schema.make<
     Schema.Schema.Type<EventClasses[number]>,
-    Schema.Schema.Encoded<EventClasses[number]>,
-    never
+    Schema.Schema.Encoded<EventClasses[number]>
   >(union.ast);
 }
 
 function mergeCatalogSchemas<
-  Catalogs extends ReadonlyArray<EventCatalog<CatalogSchema, EventClass>>,
+  Catalogs extends ReadonlyArray<EventCatalog<CatalogSchema>>,
 >(catalogs: Catalogs): MergedCatalogSchema<Catalogs> {
   const union = Schema.Union(...catalogs.map((catalog) => catalog.schema));
   return Schema.make<
     Schema.Schema.Type<CatalogSchemaOf<Catalogs[number]>>,
-    Schema.Schema.Encoded<CatalogSchemaOf<Catalogs[number]>>,
-    never
+    Schema.Schema.Encoded<CatalogSchemaOf<Catalogs[number]>>
   >(union.ast);
 }
 
@@ -159,21 +155,16 @@ export class EventCatalog<
 > {
   readonly schema: Schema.Schema<
     Schema.Schema.Type<SchemaType>,
-    Schema.Schema.Encoded<SchemaType>,
-    never
+    Schema.Schema.Encoded<SchemaType>
   >;
-  readonly eventClasses: ReadonlyArray<EventClass>;
-  readonly tags: ReadonlyArray<VersionedEventTag>;
-  private readonly [EventCatalogTypeId] = EventCatalogTypeId;
+  readonly eventClasses: readonly EventClass[];
+  readonly tags: readonly VersionedEventTag[];
+  private readonly [eventCatalogTypeId] = eventCatalogTypeId;
 
-  private constructor(
-    schema: SchemaType,
-    eventClasses: ReadonlyArray<EventClass>,
-  ) {
+  private constructor(schema: SchemaType, eventClasses: readonly EventClass[]) {
     this.schema = Schema.make<
       Schema.Schema.Type<SchemaType>,
-      Schema.Schema.Encoded<SchemaType>,
-      never
+      Schema.Schema.Encoded<SchemaType>
     >(schema.ast);
     this.eventClasses = Object.freeze([...eventClasses]);
     this.tags = Object.freeze(
@@ -185,7 +176,7 @@ export class EventCatalog<
   static make<
     const EventClasses extends readonly [
       EventClass,
-      ...ReadonlyArray<EventClass>,
+      ...(readonly EventClass[]),
     ],
   >(
     ...eventClasses: EventClasses
@@ -195,14 +186,14 @@ export class EventCatalog<
   }
 
   static empty(): EventCatalog<Schema.Schema<never>, never> {
-    const eventClasses: ReadonlyArray<never> = [];
+    const eventClasses: readonly never[] = [];
     return new EventCatalog(Schema.make<never>(Schema.Never.ast), eventClasses);
   }
 
   static merge<
     const Catalogs extends readonly [
-      EventCatalog<CatalogSchema, EventClass>,
-      ...ReadonlyArray<EventCatalog<CatalogSchema, EventClass>>,
+      EventCatalog<CatalogSchema>,
+      ...ReadonlyArray<EventCatalog<CatalogSchema>>,
     ],
   >(
     ...catalogs: Catalogs

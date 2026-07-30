@@ -15,14 +15,16 @@ import {
   extractText,
   type TaskBinding,
 } from "./test-helpers.js";
-import type { AgentId } from "@moltzap/protocol/identity";
-import type { AgentKey } from "@moltzap/protocol/identity";
+import type { AgentId, AgentKey } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/conversation";
-import type { Message } from "@moltzap/protocol/message";
+import {
+  type Message,
+  messagesList,
+  messagesSend,
+} from "@moltzap/protocol/message";
 import { agentId, waitForValue } from "@moltzap/protocol/testing";
 
-import { DEFAULT_APP_ID, TaskRequest } from "@moltzap/protocol/task";
-import { MessagesList, MessagesSend } from "@moltzap/protocol/message";
+import { DEFAULT_APP_ID, taskRequest } from "@moltzap/protocol/task";
 
 interface StressAgent {
   readonly apiKey: AgentKey;
@@ -89,7 +91,7 @@ function defineStressSuite() {
 
 function runStressScenario(receiverAgentId: AgentId, containerAId: string) {
   return Effect.gen(function* () {
-    const agents = yield* registerStressAgents;
+    const agents = yield* registerStressAgents();
     const clients = yield* stressClients(agents);
     yield* connectStressClients(clients);
     const conversations = yield* createStressConversations(
@@ -107,15 +109,6 @@ function runStressScenario(receiverAgentId: AgentId, containerAId: string) {
   }).pipe(Effect.tapError(() => logContainerFailure(containerAId)));
 }
 
-const registerStressAgents = Effect.all(
-  [
-    registerAgent(AGENT_A_NAME),
-    registerAgent(AGENT_B_NAME),
-    registerAgent(AGENT_C_NAME),
-  ],
-  { concurrency: STRESS_AGENT_COUNT },
-);
-
 function registerAgent(name: string) {
   return Effect.tryPromise({
     try: () => registerTestAgent(name),
@@ -125,6 +118,17 @@ function registerAgent(name: string) {
         cause,
       }),
   });
+}
+
+function registerStressAgents() {
+  return Effect.all(
+    [
+      registerAgent(AGENT_A_NAME),
+      registerAgent(AGENT_B_NAME),
+      registerAgent(AGENT_C_NAME),
+    ],
+    { concurrency: STRESS_AGENT_COUNT },
+  );
 }
 
 function stressClients(
@@ -182,7 +186,7 @@ function createConversation(
   receiverAgentId: AgentId,
 ) {
   return client
-    .call(TaskRequest.name, {
+    .call(taskRequest.name, {
       appId: DEFAULT_APP_ID,
       invitedAgentIds: [receiverAgentId],
       initialConversation: { participants: [receiverAgentId] },
@@ -210,13 +214,14 @@ function sendBatch(
   prefix: string,
   count: number,
 ) {
-  return Array.from({ length: count }, (_, i) =>
-    client.call(MessagesSend.name, {
+  return Array.from({ length: count }, (...args) => {
+    const index = args[1];
+    return client.call(messagesSend.name, {
       taskId: binding.taskId,
       conversationId: binding.conversationId,
-      parts: [{ type: TEXT_PART_TYPE, text: `${prefix}-msg-${i}` }],
-    }),
-  );
+      parts: [{ type: TEXT_PART_TYPE, text: `${prefix}-msg-${index}` }],
+    });
+  });
 }
 
 function waitForStressReplies(
@@ -283,7 +288,7 @@ function listMatchingReplies(params: {
   readonly receiverAgentId: AgentId;
 }) {
   return params.client
-    .call(MessagesList.name, {
+    .call(messagesList.name, {
       taskId: params.binding.taskId,
       conversationId: params.binding.conversationId,
       limit: TOTAL_STRESS_MESSAGE_COUNT,

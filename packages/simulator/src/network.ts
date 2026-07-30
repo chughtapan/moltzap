@@ -1,16 +1,19 @@
 /** @file Network contracts and run-scoped Effect services. */
 
+/** Re-exports the public API from `./network/participant.js`. */
 export {
   AgentHandle,
   ParticipantHandle,
   makeAgentHandle,
   makeParticipantHandle,
 } from "./network/participant.js";
+/** Re-exports the public API from `./network/conversation.js`. */
 export {
   ConversationAddress,
   ConversationSocket,
   type ConversationParticipants,
 } from "./network/conversation.js";
+/** Re-exports the public API from `./network/endpoint.js`. */
 export {
   Endpoint,
   Network,
@@ -18,10 +21,11 @@ export {
   type EndpointInbox,
   type NetworkService,
 } from "./network/endpoint.js";
+/** Re-exports the public API from `./network/router.js`. */
 export {
   CommittedRouterMessage,
   NetworkFailure,
-  RouterSequence,
+  type RouterSequence,
   RouterProvider,
   RouterStopped,
   makeRouterStopReport,
@@ -38,6 +42,7 @@ export {
   type Router,
   type RouterProviderService,
 } from "./network/router.js";
+/** Re-exports the public API from `./network/link.js`. */
 export {
   LinkController,
   LinkDriver,

@@ -8,13 +8,13 @@ Conversation-domain requirement helpers.
 
 ## Public surface
 
-### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L17)
+### [`authorizeConversationCreateCapacityOnly`](./create-authorization.ts#L18)
 
 _Function_
 
 ```ts
 export const authorizeConversationCreateCapacityOnly = (
-  agentIds: ReadonlyArray<AgentId>,
+  agentIds: readonly AgentId[],
 ): Effect.Effect<
   void,
   AgentNotFoundError | ConversationFullError,
@@ -30,7 +30,9 @@ handler, so the creator contact-policy basis does NOT apply. Only the
 group-capacity check runs. Loading owners still validates every target
 exists.
 
-### [`guardConversationNotArchived`](./send-access.ts#L94)
+**Returns:** The authorize conversation create capacity only result.
+
+### [`guardConversationNotArchived`](./send-access.ts#L107)
 
 _Function_
 
@@ -42,7 +44,9 @@ export const guardConversationNotArchived = (
 
 Refine the conversation is open (`archived_at IS NULL`).
 
-### [`guardReplyTarget`](./send-access.ts#L106)
+**Returns:** The guard conversation not archived result.
+
+### [`guardReplyTarget`](./send-access.ts#L123)
 
 _Function_
 
@@ -57,7 +61,9 @@ Refine the reply target: when the send names a `replyToId`, verify the
 referenced message exists in the conversation (fails `MessageNotFound` if
 absent); a send with no reply target passes with no DB read.
 
-### [`guardTaskActive`](./send-access.ts#L77)
+**Returns:** The guard reply target result.
+
+### [`guardTaskActive`](./send-access.ts#L86)
 
 _Function_
 
@@ -71,7 +77,9 @@ Refine the task is active (status is NOT `closed`/`failed`). Called BEFORE
 guardConversationNotArchived so a closed task surfaces `TaskClosed`
 before the auto-archive's `ConversationArchived`.
 
-### [`obtainConversationInTask`](./in-task.ts#L15)
+**Returns:** The guard task active result.
+
+### [`obtainConversationInTask`](./in-task.ts#L21)
 
 _Function_
 
@@ -85,7 +93,11 @@ export const obtainConversationInTask = (
 >
 ```
 
-### [`obtainConversationSendAccess`](./send-access.ts#L22)
+Provides the obtain conversation in task runtime value.
+
+**Returns:** The obtain conversation in task result.
+
+### [`obtainConversationSendAccess`](./send-access.ts#L29)
 
 _Function_
 
@@ -108,7 +120,9 @@ whole send path costs one joined read. A `conversationId` that
 survives the participant check but vanishes from the join is a true race
 (archival/deletion) — surfaced as a defect, not a user error.
 
-### [`TaskAndConversation`](./in-task.ts#L10)
+**Returns:** The obtain conversation send access result.
+
+### [`TaskAndConversation`](./in-task.ts#L11)
 
 _Interface_
 
@@ -118,6 +132,8 @@ export interface TaskAndConversation {
   readonly conversationId: ConversationId;
 }
 ```
+
+Describes task and conversation.
 
 ## Files
 

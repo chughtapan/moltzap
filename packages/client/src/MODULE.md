@@ -12,11 +12,15 @@ Public barrel for the MoltZap client package.
 
 _Interface_
 
+Configures agent client.
+
 ### [`AppCallbackContext`](./../../../protocol/dist/socket/app-client.d.ts#L14)
 
 _Interface_
 
-### [`AppCallbackHandlers`](./../../../protocol/dist/socket/app-callbacks.d.ts#L26)
+Carries context for app callback.
+
+### [`AppCallbackHandlers`](./../../../protocol/dist/socket/app-callbacks.d.ts#L36)
 
 _TypeAlias_
 
@@ -24,11 +28,13 @@ Closed handler table for an app moderating one or more tasks. Every
 app callback member is required; vacuous-deny moderators still write the
 handler explicitly.
 
-### [`AppClientOptions`](./../../../protocol/dist/socket/app-client.d.ts#L17)
+### [`AppClientOptions`](./../../../protocol/dist/socket/app-client.d.ts#L18)
 
 _Interface_
 
-### [`ContextOptions`](./service.ts#L196)
+Configures app client.
+
+### [`ContextOptions`](./service.ts#L155)
 
 _Interface_
 
@@ -40,7 +46,9 @@ export interface ContextOptions {
 }
 ```
 
-### [`ConversationMeta`](./service.ts#L189)
+Configures context.
+
+### [`ConversationMeta`](./service.ts#L147)
 
 _Interface_
 
@@ -53,60 +61,28 @@ export interface ConversationMeta {
 }
 ```
 
-### [`MoltZapAgentClient`](./../../../protocol/dist/socket/agent-client.d.ts#L18)
+Describes conversation meta.
+
+### [`MoltZapAgentClient`](./../../../protocol/dist/socket/agent-client.d.ts#L19)
 
 _Class_
 
-Serializes connection generations through one controller. Each generation
-has one scoped owner that acquires the socket, runs its reader, and reports
-`OwnerDone` only after every session finalizer has completed. The start gate
-prevents an acquired reader from running unless its generation is still
-current.
+Implements molt zap agent client.
 
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Opening: Connect
-  Opening --> Connected: SessionOpened starts reader and authentication
-  Opening --> Idle: OwnerDone after opening failure
-  Opening --> Stopping: Close interrupts owner
-  Connected --> Stopping: ReaderExited
-  Connected --> Stopping: Close or disconnect interrupts owner
-  Stopping --> Idle: OwnerDone permits explicit connect
-  Stopping --> Stopped: OwnerDone completes terminal close
-```
-
-### [`MoltZapAppClient`](./../../../protocol/dist/socket/app-client.d.ts#L23)
+### [`MoltZapAppClient`](./../../../protocol/dist/socket/app-client.d.ts#L25)
 
 _Class_
 
-Serializes connection generations through one controller. Each generation
-has one scoped owner that acquires the socket, runs its reader, and reports
-`OwnerDone` only after every session finalizer has completed. The start gate
-prevents an acquired reader from running unless its generation is still
-current.
+Implements molt zap app client.
 
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Opening: Connect
-  Opening --> Connected: SessionOpened starts reader and authentication
-  Opening --> Idle: OwnerDone after opening failure
-  Opening --> Stopping: Close interrupts owner
-  Connected --> Stopping: ReaderExited
-  Connected --> Stopping: Close or disconnect interrupts owner
-  Stopping --> Idle: OwnerDone permits explicit connect
-  Stopping --> Stopped: OwnerDone completes terminal close
-```
-
-### [`MoltZapService`](./service.ts#L324)
+### [`MoltZapService`](./service.ts#L295)
 
 _Class_
 
 ```ts
 export class MoltZapService {
   private client: MoltZapAgentClient | null = null;
-  private _connected = false;
+  private connectedValue = false;
 
   /**
    * Service-owned scope. Opened in `connect()`, owns the
@@ -122,8 +98,8 @@ export class MoltZapService {
     HashMap.HashMap<string, ConversationMeta>
   > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationMeta>()));
   private readonly messagesRef: Ref.Ref<
-    HashMap.HashMap<string, ReadonlyArray<Message>>
-  > = Effect.runSync(Ref.make(HashMap.empty<string, ReadonlyArray<Message>>()));
+    HashMap.HashMap<string, readonly Message[]>
+  > = Effect.runSync(Ref.make(HashMap.empty<string, readonly Message[]>()));
   private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
     Effect.runSync(Ref.make(HashMap.empty<string, string>()));
   private readonly agentConversationCacheRef: Ref.Ref<
@@ -176,12 +152,15 @@ export class MoltZapService {
     dispatchLeaseExpired: [],
   };
 
-  private _ownAgentId: AgentId;
+  private readonly ownAgentIdValue: AgentId;
 
-  protected constructor(private opts: ServiceOptions) {
+  private readonly opts: ServiceOptions;
+
+  protected constructor(opts: ServiceOptions) {
+    this.opts = opts;
     // The empty HelloOk carries no identity; `ownAgentId` is the client's
     // registered/stored id, available before the handshake.
-    this._ownAgentId = opts.agentId;
+    this.ownAgentIdValue = opts.agentId;
   }
 
   static fromConfig(config: MoltzapServiceConfig): MoltZapService {
@@ -192,16 +171,13 @@ export class MoltZapService {
     profileName: string,
   ): Effect.Effect<MoltZapService, ServiceConfigError> {
     return loadServiceConfig(profileName).pipe(
-      Effect.map(MoltZapService.fromConfig),
+      Effect.map((config) => MoltZapService.fromConfig(config)),
     );
   }
 
   static startDaemon(
     profileName: string,
-  ): Effect.Effect<
-    MoltZapService,
-    ServiceConfigError | ServiceRpcError | unknown
-  > {
+  ): Effect.Effect<MoltZapService, unknown> {
     return Effect.gen(function* () {
       const service = yield* MoltZapService.make(profileName);
       yield* service.connect();
@@ -211,19 +187,19 @@ export class MoltZapService {
   }
 
   get connected(): boolean {
-    return this._connected;
+    return this.connectedValue;
   }
 
   get ownAgentId(): AgentId | undefined {
-    return this._ownAgentId;
+    return this.ownAgentIdValue;
   }
 
-  /** Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`. */
+  /**
+   * Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`.
+   * @returns The client result.
+   */
   connect(): Effect.Effect<HelloOk, ServiceRpcError> {
-    return Effect.gen(this, function* () {
-      const client = new MoltZapAgentClient({
-        serverUrl: this.opts.serverUrl,
-        agentKey: this.opts.agentKey,
+    return Effect.gen(this, function* (this: MoltZapService) {
 ```
 
 Stateful MoltZap client that manages connection, conversation tracking,
@@ -234,11 +210,13 @@ Promise siblings — async/await consumers run the Effect at the edge
 with `Effect.runPromise`. Keep this class Effect-only so downstream
 callers compose failures and cancellation explicitly.
 
-### [`RpcCallOptions`](./../../../protocol/dist/socket/lifecycle.d.ts#L13)
+### [`RpcCallOptions`](./../../../protocol/dist/socket/lifecycle.d.ts#L12)
 
 _Interface_
 
-### [`ServiceRpcError`](./service.ts#L178)
+Configures rpc call.
+
+### [`ServiceRpcError`](./service.ts#L135)
 
 _TypeAlias_
 

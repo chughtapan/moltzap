@@ -20,7 +20,7 @@ execution path.
 | `@moltzap/simulator/network` | Router, transport, link-driver, endpoint, and nominal capability contracts |
 | `@moltzap/simulator/ledger` | Completed-ledger types, the storage port, and manifest inspection |
 
-`Simulator.define` binds `run` and `openLedger` to one versioned definition
+`simulator.define` binds `run` and `openLedger` to one versioned definition
 and its complete event catalog.
 
 ## Make a TypeScript entrypoint
@@ -31,12 +31,12 @@ A normal module is an executable experiment:
 import {
   effectRuntime,
   Network,
-  Simulator,
+  simulator,
   simulatorLayer,
 } from "@moltzap/simulator";
 import { Duration, Effect, Schema } from "effect";
 
-const Society = Simulator.define("acme.echo/v1");
+const Society = simulator.define("acme.echo/v1");
 
 const roster = Society.agents({
   echo: effectRuntime({
@@ -131,7 +131,7 @@ For example, a customer might decode a schema with only a model id, topology
 preset, and prompt family, then compile each case into:
 
 1. customer event classes and an `EventCatalog`;
-2. one versioned `Simulator.define` value;
+2. one versioned `simulator.define` value;
 3. a keyed mixed-runtime roster;
 4. an Effect program using `roster.Agents`, `Network`,
    `Society.Events`, and `Society.Ledger`;

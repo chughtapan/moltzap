@@ -22,12 +22,13 @@ const imageDir = join(packageRoot, "server-image");
 
 const config = readFileSync(join(imageDir, "moltzap.yaml"), "utf8");
 const dockerfile = readFileSync(join(imageDir, "Dockerfile"), "utf8");
-const packageManifest = JSON.parse(
-  readFileSync(join(packageRoot, "package.json"), "utf8"),
-) as {
-  readonly dependencies?: Readonly<Record<string, string>>;
-  readonly files?: ReadonlyArray<string>;
-};
+const packageManifest =
+  /* Safe because the test fixture establishes this asserted shape. */ JSON.parse(
+    readFileSync(join(packageRoot, "package.json"), "utf8"),
+  ) as {
+    readonly dependencies?: Readonly<Record<string, string>>;
+    readonly files?: readonly string[];
+  };
 const REGISTRATION_CONFIG_BLOCK = "registration:";
 const REGISTRATION_SECRET_CONFIG = `secret: "\${${SERVER_REGISTRATION_SECRET_ENV}}"`;
 const EXACT_WORKSPACE_DEPENDENCY = "workspace:*";

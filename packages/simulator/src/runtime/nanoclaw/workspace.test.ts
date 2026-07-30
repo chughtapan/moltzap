@@ -345,7 +345,7 @@ function assertMaterializedWorkspaceFixture(
     expect(
       Object.keys(packages)
         .filter((key) => key.includes("node_modules/@moltzap/"))
-        .sort(),
+        .sort((left, right) => left.localeCompare(right)),
     ).toEqual([
       `node_modules/${CLIENT_PACKAGE_NAME}`,
       `node_modules/${PROTOCOL_PACKAGE_NAME}`,
@@ -433,10 +433,7 @@ function rejectsMismatchedBuilds() {
         protocolVersion: PACKAGE_VERSION,
       }).pipe(Effect.flip);
 
-      expect(error).toMatchObject({
-        _tag: "NanoclawInstallError",
-        reason: expect.stringContaining(PROTOCOL_MISMATCH_REASON),
-      });
+      expect(error.reason).toContain(PROTOCOL_MISMATCH_REASON);
     }),
   );
 }
@@ -492,10 +489,7 @@ function expectInvalidLock(
         WORKSPACE_DEPENDENCIES,
       ).pipe(Effect.flip);
 
-      expect(error).toMatchObject({
-        _tag: "NanoclawInstallError",
-        reason: expect.stringContaining(reasonFragment),
-      });
+      expect(error.reason).toContain(reasonFragment);
     }),
   );
 }

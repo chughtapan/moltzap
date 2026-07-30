@@ -1,6 +1,6 @@
 /** @file Definition-bound assembly of catalogs, services, rosters, and runs. */
 
-import { Effect, Schema } from "effect";
+import { type Effect, Schema } from "effect";
 import { EventCatalog, type EventClass } from "./events/catalog.js";
 import { makeDefinitionEventServices } from "./kernel/event-services.js";
 import {
@@ -13,7 +13,7 @@ import type { LedgerStorage } from "./ledger/storage.js";
 import { runSociety, type SimulatorRunOptions } from "./kernel/run.js";
 import {
   makeAgentRosterBinding,
-  makeAgentRosterBuilder,
+  type makeAgentRosterBuilder,
   type AgentRoster,
 } from "./runtime/roster.js";
 import type { AgentRuntimeLike } from "./runtime/runtime.js";
@@ -23,6 +23,7 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 
 const DEFINITION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/v[1-9]\d*$/u;
 
+/** Reports simulator definition failures. */
 export class SimulatorDefinitionError extends Schema.TaggedError<SimulatorDefinitionError>()(
   "SimulatorDefinitionError",
   {
@@ -47,24 +48,21 @@ function validateDefinitionId(
   }
 }
 
-type AnyEventCatalog = EventCatalog<Schema.Schema.AnyNoContext, EventClass>;
+type AnyEventCatalog = EventCatalog<Schema.Schema.AnyNoContext>;
 type EmptyEventCatalog = ReturnType<typeof EventCatalog.empty>;
-type CustomerEventCatalog<
-  CustomerCatalogs extends ReadonlyArray<AnyEventCatalog>,
-> = ReturnType<
-  typeof EventCatalog.merge<readonly [EmptyEventCatalog, ...CustomerCatalogs]>
->;
-type CatalogSchemaOf<Catalog> =
-  Catalog extends EventCatalog<infer SchemaType, infer _Classes>
-    ? SchemaType
+type CustomerEventCatalog<CustomerCatalogs extends readonly AnyEventCatalog[]> =
+  ReturnType<
+    typeof EventCatalog.merge<readonly [EmptyEventCatalog, ...CustomerCatalogs]>
+  >;
+type CatalogParameters<Catalog> =
+  Catalog extends EventCatalog<infer SchemaType, infer Classes>
+    ? readonly [SchemaType, Classes]
     : never;
-type CatalogClassesOf<Catalog> =
-  Catalog extends EventCatalog<infer _SchemaType, infer Classes>
-    ? Classes
-    : never;
+type CatalogSchemaOf<Catalog> = CatalogParameters<Catalog>[0];
+type CatalogClassesOf<Catalog> = CatalogParameters<Catalog>[1];
 type DefinitionEventServices<
   Id extends SimulatorDefinitionId,
-  CustomerCatalogs extends ReadonlyArray<AnyEventCatalog>,
+  CustomerCatalogs extends readonly AnyEventCatalog[],
 > = ReturnType<
   typeof makeDefinitionEventServices<
     Id,
@@ -73,10 +71,11 @@ type DefinitionEventServices<
   >
 >;
 
-function isJsonArray(value: JsonValue): value is ReadonlyArray<JsonValue> {
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
   return Array.isArray(value);
 }
 
+// eslint-disable-next-line sonarjs/function-return-type -- A JSON snapshot intentionally preserves the input value's JSON variant.
 function snapshotJsonValue(value: JsonValue): JsonValue {
   if (isJsonArray(value)) {
     return Object.freeze(value.map(snapshotJsonValue));
@@ -170,13 +169,13 @@ function makeLedgerReader<
 /** Definition-bound capabilities for one versioned family of simulator runs. */
 export interface SimulatorDefinition<
   Id extends SimulatorDefinitionId,
-  CustomerCatalogs extends ReadonlyArray<AnyEventCatalog>,
+  CustomerCatalogs extends readonly AnyEventCatalog[],
 > {
   readonly id: Id;
   readonly catalog: DefinitionEventServices<Id, CustomerCatalogs>["catalog"];
   readonly customerCatalog: CustomerEventCatalog<CustomerCatalogs>;
-  readonly Ledger: DefinitionEventServices<Id, CustomerCatalogs>["Ledger"];
-  readonly Events: DefinitionEventServices<Id, CustomerCatalogs>["Events"];
+  readonly ledger: DefinitionEventServices<Id, CustomerCatalogs>["ledger"];
+  readonly events: DefinitionEventServices<Id, CustomerCatalogs>["events"];
   readonly agents: ReturnType<typeof makeAgentRosterBuilder<Id>>;
   readonly run: ReturnType<
     typeof makeRunner<
@@ -197,10 +196,13 @@ export interface SimulatorDefinition<
 /**
  * Define the exact code and event universe for a family of simulator runs.
  * Invalid definitions fail here, before any platform resource is acquired.
+ * @param definitionId Value supplied to the operation.
+ * @param customerCatalogs Value supplied to the operation.
+ * @returns The define simulator result.
  */
 function defineSimulator<
   const Id extends SimulatorDefinitionId,
-  const CustomerCatalogs extends ReadonlyArray<AnyEventCatalog>,
+  const CustomerCatalogs extends readonly AnyEventCatalog[],
 >(
   definitionId: Id,
   ...customerCatalogs: CustomerCatalogs
@@ -221,8 +223,8 @@ function defineSimulator<
     id: definitionId,
     catalog: eventServices.catalog,
     customerCatalog: eventServices.customerCatalog,
-    Ledger: eventServices.Ledger,
-    Events: eventServices.Events,
+    ledger: eventServices.ledger,
+    events: eventServices.events,
     agents: rosterBinding.agents,
     run: makeRunner(definitionId, eventServices, rosterBinding.owns),
     openLedger: open,
@@ -230,7 +232,7 @@ function defineSimulator<
 }
 
 /** Discoverable entry point for code-first society definitions. */
-export const Simulator: Readonly<{ define: typeof defineSimulator }> =
+export const simulator: Readonly<{ define: typeof defineSimulator }> =
   Object.freeze({
     define: defineSimulator,
   });

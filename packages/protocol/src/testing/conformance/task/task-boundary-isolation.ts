@@ -1,8 +1,8 @@
 /** Task-boundary isolation — conversation A's events don't leak into B. */
 import { Effect } from "effect";
 import {
-  MessageReceivedNotificationDefinition,
-  MessagesSend,
+  messageReceivedNotificationDefinition,
+  messagesSend,
 } from "@moltzap/protocol/message";
 import { isNotificationDeliveryFor } from "#transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -27,7 +27,7 @@ const taskBoundaryIsolation = (ctx: ConformanceRunContext) =>
       Effect.mapError((e) => deliveryViolation(PROPERTY, `fixture B: ${e}`)),
     );
     yield* fxA.owner.client
-      .sendRpc(MessagesSend, {
+      .sendRpc(messagesSend, {
         taskId: fxA.taskId,
         conversationId: fxA.conversationId,
         parts: [{ type: "text", text: "iso-leak-canary" }],
@@ -35,11 +35,13 @@ const taskBoundaryIsolation = (ctx: ConformanceRunContext) =>
       .pipe(Effect.either);
     yield* Effect.sleep("250 millis");
     const outsider = fxB.participants[0];
-    if (outsider === undefined) return;
+    if (outsider === undefined) {
+      return;
+    }
     const snap = yield* outsider.notifications.snapshot;
     const leaked = snap.some(
       (s) =>
-        isNotificationDeliveryFor(s, MessageReceivedNotificationDefinition) &&
+        isNotificationDeliveryFor(s, messageReceivedNotificationDefinition) &&
         s.params.message.conversationId === fxA.conversationId,
     );
     if (leaked) {
@@ -53,6 +55,10 @@ const taskBoundaryIsolation = (ctx: ConformanceRunContext) =>
     }
   }).pipe(Effect.withSpan("registerTaskBoundaryIsolation"));
 
+/**
+ * Registers task boundary isolation.
+ * @param ctx Context for the operation.
+ */
 export function registerTaskBoundaryIsolation(
   ctx: ConformanceRunContext,
 ): void {

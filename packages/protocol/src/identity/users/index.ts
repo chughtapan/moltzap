@@ -1,4 +1,4 @@
 /**
  * @file User identity identifiers.
  */
-export { UserId } from "./ids.js";
+export { type UserId, userId } from "./ids.js";

@@ -1,11 +1,13 @@
 import { Cause, Effect } from "effect";
-import type { ConversationSendAccessValue } from "@moltzap/protocol/conversation";
-import type { TaskId } from "@moltzap/protocol/task";
-import { TaskClosedError } from "@moltzap/protocol/task";
-import { ConversationArchivedError } from "@moltzap/protocol/conversation";
+import {
+  type ConversationSendAccessValue,
+  ConversationArchivedError,
+  type ConversationId,
+  type MessageId,
+} from "@moltzap/protocol/conversation";
+import { type TaskId, TaskClosedError } from "@moltzap/protocol/task";
 import { ForbiddenError } from "@moltzap/protocol/rpc";
 import type { MessageNotFoundError } from "@moltzap/protocol/message";
-import type { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConversationServiceTag } from "../layer.js";
 import { MessageServiceTag } from "#message";
@@ -18,6 +20,11 @@ import { catchSqlErrorAsDefect } from "#db";
  * whole send path costs one joined read. A `conversationId` that
  * survives the participant check but vanishes from the join is a true race
  * (archival/deletion) — surfaced as a defect, not a user error.
+ * @param input Input value to process.
+ * @param input.conversationId Value supplied to the operation.
+ * @param input.senderAgentId Value supplied to the operation.
+ * @param input.taskId Value supplied to the operation.
+ * @returns The obtain conversation send access result.
  */
 export const obtainConversationSendAccess = (input: {
   readonly conversationId: ConversationId;
@@ -73,6 +80,8 @@ export const obtainConversationSendAccess = (input: {
  * Refine the task is active (status is NOT `closed`/`failed`). Called BEFORE
  * {@link guardConversationNotArchived} so a closed task surfaces `TaskClosed`
  * before the auto-archive's `ConversationArchived`.
+ * @param row Value supplied to the operation.
+ * @returns The guard task active result.
  */
 export const guardTaskActive = (
   row: ConversationSendAccessValue,
@@ -90,7 +99,11 @@ export const guardTaskActive = (
       )
     : Effect.void;
 
-/** Refine the conversation is open (`archived_at IS NULL`). */
+/**
+ * Refine the conversation is open (`archived_at IS NULL`).
+ * @param row Value supplied to the operation.
+ * @returns The guard conversation not archived result.
+ */
 export const guardConversationNotArchived = (
   row: ConversationSendAccessValue,
 ): Effect.Effect<void, ConversationArchivedError> =>
@@ -102,6 +115,10 @@ export const guardConversationNotArchived = (
  * Refine the reply target: when the send names a `replyToId`, verify the
  * referenced message exists in the conversation (fails `MessageNotFound` if
  * absent); a send with no reply target passes with no DB read.
+ * @param input Input value to process.
+ * @param input.conversationId Value supplied to the operation.
+ * @param input.replyToId Value supplied to the operation.
+ * @returns The guard reply target result.
  */
 export const guardReplyTarget = (input: {
   readonly conversationId: ConversationId;

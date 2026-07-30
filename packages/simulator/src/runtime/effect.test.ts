@@ -2,7 +2,7 @@ import { assert, beforeEach, expect, it } from "@effect/vitest";
 import { type AgentConnection, makeAgentHandle } from "../network.js";
 import { RuntimeCompleted, RuntimeFailed } from "./runtime.js";
 import {
-  MessagesSend,
+  messagesSend,
   type MessageReceivedNotification,
 } from "@moltzap/protocol/message";
 import { httpBaseUrl, serverBaseUrl } from "@moltzap/protocol/network";
@@ -19,7 +19,7 @@ import { vi } from "vitest";
 import { effectRuntime, type EffectMessageContext } from "./effect.js";
 
 interface FakeClientState {
-  received: Stream.Stream<MessageReceivedNotification, unknown> | undefined;
+  received?: Stream.Stream<MessageReceivedNotification, unknown>;
   readonly constructed: Array<{
     readonly serverUrl: string;
     readonly agentKey: unknown;
@@ -154,7 +154,7 @@ it.effect("uses the wire protocol for readiness, delivery, and replies", () =>
         clientState.constructed[0]?.serverUrl,
         httpBaseUrl(ROUTER_URL),
       );
-      assert.strictEqual(clientState.sent[0]?.definition, MessagesSend.name);
+      assert.strictEqual(clientState.sent[0]?.definition, messagesSend.name);
       assert.deepInclude(clientState.sent[0]?.payload, {
         taskId: INCOMING.taskId,
         conversationId: INCOMING.message.conversationId,

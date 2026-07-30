@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/naming-convention -- These quoted fields mirror the OpenAI JSON response contract asserted by this fixture. */
 import { afterAll, beforeAll, describe, expect } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect } from "effect";
@@ -103,7 +104,9 @@ function fetchCompletionBody(
 ): Effect.Effect<EchoCompletionBody, unknown> {
   return Effect.gen(function* () {
     const response = yield* postChatCompletion(content);
-    return (yield* readJson(response)) as EchoCompletionBody;
+    return /* Safe because the test fixture establishes this asserted shape. */ (yield* readJson(
+      response,
+    )) as EchoCompletionBody;
   });
 }
 
@@ -111,7 +114,10 @@ function returnsOpenAiResponseShape() {
   return Effect.gen(function* () {
     const response = yield* postChatCompletion(HELLO_WORLD);
     expect(response.status).toBe(HTTP_OK);
-    const body = (yield* readJson(response)) as EchoCompletionBody;
+    const body =
+      /* Safe because the test fixture establishes this asserted shape. */ (yield* readJson(
+        response,
+      )) as EchoCompletionBody;
     expect(body).toMatchObject({
       object: CHAT_COMPLETION_OBJECT,
       model: ECHO_MODEL_ID,
@@ -137,7 +143,12 @@ function returnsBadRequestForMalformedBody() {
     const response = yield* postMalformedBody();
     expect(response.status).toBe(HTTP_BAD_REQUEST);
     const body = yield* readJson(response);
-    expect(body).toMatchObject({ error: expect.any(String) });
+    expect(
+      typeof body === "object" &&
+        body !== null &&
+        "error" in body &&
+        typeof body.error === "string",
+    ).toBe(true);
   });
 }
 
@@ -169,9 +180,11 @@ function handlesConcurrentRequests() {
     );
 
     for (const [index, message] of CONCURRENT_MESSAGES.entries()) {
-      expect(results[index]!.choices[0]!.message.content).toBe(
-        echoContent(message),
-      );
+      expect(
+        /* Safe because the test fixture establishes this asserted shape. */ results[
+          index
+        ]!.choices[0]!.message.content,
+      ).toBe(echoContent(message));
     }
   });
 }
@@ -208,3 +221,5 @@ describe("echo-server lifecycle and concurrency", () => {
   it("assigns a random port and shuts down cleanly", assignsRandomPorts);
   it("handles concurrent requests correctly", handlesConcurrentRequests);
 });
+
+/* eslint-enable @typescript-eslint/naming-convention -- Restore strict defaults after the external wire contract. */

@@ -1,33 +1,38 @@
 /** @file Router acquisition, attachment, and evidence ports. */
 
-import { ConversationId, MessageId } from "@moltzap/protocol/conversation";
 import {
-  AgentId,
+  type ConversationId,
+  conversationId,
+  messageId,
+} from "@moltzap/protocol/conversation";
+import {
+  type AgentId,
+  agentId,
   type AgentKey,
   type AgentName,
 } from "@moltzap/protocol/identity";
 import type { Message, MessageParts } from "@moltzap/protocol/message";
 import type { ServerBaseUrl } from "@moltzap/protocol/network";
-import { TaskId } from "@moltzap/protocol/task";
+import { type TaskId, taskId } from "@moltzap/protocol/task";
 import {
   type Brand,
   Context,
   type Duration,
-  Effect,
+  type Effect,
   Schema,
   type Scope,
-  Stream,
+  type Stream,
 } from "effect";
 import type { AgentHandle, ParticipantHandle } from "./participant.js";
 
-const RouterStoppedTypeId: unique symbol = Symbol(
+const routerStoppedTypeId: unique symbol = Symbol(
   "@moltzap/simulator/RouterStopped",
 );
-const RouterStoppedConstruction: unique symbol = Symbol(
+const routerStoppedConstruction: unique symbol = Symbol(
   "@moltzap/simulator/RouterStoppedConstruction",
 );
 
-const NetworkOperation = Schema.Literal(
+const networkOperation = Schema.Literal(
   "acquire-router",
   "attach-agent",
   "attach-endpoint",
@@ -40,13 +45,13 @@ const NetworkOperation = Schema.Literal(
   "send",
 );
 /** Network operation names used by typed failures. */
-export type NetworkOperation = typeof NetworkOperation.Type;
+export type NetworkOperation = typeof networkOperation.Type;
 
 /** An operational failure at a network boundary. */
 export class NetworkFailure extends Schema.TaggedError<NetworkFailure>()(
   "NetworkFailure",
   {
-    operation: NetworkOperation,
+    operation: networkOperation,
     detail: Schema.String,
   },
 ) {
@@ -81,17 +86,18 @@ export interface OpenedConversation {
 }
 
 /** Nonempty participant identities passed over the protocol. */
-export type ParticipantIds = readonly [AgentId, ...ReadonlyArray<AgentId>];
+export type ParticipantIds = readonly [AgentId, ...(readonly AgentId[])];
 
+/** Re-exports the public API from `@moltzap/protocol/message`. */
 export type { MessageParts } from "@moltzap/protocol/message";
 
 /** Router-local order assigned when a message becomes durable. */
 export type RouterSequence = number & Brand.Brand<"RouterSequence">;
 /** Validated router-local durable-message order. */
-export const RouterSequence: Schema.Schema<RouterSequence, number> =
+const routerSequenceSchema: Schema.Schema<RouterSequence, number> =
   Schema.NonNegativeInt.pipe(Schema.brand("RouterSequence"));
 /** Construct a validated router sequence in router implementations and tests. */
-export const routerSequence = Schema.decodeSync(RouterSequence);
+export const routerSequence = Schema.decodeSync(routerSequenceSchema);
 
 /**
  * A ready, scope-owned data-plane attachment. Acquisition owns connection and
@@ -133,11 +139,11 @@ export interface AttachedEndpoint<Name extends string> {
 export class CommittedRouterMessage extends Schema.Class<CommittedRouterMessage>(
   "CommittedRouterMessage",
 )({
-  taskId: TaskId,
-  conversationId: ConversationId,
-  messageId: MessageId,
-  senderId: AgentId,
-  routerSequence: RouterSequence,
+  taskId: taskId,
+  conversationId: conversationId,
+  messageId: messageId,
+  senderId: agentId,
+  routerSequence: routerSequenceSchema,
 }) {}
 
 /**
@@ -145,14 +151,16 @@ export class CommittedRouterMessage extends Schema.Class<CommittedRouterMessage>
  * Platform implementations complete `Router.stopped` with this stop report.
  */
 export class RouterStopped {
-  readonly [RouterStoppedTypeId] = RouterStoppedTypeId;
+  readonly [routerStoppedTypeId] = routerStoppedTypeId;
 
-  private constructor(
-    readonly committedMessages: ReadonlyArray<CommittedRouterMessage>,
-  ) {}
+  readonly committedMessages: readonly CommittedRouterMessage[];
 
-  static [RouterStoppedConstruction](
-    committedMessages: ReadonlyArray<CommittedRouterMessage>,
+  private constructor(committedMessages: readonly CommittedRouterMessage[]) {
+    this.committedMessages = committedMessages;
+  }
+
+  static [routerStoppedConstruction](
+    committedMessages: readonly CommittedRouterMessage[],
   ): RouterStopped {
     return new RouterStopped(committedMessages);
   }
@@ -164,10 +172,10 @@ export class RouterStopped {
  * @returns Nominal router stop report.
  */
 export function makeRouterStopReport(
-  committedMessages: ReadonlyArray<CommittedRouterMessage>,
+  committedMessages: readonly CommittedRouterMessage[],
 ): RouterStopped {
   return Object.freeze(
-    RouterStopped[RouterStoppedConstruction](
+    RouterStopped[routerStoppedConstruction](
       Object.freeze([...committedMessages]),
     ),
   );

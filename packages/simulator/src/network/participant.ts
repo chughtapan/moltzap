@@ -2,16 +2,16 @@
 
 import type { AgentId } from "@moltzap/protocol/identity";
 
-const ParticipantHandleTypeId: unique symbol = Symbol(
+const participantHandleTypeId: unique symbol = Symbol(
   "@moltzap/simulator/ParticipantHandle",
 );
-const ParticipantHandleConstruction: unique symbol = Symbol(
+const participantHandleConstruction: unique symbol = Symbol(
   "@moltzap/simulator/ParticipantHandleConstruction",
 );
-const AgentHandleTypeId: unique symbol = Symbol(
+const agentHandleTypeId: unique symbol = Symbol(
   "@moltzap/simulator/AgentHandle",
 );
-const AgentHandleConstruction: unique symbol = Symbol(
+const agentHandleConstruction: unique symbol = Symbol(
   "@moltzap/simulator/AgentHandleConstruction",
 );
 
@@ -20,19 +20,21 @@ const AgentHandleConstruction: unique symbol = Symbol(
  * similar protocol data from being used as an identity handle.
  */
 export class ParticipantHandle<Name extends string = string> {
-  readonly [ParticipantHandleTypeId] = ParticipantHandleTypeId;
+  readonly [participantHandleTypeId] = participantHandleTypeId;
 
-  protected constructor(
-    readonly name: Name,
-    readonly id: AgentId,
-    _construction: typeof ParticipantHandleConstruction,
-  ) {}
+  readonly name: Name;
+  readonly id: AgentId;
 
-  static [ParticipantHandleConstruction]<const Name extends string>(
+  protected constructor(name: Name, id: AgentId) {
+    this.name = name;
+    this.id = id;
+  }
+
+  static [participantHandleConstruction]<const Name extends string>(
     name: Name,
     id: AgentId,
   ): ParticipantHandle<Name> {
-    return new ParticipantHandle(name, id, ParticipantHandleConstruction);
+    return new ParticipantHandle(name, id);
   }
 }
 
@@ -47,7 +49,7 @@ export function makeParticipantHandle<const Name extends string>(
   id: AgentId,
 ): ParticipantHandle<Name> {
   return Object.freeze(
-    ParticipantHandle[ParticipantHandleConstruction](name, id),
+    ParticipantHandle[participantHandleConstruction](name, id),
   );
 }
 
@@ -56,13 +58,13 @@ export function makeParticipantHandle<const Name extends string>(
 export class AgentHandle<
   Name extends string = string,
 > extends ParticipantHandle<Name> {
-  readonly [AgentHandleTypeId] = AgentHandleTypeId;
+  readonly [agentHandleTypeId] = agentHandleTypeId;
 
   private constructor(name: Name, id: AgentId) {
-    super(name, id, ParticipantHandleConstruction);
+    super(name, id);
   }
 
-  static [AgentHandleConstruction]<const Name extends string>(
+  static [agentHandleConstruction]<const Name extends string>(
     name: Name,
     id: AgentId,
   ): AgentHandle<Name> {
@@ -80,5 +82,5 @@ export function makeAgentHandle<const Name extends string>(
   name: Name,
   id: AgentId,
 ): AgentHandle<Name> {
-  return Object.freeze(AgentHandle[AgentHandleConstruction](name, id));
+  return Object.freeze(AgentHandle[agentHandleConstruction](name, id));
 }
